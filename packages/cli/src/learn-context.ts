@@ -2089,6 +2089,7 @@ export async function runReview(
 			accepted: 0,
 			rejected: 0,
 			created: 0,
+			started: [] as Array<{ title: string; summary: string; link: string }>,
 			errors: [] as string[],
 		};
 		let answered: Json = {};
@@ -2124,6 +2125,12 @@ export async function runReview(
 			if (accept) {
 				outcome.accepted++;
 				outcome.created += r.workItemIds.length;
+				if (r.started?.summary)
+					outcome.started.push({
+						title: row.title,
+						summary: String(r.started.summary),
+						link: String(r.started.link ?? ""),
+					});
 			} else outcome.rejected++;
 			if (state)
 				state.decided[row.key] = {
@@ -2142,7 +2149,12 @@ export async function runReview(
 		results[key] = { ...outcome, stillPending };
 		if (!options.json)
 			write(
-				`${key}: accepted ${outcome.accepted} (${outcome.created} Work Items created), declined ${outcome.rejected}, ${stillPending} still in your inbox${outcome.errors.length ? `; errors: ${outcome.errors.join("; ")}` : ""}`,
+				[
+					`${key}: accepted ${outcome.accepted} (${outcome.created} Work Items created), declined ${outcome.rejected}, ${stillPending} still in your inbox${outcome.errors.length ? `; errors: ${outcome.errors.join("; ")}` : ""}`,
+					...outcome.started.map(
+						(s) => `  ${s.summary}${s.link ? ` ${s.link}` : ""}`,
+					),
+				].join("\n"),
 			);
 	}
 	if (options.json) write(JSON.stringify(results));

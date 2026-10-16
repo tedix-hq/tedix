@@ -13,12 +13,20 @@ import {
 	workInteractionResponses,
 	workInteractions,
 } from "@tedix/db/schema/work-factory";
-import { workEvents, workItems } from "@tedix/db/schema/work-items";
+import {
+	workEvents,
+	workItemComments,
+	workItems,
+} from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workInteractionsContractRouter } from "./work-interactions";
+import {
+	type ProposalStartActions,
+	proposalStartTestHooks,
+} from "./work-items/proposal-start";
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const WORK_ITEM_ID = "00000000-0000-4000-8000-000000000002";
@@ -32,6 +40,7 @@ function fixture() {
 			projects,
 			workItems,
 			workEvents,
+			workItemComments,
 			workInteractions,
 			workInteractionResponses,
 			workInteractionAttention,
@@ -475,5 +484,171 @@ describe("Work proposal acceptance", () => {
 		const result = await f.accept(request);
 		expect(result.response.metadata.workItemIds).toHaveLength(3);
 		expect(f.rows()).toHaveLength(3);
+	});
+});
+
+describe("Accepted proposal starts its first step", () => {
+	function started() {
+		const calls: Array<[string, unknown]> = [];
+		const actions: ProposalStartActions = {
+			async delegate(_context, input) {
+				calls.push(["delegate", input]);
+				return { runId: input.idempotencyKey, status: "queued" };
+			},
+			async planFactory(_context, input) {
+				calls.push(["factory", input]);
+				return {
+					name: input.name ?? "Weekly digest",
+					slug: "weekly-digest",
+					cron: "17 7 * * *",
+					status: "planned",
+				};
+			},
+			async createDocument(_context, input) {
+				calls.push(["doc", input]);
+				return { outputId: "output-1" };
+			},
+		};
+		proposalStartTestHooks.use(actions);
+		onTestFinished(() => proposalStartTestHooks.reset());
+		const f = setup();
+		f.sqlite
+			.prepare(
+				"INSERT INTO tedis (id,organization_id,name,slug,status,mcp_capability_profile,created_at) VALUES (?,?,?,?,'active',?,?)",
+			)
+			.run(
+				"docs-tedi",
+				ORG_ID,
+				"Docs worker",
+				"docs-worker",
+				"tenant_default",
+				"2026-09-01T00:00:00.000Z",
+			);
+		const withStart = (start: Record<string, unknown>) => {
+			const value = metadata(false);
+			return { ...value, proposal: { ...value.proposal, start } };
+		};
+		const disposition = (id: string) =>
+			f.sqlite.prepare("SELECT disposition FROM work_items WHERE id=?").get(id)
+				?.disposition;
+		return { ...f, calls, withStart, disposition };
+	}
+
+	it("delegates the new Work to the named tedi once, even when accepted again", async () => {
+		const f = started();
+		const brief = "Reproduce the publish error and fix its validation.";
+		const proposal = f.withStart({
+			kind: "delegate",
+			brief,
+			tedi: "docs-worker",
+		});
+		const first = await f.accept(await f.propose(proposal));
+		const [id] = first.response.metadata.workItemIds as string[];
+		expect(f.calls).toHaveLength(1);
+		expect(f.calls[0]).toEqual([
+			"delegate",
+			expect.objectContaining({ tediId: "docs-tedi", workItemId: id }),
+		]);
+		expect((f.calls[0]![1] as { content: string }).content).toContain(brief);
+		expect(f.disposition(id!)).toBe("accepted");
+		expect(first.response.metadata.started).toMatchObject({
+			kind: "delegate",
+			status: "started",
+			tediName: "Docs worker",
+			link: `/work/items/${id}`,
+		});
+		expect(first.response.body).toContain(
+			'Started: Docs worker is working on "Proposed epic"',
+		);
+		const second = await f.accept(await f.propose(proposal));
+		expect(f.calls).toHaveLength(1);
+		expect(second.response.metadata.started).toEqual(
+			first.response.metadata.started,
+		);
+	});
+
+	it("plans a factory without switching it on", async () => {
+		const f = started();
+		const result = await f.accept(
+			await f.propose(
+				f.withStart({
+					kind: "factory",
+					brief: "Summarise new support tickets every morning.",
+					name: "Ticket digest",
+				}),
+			),
+		);
+		expect(f.calls).toEqual([
+			[
+				"factory",
+				expect.objectContaining({
+					goal: "Summarise new support tickets every morning.",
+					name: "Ticket digest",
+				}),
+			],
+		]);
+		expect(result.response.metadata.started).toMatchObject({
+			kind: "factory",
+			status: "planned",
+			command: expect.stringContaining("tedix factory create --goal"),
+		});
+	});
+
+	it("drafts a document in the member's workspace", async () => {
+		const f = started();
+		const workspaceId = "00000000-0000-4000-8000-000000000009";
+		const result = await f.accept(
+			await f.propose(
+				f.withStart({
+					kind: "doc",
+					brief: "Outline the launch plan with owners and dates.",
+					workspaceId,
+				}),
+			),
+		);
+		expect(f.calls[0]).toEqual([
+			"doc",
+			expect.objectContaining({ title: "Proposed epic", workspaceId }),
+		]);
+		expect(result.response.metadata.started).toMatchObject({
+			status: "drafted",
+			link: "/outputs/output-1",
+		});
+	});
+
+	it("keeps the accept when the start fails and says so", async () => {
+		const f = started();
+		proposalStartTestHooks.use({
+			delegate: async () => {
+				throw new Error("Home is unavailable");
+			},
+			planFactory: async () => {
+				throw new Error("unused");
+			},
+			createDocument: async () => {
+				throw new Error("unused");
+			},
+		});
+		const result = await f.accept(
+			await f.propose(
+				f.withStart({
+					kind: "delegate",
+					brief: "Reproduce the publish error and fix its validation.",
+				}),
+			),
+		);
+		expect(result.request.state).toBe("resolved");
+		expect(result.response.metadata.started).toMatchObject({
+			status: "failed",
+			error: "Home is unavailable",
+		});
+		expect(result.response.body).toContain("starting it failed");
+	});
+
+	it("only creates Work for a proposal without a start", async () => {
+		const f = started();
+		const result = await f.accept(await f.propose(metadata(false)));
+		expect(f.calls).toEqual([]);
+		expect(result.response.metadata.started).toBeUndefined();
 	});
 });

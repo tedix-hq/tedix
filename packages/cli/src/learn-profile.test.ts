@@ -14,12 +14,18 @@ import {
 	type SessionFacts,
 	type TranscriptFile,
 } from "./learn-facts";
+import { WorkProposalMetadataSchema } from "@tedix/api-contract/schemas/work-interactions";
 import type { AskedProposal } from "./learn-proposals";
 import {
+	groundWeek,
+	stabilizeWorkstreams,
+	readProfileState,
+	writeProfileState,
 	GROUP_PROMPT,
 	MERGE_PROMPT,
 	PLAN_PROMPT,
 	WHO_AM_I_SOURCE,
+	TEAM_SOURCE,
 	MAX_WORKSTREAMS,
 	weigh,
 	projectEvidence,
@@ -101,6 +107,7 @@ const plan = (possessive = false) => ({
 		workstream: "Billing exports",
 		kind: "delegate" as const,
 		start: "Collect the export requirements",
+		tedi: "ledger",
 	})),
 });
 const emptyBoard = (): Board => ({ me: null, items: new Map(), projects: [] });
@@ -261,7 +268,7 @@ describe("workstreams and document", () => {
 			files: 1,
 			summaries,
 			workstreams,
-			profile: profile(),
+			profile: { ...profile(), week: "You built exports." },
 			actions: [],
 			model: "fake",
 			meter: newMeter(),
@@ -378,6 +385,8 @@ describe("runProfile", () => {
 			read: async (_args, _timeout, source = "") => {
 				sources.push(source);
 				if (source === WHO_AM_I_SOURCE) return { me };
+				if (source === TEAM_SOURCE)
+					return { team: [{ slug: "ledger", name: "Ledger worker" }] };
 				if (source.includes("Superseded by a newer tedix learn profile")) {
 					const input = JSON.parse(source.match(/const input = (.*);/)![1]!);
 					return Object.fromEntries(
@@ -444,6 +453,17 @@ describe("runProfile", () => {
 				expect(request.subject).not.toContain("Mara");
 				expect(request.prompt).not.toContain("Mara");
 				expect(request.prompt).not.toContain("Quill");
+				expect(
+					WorkProposalMetadataSchema.safeParse(request.metadata).success,
+				).toBe(true);
+				expect(request.metadata.proposal.start).toEqual({
+					kind: "delegate",
+					brief: "Collect the export requirements",
+					tedi: "ledger",
+				});
+				expect(request.prompt).toContain(
+					"Accept and Tedix starts it right away: Ledger worker takes the first step",
+				);
 			}
 			expect(sources.find((s) => s.includes("create_os_output"))).toContain(
 				"What Tedix knows about you",
@@ -452,6 +472,9 @@ describe("runProfile", () => {
 				readFileSync(join(dir, "profile/state.json"), "utf8"),
 			);
 			expect(state.space.outputId).toBe(outputId);
+			expect(Object.values(state.workstreams)).toEqual([
+				expect.objectContaining({ name: "Billing exports", order: 0 }),
+			]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -491,6 +514,7 @@ describe("runProfile", () => {
 				version: 2,
 				state: "open",
 				key: "profile:keep",
+				hasStart: true,
 				title: "Draft billing exports with Mara",
 				subject: "",
 				prompt: "",
@@ -526,6 +550,43 @@ describe("runProfile", () => {
 				source.includes("create_os_output"),
 			)!;
 			expect(output).toContain("/work/interactions/keep-acme");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("files an open proposal that cannot start anything again, with a start", async () => {
+		const asked: AskedProposal[] = [
+			{
+				id: "legacy-acme",
+				version: 1,
+				state: "open",
+				key: "profile:legacy",
+				title: "Draft billing exports with Mara",
+				subject: "",
+				prompt: "",
+			},
+		];
+		const { dir, deps, sources } = fixture(false, asked);
+		try {
+			expect(await runProfile([], deps)).toBe(0);
+			const publish = sources.find((source) =>
+				source.includes("create_work_interaction"),
+			)!;
+			const proposals = JSON.parse(publish.match(/const input = (.*);/)![1]!);
+			expect(proposals).toHaveLength(3);
+			expect(
+				proposals.every(
+					(p: { request: { metadata: { proposal: { start?: unknown } } } }) =>
+						p.request.metadata.proposal.start,
+				),
+			).toBe(true);
+			const withdrawn = sources.find((source) =>
+				source.includes("Superseded by a newer tedix learn profile"),
+			)!;
+			expect(JSON.parse(withdrawn.match(/const input = (.*);/)![1]!)).toEqual([
+				{ id: "legacy-acme", version: 1 },
+			]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -858,5 +919,212 @@ describe("strategic workstreams", () => {
 		expect(lists[1]!.items[0]).toContain("Acme thread 0");
 		expect(lists[1]!.items[0]).toContain("Export requirements ready");
 		expect(lists[1]!.items[1]).toContain("Acme thread 1");
+	});
+});
+
+describe("stable workstream identity", () => {
+	it("keeps names, descriptions and ids after a model rename and small regrouping", async () => {
+		const sessions = await Promise.all(
+			Array.from({ length: 10 }, (_, i) => facts(`stable-${i}`)),
+		);
+		const first = stabilizeWorkstreams([
+			await thread("Billing exports", sessions),
+		]);
+		const renamed = await thread("Revenue reports", sessions.slice(1));
+		renamed.description = "";
+		const second = stabilizeWorkstreams([renamed], first.registry);
+		expect(second.workstreams[0]!.key).toBe(first.workstreams[0]!.key);
+		expect(second.workstreams[0]!.name).toBe("Billing exports");
+		expect(second.workstreams[0]!.description).toBe("Billing exports");
+	});
+
+	it("uses a new id and name when the project changes", async () => {
+		const w = await thread("Exports", [await facts()]);
+		w.project = { id: "project-elm", key: "ELM", name: "Elm" };
+		const first = stabilizeWorkstreams([w]);
+		const second = stabilizeWorkstreams(
+			[
+				{
+					...w,
+					name: "Onboarding",
+					project: { id: "project-fir", key: "FIR", name: "Fir" },
+				},
+			],
+			first.registry,
+		);
+		expect(second.workstreams[0]!.key).not.toBe(first.workstreams[0]!.key);
+		expect(second.workstreams[0]!.name).toBe("Onboarding");
+	});
+
+	it("matches project, repository and item evidence when sessions are replaced", async () => {
+		const original = await thread("Exports", [await facts("old-evidence")]);
+		const replacement = await thread("Reports", [await facts("new-evidence")]);
+		for (const evidence of ["project", "repository", "items"] as const) {
+			const a = structuredClone(original);
+			const b = structuredClone(replacement);
+			for (const w of [a, b])
+				for (const f of w.sessions)
+					f.repository = evidence === "repository" ? "acme" : null;
+			if (evidence === "project")
+				for (const w of [a, b])
+					w.project = { id: "project-elm", key: "ELM", name: "Elm" };
+			if (evidence === "items")
+				for (const w of [a, b])
+					w.items = [
+						{
+							id: workId,
+							title: "Exports",
+							disposition: "accepted",
+							projectId: null,
+						},
+					];
+			const first = stabilizeWorkstreams([a]);
+			const second = stabilizeWorkstreams([b], first.registry);
+			expect(second.workstreams[0]!.key).toBe(first.workstreams[0]!.key);
+			expect(second.workstreams[0]!.name).toBe("Exports");
+		}
+	});
+
+	it("keeps separate monorepo streams through regrouping and orders new sections last", async () => {
+		const sessions = await Promise.all(
+			Array.from({ length: 10 }, (_, i) => facts(`mono-${i}`)),
+		);
+		for (const f of sessions) f.repository = "acme";
+		const a = await thread("Exports", sessions.slice(0, 5));
+		const b = await thread("Onboarding", sessions.slice(5));
+		a.weight = 10;
+		b.weight = 5;
+		const first = stabilizeWorkstreams([a, b]);
+		const nextA = {
+			...a,
+			name: "Reports",
+			weight: 1,
+			sessions: sessions.slice(0, 4),
+		};
+		const nextB = {
+			...b,
+			name: "Welcome",
+			weight: 20,
+			sessions: sessions.slice(4),
+		};
+		const fresh = await thread("Invoices", [
+			{ ...(await facts("mono-new")), repository: "acme" },
+		]);
+		fresh.weight = 100;
+		const second = stabilizeWorkstreams([fresh, nextB, nextA], first.registry);
+		expect(second.workstreams.map((w) => w.name)).toEqual([
+			"Exports",
+			"Onboarding",
+			"Invoices",
+		]);
+		expect(second.workstreams.slice(0, 2).map((w) => w.key)).toEqual(
+			first.workstreams.map((w) => w.key),
+		);
+		expect(new Set(second.workstreams.map((w) => w.key)).size).toBe(3);
+		const blocks = renderDocument({
+			who: "Mara Quill",
+			sessions,
+			files: 10,
+			summaries: new Map(),
+			workstreams: [...second.workstreams].reverse(),
+			profile: profile(),
+			actions: [],
+			model: "fake",
+			meter: newMeter(),
+			seconds: 0,
+			today: "2026-03-01",
+		});
+		expect(
+			blocks
+				.filter((b) => b.type === "heading")
+				.filter((b) => b.level === 3)
+				.map((b) => b.text),
+		).toEqual(["Exports", "Onboarding", "Invoices"]);
+		expect(
+			blocks.some(
+				(b) => b.type === "heading" && b.text === "Your week in Tedix",
+			),
+		).toBe(false);
+	});
+
+	it("loads old version 1 state and persists bounded registry evidence", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "profile-registry-"));
+		try {
+			const path = join(dir, "state.json");
+			writeProfileState(path, { version: 1, facts: {}, summaries: {} });
+			const state = readProfileState(path);
+			expect(state.workstreams).toBeUndefined();
+			const f = await facts();
+			const w = await thread(
+				"Exports",
+				Array.from({ length: 210 }, (_, i) => ({ ...f, key: `bounded-${i}` })),
+			);
+			state.workstreams = stabilizeWorkstreams([w]).registry;
+			writeProfileState(path, state);
+			expect(
+				Object.values(readProfileState(path).workstreams!)[0]!.sessions,
+			).toHaveLength(200);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("week grounding", () => {
+	it("drops unsupported versions without confusing their periods with sentence endings", () => {
+		expect(
+			groundWeek(
+				"You released CLI 0.11.2. You finished exports.",
+				"CLI 0.10.0 exports",
+			),
+		).toBe("You finished exports.");
+		expect(groundWeek("You released CLI (0.11.2).", "CLI 0.10.0")).toBe(
+			"You released CLI.",
+		);
+		expect(
+			groundWeek("You released CLI, v1.2.3-beta, for users.", "CLI v1.1"),
+		).toBe("You released CLI for users.");
+		expect(groundWeek("You released CLI 0.10.0.", "CLI 0.10.0")).toBe(
+			"You released CLI 0.10.0.",
+		);
+	});
+
+	it("drops unsupported numbers but allows exact evidence, years, dates and computed counts", () => {
+		expect(
+			groundWeek(
+				"You shipped 42 exports. You finished review.",
+				"exports review",
+			),
+		).toBe("You finished review.");
+		expect(groundWeek("You shipped exports (42 total).", "exports")).toBe(
+			"You shipped exports.",
+		);
+		expect(groundWeek("You shipped 4 exports.", "14 exports")).toBe("");
+		expect(groundWeek("You released v1.2.", "v1.2.3")).toBe("");
+		expect(groundWeek("You released 2026.1.", "2026")).toBe("");
+		expect(groundWeek("You released v1.2.3-beta.", "v1.2.3-beta")).toBe(
+			"You released v1.2.3-beta.",
+		);
+		const clean = "You worked in 3 sessions on 2026-03-01 in 2026.";
+		expect(groundWeek(clean, "", [3])).toBe(clean);
+	});
+
+	it("keeps known customers case-insensitively and rejects unknown names at word boundaries", () => {
+		const clean =
+			"This week you built exports for Quill Labs. The review is open.";
+		expect(groundWeek(clean, "quill labs exports review")).toBe(clean);
+		expect(
+			groundWeek(
+				"You built exports for Nebula. You finished review.",
+				"Nebulary review",
+			),
+		).toBe("You finished review.");
+		expect(groundWeek("You worked with Élodie.", "exports")).toBe("");
+	});
+
+	it("leaves a clean paragraph unchanged", () => {
+		const clean =
+			"This week you built exports. You have a review open for Monday.";
+		expect(groundWeek(clean, "exports review")).toBe(clean);
 	});
 });

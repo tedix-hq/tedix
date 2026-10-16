@@ -16,6 +16,46 @@ export const ProposedWorkSchema = z
 	})
 	.describe("Work to create once the addressed user accepts the proposal.");
 
+const ProposalBriefSchema = z
+	.string()
+	.trim()
+	.min(10)
+	.max(2_000)
+	.describe("What Tedix does first, in the member's words.");
+
+/** What Tedix starts as soon as the member accepts the proposal. */
+export const ProposalStartSchema = z
+	.discriminatedUnion("kind", [
+		z.strictObject({
+			kind: z.literal("delegate"),
+			brief: ProposalBriefSchema,
+			tedi: z
+				.string()
+				.trim()
+				.min(1)
+				.max(200)
+				.optional()
+				.describe("Tedi id or slug; omit for the organization's default."),
+		}),
+		z.strictObject({
+			kind: z.literal("factory"),
+			brief: ProposalBriefSchema,
+			name: z.string().trim().min(2).max(60).optional(),
+		}),
+		z.strictObject({
+			kind: z.literal("doc"),
+			brief: ProposalBriefSchema,
+			workspaceId: z
+				.uuid()
+				.optional()
+				.describe("The member's Workspace; omit to leave the draft unfiled."),
+		}),
+	])
+	.describe(
+		"delegate hands the new Work to a tedi; factory plans a factory for the member to switch on; doc drafts a document.",
+	);
+export type ProposalStart = z.infer<typeof ProposalStartSchema>;
+
 export const WorkProposalMetadataSchema = z
 	.object({
 		schema: z.literal(WORK_PROPOSAL_SCHEMA),
@@ -25,6 +65,9 @@ export const WorkProposalMetadataSchema = z
 			parentWorkItemId: z.uuid().optional().describe("Existing parent Work."),
 			item: ProposedWorkSchema,
 			children: z.array(ProposedWorkSchema).max(25).default([]),
+			start: ProposalStartSchema.optional().describe(
+				"Omit to only create the Work on accept.",
+			),
 		}),
 	})
 	.describe("Handoff proposal; additional evidence keys are ignored.");

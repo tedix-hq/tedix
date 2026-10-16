@@ -73,6 +73,7 @@ import {
 	publishSource,
 	withdrawSource,
 } from "./learn-proposals";
+import type { ProposalStart } from "@tedix/api-contract/schemas/work-interactions";
 
 type Json = Record<string, any>;
 
@@ -246,6 +247,7 @@ export interface ProfileState {
 	version: 1;
 	facts: Record<string, { sig: string; facts: SessionFacts | null }>;
 	summaries: Record<string, { hash: string; summary: SessionSummary }>;
+	workstreams?: Record<string, WorkstreamIdentity>;
 	space?: { organization: string; workspaceId: string; outputId?: string };
 }
 
@@ -469,6 +471,7 @@ export interface WorkstreamPart {
 
 export interface Workstream {
 	key: string;
+	order?: number;
 	name: string;
 	description: string;
 	sessions: SessionFacts[];
@@ -495,6 +498,127 @@ export interface Workstream {
 		disposition: string;
 		projectId: string | null;
 	}>;
+}
+
+export interface WorkstreamIdentity {
+	name: string;
+	description: string;
+	project?: string;
+	repository?: string;
+	items: string[];
+	sessions: string[];
+	order: number;
+}
+
+const workstreamOrder = (a: Workstream, b: Workstream) =>
+	(a.order ?? Infinity) - (b.order ?? Infinity) || b.weight - a.weight;
+
+export function stabilizeWorkstreams(
+	workstreams: Workstream[],
+	prior: Record<string, WorkstreamIdentity> = {},
+): { workstreams: Workstream[]; registry: Record<string, WorkstreamIdentity> } {
+	const evidence = workstreams.map((w) => {
+		const repositories = new Map<string, number>();
+		for (const f of w.sessions)
+			if (f.repository)
+				repositories.set(
+					f.repository,
+					(repositories.get(f.repository) ?? 0) + 1,
+				);
+		return {
+			project: w.project?.id,
+			repository: [...repositories].sort(
+				(a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+			)[0]?.[0],
+			items: [...new Set(w.items.map((item) => item.id))].sort(),
+			sessions: [...new Set(w.sessions.map((f) => f.key))],
+		};
+	});
+	const overlap = (a: string[], b: string[]) => {
+		const other = new Set(b);
+		return a.filter((key) => other.has(key)).length / (a.length || 1);
+	};
+	const candidates = evidence
+		.flatMap((e, index) =>
+			Object.entries(prior).flatMap(([key, old]) => {
+				if (e.project && old.project && e.project !== old.project) return [];
+				const sessions = overlap(e.sessions, old.sessions);
+				const items = overlap(e.items, old.items);
+				const project = Boolean(e.project && e.project === old.project);
+				const repository = Boolean(
+					e.repository && e.repository === old.repository,
+				);
+				const sharedRepo =
+					repository &&
+					(evidence.filter((other) => other.repository === e.repository)
+						.length > 1 ||
+						Object.values(prior).filter(
+							(other) => other.repository === e.repository,
+						).length > 1);
+				if (!project && !items && sessions < 0.5 && (!repository || sharedRepo))
+					return [];
+				return [{ index, key, project, sessions, items, repository }];
+			}),
+		)
+		.sort(
+			(a, b) =>
+				Number(b.project) - Number(a.project) ||
+				b.sessions - a.sessions ||
+				b.items - a.items ||
+				Number(b.repository) - Number(a.repository) ||
+				prior[a.key]!.order - prior[b.key]!.order ||
+				a.index - b.index,
+		);
+	const matches = new Map<number, string>();
+	const used = new Set<string>();
+	for (const match of candidates) {
+		if (matches.has(match.index) || used.has(match.key)) continue;
+		matches.set(match.index, match.key);
+		used.add(match.key);
+	}
+	let nextOrder = Math.max(-1, ...Object.values(prior).map((e) => e.order)) + 1;
+	const registry = { ...prior };
+	const result = workstreams
+		.map((w, index) => ({ w, index }))
+		.sort((a, b) => b.w.weight - a.w.weight || a.index - b.index)
+		.map(({ w, index }) => {
+			const e = evidence[index]!;
+			let key = matches.get(index);
+			const old = key ? prior[key] : undefined;
+			if (!key) {
+				const seed = e.project
+					? `project:${e.project}`
+					: e.repository
+						? `repository:${e.repository}`
+						: e.items.length
+							? `items:${e.items.join("|")}`
+							: `sessions:${[...e.sessions].sort().join("|")}`;
+				key = `ws:${sha(seed)}`;
+				let collision = 0;
+				while (registry[key] || used.has(key))
+					key = `ws:${sha(`${seed}:${[...e.sessions].sort().join("|")}:${++collision}`)}`;
+			}
+			used.add(key);
+			const stable = {
+				...w,
+				key,
+				name: old?.name ?? w.name,
+				description: w.description || old?.description || "",
+				order: old?.order ?? nextOrder++,
+			};
+			registry[key] = {
+				...e,
+				name: stable.name,
+				description: stable.description,
+				sessions: [...new Set([...e.sessions, ...(old?.sessions ?? [])])].slice(
+					0,
+					200,
+				),
+				order: stable.order,
+			};
+			return stable;
+		});
+	return { workstreams: result.sort(workstreamOrder), registry };
 }
 
 /** Most workstreams a profile shows; finer threads become sub-bullets. */
@@ -544,7 +668,12 @@ function workstream(
 			});
 	}
 	return {
-		key: `ws:${sha(name.toLowerCase())}`,
+		key: `ws:${sha(
+			sessions
+				.map((f) => f.key)
+				.sort()
+				.join("|"),
+		)}`,
 		name,
 		description,
 		sessions,
@@ -666,6 +795,18 @@ export function workItemsSource(ids: string[]): string {
 export const WHO_AM_I_SOURCE = `async () => {
 	const p = await user.get_mine({});
 	return { me: p && p.id ? { id: p.id, name: String(p.name || "") } : null };
+}`;
+
+/** Code Mode program: the organization's tedis by slug and name. Reads only. */
+export const TEAM_SOURCE = `async () => {
+	const team = [];
+	for (let offset = 0; offset < 500; offset += 100) {
+		const r = await tedis.list_tedis({ limit: 100, offset });
+		if (!Array.isArray(r?.data)) break;
+		for (const t of r.data) if (t && t.slug) team.push({ slug: String(t.slug), name: String(t.displayName || t.name || t.slug) });
+		if (!r.pagination?.hasMore) break;
+	}
+	return { team };
 }`;
 
 export interface Board {
@@ -1182,11 +1323,111 @@ export function priorities(
 }
 
 export const PLAN_PROMPT = `You are an assistant that has just read one person's whole agent history and now meets them for the first time. Below: the goals they set their agents, notes their agents keep, and their open workstreams ranked by stakes (customer, deadline, revenue, blocking others) and recency, with where each stands.
+Only state names, numbers and versions that appear in the input below.
 Return ONLY one JSON object, no prose:
-{"week":"<3-4 plain sentences addressed to them as you, starting \"This week you\": the two or three biggest things they built or moved and for whom (customers, users, their team), then the one or two stuck things that matter most. A story, not a list of every fix; concrete product and customer names; no buzzwords, no praise>","actions":[{"title":"<starts with a verb, at most 12 words>","why":"<one sentence: which goal or stake it serves, citing the evidence>","workstream":"<workstream name>","kind":"delegate|factory|doc","start":"<what Tedix does first, at most 20 words>"}]}
+{"week":"<3-4 plain sentences addressed to them as you, starting \"This week you\": the two or three biggest things they built or moved and for whom (customers, users, their team), then the one or two stuck things that matter most. A story, not a list of every fix; concrete product and customer names; no buzzwords, no praise>","actions":[{"title":"<starts with a verb, at most 12 words>","why":"<one sentence: which goal or stake it serves, citing the evidence>","workstream":"<workstream name>","kind":"delegate|factory|doc","start":"<what Tedix does first, at most 20 words>","tedi":"<for delegate: the slug of the best-fit tedi from the list, else empty>"}]}
 Give 5 actions, best first. Each is one concrete, valuable step Tedix can start today on its own: "delegate" hands a piece of real work to an AI teammate (a tedi), "factory" sets up a recurring scheduled run that produces something, "doc" drafts a document they need (a plan, a proposal, a customer brief). Call an organisation a customer only when the ranked list marks it "customer". Pick from their stated goals and the highest-stakes open work: moving a customer, a deadline, revenue or unblocking others beats internal polish. Never housekeeping: no verifying, confirming, committing, pushing, re-running tests or tidying the board. Never invent facts.
 
 `;
+
+const WEEK_VERSION =
+	/(?<![\w.-])v?\d+\.\d+(?:\.\d+)*(?:-\w+(?:[.-]\w+)*)?(?:\+\w+(?:[.-]\w+)*)?(?![\w]|[.-]\w)/g;
+const WEEK_NUMBER = /(?<![\w])\d+(?:[.,]\d+)*(?:%)?(?![\w])/g;
+const WEEK_DATE =
+	/\b(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}|(?:19|20)\d{2})\b/g;
+const WEEK_GENERIC = new Set(
+	(
+		"Tedix This That These Those You Your I We The A An It Its They Their There " +
+		"But And Or With Without For From In On At By To As After Before Now Next Then " +
+		"Monday Tuesday Wednesday Thursday Friday Saturday Sunday " +
+		"January February March April May June July August September October November December"
+	)
+		.toLowerCase()
+		.split(/\s+/),
+);
+
+export function weekCorpus(
+	sessions: SessionFacts[],
+	summaries: Map<string, SessionSummary>,
+	workstreams: Workstream[],
+	board: Pick<Board, "items">,
+): string {
+	return [
+		...sessions.map((f) => JSON.stringify(f)),
+		...[...summaries.values()].map((s) => JSON.stringify(s)),
+		...[...board.items.values()].map((item) => item.title),
+		...workstreams.map((w) =>
+			[w.name, w.description, w.state, w.next, ...w.openLoops].join("\n"),
+		),
+	].join("\n");
+}
+
+export function groundWeek(
+	text: string,
+	corpus: string,
+	counts: number[] = [],
+): string {
+	const present = (token: string, insensitive = false) =>
+		new RegExp(
+			`(?<![\\p{L}\\p{N}_])${escape(token)}(?![\\p{L}\\p{N}_])`,
+			insensitive ? "iu" : "u",
+		).test(corpus);
+	const versions = new Set(
+		[...corpus.matchAll(WEEK_VERSION)].map(([token]) => token),
+	);
+	const numbers = new Set(
+		[...corpus.replace(WEEK_VERSION, " ").matchAll(WEEK_NUMBER)].map(
+			([token]) => token,
+		),
+	);
+	const unsupportedNumber = (fragment: string) => {
+		let unsupported = false;
+		const rest = fragment
+			.replace(WEEK_VERSION, (token) => {
+				if (!versions.has(token)) unsupported = true;
+				return " ";
+			})
+			.replace(WEEK_DATE, " ");
+		for (const [token] of rest.matchAll(WEEK_NUMBER))
+			if (
+				!numbers.has(token) &&
+				!counts.some((count) => String(count) === token)
+			)
+				unsupported = true;
+		return unsupported;
+	};
+	return text
+		.split(/(?<=[.!?])\s+(?=[\p{Lu}"“])/u)
+		.flatMap((original) => {
+			const sentence = original
+				.replace(/\([^()]*\)/g, (fragment) =>
+					unsupportedNumber(fragment) ? "" : fragment,
+				)
+				.replace(
+					/,\s*v\d+\.\d+(?:\.\d+)*(?:-\w+(?:[.-]\w+)*)?(?:\+\w+(?:[.-]\w+)*)?,?/g,
+					(fragment) => (unsupportedNumber(fragment) ? "" : fragment),
+				)
+				.replace(/\s+([,.;!?])/g, "$1")
+				.replace(/ {2,}/g, " ")
+				.trim();
+			if (unsupportedNumber(sentence)) return [];
+			const tokens = [
+				...sentence.matchAll(/[\p{L}][\p{L}\p{N}]*(?:[-'][\p{L}\p{N}]+)*/gu),
+			];
+			for (const [index, match] of tokens.entries()) {
+				const token = match[0];
+				if (
+					index === 0 ||
+					!/\p{Lu}/u.test(token) ||
+					WEEK_GENERIC.has(token.toLowerCase())
+				)
+					continue;
+				if (!present(token, true)) return [];
+			}
+			return sentence ? [sentence] : [];
+		})
+		.join(" ");
+}
 
 export interface Plan {
 	week: string;
@@ -1197,6 +1438,8 @@ export async function planNow(input: {
 	ranked: Priority[];
 	/** Titles of earlier profile proposals still open in the inbox. */
 	pending?: string[];
+	/** The organization's tedis a delegated action can name. */
+	team?: Array<{ slug: string; name: string }>;
 	goals: string[];
 	notes: string[];
 	run: RunModel;
@@ -1221,6 +1464,13 @@ export async function planNow(input: {
 			? [
 					"ALREADY IN THEIR INBOX FROM AN EARLIER RUN (keep one, with its exact title, while it is still among the best; drop it when newer work matters more):",
 					...input.pending.slice(0, 6).map((t) => `- ${t.slice(0, 200)}`),
+					"",
+				]
+			: []),
+		...(input.team?.length
+			? [
+					"TEDIS (AI TEAMMATES) WHO CAN TAKE DELEGATED WORK, slug: name:",
+					...input.team.slice(0, 30).map((t) => `- ${t.slug}: ${t.name}`),
 					"",
 				]
 			: []),
@@ -1259,6 +1509,10 @@ export async function planNow(input: {
 						? a.kind
 						: "delegate",
 					start: one(String(a.start ?? ""), 200),
+					...(a.kind === "delegate" &&
+					input.team?.some((t) => t.slug === a.tedi)
+						? { tedi: String(a.tedi) }
+						: {}),
 				}))
 		: [];
 	// Strategic only; different workstreams first, so the three cover different work.
@@ -1321,6 +1575,8 @@ export interface PersonProfile {
 		kind: "delegate" | "factory" | "doc";
 		/** What Tedix does first. */
 		start: string;
+		/** For delegate: the slug of the tedi it names. */
+		tedi?: string;
 	}>;
 }
 
@@ -1577,11 +1833,10 @@ export function renderDocument(input: {
 			blocks.push({ type: "list", ordered, items: clean.slice(0, 60) });
 	};
 	h(1, DOC_TITLE);
-	h(2, "Your week in Tedix");
-	p(
-		profile.week ||
-			`You worked on ${workstreams.length} bodies of work between ${day(stats.from)} and ${day(stats.to)}.`,
-	);
+	if (profile.week) {
+		h(2, "Your week in Tedix");
+		p(profile.week);
+	}
 	if (profile.role) p(profile.role);
 
 	h(2, "3 things I can do for you right now");
@@ -1594,7 +1849,7 @@ export function renderDocument(input: {
 		input.actions.map((a) => {
 			const where =
 				a.state === "proposed" || a.state === "asked"
-					? `Accept it in your inbox: ${a.link}`
+					? `Accept it in your inbox and I start at once: ${a.link}`
 					: a.state === "on-board"
 						? `Already on the board: ${a.link}`
 						: (a.note ?? "Ask me in chat to start it.");
@@ -1608,7 +1863,7 @@ export function renderDocument(input: {
 
 	const open = workstreams
 		.filter((w) => w.status !== "done")
-		.sort((a, b) => b.weight - a.weight);
+		.sort(workstreamOrder);
 	h(2, "Your active projects");
 	for (const w of open) {
 		h(3, w.name);
@@ -1640,7 +1895,9 @@ export function renderDocument(input: {
 					),
 			);
 	}
-	const finished = workstreams.filter((w) => w.status === "done");
+	const finished = workstreams
+		.filter((w) => w.status === "done")
+		.sort(workstreamOrder);
 	if (finished.length) {
 		h(3, "Finished");
 		list(
@@ -1919,16 +2176,17 @@ export async function runProfile(
 		board = await readBoard(read, call, write);
 	}
 	const me = board.me;
-	const workstreams = await mergeWorkstreams(
-		threads,
-		summaries,
-		board,
-		rollups.run,
+	const merged = await mergeWorkstreams(threads, summaries, board, rollups.run);
+	rollups.save();
+	write(`  Merged into ${merged.length} workstreams. Describing them...`);
+	await describeWorkstreams(merged, summaries, rollups.run, today);
+	rollups.save();
+	const { workstreams, registry } = stabilizeWorkstreams(
+		merged,
+		state.workstreams,
 	);
-	rollups.save();
-	write(`  Merged into ${workstreams.length} workstreams. Describing them...`);
-	await describeWorkstreams(workstreams, summaries, rollups.run, today);
-	rollups.save();
+	state.workstreams = registry;
+	save();
 	write("  Writing your profile...");
 	const notes = deps.notes ?? memoryNotes(home).map((n) => n.text);
 	const profile = await buildProfile({
@@ -1949,8 +2207,17 @@ export async function runProfile(
 				`  reading your inbox failed: ${(error as Error).message.slice(0, 160)}`,
 			);
 		}
+	let team: Array<{ slug: string; name: string }> = [];
+	if (call && upload)
+		try {
+			const r = await call(TEAM_SOURCE);
+			team = Array.isArray(r.team) ? r.team : [];
+		} catch {
+			/* Without the roster, a delegated start goes to the default tedi. */
+		}
 	const goals = deps.goals ?? (await codexGoals(home));
 	const plan = await planNow({
+		team,
 		pending: asked
 			.filter((row) => row.key.startsWith("profile:") && row.state === "open")
 			.map((row) => row.title),
@@ -1972,7 +2239,11 @@ export async function runProfile(
 		run: rollups.run,
 		today,
 	});
-	profile.week = plan.week;
+	profile.week = groundWeek(
+		plan.week,
+		weekCorpus(sessions, summaries, workstreams, board),
+		[sessions.length, new Set(sessions.map((f) => day(f.to))).size],
+	);
 	profile.actions = plan.actions;
 	rollups.save();
 	const names = new Set(
@@ -2036,8 +2307,9 @@ export async function runProfile(
 				});
 				return;
 			}
+			// An open proposal from before accepts could start anything is filed again.
 			const prior = askedFor(c, asked);
-			if (prior) {
+			if (prior && !(prior.state === "open" && !prior.hasStart)) {
 				actions.push({
 					title: a.title,
 					why: a.why,
@@ -2080,9 +2352,37 @@ export async function runProfile(
 					at: day(f.to),
 				})),
 			};
+			const brief = publicText(
+				withoutNames(a.start || a.title, names),
+				600,
+			).replace(/[.\s]+$/, "");
+			const tedi = team.find((t) => t.slug === a.tedi);
+			const plan: ProposalStart | null =
+				brief.length < 10
+					? null
+					: a.kind === "delegate"
+						? { kind: "delegate", brief, ...(tedi ? { tedi: tedi.slug } : {}) }
+						: a.kind === "factory"
+							? {
+									kind: "factory",
+									brief,
+									...(ws ? { name: ws.name.slice(0, 60) } : {}),
+								}
+							: {
+									kind: "doc",
+									brief,
+									...(state.space?.workspaceId
+										? { workspaceId: state.space.workspaceId }
+										: {}),
+								};
 			publish.push({
 				key: c.key,
-				request: proposalRequest(proposal, me!.name || "you", me!.id),
+				request: proposalRequest(
+					proposal,
+					me!.name || "you",
+					me!.id,
+					plan ? { plan, ...(tedi ? { tediName: tedi.name } : {}) } : undefined,
+				),
 			});
 			actions.push({
 				title: a.title,

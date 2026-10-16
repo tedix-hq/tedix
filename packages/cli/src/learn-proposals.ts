@@ -2,12 +2,15 @@
  * Proposals from `tedix learn` as Work interactions: each one is a `handoff`
  * addressed to the member, so it waits in their Tedix inbox beside every other
  * request and can be answered in Tedix OS, in chat or with `tedix learn
- * review`. Accepting it makes the server create the proposed Work (see
- * `WORK_PROPOSAL_SCHEMA`); declining it is the remembered rejection. The
+ * review`. Accepting it makes the server create the proposed Work and start
+ * its first step when it has one (see `WORK_PROPOSAL_SCHEMA`); declining it is the remembered rejection. The
  * server-side list is the only record, so a re-run on any machine sees what
  * was already asked.
  */
-import { WORK_PROPOSAL_SCHEMA } from "@tedix/api-contract/schemas/work-interactions";
+import {
+	type ProposalStart,
+	WORK_PROPOSAL_SCHEMA,
+} from "@tedix/api-contract/schemas/work-interactions";
 import { asciiJson } from "./hooks/agent-status";
 import type { Proposal } from "./learn-context";
 
@@ -27,6 +30,8 @@ export interface AskedProposal {
 	version: number;
 	state: string;
 	key: string;
+	/** Accepting it starts a first step (older proposals only create Work). */
+	hasStart?: boolean;
 	title: string;
 	subject: string;
 	prompt: string;
@@ -60,22 +65,38 @@ function citationLines(citations: Citation[] | undefined): string[] {
 		);
 }
 
-/** The inbox request a member reads: what, where, why, and the evidence. */
+/** What accepting starts, in one sentence. */
+export function startLine(start: ProposalStart, tediName?: string): string {
+	if (start.kind === "delegate")
+		return `Accept and Tedix starts it right away: ${tediName ?? "your default tedi"} takes the first step: ${start.brief}`;
+	if (start.kind === "factory")
+		return `Accept and Tedix plans a factory for it; nothing runs until you switch it on. It would: ${start.brief}`;
+	return `Accept and Tedix drafts the document in your space: ${start.brief}`;
+}
+
+/**
+ * The inbox request a member reads: what, where, why, and the evidence. With
+ * a start, accepting also starts its first step (see `ProposalStartSchema`).
+ */
 export function proposalRequest(
 	p: Proposal,
 	who: string,
 	userId: string,
+	start?: { plan: ProposalStart; tediName?: string },
 ): Json {
 	const children = p.children ?? [];
 	const where = p.projectKey
 		? `project ${p.projectKey}`
 		: "no project (none on the board fits)";
 	const subject = (
-		children.length
-			? `New epic for the board: ${p.title} (${children.length} tasks)`
-			: `Add to the board: ${p.title}`
+		start
+			? `Tedix can start: ${p.title}`
+			: children.length
+				? `New epic for the board: ${p.title} (${children.length} tasks)`
+				: `Add to the board: ${p.title}`
 	).slice(0, 300);
 	const prompt = [
+		...(start ? [startLine(start.plan, start.tediName)] : []),
 		children.length
 			? `Your agent sessions show a body of work the board has no project or epic for. Accept to create it as one epic in ${where}, with its tasks under it:`
 			: `Your agent sessions show work the board does not have yet. Accept to create it in ${where}${p.parentTitle ? `, under "${p.parentTitle}"` : ""}.`,
@@ -109,6 +130,7 @@ export function proposalRequest(
 				...(p.parentId ? { parentWorkItemId: p.parentId } : {}),
 				item: item(p, proposalDescription(p, who)),
 				children: children.map((c) => item(c, proposalDescription(c, who))),
+				...(start ? { start: start.plan } : {}),
 			},
 			evidence: {
 				sessions: p.sessions,
@@ -140,7 +162,7 @@ export function listProposalsSource(openOnly: boolean): string {
 			const q = row.request || {};
 			const m = q.metadata || {};
 			if (m.schema !== SCHEMA || !m.proposal || !row.canRespond && row.effectiveState === "open") continue;
-			rows.push({ id: q.id, version: q.version, state: row.effectiveState, key: String(m.proposal.key || ""), title: String(m.proposal.item?.title || q.subject || ""), subject: String(q.subject || ""), prompt: String(q.prompt || "").slice(0, 1500) });
+			rows.push({ id: q.id, version: q.version, state: row.effectiveState, key: String(m.proposal.key || ""), hasStart: Boolean(m.proposal.start), title: String(m.proposal.item?.title || q.subject || ""), subject: String(q.subject || ""), prompt: String(q.prompt || "").slice(0, 1500) });
 		}
 		if (!r.hasMore || !r.nextCursor) break;
 		cursor = r.nextCursor;
@@ -190,7 +212,8 @@ export function respondSource(
 	for (const a of input) {
 		const r = await work.respond_work_interaction({ requestId: a.id, expectedRequestVersion: a.version, responseKind: a.accept ? "handoff_accepted" : "handoff_declined", body: a.accept ? "Accepted with tedix learn review." : "Declined with tedix learn review.", resolvesRequest: true, metadata: { source: "tedix learn review" } });
 		if (r?.ok === false || !r?.response) { out[a.id] = { error: String(r?.error ?? "answering failed") }; continue; }
-		out[a.id] = { workItemIds: Array.isArray(r.response.metadata?.workItemIds) ? r.response.metadata.workItemIds : [] };
+		const m = r.response.metadata || {};
+		out[a.id] = { workItemIds: Array.isArray(m.workItemIds) ? m.workItemIds : [], ...(m.started ? { started: m.started } : {}) };
 	}
 	return out;
 }`;
