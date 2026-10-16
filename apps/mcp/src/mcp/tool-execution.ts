@@ -40,6 +40,11 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import { buildCompletionEvidence } from "@tedix/api-contract/schemas/execution-evidence";
 import {
+	verifyAction,
+	renderActionReceipt,
+} from "@tedix/api-contract/utils/action-receipt";
+import { assertCodeModeInnerToolAuthorized } from "./codemode-auth";
+import {
 	mcpInventoryListChangedKinds,
 	publishMcpInventoryListChanged,
 	publishMcpTaskNotification,
@@ -840,6 +845,65 @@ async function executeWithHandler(
 				: undefined;
 		const isErrorResult =
 			typeof resultStatus === "number" && resultStatus >= 400;
+		const annotations = resolveToolAnnotations({
+			annotations: tool.annotations,
+			writeCapability: tool.writeCapability ?? null,
+			meta: tool.meta,
+		});
+		const outcome = buildCompletionEvidence({
+			operation: tool.toolId,
+			result: structuredContent,
+			retryKey: tool.toolId,
+		});
+		const actionReceipt =
+			!isErrorResult &&
+			annotations?.readOnlyHint === false &&
+			outcome.status === "succeeded"
+				? await verifyAction({
+						operation: ctx.callable ?? tool.toolId,
+						args,
+						result: structuredContent,
+						actor: agent.callerIdentity?.tediId
+							? `tedi:${agent.callerIdentity.tediId}`
+							: agent.callerIdentity?.skillRunId
+								? `skill_run:${agent.callerIdentity.skillRunId}`
+								: agent.callerIdentity?.userId
+									? `user:${agent.callerIdentity.userId}`
+									: "authenticated service",
+						origin:
+							agent.env.ENVIRONMENT === "production"
+								? "https://os.tedix.dev"
+								: "https://os.tedix.tech",
+						read: async (name, input) => {
+							const namespace = resolveMcpToolNamespace(tool);
+							const reader = [...agent.loadedTools.values()].find(
+								(candidate) =>
+									resolveMcpToolNamespace(candidate) === namespace &&
+									sanitizeToolName(candidate.toolId.split("__").at(-1)!) ===
+										name,
+							);
+							if (!reader || reader.annotations?.readOnlyHint !== true)
+								throw new Error("Read-back unavailable");
+							assertCodeModeInnerToolAuthorized(
+								agent,
+								reader,
+								namespace,
+								input,
+							);
+							const read = await executeTool(agent, reader, input, {
+								adapterScope: parseAdapterScope(reader.adapterScope),
+								resultStrategy:
+									(reader.resultStrategy as ResultStrategy | null) ??
+									"first_success",
+								executionId,
+							});
+							if (read.isError) throw new Error("Read-back failed");
+							return read.structuredContent;
+						},
+					})
+				: null;
+		if (actionReceipt)
+			textContent += `\n\n${renderActionReceipt(actionReceipt)}`;
 		const collectionRead = isErrorResult
 			? null
 			: connectedCollectionRead(agent, tool);
@@ -918,7 +982,7 @@ async function executeWithHandler(
 						...structuredMetadata,
 					}
 				: structuredContent;
-		const fullStructuredContent =
+		const evidencedStructuredContent =
 			!isErrorResult &&
 			result.providerConfirmation &&
 			isRecord(projectedStructuredContent)
@@ -932,6 +996,28 @@ async function executeWithHandler(
 						}),
 					}
 				: projectedStructuredContent;
+		const fullStructuredContent =
+			actionReceipt && isRecord(evidencedStructuredContent)
+				? {
+						...evidencedStructuredContent,
+						actionReceipt,
+						completionEvidence: {
+							...outcome,
+							target: actionReceipt.url,
+							providerConfirmation: actionReceipt.verified
+								? `Read back at ${actionReceipt.checkedAt}`
+								: "unknown",
+							unsupportedClaims: actionReceipt.verified
+								? outcome.unsupportedClaims
+								: [
+										...outcome.unsupportedClaims,
+										"the requested effect is verified",
+									],
+							instruction:
+								"Use actionReceipt for the final receipt. Never claim a verified effect when verified is false.",
+						},
+					}
+				: evidencedStructuredContent;
 		const graphTaskMarker = (() => {
 			if (
 				isErrorResult ||

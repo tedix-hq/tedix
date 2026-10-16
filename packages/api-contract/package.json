@@ -205,6 +205,7 @@
 		"./utils/fact-evidence": "./src/utils/fact-evidence.ts",
 		"./utils/inference-credit-quote": "./src/utils/inference-credit-quote.ts",
 		"./utils/is-record": "./src/utils/is-record.ts",
+		"./utils/action-receipt": "./src/utils/action-receipt.ts",
 		"./utils/markdown-plain-text": "./src/utils/markdown-plain-text.ts",
 		"./utils/governed-learning": "./src/utils/governed-learning.ts",
 		"./utils/procedure-schemas": "./src/utils/procedure-schemas.ts",

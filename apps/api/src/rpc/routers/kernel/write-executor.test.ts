@@ -154,6 +154,58 @@ const LISTED = {
 };
 
 describe("parseHomeToolWritePayload", () => {
+	it("verifies a Home write with a distinct authorized read before rendering success", async () => {
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				result:
+					body.method === "tools/list"
+						? {
+								tools: [
+									{
+										name: "os__create_os_output",
+										annotations: { readOnlyHint: false },
+									},
+									{
+										name: "os__get_os_output",
+										annotations: { readOnlyHint: true },
+									},
+								],
+							}
+						: {
+								structuredContent: {
+									output: {
+										id: "scratch-output",
+										status:
+											body.params.name === "os__get_os_output"
+												? "archived"
+												: "active",
+									},
+								},
+							},
+			},
+		}));
+		const result = await executeApprovedKernelWrite({
+			env: env(service, { OS_URL: "https://os.example.test" }),
+			payload: payload({ toolName: "os__create_os_output", args: {} }),
+		});
+		expect(result).toMatchObject({
+			ok: true,
+			data: {
+				actionReceipt: {
+					verified: true,
+					state: "archived",
+					url: "https://os.example.test/outputs/scratch-output",
+					actor: "kernel on behalf of user:user-123",
+				},
+			},
+		});
+		expect(
+			service.calls
+				.filter((call) => call.method === "tools/call")
+				.map((call) => call.params.name),
+		).toEqual(["os__create_os_output", "os__get_os_output"]);
+	});
 	it("round-trips a valid payload and normalizes initiatedByUserId", () => {
 		expect(parseHomeToolWritePayload(payload())).toEqual(payload());
 		expect(
@@ -234,7 +286,16 @@ describe("executeApprovedKernelWrite", () => {
 			payload: payload(),
 		});
 
-		expect(result).toEqual({ ok: true, data: { id: "INV-1" } });
+		expect(result).toMatchObject({
+			ok: true,
+			data: {
+				id: "INV-1",
+				actionReceipt: {
+					verified: false,
+					actor: "kernel on behalf of user:user-123",
+				},
+			},
+		});
 		expect(service.calls.map((c) => c.method)).toEqual([
 			"tools/list",
 			"tools/call",
@@ -292,7 +353,10 @@ describe("executeApprovedKernelWrite", () => {
 			env: env(service),
 			payload: payload(),
 		});
-		expect(result).toEqual({ ok: true, data: { id: "INV-2" } });
+		expect(result).toMatchObject({
+			ok: true,
+			data: { id: "INV-2", actionReceipt: { verified: false } },
+		});
 		const toolCalls = service.calls.filter((c) => c.method === "tools/call");
 		expect(toolCalls).toHaveLength(2);
 		expect(toolCalls[0]?.headers.get("X-Tedix-Acting-User")).toBe("user-123");
@@ -357,9 +421,13 @@ describe("executeApprovedKernelWrite", () => {
 			}),
 		});
 
-		expect(result).toEqual({ ok: true, data: { id: "WI-1" } });
+		expect(result).toMatchObject({
+			ok: true,
+			data: { id: "WI-1", actionReceipt: { verified: false } },
+		});
 		expect(service.calls.map((call) => call.method)).toEqual([
 			"tools/list",
+			"tools/call",
 			"tools/call",
 			"tools/call",
 		]);
@@ -606,7 +674,10 @@ describe("executeApprovedKernelWrite", () => {
 			env: env(service),
 			payload: payload({ initiatedByUserId: null }),
 		});
-		expect(result).toEqual({ ok: true, data: { id: "inv-1", error: null } });
+		expect(result).toMatchObject({
+			ok: true,
+			data: { id: "inv-1", error: null, actionReceipt: { verified: false } },
+		});
 	});
 
 	it("aborts (no tools/call) when the stored tool no longer exists upstream", async () => {
@@ -670,7 +741,10 @@ describe("executeApprovedKernelWrite", () => {
 			payload: payload(),
 		});
 
-		expect(result).toEqual({ ok: true, data: { id: "INV-9" } });
+		expect(result).toMatchObject({
+			ok: true,
+			data: { id: "INV-9", actionReceipt: { verified: false } },
+		});
 		expect(
 			service.calls
 				.filter((call) => call.method === "tools/list")

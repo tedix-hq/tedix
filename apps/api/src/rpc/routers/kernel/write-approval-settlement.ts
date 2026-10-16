@@ -1,4 +1,8 @@
 import type { KernelRuntimeEvent } from "@tedix/api-contract/schemas/kernel-runtime";
+import {
+	renderActionReceipt,
+	type ActionReceipt,
+} from "@tedix/api-contract/utils/action-receipt";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
 	OsOutputSchema,
@@ -114,6 +118,9 @@ export function renderKernelWriteReceipt(input: {
 	appSlug: string;
 	data: unknown;
 }): string {
+	const actionReceipt = nonNullRecord(nonNullRecord(input.data)?.actionReceipt);
+	if (actionReceipt && typeof actionReceipt.verified === "boolean")
+		return renderActionReceipt(actionReceipt as unknown as ActionReceipt);
 	if (/^kernel(?:\.|__)rename_conversation$/.test(input.toolName)) {
 		const conversation = nonNullRecord(nonNullRecord(input.data)?.conversation);
 		if (typeof conversation?.title === "string" && conversation.title.trim()) {
