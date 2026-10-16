@@ -97,7 +97,7 @@ const DOCUMENT_STEP = 200;
 /** Open delegations named per turn; settled ones drop off the local list. */
 const DELEGATION_LIMIT = 8;
 /** Request ledger rows read per turn, and the ones named to the agent. */
-const REQUEST_READ_LIMIT = 100;
+const REQUEST_READ_LIMIT = 30;
 const REQUEST_LIMIT = 5;
 /** Answer text handed over with the prompt, leaving room for the context. */
 const ANSWERS_IN_CONTEXT = 3000;
@@ -303,7 +303,7 @@ export function gatewayCode(
   return {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
  });
  if (t.requests) pending.requests = each(async () => {
-  const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],limit:REQUEST_READ_LIMIT});
+  const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],limit:REQUEST_READ_LIMIT,order:'newest'});
   return {data:r.data.map(q => ({harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt}))};
  });
  if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));

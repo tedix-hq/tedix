@@ -97,6 +97,12 @@ export const ListAgentSessionRequestsInputSchema = z.strictObject({
 	harness: WorkAgentSessionHarnessSchema.optional(),
 	sessionKey: SessionKeySchema.optional(),
 	limit: z.number().int().min(1).max(200).default(100),
+	order: z
+		.enum(["oldest", "newest"])
+		.default("oldest")
+		.describe(
+			"`newest`: newest message first, so a small limit keeps the latest rows.",
+		),
 });
 
 export const ListAgentSessionRequestsResultSchema = z.strictObject({
