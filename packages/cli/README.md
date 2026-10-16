@@ -41,13 +41,14 @@ and durable answer settlement.
   failed reads for up to an hour; the organization id is cached for ten minutes
   (`src/hooks/context-cache.ts`); `TEDIX_HOOK_TRACE=1` prints step timings.
   With decision capture enabled, `capture-stop` triages the redacted turn
-  (`tedix work agent-turn-triage`, 4 s, silent fallback) into `metadata.triage` and
+  into `metadata.triage`. Unavailable triage keeps the capture on bound Work
+  or in the originating chat and creates no human request. The hook
   owns that chat's Stop status (`applyTriagedStop`); `status` skips Stop for
   it, decided by the same local opt-in check (`captureOwnsStop`), so each Stop
   notifies at most once. `capture-reply` adds `metadata.replyClassClef` from
   `tedix work agent-reply-label` (3 s). Quiet draft requests use
-  `tedix work agent-reply-draft-request` (6 s). All three resolve current
-  authorized native descriptors; none executes a JavaScript wrapper.
+  `tedix work agent-reply-draft-request` (6 s). These calls use Code Mode
+  within the hook's timeout budget.
   Codex capture checks the host's exact stored thread before opening a question.
   An unavailable, ephemeral or archived target creates no automatic request;
   the original message remains in its chat.

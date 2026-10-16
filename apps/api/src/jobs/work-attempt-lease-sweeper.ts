@@ -1,4 +1,5 @@
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { sweepObsoleteWorkInteractions } from "@tedix/db/queries/work-items/interactions";
 import { sweepElapsedWorkAttempts } from "@tedix/db/queries/work-items/attempts";
 import { sweepStaleFailedDelegationWorkItems } from "@tedix/db/queries/work-items/stale-delegation-sweep";
 
@@ -62,8 +63,16 @@ export async function runWorkAttemptLeaseSweeperTick(
 			`[WorkAttemptLeaseSweeper] cancelled ${stale.cancelled} stale failed delegation(s)`,
 		);
 	}
+	const interactions = await sweepObsoleteWorkInteractions(
+		createDbQueryClient(env.DB),
+		{
+			now: new Date(scheduledTime).toISOString(),
+			limit: MAX_ATTEMPTS_PER_TICK,
+		},
+	);
 	return {
 		...result,
+		interactionsExpired: interactions.expired,
 		staleDelegationsObserved: stale.observed,
 		staleDelegationsCancelled: stale.cancelled,
 		staleDelegationsSkipped: stale.skipped,

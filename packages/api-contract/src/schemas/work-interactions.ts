@@ -147,7 +147,7 @@ export const WorkInteractionRequestSchema = z.strictObject({
 		.max(300)
 		.nullable()
 		.describe(
-			"Present only when the creator is an external agent with an immutable session.",
+			"External-agent session fence, or harness requester provenance on an owner-authenticated call. Provenance grants no execution authority.",
 		),
 	state: WorkInteractionStateSchema,
 	requestedAt: z.iso.datetime(),

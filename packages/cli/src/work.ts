@@ -3120,7 +3120,11 @@ const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		pathField: "requestId",
 		defaultInput: () => ({}),
 	},
-	"interaction-create": { tool: "create_work_interaction", write: true },
+	"interaction-create": {
+		tool: "create_work_interaction",
+		write: true,
+		transform: (input, ctx) => withSession(ctx, input),
+	},
 	"interaction-respond": {
 		tool: "respond_work_interaction",
 		write: true,

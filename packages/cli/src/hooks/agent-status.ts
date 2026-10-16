@@ -316,15 +316,17 @@ const URGENT: Array<[RegExp, string]> = [
 ];
 
 /**
- * Map a Stop to [state, summary] from server triage. Without an `ok` triage the
- * regex classifier decides, so an unavailable triage never changes behavior.
+ * Map a Stop to [state, summary]. Failed triage never asks the human to act.
  */
 export function triagedOutcome(
 	message: unknown,
 	triage: TriageResult | undefined,
 ): Outcome {
-	if (triage?.status !== "ok" || typeof message !== "string" || !message.trim())
+	if (typeof message !== "string" || !message.trim())
 		return classifyStop(message);
+	if (triage?.status === "unavailable")
+		return ["done", "Turn ended; triage unavailable"];
+	if (!triage) return classifyStop(message);
 	const blocks = paragraphs(message);
 	const last = blocks.at(-1) ?? "";
 	if (triage.urgency !== "now") return ["done", doneSummary(message, last)];
@@ -688,8 +690,8 @@ export async function runAgentStatus(deps: StatusDeps): Promise<void> {
 
 /**
  * The Stop status for a chat whose decision capture owns Stop: the same local
- * state, notification and report as `runAgentStatus`, classified from server
- * triage when it is available and from the regex classifier otherwise.
+ * state, notification and report as `runAgentStatus`. Unavailable triage ends
+ * the turn without reporting that the human needs to act.
  */
 export async function applyTriagedStop(
 	deps: StatusDeps,

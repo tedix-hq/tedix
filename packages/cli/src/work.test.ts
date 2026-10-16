@@ -485,6 +485,37 @@ async function capture(
 	}
 }
 
+describe("interaction requester provenance", () => {
+	test("stamps the actual harness session while keeping the supplied reason", async () => {
+		const { ctx, nativeCalls } = makeContext(
+			{
+				input: JSON.stringify({
+					workItemId: ITEM,
+					kind: "question",
+					subject: "Owner: setup",
+					prompt: "Set up access",
+					reason: "Only the owner can grant access",
+					requestedFrom: { type: "user", id: "owner" },
+					metadata: { source: "setup" },
+				}),
+			},
+			undefined,
+			() => ({ id: ITEM }),
+		);
+		expect((await capture("interaction-create", ctx)).code).toBe(0);
+		expect(
+			nativeCalls.find((call) => call.name.includes("create_work_interaction"))
+				?.args,
+		).toMatchObject({
+			metadata: {
+				source: "setup",
+				agentSession: "codex:33333333-3333-4333-8333-333333333333",
+				agentHarness: "codex",
+			},
+		});
+	});
+});
+
 describe("claim-files command", () => {
 	test("rejects invalid paths, extra positional arguments, --input, and impersonation before gateway calls", async () => {
 		for (const work of [

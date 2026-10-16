@@ -249,6 +249,15 @@ function effectiveState(row: InteractionRow, observedAt: string) {
 const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
+	const capturedWithoutTriage =
+		input.metadata?.schema === "tedix.decision-capture.v1" &&
+		(input.metadata.triage as { status?: string } | undefined)?.status !== "ok";
+	if (capturedWithoutTriage && actor.type !== "external_agent")
+		throw createError(
+			ErrorCodes.UNPROCESSABLE_CONTENT,
+			"Unclassified agent turns must stay on the agent's Work",
+		);
+	const target = capturedWithoutTriage ? actor : input.requestedFrom;
 	const requestedAt = new Date().toISOString();
 	if (input.dueAt !== undefined && input.dueAt <= requestedAt) {
 		throw createError(
@@ -279,13 +288,20 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			subject: input.subject,
 			prompt: input.prompt,
 			creator: actor,
-			targetType: input.requestedFrom.type,
-			targetId: input.requestedFrom.id,
+			targetType: target.type,
+			targetId: target.id,
 			dueAt: input.dueAt,
 			expiresAt: input.expiresAt,
-			metadata: input.reason
-				? { ...input.metadata, reason: input.reason }
-				: input.metadata,
+			metadata: {
+				...input.metadata,
+				...(actor.type === "external_agent"
+					? {
+							agentSession: actor.externalSessionKey,
+							agentHarness: actor.externalSessionKey.split(":")[0]!,
+						}
+					: {}),
+				...(input.reason ? { reason: input.reason } : {}),
+			},
 			now: requestedAt,
 		});
 		// A captured agent turn learns after the response whether it needs
@@ -701,7 +717,18 @@ function askedBy(
 	if (metadata.schema === CAPTURE_HEALTH_SCHEMA) return "Tedix";
 	if (request.creatorType === "tedi")
 		return tediNames.get(request.creatorId) ?? "A tedi";
-	const host = typeof metadata.host === "string" ? metadata.host : null;
+	const session =
+		typeof metadata.agentSession === "string"
+			? metadata.agentSession
+			: request.creatorSessionId;
+	const host =
+		typeof metadata.host === "string"
+			? metadata.host
+			: session
+				? typeof metadata.agentHarness === "string"
+					? metadata.agentHarness
+					: session.split(":")[0]
+				: null;
 	if (host) return AGENT_HOSTS[host] ?? `${host} session`;
 	if (request.creatorType === "external_agent") return "An agent session";
 	return request.creatorId === callerId ? "You" : "A teammate";

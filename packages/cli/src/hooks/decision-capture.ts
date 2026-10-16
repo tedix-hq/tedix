@@ -1,9 +1,9 @@
 /**
  * Opt-in decision capture for Claude Code and Codex.
  *
- * `capture-stop` runs when an agent turn ends: it opens an Interaction addressed
- * to the signed-in user in the bound project inbox, carrying the turn's final
- * message. `capture-reply` runs when the user submits the next prompt: it
+ * `capture-stop` triages an agent turn before opening an Interaction addressed
+ * to the signed-in user. Unclassified turns stay on bound Work or in their chat.
+ * A captured question carries the turn's final message. `capture-reply` runs when the user submits the next prompt: it
  * answers that Interaction with the reply, so the pair becomes one durable
  * decision record.
  *
@@ -452,7 +452,7 @@ async function triageTurn(
 			timeoutMs,
 		);
 	} catch {
-		// Not deployed, not granted, offline or slow: the regex classifier decides.
+		// Unavailable triage keeps this turn off the human inbox.
 	}
 	return triageOf(value, Date.now() - started);
 }
@@ -1082,6 +1082,17 @@ async function onStop(
 		options.triageTimeoutMs ?? TRIAGE_TIMEOUT_MS,
 	);
 	await settle(triage);
+	if (triage.status !== "ok") {
+		// Unclassified turns stay with the agent, never become a human request.
+		if (binding.workItemId)
+			await deps.read(
+				[...binding.command, "code"],
+				15000,
+				`async () => await work.add_comment(${asciiJson({ id: binding.workItemId, body: `Turn capture (triage unavailable):\n\n${text}`, metadata: { source: "agent-turn-end", host, sessionId: session } })})`,
+			);
+		rmSync(state, { force: true });
+		return;
+	}
 	// Outside a bound repository the question names none (lessons: `general`).
 	// The Git origin names the repository; a worktree or clone folder name does not.
 	const repository =
@@ -1239,7 +1250,7 @@ export async function runDecisionCapture(
 			await applyTriagedStop(
 				{ env: hostEnv, stdin: deps.stdin, cwd: deps.cwd, ...options.status },
 				owned,
-				triage,
+				triage ?? triageOf(undefined, 0),
 			);
 		} catch {
 			// Status is best effort, like the status hook.

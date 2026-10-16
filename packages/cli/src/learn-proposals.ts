@@ -76,6 +76,62 @@ export function startLine(start: ProposalStart, tediName?: string): string {
 	return `Accept and Tedix drafts the document in your space: ${start.brief}`;
 }
 
+/** Dates in the proposed action expire at the end of that UTC day. */
+function proposalExpiry(p: Proposal, now: Date): string {
+	const text = `${p.title} ${p.reason}`;
+	const dates = [...text.matchAll(/\b(20\d{2})-(\d{2})-(\d{2})\b/g)].map(
+		([date]) => date,
+	);
+	const months =
+		"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
+	const monthFirst = new RegExp(
+		`\\b(${months})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(20\\d{2}))?\\b`,
+		"gi",
+	);
+	const dayFirst = new RegExp(
+		`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${months})(?:,?\\s+(20\\d{2}))?\\b`,
+		"gi",
+	);
+	for (const pattern of [monthFirst, dayFirst]) {
+		for (const match of text.matchAll(pattern)) {
+			const monthName = match[pattern === monthFirst ? 1 : 2]!;
+			const day = Number(match[pattern === monthFirst ? 2 : 1]);
+			const year = Number(match[3] ?? now.getUTCFullYear());
+			const month = [
+				"jan",
+				"feb",
+				"mar",
+				"apr",
+				"may",
+				"jun",
+				"jul",
+				"aug",
+				"sep",
+				"oct",
+				"nov",
+				"dec",
+			].indexOf(monthName.slice(0, 3).toLowerCase());
+			const date = new Date(Date.UTC(year, month, day));
+			if (date.getUTCMonth() === month && date.getUTCDate() === day)
+				dates.push(date.toISOString().slice(0, 10));
+		}
+	}
+	const valid = dates
+		.filter((date) => {
+			const parsed = new Date(`${date}T00:00:00.000Z`);
+			return (
+				Number.isFinite(parsed.getTime()) &&
+				parsed.toISOString().slice(0, 10) === date
+			);
+		})
+		.sort();
+	return valid[0]
+		? new Date(
+				Date.parse(`${valid[0]}T00:00:00.000Z`) + 86_400_000,
+			).toISOString()
+		: new Date(now.getTime() + 14 * 86_400_000).toISOString();
+}
+
 /**
  * The inbox request a member reads: what, where, why, and the evidence. With
  * a start, accepting also starts its first step (see `ProposalStartSchema`).
@@ -85,6 +141,7 @@ export function proposalRequest(
 	who: string,
 	userId: string,
 	start?: { plan: ProposalStart; tediName?: string },
+	now = new Date(),
 ): Json {
 	const children = p.children ?? [];
 	const where = p.projectKey
@@ -123,6 +180,7 @@ export function proposalRequest(
 		subject,
 		prompt: prompt.slice(0, 20_000),
 		requestedFrom: { type: "user", id: userId },
+		expiresAt: proposalExpiry(p, now),
 		metadata: {
 			schema: WORK_PROPOSAL_SCHEMA,
 			source: "tedix learn",
@@ -194,6 +252,7 @@ export function publishSource(requests: Array<{ key: string; request: Json }>) {
 		return anchor;
 	};
 	for (const { key, request } of input) {
+		if (request.expiresAt && request.expiresAt <= new Date().toISOString()) { out[key] = { skipped: "proposal date has passed" }; continue; }
 		const context = request.projectId ? {} : { workItemId: await anchorId() };
 		if (!request.projectId && !context.workItemId) { out[key] = { skipped: "no project fits and there is no session-analysis item to file it beside" }; continue; }
 		const made = await work.create_work_interaction({ ...request, ...context });

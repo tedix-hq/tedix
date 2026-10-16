@@ -521,7 +521,7 @@ describe("tedix hooks status", () => {
 		);
 		expect(
 			triagedOutcome("Should I push?", { ...ok("now"), status: "unavailable" }),
-		).toEqual(["needs_you", "Should I push?"]);
+		).toEqual(["done", "Turn ended; triage unavailable"]);
 	});
 
 	test("a triaged Stop keeps the supervisor seam and notifies once", async () => {
