@@ -435,6 +435,7 @@ export interface KernelTurnWorkDeps {
 	}) => Promise<{
 		executed: boolean;
 		finalStatus: TediRunStatus | null;
+		assistantEvent: KernelRuntimeEvent | null;
 	} | null>;
 	/**
 	 * Optional currently-configured kernel model deployment name — threaded into
@@ -3326,6 +3327,7 @@ export async function runKernelTurnWork(
 	let writeAutoResolveResult: {
 		executed: boolean;
 		finalStatus: TediRunStatus | null;
+		assistantEvent: KernelRuntimeEvent | null;
 	} | null = null;
 	if (
 		writeWillAutoResolve &&
@@ -3414,13 +3416,18 @@ export async function runKernelTurnWork(
 	const effectiveCompletedAt = autoResolvedStatus
 		? settledAt
 		: dispatchAwareCompletedAt;
+	const replyEvent = writeAutoResolveResult?.assistantEvent ?? assistantEvent;
+	const replyContent =
+		typeof replyEvent.payload?.content === "string"
+			? replyEvent.payload.content
+			: assistantContent;
 	const run: HomeRun = {
 		id: runId,
 		organizationId,
 		conversationId,
 		status: effectiveStatus,
 		inputMessageId: userMessageId,
-		outputMessageId: assistantMessageId,
+		outputMessageId: replyEvent.messageId ?? assistantMessageId,
 		delegatedTediId: autoDelegatedTediId,
 		childRunId: autoChildRunId,
 		runtime: {
@@ -3438,44 +3445,50 @@ export async function runKernelTurnWork(
 		completedAt: effectiveCompletedAt,
 		createdAt,
 		updatedAt: settledAt,
-		metadata: mergedTurnRunMetadata,
+		metadata: writeAutoResolveResult?.assistantEvent
+			? {
+					...mergedTurnRunMetadata,
+					kernelRoute: {
+						...nonNullRecord(mergedTurnRunMetadata.kernelRoute),
+						answer: replyContent,
+					},
+				}
+			: mergedTurnRunMetadata,
 		progress: dispatchAwareProgress,
 	};
 	stageTimings.mark("turnEnded");
 	return {
 		idempotencyKey: runId,
 		conversationId,
-		// Top-level turn status stays the parked/dispatch snapshot to keep the
-		// enqueue contract's narrow union. An auto-resolved write settles the run in
-		// the same turn (run.status above reflects it, DB is authoritative); callers
-		// reconcile the terminal state on their next read. A model-unavailable turn
-		// is a hard failure (no route was produced).
-		status: modelUnavailable
-			? ("failed" as const)
-			: writeProposalActive || delegationApprovalActive
-				? ("requires_approval" as const)
-				: autoDispatchSucceeded
-					? ("queued" as const)
-					: autoDispatchFailed
-						? ("failed" as const)
-						: answeredInHome
-							? ("completed" as const)
-							: ("needs_delegation" as const),
+		status:
+			autoResolvedStatus === "completed" || autoResolvedStatus === "failed"
+				? autoResolvedStatus
+				: modelUnavailable
+					? ("failed" as const)
+					: writeProposalActive || delegationApprovalActive
+						? ("requires_approval" as const)
+						: autoDispatchSucceeded
+							? ("queued" as const)
+							: autoDispatchFailed
+								? ("failed" as const)
+								: answeredInHome
+									? ("completed" as const)
+									: ("needs_delegation" as const),
 		run,
 		homePlan: undefined,
 		assistantMessage: {
-			id: assistantMessageId,
+			id: replyEvent.messageId ?? assistantMessageId,
 			organizationId,
 			conversationId,
 			runId,
 			role: "assistant" as const,
 			status: "completed" as const,
-			content: assistantContent,
-			runtime: assistantEvent.runtime,
-			createdAt: assistantEvent.createdAt,
-			startedAt: assistantEvent.createdAt,
+			content: replyContent,
+			runtime: replyEvent.runtime,
+			createdAt: replyEvent.createdAt,
+			startedAt: replyEvent.createdAt,
 			completedAt: run.completedAt,
-			metadata: assistantEvent.payload,
+			metadata: replyEvent.payload,
 		},
 		error: undefined,
 	};

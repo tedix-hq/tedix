@@ -8215,11 +8215,12 @@ describe("home approved-write layer (v1)", () => {
 	async function enqueueWriteProposalTurn(
 		db: ReturnType<typeof createKernelRuntimeDb>,
 		runId = "home-write-1",
+		proposal = PROPOSAL,
 	) {
 		const context = createContext(db);
 		const client = createKernelRuntimeClient(context);
 		stubWriteKernel();
-		const planner = vi.fn(async () => PROPOSAL);
+		const planner = vi.fn(async () => proposal);
 		kernelRuntimeTestHooks.setKernelWriteProposalPlannerForTest(
 			planner as unknown as Parameters<
 				typeof kernelRuntimeTestHooks.setKernelWriteProposalPlannerForTest
@@ -8656,6 +8657,12 @@ describe("home approved-write layer (v1)", () => {
 			}),
 		);
 
+		expect(result.assistantMessage.content).toContain(
+			"Executed globex__create_invoice",
+		);
+		expect(result.assistantMessage.id).toBe(
+			"home-write-1:home-write:assistant",
+		);
 		// The per-click tax is removed: the stored call executed in-turn.
 		expect(executor).toHaveBeenCalledTimes(1);
 		const run = db.runs.find((row) => row.id === "home-write-1");
@@ -8666,6 +8673,40 @@ describe("home approved-write layer (v1)", () => {
 				source: "policy",
 				willAutoResolve: true,
 			},
+		});
+	});
+
+	it("returns the canonical document receipt after a policy-approved write", async () => {
+		const db = trustedPolicyDb(["fictional-os:os.create_os_output"]);
+		const outputId = "7c0723ef-fed7-4482-9454-4716ddfd5879";
+		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(async () => ({
+			ok: true as const,
+			data: {
+				output: { id: outputId, kind: "document", title: "Receipt check" },
+			},
+		}));
+		const { result, client } = await enqueueWriteProposalTurn(
+			db,
+			"home-write-doc",
+			{
+				...PROPOSAL,
+				appSlug: "fictional-os",
+				toolName: "os.create_os_output",
+				args: { amount: 100, customerName: "ACME" },
+			},
+		);
+		expect(result.run.status).toBe("completed");
+		expect(result.assistantMessage.content).toBe(
+			`Saved your document. [Open document](/outputs/${outputId}).`,
+		);
+		const receipt = db.events.find(
+			(event) => event.messageId === result.assistantMessage.id,
+		);
+		expect(result.assistantMessage.content).toBe(receipt?.payload?.content);
+		expect(result.status).toBe("completed");
+		const read = await client.readRun({ runId: result.run.id });
+		expect(read.run.metadata.kernelRoute).toMatchObject({
+			answer: result.assistantMessage.content,
 		});
 	});
 
@@ -8681,6 +8722,11 @@ describe("home approved-write layer (v1)", () => {
 		const { result } = await enqueueWriteProposalTurn(db);
 
 		expect(result.status).toBe("requires_approval");
+		expect(result.run.status).toBe("requires_approval");
+		expect(result.assistantMessage.content).toContain(
+			"Nothing has been executed. Reply “approve” or “yes” to proceed",
+		);
+		expect(result.assistantMessage.content).not.toContain("Executed");
 		expect(db.approvals[0]?.status).toBe("pending");
 		expect(db.approvals[0]?.resolvedBy).toBeNull();
 		expect(executor).not.toHaveBeenCalled();
