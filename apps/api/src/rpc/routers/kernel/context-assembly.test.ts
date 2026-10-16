@@ -40,6 +40,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	stripLocalTerminalContext,
 	asksAboutConversations,
+	conversationListWorkspaceId,
 	assembleHomeContext,
 	dedupeConversationHistory,
 	deriveAppCapabilities,
@@ -3177,11 +3178,36 @@ describe("recent conversations in Home context", () => {
 				{ id: "home:os:def", title: null, lastMessageAt: null },
 			],
 		} as unknown as KernelContext);
-		expect(rendered).toContain("HOME CONVERSATIONS (2 most recent");
+		expect(rendered).toContain(
+			"HOME CONVERSATIONS ACROSS THE ORGANIZATION (all workspaces) (2 most recent",
+		);
 		expect(rendered).toContain(
 			"- Q3 plan (id=home:os:abc last=2026-10-16T00:00:00.000Z)",
 		);
 		expect(rendered).toContain("- (untitled) (id=home:os:def)");
+	});
+
+	it("scopes the list to the workspace when asked about this workspace", () => {
+		expect(
+			conversationListWorkspaceId(
+				"List my conversations in this workspace.",
+				"ws-1",
+			),
+		).toBe("ws-1");
+		expect(
+			conversationListWorkspaceId("List my conversations", "ws-1"),
+		).toBeUndefined();
+		expect(
+			conversationListWorkspaceId("conversations in this workspace", undefined),
+		).toBeUndefined();
+		const rendered = renderHomeTurnContext({
+			workItems: [],
+			facts: [],
+			rationale: [],
+			recentConversations: [],
+			recentConversationsScope: "workspace",
+		} as unknown as KernelContext);
+		expect(rendered).toContain("HOME CONVERSATIONS IN THIS WORKSPACE: none");
 	});
 });
 
