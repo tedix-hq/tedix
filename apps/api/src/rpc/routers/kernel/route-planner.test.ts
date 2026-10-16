@@ -727,7 +727,7 @@ describe("planKernelRoute", () => {
 		});
 		expect(result?.routerVersion).toBe(await getRouterVersion(SYSTEM_PROMPT));
 
-		// generateObject sent KernelRouteDecisionSchema as the model contract —
+		// The generation schema is the model contract —
 		// routerVersion must not appear in its properties/required (strict
 		// structured output would force the model to emit it).
 		const responseFormat = capturedResponseFormat as {
@@ -1026,7 +1026,7 @@ describe("planKernelRoute", () => {
  */
 function streamingObjectModel(
 	jsonChunks: string[],
-	finalDecision: KernelRouteDecision,
+	finalDecision: unknown,
 ): MockLanguageModelV3 {
 	return new MockLanguageModelV3({
 		// streamObject calls doStream (not doGenerate): the provider streams the
@@ -1129,6 +1129,70 @@ function streamErrorModel(): MockLanguageModelV3 {
 }
 
 describe("planKernelRoute — single-pass streamObject", () => {
+	it("streams a compact answer before its internal metadata is reconstructed", async () => {
+		const wire = {
+			routeKind: "answer_in_home",
+			answer: "Hello",
+			confidence: 0.9,
+			details: null,
+		};
+		const deltas: string[] = [];
+		const result = await planKernelRoute({
+			content: "Say hello.",
+			context: EMPTY_CONTEXT,
+			model: streamingObjectModel(
+				[
+					'{"routeKind":"answer_in_home","answer":"Hel',
+					'lo","confidence":0.9,"details":null}',
+				],
+				wire,
+			),
+			onAnswerDelta: (delta) => deltas.push(delta),
+		});
+		expect(deltas.join("")).toBe("Hello");
+		expect(result).toMatchObject({
+			routeKind: "answer_in_home",
+			risk: "low",
+			confidence: 0.9,
+			plannedToolIds: [],
+			toolIntent: null,
+		});
+	});
+
+	it("streams rationale from nested action details", async () => {
+		const wire = {
+			routeKind: "ask_human",
+			answer: null,
+			confidence: 0.6,
+			details: {
+				rationale: "The target project is missing.",
+				risk: "low",
+				effortClass: null,
+				targetTediId: null,
+				targetTediLabel: null,
+				targetActivityId: null,
+				plannedToolIds: [],
+				toolIntent: null,
+				workflowHint: null,
+				clarifyingQuestion: "Which project should I use?",
+				evidenceExpectation: null,
+			},
+		};
+		const rationale: string[] = [];
+		const result = await planKernelRoute({
+			content: "Fix the project.",
+			context: EMPTY_CONTEXT,
+			model: streamingObjectModel([JSON.stringify(wire)], wire),
+			onAnswerDelta: () => {},
+			onRationaleDelta: (delta) => rationale.push(delta),
+		});
+		expect(rationale.join("")).toBe(wire.details.rationale);
+		expect(result).toMatchObject({
+			routeKind: "ask_human",
+			clarifyingQuestion: wire.details.clarifyingQuestion,
+		});
+	});
+
 	it("(a) flag-on: emits incremental onAnswerDelta suffixes for answer_in_home", async () => {
 		const decision: KernelRouteDecision = {
 			routeKind: "answer_in_home",

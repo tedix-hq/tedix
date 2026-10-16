@@ -39,6 +39,7 @@ import {
 	HOME_ROUTE_KINDS,
 	KernelRouteDecisionSchema,
 } from "./route-schema";
+import { KernelRouteGenerationObjectSchema } from "./route-generation";
 
 /**
  * Manually-bumped contract revision for semantic changes the content hash
@@ -54,9 +55,8 @@ import {
 export const ROUTER_CONTRACT_REV = 2;
 
 /**
- * Stable serialization of the model-facing route schema's shape: the route
- * kind enum, the effort class enum, and the SORTED top-level field names of
- * {@link KernelRouteDecisionSchema}. Sorting makes the hash insensitive to a
+ * Stable serialization of the internal and model-facing route shapes: the
+ * route kinds, effort classes, and sorted field names. Sorting makes the hash insensitive to a
  * pure field reorder (not a contract change) while staying sensitive to
  * adds/removes/renames.
  */
@@ -65,6 +65,9 @@ export function serializeRouteSchemaShape(): string {
 		routeKinds: HOME_ROUTE_KINDS,
 		effortClasses: HOME_EFFORT_CLASSES,
 		fields: Object.keys(KernelRouteDecisionSchema.shape).sort(),
+		generationFields: Object.keys(
+			KernelRouteGenerationObjectSchema.shape,
+		).sort(),
 	});
 }
 

@@ -25,6 +25,7 @@ describe("serializeRouteSchemaShape", () => {
 			routeKinds: string[];
 			effortClasses: string[];
 			fields: string[];
+			generationFields: string[];
 		};
 		expect(parsed.routeKinds).toEqual([...HOME_ROUTE_KINDS]);
 		expect(parsed.effortClasses).toEqual([...HOME_EFFORT_CLASSES]);
@@ -33,6 +34,12 @@ describe("serializeRouteSchemaShape", () => {
 		expect(parsed.fields).toContain("routeKind");
 		expect(parsed.fields).toContain("effortClass");
 		expect(parsed.fields).toContain("rationale");
+		expect(parsed.generationFields).toEqual([
+			"answer",
+			"confidence",
+			"details",
+			"routeKind",
+		]);
 		// The stamp itself must never be part of the model-facing schema shape.
 		expect(parsed.fields).not.toContain("routerVersion");
 	});
