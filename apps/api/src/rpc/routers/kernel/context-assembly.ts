@@ -145,7 +145,13 @@ export interface KernelContext {
 		 */
 		selectionPrior?: { successRate: number; total: number };
 	}[];
-	apps: { slug: string; name: string; capabilities?: string[] }[];
+	apps: {
+		slug: string;
+		name: string;
+		capabilities?: string[];
+		/** A Code Mode gateway: it carries Tedix OS writes. Not rendered. */
+		codeMode?: true;
+	}[];
 	/**
 	 * Org-wide runnable workflow catalog (slug + title), surfaced so the planner
 	 * can ground a `run_workflow` route on a real slug independent of whether a
@@ -1639,10 +1645,15 @@ export async function assembleHomeContext(
 
 	const apps: KernelContext["apps"] = appRows.map((app) => {
 		const capabilities = deriveAppCapabilities(app);
+		const mcpConfig = app.metadata?.mcpConfig as
+			| { codeMode?: unknown }
+			| null
+			| undefined;
 		return {
 			slug: app.slug ?? app.id,
 			name: app.name,
 			...(capabilities ? { capabilities } : {}),
+			...(mcpConfig?.codeMode === true ? { codeMode: true as const } : {}),
 		};
 	});
 

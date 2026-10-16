@@ -649,3 +649,60 @@ it.each([
 		else expect(planKernelRoute).not.toHaveBeenCalled();
 	},
 );
+
+it("routes an explicit deck request answered in prose to an output write", async () => {
+	const { assembleHomeContext } = await import("./context-assembly");
+	const { planKernelRoute } = await import("./route-planner");
+	vi.mocked(planKernelRoute).mockClear();
+	vi.mocked(assembleHomeContext).mockResolvedValue({
+		tedis: [],
+		apps: [
+			{ slug: "globex-mail", name: "Globex Mail" },
+			{
+				slug: "acme-unified",
+				name: "Acme",
+				capabilities: ["catalog.install"],
+				codeMode: true,
+			},
+		],
+		workflows: [],
+		workItems: [],
+		facts: [],
+		rationale: [],
+		speaker: null,
+		history: [],
+		promptCharsEstimate: 1000,
+		lastStepPromptTokens: 1,
+	} as never);
+	vi.mocked(planKernelRoute).mockResolvedValue({
+		...blockedRoute,
+		routeKind: "answer_in_home",
+		answer: "Slide 1: Welcome. Slide 2: Menu. Slide 3: Hours.",
+		targetTediId: null,
+		targetTediLabel: null,
+		targetActivityId: null,
+		plannedToolIds: [],
+		usage: null,
+	} as never);
+	const result = await runKernel({
+		db: {} as never,
+		env: {
+			AI: {},
+			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+		} as never,
+		organizationId: "org",
+		content: "Create a 3-slide deck about Blue Harbor Bakery",
+	});
+	expect(vi.mocked(planKernelRoute).mock.lastCall?.[0].onAnswerDelta).toBe(
+		undefined,
+	);
+	expect(result?.route).toMatchObject({
+		routeKind: "propose_tool_write",
+		answer: null,
+		toolIntent: {
+			appSlug: "acme-unified",
+			capability: "presentations.create",
+		},
+	});
+	expect(result?.assistantContent).not.toContain("Slide 1");
+});

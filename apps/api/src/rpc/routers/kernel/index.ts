@@ -1,4 +1,7 @@
-import { guardKernelRouteDecision } from "./delegation-intent";
+import {
+	guardKernelRouteDecision,
+	hasExplicitDelegationIntent,
+} from "./delegation-intent";
 import { createJevContextRanker } from "./jev-context-ranking";
 import { createJevDelegationRanker } from "./jev-delegation-fit";
 import type { KernelExecutionAttempt } from "./gateway-attribution";
@@ -96,6 +99,11 @@ import type {
 	KernelRouteTraceInput,
 	KernelRouteUsage,
 } from "./route-planner";
+import {
+	explicitOutputCreateKind,
+	outputWriteApp,
+	routeExplicitOutputCreate,
+} from "./output-create-intent";
 import { planKernelRoute } from "./route-planner";
 import type { KernelRouteDecision } from "./route-schema";
 import { readOrgDispatchPolicyLayer } from "./tedi-capabilities";
@@ -850,6 +858,15 @@ export async function runKernel(args: {
 	// non-answer route) reaches the delivery block below with nothing streamed.
 	let plannerStreamedAnswer = false;
 
+	// "Create a deck about X" is a write. Checked before the model: no answer
+	// is streamed for it, and a prose answer becomes a write proposal below.
+	const outputCreateKind = hasExplicitDelegationIntent(inputContent)
+		? null
+		: explicitOutputCreateKind(inputContent);
+	const outputCreateApp = outputCreateKind
+		? outputWriteApp(context.apps)
+		: null;
+
 	// Every request outside the bounded workspace-roster read above is routed by
 	// the model. A null result means no valid route was produced; the caller
 	// settles the turn as failed.
@@ -866,18 +883,20 @@ export async function runKernel(args: {
 		abortSignal,
 		// Forward answer deltas from the single streamObject pass directly into
 		// the onProgress channel — the streamed deltas are the delivered answer.
-		onAnswerDelta: (delta: string) => {
-			try {
-				plannerStreamedAnswer = true;
-				onProgress?.({
-					stage: "Answering",
-					phase: "generating",
-					answerDelta: delta,
-				});
-			} catch {
-				// Advisory only.
-			}
-		},
+		onAnswerDelta: outputCreateApp
+			? undefined
+			: (delta: string) => {
+					try {
+						plannerStreamedAnswer = true;
+						onProgress?.({
+							stage: "Answering",
+							phase: "generating",
+							answerDelta: delta,
+						});
+					} catch {
+						// Advisory only.
+					}
+				},
 		// Provisional thinking line. `rationale` streams on every route, so this
 		// is what the operator sees while a delegate_tedi / propose_tool_write /
 		// run_workflow / ask_human plan is being decided — routes where `answer`
@@ -1008,6 +1027,7 @@ export async function runKernel(args: {
 		context.tedis,
 		context.delegationAvailable,
 	);
+	route = routeExplicitOutputCreate(route, outputCreateKind, outputCreateApp);
 
 	// delegate_tedi authorization evidence: when the planner names a target that
 	// carries a capability card, construct the work order + the fail-closed
