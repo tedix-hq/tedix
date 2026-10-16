@@ -289,6 +289,7 @@ export function parseOptions(argv: string[]): {
 
 	if (!options.prompt && positional.length > 0) {
 		options.prompt = positional.join(" ");
+		options.positionals = positional;
 	}
 	const parsedCommand = command ?? "chat";
 	options.commandExplicit = Boolean(command);

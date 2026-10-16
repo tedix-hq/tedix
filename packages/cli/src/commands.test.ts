@@ -244,6 +244,31 @@ describe("@tedix/cli command registry", () => {
 		expect(observedWorkItemId).toBe("work-123");
 	});
 
+	test("rename keeps a quoted conversation id with spaces as one argument", async () => {
+		let observed: unknown;
+		const client = {
+			renameConversation: async (input: unknown) => {
+				observed = input;
+				return { ok: true };
+			},
+		} as unknown as TedixHomeClient;
+		await captureStdout(async () => {
+			expect(
+				await findCommand("rename")?.handler(
+					"home:os:Q3 plan New title here",
+					makeContext({
+						client,
+						positionals: ["home:os:Q3 plan", "New title", "here"],
+					}),
+				),
+			).toBe(0);
+		});
+		expect(observed).toEqual({
+			conversationId: "home:os:Q3 plan",
+			title: "New title here",
+		});
+	});
+
 	test("approve follows the run it released and prints the answer", async () => {
 		// The defect: an operator approved a delegation, the tedi ran three model
 		// rounds and was billed for them, and the CLI printed the dispatch ack and

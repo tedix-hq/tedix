@@ -16,11 +16,42 @@ import {
 	osQueryKeys,
 } from "@/lib/os-query-options";
 
+const WORKSPACE_NAME_MAX_WORDS = 5;
+const WORKSPACE_NAME_MAX_CHARS = 40;
+const LEADING_FILLER =
+	/^(?:please|pls|hey|hi|hello|ok(?:ay)?|so|tedi|can you|could you|would you|will you|i want to|i'd like to|i would like to|i need to|i need|help me(?: to)?|let's|lets)\b[\s,:]*/i;
+
+/** Where an unquoted "titled X" stops: the rest describes the content. */
+const TITLE_END =
+	/\s+(?:with|for|that|which|and|about|containing|including)\b|[,.;:!?]/i;
+
+/**
+ * A short workspace name for the first send of a new chat. The whole prompt
+ * made a sentence-long workspace title; this keeps an explicit title
+ * ("titled X", "called X", or quoted text) or else the first few words, with
+ * polite lead-ins dropped. Deterministic, so no model call sits on the send.
+ */
 export function workspaceNameFromPrompt(prompt: string): string {
 	const normalized = prompt.replace(/\s+/g, " ").trim();
-	if (!normalized) return "New conversation";
-	if (normalized.length <= 72) return normalized;
-	return `${normalized.slice(0, 69).trimEnd()}…`;
+	const quoted = normalized.match(/["“]([^"”]{2,})["”]/)?.[1];
+	const titled = normalized
+		.match(/\b(?:titled|called|named)\s+(.+)$/i)?.[1]
+		?.split(TITLE_END)[0];
+	let text = (quoted ?? titled ?? normalized).trim();
+	for (let previous = ""; previous !== text;) {
+		previous = text;
+		text = text.replace(LEADING_FILLER, "");
+	}
+	const words = text.split(" ").filter(Boolean);
+	let name = words.slice(0, WORKSPACE_NAME_MAX_WORDS).join(" ");
+	if (name.length > WORKSPACE_NAME_MAX_CHARS) {
+		const cut = name.slice(0, WORKSPACE_NAME_MAX_CHARS);
+		const space = cut.lastIndexOf(" ");
+		name = space > 10 ? cut.slice(0, space) : cut;
+	}
+	name = name.replace(/[\s.,;:!?…-]+$/u, "");
+	if (!name) return "New conversation";
+	return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 export function workspaceRetryName(name: string, suffix: string): string {
@@ -94,7 +125,7 @@ export function ChatPage() {
 					prepareNewConversation={async (content) => {
 						const name = workspaceNameFromPrompt(content);
 						const description =
-							"Created from a Tedix OS conversation. Gadgets and outputs appear here as the work develops.";
+							"Started from chat. Documents, sheets and decks from this conversation appear here.";
 						let workspace;
 						try {
 							({ workspace } = await osApi.osWorkspaces.workspaces.create({
