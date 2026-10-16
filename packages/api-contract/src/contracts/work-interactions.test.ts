@@ -1,5 +1,8 @@
 import {
 	ListWorkInteractionCliInboxInputSchema,
+	ProposedWorkSchema,
+	WORK_PROPOSAL_SCHEMA,
+	WorkProposalMetadataSchema,
 	WorkInteractionReplyDraftSchema,
 } from "../schemas/work-interactions";
 import { describe, expect, it } from "vite-plus/test";
@@ -11,6 +14,49 @@ import {
 import { workInteractionsContract } from "./work-interactions";
 
 describe("Work interactions contract", () => {
+	it("parses bounded Work proposals while ignoring surrounding evidence", () => {
+		const item = { title: " Task ", sourceIntentId: " intent-1 " };
+		const proposal = { key: "proposal-1", item };
+		expect(
+			WorkProposalMetadataSchema.parse({
+				schema: WORK_PROPOSAL_SCHEMA,
+				proposal,
+				source: "chat",
+				citations: [],
+			}),
+		).toEqual({
+			schema: WORK_PROPOSAL_SCHEMA,
+			proposal: {
+				key: "proposal-1",
+				item: { title: "Task", sourceIntentId: "intent-1" },
+				children: [],
+			},
+		});
+		for (const invalid of [
+			{ ...item, title: " " },
+			{ ...item, title: "x".repeat(301) },
+			{ ...item, sourceIntentId: " " },
+			{ ...item, sourceIntentId: "x".repeat(301) },
+			{ ...item, description: "x".repeat(8_001) },
+			{ ...item, extra: true },
+		])
+			expect(ProposedWorkSchema.safeParse(invalid).success).toBe(false);
+		for (const invalid of [
+			{ ...proposal, key: "" },
+			{ ...proposal, key: "x".repeat(201) },
+			{ ...proposal, projectId: "invalid" },
+			{ ...proposal, parentWorkItemId: "invalid" },
+			{ ...proposal, extra: true },
+			{ ...proposal, children: Array.from({ length: 26 }, () => item) },
+		])
+			expect(
+				WorkProposalMetadataSchema.safeParse({
+					schema: WORK_PROPOSAL_SCHEMA,
+					proposal: invalid,
+				}).success,
+			).toBe(false);
+	});
+
 	it("exposes structured request, immutable response, cancellation, detail, and inbox operations", () => {
 		expect(Object.keys(workInteractionsContract)).toEqual([
 			"listCliInboxProjection",

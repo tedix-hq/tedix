@@ -6,6 +6,29 @@ import {
 	WorkFactoryProjectionCursorSchema,
 } from "./work-items";
 
+export const WORK_PROPOSAL_SCHEMA = "tedix.work-proposal.v1";
+
+export const ProposedWorkSchema = z
+	.strictObject({
+		title: z.string().trim().min(1).max(300),
+		description: z.string().max(8_000).optional(),
+		sourceIntentId: z.string().trim().min(1).max(300),
+	})
+	.describe("Work to create once the addressed user accepts the proposal.");
+
+export const WorkProposalMetadataSchema = z
+	.object({
+		schema: z.literal(WORK_PROPOSAL_SCHEMA),
+		proposal: z.strictObject({
+			key: z.string().min(1).max(200),
+			projectId: z.uuid().optional().describe("Omit to leave Work unfiled."),
+			parentWorkItemId: z.uuid().optional().describe("Existing parent Work."),
+			item: ProposedWorkSchema,
+			children: z.array(ProposedWorkSchema).max(25).default([]),
+		}),
+	})
+	.describe("Handoff proposal; additional evidence keys are ignored.");
+
 export const WorkInteractionKindSchema = z.enum([
 	"question",
 	"input",
