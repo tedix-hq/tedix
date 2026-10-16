@@ -993,8 +993,9 @@ async function planWriteCall(args: {
 						(key) => !(key in (args.paramDefaults ?? {})),
 					),
 				};
+	let invalidArgumentFields: string[] = [];
 	try {
-		const generate = () =>
+		const generate = (repairFields: string[] = []) =>
 			tracedAi.generateObject({
 				model: args.model,
 				schema: jsonSchema<z.infer<typeof WriteCallPlanSchema>>(
@@ -1017,6 +1018,38 @@ async function planWriteCall(args: {
 					{
 						validate: (value) => {
 							const result = WriteCallPlanSchema.safeParse(value);
+							if (
+								result.success &&
+								!args.selectionOnly &&
+								result.data.args &&
+								typeof result.data.args === "object" &&
+								!Array.isArray(result.data.args) &&
+								args.tools.some((tool) => tool.name === result.data.toolName)
+							) {
+								invalidArgumentFields = [];
+								const checked = validateProposedCall(
+									{
+										toolName: result.data.toolName,
+										args: normalizeOsSheetCellAddress(
+											args.content,
+											result.data.toolName,
+											result.data.args as Record<string, unknown>,
+										),
+									},
+									args.tools,
+									args.paramDefaults,
+									(fields) => {
+										invalidArgumentFields = fields;
+									},
+								);
+								if (!checked)
+									return {
+										success: false,
+										error: new Error(
+											`Invalid write input fields: ${JSON.stringify(invalidArgumentFields)}`,
+										),
+									};
+							}
 							return result.success
 								? { success: true, value: result.data }
 								: { success: false, error: result.error };
@@ -1030,17 +1063,22 @@ async function planWriteCall(args: {
 					"kernel.write_proposal",
 					args.span ?? {},
 				),
-				prompt: buildUserPrompt({
-					workspaceContext: args.workspaceContext,
-					conversationId: args.conversationId,
-					editTarget: args.editTarget,
-					editReference: args.editReference,
-					openWorkRequests: args.openWorkRequests,
-					content: args.content,
-					capability: args.capability,
-					tools: args.tools,
-					paramDefaults: args.paramDefaults,
-				}),
+				prompt:
+					buildUserPrompt({
+						workspaceContext: args.workspaceContext,
+						conversationId: args.conversationId,
+						editTarget: args.editTarget,
+						editReference: args.editReference,
+						openWorkRequests: args.openWorkRequests,
+						content: args.content,
+						capability: args.capability,
+						tools: args.tools,
+						paramDefaults: args.paramDefaults,
+					}) +
+					(repairFields.length
+						? `
+The previous plan failed the exact tool input schema at these field paths: ${JSON.stringify(repairFields)}. Correct those fields and return the complete plan. Do not omit required nested state.`
+						: ""),
 				maxOutputTokens: MAX_OUTPUT_TOKENS,
 				// Provider strict schemas cannot express arbitrary MCP optional fields.
 				// The complete selected input contract is validated before any approval.
@@ -1070,7 +1108,7 @@ async function planWriteCall(args: {
 				throw error;
 			// Retry argument generation only, inside the original deadline. No
 			// provider mutation has been proposed or executed at this point.
-			return generate();
+			return generate(invalidArgumentFields);
 		});
 		const plan = result.object;
 		if (!plan.toolName || plan.toolName === NO_WRITE_TOOL) {
@@ -1125,6 +1163,7 @@ function validateProposedCall(
 	planned: { toolName: string; args: Record<string, unknown> },
 	writes: McpTool[],
 	paramDefaults: ToolParamDefaults | null,
+	onInvalid?: (fields: string[]) => void,
 ): {
 	tool: McpTool;
 	args: Record<string, unknown>;
@@ -1144,17 +1183,24 @@ function validateProposedCall(
 		}
 	}
 	const required = tool.inputSchema?.required ?? [];
-	if (!required.every((key) => key in args)) return null;
+	const missing = required.filter((key) => !(key in args));
+	if (missing.length) {
+		onInvalid?.(missing);
+		return null;
+	}
 	try {
 		if (JSON.stringify(args).length > MAX_ARGS_JSON_LENGTH) return null;
-		if (
-			!z
-				.fromJSONSchema({ type: "object", ...tool.inputSchema } as Parameters<
-					typeof z.fromJSONSchema
-				>[0])
-				.safeParse(args).success
-		)
+		const parsed = z
+			.fromJSONSchema({ type: "object", ...tool.inputSchema } as Parameters<
+				typeof z.fromJSONSchema
+			>[0])
+			.safeParse(args);
+		if (!parsed.success) {
+			onInvalid?.(
+				parsed.error.issues.map((issue) => issue.path.map(String).join(".")),
+			);
 			return null;
+		}
 	} catch {
 		return null;
 	}

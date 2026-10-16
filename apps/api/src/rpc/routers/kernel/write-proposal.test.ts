@@ -1072,6 +1072,71 @@ describe("planKernelWriteProposal — positive path", () => {
 			service.calls.filter((call) => call.method === "tools/call"),
 		).toHaveLength(0);
 	});
+	it("repairs schema-invalid tool arguments once, before any write executes", async () => {
+		const service = mcpService(globexProvider);
+		const model = objectModel({
+			toolName: "globex__create_invoice",
+			args: { amount: 12 },
+			reasoning: null,
+		});
+		const generate = vi
+			.spyOn(model, "doGenerate")
+			.mockImplementationOnce(async () => ({
+				finishReason: "stop",
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				warnings: [],
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify({
+							toolName: "globex__create_invoice",
+							args: { amount: "12" },
+						}),
+					},
+				],
+			}));
+		const result = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "Create a draft invoice for 12",
+			model,
+		});
+		expect(result?.args).toEqual({ amount: 12 });
+		expect(generate).toHaveBeenCalledTimes(2);
+		expect(JSON.stringify(generate.mock.calls[1]?.[0].prompt)).toContain(
+			"amount",
+		);
+		expect(JSON.stringify(generate.mock.calls[1]?.[0].prompt)).toContain(
+			"previous plan failed",
+		);
+		expect(
+			service.calls.filter((call) => call.method === "tools/call"),
+		).toHaveLength(0);
+	});
+
+	it("stops after one failed input repair without proposing a write", async () => {
+		const service = mcpService(globexProvider);
+		const model = objectModel({
+			toolName: "globex__create_invoice",
+			args: { amount: "12" },
+		});
+		const result = await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-1",
+			route: writeRoute(),
+			content: "Create a draft invoice for 12",
+			model,
+		});
+		expect(result).toBeNull();
+		expect(model.doGenerateCalls).toHaveLength(2);
+		expect(
+			service.calls.filter((call) => call.method === "tools/call"),
+		).toHaveLength(0);
+	});
+
 	it.each([true, false])(
 		"uses the canonical title only for the matching edit target (%s)",
 		async (matches) => {
@@ -2247,7 +2312,8 @@ describe("exact output input schemas", () => {
 			model,
 		});
 		expect(Boolean(result)).toBe(accepted);
-		expect(prompts).toHaveLength(1);
+		expect(prompts).toHaveLength(accepted ? 1 : 2);
+		if (!accepted) expect(prompts[1]).toContain("previous plan failed");
 		expect(prompts[0]).not.toContain("Input JSON Schema:");
 		expect(responseFormats[0]).toContain("paragraph");
 		expect(responseFormats[0]).toContain("$defs");
