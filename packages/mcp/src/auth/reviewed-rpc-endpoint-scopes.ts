@@ -602,6 +602,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tediApprovals/create": "platform:admin",
 	"tediApprovals/createProvisionalOutcome": "platform:admin",
 	"tediApprovals/getById": "mcp:tedis.read",
+	"tediApprovals/getBrowserTakeoverStatus": "platform:admin",
 	"tediApprovals/getProvenance": "mcp:tedis.read",
 	"tediApprovals/getReviewManifest": "mcp:tedis.read",
 	"tediApprovals/list": "mcp:tedis.read",

@@ -60,8 +60,70 @@ export const BrowserHostnamePatternSchema = z
 export const BrowserHostnamePolicySchema = z.object({
 	allowedHostnames: z.array(BrowserHostnamePatternSchema).max(100).default([]),
 	deniedHostnames: z.array(BrowserHostnamePatternSchema).max(100).default([]),
+	presets: z.array(z.literal("tedix-console-sign-in")).max(1).optional(),
 });
 export type BrowserHostnamePolicy = z.infer<typeof BrowserHostnamePolicySchema>;
+
+export const TEDIX_CONSOLE_SIGN_IN_HOSTNAMES = [
+	"tedix.os.tedix.dev",
+	"*.os.tedix.dev",
+	"os.tedix.dev",
+	"auth.tedix.dev",
+	"api.tedix.dev",
+	"api.descope.com",
+	"static.descope.com",
+	"descopecdn.com",
+	"static.descopecdn.com",
+	"accounts.google.com",
+	"ssl.gstatic.com",
+	"www.gstatic.com",
+	"fonts.googleapis.com",
+	"fonts.gstatic.com",
+	"challenges.cloudflare.com",
+	"static.cloudflareinsights.com",
+] as const;
+
+export function browserAllowedHostnames(
+	policy?: BrowserHostnamePolicy,
+): string[] {
+	return [
+		...new Set([
+			...(policy?.allowedHostnames ?? []),
+			...(policy?.presets?.includes("tedix-console-sign-in")
+				? TEDIX_CONSOLE_SIGN_IN_HOSTNAMES
+				: []),
+		]),
+	];
+}
+
+export function canManageBrowserEgress(
+	authType?: string | null,
+	role?: string | null,
+): boolean {
+	return authType === "user" && (role === "owner" || role === "admin");
+}
+
+export const BrowserTakeoverStatusSchema = z.object({
+	status: z.string(),
+	sameSession: z.boolean(),
+	urlExpiresAt: z.string().optional(),
+	targets: z
+		.array(
+			z.object({
+				targetId: z.string(),
+				url: z.url().refine((raw) => {
+					const url = new URL(raw);
+					return (
+						url.protocol === "https:" &&
+						url.hostname === "live.browser.run" &&
+						!url.username &&
+						!url.password
+					);
+				}),
+			}),
+		)
+		.default([]),
+});
 
 /** Browser Run's server-side `keep_alive` bounds for a tedi's persistent browser. */
 export const BROWSER_SESSION_KEEP_ALIVE_MIN_MS = 60_000;

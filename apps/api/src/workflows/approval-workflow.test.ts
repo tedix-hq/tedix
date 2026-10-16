@@ -46,7 +46,7 @@ function approval(status: string) {
 	};
 }
 
-function harness(onWait?: () => void) {
+function harness(onWait?: () => void, env: Partial<CloudflareEnv> = {}) {
 	const calls: string[] = [];
 	const step = {
 		do: vi.fn(
@@ -68,6 +68,7 @@ function harness(onWait?: () => void) {
 	(workflow as unknown as { env: CloudflareEnv }).env = {
 		DB: {},
 		ENVIRONMENT: "test",
+		...env,
 	} as CloudflareEnv;
 	return {
 		calls,
@@ -103,6 +104,60 @@ beforeEach(() => {
 });
 
 describe("ApprovalWorkflow", () => {
+	it("resumes a browser takeover through the durable original-session queue after approval", async () => {
+		let status = "pending";
+		mocks.getApproval.mockImplementation(async () => ({
+			...approval(status),
+			actionType: "browser.live_view_takeover",
+			payload: {
+				kind: "browser_live_view_takeover",
+				sessionKey: "console-task",
+			},
+		}));
+		mocks.getTedi.mockResolvedValue({
+			slug: "example-worker",
+			organizationId: "org-1",
+		});
+		const fetch = vi.fn(async (_request: Request) =>
+			Response.json({ accepted: true, run_id: "wake-run-1" }, { status: 202 }),
+		);
+		const { run } = harness(
+			() => {
+				status = "approved";
+			},
+			{ TEDI_SERVICE: { fetch } as unknown as Fetcher },
+		);
+		await run();
+		expect(fetch).toHaveBeenCalledOnce();
+		const request = fetch.mock.calls[0]![0] as unknown as Request;
+		expect(request.url).toBe("https://tedi/hooks/inject");
+		expect(await request.json()).toMatchObject({
+			session_key: "console-task",
+			async: true,
+		});
+	});
+	it("leaves a failed browser wake retryable instead of claiming notification", async () => {
+		mocks.getApproval.mockResolvedValue({
+			...approval("approved"),
+			actionType: "browser.live_view_takeover",
+			payload: {
+				kind: "browser_live_view_takeover",
+				sessionKey: "console-task",
+			},
+		});
+		mocks.getTedi.mockResolvedValue({
+			slug: "example-worker",
+			organizationId: "org-1",
+		});
+		const fetch = vi.fn(
+			async () => new Response("unavailable", { status: 503 }),
+		);
+		await expect(
+			harness(undefined, {
+				TEDI_SERVICE: { fetch } as unknown as Fetcher,
+			}).run(),
+		).rejects.toThrow("503");
+	});
 	it("wakes on the resolution event and settles the linked Gadget automatically", async () => {
 		let status = "pending";
 		mocks.getApproval.mockImplementation(async () => approval(status));

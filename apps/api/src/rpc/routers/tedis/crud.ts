@@ -1,4 +1,5 @@
 import type { CreateTediInput } from "@tedix/api-contract/schemas/tedi";
+import { canManageBrowserEgress } from "@tedix/api-contract/schemas/tedi";
 /**
  * Tedis Router — CRUD procedures + logs
  */
@@ -842,6 +843,18 @@ export const updateTediProcedure = authedTedisOs.update
 			throw createError(
 				ErrorCodes.FORBIDDEN,
 				`Capability/policy field(s) [${touchedCapabilityFields.join(", ")}] require a human operator or an operator-issued API key — no other caller identity, including an agent-authenticated tedi, an M2M client, or an internal service binding, can durably change a capability tier, even its own or another tedi's, regardless of its own granted scopes.`,
+			);
+		}
+
+		if (
+			data.toolPolicy !== undefined &&
+			JSON.stringify(data.toolPolicy?.browserEgress ?? null) !==
+				JSON.stringify(existingTedi.toolPolicy?.browserEgress ?? null) &&
+			!canManageBrowserEgress(context.authType, context.userRole)
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only organization admins can change browser egress",
 			);
 		}
 

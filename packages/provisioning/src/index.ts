@@ -323,6 +323,16 @@ export async function resetSandbox(
 	});
 }
 
+export async function getBrowserTakeoverStatus(
+	config: ProvisioningConfig,
+	approvalRequestId: string,
+): Promise<unknown> {
+	return runtimeFetch(config, "/__internal/browser/takeover-status", {
+		method: "POST",
+		body: JSON.stringify({ approvalRequestId }),
+	});
+}
+
 /**
  * Inject a message into an Agent-runtime tedi via its service-binding
  * `/hooks/inject` route. Apps/tedi forwards requests to apps/tedi-runtime; the

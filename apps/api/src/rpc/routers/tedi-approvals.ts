@@ -17,6 +17,7 @@ import {
 	type ProvisionalOutcome,
 	tediApprovalsContract,
 } from "@tedix/api-contract/contracts/tedi-approvals";
+import { BrowserTakeoverStatusSchema } from "@tedix/api-contract/schemas/tedi";
 import {
 	hasApprovalProvenanceRequest,
 	listApprovalSimulationPage,
@@ -71,6 +72,9 @@ import {
 } from "../orpc";
 import { settleHomeToolWriteApproval } from "./kernel/write-approval-settlement";
 import { requireOrgId } from "../org-scope";
+import { getBrowserTakeoverStatus } from "@tedix/provisioning";
+import { getProvisioningConfig } from "./tedis/helpers";
+import { isSameBrowserTakeover } from "../../services/browser-takeover";
 
 // =============================================================================
 // IMPLEMENTER
@@ -678,6 +682,40 @@ const createApprovalProcedure = approvalsOs.create
 		const expiresAt = new Date(now.getTime() + input.ttlHours * 60 * 60 * 1000);
 		const id = crypto.randomUUID();
 		const workflowId = `approval-${id}`;
+
+		if (input.replacesApprovalRequestId) {
+			const previous = await getApprovalRequestById(
+				context.db,
+				input.replacesApprovalRequestId,
+			);
+			if (
+				!previous ||
+				previous.orgId !== input.orgId ||
+				!isSameBrowserTakeover(previous, input)
+			) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only a takeover for the same tedi, organization and browser session can be replaced",
+				);
+			}
+			if (previous.status === "pending") {
+				const cancelled = await resolveApprovalRequest(
+					context.db,
+					previous.id,
+					{
+						status: "cancelled",
+						resolvedBy: input.tediId,
+						resolution: `Replaced by browser takeover ${id}`,
+					},
+				);
+				if (!cancelled)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Browser takeover changed during replacement",
+					);
+				await signalApprovalWorkflow(context, cancelled);
+			}
+		}
 
 		const request = await createApprovalRequest(context.db, {
 			id,
@@ -1432,7 +1470,36 @@ const cancelProcedure = tediOs.cancel.handler(async ({ input, context }) => {
 // CONTRACT ROUTER
 // =============================================================================
 
+const getBrowserTakeoverStatusProcedure = authedOs.getBrowserTakeoverStatus
+	.use(AUTHZ.osApprove)
+	.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context, "browser takeover");
+		const approval = await getApprovalRequestById(context.db, input.id);
+		if (!approval || approval.orgId !== orgId)
+			throw createError(ErrorCodes.NOT_FOUND, "Browser takeover not found");
+		if (approval.actionType !== "browser.live_view_takeover")
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Approval is not a browser takeover",
+			);
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			approval.tediId,
+			orgId,
+		);
+		const config = tedi && getProvisioningConfig(tedi, context.env);
+		if (!config)
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"Tedi runtime is unavailable",
+			);
+		return BrowserTakeoverStatusSchema.parse(
+			await getBrowserTakeoverStatus(config, approval.id),
+		);
+	});
+
 export const tediApprovalsContractRouter = approvalsOs.router({
+	getBrowserTakeoverStatus: getBrowserTakeoverStatusProcedure,
 	createProvisionalOutcome: createProvisionalOutcomeProcedure,
 	listProvisionalOutcomes: listProvisionalOutcomesProcedure,
 	requestProvisionalOutcomePromotion:
