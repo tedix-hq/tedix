@@ -209,11 +209,13 @@ vi.mock("@/components/chat-thread", () => ({
 	ChatThread: ({
 		conversationId,
 		composerOnly,
+		context,
 		onSendStarted,
 		onConversationCreated,
 	}: {
 		conversationId: string | null;
 		composerOnly?: boolean;
+		context?: { kind: string; id: string; label: string };
 		onSendStarted?: () => void;
 		onConversationCreated?: (conversationId: string) => void;
 	}) => {
@@ -223,6 +225,8 @@ vi.mock("@/components/chat-thread", () => ({
 			<div
 				data-chat-thread={conversationId ?? "new"}
 				data-composer-only={composerOnly}
+				data-context-kind={context?.kind}
+				data-context-id={context?.id}
 			>
 				Workspace chat
 			</div>
@@ -1405,6 +1409,25 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain("Superseded iteration");
 		expect(container.textContent).toContain("Live candidate");
 	});
+
+	it.each([
+		["Weekly report", "output", OUTPUT_ID],
+		["Report gadget", "gadget", GADGET_ID],
+	])(
+		"keeps the selected %s in the list composer's first send context",
+		async (label, kind, id) => {
+			mockLists();
+			const container = await openDoc(label);
+			const composer = container.querySelector('[data-composer-only="true"]');
+			expect(composer?.getAttribute("data-context-kind")).toBe(kind);
+			expect(composer?.getAttribute("data-context-id")).toBe(id);
+			act(() => chatHarness.onSendStarted?.());
+			expect(container.querySelector('[data-composer-only="false"]')).toBe(
+				composer,
+			);
+			expect(composer?.getAttribute("data-context-id")).toBe(id);
+		},
+	);
 
 	it("browses, switches, and starts durable Home conversations inside a workspace", async () => {
 		mockLists();

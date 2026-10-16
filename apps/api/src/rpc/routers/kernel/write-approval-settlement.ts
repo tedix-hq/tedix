@@ -353,13 +353,74 @@ export async function resolveKernelFallbackTediId(
 /** Operator-facing confirmation card for a parked Kernel write. */
 export function kernelWriteCardContent(input: {
 	approvalRequestId: string;
-	proposal: Pick<KernelWriteProposal, "appSlug" | "args" | "toolName">;
+	proposal: Pick<
+		KernelWriteProposal,
+		"appSlug" | "args" | "toolName" | "outputTitle"
+	>;
 }): string {
+	const { args, toolName, outputTitle } = input.proposal;
+	const tool = /^os(?:\.|__)(.+)$/.exec(toolName)?.[1];
+	const name = outputTitle
+		? `“${plainReceiptTitle(outputTitle)}”`
+		: "your output";
+	let summary: string;
+	if (tool === "create_os_output") {
+		const kind =
+			typeof args.kind === "string" ? plainReceiptTitle(args.kind) : "document";
+		const title =
+			typeof args.title === "string"
+				? ` “${plainReceiptTitle(args.title)}”`
+				: "";
+		summary = `Create ${kind}${title}`;
+	} else if (
+		tool === "set_os_sheet_range" &&
+		typeof args.startRow === "number" &&
+		typeof args.startColumn === "number" &&
+		Array.isArray(args.cells)
+	) {
+		const cell = (row: number, column: number) => {
+			let letters = "";
+			for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+				letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters;
+			}
+			return `${letters}${row + 1}`;
+		};
+		const start = cell(args.startRow, args.startColumn);
+		const width = Math.max(
+			...args.cells.map((row) => (Array.isArray(row) ? row.length : 0)),
+		);
+		const end = cell(
+			args.startRow + args.cells.length - 1,
+			args.startColumn + width - 1,
+		);
+		summary = `Update cells ${start === end ? start : `${start}:${end}`} in ${outputTitle ? name : "your sheet"}`;
+	} else if (tool && OUTPUT_EDIT_RECEIPT_VERBS.has(tool)) {
+		summary =
+			tool === "rename_os_output" && typeof args.title === "string"
+				? `Rename ${name} to “${plainReceiptTitle(args.title)}”`
+				: `Update ${name}`;
+	} else {
+		const action = plainReceiptTitle(
+			(toolName.split(/\.|__/).at(-1) ?? toolName).replace(/_/g, " "),
+		);
+		const details = ["title", "name", "to", "subject", "amount"].flatMap(
+			(key) => {
+				const value = args[key];
+				return typeof value === "string" || typeof value === "number"
+					? [`${key}: ${plainReceiptTitle(String(value))}`]
+					: [];
+			},
+		);
+		summary = `${action.charAt(0).toUpperCase()}${action.slice(1)}${details.length ? ` — ${details.join("; ")}` : ""}`;
+	}
 	return [
-		`Approval required before I change anything: \`${input.proposal.toolName}\` on ${input.proposal.appSlug}.`,
-		`Arguments: ${boundedArgsJson(input.proposal.args)}`,
-		`Nothing has been executed. Approve request ${input.approvalRequestId} to run this write exactly once, or reject it to cancel.`,
-	].join("\n");
+		`${summary}.`,
+		"Nothing has been executed. Reply “approve” or “yes” to proceed, or “reject” to cancel.",
+		"### Details",
+		`Tool: \`${toolName}\` on ${input.proposal.appSlug}`,
+		`Request: ${input.approvalRequestId}`,
+		`Arguments: ${boundedArgsJson(args)}`,
+	].join("\n\n");
 }
 
 /**
