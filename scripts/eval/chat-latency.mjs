@@ -340,6 +340,21 @@ export async function recheckSaved(directory) {
 	return saved;
 }
 
+export async function archiveWithReadback(
+	write,
+	read,
+	isArchived,
+	sleep = Bun.sleep,
+) {
+	for (let attempt = 0; attempt < 8; attempt++) {
+		await write();
+		const state = await read();
+		if (isArchived(state)) return state;
+		if (attempt < 7) await sleep(Math.min(1000 * 2 ** attempt, 30000));
+	}
+	throw new Error("Scratch archive readback failed after retries");
+}
+
 async function main() {
 	const { values } = parseArgs({
 		options: {
@@ -386,52 +401,117 @@ async function main() {
 	}
 	const code = async (source) =>
 		unwrap((await cli(["code", `async () => { ${source} }`])).value);
-	const workspace = (
-		await code(
-			"return await os.create_os_workspace(" +
-				JSON.stringify({
-					name: `Blue Harbor Latency ${values.label} ${Date.now()}`,
-					description: "Fictional scratch eval; archived after measurements.",
-				}) +
-				");",
-		)
-	).workspace;
-	await writeFile(
-		join(values.out, "workspace.json"),
-		JSON.stringify(workspace, null, 2),
-	);
-	async function archiveScratch() {
-		const listed = await code(
-			`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, limit: 200 })});`,
-		);
-		if (listed.truncated)
-			throw new Error("Scratch cleanup inventory was truncated");
-		for (const output of listed.items ?? [])
-			await code(
-				`return await os.archive_os_output(${JSON.stringify({ outputId: output.id })});`,
-			);
-		const archived = await code(
-			`return await os.archive_os_workspace(${JSON.stringify({ workspaceId: workspace.id })});`,
-		);
-		const remaining = await code(
-			`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
-		);
-		if (
-			remaining.items?.length ||
-			remaining.truncated ||
-			archived.workspace?.status !== "archived"
-		)
-			throw new Error("Scratch archive readback failed");
-		await writeFile(
-			join(values.out, "archived.json"),
-			JSON.stringify(archived, null, 2),
-		);
-	}
+	let workspace;
 	const rows = [];
+	let interrupted = false;
+	let finishMeasurements;
+	const measurementsFinished = new Promise((resolve) => {
+		finishMeasurements = resolve;
+	});
+	let cleanup;
+	function archiveScratch() {
+		return (cleanup ??= measurementsFinished.then(async () => {
+			if (!workspace) return;
+			const failures = [];
+			const archive = async (write, read, check) => {
+				try {
+					return await archiveWithReadback(write, read, check);
+				} catch (error) {
+					failures.push(error);
+				}
+			};
+			for (const row of rows) {
+				if (!row.conversation) continue;
+				await archive(
+					() =>
+						code(
+							`return await home.archive_conversation(${JSON.stringify({ conversationId: row.conversation, archived: true })});`,
+						),
+					() =>
+						code(
+							`return await home.list_conversations(${JSON.stringify({ search: row.conversation, includeArchived: true, limit: 500 })});`,
+						),
+					(state) =>
+						state?.conversations?.some(
+							(c) => c.id === row.conversation && c.status === "archived",
+						),
+				);
+			}
+			const listed = await code(
+				`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+			);
+			if (!listed?.items || listed.truncated)
+				throw new Error("Scratch cleanup inventory missing or truncated");
+			for (const output of listed.items) {
+				await archive(
+					() =>
+						code(
+							`return await os.archive_os_output(${JSON.stringify({ outputId: output.id })});`,
+						),
+					() =>
+						code(
+							`return await os.get_os_output(${JSON.stringify({ outputId: output.id })});`,
+						),
+					(state) => state?.output?.status === "archived",
+				);
+			}
+			const archived = await archive(
+				() =>
+					code(
+						`return await os.archive_os_workspace(${JSON.stringify({ workspaceId: workspace.id })});`,
+					),
+				() =>
+					code(
+						`return await os.get_os_workspace(${JSON.stringify({ workspaceId: workspace.id })});`,
+					),
+				(state) => state?.workspace?.status === "archived",
+			);
+			const remaining = await code(
+				`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+			);
+			if (!remaining?.items || remaining.items.length || remaining.truncated)
+				failures.push(
+					new Error("Scratch outputs remain or readback is incomplete"),
+				);
+			if (failures.length)
+				throw new AggregateError(failures, "Scratch cleanup failed");
+			await writeFile(
+				join(values.out, "archived.json"),
+				JSON.stringify(archived, null, 2),
+			);
+		}));
+	}
+	const onSignal = (signal) => {
+		interrupted = true;
+		process.exitCode = signal === "SIGINT" ? 130 : 143;
+		// Finish the in-flight request before inventorying its outputs.
+		void archiveScratch().catch((error) => {
+			console.error(error);
+			process.exitCode = 1;
+		});
+	};
+	process.on("SIGINT", onSignal);
+	process.on("SIGTERM", onSignal);
 	try {
-		for (let round = 1; round <= rounds; round++) {
+		workspace = (
+			await code(
+				"return await os.create_os_workspace(" +
+					JSON.stringify({
+						name: `Blue Harbor Latency ${values.label} ${Date.now()}`,
+						description: "Fictional scratch eval; archived after measurements.",
+						visibility: "private",
+					}) +
+					");",
+			)
+		).workspace;
+		await writeFile(
+			join(values.out, "workspace.json"),
+			JSON.stringify(workspace, null, 2),
+		);
+		for (let round = 1; round <= rounds && !interrupted; round++) {
 			const outputs = new Map();
 			for (const f of fixtures) {
+				if (interrupted) break;
 				const target = f.target ? outputs.get(f.target) : null;
 				const title =
 					target?.title ??
@@ -448,8 +528,9 @@ async function main() {
 					kind: f.kind,
 					operation: f.target ? "edit" : f.kind ? "create" : "question",
 					title,
-					conversation,
+					conversation: f.target && !target ? null : conversation,
 				};
+				rows.push(row);
 				try {
 					if (f.target && !target)
 						throw new Error("Prerequisite create failed");
@@ -536,7 +617,6 @@ async function main() {
 					row.ok = false;
 					row.error = String(error);
 				}
-				rows.push(row);
 				await writeFile(
 					join(values.out, "results.json"),
 					JSON.stringify(
@@ -554,9 +634,15 @@ async function main() {
 			}
 		}
 	} finally {
-		await archiveScratch();
+		finishMeasurements();
+		try {
+			await archiveScratch();
+		} finally {
+			process.off("SIGINT", onSignal);
+			process.off("SIGTERM", onSignal);
+		}
 	}
 	console.log(JSON.stringify(summarize(rows), null, 2));
-	if (rows.some((r) => !r.ok)) process.exitCode = 1;
+	if (!interrupted && rows.some((r) => !r.ok)) process.exitCode = 1;
 }
 if (import.meta.main) await main();

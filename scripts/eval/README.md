@@ -8,8 +8,9 @@ TEDIX_ORGANIZATION=<selected-organization> bun scripts/eval/chat-latency.mjs \
 ```
 
 Use a new output directory for each measurement. The script creates its own
-scratch workspace. Seven creates and three edits cover documents, sheets and
-presentations; ten questions cover explanation, translation and arithmetic.
+private scratch workspace. Seven creates and three edits cover documents,
+sheets and presentations; ten questions cover explanation, translation and
+arithmetic.
 Each request runs sequentially through `tedix -w connect chat -p` with a fresh
 conversation and without repository context. Only write requests include the
 scratch workspace name and id in their prompt: this CLI has no selected OS
@@ -40,10 +41,13 @@ The first/repeat rounds do not imply cold/warm. Only the server's
 not evict production objects; report cold sample counts, including zero,
 without inferring cold performance from warm runs.
 
-Every run archives its scratch outputs and workspace in `finally`, then checks
-that no active outputs remain and the workspace archive receipt says archived.
-Normal approval policy applies. A parked approval is a failed outcome, never
-an instruction to auto-approve. Mutation failures are not retried.
+Every run archives its chats, scratch outputs and workspace in `finally`,
+including after SIGINT or SIGTERM. Signals stop new requests and allow the
+in-flight request to finish before cleanup. Each archive has a separate
+readback, with bounded exponential backoff when the archive is not confirmed
+(including null rate-limit results). Normal approval policy applies. A parked
+approval is a failed outcome, never an instruction to auto-approve. Chat
+mutations are not retried.
 
 Re-score saved traces and output readbacks without live calls:
 

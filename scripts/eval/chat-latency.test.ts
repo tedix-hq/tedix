@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile, chmod } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+	archiveWithReadback,
 	checkOutput,
 	fixtures,
 	percentiles,
@@ -129,3 +133,134 @@ describe("live chat eval accounting", () => {
 		).toThrow("canonical");
 	});
 });
+
+describe("scratch archive readback", () => {
+	test("retries null bounded writes until a separate read confirms the archive", async () => {
+		let writes = 0;
+		let reads = 0;
+		const delays = [];
+		const result = await archiveWithReadback(
+			async () => {
+				writes++;
+				return null;
+			},
+			async () => {
+				reads++;
+				return { status: writes >= 3 ? "archived" : "active" };
+			},
+			(state) => state?.status === "archived",
+			async (ms) => {
+				delays.push(ms);
+			},
+		);
+		expect(result.status).toBe("archived");
+		expect(writes).toBe(3);
+		expect(reads).toBe(3);
+		expect(delays).toEqual([1000, 2000]);
+	});
+	test("an archive receipt alone cannot pass; missing readback exhausts bounded backoff", async () => {
+		const delays = [];
+		await expect(
+			archiveWithReadback(
+				async () => ({ status: "archived" }),
+				async () => null,
+				(state) => state?.status === "archived",
+				async (ms) => {
+					delays.push(ms);
+				},
+			),
+		).rejects.toThrow("after retries");
+		expect(delays).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+	});
+});
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+	test(`${signal} waits for the current chat and archives all scratch resources`, async () => {
+		const directory = await mkdtemp(join(tmpdir(), "chat-latency-test-"));
+		const stateFile = join(directory, "state.json");
+		const ready = join(directory, "ready");
+		const fakeCli = join(directory, "tedix");
+		await writeFile(stateFile, JSON.stringify({ chats: [], outputs: [] }));
+		await writeFile(
+			fakeCli,
+			`#!/usr/bin/env bun
+import { readFileSync, writeFileSync } from "node:fs";
+const file = process.env.EVAL_TEST_STATE;
+const state = JSON.parse(readFileSync(file, "utf8"));
+const save = () => writeFileSync(file, JSON.stringify(state));
+const args = process.argv.slice(2);
+if (args[2] === "chat") {
+  state.chats.push({ id: args[args.indexOf("-c") + 1], status: "active" });
+  save();
+  writeFileSync(process.env.EVAL_TEST_READY, "ready");
+  await Bun.sleep(200);
+  state.outputs.push({ id: "fictional-output", status: "active" });
+  save();
+  console.log("null");
+  process.exit(1);
+}
+const os = {
+  create_os_workspace: async (input) => { state.workspace = { id: "fictional-workspace", status: "active", ...input }; save(); return { workspace: state.workspace }; },
+  list_os_outputs: async () => ({ items: state.outputs.filter(o => o.status === "active"), truncated: false }),
+  archive_os_output: async ({ outputId }) => { state.outputs.find(o => o.id === outputId).status = "archived"; save(); return null; },
+  get_os_output: async ({ outputId }) => ({ output: state.outputs.find(o => o.id === outputId) }),
+  archive_os_workspace: async () => { state.workspace.status = "archived"; save(); return null; },
+  get_os_workspace: async () => ({ workspace: state.workspace }),
+};
+const home = {
+  archive_conversation: async ({ conversationId }) => { state.chats.find(c => c.id === conversationId).status = "archived"; save(); return null; },
+  list_conversations: async () => ({ conversations: state.chats }),
+};
+const result = await new Function("os", "home", "return (" + args[3] + ")()") (os, home);
+console.log(JSON.stringify(result));
+`,
+		);
+		await chmod(fakeCli, 0o755);
+		const proc = Bun.spawn(
+			[
+				process.execPath,
+				join(import.meta.dir, "chat-latency.mjs"),
+				"--rounds",
+				"1",
+				"--out",
+				join(directory, "evidence"),
+			],
+			{
+				env: {
+					...process.env,
+					PATH: `${directory}:${process.env.PATH}`,
+					TEDIX_ORGANIZATION: "fictional-org",
+					EVAL_TEST_STATE: stateFile,
+					EVAL_TEST_READY: ready,
+				},
+				stdout: "ignore",
+				stderr: "pipe",
+			},
+		);
+		try {
+			for (let i = 0; !(await Bun.file(ready).exists()); i++) {
+				if (i >= 200) throw new Error("Fake chat did not start");
+				await Bun.sleep(10);
+			}
+			proc.kill(signal);
+			expect(await proc.exited).toBe(signal === "SIGINT" ? 130 : 143);
+			const state = JSON.parse(await readFile(stateFile, "utf8"));
+			expect(state.workspace.visibility).toBe("private");
+			expect(state.workspace.status).toBe("archived");
+			expect(state.chats).toHaveLength(1);
+			expect(state.chats[0].status).toBe("archived");
+			expect(state.outputs).toEqual([
+				{ id: "fictional-output", status: "archived" },
+			]);
+			expect(
+				await Bun.file(join(directory, "evidence", "archived.json")).exists(),
+			).toBe(true);
+		} finally {
+			if (proc.exitCode === null) {
+				proc.kill("SIGKILL");
+				await proc.exited;
+			}
+			await rm(directory, { recursive: true, force: true });
+		}
+	}, 10000);
+}
