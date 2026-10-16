@@ -3285,6 +3285,34 @@ const paginate = <T>(rows: T[], input?: Pagination) => {
 	};
 };
 
+const createLocalWorkspace = (input: {
+	name: string;
+	description?: string;
+	visibility?: OsWorkspace["visibility"];
+}) => {
+	const workspace: OsWorkspace = {
+		id: nextId(),
+		organizationId: ORG_ID,
+		name: input.name,
+		description: input.description ?? null,
+		status: "active",
+		sourceBlueprintId: null,
+		sourceBlueprintRevisionId: null,
+		sourceBlueprintRevisionNumber: null,
+		instantiationPreflight: null,
+		rollbackReference: null,
+		blueprintDecision: null,
+		createdByKind: "user",
+		createdById: "dev-operator",
+		createdAt: now(),
+		updatedAt: now(),
+		visibility: input.visibility ?? "org",
+		ownerUserId: input.visibility === "private" ? "dev-operator" : null,
+	};
+	state.workspaces.push(workspace);
+	return { workspace };
+};
+
 const findWorkspace = (workspaceId: string): OsWorkspace => {
 	const workspace = state.workspaces.find((row) => row.id === workspaceId);
 	if (!workspace) throw new RpcError("NOT_FOUND", "Workspace not found");
@@ -5558,32 +5586,27 @@ const handlers: Record<string, (input: never) => unknown> = {
 		),
 		truncated: false,
 	}),
-	"osWorkspaces/workspaces/create": (input: {
+	"osWorkspaces/workspaces/create": createLocalWorkspace,
+	"osWorkspaces/workspaces/createFromConversation": (input: {
+		conversationId: string;
 		name: string;
 		description?: string;
-		visibility?: OsWorkspace["visibility"];
 	}) => {
-		const workspace: OsWorkspace = {
-			id: nextId(),
-			organizationId: ORG_ID,
+		const conversation = findConversation(input.conversationId);
+		if (conversation.workspaceId) {
+			throw new RpcError(
+				"CONFLICT",
+				"This conversation already belongs to a workspace",
+			);
+		}
+		const { workspace } = createLocalWorkspace({
 			name: input.name,
-			description: input.description ?? null,
-			status: "active",
-			sourceBlueprintId: null,
-			sourceBlueprintRevisionId: null,
-			sourceBlueprintRevisionNumber: null,
-			instantiationPreflight: null,
-			rollbackReference: null,
-			blueprintDecision: null,
-			createdByKind: "user",
-			createdById: "dev-operator",
-			createdAt: now(),
-			updatedAt: now(),
-			visibility: input.visibility ?? "org",
-			ownerUserId: input.visibility === "private" ? "dev-operator" : null,
-		};
-		state.workspaces.push(workspace);
-		return { workspace };
+			description: input.description,
+			visibility: "private",
+		});
+		conversation.workspaceId = workspace.id;
+		conversation.updatedAt = now();
+		return { workspace, movedOutputIds: [] };
 	},
 	"osWorkspaces/workspaces/get": (input: { workspaceId: string }) => ({
 		workspace: findWorkspace(input.workspaceId),

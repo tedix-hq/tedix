@@ -129,7 +129,6 @@ import { kernelUsageReading } from "@/lib/cost-reading";
 import { errorMessage } from "@/lib/orpc-error";
 import {
 	emptyProvisionalSends,
-	carryProvisionalFirstTurn,
 	hasProvisionalSend,
 	isUnknownSendOutcome,
 	listProvisionalSends,
@@ -141,7 +140,10 @@ import {
 	reduceProvisionalSends,
 	takeCarriedProvisionalFirstTurn,
 } from "@/lib/provisional-send";
-import { useChatTransport } from "@/lib/use-capn-chat";
+import {
+	type ChatTransportActions,
+	useChatTransport,
+} from "@/lib/use-capn-chat";
 import { prepareChatAttachment } from "@/lib/chat-attachment-upload";
 import { useActiveTedis, useTediNames } from "@/lib/use-tedi-names";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
@@ -972,8 +974,7 @@ export function newHomeConversationId(
 }
 
 /**
- * Preserve an existing thread and a pending New-thread id verbatim. Only the
- * first send from the synthetic state mints an OS-owned conversation id.
+ * Preserve existing and preallocated New-thread ids across retries.
  */
 export function conversationIdForSend(
 	conversationId: string | null,
@@ -2177,8 +2178,6 @@ export function ChatThread({
 	conversationId,
 	onConversationCreated,
 	onSendStarted,
-	onConversationPrepared,
-	prepareNewConversation,
 	context,
 	workspaceId,
 	composerOnly = false,
@@ -2194,17 +2193,6 @@ export function ChatThread({
 		conversationId: string,
 		workspaceId?: string,
 	) => void;
-	onConversationPrepared?: (
-		conversationId: string,
-		workspaceId: string,
-	) => void;
-	/**
-	 * General Chat uses this hook to make a durable Workspace at the first
-	 * substantive send. Workspace chat omits it because its host already exists.
-	 */
-	prepareNewConversation?: (
-		content: string,
-	) => Promise<{ workspaceId: string }>;
 	context?: ChatContext;
 	/** Canonical host Workspace; required for durable Workspace conversation association. */
 	workspaceId?: string;
@@ -2249,9 +2237,20 @@ export function ChatThread({
 	// A New thread has no route id until its first turn succeeds. Hold the id
 	// across retries so failed first turns cannot create multiple conversations.
 	const newConversationIdRef = useRef<string | null>(null);
-	const newWorkspaceIdRef = useRef<string | null>(null);
-	const preparingConversationRef = useRef(false);
-	const [preparingConversation, setPreparingConversation] = useState(false);
+	if (conversationId === null && newConversationIdRef.current === null) {
+		newConversationIdRef.current = newHomeConversationId();
+	}
+	const sendTargetRef = useRef(conversationId ?? newConversationIdRef.current);
+	sendTargetRef.current = conversationId ?? newConversationIdRef.current;
+	const mountedRef = useRef(false);
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+		};
+	}, []);
+	const isCurrentSend = (target: string) =>
+		mountedRef.current && sendTargetRef.current === target;
 	const [messages, setMessages] = useState<HomeMessage[]>([]);
 	// Output ids already linked when this conversation's transcript first
 	// loaded (plus older pages). Null until that first load: anything linked
@@ -2389,8 +2388,9 @@ export function ChatThread({
 		cacheConversationRef.current = conversationId;
 		// Leaving the synthetic New state starts the next New thread from a
 		// distinct id. Keep it only while this same new thread is resolving.
-		newConversationIdRef.current = null;
-		newWorkspaceIdRef.current = null;
+		newConversationIdRef.current =
+			conversationId === null ? newHomeConversationId() : null;
+		sendTargetRef.current = conversationId ?? newConversationIdRef.current;
 		setSelectedTediId(null);
 		cacheRef.current = new Map();
 		knownOutputIdsRef.current = null;
@@ -2415,8 +2415,6 @@ export function ChatThread({
 		setAttachmentDragActive(false);
 		setAttachments([]);
 		setPreparingAttachments(false);
-		preparingConversationRef.current = false;
-		setPreparingConversation(false);
 		// and the draft comes back from localStorage below.
 		setProvisional(emptyProvisionalSends());
 		setDraft(restoreChatDraft(window.localStorage, conversationId));
@@ -2881,6 +2879,7 @@ export function ChatThread({
 
 	const send = useMutation({
 		mutationFn: (input: {
+			enqueueMessage: ChatTransportActions["enqueueMessage"];
 			draftContent: string;
 			content: string;
 			conversationId: string;
@@ -2894,7 +2893,7 @@ export function ChatThread({
 			modelRef?: string;
 			delegateToTediId?: string;
 		}) =>
-			transportActions.enqueueMessage({
+			input.enqueueMessage({
 				conversationId: input.conversationId,
 				content: input.content,
 				idempotencyKey: input.idempotencyKey,
@@ -2905,6 +2904,7 @@ export function ChatThread({
 				delegateToTediId: input.delegateToTediId,
 			}),
 		onSuccess: (output, variables) => {
+			if (!isCurrentSend(variables.conversationId)) return;
 			if (output.status === "failed" && !output.assistantMessage) {
 				// A refusal without a receipt is not-sent. A persisted failure reply
 				// follows normal transcript reconciliation instead of restoring a draft.
@@ -2965,6 +2965,7 @@ export function ChatThread({
 			}
 		},
 		onError: (error, variables) => {
+			if (!isCurrentSend(variables.conversationId)) return;
 			// The key is always kept: Retry re-sends it, and a same-key resend is
 			// exactly-once server-side.
 			const message = errorMessage(error, "The send failed.");
@@ -2999,13 +3000,15 @@ export function ChatThread({
 			setDraft(variables.draftContent);
 		},
 		onMutate: (variables) => {
-			if (conversationId !== null) return;
+			if (!isCurrentSend(variables.conversationId) || conversationId !== null)
+				return;
 			setFirstSendInFlight({
 				conversationId: variables.conversationId,
 				idempotencyKey: variables.idempotencyKey,
 			});
 		},
-		onSettled: () => {
+		onSettled: (_output, _error, variables) => {
+			if (!isCurrentSend(variables.conversationId)) return;
 			setFirstSendInFlight(null);
 			// The composer is readOnly (never disabled) while sending, so focus is
 			// normally retained — this refocus covers the cases where a transcript
@@ -3058,9 +3061,8 @@ export function ChatThread({
 	});
 
 	const startDirectRead = useCallback(
-		(command: DirectReadCommand, preparedWorkspaceId?: string) => {
+		(command: DirectReadCommand) => {
 			if (directRead.isPending) return;
-			const effectiveWorkspaceId = workspaceId ?? preparedWorkspaceId;
 			const targetConversationId = conversationIdForSend(
 				conversationId,
 				newConversationIdRef.current,
@@ -3076,10 +3078,10 @@ export function ChatThread({
 				conversationId: targetConversationId,
 				idempotencyKey: key,
 				...(organizationId ? { organizationId } : {}),
-				...(effectiveWorkspaceId
+				...(workspaceId
 					? {
 							workspaceContext: {
-								workspaceId: effectiveWorkspaceId,
+								workspaceId: workspaceId,
 								...(context &&
 								includeContext &&
 								(context.kind === "gadget" || context.kind === "output")
@@ -3118,40 +3120,14 @@ export function ChatThread({
 			if (
 				(!content.trim() && attachments.length === 0) ||
 				preparingAttachments ||
-				preparingConversationRef.current ||
 				send.isPending ||
 				directRead.isPending ||
 				// Enter bypasses the disabled submit button; the gate cannot.
 				blockedByAttachedImage
 			)
 				return;
-			let preparedWorkspaceId = newWorkspaceIdRef.current ?? undefined;
-			if (
-				conversationId === null &&
-				!workspaceId &&
-				!preparedWorkspaceId &&
-				prepareNewConversation
-			) {
-				preparingConversationRef.current = true;
-				setPreparingConversation(true);
-				setSendError(null);
-				try {
-					const prepared = await prepareNewConversation(content);
-					preparedWorkspaceId = prepared.workspaceId;
-					newWorkspaceIdRef.current = prepared.workspaceId;
-				} catch (error) {
-					setSendError(
-						errorMessage(error, "The workspace could not be prepared."),
-					);
-					return;
-				} finally {
-					preparingConversationRef.current = false;
-					setPreparingConversation(false);
-				}
-			}
 			const directCommand =
 				attachments.length === 0 ? parseDirectReadCommand(content) : null;
-			const effectiveWorkspaceId = workspaceId ?? preparedWorkspaceId;
 			const contextualContent =
 				context && includeContext
 					? encodeChatContext(context, content)
@@ -3167,7 +3143,7 @@ export function ChatThread({
 			idempotencyKeyRef.current = key;
 			if (directCommand) {
 				idempotencyKeyRef.current = null;
-				startDirectRead(directCommand, preparedWorkspaceId);
+				startDirectRead(directCommand);
 				return;
 			}
 			directReadRetryRef.current = null;
@@ -3185,6 +3161,7 @@ export function ChatThread({
 			onSendStarted?.();
 			stickToBottomRef.current = true;
 			send.mutate({
+				enqueueMessage: transportActions.enqueueMessage,
 				draftContent: content,
 				content: contextualContent,
 				conversationId: targetConversationId,
@@ -3195,9 +3172,9 @@ export function ChatThread({
 				}),
 				metadata:
 					context && includeContext ? { chatContext: context } : undefined,
-				workspaceContext: effectiveWorkspaceId
+				workspaceContext: workspaceId
 					? {
-							workspaceId: effectiveWorkspaceId,
+							workspaceId: workspaceId,
 							...(context &&
 							includeContext &&
 							(context.kind === "gadget" || context.kind === "output")
@@ -3212,14 +3189,6 @@ export function ChatThread({
 				delegateToTediId:
 					selectedTediId && selectedTediName ? selectedTediId : undefined,
 			});
-			if (
-				conversationId === null &&
-				preparedWorkspaceId &&
-				onConversationPrepared
-			) {
-				carryProvisionalFirstTurn(targetConversationId, provisionalAction);
-				onConversationPrepared(targetConversationId, preparedWorkspaceId);
-			}
 			setAttachments([]);
 		},
 		[
@@ -3236,10 +3205,9 @@ export function ChatThread({
 			selectedTediId,
 			selectedTediName,
 			directRead,
-			prepareNewConversation,
-			onConversationPrepared,
 			onSendStarted,
 			startDirectRead,
+			transportActions,
 			send,
 			workspaceId,
 		],
@@ -3973,7 +3941,7 @@ export function ChatThread({
 						// readOnly (not disabled) while sending: a disabled control blurs
 						// the composer and swallows the next Enter — focus must survive
 						// the send round-trip.
-						readOnly={send.isPending || preparingConversation}
+						readOnly={send.isPending}
 						autoResize
 						minRows={1}
 						maxRows={8}
@@ -4187,10 +4155,9 @@ export function ChatThread({
 								size="icon-sm"
 								aria-label="Send message"
 								icon={<ArrowUp size={16} weight="bold" />}
-								loading={send.isPending || preparingConversation}
+								loading={send.isPending}
 								disabled={
 									preparingAttachments ||
-									preparingConversation ||
 									send.isPending ||
 									directRead.isPending ||
 									blockedByAttachedImage ||

@@ -145,7 +145,14 @@ export function useCapnStreamedOverlays(
 	const supported = options.connect !== undefined || isCapnSupported();
 	const enabled = options.enabled ?? true;
 	const [status, setStatus] = useState<ConversationStreamStatus>("idle");
-	const [actions, setActions] = useState<CapnChatActions | null>(null);
+	const [boundActions, setBoundActions] = useState<{
+		conversationId: string;
+		actions: CapnChatActions | null;
+	} | null>(null);
+	const actions =
+		boundActions?.conversationId === conversationId
+			? boundActions.actions
+			: null;
 	const stateRef = useRef(createOverlayState());
 	const [overlays, setOverlays] = useState<
 		UseStreamedOverlaysResult["overlays"]
@@ -260,7 +267,7 @@ export function useCapnStreamedOverlays(
 	useEffect(() => {
 		if (!supported || !enabled || conversationId === null) {
 			setStatus("idle");
-			setActions(null);
+			setBoundActions(null);
 			return;
 		}
 		const lease = acquireConversationStream(
@@ -276,11 +283,11 @@ export function useCapnStreamedOverlays(
 				clearTimeoutFn: optionsRef.current.clearTimeoutFn,
 			},
 		);
-		setActions(lease.getActions());
+		setBoundActions({ conversationId, actions: lease.getActions() });
 		setStatus(lease.getStatus());
 		return () => {
 			lease.release();
-			setActions(null);
+			setBoundActions(null);
 			setStatus("idle");
 		};
 	}, [conversationId, supported, enabled]);
@@ -530,8 +537,16 @@ export function useChatTransport(
 	// `CapnNotConnectedError` until it does, so a held send waits for `open`
 	// on the SAME conversation and is rejected when the conversation changes.
 	const waitersRef = useRef(new Set<CapabilityWaiter>());
-	const liveRef = useRef({ status: capn.status, actions: capnActions });
-	liveRef.current = { status: capn.status, actions: capnActions };
+	const liveRef = useRef({
+		conversationId,
+		status: capn.status,
+		actions: capnActions,
+	});
+	liveRef.current = {
+		conversationId,
+		status: capn.status,
+		actions: capnActions,
+	};
 	useEffect(() => {
 		if (
 			capn.status !== "open" ||
@@ -572,6 +587,10 @@ export function useChatTransport(
 	): Promise<CapnChatActions> =>
 		new Promise<CapnChatActions>((resolve, reject) => {
 			const live = liveRef.current;
+			if (live.conversationId !== boundConversationId) {
+				reject(new CapnNotConnectedError());
+				return;
+			}
 			if (live.status === "open" && live.actions !== null) {
 				resolve(live.actions);
 				return;

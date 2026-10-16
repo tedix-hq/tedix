@@ -330,6 +330,10 @@ const CALLS: Record<string, unknown> = {
 	"appGating/installedEligibility": undefined,
 	"osWorkspaces/workspaces/list": { status: "active", limit: 50 },
 	"osWorkspaces/workspaces/create": { name: "Test Workspace" },
+	"osWorkspaces/workspaces/createFromConversation": {
+		conversationId: IDS.conversationHome,
+		name: "Orion planning",
+	},
 	"osWorkspaces/workspaces/get": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspaces/update": {
 		workspaceId: IDS.workspaceRevenue,

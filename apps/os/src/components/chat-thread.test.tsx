@@ -2242,15 +2242,13 @@ describe("<ChatThread> attachment dropzone", () => {
 		}
 	});
 
-	it("explains offline mode and blocks button and Enter before preparing a workspace", async () => {
+	it("explains offline mode and blocks button and Enter before sending", async () => {
 		const mode = vi
 			.spyOn(localInference, "isLocalAiUnavailable")
 			.mockReturnValue(true);
 		try {
-			const prepareNewConversation = vi.fn();
 			const { container } = mountThread({
 				conversationId: null,
-				prepareNewConversation,
 			});
 			await flush();
 			typeDraft(container, "Draft an agenda");
@@ -2259,7 +2257,7 @@ describe("<ChatThread> attachment dropzone", () => {
 			expect(sendButton(container).disabled).toBe(true);
 			pressKey(container, "Enter");
 			await flush();
-			expect(prepareNewConversation).not.toHaveBeenCalled();
+			expect(transport.actions.enqueueMessage).not.toHaveBeenCalled();
 		} finally {
 			mode.mockRestore();
 		}
@@ -2467,61 +2465,22 @@ describe("<ChatThread> attachment dropzone", () => {
 		expect(boundedButtons[1]?.textContent).toContain("Label for");
 	});
 
-	it("prepares a Workspace before the first general-chat send and carries it into Home", async () => {
-		const prepareNewConversation = vi.fn().mockResolvedValue({
-			workspaceId: "44444444-4444-4444-8444-444444444444",
-		});
-		const onConversationCreated = vi.fn();
-		const onConversationPrepared = vi.fn();
-		transport.actions.enqueueMessage.mockResolvedValueOnce({
-			idempotencyKey: RUN_ID,
-			conversationId: "home:os:workspace-first",
-			status: "queued",
-			run: {
-				id: RUN_ID,
-				organizationId: ORG_ID,
-				conversationId: "home:os:workspace-first",
-				status: "queued",
-				createdAt: "2026-08-30T18:00:00.000Z",
-			},
-		} satisfies EnqueueHomeMessageOutput);
-		window.localStorage.setItem(
-			chatDraftKey(null),
-			"Investigate the launch plan",
-		);
-		const { container } = mountThread({
-			conversationId: null,
-			prepareNewConversation,
-			onConversationCreated,
-			onConversationPrepared,
-		});
+	it("sends a fresh general chat without workspace preparation", async () => {
+		transport.actions.enqueueMessage.mockReset();
+		transport.actions.enqueueMessage.mockReturnValue(new Promise(() => {}));
+		const { container } = mountThread({ conversationId: null });
 		await flush();
+		typeDraft(container, "Plan the Orion offsite");
 		act(() => sendButton(container).click());
 		await flush();
-		expect(prepareNewConversation).toHaveBeenCalledWith(
-			"Investigate the launch plan",
-		);
 		expect(transport.actions.enqueueMessage).toHaveBeenCalledWith(
 			expect.objectContaining({
-				content: "Investigate the launch plan",
-				workspaceContext: {
-					workspaceId: "44444444-4444-4444-8444-444444444444",
-				},
+				conversationId: expect.stringMatching(/^home:os:/),
+				content: "Plan the Orion offsite",
+				workspaceContext: undefined,
 			}),
 		);
-		const preparedConversationId = onConversationPrepared.mock.calls[0]?.[0];
-		expect(preparedConversationId).toMatch(/^home:os:/);
-		expect(onConversationPrepared).toHaveBeenCalledWith(
-			preparedConversationId,
-			"44444444-4444-4444-8444-444444444444",
-		);
-		expect(transport.actions.enqueueMessage).toHaveBeenCalledWith(
-			expect.objectContaining({ conversationId: preparedConversationId }),
-		);
-		expect(onConversationCreated).toHaveBeenCalledWith(
-			"home:os:workspace-first",
-			"44444444-4444-4444-8444-444444444444",
-		);
+		transport.actions.enqueueMessage.mockReset();
 	});
 
 	it("stages a dropped image for a vision model without submitting the draft", async () => {
@@ -3223,6 +3182,61 @@ describe("firstSendConfirmPollMs", () => {
 });
 
 describe("<ChatThread> first-send reveal", () => {
+	it("keeps the pressed-send transport and ignores its response after selection changes", async () => {
+		const originalActions = transport.actions;
+		const nextEnqueue = vi.fn();
+		let resolveSend!: (value: EnqueueHomeMessageOutput) => void;
+		originalActions.enqueueMessage.mockReset();
+		originalActions.enqueueMessage.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSend = resolve;
+			}),
+		);
+		const props: Partial<ComponentProps<typeof ChatThread>> = {
+			conversationId: CONVERSATION_ID,
+		};
+		let rerender!: () => void;
+		props.onSendStarted = () => {
+			transport.actions = { ...originalActions, enqueueMessage: nextEnqueue };
+			props.conversationId = "home:os:orion";
+			rerender();
+		};
+		const mounted = mountThread(props);
+		rerender = mounted.rerender;
+		try {
+			await flush();
+			typeDraft(mounted.container, "Message for the previous conversation");
+			act(() => sendButton(mounted.container).click());
+			await flush();
+			expect(originalActions.enqueueMessage).toHaveBeenCalledWith(
+				expect.objectContaining({ conversationId: CONVERSATION_ID }),
+			);
+			expect(nextEnqueue).not.toHaveBeenCalled();
+			const input = originalActions.enqueueMessage.mock.calls[0]![0];
+			act(() =>
+				resolveSend({
+					idempotencyKey: input.idempotencyKey,
+					conversationId: CONVERSATION_ID,
+					status: "queued",
+					run: {
+						id: input.idempotencyKey,
+						organizationId: ORG_ID,
+						conversationId: CONVERSATION_ID,
+						status: "queued",
+						createdAt: "2026-10-03T10:00:00.000Z",
+					},
+				}),
+			);
+			await flush();
+			expect(mounted.container.textContent).not.toContain(
+				"Message for the previous conversation",
+			);
+		} finally {
+			transport.actions = originalActions;
+			originalActions.enqueueMessage.mockReset();
+		}
+	});
+
 	it("shows a new thread's first turn as sent while the enqueue is still open", async () => {
 		transport.actions.enqueueMessage.mockReset();
 		let resolveSend!: (value: EnqueueHomeMessageOutput) => void;

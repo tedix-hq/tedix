@@ -286,6 +286,34 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 		expect(host.querySelector("[data-chat-thread]")).not.toBe(second);
 	});
 
+	it.each([undefined, WORKSPACE_ID])(
+		"ignores a previous send completing after New (workspace %s)",
+		async (workspaceId) => {
+			const host = await mountPage();
+			const previousSendCompleted = chatHarness.onConversationCreated;
+			await act(async () => chatHarness.onSelect?.(null));
+			routing.navigate.mockClear();
+			await act(async () =>
+				previousSendCompleted?.(CONVERSATION_ID, workspaceId),
+			);
+			expect(activeThread(host)).toBe("new");
+			expect(routing.navigate).not.toHaveBeenCalled();
+			await act(async () =>
+				chatHarness.onConversationCreated?.("home:os:orion"),
+			);
+			expect(activeThread(host)).toBe("home:os:orion");
+		},
+	);
+
+	it("clears the old conversation before New navigation finishes", async () => {
+		routing.search = { conversation: CONVERSATION_ID };
+		routing.navigate.mockReturnValue(new Promise(() => {}));
+		const host = await mountPage();
+		await act(async () => chatHarness.onSelect?.(null));
+		expect(activeThread(host)).toBe("new");
+		expect(routing.search.conversation).toBe(CONVERSATION_ID);
+	});
+
 	it("opens the first send in its workspace with the conversation and no pane override", async () => {
 		await mountPage();
 		await act(async () =>

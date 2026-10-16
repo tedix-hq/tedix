@@ -6,7 +6,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	CHAT_CONVERSATIONS_QUERY_KEY,
 	ChatConversationHeader,
@@ -111,13 +111,24 @@ export function ChatPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const search: ChatSearch = useSearch({ from: "/_session/_tenant/chat" });
-	const activeConversationId = search.conversation ?? null;
+	const routeConversationId = search.conversation ?? null;
+	const [selection, setSelection] = useState<{
+		conversationId: string | null;
+	} | null>(null);
+	const activeConversationId = selection
+		? selection.conversationId
+		: routeConversationId;
+	useEffect(() => setSelection(null), [routeConversationId]);
 	useChatWebMcpTools();
 	const [mobileListOpen, setMobileListOpen] = useState(false);
 	const [newConversationKey, setNewConversationKey] = useState(0);
+	const selectionGeneration = useRef(0);
+	const generation = selectionGeneration.current;
 
 	const selectConversation = (conversationId: string | null) => {
-		if (conversationId === null) setNewConversationKey((key) => key + 1);
+		selectionGeneration.current += 1;
+		setNewConversationKey((key) => key + 1);
+		setSelection({ conversationId });
 		setMobileListOpen(false);
 		void navigate({
 			to: "/chat",
@@ -165,6 +176,8 @@ export function ChatPage() {
 						queryClient.invalidateQueries({
 							queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
 						});
+						// A pending send may finish after the user has selected New.
+						if (generation !== selectionGeneration.current) return;
 						// Only a conversation that already belongs to a workspace opens
 						// there. `pane` must not travel: it would pin an explicit pane.
 						if (workspaceId) {
@@ -175,7 +188,12 @@ export function ChatPage() {
 							});
 							return;
 						}
-						selectConversation(conversationId);
+						setSelection({ conversationId });
+						void navigate({
+							to: "/chat",
+							search: { conversation: conversationId },
+							replace: true,
+						});
 					}}
 				/>
 			</div>

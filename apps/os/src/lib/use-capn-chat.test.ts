@@ -1,6 +1,6 @@
 import type { EnqueueHomeMessageOutput } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
-import { act, createElement, StrictMode } from "react";
+import { act, createElement, StrictMode, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type {
@@ -787,6 +787,99 @@ describe("hydration is scoped to its own conversation", () => {
 });
 
 describe("useChatTransport (the seam)", () => {
+	it("sends to the newly selected capability before passive effects retire the old one", async () => {
+		const previous = mockServer();
+		const next = mockServer();
+		previous.root.openConversation = (id) =>
+			pipelinedStub(
+				id === CONVERSATION_ID ? previous.conversation : next.conversation,
+			);
+		const connect = connectSequence(previous);
+		let conversationId = CONVERSATION_ID;
+		let sent: Promise<unknown> | undefined;
+		const rendered = renderHook(() => {
+			const transport = useChatTransport(conversationId, {
+				connect,
+				metrics: null,
+			});
+			useLayoutEffect(() => {
+				if (conversationId === CONVERSATION_ID) return;
+				sent = transport.actions.enqueueMessage({
+					conversationId,
+					content: "Orion planning",
+					idempotencyKey: "orion-first-send",
+				});
+			}, [conversationId]);
+			return transport;
+		});
+		await act(async () => {
+			await flushAsync();
+		});
+		conversationId = "home:os:orion";
+		rendered.rerender();
+		await act(async () => {
+			await flushAsync();
+		});
+		await sent;
+		expect(previous.conversation.enqueue).not.toHaveBeenCalled();
+		expect(next.conversation.enqueue).toHaveBeenCalledWith(
+			{ content: "Orion planning" },
+			"orion-first-send",
+		);
+		rendered.unmount();
+	});
+
+	it("never reconnects an earlier send through a different conversation after upload", async () => {
+		const previous = mockServer();
+		const next = mockServer();
+		previous.root.openConversation = (id) =>
+			pipelinedStub(
+				id === CONVERSATION_ID ? previous.conversation : next.conversation,
+			);
+		const connect = connectSequence(previous);
+		let conversationId = CONVERSATION_ID;
+		const rendered = renderHook(() =>
+			useChatTransport(conversationId, { connect, metrics: null }),
+		);
+		await act(async () => {
+			await flushAsync();
+		});
+		const attachment = {
+			type: "image" as const,
+			fileName: "orion.png",
+			mimeType: "image/png",
+			size: 400000,
+			content: `data:image/png;base64,${"A".repeat(533336)}`,
+		};
+		let finishUpload!: (value: typeof attachment) => void;
+		uploadApi.mockReturnValueOnce(
+			new Promise((resolve) => {
+				finishUpload = resolve;
+			}),
+		);
+		const sent = rendered.result
+			.current!.actions.enqueueMessage({
+				conversationId,
+				content: "Previous conversation",
+				attachments: [attachment],
+				idempotencyKey: "previous-send",
+			})
+			.catch((error: unknown) => error);
+		conversationId = "home:os:orion";
+		rendered.rerender();
+		await act(async () => {
+			await flushAsync();
+		});
+		finishUpload({
+			...attachment,
+			content: `tedix-attachment:${"a".repeat(64)}`,
+		});
+		expect(await sent).toBeInstanceOf(CapnNotConnectedError);
+		expect(previous.conversation.enqueue).not.toHaveBeenCalled();
+		expect(next.conversation.enqueue).not.toHaveBeenCalled();
+		rendered.unmount();
+	});
+
 	it("uploads screenshot bytes before enqueue and preserves the retry key on the small chat frame", async () => {
 		const server = mockServer();
 		const rendered = renderHook<ChatTransportResult>(() =>
