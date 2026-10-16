@@ -83,6 +83,18 @@ const shareAuthMocks = vi.hoisted(() => ({
 	resolvePrincipalIdentity: vi.fn(),
 }));
 
+const jwtMocks = vi.hoisted(() => ({ validateToken: vi.fn() }));
+
+vi.mock("@tedix/auth/jwt", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@tedix/auth/jwt")>();
+	return {
+		...actual,
+		validateToken: jwtMocks.validateToken.mockImplementation(
+			actual.validateToken,
+		),
+	};
+});
+
 vi.mock("@tedix/db/queries/principal-identities", async (importOriginal) => {
 	const actual =
 		await importOriginal<
@@ -556,6 +568,97 @@ describe("forwarded MCP agentic-app user identity", () => {
 			message: "Forwarded MCP user token is not a user token",
 		});
 		expect(shareAuthMocks.resolvePrincipalIdentity).not.toHaveBeenCalled();
+	});
+});
+
+describe("public user-session authentication", () => {
+	afterEach(async () => {
+		const actual =
+			await vi.importActual<typeof import("@tedix/auth/jwt")>(
+				"@tedix/auth/jwt",
+			);
+		jwtMocks.validateToken.mockReset().mockImplementation(actual.validateToken);
+		shareAuthMocks.resolveUserTenantIdentityContext.mockReset();
+	});
+
+	async function authenticate(
+		claims: Record<string, unknown>,
+		token = "header.payload.sig",
+	) {
+		jwtMocks.validateToken.mockResolvedValue({
+			sub: "U2fictionaluser",
+			email: "ada@example.test",
+			dct: "org_fictional",
+			exp: 4_000_000_000,
+			...claims,
+		});
+		shareAuthMocks.resolveUserTenantIdentityContext.mockResolvedValue({
+			organizationId: "org-1",
+			canonicalUserId: "canonical-user",
+			memberRole: "owner",
+			memberPermissionOverrides: [],
+		});
+		let seen: BaseContext | undefined;
+		const guarded = os
+			.$context<BaseContext>()
+			.use(withAuth)
+			.handler(({ context }) => {
+				seen = context;
+				return "ok";
+			});
+		const context = {
+			url: new URL("https://api/rpc/organizations/listMine"),
+			env: { ENVIRONMENT: "production", DESCOPE_PROJECT_ID: "P2fictional" },
+			headers: new Headers({ Authorization: `Bearer ${token}` }),
+			db: {},
+		} as unknown as BaseContext;
+		await call(guarded, undefined, { context });
+		return seen;
+	}
+
+	it("accepts a Descope session JWT as the user", async () => {
+		const context = await authenticate({
+			iss: "https://auth.tedix.dev/P2fictional",
+			aud: "P2fictional",
+			drn: "DS",
+		});
+		expect(context?.authType).toBe("user");
+		expect(context?.organizationId).toBe("org-1");
+	});
+
+	it.each([
+		[
+			"an MCP OAuth token whose audience includes the project",
+			{
+				iss: "https://api.descope.com/v1/apps/agentic/P2fictional/RSconnect",
+				aud: ["https://client.example/cimd.json", "P2fictional"],
+				azp: "https://client.example/cimd.json",
+			},
+		],
+		[
+			"a token naming an OAuth client",
+			{ iss: "https://auth.tedix.dev/P2fictional", client_id: "cimd-client" },
+		],
+	])("rejects %s", async (_label, claims) => {
+		await expect(authenticate(claims)).rejects.toMatchObject({
+			code: "UNAUTHORIZED",
+		});
+		expect(
+			shareAuthMocks.resolveUserTenantIdentityContext,
+		).not.toHaveBeenCalled();
+	});
+
+	it("reads the issuer from the token, not the SDK-rewritten payload", async () => {
+		const raw = btoa(
+			JSON.stringify({
+				iss: "https://api.descope.com/v1/apps/agentic/P2fictional/RSconnect",
+				sub: "U2fictionaluser",
+				exp: 4_000_000_000,
+			}),
+		);
+		await expect(
+			authenticate({ iss: "P2fictional" }, `e30.${raw}.signature`),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 	});
 });
 

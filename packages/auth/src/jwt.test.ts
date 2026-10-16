@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	computeAudienceAudit,
 	isM2MToken,
+	isOAuthClientToken,
 	isUserToken,
 	normalizeDescopeBaseUrl,
 } from "./jwt";
@@ -80,6 +81,58 @@ describe("JWT token type detection", () => {
 		};
 
 		expect(isUserToken(payload)).toBe(false);
+	});
+});
+
+describe("OAuth client token detection", () => {
+	it("flags an MCP OAuth token even though its audience includes the project", () => {
+		expect(
+			isOAuthClientToken({
+				...basePayload,
+				iss: "https://api.descope.com/v1/apps/agentic/Pproject/RSconnect",
+				aud: [
+					"https://client.example/oauth-client.json",
+					"Pproject",
+					"https://connect.example/mcp",
+				],
+				azp: "https://client.example/oauth-client.json",
+				sub: "U123",
+				email: "owner@example.com",
+			}),
+		).toBe(true);
+	});
+
+	it("flags a relying-party claim under any issuer", () => {
+		expect(
+			isOAuthClientToken({ ...basePayload, sub: "U123", client_id: "C1" }),
+		).toBe(true);
+		expect(isOAuthClientToken({ ...basePayload, sub: "U123", azp: "C1" })).toBe(
+			true,
+		);
+		expect(
+			isOAuthClientToken({
+				...basePayload,
+				iss: "https://api.descope.com/v1/apps/Pproject",
+				sub: "U123",
+			}),
+		).toBe(true);
+	});
+
+	it("does not flag a Descope session JWT", () => {
+		for (const iss of [
+			"https://api.descope.com/Pproject",
+			"https://auth.tedix.dev/Pproject",
+			"Pproject",
+		]) {
+			expect(
+				isOAuthClientToken({
+					...basePayload,
+					iss,
+					sub: "U123",
+					drn: "DS",
+				}),
+			).toBe(false);
+		}
 	});
 });
 

@@ -6,7 +6,8 @@ const mocks = vi.hoisted(() => ({
 	org: vi.fn(),
 	member: vi.fn(),
 }));
-vi.mock("@tedix/auth/jwt", () => ({
+vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/auth/jwt")>()),
 	validateToken: mocks.validate,
 	isUserToken: (p: { sub?: string; type?: string }) => p.type === "user",
 }));
