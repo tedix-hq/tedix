@@ -11,6 +11,12 @@
 import { implement } from "@orpc/server";
 import { workAgentSessionsContract } from "@tedix/api-contract/contracts/work-agent-sessions";
 import {
+	getAgentSessionRequest,
+	listAgentSessionRequests,
+	updateAgentSessionRequests,
+} from "@tedix/db/queries/agent-session-requests";
+import type { AgentSessionRequestRow } from "@tedix/db/schema/agent-session-requests";
+import {
 	listWorkAgentSessions,
 	listWorkProjectContributorSources,
 	reportWorkAgentSessionStatus,
@@ -22,6 +28,11 @@ import {
 	deriveWorkAgentSessionEffectiveState,
 	sanitizeWorkAgentSessionText,
 } from "../../lib/work-agent-session-board";
+import {
+	acceptAgentSessionEvents,
+	processAgentSessionEvents,
+	workersAiLedgerModel,
+} from "../../services/agent-session-request-ledger";
 import { requireOrgId } from "../org-scope";
 import {
 	type BaseContext,
@@ -140,8 +151,91 @@ const contributorsProcedure = projectReadOs.contributors.handler(
 	},
 );
 
+function requestOutput(row: AgentSessionRequestRow) {
+	return {
+		id: row.id,
+		harness: row.harness,
+		sessionKey: row.sessionKey,
+		repository: row.repository,
+		kind: row.kind,
+		text: row.text,
+		status: row.status,
+		evidence: row.evidence,
+		sourceAt: row.sourceAt,
+		statusChangedAt: row.statusChangedAt,
+	};
+}
+
+/**
+ * Store the uploaded events and return at once; the observer and reflector
+ * run after the response. Each upload also retries earlier pending events.
+ */
+const recordEventsProcedure = writeOs.recordEvents.handler(
+	async ({ input, context }) => {
+		const owner = requireBoardOwner(context);
+		const result = await acceptAgentSessionEvents(context.db, {
+			...owner,
+			events: input.events,
+			now: new Date().toISOString(),
+		});
+		context.waitUntil?.(
+			processAgentSessionEvents(
+				context.db,
+				workersAiLedgerModel(context.env),
+				owner,
+			).catch(() => 0),
+		);
+		return result;
+	},
+);
+
+const listRequestsProcedure = readOs.listRequests.handler(
+	async ({ input, context }) => {
+		const rows = await listAgentSessionRequests(context.db, {
+			...requireBoardOwner(context),
+			statuses: input.statuses,
+			harness: input.harness,
+			sessionKey: input.sessionKey,
+			limit: input.limit,
+		});
+		return { data: rows.map(requestOutput) };
+	},
+);
+
+const updateRequestProcedure = writeOs.updateRequest.handler(
+	async ({ input, context }) => {
+		const owner = requireBoardOwner(context);
+		if (input.status === "done" && !input.evidence)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Closing a request as done needs evidence: a commit SHA, link or note",
+			);
+		await updateAgentSessionRequests(context.db, {
+			...owner,
+			updates: [
+				{
+					id: input.id,
+					status: input.status,
+					evidence: input.evidence ?? null,
+				},
+			],
+			now: new Date().toISOString(),
+		});
+		const row = await getAgentSessionRequest(context.db, {
+			organizationId: owner.organizationId,
+			userId: owner.userId,
+			id: input.id,
+		});
+		if (!row) throw createError(ErrorCodes.NOT_FOUND, "Request not found");
+		return { request: requestOutput(row) };
+	},
+);
+
 export const workAgentSessionsContractRouter = sessionsOs.router({
 	report: reportProcedure,
 	list: listProcedure,
 	contributors: contributorsProcedure,
+	recordEvents: recordEventsProcedure,
+	listRequests: listRequestsProcedure,
+	updateRequest: updateRequestProcedure,
 });

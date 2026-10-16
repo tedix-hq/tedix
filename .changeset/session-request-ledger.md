@@ -1,0 +1,5 @@
+---
+"@tedix/cli": patch
+---
+
+Keep a private request ledger of your Claude Code and Codex sessions, so no request and no promise gets lost. With decision capture on, `capture-reply` uploads each message you type and `capture-stop` uploads the agent's final turn with a digest of its activity (tool failures, agents it started and their reports), redacted as `tedix learn` does. The hooks only upload: an event waits in a local outbox (`~/.tedix/session-events/`) until it is sent, and never waits on analysis. On Tedix, a small model records each request, question or decision you sent, and each promise or open loop of the agent, as an open row; later turns move rows to in progress, waiting on you, at risk or done, and a row is done only with evidence from the turn (a commit SHA, a link or an exact quote). Before each prompt, `prompt-context` shows the agent up to five open rows from this chat and earlier chats in the same repository. You see the ledger in Tedix OS under Work › Needs you › Your requests. No plugin hook definition changed: updating the CLI is enough.

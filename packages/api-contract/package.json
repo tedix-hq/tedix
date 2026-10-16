@@ -189,6 +189,7 @@
 		"./schemas/work-items": "./src/schemas/work-items.ts",
 		"./schemas/work-approvals": "./src/schemas/work-approvals.ts",
 		"./schemas/work-agent-sessions": "./src/schemas/work-agent-sessions.ts",
+		"./schemas/agent-session-requests": "./src/schemas/agent-session-requests.ts",
 		"./schemas/work-interactions": "./src/schemas/work-interactions.ts",
 		"./schemas/work-fleet": "./src/schemas/work-fleet.ts",
 		"./schemas/work-scheduler": "./src/schemas/work-scheduler.ts",

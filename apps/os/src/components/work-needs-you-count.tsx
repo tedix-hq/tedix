@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/kumo/badge";
 import {
+	agentSessionRequestsQueryOptions,
 	factoryScoreboardQueryOptions,
 	pendingApprovalsQueryOptions,
 	userProfileQueryOptions,
@@ -43,6 +44,11 @@ export function isOpenRequestForYou(row: {
 	request: { metadata?: unknown };
 }): boolean {
 	return row.effectiveState === "open" && !isStatusUpdate(row.request.metadata);
+}
+
+/** A request from your own agent session that waits on you. */
+export function isRequestWaitingOnYou(row: { status: string }): boolean {
+	return row.status === "waiting_on_user";
 }
 
 export function isPendingRuntimeApproval(row: { status: string }): boolean {
@@ -93,6 +99,10 @@ export function useNeedsYouSources() {
 	const factories = useQuery(factoryScoreboardQueryOptions());
 	const readiness = useQuery(workReadinessProjectionQueryOptions());
 	const profile = useQuery(userProfileQueryOptions());
+	const sessionRequests = useQuery({
+		...agentSessionRequestsQueryOptions(),
+		retry: false,
+	});
 	return {
 		interactions,
 		workApprovals,
@@ -100,6 +110,7 @@ export function useNeedsYouSources() {
 		factories,
 		readiness,
 		profile,
+		sessionRequests,
 	};
 }
 
@@ -113,8 +124,10 @@ export function needsYouSourceCount(sources: {
 	factories?: readonly Parameters<typeof isBrokenFactory>[0][];
 	readiness?: readonly Parameters<typeof isBlockedWorkYouOwn>[0][];
 	viewerId?: string | null;
+	sessionRequests?: readonly Parameters<typeof isRequestWaitingOnYou>[0][];
 }): number {
 	return (
+		(sources.sessionRequests ?? []).filter(isRequestWaitingOnYou).length +
 		(sources.interactions ?? []).filter(isOpenRequestForYou).length +
 		(sources.workApprovals ?? []).filter(isDecidableWorkApproval).length +
 		(sources.runtimeApprovals ?? []).filter(isPendingRuntimeApproval).length +
@@ -135,6 +148,7 @@ export function WorkNeedsYouCount() {
 		factories: sources.factories.data?.data,
 		readiness: sources.readiness.data?.data,
 		viewerId: sources.profile.data?.id,
+		sessionRequests: sources.sessionRequests.data?.data,
 	});
 	if (count === 0) return null;
 	return (

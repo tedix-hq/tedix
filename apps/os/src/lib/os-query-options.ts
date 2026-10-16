@@ -689,6 +689,14 @@ export const workAgentSessionsQueryOptions = () =>
 		refetchOnWindowFocus: true,
 	});
 
+/** The caller's private request ledger: what they asked their local agents. */
+export const agentSessionRequestsQueryOptions = () =>
+	osQuery.workAgentSessions.listRequests.queryOptions({
+		input: { limit: 200 },
+		refetchInterval: WORK_AGENT_SESSIONS_REFETCH_MS,
+		refetchOnWindowFocus: true,
+	});
+
 export const workProjectContributorsQueryOptions = (projectId: string) =>
 	osQuery.workAgentSessions.contributors.queryOptions({
 		input: { projectId },
@@ -1298,6 +1306,8 @@ export const osQueryKeys = {
 	workCases: () => osQuery.workItems.listCases.key({ type: "query" }),
 	workInteractions: () =>
 		osQuery.workInteractions.listInbox.key({ type: "query" }),
+	agentSessionRequests: () =>
+		osQuery.workAgentSessions.listRequests.key({ type: "query" }),
 	workResourcePools: () =>
 		osQuery.workItems.listResourcePools.key({ type: "query" }),
 	workspaces: () => osQuery.osWorkspaces.workspaces.key({ type: "query" }),

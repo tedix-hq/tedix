@@ -51,6 +51,7 @@ import {
 	peek,
 	questionPath,
 	rememberDelivered,
+	repositoryName,
 } from "./decision-capture";
 import { readCache, writeCache } from "./context-cache";
 import {
@@ -95,6 +96,9 @@ const TOP_LESSONS = 6;
 const DOCUMENT_STEP = 200;
 /** Open delegations named per turn; settled ones drop off the local list. */
 const DELEGATION_LIMIT = 8;
+/** Request ledger rows read per turn, and the ones named to the agent. */
+const REQUEST_READ_LIMIT = 100;
+const REQUEST_LIMIT = 5;
 /** Answer text handed over with the prompt, leaving room for the context. */
 const ANSWERS_IN_CONTEXT = 3000;
 const TRUNCATION_NOTE =
@@ -255,10 +259,12 @@ export function gatewayCode(
 	binding: JsonObject,
 	lessons?: LessonsQuery,
 	delegationIds: readonly string[] = [],
+	requests = false,
 ): string {
 	const target: JsonObject = Object.fromEntries(
 		TARGET_KEYS.map((key) => [key, binding[key] ?? null]),
 	);
+	if (requests) target.requests = true;
 	const ids = delegationIds
 		.filter((id) => UUID.test(id))
 		.slice(0, DELEGATION_LIMIT);
@@ -296,13 +302,19 @@ export function gatewayCode(
   const comments = r.comments ?? [];
   return {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
  });
- if (t.delegations) pending.delegations = Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
+ if (t.requests) pending.requests = each(async () => {
+  const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],limit:REQUEST_READ_LIMIT});
+  return {data:r.data.map(q => ({harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt}))};
+ });
+ if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
  const keys = Object.keys(pending);
  const values = await Promise.all(keys.map(k => pending[k]));
  const result = {};
  keys.forEach((k, i) => { result[k] = values[i]; });
  return result;
-}`.replace("TARGET", JSON.stringify(target));
+}`
+		.replace("TARGET", JSON.stringify(target))
+		.replace("REQUEST_READ_LIMIT", String(REQUEST_READ_LIMIT));
 }
 
 /**
@@ -377,6 +389,68 @@ export function settledDelegationIds(data: JsonObject): string[] {
 				(row.disposition === "completed" || row.disposition === "cancelled"),
 		)
 		.map((row: JsonObject) => String(row.id));
+}
+
+const REQUEST_STATUS_RANK: Record<string, number> = {
+	dropped_risk: 0,
+	open: 1,
+	in_progress: 2,
+	waiting_on_user: 3,
+};
+
+/**
+ * The request ledger lines: this chat's open requests, then ones from earlier
+ * chats in the same repository, at risk first, then oldest. Empty when the
+ * ledger was not read or nothing is open.
+ */
+export function openRequestLines(
+	data: JsonObject,
+	ledger: { session?: string; repository?: string | null },
+	now: Date,
+): string[] {
+	if (!isObject(data.requests) || !Array.isArray(data.requests.data)) return [];
+	const rows = data.requests.data.filter(
+		(row: unknown): row is JsonObject =>
+			isObject(row) &&
+			typeof row.text === "string" &&
+			typeof row.status === "string" &&
+			row.status in REQUEST_STATUS_RANK,
+	);
+	const rank = (row: JsonObject) => REQUEST_STATUS_RANK[row.status as string]!;
+	const ordered = (list: JsonObject[]) =>
+		[...list].sort(
+			(a, b) =>
+				rank(a) - rank(b) ||
+				String(a.sourceAt).localeCompare(String(b.sourceAt)),
+		);
+	const mine = rows.filter(
+		(row: JsonObject) =>
+			ledger.session && String(row.sessionKey).toLowerCase() === ledger.session,
+	);
+	const earlier = rows.filter(
+		(row: JsonObject) =>
+			!mine.includes(row) &&
+			Boolean(ledger.repository) &&
+			row.repository === ledger.repository,
+	);
+	const total = mine.length + earlier.length;
+	if (!total) return [];
+	const shown = [
+		...ordered(mine).map((row) => ({ row, earlier: false })),
+		...ordered(earlier).map((row) => ({ row, earlier: true })),
+	].slice(0, REQUEST_LIMIT);
+	const lines = [
+		`Open requests (${total}): what the user asked and is not done yet (Tedix request ledger, from the user's own messages). Finish each, or say plainly why not; when one is done, cite its commit SHA, link or exact result in your reply so the ledger can close it.`,
+		...shown.map(
+			({ row, earlier }) =>
+				`- ${String(row.status).replace(/_/g, " ")} · ${age(String(row.sourceAt), now)}${earlier ? " · earlier chat" : ""} · ${JSON.stringify(String(row.text).slice(0, 200))}`,
+		),
+	];
+	if (total > shown.length)
+		lines.push(
+			`${total - shown.length} more open: Tedix OS → Work → Needs you → Your requests.`,
+		);
+	return lines;
 }
 
 function age(from: string, now: Date): string {
@@ -561,6 +635,13 @@ function compose(
 			`Showing newest ${comments.length} of ${work.commentCount} comments; earlier comments and long bodies may be omitted. Re-read full Work context before execution or a material claim.`,
 		);
 	}
+	lines.push(
+		...openRequestLines(
+			data,
+			isObject(binding.ledger) ? binding.ledger : {},
+			now,
+		),
+	);
 	if (tasks.length) {
 		lines.push(
 			`Your open delegations (this session registered them; settle each with tedix work delegate --done <id> --note "<outcome>"):`,
@@ -769,12 +850,25 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				: undefined,
 			lessons: readCache(env, "lessons", cacheKeys.lessons, now),
 		};
+		// The request ledger is recorded under the decision-capture opt-in.
+		const ledger =
+			binding.decisionCapture === true &&
+			Boolean(session) &&
+			source === "stored-login";
+		if (ledger)
+			binding.ledger = {
+				session,
+				repository: outside
+					? null
+					: repositoryName(binding.origin, binding.root).slice(0, 200),
+			};
 		const liveSources = [
 			binding.contextOutputId ? "shared" : undefined,
 			binding.preferencesOutputId ? "preferences" : undefined,
 			"lessons",
 			binding.workItemId ? "work" : undefined,
 			delegations.length ? "delegations" : undefined,
+			ledger ? "requests" : undefined,
 		].filter((name): name is string => name !== undefined);
 		const gateway = async (): Promise<JsonObject> => {
 			if (!liveSources.length) return {};
@@ -789,6 +883,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 								binding,
 								lessons,
 								delegations.map((d) => d.id),
+								ledger,
 							),
 						],
 						GATEWAY_MS,

@@ -888,6 +888,10 @@
 		{
 			"name": "20261016081534_os-workspace-private-visibility/migration.sql",
 			"sha256": "2ed7cd137a45b16db4c5a9c4d9520cdaf3f793661a821c4b013a21bab32709a2"
+		},
+		{
+			"name": "20261016212148_agent-session-requests/migration.sql",
+			"sha256": "9611bcc37f4c3a7fbdb1f44c9fd791e85422415e64b2fd77b1d9b04956562ffc"
 		}
 	]
 }

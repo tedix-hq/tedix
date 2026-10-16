@@ -166,6 +166,9 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// The local agent session board names its own resource, outside WORK_TOOL_RE.
 	report_work_agent_session_status: "mcp:work",
 	list_work_agent_sessions: "mcp:work",
+	record_agent_session_events: "mcp:work",
+	list_agent_session_requests: "mcp:work",
+	update_agent_session_request: "mcp:work",
 	list_work_project_contributors: "mcp:work",
 	// Factory output (runs, Outputs, closed Work) is a Work read.
 	get_factory_scoreboard: "mcp:work",
@@ -633,6 +636,8 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	propose_work_approval: "write",
 	// `status` would otherwise classify this upsert as a read.
 	report_work_agent_session_status: "write",
+	// "record" matches no verb regex; it stores session events.
+	record_agent_session_events: "write",
 	get_work_admission_specification: "read",
 	replace_work_admission_specification: "admin",
 	run_tedi_turn: "write",
