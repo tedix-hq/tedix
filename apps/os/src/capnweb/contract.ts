@@ -100,7 +100,12 @@ export type CapnConversationSnapshot = {
 /** Browser-facing enqueue payload (org/conversation/key are pinned server-side). */
 export type CapnEnqueueInput = Pick<
 	EnqueueHomeMessageInput,
-	"content" | "attachments" | "metadata" | "modelRef" | "delegateToTediId"
+	| "content"
+	| "attachments"
+	| "metadata"
+	| "modelRef"
+	| "workspaceContext"
+	| "delegateToTediId"
 >;
 
 export type CapnRespondApprovalParams = {

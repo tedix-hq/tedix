@@ -865,6 +865,38 @@ describe("useChatTransport (the seam)", () => {
 		rendered.unmount();
 	});
 
+	it("keeps the selected workpiece on a follow-up send", async () => {
+		const server = mockServer();
+		const rendered = renderHook<ChatTransportResult>(() =>
+			useChatTransport(CONVERSATION_ID, {
+				connect: connectSequence(server),
+				metrics: null,
+				frameScheduler: syncScheduler,
+			}),
+		);
+		await act(async () => {
+			await flushAsync();
+		});
+		const workspaceContext = {
+			workspaceId: "5c2d8e1a-3b4f-4a6c-9d7e-1f2a3b4c5d6e",
+			workpiece: {
+				kind: "output" as const,
+				id: "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b",
+			},
+		};
+		await rendered.result.current?.actions.enqueueMessage({
+			conversationId: CONVERSATION_ID,
+			content: "Tighten the second section",
+			workspaceContext,
+			idempotencyKey: "workpiece-key",
+		});
+		expect(server.conversation.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({ workspaceContext }),
+			"workpiece-key",
+		);
+		rendered.unmount();
+	});
+
 	it("emits first_phase once per run from the runtime's first progress frame", async () => {
 		trackLifecycleApi.mockClear();
 		const server = mockServer();

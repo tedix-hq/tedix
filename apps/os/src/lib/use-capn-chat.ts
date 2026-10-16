@@ -396,6 +396,9 @@ function enqueueThroughCapability(
 			attachments: input.attachments,
 			metadata: input.metadata,
 			modelRef: input.modelRef,
+			// The selected workpiece rides every send. The server only knows the
+			// conversation's Workspace, not which document is open beside it.
+			workspaceContext: input.workspaceContext,
 			delegateToTediId: input.delegateToTediId,
 		},
 		input.idempotencyKey,
