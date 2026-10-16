@@ -661,6 +661,18 @@ export const workItemsContract = oc
 					title: z.string().min(1).max(500).optional(),
 					description: z.string().max(10000).nullable().optional(),
 					workKind: WorkItemKindSchema.optional(),
+					workClass: z
+						.enum(["maintenance", "incident", "hygiene"])
+						.optional()
+						.describe(
+							"Owner/admin repair of missing operational purpose; existing class cannot change.",
+						),
+					purposeExceptionExpiresAt: z.iso
+						.datetime()
+						.optional()
+						.describe(
+							"Owner/admin renewal of operational purpose, bounded to 30 days.",
+						),
 					riskLevel: WorkItemRiskLevelSchema.optional(),
 					priority: WorkItemPrioritySchema.optional(),
 					accountableOwnerType: WorkItemOwnerTypeSchema.nullable().optional(),

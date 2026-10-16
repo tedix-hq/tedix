@@ -1,4 +1,9 @@
 import {
+	assertValidWorkItemProject,
+	resolveWorkItemPurpose,
+	WorkItemPurposeError,
+} from "@tedix/db/queries/work-items/purpose";
+import {
 	WorkAttemptCliRowSchema,
 	WorkEvidenceCliRowSchema,
 	WorkEventCliRowSchema,
@@ -65,6 +70,7 @@ import {
 	authOs,
 	requireOwnerAdminWorkItemAuthor,
 	workItemAcceptanceActor,
+	workItemStewardActor,
 	rethrowWorkItemWriteError,
 } from "./policy-helpers";
 import { admitWorkAttempt } from "./attempt-admission";
@@ -236,26 +242,103 @@ async function resolveActor(
 export const updateSpecificationProcedure =
 	factoryOs.updateSpecification.handler(async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
-		const actorId = await requireOwnerAdminWorkItemAuthor(
+		const actor = await workItemStewardActor(
 			context,
-			workItem.orgId,
-			"Work Item specification update",
+			workItem,
+			"specification",
 		);
+		if (
+			input.expectedWorkItemVersion !== undefined &&
+			input.expectedWorkItemVersion !== workItem.version
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Work changed before specification update",
+			);
+		if (
+			actor.type !== "user" &&
+			[
+				input.riskLevel,
+				input.workClass,
+				input.purposeExceptionExpiresAt,
+				input.requiredAuthorities,
+				input.requiredCapabilities,
+				input.accountableOwnerType,
+				input.accountableOwnerId,
+				input.stewardType,
+				input.stewardId,
+			].some((value) => value !== undefined)
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Risk, admission requirements and ownership remain owner/admin controlled",
+			);
+		}
 		try {
+			let purpose: {
+				workClass?: typeof workItem.workClass;
+				purposeExceptionExpiresAt?: string | null;
+			} = {};
+			if (
+				input.workClass !== undefined ||
+				input.purposeExceptionExpiresAt !== undefined
+			) {
+				if (
+					workItem.objectiveId ||
+					(workItem.workClass &&
+						input.workClass &&
+						input.workClass !== workItem.workClass) ||
+					(workItem.purposeExceptionExpiresAt &&
+						input.purposeExceptionExpiresAt &&
+						input.purposeExceptionExpiresAt <
+							workItem.purposeExceptionExpiresAt)
+				) {
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"Purpose repair cannot replace an objective, change an existing class or shorten its window",
+					);
+				}
+				const resolved = await resolveWorkItemPurpose(context.db, {
+					orgId: workItem.orgId,
+					now: new Date().toISOString(),
+					workClass: input.workClass ?? workItem.workClass,
+					purposeExceptionExpiresAt:
+						input.purposeExceptionExpiresAt ??
+						workItem.purposeExceptionExpiresAt,
+					parent: workItem.parentWorkItemId
+						? await assertWorkItemAccess(context, workItem.parentWorkItemId)
+						: null,
+					project: workItem.projectId
+						? await assertValidWorkItemProject(context.db, {
+								orgId: workItem.orgId,
+								projectId: workItem.projectId,
+							})
+						: null,
+				});
+				if (resolved.objectiveId)
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"Operational repair cannot replace inherited objective context",
+					);
+				purpose = resolved;
+			}
 			return await updateWorkItemSpecification(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
-				actor: { type: "user", id: actorId },
+				actor,
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,
+				workClass: purpose.workClass ?? undefined,
+				purposeExceptionExpiresAt:
+					purpose.purposeExceptionExpiresAt ?? undefined,
 				riskLevel: input.riskLevel,
 				priority: input.priority,
 				accountableOwnerType: input.accountableOwnerType,
 				accountableOwnerId: input.accountableOwnerId,
 				stewardType: input.stewardType,
 				stewardId: input.stewardId,
-				expectedWorkItemVersion: input.expectedWorkItemVersion,
+				expectedWorkItemVersion: workItem.version,
 				requiredCapabilities: input.requiredCapabilities,
 				requiredAuthorities: input.requiredAuthorities,
 				startAt: input.startAt,
@@ -263,6 +346,8 @@ export const updateSpecificationProcedure =
 				updatedAt: new Date().toISOString(),
 			});
 		} catch (error) {
+			if (error instanceof WorkItemPurposeError)
+				throw createError(ErrorCodes.BAD_REQUEST, error.message);
 			rethrowWorkItemWriteError(error);
 		}
 	});
@@ -800,16 +885,13 @@ export const listEventsProcedure = factoryOs.listEvents.handler(
 export const completeProcedure = factoryOs.complete.handler(
 	async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
-		const actorId = await requireOwnerAdminWorkItemAuthor(
-			context,
-			workItem.orgId,
-			"Work Item completion",
-		);
+		const actor = await workItemStewardActor(context, workItem, "completion");
 		try {
 			return await completeWorkItem(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
-				actor: { type: "user", id: actorId },
+				actor,
+				expectedWorkItemVersion: workItem.version,
 				completedAt: new Date().toISOString(),
 			});
 		} catch (error) {
@@ -821,17 +903,19 @@ export const completeProcedure = factoryOs.complete.handler(
 export const cancelFactoryWorkItemProcedure = factoryOs.cancel.handler(
 	async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
-		const actorId = await requireOwnerAdminWorkItemAuthor(
+		const actor = await workItemStewardActor(
 			context,
-			workItem.orgId,
-			"Work Item cancellation",
+			workItem,
+			"cancellation",
+			input.reason,
 		);
 		try {
 			return await cancelWorkItem(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
-				actor: { type: "user", id: actorId },
+				actor,
 				reason: input.reason,
+				expectedWorkItemVersion: workItem.version,
 				cancelledAt: new Date().toISOString(),
 			});
 		} catch (error) {

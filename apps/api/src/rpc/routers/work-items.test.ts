@@ -6,6 +6,15 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workItemsContractRouter } from "./work-items";
 
+vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/tedis")>()),
+	getTediById: vi.fn(async (_db, id: string) => ({
+		id,
+		organizationId: "11111111-1111-4111-8111-111111111111",
+		retiredAt: null,
+	})),
+}));
+
 const ORG_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_ORG_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
@@ -14,7 +23,7 @@ const PURPOSE = { objectiveId: OBJECTIVE_ID } as const;
 const DDL = `
 CREATE TABLE organization_members (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT, descope_user_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, avatar_url TEXT, role TEXT NOT NULL, custom_permissions TEXT, status TEXT NOT NULL DEFAULT 'active', invited_at TEXT, invite_accepted_at TEXT, invited_by TEXT, last_active_at TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE tedi_objectives (id TEXT PRIMARY KEY, org_id TEXT NOT NULL);
-CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, objective_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL);
+CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, objective_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, name TEXT, description TEXT, lead_tedi_id TEXT, owner_user_id TEXT, target_date TEXT, metadata TEXT DEFAULT '{}', updated_at TEXT, archived_at TEXT);
 CREATE TABLE work_items (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT,
  disposition TEXT NOT NULL DEFAULT 'proposed', work_kind TEXT NOT NULL DEFAULT 'other', risk_level TEXT NOT NULL DEFAULT 'medium', acceptance_contract TEXT,
@@ -86,7 +95,7 @@ function d1Facade(db: DatabaseSync): D1Database {
 }
 
 let sqlite: DatabaseSync;
-function context(kind: "api" | "owner" = "api"): BaseContext {
+function context(kind: "api" | "owner" | "tedi" = "api"): BaseContext {
 	const base = {
 		db: createDbClient(d1Facade(sqlite)),
 		env: { DB: d1Facade(sqlite) } as CloudflareEnv,
@@ -104,6 +113,10 @@ function context(kind: "api" | "owner" = "api"): BaseContext {
 			organizationId: ORG_ID,
 			scopes: ["*"],
 		};
+	} else if (kind === "tedi") {
+		base.headers.set("X-Service-Binding", "true");
+		base.tediId = "tedi-nova";
+		base.tediScopes = ["mcp:messaging.write", "mcp:work.write"];
 	} else {
 		base.authType = "user";
 		base.user = { sub: "owner-1" };
@@ -112,7 +125,7 @@ function context(kind: "api" | "owner" = "api"): BaseContext {
 	}
 	return base;
 }
-function client(kind: "api" | "owner" = "api") {
+function client(kind: "api" | "owner" | "tedi" = "api") {
 	return createRouterClient(workItemsContractRouter, {
 		context: context(kind),
 	});
@@ -635,6 +648,152 @@ describe("Work Item router canonical specification reads and writes", () => {
 		const id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		seed({ id, orgId: OTHER_ORG_ID });
 		await expect(client().getById({ id })).rejects.toThrow();
+	});
+});
+
+describe("tedi Work stewardship", () => {
+	async function ownedItem(
+		role: "accountableOwner" | "steward" = "accountableOwner",
+	) {
+		const item = await client().create({ ...PURPOSE, title: "Nova report" });
+		return client("owner").updateSpecification({
+			id: item.id,
+			[`${role}Type`]: "tedi",
+			[`${role}Id`]: "tedi-nova",
+		});
+	}
+	it.each(["accountableOwner", "steward"] as const)(
+		"lets the tedi %s edit descriptive specs and complete under its own identity",
+		async (role) => {
+			const item = await ownedItem(role);
+			await client("owner").accept({
+				id: item.id,
+				acceptanceContract: { version: 1, doneLooksLike: "Report saved" },
+			});
+			await expect(
+				client("tedi").updateSpecification({
+					id: item.id,
+					description: "Verified report",
+					priority: "high",
+				}),
+			).resolves.toMatchObject({ description: "Verified report" });
+			await expect(
+				client("tedi").complete({ id: item.id }),
+			).resolves.toMatchObject({ disposition: "completed" });
+			const event = sqlite
+				.prepare(
+					"SELECT actor_type, actor_id FROM work_events WHERE work_item_id=? AND event_type='work.completed'",
+				)
+				.get(item.id);
+			expect(event).toMatchObject({
+				actor_type: "tedi",
+				actor_id: "tedi-nova",
+			});
+		},
+	);
+	it("refuses unrelated tedis and owner-held spec changes", async () => {
+		const unrelated = await client().create({
+			...PURPOSE,
+			title: "Other report",
+		});
+		await expect(
+			client("tedi").updateSpecification({ id: unrelated.id, title: "Taken" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const item = await ownedItem();
+		for (const change of [
+			{ riskLevel: "low" as const },
+			{ requiredAuthorities: [] },
+			{ requiredCapabilities: [] },
+			{ stewardId: "tedi-nova" },
+			{ workClass: "maintenance" as const },
+		]) {
+			await expect(
+				client("tedi").updateSpecification({ id: item.id, ...change }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+	});
+	async function staleItem(projectOrg = ORG_ID, lead = "tedi-nova") {
+		sqlite
+			.prepare(
+				"INSERT INTO projects(id,org_id,key,lead_tedi_id,created_at) VALUES (?,?,?,?,?)",
+			)
+			.run(PROJECT_ID, projectOrg, "NOVA", lead, "2026-01-01T00:00:00Z");
+		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		seed({ id, projectId: PROJECT_ID, disposition: "accepted" });
+		return id;
+	}
+	it("lets a project lead cancel stale work with an attributed reason", async () => {
+		const id = await staleItem();
+		await expect(
+			client("tedi").cancel({ id, reason: "Superseded by the Nova report" }),
+		).resolves.toMatchObject({ disposition: "cancelled" });
+		const event = sqlite
+			.prepare(
+				"SELECT actor_type,actor_id,payload FROM work_events WHERE work_item_id=?",
+			)
+			.get(id);
+		expect(event).toMatchObject({ actor_type: "tedi", actor_id: "tedi-nova" });
+		expect(String(event?.payload)).toContain("Superseded by the Nova report");
+	});
+	it.each([
+		"reason",
+		"fresh",
+		"other lead",
+		"other organization",
+		"no project",
+		"live attempt",
+	])("rejects cancellation with %s boundary", async (boundary) => {
+		const id = await staleItem(
+			boundary === "other organization" ? OTHER_ORG_ID : ORG_ID,
+			boundary === "other lead" ? "tedi-orbit" : "tedi-nova",
+		);
+		if (boundary === "fresh")
+			sqlite
+				.prepare("UPDATE work_items SET updated_at=? WHERE id=?")
+				.run(new Date().toISOString(), id);
+		if (boundary === "no project")
+			sqlite
+				.prepare("UPDATE work_items SET project_id=NULL WHERE id=?")
+				.run(id);
+		if (boundary === "live attempt")
+			sqlite
+				.prepare(
+					"INSERT INTO work_attempts(id,org_id,work_item_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at) VALUES ('busy',?,?,'tedi','tedi-orbit','running',1,?,?)",
+				)
+				.run(ORG_ID, id, new Date().toISOString(), new Date().toISOString());
+		await expect(
+			client("tedi").cancel({
+				id,
+				reason: boundary === "reason" ? "   " : "Superseded by Nova",
+			}),
+		).rejects.toThrow();
+		expect((await client().getById({ id })).workItem.disposition).toBe(
+			"accepted",
+		);
+	});
+	it("repairs an undeclared purpose without changing acceptance and rejects out-of-window renewal", async () => {
+		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		seed({ id, disposition: "accepted" });
+		const expiry = new Date(Date.now() + 7 * 86400000).toISOString();
+		const result = await client("owner").updateSpecification({
+			id,
+			workClass: "maintenance",
+			purposeExceptionExpiresAt: expiry,
+		});
+		expect(result).toMatchObject({
+			workClass: "maintenance",
+			purposeExceptionExpiresAt: expiry,
+			disposition: "accepted",
+			acceptanceContract: null,
+		});
+		await expect(
+			client("owner").updateSpecification({
+				id,
+				purposeExceptionExpiresAt: new Date(
+					Date.now() + 31 * 86400000,
+				).toISOString(),
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 });
 
