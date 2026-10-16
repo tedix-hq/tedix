@@ -726,9 +726,7 @@ export class ConversationFacet extends PiAgent<
 							});
 							throw error;
 						}
-						const receipts = descriptor.codeModeOutput
-							? collectActionReceipts(result)
-							: [];
+						const receipts = collectActionReceipts(result, descriptor.name);
 						if (receipts.length)
 							await this.ctx.storage.put(
 								`action-receipts:${this.requireRunId()}:${api.callId}`,
