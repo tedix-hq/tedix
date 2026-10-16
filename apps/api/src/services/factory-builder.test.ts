@@ -48,6 +48,7 @@ function memoryStore(canActivate: boolean) {
 	>();
 	const schedules = new Map<string, { cron: string; nextFireAt: string }>();
 	const intents = new Map<string, string>();
+	const workspaceLinks = new Set<string>();
 	const outputs = [
 		{ id: DOC_ID, title: "Weekly notes", kind: "document" },
 		{ id: DECK_ID, title: "Pitch", kind: "presentation" },
@@ -108,6 +109,13 @@ function memoryStore(canActivate: boolean) {
 		},
 		async workspaceExists() {
 			return true;
+		},
+		async linkWorkspaceProject({ workspaceId, projectId }) {
+			const key = `${workspaceId}:${projectId}`;
+			if (workspaceLinks.has(key)) return { created: false };
+			writes.push("workspace");
+			workspaceLinks.add(key);
+			return { created: true };
 		},
 		async findOutputById(outputId) {
 			return outputs.find((row) => row.id === outputId) ?? null;
@@ -174,7 +182,7 @@ function memoryStore(canActivate: boolean) {
 			};
 		},
 	};
-	return { store, writes, skills, projects };
+	return { store, writes, skills, projects, workspaceLinks };
 }
 
 const input = (extra: Record<string, unknown> = {}) =>
@@ -240,6 +248,39 @@ describe("buildFactory", () => {
 		] as const) {
 			expect(second[key]).toBe(first[key]);
 		}
+	});
+
+	it("links the project to the Workspace once, so its Work view lists the factory", async () => {
+		const { store, workspaceLinks } = memoryStore(true);
+		const planned = await buildFactory(
+			store,
+			input({ slug: "linked", workspaceId: WORKSPACE, dryRun: true }),
+		);
+		expect(planned.steps).toContainEqual({
+			resource: "workspace",
+			action: "would_create",
+			id: WORKSPACE,
+		});
+		expect(workspaceLinks.size).toBe(0);
+
+		const first = await buildFactory(
+			store,
+			input({ slug: "linked", workspaceId: WORKSPACE }),
+		);
+		expect(first.steps).toContainEqual({
+			resource: "workspace",
+			action: "linked",
+			id: WORKSPACE,
+		});
+		expect([...workspaceLinks]).toEqual([`${WORKSPACE}:${first.projectId}`]);
+
+		const again = await buildFactory(store, input({ slug: "linked" }));
+		expect(again.status).toBe("unchanged");
+		expect(again.steps).toContainEqual({
+			resource: "workspace",
+			action: "reused",
+			id: WORKSPACE,
+		});
 	});
 
 	it("leaves an agent's lane a draft and names the proof step", async () => {

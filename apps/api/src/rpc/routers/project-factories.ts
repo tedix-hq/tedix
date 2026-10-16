@@ -50,6 +50,7 @@ import {
 	withAuth,
 } from "../orpc";
 import { isLifecycleOverrideAuthority } from "./cognitive-shared";
+import { ensureWorkspaceProjectLink } from "./os-workspaces-shared";
 import { updateSkillEntryGated } from "./cognitive-skill-governance";
 import {
 	createSkillFromInput,
@@ -90,6 +91,13 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 				row &&
 				isOsWorkspaceVisibleTo(row, await resolveOsWorkspaceViewer(context)),
 			);
+		},
+		async linkWorkspaceProject(params) {
+			const { created } = await ensureWorkspaceProjectLink(context, {
+				organizationId: orgId,
+				...params,
+			});
+			return { created };
 		},
 		async findOutputById(outputId) {
 			const row = await getOsOutput(db, { organizationId: orgId, outputId });

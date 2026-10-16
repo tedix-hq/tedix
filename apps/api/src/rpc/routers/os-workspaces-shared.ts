@@ -21,6 +21,11 @@ import {
 import { getOsBlueprint } from "@tedix/db/queries/os-workspaces/blueprints";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
 import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import {
+	createOsWorkspaceProject,
+	getOsWorkspaceProject,
+	reactivateOsWorkspaceProject,
+} from "@tedix/db/queries/os-workspaces/projects";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
@@ -32,6 +37,7 @@ import type {
 	OsGadgetRevisionRow,
 	OsGadgetRow,
 	OsOutputRow,
+	OsWorkspaceProjectRow,
 	OsWorkspaceRow,
 } from "@tedix/db/schema/os-workspaces";
 import { parseBlueprintLineage } from "../../services/os-blueprint-portability";
@@ -473,4 +479,50 @@ export async function requireOutput(
 		"OS output not found",
 	);
 	return output;
+}
+
+/**
+ * Link a Work project to a Workspace so the Workspace's Work view lists its
+ * items. Idempotent: an active link is returned as is, a removed one is
+ * restored. Callers check that the workspace and project belong to the org.
+ */
+export async function ensureWorkspaceProjectLink(
+	context: BaseContext,
+	params: { organizationId: string; workspaceId: string; projectId: string },
+): Promise<{ link: OsWorkspaceProjectRow; created: boolean }> {
+	const db = createDbQueryClient(context.env.DB);
+	const existing = await getOsWorkspaceProject(db, params);
+	if (existing?.status === "active") return { link: existing, created: false };
+	const now = new Date().toISOString();
+	if (existing) {
+		const restored = await reactivateOsWorkspaceProject(db, {
+			...params,
+			now,
+		});
+		if (restored) return { link: restored, created: true };
+	}
+	const creator = resolveCreator(context);
+	try {
+		return {
+			link: await createOsWorkspaceProject(db, {
+				id: crypto.randomUUID(),
+				...params,
+				status: "active",
+				createdByKind: creator.kind,
+				createdById: creator.id,
+				createdAt: now,
+				updatedAt: now,
+				removedAt: null,
+			}),
+			created: true,
+		};
+	} catch (error) {
+		if (isUniqueConstraintError(error)) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Work project link changed; reload",
+			);
+		}
+		throw error;
+	}
 }
