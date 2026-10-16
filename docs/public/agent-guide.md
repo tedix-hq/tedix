@@ -218,6 +218,11 @@ tedix -w acme work delegate --done <id> --note "Merged; docs check green"
 - Never request, print, or persist browser cookies, OAuth grants, API keys, or
   secret-provider values.
 
+A question to a person lands in their Needs you list, so send one only for a
+decision or step that person alone can take, and give a one-line `reason`.
+Never send housekeeping, such as closing or cancelling scratch Work or
+confirming a cleanup: finish it yourself, or record it on your own Work Item.
+
 ## Repository agents
 
 The public [tedix-hq/tedix](https://github.com/tedix-hq/tedix) repository has a

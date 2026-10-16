@@ -38,12 +38,15 @@ type InboxRow = {
 		version: number;
 		kind: "question" | "input" | "handoff" | "coordination";
 		subject: string;
+		prompt?: string;
 		metadata?: unknown;
 		requestedAt: string;
 	};
 	effectiveState: string;
 	canRespond: boolean;
-	workItem: { title: string } | null;
+	workItem: { id?: string; title: string } | null;
+	askedBy?: string;
+	references?: ReadonlyArray<{ shortId: string; title: string }>;
 };
 
 type WorkApprovalRow = {
@@ -98,7 +101,12 @@ export type NeedsYouItem = {
 	kind: NeedsYouKind;
 	label: string;
 	href: string;
+	/** Who asked, in plain words. */
+	askedBy?: string;
+	/** One line on why it needs you. */
 	detail?: string;
+	/** What the row's buttons do. */
+	hint?: string;
 	at?: string;
 	count?: number;
 	action: NeedsYouAction;
@@ -144,6 +152,74 @@ const ORGANIZATION_COPY: Partial<
 const newestFirst = (a: NeedsYouItem, b: NeedsYouItem) =>
 	(b.at ?? "").localeCompare(a.at ?? "");
 
+function metadataOf(request: { metadata?: unknown }): Record<string, unknown> {
+	return typeof request.metadata === "object" && request.metadata !== null
+		? (request.metadata as Record<string, unknown>)
+		: {};
+}
+
+/** Shows quoted Work Item short ids as their titles. */
+function withTitles(text: string, row: InboxRow): string {
+	const titles = new Map(
+		(row.references ?? []).map((ref) => [ref.shortId, ref.title]),
+	);
+	return text.replace(/\b[0-9a-f]{8}\b/gi, (shortId) => {
+		const id = shortId.toLowerCase();
+		const title =
+			titles.get(id) ??
+			(row.workItem?.id?.startsWith(id) ? row.workItem.title : undefined);
+		return title ? `“${title}”` : shortId;
+	});
+}
+
+/** Why the request needs you: its stated reason, else its Work Item. */
+function interactionWhy(row: InboxRow, label: string): string | undefined {
+	const metadata = metadataOf(row.request);
+	if (typeof metadata.reason === "string" && metadata.reason.trim())
+		return metadata.reason.trim();
+	const lines = (row.request.prompt ?? "")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const why = lines.find((line) => /^Why:\s/.test(line));
+	if (why) return why.replace(/^Why:\s*/, "");
+	if (row.workItem) return `For Work item “${row.workItem.title}”`;
+	const first = lines[0];
+	return first && first !== label ? first : undefined;
+}
+
+const PROPOSAL_ACCEPT: Record<string, string> = {
+	delegate: "Accept: a tedi starts on it; nothing is sent without you.",
+	doc: "Accept: a tedi drafts it in your space; nothing is sent without you.",
+	factory: "Accept: Tedix plans a factory; it runs only once you switch it on.",
+};
+
+/** "A tedi" → "the tedi", "Codex session" → "the Codex session". */
+function toWhom(askedBy: string): string {
+	if (/^an? /i.test(askedBy)) return askedBy.replace(/^an? /i, "the ");
+	return /session$/.test(askedBy) ? `the ${askedBy}` : askedBy;
+}
+
+function interactionHint(row: InboxRow, kind: NeedsYouKind): string {
+	if (!row.canRespond) return "Open: see the request.";
+	if (row.request.kind === "handoff") {
+		const proposal = metadataOf(row.request).proposal as
+			| { start?: { kind?: string } }
+			| undefined;
+		if (!proposal)
+			return "Accept: you take this over. Decline: it goes back to the sender.";
+		const accept =
+			PROPOSAL_ACCEPT[proposal.start?.kind ?? ""] ??
+			"Accept: it becomes a Work item; nothing starts yet.";
+		return `${accept} Decline: nothing starts, and it is not proposed again.`;
+	}
+	if (kind === "Question")
+		return row.askedBy && row.askedBy !== "You"
+			? `Answer: write a reply; it goes back to ${toWhom(row.askedBy)}.`
+			: "Answer: write a reply; it is saved on the request.";
+	return "Open: read the request and reply there.";
+}
+
 function interactionItem(row: InboxRow): NeedsYouItem | null {
 	// A captured status update asks nothing of you; the Office shows it.
 	if (!isOpenRequestForYou(row)) return null;
@@ -163,12 +239,16 @@ function interactionItem(row: InboxRow): NeedsYouItem | null {
 					label: row.canRespond && kind === "Question" ? "Answer" : "Open",
 					href,
 				};
+	const label = withTitles(officeAsk(request), row);
+	const why = interactionWhy(row, label);
 	return {
 		key: `interaction:${request.id}`,
 		kind,
-		label: officeAsk(request),
+		label,
 		href,
-		detail: row.workItem?.title,
+		askedBy: row.askedBy,
+		detail: why ? withTitles(why, row) : undefined,
+		hint: interactionHint(row, kind),
 		at: request.requestedAt,
 		action,
 	};
@@ -197,7 +277,12 @@ export function needsYouItems(input: {
 				kind: "Approval",
 				label: row.description,
 				href: "/work/approvals",
+				askedBy: "A tedi",
 				detail: row.review.operatorQuestion ?? undefined,
+				hint:
+					row.review.decisionMode === "approve_or_reject"
+						? "Approve: the paused tedi run goes ahead. To reject, open Approvals."
+						: "Review: see what the tedi wants to do, then decide on Approvals.",
 				at: row.createdAt,
 				action:
 					row.review.decisionMode === "approve_or_reject"
@@ -211,7 +296,9 @@ export function needsYouItems(input: {
 				kind: "Approval",
 				label: row.workItem.title,
 				href: `/work/items/${row.workItem.id}`,
+				askedBy: "Tedix",
 				detail: row.proposal.requestRationale,
+				hint: "Approve: opens Approvals, where you approve or reject it with a short reason.",
 				at: row.proposal.requestedAt,
 				// Deciding Work needs a written rationale, which the Approvals page takes.
 				action: { type: "link", label: "Approve", href: "/work/approvals" },
@@ -228,7 +315,9 @@ export function needsYouItems(input: {
 			kind: "Factory",
 			label: `${row.name} ${row.verdict === "failing" ? "is failing" : "is not firing"}`,
 			href: factoryHref(row),
+			askedBy: "Tedix",
 			detail: row.verdictReason ?? undefined,
+			hint: "Open: see the factory's recent runs.",
 			at: row.lastRunAt ? normalizeD1Timestamp(row.lastRunAt) : undefined,
 			action: { type: "link", label: "Open", href: factoryHref(row) },
 		}));
@@ -239,7 +328,9 @@ export function needsYouItems(input: {
 			kind: "Blocked",
 			label: workItem.title,
 			href: `/work/items/${workItem.id}`,
+			askedBy: "Tedix",
 			detail: readiness.reasons[0]?.detail,
+			hint: "Open: see what blocks this Work you own.",
 			at: workItem.updatedAt ?? workItem.createdAt,
 			action: {
 				type: "link",
@@ -258,7 +349,9 @@ export function needsYouItems(input: {
 					kind: "Organization",
 					label: copy.label,
 					href,
+					askedBy: "Tedix",
 					detail: copy.detail,
+					hint: "Open: see the affected Work.",
 					count: action.count,
 					action: { type: "link", label: "Open", href },
 				},
@@ -369,13 +462,17 @@ export function NeedsYouList({
 								<Badge variant="outline">{item.count}</Badge>
 							) : null}
 						</Text>
-						{item.detail || item.at ? (
+						{item.askedBy || item.detail || item.at ? (
 							<Text
 								as="p"
 								role="label"
 								tone="secondary"
 								className="m-0 line-clamp-2"
 							>
+								{item.askedBy
+									? `From ${item.askedBy === "You" ? "you" : item.askedBy}`
+									: null}
+								{item.askedBy && (item.detail || item.at) ? " · " : null}
 								{item.detail}
 								{item.detail && item.at ? " · " : null}
 								{item.at ? (
@@ -383,6 +480,11 @@ export function NeedsYouList({
 										{relativeTime(item.at)}
 									</time>
 								) : null}
+							</Text>
+						) : null}
+						{item.hint ? (
+							<Text as="p" role="label" tone="secondary" className="m-0">
+								{item.hint}
 							</Text>
 						) : null}
 					</div>

@@ -12,6 +12,7 @@ import {
 } from "@/lib/os-query-options";
 import { needsYouSourceCount } from "./work-needs-you-count";
 import {
+	NeedsYouList,
 	needsYouCount,
 	needsYouItems,
 	WorkNeedsYouPage,
@@ -301,5 +302,85 @@ describe("WorkNeedsYouPage", () => {
 		);
 		expect(approvalRow?.querySelector("button")?.textContent).toBe("Approve");
 		expect(doc.body.textContent).toContain("6 things wait for you");
+	});
+});
+
+describe("Needs you rows explain themselves", () => {
+	const housekeeping = {
+		...request(4, "question", "harbor · claude-code waiting: Done.", {
+			prompt: "I left the scratch item alone.",
+			metadata: {
+				schema: "tedix.decision-capture.v1",
+				attention: { kind: "needs_you" },
+				neededFromYou: "Decide whether to cancel Work item 5a7c0de1.",
+			},
+		}),
+		askedBy: "Claude Code session",
+		references: [{ shortId: "5a7c0de1", title: "Harbor scratch item" }],
+	};
+	const onboarding = {
+		...request(5, "handoff", "Tedix can start: Draft the harbor fare email", {
+			prompt:
+				"Accept and Tedix drafts it.\nWhy: you asked for it in three sessions. Seen in 3 sessions.",
+			metadata: {
+				schema: "tedix.work-proposal.v1",
+				proposal: {
+					key: "fare-email",
+					item: { title: "Draft the harbor fare email", sourceIntentId: "i-2" },
+					children: [],
+					start: { kind: "doc", brief: "Draft the fare email for review" },
+				},
+			},
+		}),
+		askedBy: "Onboarding",
+		workItem: {
+			id: "5e550000-0000-4000-8000-000000000001",
+			title: "Unrelated",
+		},
+	};
+	const legacy = {
+		...request(6, "input", "Send the venue deposit"),
+		workItem: {
+			id: "77770000-0000-4000-8000-000000000001",
+			title: "Book the venue",
+		},
+	};
+	const [ask, accept, input] = needsYouItems({
+		interactions: [housekeeping, onboarding, legacy],
+	}).sort((a, b) => a.key.localeCompare(b.key));
+
+	it("names who asked, shows titles for short ids, and says why", () => {
+		expect(ask).toMatchObject({
+			askedBy: "Claude Code session",
+			label: "Decide whether to cancel Work item “Harbor scratch item”.",
+			detail: "I left the scratch item alone.",
+			hint: "Answer: write a reply; it goes back to the Claude Code session.",
+		});
+	});
+
+	it("says what Accept and Decline do on a proposal", () => {
+		expect(accept).toMatchObject({
+			askedBy: "Onboarding",
+			detail: "you asked for it in three sessions. Seen in 3 sessions.",
+			hint: "Accept: a tedi drafts it in your space; nothing is sent without you. Decline: nothing starts, and it is not proposed again.",
+		});
+	});
+
+	it("falls back to the Work item's title when an older ask gives no reason", () => {
+		expect(input?.detail).toBe("For Work item “Book the venue”");
+	});
+
+	it("renders who, why and the button hint on the row", () => {
+		const html = renderToStaticMarkup(
+			<NeedsYouList
+				items={[ask, accept].filter((item) => item !== undefined)}
+				onApprove={() => {}}
+				onHandoff={() => {}}
+			/>,
+		);
+		expect(html).toContain("From Claude Code session");
+		expect(html).toContain("Answer: write a reply");
+		expect(html).toContain("Accept: a tedi drafts it in your space");
+		expect(html).not.toContain("5a7c0de1");
 	});
 });

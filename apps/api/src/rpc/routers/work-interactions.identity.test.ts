@@ -123,6 +123,7 @@ async function createTargetedInteraction(
 	return owner.create({
 		workItemId: WORK_ITEM_ID,
 		kind: "question",
+		reason: "Only the asked person can decide this.",
 		subject: "Need an exact answer",
 		prompt: "Review the admission evidence.",
 		requestedFrom: { type: "user", id: "target-id" },
@@ -276,6 +277,7 @@ describe("Work interaction canonical actor projections", () => {
 		const urgent = await owner.create({
 			workItemId: WORK_ITEM_ID,
 			kind: "question",
+			reason: "Only the asked person can decide this.",
 			subject: "Blocked on credentials",
 			prompt: "The deploy failed; rotate the token.",
 			requestedFrom: { type: "user", id: "target-id" },

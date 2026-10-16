@@ -7,6 +7,8 @@ import {
 } from "./work-items";
 
 export const WORK_PROPOSAL_SCHEMA = "tedix.work-proposal.v1";
+/** An agent session's captured turn; its one-line need is triaged server-side. */
+export const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
 
 export const ProposedWorkSchema = z
 	.strictObject({
@@ -236,6 +238,15 @@ export const CreateWorkInteractionInputSchema = z
 		kind: WorkInteractionKindSchema,
 		subject: WorkInteractionRequestSchema.shape.subject,
 		prompt: WorkInteractionRequestSchema.shape.prompt,
+		reason: z
+			.string()
+			.trim()
+			.min(1)
+			.max(300)
+			.optional()
+			.describe(
+				"Why this needs the person, in one plain line. Required for a question or input addressed to a user; stored as metadata.reason. Never ask a person to do agent housekeeping (closing or cancelling scratch Work): finish it or file it on your own Work.",
+			),
 		requestedFrom: z
 			.strictObject({
 				type: WorkInteractionTargetTypeSchema,
@@ -265,6 +276,20 @@ export const CreateWorkInteractionInputSchema = z
 				code: "custom",
 				message: "Exactly one of workItemId, caseId, or projectId is required",
 				path: ["workItemId"],
+			});
+		}
+		// A captured agent turn is triaged into its one-line need server-side.
+		if (
+			(value.kind === "question" || value.kind === "input") &&
+			value.requestedFrom.type === "user" &&
+			value.reason === undefined &&
+			value.metadata.schema !== DECISION_CAPTURE_SCHEMA
+		) {
+			context.addIssue({
+				code: "custom",
+				message:
+					"Say in one plain line why this needs the person (reason). Agent housekeeping never goes to a person.",
+				path: ["reason"],
 			});
 		}
 	});
@@ -445,6 +470,18 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 			"Null when the interaction is case- or project-scoped rather than Work Item-scoped.",
 		),
 	responseCount: z.number().int().nonnegative(),
+	askedBy: z
+		.string()
+		.max(200)
+		.optional()
+		.describe(
+			'Who asked, in plain words: a tedi\'s name, "Claude Code session", "Onboarding", or "You".',
+		),
+	references: z
+		.array(z.strictObject({ shortId: z.string(), title: z.string() }))
+		.max(20)
+		.optional()
+		.describe("Work Item titles for the short ids the ask quotes."),
 });
 
 export const ListWorkInteractionInboxInputSchema = z.strictObject({

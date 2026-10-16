@@ -9,6 +9,7 @@ import {
 	isNull,
 	lt,
 	ne,
+	or,
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -227,6 +228,38 @@ function prefixUpperBound(prefix: string): string {
 
 const FULL_UUID_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Titles for 8-character short ids quoted in text. A short id that matches
+ * no Work Item, or more than one, is left out.
+ */
+export async function listWorkItemTitlesByShortIds(
+	db: DbQueryClient,
+	params: { orgId: string; shortIds: readonly string[] },
+): Promise<Array<{ shortId: string; title: string }>> {
+	const shortIds = [...new Set(params.shortIds.map((id) => id.toLowerCase()))]
+		.filter((id) => /^[0-9a-f]{8}$/.test(id))
+		.slice(0, 20);
+	if (!shortIds.length) return [];
+	const rows = await db
+		.select({ id: workItems.id, title: workItems.title })
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				or(
+					...shortIds.map((id) =>
+						and(gte(workItems.id, id), lt(workItems.id, prefixUpperBound(id))),
+					),
+				),
+			),
+		)
+		.limit(shortIds.length * 2);
+	return shortIds.flatMap((shortId) => {
+		const [match, ...others] = rows.filter((row) => row.id.startsWith(shortId));
+		return match && !others.length ? [{ shortId, title: match.title }] : [];
+	});
+}
 
 export interface ListWorkItemsPageOptions {
 	orgId: string;
