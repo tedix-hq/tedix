@@ -9,6 +9,7 @@ summary: "App manifest entry and config, reading and writing outputs, install fr
 read_when:
   - Installing or configuring a workspace app such as Card review
   - Reviewing factory cards from chat or MCP instead of the app screen
+  - Letting a browser agent operate an open app through WebMCP
   - Adding a new built-in OS app
 visibility: public
 ---
@@ -148,13 +149,60 @@ The app holds no data of its own, so an agent reviews with the output tools:
   `cells: [["yes", "Great angle"]]` when the reason column follows it. Pass
   the revision you read as `expectedRevision`; on a conflict, read again.
 
+## Expose WebMCP tools
+
+A built-in app registers its own WebMCP tools while it is open, so a browser
+agent in the person's Tedix OS tab can work the app with them. The person
+watches each action: the card changes, the chips light up and the count moves,
+because every tool calls the same state and callbacks as the app's buttons.
+The tools disappear when the person closes the app or opens another
+workpiece.
+
+Card review registers these tools:
+
+| Tool                        | What it does                                                                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `card_review_next_card`     | Reads the open card (source, type, who, why with its rules, draft, link, sheet and row), cards left, filter and reason chips |
+| `card_review_set_verdict`   | Marks the open card `useful` or `not_useful`, with optional reason chips and text                                            |
+| `card_review_do_it`         | Presses **Do it**; it never sends or posts                                                                                   |
+| `card_review_snooze`        | Snoozes the open card until tomorrow for this viewer                                                                         |
+| `card_review_skip`          | Moves the open card to the end of the queue                                                                                  |
+| `card_review_undo`          | Undoes the last action, like the **Undo** button                                                                             |
+| `card_review_filter`        | Shows `all` cards or one channel (for example `linkedin` or `x`)                                                             |
+| `card_review_pending_rules` | Lists the suggested rule changes                                                                                             |
+| `card_review_decide_rule`   | Accepts or rejects one suggested rule change                                                                                 |
+
+The verdict, **Do it** and skip/snooze tools take the `cardKey` that
+`card_review_next_card` returned and fail if a different card is open, so an
+agent never writes onto a card the person has just moved past.
+
+To give a new app tools:
+
+1. Put the tool set in `apps/os/src/components/<app>-webmcp-tools.ts` as a
+   pure builder that takes a `current()` getter for the app's live state and
+   callbacks. Name every tool `<app_id>_<verb>…` in snake_case, give it a
+   plain description and an input schema, and set `readOnlyHint` on reads
+   and `untrustedContentHint` on reads that return tenant content.
+2. In the app component, pass that state and the same callbacks the buttons
+   use to `useAppWebMcpTools("<app-id>", controller, build, deps)`
+   (`apps/os/src/lib/webmcp/use-app-webmcp-tools.ts`). `deps` lists only
+   what changes the tool shape, such as a filter enum.
+3. Return each callback's outcome so a tool can report a failed write as an
+   error; `execute` never throws.
+4. Test it by rendering the app with a mocked `osApi`, executing each tool
+   and checking the screen and the written cells.
+
+`window.__tedixWebMcp.status()` in the page lists the registered tools and
+whether the browser offers a WebMCP host.
+
 ## Add another built-in app
 
 Put the settings schema in `packages/api-contract/src/schemas/` and check it
 in `OsGadgetManifestWriteSchema`, put the engine in `apps/os/src/lib/` with
 unit tests, render it from `canvas-doc-panel.tsx` for its entry, and build the
 screen from `@/components/kumo/*`. Read and write through the existing OS
-queries and the generated `osQuery` keys.
+queries and the generated `osQuery` keys. Expose its actions as WebMCP tools
+as described above.
 
 ## Traps
 

@@ -180,6 +180,11 @@ The rules that break silently are these:
 - **Human decisions stay human.** No accept/decide/approve/settle tools:
   creation lands `proposed`, approvals are surfaced read-only. Do not add a
   deciding tool to an agent scope.
+- **A built-in workspace app registers through `useAppWebMcpTools`**
+  (`card-review-webmcp-tools.ts` is the example). Its tools read live state
+  through `current()` and call the same callbacks as the app's buttons, so
+  the person watches every action; they edit the person's own app data, not
+  Work admission, which stays human-only.
 
 ## The Worker is hand-written and stays that way
 

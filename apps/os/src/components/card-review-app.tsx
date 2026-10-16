@@ -22,6 +22,11 @@ import {
 } from "react";
 import { isConflictError } from "@/components/blueprints-page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	buildCardReviewWebMcpTools,
+	type CardReviewActionResult,
+	type CardReviewController,
+} from "@/components/card-review-webmcp-tools";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
@@ -54,6 +59,7 @@ import {
 	outputDetailQueryOptions,
 } from "@/lib/os-query-options";
 import { cn } from "@/lib/utils";
+import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 
 type Cell = string | number | boolean | null;
 type SheetState = { body: SheetBody; revision: number };
@@ -340,9 +346,13 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 	);
 
 	const decide = useCallback(
-		async (verdict: Verdict["kind"]) => {
-			if (!card || !source || busy) return;
-			const reason = formatReason(selectedChips, note);
+		async (
+			verdict: Verdict["kind"],
+			reasonOverride?: string,
+		): Promise<CardReviewActionResult> => {
+			if (!card || !source) return { ok: false, error: "No card is open" };
+			if (busy) return { ok: false, error: "The last action is still saving" };
+			const reason = reasonOverride ?? formatReason(selectedChips, note);
 			if (verdict === "do_it" && source.doIt === "copy_and_open") {
 				// Open first: a popup must start inside the user's gesture.
 				if (card.link) window.open(card.link, "_blank", "noopener,noreferrer");
@@ -385,11 +395,12 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 					counted,
 				});
 				setSkipped((keys) => keys.filter((key) => key !== card.key));
+				return { ok: true };
 			} catch (error) {
-				toast.error("The verdict was not saved", {
-					description:
-						error instanceof Error ? error.message : "Try again in a moment.",
-				});
+				const message =
+					error instanceof Error ? error.message : "Try again in a moment.";
+				toast.error("The verdict was not saved", { description: message });
+				return { ok: false, error: `The verdict was not saved: ${message}` };
 			} finally {
 				setBusy(false);
 			}
@@ -397,22 +408,30 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		[busy, card, note, selectedChips, source, writeRow],
 	);
 
-	const snooze = useCallback(() => {
-		if (!card) return;
+	const snooze = useCallback((): CardReviewActionResult => {
+		if (!card) return { ok: false, error: "No card is open" };
 		const next = { ...snoozes, [card.key]: snoozeUntil(new Date()) };
 		setSnoozes(next);
 		writeSnoozes(next);
 		setUndo({ kind: "snooze", label: "Snoozed until tomorrow", key: card.key });
+		return { ok: true };
 	}, [card, snoozes]);
 
-	const skip = useCallback(() => {
-		if (!card || queue.length < 2) return;
+	const skip = useCallback((): CardReviewActionResult => {
+		if (!card) return { ok: false, error: "No card is open" };
+		if (queue.length < 2)
+			return {
+				ok: false,
+				error: "This is the last card; there is none to skip to",
+			};
 		setSkipped((keys) => [...keys.filter((key) => key !== card.key), card.key]);
 		setUndo({ kind: "skip", label: "Skipped", key: card.key });
+		return { ok: true };
 	}, [card, queue.length]);
 
-	const undoLast = useCallback(async () => {
-		if (!undo || busy) return;
+	const undoLast = useCallback(async (): Promise<CardReviewActionResult> => {
+		if (!undo) return { ok: false, error: "There is nothing to undo" };
+		if (busy) return { ok: false, error: "The last action is still saving" };
 		if (undo.kind === "snooze") {
 			const next = { ...snoozes };
 			delete next[undo.key];
@@ -433,22 +452,26 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				if (counted)
 					setTally((t) => ({ ...t, [counted]: Math.max(0, t[counted] - 1) }));
 			} catch (error) {
-				toast.error("Undo failed", {
-					description:
-						error instanceof Error ? error.message : "Try again in a moment.",
-				});
-				return;
+				const message =
+					error instanceof Error ? error.message : "Try again in a moment.";
+				toast.error("Undo failed", { description: message });
+				return { ok: false, error: `Undo failed: ${message}` };
 			} finally {
 				setBusy(false);
 			}
 		}
 		setUndo(null);
+		return { ok: true };
 	}, [busy, snoozes, undo, writeRow]);
 
 	const decideRule = useCallback(
-		async (rule: PendingRule, status: "accepted" | "rejected") => {
+		async (
+			rule: PendingRule,
+			status: "accepted" | "rejected",
+		): Promise<CardReviewActionResult> => {
 			const statusColumn = sources[rule.sourceIndex]?.rules?.statusColumn;
-			if (!statusColumn) return;
+			if (!statusColumn)
+				return { ok: false, error: "This source has no rules sheet" };
 			try {
 				await writeRow(
 					rule.outputId,
@@ -456,11 +479,12 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 					{ [statusColumn]: status },
 					`Card review: rule ${rule.id} ${status}`,
 				);
+				return { ok: true };
 			} catch (error) {
-				toast.error("The rule was not updated", {
-					description:
-						error instanceof Error ? error.message : "Try again in a moment.",
-				});
+				const message =
+					error instanceof Error ? error.message : "Try again in a moment.";
+				toast.error("The rule was not updated", { description: message });
+				return { ok: false, error: `The rule was not updated: ${message}` };
 			}
 		},
 		[sources, writeRow],
@@ -479,6 +503,49 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				? current.filter((c) => c !== chip)
 				: [...current, chip],
 		);
+
+	const loading =
+		outputLists.some((q) => q.isPending) ||
+		details.some((q) => q.isPending && q.fetchStatus !== "idle");
+
+	// Agent tools drive the same state and callbacks as the buttons above.
+	const controller: CardReviewController = {
+		loading,
+		card,
+		ruleText: card ? rules.text.get(card.sourceIndex) : undefined,
+		doIt: source?.doIt ?? null,
+		reasonChips: chips,
+		channel: activeChannel,
+		channels,
+		left: queue.length,
+		total: inChannel.length,
+		undoLabel: undo?.label ?? null,
+		pendingRules: rules.pending,
+		setVerdict: ({ verdict, chips: picked, note: text }) => {
+			setSelectedChips(picked);
+			setNote(text);
+			return decide(verdict, formatReason(picked, text));
+		},
+		snooze,
+		skip,
+		undo: undoLast,
+		setChannel,
+		decideRule: (ruleKey, status) => {
+			const rule = rules.pending.find((r) => r.key === ruleKey);
+			return rule
+				? decideRule(rule, status)
+				: Promise.resolve<CardReviewActionResult>({
+						ok: false,
+						error: "That rule is not pending",
+					});
+		},
+	};
+	useAppWebMcpTools(
+		"card-review",
+		controller,
+		(current) => buildCardReviewWebMcpTools(current, channels),
+		[channels.join("\n")],
+	);
 
 	const rootRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
@@ -505,9 +572,6 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		event.preventDefault();
 	};
 
-	const loading =
-		outputLists.some((q) => q.isPending) ||
-		details.some((q) => q.isPending && q.fetchStatus !== "idle");
 	const failed = outputLists.some((q) => q.isError);
 	const reviewed = tally.useful + tally.notUseful + tally.doIt;
 
