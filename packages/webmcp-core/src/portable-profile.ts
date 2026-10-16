@@ -23,7 +23,11 @@ export interface PortableToolProfile {
 		prepareFields?: string[];
 		convergeFields?: string[];
 	};
-	annotations: { readOnlyHint: boolean; untrustedContentHint?: boolean };
+	annotations: {
+		readOnlyHint: boolean;
+		untrustedContentHint?: boolean;
+		consequentialHint?: boolean;
+	};
 }
 
 export interface PortableRouteProfile {

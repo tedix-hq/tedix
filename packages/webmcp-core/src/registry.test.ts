@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import type { ModelContextLike, WebMcpToolDef } from "./model-context";
+import type {
+	ModelContextLike,
+	WebMcpSpecTool,
+	WebMcpToolDef,
+} from "./model-context";
 import {
 	webMcpContextUnavailable,
 	webMcpError,
@@ -35,7 +39,7 @@ describe("registerWebMcpScope", () => {
 	it.each(["registerTool", "provideContext"] as const)(
 		"forwards invocation cancellation through %s without changing attribution",
 		async (api) => {
-			let registered: WebMcpToolDef | undefined;
+			let registered: Pick<WebMcpSpecTool, "execute"> | undefined;
 			setModelContextResolverForTests(() =>
 				api === "registerTool"
 					? {
@@ -61,17 +65,18 @@ describe("registerWebMcpScope", () => {
 			const controller = new AbortController();
 			const options = { signal: controller.signal };
 			const args = { limit: 1 };
+			// The spec path resolves to the structured data; legacy keeps the MCP shape.
+			const expected =
+				api === "registerTool" ? { ok: true } : webMcpResult({ ok: true });
 			await expect(registered!.execute(args, options)).resolves.toEqual(
-				webMcpResult({ ok: true }),
+				expected,
 			);
 			expect(execute).toHaveBeenLastCalledWith(args, options);
 			expect(execute.mock.calls[0]?.[1]).toBe(options);
 			const reason = new Error("Browser cancelled invocation");
 			controller.abort(reason);
 			await expect(registered!.execute(args, options)).rejects.toBe(reason);
-			await expect(registered!.execute(args)).resolves.toEqual(
-				webMcpResult({ ok: true }),
-			);
+			await expect(registered!.execute(args)).resolves.toEqual(expected);
 			expect(execute).toHaveBeenLastCalledWith(args, undefined);
 			expect(observer.mock.calls.map(([event]) => event.outcome)).toEqual([
 				"ok",
@@ -244,6 +249,44 @@ describe("registerWebMcpScope", () => {
 		expect(provided).toHaveLength(projectionCount);
 		first();
 		expect(webMcpRegisteredToolNames()).toEqual(["get_work_item"]);
+	});
+});
+
+describe("spec registerTool projection", () => {
+	it("registers spec tools whose error results reject", async () => {
+		const registered: WebMcpSpecTool[] = [];
+		setModelContextResolverForTests(() => ({
+			registerTool: (value) => {
+				registered.push(value);
+			},
+		}));
+		registerWebMcpScope("work", [
+			tool("list_work_items"),
+			{ ...tool("get_work_item"), execute: async () => webMcpError("nope") },
+		]);
+		const [list, get] = registered;
+		await expect(list?.execute({})).resolves.toEqual({
+			name: "list_work_items",
+		});
+		await expect(get?.execute({})).rejects.toThrow("nope");
+	});
+
+	it("passes title and spec annotations through unchanged", () => {
+		const registered: WebMcpSpecTool[] = [];
+		setModelContextResolverForTests(() => ({
+			registerTool: (value) => {
+				registered.push(value);
+			},
+		}));
+		registerWebMcpScope("chat", [
+			{
+				...tool("respond_home_approval"),
+				title: "Respond to approval",
+				annotations: { consequentialHint: true },
+			},
+		]);
+		expect(registered[0]?.title).toBe("Respond to approval");
+		expect(registered[0]?.annotations).toEqual({ consequentialHint: true });
 	});
 });
 

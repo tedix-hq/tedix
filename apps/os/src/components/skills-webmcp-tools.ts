@@ -326,7 +326,7 @@ export function buildSkillsWebMcpTools(
 		},
 		{
 			name: "run_skill_workflow",
-			annotations: { readOnlyHint: false, untrustedContentHint: false },
+			annotations: { consequentialHint: true },
 			description:
 				"Run a skill's workflow — one of the org's saved automations — executed by the tedi (digital worker) named by tediSlug; the human can watch the run live at the returned deep link. A destructive skill may require confirm: true.",
 			inputSchema: runSkillWorkflowSchema(currentSkillId),

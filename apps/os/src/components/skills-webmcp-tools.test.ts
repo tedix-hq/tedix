@@ -122,14 +122,13 @@ afterEach(() => {
 });
 
 describe("buildSkillsWebMcpTools", () => {
-	it("marks skill definitions untrusted and workflow dispatch as a write", () => {
+	it("marks skill definitions untrusted and workflow dispatch consequential", () => {
 		expect(tool("get_skill").annotations).toEqual({
 			readOnlyHint: true,
 			untrustedContentHint: true,
 		});
 		expect(tool("run_skill_workflow").annotations).toEqual({
-			readOnlyHint: false,
-			untrustedContentHint: false,
+			consequentialHint: true,
 		});
 	});
 

@@ -467,14 +467,17 @@ To give a new app tools:
 1. Put the tool set in `apps/os/src/components/<app>-webmcp-tools.ts` as a
    pure builder that takes a `current()` getter for the app's live state and
    callbacks. Name every tool `<app_id>_<verb>…` in snake_case, give it a
-   plain description and an input schema, and set `readOnlyHint` on reads
-   and `untrustedContentHint` on reads that return tenant content.
+   plain description and an input schema, and set `readOnlyHint` on reads,
+   `untrustedContentHint` on reads that return tenant content, and
+   `consequentialHint` on writes that are significant or hard to undo, so
+   the browser confirms every call.
 2. In the app component, pass that state and the same callbacks the buttons
    use to `useAppWebMcpTools("<app-id>", controller, build, deps)`
    (`apps/os/src/lib/webmcp/use-app-webmcp-tools.ts`). `deps` lists only
    what changes the tool shape, such as a filter enum.
 3. Return each callback's outcome so a tool can report a failed write as an
-   error; `execute` never throws.
+   error; `execute` never throws. The registry turns an error result into the
+   rejection the WebMCP spec expects.
 4. Test it by rendering the app with a mocked `osApi`, executing each tool
    and checking the screen and the written cells.
 

@@ -1,14 +1,15 @@
 /**
  * Structural types for the experimental WebMCP browser surface.
  *
- * WebMCP (webmachinelearning/webmcp; Chrome 146 experimental; supported by
- * ChatGPT's in-app browser) exposes a `modelContext` object that lets a page
- * register tools an in-page browser agent can call. The standard is still
- * moving: the current community draft uses `document.modelContext`, while
+ * WebMCP (webmachinelearning/webmcp; Chrome 155+ behind
+ * `enable-webmcp-testing`; supported by ChatGPT's in-app browser) exposes a
+ * `modelContext` object that lets a page register tools an in-page browser
+ * agent can call. The spec surface is `document.modelContext.registerTool`;
  * deployed experiments have also exposed `navigator.modelContext` and the
- * older whole-set `provideContext` shape. These types are structural on
- * purpose — no dependency on a types package for an experimental API — and
- * the registry copes with either shape. Absent API = silent no-op.
+ * older whole-set `provideContext` shape. These types stay structural so the
+ * registry copes with every shape; `spec-conformance.ts` type-checks them
+ * against the `webmcp-types` package so spec drift fails `type-check`.
+ * Absent API = silent no-op.
  */
 
 /** MCP `CallToolResult` subset the WebMCP bridge understands. */
@@ -18,17 +19,33 @@ export interface WebMcpToolResult {
 	isError?: boolean;
 }
 
+/**
+ * Spec tool annotations. Every hint defaults to false and hints never replace
+ * server authorization.
+ */
+export interface WebMcpToolAnnotations {
+	/** The tool only reads state. */
+	readOnlyHint?: boolean;
+	/** The result may carry content from untrusted sources. */
+	untrustedContentHint?: boolean;
+	/**
+	 * Running the tool has significant, real-world or non-reversible effects,
+	 * so hosts confirm every call instead of once per site.
+	 */
+	consequentialHint?: boolean;
+	/** For debugging and developer tooling, not end-user interactions. */
+	debugging?: boolean;
+}
+
 export interface WebMcpToolDef {
 	/** Verb-first snake_case, per the repo-wide MCP naming rule. */
 	name: string;
+	/** Optional human-readable title. */
+	title?: string;
 	description: string;
 	/** JSON Schema for the tool input. */
 	inputSchema: Record<string, unknown>;
-	/** Current draft annotations. Hints never replace server authorization. */
-	annotations: {
-		readOnlyHint: boolean;
-		untrustedContentHint: boolean;
-	};
+	annotations: WebMcpToolAnnotations;
 	execute: (
 		args: Record<string, unknown>,
 		options?: WebMcpToolExecuteOptions,
@@ -36,7 +53,10 @@ export interface WebMcpToolDef {
 }
 
 export interface WebMcpRegisterOptions {
+	/** Aborting unregisters the tool. */
 	signal?: AbortSignal;
+	/** Origins allowed to call the tool from an embedding page. */
+	exposedTo?: string[];
 }
 
 /** Current WebMCP options supplied when an agent executes a tool. */
@@ -45,9 +65,17 @@ export interface WebMcpToolExecuteOptions {
 	signal?: AbortSignal;
 }
 
+/** A tool as the spec `registerTool` receives it: execute per the spec contract. */
+export type WebMcpSpecTool = Omit<WebMcpToolDef, "execute"> & {
+	execute: (
+		args: Record<string, unknown>,
+		options?: WebMcpToolExecuteOptions,
+	) => Promise<unknown>;
+};
+
 export interface ModelContextLike {
 	registerTool?: (
-		tool: WebMcpToolDef,
+		tool: WebMcpSpecTool,
 		options?: WebMcpRegisterOptions,
 	) => Promise<unknown> | unknown;
 	provideContext?: (context: { tools: WebMcpToolDef[] }) => void;
@@ -97,6 +125,21 @@ export function describeModelContextApi(
 	if (context.registerTool) return "registerTool";
 	if (context.provideContext) return "provideContext";
 	return "none";
+}
+
+function resultText(result: WebMcpToolResult): string {
+	return result.content.map((part) => part.text).join("\n");
+}
+
+/**
+ * Projects an MCP-shaped result onto the spec's execute contract, where the
+ * host serializes the fulfilled value for the agent and only a rejection
+ * counts as a failed call: an error result throws its text, a success returns
+ * its structured data (or its text) once instead of both copies.
+ */
+export function toSpecToolOutput(result: WebMcpToolResult): unknown {
+	if (result.isError === true) throw new Error(resultText(result));
+	return result.structuredContent ?? resultText(result);
 }
 
 /** Standard success shape: compact JSON plus an OS deep link for the human. */

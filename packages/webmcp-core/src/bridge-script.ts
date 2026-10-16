@@ -14,6 +14,8 @@
  *    present is still a silent no-op — the bridge must never break the page.
  * 2. Current `registerTool(tool, { signal })` is preferred, with the older
  *    whole-set `provideContext({ tools })` retained as a compatibility fallback.
+ *    Tools registered through `registerTool` follow the spec execute contract:
+ *    error results reject, and MCP annotations map onto the spec hints.
  *
  * Retry policy: endpoint discovery /
  * tools/list failures retry with EXPONENTIAL BACKOFF and FULL JITTER — base
@@ -94,17 +96,47 @@ const BRIDGE_JS_SOURCE = `// Tedix WebMCP bridge — shared @tedix/webmcp-core b
 		});
 	}
 
+	// MCP tool annotations onto the spec's hints: an MCP destructive tool is a
+	// spec consequential one, and MCP-only hints are dropped.
+	function specAnnotations(annotations) {
+		var source = annotations || {};
+		var out = {};
+		if (source.readOnlyHint === true) out.readOnlyHint = true;
+		if (source.untrustedContentHint === true) out.untrustedContentHint = true;
+		if (source.consequentialHint === true || source.destructiveHint === true) out.consequentialHint = true;
+		if (source.debugging === true) out.debugging = true;
+		return out;
+	}
+
 	function toolDefFor(tool) {
 		return {
 			name: tool.name,
 			title: tool.title,
 			description: tool.description,
 			inputSchema: tool.inputSchema,
-			annotations: tool.annotations,
+			annotations: specAnnotations(tool.annotations),
 			execute: function (args) {
 				return rpc("tools/call", { name: tool.name, arguments: args || {} }, tool.name);
 			},
 		};
+	}
+
+	// The spec host serializes the fulfilled value and treats only a rejection
+	// as a failed call: an MCP error result rejects with its text, a success
+	// resolves to its structured content (or its text).
+	function resultText(result) {
+		return ((result && result.content) || []).map(function (part) { return part.text; }).join("\\n");
+	}
+
+	function specToolFor(tool) {
+		var spec = Object.assign({}, tool);
+		spec.execute = function (args) {
+			return tool.execute(args).then(function (result) {
+				if (result && result.isError === true) throw new Error(resultText(result));
+				return result && result.structuredContent !== undefined ? result.structuredContent : resultText(result);
+			});
+		};
+		return spec;
 	}
 
 		function scheduleRetry() {
@@ -124,7 +156,7 @@ const BRIDGE_JS_SOURCE = `// Tedix WebMCP bridge — shared @tedix/webmcp-core b
 			if (canRegisterTool) {
 				var controller = new AbortController();
 				return Promise.all(tools.map(function (tool) {
-					return surface.registerTool(tool, { signal: controller.signal });
+					return surface.registerTool(specToolFor(tool), { signal: controller.signal });
 				})).catch(function (error) {
 					controller.abort();
 					throw error;
