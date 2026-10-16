@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	workReadinessProjectionQueryOptions,
-	workFleetQueryOptions,
 	workAttemptProjectionQueryOptions,
 	workItemDetailQueryOptions,
 	workItemListQueryOptions,
@@ -307,7 +306,7 @@ describe("Work factory queue", () => {
 		expect(html).not.toContain(">Ready<");
 	});
 
-	it("renders one bounded readiness projection page and its continuation", () => {
+	it("renders one bounded readiness projection page and its continuation without an attention panel", () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
@@ -341,82 +340,13 @@ describe("Work factory queue", () => {
 			hasMore: true,
 			observedAt: "2026-08-21T00:00:00.000Z",
 		});
-		const emptyBudgetScope = {
-			envelopeCount: 0,
-			limitMicros: 0,
-			activeReservedMicros: 0,
-			consumedMicros: 0,
-			availableMicros: 0,
-			exhaustedEnvelopeCount: 0,
-		};
-		queryClient.setQueryData(workFleetQueryOptions().queryKey, {
-			observedAt: "2026-10-03T09:30:00.000Z",
-			workItems: { total: 1, byDisposition: { accepted: 1 } },
-			attempts: {
-				total: 0,
-				byRuntimeState: {},
-				active: 0,
-				staleLeases: 0,
-				withoutAdmission: 0,
-			},
-			admissions: {
-				total: 1,
-				byEffectiveState: { rejected: 1 },
-				latestRejected: 1,
-			},
-			approvals: { total: 0, byEffectiveStatus: {}, awaitingDecision: 0 },
-			interactions: {
-				total: 0,
-				byEffectiveState: {},
-				awaitingResponse: 0,
-				overdue: 0,
-			},
-			resources: {
-				poolCount: 0,
-				totalCapacity: 0,
-				activeReserved: 0,
-				consumed: 0,
-				saturatedPoolCount: 0,
-				saturatedResourceKeys: [],
-			},
-			budgets: {
-				envelopeCount: 0,
-				byScope: {
-					organization: emptyBudgetScope,
-					project: emptyBudgetScope,
-					case: emptyBudgetScope,
-					work_item: emptyBudgetScope,
-				},
-			},
-			attention: {
-				staleAttemptLeases: 0,
-				rejectedAdmissions: 1,
-				approvalBacklog: 0,
-				interactionBacklog: 0,
-				saturatedResources: 0,
-				exhaustedBudgets: 0,
-				actions: [
-					{
-						key: "rejected_admissions",
-						severity: "high",
-						count: 1,
-						label: "Resolve admission blockers",
-						rationale: "Review current rejection details.",
-						href: "/work/admission",
-					},
-				],
-			},
-		});
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
 				<WorkQueuePage />
 			</QueryClientProvider>,
 		);
-		expect(html.indexOf("Work attention")).toBeLessThan(
-			html.indexOf("Verify the customer export"),
-		);
-		expect(html).toContain("Resolve admission blockers");
-		expect(html).toContain('href="/work/interactions"');
+		// Attention lives in Work › Needs you, not above the queue.
+		expect(html).not.toContain("Work attention");
 		expect(html).toContain("Verify the customer export");
 		expect(html).toContain("Evaluation required");
 		expect(html).not.toContain(">Disposition<");

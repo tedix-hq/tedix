@@ -51,6 +51,7 @@ import { OsSidebarWorkspaces } from "@/components/os-sidebar-workspaces";
 import { OsSidebarBillingStatus } from "@/components/os-sidebar-billing-status";
 import { OsWorkspaceSwitcher } from "@/components/os-workspace-switcher";
 import { TransportStatus } from "@/components/transport-status";
+import { WorkNeedsYouCount } from "@/components/work-needs-you-count";
 import { shouldUseWorkspaceWorkbench } from "@/lib/os-layout-routing";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { useOsIdentity } from "@/lib/use-os-identity";
@@ -98,6 +99,7 @@ function SidebarNavigationItem({
 			tooltip={item.label}
 		>
 			{item.label}
+			{item.id === "work" ? <WorkNeedsYouCount /> : null}
 		</SidebarMenuButton>
 	);
 }

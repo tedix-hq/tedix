@@ -6,7 +6,6 @@ import * as z from "zod";
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
 import { WorkInteractionDeliveryOverlaySchema } from "@tedix/api-contract/schemas/work-interactions";
 import { ChatMarkdown } from "@/components/chat-markdown";
-import { WorkAttentionSummary } from "@/components/work-attention-summary";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
 import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
 import { FormInput } from "@/components/forms/form-input";
@@ -31,7 +30,6 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { CodeBlock } from "@/components/kumo/code";
 import { DateTimePicker } from "@/components/kumo/date-picker";
 import { FormField } from "@/components/kumo/forms/form-field";
@@ -2748,82 +2746,6 @@ export function SchedulerTruncationWarnings({
 				</Alert>
 			) : null}
 		</>
-	);
-}
-
-export function WorkControlPage() {
-	const fleet = useQuery(workFleetQueryOptions());
-	return (
-		<Page width="full">
-			<Header
-				title="Attention"
-				description="See what needs a decision and what is working across your organization."
-				action={
-					<Link href="/work/queue?disposition=completed">Completed work</Link>
-				}
-			/>
-			{fleet.isPending ? (
-				<Loading />
-			) : fleet.isError ? (
-				<Failure title="Attention unavailable" error={fleet.error} />
-			) : (
-				<>
-					<WorkAttentionSummary
-						snapshot={fleet.data}
-						refreshing={fleet.isFetching}
-						onRefresh={() => {
-							void fleet.refetch();
-						}}
-					/>
-					<MetricGrid columns={3} aria-label="Work activity">
-						<MetricItem
-							label="In progress"
-							emphasis="metric"
-							value={
-								<Link href="/work/attempts?view=active">
-									{fleet.data.attempts.active}
-								</Link>
-							}
-							description="Current reservations recorded in OS"
-						/>
-						<MetricItem
-							label="Decisions"
-							emphasis="metric"
-							value={
-								<Link href="/work/approvals">
-									{fleet.data.approvals.awaitingDecision}
-								</Link>
-							}
-							description="Waiting for an approver"
-						/>
-						<MetricItem
-							label="Organization requests"
-							emphasis="metric"
-							value={
-								<Link href="/work/interactions?view=audit&state=open">
-									{fleet.data.interactions.awaitingResponse}
-								</Link>
-							}
-							description={`${fleet.data.interactions.overdue} overdue · check the recipient`}
-						/>
-					</MetricGrid>
-					<Collapsible>
-						<CollapsibleTrigger>Operational details</CollapsibleTrigger>
-						<CollapsibleContent>
-							<Text as="p" role="body" tone="secondary">
-								{fleet.data.attempts.staleLeases} missed reservation updates ·{" "}
-								{fleet.data.admissions.latestRejected} work starts rejected
-							</Text>
-							{fleet.data.resources.saturatedResourceKeys.length ? (
-								<ResourcePressureLinks
-									resourceKeys={fleet.data.resources.saturatedResourceKeys}
-								/>
-							) : null}
-						</CollapsibleContent>
-					</Collapsible>
-				</>
-			)}
-		</Page>
 	);
 }
 

@@ -605,6 +605,12 @@ export const workUrgentInteractionsQueryOptions = () =>
 		},
 	});
 
+/** The open requests addressed to the caller: the Needs you list and its count. */
+export const workNeedsYouInteractionsQueryOptions = () =>
+	osQuery.workInteractions.listInbox.queryOptions({
+		input: { limit: 100, states: ["open"] },
+	});
+
 /** Polled so a new knock shows up in the office within half a minute. */
 export const WORK_OFFICE_REFETCH_MS = 30_000;
 

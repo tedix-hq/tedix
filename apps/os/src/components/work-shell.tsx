@@ -21,99 +21,207 @@ import {
 } from "@/components/kumo/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
 import { useWorkWebMcpTools } from "@/components/work-webmcp-tools";
+import { cn } from "@/lib/utils";
 
-export const WORK_SECTIONS = [
-	["Portfolio", "/work/portfolio"],
-	["Office", "/work/office"],
-	["Cases", "/work/cases"],
-	["Graph", "/work/graph"],
-	["Clusters", "/work/clusters"],
-	["Admission", "/work/admission"],
-	["Activity", "/work/attempts"],
-	["Approvals", "/work/approvals"],
-	["Interactions", "/work/interactions"],
-	["Capacity", "/work/capacity"],
-	["Attention", "/work/control"],
-	["Recovery", "/work/recovery"],
-	["Agents", "/work/agents"],
-	["Queue", "/work/queue"],
-] as const;
+export type WorkSection = {
+	/** Unique id; also the mobile picker's value. */
+	id: string;
+	label: string;
+	to: WorkSectionPath;
+	search?: { disposition: "completed" };
+};
 
-export const PRIMARY_WORK_SECTIONS = [
-	WORK_SECTIONS[0],
-	WORK_SECTIONS[1],
-	WORK_SECTIONS[13],
-	WORK_SECTIONS[10],
-	WORK_SECTIONS[12],
-	WORK_SECTIONS[6],
-	WORK_SECTIONS[7],
-] as const;
-export const ADVANCED_WORK_SECTIONS = [
-	WORK_SECTIONS[2],
-	WORK_SECTIONS[3],
-	WORK_SECTIONS[4],
-	WORK_SECTIONS[5],
-	WORK_SECTIONS[8],
-	WORK_SECTIONS[9],
-	WORK_SECTIONS[11],
-] as const;
+type WorkSectionPath =
+	| "/work/needs-you"
+	| "/work/portfolio"
+	| "/work/queue"
+	| "/work/agents"
+	| "/work/office"
+	| "/work/attempts"
+	| "/work/approvals"
+	| "/work/interactions"
+	| "/work/cases"
+	| "/work/graph"
+	| "/work/clusters"
+	| "/work/admission"
+	| "/work/capacity"
+	| "/work/recovery";
 
-type WorkSectionPath = (typeof WORK_SECTIONS)[number][1];
+export type WorkTab = {
+	id: "needs-you" | "board" | "history";
+	label: string;
+	sections: readonly WorkSection[];
+};
 
-export function workSectionForPathname(pathname: string) {
-	if (pathname.startsWith("/work/projects/")) return WORK_SECTIONS[0];
-	return (
-		WORK_SECTIONS.find(([, href]) => pathname.startsWith(href)) ??
-		WORK_SECTIONS[0]
+/** The three primary tabs; each opens on its first section. */
+export const WORK_TABS: readonly WorkTab[] = [
+	{
+		id: "needs-you",
+		label: "Needs you",
+		sections: [{ id: "needs-you", label: "Needs you", to: "/work/needs-you" }],
+	},
+	{
+		id: "board",
+		label: "Board",
+		sections: [
+			{ id: "projects", label: "Projects", to: "/work/portfolio" },
+			{ id: "queue", label: "Queue", to: "/work/queue" },
+			{ id: "agents", label: "Agents", to: "/work/agents" },
+			{ id: "office", label: "Office", to: "/work/office" },
+		],
+	},
+	{
+		id: "history",
+		label: "History",
+		sections: [
+			{ id: "activity", label: "Activity", to: "/work/attempts" },
+			{
+				id: "completed",
+				label: "Completed",
+				to: "/work/queue",
+				search: { disposition: "completed" },
+			},
+		],
+	},
+];
+
+/** Everything else stays one click away under More. */
+export const MORE_WORK_SECTIONS: readonly WorkSection[] = [
+	{ id: "approvals", label: "Approvals", to: "/work/approvals" },
+	{ id: "interactions", label: "Requests", to: "/work/interactions" },
+	{ id: "cases", label: "Cases", to: "/work/cases" },
+	{ id: "graph", label: "Graph", to: "/work/graph" },
+	{ id: "clusters", label: "Clusters", to: "/work/clusters" },
+	{ id: "admission", label: "Admission", to: "/work/admission" },
+	{ id: "capacity", label: "Capacity", to: "/work/capacity" },
+	{ id: "recovery", label: "Recovery", to: "/work/recovery" },
+];
+
+export const ALL_WORK_SECTIONS: readonly WorkSection[] = [
+	...WORK_TABS.flatMap((tab) => tab.sections),
+	...MORE_WORK_SECTIONS,
+];
+
+const BOARD = WORK_TABS[1]!;
+
+/**
+ * The tab (or More) and section a Work URL belongs to. Record pages (projects,
+ * items, runs) sit on the Board; completed Work is History.
+ */
+export function workLocation(
+	pathname: string,
+	search: { disposition?: unknown } = {},
+): { tab: WorkTab | null; section: WorkSection } {
+	const path = pathname.replace(/\/$/, "");
+	if (path === "/work/queue" && search.disposition === "completed")
+		return { tab: WORK_TABS[2]!, section: WORK_TABS[2]!.sections[1]! };
+	for (const tab of WORK_TABS)
+		for (const section of tab.sections)
+			if (
+				!section.search &&
+				(path === section.to || path.startsWith(`${section.to}/`))
+			)
+				return { tab, section };
+	const more = MORE_WORK_SECTIONS.find(
+		(section) => path === section.to || path.startsWith(`${section.to}/`),
+	);
+	if (more) return { tab: null, section: more };
+	return { tab: BOARD, section: BOARD.sections[0]! };
+}
+
+function SectionLink({
+	section,
+	current,
+}: {
+	section: WorkSection;
+	current: boolean;
+}) {
+	const className = cn(
+		"type-tedix-label no-underline",
+		current
+			? "font-semibold text-kumo-default"
+			: "text-kumo-subtle hover:text-kumo-default",
+	);
+	const ariaCurrent = current ? ("page" as const) : undefined;
+	return section.search ? (
+		<Link
+			to={section.to}
+			search={section.search}
+			preload="intent"
+			className={className}
+			aria-current={ariaCurrent}
+		>
+			{section.label}
+		</Link>
+	) : (
+		<Link
+			to={section.to}
+			preload="intent"
+			className={className}
+			aria-current={ariaCurrent}
+		>
+			{section.label}
+		</Link>
 	);
 }
 
 export function WorkShell() {
 	useWorkWebMcpTools();
 	const navigate = useNavigate();
-	const pathname = useRouterState({
-		select: (state) => state.location.pathname,
+	const location = useRouterState({
+		select: (state) => ({
+			pathname: state.location.pathname,
+			disposition: (state.location.search as { disposition?: unknown })
+				?.disposition,
+		}),
 	});
-	const activeSection = workSectionForPathname(pathname);
-	const activeAdvancedSection = ADVANCED_WORK_SECTIONS.find(
-		([, href]) => href === activeSection[1],
+	const { tab: activeTab, section: activeSection } = workLocation(
+		location.pathname,
+		{ disposition: location.disposition },
 	);
+	const go = (section: WorkSection) =>
+		void navigate(
+			section.search
+				? { to: section.to, search: section.search }
+				: { to: section.to },
+		);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="border-kumo-line border-b px-4 py-2 sm:hidden">
 				<Select
-					value={activeSection[1]}
+					value={activeSection.id}
 					onValueChange={(value) => {
-						void navigate({ to: value as WorkSectionPath });
+						const section = ALL_WORK_SECTIONS.find(({ id }) => id === value);
+						if (section) go(section);
 					}}
 				>
 					<SelectTrigger aria-label="Work section" className="w-full">
 						<SelectValue>
 							{(value) =>
-								WORK_SECTIONS.find(([, href]) => href === value)?.[0] ??
-								activeSection[0]
+								ALL_WORK_SECTIONS.find(({ id }) => id === value)?.label ??
+								activeSection.label
 							}
 						</SelectValue>
 					</SelectTrigger>
 					<SelectContent align="start">
-						{WORK_SECTIONS.map(([label, href]) => (
-							<SelectItem key={href} value={href}>
-								{label}
+						{ALL_WORK_SECTIONS.map((section) => (
+							<SelectItem key={section.id} value={section.id}>
+								{section.label}
 							</SelectItem>
 						))}
 					</SelectContent>
 				</Select>
 			</div>
-			<Tabs className="hidden gap-0 sm:flex" value={activeSection[1]}>
-				<TabsList aria-label="Work factory" className="px-6" variant="line">
-					{PRIMARY_WORK_SECTIONS.map(([label, href]) => (
+			<Tabs className="hidden gap-0 sm:flex" value={activeTab?.id ?? "more"}>
+				<TabsList aria-label="Work" className="px-6" variant="line">
+					{WORK_TABS.map((tab) => (
 						<TabsTrigger
-							key={href}
+							key={tab.id}
 							nativeButton={false}
-							value={href}
-							render={<Link to={href} preload="intent" />}
+							value={tab.id}
+							render={<Link to={tab.sections[0]!.to} preload="intent" />}
 						>
-							{label}
+							{tab.label}
 						</TabsTrigger>
 					))}
 					<DropdownMenu>
@@ -122,30 +230,41 @@ export function WorkShell() {
 								<Button
 									aria-label="More Work sections"
 									className={
-										activeAdvancedSection
-											? "h-full rounded-none border-kumo-brand border-b-2 px-3 text-kumo-default"
-											: "h-full rounded-none px-3 text-kumo-subtle"
+										activeTab
+											? "h-full rounded-none px-3 text-kumo-subtle"
+											: "h-full rounded-none border-kumo-brand border-b-2 px-3 text-kumo-default"
 									}
 									variant="ghost"
 								/>
 							}
 						>
-							{activeAdvancedSection?.[0] ?? "More"}
+							{activeTab ? "More" : activeSection.label}
 							<CaretDown className="size-3.5" />
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="start">
-							{ADVANCED_WORK_SECTIONS.map(([label, href]) => (
-								<DropdownMenuItem
-									key={href}
-									onClick={() => void navigate({ to: href })}
-								>
-									{label}
+							{MORE_WORK_SECTIONS.map((section) => (
+								<DropdownMenuItem key={section.id} onClick={() => go(section)}>
+									{section.label}
 								</DropdownMenuItem>
 							))}
 						</DropdownMenuContent>
 					</DropdownMenu>
 				</TabsList>
 			</Tabs>
+			{activeTab && activeTab.sections.length > 1 ? (
+				<nav
+					aria-label={`${activeTab.label} views`}
+					className="hidden gap-4 px-6 pt-3 sm:flex"
+				>
+					{activeTab.sections.map((section) => (
+						<SectionLink
+							key={section.id}
+							section={section}
+							current={section.id === activeSection.id}
+						/>
+					))}
+				</nav>
+			) : null}
 			<Outlet />
 		</div>
 	);

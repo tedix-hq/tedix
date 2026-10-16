@@ -45,6 +45,9 @@ vi.mock("@/components/os-workspace-switcher", () => ({
 		</button>
 	),
 }));
+vi.mock("@/components/work-needs-you-count", () => ({
+	WorkNeedsYouCount: () => null,
+}));
 vi.mock("@/components/transport-status", () => ({
 	TransportStatus: () => <span className="transport-status">Live</span>,
 }));

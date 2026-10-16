@@ -30,13 +30,11 @@ import {
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
-import { officeAsk } from "@/components/work-office-page";
 import { sentenceCase } from "@/lib/format";
 import { errorMessage } from "@/lib/orpc-error";
 import {
 	factoryScoreboardQueryOptions,
 	projectPortfolioQueryOptions,
-	workApprovalsQueryOptions,
 	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
@@ -55,8 +53,6 @@ export const PORTFOLIO_BUCKETS = [
 	"Applications",
 	"Communities",
 ] as const;
-
-export const NEEDS_YOU_LIMIT = 5;
 
 type PortfolioBucket = (typeof PORTFOLIO_BUCKETS)[number];
 
@@ -205,48 +201,6 @@ type InboxRow = {
 	workItem: { id: string; title: string; projectId: string | null } | null;
 };
 
-type ApprovalRow = {
-	proposal: { id: string; requestedAt: string; requestRationale: string };
-	effectiveStatus: string;
-	canDecide: boolean;
-	workItem: { id: string; title: string };
-};
-
-export type NeedsYouRow = {
-	key: string;
-	href: string;
-	label: string;
-	kind: "Question" | "Approval";
-	at: string;
-};
-
-/** Open questions in the owner's inbox plus approvals they can decide, newest first. */
-export function needsYouRows(
-	interactions: readonly InboxRow[],
-	approvals: readonly ApprovalRow[],
-): NeedsYouRow[] {
-	return [
-		...interactions
-			.filter((row) => row.effectiveState === "open")
-			.map((row) => ({
-				key: `interaction:${row.request.id}`,
-				href: `/work/interactions/${row.request.id}`,
-				label: officeAsk(row.request),
-				kind: "Question" as const,
-				at: row.request.requestedAt,
-			})),
-		...approvals
-			.filter((row) => row.effectiveStatus === "pending" && row.canDecide)
-			.map((row) => ({
-				key: `approval:${row.proposal.id}`,
-				href: `/work/items/${row.workItem.id}`,
-				label: row.workItem.title,
-				kind: "Approval" as const,
-				at: row.proposal.requestedAt,
-			})),
-	].sort((a, b) => b.at.localeCompare(a.at));
-}
-
 function Time({ at }: { at: string }) {
 	return (
 		<time dateTime={at} title={absoluteTime(at)}>
@@ -260,45 +214,6 @@ function Muted({ children }: { children: string }) {
 		<Text as="p" role="label" tone="secondary">
 			{children}
 		</Text>
-	);
-}
-
-function NeedsYouStrip({ rows }: { rows: NeedsYouRow[] }) {
-	if (!rows.length) return null;
-	return (
-		<PageSection aria-labelledby="portfolio-needs-you-title">
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle id="portfolio-needs-you-title">Needs you</SectionTitle>
-				</SectionHeading>
-				{rows.length > NEEDS_YOU_LIMIT ? (
-					<SectionActions>
-						<Link variant="section" href="/work/office">
-							See all ({rows.length})
-						</Link>
-					</SectionActions>
-				) : null}
-			</SectionHeader>
-			<Collection aria-label="Needs you">
-				{rows.slice(0, NEEDS_YOU_LIMIT).map((row) => (
-					<li
-						key={row.key}
-						className="flex min-w-0 items-start gap-2 px-4 py-3"
-					>
-						<Link
-							variant="record"
-							href={row.href}
-							className="line-clamp-2 min-w-0 flex-1"
-						>
-							{row.label}
-						</Link>
-						<Text as="span" role="label" tone="secondary" className="shrink-0">
-							{row.kind} · <Time at={row.at} />
-						</Text>
-					</li>
-				))}
-			</Collection>
-		</PageSection>
 	);
 }
 
@@ -328,7 +243,9 @@ function counted(count: number, noun: string): string {
 	return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function factoryHref(row: FactoryScoreboardEntry): string {
+export function factoryHref(
+	row: Pick<FactoryScoreboardEntry, "kind" | "id">,
+): string {
 	return row.kind === "blueprint" ? "/blueprints" : `/skills/${row.id}/runs`;
 }
 
@@ -654,11 +571,6 @@ export function WorkPortfolioPage() {
 		...workOfficeKnocksQueryOptions(),
 		refetchOnWindowFocus: false,
 	});
-	const approvals = useQuery({
-		...workApprovalsQueryOptions(),
-		refetchOnWindowFocus: false,
-		retry: false,
-	});
 	const grouped = useMemo(
 		() => groupPortfolio(portfolio.data?.data ?? []),
 		[portfolio.data],
@@ -668,21 +580,16 @@ export function WorkPortfolioPage() {
 			(inbox.data?.data ?? []).filter((row) => row.effectiveState === "open"),
 		[inbox.data],
 	);
-	const needsYou = useMemo(
-		() => needsYouRows(openInteractions, approvals.data?.data ?? []),
-		[openInteractions, approvals.data],
-	);
 	return (
 		<Page width="full" className="gap-8">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>Portfolio</PageTitle>
 					<PageDescription>
-						Your main projects, what is open, and what needs you.
+						Your main projects, their factories, and what is open.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
-			<NeedsYouStrip rows={needsYou} />
 			<FactoryScoreboard />
 			{portfolio.isPending ? (
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

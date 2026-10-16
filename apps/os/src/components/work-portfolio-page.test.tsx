@@ -12,7 +12,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	factoryScoreboardQueryOptions,
 	projectPortfolioQueryOptions,
-	workApprovalsQueryOptions,
 	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
 import { Route as WorkIndexRoute } from "@/routes/_session/_tenant/work.index";
@@ -23,7 +22,6 @@ import {
 	groupFactories,
 	groupPortfolio,
 	isPlaceholderBrief,
-	needsYouRows,
 	projectBriefLine,
 } from "./work-portfolio-page";
 
@@ -192,12 +190,6 @@ function seededClient({
 		hasMore: false,
 		observedAt: "2026-09-10T00:00:00.000Z",
 	} as never);
-	queryClient.setQueryData(workApprovalsQueryOptions().queryKey, {
-		data: [],
-		nextCursor: null,
-		hasMore: false,
-		observedAt: "2026-09-10T00:00:00.000Z",
-	});
 	return queryClient;
 }
 
@@ -238,38 +230,6 @@ describe("Portfolio grouping", () => {
 		expect(projectBriefLine("\n## Run tours\nmore")).toBe("Run tours");
 		expect(projectBriefLine("  \n- first item")).toBe("first item");
 		expect(projectBriefLine(null)).toBeNull();
-	});
-
-	it("keeps open questions and decidable approvals, newest first", () => {
-		const rows = needsYouRows(
-			[interaction(1), interaction(2, "resolved")],
-			[
-				{
-					proposal: {
-						id: "approval-1",
-						requestedAt: "2026-09-11T00:00:00.000Z",
-						requestRationale: "Ship it",
-					},
-					effectiveStatus: "pending",
-					canDecide: true,
-					workItem: { id: "item-9", title: "Approve the fare table" },
-				},
-				{
-					proposal: {
-						id: "approval-2",
-						requestedAt: "2026-09-12T00:00:00.000Z",
-						requestRationale: "Not mine",
-					},
-					effectiveStatus: "pending",
-					canDecide: false,
-					workItem: { id: "item-10", title: "Someone else's call" },
-				},
-			],
-		);
-		expect(rows.map((row) => row.href)).toEqual([
-			"/work/items/item-9",
-			`/work/interactions/${interaction(1).request.id}`,
-		]);
 	});
 });
 
@@ -338,26 +298,6 @@ describe("WorkPortfolioPage", () => {
 			host.remove();
 			queryClient.clear();
 		}
-	});
-
-	it("caps the needs-you strip at five rows and links to the Office", () => {
-		const doc = new DOMParser().parseFromString(
-			render(
-				seededClient({
-					interactions: Array.from({ length: 7 }, (_, index) =>
-						interaction(index + 1),
-					),
-				}),
-			),
-			"text/html",
-		);
-		const strip = doc.querySelector('[aria-label="Needs you"]');
-		expect(strip?.querySelectorAll("li")).toHaveLength(5);
-		expect(strip?.textContent).toContain("Question 7");
-		expect(strip?.textContent).not.toContain("Question 2");
-		expect(doc.querySelector('a[href="/work/office"]')?.textContent).toContain(
-			"See all",
-		);
 	});
 
 	it("scores each factory by tedi and flags one running but idle", () => {
@@ -479,11 +419,6 @@ describe("WorkPortfolioPage", () => {
 		]);
 	});
 
-	it("hides the needs-you strip when nothing waits", () => {
-		const html = render(seededClient());
-		expect(html).not.toContain('aria-label="Needs you"');
-	});
-
 	it("shows actionable serialized failure messages", () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false, retryOnMount: false } },
@@ -515,11 +450,11 @@ describe("Work landing", () => {
 		throw new Error("beforeLoad did not redirect");
 	}
 
-	it("redirects /work to the Portfolio", () => {
+	it("redirects /work to Needs you", () => {
 		const result = thrown({});
 		expect(isRedirect(result)).toBe(true);
 		expect((result as { options: { to: string } }).options.to).toBe(
-			"/work/portfolio",
+			"/work/needs-you",
 		);
 	});
 
