@@ -859,7 +859,7 @@ export async function runKernel(args: {
 	let plannerStreamedAnswer = false;
 
 	// "Create a deck about X" is a write. Checked before the model: no answer
-	// is streamed for it, and a prose answer becomes a write proposal below.
+	// is delivered for it, and a prose answer becomes a write proposal below.
 	const outputCreateKind = hasExplicitDelegationIntent(inputContent)
 		? null
 		: explicitOutputCreateKind(inputContent);
@@ -883,20 +883,21 @@ export async function runKernel(args: {
 		abortSignal,
 		// Forward answer deltas from the single streamObject pass directly into
 		// the onProgress channel — the streamed deltas are the delivered answer.
-		onAnswerDelta: outputCreateApp
-			? undefined
-			: (delta: string) => {
-					try {
-						plannerStreamedAnswer = true;
-						onProgress?.({
-							stage: "Answering",
-							phase: "generating",
-							answerDelta: delta,
-						});
-					} catch {
-						// Advisory only.
-					}
-				},
+		// An explicit output-create request keeps the same streamed pass but
+		// delivers none of its prose: the turn ends in a write proposal.
+		onAnswerDelta: (delta: string) => {
+			if (outputCreateApp) return;
+			try {
+				plannerStreamedAnswer = true;
+				onProgress?.({
+					stage: "Answering",
+					phase: "generating",
+					answerDelta: delta,
+				});
+			} catch {
+				// Advisory only.
+			}
+		},
 		// Provisional thinking line. `rationale` streams on every route, so this
 		// is what the operator sees while a delegate_tedi / propose_tool_write /
 		// run_workflow / ask_human plan is being decided — routes where `answer`

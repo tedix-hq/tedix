@@ -684,6 +684,7 @@ it("routes an explicit deck request answered in prose to an output write", async
 		plannedToolIds: [],
 		usage: null,
 	} as never);
+	const onProgress = vi.fn();
 	const result = await runKernel({
 		db: {} as never,
 		env: {
@@ -692,10 +693,18 @@ it("routes an explicit deck request answered in prose to an output write", async
 		} as never,
 		organizationId: "org",
 		content: "Create a 3-slide deck about Blue Harbor Bakery",
+		onProgress,
 	});
-	expect(vi.mocked(planKernelRoute).mock.lastCall?.[0].onAnswerDelta).toBe(
-		undefined,
-	);
+	// The streamed pass is kept, but its prose never reaches the operator.
+	const onAnswerDelta =
+		vi.mocked(planKernelRoute).mock.lastCall?.[0].onAnswerDelta;
+	expect(onAnswerDelta).toBeTypeOf("function");
+	onAnswerDelta?.("Slide 1");
+	expect(
+		onProgress.mock.calls.some(
+			([progress]) => progress.answerDelta === "Slide 1",
+		),
+	).toBe(false);
 	expect(result?.route).toMatchObject({
 		routeKind: "propose_tool_write",
 		answer: null,
