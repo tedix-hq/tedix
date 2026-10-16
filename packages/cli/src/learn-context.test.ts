@@ -494,15 +494,15 @@ describe("board match and judge", () => {
 		const prompts: string[] = [];
 		const model = async (prompt: string) => {
 			prompts.push(prompt);
-			return prompt.startsWith("Is the new task")
+			return prompt.startsWith("Below is a piece of work")
 				? "1"
 				: '[{"c":1,"same":"","parent":"","project":"P1"}]';
 		};
 		const [proposal] = await judge(candidates, board, model, new Map());
 		expect(proposal).toMatchObject({ action: "tracked", workId: "w-5" });
-		expect(prompts.filter((p) => p.startsWith("Is the new task"))).toHaveLength(
-			1,
-		);
+		expect(
+			prompts.filter((p) => p.startsWith("Below is a piece of work")),
+		).toHaveLength(1);
 	});
 
 	it("trusts the model's covering match and ignores references it did not offer", async () => {
@@ -540,6 +540,216 @@ describe("board match and judge", () => {
 			new Map(),
 		);
 		expect(bogus[0]).toMatchObject({ action: "create", projectKey: "BILLING" });
+	});
+
+	const SECOND = "Below is a piece of work";
+	const closeBoard = (key: string, w: any[]) => ({
+		me: null,
+		scanned: {},
+		matches: { [key]: { w, p: [] } },
+		projects: [
+			["p-billing", "BILLING", "Billing and invoices", ""],
+			["p-site", "SITE", "Public website", "Landing pages and docs"],
+		] as any,
+	});
+
+	it("files a specific task under a broad open item instead of calling it covered", async () => {
+		const [c] = [candidate("Reconcile the September card payouts")];
+		const board = closeBoard(c!.key, [
+			[
+				"w-close",
+				"Reconcile January to September periods",
+				"p-billing",
+				"proposed",
+				null,
+				0.4,
+			],
+		]);
+		// One batch vote calls the broad item covering, the other does not.
+		let votes = 0;
+		const [proposal] = await judge(
+			[c!],
+			board,
+			async (prompt) =>
+				prompt.startsWith(SECOND)
+					? "B1"
+					: votes++ === 0
+						? '[{"c":1,"same":"W1","parent":"","project":"P1"}]'
+						: '[{"c":1,"same":"","parent":"W1","project":"P1"}]',
+			new Map(),
+		);
+		expect(proposal).toMatchObject({
+			action: "create",
+			projectKey: "BILLING",
+			parentId: "w-close",
+		});
+		// Both votes agreeing on the match keeps it: a duplicate costs more.
+		const agreed = await judge(
+			[c!],
+			board,
+			async (prompt) =>
+				prompt.startsWith(SECOND)
+					? "B1"
+					: '[{"c":1,"same":"W1","parent":"","project":"P1"}]',
+			new Map(),
+		);
+		expect(agreed[0]).toMatchObject({ action: "tracked", workId: "w-close" });
+	});
+
+	it("drops a match on words alone the second look rejects, and ignores a chatty answer", async () => {
+		const [c] = [candidate("Keyboard navigation for the console")];
+		const board = closeBoard(c!.key, [
+			[
+				"w-ime",
+				"Make console keyboard actions IME-safe",
+				"p-site",
+				"completed",
+				null,
+				0.62,
+			],
+		]);
+		const judged = (second: string) =>
+			judge(
+				[c!],
+				board,
+				async (prompt) =>
+					prompt.startsWith(SECOND)
+						? second
+						: '[{"c":1,"same":"","parent":"","project":"P2"}]',
+				new Map(),
+			);
+		expect((await judged("0"))[0]).toMatchObject({
+			action: "create",
+			projectKey: "SITE",
+		});
+		// Not a bare answer: the words still decide.
+		expect(
+			(await judged("I can't see item 1 in your message"))[0],
+		).toMatchObject({
+			action: "tracked",
+			workId: "w-ime",
+		});
+	});
+
+	it("places with the whole project catalog, not only the closest words", async () => {
+		const [c] = [candidate("Translate the one-pager into German")];
+		const prompts: string[] = [];
+		const [proposal] = await judge(
+			[c!],
+			closeBoard(c!.key, []),
+			async (prompt) => {
+				prompts.push(prompt);
+				return '[{"c":1,"same":"","parent":"","project":"P2"}]';
+			},
+			new Map(),
+		);
+		expect(proposal).toMatchObject({ action: "create", projectKey: "SITE" });
+		expect(prompts[0]).toContain(
+			"P2 SITE: Public website. Landing pages and docs",
+		);
+	});
+});
+
+describe("epics and names", () => {
+	it("turns sessions a project folded in into its tasks, and the epic's tasks go where it goes", async () => {
+		const sessions = [1, 2, 3, 4].map((n) =>
+			digest(String(n), `Garden planner part ${n}`, {
+				asks: [`build garden planner part ${n} for my phone app`],
+			}),
+		);
+		const model = async () =>
+			JSON.stringify([
+				{
+					kind: "project",
+					title: "Garden planner app",
+					sessions: [1, 2, 3, 4],
+					confidence: 0.9,
+				},
+				{
+					kind: "task",
+					title: "Build the seed catalog screen",
+					sessions: [1],
+					confidence: 0.9,
+				},
+				{ kind: "people", names: [] },
+			]);
+		const candidates = await extractCandidates(sessions, model);
+		expect(
+			candidates
+				.filter((c) => c.kind === "task")
+				.map((c) => c.title)
+				.sort(),
+		).toEqual([
+			"Build the seed catalog screen",
+			"Garden planner part 2",
+			"Garden planner part 3",
+			"Garden planner part 4",
+		]);
+		const board = {
+			me: null,
+			scanned: {},
+			matches: {},
+			projects: [["p-cat", "CATALOG", "MCP catalog apps", ""]] as any,
+		};
+		// The judge put the catalog screen in the MCP catalog project on a shared word.
+		const proposals = await judge(
+			candidates,
+			board,
+			async (prompt) =>
+				prompt.startsWith("Each numbered")
+					? JSON.stringify(
+							candidates.map((c, i) => ({
+								c: i + 1,
+								same: "",
+								parent: "",
+								project: c.title.includes("catalog") ? "P1" : "",
+							})),
+						)
+					: "0",
+			new Map(),
+		);
+		const epic = proposals.find((p) => p.children?.length);
+		expect(epic).toMatchObject({
+			title: "Garden planner app",
+			action: "create",
+		});
+		expect(epic!.projectId).toBeUndefined();
+		expect(epic!.children!.map((c) => c.projectId)).toEqual([
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		]);
+	});
+
+	it("takes the names of people the model saw out of session titles and its own titles", async () => {
+		const sessions = [
+			digest("1", "Outreach to Jana Kowalski at Northwind", {
+				asks: ["write outreach to the Northwind ops lead"],
+			}),
+			digest("2", "Northwind outreach v2 with Jana", {
+				asks: ["revise the Northwind outreach"],
+			}),
+		];
+		const candidates = await extractCandidates(sessions, async () =>
+			JSON.stringify([
+				{
+					kind: "task",
+					title: "Write outreach sequence for Jana at Northwind",
+					sessions: [1, 2],
+					confidence: 0.8,
+				},
+				{ kind: "people", names: ["Jana Kowalski"] },
+			]),
+		);
+		expect(candidates[0]!.title).toBe(
+			"Write outreach sequence for [name] at Northwind",
+		);
+		expect(sessions.map((s) => s.title)).toEqual([
+			"Outreach to [name] [name] at Northwind",
+			"Northwind outreach v2 with [name]",
+		]);
+		expect(candidates[0]!.context).not.toContain("Jana");
 	});
 });
 

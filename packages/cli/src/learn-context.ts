@@ -6,19 +6,22 @@
  * 1. Extract (local). Each session becomes a short digest: the host's own
  *    session title (Claude Code ai-title, Codex thread name or Codex goal) and
  *    the first few things the person typed, scrubbed and bounded. The
- *    person's own `claude` CLI groups the digests into typed candidates
- *    (task, goal, project) with a confidence and the sessions that cite them;
- *    without a model each titled session is a candidate. A candidate survives
- *    when two or more sessions share it, it carries a Codex goal, or the model
- *    is confident.
- * 2. Match (read-only). One Code Mode program reads the organization's
- *    projects and its proposed, accepted, completed and cancelled Work (the
- *    last two since the earliest session) and returns, per candidate, the
- *    closest items by IDF-weighted word overlap. Only candidate titles go up;
- *    nothing is stored.
- * 3. Judge (local). The model decides per candidate whether an existing item
- *    already covers it, and otherwise which project (and open parent item) it
- *    belongs under; without a model, score thresholds decide.
+ *    person's own `claude` CLI (else their `codex`) groups the digests into
+ *    typed candidates (task, goal, project) with a confidence and the
+ *    sessions that cite them, and names the people it saw, whose names are
+ *    then taken out of every session title; without a model each titled
+ *    session is a candidate. A candidate survives when two or more sessions
+ *    share it, it carries a Codex goal, or the model is confident.
+ * 2. Match (read-only). Code Mode programs read the organization's projects
+ *    and its proposed, accepted, completed and cancelled Work (the last two
+ *    since the earliest session) and return, per candidate, the closest items
+ *    by IDF-weighted word overlap, plus every open project for the model.
+ *    Only candidate and session titles go up; nothing is stored.
+ * 3. Judge (local). Two model votes decide per candidate whether an existing
+ *    item already covers it, and otherwise which project (and open parent
+ *    item) it belongs under. A close call gets one focused second look that
+ *    tells the same work from a broader item it belongs under; without a
+ *    model, score thresholds decide.
  * 4. Propose. Covered candidates are reported, never written. A candidate
  *    with a project becomes a proposal in the person's Tedix inbox (a Work
  *    interaction, see learn-proposals.ts); a project or goal with three or
@@ -53,9 +56,9 @@ import { asciiJson } from "./hooks/agent-status";
 import { redact } from "./hooks/decision-capture";
 import { AGENT_IDENTITY_ENV, cliRead, type ReadJson } from "./hooks/hook-io";
 import {
-	claudeModel,
 	claudeSignals,
 	codexSignals,
+	localModel,
 	runAnalyzeSessions,
 	type RunModel,
 	type SessionSignals,
@@ -388,11 +391,14 @@ export function planContext(input: {
 			? goalTitle(goal)
 			: (signals.title ?? input.titles?.get(signals.sessionId) ?? null);
 		const said = asks.map((ask) => ask.text).filter(substantive);
+		if (!title && !said.length) continue;
+		// The last thing typed, however short ("merged, done"), tells whether
+		// the work finished.
+		const last = asks[asks.length - 1]!.text;
 		const firsts = [
 			...said.slice(0, 2),
-			...(said.length > 2 ? [said[said.length - 1]!] : []),
+			...(said.slice(0, 2).includes(last) ? [] : [last]),
 		].map((text) => short(text, 200));
-		if (!title && !firsts.length) continue;
 		const location = locate(signals);
 		const target = routedTarget(location, input, plan.unrouted, 1);
 		if (!target) continue;
@@ -435,6 +441,8 @@ export interface Candidate {
 	done?: boolean;
 	/** The cited sessions' own titles, which widen the board search. */
 	context?: string;
+	/** The first thing asked in one of its sessions: for the local model only, never sent. */
+	ask?: string;
 }
 
 const STOP = new Set(
@@ -470,12 +478,13 @@ export const EXTRACT_PROMPT = `Below are numbered summaries of one person's codi
 List the durable work these sessions show:
 - "task": one concrete deliverable (fix, build, write, ship, research something specific);
 - "goal": an outcome pursued across several sessions;
-- "project": a named product area, client or body of work; when three or more tasks belong to the same one, list it as well, citing all their sessions.
+- "project": a named product area, client or body of work; when three or more tasks belong to the same one, list it as well, citing all their sessions. Name the narrowest body of work that groups them (a feature or initiative such as "billing exports", not the whole product).
 Merge sessions only when they work on the same deliverable or outcome; related but different deliverables stay separate entries. Skip status checks, one-off questions, small talk, personal errands unrelated to their work, and tests or demos of the agent itself.
 Each summary ends with the last thing typed; mark "done" true when the sessions show the work finished (shipped, merged, closed, answered).
 Return ONLY a JSON array, no prose: [{"kind":"task|goal|project","title":"<at most 12 words; a task starts with a verb>","sessions":[<numbers>],"confidence":<0 to 1>,"done":<true|false>}].
 Paraphrase. Keep product, client and project names; never include people's names, email addresses, secrets, tokens or URLs.
-Return [] if nothing qualifies.
+End the array with one more entry, {"kind":"people","names":[...]}: every first or last name of a person that appears anywhere below (not companies, products, places or programs).
+Return [{"kind":"people","names":[]}] if nothing qualifies.
 
 `;
 
@@ -507,24 +516,33 @@ async function inPool<T>(
 	);
 }
 
-/** Raw candidates per session group, from the model or from titles alone. */
+type RawCandidate = Omit<Candidate, "key" | "from" | "to" | "goal">;
+
+/**
+ * Raw candidates per session group, from the model or from titles alone, and
+ * the names of people the model saw in the sessions.
+ */
 async function rawCandidates(
 	sessions: SessionDigest[],
 	runModel: RunModel | null,
-): Promise<Array<Omit<Candidate, "key" | "from" | "to" | "goal">>> {
+): Promise<{ items: RawCandidate[]; people: Set<string> }> {
+	const people = new Set<string>();
 	if (!runModel)
-		return sessions
-			.filter((s) => s.title || s.asks[0])
-			.map((s) => ({
-				kind: s.goal ? "goal" : "task",
-				title: s.title ?? s.asks[0]!,
-				confidence: s.goal ? 0.9 : 0.5,
-				sessions: [s.sessionId],
-			}));
+		return {
+			people,
+			items: sessions
+				.filter((s) => s.title || s.asks[0])
+				.map((s) => ({
+					kind: s.goal ? "goal" : "task",
+					title: s.title ?? s.asks[0]!,
+					confidence: s.goal ? 0.9 : 0.5,
+					sessions: [s.sessionId],
+				})),
+		};
 	const chunks: SessionDigest[][] = [];
 	for (let i = 0; i < sessions.length; i += EXTRACT_CHUNK)
 		chunks.push(sessions.slice(i, i + EXTRACT_CHUNK));
-	const out: Array<Omit<Candidate, "key" | "from" | "to" | "goal">> = [];
+	const out: RawCandidate[] = [];
 	await inPool(chunks, 4, async (chunk) => {
 		const prompt =
 			EXTRACT_PROMPT +
@@ -543,6 +561,13 @@ async function rawCandidates(
 			return;
 		}
 		for (const entry of parseArray(raw) as Json[]) {
+			if (entry?.kind === "people" && Array.isArray(entry.names)) {
+				for (const name of entry.names)
+					if (typeof name === "string")
+						for (const part of name.split(/\s+/))
+							if (part.length >= 3) people.add(part.toLowerCase());
+				continue;
+			}
 			if (!entry || !KINDS.has(entry.kind) || typeof entry.title !== "string")
 				continue;
 			const cited = (Array.isArray(entry.sessions) ? entry.sessions : [])
@@ -565,17 +590,38 @@ async function rawCandidates(
 			});
 		}
 	});
-	return out;
+	return { items: out, people };
 }
 
-/** Merge near-identical candidates and keep the ones with real support. */
+/** Each of these names, as a whole word, replaced by "[name]". */
+export function withoutNames(text: string, names: Set<string>): string {
+	if (!names.size) return text;
+	return text.replace(/[\p{L}][\p{L}'-]*/gu, (word) =>
+		names.has(word.toLowerCase()) ? "[name]" : word,
+	);
+}
+
+/**
+ * Merge near-identical candidates and keep the ones with real support.
+ *
+ * Session titles come from the host and can name people. Every name the
+ * model saw is taken out of the digests' titles here, in place, so the board
+ * search, the proposals and their citations, all built from these digests
+ * later, carry none.
+ */
 export async function extractCandidates(
 	sessions: SessionDigest[],
 	runModel: RunModel | null,
 	options = { threshold: 0.5, minSessions: 2, confident: 0.8 },
 ): Promise<Candidate[]> {
 	const byId = new Map(sessions.map((s) => [s.sessionId, s]));
-	const raw = await rawCandidates(sessions, runModel);
+	const { items, people } = await rawCandidates(sessions, runModel);
+	for (const s of sessions)
+		if (s.title) s.title = withoutNames(s.title, people);
+	const raw = items.map((item) => ({
+		...item,
+		title: withoutNames(item.title, people),
+	}));
 	const clusters: Array<{ words: Set<string>; items: typeof raw }> = [];
 	for (const item of raw) {
 		const set = new Set(words(item.title));
@@ -615,7 +661,9 @@ export async function extractCandidates(
 			.slice(0, 300);
 		out.push({
 			key: sha(words(best.title).sort().join(" ")),
-			kind: goal ? "goal" : best.kind,
+			// A Codex goal makes its sessions a goal; the model's own task of
+			// that goal stays a task.
+			kind: goal && (!runModel || best.kind !== "task") ? "goal" : best.kind,
 			title: best.title,
 			confidence,
 			sessions: ids,
@@ -625,11 +673,53 @@ export async function extractCandidates(
 			// Finished only when every entry merged here says so.
 			...(cluster.items.every((i) => i.done) ? { done: true } : {}),
 			...(context ? { context } : {}),
+			...(cited[0]?.asks[0] ? { ask: cited[0].asks[0].slice(0, 160) } : {}),
 		});
 	}
-	return withoutUmbrellas(out).sort(
+	return withFoldedTasks(withoutUmbrellas(out), byId).sort(
 		(a, b) => b.sessions.length - a.sessions.length,
 	);
+}
+
+/**
+ * A project or goal can cite sessions no task of its own explains: the model
+ * folded those deliverables into the body of work instead of listing them.
+ * Each such session (titled, with something the person actually asked) is a
+ * task of that body of work under its own title, so the body of work still
+ * reaches the {@link EPIC_MIN_TASKS} it needs to become an epic.
+ */
+function withFoldedTasks(
+	candidates: Candidate[],
+	byId: Map<string, SessionDigest>,
+): Candidate[] {
+	const out = [...candidates];
+	const covered = new Set(
+		candidates.filter((c) => c.kind === "task").flatMap((c) => c.sessions),
+	);
+	for (const head of candidates) {
+		if (head.kind === "task" || head.done) continue;
+		if (head.sessions.length < EPIC_MIN_TASKS) continue;
+		for (const id of head.sessions) {
+			const s = byId.get(id);
+			if (covered.has(id) || !s?.title || s.goal) continue;
+			if (!s.asks.some(substantive)) continue;
+			if (words(s.title).length < 2) continue;
+			covered.add(id);
+			out.push({
+				key: sha(words(s.title).sort().join(" ")),
+				kind: "task",
+				title: s.title,
+				confidence: head.confidence,
+				sessions: [id],
+				from: s.from,
+				to: s.to,
+				goal: false,
+				context: s.title,
+				...(s.asks[0] ? { ask: s.asks[0].slice(0, 160) } : {}),
+			});
+		}
+	}
+	return out;
 }
 
 /**
@@ -674,10 +764,54 @@ export type WorkMatch = [
 /** [id, key, name, score] */
 export type ProjectMatch = [string, string, string, number];
 
+/** [id, key, name, description] */
+export type ProjectInfo = [string, string, string, string];
+
 export interface BoardMatches {
 	me: { id: string; name: string } | null;
 	scanned: Record<string, number>;
 	matches: Record<string, { w: WorkMatch[]; p: ProjectMatch[] }>;
+	/**
+	 * Every open project, so the model places work by what a project is for,
+	 * not by the words it happens to share with the closest few.
+	 */
+	projects?: ProjectInfo[];
+}
+
+/** Projects per catalog program, well under the gateway's result cap. */
+const CATALOG_PAGE = 40;
+
+/** Code Mode program: one page of open projects, key, name and description. */
+export function projectCatalogSource(offset: number): string {
+	return `async () => {
+	const r = await projects.list_projects({ limit: ${CATALOG_PAGE}, offset: ${offset} });
+	if (r?.ok === false || !Array.isArray(r?.data)) return { ok: false, error: "listing projects failed: " + String(r?.error ?? "no data") };
+	const clean = (text) => String(text || "").replace(/\\s+/g, " ").replace(/^BRIEF \\([^)]*\\)\\s*/, "").trim();
+	return {
+		projects: r.data.filter((p) => p.status !== "archived" && p.status !== "done" && !p.archivedAt).map((p) => [p.id, p.key, clean(p.name).slice(0, 80), clean(p.description).slice(0, 140)]),
+		more: Boolean(r.pagination?.hasMore) && r.data.length > 0,
+	};
+}`;
+}
+
+const CATALOG_MAX = 400;
+
+/** Every open project, page by page; empty when the listing fails. */
+export async function projectCatalog(
+	call: (source: string) => Promise<Json>,
+): Promise<ProjectInfo[]> {
+	const out: ProjectInfo[] = [];
+	try {
+		for (let offset = 0; offset < CATALOG_MAX; offset += CATALOG_PAGE) {
+			const page = await call(projectCatalogSource(offset));
+			if (!Array.isArray(page.projects)) break;
+			out.push(...(page.projects as ProjectInfo[]));
+			if (!page.more) break;
+		}
+	} catch {
+		/* Placement falls back to the closest projects by words. */
+	}
+	return out;
 }
 
 /**
@@ -769,10 +903,13 @@ export async function matchBoard(
 	candidates: Candidate[],
 	since: string,
 	call: (source: string) => Promise<Json>,
+	/** Also read every open project (for a model to place work with). */
+	withCatalog = false,
 ): Promise<BoardMatches> {
 	const out: BoardMatches = { me: null, scanned: {}, matches: {} };
 	const open: Json = {};
 	const closed: Json = {};
+	const catalog = withCatalog ? projectCatalog(call) : Promise.resolve([]);
 	for (let i = 0; i < candidates.length; i += MATCH_CHUNK) {
 		const list = candidates.slice(i, i + MATCH_CHUNK).map((c) => ({
 			k: c.key,
@@ -814,6 +951,8 @@ export async function matchBoard(
 			p: a.p,
 		};
 	}
+	const projects = await catalog;
+	if (projects.length) out.projects = projects;
 	return out;
 }
 
@@ -863,14 +1002,16 @@ export const THRESHOLDS = {
 	propose: 0.6,
 	/** A proposal this close to an existing item gets a second, focused look. */
 	confirm: 0.35,
+	/** With a model, a match on words alone below this gets a second look. */
+	clear: 0.75,
 };
 
-export const JUDGE_PROMPT = `Each numbered candidate below is work one person did in coding-agent sessions. Under it are existing Work Items (W1..) and projects (P1..) on their team's board.
+export const JUDGE_PROMPT = `Each numbered candidate below is work one person did in coding-agent sessions, with the titles of the sessions it came from. Under it are existing Work Items (W1..) on their team's board; the team's projects (P1..) are listed first.
 For each candidate decide:
-- "same": the W that already covers the same deliverable or outcome, even if worded differently or scoped a little differently (a broader item that clearly includes it counts; a completed item counts, the work is done). Empty if none does.
+- "same": the W that already is this deliverable or outcome, even if worded differently or scoped a little differently (a completed item counts: the work is done). An item for a whole area, period or program that only includes this work is not the same; neither is an item for one part of a larger candidate. Empty if none is.
 - "parent": when not "same", an OPEN W that is a broader effort this belongs under, else empty.
-- "project": the P it belongs to, else empty.
-When unsure, leave a field empty: a wrong match hides real work.
+- "project": the P this work most likely belongs to: its product, client, program or kind of work (outreach to leads belongs with go-to-market work). A word in common is not enough (a "catalog" screen in someone's own app is not an MCP catalog). Empty when no project is about this kind of work.
+When unsure about "same" or "parent", leave it empty.
 Return ONLY a JSON array: [{"c":<number>,"same":"W<n> or empty","parent":"W<n> or empty","project":"P<n> or empty"}].
 
 `;
@@ -878,11 +1019,24 @@ Return ONLY a JSON array: [{"c":<number>,"same":"W<n> or empty","parent":"W<n> o
 const JUDGE_CHUNK = 10;
 const OPEN = new Set(["proposed", "accepted"]);
 
+/** What the model chose for one candidate. */
+interface Choice {
+	same?: WorkMatch;
+	/** Both votes named the same covering item. */
+	agreed?: boolean;
+	/** The covering item came from the focused second look. */
+	second?: boolean;
+	/** The second look found no item the same, whatever the words say. */
+	rejected?: boolean;
+	parent?: WorkMatch;
+	project?: ProjectMatch;
+}
+
 function decide(
 	candidate: Candidate,
 	match: { w: WorkMatch[]; p: ProjectMatch[] },
 	projectKeys: Map<string, string>,
-	pick?: { same?: WorkMatch; parent?: WorkMatch; project?: ProjectMatch },
+	pick?: Choice,
 ): Proposal {
 	const base = {
 		key: candidate.key,
@@ -901,7 +1055,7 @@ function decide(
 	// match costs a duplicate on a shared board, a false one only a proposal.
 	const same =
 		pick?.same ??
-		(nearestWork && nearestWork[5] >= THRESHOLDS.same
+		(nearestWork && nearestWork[5] >= THRESHOLDS.same && !pick?.rejected
 			? nearestWork
 			: undefined);
 	if (same)
@@ -914,9 +1068,11 @@ function decide(
 			...(same[2]
 				? { projectId: same[2], projectKey: projectKeys.get(same[2]) }
 				: {}),
-			reason: pick?.same
-				? "the model matched an existing item"
-				: `similarity ${same[5]}`,
+			reason: pick?.second
+				? "the model matched an existing item on a second look"
+				: pick?.same
+					? "the model matched an existing item"
+					: `similarity ${same[5]}`,
 		};
 	const parent =
 		pick?.parent && OPEN.has(pick.parent[3]) ? pick.parent : undefined;
@@ -997,24 +1153,40 @@ export async function judge(
 				),
 			),
 		);
-	const picks = new Map<string, Parameters<typeof decide>[3]>();
+	const catalog = board.projects ?? [];
+	for (const p of catalog) projectKeys.set(p[0], p[1]);
+	const catalogText = catalog.length
+		? `Projects:\n${catalog
+				.map(
+					(p, j) =>
+						`P${j + 1} ${p[1]}: ${p[2]}${p[3] && p[3] !== p[2] ? `. ${p[3]}` : ""}`,
+				)
+				.join("\n")}\n\nCandidates:\n`
+		: "";
+	const picks = new Map<string, Choice>();
 	const chunks: Candidate[][] = [];
 	for (let i = 0; i < candidates.length; i += JUDGE_CHUNK)
 		chunks.push(candidates.slice(i, i + JUDGE_CHUNK));
-	// Two independent votes: an item either vote calls covering is covering.
+	// Two independent votes: an item either vote calls covering is covering
+	// until the second look below says otherwise.
 	await inPool([...chunks, ...chunks], 4, async (chunk) => {
 		const prompt =
 			JUDGE_PROMPT +
+			catalogText +
 			chunk
 				.map((c, i) => {
 					const m = board.matches[c.key] ?? empty;
 					return [
-						`${i + 1}. ${c.title}`,
+						`${i + 1}. ${c.title}${c.context ? ` (sessions: ${c.context.slice(0, 200)})` : ""}${c.ask ? ` (first ask: ${c.ask})` : ""}`,
 						...m.w.map(
 							(w, j) =>
 								`   W${j + 1} [${w[3]}${w[2] ? `, ${projectKeys.get(w[2]) ?? "project"}` : ""}] ${w[1].slice(0, 160)}`,
 						),
-						...m.p.map((p, j) => `   P${j + 1} ${p[1]}: ${p[2].slice(0, 120)}`),
+						...(catalog.length
+							? []
+							: m.p.map(
+									(p, j) => `   P${j + 1} ${p[1]}: ${p[2].slice(0, 120)}`,
+								)),
 					].join("\n");
 				})
 				.join("\n");
@@ -1034,55 +1206,90 @@ export async function judge(
 				);
 				return n ? list[Number(n[1]) - 1] : undefined;
 			};
+			const placed = ref(entry.project, "P", catalog);
+			const project: ProjectMatch | undefined = catalog.length
+				? placed && [placed[0], placed[1], placed[2], 1]
+				: ref(entry.project, "P", m.p);
+			const same = ref(entry.same, "W", m.w);
 			const prior = picks.get(c.key);
 			picks.set(c.key, {
-				same: prior?.same ?? ref(entry.same, "W", m.w),
+				same: prior?.same ?? same,
+				agreed: Boolean(prior?.same && same && prior.same[0] === same[0]),
 				parent: prior?.parent ?? ref(entry.parent, "W", m.w),
-				project: prior?.project ?? ref(entry.project, "P", m.p),
+				project: prior?.project ?? project,
 			});
 		}
 	});
-	// A candidate the model did not answer falls back to the thresholds.
-	const proposals = placeByProjects(
-		candidates,
-		candidates.map((c) =>
-			decide(c, board.matches[c.key] ?? empty, projectKeys, picks.get(c.key)),
-		),
+	// Confirm each match and each new task on its own first, so an epic only
+	// ever holds tasks that passed the same duplicate check as a single
+	// proposal. A candidate the model did not answer falls back to the
+	// thresholds.
+	const first = candidates.map((c) =>
+		decide(c, board.matches[c.key] ?? empty, projectKeys, picks.get(c.key)),
 	);
-	// Confirm each task on its own first, so an epic only ever holds tasks
-	// that passed the same duplicate check as a single proposal.
+	await secondLook(candidates, first, picks, board, runModel);
 	return proposeEpics(
 		candidates,
-		await confirmNew(candidates, proposals, board, runModel),
+		placeByProjects(
+			candidates,
+			candidates.map((c) =>
+				decide(c, board.matches[c.key] ?? empty, projectKeys, picks.get(c.key)),
+			),
+		),
 	);
 }
 
-export const CONFIRM_PROMPT = `Is the new task below the same work as one of the existing Work Items listed under it: the same problem, fix or deliverable, even if worded differently?
-Answer with ONLY the number of the existing item, or 0 if none is the same.
+export const CONFIRM_PROMPT = `Below is a piece of work one person did, then the existing Work Items on their team's board closest to it. Does one of those items already cover this work?
+- It covers it when it is the same problem, fix or deliverable, even if worded differently, or when this work is just a step toward the item's own deliverable (writing the slides for "Prepare and give the keynote at the summit").
+- It is BROADER when it spans several separate deliverables, periods, clients or a whole program, and this work is one distinct piece of it that is worth tracking on its own (matching the August card payments within "Close the books for January to September").
+- An item for only one part of this work does not cover it.
+Reply with exactly one token and nothing else: the number of the item that covers it, B and the number of a broader item (for example B2), or 0.
 
 `;
 
+/** Second looks per run, the closest first, so the cost stays bounded. */
+const SECOND_LOOKS = 24;
+
 /**
- * One focused question per proposal that has a close item on the board: a
- * batch of ten candidates misses matches one pair at a time does not.
+ * One focused question per candidate whose fate rests on a close call: a new
+ * task with a close item on the board (a batch of ten misses matches one pair
+ * at a time does not), and a covering match only the batch saw (a broad item
+ * such as "reconcile January to September" is not the September payout
+ * task). The answer updates the candidate's pick: the same item, a broader
+ * open item to go under, or nothing. A match both batch votes agreed on
+ * stands unless the item turns out broader.
  */
-async function confirmNew(
+async function secondLook(
 	candidates: Candidate[],
 	proposals: Proposal[],
+	picks: Map<string, Choice>,
 	board: BoardMatches,
 	runModel: RunModel,
-): Promise<Proposal[]> {
-	const out = [...proposals];
-	const doubtful = out
-		.map((p, i) => [p, i] as const)
-		.filter(
-			([p, i]) =>
-				(p.action === "create" || mayJoinEpic(candidates[i]!, p)) &&
-				(board.matches[p.key]?.w[0]?.[5] ?? 0) >= THRESHOLDS.confirm,
-		);
-	await inPool(doubtful, 4, async ([p, i]) => {
-		const options = (board.matches[p.key]?.w ?? []).slice(0, 3);
-		const prompt = `${CONFIRM_PROMPT}New task: ${p.title}\n${options
+): Promise<void> {
+	const doubtful = proposals
+		.map((p, i) => {
+			const c = candidates[i]!;
+			const best = board.matches[c.key]?.w[0]?.[5] ?? 0;
+			const same = picks.get(c.key)?.same;
+			// A match only the batch saw, or only the words saw.
+			const unsure =
+				p.action === "tracked" &&
+				Boolean(p.workId) &&
+				(same ? same[5] < THRESHOLDS.same : best < THRESHOLDS.clear);
+			const open =
+				(p.action === "create" || mayJoinEpic(c, p)) &&
+				best >= THRESHOLDS.confirm;
+			return { i, c, best, unsure, open };
+		})
+		.filter((d) => d.unsure || d.open)
+		.sort((a, b) => b.best - a.best)
+		.slice(0, SECOND_LOOKS);
+	await inPool(doubtful, 4, async ({ c, unsure }) => {
+		const pick = picks.get(c.key) ?? {};
+		const options = (board.matches[c.key]?.w ?? []).slice(0, 3);
+		if (pick.same && !options.some((w) => w[0] === pick.same![0]))
+			options.push(pick.same);
+		const prompt = `${CONFIRM_PROMPT}Work: ${c.title}${c.context ? `\nIts sessions: ${c.context.slice(0, 300)}` : ""}${c.ask ? `\nFirst ask: ${c.ask}` : ""}\n\nExisting items:\n${options
 			.map((w, j) => `${j + 1}. [${w[3]}] ${w[1]}`)
 			.join("\n")}`;
 		let raw: string;
@@ -1091,19 +1298,32 @@ async function confirmNew(
 		} catch {
 			return;
 		}
-		const n = Number(/\d+/.exec(raw)?.[0] ?? 0);
-		const same = n >= 1 ? options[n - 1] : undefined;
-		if (!same) return;
-		out[i] = {
-			...p,
-			action: "tracked",
-			workId: same[0],
-			workTitle: same[1],
-			workDisposition: same[3],
-			reason: "the model matched an existing item on a second look",
-		};
+		// Only a bare answer counts; anything else changes nothing.
+		const answer = /^[`*"\s]*(B)?\s*(\d+)[`*".\s]*$/i.exec(raw);
+		if (!answer) return;
+		const n = Number(answer[2]);
+		const same = !answer[1] && n >= 1 ? options[n - 1] : undefined;
+		const wider = answer[1] ? options[n - 1] : undefined;
+		const next: Choice = { ...pick };
+		if (same) {
+			next.same = same;
+			next.second = true;
+		} else if (wider) {
+			// Finished broad work includes this; open broad work is its parent.
+			const agreed = unsure && pick.agreed && c.kind === "task";
+			if (OPEN.has(wider[3]) && !agreed) {
+				if (unsure) {
+					next.same = undefined;
+					next.rejected = true;
+				}
+				next.parent ??= wider;
+			}
+		} else if (unsure && (!pick.agreed || c.kind !== "task")) {
+			next.same = undefined;
+			next.rejected = true;
+		}
+		picks.set(c.key, next);
 	});
-	return out;
 }
 
 /**
@@ -1202,16 +1422,11 @@ export function proposeEpics(
 				const c = candidates[i]!;
 				const p = out[i]!;
 				if (i === h || taken.has(i) || c.kind !== "task") return false;
-				// A task of a named project the board lacks belongs with it, even
-				// when a word it shares with some board project placed it there.
-				const fits = head.projectId
-					? p.action === "create" &&
-						p.projectId === head.projectId &&
-						!p.parentId
-					: mayJoinEpic(c, p) ||
-						(candidates[h]!.kind === "project" &&
-							p.action === "create" &&
-							!p.parentId);
+				// A task of a body of work the board lacks belongs with it, even
+				// when a word it shares with some board project placed it there:
+				// its sessions say where it belongs.
+				const fits =
+					mayJoinEpic(c, p) || (p.action === "create" && !p.parentId);
 				return (
 					fits &&
 					c.sessions.filter((id) => own.has(id)).length * 2 >= c.sessions.length
@@ -1219,16 +1434,35 @@ export function proposeEpics(
 			})
 			.slice(0, EPIC_MAX_TASKS);
 		if (members.length < EPIC_MIN_TASKS) continue;
+		// Unplaced, the epic goes where most of its tasks were placed, if
+		// anywhere; its tasks go where the epic goes.
+		let place = head.projectId
+			? { projectId: head.projectId, projectKey: head.projectKey }
+			: undefined;
+		if (!place) {
+			const counts = new Map<string, number>();
+			for (const i of members) {
+				const id = out[i]!.projectId;
+				if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+			}
+			const [id, n] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [];
+			const owner = members.find((i) => out[i]!.projectId === id);
+			if (id && n && n * 2 > members.length && owner !== undefined)
+				place = { projectId: id, projectKey: out[owner]!.projectKey };
+		}
 		taken.add(h);
 		for (const i of members) {
 			taken.add(i);
-			out[i] = { ...out[i]!, action: "nested", epicKey: head.key };
+			const { projectId: _id, projectKey: _key, ...task } = out[i]!;
+			out[i] = { ...task, ...place, action: "nested", epicKey: head.key };
 		}
+		const { projectId: _id, projectKey: _key, ...epic } = head;
 		out[h] = {
-			...head,
+			...epic,
+			...place,
 			action: "create",
 			children: members.map((i) => out[i]!),
-			reason: head.projectId
+			reason: place
 				? `${members.length} tasks in this project and no epic on the board for them`
 				: `${members.length} related tasks and no project on the board fits them`,
 		};
@@ -1557,13 +1791,13 @@ export async function runContext(
 	});
 	const read = deps.read ?? cliRead;
 	const stateDir = deps.stateDir ?? stateDirectory();
-	const model = options.noModel
-		? null
-		: cachedModel(
-				deps.runModel ?? claudeModel,
-				join(stateDir, "model-cache.json"),
-				!options.dryRun,
-			);
+	// The person's own claude, else their codex; neither means no model.
+	const local = options.noModel
+		? undefined
+		: (deps.runModel ?? localModel()?.run);
+	const model = local
+		? cachedModel(local, join(stateDir, "model-cache.json"), !options.dryRun)
+		: null;
 	const runModel = model?.run ?? null;
 	const report: Json = {
 		files: plan.files,
@@ -1583,7 +1817,7 @@ export async function runContext(
 				Date.parse(earliest) - 30 * 86_400_000,
 			).toISOString();
 			const board: BoardMatches = candidates.length
-				? await matchBoard(candidates, since, call)
+				? await matchBoard(candidates, since, call, Boolean(runModel))
 				: { me: null, scanned: {}, matches: {} };
 			const digests = new Map(sessions.map((s) => [s.sessionId, s]));
 			const citations = new Map(

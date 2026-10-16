@@ -203,7 +203,8 @@ Codex's memory summary) join them; project memories stay on your machine.
 ranks three things per organization: requests you repeat (candidates for a
 skill or command), recurring friction such as failing commands, retry loops,
 denials and long stalls (candidates for automation or a hook), and decisions
-you stated, which your local `claude` CLI extracts (`--no-model` skips them).
+you stated, which your local `claude` CLI extracts, or `codex` when Claude Code
+is not installed (`--no-model` skips them).
 Without `--dry-run` it keeps one Work Item per list in each organization; each
 person's run replaces only their own section of it. Pass `--project <id>` the
 first time so the items are filed under a project. Only counts and short
@@ -221,7 +222,7 @@ proposal in Tedix OS, in chat, or with `tedix learn review` (which also takes
 `--accept all`, `--accept 1,3`, `--reject 2`). Accepting creates the Work; a
 declined proposal is never asked again, and running both commands again creates
 nothing twice. Only short paraphrased titles and redacted session titles leave
-your machine.
+your machine; the names of people your sessions mention are removed from both.
 
 Plugin installation does not authorize Tedix access. Complete the OAuth flow
 in each host for the intended organization and scopes. Review the hooks in each

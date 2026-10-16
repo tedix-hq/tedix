@@ -1,16 +1,23 @@
 import { describe, expect, it } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { OrganizationTarget } from "./agent-context";
 import { normalizeGitOrigin } from "./agent-context";
 import {
 	CATEGORIES,
+	claudeModel,
 	claudeSignals,
+	codexArgs,
 	codexEvents,
+	codexModel,
 	commandHead,
 	decisionLog,
 	extractDecisions,
 	frictionHotspots,
 	categoryIntro,
+	localModel,
+	onPath,
 	projectFor,
 	renderDescription,
 	repeatedRequests,
@@ -19,6 +26,96 @@ import {
 	syncSource,
 	type ToolEvent,
 } from "./learn-analyze";
+
+describe("local models", () => {
+	it("isolates Codex and reads its prompt from stdin", () => {
+		const args = codexArgs("/private/work", "/private/work/answer.md");
+		expect(args).toEqual([
+			"exec",
+			"--ephemeral",
+			"--skip-git-repo-check",
+			"--ignore-user-config",
+			"--ignore-rules",
+			"-s",
+			"read-only",
+			"-C",
+			"/private/work",
+			...[
+				"memories",
+				"hooks",
+				"plugins",
+				"apps",
+				"goals",
+				"shell_tool",
+				"unified_exec",
+				"code_mode_host",
+				"multi_agent",
+				"browser_use",
+				"computer_use",
+				"image_generation",
+				"view_image",
+				"skill_search",
+				"tool_suggest",
+				"sleep_tool",
+			].flatMap((feature) => ["--disable", feature]),
+			"-c",
+			'model_reasoning_effort="low"',
+			"-c",
+			"project_doc_max_bytes=0",
+			"-o",
+			"/private/work/answer.md",
+			"-",
+		]);
+	});
+
+	it("prefers Claude when both CLIs exist", () => {
+		expect(localModel(() => true)).toEqual({
+			name: "claude",
+			run: claudeModel,
+		});
+	});
+
+	it("falls back to Codex when only Codex exists", () => {
+		expect(localModel((command) => command === "codex")).toEqual({
+			name: "codex",
+			run: codexModel,
+		});
+	});
+
+	it("returns null when neither CLI exists", () => {
+		expect(localModel(() => false)).toBeNull();
+	});
+
+	it("finds an executable on the injected PATH", () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-learn-path-"));
+		try {
+			const file = join(
+				dir,
+				process.platform === "win32" ? "model.exe" : "model",
+			);
+			writeFileSync(file, "", { mode: 0o700 });
+			expect(onPath("model", { PATH: dir })).toBe(true);
+			expect(onPath("missing", { PATH: dir })).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"ignores a non-executable file",
+		() => {
+			const dir = mkdtempSync(join(tmpdir(), "tedix-learn-path-"));
+			try {
+				const file = join(dir, "model");
+				writeFileSync(file, "");
+				chmodSync(file, 0o600);
+				expect(onPath("model", { PATH: dir })).toBe(false);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		},
+	);
+});
 
 const T = (day: number, minute = 0) =>
 	`2026-03-${String(day).padStart(2, "0")}T10:${String(minute).padStart(2, "0")}:00.000Z`;

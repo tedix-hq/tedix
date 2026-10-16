@@ -19,8 +19,16 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import {
+	accessSync,
+	constants,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { basename } from "node:path";
+import { basename, delimiter, join } from "node:path";
 import {
 	defaultOrganizationTarget,
 	repositoryTargetsByOrigin,
@@ -851,6 +859,112 @@ export const claudeModel: RunModel = (prompt) =>
 		child.stdin.end(prompt);
 	});
 
+export function codexArgs(directory: string, output: string): string[] {
+	return [
+		"exec",
+		"--ephemeral",
+		"--skip-git-repo-check",
+		"--ignore-user-config",
+		"--ignore-rules",
+		"-s",
+		"read-only",
+		"-C",
+		directory,
+		...[
+			"memories",
+			"hooks",
+			"plugins",
+			"apps",
+			"goals",
+			"shell_tool",
+			"unified_exec",
+			"code_mode_host",
+			"multi_agent",
+			"browser_use",
+			"computer_use",
+			"image_generation",
+			"view_image",
+			"skill_search",
+			"tool_suggest",
+			"sleep_tool",
+		].flatMap((feature) => ["--disable", feature]),
+		"-c",
+		'model_reasoning_effort="low"',
+		"-c",
+		"project_doc_max_bytes=0",
+		"-o",
+		output,
+		"-",
+	];
+}
+
+/**
+ * The person's own `codex` CLI, used when `claude` is not installed;
+ * ephemeral (no session file), outside any repository, read-only sandbox,
+ * user config, rules, hooks, plugins, apps, memories and tools off.
+ * Codex has no switch to skip the user's own `~/.codex/AGENTS.md`; those
+ * instructions stay on the machine like the prompt does.
+ */
+export const codexModel: RunModel = async (prompt) => {
+	const dir = mkdtempSync(join(tmpdir(), "tedix-learn-"));
+	const output = join(dir, "answer.md");
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await new Promise<void>((resolve, reject) => {
+			const child = spawn("codex", codexArgs(dir, output), {
+				cwd: dir,
+				stdio: ["pipe", "ignore", "ignore"],
+			});
+			timer = setTimeout(() => child.kill(), 180_000);
+			child.on("error", reject);
+			child.on("close", (code) => {
+				if (code === 0) resolve();
+				else reject(new Error(`codex exited ${code}`));
+			});
+			child.stdin.on("error", reject);
+			child.stdin.end(prompt);
+		});
+		const answer = readFileSync(output, "utf8");
+		if (!answer.trim()) throw new Error("codex returned an empty answer");
+		return answer;
+	} finally {
+		clearTimeout(timer);
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+export function onPath(
+	command: string,
+	env = process.env,
+	platform = process.platform,
+): boolean {
+	const names =
+		platform === "win32"
+			? [command, `${command}.exe`, `${command}.cmd`]
+			: [command];
+	for (const directory of (env.PATH ?? "").split(delimiter)) {
+		for (const name of names) {
+			try {
+				const file = join(directory, name);
+				if (!statSync(file).isFile()) continue;
+				accessSync(file, constants.X_OK);
+				return true;
+			} catch {
+				// Missing or not executable.
+			}
+		}
+	}
+	return false;
+}
+
+export function localModel(
+	has: (command: string) => boolean = (c) => onPath(c),
+): { name: "claude" | "codex"; run: RunModel } | null {
+	if (has("claude")) return { name: "claude", run: claudeModel };
+	if (has("codex")) return { name: "codex", run: codexModel };
+	return null;
+}
+
 // ---------------------------------------------------------------------------
 // Plan, render and sync
 // ---------------------------------------------------------------------------
@@ -1170,7 +1284,7 @@ export async function runAnalyzeSessions(
 		read: deps.readFile,
 		originOf: deps.originOf,
 	});
-	const runModel = deps.runModel ?? claudeModel;
+	const runModel = deps.runModel ?? localModel()?.run ?? null;
 	const read = deps.read ?? cliRead;
 	const report: Json = {
 		files: plan.files,
@@ -1182,7 +1296,7 @@ export async function runAnalyzeSessions(
 	for (const [key, analysis] of plan.byTarget) {
 		let decisions: Ranked[] | null = null;
 		let candidates = 0;
-		if (!options.noModel) {
+		if (!options.noModel && runModel) {
 			const found = decisionCandidates(analysis.asks);
 			candidates = found.length;
 			decisions = decisionLog(await extractDecisions(found, runModel));
