@@ -54,7 +54,11 @@ export interface FactoryBinding {
 	workspaceId: string | null;
 	template: string;
 	cadence: string;
+	/** Hour step of an hourly cadence; null for daily and twice-daily. */
+	everyHours: number | null;
 	maxProposals: number;
+	/** The Output each run writes into; the id stays null until a run creates it. */
+	output: { id: string | null; title: string | null; kind: string } | null;
 }
 
 const text = (value: unknown): string | null =>
@@ -78,9 +82,22 @@ export function readFactoryBinding(
 		workspaceId: text(record.workspaceId),
 		template: text(record.template) ?? "report",
 		cadence: text(record.cadence) ?? "daily",
+		everyHours:
+			typeof record.everyHours === "number" ? record.everyHours : null,
 		maxProposals:
 			typeof record.maxProposals === "number" ? record.maxProposals : 0,
+		output: readOutputBinding(record.output),
 	};
+}
+
+function readOutputBinding(
+	raw: JsonValue | undefined,
+): FactoryBinding["output"] {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const id = text(raw.id);
+	const title = text(raw.title);
+	if (!id && !title) return null;
+	return { id, title, kind: text(raw.kind) ?? "document" };
 }
 
 /** Persistable form of a binding, for `projects.metadata.factory`. */

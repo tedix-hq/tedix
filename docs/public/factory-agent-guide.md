@@ -33,13 +33,31 @@ To start a new factory from a goal, use `create_factory` (or
 - a lane skill rendered from a Tedix template, owned by the tedi you name
   (omit the owner, or pass `home` or `default`, for the organization's
   default tedi);
-- a daily schedule at a minute other than :00 or :30;
+- a schedule at a minute other than :00 or :30: daily by default, or
+  `cadence` `twice_daily` or `hourly` (`everyHours` 2, 3, 4, 6, 8 or 12 for
+  every N hours; CLI `--cadence hourly --every-hours 3`);
 - a standing "<name> factory health" Work Item.
 
 The `report` template is the only one today. Each run reads the project's
 Work and runs one owner tedi turn. It files at most `maxProposals` new Work
 Items, skipping any that duplicate existing Work, and posts a scorecard
 comment on the health item.
+
+With `output` (CLI `--output`), each run also writes the owner's summary into
+a Tedix document or sheet:
+
+- Pass an Output ID, or a title in the factory's Workspace (`workspaceId`
+  is required for a title). When no Output there has that title, the first
+  run creates one; `outputKind` (`document` or `sheet`) picks its kind.
+- A document gets a dated section per run, appended after the existing
+  content. A sheet gets one row per run.
+- Each section or row names its run, so a retried run writes nothing twice.
+- Output and cadence are fixed when the lane is built. To change them,
+  archive the factory and create it again.
+
+`create_factory` returns `warnings` when the goal asks for something the
+chosen options do not cover, such as an hourly goal on a daily cadence, and
+names the option to pass.
 
 ```bash
 tedix factory create --goal "Keep the public docs accurate against the code" \

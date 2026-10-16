@@ -176,6 +176,9 @@ export interface CliOptions {
 	factoryGoal?: string;
 	factoryOwner?: string;
 	factoryCadence?: string;
+	factoryEveryHours?: string;
+	factoryOutput?: string;
+	factoryOutputKind?: string;
 	factoryTemplate?: string;
 	factorySlug?: string;
 	factoryName?: string;

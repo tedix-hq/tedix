@@ -11,6 +11,7 @@ import type {
 	CreateFactoryInput,
 	CreateFactoryResult,
 	FactoryCadence,
+	FactoryOutputKind,
 } from "@tedix/api-contract/schemas/factories";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
@@ -48,6 +49,14 @@ export interface FactoryStore {
 	/** The organization's active (unretired) tedis. */
 	listOwnerCandidates(): Promise<FactoryOwnerCandidate[]>;
 	workspaceExists(workspaceId: string): Promise<boolean>;
+	/** An active Output of this organization, by id. */
+	findOutputById(outputId: string): Promise<FactoryOutputRef | null>;
+	/** The newest active Output of this kind and title in the Workspace. */
+	findOutputByTitle(params: {
+		workspaceId: string;
+		title: string;
+		kind: FactoryOutputKind;
+	}): Promise<FactoryOutputRef | null>;
 	createObjective(params: {
 		ownerTediId: string;
 		title: string;
@@ -82,6 +91,12 @@ export interface FactoryStore {
 	activateLaneSkill(
 		skillId: string,
 	): Promise<{ lifecycleState: string | null; nextFireAt: string | null }>;
+}
+
+export interface FactoryOutputRef {
+	id: string;
+	title: string;
+	kind: string;
 }
 
 export interface FactoryOwnerCandidate {
@@ -204,25 +219,46 @@ export function factoryNameFromGoal(goal: string): string {
 	return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-/** Flag explicit requests outside the report lane without changing the build. */
-export function factoryGoalLimits(goal: string): string[] {
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Flag goal wording the chosen options do not cover, naming the option that
+ * does. The build never changes because of the goal's wording.
+ */
+export function factoryGoalLimits(
+	goal: string,
+	options: { cadence: FactoryCadence; output: string | null } = {
+		cadence: "daily",
+		output: null,
+	},
+): string[] {
 	const notes: string[] = [];
-	if (
-		/\b(?:hourly|every\s+hour|every\s+\d+\s+(?:minutes?|hours?)|per\s+hour)\b/i.test(
-			goal,
-		)
+	if (/\bevery\s+\d+\s+minutes?\b|\bper\s+minute\b/i.test(goal)) {
+		notes.push(
+			'Factories run at most hourly: cadence "hourly" (CLI --cadence hourly). A job that runs every few minutes needs its own scheduled skill.',
+		);
+	} else if (
+		options.cadence !== "hourly" &&
+		/\b(?:hourly|every\s+(?:\d+\s+)?hours?|per\s+hour)\b/i.test(goal)
 	) {
 		notes.push(
-			'Factories run daily or twice daily. The closest option is cadence: "twice_daily" (CLI --cadence twice_daily); an hourly job needs its own scheduled skill.',
+			`The goal asks for an hourly run, but cadence is "${options.cadence}". Pass cadence: "hourly" (CLI --cadence hourly), and everyHours (CLI --every-hours) for every N hours.`,
 		);
 	}
 	if (
-		/\b(?:write|update|append|publish)\b[^.!?\n]{0,120}\b(?:into|to)\s+(?:(?:a|an|the|my|our|your|shared)\s+)*(?:doc|document|Output|sheet|page|Notion)\b/i.test(
+		!options.output &&
+		/\b(?:write|update|append|publish|add)\b[^.!?\n]{0,120}\b(?:into|to|in)\s+(?:(?:a|an|the|my|our|your|shared)\s+)*(?:doc|document|Output|sheet|spreadsheet|page|Notion)\b/i.test(
 			goal,
 		)
 	) {
 		notes.push(
-			"The report lane only files Work Item proposals and posts a scorecard; it cannot write into a document or Output. The closest option is to let it propose Work Items that ask the owner tedi to update that document.",
+			'The goal names a document, but no output was given, so runs only file Work proposals and a scorecard. Pass output: "<Output id or title>" (CLI --output) to write each run\'s summary into a Tedix document or sheet.',
+		);
+	}
+	if (/\bNotion\b/i.test(goal)) {
+		notes.push(
+			"The report lane writes only Tedix document and sheet Outputs, not Notion pages.",
 		);
 	}
 	return notes;
@@ -245,11 +281,18 @@ function fnv1a(text: string): number {
 export function staggeredFactoryCron(
 	slug: string,
 	cadence: FactoryCadence,
+	everyHours = 1,
 ): string {
 	const hash = fnv1a(slug);
 	let minute = hash % 60;
 	if (minute % 30 === 0) minute += 7;
 	const hour = (hash >>> 8) % 24;
+	if (cadence === "hourly") {
+		if (everyHours <= 1) return `${minute} * * * *`;
+		const hours: number[] = [];
+		for (let at = hour % everyHours; at < 24; at += everyHours) hours.push(at);
+		return `${minute} ${hours.join(",")} * * *`;
+	}
 	if (cadence === "twice_daily") {
 		const hours = [hour, (hour + 12) % 24].sort((a, b) => a - b);
 		return `${minute} ${hours.join(",")} * * *`;
@@ -281,6 +324,69 @@ function nextActions(params: {
 	return [`Prove the lane now: ${probe}.`, check];
 }
 
+/**
+ * Resolve `output`: an id must name an active document or sheet of this
+ * organization; a title reuses the newest match in the Workspace, else the
+ * first run creates it there.
+ */
+async function resolveFactoryOutput(
+	store: FactoryStore,
+	params: {
+		ref: string;
+		kind: FactoryOutputKind;
+		workspaceId: string | null;
+	},
+): Promise<{
+	output: NonNullable<FactoryBinding["output"]>;
+	step: CreateFactoryResult["steps"][number];
+}> {
+	if (UUID_RE.test(params.ref)) {
+		const found = await store.findOutputById(params.ref);
+		if (!found) {
+			throw new FactoryBuildError(
+				"BAD_REQUEST",
+				`Output ${params.ref} is not an active Output in this organization.`,
+			);
+		}
+		if (found.kind !== "document" && found.kind !== "sheet") {
+			throw new FactoryBuildError(
+				"BAD_REQUEST",
+				`Output ${params.ref} is a ${found.kind}; a factory writes into a document or a sheet.`,
+			);
+		}
+		return {
+			output: { id: found.id, title: found.title, kind: found.kind },
+			step: { resource: "output", action: "reused", id: found.id },
+		};
+	}
+	if (!params.workspaceId) {
+		throw new FactoryBuildError(
+			"BAD_REQUEST",
+			"An output named by title needs workspaceId (CLI --workspace-id), the Workspace to find or create it in. Or pass the Output id.",
+		);
+	}
+	const found = await store.findOutputByTitle({
+		workspaceId: params.workspaceId,
+		title: params.ref,
+		kind: params.kind,
+	});
+	if (found) {
+		return {
+			output: { id: found.id, title: found.title, kind: params.kind },
+			step: { resource: "output", action: "reused", id: found.id },
+		};
+	}
+	return {
+		output: { id: null, title: params.ref, kind: params.kind },
+		step: {
+			resource: "output",
+			action: "would_create",
+			id: null,
+			note: `the first run creates ${params.kind} "${params.ref}"`,
+		},
+	};
+}
+
 export async function buildFactory(
 	store: FactoryStore,
 	input: CreateFactoryInput,
@@ -294,6 +400,20 @@ export async function buildFactory(
 		);
 	}
 	const projectKey = input.projectKey ?? slug.toUpperCase();
+	if (input.everyHours !== undefined && input.cadence !== "hourly") {
+		throw new FactoryBuildError(
+			"BAD_REQUEST",
+			'everyHours needs cadence "hourly".',
+		);
+	}
+	if (input.outputKind && !input.output) {
+		throw new FactoryBuildError(
+			"BAD_REQUEST",
+			"outputKind needs output (an Output id or title).",
+		);
+	}
+	const everyHours =
+		input.cadence === "hourly" ? (input.everyHours ?? 1) : null;
 	const owner = resolveFactoryOwner(
 		input.ownerTedi,
 		await store.listOwnerCandidates(),
@@ -311,6 +431,34 @@ export async function buildFactory(
 	const bound = state.project
 		? readFactoryBinding(state.project.metadata)
 		: null;
+	const warnings = factoryGoalLimits(input.goal, {
+		cadence: input.cadence,
+		output: input.output ?? null,
+	});
+	// The lane renders its Output once; an existing lane keeps its binding.
+	let output: FactoryBinding["output"] = state.skill
+		? (bound?.output ?? null)
+		: null;
+	let outputStep: CreateFactoryResult["steps"][number] | null = null;
+	if (input.output && state.skill) {
+		const wanted = input.output.toLowerCase();
+		if (
+			output?.id !== input.output &&
+			output?.title?.toLowerCase() !== wanted
+		) {
+			warnings.push(
+				"The lane already exists, so its output and cadence stay as built. Archive the factory and create it again to change them.",
+			);
+		}
+	} else if (input.output) {
+		const resolved = await resolveFactoryOutput(store, {
+			ref: input.output,
+			kind: input.outputKind ?? "document",
+			workspaceId: workspaceId ?? bound?.workspaceId ?? null,
+		});
+		output = resolved.output;
+		outputStep = resolved.step;
+	}
 	if (bound && bound.slug !== slug) {
 		throw new FactoryBuildError(
 			"CONFLICT",
@@ -318,7 +466,8 @@ export async function buildFactory(
 		);
 	}
 	const cron =
-		state.schedule?.cron ?? staggeredFactoryCron(slug, input.cadence);
+		state.schedule?.cron ??
+		staggeredFactoryCron(slug, input.cadence, everyHours ?? 1);
 	const steps: CreateFactoryResult["steps"] = [];
 	const dryRun = input.dryRun;
 	let wrote = false;
@@ -348,7 +497,9 @@ export async function buildFactory(
 		workspaceId: workspaceId ?? bound?.workspaceId ?? null,
 		template: input.template,
 		cadence: input.cadence,
+		everyHours,
 		maxProposals: input.maxProposals,
+		output,
 		...patch,
 	});
 
@@ -434,6 +585,8 @@ export async function buildFactory(
 			healthWorkItemId: healthWorkItemId!,
 			workspaceId,
 			maxProposals: input.maxProposals,
+			cadence: input.cadence,
+			output,
 		});
 		const created = await store.createLaneSkill({
 			...lane,
@@ -445,6 +598,8 @@ export async function buildFactory(
 		wrote = true;
 		steps.push({ resource: "skill", action: "created", id: skillId });
 	}
+
+	if (outputStep) steps.push(outputStep);
 
 	// Schedule — exists once the lane is active.
 	let nextFireAt = state.schedule?.nextFireAt ?? null;
@@ -481,7 +636,8 @@ export async function buildFactory(
 			current.skillId === desired.skillId &&
 			current.healthWorkItemId === desired.healthWorkItemId &&
 			current.objectiveId === desired.objectiveId &&
-			current.workspaceId === desired.workspaceId;
+			current.workspaceId === desired.workspaceId &&
+			JSON.stringify(current.output) === JSON.stringify(desired.output);
 		if (!same) {
 			await store.bindProject({
 				projectId,
@@ -508,10 +664,17 @@ export async function buildFactory(
 		skillSlug: state.skill?.slug ?? slug,
 		skillLifecycleState: lifecycleState,
 		workspaceId: workspaceId ?? bound?.workspaceId ?? null,
+		output: output
+			? {
+					id: output.id,
+					title: output.title,
+					kind: output.kind === "sheet" ? "sheet" : "document",
+				}
+			: null,
 		cron,
 		nextFireAt,
 		steps,
-		warnings: factoryGoalLimits(input.goal),
+		warnings,
 		nextActions: nextActions({ slug, skillId, lifecycleState, dryRun }),
 	};
 }

@@ -8,11 +8,16 @@
  * specific; the goal, ids, owner and caps all come from the factory binding.
  *
  * The `report` lane: read the project's Work, run ONE owner tedi turn, file at
- * most `maxProposals` deduplicated Work Items, then post a scorecard comment on
- * the factory's health item. `{probe:true}` reads only and writes nothing.
+ * most `maxProposals` deduplicated Work Items, append the summary to the bound
+ * Output when there is one, then post a scorecard comment on the factory's
+ * health item. `{probe:true}` reads only and writes nothing.
  */
 
-import type { FactoryTemplate } from "@tedix/api-contract/schemas/factories";
+import type {
+	FactoryCadence,
+	FactoryOutputKind,
+	FactoryTemplate,
+} from "@tedix/api-contract/schemas/factories";
 
 export interface FactoryLaneParams {
 	slug: string;
@@ -25,6 +30,9 @@ export interface FactoryLaneParams {
 	healthWorkItemId: string;
 	workspaceId: string | null;
 	maxProposals: number;
+	cadence: FactoryCadence;
+	/** The Output each run appends to; a null id is created by the first run. */
+	output: { id: string | null; title: string | null; kind: string } | null;
 }
 
 export interface RenderedFactoryLane {
@@ -43,6 +51,37 @@ export const REPORT_LANE_TOOLS = [
 	"work_item_create",
 	"work_item_comment",
 ] as const;
+
+/** The os tools a lane with an Output calls, by Output kind. */
+export function reportLaneOutputTools(
+	output: FactoryLaneParams["output"],
+): string[] {
+	if (!output) return [];
+	const write =
+		output.kind === "sheet" ? "set_os_sheet_range" : "patch_os_document";
+	return output.id
+		? ["get_os_output", write]
+		: ["list_os_outputs", "create_os_output", "get_os_output", write];
+}
+
+/** Columns of a sheet the first run creates. */
+export const FACTORY_SHEET_COLUMNS = [
+	"Run at (UTC)",
+	"Summary",
+	"Proposed",
+	"Run",
+];
+
+function laneOutput(
+	output: FactoryLaneParams["output"],
+): { id: string | null; title: string | null; kind: FactoryOutputKind } | null {
+	if (!output) return null;
+	return {
+		id: output.id,
+		title: output.title,
+		kind: output.kind === "sheet" ? "sheet" : "document",
+	};
+}
 
 const yamlString = (value: string) => JSON.stringify(value);
 
@@ -63,6 +102,10 @@ function reportLaneWorkflow(params: FactoryLaneParams): string {
 			healthWorkItemId: params.healthWorkItemId,
 			workspaceId: params.workspaceId,
 			maxProposals: params.maxProposals,
+			// Sub-daily lanes key each cycle by the hour, so a second run that day
+			// gets its own owner turn.
+			cycle: params.cadence === "daily" ? "day" : "hour",
+			output: laneOutput(params.output),
 		},
 		null,
 		"\t",
@@ -76,6 +119,7 @@ const TURN_STEP = { retries: { limit: 1, delay: "10 seconds" }, timeout: "240 se
 const MARKER = "FACTORY_REPORT";
 const REPLY_POLLS = 20;
 const PRIORITIES = ["low", "medium", "high"];
+const SHEET_COLUMNS = ${JSON.stringify(FACTORY_SHEET_COLUMNS)};
 
 function rowsOf(value) {
 	if (Array.isArray(value)) return value;
@@ -140,6 +184,91 @@ function findReport(value) {
 	return null;
 }
 
+// MCP results arrive bare or wrapped in { data }.
+function unwrap(value) {
+	if (value && typeof value === "object" && !value.output && !value.items && value.data && typeof value.data === "object") {
+		return unwrap(value.data);
+	}
+	return value ?? {};
+}
+
+function cellText(cell) {
+	return cell === null || cell === undefined ? "" : String(cell);
+}
+
+// A title binding is created on the first run and found by title afterwards.
+async function resolveOutputId(env) {
+	const target = FACTORY.output;
+	if (target.id) return target.id;
+	const wanted = String(target.title ?? "").trim().toLowerCase();
+	const listed = rowsOf(
+		unwrap(
+			await env.MCP.os.list_os_outputs({
+				...(FACTORY.workspaceId ? { workspaceId: FACTORY.workspaceId } : {}),
+				kind: target.kind,
+				status: "active",
+				limit: 100,
+			}),
+		),
+	);
+	const match = listed.find((item) => String(item.title ?? "").trim().toLowerCase() === wanted);
+	if (match?.id) return String(match.id);
+	const created = unwrap(
+		await env.MCP.os.create_os_output({
+			kind: target.kind,
+			title: target.title,
+			...(FACTORY.workspaceId ? { workspaceId: FACTORY.workspaceId } : {}),
+			...(target.kind === "sheet" ? { content: { kind: "sheet", columns: SHEET_COLUMNS, rows: [] } } : {}),
+			note: \`Created by the \${FACTORY.name} factory\`,
+		}),
+	);
+	return String(created.output?.id ?? created.id ?? "");
+}
+
+// Appends this run's section (a document) or row (a sheet). The run mark makes
+// a retried write find its own section and write nothing.
+async function writeOutput(env, entry) {
+	const outputId = await resolveOutputId(env);
+	if (!outputId) throw new Error(\`Could not find or create Output "\${FACTORY.output.title}"\`);
+	const current = unwrap(await env.MCP.os.get_os_output({ outputId }));
+	const revision = current.currentRevision ?? {};
+	const content = revision.content ?? {};
+	const expected = typeof revision.revision === "number" ? { expectedRevision: revision.revision } : {};
+	const note = \`\${FACTORY.name} factory, \${entry.stamp}\`;
+	if (content.kind === "sheet") {
+		const rows = Array.isArray(content.rows) ? content.rows : [];
+		if (rows.some((row) => Array.isArray(row) && row.some((cell) => cellText(cell).includes(entry.runMark)))) {
+			return { outputId, written: false };
+		}
+		const width = Array.isArray(content.columns) ? content.columns.length : 0;
+		if (!width) throw new Error(\`Sheet \${outputId} has no columns; add columns before the factory writes rows\`);
+		const values = [entry.stamp, entry.summary, entry.proposed.join("; "), entry.runMark];
+		const row = values.slice(0, width);
+		// A narrow sheet keeps the run mark in its last cell.
+		if (width < values.length) row[width - 1] = values.slice(width - 1).filter(Boolean).join(" | ");
+		while (row.length < width) row.push(null);
+		await env.MCP.os.set_os_sheet_range({ outputId, startRow: rows.length, startColumn: 0, cells: [row], note, ...expected });
+		return { outputId, written: true };
+	}
+	const blocks = Array.isArray(content.blocks) ? content.blocks : [];
+	if (blocks.some((block) => typeof block?.text === "string" && block.text.includes(entry.runMark))) {
+		return { outputId, written: false };
+	}
+	const section = [
+		{ type: "heading", level: 2, text: entry.stamp },
+		{ type: "paragraph", text: entry.summary || "No summary this run." },
+		...(entry.proposed.length ? [{ type: "list", ordered: false, items: entry.proposed.map((title) => \`Proposed: \${title}\`) }] : []),
+		{ type: "paragraph", text: entry.runMark },
+	];
+	await env.MCP.os.patch_os_document({
+		outputId,
+		ops: section.map((block, i) => ({ op: "insert", index: blocks.length + i, block })),
+		note,
+		...expected,
+	});
+	return { outputId, written: true };
+}
+
 function isDuplicateError(error) {
 	const message = String(error?.message ?? error);
 	return /UNIQUE|already exists|duplicate/i.test(message);
@@ -154,9 +283,18 @@ function prompt(cycleKey, open) {
 		lines.length ? "Work already in this factory's project:" : "The factory's project has no Work yet.",
 		...lines,
 		"",
-		\`Propose at most \${FACTORY.maxProposals} new Work Items that move the goal forward today.\`,
-		"Skip anything already listed above. Propose nothing if nothing is worth doing; an empty list is a valid answer.",
+		...(FACTORY.maxProposals > 0
+			? [
+					\`Propose at most \${FACTORY.maxProposals} new Work Items that move the goal forward this cycle.\`,
+					"Skip anything already listed above. Propose nothing if nothing is worth doing; an empty list is a valid answer.",
+				]
+			: ["Do not propose Work Items this cycle; reply with an empty proposals list."]),
 		"Do not create Work Items yourself: this workflow files your proposals.",
+		...(FACTORY.output
+			? [
+					\`This workflow appends your summary to the \${FACTORY.output.kind} "\${FACTORY.output.title ?? FACTORY.output.id}" as this cycle's dated section. Write the summary for its readers; do not edit that \${FACTORY.output.kind} yourself.\`,
+				]
+			: []),
 		"Reply with a short summary, then end with the marker line followed by one JSON object with keys",
 		'"summary" (string) and "proposals" (array of objects with "title", "description" and "priority": low, medium or high).',
 		\`The marker line is: \${MARKER}\`,
@@ -167,10 +305,11 @@ export default {
 	async run(event, step, env) {
 		const payload = event.payload ?? {};
 		const runId = env.__RUN_CONTEXT__?.runId ?? null;
+		const startedAt = await step.do("started-at", async () => new Date().toISOString());
 		const cycleKey = await step.do("cycle-key", async () =>
 			typeof payload.cycleKey === "string" && payload.cycleKey
 				? payload.cycleKey
-				: new Date().toISOString().slice(0, 10),
+				: startedAt.slice(0, FACTORY.cycle === "hour" ? 13 : 10),
 		);
 
 		const open = await step.do("gather-project-work", READ_STEP, async () =>
@@ -246,7 +385,19 @@ export default {
 			else skipped++;
 		}
 
-		const summary = typeof report?.summary === "string" ? report.summary.slice(0, 1500) : "";
+		const fullSummary = typeof report?.summary === "string" ? report.summary.trim() : "";
+		const summary = fullSummary.slice(0, 1500);
+		let output = null;
+		if (FACTORY.output && report) {
+			output = await step.do("write-output", WRITE_STEP, async () =>
+				writeOutput(env, {
+					stamp: \`\${startedAt.slice(0, 16).replace("T", " ")} UTC\`,
+					summary: fullSummary.slice(0, 8000),
+					proposed: created.map((item) => item.title),
+					runMark: \`\${FACTORY.name} factory, run \${runId ?? sessionKey}\`,
+				}),
+			);
+		}
 		await step.do("scorecard", WRITE_STEP, async () =>
 			env.MCP.tedi.work_item_comment({
 				id: FACTORY.healthWorkItemId,
@@ -256,6 +407,11 @@ export default {
 					\`- Skipped as duplicates: \${skipped}\`,
 					\`- Work already in the project: \${open.length}\`,
 					\`- Owner reply: \${report ? "received" : "missing"}\`,
+					...(FACTORY.output
+						? [
+								\`- Output: \${output ? \`\${output.written ? "appended this run's section to" : "already had this run's section in"} \${output.outputId}\` : "not written (no owner reply)"}\`,
+							]
+						: []),
 					summary ? \`\\n\${summary}\` : "",
 				].join("\\n"),
 			}),
@@ -263,7 +419,7 @@ export default {
 		if (!report) {
 			throw new Error(\`The owner turn returned no \${MARKER} block for session \${sessionKey}\`);
 		}
-		return { factory: FACTORY.slug, cycleKey, runId, created, skipped, summary };
+		return { factory: FACTORY.slug, cycleKey, runId, created, skipped, summary, output };
 	},
 };
 `;
@@ -271,7 +427,10 @@ export default {
 
 function reportLane(params: FactoryLaneParams): RenderedFactoryLane {
 	const title = factoryTitle(params.name);
-	const description = `${title} lane: reads the project's Work, asks the owner tedi for at most ${params.maxProposals} new proposals toward the goal, files them as deduplicated Work Items and posts a scorecard on the health item.`;
+	const output = laneOutput(params.output);
+	const outputName = output ? `"${output.title ?? output.id}"` : "";
+	const description = `${title} lane: reads the project's Work, asks the owner tedi for at most ${params.maxProposals} new proposals toward the goal, files them as deduplicated Work Items${output ? `, appends the summary to the ${output.kind} ${outputName}` : ""} and posts a scorecard on the health item.`;
+	const osTools = reportLaneOutputTools(params.output);
 	const summary = `Scheduled ${title} lane (report template).`;
 	const content = `---
 name: ${params.slug}
@@ -280,7 +439,7 @@ audience: ["tedi"]
 capabilities:
   network: false
   mcp:
-    tedi: [${REPORT_LANE_TOOLS.join(", ")}]
+    tedi: [${REPORT_LANE_TOOLS.join(", ")}]${osTools.length ? `\n    os: [${osTools.join(", ")}]` : ""}
   schedule:
     cron: ${yamlString(params.cron)}
     params: {}
@@ -296,7 +455,12 @@ Built by \`create_factory\` from the Tedix \`report\` lane template. Each run:
 2. Runs one turn of the owner tedi with the goal and that Work.
 3. Files at most ${params.maxProposals} new Work Items. A proposal whose title
    matches existing Work, or whose \`sourceIntentId\` already exists, is skipped.
-4. Posts a scorecard comment on the factory's health Work Item.
+${
+	output
+		? `4. Appends the owner's summary to the ${output.kind} ${outputName}${output.id ? ` (\`${output.id}\`)` : ", created by the first run when the Workspace has none"}: ${output.kind === "sheet" ? "one row" : "a dated section"} per run. The run's id marks it, so a retried write adds nothing.
+5.`
+		: "4."
+} Posts a scorecard comment on the factory's health Work Item.
 
 A run whose owner turn returns no report fails after posting its scorecard, so
 \`inspect_factory_health\` reports it as failing rather than idle.

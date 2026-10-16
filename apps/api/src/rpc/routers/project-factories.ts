@@ -13,6 +13,10 @@ import {
 	listFactoryHealth,
 	loadFactoryBuildState,
 } from "@tedix/db/queries/factories";
+import {
+	getOsOutput,
+	listOsOutputs,
+} from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
 	createProject,
@@ -74,6 +78,25 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 			return Boolean(
 				await getOsWorkspace(db, { organizationId: orgId, workspaceId }),
 			);
+		},
+		async findOutputById(outputId) {
+			const row = await getOsOutput(db, { organizationId: orgId, outputId });
+			return row && row.status === "active"
+				? { id: row.id, title: row.title, kind: row.kind }
+				: null;
+		},
+		async findOutputByTitle(params) {
+			const wanted = params.title.trim().toLowerCase();
+			// Newest first, so a duplicate title resolves to the latest one.
+			const row = (
+				await listOsOutputs(db, orgId, {
+					workspaceId: params.workspaceId,
+					kind: params.kind,
+					status: "active",
+					limit: 500,
+				})
+			).find((output) => output.title.trim().toLowerCase() === wanted);
+			return row ? { id: row.id, title: row.title, kind: row.kind } : null;
 		},
 		async createObjective(params) {
 			const objective = await createObjective(db, {

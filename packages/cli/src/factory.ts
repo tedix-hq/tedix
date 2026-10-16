@@ -10,6 +10,9 @@ export interface FactoryOptions {
 	goal?: string;
 	owner?: string;
 	cadence?: string;
+	everyHours?: string;
+	output?: string;
+	outputKind?: string;
 	template?: string;
 	slug?: string;
 	name?: string;
@@ -33,7 +36,9 @@ export function factoryUsage(): string {
 		"",
 		"Verbs:",
 		'  tedix factory create --goal "<what it delivers>" [--owner <tedi>]',
-		"        [--cadence daily|twice_daily] [--template report] [--name <text>]",
+		"        [--cadence daily|twice_daily|hourly] [--every-hours <n>]",
+		"        [--output <id or title>] [--output-kind document|sheet]",
+		"        [--template report] [--name <text>]",
 		"        [--slug <slug>] [--max-proposals <n>] [--workspace-id <uuid>]",
 		"        [--project <KEY>] [--dry-run]",
 		"  tedix factory status [<slug>] [--limit <runs>]",
@@ -43,8 +48,11 @@ export function factoryUsage(): string {
 		"",
 		"`create` makes the Work project and objective, a scheduled lane skill from",
 		"the template and a standing health Work Item in one call. Re-running it with",
-		"the same slug changes nothing. Factories run daily by default, at a minute",
-		"other than :00 or :30.",
+		"the same slug changes nothing. Factories run daily by default, or twice",
+		"daily, hourly or every N hours, at a minute other than :00 or :30.",
+		"--output appends each run's summary to a Tedix document (a dated section)",
+		"or sheet (a row). A title that matches no Output in --workspace-id is",
+		"created on the first run.",
 		"",
 		"`status` gives each factory one verdict: healthy, idle (ran but delivered",
 		"nothing), failing, not_firing, paused (schedule turned off) or pending.",
@@ -83,6 +91,28 @@ export function createFactoryInput(
 	// Without --owner the server picks the organization's default tedi.
 	if (options.owner?.trim()) input.ownerTedi = options.owner.trim();
 	if (options.cadence) input.cadence = options.cadence;
+	if (options.everyHours !== undefined) {
+		if (options.cadence !== "hourly") {
+			throw new Error("--every-hours needs --cadence hourly");
+		}
+		const value = Number(options.everyHours);
+		if (!Number.isInteger(value) || ![1, 2, 3, 4, 6, 8, 12].includes(value)) {
+			throw new Error(
+				"--every-hours must be a whole number in 1, 2, 3, 4, 6, 8, 12",
+			);
+		}
+		input.everyHours = value;
+	}
+	if (options.output?.trim()) input.output = options.output.trim();
+	if (options.outputKind !== undefined) {
+		if (!options.output?.trim()) {
+			throw new Error("--output-kind needs --output");
+		}
+		if (options.outputKind !== "document" && options.outputKind !== "sheet") {
+			throw new Error("--output-kind must be document or sheet");
+		}
+		input.outputKind = options.outputKind;
+	}
 	if (options.template) input.template = options.template;
 	if (options.slug) input.slug = options.slug;
 	if (options.name) input.name = options.name;
@@ -116,6 +146,14 @@ async function createFactory(ctx: FactoryContext): Promise<number> {
 	console.log(
 		`  owner ${String(result.ownerTediName ?? "?")} (${String(result.ownerTediId ?? "?")})`,
 	);
+	if (result.output !== null && typeof result.output === "object") {
+		const output = result.output as {
+			id: string | null;
+			title: string | null;
+			kind: string;
+		};
+		console.log(`  output ${output.id ?? output.title} (${output.kind})`);
+	}
 	for (const step of rowsFrom(result.steps)) {
 		console.log(
 			`  ${String(step.resource ?? "").padEnd(17)} ${String(step.action ?? "").padEnd(13)} ${String(step.id ?? "")}${step.note ? dim(`  ${String(step.note)}`, ctx.color) : ""}`,

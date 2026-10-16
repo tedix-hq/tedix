@@ -303,7 +303,7 @@ export function parseOptions(argv: string[]): {
 	}
 	if (parsedCommand !== "factory" && hasFactoryOptions(options)) {
 		throw new Error(
-			"--goal, --owner, --cadence, --template, --slug, --name, --max-proposals, --workspace-id and --dry-run are only valid with factory",
+			"--goal, --owner, --cadence, --every-hours, --output, --output-kind, --template, --slug, --name, --max-proposals, --workspace-id and --dry-run are only valid with factory",
 		);
 	}
 	if (parsedCommand !== "mcp" && options.mcpHeader) {

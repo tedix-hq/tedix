@@ -19,11 +19,18 @@ export const FactorySlugSchema = z
 	);
 
 /** Factories run at least daily; weekly cadences hide breakage. */
-export const FactoryCadenceSchema = z.enum(["daily", "twice_daily"]);
+export const FactoryCadenceSchema = z.enum(["daily", "twice_daily", "hourly"]);
 export type FactoryCadence = z.infer<typeof FactoryCadenceSchema>;
 
 export const FactoryTemplateSchema = z.enum(["report"]);
 export type FactoryTemplate = z.infer<typeof FactoryTemplateSchema>;
+
+/** Hour steps that divide the day evenly. */
+export const FACTORY_EVERY_HOURS = [1, 2, 3, 4, 6, 8, 12] as const;
+
+/** The Output kinds a report lane can write its summary into. */
+export const FactoryOutputKindSchema = z.enum(["document", "sheet"]);
+export type FactoryOutputKind = z.infer<typeof FactoryOutputKindSchema>;
 
 export const CreateFactoryInputSchema = z
 	.object({
@@ -57,7 +64,20 @@ export const CreateFactoryInputSchema = z
 			.describe(
 				'Owner tedi id, slug or name; it runs the lane\'s one turn. Omit it (or pass "home" or "default") for the organization\'s default tedi; when a tedi calls, omitting it means that tedi.',
 			),
-		cadence: FactoryCadenceSchema.default("daily"),
+		cadence: FactoryCadenceSchema.default("daily").describe(
+			"daily, twice_daily or hourly. With hourly, everyHours sets the step.",
+		),
+		everyHours: z
+			.number()
+			.int()
+			.refine(
+				(hours) => (FACTORY_EVERY_HOURS as readonly number[]).includes(hours),
+				"everyHours must be 1, 2, 3, 4, 6, 8 or 12",
+			)
+			.optional()
+			.describe(
+				"With cadence hourly: run every N hours (1, 2, 3, 4, 6, 8 or 12). Defaults to 1.",
+			),
 		template: FactoryTemplateSchema.default("report").describe(
 			"report: gather the project's open Work, run one owner tedi turn, propose up to maxProposals deduplicated Work Items, then post a scorecard comment on the health item.",
 		),
@@ -68,6 +88,18 @@ export const CreateFactoryInputSchema = z
 			.describe(
 				"Optional Workspace the factory works in; recorded in the binding.",
 			),
+		output: z
+			.string()
+			.trim()
+			.min(1)
+			.max(200)
+			.optional()
+			.describe(
+				"A Tedix document or sheet Output each run writes its summary into: an Output id, or a title in the factory's Workspace (created on the first run when none matches). A document gets a dated section per run; a sheet gets a row.",
+			),
+		outputKind: FactoryOutputKindSchema.optional().describe(
+			"Kind of the Output named by title; defaults to document. An Output id keeps its own kind.",
+		),
 		projectKey: z
 			.string()
 			.min(1)
@@ -92,6 +124,7 @@ export const FactoryBuildStepSchema = z.object({
 		"health_work_item",
 		"skill",
 		"schedule",
+		"output",
 	]),
 	action: z.enum(["created", "reused", "linked", "activated", "would_create"]),
 	id: z.string().nullable(),
@@ -114,6 +147,14 @@ export const CreateFactoryResultSchema = z.object({
 	skillSlug: z.string(),
 	skillLifecycleState: z.string().nullable(),
 	workspaceId: z.string().nullable(),
+	/** Where each run writes its summary; id is null until the first run creates it. */
+	output: z
+		.object({
+			id: z.string().nullable(),
+			title: z.string().nullable(),
+			kind: FactoryOutputKindSchema,
+		})
+		.nullable(),
 	cron: z.string(),
 	/** Null while the lane skill is a draft (no schedule yet). */
 	nextFireAt: z.string().nullable(),

@@ -319,6 +319,108 @@ describe("factory commands", () => {
 		).toThrow(/--max-proposals/);
 	});
 
+	it("maps hourly cadence and trimmed output flags", () => {
+		for (const everyHours of ["1", "2", "3", "4", "6", "8", "12"]) {
+			for (const outputKind of ["document", "sheet"]) {
+				expect(
+					createFactoryInput({
+						goal: "Keep docs accurate.",
+						cadence: "hourly",
+						everyHours,
+						output: "  Docs summary  ",
+						outputKind,
+					}),
+				).toEqual({
+					goal: "Keep docs accurate.",
+					cadence: "hourly",
+					everyHours: Number(everyHours),
+					output: "Docs summary",
+					outputKind,
+				});
+			}
+		}
+		const output = "11111111-1111-4111-8111-111111111111";
+		expect(createFactoryInput({ goal: "Keep docs accurate.", output })).toEqual(
+			{
+				goal: "Keep docs accurate.",
+				output,
+			},
+		);
+	});
+
+	it("rejects unsupported hour intervals and intervals without hourly cadence", () => {
+		for (const everyHours of ["5", "0", "24", "1.5", "abc", ""]) {
+			expect(() =>
+				createFactoryInput({
+					goal: "Keep docs accurate.",
+					cadence: "hourly",
+					everyHours,
+				}),
+			).toThrow(/--every-hours must be a whole number/);
+		}
+		for (const cadence of [undefined, "daily", "twice_daily"]) {
+			expect(() =>
+				createFactoryInput({
+					goal: "Keep docs accurate.",
+					cadence,
+					everyHours: "2",
+				}),
+			).toThrow("--every-hours needs --cadence hourly");
+		}
+	});
+
+	it("rejects unsupported output kinds and kinds without an output", () => {
+		expect(() =>
+			createFactoryInput({
+				goal: "Keep docs accurate.",
+				output: "Docs summary",
+				outputKind: "pdf",
+			}),
+		).toThrow("--output-kind must be document or sheet");
+		for (const output of [undefined, "", "  "]) {
+			expect(() =>
+				createFactoryInput({
+					goal: "Keep docs accurate.",
+					output,
+					outputKind: "document",
+				}),
+			).toThrow("--output-kind needs --output");
+		}
+	});
+
+	it("prints the output id or planned title and kind", async () => {
+		const stdout = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			for (const output of [
+				{
+					id: "11111111-1111-4111-8111-111111111111",
+					title: "Docs summary",
+					kind: "document",
+				},
+				{ id: null, title: "Docs summary", kind: "sheet" },
+				null,
+				undefined,
+			]) {
+				stdout.mockClear();
+				const { ctx } = harness({ output }, { goal: "Keep docs accurate." });
+				ctx.json = false;
+				expect(await runFactoryCommand("create", ctx)).toBe(0);
+				const lines = stdout.mock.calls.map(([line]) => String(line));
+				if (output) {
+					expect(lines).toContain(
+						`  output ${output.id ?? output.title} (${output.kind})`,
+					);
+				} else {
+					expect(lines.some((line) => line.startsWith("  output "))).toBe(
+						false,
+					);
+				}
+			}
+		} finally {
+			stdout.mockRestore();
+		}
+	});
+
 	it("lists every factory, or one by slug, with its verdict", async () => {
 		const stdout = spyOn(console, "log").mockImplementation(() => {});
 		const all = harness({
@@ -415,6 +517,35 @@ describe("factory commands", () => {
 			expect(text).toContain("tedix skill status <runId>");
 		} finally {
 			stdout.mockRestore();
+		}
+	});
+
+	it("parses hourly and output flags only for the factory command", () => {
+		const parsed = parseOptions([
+			"factory",
+			"create",
+			"--cadence",
+			"hourly",
+			"--every-hours",
+			"4",
+			"--output",
+			"Docs summary",
+			"--output-kind",
+			"sheet",
+		]);
+		expect(parsed.command).toBe("factory");
+		expect(parsed.options).toMatchObject({
+			factoryCadence: "hourly",
+			factoryEveryHours: "4",
+			factoryOutput: "Docs summary",
+			factoryOutputKind: "sheet",
+			prompt: "create",
+		});
+		for (const flag of ["--every-hours", "--output", "--output-kind"]) {
+			expect(() => parseOptions(["work", "list", flag, "x"])).toThrow(
+				/only valid with factory/,
+			);
+			expect(() => parseOptions(["factory", "create", flag])).toThrow();
 		}
 	});
 
