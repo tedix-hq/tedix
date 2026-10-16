@@ -10,6 +10,8 @@ export function constrainPersonalResourceToolArguments(input: {
 	sources: OsDerivedAccessEnvelope["sources"];
 	providerId: string;
 	toolId: string;
+	/** The upstream tool name, when it differs from the installed tool id. */
+	providerToolName?: string;
 }) {
 	const binding = PersonalResourceToolBindingSchema.parse(input.binding);
 	const denied = () => {
@@ -19,6 +21,12 @@ export function constrainPersonalResourceToolArguments(input: {
 	};
 	const encoded = JSON.stringify(input.arguments);
 	if (!encoded || encoded.length > 100000) denied();
+	for (const name of [input.toolId, input.providerToolName])
+		if (
+			name &&
+			forbiddenPersonalToolArguments(input.providerId, name, input.arguments)
+		)
+			denied();
 	function values(value: unknown, path: string[]): string[] {
 		if (!path.length) {
 			if (typeof value !== "string" || !value.trim()) return denied();
@@ -87,22 +95,84 @@ export function constrainPersonalResourceToolArguments(input: {
 	return { operation: binding.operation, sources: matches };
 }
 /**
+ * How much a person lets a worker do with their connected account, chosen on
+ * the account's row in a Workspace: nothing, read, or read and organise.
+ * Organising (operation `modify`) labels, archives, marks read and drafts; no
+ * reviewed tool sends, trashes, marks spam or deletes.
+ */
+export type PersonalAccessLevel = "none" | "read" | "organise";
+export const PERSONAL_ORGANISE_OPERATION = "modify";
+export function personalAccessOperations(level: PersonalAccessLevel): string[] {
+	if (level === "organise") return ["read", PERSONAL_ORGANISE_OPERATION];
+	return level === "read" ? ["read"] : [];
+}
+/** The level a consent's operations amount to. */
+export function personalAccessLevel(
+	operations: readonly string[],
+): PersonalAccessLevel {
+	if (operations.includes(PERSONAL_ORGANISE_OPERATION)) return "organise";
+	return operations.includes("read") ? "read" : "none";
+}
+const onAccount = (operation: string): PersonalResourceToolBinding => ({
+	operation,
+	resourceType: "mailbox",
+	target: "account",
+});
+/**
  * Server-reviewed bindings for provider tools that act on the connected account
- * and take no resource argument. Read-only tools only: a consent can never reach
- * a tool absent here, and nothing here mutates the provider.
+ * and take no resource argument. A consent can never reach a tool absent here:
+ * Gmail's send, trash, spam and delete tools are deliberately missing.
  */
 const REVIEWED_ACCOUNT_BINDINGS: Readonly<
 	Record<string, Readonly<Record<string, PersonalResourceToolBinding>>>
 > = {
-	"google-gmail": Object.fromEntries(
-		["search_threads", "get_thread", "get_message", "list_labels"].map(
-			(tool) => [
-				tool,
-				{ operation: "read", resourceType: "mailbox", target: "account" },
-			],
+	"google-gmail": {
+		...Object.fromEntries(
+			["search_threads", "get_thread", "get_message", "list_labels"].map(
+				(tool) => [tool, onAccount("read")],
+			),
 		),
-	),
+		...Object.fromEntries(
+			["label_thread", "unlabel_thread", "create_label", "create_draft"].map(
+				(tool) => [tool, onAccount(PERSONAL_ORGANISE_OPERATION)],
+			),
+		),
+	},
 };
+/**
+ * Adding Trash or Spam is how a label tool deletes mail, so no delegated call
+ * may add them, whatever binding the installed tool carries.
+ */
+const FORBIDDEN_LABEL_IDS = new Set(["TRASH", "SPAM"]);
+const LABEL_ADDING_TOOLS: Readonly<Record<string, readonly string[]>> = {
+	"google-gmail": ["label_thread", "label_message", "update_message_labels"],
+};
+/** True when a delegated call would make an account tool delete mail. */
+export function forbiddenPersonalToolArguments(
+	providerId: string,
+	toolName: string,
+	args: unknown,
+): boolean {
+	const tools = Object.hasOwn(LABEL_ADDING_TOOLS, providerId)
+		? LABEL_ADDING_TOOLS[providerId]!
+		: [];
+	if (!tools.includes(toolName)) return false;
+	if (typeof args !== "object" || args === null) return false;
+	return ["labelIds", "addLabelIds"].some((key) => {
+		const value = Object.hasOwn(args, key)
+			? (args as Record<string, unknown>)[key]
+			: undefined;
+		return (
+			value !== undefined &&
+			(!Array.isArray(value) ||
+				value.some(
+					(id) =>
+						typeof id !== "string" ||
+						FORBIDDEN_LABEL_IDS.has(id.trim().toUpperCase()),
+				))
+		);
+	});
+}
 /** What people call a reviewed account, for consent copy ("read my Gmail"). */
 const REVIEWED_ACCOUNT_NAMES: Readonly<Record<string, string>> = {
 	"google-gmail": "Gmail",

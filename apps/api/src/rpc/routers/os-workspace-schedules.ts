@@ -5,6 +5,10 @@ import {
 	type OsWorkspaceSchedule,
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import {
+	PERSONAL_ORGANISE_OPERATION,
+	type PersonalAccessLevel,
+	personalAccessLevel,
+	personalAccessOperations,
 	reviewedPersonalAccountName,
 	reviewedPersonalResourceBinding,
 } from "@tedix/api-contract/utils/personal-resource-tool-binding";
@@ -21,6 +25,7 @@ import {
 import {
 	createPersonalResourceDelegation,
 	listActiveOwnerSkillPersonalResourceDelegations,
+	revokePersonalResourceDelegation,
 } from "@tedix/db/queries/personal-resource-delegations";
 import { getLatestReportedSkillRun } from "@tedix/db/queries/skill-runs";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
@@ -35,7 +40,12 @@ import {
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
-import { preparePersonalResourceDelegation } from "../../services/personal-resource-delegation-authority";
+import {
+	preparePersonalResourceDelegation,
+	validatePersonalRunSources,
+} from "../../services/personal-resource-delegation-authority";
+import { scheduledPersonalResourceEnvelope } from "../../services/skill-scheduler";
+import { callSkillRuntime } from "../../services/skill-runtime-client";
 import {
 	readRunsAt,
 	reportedLastRun,
@@ -85,11 +95,12 @@ function signedInOwner(
 	return owner === sub ? sub : null;
 }
 
-interface PersonalReadNeed {
+interface PersonalAccessNeed {
 	providerId: string;
 	providerName: string;
 	resourceType: string;
-	toolIds: string[];
+	/** Every declared tool with a reviewed binding, and its operation. */
+	tools: { toolId: string; operation: string }[];
 	requiredScopes: string[];
 }
 
@@ -99,17 +110,24 @@ function stringArray(value: unknown): string[] {
 		: [];
 }
 
+function toolIdsFor(need: PersonalAccessNeed, operations: readonly string[]) {
+	return need.tools
+		.filter((tool) => operations.includes(tool.operation))
+		.map((tool) => tool.toolId);
+}
+
 /**
- * What the skill declares it reads from its owner's personal account: the
+ * What the skill declares it does with its owner's personal account: the
  * tools in its manifest whose installed tool uses a personal connection and
- * whose binding (the tool's own, else the server-reviewed one) reads the
- * connected account. Only one provider is supported per skill.
+ * whose binding (the tool's own, else the server-reviewed one) acts on the
+ * connected account, with the operation each one needs (read, or modify for
+ * organising). Only one provider is supported per skill.
  */
-export async function personalReadNeed(
+export async function personalAccessNeed(
 	context: BaseContext,
 	organizationId: string,
 	skill: SkillEntry,
-): Promise<PersonalReadNeed | null> {
+): Promise<PersonalAccessNeed | null> {
 	const manifest = parseCapabilityManifest(
 		(skill.files as Record<string, string> | null)?.["SKILL.md"] ??
 			skill.content ??
@@ -122,7 +140,7 @@ export async function personalReadNeed(
 			organizationId,
 		);
 		if (!app) continue;
-		let need: PersonalReadNeed | null = null;
+		let need: PersonalAccessNeed | null = null;
 		for (const toolId of toolIds) {
 			const tool = await getToolByAppAndToolIdForOrganization(context.db, {
 				organizationId,
@@ -143,17 +161,22 @@ export async function personalReadNeed(
 			const binding = parsed.success
 				? parsed.data
 				: reviewedPersonalResourceBinding(providerId, config.mcpToolName);
-			if (!binding || binding.operation !== "read" || !("target" in binding))
+			if (
+				!binding ||
+				!("target" in binding) ||
+				(binding.operation !== "read" &&
+					binding.operation !== PERSONAL_ORGANISE_OPERATION)
+			)
 				continue;
 			if (need && need.providerId !== providerId) continue;
 			need ??= {
 				providerId,
 				providerName: reviewedPersonalAccountName(providerId) ?? app.name,
 				resourceType: binding.resourceType,
-				toolIds: [],
+				tools: [],
 				requiredScopes: [],
 			};
-			need.toolIds.push(toolId);
+			need.tools.push({ toolId, operation: binding.operation });
 			need.requiredScopes = [
 				...new Set([...need.requiredScopes, ...stringArray(auth?.scopes)]),
 			].sort();
@@ -161,6 +184,46 @@ export async function personalReadNeed(
 		if (need) return need;
 	}
 	return null;
+}
+
+/** The newest of the owner's active grants of this skill for this Workspace and provider. */
+async function ownerSkillGrants(
+	context: BaseContext,
+	input: {
+		organizationId: string;
+		ownerUserId: string;
+		skill: SkillEntry;
+		workspaceId: string;
+		providerId?: string;
+	},
+) {
+	if (!input.skill.tediId) return [];
+	return (
+		await listActiveOwnerSkillPersonalResourceDelegations(context.db, {
+			organizationId: input.organizationId,
+			ownerUserId: input.ownerUserId,
+			tediId: input.skill.tediId,
+			skillId: input.skill.id,
+			now: new Date().toISOString(),
+		})
+	).filter(
+		(row) =>
+			row.workspaceId === input.workspaceId &&
+			(!input.providerId || row.providerId === input.providerId),
+	);
+}
+
+const LEVEL_RANK = { none: 0, read: 1, organise: 2 } as const;
+
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+	return a.length === b.length && b.every((value) => a.includes(value));
+}
+
+/** The signed-in person themself, never a worker acting for them. */
+function signedInPerson(context: BaseContext): string | null {
+	return context.authType === "user" && !context.tediId
+		? (context.user?.sub ?? null)
+		: null;
 }
 
 const list = readOs.schedules.list.handler(async ({ input, context }) => {
@@ -200,27 +263,18 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 			const times = active
 				? scheduleRunTimes(active.cron, readRunsAt(metadata), now)
 				: { dailyTimes: [], nextRunAt: null };
-			const need = await personalReadNeed(context, organizationId, skill);
+			const need = await personalAccessNeed(context, organizationId, skill);
 			const grant =
-				need && owner && skill.tediId
+				need && owner
 					? (
-							await listActiveOwnerSkillPersonalResourceDelegations(
-								context.db,
-								{
-									organizationId,
-									ownerUserId: owner,
-									tediId: skill.tediId,
-									skillId,
-									now: now.toISOString(),
-								},
-							)
-						).find(
-							(row) =>
-								row.workspaceId === workspace.id &&
-								row.providerId === need.providerId &&
-								row.operations.includes("read") &&
-								need.toolIds.every((tool) => row.toolIds.includes(tool)),
-						)
+							await ownerSkillGrants(context, {
+								organizationId,
+								ownerUserId: owner,
+								skill,
+								workspaceId: workspace.id,
+								providerId: need.providerId,
+							})
+						)[0]
 					: undefined;
 			return {
 				resourceId: resource.id,
@@ -235,8 +289,9 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 					? {
 							providerId: need.providerId,
 							providerName: need.providerName,
-							toolIds: need.toolIds,
+							toolIds: need.tools.map((tool) => tool.toolId),
 							grantId: grant?.id ?? null,
+							level: grant ? personalAccessLevel(grant.operations) : "none",
 							canAllow: owner !== null,
 						}
 					: null,
@@ -280,8 +335,9 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				: undefined;
 		if (!link || !skill)
 			throw createError(ErrorCodes.NOT_FOUND, "Scheduled skill not found");
-		const need = await personalReadNeed(context, organizationId, skill);
-		if (!need || !skill.tediId || !skill.revision)
+		const need = await personalAccessNeed(context, organizationId, skill);
+		const readTools = need ? toolIdsFor(need, ["read"]) : [];
+		if (!need || readTools.length === 0 || !skill.tediId || !skill.revision)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				"This skill does not declare a read of a personal account",
@@ -345,7 +401,7 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				resourceId: resource.id,
 				connectionInstanceId: account.id,
 				operations: ["read"],
-				toolIds: need.toolIds,
+				toolIds: readTools,
 				expiresAt: new Date(Date.now() + GRANT_DAYS * 86_400_000).toISOString(),
 			}),
 		);
@@ -353,4 +409,226 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 	},
 );
 
-export const osWorkspaceScheduleProcedures = { list, allowPersonalRead };
+/**
+ * The level chosen on an attached personal account's row: for each skill the
+ * Workspace links that declares tools for this account, the owner's grant is
+ * replaced by one covering exactly the declared tools of that level. An
+ * unchanged grant is kept as it is. Only the account's owner, signed in.
+ */
+const setPersonalAccess = authorOs.schedules.setPersonalAccess.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const organizationId = workspace.organizationId;
+		const caller = signedInPerson(context);
+		const db = createDbQueryClient(context.env.DB);
+		const resources = await listOsWorkspaceResources(db, {
+			organizationId,
+			workspaceId: workspace.id,
+			status: "active",
+			limit: 200,
+		});
+		const resource = resources.find((row) => row.id === input.resourceId);
+		if (!resource || resource.connectionScope !== "user")
+			throw createError(ErrorCodes.NOT_FOUND, "Personal account not found");
+		if (!caller || resource.personalOwnerUserId !== caller)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the account's owner, signed in, can choose what skills may do with it",
+			);
+		const connectionInstanceId = resource.connectionInstanceId;
+		if (!connectionInstanceId)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"This account is not bound to a connected account",
+			);
+		const operations = personalAccessOperations(input.level);
+		const skills: {
+			skillId: string;
+			grantId: string | null;
+			toolIds: string[];
+		}[] = [];
+		for (const link of resources.filter(isWorkspaceSkillResource)) {
+			const skill = await getSkillEntry(
+				context.db,
+				link.providerResourceId,
+				organizationId,
+			);
+			if (!skill?.tediId || !skill.revision) continue;
+			const need = await personalAccessNeed(context, organizationId, skill);
+			if (
+				!need ||
+				need.providerId !== resource.providerId ||
+				need.resourceType !== resource.resourceType
+			)
+				continue;
+			const toolIds = toolIdsFor(need, operations).sort();
+			const granted = [
+				...new Set(
+					need.tools
+						.filter((tool) => toolIds.includes(tool.toolId))
+						.map((tool) => tool.operation),
+				),
+			].sort();
+			const current = (
+				await ownerSkillGrants(context, {
+					organizationId,
+					ownerUserId: caller,
+					skill,
+					workspaceId: workspace.id,
+					providerId: resource.providerId,
+				})
+			).filter((row) => row.resourceId === resource.id);
+			const kept = current.find(
+				(row) =>
+					toolIds.length > 0 &&
+					sameSet(row.toolIds, toolIds) &&
+					sameSet(row.operations, granted),
+			);
+			const grant =
+				kept ??
+				(toolIds.length > 0
+					? await createPersonalResourceDelegation(
+							context.db,
+							await preparePersonalResourceDelegation(context, {
+								tediId: skill.tediId,
+								skillId: skill.id,
+								skillRevision: skill.revision,
+								workspaceId: workspace.id,
+								resourceId: resource.id,
+								connectionInstanceId,
+								operations: granted,
+								toolIds,
+								expiresAt: new Date(
+									Date.now() + GRANT_DAYS * 86_400_000,
+								).toISOString(),
+							}),
+						)
+					: null);
+			const revokedAt = new Date().toISOString();
+			for (const row of current)
+				if (row.id !== grant?.id)
+					await revokePersonalResourceDelegation(context.db, {
+						organizationId,
+						ownerUserId: caller,
+						id: row.id,
+						revokedAt,
+					});
+			skills.push({ skillId: skill.id, grantId: grant?.id ?? null, toolIds });
+		}
+		return { level: input.level, skills };
+	},
+);
+
+/**
+ * Run a Workspace's linked skill now, for example a Card review Do it. The
+ * run carries only the caller's own active grants for that skill and
+ * Workspace, validated like a manual run's; with needs, a missing level stops
+ * it before anything runs.
+ */
+const runNow = authorOs.schedules.runNow.handler(async ({ input, context }) => {
+	const workspace = await requireWorkspace(context, input.workspaceId);
+	const organizationId = workspace.organizationId;
+	const caller = signedInPerson(context);
+	if (!caller)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only a signed-in person can run a Workspace skill now",
+		);
+	const resources = await listOsWorkspaceResources(
+		createDbQueryClient(context.env.DB),
+		{
+			organizationId,
+			workspaceId: workspace.id,
+			status: "active",
+			limit: 200,
+		},
+	);
+	const linked = resources.some(
+		(row) =>
+			isWorkspaceSkillResource(row) && row.providerResourceId === input.skillId,
+	);
+	const skill = linked
+		? await getSkillEntry(context.db, input.skillId, organizationId)
+		: undefined;
+	if (!skill?.tediId)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"This Workspace does not run that skill",
+		);
+	const files = skill.files as Record<string, string> | null;
+	const workflowSource = files?.["scripts/workflow.ts"];
+	if (!workflowSource)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"SKILL_NOT_EXECUTABLE: the skill has no scripts/workflow.ts",
+		);
+	const grants = await ownerSkillGrants(context, {
+		organizationId,
+		ownerUserId: caller,
+		skill,
+		workspaceId: workspace.id,
+	});
+	if (input.needs) {
+		const level = grants.reduce<PersonalAccessLevel>((best, row) => {
+			const next = personalAccessLevel(row.operations);
+			return LEVEL_RANK[next] > LEVEL_RANK[best] ? next : best;
+		}, "none");
+		if (LEVEL_RANK[level] < LEVEL_RANK[input.needs]) {
+			const need = await personalAccessNeed(context, organizationId, skill);
+			const account = need
+				? resources.find(
+						(row) =>
+							row.connectionScope === "user" &&
+							row.personalOwnerUserId === caller &&
+							row.providerId === need.providerId &&
+							row.resourceType === need.resourceType,
+					)
+				: undefined;
+			return {
+				status: "needs_access" as const,
+				level,
+				providerName: need?.providerName ?? null,
+				resourceId: account?.id ?? null,
+			};
+		}
+	}
+	const envelope = scheduledPersonalResourceEnvelope(grants);
+	const resourceAccessEnvelope = envelope
+		? await validatePersonalRunSources(context, {
+				tediId: skill.tediId,
+				skillId: skill.id,
+				resourceAccessEnvelope: envelope,
+			})
+		: undefined;
+	const skillDoc = files?.["SKILL.md"] ?? skill.content ?? "";
+	const dispatched = await callSkillRuntime<{ runId: string }>(
+		context,
+		"/run",
+		{
+			createdBy: `user:${caller}`,
+			idempotencyKey: input.idempotencyKey,
+			skillId: skill.id,
+			skillSlug: skill.slug,
+			skillRevision: skill.revision ?? null,
+			orgId: organizationId,
+			tediId: skill.tediId,
+			params: {
+				...input.params,
+				workspaceId: workspace.id,
+				tediId: skill.tediId,
+			},
+			workflowSource,
+			skillDoc,
+			capabilityManifest: parseCapabilityManifest(skillDoc),
+			...(resourceAccessEnvelope ? { resourceAccessEnvelope } : {}),
+		},
+	);
+	return { status: "started" as const, runId: dispatched.runId };
+});
+
+export const osWorkspaceScheduleProcedures = {
+	list,
+	allowPersonalRead,
+	setPersonalAccess,
+	runNow,
+};

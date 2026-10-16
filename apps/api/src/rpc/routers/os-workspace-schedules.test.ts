@@ -5,7 +5,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
-import { personalReadNeed } from "./os-workspace-schedules";
+import { personalAccessNeed } from "./os-workspace-schedules";
 
 const GMAIL_SCOPES = [
 	"https://www.googleapis.com/auth/gmail.readonly",
@@ -68,11 +68,11 @@ function skill(frontmatterMcp: string) {
 	} as never;
 }
 
-describe("a scheduled skill's personal read", () => {
-	it("comes from the read-only account tools the skill declares", async () => {
+describe("a scheduled skill's personal account access", () => {
+	it("comes from the reviewed account tools the skill declares, with their operation", async () => {
 		const context = await setup();
 		await expect(
-			personalReadNeed(
+			personalAccessNeed(
 				context,
 				"org-1",
 				skill(
@@ -83,22 +83,25 @@ describe("a scheduled skill's personal read", () => {
 			providerId: "google-gmail",
 			providerName: "Gmail",
 			resourceType: "mailbox",
-			toolIds: ["search_threads"],
+			tools: [
+				{ toolId: "search_threads", operation: "read" },
+				{ toolId: "create_draft", operation: "modify" },
+			],
 			requiredScopes: [...GMAIL_SCOPES].sort(),
 		});
 	});
 
-	it("is absent for a skill that reads no personal account", async () => {
+	it("is absent for a skill that uses no personal account", async () => {
 		const context = await setup();
 		await expect(
-			personalReadNeed(
+			personalAccessNeed(
 				context,
 				"org-1",
-				skill("    tedix: [list_os_outputs]\n    google_gmail: [create_draft]"),
+				skill("    tedix: [list_os_outputs]"),
 			),
 		).resolves.toBeNull();
 		await expect(
-			personalReadNeed(
+			personalAccessNeed(
 				context,
 				"org-2",
 				skill("    google_gmail: [search_threads]"),

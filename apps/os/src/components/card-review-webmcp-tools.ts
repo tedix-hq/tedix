@@ -12,11 +12,12 @@ import type { PendingRule, ReviewCard } from "@/lib/card-review";
  * same state and callbacks as the app's buttons, so the human sees the card
  * change, the reason chips light up and the "left" count move as the agent
  * works. A verdict is the same sheet-cell write the button makes; "Do it"
- * keeps the button's behaviour and never sends or posts anything.
+ * keeps the button's behaviour: for a run_skill source it starts the same
+ * run, waits for its outcome and never sends mail or deletes anything.
  */
 
 export type CardReviewActionResult =
-	| { ok: true }
+	| { ok: true; result?: string }
 	| { ok: false; error: string };
 
 /** The live app state and button callbacks the tools act through. */
@@ -25,7 +26,7 @@ export interface CardReviewController {
 	card: ReviewCard | null;
 	/** Rule text by id for the current card's source. */
 	ruleText: ReadonlyMap<string, string> | undefined;
-	doIt: "approve" | "copy_and_open" | null;
+	doIt: "approve" | "copy_and_open" | "run_skill" | null;
 	/** The open card's Do it label, or null when the card has no action. */
 	doItLabel: string | null;
 	reasonChips: { useful: readonly string[]; notUseful: readonly string[] };
@@ -69,6 +70,7 @@ function projectCard(state: CardReviewController, card: ReviewCard) {
 		}),
 		action: card.action,
 		draft: card.draft,
+		lastResult: card.result || null,
 		sheet: {
 			outputId: card.outputId,
 			title: card.sheetTitle,
@@ -219,7 +221,7 @@ export function buildCardReviewWebMcpTools(
 		name: "card_review_do_it",
 		annotations: { readOnlyHint: false, untrustedContentHint: false },
 		description:
-			"Press the open card's Do it button (labelled with the card's action). It fails when the card has no action. It writes yes into the card's done column and never sends, posts or changes a mailbox. For a copy_and_open source it also copies the draft and opens the source link, as the button does. card_review_undo reverts the write.",
+			"Press the open card's Do it button (labelled with the card's action). It fails when the card has no action. approve: writes yes into the card's done column and changes nothing else. copy_and_open: also copies the draft and opens the source link. run_skill: starts the source's skill at once to carry the action out (archive, label, mark read, unsubscribe, a reply draft in the thread, or a Tedix Work item for anything else), waits for it and returns its outcome as result: Done ✓, Draft ready, Filed as Work /work/items/<id>, or an error starting Failed: or Allow organising first. It never sends mail, posts, trashes or deletes. card_review_undo reverts an approve or copy_and_open write; a run_skill action cannot be undone here.",
 		inputSchema: {
 			type: "object",
 			properties: { cardKey: cardKeyProperty, ...reasonProperties },
@@ -233,7 +235,11 @@ export function buildCardReviewWebMcpTools(
 			const reason = reasonInput(state, args);
 			if (!("chips" in reason)) return reason;
 			const outcome = await state.setVerdict({ verdict: "do_it", ...reason });
-			return done(outcome, { cardKey: card.key, verdict: "do_it" });
+			return done(outcome, {
+				cardKey: card.key,
+				verdict: "do_it",
+				...(outcome.ok && outcome.result ? { result: outcome.result } : {}),
+			});
 		},
 	};
 

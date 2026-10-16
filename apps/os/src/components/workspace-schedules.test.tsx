@@ -44,6 +44,7 @@ const gmail = {
 	providerName: "Gmail",
 	toolIds: ["search_threads"],
 	grantId: null,
+	level: "none" as const,
 	canAllow: true,
 };
 
@@ -96,7 +97,7 @@ describe("personal read on a scheduled skill", () => {
 		mocks.list
 			.mockResolvedValueOnce({ items: [schedule(gmail)] })
 			.mockResolvedValue({
-				items: [schedule({ ...gmail, grantId: GRANT_ID })],
+				items: [schedule({ ...gmail, grantId: GRANT_ID, level: "read" })],
 			});
 		mocks.allow.mockResolvedValue({ status: "allowed", grantId: GRANT_ID });
 		const view = await mount();
@@ -118,7 +119,7 @@ describe("personal read on a scheduled skill", () => {
 	it("stops an active read by revoking the owner's grant", async () => {
 		mocks.list
 			.mockResolvedValueOnce({
-				items: [schedule({ ...gmail, grantId: GRANT_ID })],
+				items: [schedule({ ...gmail, grantId: GRANT_ID, level: "read" })],
 			})
 			.mockResolvedValue({ items: [schedule(gmail)] });
 		mocks.revoke.mockResolvedValue({});
@@ -153,9 +154,30 @@ describe("personal read on a scheduled skill", () => {
 		}
 	});
 
+	it("shows when the owner let it organise the account too", async () => {
+		mocks.list.mockResolvedValue({
+			items: [schedule({ ...gmail, grantId: GRANT_ID, level: "organise" })],
+		});
+		const view = await mount();
+		try {
+			expect(view.node.textContent).toContain(
+				"Reads and organises your Gmail (never sends or deletes)",
+			);
+		} finally {
+			await view.close();
+		}
+	});
+
 	it("shows nothing about the read to anyone but the owner", async () => {
 		mocks.list.mockResolvedValue({
-			items: [schedule({ ...gmail, grantId: GRANT_ID, canAllow: false })],
+			items: [
+				schedule({
+					...gmail,
+					grantId: GRANT_ID,
+					level: "read",
+					canAllow: false,
+				}),
+			],
 		});
 		const view = await mount();
 		try {

@@ -19,6 +19,60 @@ const header = z
 		"Sheet column header; matched case-insensitively, exactly or as the start of the header",
 	);
 
+/**
+ * What a run_skill Do it can do. archive, mark_read, label, unsubscribe and
+ * reply_draft change the owner's mailbox and need organise access; work files
+ * a Tedix Work item with the card's context.
+ */
+export const CARD_ACTION_KINDS = [
+	"archive",
+	"mark_read",
+	"label",
+	"unsubscribe",
+	"reply_draft",
+	"work",
+] as const;
+export const CardActionKindSchema = z.enum(CARD_ACTION_KINDS);
+export type CardActionKind = z.infer<typeof CardActionKindSchema>;
+
+export const CardReviewRunSchema = z
+	.object({
+		skillId: z
+			.string()
+			.min(1)
+			.max(200)
+			.describe(
+				"Skill linked to the source workspace under Runs on a schedule; it runs with params {workspaceId, cardSheetId, row, kind, action, columns, workProjectId}",
+			),
+		workProjectId: z
+			.string()
+			.uuid()
+			.optional()
+			.describe("Project a work card is filed in"),
+		actions: z
+			.array(
+				z
+					.object({
+						kind: CardActionKindSchema,
+						match: z
+							.array(z.string().trim().min(1).max(80))
+							.min(1)
+							.max(10)
+							.describe(
+								"Case-insensitive text found in the card's type or action cell",
+							),
+					})
+					.strict(),
+			)
+			.max(10)
+			.default([])
+			.describe(
+				"First match wins, checked in order against the type cell, then the action cell; a card matching none is filed as work",
+			),
+	})
+	.strict();
+export type CardReviewRun = z.infer<typeof CardReviewRunSchema>;
+
 export const CardReviewSourceSchema = z
 	.object({
 		label: z
@@ -63,13 +117,21 @@ export const CardReviewSourceSchema = z
 				done: header.describe(
 					'Column written yes by "Do it" (e.g. "Approve action?" or "Did it?")',
 				),
+				result: header
+					.optional()
+					.describe(
+						'Column a run_skill Do it writes its outcome to: "Done ✓", "Draft ready", "Filed as Work /work/items/<id>" or "Failed: <reason>". The run adds it to a sheet that lacks it',
+					),
 			})
 			.strict(),
 		doIt: z
-			.enum(["approve", "copy_and_open"])
+			.enum(["approve", "copy_and_open", "run_skill"])
 			.describe(
-				"approve: mark the done column yes and change nothing else; copy_and_open: copy the draft, open the source link, mark done. Neither sends or posts anything",
+				"approve: mark the done column yes and change nothing else; copy_and_open: copy the draft, open the source link, mark done; run_skill: start the skill in run at once to carry out the card's action and show its outcome. None of them sends or posts anything",
 			),
+		run: CardReviewRunSchema.optional().describe(
+			"Required for doIt run_skill: which skill carries the action out and how card actions map to kinds",
+		),
 		doItLabel: z.string().trim().min(1).max(40).optional(),
 		rules: z
 			.object({
@@ -115,7 +177,11 @@ export const CardReviewSourceSchema = z
 				"Filter labels such as LinkedIn or X; a card matching none uses the source label",
 			),
 	})
-	.strict();
+	.strict()
+	.refine((source) => source.doIt !== "run_skill" || source.run, {
+		message: "doIt run_skill needs run settings",
+		path: ["run"],
+	});
 
 export const CardReviewConfigSchema = z
 	.object({

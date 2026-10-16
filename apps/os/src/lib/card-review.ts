@@ -1,4 +1,5 @@
 import {
+	type CardActionKind,
 	CARD_REVIEW_ENTRY,
 	type CardReviewConfig,
 	CardReviewConfigSchema,
@@ -141,6 +142,8 @@ export type ReviewCard = {
 	useful: string;
 	reason: string;
 	done: string;
+	/** A run_skill Do it's outcome, e.g. "Failed: …"; empty until a run writes it. */
+	result: string;
 };
 
 export function channelFor(source: CardReviewSource, haystack: string): string {
@@ -266,6 +269,7 @@ export function cardsFromSheet(input: {
 			useful: at(row, source.columns.useful),
 			reason: at(row, source.columns.reason),
 			done: at(row, source.columns.done),
+			result: at(row, source.columns.result),
 		});
 	});
 	return { cards };
@@ -448,4 +452,80 @@ export function reviewQueue(
 			.filter((card) => skipped.has(card.key))
 			.sort((a, b) => skipped.get(a.key)! - skipped.get(b.key)!),
 	];
+}
+
+/**
+ * What a run_skill Do it does with this card: the first configured kind whose
+ * match text appears in the card's type, else in its action; work otherwise.
+ */
+export function cardActionKind(
+	source: Pick<CardReviewSource, "run">,
+	card: Pick<ReviewCard, "type" | "action">,
+): CardActionKind {
+	const actions = source.run?.actions ?? [];
+	for (const cell of [card.type, card.action ?? ""]) {
+		const lower = cell.toLowerCase();
+		if (!lower) continue;
+		const found = actions.find((entry) =>
+			entry.match.some((text) => lower.includes(text.toLowerCase())),
+		);
+		if (found) return found.kind;
+	}
+	return "work";
+}
+
+/** Kinds that change the owner's mailbox and so need organise access. */
+export function needsOrganise(kind: CardActionKind): boolean {
+	return kind !== "work";
+}
+
+/** Where a run writes its outcome when the source names no result column. */
+export const DEFAULT_RESULT_COLUMN = "Result";
+
+/** The params a run_skill Do it starts its skill with. */
+export function runParams(
+	source: CardReviewSource,
+	card: Pick<ReviewCard, "outputId" | "rowIndex" | "action">,
+	kind: CardActionKind,
+	reason = "",
+): Record<string, unknown> {
+	const { columns } = source;
+	return {
+		cardSheetId: card.outputId,
+		row: card.rowIndex,
+		kind,
+		action: card.action ?? "",
+		reason,
+		columns: {
+			type: columns.type ?? null,
+			source: columns.source,
+			who: columns.who ?? null,
+			why: columns.why,
+			action: columns.action ?? null,
+			draft: columns.draft ?? null,
+			useful: columns.useful,
+			reason: columns.reason,
+			done: columns.done,
+			result: columns.result ?? DEFAULT_RESULT_COLUMN,
+		},
+		...(source.run?.workProjectId
+			? { workProjectId: source.run.workProjectId }
+			: {}),
+	};
+}
+
+const WORK_LINK = /\/work\/items\/[0-9a-f-]{36}/i;
+
+/** A result cell split into its text and the Work item it links, if any. */
+export function resultParts(result: string): {
+	text: string;
+	workHref: string | null;
+	failed: boolean;
+} {
+	const match = WORK_LINK.exec(result);
+	return {
+		text: match ? result.replace(match[0], "").trim() : result,
+		workHref: match ? match[0] : null,
+		failed: /^failed\b/i.test(result),
+	};
 }

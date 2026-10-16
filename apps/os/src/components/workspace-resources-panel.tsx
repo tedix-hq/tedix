@@ -3,6 +3,7 @@ import {
 	calendarResourceSelection,
 } from "./calendar-resource-picker";
 import { WorkspaceCalendarCoordinator } from "./workspace-calendar-coordinator";
+import { WorkspacePersonalAccess } from "./workspace-personal-access";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
 import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
@@ -438,6 +439,13 @@ export function WorkspaceResourcesPanel({
 									>
 										{resource.availability.reason}
 									</Text>
+								) : null}
+								{resource.connectionScope === "user" &&
+								resource.personalOwnerUserId ? (
+									<WorkspacePersonalAccess
+										workspaceId={workspaceId}
+										resource={resource}
+									/>
 								) : null}
 							</div>
 							<div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">

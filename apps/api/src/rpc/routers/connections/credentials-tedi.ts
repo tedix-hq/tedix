@@ -132,6 +132,10 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 						sources: personalSources,
 						providerId: input.providerId,
 						toolId,
+						providerToolName:
+							typeof tool.config?.mcpToolName === "string"
+								? tool.config.mcpToolName
+								: undefined,
 					});
 				} catch {
 					throw createError(

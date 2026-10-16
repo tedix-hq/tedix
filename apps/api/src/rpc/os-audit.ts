@@ -256,6 +256,25 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			status: text(output.status) ?? null,
 		}),
 	},
+	"schedules.setPersonalAccess": {
+		action: "os.workspace_personal_access.set",
+		resourceType: "os_workspace_resource",
+		resourceId: ({ input }) => text(input.resourceId),
+		metadata: ({ input }) => ({
+			workspaceId: input.workspaceId,
+			level: text(input.level) ?? null,
+		}),
+	},
+	"schedules.runNow": {
+		action: "os.workspace_skill.run_now",
+		resourceType: "skill_run",
+		resourceId: ({ output }) => text(output.runId),
+		metadata: ({ input, output }) => ({
+			workspaceId: input.workspaceId,
+			skillId: text(input.skillId) ?? null,
+			status: text(output.status) ?? null,
+		}),
+	},
 	"resources.rename": {
 		action: "os.workspace_resource.renamed",
 		resourceType: "os_workspace_resource",
