@@ -1,3 +1,4 @@
+import { assertDescopeOk } from "./descope.ts";
 /**
  * @tedix/auth - Tedi Identity Management (V2)
  *
@@ -281,9 +282,14 @@ async function rollbackTediUser(
 	loginId: string,
 ): Promise<void> {
 	try {
-		await client.management.user.delete(loginId);
+		assertDescopeOk(
+			await client.management.user.delete(loginId),
+			"user.delete",
+		);
 	} catch {
-		// Best-effort cleanup.
+		console.error(
+			"[Descope] Failed to roll back tedi identity; cleanup required",
+		);
 	}
 }
 
@@ -534,7 +540,10 @@ export async function deactivateTediIdentity(
 	client: DescopeClient,
 	loginId: string,
 ): Promise<void> {
-	await client.management.user.deactivate(loginId);
+	assertDescopeOk(
+		await client.management.user.deactivate(loginId),
+		"user.deactivate",
+	);
 }
 
 /**
@@ -544,7 +553,10 @@ export async function activateTediIdentity(
 	client: DescopeClient,
 	loginId: string,
 ): Promise<void> {
-	await client.management.user.activate(loginId);
+	assertDescopeOk(
+		await client.management.user.activate(loginId),
+		"user.activate",
+	);
 }
 
 /**
@@ -555,7 +567,7 @@ export async function deleteTediIdentity(
 	client: DescopeClient,
 	loginId: string,
 ): Promise<void> {
-	await client.management.user.delete(loginId);
+	assertDescopeOk(await client.management.user.delete(loginId), "user.delete");
 }
 
 // =============================================================================
@@ -742,13 +754,8 @@ export async function repairTediIdentity(
 	}
 
 	if (user.status && user.status !== "enabled") {
-		try {
-			await client.management.user.activate(primaryLoginId);
-			changed.push("status");
-		} catch {
-			// Leave status repair best-effort; access-key flows can still work for
-			// already-active service use, and the caller gets all hard failures above.
-		}
+		await activateTediIdentity(client, primaryLoginId);
+		changed.push("status");
 	}
 
 	return {

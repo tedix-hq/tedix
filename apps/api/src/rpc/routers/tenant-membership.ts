@@ -1,3 +1,4 @@
+import { getDescopeManagement } from "../../lib/descope-management";
 /**
  * oRPC Tenant Membership Router
  *
@@ -14,7 +15,7 @@
 import { implement } from "@orpc/server";
 import { tenantMembershipContract } from "@tedix/api-contract/contracts/tenant-membership";
 import type { TenantMembership } from "@tedix/api-contract/schemas/tenant-membership";
-import { getManagementClient } from "@tedix/auth/client";
+import type { getManagementClient } from "@tedix/auth/client";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	getMemberByUserId,
@@ -47,15 +48,6 @@ const authedTenantMembershipOs = tenantMembershipOs
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-function getDescopeManagement(env: CloudflareEnv) {
-	if (!env.DESCOPE_MANAGEMENT_KEY) return null;
-	return getManagementClient({
-		DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
-		DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
-		DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
-	});
-}
 
 function requireManagement(context: BaseContext) {
 	const mgmt = getDescopeManagement(context.env);

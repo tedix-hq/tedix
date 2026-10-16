@@ -1,3 +1,4 @@
+import { getDescopeManagement } from "../../../lib/descope-management";
 import { ORPCError } from "@orpc/server";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -37,7 +38,6 @@ import {
 	CredentialScope,
 	authedOs,
 	composeApiKeyCredential,
-	getDescopeManagement,
 	mapConnectionRecord,
 	mcpOrAuthOs,
 	requireUserId,
@@ -304,7 +304,7 @@ export const getTediConnections = mcpOrAuthOs.getTediConnections
 				context,
 				input.tediId,
 			);
-			const client = getDescopeManagement(context.env);
+			const client = getDescopeManagement(context.env, true);
 
 			// Resolve tedi owner for user-scoped token checks
 			let ownerUserId: string | null = null;
@@ -462,7 +462,7 @@ export const storeApiKey = authedOs.storeApiKey
 				credentialFields: input.credentialFields,
 				env: context.env,
 			});
-			const client = getDescopeManagement(context.env);
+			const client = getDescopeManagement(context.env, true);
 			const isUserScoped = input.tokenScope === "user";
 			if (isUserScoped) {
 				await uploadUserApiKeyToken(client, {

@@ -1,3 +1,4 @@
+import { getDescopeManagement } from "../../../lib/descope-management";
 import { isNamedConnectionExternalIdentifier } from "@tedix/auth/connections";
 import { ConnectionProviderSchema } from "@tedix/api-contract/schemas/connections";
 import type {
@@ -16,7 +17,6 @@ import {
 import {
 	authedOs,
 	collectReferencedProviders,
-	getDescopeManagement,
 	mapConnectionRecord,
 	requireUserId,
 	fetchNamedConnection,
@@ -94,7 +94,7 @@ async function readConnectionsOverview(
 		}),
 		getOrganizationById(context.db, organizationId),
 	]);
-	const client = getDescopeManagement(context.env);
+	const client = getDescopeManagement(context.env, true);
 	const providers = catalog.data
 		.map((provider) => ConnectionProviderSchema.parse(provider))
 		.filter(

@@ -232,10 +232,8 @@ function isMcpLoginPageURL(value: string | null | undefined): boolean {
 }
 
 /**
- * Mainstream MCP-client (assistant) domains we allow by default. Single source
- * of truth for both the AIH CIMD domain policies below and the MCP edge's CIMD
- * resolution allowlist (`apps/mcp/src/auth-helpers.ts`), which previously
- * hand-maintained the same list and could drift.
+ * Default AIH CIMD domain policies for mainstream MCP assistants.
+ * The MCP edge separately validates client metadata using its SSRF guards.
  */
 export const MAINSTREAM_ASSISTANT_CIMD_DOMAINS = [
 	"claude.ai",

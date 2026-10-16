@@ -1,9 +1,11 @@
+import { assertDescopeOk } from "@tedix/auth/descope";
+import { getDescopeManagement } from "../../lib/descope-management";
 /**
  * oRPC Members Router
  * Organization member management with Descope synchronization
  *
  * D1 is the primary store for member records. Descope management SDK
- * is used for user/tenant operations when available (non-blocking).
+ * is used for user/tenant operations when available.
  *
  * All mutations require admin/owner role via requireRole() middleware
  *
@@ -13,7 +15,6 @@
 
 import { implement } from "@orpc/server";
 import { membersContract } from "@tedix/api-contract/contracts/members";
-import { getManagementClient } from "@tedix/auth/client";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	acceptInvite,
@@ -272,18 +273,6 @@ async function getDescopeTenantId(
 	return org.descopeTenantId ?? null;
 }
 
-/**
- * Get Descope management client from env (lazy, returns null if not configured)
- */
-function getDescopeManagement(env: CloudflareEnv) {
-	if (!env.DESCOPE_MANAGEMENT_KEY) return null;
-	return getManagementClient({
-		DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
-		DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
-		DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
-	});
-}
-
 // =============================================================================
 // CONTRACT IMPLEMENTATION
 // =============================================================================
@@ -492,7 +481,7 @@ export const inviteMemberContract = authedMembersOs.inviteMember
 			},
 		);
 
-		// Optionally invite user in Descope (non-blocking).
+		// Invite the user in Descope when configured.
 		//
 		// `invite` creates a Descope invitation and sends its magic-link email.
 		// An already active Descope user cannot receive another Descope invitation,
@@ -526,7 +515,7 @@ export const inviteMemberContract = authedMembersOs.inviteMember
 				// acceptance still proves that target against the verified caller.
 				inviteUrl.searchParams.set("member_id", member.id);
 				inviteUrl.searchParams.set("tenant_id", descopeTenantId);
-				try {
+				assertDescopeOk(
 					await mgmt.management.user.invite(email, {
 						email,
 						userTenants: [
@@ -537,44 +526,31 @@ export const inviteMemberContract = authedMembersOs.inviteMember
 						],
 						sendMail: true,
 						inviteUrl: inviteUrl.toString(),
-					});
-				} catch (error) {
-					console.warn(
-						"[Teams] Failed to send Descope invite (non-blocking):",
-						error,
-					);
-				}
-				try {
+					}),
+					"user.invite",
+				);
+				assertDescopeOk(
 					await mgmt.management.user.addTenantRoles(
 						email,
 						descopeTenantId,
 						descopeTenantRolesForMemberRole(role),
-					);
-				} catch (error) {
-					console.warn(
-						"[Teams] Failed to attach Descope tenant role (non-blocking):",
-						error,
-					);
-				}
+					),
+					"user.addTenantRoles",
+				);
 				// An admin inviting a teammate IS the approval decision. But the
 				// signup gate lives in the Descope sign-up-or-in flow keyed on the
 				// `waitlistStatus` custom attribute, and `user.invite` leaves it
 				// unset — which falls into the flow's Else branch ("Waitlist
 				// Pending"). Without this, every invited member is bounced at login
-				// holding a perfectly valid invite. Non-blocking: the invite itself
-				// has already succeeded. See docs/engineering/platform/auth.md (waitlist gate).
-				try {
+				// holding a perfectly valid invite. See docs/engineering/platform/auth.md (waitlist gate).
+				assertDescopeOk(
 					await mgmt.management.user.updateCustomAttribute(
 						email,
 						"waitlistStatus",
 						"approved",
-					);
-				} catch (error) {
-					console.warn(
-						"[Teams] Failed to approve invited member on the waitlist (non-blocking):",
-						error,
-					);
-				}
+					),
+					"user.updateCustomAttribute",
+				);
 			}
 		}
 
@@ -787,27 +763,20 @@ export const removeMemberContract = authedMembersOs.removeMember
 			);
 		}
 
-		// Remove from D1 (primary store)
-		await removeMemberD1(db, memberId);
-
-		// Remove from Descope tenant (non-blocking)
+		// Retain the local member until provider removal succeeds.
 		const descopeTenantId = await getDescopeTenantId(db, organizationId);
 		if (descopeTenantId && hasResolvedDescopeUserId(member.descopeUserId)) {
-			const mgmt = getDescopeManagement(context.env);
-			if (mgmt) {
-				try {
-					await mgmt.management.user.removeTenant(
-						member.descopeUserId,
-						descopeTenantId,
-					);
-				} catch (error) {
-					console.warn(
-						"[Teams] Failed to remove user from Descope tenant (non-blocking):",
-						error,
-					);
-				}
-			}
+			const mgmt = getDescopeManagement(context.env, true);
+			assertDescopeOk(
+				await mgmt.management.user.removeTenant(
+					member.descopeUserId,
+					descopeTenantId,
+				),
+				"user.removeTenant",
+			);
 		}
+
+		await removeMemberD1(db, memberId);
 
 		return {
 			success: true,

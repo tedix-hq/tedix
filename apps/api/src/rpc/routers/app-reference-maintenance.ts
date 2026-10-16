@@ -124,13 +124,11 @@ async function connectionProviderExists(
 	env: BaseContext["env"],
 	providerId: string,
 ): Promise<boolean> {
-	// Lazy: the connections module is heavy and only this rare call needs it.
-	const { getDescopeManagement } =
-		await import("./connections/policy-resolution");
-	const response =
-		await getDescopeManagement(
-			env,
-		).management.outboundApplication.loadAllApplications();
+	const { getDescopeManagement } = await import("../../lib/descope-management");
+	const response = await getDescopeManagement(
+		env,
+		true,
+	).management.outboundApplication.loadAllApplications();
 	if (!response.ok || !response.data) {
 		throw createError(
 			ErrorCodes.SERVICE_UNAVAILABLE,

@@ -314,7 +314,7 @@ describe("orchestrateTediDecommission — hard-purge orchestration", () => {
 		expect(residual?.step).toContain("org:org-1:tedi:tedi-1");
 	});
 
-	test("surfaces a failed sub-cleanup without aborting the D1 delete", async () => {
+	test("retains the tedi row for retry when external identity cleanup fails", async () => {
 		const deps = makeDeps({
 			purgeExternalIdentity: vi.fn(async () => [
 				{
@@ -324,19 +324,22 @@ describe("orchestrateTediDecommission — hard-purge orchestration", () => {
 				},
 			]),
 		});
-		const result = await orchestrateTediDecommission({
-			tediId: "tedi-1",
-			slug: "echo",
-			input: { hardPurge: true, confirmSlug: "echo" },
-			deps,
-		});
-		// Delete still runs even though identity cleanup failed.
-		expect(deps.deleteRow).toHaveBeenCalledOnce();
-		expect(result.purged).toBe(true);
-		const identity = result.programmaticCleanups.find(
-			(c) => c.step === "descope_identity_delete",
+		await expect(
+			orchestrateTediDecommission({
+				tediId: "tedi-1",
+				slug: "echo",
+				input: { hardPurge: true, confirmSlug: "echo" },
+				deps,
+			}),
+		).rejects.toThrow("descope_identity_delete: descope 500");
+		expect(deps.deleteRow).not.toHaveBeenCalled();
+		expect(deps.purgeAgentMemoryProfile).not.toHaveBeenCalled();
+		expect(deps.emitAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "failed",
+				failedStage: "purge_external_identity",
+			}),
 		);
-		expect(identity?.ok).toBe(false);
 	});
 });
 

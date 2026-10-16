@@ -1,3 +1,5 @@
+import { assertDescopeOk } from "@tedix/auth/descope";
+import { getDescopeManagement } from "../../lib/descope-management";
 import { validateEmbeddedTediSelection } from "../../services/embedded-tedi-selection";
 /**
  * oRPC Organizations Router
@@ -99,7 +101,6 @@ import { requireStepUp } from "../step-up";
 import {
 	descopeTenantRolesForMemberRole,
 	ensurePersonalDescopeTenantMembership,
-	getDescopeManagement,
 	memberRoleFromTenantRoles,
 	normalizeMemberRole,
 } from "./organizations-descope-membership";
@@ -633,19 +634,6 @@ async function createOrganizationResources(
 			);
 			if (tenantResult.ok) {
 				descopeTenantId = desiredTenantId;
-				// Set default role for SSO/SCIM-provisioned users so newly federated
-				// employees land on `member` automatically. Project-level roles are
-				// reusable across tenants — see docs/engineering/platform/auth.md (RBAC).
-				try {
-					await mgmt.management.tenant.updateDefaultRoles(desiredTenantId, [
-						"member",
-					]);
-				} catch (error) {
-					console.warn(
-						"[Organizations] Failed to set default tenant role (non-blocking):",
-						error,
-					);
-				}
 			} else {
 				// Not ok — may be a replay where the tenant already exists.
 				await adoptIfExists();
@@ -663,6 +651,15 @@ async function createOrganizationResources(
 		throw createError(
 			ErrorCodes.SERVICE_UNAVAILABLE,
 			"Organization creation requires Descope tenant provisioning, which is currently unavailable. No organization was created — please retry.",
+		);
+	}
+
+	if (mgmt && !existingProviderOrg?.descopeTenantId) {
+		assertDescopeOk(
+			await mgmt.management.tenant.updateDefaultRoles(descopeTenantId, [
+				"member",
+			]),
+			"tenant.updateDefaultRoles",
 		);
 	}
 
@@ -758,20 +755,15 @@ async function createOrganizationResources(
 	//     time a creator tries to connect any org-level OAuth provider they
 	//     hit Descope error E152002 "User session validation failed, user is
 	//     not tenant admin".
-	// Non-blocking: D1 is authoritative for membership; Descope sync is best-effort.
 	if (mgmt && descopeTenantId) {
-		try {
+		assertDescopeOk(
 			await mgmt.management.user.addTenantRoles(
 				userId,
 				descopeTenantId,
 				descopeTenantRolesForMemberRole("owner"),
-			);
-		} catch (error) {
-			console.warn(
-				"[Organizations] Failed to sync creator owner role to Descope (non-blocking):",
-				error,
-			);
-		}
+			),
+			"user.addTenantRoles",
+		);
 	}
 
 	// Organization creation is not complete until its accountable default worker
@@ -877,6 +869,19 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 				organizationId,
 				updates.metadata.tediWidget.tediSelection,
 			);
+		// Sync the tenant name with a partial update.
+		if (existing.descopeTenantId && updates.name) {
+			const mgmt = getDescopeManagement(context.env);
+			if (mgmt) {
+				assertDescopeOk(
+					await mgmt.management.tenant.patchTenant(existing.descopeTenantId, {
+						name: updates.name ?? existing.name,
+					}),
+					"tenant.patchTenant",
+				);
+			}
+		}
+
 		const updated = await updateOrganization(db, organizationId, {
 			...updates,
 			...(updates.metadata
@@ -889,24 +894,6 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 			organizationId,
 			"organization.updated",
 		);
-
-		// Sync name to Descope tenant (non-blocking)
-		if (existing.descopeTenantId && updates.name) {
-			const mgmt = getDescopeManagement(context.env);
-			if (mgmt) {
-				try {
-					await mgmt.management.tenant.update(
-						existing.descopeTenantId,
-						updates.name ?? existing.name,
-					);
-				} catch (error) {
-					console.warn(
-						"[Organizations] Failed to sync Descope tenant update:",
-						error,
-					);
-				}
-			}
-		}
 
 		return mapOrgToContract(updated);
 	});
@@ -1938,6 +1925,16 @@ export const completeOsOnboardingContract =
 				);
 			}
 
+			const mgmt = getDescopeManagement(context.env);
+			if (mgmt) {
+				assertDescopeOk(
+					await mgmt.management.tenant.patchTenant(existing.descopeTenantId, {
+						name: input.name,
+					}),
+					"tenant.patchTenant",
+				);
+			}
+
 			const updated = await updateOrganization(db, input.organizationId, {
 				name: input.name,
 				slug: input.slug,
@@ -1946,21 +1943,6 @@ export const completeOsOnboardingContract =
 					os: true,
 				},
 			});
-
-			const mgmt = getDescopeManagement(context.env);
-			if (mgmt) {
-				try {
-					await mgmt.management.tenant.update(
-						existing.descopeTenantId,
-						input.name,
-					);
-				} catch (error) {
-					console.warn(
-						"[Organizations] Failed to sync OS onboarding name to Descope:",
-						error,
-					);
-				}
-			}
 
 			const { emitAuditEvent, auditActor } = await import("../audit-helpers");
 			const actor = auditActor(context);
@@ -2148,6 +2130,15 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 			}
 		}
 
+		// Keep retirement retryable until the linked tenant is deleted.
+		if (org.descopeTenantId) {
+			const mgmt = getDescopeManagement(context.env, true);
+			assertDescopeOk(
+				await mgmt.management.tenant.delete(org.descopeTenantId),
+				"tenant.delete",
+			);
+		}
+
 		const retiredAt = new Date().toISOString();
 		const retired = await retireOrganization(db, {
 			id: organizationId,
@@ -2187,21 +2178,6 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 			ipAddress: context.headers.get("CF-Connecting-IP"),
 			userAgent: context.headers.get("User-Agent"),
 		});
-
-		// Delete Descope tenant if linked (non-blocking)
-		if (org.descopeTenantId) {
-			const mgmt = getDescopeManagement(context.env);
-			if (mgmt) {
-				try {
-					await mgmt.management.tenant.delete(org.descopeTenantId);
-				} catch (error) {
-					console.warn(
-						"[Organizations] Failed to delete Descope tenant:",
-						error,
-					);
-				}
-			}
-		}
 
 		return { success: true as const };
 	});

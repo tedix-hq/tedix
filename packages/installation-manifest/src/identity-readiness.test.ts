@@ -91,6 +91,9 @@ describe("preflightDescopeIdentity", () => {
 			},
 		]);
 		expect(requests.map(({ method }) => method)).toEqual(["GET", "POST"]);
+		expect(requests[1]?.url).toBe(
+			"https://api.descope.com/v1/mgmt/project/snapshot/export",
+		);
 		expect(requests[1]?.authorization).toBe(
 			"Bearer P3example:management-secret",
 		);

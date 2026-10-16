@@ -1,4 +1,4 @@
-import { getManagementClient } from "@tedix/auth/client";
+import { getDescopeManagement } from "../../lib/descope-management";
 
 export type TedixMemberRole = "owner" | "admin" | "member" | "viewer";
 
@@ -15,16 +15,6 @@ type DescopeSdkError = {
 	errorCode?: string;
 	errorDescription?: string;
 };
-
-/** Get the Descope management client lazily when configured. */
-export function getDescopeManagement(env: CloudflareEnv) {
-	if (!env.DESCOPE_MANAGEMENT_KEY) return null;
-	return getManagementClient({
-		DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
-		DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
-		DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
-	});
-}
 
 export function normalizeMemberRole(role: unknown): TedixMemberRole {
 	if (

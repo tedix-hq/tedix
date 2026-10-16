@@ -13,6 +13,22 @@ const mocks = vi.hoisted(() => ({
 	ensureOrganizationUnifiedGateway: vi.fn(),
 	autoProvisionFirstTedi: vi.fn(),
 	updateOrganization: vi.fn(),
+	patchTenant: vi.fn(),
+	deleteTenant: vi.fn(),
+	retireOrganization: vi.fn(),
+}));
+
+vi.mock("@tedix/auth/client", async (load) => ({
+	...(await load<typeof import("@tedix/auth/client")>()),
+	getManagementClient: () => ({
+		management: {
+			tenant: { patchTenant: mocks.patchTenant, delete: mocks.deleteTenant },
+		},
+	}),
+}));
+vi.mock("@tedix/db/queries/apps", async (load) => ({
+	...(await load<typeof import("@tedix/db/queries/apps")>()),
+	getAppsByOrganization: async () => [],
 }));
 
 vi.mock("../../lib/tedi-provisioning", () => ({
@@ -39,6 +55,7 @@ vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
 	getOrganizationById: mocks.getOrganizationById,
 	isSlugAvailable: mocks.checkSlugAvailable,
 	updateOrganization: mocks.updateOrganization,
+	retireOrganization: mocks.retireOrganization,
 }));
 
 vi.mock("../audit-helpers", async (importOriginal) => ({
@@ -85,6 +102,9 @@ function machineContext(): BaseContext {
 describe("organizations.completeOsOnboarding", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.patchTenant.mockResolvedValue({ ok: true });
+		mocks.deleteTenant.mockResolvedValue({ ok: true });
+		mocks.retireOrganization.mockResolvedValue({ id: ORGANIZATION_ID });
 		mocks.getOrganizationById.mockResolvedValue({
 			id: ORGANIZATION_ID,
 			name: "Personal Workspace",
@@ -124,6 +144,59 @@ describe("organizations.completeOsOnboarding", () => {
 				...updates,
 			}),
 		);
+	});
+
+	it.each(["update", "completeOsOnboarding"] as const)(
+		"%s patches only the name and surfaces provider failures",
+		async (operation) => {
+			const { organizationsContractRouter } = await import("./organizations");
+			const context = userContext();
+			Object.assign(context, {
+				organizationId: ORGANIZATION_ID,
+				userRole: "owner",
+			});
+			context.env.DESCOPE_PROJECT_ID = "P3fictional";
+			context.env.DESCOPE_MANAGEMENT_KEY = "fictional-key";
+			context.user!.permissions = ["settings:manage"];
+			const client = createRouterClient(organizationsContractRouter, {
+				context,
+			});
+			mocks.patchTenant.mockResolvedValueOnce({
+				ok: false,
+				error: { errorCode: "E_TEST" },
+			});
+			const input = {
+				organizationId: ORGANIZATION_ID,
+				name: "Example Studio",
+				slug: "personal-a1b2c3d4",
+			};
+			await expect(client[operation](input)).rejects.toThrow("E_TEST");
+			await expect(client[operation](input)).resolves.toMatchObject({
+				name: "Example Studio",
+			});
+			expect(mocks.patchTenant).toHaveBeenCalledWith("personal_user-1", {
+				name: "Example Studio",
+			});
+		},
+	);
+	it("retains an organization after tenant deletion fails, then retires it on retry", async () => {
+		const { organizationsContractRouter } = await import("./organizations");
+		const context = userContext();
+		context.user!.roles = ["platform-admin"];
+		context.env.DESCOPE_PROJECT_ID = "P3fictional";
+		context.env.DESCOPE_MANAGEMENT_KEY = "fictional-key";
+		const client = createRouterClient(organizationsContractRouter, { context });
+		mocks.deleteTenant.mockResolvedValueOnce({
+			ok: false,
+			error: { errorCode: "E_TEST" },
+		});
+		const input = { organizationId: ORGANIZATION_ID, force: true };
+		await expect(client.delete(input)).rejects.toThrow("E_TEST");
+		expect(mocks.retireOrganization).not.toHaveBeenCalled();
+		await expect(client.delete(input)).resolves.toMatchObject({
+			success: true,
+		});
+		expect(mocks.retireOrganization).toHaveBeenCalledOnce();
 	});
 
 	it("enables the owner's existing organization without needing tenant context", async () => {

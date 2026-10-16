@@ -13,7 +13,7 @@ import type { BaseContext } from "../orpc";
 const descope = vi.hoisted(() => ({
 	loadAllApplications: vi.fn(),
 }));
-vi.mock("./connections/policy-resolution", () => ({
+vi.mock("../../lib/descope-management", () => ({
 	getDescopeManagement: () => ({
 		management: {
 			outboundApplication: {

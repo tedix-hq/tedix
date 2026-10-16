@@ -10,6 +10,7 @@
 
 import DescopeSdk from "@descope/node-sdk";
 import type { DescopeEnv } from "@tedix/auth/types";
+import { descopeFetch } from "./descope-fetch.ts";
 
 // =============================================================================
 // TYPES
@@ -78,6 +79,18 @@ export function createDescopeClient(env: DescopeEnv): DescopeClient {
 		managementKey: env.DESCOPE_MANAGEMENT_KEY,
 		baseUrl: env.DESCOPE_BASE_URL,
 		fgaCacheUrl: env.DESCOPE_FGA_CACHE_URL,
+		// The SDK otherwise retries 503s, which can repeat an executed mutation.
+		hooks: {
+			beforeRequest: [(request) => ({ ...request, disableRetry: true })],
+		},
+		fetch: ((input, init) =>
+			descopeFetch(String(input), init ?? {})) as typeof fetch,
+		logger: {
+			debug: () => {},
+			log: () => {},
+			warn: () => console.warn("[Descope] SDK warning"),
+			error: () => console.error("[Descope] SDK error"),
+		},
 	});
 }
 
@@ -157,5 +170,20 @@ export async function loadUserTenantEditorialIdentity(
 		return { roles, email, name: result.data.name?.trim() || email };
 	} catch {
 		return null;
+	}
+}
+
+/** Reject provider failures without including response data or credentials. */
+export function assertDescopeOk(
+	response: {
+		ok: boolean;
+		error?: { errorCode?: string; errorDescription?: string } | null;
+	},
+	operation: string,
+): void {
+	if (!response.ok) {
+		throw new Error(
+			`${operation} failed: ${response.error?.errorCode ?? "unknown"} ${response.error?.errorDescription ?? "Descope request failed"}`,
+		);
 	}
 }

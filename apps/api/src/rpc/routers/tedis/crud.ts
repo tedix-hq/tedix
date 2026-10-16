@@ -2285,6 +2285,14 @@ export async function orchestrateTediDecommission(args: {
 		if (input.hardPurge) {
 			stage = "purge_external_identity";
 			result.programmaticCleanups.push(...(await deps.purgeExternalIdentity()));
+			const failedCleanup = result.programmaticCleanups.find(
+				(cleanup) => !cleanup.ok,
+			);
+			if (failedCleanup)
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					`${failedCleanup.step}: ${failedCleanup.detail ?? "External identity cleanup failed; retry purge"}`,
+				);
 			stage = "purge_agent_memory";
 			const agentMemoryCleanup = await deps.purgeAgentMemoryProfile();
 			result.programmaticCleanups.push(agentMemoryCleanup);
