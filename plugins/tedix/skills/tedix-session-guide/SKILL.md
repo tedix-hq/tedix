@@ -145,6 +145,8 @@ missing configuration with exact resource bindings and dependency decisions.
 The inspection grants no authority to create, activate or restart anything.
 Use the bundled Work lifecycle for an authorized next execution step. Keep
 configuration, activation, execution, durable results and publication separate.
+To install, configure or operate a workspace app such as Card review, follow
+[Build a workspace app](https://docs.tedix.dev/build-a-workspace-app).
 
 | User need                                                           | Tedix path                                                                                                                                                             |
 | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

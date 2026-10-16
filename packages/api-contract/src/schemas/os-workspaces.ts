@@ -18,6 +18,7 @@ import * as z from "zod";
 import { OsLocaleSchema } from "./user-settings";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
+import { CARD_REVIEW_ENTRY, CardReviewConfigSchema } from "./os-card-review";
 import { ModelRefSchema } from "./model-catalog";
 import {
 	ExecutionPreflightPinSchema,
@@ -467,6 +468,17 @@ export const OsGadgetManifestSchema = z
 			.describe(
 				"Free-form authoring notes; omitted when the author added none",
 			),
+		config: z
+			.record(z.string(), JsonValueSchema)
+			.optional()
+			.refine(
+				(value) =>
+					value === undefined || JSON.stringify(value).length <= 20_000,
+				{ message: "App config must be at most 20,000 characters as JSON" },
+			)
+			.describe(
+				"Non-secret settings of a built-in app selected by its entry; omitted for apps without settings. For the Card review app (entry tedix:app/card-review) this is {version: 1, sources: [{label, workspaceId, cardSheetPrefix, maxRuns?, columns: {source, why, useful, reason, done, number?, type?, who?, action?, draft?}, doIt: approve | copy_and_open, rules?: {sheetTitle, idColumn, textColumn, statusColumn}, feedbackSheetTitle?, reasonChips?: {useful?, notUseful?}, channels?: [{label, match}]}]}; columns name sheet headers",
+			),
 	})
 	.refine(
 		(value) =>
@@ -486,6 +498,26 @@ export const OsGadgetManifestSchema = z
 			message: "App export ids must be unique",
 		},
 	);
+
+/**
+ * A manifest as written: a built-in app's settings must match that app's
+ * schema, so a bad configuration fails the write with a precise message
+ * instead of rendering a broken app. Reads keep the lenient schema so a
+ * stored revision never becomes unreadable.
+ */
+export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
+	(value, ctx) => {
+		if (value.entry.trim() !== CARD_REVIEW_ENTRY) return;
+		const parsed = CardReviewConfigSchema.safeParse(value.config);
+		if (parsed.success) return;
+		for (const issue of parsed.error.issues)
+			ctx.addIssue({
+				code: "custom",
+				path: ["config", ...issue.path.map(String)],
+				message: issue.message,
+			});
+	},
+);
 
 /** A Tedix OS gadget: a versioned unit of workspace capability. */
 export const OsGadgetSchema = z.object({

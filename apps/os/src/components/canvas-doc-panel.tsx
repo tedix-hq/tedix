@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { isConflictError } from "@/components/blueprints-page";
 import { CanvasCodeEditor } from "@/components/canvas-editor";
+import { CardReviewApp } from "@/components/card-review-app";
 import {
 	CanvasGadgetExecutions,
 	gadgetExecutionToolResult,
@@ -52,6 +53,7 @@ import {
 	parseOutputDraft,
 } from "@/lib/canvas-draft";
 import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
+import { cardReviewConfigFromManifest } from "@/lib/card-review";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
 import { sameDraftText } from "@/collab/ot/draft-equivalence";
 import { sentenceCase } from "@/lib/format";
@@ -526,6 +528,12 @@ export function CanvasDocPanel({
 				gadgetDetail.data?.currentRevision?.manifest,
 			)
 		: null;
+	// A built-in app (entry `tedix:app/<id>`) renders first-party, with no iframe.
+	const builtinApp = isGadget
+		? cardReviewConfigFromManifest(gadgetDetail.data?.currentRevision?.manifest)
+		: ({ kind: "none" } as const);
+	const builtinAppView =
+		builtinApp.kind !== "none" && effectiveGadgetView === "preview";
 	const executionGadgetId = isGadget ? doc.id : doc.linkedGadgetId;
 	useEffect(() => {
 		setPreviewExecution(null);
@@ -600,7 +608,15 @@ export function CanvasDocPanel({
 						<Badge variant="info">App editor</Badge>
 					)}
 				</OutputWorkshopIdentity>
-				<OutputWorkshopStatus className="canvas-document-status">
+				{/* A built-in app saves each action itself; the manifest's draft and
+				    sync status belongs to the Code view only. */}
+				<OutputWorkshopStatus
+					className={
+						builtinAppView
+							? "canvas-document-status hidden!"
+							: "canvas-document-status"
+					}
+				>
 					{status !== "connected" && (
 						<ConnectionChip status={status} peers={peers} />
 					)}
@@ -739,7 +755,30 @@ export function CanvasDocPanel({
 					</AlertDescription>
 				</Alert>
 			)}
-			{session && isGadget ? (
+			{builtinAppView ? (
+				<div className="grid min-w-0 gap-3" data-canvas-builtin-app>
+					{gadgetViewOverride === undefined && (
+						<SegmentedControl
+							ariaLabel="App view"
+							compact
+							onValueChange={setGadgetView}
+							options={GADGET_VIEW_OPTIONS}
+							value={gadgetView}
+						/>
+					)}
+					{builtinApp.kind === "ok" ? (
+						<CardReviewApp config={builtinApp.config} />
+					) : (
+						<Alert variant="warning">
+							<AlertTitle>This app's settings need a fix</AlertTitle>
+							<AlertDescription>
+								{builtinApp.message}. Open Code to edit the settings in
+								manifest.json.
+							</AlertDescription>
+						</Alert>
+					)}
+				</div>
+			) : session && isGadget ? (
 				<div
 					className="grid min-w-0 gap-3"
 					style={
@@ -753,15 +792,16 @@ export function CanvasDocPanel({
 							: undefined
 					}
 				>
-					{gadgetWidgetTarget && gadgetViewOverride === undefined && (
-						<SegmentedControl
-							ariaLabel="App view"
-							compact
-							onValueChange={setGadgetView}
-							options={GADGET_VIEW_OPTIONS}
-							value={gadgetView}
-						/>
-					)}
+					{(gadgetWidgetTarget || builtinApp.kind !== "none") &&
+						gadgetViewOverride === undefined && (
+							<SegmentedControl
+								ariaLabel="App view"
+								compact
+								onValueChange={setGadgetView}
+								options={GADGET_VIEW_OPTIONS}
+								value={gadgetView}
+							/>
+						)}
 					{gadgetWidgetTarget && effectiveGadgetView === "preview" ? (
 						<Card
 							data-canvas-gadget-preview
@@ -875,7 +915,13 @@ export function CanvasDocPanel({
 			) : (
 				<ListSkeleton rows={1} rowClassName="h-64" />
 			)}
-			<OutputWorkshopFooter className="canvas-document-footer justify-end">
+			<OutputWorkshopFooter
+				className={
+					builtinAppView
+						? "canvas-document-footer hidden!"
+						: "canvas-document-footer justify-end"
+				}
+			>
 				{!isGadget &&
 					live &&
 					canonicalDoc &&

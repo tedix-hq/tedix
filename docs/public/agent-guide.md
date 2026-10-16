@@ -31,7 +31,9 @@ organization. Choose the path that matches the task:
 
 For a factory request, use [Build and inspect a factory as an agent](./factory-agent-guide.md).
 It maps canonical resources and tool families, then gives one bounded
-read-only inspection before setup or execution.
+read-only inspection before setup or execution. To install or operate a
+workspace app such as Card review, use
+[Build a workspace app](./build-a-workspace-app.md).
 
 ## Documentation endpoints
 

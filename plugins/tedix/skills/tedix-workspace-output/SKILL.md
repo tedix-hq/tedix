@@ -57,3 +57,6 @@ If the Workspace or Output is not visible, report that
 exact lookup failure. On a revision conflict, re-read and reconcile instead
 of replaying stale content. Never archive, delete, publish, or export as a
 substitute for the requested authoring action.
+
+To review factory cards in a sheet, or to install a workspace app that does,
+follow [Build a workspace app](https://docs.tedix.dev/build-a-workspace-app).

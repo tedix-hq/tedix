@@ -433,6 +433,13 @@ const CALLS: Record<string, unknown> = {
 		expectedRevision: 1,
 		note: "unit test edit",
 	},
+	"osWorkspaces/outputs/setSheetRange": {
+		outputId: IDS.outputSheet,
+		startRow: 0,
+		startColumn: 3,
+		cells: [["Checked"]],
+		expectedRevision: 1,
+	},
 	"osWorkspaces/outputs/export": { outputId: IDS.outputSheet, format: "pdf" },
 	"osWorkspaces/outputs/archive": { outputId: IDS.outputDeck },
 	"osWorkspaces/collaboration/list": {
