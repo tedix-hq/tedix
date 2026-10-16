@@ -508,6 +508,7 @@ export function runParams(
 			done: columns.done,
 			result: columns.result ?? DEFAULT_RESULT_COLUMN,
 		},
+		actions: source.run?.actions ?? [],
 		...(source.run?.workProjectId
 			? { workProjectId: source.run.workProjectId }
 			: {}),

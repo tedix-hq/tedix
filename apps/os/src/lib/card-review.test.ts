@@ -431,6 +431,7 @@ describe("run_skill Do it", () => {
 			skillId: "inbox-actions",
 			workProjectId: "33333333-3333-4333-8333-333333333333",
 			actions: [
+				{ kind: "bundle", match: ["housekeeping", "unsubscribe from all"] },
 				{ kind: "unsubscribe", match: ["unsubscribe"] },
 				{ kind: "label", match: ["label"] },
 				{ kind: "archive", match: ["archive"] },
@@ -445,6 +446,12 @@ describe("run_skill Do it", () => {
 		expect(cardActionKind(runner, card("unsubscribe", "Unsubscribe"))).toBe(
 			"unsubscribe",
 		);
+		expect(
+			cardActionKind(runner, card("housekeeping", "Tidy up 4 threads")),
+		).toBe("bundle");
+		expect(
+			cardActionKind(runner, card("unsubscribe", "Unsubscribe from all 3")),
+		).toBe("unsubscribe");
 		expect(
 			cardActionKind(runner, card("label/category", "Label as Receipts")),
 		).toBe("label");
@@ -466,6 +473,7 @@ describe("run_skill Do it", () => {
 		expect(needsOrganise(kind)).toBe(false);
 		expect(needsOrganise("archive")).toBe(true);
 		expect(needsOrganise("reply_draft")).toBe(true);
+		expect(needsOrganise("bundle")).toBe(true);
 		expect(cardActionKind({ run: undefined }, card("archive", ""))).toBe(
 			"work",
 		);
@@ -497,6 +505,7 @@ describe("run_skill Do it", () => {
 				done: "Approve action?",
 				result: "Result",
 			},
+			actions: runner.run!.actions,
 			workProjectId: "33333333-3333-4333-8333-333333333333",
 		});
 	});

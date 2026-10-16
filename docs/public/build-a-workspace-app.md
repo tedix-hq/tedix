@@ -173,14 +173,15 @@ workspace under **Runs on a schedule**.
 the card's type cell, then its action cell, wins, and anything else is
 `work`:
 
-| Kind          | What the run does                                                                |
-| ------------- | -------------------------------------------------------------------------------- |
-| `archive`     | Removes the Inbox label from the card's threads                                  |
-| `mark_read`   | Removes the Unread label                                                         |
-| `label`       | Adds the label named in the action ("Label as Receipts"), creating it if needed  |
-| `unsubscribe` | Uses the sender's one-click unsubscribe when the mail offers it, then archives   |
-| `reply_draft` | Saves the card's draft as a reply draft in the same thread; it is never sent     |
-| `work`        | Files a Tedix Work item in `run.workProjectId` with the card's context and links |
+| Kind          | What the run does                                                                                                                                                                            |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `archive`     | Removes the Inbox label from the card's threads                                                                                                                                              |
+| `mark_read`   | Removes the Unread label                                                                                                                                                                     |
+| `label`       | Adds the label named in the action ("Label as Receipts"), creating it if needed                                                                                                              |
+| `unsubscribe` | Uses the sender's one-click unsubscribe when the mail offers it, then archives                                                                                                               |
+| `reply_draft` | Saves the card's draft as a reply draft in the same thread; it is never sent                                                                                                                 |
+| `bundle`      | Runs each tidy-up a housekeeping card lists ("3 tidy-ups: Unsubscribe (Weekly News); Label as Receipts (Shop)") on its own thread, mapped by these same rules; the rest become one Work item |
+| `work`        | Files a Tedix Work item in `run.workProjectId` with the card's context and links                                                                                                             |
 
 Every kind except `work` changes the owner's mailbox, so it needs **Read +
 organise** on their account. Without it nothing runs and the card shows
@@ -226,6 +227,7 @@ words in all. The rule id stays behind **Details**.
 					"skillId": "inbox-actions",
 					"workProjectId": "33333333-3333-4333-8333-333333333333",
 					"actions": [
+						{ "kind": "bundle", "match": ["housekeeping", "tidy up"] },
 						{ "kind": "unsubscribe", "match": ["unsubscribe"] },
 						{ "kind": "label", "match": ["label"] },
 						{

@@ -22,7 +22,10 @@ const header = z
 /**
  * What a run_skill Do it can do. archive, mark_read, label, unsubscribe and
  * reply_draft change the owner's mailbox and need organise access; work files
- * a Tedix Work item with the card's context.
+ * a Tedix Work item with the card's context. bundle is a card that lists
+ * several tidy-ups ("3 tidy-ups: Unsubscribe (Weekly News); Label as
+ * Receipts (Shop)"): each listed action runs on its own thread by these same
+ * rules, and the ones that map to no kind become one Work item.
  */
 export const CARD_ACTION_KINDS = [
 	"archive",
@@ -30,6 +33,7 @@ export const CARD_ACTION_KINDS = [
 	"label",
 	"unsubscribe",
 	"reply_draft",
+	"bundle",
 	"work",
 ] as const;
 export const CardActionKindSchema = z.enum(CARD_ACTION_KINDS);
@@ -42,7 +46,7 @@ export const CardReviewRunSchema = z
 			.min(1)
 			.max(200)
 			.describe(
-				"Skill linked to the source workspace under Runs on a schedule; it runs with params {workspaceId, cardSheetId, row, kind, action, columns, workProjectId}",
+				"Skill linked to the source workspace under Runs on a schedule; it runs with params {cardSheetId, row, kind, action, reason, columns, actions, workProjectId}",
 			),
 		workProjectId: z
 			.string()
