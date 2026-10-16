@@ -88,10 +88,15 @@ their kind: "Built-in app", "Interactive app" or "Runs a skill".
 ## Card review
 
 `tedix:app/card-review` shows a factory's card sheets one card at a time:
-who and where, why it matters (the rule that fired, in plain words), the
-suggested action or draft, and the buttons **Useful**, **Not useful**,
-**Do it**, **Snooze** and **Skip**. Swipe right or left on a phone; on a
-keyboard use ←/→, D, S, K, the number keys for reason chips and Z to undo.
+who and where, what happened and what Tedix suggests, any draft, and the
+buttons **Useful**, **Not useful**, **Do it**, **Snooze** and **Skip**. Rule
+ids stay behind **Details**. Swipe right or left on a phone; on a keyboard
+use ←/→, D, S, K, the number keys for reason chips and Z to undo.
+
+Write each card in plain words, at most two short lines: who, what happened
+and what Tedix suggests ("Mia asked if Tuesday works. Tedix suggests a short
+yes."). Rule ids may follow in the why cell, for example `(R4)`; the card
+hides them.
 
 Verdicts go into the card sheet's own cells: the useful column gets `yes` or
 `no`, the reason column gets the chips and note as `Chip, Chip: note`, and
@@ -99,12 +104,21 @@ the done column gets `yes` from **Do it** (`no` from **Not useful**). A
 factory that already reads those cells keeps working unchanged. Snooze is
 per viewer and writes nothing.
 
+**Do it** is named after the card's action cell, a short concrete label of
+at most 40 characters such as "Draft a reply to Mia" or "Add to calendar".
+A card with an empty action cell has no **Do it** button. A sheet without
+the action column, or a longer action sentence, uses `doItLabel` (default
+"Do it", or "Copy draft and open" for `copy_and_open`).
+
 **Do it** never sends, posts or changes a mailbox. `approve` marks the done
 column; the factory or the person carries the action out. `copy_and_open`
 copies the draft, opens the source link and marks the done column.
 
-Rules-sheet rows with status `proposed` appear above the cards with
-**Accept** and **Reject**, which set the status to `accepted` or `rejected`.
+Rules-sheet rows with status `proposed` appear above the cards under
+**Suggested change**, with **Yes, change it** and **No, keep as is**, which
+set the status to `accepted` or `rejected`. Write the rule as one plain
+sentence starting "Stop showing…" or "Also show…", then "Why: …", under 35
+words in all. The rule id stays behind **Details**.
 
 ### Example config
 
@@ -155,6 +169,7 @@ Rules-sheet rows with status `proposed` appear above the cards with
 					"source": "Source",
 					"who": "Who",
 					"why": "Why",
+					"action": "Action",
 					"draft": "Draft",
 					"useful": "Useful?",
 					"reason": "Reason",
@@ -199,17 +214,17 @@ workpiece.
 
 Card review registers these tools:
 
-| Tool                        | What it does                                                                                                                 |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `card_review_next_card`     | Reads the open card (source, type, who, why with its rules, draft, link, sheet and row), cards left, filter and reason chips |
-| `card_review_set_verdict`   | Marks the open card `useful` or `not_useful`, with optional reason chips and text                                            |
-| `card_review_do_it`         | Presses **Do it**; it never sends or posts                                                                                   |
-| `card_review_snooze`        | Snoozes the open card until tomorrow for this viewer                                                                         |
-| `card_review_skip`          | Moves the open card to the end of the queue                                                                                  |
-| `card_review_undo`          | Undoes the last action, like the **Undo** button                                                                             |
-| `card_review_filter`        | Shows `all` cards or one channel (for example `linkedin` or `x`)                                                             |
-| `card_review_pending_rules` | Lists the suggested rule changes                                                                                             |
-| `card_review_decide_rule`   | Accepts or rejects one suggested rule change                                                                                 |
+| Tool                        | What it does                                                                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `card_review_next_card`     | Reads the open card (source, type, who, why with its rules, action, draft, link, sheet and row), the Do it label, cards left, filter and reason chips |
+| `card_review_set_verdict`   | Marks the open card `useful` or `not_useful`, with optional reason chips and text                                                                     |
+| `card_review_do_it`         | Presses **Do it**; it never sends or posts, and fails when the card has no action                                                                     |
+| `card_review_snooze`        | Snoozes the open card until tomorrow for this viewer                                                                                                  |
+| `card_review_skip`          | Moves the open card to the end of the queue                                                                                                           |
+| `card_review_undo`          | Undoes the last action, like the **Undo** button                                                                                                      |
+| `card_review_filter`        | Shows `all` cards or one channel (for example `linkedin` or `x`)                                                                                      |
+| `card_review_pending_rules` | Lists the suggested rule changes                                                                                                                      |
+| `card_review_decide_rule`   | Accepts or rejects one suggested rule change                                                                                                          |
 
 The verdict, **Do it** and skip/snooze tools take the `cardKey` that
 `card_review_next_card` returned and fail if a different card is open, so an

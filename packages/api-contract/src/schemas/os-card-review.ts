@@ -52,7 +52,11 @@ export const CardReviewSourceSchema = z
 				source: header,
 				who: header.optional(),
 				why: header,
-				action: header.optional(),
+				action: header
+					.optional()
+					.describe(
+						'Short concrete action that names the Do it button, e.g. "Draft a reply to Mia"; an empty cell hides the button',
+					),
 				draft: header.optional(),
 				useful: header.describe("Verdict column written yes or no"),
 				reason: header.describe("Column receiving the reason text"),
