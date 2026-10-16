@@ -176,15 +176,18 @@ headers are refused.
 
 `tedix factory create` builds a factory from a goal in one call through the
 gateway's `create_factory` tool. It creates the Work project, objective, a
-daily scheduled lane skill and a standing health Work Item. `tedix factory
+scheduled lane skill (daily, twice daily, hourly or every N hours) and a
+standing health Work Item. With `--output`, each run also appends its summary
+to a Tedix document or sheet. `tedix factory
 status` gives each factory one verdict through `inspect_factory_health`:
 healthy, idle, failing, not_firing, paused or pending.
 
 ```sh
 tedix factory create --goal "Keep the public docs accurate" --owner Nova --dry-run
 tedix factory create --goal "Keep the public docs accurate" [--owner Nova] \
-  [--cadence daily|twice_daily] [--template report] [--slug docs-accuracy] \
-  [--max-proposals 3] [--workspace-id <uuid>] [--project <KEY>]
+  [--cadence daily|twice_daily|hourly] [--every-hours <n>] [--template report] \
+  [--slug docs-accuracy] [--max-proposals 3] [--workspace-id <uuid>] \
+  [--output <id or title>] [--output-kind document|sheet] [--project <KEY>]
 tedix factory status                       # every factory and its verdict
 tedix factory status docs-accuracy --limit 7   # recent runs and what each delivered
 ```

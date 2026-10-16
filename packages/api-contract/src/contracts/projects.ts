@@ -436,7 +436,7 @@ export const projectsContract = oc
 				path: "/factories",
 				summary: "Create factory",
 				description:
-					"Build a factory from a goal in one call: the Work project and objective, a scheduled lane skill from a template (daily by default, off :00/:30), and a standing health Work Item. Idempotent by slug: re-running reuses what exists. A signed-in human or operator key activates the lane; an agent gets a draft plus the proof-run step.",
+					"Build a factory from a goal in one call: the Work project and objective, a scheduled lane skill from a template (daily by default, or twice_daily or hourly with everyHours; off :00/:30), and a standing health Work Item. With output, each run also appends its summary to a Tedix document (a dated section) or sheet (a row). Idempotent by slug: re-running reuses what exists. A signed-in human or operator key activates the lane; an agent gets a draft plus the proof-run step.",
 			})
 			.input(CreateFactoryInputSchema)
 			.output(CreateFactoryResultSchema),

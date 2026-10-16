@@ -18,6 +18,9 @@ import {
 import { renderFactoryLane } from "./factory-lane-template";
 
 const OWNER = "8d0f3a52-1c7e-4e55-9a0d-5c1f0b6f2a11";
+const DOC_ID = "44444444-4444-4444-8444-444444444444";
+const DECK_ID = "55555555-5555-4555-8555-555555555555";
+const WORKSPACE = "66666666-6666-4666-8666-666666666666";
 
 /** In-memory org: enough of D1 to prove a second build writes nothing. */
 function memoryStore(canActivate: boolean) {
@@ -45,6 +48,10 @@ function memoryStore(canActivate: boolean) {
 	>();
 	const schedules = new Map<string, { cron: string; nextFireAt: string }>();
 	const intents = new Map<string, string>();
+	const outputs = [
+		{ id: DOC_ID, title: "Weekly notes", kind: "document" },
+		{ id: DECK_ID, title: "Pitch", kind: "presentation" },
+	];
 	const store: FactoryStore = {
 		canActivate,
 		async load({ slug, projectKey }): Promise<FactoryBuildState> {
@@ -101,6 +108,18 @@ function memoryStore(canActivate: boolean) {
 		},
 		async workspaceExists() {
 			return true;
+		},
+		async findOutputById(outputId) {
+			return outputs.find((row) => row.id === outputId) ?? null;
+		},
+		async findOutputByTitle(params) {
+			return (
+				outputs.find(
+					(row) =>
+						row.title.toLowerCase() === params.title.toLowerCase() &&
+						row.kind === params.kind,
+				) ?? null
+			);
 		},
 		async createObjective() {
 			writes.push("objective");
@@ -377,6 +396,8 @@ const LANE = renderFactoryLane("report", {
 	healthWorkItemId: "33333333-3333-4333-8333-333333333333",
 	workspaceId: null,
 	maxProposals: 2,
+	cadence: "daily",
+	output: null,
 });
 
 type Lane = {
@@ -387,8 +408,8 @@ type Lane = {
 	): Promise<Record<string, unknown>>;
 };
 
-function loadLane(): Lane {
-	const source = LANE.files["scripts/workflow.ts"]!.replace(
+function loadLane(lane = LANE): Lane {
+	const source = lane.files["scripts/workflow.ts"]!.replace(
 		"export default {",
 		"return {",
 	);
@@ -396,7 +417,10 @@ function loadLane(): Lane {
 	return new Function(source)() as Lane;
 }
 
-function laneHarness(reply: string | null) {
+function laneHarness(
+	reply: string | null,
+	os: Record<string, (args: Record<string, unknown>) => unknown> = {},
+) {
 	const calls: Array<[string, Record<string, unknown>]> = [];
 	const tool =
 		(name: string, result: (args: Record<string, unknown>) => unknown) =>
@@ -430,6 +454,9 @@ function laneHarness(reply: string | null) {
 				})),
 				work_item_comment: tool("work_item_comment", () => ({ ok: true })),
 			},
+			os: Object.fromEntries(
+				Object.entries(os).map(([name, result]) => [name, tool(name, result)]),
+			),
 		},
 	};
 	const step = {
@@ -519,32 +546,57 @@ describe("report lane template", () => {
 });
 
 describe("factoryGoalLimits", () => {
-	it.each([
-		"hourly",
-		"every hour",
-		"every 15 minutes",
-		"every 2 hours",
-		"per hour",
-	])("warns about cadence: %s", (cadence) => {
-		const notes = factoryGoalLimits(`Review Work ${cadence}.`);
+	it.each(["hourly", "every hour", "every 2 hours", "per hour"])(
+		"names the hourly cadence for: %s",
+		(cadence) => {
+			const notes = factoryGoalLimits(`Review Work ${cadence}.`);
+			expect(notes).toHaveLength(1);
+			expect(notes[0]).toContain('cadence: "hourly"');
+			expect(notes[0]).toContain("--every-hours");
+		},
+	);
+
+	it("is quiet when the cadence is already hourly", () => {
+		expect(
+			factoryGoalLimits("Review Work every hour.", {
+				cadence: "hourly",
+				output: null,
+			}),
+		).toEqual([]);
+	});
+
+	it("names the hourly ceiling for minute schedules", () => {
+		const notes = factoryGoalLimits("Review Work every 15 minutes.", {
+			cadence: "hourly",
+			output: null,
+		});
 		expect(notes).toHaveLength(1);
-		expect(notes[0]).toContain('cadence: "twice_daily"');
-		expect(notes[0]).toContain("--cadence twice_daily");
-		expect(notes[0]).toContain("own scheduled skill");
+		expect(notes[0]).toContain("at most hourly");
 	});
 
 	it.each([
 		"Write findings into the document.",
-		"Update results to Notion.",
 		"Append a report to our sheet.",
 		"Publish the summary to an Output.",
 		"Write results to a page.",
 		"Write notes into a doc.",
-	])("warns about document writes: %s", (goal) => {
+	])("names the output option for: %s", (goal) => {
 		const notes = factoryGoalLimits(goal);
 		expect(notes).toHaveLength(1);
-		expect(notes[0]).toContain("cannot write into a document or Output");
-		expect(notes[0]).toContain("ask the owner tedi to update that document");
+		expect(notes[0]).toContain("--output");
+		expect(
+			factoryGoalLimits(goal, { cadence: "daily", output: "Notes" }),
+		).toEqual([]);
+	});
+
+	it("says Notion pages are out of reach", () => {
+		const notes = factoryGoalLimits("Update results to Notion.", {
+			cadence: "daily",
+			output: "Notes",
+		});
+		expect(notes).toEqual([
+			"The report lane writes only Tedix document and sheet Outputs, not Notion pages.",
+		]);
 	});
 
 	it("does not infer document writes from a docs maintenance goal", () => {
@@ -564,4 +616,255 @@ describe("factoryGoalLimits", () => {
 			expect(result.warnings).toHaveLength(2);
 		},
 	);
+});
+
+describe("hourly cadence", () => {
+	it("renders hourly and every-N-hours crons off :00 and :30", () => {
+		const hourly = staggeredFactoryCron("docs", "hourly");
+		expect(hourly).toMatch(/^\d+ \* \* \* \*$/);
+		const minute = Number(hourly.split(" ")[0]);
+		expect(minute % 30).not.toBe(0);
+		const every6 = staggeredFactoryCron("docs", "hourly", 6);
+		const hours = every6.split(" ")[1]!.split(",").map(Number);
+		expect(hours).toHaveLength(4);
+		expect(
+			hours.every((hour, i) => i === 0 || hour - hours[i - 1]! === 6),
+		).toBe(true);
+		expect(every6.split(" ")[0]).toBe(String(minute));
+	});
+
+	it("builds an hourly lane and records the step", async () => {
+		const { store, projects } = memoryStore(true);
+		const result = await buildFactory(
+			store,
+			input({ cadence: "hourly", everyHours: 3 }),
+		);
+		expect(result.cron.split(" ")[1]!.split(",")).toHaveLength(8);
+		const binding = [...projects.values()][0]!.metadata.factory as Record<
+			string,
+			unknown
+		>;
+		expect(binding).toMatchObject({ cadence: "hourly", everyHours: 3 });
+	});
+
+	it("rejects everyHours without the hourly cadence", async () => {
+		const { store } = memoryStore(true);
+		await expect(buildFactory(store, input({ everyHours: 2 }))).rejects.toThrow(
+			/needs cadence "hourly"/,
+		);
+		expect(() => input({ cadence: "hourly", everyHours: 5 })).toThrow();
+	});
+});
+
+describe("factory output", () => {
+	it("binds an Output by id and lists only its tools", async () => {
+		const { store, skills } = memoryStore(true);
+		const result = await buildFactory(store, input({ output: DOC_ID }));
+		expect(result.output).toEqual({
+			id: DOC_ID,
+			title: "Weekly notes",
+			kind: "document",
+		});
+		expect(result.steps).toContainEqual({
+			resource: "output",
+			action: "reused",
+			id: DOC_ID,
+		});
+		const skill = [...skills.values()][0]!;
+		expect(skill.content).toContain("os: [get_os_output, patch_os_document]");
+		expect(skill.files["scripts/workflow.ts"]).toContain(DOC_ID);
+	});
+
+	it("finds a title in the Workspace, else leaves it to the first run", async () => {
+		const { store } = memoryStore(true);
+		const found = await buildFactory(
+			store,
+			input({ slug: "found", output: "weekly NOTES", workspaceId: WORKSPACE }),
+		);
+		expect(found.output?.id).toBe(DOC_ID);
+		const planned = await buildFactory(
+			store,
+			input({
+				slug: "planned",
+				output: "Run log",
+				outputKind: "sheet",
+				workspaceId: WORKSPACE,
+			}),
+		);
+		expect(planned.output).toEqual({
+			id: null,
+			title: "Run log",
+			kind: "sheet",
+		});
+		expect(planned.steps).toContainEqual(
+			expect.objectContaining({ resource: "output", action: "would_create" }),
+		);
+	});
+
+	it("rejects a title without a Workspace and a non-document id", async () => {
+		const { store } = memoryStore(true);
+		await expect(
+			buildFactory(store, input({ output: "Run log" })),
+		).rejects.toThrow(/needs workspaceId/);
+		await expect(
+			buildFactory(store, input({ output: DECK_ID })),
+		).rejects.toThrow(/document or a sheet/);
+		await expect(
+			buildFactory(store, input({ outputKind: "sheet" })),
+		).rejects.toThrow(/outputKind needs output/);
+	});
+
+	it("warns instead of changing an existing lane's output", async () => {
+		const { store } = memoryStore(true);
+		await buildFactory(store, input());
+		const again = await buildFactory(store, input({ output: DOC_ID }));
+		expect(again.output).toBeNull();
+		expect(again.warnings.join(" ")).toContain("stay as built");
+	});
+});
+
+const OUTPUT_LANE_PARAMS = {
+	slug: "comment-digest",
+	name: "Comment digest",
+	goal: "Summarize new comments every hour.",
+	cron: "17 * * * *",
+	ownerTediId: OWNER,
+	projectId: "11111111-1111-4111-8111-111111111111",
+	objectiveId: "22222222-2222-4222-8222-222222222222",
+	healthWorkItemId: "33333333-3333-4333-8333-333333333333",
+	workspaceId: WORKSPACE,
+	maxProposals: 0,
+	cadence: "hourly" as const,
+};
+
+const DIGEST_REPLY = `Done.\nFACTORY_REPORT\n${JSON.stringify({
+	summary: "Two new comments on the install page.",
+	proposals: [],
+})}`;
+
+describe("report lane with an Output", () => {
+	it("passes validation with the os tools in its manifest", () => {
+		const lane = renderFactoryLane("report", {
+			...OUTPUT_LANE_PARAMS,
+			output: { id: null, title: "Comment digest", kind: "document" },
+		});
+		const manifest = parseCapabilityManifest(lane.content);
+		expect(manifest.mcp.os).toEqual([
+			"list_os_outputs",
+			"create_os_output",
+			"get_os_output",
+			"patch_os_document",
+		]);
+		expect(
+			validateWorkflowSource(
+				lane.files["scripts/workflow.ts"]!,
+				"scripts/workflow.ts",
+				manifest as Parameters<typeof validateWorkflowSource>[2],
+			),
+		).toEqual([]);
+	});
+
+	it("creates the document on the first run, appends a dated section, and skips a repeat", async () => {
+		const lane = renderFactoryLane("report", {
+			...OUTPUT_LANE_PARAMS,
+			output: { id: null, title: "Comment digest", kind: "document" },
+		});
+		let blocks: Array<Record<string, unknown>> = [];
+		const os = {
+			list_os_outputs: () => ({ items: [], truncated: false }),
+			create_os_output: () => ({ output: { id: DOC_ID } }),
+			get_os_output: () => ({
+				output: { id: DOC_ID },
+				currentRevision: {
+					revision: 1 + blocks.length,
+					content: { kind: "document", blocks },
+				},
+			}),
+			patch_os_document: (args: Record<string, unknown>) => {
+				for (const op of args.ops as Array<{ block: Record<string, unknown> }>)
+					blocks = [...blocks, op.block];
+				return { output: { id: DOC_ID } };
+			},
+		};
+		const first = laneHarness(DIGEST_REPLY, os);
+		const result = await loadLane(lane).run({}, first.step, first.env);
+		expect(String(result.cycleKey)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
+		expect(result.output).toEqual({ outputId: DOC_ID, written: true });
+		const [, create] = first.calls.find(
+			([name]) => name === "create_os_output",
+		)!;
+		expect(create).toMatchObject({
+			kind: "document",
+			title: "Comment digest",
+			workspaceId: WORKSPACE,
+		});
+		const [, patch] = first.calls.find(
+			([name]) => name === "patch_os_document",
+		)!;
+		expect(patch).toMatchObject({ outputId: DOC_ID, expectedRevision: 1 });
+		expect(blocks[0]).toMatchObject({ type: "heading", level: 2 });
+		expect(String(blocks[0]!.text)).toMatch(
+			/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/,
+		);
+		expect(blocks[1]).toEqual({
+			type: "paragraph",
+			text: "Two new comments on the install page.",
+		});
+		expect(blocks.at(-1)!.text).toBe("Comment digest factory, run run-1");
+		const [, prompt] = first.calls.find(([name]) => name === "run_tedi_turn")!;
+		expect(String(prompt.text)).toContain("Do not propose Work Items");
+
+		// A retried run finds its own section and writes nothing.
+		const retry = laneHarness(DIGEST_REPLY, {
+			...os,
+			list_os_outputs: () => ({
+				items: [{ id: DOC_ID, title: "comment digest" }],
+				truncated: false,
+			}),
+		});
+		const again = await loadLane(lane).run({}, retry.step, retry.env);
+		expect(again.output).toEqual({ outputId: DOC_ID, written: false });
+		expect(retry.calls.some(([name]) => name === "create_os_output")).toBe(
+			false,
+		);
+		expect(retry.calls.some(([name]) => name === "patch_os_document")).toBe(
+			false,
+		);
+		const [, scorecard] = retry.calls.find(
+			([name]) => name === "work_item_comment",
+		)!;
+		expect(String(scorecard.body)).toContain("already had this run's section");
+	});
+
+	it("appends one row to a bound sheet", async () => {
+		const lane = renderFactoryLane("report", {
+			...OUTPUT_LANE_PARAMS,
+			output: { id: DOC_ID, title: "Run log", kind: "sheet" },
+		});
+		const { calls, env, step } = laneHarness(DIGEST_REPLY, {
+			get_os_output: () => ({
+				currentRevision: {
+					revision: 4,
+					content: {
+						kind: "sheet",
+						columns: ["When", "Notes", "Run"],
+						rows: [["2026-10-15 09:17 UTC", "Quiet hour.", "older run"]],
+					},
+				},
+			}),
+			set_os_sheet_range: () => ({ output: { id: DOC_ID } }),
+		});
+		await loadLane(lane).run({}, step, env);
+		const [, range] = calls.find(([name]) => name === "set_os_sheet_range")!;
+		expect(range).toMatchObject({
+			outputId: DOC_ID,
+			startRow: 1,
+			startColumn: 0,
+			expectedRevision: 4,
+		});
+		const [row] = range.cells as string[][];
+		expect(row).toHaveLength(3);
+		expect(row![1]).toBe("Two new comments on the install page.");
+		expect(row![2]).toBe("Comment digest factory, run run-1");
+	});
 });
