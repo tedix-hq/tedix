@@ -2251,23 +2251,64 @@ a:focus-visible {
 	color: var(--text-color-kumo-subtle);
 }
 
-.deck-read-stage {
+/*
+ * The read view hugs the slide. The slide's width is bounded by its column and
+ * by a viewport-height budget (the page chrome above, the Present row below),
+ * and its height follows from 16:9 -- there is no fixed-height stage to
+ * letterbox it. Notes and Present share that width so they sit right under it.
+ */
+.deck-read {
+	--deck-read-width: min(100%, max(16rem, 100dvh - 17rem) * 16 / 9);
 	display: grid;
+	gap: 12px;
+	grid-template-columns: minmax(0, 1fr);
+}
+
+/* Narrow: a horizontal strip of miniatures above the slide. */
+.deck-read-rail {
+	display: grid;
+	grid-auto-columns: 9rem;
+	grid-auto-flow: column;
+	gap: 8px;
+	overflow-x: auto;
+}
+
+@media (min-width: 1024px) {
+	.deck-read {
+		grid-template-columns: 11rem minmax(0, 1fr);
+	}
+
+	/* `contain: size` keeps the rail out of the row's height, so the row is
+	 * exactly the slide's height and the rail scrolls inside it. */
+	.deck-read-rail {
+		grid-row: 1;
+		grid-auto-columns: auto;
+		grid-auto-flow: row;
+		align-content: start;
+		contain: size;
+		overflow-x: hidden;
+		overflow-y: auto;
+	}
+
+	.deck-read-stage,
+	.deck-read-footer {
+		grid-column: 2;
+	}
+}
+
+.deck-read-stage,
+.deck-read-footer {
+	width: var(--deck-read-width);
 	min-width: 0;
-	height: clamp(18rem, 52vh, 44rem);
-	place-content: center;
-	padding: 12px;
-	border: 1px solid oklch(0.82 0.003 95);
-	border-radius: 0;
-	background: oklch(0.96 0.003 95);
-	color-scheme: light;
-	container-type: size;
 }
 
 .deck-read-canvas {
-	width: min(100cqw, 100cqh * 16 / 9);
-	max-width: 100%;
+	width: 100%;
 	aspect-ratio: 16 / 9;
+	/* An outline, not a border: it frames a white slide on a light page without
+	 * shrinking the inline-size container the slide type is measured against. */
+	outline: 1px solid var(--color-kumo-line);
+	color-scheme: light;
 }
 
 .canvas-pane-switcher {

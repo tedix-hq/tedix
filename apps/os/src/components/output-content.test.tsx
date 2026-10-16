@@ -227,43 +227,40 @@ describe("OutputContentView", () => {
 		expect(html).not.toContain("border-blue-");
 	});
 
-	it("fits the deck canvas to both axes of its stage instead of driving it by width", () => {
+	it("hugs the slide at 16:9 instead of letterboxing it in a fixed-height stage", () => {
 		const html = renderToStaticMarkup(
 			<OutputContentView content={deckContent} />,
 		);
 		const canvasClass = classAttributeFor(html, "deck-read-canvas");
 
-		// `w-full` + `aspect-video` fixes width and derives height, so the slide
-		// overflows a short container. Both must be gone from the canvas.
+		// Sizing is owned by `.deck-read-canvas`, not Tailwind utilities.
 		expect(canvasClass).not.toContain("aspect-video");
 		expect(canvasClass).not.toContain("w-full");
 		// The editor canvas dropped its drop shadow; the read view matches.
 		expect(canvasClass).not.toMatch(/\bshadow-/);
 
 		const styles = readFileSync("src/styles.css", "utf8");
-		const stage = styles.slice(
-			styles.indexOf(".deck-read-stage {"),
-			styles.indexOf("}", styles.indexOf(".deck-read-stage {")),
+		const rule = (selector: string) => {
+			const start = styles.indexOf(`${selector} {`);
+			return styles.slice(start, styles.indexOf("}", start));
+		};
+		const root = rule(".deck-read");
+		const stage = rule(".deck-read-stage,\n.deck-read-footer");
+		const canvas = rule(".deck-read-canvas");
+		// A fixed-height size-container stage letterboxed the slide with empty
+		// space above and below it. The stage must take its height from the slide.
+		expect(styles).not.toMatch(/\.deck-read-stage \{[^}]*\bheight:/);
+		expect(styles).not.toMatch(/\.deck-read-stage \{[^}]*container-type: size/);
+		// Width is bounded by the column and by a viewport-height budget, so a
+		// short window still shows the whole slide; Notes and Present share it.
+		expect(root).toMatch(
+			/--deck-read-width: min\(100%, .*100dvh.* \* 16 \/ 9\)/,
 		);
-		const canvas = styles.slice(
-			styles.indexOf(".deck-read-canvas {"),
-			styles.indexOf("}", styles.indexOf(".deck-read-canvas {")),
-		);
-		// The stage must be a size container, or `100cqh` below resolves against
-		// nothing and the height bound silently stops applying.
-		expect(stage).toContain("container-type: size");
-		// A definite height is required: Chrome resolves cqh to 0 when a size
-		// container has an indefinite block size, collapsing the canvas.
-		// This test checks CSS structure only. The DOM test environment performs
-		// no layout or container-query evaluation; rendered size needs a browser.
-		expect(stage).toMatch(/(?<!-)\bheight:/);
-		expect(
-			stage,
-			"a min-height cannot size a `container-type: size` stage: cqh resolves to 0",
-		).not.toMatch(/\bmin-height:/);
-		// Bounded on BOTH axes at exactly 16:9.
-		expect(canvas).toContain("width: min(100cqw, 100cqh * 16 / 9)");
+		expect(stage).toContain("width: var(--deck-read-width)");
+		expect(canvas).toContain("width: 100%");
 		expect(canvas).toContain("aspect-ratio: 16 / 9");
+		// The rail must not set the row height: it scrolls inside the slide's.
+		expect(styles).toMatch(/\.deck-read-rail \{[^}]*contain: size/);
 		// Radius is deliberately owned by the markup while the "artifact surfaces
 		// are square" question is open; this rule must stay neutral on it.
 		expect(canvas).not.toContain("border-radius");
