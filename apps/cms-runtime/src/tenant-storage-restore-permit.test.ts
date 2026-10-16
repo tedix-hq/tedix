@@ -475,18 +475,26 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	const optionUpsert =
 		'insert into "options" ("name", "value", "revision") values (?, ?, ?) on conflict ("name") do update set "value" = ?, "revision" = ?';
 	await stub.query(
-		"CREATE TABLE _emdash_cron_tasks (id INTEGER PRIMARY KEY, status TEXT, locked_at TEXT)",
+		"CREATE TABLE _emdash_cron_tasks (id INTEGER PRIMARY KEY, status TEXT, locked_at TEXT, plugin_id TEXT DEFAULT 'example', task_name TEXT DEFAULT 'test', schedule TEXT DEFAULT '* * * * *', is_oneshot INTEGER DEFAULT 0, data TEXT, next_run_at TEXT DEFAULT 'before', enabled INTEGER DEFAULT 1)",
 	);
 	const recoverLocks =
 		"UPDATE _emdash_cron_tasks SET status = 'idle', locked_at = NULL WHERE status = 'running' AND locked_at < ?";
 	await stub.queryWithRestorePermit(identity, recoverLocks, ["now"]);
 	expect(await revision()).toBe(before);
 	await stub.query(
-		"INSERT INTO _emdash_cron_tasks VALUES (1, 'running', 'before')",
+		"INSERT INTO _emdash_cron_tasks (id, status, locked_at) VALUES (1, 'running', 'before')",
 	);
 	await stub.batchQueryWithRestorePermit(identity, [
 		{ sql: recoverLocks, params: ["now"] },
 	]);
+	const claimTasks =
+		"UPDATE _emdash_cron_tasks SET status = 'running', locked_at = ? WHERE id IN (SELECT id FROM _emdash_cron_tasks WHERE next_run_at <= ? AND status = 'idle' AND enabled = 1 ORDER BY next_run_at ASC LIMIT 10) RETURNING id, plugin_id, task_name, schedule, is_oneshot, data, next_run_at";
+	expect(
+		await stub.queryWithRestorePermit(identity, claimTasks, ["now", "now"]),
+	).toMatchObject({ rows: [{ id: 1 }] });
+	expect(
+		await stub.queryWithRestorePermit(identity, claimTasks, ["now", "now"]),
+	).toMatchObject({ rows: [] });
 	expect(await revision()).toBe(before);
 	await stub.queryWithRestorePermit(identity, optionUpsert, [
 		"system:scheduler:last_completed_at",
@@ -495,6 +503,40 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 		'"now"',
 		"r1",
 	]);
+	expect(await revision()).toBe(before);
+	await stub.query(
+		"CREATE TABLE _plugin_storage (plugin_id TEXT, collection TEXT, data TEXT)",
+	);
+	await stub.query(
+		"CREATE TABLE _plugin_indexes (plugin_id TEXT, collection TEXT, index_name TEXT, fields TEXT, PRIMARY KEY (plugin_id, collection, index_name))",
+	);
+	const indexSql =
+		"CREATE INDEX IF NOT EXISTS \"idx_plugin_example_items_created_at\" ON _plugin_storage(plugin_id, collection, json_extract(data, '$.created_at'))";
+	const indexRow = {
+		sql: 'insert into "_plugin_indexes" ("plugin_id", "collection", "index_name", "fields") values (?, ?, ?, ?) on conflict ("plugin_id", "collection", "index_name") do update set "fields" = ?',
+		params: [
+			"example",
+			"items",
+			"idx_plugin_example_items_created_at",
+			'["created_at"]',
+			'["created_at"]',
+		],
+	};
+	await stub.queryWithRestorePermit(identity, indexSql);
+	await stub.queryWithRestorePermit(identity, indexRow.sql, indexRow.params);
+	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: indexSql },
+		indexRow,
+	]);
+	await stub.queryWithRestorePermit(
+		identity,
+		'DROP INDEX IF EXISTS "idx_plugin_example_items_created_at"',
+	);
+	await stub.queryWithRestorePermit(
+		identity,
+		'DELETE FROM "_plugin_indexes" WHERE plugin_id = ? AND collection = ? AND index_name = ?',
+		["example", "items", "idx_plugin_example_items_created_at"],
+	);
 	expect(await revision()).toBe(before);
 	await stub.queryWithRestorePermit(identity, optionUpsert, [
 		"site:title",
@@ -524,4 +566,14 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 		{ sql: "UPDATE content SET title = ?", params: ["Republished"] },
 	]);
 	expect(await revision()).not.toBe(contextualWrite);
+	const beforePluginWrite = await revision();
+	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: indexSql },
+		indexRow,
+		{
+			sql: "INSERT INTO _plugin_storage (plugin_id, collection, data) VALUES (?, ?, ?)",
+			params: ["example", "items", '{"created_at":"now"}'],
+		},
+	]);
+	expect(await revision()).not.toBe(beforePluginWrite);
 });
