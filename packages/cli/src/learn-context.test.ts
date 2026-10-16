@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { normalizeGitOrigin, type OrganizationTarget } from "./agent-context";
@@ -1020,6 +1020,69 @@ describe("context and review", () => {
 		out.length = 0;
 		await runReview([], deps(board, stateDir, out));
 		expect(out.join("\n")).toContain("No proposals to review");
+	});
+
+	it("onboard previews 100 sessions without a model, gateway or worker", async () => {
+		const out: string[] = [];
+		const sessions = Object.fromEntries(
+			Array.from({ length: 100 }, (_, i) => [
+				`session-${i}`,
+				claudeSession(
+					`s-${i}`,
+					"Build fictional Acme planner",
+					["Build the planner interface"],
+					1,
+				),
+			]),
+		);
+		const stateDir = join(mkdtempSync(join(tmpdir(), "learn-state-")), "never");
+		const forbidden = async () => {
+			throw new Error("Preview must stay local and skip the model");
+		};
+		const started = performance.now();
+		expect(
+			await runOnboard(["--dry-run"], {
+				...deps(new Board(PROJECTS), stateDir, out),
+				files: Object.keys(sessions).map((path) => ({
+					harness: "claude-code",
+					path,
+				})),
+				readFile: (path) => sessions[path]!,
+				read: forbidden,
+				runModel: forbidden,
+				startWorker: () => {
+					throw new Error("No worker in preview");
+				},
+			}),
+		).toBe(0);
+		expect(performance.now() - started).toBeLessThan(1000);
+		expect(out.join("\n")).toContain(
+			"100 sessions (claude-code: 100, codex: 0), 0 preference notes",
+		);
+		expect(out.join("\n")).toContain("Build fictional Acme planner");
+		expect(out.join("\n")).toContain("nothing was saved or sent");
+		expect(existsSync(stateDir)).toBe(false);
+	});
+
+	it("onboard full dry run opts into the model with a duration warning", async () => {
+		const out: string[] = [];
+		let modelCalls = 0;
+		const board = new Board(PROJECTS);
+		const stateDir = join(mkdtempSync(join(tmpdir(), "learn-state-")), "never");
+		expect(
+			await runOnboard(["--dry-run", "--with-model"], {
+				...deps(board, stateDir, out),
+				runModel: async () => {
+					modelCalls++;
+					return "[]";
+				},
+			}),
+		).toBe(0);
+		expect(modelCalls).toBeGreaterThan(0);
+		expect(out[0]).toContain("takes a few minutes");
+		expect(board.created).toHaveLength(0);
+		expect(board.interactions).toHaveLength(0);
+		expect(existsSync(stateDir)).toBe(false);
 	});
 
 	it("onboard hands off to a background worker and returns", async () => {

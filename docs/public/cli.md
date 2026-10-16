@@ -183,7 +183,13 @@ points to a local checkout, update that checkout yourself first; setup keeps
 its source and does not switch or delete it.
 
 To bring a new member's history in, run `tedix learn onboard --dry-run`, then
-`tedix learn onboard`. Onboarding runs the three steps below in order, in the
+`tedix learn onboard`. The dry run quickly shows session counts per host and
+organization, preference-note counts and topic candidates from titles, without
+a model or board matching; nothing is saved or sent. For the full model
+preview, use `tedix learn onboard --dry-run --with-model`; it runs in the
+foreground and takes a few minutes.
+
+Onboarding runs the three steps below in order, in the
 background (`--wait` keeps it in the foreground; running it again resumes a run
 that stopped), and creates nothing on the shared board until you accept it.
 Its proposals arrive in your Tedix inbox (Work > Interactions).
