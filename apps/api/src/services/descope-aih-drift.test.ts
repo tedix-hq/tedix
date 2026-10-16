@@ -2,6 +2,56 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildDescopeAihDriftReport } from "./descope-aih-drift";
 
 describe("buildDescopeAihDriftReport", () => {
+	it("reports connection mapping drift even when the MCP scope name is unchanged", () => {
+		const report = buildDescopeAihDriftReport({
+			checkedAt: "2026-10-17T00:00:00.000Z",
+			projectId: "project",
+			servers: [
+				{
+					id: "server",
+					name: "Mail",
+					approvedScopes: {
+						connectionsScopes: [{ name: "mail.read", values: ["old"] }],
+					},
+				},
+			],
+			clientsByServerId: new Map(),
+			outboundApps: [],
+			tenants: [],
+			roles: [],
+			fgaRelations: [],
+			providers: [],
+			d1Tedis: [],
+			d1Apps: [
+				{
+					id: "app",
+					slug: "mail-app",
+					name: "Mail",
+					descopeResourceId: "server",
+					authMode: "authenticated",
+					codeMode: false,
+					connectionProviderId: "mail",
+					metadata: {
+						mcpConfig: {
+							connectionProviderId: "mail",
+							connectionScopes: ["Mail.Read"],
+							toolScopes: { mail: ["mail.read"] },
+						},
+					},
+				},
+			],
+		});
+		expect(
+			report.issues.find(
+				(entry) => entry.code === "connection_scope_mapping_drift",
+			)?.details,
+		).toEqual({
+			appId: "app",
+			expectedMappings: { "mail.read": ["Mail.Read"] },
+			actualMappings: { "mail.read": ["old"] },
+		});
+	});
+
 	it("compares managed tedi clients with the exact live FGA role scope set", () => {
 		const report = buildDescopeAihDriftReport({
 			checkedAt: "2026-08-20T00:00:00.000Z",
@@ -571,7 +621,7 @@ describe("buildDescopeAihDriftReport", () => {
 		expect(flagged?.details).toMatchObject({ appSlugs: ["google-docs-tedix"] });
 	});
 
-	it("flags missing OAuth defaults while allowing harmless scope supersets", () => {
+	it("flags missing OAuth defaults and extra scopes outside D1's declaration", () => {
 		const report = buildDescopeAihDriftReport({
 			checkedAt: "2026-08-02T00:00:00.000Z",
 			projectId: "project-id",
@@ -692,7 +742,7 @@ describe("buildDescopeAihDriftReport", () => {
 					issue.code === "connection_provider_default_scopes_drift" &&
 					issue.resourceId === "drive",
 			),
-		).toBe(false);
+		).toBe(true);
 		expect(
 			report.issues.find(
 				(issue) => issue.code === "connection_provider_default_scopes_drift",

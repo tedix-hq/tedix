@@ -33,6 +33,7 @@ import {
 	resolveDescopeMcpScopeSyncConfig,
 } from "@tedix/auth/descope-mcp";
 import { collectDescopeResourceScopes } from "@tedix/auth/scope-sync";
+import { reconcileConnectionScopeMappings } from "@tedix/auth/connection-scope-mapping";
 import type { DbClient } from "@tedix/db/client";
 import {
 	getAppById,
@@ -365,12 +366,20 @@ function buildUpdatedMcpConfig(params: {
 
 function toDescopeConnectionScopes(
 	scopes: Array<{ name: string; description: string }>,
+	config?: McpConfig | null,
 ): McpServerScope[] {
-	return scopes.map((scope) => ({
-		name: scope.name,
-		description: scope.description,
-		optional: true,
-	}));
+	return (
+		reconcileConnectionScopeMappings(
+			{
+				connectionsScopes: scopes.map((scope) => ({
+					name: scope.name,
+					description: scope.description,
+					optional: true,
+				})),
+			},
+			config ?? {},
+		).connectionsScopes ?? []
+	);
 }
 
 async function persistMcpConfig(
@@ -423,7 +432,7 @@ export const registerProcedure = authedMcpServerOs.register
 						}),
 						approvedScopes: {
 							...existing.approvedScopes,
-							connectionsScopes: toDescopeConnectionScopes(scopes),
+							connectionsScopes: toDescopeConnectionScopes(scopes, mcpConfig),
 						},
 					},
 					env,
@@ -447,7 +456,7 @@ export const registerProcedure = authedMcpServerOs.register
 				description: app.description ?? `MCP Server for ${app.name}`,
 				audienceWhitelist: [buildTedixMcpResourceUri(app.slug)],
 				approvedScopes: {
-					connectionsScopes: toDescopeConnectionScopes(scopes),
+					connectionsScopes: toDescopeConnectionScopes(scopes, mcpConfig),
 				},
 				tags: reconcileTedixMcpOwnershipTags([], { app: app.slug }),
 			});
@@ -536,7 +545,7 @@ export const adoptResourceProcedure = authedMcpServerOs.adoptResource
 			tags: reconcileTedixMcpOwnershipTags(resource.tags, { app: app.slug }),
 			approvedScopes: {
 				...resource.approvedScopes,
-				connectionsScopes: toDescopeConnectionScopes(scopes),
+				connectionsScopes: toDescopeConnectionScopes(scopes, mcpConfig),
 			},
 		});
 
@@ -650,7 +659,7 @@ export const syncScopesProcedure = authedMcpServerOs.syncScopes
 						}),
 						approvedScopes: {
 							...server.approvedScopes,
-							connectionsScopes: toDescopeConnectionScopes(scopes),
+							connectionsScopes: toDescopeConnectionScopes(scopes, mcpConfig),
 						},
 					},
 					env,

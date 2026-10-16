@@ -22,6 +22,7 @@
 
 import { guardedFetch, SsrfBlockedError } from "@tedix/ssrf-guard";
 import type { DescopeClient } from "./descope.ts";
+import { normalizeConnectionScopes } from "./connection-scope-mapping";
 import { descopeFetch, descopeManagementFetch } from "./descope-fetch.ts";
 import { normalizeIssuerForComparison } from "./oauth-iss.ts";
 import { TEDIX_OUTBOUND_MCP_OAUTH_CLIENT_ID } from "./oauth-client-registration.ts";
@@ -2131,6 +2132,40 @@ export async function updateConnectionProviderWithId(
 		}
 		throw error;
 	}
+}
+
+/** Reconcile scopes without replacing OAuth client settings or touching vaulted grants. */
+export async function syncConnectionProviderScopes(
+	appId: string,
+	scopes: string[],
+	env: DescopeConnectionManagementEnv,
+	dryRun = true,
+): Promise<{ before: string[]; after: string[]; changed: boolean }> {
+	const existing = await loadOutboundAppViaRest(appId, env);
+	const before = normalizeConnectionScopes(
+		asStringArray(existing.defaultScopes),
+	);
+	const after = normalizeConnectionScopes(scopes);
+	const changed = JSON.stringify(before) !== JSON.stringify(after);
+	if (changed && !dryRun) {
+		await updateOutboundAppViaRest(
+			buildOutboundAppMetadataUpdateBody(
+				appId,
+				{ defaultScopes: after },
+				existing,
+			),
+			env,
+		);
+		const actual = await loadOutboundAppViaRest(appId, env);
+		if (
+			JSON.stringify(
+				normalizeConnectionScopes(asStringArray(actual.defaultScopes)),
+			) !== JSON.stringify(after)
+		) {
+			throw new Error(`Descope connection ${appId} scope readback failed`);
+		}
+	}
+	return { before, after, changed };
 }
 
 export async function updateConnectionProviderMetadataWithId(

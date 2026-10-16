@@ -114,6 +114,19 @@ export const DescopeAihMcpServerReconcileActionSchema = z.object({
 	mcpServerId: z.string(),
 	serverName: z.string().nullish(),
 	action: z.enum(["skipped", "missing", "would_update", "updated"]),
+	connectionScopes: z
+		.object({
+			mappingChanged: z.boolean(),
+			defaults: z.array(
+				z.object({
+					providerId: z.string(),
+					before: z.array(z.string()),
+					after: z.array(z.string()),
+					changed: z.boolean(),
+				}),
+			),
+		})
+		.optional(),
 	before: z.object({
 		audienceWhitelist: z.array(z.string()),
 		tags: z.array(z.string()),

@@ -1,6 +1,11 @@
 import type { ConnectionProviderTemplate } from "@tedix/api-contract/schemas/connection-provider-templates";
 import type { DescopeAihDriftReport } from "@tedix/api-contract/schemas/descope-aih";
 import {
+	reconcileConnectionScopeMappings,
+	connectionScopeMappingValues,
+	type ConnectionScopeConfig,
+} from "@tedix/auth/connection-scope-mapping";
+import {
 	loadAllDescopeMcpServers,
 	searchDescopeMcpServerClients,
 } from "@tedix/auth/aih-client";
@@ -406,6 +411,25 @@ export function buildDescopeAihDriftReport(
 			continue;
 		}
 
+		const mapped = reconcileConnectionScopeMappings(
+			server.approvedScopes,
+			normalizeMcpConfig(
+				d1AppsBySlug.get(app.slug)?.metadata,
+			) as ConnectionScopeConfig,
+		);
+		const expectedMappings = connectionScopeMappingValues(mapped);
+		const actualMappings = connectionScopeMappingValues(server.approvedScopes);
+		if (JSON.stringify(expectedMappings) !== JSON.stringify(actualMappings)) {
+			issue(report, {
+				severity: "warning",
+				code: "connection_scope_mapping_drift",
+				resourceType: "mcp_server",
+				resourceId: server.id,
+				resourceName: server.name,
+				message: `Descope MCP server ${server.name} connection scope mappings differ from D1.`,
+				details: { appId: app.id, expectedMappings, actualMappings },
+			});
+		}
 		const expectedAudiences = buildTedixMcpAuthorizationAudiences(app.slug);
 		const actualAudiences = normalizeStrings(server.audienceWhitelist);
 		const expectedAudienceSet = new Set(expectedAudiences);
@@ -771,14 +795,15 @@ export function buildDescopeAihDriftReport(
 			? EXPECTED_OUTBOUND_APP_TYPE[expectedType]
 			: null;
 		const expectedDefaultScopes = normalizeScopes(
-			provider?.requiredScopes?.length
-				? provider.requiredScopes
-				: provider?.credentialProfile?.defaultScopes,
+			provider?.credentialProfile?.defaultScopes ?? provider?.requiredScopes,
 		);
 		const actualDefaultScopes = normalizeScopes(outboundApp?.defaultScopes);
 		const actualDefaultScopeSet = new Set(actualDefaultScopes);
 		const missingDefaultScopes = expectedDefaultScopes.filter(
 			(scope) => !actualDefaultScopeSet.has(scope),
+		);
+		const extraDefaultScopes = actualDefaultScopes.filter(
+			(scope) => !expectedDefaultScopes.includes(scope),
 		);
 		const expectedUseDcr =
 			provider?.type === "oauth" ? provider.oauthConfig?.useDcr === true : null;
@@ -898,7 +923,7 @@ export function buildDescopeAihDriftReport(
 			expectedType === "oauth" &&
 			expectedDefaultScopes.length > 0 &&
 			actualDefaultScopes.length > 0 &&
-			missingDefaultScopes.length > 0
+			(missingDefaultScopes.length > 0 || extraDefaultScopes.length > 0)
 		) {
 			issue(report, {
 				severity: "warning",
@@ -906,11 +931,12 @@ export function buildDescopeAihDriftReport(
 				resourceType: "connection_provider",
 				resourceId: providerId,
 				resourceName: provider?.name ?? providerId,
-				message: `Descope outbound app ${providerId} is missing required default scopes from Tedix provider metadata.`,
+				message: `Descope outbound app ${providerId} default scopes differ from Tedix provider metadata.`,
 				details: {
 					expectedDefaultScopes,
 					actualDefaultScopes,
 					missingDefaultScopes,
+					extraDefaultScopes,
 				},
 			});
 		}

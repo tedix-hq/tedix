@@ -30,6 +30,7 @@ import { loadDescopeAihD1SnapshotRows } from "@tedix/db/queries/descope-aih-drif
 import { getAppById, getAppMetadataJson } from "@tedix/db/queries/app-records";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import { getDescopeAihDriftReport } from "../../services/descope-aih-drift";
+import { syncDeclaredConnectionScopes } from "../../services/connection-scope-sync";
 import {
 	extractMcpApprovedScopeNames,
 	extractMcpDefaultGrantedScopeNames,
@@ -710,16 +711,28 @@ export const reconcileMcpAppServersProcedure = authedOs.reconcileMcpAppServers
 				}
 			}
 
+			const connectionScopes = await syncDeclaredConnectionScopes({
+				db: context.db,
+				env: aihEnv,
+				config: metadata?.mcpConfig ?? {},
+				appSlug: app.slug,
+				syncProviderDefaults: true,
+				dryRun,
+			});
 			actions.push({
 				appId: app.id,
 				appSlug: app.slug,
 				mcpServerId,
 				serverName: server.name,
-				action: changed
-					? dryRun
-						? ("would_update" as const)
-						: ("updated" as const)
-					: ("skipped" as const),
+				connectionScopes,
+				action:
+					changed ||
+					connectionScopes.mappingChanged ||
+					connectionScopes.defaults.some((entry) => entry.changed)
+						? dryRun
+							? ("would_update" as const)
+							: ("updated" as const)
+						: ("skipped" as const),
 				before,
 				after,
 			});
