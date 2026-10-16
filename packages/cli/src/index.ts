@@ -188,42 +188,69 @@ export async function runDirectCode(
 /** Commands dispatched before gateway option parsing; they take only their own flags. */
 const LOCAL_COMMANDS = ["setup", "dev", "hooks", "supervise", "learn"];
 
-/** Names the corrected command: everything from the local command on, without the gateway options before it. */
-export function localOptionsMessage(command: string, argv: string[]): string {
-	const rest = argv.slice(Math.max(0, argv.indexOf(command)));
-	const quote = (arg: string) =>
-		/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`;
-	return `Workspace and gateway options do not apply to local commands. Run it without them: tedix ${rest.map(quote).join(" ")}`;
+/** Local commands accept the workspace selector used by shared agent wrappers. */
+export function localCommandArgs(argv: string[]): string[] {
+	let commandIndex = 0;
+	while (commandIndex < argv.length) {
+		const arg = argv[commandIndex]!;
+		if (arg === "-w" || arg === "--workspace") commandIndex += 2;
+		else if (arg.startsWith("--workspace=")) commandIndex++;
+		else break;
+	}
+	if (!LOCAL_COMMANDS.includes(argv[commandIndex] ?? "")) return argv;
+	const contextAction = argv.slice(commandIndex, commandIndex + 4);
+	const appliesWorkspace =
+		contextAction[0] === "setup" &&
+		contextAction[1] === "agents" &&
+		contextAction[2] === "context" &&
+		["bind", "connect", "set-default-organization"].includes(
+			contextAction[3] ?? "",
+		);
+	const args: string[] = [];
+	let workspace: string | undefined;
+	let positionalOnly = false;
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i]!;
+		if (!positionalOnly && (arg === "-w" || arg === "--workspace")) {
+			if (!argv[i + 1] || argv[i + 1]!.startsWith("-"))
+				throw new Error(`${arg} requires a workspace name`);
+			workspace = argv[++i];
+		} else if (!positionalOnly && arg.startsWith("--workspace=")) {
+			if (!arg.slice("--workspace=".length))
+				throw new Error("--workspace requires a workspace name");
+			workspace = arg.slice("--workspace=".length);
+		} else {
+			args.push(arg);
+			if (arg === "--") positionalOnly = true;
+		}
+	}
+	if (appliesWorkspace && workspace) args.push("--workspace", workspace);
+	return args;
 }
-
-const localOptionsError = (command: string) =>
-	new Error(localOptionsMessage(command, process.argv.slice(2)));
 
 async function main() {
 	// Installation lifecycle commands are local and never resolve gateway auth.
-	const localCommand = process.argv[2];
+	const argv = localCommandArgs(process.argv.slice(2));
+	const localCommand = argv[0];
 	if (localCommand === "setup" || localCommand === "dev") {
-		process.exitCode = await runLocalInstallation(
-			localCommand,
-			process.argv.slice(3),
-		);
+		process.exitCode = await runLocalInstallation(localCommand, argv.slice(1));
 		return;
 	}
 	// Agent-host hooks write one JSON line to stdout and must stay silent otherwise.
 	if (localCommand === "hooks") {
 		const { runHooksCommand } = await import("./hooks/command");
-		process.exitCode = await runHooksCommand(process.argv.slice(3));
+		process.exitCode = await runHooksCommand(argv.slice(1));
 		return;
 	}
 	if (localCommand === "supervise") {
 		const { runSuperviseCommand } = await import("./supervise");
-		process.exitCode = await runSuperviseCommand(process.argv.slice(3));
+		process.exitCode = await runSuperviseCommand(argv.slice(1));
 		return;
 	}
 	// Local extraction; each organization call runs as its own `tedix code` child.
 	if (localCommand === "learn") {
 		const { runLearnCommand } = await import("./learn-import");
-		process.exitCode = await runLearnCommand(process.argv.slice(3));
+		process.exitCode = await runLearnCommand(argv.slice(1));
 		return;
 	}
 	// P4 BONUS: reset terminal modes on startup and on exit so a crash never
@@ -235,14 +262,7 @@ async function main() {
 		process.on("exit", () => resetTerminalModes(write));
 	}
 
-	let parsed: ReturnType<typeof parseOptions>;
-	try {
-		parsed = parseOptions(process.argv.slice(2));
-	} catch (error) {
-		// `tedix -w acme learn --dry-run`: the local command's own flags fail here.
-		const local = LOCAL_COMMANDS.find((name) => process.argv.includes(name));
-		throw local ? localOptionsError(local) : error;
-	}
+	const parsed = parseOptions(process.argv.slice(2));
 	const { command, options } = parsed;
 	if (options.version) {
 		console.log(CLI_VERSION);
@@ -275,7 +295,10 @@ async function main() {
 		console.log(commandMap());
 		return;
 	}
-	if (LOCAL_COMMANDS.includes(command)) throw localOptionsError(command);
+	if (LOCAL_COMMANDS.includes(command))
+		throw new Error(
+			`Put local options after the command: tedix ${command} --help`,
+		);
 	const spec = findCommand(command);
 	if (!spec && !findTopLevelCommand(command)) {
 		throw new Error(

@@ -364,6 +364,7 @@ export async function waitForSettlement(
 	const ac = new AbortController();
 	const deadlineTimer = setTimeout(() => ac.abort(), options.pollTimeoutMs);
 	let receivedActivity = false;
+	let activityUnavailable = false;
 	// The event tail sees settlement before the next status poll would. When it
 	// ends on its own (settled/closed stream, not our abort) it wakes the settle
 	// loop so the terminal read happens now instead of after a full interval.
@@ -473,10 +474,12 @@ export async function waitForSettlement(
 				signalTailSettled();
 			} catch {
 				clearTimeout(quietTimer);
-				if (!ac.signal.aborted)
+				if (!ac.signal.aborted && !activityUnavailable) {
+					activityUnavailable = true;
 					spinner.log(
-						"Activity updates unavailable; continuing to check run status.",
+						`Activity updates unavailable; continuing to check run status. Run: ${homeRunId}`,
 					);
+				}
 			}
 		})();
 

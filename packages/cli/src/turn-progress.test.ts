@@ -171,10 +171,11 @@ describe("ask progress and completion", () => {
 			);
 			expect(result.status).toBe("completed");
 			if (quiet) expect(output.writes).toEqual([]);
-			else
-				expect(output.writes.join("")).toContain(
-					"Activity updates unavailable",
-				);
+			else {
+				const text = output.writes.join("");
+				expect(text.match(/Activity updates unavailable/g)).toHaveLength(1);
+				expect(text).toContain(`Run: ${initial.homeRunId}`);
+			}
 		}
 	});
 	test("a status connection failure is shown and recovery still completes", async () => {

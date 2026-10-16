@@ -35,7 +35,7 @@ import { workItemComments, workItems } from "../schema/work-items";
 
 /** Project metadata key that binds a project to its factory lane. */
 export const FACTORY_METADATA_KEY = "factory";
-/** How far back health reads look for runs and delivered results. */
+/** How far back verdicts look for activity and delivered results. */
 export const FACTORY_HEALTH_LOOKBACK_DAYS = 14;
 /** Silence limit when the schedule's cron cannot be read. */
 export const FACTORY_MAX_SILENCE_MS = 26 * 60 * 60 * 1000;
@@ -222,7 +222,7 @@ export type FactoryVerdict =
 	| "paused"
 	| "pending";
 
-/** Proof runs (`{probe:true}`) are reported separately as `lastProofRun`. */
+/** Proof runs are manual runs; `lastProofRun` also identifies the latest proof. */
 export type FactoryRunTrigger = "schedule" | "manual";
 
 export interface FactoryRunOutputs {
@@ -451,12 +451,7 @@ export async function listFactoryHealth(
 			),
 		})
 		.from(skillRuns)
-		.where(
-			and(
-				eq(skillRuns.organizationId, orgId),
-				onOrAfter(skillRuns.startedAt, lookback),
-			),
-		)
+		.where(eq(skillRuns.organizationId, orgId))
 		.as("factory_ranked_runs");
 	const rankedProbes = db
 		.select({
@@ -665,7 +660,6 @@ export async function listFactoryHealth(
 				return ms >= start && ms <= end;
 			};
 			const runs = (runsBySkill.get(lane.skillId) ?? [])
-				.filter((run) => !Number(run.probe))
 				.sort(
 					(a, b) =>
 						factoryTimestampMs(b.startedAt) - factoryTimestampMs(a.startedAt),
@@ -725,15 +719,26 @@ export async function listFactoryHealth(
 							createdAt: lane.scheduleCreatedAt,
 						}
 					: null;
+			// Proof runs are visible history, but do not prove the schedule is firing.
+			const proofIds = new Set(
+				(runsBySkill.get(lane.skillId) ?? [])
+					.filter((run) => Number(run.probe))
+					.map((run) => run.id),
+			);
+			const regularRuns = runs.filter(
+				(run) =>
+					!proofIds.has(run.runId) &&
+					factoryTimestampMs(run.firedAt) >= factoryTimestampMs(lookback),
+			);
 			const { verdict, reason } = factoryVerdict({
 				now,
 				lifecycleState: lane.lifecycleState,
 				schedule,
-				runs,
+				runs: regularRuns,
 			});
 			const ownerTediId = lane.scheduleTediId ?? lane.skillTediId ?? null;
 			const probe = probes.get(lane.skillId);
-			const lastFiredAt = runs[0]?.firedAt ?? lane.lastFireAt ?? null;
+			const lastFiredAt = regularRuns[0]?.firedAt ?? lane.lastFireAt ?? null;
 			return {
 				slug: bound?.binding.slug ?? lane.slug ?? lane.skillId,
 				name: bound?.binding.name ?? lane.title,
@@ -754,7 +759,7 @@ export async function listFactoryHealth(
 				nextFireAt: lane.nextFireAt,
 				lastFiredAt,
 				scheduleError: lane.lastError,
-				ranToday: runs.some((run) =>
+				ranToday: regularRuns.some((run) =>
 					(Number.isFinite(factoryTimestampMs(run.firedAt))
 						? new Date(factoryTimestampMs(run.firedAt)).toISOString()
 						: ""
