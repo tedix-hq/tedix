@@ -17,7 +17,6 @@ import {
 	tediRosterQueryOptions,
 	workExternalPrincipalsQueryOptions,
 	workApprovalsQueryOptions,
-	workFleetQueryOptions,
 	pendingApprovalsQueryOptions,
 	workBudgetEnvelopesQueryOptions,
 	workCaseDetailQueryOptions,
@@ -35,7 +34,6 @@ import {
 	workCapacitySearch,
 	workInteractionsSearch,
 	WorkInteractionsRoute,
-	WorkControlPage,
 	WorkApprovalsPage,
 	BudgetScopeLink,
 	ResourceHolders,
@@ -86,34 +84,6 @@ describe("Request scope navigation", () => {
 			view: "audit",
 			state: "open",
 		});
-	});
-
-	it("keeps organization counts separate from the personal inbox action", () => {
-		const client = new QueryClient({
-			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-		});
-		client.setQueryData<unknown>(workFleetQueryOptions().queryKey, {
-			observedAt: "2026-10-03T15:00:00Z",
-			attention: { actions: [] },
-			attempts: { active: 3, staleLeases: 0 },
-			approvals: { awaitingDecision: 0 },
-			interactions: { awaitingResponse: 5, overdue: 1 },
-			admissions: { latestRejected: 0 },
-			resources: { saturatedResourceKeys: [] },
-		});
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={client}>
-				<WorkControlPage />
-			</QueryClientProvider>,
-		);
-		expect(html).toContain(
-			'href="/work/interactions?view=audit&amp;state=open"',
-		);
-		expect(html).toContain("Organization requests");
-		expect(html).toContain('href="/work/interactions"');
-		expect(html).toContain("My requests");
-		expect(html).toContain('href="/work/queue?disposition=completed"');
-		expect(html).toContain('href="/work/attempts?view=active"');
 	});
 
 	it("opens organization pending requests from a URL and preserves personal scope on back", async () => {

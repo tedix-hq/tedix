@@ -30,7 +30,7 @@ export const OS_NAVIGATION = [
 		label: "Work",
 		path: "/work",
 		description:
-			"Portfolio, queues, attempts, approvals, evidence, and recovery",
+			"What needs you, the board of projects and queues, and history",
 	},
 	{
 		id: "chat",

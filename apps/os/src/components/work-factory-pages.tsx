@@ -60,7 +60,6 @@ import {
 	TableRow,
 } from "@/components/kumo/table";
 import { useWorkItemWebMcpTools } from "@/components/work-item-webmcp-tools";
-import { WorkAttentionSummary } from "@/components/work-attention-summary";
 import { WorkProjectContributors } from "@/components/work-project-contributors";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
 import { formatRatioPercent, sentenceCase } from "@/lib/format";
@@ -71,7 +70,6 @@ import {
 	projectMilestonesQueryOptions,
 	operationalContextQueryOptions,
 	osQueryKeys,
-	workFleetQueryOptions,
 	workAttemptProjectionQueryOptions,
 	workGraphItemsQueryOptions,
 	workItemAttemptsQueryOptions,
@@ -879,13 +877,6 @@ export function WorkCompletedPage() {
 				title="Completed work"
 				description="Work recorded as completed. Open a record to inspect its outcome; completion does not by itself prove deployment."
 			/>
-			<Text as="p" role="body">
-				<Link href="/work/queue">Queue</Link>
-				{" · "}
-				<Link href="/work/queue?disposition=completed" aria-current="page">
-					Completed
-				</Link>
-			</Text>
 			{query.isPending ? (
 				<LoadingTable />
 			) : query.isError ? (
@@ -914,7 +905,6 @@ export function WorkCompletedPage() {
 }
 
 export function WorkQueuePage() {
-	const fleet = useQuery(workFleetQueryOptions());
 	const paging = useCursorPaging<{ at: string; id: string }>();
 	const queueQuery = useQuery(
 		workReadinessProjectionQueryOptions(paging.cursor),
@@ -934,22 +924,6 @@ export function WorkQueuePage() {
 			<FactoryPageHeader
 				title="Queue"
 				description="Accepted work and whether it is ready to start."
-			/>
-			<Text as="p" role="body">
-				<Link href="/work/queue" aria-current="page">
-					Queue
-				</Link>
-				{" · "}
-				<Link href="/work/queue?disposition=completed">Completed</Link>
-			</Text>
-			<WorkAttentionSummary
-				snapshot={fleet.data}
-				pending={fleet.isPending}
-				error={fleet.isError}
-				refreshing={fleet.isFetching}
-				onRefresh={() => {
-					void fleet.refetch();
-				}}
 			/>
 			{queueQuery.isPending ? (
 				<LoadingTable />

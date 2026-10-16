@@ -104,6 +104,7 @@ import {
 	workCaseListQueryOptions,
 	workFleetQueryOptions,
 	workInteractionsQueryOptions,
+	workNeedsYouInteractionsQueryOptions,
 	workResourcePoolsQueryOptions,
 	workspacePreferencesQueryOptions,
 } from "@/lib/os-query-options";
@@ -769,10 +770,14 @@ export async function prefetchWorkInteractionsRoute(queryClient: QueryClient) {
 		.catch(() => undefined);
 }
 
-export async function prefetchWorkControlRoute(queryClient: QueryClient) {
-	await queryClient
-		.ensureQueryData(workFleetQueryOptions())
-		.catch(() => undefined);
+/** Needs you reads the same sources as the sidebar count, plus organization pressure. */
+export async function prefetchWorkNeedsYouRoute(queryClient: QueryClient) {
+	await Promise.allSettled([
+		queryClient.ensureQueryData(workNeedsYouInteractionsQueryOptions()),
+		queryClient.ensureQueryData(workApprovalsQueryOptions()),
+		queryClient.ensureQueryData(pendingApprovalsQueryOptions()),
+		queryClient.ensureQueryData(workFleetQueryOptions()),
+	]);
 }
 
 export async function prefetchWorkCapacityRoute(queryClient: QueryClient) {
