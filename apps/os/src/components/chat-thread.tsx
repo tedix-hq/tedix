@@ -1827,7 +1827,6 @@ export function SendFailureBanner({
 	);
 }
 
-/** Replaces—not merely disables—the composer while authority is unresolved. */
 export function ApprovalInputGate({ count }: { count: number }) {
 	return (
 		<div
@@ -1840,7 +1839,7 @@ export function ApprovalInputGate({ count }: { count: number }) {
 					Waiting for your approval
 				</Text>
 				<Text as="span" role="label" tone="secondary" className="block">
-					Approve or reject the request above to continue.
+					Approve below or reply ‘approve’.
 				</Text>
 			</span>
 			<Badge variant="outline" className="shrink-0">
@@ -1850,7 +1849,6 @@ export function ApprovalInputGate({ count }: { count: number }) {
 	);
 }
 
-/** A live operator decision gates the composer and session auto-approval. */
 export function isBlockingApprovalCard(card: ApprovalCardData): boolean {
 	return (
 		card.expired !== true &&
@@ -3745,431 +3743,429 @@ export function ChatThread({
 
 			{blockingApprovalCards.length > 0 ? (
 				<ApprovalInputGate count={blockingApprovalCards.length} />
-			) : (
-				<form
-					data-slot="chat-composer"
-					className="chat-composer relative mx-auto w-full max-w-[920px] rounded-2xl border border-kumo-hairline bg-kumo-base shadow-tedix-raised transition-shadow duration-tedix-standard focus-within:shadow-tedix-floating motion-reduce:transition-none"
-					onDragEnter={(event) => {
-						if (!Array.from(event.dataTransfer.types).includes("Files")) return;
-						event.preventDefault();
-						attachmentDragDepth.current += 1;
-						setAttachmentDragActive(true);
-					}}
-					onDragOver={(event) => {
-						if (!Array.from(event.dataTransfer.types).includes("Files")) return;
-						event.preventDefault();
-						event.dataTransfer.dropEffect =
-							preparingAttachments || attachments.length >= 5 ? "none" : "copy";
-						setAttachmentDragActive(true);
-					}}
-					onDragLeave={() => {
-						attachmentDragDepth.current = Math.max(
-							0,
-							attachmentDragDepth.current - 1,
-						);
-						if (attachmentDragDepth.current === 0)
-							setAttachmentDragActive(false);
-					}}
-					onDragEnd={resetAttachmentDrag}
-					onDrop={(event) => {
-						if (!Array.from(event.dataTransfer.types).includes("Files")) return;
-						event.preventDefault();
-						event.stopPropagation();
-						resetAttachmentDrag();
-						addComposerFiles(Array.from(event.dataTransfer.files));
-					}}
-					onSubmit={(event) => {
-						event.preventDefault();
-						if (dictation.phase !== "idle") {
-							if (dictation.phase === "recording") dictation.stop();
-							return;
-						}
-						submit();
-					}}
-				>
-					{skillPickerOpen ? (
-						<ChatSkillPicker
-							activeIndex={skillActiveIndex}
-							error={skillCatalog.isError}
-							loading={skillCatalog.isPending}
-							onRetry={() => void skillCatalog.refetch()}
-							onSelect={confirmSkill}
-							skills={skillMatches}
-						/>
-					) : null}
-					<ChatSkillPills
-						skills={skillPills}
-						onRemove={(slug) => {
-							updateDraft(removeSkillReference(draft, slug));
-							composerRef.current?.focus();
-						}}
+			) : null}
+			<form
+				data-slot="chat-composer"
+				className="chat-composer relative mx-auto w-full max-w-[920px] rounded-2xl border border-kumo-hairline bg-kumo-base shadow-tedix-raised transition-shadow duration-tedix-standard focus-within:shadow-tedix-floating motion-reduce:transition-none"
+				onDragEnter={(event) => {
+					if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+					event.preventDefault();
+					attachmentDragDepth.current += 1;
+					setAttachmentDragActive(true);
+				}}
+				onDragOver={(event) => {
+					if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+					event.preventDefault();
+					event.dataTransfer.dropEffect =
+						preparingAttachments || attachments.length >= 5 ? "none" : "copy";
+					setAttachmentDragActive(true);
+				}}
+				onDragLeave={() => {
+					attachmentDragDepth.current = Math.max(
+						0,
+						attachmentDragDepth.current - 1,
+					);
+					if (attachmentDragDepth.current === 0) setAttachmentDragActive(false);
+				}}
+				onDragEnd={resetAttachmentDrag}
+				onDrop={(event) => {
+					if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+					event.preventDefault();
+					event.stopPropagation();
+					resetAttachmentDrag();
+					addComposerFiles(Array.from(event.dataTransfer.files));
+				}}
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (dictation.phase !== "idle") {
+						if (dictation.phase === "recording") dictation.stop();
+						return;
+					}
+					submit();
+				}}
+			>
+				{skillPickerOpen ? (
+					<ChatSkillPicker
+						activeIndex={skillActiveIndex}
+						error={skillCatalog.isError}
+						loading={skillCatalog.isPending}
+						onRetry={() => void skillCatalog.refetch()}
+						onSelect={confirmSkill}
+						skills={skillMatches}
 					/>
-					{attachmentDragActive ? (
-						<Surface
-							data-slot="attachment-dropzone"
-							role="status"
-							className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-2xl border-2 border-dashed border-kumo-brand p-4"
+				) : null}
+				<ChatSkillPills
+					skills={skillPills}
+					onRemove={(slug) => {
+						updateDraft(removeSkillReference(draft, slug));
+						composerRef.current?.focus();
+					}}
+				/>
+				{attachmentDragActive ? (
+					<Surface
+						data-slot="attachment-dropzone"
+						role="status"
+						className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-2xl border-2 border-dashed border-kumo-brand p-4"
+					>
+						<Text role="body" className="m-0 flex items-center gap-2">
+							<Paperclip size={20} aria-hidden="true" />
+							{preparingAttachments
+								? "Preparing attachments…"
+								: attachments.length >= 5
+									? "Messages are limited to 5 attachments"
+									: "Drop files to attach"}
+						</Text>
+					</Surface>
+				) : null}
+				<input
+					ref={attachmentInputRef}
+					type="file"
+					className="hidden"
+					aria-label="Attach files"
+					disabled={preparingAttachments}
+					multiple
+					onChange={(event) => {
+						addComposerFiles(Array.from(event.target.files ?? []));
+						event.target.value = "";
+					}}
+				/>
+				{composerAttachmentError ? (
+					<p
+						data-slot="attachment-error"
+						role="alert"
+						className="m-0 px-4 pt-3 text-kumo-danger text-xs"
+					>
+						{composerAttachmentError}
+					</p>
+				) : null}
+				{dictation.error ? (
+					<div
+						role="alert"
+						className="flex items-center justify-between gap-3 px-4 pt-3 text-kumo-danger text-xs"
+					>
+						<span>{dictation.error}</span>
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							onClick={() => void dictation.start().catch(() => undefined)}
 						>
-							<Text role="body" className="m-0 flex items-center gap-2">
-								<Paperclip size={20} aria-hidden="true" />
-								{preparingAttachments
-									? "Preparing attachments…"
-									: attachments.length >= 5
-										? "Messages are limited to 5 attachments"
-										: "Drop files to attach"}
-							</Text>
-						</Surface>
-					) : null}
-					<input
-						ref={attachmentInputRef}
-						type="file"
-						className="hidden"
-						aria-label="Attach files"
-						disabled={preparingAttachments}
-						multiple
-						onChange={(event) => {
-							addComposerFiles(Array.from(event.target.files ?? []));
-							event.target.value = "";
-						}}
-					/>
-					{composerAttachmentError ? (
-						<p
-							data-slot="attachment-error"
-							role="alert"
-							className="m-0 px-4 pt-3 text-kumo-danger text-xs"
-						>
-							{composerAttachmentError}
-						</p>
-					) : null}
-					{dictation.error ? (
-						<div
-							role="alert"
-							className="flex items-center justify-between gap-3 px-4 pt-3 text-kumo-danger text-xs"
-						>
-							<span>{dictation.error}</span>
-							<Button
-								type="button"
-								size="sm"
-								variant="outline"
-								onClick={() => void dictation.start().catch(() => undefined)}
+							Try again
+						</Button>
+					</div>
+				) : null}
+				{attachments.length > 0 ? (
+					<div className="flex flex-wrap gap-2 px-3 pt-3">
+						{attachments.map((attachment) => (
+							<div
+								key={`${attachment.fileName}:${attachment.size}`}
+								className="relative flex items-center gap-2 rounded-lg border border-kumo-line bg-kumo-tint px-2 py-1"
 							>
-								Try again
-							</Button>
-						</div>
-					) : null}
-					{attachments.length > 0 ? (
-						<div className="flex flex-wrap gap-2 px-3 pt-3">
-							{attachments.map((attachment) => (
-								<div
-									key={`${attachment.fileName}:${attachment.size}`}
-									className="relative flex items-center gap-2 rounded-lg border border-kumo-line bg-kumo-tint px-2 py-1"
-								>
-									{attachment.previewUrl ? (
-										<img
-											src={attachment.previewUrl}
-											alt=""
-											className="size-8 rounded object-cover"
-										/>
-									) : (
-										<File size={14} />
-									)}
-									<Text as="span" role="label" className="max-w-36 truncate">
-										{attachment.fileName}
-									</Text>
-									<Button
-										type="button"
-										size="icon-sm"
-										variant="ghost"
-										aria-label={`Remove ${attachment.fileName}`}
-										onClick={() =>
-											setAttachments((items) =>
-												items.filter((item) => item !== attachment),
-											)
-										}
-										icon={<X size={12} />}
+								{attachment.previewUrl ? (
+									<img
+										src={attachment.previewUrl}
+										alt=""
+										className="size-8 rounded object-cover"
 									/>
-								</div>
-							))}
-						</div>
-					) : null}
-					{dictation.phase === "idle" ? (
-						<Textarea
-							ref={composerRef}
-							aria-label="Message"
-							placeholder="Message your Tedix OS…"
-							value={draft}
-							onValueChange={updateDraft}
-							onKeyDown={(event) => {
-								// The IME guard comes first for the picker too: a candidate
-								// selection is Enter/Arrow traffic that belongs to the IME,
-								// never to the composer.
-								if (isImeComposing(event)) return;
-								if (skillPickerOpen && skillMatches.length > 0) {
-									if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-										event.preventDefault();
-										setSkillActiveIndex((index) => {
-											const step = event.key === "ArrowDown" ? 1 : -1;
-											const next = index + step;
-											if (next < 0) return skillMatches.length - 1;
-											return next >= skillMatches.length ? 0 : next;
-										});
-										return;
+								) : (
+									<File size={14} />
+								)}
+								<Text as="span" role="label" className="max-w-36 truncate">
+									{attachment.fileName}
+								</Text>
+								<Button
+									type="button"
+									size="icon-sm"
+									variant="ghost"
+									aria-label={`Remove ${attachment.fileName}`}
+									onClick={() =>
+										setAttachments((items) =>
+											items.filter((item) => item !== attachment),
+										)
 									}
-									// Enter confirms only from a row the operator explicitly
-									// highlighted. Typing `/anything` and pressing Enter is
-									// still a plain send — the picker never swallows a message.
-									if (event.key === "Enter" && !event.shiftKey) {
-										const highlighted = skillMatches[skillActiveIndex];
-										if (highlighted) {
-											event.preventDefault();
-											confirmSkill(highlighted);
-											return;
-										}
-									}
-								}
-								if (skillPickerOpen && event.key === "Escape") {
+									icon={<X size={12} />}
+								/>
+							</div>
+						))}
+					</div>
+				) : null}
+				{dictation.phase === "idle" ? (
+					<Textarea
+						ref={composerRef}
+						aria-label="Message"
+						placeholder="Message your Tedix OS…"
+						value={draft}
+						onValueChange={updateDraft}
+						onKeyDown={(event) => {
+							// The IME guard comes first for the picker too: a candidate
+							// selection is Enter/Arrow traffic that belongs to the IME,
+							// never to the composer.
+							if (isImeComposing(event)) return;
+							if (skillPickerOpen && skillMatches.length > 0) {
+								if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 									event.preventDefault();
-									setSkillPickerDismissed(true);
+									setSkillActiveIndex((index) => {
+										const step = event.key === "ArrowDown" ? 1 : -1;
+										const next = index + step;
+										if (next < 0) return skillMatches.length - 1;
+										return next >= skillMatches.length ? 0 : next;
+									});
 									return;
 								}
+								// Enter confirms only from a row the operator explicitly
+								// highlighted. Typing `/anything` and pressing Enter is
+								// still a plain send — the picker never swallows a message.
 								if (event.key === "Enter" && !event.shiftKey) {
-									event.preventDefault();
-									submit();
+									const highlighted = skillMatches[skillActiveIndex];
+									if (highlighted) {
+										event.preventDefault();
+										confirmSkill(highlighted);
+										return;
+									}
 								}
-							}}
-							// readOnly (not disabled) while sending: a disabled control blurs
-							// the composer and swallows the next Enter — focus must survive
-							// the send round-trip.
-							readOnly={send.isPending || preparingConversation}
-							autoResize
-							minRows={1}
-							maxRows={8}
-							className="min-h-14 resize-none rounded-2xl border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
-						/>
-					) : (
-						<div
-							className="chat-voice-capture flex min-h-14 items-center gap-3 px-3"
-							role="status"
-							aria-label={
-								dictation.phase === "connecting"
-									? "Connecting microphone"
-									: dictation.phase === "recording"
-										? "Listening"
-										: "Transcribing"
 							}
-						>
+							if (skillPickerOpen && event.key === "Escape") {
+								event.preventDefault();
+								setSkillPickerDismissed(true);
+								return;
+							}
+							if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								submit();
+							}
+						}}
+						// readOnly (not disabled) while sending: a disabled control blurs
+						// the composer and swallows the next Enter — focus must survive
+						// the send round-trip.
+						readOnly={send.isPending || preparingConversation}
+						autoResize
+						minRows={1}
+						maxRows={8}
+						className="min-h-14 resize-none rounded-2xl border-0 bg-transparent px-4 pt-3 pb-1 shadow-none focus-visible:ring-0"
+					/>
+				) : (
+					<div
+						className="chat-voice-capture flex min-h-14 items-center gap-3 px-3"
+						role="status"
+						aria-label={
+							dictation.phase === "connecting"
+								? "Connecting microphone"
+								: dictation.phase === "recording"
+									? "Listening"
+									: "Transcribing"
+						}
+					>
+						<Button
+							type="button"
+							size="icon-sm"
+							variant="ghost"
+							aria-label="Cancel dictation"
+							onClick={dictation.cancel}
+							icon={<X size={16} />}
+						/>
+						{dictation.phase === "recording" ? (
+							<div className="chat-voice-wave" aria-hidden="true">
+								{Array.from({ length: VOICE_WAVE_BAR_COUNT }, (_, index) => {
+									return (
+										<i
+											key={index}
+											style={{
+												height: `${voiceWaveBarHeight(dictation.audioHistory[index] ?? 0)}px`,
+											}}
+										/>
+									);
+								})}
+							</div>
+						) : (
+							<div className="flex flex-1 justify-center">
+								<Loader size="sm" />
+							</div>
+						)}
+						{dictation.phase === "recording" ? (
+							<Button
+								type="button"
+								size="icon-sm"
+								aria-label="Stop and transcribe"
+								onClick={dictation.stop}
+								icon={<Square size={14} weight="fill" />}
+							/>
+						) : null}
+					</div>
+				)}
+				{dictation.phase === "idle" ? (
+					<div className="chat-composer-actions flex items-center justify-between gap-3 px-4 pt-2 pb-3">
+						<div className="chat-composer-context flex min-w-0 items-center gap-2">
+							<DropdownMenu>
+								<DropdownMenuTrigger
+									render={
+										<Button
+											type="button"
+											size="icon-sm"
+											variant="ghost"
+											aria-label="Composer options"
+											icon={<Plus size={16} />}
+										/>
+									}
+								/>
+								<DropdownMenuContent>
+									<DropdownMenuItem onClick={() => setDirectReadOpen(true)}>
+										<MagnifyingGlass size={14} />
+										Read from connected app
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										onClick={() => attachmentInputRef.current?.click()}
+									>
+										Attach files
+									</DropdownMenuItem>
+									{CHAT_SLASH_COMMANDS.map((item) => (
+										<DropdownMenuItem
+											key={item.command}
+											onClick={() =>
+												updateDraft(`${item.instruction}\n\n${draft}`.trim())
+											}
+										>
+											{item.command}
+										</DropdownMenuItem>
+									))}
+									{CHAT_FORMATS.map((format) => (
+										<DropdownMenuItem
+											key={format}
+											onClick={() =>
+												updateDraft(
+													`${draft}${draft ? "\n\n" : ""}Create a ${format} output for this request.`,
+												)
+											}
+										>
+											Create {format}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+							{context ? (
+								<Button
+									type="button"
+									size="sm"
+									className="chat-composer-chip min-w-0 max-w-32 shrink"
+									variant={includeContext ? "outline" : "ghost"}
+									aria-pressed={includeContext}
+									onClick={() => setIncludeContext((value) => !value)}
+								>
+									<Paperclip className="shrink-0" size={14} />
+									<span className="truncate">{context.label}</span>
+								</Button>
+							) : null}
+							<Text
+								as="span"
+								role="label"
+								className="chat-composer-hint min-w-0 shrink truncate text-kumo-inactive"
+							>
+								Enter to send · Shift+Enter for a new line
+							</Text>
+						</div>
+						<div className="chat-composer-submit flex shrink-0 items-center justify-end gap-2">
 							<Button
 								type="button"
 								size="icon-sm"
 								variant="ghost"
-								aria-label="Cancel dictation"
-								onClick={dictation.cancel}
-								icon={<X size={16} />}
+								aria-label="Start dictation"
+								disabled={send.isPending}
+								onClick={() => void dictation.start().catch(() => undefined)}
+								icon={<Microphone size={16} />}
 							/>
-							{dictation.phase === "recording" ? (
-								<div className="chat-voice-wave" aria-hidden="true">
-									{Array.from({ length: VOICE_WAVE_BAR_COUNT }, (_, index) => {
-										return (
-											<i
-												key={index}
-												style={{
-													height: `${voiceWaveBarHeight(dictation.audioHistory[index] ?? 0)}px`,
-												}}
-											/>
-										);
-									})}
-								</div>
-							) : (
-								<div className="flex flex-1 justify-center">
-									<Loader size="sm" />
-								</div>
-							)}
-							{dictation.phase === "recording" ? (
-								<Button
-									type="button"
-									size="icon-sm"
-									aria-label="Stop and transcribe"
-									onClick={dictation.stop}
-									icon={<Square size={14} weight="fill" />}
-								/>
-							) : null}
-						</div>
-					)}
-					{dictation.phase === "idle" ? (
-						<div className="chat-composer-actions flex items-center justify-between gap-3 px-4 pt-2 pb-3">
-							<div className="chat-composer-context flex min-w-0 items-center gap-2">
+							{activeTedis.length > 0 ? (
 								<DropdownMenu>
 									<DropdownMenuTrigger
 										render={
 											<Button
 												type="button"
-												size="icon-sm"
+												size="sm"
 												variant="ghost"
-												aria-label="Composer options"
-												icon={<Plus size={16} />}
-											/>
+												className="min-w-0 max-w-32"
+												aria-label={`Send to ${selectedTediName ?? "Home"}`}
+											>
+												<span className="truncate">
+													{selectedTediName ?? "Home"}
+												</span>
+											</Button>
 										}
 									/>
 									<DropdownMenuContent>
-										<DropdownMenuItem onClick={() => setDirectReadOpen(true)}>
-											<MagnifyingGlass size={14} />
-											Read from connected app
+										<DropdownMenuItem onClick={() => setSelectedTediId(null)}>
+											Home (picks for you)
 										</DropdownMenuItem>
-										<DropdownMenuItem
-											onClick={() => attachmentInputRef.current?.click()}
-										>
-											Attach files
-										</DropdownMenuItem>
-										{CHAT_SLASH_COMMANDS.map((item) => (
+										{activeTedis.map((tedi) => (
 											<DropdownMenuItem
-												key={item.command}
-												onClick={() =>
-													updateDraft(`${item.instruction}\n\n${draft}`.trim())
-												}
+												key={tedi.id}
+												onClick={() => setSelectedTediId(tedi.id)}
 											>
-												{item.command}
-											</DropdownMenuItem>
-										))}
-										{CHAT_FORMATS.map((format) => (
-											<DropdownMenuItem
-												key={format}
-												onClick={() =>
-													updateDraft(
-														`${draft}${draft ? "\n\n" : ""}Create a ${format} output for this request.`,
-													)
-												}
-											>
-												Create {format}
+												{tedi.name}
 											</DropdownMenuItem>
 										))}
 									</DropdownMenuContent>
 								</DropdownMenu>
-								{context ? (
-									<Button
-										type="button"
-										size="sm"
-										className="chat-composer-chip min-w-0 max-w-32 shrink"
-										variant={includeContext ? "outline" : "ghost"}
-										aria-pressed={includeContext}
-										onClick={() => setIncludeContext((value) => !value)}
-									>
-										<Paperclip className="shrink-0" size={14} />
-										<span className="truncate">{context.label}</span>
-									</Button>
-								) : null}
-								<Text
-									as="span"
-									role="label"
-									className="chat-composer-hint min-w-0 shrink truncate text-kumo-inactive"
+							) : null}
+							{localWorkersAi ? (
+								<span
+									className="text-xs text-kumo-subtle"
+									title="Model configured by the local launcher; inference billed to your Cloudflare account"
 								>
-									Enter to send · Shift+Enter for a new line
-								</Text>
-							</div>
-							<div className="chat-composer-submit flex shrink-0 items-center justify-end gap-2">
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="ghost"
-									aria-label="Start dictation"
-									disabled={send.isPending}
-									onClick={() => void dictation.start().catch(() => undefined)}
-									icon={<Microphone size={16} />}
-								/>
-								{activeTedis.length > 0 ? (
-									<DropdownMenu>
-										<DropdownMenuTrigger
-											render={
-												<Button
-													type="button"
-													size="sm"
-													variant="ghost"
-													className="min-w-0 max-w-32"
-													aria-label={`Send to ${selectedTediName ?? "Home"}`}
-												>
-													<span className="truncate">
-														{selectedTediName ?? "Home"}
-													</span>
-												</Button>
-											}
-										/>
-										<DropdownMenuContent>
-											<DropdownMenuItem onClick={() => setSelectedTediId(null)}>
-												Home (picks for you)
+									Workers AI · local config
+								</span>
+							) : (
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												type="button"
+												size="sm"
+												variant="ghost"
+												className="min-w-0 max-w-32"
+											>
+												<span className="truncate">
+													{resolvableModels.find(
+														(model) => model.ref === selectedModelRef,
+													)?.label ?? "Model"}
+												</span>
+											</Button>
+										}
+									/>
+									<DropdownMenuContent>
+										{selectableModels.map((model) => (
+											<DropdownMenuItem
+												key={model.ref}
+												onClick={() => {
+													setSelectedModelRef(model.ref);
+													// The refusal is re-derived from the new selection;
+													// the stale one must not outlive it.
+													setAttachmentError(null);
+												}}
+											>
+												{model.label}
 											</DropdownMenuItem>
-											{activeTedis.map((tedi) => (
-												<DropdownMenuItem
-													key={tedi.id}
-													onClick={() => setSelectedTediId(tedi.id)}
-												>
-													{tedi.name}
-												</DropdownMenuItem>
-											))}
-										</DropdownMenuContent>
-									</DropdownMenu>
-								) : null}
-								{localWorkersAi ? (
-									<span
-										className="text-xs text-kumo-subtle"
-										title="Model configured by the local launcher; inference billed to your Cloudflare account"
-									>
-										Workers AI · local config
-									</span>
-								) : (
-									<DropdownMenu>
-										<DropdownMenuTrigger
-											render={
-												<Button
-													type="button"
-													size="sm"
-													variant="ghost"
-													className="min-w-0 max-w-32"
-												>
-													<span className="truncate">
-														{resolvableModels.find(
-															(model) => model.ref === selectedModelRef,
-														)?.label ?? "Model"}
-													</span>
-												</Button>
-											}
-										/>
-										<DropdownMenuContent>
-											{selectableModels.map((model) => (
-												<DropdownMenuItem
-													key={model.ref}
-													onClick={() => {
-														setSelectedModelRef(model.ref);
-														// The refusal is re-derived from the new selection;
-														// the stale one must not outlive it.
-														setAttachmentError(null);
-													}}
-												>
-													{model.label}
-												</DropdownMenuItem>
-											))}
-										</DropdownMenuContent>
-									</DropdownMenu>
-								)}
-								<Button
-									type="submit"
-									size="icon-sm"
-									aria-label="Send message"
-									icon={<ArrowUp size={16} weight="bold" />}
-									loading={send.isPending || preparingConversation}
-									disabled={
-										preparingAttachments ||
-										preparingConversation ||
-										send.isPending ||
-										directRead.isPending ||
-										blockedByAttachedImage ||
-										(localAiUnavailable && !parseDirectReadCommand(draft)) ||
-										(!draft.trim() && attachments.length === 0)
-									}
-								/>
-							</div>
+										))}
+									</DropdownMenuContent>
+								</DropdownMenu>
+							)}
+							<Button
+								type="submit"
+								size="icon-sm"
+								aria-label="Send message"
+								icon={<ArrowUp size={16} weight="bold" />}
+								loading={send.isPending || preparingConversation}
+								disabled={
+									preparingAttachments ||
+									preparingConversation ||
+									send.isPending ||
+									directRead.isPending ||
+									blockedByAttachedImage ||
+									(localAiUnavailable && !parseDirectReadCommand(draft)) ||
+									(!draft.trim() && attachments.length === 0)
+								}
+							/>
 						</div>
-					) : null}
-				</form>
-			)}
+					</div>
+				) : null}
+			</form>
 		</div>
 	);
 }

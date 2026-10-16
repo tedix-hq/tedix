@@ -636,6 +636,22 @@ export function SheetEditor({
 		const arrow = ARROWS[key];
 		if (arrow) {
 			event.preventDefault();
+			if (
+				key === "ArrowDown" &&
+				focus.row === rowCount - 1 &&
+				!disabled &&
+				rowCount < 1000
+			) {
+				commitWorkbook(insertRows(workbook, sheet.id, rowCount));
+				const next = { row: rowCount, column: focus.column };
+				setSelection({
+					anchor: event.shiftKey ? selection.anchor : next,
+					focus: next,
+				});
+				setNameDraft(null);
+				focusCellRef.current = true;
+				return;
+			}
 			moveTo(
 				{ row: focus.row + arrow.row, column: focus.column + arrow.column },
 				event.shiftKey,

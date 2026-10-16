@@ -319,6 +319,66 @@ export function frozenCellStyle(
 		: {};
 }
 
+/** Expand a one-column sort to the table bounded by empty rows and columns. */
+function tableSortRange(
+	sheet: OsWorkbookSheet,
+	range: WorkbookRange,
+): WorkbookRange {
+	if (range.columnStart !== range.columnEnd) return range;
+	const result = { ...range };
+	const occupied = (row: number, column: number) =>
+		!!sheet.rows[row]?.[column]?.input.trim();
+	while (
+		result.rowStart < result.rowEnd &&
+		!occupied(result.rowStart, result.columnStart)
+	)
+		result.rowStart++;
+	while (
+		result.rowEnd > result.rowStart &&
+		!occupied(result.rowEnd, result.columnStart)
+	)
+		result.rowEnd--;
+	if (
+		result.rowStart === result.rowEnd &&
+		!occupied(result.rowStart, result.columnStart)
+	)
+		return range;
+	const rowHasData = (row: number) => {
+		for (let col = result.columnStart; col <= result.columnEnd; col++)
+			if (occupied(row, col)) return true;
+		return false;
+	};
+	const columnHasData = (column: number) => {
+		for (let row = result.rowStart; row <= result.rowEnd; row++)
+			if (occupied(row, column)) return true;
+		return false;
+	};
+	let changed = true;
+	while (changed) {
+		const previous = { ...result };
+		while (result.rowStart > 0 && rowHasData(result.rowStart - 1))
+			result.rowStart--;
+		while (
+			result.rowEnd + 1 < sheet.rows.length &&
+			rowHasData(result.rowEnd + 1)
+		)
+			result.rowEnd++;
+		while (result.columnStart > 0 && columnHasData(result.columnStart - 1))
+			result.columnStart--;
+		while (
+			result.columnEnd + 1 < sheet.columns.length &&
+			columnHasData(result.columnEnd + 1)
+		)
+			result.columnEnd++;
+		changed =
+			result.rowStart !== previous.rowStart ||
+			result.rowEnd !== previous.rowEnd ||
+			result.columnStart !== previous.columnStart ||
+			result.columnEnd !== previous.columnEnd;
+	}
+	return result;
+}
+
 export function sortRange(
 	workbook: OsWorkbook,
 	sheetId: string,
@@ -328,6 +388,7 @@ export function sortRange(
 	hasHeader = false,
 ): OsWorkbook {
 	return changeSheet(workbook, sheetId, (sheet) => {
+		range = tableSortRange(sheet, range);
 		const start = range.rowStart + (hasHeader ? 1 : 0);
 		const source = sheet.rows
 			.slice(start, range.rowEnd + 1)

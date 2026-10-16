@@ -115,3 +115,47 @@ describe("collaboration Worker presence", () => {
 		).resolves.toBeNull();
 	});
 });
+
+describe("collaboration profile names", () => {
+	it.each(["Mira Vale", null, "   "])(
+		"uses the org profile name %s with a member fallback",
+		async (name) => {
+			const resolveName = vi.fn().mockResolvedValue(name);
+			const identity = await authenticateCollabPresence(
+				new Request("https://example.com/collab/w"),
+				"project",
+				"tenant-a",
+				vi.fn().mockResolvedValue({ sub: "fictional-user", dct: "tenant-a" }),
+				"verified-session",
+				resolveName,
+			);
+			expect(resolveName).toHaveBeenCalledWith("fictional-user");
+			expect(identity?.displayName).toBe(name?.trim() || "Tedix member");
+		},
+	);
+	it("keeps the fallback when the members lookup is unavailable", async () => {
+		const identity = await authenticateCollabPresence(
+			new Request("https://example.com/collab/w"),
+			"project",
+			"tenant-a",
+			vi.fn().mockResolvedValue({ sub: "fictional-user", dct: "tenant-a" }),
+			"verified-session",
+			vi.fn().mockRejectedValue(new Error("Unavailable")),
+		);
+		expect(identity?.displayName).toBe("Tedix member");
+	});
+	it("does not look up a profile for a foreign tenant", async () => {
+		const resolveName = vi.fn();
+		expect(
+			await authenticateCollabPresence(
+				new Request("https://example.com/collab/w"),
+				"project",
+				"tenant-a",
+				vi.fn().mockResolvedValue({ sub: "fictional-user", dct: "tenant-b" }),
+				"verified-session",
+				resolveName,
+			),
+		).toBeNull();
+		expect(resolveName).not.toHaveBeenCalled();
+	});
+});

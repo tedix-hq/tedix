@@ -391,6 +391,12 @@ function SlideElementView({
 					event.stopPropagation();
 					onSelect();
 				}}
+				onDoubleClick={(event) => {
+					if (disabled) return;
+					event.stopPropagation();
+					onSelect();
+					editText(event.clientX, event.clientY);
+				}}
 				onKeyDown={(event) => {
 					// Keys typed in the element's textarea bubble here; selecting on them
 					// swallowed every line break and space.
@@ -961,7 +967,6 @@ export function SlidesEditor({
 						disabled={disabled}
 						onSelect={(id) => {
 							setSelectedElementId(id);
-							if (id) setShowInspector(true);
 						}}
 						onChangeElement={(next) => updateElement(next)}
 						onGeometryCommit={(next) => updateElement(next)}

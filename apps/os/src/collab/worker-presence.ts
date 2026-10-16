@@ -120,6 +120,7 @@ export async function authenticateCollabPresence(
 	hostTenantId: string,
 	verify: PresenceVerifier = validateToken,
 	trustedSessionToken?: string,
+	resolveMemberName?: (subject: string) => Promise<string | null>,
 ): Promise<CollabVerifiedIdentity | null> {
 	const token =
 		trustedSessionToken ??
@@ -131,10 +132,22 @@ export async function authenticateCollabPresence(
 	if (!token) return null;
 	try {
 		const payload = await verify(token, { projectId, allowTediJwt: true });
-		return collabIdentityFromPayload(
+		const identity = await collabIdentityFromPayload(
 			payload as unknown as PresencePayload,
 			hostTenantId,
 		);
+		if (identity?.kind === "human" && payload.sub && resolveMemberName) {
+			try {
+				const name = (await resolveMemberName(payload.sub))?.trim();
+				identity.displayName =
+					name && name.length <= 100 && !name.includes("@")
+						? name
+						: "Tedix member";
+			} catch {
+				identity.displayName = "Tedix member";
+			}
+		}
+		return identity;
 	} catch {
 		return null;
 	}
