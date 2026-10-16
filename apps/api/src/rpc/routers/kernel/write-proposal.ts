@@ -685,6 +685,17 @@ const MAX_EDIT_TARGET_CHARS = 12_000;
  * slide 2 two columns") and either declines or rewrites the whole output.
  * Protected revisions (derived from access-checked sources) are never read here.
  */
+/** The output kind (document, sheet, presentation) of a read edit target. */
+function editTargetKind(editTarget: string | null): string | null {
+	if (!editTarget) return null;
+	try {
+		const kind = (JSON.parse(editTarget) as { kind?: unknown }).kind;
+		return typeof kind === "string" && /^[a-z]+$/.test(kind) ? kind : null;
+	} catch {
+		return null;
+	}
+}
+
 export async function readEditTargetOutput(input: {
 	db: DbClient;
 	organizationId: string;
@@ -1159,7 +1170,14 @@ export async function planKernelWriteProposal(args: {
 			args.onStage?.("writeCatalogReady");
 			args.onStage?.("writeToolSelected");
 		} else {
-			const discoveryQuery = writeDiscoveryQuery({ capability, content });
+			// Editing a Tedix output ("append a paragraph to this document") often
+			// routes with no capability, and the request's own words rank other
+			// providers' patch tools first. Search for the output's edit tools.
+			const editKind = editTargetKind(await editTargetPromise);
+			const discoveryQuery =
+				editKind && !EXTERNAL_OFFICE_PROVIDER_RE.test(content)
+					? `os output ${editKind} edit`
+					: writeDiscoveryQuery({ capability, content });
 			const tools =
 				transport === "codemode"
 					? await cachedWriteCatalog(

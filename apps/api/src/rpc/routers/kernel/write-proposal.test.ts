@@ -807,6 +807,75 @@ describe("planKernelWriteProposal — schema prefetch", () => {
 	});
 });
 
+describe("planKernelWriteProposal — editing a selected Tedix output", () => {
+	it("searches for the output's edit tools, not the request's words", async () => {
+		const OUTPUT_ID = "f62dc07f-4be7-488d-9968-2c3d8d395560";
+		mocks.getOsOutput.mockResolvedValueOnce({
+			id: OUTPUT_ID,
+			kind: "document",
+			title: "Plan",
+			status: "active",
+			currentRevisionId: "rev-1",
+		} as never);
+		mocks.getOsOutputRevision.mockResolvedValueOnce({
+			id: "rev-1",
+			outputId: OUTPUT_ID,
+			revision: 1,
+			content: '{"kind":"document","blocks":[]}',
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+		} as never);
+		const service = mcpService((body) =>
+			body.method === "tools/list"
+				? {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: { tools: [{ name: "code" }] },
+						},
+					}
+				: {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: {
+								structuredContent: { executionId: "e", result: "[]" },
+							},
+						},
+					},
+		);
+		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug: string) =>
+			slug === "tedix-unified" ? { slug } : null,
+		);
+		await planKernelWriteProposal({
+			db: DB,
+			env: baseEnv(service),
+			organizationId: "org-1",
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "tedix-unified",
+					capability: null,
+					connectionStatus: "connected",
+				},
+			}),
+			workspaceContext: {
+				workspaceId: "ws-1",
+				workspaceName: "Scratch",
+				workpiece: { kind: "output", id: OUTPUT_ID, name: "Plan" },
+			} as never,
+			content: "Append a paragraph Fourth line. to this document",
+			model: objectModel({ toolName: "NONE", args: null, reasoning: null }),
+		});
+		const search = service.calls.find((call) =>
+			String(
+				(call.params.arguments as { code?: string } | undefined)?.code,
+			).includes("discover.search"),
+		);
+		expect(
+			(search?.params.arguments as { code?: string } | undefined)?.code,
+		).toContain('"query":"os output document edit"');
+	});
+});
+
 describe("readEditTargetOutput", () => {
 	const OUTPUT_ID = "f62dc07f-4be7-488d-9968-2c3d8d395560";
 	const output = {
