@@ -192,6 +192,10 @@ tools return a retryable `context_unavailable`); each document binds its own
 tenant. `window.__tedixWebMcp.status()` reports host detection and the last
 registration error. A successful mutation means only that the API accepted it.
 
+An open first-party workspace app adds its own scope, `app:<id>`, through
+`useAppWebMcpTools`; its tools call the app's own button callbacks, so the
+person sees each action on screen ([Build a workspace app](../../public/build-a-workspace-app.md)).
+
 ## Embedded provider installations
 
 Tedix can back a host SaaS product's embedded Tedi widget with one isolated
