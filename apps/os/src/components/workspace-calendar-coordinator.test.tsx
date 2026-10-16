@@ -71,19 +71,20 @@ describe("calendar setup authority and status", () => {
 			),
 		).toBe("");
 	});
-	it("requires a live grant for the same resource/account/worker/revision/actions/tools", () => {
+	it("requires a live grant for the same resource/account/worker/skill/actions/tools", () => {
 		const valid = (value = grant) =>
 			grantCoversCalendar(
 				value,
 				resource,
 				"worker",
 				"skill",
-				2,
 				["create", "delete"],
 				["list_events", "create_event"],
 				Date.parse("2026-10-06T00:00:00Z"),
 			);
 		expect(valid()).toBe(true);
+		// A skill edit keeps the grant until the owner revokes it or it expires.
+		expect(valid({ ...grant, skillRevision: 3 })).toBe(true);
 		for (const changed of [
 			{ revokedAt: "2026-10-06" },
 			{ expiresAt: "2020-01-01" },
@@ -93,7 +94,7 @@ describe("calendar setup authority and status", () => {
 			{ workspaceId: "other" },
 			{ resourceId: "other" },
 			{ tediId: "other" },
-			{ skillRevision: 3 },
+			{ skillId: "other" },
 			{ operations: ["read", "create"] },
 			{ toolIds: ["list_events"] },
 		])

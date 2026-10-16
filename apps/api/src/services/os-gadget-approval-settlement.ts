@@ -475,7 +475,6 @@ export async function settleOsGadgetApproval(
 				await validatePersonalRunSources(trusted, {
 					tediId,
 					skillId: executable.skill.id,
-					skillRevision: executable.skill.revision,
 					resourceAccessEnvelope: { version: 1, sources: [source] },
 				});
 				grantedResources.push({

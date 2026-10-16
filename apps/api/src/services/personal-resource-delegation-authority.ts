@@ -286,7 +286,6 @@ export async function authorizePersonalResourceDelegation(
 		!Number.isFinite(Date.parse(row.expiresAt)) ||
 		row.tediId !== input.tediId ||
 		row.skillId !== input.skillId ||
-		row.skillRevision !== input.skillRevision ||
 		row.workspaceId !== input.workspaceId ||
 		row.resourceId !== input.resourceId ||
 		row.providerId !== input.providerId ||
@@ -375,7 +374,6 @@ async function validateLivePersonalDelegation(
 	context: BaseContext,
 	row: PersonalResourceDelegationRow,
 	now = new Date(),
-	anySkillRevision = false,
 ): Promise<string[]> {
 	const organizationId = requireOrgId(context);
 	if (
@@ -410,7 +408,6 @@ async function validateLivePersonalDelegation(
 		membership?.status !== "active" ||
 		!skill ||
 		skill.lifecycleState === "archived" ||
-		(!anySkillRevision && skill.revision !== row.skillRevision) ||
 		(skill.tediId && skill.tediId !== row.tediId) ||
 		!tedi ||
 		tedi.retiredAt ||
@@ -443,7 +440,6 @@ export async function validatePersonalRunSources(
 	input: {
 		tediId: string;
 		skillId: string;
-		skillRevision: number;
 		resourceAccessEnvelope: OsDerivedAccessEnvelope;
 	},
 ): Promise<OsDerivedAccessEnvelope> {
@@ -467,7 +463,6 @@ export async function validatePersonalRunSources(
 			!row ||
 			row.tediId !== input.tediId ||
 			row.skillId !== input.skillId ||
-			row.skillRevision !== input.skillRevision ||
 			!samePersonalSource(source, row) ||
 			(context.authType === "user" && context.user?.sub !== row.ownerUserId)
 		)
@@ -509,8 +504,7 @@ export async function resolvePersonalResourceDelegatedCredential(
 /**
  * Personal bytes remain private. The data owner always reads what was derived
  * from their data. A worker skill run reads it while the same owner still has
- * an active grant for that worker skill and resource, at any skill revision,
- * so a skill edit does not lock its own outputs. Nobody else reads it.
+ * an active grant for that worker skill and resource. Nobody else reads it.
  */
 export async function authorizePersonalDerivedSource(
 	context: BaseContext,
@@ -570,7 +564,7 @@ export async function authorizePersonalDerivedSource(
 			)
 				continue;
 			try {
-				await validateLivePersonalDelegation(context, grant, now, true);
+				await validateLivePersonalDelegation(context, grant, now);
 				return true;
 			} catch {
 				// An inactive grant does not cover this source; try the next one.
@@ -641,7 +635,6 @@ export async function resolvePersonalSubscriptionCredential(
 			row.ownerUserId !== subscription.personalOwnerUserId ||
 			row.tediId !== subscription.tediId ||
 			row.skillId !== subscription.skillId ||
-			row.skillRevision !== subscription.skillRevision ||
 			row.workspaceId !== subscription.workspaceId ||
 			!row.operations.includes("subscribe") ||
 			!row.toolIds.includes(subscription.executionToolId)

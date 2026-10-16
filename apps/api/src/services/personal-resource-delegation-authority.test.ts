@@ -282,6 +282,58 @@ describe("explicit personal-resource delegation authority", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
+	it("keeps a grant usable after the skill is edited, until revoke or expiry", async () => {
+		vi.mocked(skills.getSkillEntry).mockResolvedValue({
+			id,
+			revision: 2,
+			content: doc,
+			lifecycleState: "active",
+		} as never);
+		run.skillRevision = 2;
+		const edited = { ...use, skillRevision: 2 };
+		expect(consent.skillRevision).toBe(1);
+		await expect(
+			authorizePersonalResourceDelegation(context(true), edited),
+		).resolves.toMatchObject({ ownerUserId: "alice" });
+		await expect(
+			validatePersonalRunSources(context(), {
+				tediId: id,
+				skillId: id,
+				resourceAccessEnvelope: {
+					version: 1,
+					sources: [personalDelegationSource(consent as never)],
+				},
+			}),
+		).resolves.toBeDefined();
+		consent.expiresAt = "2000-01-01";
+		await expect(
+			authorizePersonalResourceDelegation(context(true), edited),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		consent.expiresAt = "2099-01-01T00:00:00Z";
+		consent.revokedAt = "2026-10-02";
+		await expect(
+			authorizePersonalResourceDelegation(context(true), edited),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("denies a grant to another skill or another worker", async () => {
+		const otherSkill = "20000000-0000-4000-8000-000000000002";
+		run.skillId = otherSkill;
+		await expect(
+			authorizePersonalResourceDelegation(context(true), {
+				...use,
+				skillId: otherSkill,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		run.skillId = id;
+		const otherWorker = "30000000-0000-4000-8000-000000000003";
+		run.tediId = otherWorker;
+		const ctx = context(true);
+		(ctx as { tediId?: string }).tediId = otherWorker;
+		await expect(
+			authorizePersonalResourceDelegation(ctx, { ...use, tediId: otherWorker }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
 	it.each([
 		{ providerResourceId: "calendar-b" },
 		{ operation: "delete" },
@@ -312,7 +364,6 @@ describe("admitted personal source boundaries", () => {
 			validatePersonalRunSources(context(), {
 				tediId: id,
 				skillId: id,
-				skillRevision: 1,
 				resourceAccessEnvelope: envelope,
 			}),
 		).resolves.toEqual(envelope);
@@ -321,7 +372,6 @@ describe("admitted personal source boundaries", () => {
 			validatePersonalRunSources(context(), {
 				tediId: id,
 				skillId: id,
-				skillRevision: 1,
 				resourceAccessEnvelope: envelope,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });

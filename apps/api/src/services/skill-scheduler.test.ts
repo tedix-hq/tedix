@@ -54,6 +54,19 @@ describe("scheduled personal consent envelope", () => {
 				}),
 			],
 		}));
+
+	it("admits only the newest grant per resource across skill revisions", () => {
+		const older = {
+			...row,
+			id: "40000000-0000-4000-8000-000000000004",
+			skillRevision: 1,
+		} as PersonalResourceDelegationRow;
+		expect(
+			scheduledPersonalResourceEnvelope([row, older])?.sources.map(
+				(source) => source.delegationId,
+			),
+		).toEqual([row.id]);
+	});
 });
 
 describe("skill scheduler", () => {

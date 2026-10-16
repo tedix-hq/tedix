@@ -103,7 +103,6 @@ export function grantCoversCalendar(
 	resource: BoundCalendarResource,
 	worker: string,
 	skill: string,
-	revision: number,
 	actions: readonly string[],
 	tools: string[],
 	now = Date.now(),
@@ -118,7 +117,6 @@ export function grantCoversCalendar(
 		grant.providerResourceId === resource.providerResourceId &&
 		grant.tediId === worker &&
 		grant.skillId === skill &&
-		grant.skillRevision === revision &&
 		grant.operations.includes("read") &&
 		grant.operations.includes("subscribe") &&
 		actions.every((action) => grant.operations.includes(action)) &&
@@ -412,15 +410,7 @@ export function WorkspaceCalendarCoordinator({
 		revisionValid &&
 		owned.every((resource) =>
 			(grants.data ?? []).some((grant) =>
-				grantCoversCalendar(
-					grant,
-					resource,
-					workerId,
-					skillId,
-					reviewedRevision!,
-					actions,
-					tools,
-				),
+				grantCoversCalendar(grant, resource, workerId, skillId, actions, tools),
 			),
 		);
 	const refresh = async () => {
@@ -477,7 +467,6 @@ export function WorkspaceCalendarCoordinator({
 							resource,
 							workerId,
 							skillId,
-							reviewedRevision!,
 							actions,
 							tools,
 						),
@@ -548,7 +537,6 @@ export function WorkspaceCalendarCoordinator({
 											resource,
 											workerId,
 											skillId,
-											reviewedRevision!,
 											actions,
 											tools,
 										),
@@ -998,9 +986,9 @@ export function WorkspaceCalendarCoordinator({
 					/>
 				</label>
 				<Text as="p" tone="secondary">
-					Access applies only to these calendars, this worker and this skill
-					revision. It can be revoked here. Meeting titles and attendees are not
-					copied into blockers.
+					Access applies only to these calendars, this worker and this skill. It
+					lasts until you revoke it here or it expires, even after the skill is
+					edited. Meeting titles and attendees are not copied into blockers.
 				</Text>
 				<label className="flex items-center gap-2">
 					<Checkbox

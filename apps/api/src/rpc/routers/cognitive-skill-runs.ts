@@ -532,7 +532,6 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 			? await validatePersonalRunSources(context, {
 					tediId: input.tediId,
 					skillId: skill.id,
-					skillRevision: skill.revision,
 					resourceAccessEnvelope: input.resourceAccessEnvelope,
 				})
 			: undefined;

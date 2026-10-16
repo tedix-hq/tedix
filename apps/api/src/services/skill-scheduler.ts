@@ -170,9 +170,14 @@ export function scheduledPersonalResourceEnvelope(
 	rows: PersonalResourceDelegationRow[],
 ): OsDerivedAccessEnvelope | undefined {
 	if (!rows.length) return undefined;
+	// Rows are newest first; keep one grant per resource so a re-granted
+	// resource is not admitted twice.
+	const seen = new Set<string>();
 	return OsDerivedAccessEnvelopeSchema.parse({
 		version: 1,
-		sources: rows.map(personalDelegationSource),
+		sources: rows
+			.filter((row) => !seen.has(row.resourceId) && seen.add(row.resourceId))
+			.map(personalDelegationSource),
 	});
 }
 
@@ -265,15 +270,14 @@ export async function dispatchDueSkillSchedules(
 			) {
 				throw new Error("skill schedule projection drifted from its manifest");
 			}
-			// Owner consent pins an exact worker and skill revision; the credential
-			// path re-validates every use, so the scheduler only carries it forward.
+			// Owner consent covers this worker skill until revoked or expired; the
+			// credential path re-validates every use, so the scheduler only carries it forward.
 			const resourceAccessEnvelope = scheduledPersonalResourceEnvelope(
 				skill.revision
 					? await listActiveSkillPersonalResourceDelegations(db, {
 							organizationId: schedule.organizationId,
 							tediId: schedule.tediId,
 							skillId: skill.id,
-							skillRevision: skill.revision,
 							now: observedAt,
 						})
 					: [],
