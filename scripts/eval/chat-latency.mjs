@@ -287,6 +287,8 @@ export async function recheckSaved(directory) {
 			);
 			const run = unwrap(inspected.run).run;
 			Object.assign(row, phases(run.metadata, run.completedAt));
+			row.isolate = run.metadata.kernelTurnTimings?.isolate?.tag;
+			row.status = run.status;
 			row.model = run.metadata.bodyExecutionResult?.usage?.model ?? null;
 			if (fixture.kind) {
 				const detail = JSON.parse(
@@ -376,9 +378,11 @@ async function main() {
 			proc.exited,
 		]);
 		const wallMs = Math.round(performance.now() - started);
-		if (exit !== 0 && exit !== 3)
+		const value = stdout.trim() ? JSON.parse(stdout) : null;
+		// A failed durable chat run still has phase timings worth inspecting.
+		if (exit !== 0 && exit !== 3 && !(args[0] === "chat" && value?.homeRunId))
 			throw new Error(`CLI exit ${exit}: ${stderr || stdout}`);
-		return { value: JSON.parse(stdout), wallMs, exit };
+		return { value, wallMs, exit };
 	}
 	const code = async (source) =>
 		unwrap((await cli(["code", `async () => { ${source} }`])).value);
