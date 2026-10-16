@@ -127,30 +127,19 @@ vi.mock("emdash", () => ({
 }));
 
 import { GET } from "../templates/marketing/src/pages/llms.txt";
+import { authoredDiscoveryResponse } from "../templates/marketing/src/lib/authored-discovery";
 
 describe("marketing llms.txt", () => {
-	it("keeps the archived Tedix overview scoped to tedix.dev", async () => {
-		workerEnv.PUBLIC_SITE_URL = "https://tedix.dev";
-		getEmDashCollection.mockClear();
-		try {
-			const response = await GET({} as never);
-			const body = await response.text();
-			expect(response.headers.get("content-type")).toBe(
-				"text/markdown; charset=utf-8",
-			);
-			expect(body).toContain(
-				"> Tedix is a platform for autonomous digital workers (tedis)",
-			);
-			expect(body).toContain(
-				"## Blog\n\n- [Blog](https://blog.tedix.dev/posts/)",
-			);
-			expect(body).toContain("## Platform");
-			expect(body).toContain("## MCP Apps");
-			expect(body).not.toContain("## Pages (");
-			expect(getEmDashCollection).not.toHaveBeenCalled();
-		} finally {
-			workerEnv.PUBLIC_SITE_URL = "https://garage.example.test";
-		}
+	it("serves authored text verbatim and keeps an absent or blank override on the native index", async () => {
+		const text = "# Example site\n\n[Docs](https://docs.example.test/)\n";
+		const response = authoredDiscoveryResponse(text)!;
+		expect(await response.text()).toBe(text);
+		expect(response.headers.get("content-type")).toBe(
+			"text/markdown; charset=utf-8",
+		);
+		expect(response.headers.get("cache-control")).toBe("public, max-age=3600");
+		expect(authoredDiscoveryResponse(undefined)).toBeNull();
+		expect(authoredDiscoveryResponse(" \n")).toBeNull();
 	});
 
 	it("lists published indexable content in every populated locale with public URLs", async () => {

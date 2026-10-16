@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { env as workerEnv } from "cloudflare:workers";
 import type { APIRoute } from "astro";
 import {
@@ -13,6 +14,7 @@ import {
 	contentMarkdownHref,
 } from "../lib/content-url";
 import { getPublicSiteUrl } from "../lib/site-url";
+import { authoredDiscoveryResponse } from "../lib/authored-discovery";
 
 function publicDiscoveryUrl(file: "rss.xml" | "sitemap.xml") {
 	const origin = getPublicSiteUrl().replace(/\/+$/, "");
@@ -41,22 +43,19 @@ function isIndexable(data: Record<string, unknown>): boolean {
 	);
 }
 
-// tedix.dev retains the final apps/landing discovery overview. Other marketing
-// tenants continue to generate their own published page and article index.
-const TEDIX_ARCHIVED_LLMS =
-	"# Tedix\n\n> Tedix is a platform for autonomous digital workers (tedis) that build AI-powered apps, create content, and operate infrastructure end-to-end.\n\nTedix enables businesses to deploy AI-native experiences across ChatGPT, Claude, and other AI platforms. Each customer gets a tedi — an autonomous AI worker that learns the business, generates AEO-optimized content, and operates MCP apps.\n\n## Blog\n\n- [Blog](https://blog.tedix.dev/posts/): Latest articles and insights\n- [Full article index with AI-readable content](https://blog.tedix.dev/llms.txt)\n\n## Platform\n\n- [Tedix Homepage](https://tedix.dev): AI That Learns Your Business\n- [AI App Directory](https://tedix.dev/apps): Browse AI apps across ChatGPT, Claude, and more\n- [Public REST API catalog](https://api.tedix.dev/openapi.json): Canonical OpenAPI 3.1 description\n- [Public REST API reference](https://api.tedix.dev/docs): Human-readable Scalar reference\n- [Contact](https://tedix.dev/contact): Get in touch\n\n## MCP Apps\n\n- [Tedix MCP Server](https://tedix.mcp.tedix.dev): Platform administration and management tools\n- Each customer app has its own MCP server at {slug}.mcp.tedix.dev with domain-specific tools";
+const authoredFiles = import.meta.glob("../components/public-files/llms.txt", {
+	eager: true,
+	query: "?raw",
+	import: "default",
+}) as Record<string, string>;
 
 // Emdash owns sitemap.xml natively. Query each configured locale explicitly:
 // getEmDashCollection otherwise resolves to the current request/default locale.
 export const GET: APIRoute = async (context) => {
-	if (new URL(getPublicSiteUrl()).hostname === "tedix.dev") {
-		return new Response(TEDIX_ARCHIVED_LLMS, {
-			headers: {
-				"Content-Type": "text/markdown; charset=utf-8",
-				"Cache-Control": "public, max-age=3600",
-			},
-		});
-	}
+	const authored = authoredDiscoveryResponse(
+		authoredFiles["../components/public-files/llms.txt"],
+	);
+	if (authored) return authored;
 	const orgLocale =
 		(workerEnv as unknown as Record<string, string | undefined>)
 			.DEFAULT_LOCALE ??
