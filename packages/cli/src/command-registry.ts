@@ -20,6 +20,7 @@ import {
 	updateUsage,
 } from "./usage";
 import { workUsage } from "./work";
+import { laneUsage } from "./lane";
 import { workflowUsage } from "./workflow";
 import { factoryUsage } from "./factory";
 
@@ -193,6 +194,15 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		approval: "explicit",
 		output: HUMAN_JSON,
 		help: workUsage,
+	},
+	{
+		name: "lane",
+		argHint: "start|done|fail",
+		surface: "gateway-recipe",
+		summary: "Register and heartbeat this local lane",
+		mutability: "write",
+		output: HUMAN_JSON,
+		help: () => laneUsage,
 	},
 	{
 		name: "flow",

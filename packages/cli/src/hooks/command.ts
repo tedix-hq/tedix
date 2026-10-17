@@ -93,6 +93,17 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		return 0;
 	}
 	try {
+		if (name === "capture-stop") {
+			const { hostEvent } = await import("./hook-io");
+			const { harnessOf } = await import("./agent-status");
+			const { heartbeatLaneSession } = await import("../lane");
+			const { event, session } = hostEvent(deps.stdin, deps.env, limit);
+			if (session)
+				heartbeatLaneSession(
+					`${harnessOf(event, deps.env)}:${session}`,
+					deps.env,
+				);
+		}
 		if (name === "session-start") await runSessionStart(deps);
 		else if (name === "prompt-context") await runPromptContext(deps);
 		else

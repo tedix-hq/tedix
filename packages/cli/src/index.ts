@@ -230,6 +230,22 @@ export function localCommandArgs(argv: string[]): string[] {
 }
 
 async function main() {
+	let commandIndex = 2;
+	while (
+		["-w", "--workspace", "--organization"].includes(
+			process.argv[commandIndex] ?? "",
+		)
+	)
+		commandIndex += 2;
+	const laneIndex = process.argv[commandIndex] === "lane" ? commandIndex : -1;
+	if (laneIndex >= 0) {
+		const { runLane } = await import("./lane");
+		process.exitCode = await runLane([
+			...process.argv.slice(2, laneIndex),
+			...process.argv.slice(laneIndex + 1),
+		]);
+		return;
+	}
 	// Installation lifecycle commands are local and never resolve gateway auth.
 	const argv = localCommandArgs(process.argv.slice(2));
 	const localCommand = argv[0];

@@ -305,8 +305,9 @@ describe("open request lines", () => {
 			{ session: SESSION, repository: "widgets" },
 			now,
 		);
-		expect(lines[0]).toStartWith("Open requests (3):");
-		expect(lines.slice(1)).toEqual([
+		expect(lines[0]).toStartWith("Unfiled: 3.");
+		expect(lines[1]).toStartWith("Open requests (3):");
+		expect(lines.slice(2)).toEqual([
 			'- dropped risk · 2h · "Answer the build question"',
 			'- open · 3h · "Add a changeset"',
 			'- open · 2h · earlier chat · "Ship the docs"',
@@ -322,7 +323,7 @@ describe("open request lines", () => {
 			{ session: SESSION, repository: "widgets" },
 			now,
 		);
-		expect(lines).toHaveLength(7);
+		expect(lines).toHaveLength(8);
 		expect(lines.at(-1)).toContain("2 more open");
 	});
 
