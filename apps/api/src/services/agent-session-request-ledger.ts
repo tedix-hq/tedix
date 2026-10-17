@@ -37,6 +37,7 @@ import {
 	listPendingAgentSessionEvents,
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
+	retryFailedAgentSessionEvents,
 	settleAgentSessionEvent,
 	updateAgentSessionRequests,
 } from "@tedix/db/queries/agent-session-requests";
@@ -519,6 +520,7 @@ export async function acceptAgentSessionEvents(
 	input: {
 		organizationId: string;
 		userId: string;
+		retryFailed?: boolean;
 		events: ReadonlyArray<{
 			kind: AgentSessionEventKind;
 			harness: WorkAgentSessionHarness;
@@ -530,7 +532,7 @@ export async function acceptAgentSessionEvents(
 		}>;
 		now: string;
 	},
-): Promise<{ accepted: number; duplicates: number }> {
+): Promise<{ accepted: number; duplicates: number; retried?: number }> {
 	const events = await Promise.all(
 		input.events.map(async (event) => ({
 			harness: event.harness,
@@ -555,7 +557,18 @@ export async function acceptAgentSessionEvents(
 		events,
 		now: input.now,
 	});
-	return { accepted, duplicates: events.length - accepted };
+	const retried = input.retryFailed
+		? await retryFailedAgentSessionEvents(db, {
+				organizationId: input.organizationId,
+				userId: input.userId,
+				sourceKeys: events.map((event) => event.sourceKey),
+			})
+		: undefined;
+	return {
+		accepted,
+		duplicates: events.length - accepted,
+		...(retried === undefined ? {} : { retried }),
+	};
 }
 
 /** Maximum events per background pass. */
