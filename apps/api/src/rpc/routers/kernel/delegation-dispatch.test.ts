@@ -251,6 +251,33 @@ function makeCard(
 }
 
 describe("buildDelegationWorkOrder", () => {
+	it.each([
+		"https://news.globex.example/article/predictions\n\ntldr",
+		"Read and summarize the article from our previous message",
+	])("preserves native page reading with no MCP entrustment: %s", (source) => {
+		const workOrder = buildDelegationWorkOrder({
+			route: makeRoute({ targetActivityId: null, plannedToolIds: [] }),
+			card: makeCard({
+				delegationEntrustments: [],
+				scopeGroups: Array.from({ length: 12 }, (_, i) => `scope-${i}`),
+			}),
+			userContent: source,
+		});
+		expect(workOrder.authorityEnvelope).toBeUndefined();
+		expect(workOrder.executionRequirement?.surface).toBe("native");
+		const rendered = renderDelegationWorkOrderMessage({
+			workOrder: workOrder as unknown as Record<string, unknown>,
+			fallbackContent: "",
+			fallbackWorkOrderId: "globex-page-read",
+		});
+		expect(rendered).toContain("browser_markdown({ url }) before summarizing");
+		expect(rendered).toContain("not a tool-free instruction");
+		expect(rendered).toContain(
+			"browser approval, hostname, budget and delegation limits still apply",
+		);
+		expect(workOrder.sourceContent).toBe(source);
+	});
+
 	it("renders the full accepted request including trailing acceptance constraints", () => {
 		const source = `  Original task
 ${"Detailed context. ".repeat(250)}

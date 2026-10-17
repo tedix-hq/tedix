@@ -135,6 +135,7 @@ const supervisedTools = {
 	read: definition,
 	exec: definition,
 	browser_scrape: definition,
+	browser_markdown: definition,
 	artifact_write_file: definition,
 	clone_repo: definition,
 	repo_commit: definition,
@@ -170,6 +171,7 @@ assert.deepEqual(
 		"decide_work_approval",
 		"mcp_read_result",
 		"browser_scrape",
+		"browser_markdown",
 		"clone_repo",
 		"deliverable_list",
 		"deliverable_read_artifact",
@@ -184,6 +186,29 @@ assert.deepEqual(
 		"open_computer",
 	].sort(),
 	"Home-supervised turns expose execution tools and one batched MCP primitive",
+);
+assert.equal(
+	supervisedDelegationToolSet(supervisedTools, true).browser_markdown,
+	definition,
+	"a supervised URL summary retains the existing governed page reader",
+);
+assert.equal(
+	restrictDelegatedToolSet(
+		supervisedDelegationToolSet(supervisedTools, true),
+		envelope,
+		"enforce",
+	).browser_markdown,
+	undefined,
+	"page-reading guidance cannot widen an earned delegation grant",
+);
+assert.equal(
+	restrictDelegatedToolSet(
+		supervisedDelegationToolSet(supervisedTools, true),
+		{ ...envelope, allowedToolIds: ["browser_markdown"] },
+		"enforce",
+	).browser_markdown,
+	definition,
+	"an exact page-reading grant retains the governed reader",
 );
 assert.equal(
 	supervisedDelegationToolSet(supervisedTools, false),

@@ -636,6 +636,17 @@ export function buildDelegationWorkOrder(input: {
 	// Tool guidance: steer the worker to its actual capabilities. Scope groups
 	// are the authorization surface; apps are the product surface.
 	const guidanceSeeds: string[] = [];
+	if (
+		/https?:\/\/\S+/i.test(sourceContent) ||
+		/\b(?:read|summari[sz]e|fetch)\b[^.!?\n]{0,80}\b(?:page|article|website)\b/i.test(
+			sourceContent,
+		)
+	) {
+		guidanceSeeds.push(
+			"Read source pages with native browser_markdown({ url }) before summarizing; cite the fetched claims. A URL or headline alone is not article content.",
+			"An empty planned MCP tool list is not a tool-free instruction. Use the runtime-authorized reader; browser approval, hostname, budget and delegation limits still apply.",
+		);
+	}
 	// Native work stays native until a concrete runtime ceiling returns a typed
 	// workstation fallback. Do not turn lease warmth into a second routing
 	// authority.
