@@ -65,6 +65,40 @@ function ctx(
 
 const CODE_MODE = { fallbackOnAuthenticatedAuthMode: true } as const;
 
+it("enforces the configured endpoint ceiling on Code Mode calls even with broad scopes", () => {
+	const baseContext = ctx({}, [
+		"mcp:work.read",
+		"mcp:work.write",
+		"mcp:apps.admin",
+	]);
+	const context = {
+		...baseContext,
+		callerIdentity: {
+			...baseContext.callerIdentity!,
+			authType: "tedi" as const,
+			tediId: "worker",
+			mcpEndpoints: ["support/get"],
+		},
+	};
+	expect(
+		evaluateMcpToolScopeAuthorization(
+			context,
+			tool({
+				toolId: "get_support_ticket",
+				config: { endpoint: "support/get" },
+			}),
+			"support",
+		).authorized,
+	).toBe(true);
+	expect(() =>
+		assertCodeModeInnerToolAuthorized(
+			context,
+			tool({ toolId: "delete_app", config: { endpoint: "apps/delete" } }),
+			"apps",
+		),
+	).toThrow("configured-endpoint");
+});
+
 describe("Code Mode declared write scope", () => {
 	const resolveGap = tool({
 		toolId: "tedix__gaps_resolve",

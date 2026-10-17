@@ -2986,6 +2986,11 @@ const worker = {
 					}
 					headers.set("x-tedix-auth-type", "tedi");
 					headers.set("x-tedix-auth-credential-mode", "delegated-mcp");
+					if (liveTedi.mcpEndpoints !== undefined)
+						headers.set(
+							"x-tedix-auth-mcp-endpoints",
+							JSON.stringify(liveTedi.mcpEndpoints),
+						);
 					headers.set("x-tedix-auth-tedi-id", authResult.claims.tediId);
 					headers.set("x-tedix-auth-user-id", authResult.claims.tediId);
 					headers.set("x-tedix-auth-org-id", authResult.claims.organizationId);
@@ -3204,6 +3209,11 @@ const worker = {
 							headers.set("x-tedix-auth-org-id", directTediAuth.orgId);
 						}
 						headers.set("x-tedix-auth-scopes", directTediAuth.scopes.join(" "));
+						if (directTediAuth.mcpEndpoints !== undefined)
+							headers.set(
+								"x-tedix-auth-mcp-endpoints",
+								JSON.stringify(directTediAuth.mcpEndpoints),
+							);
 					} else if (aihM2mClient) {
 						// Descope AIH client-credentials tokens identify the registered
 						// MCP client but do not currently include its scopes as JWT
@@ -3297,6 +3307,11 @@ const worker = {
 								headers.delete("x-tedix-auth-org-id");
 							}
 							headers.set("x-tedix-auth-tedi-id", m2mTediId);
+							if (liveM2mTediAuth.mcpEndpoints !== undefined)
+								headers.set(
+									"x-tedix-auth-mcp-endpoints",
+									JSON.stringify(liveM2mTediAuth.mcpEndpoints),
+								);
 						}
 						// A tedi M2M grant is bound to this exact AIH server. Its effective
 						// scopes are the intersection of the registered client's scopes

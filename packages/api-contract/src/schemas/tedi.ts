@@ -170,6 +170,13 @@ export type AiGatewayAdmissionPolicy = z.infer<
 >;
 
 export const ToolPolicySchema = z.object({
+	/** Optional exact ceilings. Empty arrays disable that surface. */
+	runtimeTools: z.array(z.string().min(1).max(100)).max(100).optional(),
+	mcpScopes: z.array(z.string().min(1).max(100)).max(100).optional(),
+	mcpEndpoints: z
+		.array(z.string().regex(/^[A-Za-z][A-Za-z0-9/]*$/))
+		.max(100)
+		.optional(),
 	bash: z
 		.enum(["always-allow", "approve-first-then-allow", "always-approve"])
 		.default("approve-first-then-allow"),
