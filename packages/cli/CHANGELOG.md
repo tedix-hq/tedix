@@ -3,6 +3,22 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.10.2 — 2026-10-17
+
+### Minor Changes
+
+- 4e86b48: `tedix lane done --needs-user "<next click>"` puts a result that needs your action in your private Needs you inbox. Use `--request-id` to update the original request.
+- d477914: Register local Codex and Claude sessions with `tedix lane start`, keep their Work Attempt alive, and finish with `tedix lane done` or `tedix lane fail`.
+
+### Patch Changes
+
+- b46453d: Work Attempt worktrees default to the repository's `.worktrees/` directory. Finishing Work removes only this session's clean worktrees whose commits are on remote `main`; worktrees with uncommitted or unpublished work are kept.
+- c52cf22: With decision capture enabled, local session activity appears in your selected organization unless you disable status reporting. Unclassified chat text stays in the originating chat and private request ledger.
+- a9f0703: Skip scheduled job and system notification prompts when capturing session requests.
+- 1e3db70: Concurrent CLI processes share a lock when renewing your connection and reuse the renewed access token. Invalidated refresh tokens produce one error without repeated retries.
+- fdbd39a: Tedix detects stopped coding sessions and delivers requests through their registered host channel. A detached heartbeat no longer makes a stopped session look active.
+- b0e1069: Private lesson proposals retain Codex tool names, denied actions and command recovery evidence. Starting, clearing or compacting a chat restores the compact Open requests list.
+
 ## 0.10.1 — 2026-10-17
 
 ### Patch Changes
