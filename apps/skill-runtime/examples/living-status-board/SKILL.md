@@ -13,6 +13,9 @@ capabilities:
         list_activity,
         run_workflow_history,
         list_work_interactions,
+        get_os_workspace,
+        list_os_outputs,
+        create_os_output,
         get_os_output,
         revise_os_output,
       ]
@@ -21,10 +24,17 @@ audience: [tedi]
 
 # Living status board
 
-Configure `outputId`, `workspaceId`, `ownerUserId`, `baseUrl` and `timeZone`
+Configure `workspaceId`, `ownerUserId`, `baseUrl` and `timeZone`
 in the tenant-owned schedule parameters. Add an owning tedi and a native
 `capabilities.schedule` with cron `*/30 * * * *` in that tenant's skill.
 This example contains no live installation coordinates.
+
+Each member configures their own private workspace and read grant. On first
+use the workflow creates a document titled **Session activity** there; later
+runs reuse it. Set `title` to choose another name, or `outputId` to use an
+existing document. An organization-visible workspace is refused. This optional
+scheduled snapshot complements the live Attention page; no schedule is enabled
+by installing the plugin or opting into decision capture.
 
 Link the skill in its private Workspace. The owner must grant the skill read
 access to session activity in Resources → Runs on a schedule. The delegated

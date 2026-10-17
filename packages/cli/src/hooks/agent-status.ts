@@ -25,7 +25,10 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, normalize } from "node:path";
-import { resolveAgentContext } from "../agent-context";
+import {
+	type AgentContextOptions,
+	resolveAgentContext,
+} from "../agent-context";
 import { looksLikeUuid, selfCommand } from "../shared";
 import {
 	AGENT_IDENTITY_ENV,
@@ -215,11 +218,34 @@ function loadConfig(env: NodeJS.ProcessEnv): JsonObject {
 /** Profile, organization and notify when the owner opted in, else undefined. */
 export function statusSettings(
 	env: NodeJS.ProcessEnv,
+	context?: Pick<AgentContextOptions, "cwd" | "sessionId">,
 ): { profile?: string; organization?: string; notify: boolean } | undefined {
 	const config = loadConfig(env);
 	const toggle = (env.TEDIX_AGENT_STATUS ?? "").trim().toLowerCase();
 	if (FALSY.has(toggle)) return undefined;
-	if (!TRUTHY.has(toggle) && config.enabled !== true) return undefined;
+	if (!TRUTHY.has(toggle) && config.enabled !== true) {
+		if (!context || config.enabled === false) return undefined;
+		const binding = resolveAgentContext({
+			...context,
+			env,
+			configDir: baseDir(env),
+			allowDefault: true,
+		});
+		if (
+			binding.status !== "bound" ||
+			binding.decisionCapture !== true ||
+			!binding.workspace ||
+			!PROFILE.test(binding.workspace) ||
+			!binding.org ||
+			!ORGANIZATION.test(binding.org)
+		)
+			return undefined;
+		return {
+			profile: binding.workspace,
+			organization: binding.org,
+			notify: false,
+		};
+	}
 	const profile = env.TEDIX_AGENT_STATUS_PROFILE || config.profile;
 	// A Connect profile spans organizations; without one it reports to its default.
 	const organization =
@@ -496,7 +522,13 @@ export function sessionBinding(
 ): SessionBinding {
 	if (!looksLikeUuid(sessionId)) return {};
 	try {
-		const context = resolveAgentContext({ cwd, sessionId, env });
+		const context = resolveAgentContext({
+			cwd,
+			sessionId,
+			env,
+			configDir: baseDir(env),
+			allowDefault: true,
+		});
 		if (context.status !== "bound") return {};
 		return { projectId: context.projectId, workItemId: context.workItemId };
 	} catch {
@@ -658,14 +690,17 @@ function supervisorMarker(
 
 export async function runAgentStatus(deps: StatusDeps): Promise<void> {
 	const { env } = deps;
-	const configured = statusSettings(env);
-	if (!configured) return;
 	const raw = deps.stdin;
 	if (!raw || raw.length > STATUS_EVENT_LIMIT) return;
 	const event: unknown = JSON.parse(raw);
 	if (!isObject(event)) return;
 	const sessionKey = event.session_id;
 	if (typeof sessionKey !== "string" || !SESSION_KEY.test(sessionKey)) return;
+	const configured = statusSettings(env, {
+		cwd: typeof event.cwd === "string" ? event.cwd : deps.cwd,
+		sessionId: sessionKey,
+	});
+	if (!configured) return;
 	// With decision capture on, capture-stop triages and owns Stop: one notification per Stop.
 	if (
 		event.hook_event_name === "Stop" &&
@@ -698,10 +733,13 @@ export async function applyTriagedStop(
 	event: JsonObject,
 	triage: TriageResult | undefined,
 ): Promise<void> {
-	const configured = statusSettings(deps.env);
-	if (!configured) return;
 	const sessionKey = event.session_id;
 	if (typeof sessionKey !== "string" || !SESSION_KEY.test(sessionKey)) return;
+	const configured = statusSettings(deps.env, {
+		cwd: typeof event.cwd === "string" ? event.cwd : deps.cwd,
+		sessionId: sessionKey,
+	});
+	if (!configured) return;
 	const harness = harnessOf(event, deps.env);
 	const supervisorContinued = consume(
 		supervisorMarker(statusDir(deps.env), harness, sessionKey),
@@ -726,10 +764,13 @@ export async function applyTriagedStop(
  * an urgent turn after an auto reply still notifies. `working` never notifies.
  */
 export function recordAutoContinued(deps: StatusDeps, event: JsonObject): void {
-	const configured = statusSettings(deps.env);
-	if (!configured) return;
 	const sessionKey = event.session_id;
 	if (typeof sessionKey !== "string" || !SESSION_KEY.test(sessionKey)) return;
+	const configured = statusSettings(deps.env, {
+		cwd: typeof event.cwd === "string" ? event.cwd : deps.cwd,
+		sessionId: sessionKey,
+	});
+	if (!configured) return;
 	const harness = harnessOf(event, deps.env);
 	recordStatus(deps, configured, event, harness, sessionKey, [
 		"working",

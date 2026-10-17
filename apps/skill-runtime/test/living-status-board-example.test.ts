@@ -2,14 +2,22 @@ import { describe, expect, it } from "bun:test";
 import board from "../examples/living-status-board/scripts/workflow";
 
 function fixture(
-	options: { grant?: boolean; omitGoal?: boolean; badProse?: boolean } = {},
+	options: {
+		grant?: boolean;
+		omitGoal?: boolean;
+		badProse?: boolean;
+		firstUse?: boolean;
+		owner?: string;
+		visibility?: string;
+	} = {},
 ) {
 	const saved: unknown[] = [];
+	const created: unknown[] = [];
 	const reads: unknown[] = [];
 	const now = new Date().toISOString();
 	let content: unknown;
 	const payload = {
-		outputId: "board",
+		outputId: options.firstUse ? undefined : "board",
 		workspaceId: "private",
 		ownerUserId: "ada",
 		baseUrl: "https://workspace.example",
@@ -19,6 +27,20 @@ function fixture(
 		__RUN_CONTEXT__: { skillId: "board-skill" },
 		MCP: {
 			tedix: {
+				get_os_workspace: async () => ({
+					workspace: {
+						visibility: options.visibility || "private",
+						ownerUserId: options.owner || "ada",
+					},
+				}),
+				list_os_outputs: async () => ({
+					items: content ? [{ id: "board", title: "Session activity" }] : [],
+					truncated: false,
+				}),
+				create_os_output: async (args) => {
+					created.push(args);
+					return { output: { id: "board" } };
+				},
 				list_agent_session_activity: async (args) => {
 					reads.push(args.requests);
 					return options.grant === false
@@ -88,10 +110,32 @@ function fixture(
 		},
 	};
 	const step = { do: async (_name, _options, action) => action() };
-	return { run: () => board.run({ payload }, step, env), saved, reads };
+	return {
+		run: () => board.run({ payload }, step, env),
+		saved,
+		reads,
+		created,
+	};
 }
 
 describe("living status board", () => {
+	it("creates a private board on first use and reuses it", async () => {
+		const f = fixture({ firstUse: true });
+		await f.run();
+		await f.run();
+		expect(f.created).toEqual([
+			{ workspaceId: "private", kind: "document", title: "Session activity" },
+		]);
+		expect(f.saved).toHaveLength(2);
+	});
+	for (const options of [{ visibility: "org" }, { owner: "grace" }]) {
+		it(`refuses a board destination outside its owner's private workspace: ${JSON.stringify(options)}`, async () => {
+			const f = fixture({ firstUse: true, ...options });
+			await expect(f.run()).rejects.toThrow("owner's private workspace");
+			expect(f.saved).toEqual([]);
+			expect(f.created).toEqual([]);
+		});
+	}
 	it("retains the board when owner consent is absent", async () => {
 		const f = fixture({ grant: false });
 		expect(await f.run()).toMatchObject({ status: "waiting_for_grant" });

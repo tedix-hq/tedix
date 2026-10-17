@@ -523,5 +523,8 @@ describe("obsolete Work interactions", () => {
 			(await sweepObsoleteWorkInteractions(db, { now: NOW, limit: 100 }))
 				.expired,
 		).toBe(1);
+		expect(
+			sqlite.prepare("SELECT COUNT(*) AS n FROM work_item_comments").get()?.n,
+		).toBe(0);
 	});
 });

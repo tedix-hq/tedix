@@ -608,6 +608,11 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 		const isCreator =
 			request.creatorType === actor.type && request.creatorId === actor.id;
 		if (!isTarget && !isCreator) {
+			if (request.metadata.schema === "tedix.decision-capture.v1")
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Session questions are private to their participants",
+				);
 			await requireOwnerAdminWorkItemAuthor(
 				context,
 				orgId,
@@ -895,6 +900,7 @@ const listAuditProcedure = readOs.listAudit.handler(
 		const observedAt = new Date().toISOString();
 		const page = await listWorkInteractionInbox(context.db, {
 			orgId,
+			excludeSessionCapture: true,
 			states: input.states,
 			kinds: input.kinds,
 			urgency: input.urgency,

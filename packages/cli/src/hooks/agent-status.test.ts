@@ -27,13 +27,17 @@ import {
 	type StatusDeps,
 	SUPERVISOR_CONTINUED_SUFFIX,
 	sessionName,
+	sessionBinding,
 	statusEnded,
+	statusSettings,
 	type TriageResult,
 	transition,
 	triagedOutcome,
 } from "./agent-status";
 import { runHooksCommand } from "./command";
 import type { JsonObject } from "./hook-io";
+import { changeAgentContext } from "../agent-context";
+import { writeWorkspaceCredentials } from "../credential-store";
 
 /** Checks for the opt-in turn-status reporter: consent, classification, silence and safe reporting. */
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -94,6 +98,39 @@ const reports = () =>
 	spawned.filter(([args]) => args[0] === "tedix").map(([a]) => a);
 
 describe("tedix hooks status", () => {
+	test("decision-capture opt-in supplies the member's own status scope by default", () => {
+		const options = { configDir: base, cwd: process.cwd(), sessionId: SESSION };
+		writeWorkspaceCredentials(
+			"acme",
+			{
+				org: "org_acme",
+				mcpUrl: "https://acme.example/mcp",
+				loginId: "ada",
+			},
+			options,
+		);
+		changeAgentContext(
+			"bind",
+			{ workspace: "acme", projectId: "22222222-2222-4222-8222-222222222222" },
+			options,
+		);
+		const env = { TEDIX_CONFIG_DIR: base };
+		expect(statusSettings(env, options)).toBeUndefined();
+		changeAgentContext("enable-decision-capture", {}, options);
+		expect(statusSettings(env, options)).toEqual({
+			profile: "acme",
+			organization: "org_acme",
+			notify: false,
+		});
+		expect(sessionBinding(options.cwd, SESSION, env).projectId).toBe(
+			"22222222-2222-4222-8222-222222222222",
+		);
+		expect(
+			statusSettings({ ...env, TEDIX_AGENT_STATUS: "0" }, options),
+		).toBeUndefined();
+		changeAgentContext("disable-decision-capture", {}, options);
+		expect(statusSettings(env, options)).toBeUndefined();
+	});
 	test("disabled has no output or side effects", async () => {
 		await fire("PermissionRequest", {
 			tool_name: "Bash",

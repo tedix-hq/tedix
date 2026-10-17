@@ -262,7 +262,7 @@ registered lanes as well. For a longer unattended run, keep
 `tedix work heartbeat <id> --watch 3600` running and renew it before its horizon.
 An expired lease requires fresh admission, never a stale heartbeat.
 
-Lead launchers must run registration **inside the child session**, preserve its
+Launchers must run registration **inside the child session**, preserve its
 own native session id, and pass the same workspace and organization selectors
 on settlement. Do not export the launcher's `TEDIX_AGENT_SESSION` into a child.
 For a Claude subagent, pass its actual immutable child session id through

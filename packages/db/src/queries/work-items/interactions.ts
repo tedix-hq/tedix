@@ -683,32 +683,33 @@ export async function sweepObsoleteWorkInteractions(
 						? "The proposal received no response for fourteen days."
 						: "Its Work is completed or cancelled and the question is older than three days.";
 		const body = `Closed obsolete request: ${row.subject}. ${reason}`;
-		const note = row.workItemId
-			? db.insert(workItemComments).select(
-					db
-						.select({
-							id: sql<string>`${crypto.randomUUID()}`.as("id"),
-							workItemId: sql<string>`${row.workItemId}`.as("workItemId"),
-							orgId: sql<string>`${row.orgId}`.as("orgId"),
-							authorType: sql<string>`'system'`.as("authorType"),
-							authorId: sql<string>`'tedix'`.as("authorId"),
-							body: sql<string>`${body}`.as("body"),
-							metadata:
-								sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id })}`.as(
-									"metadata",
+		const note =
+			row.workItemId && row.metadata.schema !== "tedix.decision-capture.v1"
+				? db.insert(workItemComments).select(
+						db
+							.select({
+								id: sql<string>`${crypto.randomUUID()}`.as("id"),
+								workItemId: sql<string>`${row.workItemId}`.as("workItemId"),
+								orgId: sql<string>`${row.orgId}`.as("orgId"),
+								authorType: sql<string>`'system'`.as("authorType"),
+								authorId: sql<string>`'tedix'`.as("authorId"),
+								body: sql<string>`${body}`.as("body"),
+								metadata:
+									sql<string>`${JSON.stringify({ source: "interaction-expiry", requestId: row.id })}`.as(
+										"metadata",
+									),
+								createdAt: sql<string>`${p.now}`.as("createdAt"),
+							})
+							.from(workInteractions)
+							.where(
+								and(
+									eq(workInteractions.orgId, row.orgId),
+									eq(workInteractions.id, row.id),
+									eq(workInteractions.resolutionFence, fence),
 								),
-							createdAt: sql<string>`${p.now}`.as("createdAt"),
-						})
-						.from(workInteractions)
-						.where(
-							and(
-								eq(workInteractions.orgId, row.orgId),
-								eq(workInteractions.id, row.id),
-								eq(workInteractions.resolutionFence, fence),
 							),
-						),
-				)
-			: null;
+					)
+				: null;
 		const [closed] = note
 			? await db.batch([update, note])
 			: await db.batch([update]);
@@ -766,6 +767,8 @@ export async function listWorkInteractionInbox(
 	db: DbQueryClient,
 	p: {
 		orgId: string;
+		/** Organization audits must not select private captured session content. */
+		excludeSessionCapture?: boolean;
 		states?: Array<"open" | "resolved" | "cancelled" | "expired">;
 		kinds?: WorkInteractionKind[];
 		workItemId?: string;
@@ -895,6 +898,9 @@ export async function listWorkInteractionInbox(
 		.where(
 			and(
 				eq(workInteractions.orgId, p.orgId),
+				p.excludeSessionCapture
+					? sql`json_extract(${workInteractions.metadata},'$.schema') IS NOT 'tedix.decision-capture.v1'`
+					: undefined,
 				// bound-params: states is a closed four-value interaction-state enum
 				p.states?.length ? inArray(effective, p.states) : undefined,
 				// bound-params: kinds is a closed five-value interaction-kind enum

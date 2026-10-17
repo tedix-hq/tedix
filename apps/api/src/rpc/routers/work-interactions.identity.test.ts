@@ -131,6 +131,33 @@ async function createTargetedInteraction(
 }
 
 describe("Work interaction canonical actor projections", () => {
+	it("keeps captured messages out of other admins' detail and organization audit", async () => {
+		const { owner, target } = fixture();
+		const request = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Private session question",
+			prompt: "Private message text",
+			requestedFrom: { type: "user", id: "owner-id" },
+			metadata: {
+				schema: "tedix.decision-capture.v1",
+				triage: { status: "ok" },
+			},
+		});
+		expect((await owner.get({ requestId: request.id })).request.prompt).toBe(
+			"Private message text",
+		);
+		await expect(target.get({ requestId: request.id })).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		for (const viewer of [owner, target]) {
+			expect(
+				(await viewer.listAudit({ limit: 50 })).data.map(
+					(row) => row.request.id,
+				),
+			).not.toContain(request.id);
+		}
+	});
 	it("retains a harness requester under owner login and labels it as the agent", async () => {
 		const { owner } = fixture();
 		const session = "codex:fixture-session";
