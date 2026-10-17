@@ -105,7 +105,7 @@ None of these announce themselves when broken.
   (`src/inert-runtime-do.ts`: `fetch` 423, `alarm` clears itself, no RPC).
   Keep that check before `super()` and keep the receiver free of lifecycle
   code; runtime admission is permanent, not cutover scaffolding.
-- **`MAX_CHAT_STEPS = 40`** (`src/do.ts`) is the backstop for an explicitly
+- **`MAX_CHAT_STEPS = 40`** (`src/runtime-parent-turns.ts`) is the backstop for an explicitly
   governed step ceiling, not a default turn cap. A turn with no positive
   `maxIterationsPerTask` has no implicit Pi round ceiling and remains
   bounded by wall clock, organization admission, and context safety.

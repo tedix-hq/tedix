@@ -403,10 +403,10 @@ describe("production ConversationFacet budget stop integration", () => {
 					};
 				};
 			};
-			const parent = {
+			const parent = Object.assign(Object.create(AgentTediDO.prototype), {
 				getInferenceBudgetStore: () => store,
 				inferenceBudgetLimits: () => limits,
-			};
+			});
 			let probes = 0;
 			const f = await fixture(async () => ({
 				checkFacetTurnBudget: async (input) => {
