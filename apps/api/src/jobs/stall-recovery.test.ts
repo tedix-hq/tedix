@@ -33,7 +33,10 @@ import {
 	dispatchStallRecovery,
 } from "./stall-recovery";
 import { readContinuity } from "../lib/stall-attention";
-import { listLearningImprovementProposals } from "@tedix/db/queries/learning-feedback";
+import {
+	listLearningImprovementProposals,
+	recordLearningInteraction,
+} from "@tedix/db/queries/learning-feedback";
 
 const createdAt = "2026-10-14T12:00:00.000Z";
 const now = "2026-10-17T12:00:00.000Z";
@@ -445,5 +448,69 @@ describe("autonomous stall recovery", () => {
 		});
 		sqlite.exec("UPDATE work_interaction_attention SET kind='fyi', need=NULL");
 		expect((await read()).stalls[0]?.needsYou).toBe(false);
+	});
+
+	it("does not treat tedi learning feedback as a scheduler acceptance receipt", async () => {
+		const { db, scope } = fixture();
+		const s = await scope();
+		await recordLearningInteraction(db, {
+			organizationId: s.orgId,
+			actorType: "tedi",
+			actorId: "river",
+			tediId: "river",
+			clientEventId: "feedback-receipt",
+			eventKind: "delivered",
+			scopeKind: "tedi",
+			scopeId: "river",
+			surface: "stall_recovery",
+			targetType: s.kind,
+			targetId: s.id,
+			metadata: { environment: "production" },
+			occurredAt: now,
+		});
+		expect(await getStallReceipt(db, s.orgId, "feedback-receipt")).toBeNull();
+		expect((await readContinuity(db, s.orgId, new Date(now))).stalls).toEqual(
+			[],
+		);
+	});
+	it("counts only scheduler incidents toward a recurring-cause fix", async () => {
+		const { db, scope, recover } = fixture();
+		const s = await scope();
+		const issueKey = `continuity:production:${s.key}:no open items`;
+		for (let at = 0; at < 3; at++)
+			await recordLearningInteraction(db, {
+				organizationId: s.orgId,
+				actorType: "tedi",
+				actorId: "river",
+				tediId: "river",
+				clientEventId: `feedback-cause-${at}`,
+				eventKind: "retried",
+				scopeKind: "tedi",
+				scopeId: "river",
+				issueKey,
+				surface: "stall_recovery",
+				targetType: s.kind,
+				targetId: s.id,
+				occurredAt: now,
+			});
+		await recordLearningInteraction(db, {
+			organizationId: s.orgId,
+			actorType: "service",
+			actorId: "other-producer",
+			tediId: "river",
+			clientEventId: "other-cause",
+			eventKind: "retried",
+			scopeKind: "organization",
+			scopeId: s.orgId,
+			issueKey,
+			surface: "stall_recovery",
+			targetType: s.kind,
+			targetId: s.id,
+			occurredAt: now,
+		});
+		expect(await recover()).toBe(true);
+		expect(
+			await listLearningImprovementProposals(db, { organizationId: s.orgId }),
+		).toEqual([]);
 	});
 });
