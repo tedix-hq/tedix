@@ -6,7 +6,10 @@ import {
 } from "@tedix/api-contract/schemas/work-items";
 import { withAuthorization } from "../../orpc";
 import { getOrgGraphHealth } from "@tedix/db/queries/org-graph-health";
-import { getProjectById } from "@tedix/db/queries/projects";
+import {
+	getProjectById,
+	getProjectByIdForOrganization,
+} from "@tedix/db/queries/projects";
 import {
 	getWorkGraphHealth,
 	runWorkGraphSteward,
@@ -100,8 +103,15 @@ export const createProcedure = authOs.create.handler(
 			const laneSteward =
 				["codex", "claude-code"].includes(input.executor ?? "") &&
 				!input.stewardType &&
-				!input.stewardId
-					? project?.leadTediId
+				!input.stewardId &&
+				input.projectId
+					? (
+							await getProjectByIdForOrganization(
+								context.db,
+								orgId,
+								input.projectId,
+							)
+						)?.leadTediId
 					: undefined;
 			return await createWorkItem(context.db, {
 				id: crypto.randomUUID(),

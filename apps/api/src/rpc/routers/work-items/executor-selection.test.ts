@@ -6,9 +6,9 @@ const mocks = vi.hoisted(() => ({
 	update: vi.fn(),
 	project: vi.fn(),
 }));
-vi.mock("@tedix/db/queries/work-items/purpose", async (original) => ({
-	...(await original<typeof import("@tedix/db/queries/work-items/purpose")>()),
-	assertValidWorkItemProject: mocks.project,
+vi.mock("@tedix/db/queries/projects", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/projects")>()),
+	getProjectByIdForOrganization: mocks.project,
 }));
 vi.mock("./policy-helpers", async (original) => ({
 	...(await original<typeof import("./policy-helpers")>()),
@@ -84,10 +84,7 @@ it("defaults unassigned code Work stewardship to the scoped project lead", async
 	});
 	mocks.project.mockResolvedValue({ leadTediId: "example-lead" });
 	await select();
-	expect(mocks.project).toHaveBeenCalledWith(
-		{},
-		{ orgId: "org-acme", projectId: "example-project" },
-	);
+	expect(mocks.project).toHaveBeenCalledWith({}, "org-acme", "example-project");
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
 		expect.objectContaining({ stewardType: "tedi", stewardId: "example-lead" }),
