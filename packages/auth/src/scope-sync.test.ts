@@ -10,8 +10,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	collectAdvertisedScopes,
 	collectDescopeResourceScopes,
-	generateScopeManifest,
-} from "./scope-sync";
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
+import { generateScopeManifest } from "./scope-sync";
 
 const BASE = {
 	serverUrl: "https://acme.mcp.tedix.dev",

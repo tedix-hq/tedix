@@ -22,7 +22,7 @@
 
 import { guardedFetch, SsrfBlockedError } from "@tedix/ssrf-guard";
 import type { DescopeClient } from "./descope.ts";
-import { normalizeConnectionScopes } from "./connection-scope-mapping";
+import { normalizeConnectionScopes } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { descopeFetch, descopeManagementFetch } from "./descope-fetch.ts";
 import { normalizeIssuerForComparison } from "./oauth-iss.ts";
 import { TEDIX_OUTBOUND_MCP_OAUTH_CLIENT_ID } from "./oauth-client-registration.ts";

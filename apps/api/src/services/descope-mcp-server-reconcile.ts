@@ -3,21 +3,13 @@ import type {
 	McpServerScope,
 } from "@tedix/auth/aih-client";
 import { MCP_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
-const PLATFORM_SCOPE_DESCRIPTIONS: Record<string, string> = {
-	"connections.read":
-		"Read data through reviewed organization connection tools",
-	"connections.execute":
-		"Invoke an approved action through an organization connection",
-	"connections.admin":
-		"Perform a destructive action through an organization connection",
-	"platform:admin": "Operate the cross-organization Tedix control plane",
-};
-
-const AIH_CONNECTION_PLATFORM_SCOPES = [
-	"connections.read",
-	"connections.execute",
-	"connections.admin",
-] as const;
+import {
+	CONNECTION_SCOPE_DESCRIPTIONS,
+	MCP_SCOPE_POLICY,
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
+const AIH_CONNECTION_PLATFORM_SCOPES = Object.keys(
+	MCP_SCOPE_POLICY.connectionScopes,
+);
 const WORK_CAPABILITY_SCOPES = [
 	"mcp:work.read",
 	"mcp:work.write",
@@ -25,7 +17,11 @@ const WORK_CAPABILITY_SCOPES = [
 ] as const;
 const TEDIX_DOMAIN_SCOPE_RE =
 	/^mcp:(tedis|apps|memory|skills|content|catalog|observe|messaging|settings)\.(read|write|admin)$/;
-const DESCOPE_AUTO_GRANTED_IDENTITY_SCOPES = new Set(["profile", "email"]);
+const DESCOPE_AUTO_GRANTED_IDENTITY_SCOPES = new Set(
+	Object.entries(MCP_SCOPE_POLICY.protocolScopes)
+		.filter(([, definition]) => definition.advertise)
+		.map(([name]) => name),
+);
 const TENANT_FORBIDDEN_SCOPES = new Set(["platform:admin"]);
 const NON_EXACT_CAPABILITY_SCOPES = new Set(Object.keys(MCP_CAPABILITY_SCOPES));
 
@@ -102,8 +98,12 @@ export function reconcileMcpPlatformScopes(
 				keptNames.add(name);
 				return [
 					typeof entry === "string"
-						? { name, description: name, optional: true }
-						: { ...entry, name, optional: true },
+						? {
+								name,
+								description: name,
+								optional: MCP_SCOPE_POLICY.optionalScopes,
+							}
+						: { ...entry, name, optional: MCP_SCOPE_POLICY.optionalScopes },
 				];
 			},
 		);
@@ -116,7 +116,7 @@ export function reconcileMcpPlatformScopes(
 			connectionsScopes.push({
 				name,
 				description: name.replace("mcp:work.", "Work Items: "),
-				optional: true,
+				optional: MCP_SCOPE_POLICY.optionalScopes,
 			});
 			names.add(name);
 		}
@@ -126,16 +126,16 @@ export function reconcileMcpPlatformScopes(
 		if (names.has(name)) continue;
 		connectionsScopes.push({
 			name,
-			description: PLATFORM_SCOPE_DESCRIPTIONS[name] ?? name,
-			optional: true,
+			description: CONNECTION_SCOPE_DESCRIPTIONS[name] ?? name,
+			optional: MCP_SCOPE_POLICY.optionalScopes,
 		});
 		names.add(name);
 	}
 	if (options.allowPlatformAdmin === true && !names.has("platform:admin")) {
 		connectionsScopes.push({
 			name: "platform:admin",
-			description: PLATFORM_SCOPE_DESCRIPTIONS["platform:admin"],
-			optional: true,
+			description: CONNECTION_SCOPE_DESCRIPTIONS["platform:admin"],
+			optional: MCP_SCOPE_POLICY.optionalScopes,
 		});
 	}
 

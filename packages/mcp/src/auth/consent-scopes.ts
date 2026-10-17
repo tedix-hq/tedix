@@ -1,19 +1,15 @@
+import { MCP_SCOPE_POLICY } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { CAPABILITY_SCOPES, TEDI_MCP_SCOPES } from "./scopes";
 
 /** Human consent presets are bounded by the resource's offered permissions. */
 export type HumanConsentPreset = "read" | "all" | "custom";
-export const CONSENT_PROTOCOL_SCOPES = [
-	"openid",
-	"offline_access",
-	"profile",
-	"email",
-] as const;
+export const CONSENT_PROTOCOL_SCOPES = Object.keys(
+	MCP_SCOPE_POLICY.protocolScopes,
+);
 /** Optional human Connect choices, not the permissions selected or issued. */
 export const HUMAN_CONNECT_CONSENT_SCOPES: readonly string[] = [
 	...CAPABILITY_SCOPES,
-	"connections.read",
-	"connections.execute",
-	"connections.admin",
+	...Object.keys(MCP_SCOPE_POLICY.connectionScopes),
 ];
 
 /** Gateways may support fewer capabilities; never request unknown authority. */
@@ -28,7 +24,9 @@ export function selectConnectConsentRequestScopes(
 const readScopes = new Set<string>([
 	...CAPABILITY_SCOPES.filter((scope) => scope.endsWith(".read")),
 	...TEDI_MCP_SCOPES.filter((scope) => scope.endsWith(".read")),
-	"connections.read",
+	...Object.entries(MCP_SCOPE_POLICY.connectionScopes)
+		.filter(([, definition]) => definition.readOnly)
+		.map(([name]) => name),
 	...CONSENT_PROTOCOL_SCOPES,
 ]);
 export function isReadConsentScope(scope: string): boolean {

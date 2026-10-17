@@ -4,7 +4,7 @@ import {
 	reconcileConnectionScopeMappings,
 	connectionScopeMappingValues,
 	type ConnectionScopeConfig,
-} from "@tedix/auth/connection-scope-mapping";
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
 import {
 	loadAllDescopeMcpServers,
 	searchDescopeMcpServerClients,

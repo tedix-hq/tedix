@@ -1,3 +1,10 @@
+import { StageHumanMcpConsentInputSchema } from "@tedix/api-contract/schemas/mcp-grant";
+import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
+import {
+	collectDescopeResourceScopes,
+	toDescopeConnectionScopes,
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
+import { isReadConsentScope } from "@tedix/mcp-shared/auth/consent-scopes";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
@@ -203,6 +210,71 @@ describe("verifyHumanMcpGrant", () => {
 			selectedTenantIds: tenantIds,
 			approvedScopes: input.tokenScopes,
 		});
+	});
+
+	it("stages every non-empty read-only capability subset for a fictional non-admin member", async () => {
+		const { stageHumanMcpConsent } = await import("./mcp-grant");
+		const config = { scopeDescriptions: MCP_GRANULAR_CAPABILITY_SCOPES };
+		const registered = toDescopeConnectionScopes(
+			collectDescopeResourceScopes({ mcpConfig: config }),
+			config,
+		);
+		mocks.loadDescopeMcpServer.mockResolvedValue({
+			id: input.mcpServerId,
+			type: "mcp",
+			audienceWhitelist: [input.resourceUrl],
+			approvedScopes: { connectionsScopes: registered },
+		});
+		mocks.loadByUserId.mockResolvedValue({
+			ok: true,
+			data: {
+				roleNames: [],
+				userTenants: [{ tenantId: tenantIds[0], roleNames: ["viewer"] }],
+			},
+		});
+		mocks.getMemberByUserId.mockResolvedValue({
+			status: "active",
+			role: "viewer",
+		});
+		const read = registered
+			.map((scope) => scope.name)
+			.filter(
+				(name) =>
+					isReadConsentScope(name) && !(name in { profile: true, email: true }),
+			);
+		expect(read).toHaveLength(11);
+		for (let mask = 1; mask < 2 ** read.length; mask++) {
+			const selected = read.filter((_, index) => Boolean(mask & (1 << index)));
+			const revision = await stageHumanMcpConsent(
+				{} as never,
+				env,
+				"fictional-viewer",
+				StageHumanMcpConsentInputSchema.parse({
+					clientId: input.clientId,
+					resourceUrl: input.resourceUrl,
+					selectedTenantIds: [tenantIds[0]!],
+					approvedScopes: selected,
+				}),
+			);
+			expect(revision).not.toBeNull();
+			expect(mocks.stageMcpConsentPending).toHaveBeenLastCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					descopeUserId: "fictional-viewer",
+					approvedScopes: [...selected].sort(),
+					selectedTenantIds: [tenantIds[0]],
+				}),
+			);
+		}
+		expect(
+			StageHumanMcpConsentInputSchema.safeParse({
+				clientId: input.clientId,
+				resourceUrl: input.resourceUrl,
+				selectedTenantIds: [tenantIds[0]],
+				approvedScopes: [],
+			}).success,
+		).toBe(false);
+		expect(mocks.deleteConsents).not.toHaveBeenCalled();
 	});
 
 	it("does not join an orphaned verification from another request", async () => {

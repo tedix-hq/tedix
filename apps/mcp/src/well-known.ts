@@ -5,6 +5,8 @@
  * Delegates RFC 9728 metadata building to @tedix/mcp-shared/well-known.
  */
 
+import { collectAdvertisedScopes } from "@tedix/api-contract/utils/mcp-scope-catalog";
+
 import type { AppMetadata, AppTool } from "@tedix/api-contract/schemas/app";
 import type { SkillEntry } from "@tedix/api-contract/contracts/cognitive";
 import { CAPABILITY_SCOPES } from "@tedix/mcp-shared/auth/scopes";
@@ -13,7 +15,6 @@ import {
 	isProtectedResourcePath,
 } from "@tedix/mcp-shared/well-known";
 import {
-	collectAdvertisedScopes,
 	getDescopeAuthServerUrl,
 	getDescopeDiscoveryUrl,
 } from "@tedix/mcp-shared/well-known/oauth";

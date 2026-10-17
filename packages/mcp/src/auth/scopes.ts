@@ -10,6 +10,11 @@
  * @see https://docs.descope.com/agentic-identity-hub
  */
 
+import {
+	MCP_PLATFORM_SCOPES,
+	MCP_SCOPE_POLICY,
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
+
 import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
 
 // =============================================================================
@@ -41,15 +46,11 @@ export function toolToScope(toolId: string): string {
  * - `profile`: User profile read access (OpenID Connect standard)
  * - `email`: User email access (OpenID Connect standard)
  */
-export const PLATFORM_SCOPES = [
-	"connections.read",
-	"connections.execute",
-	"connections.admin",
-	"profile",
-	"email",
-] as const;
+export const PLATFORM_SCOPES = MCP_PLATFORM_SCOPES;
 
-export type PlatformScope = (typeof PLATFORM_SCOPES)[number];
+export type PlatformScope =
+	| keyof typeof MCP_SCOPE_POLICY.connectionScopes
+	| keyof typeof MCP_SCOPE_POLICY.protocolScopes;
 export const PLATFORM_OPERATOR_SCOPE = "platform:admin" as const;
 export type PlatformOperatorScope = typeof PLATFORM_OPERATOR_SCOPE;
 

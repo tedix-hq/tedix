@@ -90,7 +90,9 @@ describe("connection scope sync", () => {
 		expect(update).toHaveBeenCalledWith(env, {
 			...server,
 			approvedScopes: {
-				connectionsScopes: [{ name: "mail.read", values: ["tenant-specific"] }],
+				connectionsScopes: [
+					{ name: "mail.read", optional: true, values: ["tenant-specific"] },
+				],
 			},
 		});
 		expect(result.mappingChanged).toBe(true);
@@ -119,4 +121,48 @@ describe("connection scope sync", () => {
 		expect(list).not.toHaveBeenCalled();
 		expect(update).not.toHaveBeenCalled();
 	});
+});
+
+it("synchronizes optional-only drift and rejects a required readback", async () => {
+	vi.spyOn(aih, "loadDescopeMcpServer").mockResolvedValue({
+		id: "server",
+		name: "Fictional mail",
+		tags: ["app:mail-app"],
+		approvedScopes: {
+			connectionsScopes: [
+				{ name: "mail.read", values: ["Mail.Read"], optional: false },
+			],
+		},
+	});
+	const update = vi
+		.spyOn(aih, "updateDescopeMcpServer")
+		.mockImplementation(async (_env, value) => value);
+	const params = {
+		db: {} as DbClient,
+		env,
+		appSlug: "mail-app",
+		config: {
+			descopeResourceId: "server",
+			connectionProviderId: "mail",
+			connectionScopes: ["Mail.Read"],
+			toolScopes: { mail: ["mail.read"] },
+		},
+		syncProviderDefaults: false,
+		dryRun: false,
+	};
+	expect((await syncDeclaredConnectionScopes(params)).mappingChanged).toBe(
+		true,
+	);
+	expect(update).toHaveBeenCalledTimes(1);
+	update.mockImplementation(async (_env, value) => ({
+		...value,
+		approvedScopes: {
+			connectionsScopes: [
+				{ name: "mail.read", values: ["Mail.Read"], optional: false },
+			],
+		},
+	}));
+	await expect(syncDeclaredConnectionScopes(params)).rejects.toThrow(
+		"connection scope readback failed",
+	);
 });

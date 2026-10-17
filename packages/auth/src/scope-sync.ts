@@ -10,11 +10,7 @@
  * This utility ensures the scope definitions stay in sync with tool changes.
  */
 
-import {
-	hasScope,
-	PLATFORM_SCOPES,
-	toolToScope,
-} from "@tedix/mcp-shared/auth/scopes";
+import { hasScope, PLATFORM_SCOPES } from "@tedix/mcp-shared/auth/scopes";
 import {
 	resolveMcpToolRequiredScopes,
 	resolveMcpToolNamespace,
@@ -36,19 +32,6 @@ export interface ScopeDefinition {
 	requiresConsent: boolean;
 }
 
-export interface RegisteredScopeDefinition {
-	/** Registered or advertised scope string */
-	name: string;
-	/** Human-readable description */
-	description: string;
-}
-
-export interface ScopeConfigLike {
-	enforcePolicies?: boolean;
-	toolScopes?: Record<string, string[]>;
-	scopeDescriptions?: Record<string, string>;
-}
-
 export interface ScopeManifest {
 	/** MCP Server URL */
 	serverUrl: string;
@@ -68,104 +51,6 @@ export interface ScopeManifest {
 	platformScopes: string[];
 	/** Generated timestamp */
 	generatedAt: string;
-}
-
-// =============================================================================
-// SCOPE COLLECTION
-// =============================================================================
-
-function getScopeDescription(
-	scope: string,
-	scopeDescriptions?: Record<string, string>,
-): string {
-	return scopeDescriptions?.[scope] ?? scope;
-}
-
-/**
- * Collect deduplicated configured scopes from MCP config.
- */
-export function collectConfiguredScopes(
-	mcpConfig: ScopeConfigLike | null | undefined,
-): RegisteredScopeDefinition[] {
-	if (!mcpConfig) return [];
-
-	const seen = new Set<string>();
-	const scopes: RegisteredScopeDefinition[] = [];
-	const scopeDescriptions = mcpConfig.scopeDescriptions;
-
-	const addScope = (scope: string) => {
-		if (!scope || seen.has(scope)) return;
-		seen.add(scope);
-		scopes.push({
-			name: scope,
-			description: getScopeDescription(scope, scopeDescriptions),
-		});
-	};
-
-	for (const scopeList of Object.values(mcpConfig.toolScopes ?? {})) {
-		for (const scope of scopeList ?? []) addScope(scope);
-	}
-	// `scopeDescriptions` is also the Resource's declared capability catalog.
-	// It can intentionally include granular scopes that no current tool pins
-	// directly yet, but which policy profiles and newly hydrated tools request.
-	for (const scope of Object.keys(scopeDescriptions ?? {})) addScope(scope);
-
-	return scopes;
-}
-
-/**
- * Collect the scopes an MCP server should advertise/register.
- *
- * - Policy mode: per-tool `mcp:<tool>` scopes derived from live tools
- * - D1 config mode: capability scopes from `mcpConfig.toolScopes`
- */
-export function collectAdvertisedScopes(params: {
-	mcpConfig: ScopeConfigLike | null | undefined;
-	tools?: Array<{ name: string; description?: string }>;
-}): RegisteredScopeDefinition[] {
-	const { mcpConfig, tools = [] } = params;
-	if (mcpConfig?.enforcePolicies) {
-		return tools.map((tool) => {
-			const scope = toolToScope(tool.name);
-			return {
-				name: scope,
-				description:
-					mcpConfig.scopeDescriptions?.[scope] ??
-					tool.description ??
-					`Access to ${tool.name}`,
-			};
-		});
-	}
-
-	return collectConfiguredScopes(mcpConfig);
-}
-
-/**
- * Collect the complete scope catalog registered on a Descope MCP Resource.
- *
- * Tool discovery and edge authorization are only one half of that catalog.
- * Managed tedi clients also request the platform scopes used for connected
- * provider token retrieval and bounded writes. If scope reconciliation omits
- * those scopes, Descope rejects the client before it can reach the MCP edge
- * (`Invalid scope name for MCP server client`). Keep the Resource catalog and
- * the client profile derived from `PLATFORM_SCOPES` on the same source of
- * truth.
- */
-export function collectDescopeResourceScopes(params: {
-	mcpConfig: ScopeConfigLike | null | undefined;
-	tools?: Array<{ name: string; description?: string }>;
-}): RegisteredScopeDefinition[] {
-	const scopes = collectAdvertisedScopes(params);
-	const seen = new Set(scopes.map((scope) => scope.name));
-	for (const scope of PLATFORM_SCOPES) {
-		if (seen.has(scope)) continue;
-		scopes.push({
-			name: scope,
-			description: params.mcpConfig?.scopeDescriptions?.[scope] ?? scope,
-		});
-		seen.add(scope);
-	}
-	return scopes;
 }
 
 // =============================================================================

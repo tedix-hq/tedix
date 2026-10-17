@@ -16,7 +16,6 @@
 		"./oauth-cimd-state": "./src/oauth-cimd-state.ts",
 		"./descope": "./src/descope.ts",
 		"./connections": "./src/connections.ts",
-		"./connection-scope-mapping": "./src/connection-scope-mapping.ts",
 		"./types": "./src/types.ts",
 		"./rbac": "./src/rbac.ts",
 		"./utils": "./src/utils.ts",
