@@ -1700,6 +1700,81 @@ for (const cachedAgeMs of [0, 60_000]) {
 	assert.equal(provisions, 1);
 }
 
+// A warm computer can finish reconciliation just after the foreground deadline.
+// Continue the same acquisition once, before any file or command dispatch.
+for (const operation of ["file", "exec"] as const) {
+	for (const recovery of ["ready", "cold", "revoked"] as const) {
+		const scope = `fictional-readiness-${operation}-${recovery}`;
+		let warming = false;
+		let provisions = 0;
+		let nativeReads = 0;
+		let effects = 0;
+		const controller = new ComputerEnvironmentController(
+			store,
+			scope,
+			{
+				...actions,
+				open: async () => ({ ok: true, leaseId: `fictional-${++provisions}` }),
+				status: async (_environment, _timeoutMs, refreshNative) => {
+					if (warming && refreshNative) {
+						nativeReads++;
+						if (nativeReads === 1 || recovery === "cold")
+							return new Promise(() => {});
+					}
+					return {
+						ok: true,
+						readiness: { toolsReady: true, repoReady: true },
+						repoSync: { workdir: "/fictional/repo" },
+					};
+				},
+				files: async () => {
+					assert.equal(nativeReads, 2);
+					effects++;
+					return { ok: true, content: "fictional source" };
+				},
+				start: async () => {
+					assert.equal(nativeReads, 2);
+					effects++;
+					return { ok: true };
+				},
+			},
+			undefined,
+			"fictional-owner",
+			undefined,
+			{
+				budgetMs: 10,
+				captureAuthority: async () => {
+					if (warming && recovery === "revoked" && nativeReads === 1)
+						throw new Error("Original Work authority was revoked");
+					return null;
+				},
+			},
+		);
+		await controller.open("repository");
+		const selected = (await controller.selected())!;
+		const generation = values.get(`${scope}:generation`);
+		values.set(scope, { ...selected, checkedAt: Date.now() - 60_000 });
+		warming = true;
+		const result =
+			operation === "file"
+				? controller.file("read", { path: "source.md" })
+				: controller.exec({ command: "fictional-read-only-command" });
+		if (recovery === "revoked") {
+			await assert.rejects(result, /Work authority was revoked/);
+			assert.equal(nativeReads, 1);
+		} else {
+			const receipt = (await result) as Record<string, unknown>;
+			assert.equal(receipt.ok, recovery === "ready");
+			if (recovery === "cold") assert.equal(receipt.executed, false);
+			assert.equal(nativeReads, 2);
+		}
+		assert.equal(effects, recovery === "ready" ? 1 : 0);
+		assert.equal(provisions, 1);
+		assert.equal((await controller.selected())?.leaseId, selected.leaseId);
+		assert.equal(values.get(`${scope}:generation`), generation);
+	}
+}
+
 // D1 can retain ready after the native container lost its checkout. Reopening
 // must use the existing wake adapter, including retries after a pending/error
 // receipt; a passive status read alone would incorrectly enable file/exec calls.
