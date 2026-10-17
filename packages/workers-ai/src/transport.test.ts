@@ -397,22 +397,35 @@ describe("callWorkersAi over the gateway", () => {
 		expect(out.text).toBe("");
 	});
 
-	it("quotes the request-body head on a 4xx (AiError 8001 names nothing)", async () => {
-		globalThis.fetch = vi.fn(
-			async () =>
-				new Response("AiError: Invalid input", {
-					status: 400,
-					statusText: "Bad Request",
-				}),
-		) as unknown as typeof fetch;
-		await expect(
-			callWorkersAi(
-				{ env: GATEWAY_ENV, authorize: passthrough },
-				"@cf/openai/gpt-oss-120b",
-				{ messages: [{ role: "user", content: "diagnose me" }] },
-			),
-		).rejects.toThrow(/sent body: \{"model":"@cf\/openai\/gpt-oss-120b"/);
-	});
+	it.each([400, 401, 403, 422, 429, 503])(
+		"keeps prompt data out of HTTP %s errors and logs",
+		async (status) => {
+			const marker = "SYNTHETIC_PRIVATE_PROMPT_7c92";
+			const logs = ["log", "warn", "error"] as const;
+			const spies = logs.map((method) =>
+				vi.spyOn(console, method).mockImplementation(() => {}),
+			);
+			globalThis.fetch = vi.fn(
+				async () => new Response("AiError: Invalid input", { status }),
+			) as typeof fetch;
+			try {
+				const error = await callWorkersAi(
+					{ env: GATEWAY_ENV, authorize: passthrough },
+					"@cf/openai/gpt-oss-120b",
+					{ messages: [{ role: "user", content: marker }] },
+				).catch((error: Error) => error);
+				expect(error).toBeInstanceOf(Error);
+				expect((error as Error).message).toContain(String(status));
+				expect((error as Error).message).not.toContain(marker);
+				expect((error as Error).stack).not.toContain(marker);
+				expect(
+					JSON.stringify(spies.flatMap((spy) => spy.mock.calls)),
+				).not.toContain(marker);
+			} finally {
+				spies.forEach((spy) => spy.mockRestore());
+			}
+		},
+	);
 
 	it("omits the body head on a 5xx (the request was not the problem)", async () => {
 		globalThis.fetch = vi.fn(

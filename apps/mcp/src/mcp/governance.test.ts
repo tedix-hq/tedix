@@ -862,7 +862,7 @@ describe("destructive tool approval — grant fast path", () => {
 		);
 	});
 
-	it("falls through to elicitation when the resolve call returns approved:false (no matching grant)", async () => {
+	it("denies when the resolve call returns approved:false (no matching grant)", async () => {
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
 			content: { reason: "fell through" },
@@ -878,12 +878,12 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveToolApprovalGrant).toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
-	it("a lost consume CAS (approved:false) is NEVER treated as approval — falls through, never auto-approves", async () => {
+	it("denies a lost consume CAS without another approval path", async () => {
 		const elicitInput = vi.fn(async () => ({ action: "decline" }));
 		const resolveToolApprovalGrant = vi.fn(async () => ({
 			approved: false,
@@ -896,13 +896,13 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		// Fell through to elicitation, which declined — must be a denial, not
-		// a silent auto-approval of the raced-away grant.
 		expect(result?.isError).toBe(true);
-		expect(callToolResultText(result!)).toContain("declined");
+		expect(callToolResultText(result!)).toContain(
+			"requires a current durable grant",
+		);
 	});
 
-	it("a resolve-call network error fails closed to elicitation, never to auto-approval", async () => {
+	it("denies a resolve-call network error without another approval path", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
@@ -918,12 +918,12 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(result?.isError).toBe(true);
+		expect(elicitInput).not.toHaveBeenCalled();
 		warn.mockRestore();
 	});
 
-	it("skips the grant lookup (fails closed) when apiClient is unavailable — falls through to elicitation", async () => {
+	it("denies when apiClient is unavailable", async () => {
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
 			content: { reason: "no apiClient" },
@@ -935,11 +935,11 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(result?.isError).toBe(true);
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
-	it("skips the grant lookup (fails closed) when organizationId is unavailable", async () => {
+	it("denies when organizationId is unavailable", async () => {
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
 			content: { reason: "no org" },
@@ -959,12 +959,12 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveToolApprovalGrant).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
-	it("skips the grant lookup (fails closed) when appSlug is unavailable", async () => {
+	it("denies when appSlug is unavailable", async () => {
 		const elicitInput = vi.fn(async () => ({
 			action: "accept",
 			content: { reason: "no appSlug" },
@@ -984,9 +984,9 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveToolApprovalGrant).not.toHaveBeenCalled();
-		expect(elicitInput).toHaveBeenCalled();
+		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
 	it("a grant approval for one tool is scoped by toolId in the resolve call — never silently reused for another tool", async () => {
@@ -1022,7 +1022,7 @@ describe("destructive tool approval — grant fast path", () => {
 			{ destructiveHint: true },
 		);
 		expect(deniedResult?.isError).toBe(true);
-		expect(declineOnFallthrough).toHaveBeenCalled();
+		expect(declineOnFallthrough).not.toHaveBeenCalled();
 	});
 });
 
@@ -1376,6 +1376,78 @@ describe("destructive tool approval — Work Item authorization", () => {
 });
 
 describe("destructive tool approval — autonomous agent auto-confirm (Code Mode)", () => {
+	for (const approvalPolicy of ["once", "always"] as const) {
+		it.each([
+			"denied",
+			"missing_grant_id",
+			"error",
+			"no_api",
+			"no_org",
+			"no_app",
+			"no_identity",
+			"no_subject",
+		])(
+			`${approvalPolicy} denies %s before agent auto-confirm or explicit confirmation`,
+			async (failure) => {
+				const elicitInput = vi.fn(async () => ({
+					action: "accept",
+					content: { reason: "must not bypass" },
+				}));
+				const resolveToolApprovalGrant = vi.fn(async () => {
+					if (failure === "error") throw new Error("grant store unavailable");
+					return { approved: failure === "missing_grant_id", grantId: null };
+				});
+				const context = grantApprovalContext({
+					elicitInput,
+					authType: "tedi",
+					resolveToolApprovalGrant:
+						failure === "no_api" ? undefined : resolveToolApprovalGrant,
+					organizationId: failure === "no_org" ? null : "org-1",
+					appSlug: failure === "no_app" ? null : "shop",
+				});
+				if (failure === "no_identity")
+					Object.assign(context, { callerIdentity: undefined });
+				if (failure === "no_subject")
+					Object.assign(context, { callerIdentity: { authType: "tedi" } });
+				const result = await requireDestructiveToolApproval(
+					context,
+					{ ...tool, config: { approvalPolicy } },
+					{ destructiveHint: true },
+					{
+						allowSyncMrtr: false,
+						autoConfirmAgent: true,
+						args: { confirmDestructive: true, reason: "must not bypass" },
+					},
+				);
+				expect(result?.isError).toBe(true);
+				expect(callToolResultText(result!)).toContain(
+					"requires a current durable grant",
+				);
+				expect(elicitInput).not.toHaveBeenCalled();
+			},
+		);
+		it(`${approvalPolicy} accepts a resolved grant for an agent with auto-confirm enabled`, async () => {
+			const resolveToolApprovalGrant = vi.fn(async () => ({
+				approved: true,
+				grantId: "grant-1",
+			}));
+			const elicitInput = vi.fn();
+			expect(
+				await requireDestructiveToolApproval(
+					grantApprovalContext({
+						elicitInput,
+						authType: "tedi",
+						resolveToolApprovalGrant,
+					}),
+					{ ...tool, config: { approvalPolicy } },
+					{ destructiveHint: true },
+					{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
+				),
+			).toBeNull();
+			expect(resolveToolApprovalGrant).toHaveBeenCalledOnce();
+			expect(elicitInput).not.toHaveBeenCalled();
+		});
+	}
 	it("auto-approves a destructive tool for an agent caller, with no elicitation", async () => {
 		const elicitInput = vi.fn(async () => {
 			throw new Error(

@@ -243,8 +243,8 @@ export interface ResolveToolApprovalGrantResult {
  * - `grantKind: "once"` — an active grant must win its consume CAS to
  *   approve. If the CAS is lost (raced by a concurrent call), this returns
  *   `approved: false` — it does NOT fall back to searching for another
- *   matching grant. The caller (governance.ts) falls through to the normal
- *   elicitation path on `approved: false`.
+ *   matching grant. The caller (governance.ts) treats `approved: false` as a
+ *   terminal denial, including when agent auto-confirm is enabled.
  */
 export async function resolveToolApprovalGrant(
 	db: DbClient,

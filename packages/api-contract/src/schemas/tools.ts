@@ -1420,22 +1420,20 @@ export interface ToolConfig {
 	 * Only consulted for tools whose `annotations.destructiveHint` is `true` —
 	 * it has no effect on a non-destructive tool.
 	 *
-	 * - absent (default) / `"never"` — TODAY'S BEHAVIOR, unchanged. Every
-	 *   destructive call is re-prompted (stateless `confirmDestructive`, agent
-	 *   sync-MRTR round-trip, or human `elicitInput()`), no grant lookup runs.
-	 *   This is the safe default for the overwhelming majority of tools, which
-	 *   never set this field.
+	 * - absent (default) / `"never"` — no grant lookup. Destructive calls use
+	 *   explicit confirmation, MRTR, or elicitation; scoped autonomous Code Mode
+	 *   agents may use auto-confirm.
 	 *   Exception: when the calling tedi's policy pack enables
 	 *   `requireExplicitThirdPartyApprovalPolicy`, an autonomous Code Mode call
 	 *   to a destructive third-party `external` or non-Tedix-managed `mcp`
 	 *   transport must declare this field explicitly. Absence then fails closed
 	 *   before agent self-confirmation. First-party RPC/REST/code tools and
 	 *   Tedix-managed MCP hosts retain today's default.
-	 * - `"once"` — before falling through to elicitation, the gate looks up a
-	 *   durable single-use grant (`mcp_tool_approval_grants`, `grantKind:
+	 * - `"once"` — requires a durable single-use grant
+	 *   (`mcp_tool_approval_grants`, `grantKind:
 	 *   "once"`) for the calling subject + this tool's scope. A matching,
 	 *   unexpired, unconsumed grant is atomically consumed and satisfies
-	 *   exactly this one call; a second call re-elicits like normal.
+	 *   exactly this one call; a second call requires another grant.
 	 * - `"always"` — same lookup against a `grantKind: "always"` grant, but the
 	 *   grant is never consumed — it satisfies every call until `expiresAt`.
 	 * - `"work_item"` — autonomous agent calls must resolve a current,
@@ -1448,8 +1446,8 @@ export interface ToolConfig {
 	 * once a human/operator issues one via the `packages/db/src/queries/
 	 * mcp-governance.ts` `createGrant` helper — there is no creation RPC/UI as
 	 * of this field's introduction (see docs/engineering/mcp/runtime.md). A tool declaring
-	 * `"once"`/`"always"` with zero matching grants behaves exactly like
-	 * `"never"` — it always falls through to elicitation.
+	 * `"once"`/`"always"` denies when the grant is missing, unavailable, or not
+	 * approved; explicit confirmation and agent auto-confirm cannot bypass it.
 	 */
 	approvalPolicy?: "always" | "once" | "never" | "work_item";
 	/**
