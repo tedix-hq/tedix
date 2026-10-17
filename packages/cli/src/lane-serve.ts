@@ -413,6 +413,7 @@ export class LaneDispatcher {
 				JSON.stringify({
 					disposition: "accepted",
 					executor: "codex",
+					dispatchReadyOnly: true,
 					...(this.options.project ? { projectId: this.options.project } : {}),
 					limit: 25,
 					offset,

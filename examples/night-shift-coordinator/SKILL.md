@@ -68,9 +68,11 @@ a live Attempt. Empty queues do not create blocker proposals. Lane planning
 and the core log finish before these optional turns. A still-running tedi turn
 is logged as pending without replaying it or failing lane coordination.
 
-`startAt` is the dispatch plan on canonical Work: selected work starts now;
-queued work is held until a later coordination cycle. Use this only for Work
-assigned to this coordinator. Escalations remain excluded until a new Attempt
+`metadata.laneDispatch` is the dispatch plan on canonical Work: selected Work
+is `ready`, and other Work is `held` until a later coordination cycle. Label
+coordinated projects `night-shift` so new code assignments start held. The
+dispatcher requests `dispatchReadyOnly`; calendar `startAt` remains intact.
+Use this only for Work assigned to this coordinator. Escalations remain excluded until a new Attempt
 or an explicit human revision resolves them. Approval, consent and outbound
 sends retain their existing authority checks.
 

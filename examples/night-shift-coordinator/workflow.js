@@ -200,6 +200,7 @@ export default {
 		let reviews = 0;
 		const held = new Set();
 		const ranked = [];
+		const plannable = [];
 		for (const projectId of scope) {
 			const items = await step.do("backlog-" + projectId, async () =>
 				allWork(api, projectId),
@@ -244,6 +245,8 @@ export default {
 					return { detail, attempts: history.data };
 				});
 				const latest = state.attempts[0];
+				if (latest?.metadata?.lane === true && !latest.outcome)
+					held.add(item.id);
 				if (!latest || !latest.outcome || latest.metadata?.lane !== true)
 					continue;
 				const marker = `Night review ${latest.id}`;
@@ -328,7 +331,7 @@ export default {
 								description: (
 									prefix + (fresh.workItem.description ?? "")
 								).slice(0, 10000),
-								startAt: null,
+								laneDispatch: { state: "held" },
 								...(review.decision === "escalate"
 									? { executor: "human" }
 									: {}),
@@ -368,13 +371,30 @@ export default {
 			const freshItems = await step.do("fresh-backlog-" + projectId, async () =>
 				allWork(api, projectId),
 			);
+			plannable.push(
+				...freshItems.filter(
+					(item) =>
+						["codex", "claude-code"].includes(item.metadata?.executor) &&
+						!item.activeAttempt &&
+						(!config.coordinatorId ||
+							(item.stewardType === "tedi" &&
+								item.stewardId === config.coordinatorId) ||
+							(item.accountableOwnerType === "tedi" &&
+								item.accountableOwnerId === config.coordinatorId)),
+				),
+			);
 			for (const rank of queue.items) {
 				const item = freshItems.find(
 					(x) =>
 						x.id === rank.workItemId &&
 						["codex", "claude-code"].includes(x.metadata?.executor),
 				);
-				if (item && !item.activeAttempt && !held.has(item.id))
+				if (
+					item &&
+					!item.activeAttempt &&
+					!held.has(item.id) &&
+					(!item.startAt || Date.parse(item.startAt) <= Date.now())
+				)
 					ranked.push({ item, score: rank.score });
 			}
 		}
@@ -382,9 +402,18 @@ export default {
 			(a, b) => b.score - a.score || a.item.id.localeCompare(b.item.id),
 		);
 		const capacity = Math.max(0, (config.maxLanes ?? 2) - active);
-		for (let i = 0; i < ranked.length; i++) {
-			const { item, score } = ranked[i];
-			const selected = i < capacity;
+		const selection = new Map(
+			ranked.slice(0, capacity).map(({ item, score }) => [item.id, score]),
+		);
+		// Withdraw old selections before releasing new ones.
+		plannable.sort(
+			(a, b) =>
+				Number(selection.has(a.id)) - Number(selection.has(b.id)) ||
+				a.id.localeCompare(b.id),
+		);
+		for (const item of plannable) {
+			const selected = selection.has(item.id);
+			const score = ranked.find((r) => r.item.id === item.id)?.score;
 			await step.do("plan-" + item.id, async () => {
 				const fresh = checked(await api.get_work_items_by_id({ id: item.id }));
 				const current = fresh.workItem;
@@ -393,25 +422,22 @@ export default {
 					current.disposition !== "accepted"
 				)
 					throw new Error("Work changed during planning");
-				const startAt = selected
-					? null
-					: new Date(Date.now() + 86400000).toISOString();
-				if (
-					(selected && current.startAt !== null) ||
-					(!selected &&
-						(!current.startAt || Date.parse(current.startAt) <= Date.now()))
-				) {
+				const state = selected ? "ready" : "held";
+				if (current.metadata?.laneDispatch?.state !== state) {
 					checked(
 						await api.update_work_item_specification({
 							id: item.id,
 							expectedWorkItemVersion: current.version,
-							startAt,
+							laneDispatch: {
+								state,
+								...(score === undefined ? {} : { score }),
+							},
 						}),
 					);
 				}
 			});
 			notes.push(
-				`${selected ? "Selected" : "Queued"}: ${item.title}; scheduler score ${score}.`,
+				`${selected ? "Selected" : "Queued"}: ${item.title}; ${score === undefined ? "awaiting readiness" : `scheduler score ${score}`}.`,
 			);
 		}
 		const logId = await step.do("night-log", async () =>

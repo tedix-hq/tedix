@@ -102,6 +102,8 @@ function fixture() {
 				throw new Error("CONFLICT");
 			Object.assign(value, update, { version: value.version + 1 });
 			if (update.executor) value.metadata.executor = update.executor;
+			if (update.laneDispatch)
+				value.metadata.laneDispatch = update.laneDispatch;
 			writes.push({ type: "plan", id, ...update });
 			return value;
 		},
@@ -185,8 +187,10 @@ describe("native night coordination", () => {
 		f.setOrder(["high", "labelled", "low"]);
 		const r = await f.run();
 		expect(r.selected).toEqual(["high"]);
-		expect(f.items.get("low").startAt).not.toBeNull();
-		expect(f.items.get("labelled").startAt).not.toBeNull();
+		expect(f.items.get("high").metadata.laneDispatch.state).toBe("ready");
+		expect(f.items.get("low").metadata.laneDispatch.state).toBe("held");
+		expect(f.items.get("labelled").metadata.laneDispatch.state).toBe("held");
+		expect(f.items.get("low").startAt).toBeNull();
 		expect([...f.outputs.values()][0].title).toBe("Night log 2026-10-18");
 		expect(f.reason).not.toHaveBeenCalled();
 	});
@@ -207,13 +211,13 @@ describe("native night coordination", () => {
 			"Resume after Attempt old-attempt",
 		);
 		expect(f.items.get("dead").description).toContain("Original brief");
-		expect(f.items.get("dead").version).toBe(2);
+		expect(f.items.get("dead").version).toBe(3);
 		expect(
 			f.comments.get("dead")[0].metadata.nightReview.modelIdentity.model,
 		).toBe("small");
 		await f.run();
 		expect(f.reason).toHaveBeenCalledTimes(1);
-		expect(f.items.get("dead").version).toBe(2);
+		expect(f.items.get("dead").version).toBe(3);
 	});
 	test("leaves a live peer Attempt untouched and subtracts its capacity", async () => {
 		const f = fixture();
@@ -435,6 +439,20 @@ describe("native night coordination", () => {
 		await f.run({ probe: true });
 		expect(f.writes).toHaveLength(0);
 		expect(f.outputs.size).toBe(0);
+		expect(f.reason).not.toHaveBeenCalled();
+	});
+	test("keeps future calendar plans held and waits for expiry retirement before relaunch", async () => {
+		const f = fixture();
+		f.item("future", { startAt: "2026-10-19T09:00:00Z" });
+		f.item("unretired");
+		f.histories.set("unretired", [
+			{ id: "expired-lease", outcome: null, metadata: { lane: true } },
+		]);
+		f.setOrder(["future", "unretired"]);
+		expect((await f.run()).selected).toEqual([]);
+		expect(f.items.get("future").startAt).toBe("2026-10-19T09:00:00Z");
+		expect(f.items.get("future").metadata.laneDispatch.state).toBe("held");
+		expect(f.items.get("unretired").metadata.laneDispatch.state).toBe("held");
 		expect(f.reason).not.toHaveBeenCalled();
 	});
 });

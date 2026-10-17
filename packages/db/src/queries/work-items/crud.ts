@@ -1,4 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
 import {
 	and,
 	desc,
@@ -264,6 +265,7 @@ export async function listWorkItemTitlesByShortIds(
 export interface ListWorkItemsPageOptions {
 	orgId: string;
 	executor?: string;
+	dispatchReadyOnly?: boolean;
 	projectId?: string | null;
 	parentWorkItemId?: string | null;
 	disposition?: WorkItem["disposition"];
@@ -330,6 +332,9 @@ export async function listWorkItemsPage(
 			: undefined,
 		options.executor
 			? sql`json_extract(${workItems.metadata}, '$.executor') = ${options.executor}`
+			: undefined,
+		options.dispatchReadyOnly
+			? sql`(json_type(${workItems.metadata}, '$.laneDispatch') IS NULL OR json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'ready')`
 			: undefined,
 		options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
 		options.objectiveId
@@ -773,6 +778,7 @@ export async function updateWorkItemSpecification(
 		workItemId: string;
 		actor: WorkActor;
 		executor?: string;
+		laneDispatch?: LaneDispatchPlan;
 		title?: string;
 		description?: string | null;
 		workKind?: WorkItemKind;
@@ -799,9 +805,17 @@ export async function updateWorkItemSpecification(
 		.update(workItems)
 		.set({
 			metadata:
-				params.executor === undefined
+				params.executor === undefined && params.laneDispatch === undefined
 					? undefined
-					: { ...prior.metadata, executor: params.executor },
+					: {
+							...prior.metadata,
+							...(params.executor === undefined
+								? {}
+								: { executor: params.executor }),
+							...(params.laneDispatch === undefined
+								? {}
+								: { laneDispatch: params.laneDispatch }),
+						},
 			title: params.title,
 			description: params.description,
 			workKind: params.workKind,
@@ -827,6 +841,15 @@ export async function updateWorkItemSpecification(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
+				params.laneDispatch === undefined
+					? undefined
+					: sql`NOT EXISTS (
+					SELECT 1 FROM ${workAttempts}
+					WHERE ${workAttempts.orgId} = ${params.orgId}
+					AND ${workAttempts.workItemId} = ${params.workItemId}
+					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
+					AND ${workAttempts.expiresAt} > ${updatedAt}
+				)`,
 				ne(workItems.disposition, "completed"),
 				ne(workItems.disposition, "cancelled"),
 			),

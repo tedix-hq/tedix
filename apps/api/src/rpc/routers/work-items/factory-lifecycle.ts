@@ -40,6 +40,7 @@ import {
 } from "@tedix/db/queries/work-items/admissions";
 import { ORPCError } from "@orpc/server";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
+import { initialLaneDispatch } from "../../../services/lane-dispatch-plan";
 import {
 	createWorkResourcePool,
 	getWorkResourcePoolByKey,
@@ -327,26 +328,34 @@ export const updateSpecificationProcedure =
 					);
 				purpose = resolved;
 			}
-			const laneSteward =
+			const laneProject =
 				actor.type === "user" &&
 				["codex", "claude-code"].includes(input.executor ?? "") &&
+				workItem.projectId
+					? await getProjectByIdForOrganization(
+							context.db,
+							workItem.orgId,
+							workItem.projectId,
+						)
+					: undefined;
+			const laneSteward =
 				!workItem.stewardId &&
 				input.stewardType === undefined &&
-				input.stewardId === undefined &&
-				workItem.projectId
-					? (
-							await getProjectByIdForOrganization(
-								context.db,
-								workItem.orgId,
-								workItem.projectId,
-							)
-						)?.leadTediId
+				input.stewardId === undefined
+					? laneProject?.leadTediId
 					: undefined;
 			return await updateWorkItemSpecification(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				actor,
 				executor: input.executor,
+				laneDispatch:
+					input.laneDispatch ??
+					initialLaneDispatch(
+						input.executor,
+						laneProject?.metadata,
+						workItem.metadata?.laneDispatch,
+					),
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,
