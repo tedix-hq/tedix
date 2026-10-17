@@ -331,6 +331,10 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 	#scopeProfile: InteractiveOAuthScopeProfile;
 	#interactive = false;
 
+	get workspace(): string | undefined {
+		return this.#options.workspace;
+	}
+
 	get scopeProfile(): InteractiveOAuthScopeProfile {
 		return this.#scopeProfile;
 	}
@@ -586,6 +590,7 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 	async saveRenewedTokens(
 		tokens: StoredOAuthTokens,
 		expectedCredential?: WorkspaceCredential,
+		workspace?: string,
 	): Promise<void> {
 		this.#tokens = tokens;
 		const duration = tokens.expires_in;
@@ -594,7 +599,17 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 				? Math.floor(Date.now() / 1000) + duration
 				: undefined;
 		this.#accessTokenExpiresAtSeconds = expiry(tokens.access_token, fallback);
-		await this.#persist(expectedCredential);
+		if (workspace) {
+			// A stored refresh must save the rotation even for a read-only provider.
+			const credential = { ...expectedCredential, ...this.credential() };
+			writeWorkspaceCredentials(
+				workspace,
+				credential,
+				undefined,
+				expectedCredential,
+			);
+			this.reloadCredential(credential);
+		} else await this.#persist(expectedCredential);
 	}
 
 	/**
@@ -825,10 +840,11 @@ export const SESSION_REFRESH_SKEW_SECONDS = 120;
 export function sessionNeedsRefresh(
 	credential: Pick<
 		WorkspaceCredential,
-		"accessTokenExpiresAtSeconds" | "oauthTokens"
+		"accessTokenExpiresAtSeconds" | "oauthTokens" | "oauthRefreshInvalidated"
 	>,
 	nowSeconds: number = Math.floor(Date.now() / 1000),
 ): boolean {
+	if (credential.oauthRefreshInvalidated) return true;
 	if (!credential.oauthTokens?.refresh_token) return false;
 	// A missing/zero expiry is unknown, not fresh — renew rather than gamble.
 	if (!credential.accessTokenExpiresAtSeconds) return true;
@@ -854,7 +870,8 @@ export type SessionRefreshOutcome =
  * credential for everyone. Nothing but a fresh login recovers it, so it is
  * worth naming rather than reporting as a generic failure.
  */
-const REFRESH_FAMILY_INVALIDATED = /E064006|family ID invalidated/i;
+const REFRESH_FAMILY_INVALIDATED =
+	/E064006|(?:refresh[- ]token )?family(?: ID| was)? invalidated/i;
 
 /**
  * A sleeping Mac wakes in the dark (no display) every few minutes for about
@@ -921,6 +938,7 @@ export async function refreshStoredSession(
 	// renew. Locking alone still lets the second process renew from the token it
 	// loaded before the first one rotated it. Taking the lock and only then
 	// reading is what makes the second process observe the first one's result.
+	const workspace = options.workspace ?? provider.workspace;
 	let lock: CredentialLock | null = null;
 	const started = Date.now();
 	let lockWaitMs = 0;
@@ -934,14 +952,15 @@ export async function refreshStoredSession(
 		return value;
 	};
 	try {
-		if (options.workspace) {
-			lock = await acquireCredentialLock(options.workspace);
+		if (workspace) {
+			lock = await acquireCredentialLock(workspace);
 			lockWaitMs = Date.now() - started;
 			if (!lock) return finish("failed");
-			const stored = readWorkspaceCredentials(options.workspace);
+			const stored = readWorkspaceCredentials(workspace);
 			provider.reloadCredential(stored ?? undefined);
 			expectedCredential = stored ?? undefined;
 			if (!stored) return finish("unavailable");
+			if (stored.oauthRefreshInvalidated) return finish("invalidated");
 			if (!sessionNeedsRefresh(stored)) return finish("not-needed");
 		}
 		const tokens = provider.tokens();
@@ -1080,12 +1099,25 @@ export async function refreshStoredSession(
 				...(tokens?.issuer ? { issuer: tokens.issuer } : {}),
 			},
 			expectedCredential,
+			workspace,
 		);
 		phase = "saved";
 		return finish("refreshed");
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
 		if (REFRESH_FAMILY_INVALIDATED.test(detail)) {
+			if (workspace && expectedCredential) {
+				try {
+					writeWorkspaceCredentials(
+						workspace,
+						{ ...expectedCredential, oauthRefreshInvalidated: true },
+						undefined,
+						expectedCredential,
+					);
+				} catch {
+					return finish("failed");
+				}
+			}
 			// Actionable and not a secret: without it the caller falls through to a
 			// full authorization, which in a non-interactive agent session simply
 			// hangs until the 300s callback deadline and then reports a timeout —
@@ -1105,7 +1137,7 @@ export async function refreshStoredSession(
 			version: CLI_VERSION,
 			pid: process.pid,
 			ppid: process.ppid,
-			workspace: options.workspace ?? null,
+			workspace: workspace ?? null,
 			result: outcome,
 			phase,
 			lockWaitMs,
@@ -1178,8 +1210,13 @@ export async function renewStoredSession(
 		waitMs?: number;
 	} = {},
 ): Promise<SessionRefreshOutcome> {
-	const { workspace } = options;
+	const workspace = options.workspace ?? provider.workspace;
 	if (!workspace) return refreshStoredSession(provider);
+	const stored = readWorkspaceCredentials(workspace);
+	provider.reloadCredential(stored ?? undefined);
+	if (!stored) return "unavailable";
+	if (stored.oauthRefreshInvalidated) return "invalidated";
+	if (!sessionNeedsRefresh(stored)) return "not-needed";
 	const [command, prefix] = options.command ?? selfCommand();
 	const windows = process.platform === "win32";
 	const child = spawn(
