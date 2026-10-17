@@ -349,13 +349,7 @@ export default {
 								startAt: null,
 								...(review.decision === "escalate"
 									? { executor: "human" }
-									: {
-											executor:
-												item.metadata?.executor ??
-												(latest.externalSessionKey?.startsWith("claude-code:")
-													? "claude-code"
-													: "codex"),
-										}),
+									: {}),
 							}),
 						);
 					}
