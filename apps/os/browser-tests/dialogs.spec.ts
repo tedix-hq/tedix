@@ -47,6 +47,26 @@ try {
 				.evaluate((el) => el === document.activeElement),
 			"Summary receives focus",
 		);
+		const textarea = page.getByRole("textbox", {
+			name: "What did you expect?",
+			exact: true,
+		});
+		const initialHeight = await textarea.evaluate((el) => {
+			const css = getComputedStyle(el);
+			const height = el.getBoundingClientRect().height;
+			return {
+				height,
+				minimum:
+					2 * parseFloat(css.lineHeight) +
+					parseFloat(css.paddingTop) +
+					parseFloat(css.paddingBottom),
+			};
+		});
+		assert(
+			initialHeight.height >= initialHeight.minimum &&
+				initialHeight.height <= 120,
+			"empty textarea starts at two to three compact rows",
+		);
 		const columns = await page
 			.locator(".support-report-fields")
 			.evaluate(
@@ -89,6 +109,11 @@ try {
 				.getByRole("textbox", { name, exact: true })
 				.fill("A line of report detail.\n".repeat(20));
 		}
+		assert(
+			(await textarea.evaluate((el) => el.getBoundingClientRect().height)) >
+				initialHeight.height + 100,
+			"textarea grows with a long report",
+		);
 		await page
 			.getByRole("textbox", { name: "Summary", exact: true })
 			.fill("A layout problem");
