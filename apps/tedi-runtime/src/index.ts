@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 /**
  * apps/tedi-runtime — Worker entry.
  *
@@ -1994,6 +1995,11 @@ export default {
 					{ status: 413, headers: corsHeaders },
 				);
 			try {
+				await requireUnrestrictedModelEgress(
+					env,
+					tedi.orgId ?? "",
+					"Speech transcription",
+				);
 				const result = await transcribeAudioAttachment(
 					env as unknown as Parameters<typeof transcribeAudioAttachment>[0],
 					{
@@ -2020,7 +2026,13 @@ export default {
 					error: error instanceof Error ? error.message : String(error),
 				});
 				return Response.json(
-					{ error: "Transcription failed" },
+					{
+						error:
+							error instanceof Error &&
+							/^(EU_PROVIDER_|RESIDENCY_POLICY_)/.test(error.message)
+								? error.message
+								: "Transcription failed",
+					},
 					{ status: 502, headers: corsHeaders },
 				);
 			}

@@ -1,3 +1,7 @@
+import {
+	requireUnrestrictedModelEgress,
+	unrestrictedModelAi,
+} from "./unrouted-model-egress";
 /**
  * apps/tedi-runtime — `VoiceCallDO`: LIVE BROWSER VOICE CALLS for isolate tedis.
  *
@@ -222,7 +226,11 @@ export class VoiceCallDO extends VoiceAgentBase {
 		if (!ai) {
 			throw new Error("[VoiceCallDO] AI binding unavailable");
 		}
-		return ai;
+		return unrestrictedModelAi(
+			this.env,
+			ai,
+			() => this.#activeContext?.organizationId ?? "",
+		);
 	}
 
 	/**
@@ -392,6 +400,11 @@ export class VoiceCallDO extends VoiceAgentBase {
 		} catch (err) {
 			logTediVoiceFailure("voice-call", "voice.context_capture_failed", err);
 		}
+		await requireUnrestrictedModelEgress(
+			this.env,
+			this.#getCtx(connection)?.organizationId ?? "",
+			"Live voice",
+		);
 		await super.onConnect(connection, ctx);
 	}
 

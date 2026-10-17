@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 import { type ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
 import { configuredRuntimeTools } from "./configured-tool-surface";
 import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
@@ -373,6 +374,12 @@ export const runtimeFacetTurns = {
 		userText: string,
 		attachments: AudioAttachment[] | undefined,
 	): Promise<{ content: string; images: TurnImagePart[] }> {
+		if (attachments?.some((a) => a.type === "audio"))
+			await requireUnrestrictedModelEgress(
+				this.env,
+				this.state.orgId!,
+				"Speech transcription",
+			);
 		const resolveImages = isVisionCapableChatDeployment(
 			this.env.AZURE_CHAT_DEPLOYMENT,
 		);

@@ -41,6 +41,7 @@ interface GeneratedBlogPost {
 }
 
 export interface GeminiGatewayConfig {
+	beforeSend?: () => Promise<void>;
 	accountId?: string;
 	gatewayId?: string;
 	token?: string;
@@ -340,6 +341,7 @@ async function generateBlogPost(
 
 	const model = "gemini-2.5-flash";
 	const transport = requireGeminiGateway(gateway);
+	await gateway?.beforeSend?.();
 	const resp = await transport.fetch(geminiUrl(transport, model), {
 		method: "POST",
 		headers: geminiHeaders(apiKey, transport),

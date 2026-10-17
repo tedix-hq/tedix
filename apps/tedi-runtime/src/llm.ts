@@ -22,6 +22,7 @@ import {
 } from "@tedix/workers-ai/gateway-transport";
 import { assertAiRequestSize } from "./ai-request-guard";
 import { authorizeInferenceEntitlement } from "./billing-reservation-client";
+import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
 
 export interface ChatToolSpec {
 	type: "function";
@@ -366,13 +367,18 @@ export async function observerCompletion(
 		beforeDispatch: requestGuard,
 		signal: opts.signal,
 	});
+	const headers = new Headers(azureChatHeaders(opts.env, metadata.attribution));
+	metadata.applyProviderCredential(headers);
 	opts.signal?.throwIfAborted();
 	const response = await azureGatewayFetch(opts.env, metadata.beforeDispatch)(
-		url,
+		metadata.restricted
+			? regionalAzureGatewayUrl(url, metadata.execution)
+			: url,
 		{
 			method: "POST",
 			signal: opts.signal,
-			headers: azureChatHeaders(opts.env, metadata.attribution),
+			headers,
+			...(metadata.restricted ? { redirect: "error" as const } : {}),
 			body,
 		},
 	);

@@ -1,3 +1,7 @@
+import {
+	requireUnrestrictedModelEgress,
+	unrestrictedModelAi,
+} from "./unrouted-model-egress";
 /**
  * apps/tedi-runtime — `VoiceInputDO`: TRANSCRIPTION-ONLY DICTATION for isolate tedis.
  *
@@ -132,6 +136,7 @@ export class VoiceInputDO extends VoiceInputBase {
 	 * drop without end_call) — a crashed tab never deadlocks the DO.
 	 */
 	#speakerGate = new SingleSpeakerGate();
+	#activeOrganizationId: string | null = null;
 
 	/**
 	 * Provider attribution captured from the authenticated WS upgrade.
@@ -199,6 +204,11 @@ export class VoiceInputDO extends VoiceInputBase {
 				err,
 			);
 		}
+		await requireUnrestrictedModelEgress(
+			this.env,
+			this.#ctxByConn.get(connection.id)?.organizationId ?? "",
+			"Live voice",
+		);
 		await super.onConnect(connection, ctx);
 	}
 
@@ -219,6 +229,8 @@ export class VoiceInputDO extends VoiceInputBase {
 			log: (event, fields) => this.#vlog(event, fields),
 		});
 		if (!claimed) return false;
+		this.#activeOrganizationId =
+			this.#ctxByConn.get(connection.id)?.organizationId ?? null;
 		this.#vlog("call.start", { conn: connection.id, slug });
 		return true;
 	}
@@ -286,7 +298,8 @@ export class VoiceInputDO extends VoiceInputBase {
 	 * Hook called on explicit `end_call`. Clear the speaker slot.
 	 */
 	override async onCallEnd(connection: Connection): Promise<void> {
-		this.#speakerGate.release(connection);
+		if (this.#speakerGate.release(connection))
+			this.#activeOrganizationId = null;
 		const context = this.#ctxByConn.get(connection.id);
 		if (context) await this.#recordSttUsage(context, Date.now());
 		const slug = context?.slug ?? "unknown";
@@ -305,6 +318,7 @@ export class VoiceInputDO extends VoiceInputBase {
 	override onClose(connection: Connection, ...rest: unknown[]): void {
 		const context = this.#ctxByConn.get(connection.id);
 		if (this.#speakerGate.release(connection)) {
+			this.#activeOrganizationId = null;
 			this.#vlog("call.speaker_slot_cleared", {
 				conn: connection.id,
 				reason: "socket_close",
@@ -332,6 +346,10 @@ export class VoiceInputDO extends VoiceInputBase {
 		if (!ai) {
 			throw new Error("[VoiceInputDO] AI binding unavailable");
 		}
-		return ai;
+		return unrestrictedModelAi(
+			this.env,
+			ai,
+			() => this.#activeOrganizationId ?? "",
+		);
 	}
 }
