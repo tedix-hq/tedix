@@ -193,14 +193,31 @@ const AGGREGATE_ENTRY_TIMEOUT_MS = 12_000;
 const INTERNAL_TOOL_WEDGE_EVICT_MS = 30_000;
 const AGGREGATE_LOAD_WEDGE_EVICT_MS = 45_000;
 
+/** Nested graphs use durable snapshots without retaining duplicate schemas in L1. */
+function rememberAggregateSurface(
+	cacheKey: string,
+	result: AggregatedMcpSurface,
+	visited: ReadonlySet<string>,
+) {
+	if (visited.size > 0) return;
+	setBoundedExpiringCacheEntry(
+		aggregateSurfaceCache,
+		cacheKey,
+		{ result, expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS },
+		MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
+	);
+}
+
 export function aggregateSurfaceCacheKey(
 	entries: AggregateAppEntry[],
 	deploymentFingerprint = "dev",
 	activationEpoch = "initial",
+	visited?: ReadonlySet<string>,
 ): string {
 	return JSON.stringify({
 		deploymentFingerprint,
 		activationEpoch,
+		...(visited?.size ? { visited: [...visited].sort() } : {}),
 		entries: entries.map((entry) => ({
 			slug: entry.slug,
 			// An id-linked entry resolves by id under its host's ownership rule, so
@@ -211,6 +228,8 @@ export function aggregateSurfaceCacheKey(
 				: null,
 			organizationId: entry.organizationId ?? null,
 			prefix: entry.prefix ?? null,
+			organizationMount: entry.organizationMount ?? false,
+			legacyNamespace: entry.legacyNamespace ?? null,
 			connectionLabel: entry.connectionLabel ?? null,
 			connectionProviderId: entry.connectionProviderId ?? null,
 			connectionInstanceId: entry.connectionInstanceId ?? null,
@@ -1030,6 +1049,8 @@ async function revalidateAggregate(
 	env: CloudflareEnv,
 	activationEpoch: string,
 	rootSlug?: string,
+	visited: Set<string> = new Set(),
+	ctx?: ExecutionContext,
 ): Promise<void> {
 	if (aggregateRevalidateInFlight.has(cacheKey)) return;
 	aggregateRevalidateInFlight.add(cacheKey);
@@ -1037,22 +1058,15 @@ async function revalidateAggregate(
 		const fresh = await aggregateAndPrefixToolsUncached(
 			entries,
 			env,
-			new Set(),
+			visited,
 			"revalidate",
 			rootSlug,
 			activationEpoch,
 			true,
+			ctx,
 		);
 		if (!fresh.degraded) {
-			setBoundedExpiringCacheEntry(
-				aggregateSurfaceCache,
-				cacheKey,
-				{
-					result: fresh,
-					expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
-				},
-				MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
-			);
+			rememberAggregateSurface(cacheKey, fresh, visited);
 			await writeAggregateL2(cacheKey, fresh);
 			await writeAggregateR2(env, cacheKey, fresh, rootSlug);
 			console.log(JSON.stringify({ _cm: "aggregate", event: "revalidated" }));
@@ -1085,18 +1099,6 @@ export async function aggregateAndPrefixTools(
 	activation?: { value: string; cacheable: boolean },
 	cacheSnapshot = true,
 ): Promise<AggregatedMcpSurface> {
-	if (visited.size > 0) {
-		return aggregateAndPrefixToolsUncached(
-			entries,
-			env,
-			visited,
-			"cold",
-			undefined,
-			activation?.value ?? "nested",
-			activation?.cacheable ?? true,
-		);
-	}
-
 	// A deploy must never reuse a durable aggregate snapshot built from an older
 	// tool contract. The original intent was "GIT_SHA is injected by the release
 	// workflow" — it never was: the deployed var is the literal wrangler value
@@ -1105,12 +1107,14 @@ export async function aggregateAndPrefixTools(
 	// `version_metadata` cannot drift the same way — the runtime stamps a fresh
 	// id on every deploy, no CI cooperation required. GIT_SHA stays as the
 	// fallback for local dev/tests.
-	const activationState = await readAggregateActivationEpoch(env);
+	const activationState =
+		activation ?? (await readAggregateActivationEpoch(env));
 	const activationEpoch = activationState.value;
 	const cacheKey = aggregateSurfaceCacheKey(
 		entries,
 		env.WORKER_VERSION?.id ?? env.GIT_SHA,
 		activationEpoch,
+		visited,
 	);
 	if (!activationState.cacheable) {
 		return aggregateAndPrefixToolsUncached(
@@ -1121,15 +1125,17 @@ export async function aggregateAndPrefixTools(
 			rootSlug,
 			activationEpoch,
 			false,
+			ctx,
 		);
 	}
 	pruneExpiredCacheEntries(aggregateSurfaceCache);
 	// Consent-composed roots duplicate shared schemas across organizations when
 	// serialized. Keep source-app caches and in-flight sharing, but do not retain
 	// or deserialize the combined catalog in any snapshot tier.
-	const cached = cacheSnapshot
-		? aggregateSurfaceCache.get(cacheKey)
-		: undefined;
+	const cached =
+		cacheSnapshot && visited.size === 0
+			? aggregateSurfaceCache.get(cacheKey)
+			: undefined;
 	if (cached && cached.expiresAt > Date.now()) return cached.result;
 
 	const inFlight = aggregateSurfaceInFlight.get(cacheKey);
@@ -1149,15 +1155,7 @@ export async function aggregateAndPrefixTools(
 		// L2 (durable, cross-isolate) before the expensive live rebuild.
 		const l2 = cacheSnapshot ? await readAggregateL2(cacheKey) : null;
 		if (l2) {
-			setBoundedExpiringCacheEntry(
-				aggregateSurfaceCache,
-				cacheKey,
-				{
-					result: l2.surface,
-					expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
-				},
-				MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
-			);
+			rememberAggregateSurface(cacheKey, l2.surface, visited);
 			if (l2.stale) {
 				// Stale-while-revalidate: serve now, refresh in the background.
 				console.log(
@@ -1173,6 +1171,8 @@ export async function aggregateAndPrefixTools(
 					env,
 					activationEpoch,
 					rootSlug,
+					visited,
+					ctx,
 				);
 				if (ctx) ctx.waitUntil(job);
 				else void job.catch(() => {});
@@ -1188,15 +1188,7 @@ export async function aggregateAndPrefixTools(
 		// L3 (durable, global across colos) before the expensive live rebuild.
 		const l3 = cacheSnapshot ? await readAggregateR2(env, cacheKey) : null;
 		if (l3) {
-			setBoundedExpiringCacheEntry(
-				aggregateSurfaceCache,
-				cacheKey,
-				{
-					result: l3.surface,
-					expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
-				},
-				MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
-			);
+			rememberAggregateSurface(cacheKey, l3.surface, visited);
 			// Promote R2 → this colo's L2 so subsequent local reads stay warm.
 			await writeAggregateL2(cacheKey, l3.surface);
 			if (l3.stale) {
@@ -1213,6 +1205,8 @@ export async function aggregateAndPrefixTools(
 					env,
 					activationEpoch,
 					rootSlug,
+					visited,
+					ctx,
 				);
 				if (ctx) ctx.waitUntil(job);
 				else void job.catch(() => {});
@@ -1233,18 +1227,11 @@ export async function aggregateAndPrefixTools(
 			rootSlug,
 			activationEpoch,
 			true,
+			ctx,
 		);
 		if (!cacheSnapshot) return result;
 		if (!result.degraded) {
-			setBoundedExpiringCacheEntry(
-				aggregateSurfaceCache,
-				cacheKey,
-				{
-					result,
-					expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
-				},
-				MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
-			);
+			rememberAggregateSurface(cacheKey, result, visited);
 			await writeAggregateL2(cacheKey, result);
 			await writeAggregateR2(env, cacheKey, result, rootSlug);
 			return result;
@@ -1272,21 +1259,15 @@ export async function aggregateAndPrefixTools(
 				appSlug: rootSlug,
 				toolCount: expired.surface.tools.length,
 			});
-			setBoundedExpiringCacheEntry(
-				aggregateSurfaceCache,
-				cacheKey,
-				{
-					result: expired.surface,
-					expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
-				},
-				MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
-			);
+			rememberAggregateSurface(cacheKey, expired.surface, visited);
 			const job = revalidateAggregate(
 				cacheKey,
 				entries,
 				env,
 				activationEpoch,
 				rootSlug,
+				visited,
+				ctx,
 			);
 			if (ctx) ctx.waitUntil(job);
 			else void job.catch(() => {});
@@ -1616,6 +1597,7 @@ async function aggregateAndPrefixToolsUncached(
 	rootSlug?: string,
 	activationEpoch = "direct",
 	cacheable = true,
+	ctx?: ExecutionContext,
 ): Promise<AggregatedMcpSurface> {
 	// Per-stage timing: aggregate hydration is the dominant Code Mode cold-start
 	// cost (live D1/service-binding fan-out across the aggregate apps). Time each
@@ -1852,7 +1834,7 @@ async function aggregateAndPrefixToolsUncached(
 					nestedEntries,
 					env,
 					nestedVisited,
-					undefined,
+					ctx,
 					undefined,
 					{ value: activationEpoch, cacheable },
 				);
