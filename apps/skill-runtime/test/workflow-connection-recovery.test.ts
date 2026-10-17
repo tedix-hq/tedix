@@ -210,6 +210,81 @@ assert.equal(
 	"cached continuation does not repeat provider mutation",
 );
 
+// Cached native steps must retain their original evidence without republishing
+// every output when a long workflow wakes from sleep.
+const stepCache = new Map<string, unknown>();
+const replayArtifacts = new Map<string, unknown>();
+let replayWrites = 0;
+let executedSteps = 0;
+let rejectOutputOnce = false;
+const replayEnv = {
+	__ARTIFACT_BRIDGE__: {
+		record: async ({ path, value }: { path: string; value: unknown }) => {
+			if (rejectOutputOnce && path === "outputs/x:evidence-failure.json") {
+				rejectOutputOnce = false;
+				throw new Error("output evidence unavailable");
+			}
+			replayWrites++;
+			replayArtifacts.set(path, structuredClone(value));
+		},
+	},
+};
+const replayNative = {
+	do: async (name: string, fn: (context: unknown) => Promise<unknown>) => {
+		if (stepCache.has(name)) return structuredClone(stepCache.get(name));
+		executedSteps++;
+		const value = await fn({
+			step: { name, count: 1 },
+			attempt: 1,
+			config: {},
+		});
+		stepCache.set(name, structuredClone(value));
+		return value;
+	},
+};
+async function replayCompletedSteps() {
+	const step = runtime.wrapStep(
+		replayNative,
+		replayEnv,
+		runtime.makeTimeline(),
+		runContext,
+	);
+	for (let index = 0; index < 40; index++) {
+		assert.equal(await step.do(`completed-${index}`, async () => index), index);
+	}
+}
+await replayCompletedSteps();
+const originalWrites = replayWrites;
+const originalEvidence = structuredClone(replayArtifacts);
+await replayCompletedSteps();
+assert.equal(executedSteps, 40);
+assert.equal(
+	replayWrites,
+	originalWrites,
+	"cached steps do not spend evidence subrequests again",
+);
+assert.deepEqual(
+	replayArtifacts,
+	originalEvidence,
+	"replay preserves attempt and timing evidence",
+);
+rejectOutputOnce = true;
+const failingEvidenceStep = runtime.wrapStep(
+	replayNative,
+	replayEnv,
+	runtime.makeTimeline(),
+	runContext,
+);
+assert.equal(
+	await failingEvidenceStep.do("evidence-failure", async () => "result"),
+	"result",
+);
+assert.equal(
+	stepCache.has("evidence-failure"),
+	true,
+	"display evidence retains its best-effort semantics",
+);
+
 for (const options of [
 	{ changed: true },
 	{ priorNetwork: true },

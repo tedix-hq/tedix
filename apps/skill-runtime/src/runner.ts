@@ -187,7 +187,8 @@ export const COMPATIBILITY_DATE = "2026-06-11";
 export const DYNAMIC_WORKFLOWS_VERSION = "0.1.1";
 export const TENANT_WORKER_LIMITS = {
 	cpuMs: 60_000,
-	subRequests: 1_000,
+	// Include durable-step RPC and evidence replay in the workflow's bounded budget.
+	subRequests: 10_000,
 } as const;
 // Dispatch needs only AsyncLocalStorage. Keep the loaded tenant isolate off the
 // broad Node compatibility surface; static-import validation separately allows
@@ -1030,7 +1031,7 @@ export function skillRuntimeStubKey(
 
 // Bump when DISPATCH_SHIM source changes so cached isolates from a previous
 // deploy don't shadow updated routing logic.
-export const DISPATCH_SHIM_VERSION = "v46-pinned-connection-recovery";
+export const DISPATCH_SHIM_VERSION = "v47-durable-output-evidence";
 
 export const MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE = `
 function workflowMcpCompletionFailure(result) {
@@ -1867,7 +1868,6 @@ function wrapStep(step, env, timeline, runContext) {
       throw createWorkflowTypeError("step.do requires a callback");
     }
     let lastFailure = null;
-    let lastSuccess = null;
     let logicalCount = null;
     let recoveryRound = 0;
     let continuationBinding = null;
@@ -1937,13 +1937,6 @@ function wrapStep(step, env, timeline, runContext) {
         const output = sensitiveOutput
           ? { redacted: true, reason: "workflow_step_sensitive_output" }
           : value;
-        lastSuccess = {
-          durationMs,
-          attempt: ctx.attempt,
-          count: ctx.step.count,
-          sensitiveOutput,
-          output,
-        };
         timeline.push({
           kind: "step.do",
           name: ctx.step.name,
@@ -1968,6 +1961,18 @@ function wrapStep(step, env, timeline, runContext) {
             attempt: ctx.attempt,
           }),
           persistArtifact(env, { path: "timeline.json", value: timeline.snapshot() }),
+          persistArtifact(env, {
+            path: "outputs/" + encodedStepName + ".json",
+            value: {
+              value: output,
+              durationMs,
+              stepCount: ctx.step.count,
+              attempt: ctx.attempt,
+              sensitiveOutput,
+            },
+            outcome: "success",
+            attempt: ctx.attempt,
+          }),
         ]);
         return value;
       } catch (error) {
@@ -2176,23 +2181,6 @@ function wrapStep(step, env, timeline, runContext) {
         }
         await persistConnectionControl(env, { path: recoveryPath, value: { ...pending, status: "resolved" }, outcome: "success" });
       }
-      const sensitiveOutput = lastSuccess
-        ? lastSuccess.sensitiveOutput
-        : workflowBoolean(config && config.sensitive === "output");
-      await persistArtifact(env, {
-        path: "outputs/" + encodedStepName + ".json",
-        value: {
-          value: sensitiveOutput
-            ? { redacted: true, reason: "workflow_step_sensitive_output" }
-            : value,
-          durationMs: lastSuccess && lastSuccess.durationMs,
-          stepCount: lastSuccess && lastSuccess.count,
-          attempt: lastSuccess && lastSuccess.attempt,
-          sensitiveOutput,
-        },
-        outcome: "success",
-        ...(lastSuccess ? { attempt: lastSuccess.attempt } : {}),
-      });
       return value;
     } catch (error) {
       const failure = lastFailure || {
