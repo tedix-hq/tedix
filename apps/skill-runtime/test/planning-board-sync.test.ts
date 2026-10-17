@@ -64,6 +64,7 @@ function harness(
 		badCitation?: boolean;
 		signalAction?: boolean;
 		deniedSignal?: "list" | "output";
+		hibernate?: boolean;
 	} = {},
 ) {
 	const outputs = new Map([
@@ -130,7 +131,13 @@ function harness(
 		},
 	];
 	const checkpointCache = new Map();
+	const sleeps = new Set<string>();
 	const step = {
+		sleep: async (name: string) => {
+			if (sleeps.has(name)) return;
+			sleeps.add(name);
+			if (options.hibernate) throw new Error("HIBERNATED");
+		},
 		do: async (
 			name: string,
 			options: { retries: { limit: number; delay?: string }; timeout: string },
@@ -389,6 +396,7 @@ function harness(
 		tasks,
 		items,
 		env,
+		sleeps,
 	};
 }
 
@@ -454,6 +462,24 @@ describe("planning board synchronization", () => {
 		expect(h.calls.creates).toBe(1);
 		expect(h.calls.notionWrites).toBe(2);
 		expect(h.projects).toHaveLength(1);
+	});
+	it("restores journaled writes across durable hibernation without duplicating them", async () => {
+		const h = harness({ hibernate: true });
+		let result;
+		let interruptions = 0;
+		for (let resume = 0; resume < 6 && !result; resume++) {
+			try {
+				result = await h.run("same-run", resume > 0);
+			} catch (error) {
+				expect(String(error)).toContain("HIBERNATED");
+				interruptions++;
+			}
+		}
+		expect(interruptions).toBe(2);
+		expect(result?.status).toBe("synced");
+		expect(h.calls.creates).toBe(1);
+		expect(h.calls.notionWrites).toBe(2);
+		expect(h.sleeps.has("batch-report")).toBe(true);
 	});
 	it.each(["list", "output"] as const)(
 		"reports denied %s signals while completing authorized board enrichment",
