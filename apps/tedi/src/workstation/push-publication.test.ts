@@ -254,19 +254,19 @@ describe("actual Git publication observation", () => {
 			["refs/heads/rejected", "different"],
 		]);
 	});
-	it("distinguishes dry-run and unchanged", async () => {
+	it("observes an unchanged push", async () => {
 		const f = fixture();
 		expect((await f.run("git push origin main")).proof.status).toBe(
 			"unchanged",
 		);
+	});
+	it.each([
+		"git push --dry-run origin HEAD:refs/heads/dry",
+		"git push -qn origin HEAD:refs/heads/dry",
+	])("observes a dry-run without publishing: %s", async (command) => {
+		const f = fixture();
 		f.commit();
-		expect(
-			(await f.run("git push --dry-run origin HEAD:refs/heads/dry")).proof
-				.status,
-		).toBe("dry_run");
-		expect(
-			(await f.run("git push -qn origin HEAD:refs/heads/dry")).proof.status,
-		).toBe("dry_run");
+		expect((await f.run(command)).proof.status).toBe("dry_run");
 		expect(f.git("ls-remote", "origin", "refs/heads/dry")).toBe("");
 	});
 	it.each([
@@ -348,9 +348,9 @@ describe("actual Git publication observation", () => {
 		expect(r.stdout).toContain("TEDIX_PUSH_GUARD=protected_path");
 		expect(r.proof.status).toBe("failed");
 	});
-	it("allows protected theme files only for the exact trusted Artifacts remote", async () => {
+	it("denies protected theme files for a different Artifacts remote", async () => {
 		const f = fixture();
-		const sha = f.commit("package.json", "{}\n");
+		f.commit("package.json", "{}\n");
 		const denied = await f.run(
 			"git push origin HEAD:refs/heads/theme",
 			undefined,
@@ -358,7 +358,10 @@ describe("actual Git publication observation", () => {
 		);
 		expect(denied.stdout).toContain("TEDIX_PUSH_GUARD=protected_path");
 		expect(f.git("ls-remote", "origin", "refs/heads/theme")).toBe("");
-
+	});
+	it("allows protected theme files for the exact trusted Artifacts remote", async () => {
+		const f = fixture();
+		const sha = f.commit("package.json", "{}\n");
 		const allowed = await f.run(
 			"git push origin HEAD:refs/heads/theme",
 			undefined,
