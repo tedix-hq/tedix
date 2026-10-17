@@ -166,6 +166,11 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
 				dispatchCommitmentWakes(env, event.scheduledTime),
 			);
+			const { maintainRepositoryObservers } =
+				await import("./repository-observer");
+			await trackPlatformCronPath(env, event, "repository-observer", () =>
+				maintainRepositoryObservers(env),
+			);
 			const { maintainSupport } = await import("./support-maintenance");
 			await trackPlatformCronPath(env, event, "support-maintenance", () =>
 				maintainSupport(env),

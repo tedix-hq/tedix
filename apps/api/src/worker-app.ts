@@ -1710,6 +1710,13 @@ app.get("/artifacts/:tediId/:artifactId", handleSessionArtifact);
  * implementation graphs (audit + billing queries, stripe-billing helpers,
  * fleet-authority) must not be evaluated on every isolate's first request.
  */
+// authz: public GitHub OIDC signature, audience, repo, ref, workflow and payload SHA are verified in the lazy handler against tenant D1 configuration.
+app.post("/webhooks/repository-observer/:orgId/:projectId", async (c) => {
+	const { handleRepositoryObserverWebhook } =
+		await import("./webhooks/repository-observer");
+	return handleRepositoryObserverWebhook(c);
+});
+
 // authz: public Provider callbacks verify per-channel hashed capabilities, provider resource identity and active subscriptions in the lazy handler.
 app.post("/webhooks/provider-events/:adapter/:channelId", async (c) => {
 	const { handleProviderEventWebhook } =

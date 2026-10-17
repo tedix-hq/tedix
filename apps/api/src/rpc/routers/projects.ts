@@ -20,6 +20,7 @@
  */
 
 import { implement } from "@orpc/server";
+import { projectMetadataForUpdate } from "../../lib/project-metadata";
 import {
 	ProjectHealthJudgmentSchema,
 	ProjectMilestoneDependencySchema,
@@ -161,8 +162,10 @@ const createProcedure = authOs.create
 			ownerUserId: input.ownerUserId,
 			objectiveId: input.objectiveId,
 			targetDate: input.targetDate,
-			metadata:
+			metadata: projectMetadataForUpdate(
+				null,
 				input.metadata === undefined ? undefined : toJsonRecord(input.metadata),
+			),
 			createdAt: new Date().toISOString(),
 		});
 	});
@@ -188,10 +191,12 @@ const updateProcedure = authOs.update
 				ownerUserId: input.ownerUserId,
 				objectiveId: input.objectiveId,
 				targetDate: input.targetDate,
-				metadata:
+				metadata: projectMetadataForUpdate(
+					existing.metadata,
 					input.metadata === undefined
 						? undefined
 						: toJsonRecord(input.metadata),
+				),
 				updatedAt: new Date().toISOString(),
 			});
 		} catch (error) {

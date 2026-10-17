@@ -203,7 +203,12 @@ export async function updateProject(
 	if (params.ownerUserId !== undefined) set.ownerUserId = params.ownerUserId;
 	if (params.objectiveId !== undefined) set.objectiveId = params.objectiveId;
 	if (params.targetDate !== undefined) set.targetDate = params.targetDate;
-	if (params.metadata !== undefined) set.metadata = params.metadata;
+	if (params.metadata !== undefined) {
+		const metadata = JSON.stringify(params.metadata);
+		set.metadata = sql`CASE WHEN json_type(${projects.metadata}, '$.repositoryObserver') IS NOT NULL
+			THEN json_set(json_remove(json(${metadata}), '$.repositoryObserver'), '$.repositoryObserver', json_extract(${projects.metadata}, '$.repositoryObserver'))
+			ELSE json_remove(json(${metadata}), '$.repositoryObserver') END`;
+	}
 
 	const rows = await db
 		.update(projects)

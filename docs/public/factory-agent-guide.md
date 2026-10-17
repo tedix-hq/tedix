@@ -234,3 +234,35 @@ selected resources, lane and schedule before changing it. Read only the
 relevant Work, latest runs and Outputs; preserve access errors, truncation and
 missing links. Blueprint setup uses its exact published revision and
 `preflight_os_blueprint` bindings; preflight grants no execution authority.
+
+## Observe repository changes
+
+A repository observer is advisory. Store its repository, branch, owner tedi,
+lesson-trigger instructions and repair recipes in the factory project's
+`metadata.repositoryObserver` through `configure_repository_observer`.
+The owner matches approved brain lessons using the same trigger matcher as
+situational recall. It records one commit-watch comment with the lesson revision,
+verdict, evidence and proposed fix through `report_repository_observation`.
+A claimed lesson application remains unverified until its evidence is checked.
+
+The optional `.github/workflows/tedix-observer.yml` reports main pushes when the
+repository variable `TEDIX_OBSERVER_URL` names the installation's
+`/webhooks/repository-observer/<organization>/<project>` endpoint. GitHub's
+short-lived OIDC identity must match the configured repository, workflow,
+branch and pushed SHA. No stored API key is needed. A private release repository
+can be separately configured to report Ship outcomes from its own workflow.
+Events wake the owner through the existing tedi dispatcher; repeated delivery
+reuses the observation and comment.
+
+Red Ships have a 30-minute diagnosis deadline on Attention. The platform tick
+escalates an overdue unresolved incident to the configured human, including a
+missing-diagnosis breach when the tedi is unavailable. A green event asks the
+owner to verify the exact serving revision before completing the incident.
+
+Repairs are opt-in, per approved lesson. A pinned source-repair skill receives
+the exact event, diagnosis and allowed paths; secret and production configuration
+paths are excluded. An unchanged-candidate retry is delivered once to the
+independently authenticated private ops workflow. Repeated failures reuse the
+same repair budget and escalate. Rollbacks and other production operations need
+separate approval. This observer adds no per-lesson pre-push gate or release hold;
+the ops materialization check still verifies configuration compatibility.

@@ -425,3 +425,61 @@ describe("listProjectPortfolio", () => {
 		});
 	});
 });
+
+it("preserves observer authority at the write even when an ordinary edit read stale metadata", async () => {
+	const { db } = fixture();
+	const project = await createProject(db, {
+		id: nextId("observer"),
+		orgId: ORG,
+		key: "WATCH",
+		name: "Watch",
+		createdAt: NOW,
+		metadata: { repositoryObserver: { owner: "old" }, label: "old" },
+	});
+	const { configureRepositoryObserver } = await import("./repository-observer");
+	const { RepositoryObserverConfigSchema } =
+		await import("@tedix/api-contract/schemas/repository-observer");
+	const config = RepositoryObserverConfigSchema.parse({
+		repository: "example/product",
+		ownerTediId: "11111111-1111-4111-8111-111111111111",
+		escalationUserId: "human",
+		instructions: "Read current evidence and report one diagnosis.",
+	});
+	expect(
+		await configureRepositoryObserver(
+			db,
+			"another-org",
+			project.id,
+			config,
+			LATER,
+		),
+	).toBe(false);
+	expect(
+		await configureRepositoryObserver(db, ORG, project.id, config, LATER),
+	).toBe(true);
+	const updated = await updateProject(db, project.id, {
+		metadata: {
+			...project.metadata,
+			label: "new",
+			repositoryObserver: { owner: "attacker" },
+		},
+		updatedAt: "2026-07-17T02:00:00.000Z",
+	});
+	expect(updated?.metadata?.repositoryObserver).toEqual(config);
+	expect(updated?.metadata?.label).toBe("new");
+});
+it("cannot install observer authority through ordinary project metadata", async () => {
+	const { db } = fixture();
+	const project = await createProject(db, {
+		id: nextId("unconfigured"),
+		orgId: ORG,
+		key: "UNCONFIGURED",
+		name: "Unconfigured",
+		createdAt: NOW,
+	});
+	const updated = await updateProject(db, project.id, {
+		metadata: { repositoryObserver: { owner: "attacker" }, label: "safe" },
+		updatedAt: LATER,
+	});
+	expect(updated?.metadata).toEqual({ label: "safe" });
+});

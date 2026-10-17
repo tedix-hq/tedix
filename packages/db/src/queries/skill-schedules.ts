@@ -105,11 +105,19 @@ export async function deleteSkillSchedule(
 export async function getSkillSchedule(
 	db: DbClient,
 	skillId: string,
+	organizationId?: string,
 ): Promise<SkillSchedule | undefined> {
 	const [row] = await db
 		.select()
 		.from(skillSchedules)
-		.where(eq(skillSchedules.skillId, skillId))
+		.where(
+			and(
+				eq(skillSchedules.skillId, skillId),
+				organizationId
+					? eq(skillSchedules.organizationId, organizationId)
+					: undefined,
+			),
+		)
 		.limit(1);
 	return row;
 }

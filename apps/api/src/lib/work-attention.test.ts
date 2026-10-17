@@ -67,6 +67,9 @@ describe("Attention projection", () => {
 			{
 				id: "retry",
 				title: "Retry lane",
+				deadline: null,
+				observer: null,
+				diagnosis: null,
 				projectId: "project",
 				createdAt: "2026-10-17T09:00:00Z",
 			},
@@ -140,6 +143,9 @@ it("retains Backlog when completed runs fill the overview", () => {
 	input.backlog = Array.from({ length: 100 }, (_, i) => ({
 		id: `item-${i}`,
 		title: "Next feature",
+		deadline: null,
+		observer: null,
+		diagnosis: null,
 		projectId: null,
 		createdAt: "2026-10-17T10:00:00Z",
 	}));
@@ -234,4 +240,26 @@ it("does not treat queued work as running or a paused skill as a request for the
 	const cards = buildAttention(input, [], [], now).cards;
 	expect(cards.find((card) => card.id === "queued")?.column).toBe("backlog");
 	expect(cards.find((card) => card.id === "paused")?.column).toBe("blocked");
+});
+
+it("shows the red Ship diagnosis promise and its missed deadline on Attention", () => {
+	const input = sources();
+	input.backlog = [
+		{
+			id: "red",
+			title: "Red Ship",
+			projectId: "project",
+			createdAt: "2026-10-17T11:00:00Z",
+			deadline: "2026-10-17T11:30:00Z",
+			observer: 1,
+			diagnosis: null,
+		},
+	];
+	const card = buildAttention(input, [], [], now).cards[0]!;
+	expect(card.column).toBe("blocked");
+	expect(card.note).toContain("Missed promise");
+	input.backlog[0]!.diagnosis = "Provider outage, bounded retry exhausted";
+	expect(buildAttention(input, [], [], now).cards[0]?.note).toContain(
+		"Diagnosis: Provider outage",
+	);
 });
