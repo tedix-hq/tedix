@@ -1,19 +1,22 @@
+import {
+	WorkDecisionCard,
+	type DecisionCardAction,
+	type DecisionCardFeedback,
+} from "@/components/work-decision-card";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	reviewedOutbound,
 	type OutboundRecord,
-	type OutboundDraft,
+	OutboundActionSchema,
 } from "@tedix/api-contract/schemas/outbound";
 import { osApi } from "@/lib/api";
 import {
 	osQuery,
-	osQueryKeys,
 	tediRosterQueryOptions,
 	workAttentionQueryOptions,
 } from "@/lib/os-query-options";
 import { ChatMarkdown } from "@/components/chat-markdown";
-import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
@@ -22,7 +25,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { Textarea } from "@/components/kumo/textarea";
 import { Input } from "@/components/kumo/input";
 import {
 	Select,
@@ -42,24 +44,36 @@ import {
 } from "@/components/kumo/page";
 import { errorMessage } from "@/lib/orpc-error";
 
-export function OutboundCard({ workItemId }: { workItemId: string }) {
+type OutboundCardNavigation = {
+	autoFocus?: boolean;
+	onNext?: () => void;
+	onPrevious?: () => void;
+};
+
+export function OutboundCard({
+	workItemId,
+	...navigation
+}: { workItemId: string } & OutboundCardNavigation) {
 	const query = useQuery(
 		osQuery.workInteractions.outbound.get.queryOptions({
 			input: { workItemId },
 		}),
 	);
-	if (query.isError)
-		return <Text role="body">{errorMessage(query.error)}</Text>;
+	if (query.isError) return <p role="alert">{errorMessage(query.error)}</p>;
 	if (!query.data) return <Text role="body">Loading outbound draft…</Text>;
 	return (
 		<OutboundReviewCard
 			key={`${query.data.workItemId}:${query.data.version}`}
 			record={query.data}
+			{...navigation}
 		/>
 	);
 }
 
-export function OutboundReviewCard({ record }: { record: OutboundRecord }) {
+export function OutboundReviewCard({
+	record,
+	...navigation
+}: { record: OutboundRecord } & OutboundCardNavigation) {
 	const client = useQueryClient();
 	const state = record.outbound;
 	const roster = useQuery(tediRosterQueryOptions(100));
@@ -67,67 +81,188 @@ export function OutboundReviewCard({ record }: { record: OutboundRecord }) {
 		(tedi) => tedi.id === state.reviewerTediId,
 	);
 	const reviewerName =
-		reviewer?.displayName || reviewer?.name || "Reviewer tedi";
-	const [editing, setEditing] = useState(false);
-	const [givingFeedback, setGivingFeedback] = useState(false);
-	const [body, setBody] = useState(state.draft.body);
+		reviewer?.displayName || reviewer?.name || "Your reviewer tedi";
 	const [recipient, setRecipient] = useState(state.draft.recipient);
 	const [subject, setSubject] = useState(state.draft.subject);
-	const [feedback, setFeedback] = useState("");
 	const [account, setAccount] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
-	const connections = useQuery(
-		osQuery.workInteractions.outbound.accounts.queryOptions({ input: {} }),
-	);
-	const accounts = connections.data ?? [];
-	const act = useMutation({
-		mutationFn: (value: {
-			action:
-				| "approve_manual"
-				| "approve_send"
-				| "edit"
-				| "feedback"
-				| "reject";
-			draft?: OutboundDraft;
-			body?: string;
-			feedback?: string;
-			connectionInstanceId?: string;
-		}) =>
-			osApi.workInteractions.outbound.act({
-				workItemId: record.workItemId,
-				expectedVersion: record.version,
-				...value,
-			}),
-		onSettled: async () => {
-			await Promise.all([
-				client.invalidateQueries({ queryKey: osQueryKeys.workInteractions() }),
-				client.invalidateQueries({ queryKey: osQuery.workItems.key() }),
-				client.invalidateQueries({
-					queryKey: workAttentionQueryOptions().queryKey,
-				}),
-			]);
-		},
+	const connections = useQuery({
+		...osQuery.workInteractions.outbound.accounts.queryOptions({ input: {} }),
+		enabled: state.draft.channel === "email",
 	});
 	const ready = reviewedOutbound(state);
 	const open = ["reviewing", "waiting_on_you", "feedback"].includes(
 		state.status,
 	);
-	const review = state.review;
+	const accounts = connections.data ?? [];
+	const actions: DecisionCardAction[] = open
+		? [
+				...(state.draft.channel === "email"
+					? [
+							{
+								id: "approve_send",
+								label: "Send",
+								intent: "approve" as const,
+								disabled: !ready,
+								confirm: `Send this email to ${state.draft.recipient} using your Gmail connection?`,
+								confirmDisabled: !account,
+								confirmContent: (
+									<div className="grid gap-3">
+										<Select value={account} onValueChange={setAccount}>
+											<SelectTrigger aria-label="Your Gmail account">
+												<SelectValue placeholder="Choose your Gmail account" />
+											</SelectTrigger>
+											<SelectContent>
+												{accounts.map((connection) => (
+													<SelectItem key={connection.id} value={connection.id}>
+														{connection.label}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+										{connections.isError ? (
+											<p role="alert">
+												Your Gmail connections could not be loaded.
+											</p>
+										) : !accounts.length ? (
+											<p>
+												Connect Gmail and grant compose consent to send here.
+											</p>
+										) : null}
+										<Link href="/account/connections">
+											Manage Gmail connection and compose consent
+										</Link>
+									</div>
+								),
+							},
+						]
+					: []),
+				{
+					id: "approve_manual",
+					label: "Approve, I'll send",
+					intent: state.draft.channel !== "email" ? "approve" : undefined,
+					disabled: !ready,
+				},
+				{ id: "reject", label: "Not this", intent: "reject" },
+			]
+		: [];
+	const decide = async (feedback: DecisionCardFeedback) => {
+		const action = OutboundActionSchema.parse(feedback.action);
+		const result = await osApi.workInteractions.outbound.act({
+			workItemId: record.workItemId,
+			expectedVersion: record.version,
+			action,
+			...(action === "edit"
+				? {
+						draft: {
+							...state.draft,
+							body: feedback.body,
+							recipient: recipient.trim(),
+							subject: subject.trim(),
+						},
+					}
+				: {}),
+			...([feedback.reason, feedback.feedback].some(Boolean)
+				? {
+						feedback: [feedback.reason, feedback.feedback]
+							.filter(Boolean)
+							.join("\n"),
+					}
+				: {}),
+			...(action === "approve_send" && account
+				? { connectionInstanceId: account }
+				: {}),
+		});
+		await Promise.all([
+			client.invalidateQueries({
+				queryKey: osQuery.workInteractions.key({ type: "query" }),
+			}),
+			client.invalidateQueries({
+				queryKey: osQuery.workItems.key({ type: "query" }),
+			}),
+			client.invalidateQueries(workAttentionQueryOptions()),
+		]);
+		if (result.outbound.status === "send_unknown")
+			throw new Error(
+				"Delivery is unconfirmed. Sending is locked while Gmail is reconciled.",
+			);
+		return result;
+	};
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle className="flex flex-wrap items-center gap-2">
-					<Badge variant="info">Outbound</Badge>
-					{state.draft.subject || record.title}
-				</CardTitle>
-				<CardDescription>
-					{state.draft.channel} · To {state.draft.recipient} ·{" "}
-					{state.status.replaceAll("_", " ")}
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="grid gap-5">
-				{editing ? (
+		<div className="grid gap-3">
+			<WorkDecisionCard
+				kind="outbound"
+				title={state.draft.subject || record.title}
+				askedBy={reviewerName}
+				at={state.review?.reviewedAt}
+				body={state.draft.body}
+				content={
 					<div className="grid gap-3">
+						<p className="text-kumo-subtle">
+							{state.draft.channel} · To {state.draft.recipient}
+						</p>
+						<ChatMarkdown content={state.draft.body} preserveLineBreaks />
+						{ready ? (
+							<p className="text-kumo-subtle">Ready for your review</p>
+						) : open ? (
+							<p className="text-kumo-subtle">
+								Your reviewer is checking this revision before approval.
+							</p>
+						) : null}
+						{state.status === "approved_manual" ? (
+							<p>Approved for you to send. Delivery is unconfirmed.</p>
+						) : state.status === "sent" ? (
+							<p>Sent through your Gmail account.</p>
+						) : state.status === "send_unknown" ||
+						  state.status === "sending" ? (
+							<p>
+								Delivery needs reconciliation in Gmail. Sending is locked to
+								prevent a duplicate.
+							</p>
+						) : null}
+					</div>
+				}
+				why={
+					<div className="grid gap-3">
+						<p>Reasoning and sources</p>
+						<ChatMarkdown content={state.draft.reasoning} />
+						{state.review ? (
+							<>
+								<ChatMarkdown content={state.review.notes} />
+								<p>Voice: {state.review.voice}</p>
+								<p>Grounding: {state.review.grounding}</p>
+								<p>Risks: {state.review.risks}</p>
+							</>
+						) : null}
+						{state.draft.sources.map((source, index) => (
+							<p key={`${source.uri}:${index}`}>
+								{source.fact} · {source.uri}
+							</p>
+						))}
+						{state.draft.risks.map((risk) => (
+							<p key={risk}>{risk}</p>
+						))}
+						{state.providerReceipt ? (
+							<p>Delivery receipt: {state.providerReceipt}</p>
+						) : null}
+						<Link href={`/work/items/${record.workItemId}`}>View Work</Link>
+					</div>
+				}
+				actions={actions}
+				disabled={!open}
+				onDecision={decide}
+				{...navigation}
+				feedbackAction={{ id: "feedback", label: "Send feedback" }}
+				editAction={{
+					id: "edit",
+					label: "Save for review",
+					disabled: !recipient.trim(),
+				}}
+				hasEdits={
+					recipient !== state.draft.recipient || subject !== state.draft.subject
+				}
+				editContent={
+					<>
 						<Input
 							aria-label="Recipient"
 							value={recipient}
@@ -138,228 +273,33 @@ export function OutboundReviewCard({ record }: { record: OutboundRecord }) {
 							value={subject}
 							onChange={(event) => setSubject(event.target.value)}
 						/>
-						<Textarea
-							aria-label="Edit outbound draft"
-							rows={14}
-							value={body}
-							onChange={(event) => setBody(event.target.value)}
-						/>
-					</div>
-				) : (
-					<ChatMarkdown content={state.draft.body} preserveLineBreaks />
-				)}
-				{review ? (
-					<section className="grid gap-2" aria-label="Reviewer notes">
-						<Text as="p" role="label">
-							{reviewerName}: {review.verdict.replaceAll("_", " ")}
-						</Text>
-						<ChatMarkdown content={review.notes} />
-						<Text as="p" role="body" tone="secondary">
-							Voice: {review.voice}
-						</Text>
-						<Text as="p" role="body" tone="secondary">
-							Grounding: {review.grounding}
-						</Text>
-						<Text as="p" role="body" tone="secondary">
-							Risks: {review.risks}
-						</Text>
-					</section>
-				) : (
-					<Text as="p" role="body" tone="secondary">
-						Your reviewer tedi is checking voice, sources and commitments.
-						Approval becomes available after this revision is marked ready.
-					</Text>
-				)}
-				<details>
-					<summary>Reasoning and sources</summary>
-					<div className="grid gap-3 py-3">
-						<ChatMarkdown content={state.draft.reasoning} />
-						{state.draft.sources.map((source, index) => (
-							<div key={`${source.uri}:${index}`}>
-								<Text as="p" role="body">
-									{source.fact}
-								</Text>
-								<Text as="p" role="label" tone="secondary">
-									{source.uri}
-								</Text>
-							</div>
-						))}
-						{state.draft.risks.map((risk) => (
-							<Text as="p" role="body" key={risk}>
-								{risk}
-							</Text>
-						))}
-						<Text as="p" role="label" tone="secondary">
-							Author: {state.author.type} ·{" "}
-							{state.author.sessionId ?? state.author.id}. Reviewer:{" "}
-							{state.reviewerTediId}. Draft revision {state.draftRevision}.
-						</Text>
-					</div>
-				</details>
-				{givingFeedback ? (
-					<Textarea
-						aria-label="Feedback for reviewer"
-						rows={3}
-						value={feedback}
-						onChange={(event) => setFeedback(event.target.value)}
-						placeholder="What should change?"
-					/>
-				) : null}
-				{open && state.draft.channel === "email" ? (
-					<div className="grid gap-2">
-						<Select value={account} onValueChange={setAccount}>
-							<SelectTrigger aria-label="Your Gmail account">
-								<SelectValue placeholder="Choose your Gmail account" />
-							</SelectTrigger>
-							<SelectContent>
-								{accounts.map((connection) => (
-									<SelectItem key={connection.id} value={connection.id}>
-										{connection.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<Link href="/account/connections">
-							Manage Gmail connection and compose consent
-						</Link>
-					</div>
-				) : null}
-				{act.isError ? (
-					<Text as="p" role="body">
-						{errorMessage(act.error)}
-					</Text>
-				) : null}
-				{open ? (
-					<div className="flex flex-wrap gap-2">
-						{editing ? (
-							<>
-								<Button
-									disabled={
-										act.isPending ||
-										!body.trim() ||
-										!recipient.trim() ||
-										(body === state.draft.body &&
-											recipient === state.draft.recipient &&
-											subject === state.draft.subject)
-									}
-									onClick={() =>
-										act.mutate({
-											action: "edit",
-											draft: { ...state.draft, body, recipient, subject },
-										})
-									}
-								>
-									Save for review
-								</Button>
-								<Button variant="ghost" onClick={() => setEditing(false)}>
-									Cancel edit
-								</Button>
-							</>
-						) : (
-							<>
-								{state.draft.channel === "email" ? (
-									<Button
-										disabled={act.isPending || !ready || !account}
-										onClick={() =>
-											act.mutate({
-												action: "approve_send",
-												connectionInstanceId: account!,
-											})
-										}
-									>
-										Approve &amp; send
-									</Button>
-								) : null}
-								<Button
-									variant="outline"
-									disabled={act.isPending || !ready}
-									onClick={() => act.mutate({ action: "approve_manual" })}
-								>
-									Approve (I'll send)
-								</Button>
-								<Button
-									variant="outline"
-									disabled={act.isPending}
-									onClick={() => setEditing(true)}
-								>
-									Edit
-								</Button>
-							</>
-						)}
-						{givingFeedback ? (
-							<Button
-								disabled={act.isPending || !feedback.trim()}
-								onClick={() => act.mutate({ action: "feedback", feedback })}
-							>
-								Send feedback
-							</Button>
-						) : (
-							<Button
-								variant="ghost"
-								disabled={act.isPending}
-								onClick={() => setGivingFeedback(true)}
-							>
-								Feedback
-							</Button>
-						)}
-						<Button
-							variant="ghost"
-							disabled={act.isPending}
-							onClick={() =>
-								act.mutate({
-									action: "reject",
-									feedback: feedback.trim() || undefined,
-								})
-							}
-						>
-							Reject
-						</Button>
-					</div>
-				) : null}
-				<div className="flex flex-wrap items-center gap-3">
-					{state.draft.providerDraftUrl ? (
-						<Link
-							href={state.draft.providerDraftUrl}
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							Open {state.draft.channel === "email" ? "Gmail draft" : "draft"}
-						</Link>
-					) : null}
-					<Button
-						variant="ghost"
-						onClick={async () => {
-							await navigator.clipboard.writeText(state.draft.body);
-							setCopied(true);
-						}}
+						<p className="text-kumo-subtle">
+							Save changes for a fresh review, then Send or approve.
+						</p>
+					</>
+				}
+			/>
+			<div className="flex flex-wrap items-center gap-3">
+				{state.draft.providerDraftUrl ? (
+					<Link
+						href={state.draft.providerDraftUrl}
+						target="_blank"
+						rel="noopener noreferrer"
 					>
-						{copied ? "Copied" : "Copy text"}
-					</Button>
-					<Link href={`/work/items/${record.workItemId}`}>View Work</Link>
-				</div>
-				{state.status === "approved_manual" ? (
-					<Text as="p" role="body">
-						Approved for you to send. Approval is saved as positive feedback;
-						delivery is still unconfirmed.
-					</Text>
-				) : state.status === "sent" ? (
-					<Text as="p" role="body">
-						Sent through your Gmail account. Receipt: {state.providerReceipt}
-					</Text>
-				) : state.status === "send_unknown" || state.status === "sending" ? (
-					<Text as="p" role="body">
-						Delivery needs reconciliation in Gmail. Sending is locked to prevent
-						a duplicate.
-					</Text>
-				) : (
-					<Text as="p" role="label" tone="secondary">
-						Your approval is positive feedback. Edits and feedback teach your
-						style and the reviewer. Nothing is sent until you click Approve
-						&amp; send.
-					</Text>
-				)}
-			</CardContent>
-		</Card>
+						Open {state.draft.channel === "email" ? "Gmail draft" : "draft"}
+					</Link>
+				) : null}
+				<Button
+					variant="ghost"
+					onClick={async () => {
+						await navigator.clipboard.writeText(state.draft.body);
+						setCopied(true);
+					}}
+				>
+					{copied ? "Copied" : "Copy text"}
+				</Button>
+			</div>
+		</div>
 	);
 }
 
@@ -412,7 +352,9 @@ export function OutboundStyleProfile() {
 		mutationFn: (connectionInstanceId: string) =>
 			osApi.workInteractions.outbound.importSentStyle({ connectionInstanceId }),
 		onSuccess: () =>
-			client.invalidateQueries({ queryKey: osQueryKeys.workInteractions() }),
+			client.invalidateQueries({
+				queryKey: osQuery.workInteractions.outbound.key({ type: "query" }),
+			}),
 	});
 	return (
 		<Card>

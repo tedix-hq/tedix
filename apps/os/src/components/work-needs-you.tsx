@@ -2,7 +2,7 @@ import { WorkDecisionStack } from "@/components/work-decision-stack";
 import type { FactoryScoreboardEntry } from "@tedix/api-contract/contracts/projects";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import type { WorkFleetControlTower } from "@tedix/api-contract/schemas/work-fleet";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
@@ -34,10 +34,14 @@ import {
 } from "@/components/work-session-requests";
 import { officeAsk } from "@/lib/work-interaction-display";
 import { factoryHref } from "@/lib/work-display";
-import { workFleetQueryOptions, workAttentionQueryOptions } from "@/lib/os-query-options";
+import {
+	osQueryKeys,
+	workFleetQueryOptions,
+	workAttentionQueryOptions,
+} from "@/lib/os-query-options";
 import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
-import { OutboundCard } from "@/components/outbound-card";
+import { osApi } from "@/lib/api";
 
 type InboxRow = {
 	request: {
@@ -698,19 +702,7 @@ export function WorkNeedsYouPage() {
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
-			{sources.interactions.data?.data
-				.filter(
-					(row) =>
-						isOpenRequestForYou(row) &&
-						metadataOf(row.request).schema === "tedix.outbound.v1" &&
-						row.request.workItemId,
-				)
-				.map((row) => (
-					<OutboundCard
-						key={row.request.id}
-						workItemId={row.request.workItemId!}
-					/>
-				))}
+
 			{failed.length ? (
 				<Alert>
 					<AlertTitle>Some sources did not load</AlertTitle>

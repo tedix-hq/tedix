@@ -69,6 +69,8 @@ export function WorkDecisionCard({
 	actions = [],
 	feedbackAction,
 	editAction,
+	editContent,
+	hasEdits = false,
 	suggestedAnswers = [],
 	initialAnswer = "",
 	pending = false,
@@ -88,6 +90,8 @@ export function WorkDecisionCard({
 	actions?: readonly DecisionCardAction[];
 	feedbackAction?: DecisionCardAction;
 	editAction?: DecisionCardAction;
+	editContent?: ReactNode;
+	hasEdits?: boolean;
 	suggestedAnswers?: readonly string[];
 	initialAnswer?: string;
 	pending?: boolean;
@@ -130,6 +134,7 @@ export function WorkDecisionCard({
 			(confirmed && action.confirmDisabled)
 		)
 			return;
+		if (action.id === editAction?.id && draft === body && !hasEdits) return;
 		if (action.confirm && !confirmed) {
 			setConfirmation(action);
 			return;
@@ -144,19 +149,21 @@ export function WorkDecisionCard({
 			await onDecision({
 				action: action.id,
 				signal:
-					action.id === feedbackAction?.id
-						? "free-text"
-						: reason
-							? "reason"
-							: action.intent === "reject"
-								? "rejected"
-								: draft !== body
-									? "edited"
-									: feedback.trim()
-										? "free-text"
-										: kind === "question"
-											? "answer"
-											: "approve-as-is",
+					action.id === editAction?.id
+						? "edited"
+						: action.id === feedbackAction?.id
+							? "free-text"
+							: reason
+								? "reason"
+								: action.intent === "reject"
+									? "rejected"
+									: draft !== body
+										? "edited"
+										: feedback.trim()
+											? "free-text"
+											: kind === "question"
+												? "answer"
+												: "approve-as-is",
 				body: finalBody || action.label,
 				...(draft !== body ? { originalBody: body } : {}),
 				...(reason ? { reason } : {}),
@@ -177,7 +184,12 @@ export function WorkDecisionCard({
 			setSaving(false);
 		}
 	};
-	const approve = actions.find((action) => action.intent === "approve");
+	const approve =
+		editing && editAction
+			? editAction
+			: actions.find(
+					(action) => action.intent === "approve" && !action.disabled,
+				);
 	const reject = actions.find((action) => action.intent === "reject");
 	const choose = (action: DecisionCardAction | undefined) => {
 		if (!action || action.disabled || busy) return;
@@ -249,13 +261,16 @@ export function WorkDecisionCard({
 				</CardHeader>
 				<CardContent className="grid gap-4">
 					{editing ? (
-						<Textarea
-							aria-label="Edit draft"
-							rows={8}
-							value={draft}
-							onChange={(event) => setDraft(event.target.value)}
-							disabled={busy}
-						/>
+						<div className="grid gap-3">
+							{editContent}
+							<Textarea
+								aria-label="Edit draft"
+								rows={8}
+								value={draft}
+								onChange={(event) => setDraft(event.target.value)}
+								disabled={busy}
+							/>
+						</div>
 					) : (
 						(content ??
 						(body ? (
@@ -315,42 +330,52 @@ export function WorkDecisionCard({
 										: "flex flex-wrap gap-2"
 								}
 							>
-								{actions.map((action) => (
-									<Button
-										key={action.id}
-										className={
-											kind === "decision"
-												? "h-auto min-h-20 whitespace-normal text-left"
-												: "min-h-11 grow sm:grow-0"
-										}
-										variant={
-											action.intent === "approve" ? "default" : "outline"
-										}
-										disabled={
-											busy ||
-											action.disabled ||
-											(kind === "question" && !answer.trim()) ||
-											(editing && !draft.trim())
-										}
-										onClick={() => choose(action)}
-									>
-										{saving ? (
-											"Saving…"
-										) : (
-											<span className="grid gap-1">
-												<span>{action.label}</span>
-												{action.description ? (
-													<span className="font-normal text-kumo-subtle">
-														{action.description}
-													</span>
-												) : null}
-											</span>
-										)}
-									</Button>
-								))}
+								{actions
+									.filter(
+										(action) =>
+											!editing || !editAction || action.intent === "reject",
+									)
+									.map((action) => (
+										<Button
+											key={action.id}
+											className={
+												kind === "decision"
+													? "h-auto min-h-20 whitespace-normal text-left"
+													: "min-h-11 grow sm:grow-0"
+											}
+											variant={
+												action.intent === "approve" ? "default" : "outline"
+											}
+											disabled={
+												busy ||
+												action.disabled ||
+												(kind === "question" && !answer.trim()) ||
+												(editing && !draft.trim())
+											}
+											onClick={() => choose(action)}
+										>
+											{saving ? (
+												"Saving…"
+											) : (
+												<span className="grid gap-1">
+													<span>{action.label}</span>
+													{action.description ? (
+														<span className="font-normal text-kumo-subtle">
+															{action.description}
+														</span>
+													) : null}
+												</span>
+											)}
+										</Button>
+									))}
 								{editing && editAction ? (
 									<Button
-										disabled={busy || !draft.trim() || draft === body}
+										disabled={
+											busy ||
+											editAction.disabled ||
+											!draft.trim() ||
+											(draft === body && !hasEdits)
+										}
 										onClick={() => void submit(editAction)}
 									>
 										{editAction.label}

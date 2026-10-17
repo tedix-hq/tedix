@@ -754,3 +754,46 @@ describe("Proposal decision cards", () => {
 		},
 	);
 });
+
+describe("Lane outcome cards", () => {
+	it.each([
+		["Done", "done", true],
+		["Snooze 1 day", "snooze", false],
+	] as const)(
+		"preserves the existing %s action",
+		async (label, laneAction, resolvesRequest) => {
+			api.reads["workInteractions.get"] = {
+				request: {
+					id: "lane-question",
+					kind: "question",
+					version: 2,
+					subject: "Confirm the harbor address",
+					prompt: "Robin prepared the route. Confirm the address.",
+					metadata: {
+						followThrough: { laneHandoff: { nextClick: "Confirm address" } },
+					},
+				},
+				effectiveState: "open",
+				canRespond: true,
+				canCancel: false,
+				responses: { data: [], hasMore: false, nextCursor: null },
+			};
+			const page = await mount(
+				<pages.WorkInteractionPage requestId="lane-question" />,
+			);
+			expect(page.host.querySelector("input,textarea")).toBeNull();
+			await page.submit(label);
+			expect(mutations("workInteractions.respond")).toEqual([
+				expect.objectContaining({
+					requestId: "lane-question",
+					responseKind: "answer",
+					resolvesRequest,
+					metadata: expect.objectContaining({
+						laneAction,
+						source: "os-decision-card",
+					}),
+				}),
+			]);
+		},
+	);
+});
