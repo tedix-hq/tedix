@@ -507,7 +507,13 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 					onValueChange={(value) => setProject(value ?? "all")}
 				>
 					<SelectTrigger aria-label="Agent project">
-						<SelectValue />
+						<SelectValue>
+							{project === "all"
+								? config.projectId
+									? (projectNames.get(config.projectId) ?? "Configured project")
+									: "All projects"
+								: (projectNames.get(project) ?? "Selected project")}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">
@@ -528,7 +534,11 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 					onValueChange={(value) => setState(value ?? "all")}
 				>
 					<SelectTrigger aria-label="Agent state">
-						<SelectValue />
+						<SelectValue>
+							{state === "all"
+								? "All configured states"
+								: STATE_BADGE[state as AgentStateBadgeState].label}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All configured states</SelectItem>
@@ -546,7 +556,11 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 					onValueChange={(value) => setHarness(value ?? "all")}
 				>
 					<SelectTrigger aria-label="Agent harness">
-						<SelectValue />
+						<SelectValue>
+							{harness === "all"
+								? "All configured harnesses"
+								: (AGENT_HARNESS_LABEL[harness] ?? harness)}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All configured harnesses</SelectItem>
