@@ -167,6 +167,10 @@ function harness(
 					return { output: { id: outputId } };
 				},
 				list_os_outputs: async () => ({ items: [] }),
+				create_work_interaction: async () => {
+					calls.interactions++;
+					return { interaction: { id: "decision-1" } };
+				},
 			},
 			tedi: {
 				list_projects: async () => ({
@@ -282,12 +286,6 @@ function harness(
 										),
 						);
 					return { success: true };
-				},
-			},
-			work: {
-				create_work_interaction: async () => {
-					calls.interactions++;
-					return { interaction: { id: "decision-1" } };
 				},
 			},
 		},
@@ -478,6 +476,47 @@ describe("planning board synchronization", () => {
 		expect(h.links.some((link: any) => link.workItemId === "new-work")).toBe(
 			true,
 		);
+	});
+	it.each([false, true])(
+		"does not re-export a recent title-matched task even when backlink readback fails (%s)",
+		async (failPageReadback) => {
+			const h = harness({ failPageReadback });
+			h.items.push({
+				id: "existing-work",
+				title: "Read the brief",
+				createdAt: "2100-01-01",
+				projectId,
+				sourceIntentId: "session-task",
+				version: 1,
+				dueDate: null,
+			});
+			await h.run();
+			expect(h.calls.creates).toBe(0);
+			expect(h.calls.notionCreates).toBe(0);
+		},
+	);
+	it("allows a new cited task when the same meeting gains new evidence", async () => {
+		const h = harness({ signalAction: true });
+		await h.run();
+		const url = "https://www.notion.so/55555555555545558555555555555555";
+		h.pages.set(
+			url.split("/").pop()!,
+			"New agreement: review the launch checklist.",
+		);
+		h.env.REASON.ask = async () => ({
+			text: JSON.stringify({
+				purpose: "Make planning dependable.",
+				goals: [],
+				nextStep: "Review the launch checklist.",
+				signals: [],
+				actions: [{ title: "Review the launch checklist", url }],
+			}),
+		});
+		expect((await h.run("run-2")).status).toBe("synced");
+		expect(h.items).toHaveLength(3);
+		expect(h.calls.notionCreates).toBe(2);
+		await h.run("run-3");
+		expect(h.items).toHaveLength(3);
 	});
 	it("exports an explicitly selected OS project without auto-merging", async () => {
 		const h = harness();

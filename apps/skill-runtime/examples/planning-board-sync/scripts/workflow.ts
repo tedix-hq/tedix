@@ -117,7 +117,7 @@ export function createPlanningSync(config) {
 			if (!event.payload?.manual && !slot.mode) return { status: "off_slot" };
 			const os = env.MCP.tedix,
 				work = env.MCP.tedi,
-				notion = env.MCP.notion;
+				notion = env.MCP[config.notionNamespace || "notion"];
 			let report = {
 				runId,
 				at: slot.at,
@@ -543,7 +543,7 @@ export function createPlanningSync(config) {
 					await effect(
 						`conflict:${id}`,
 						() =>
-							env.MCP.work.create_work_interaction({
+							os.create_work_interaction({
 								projectId,
 								kind: "question",
 								subject: "Planning board conflict",
@@ -847,8 +847,13 @@ export function createPlanningSync(config) {
 						)
 							throw new Error("Enrichment lacks valid cited evidence");
 						value.actions ??= [];
-						const actionSources = new Set(
-							[...evidence, ...signals.found].map((source) => source.url),
+						const actionSources = new Map(
+							[...evidence, ...signals.found].map((source) => [
+								source.url,
+								source.data
+									? { data: source.data.data, requests: source.data.requests }
+									: source,
+							]),
 						);
 						if (
 							!Array.isArray(value.actions) ||
@@ -862,6 +867,10 @@ export function createPlanningSync(config) {
 							)
 						)
 							throw new Error("Proposed action lacks current signal evidence");
+						value.actions = value.actions.map((action) => ({
+							...action,
+							evidence: actionSources.get(action.url),
+						}));
 						return value;
 					},
 				);
@@ -869,7 +878,9 @@ export function createPlanningSync(config) {
 					await checkpoint(`signal-action-${id}`, async () => {
 						const digest = await crypto.subtle.digest(
 							"SHA-256",
-							new TextEncoder().encode(`${project.id}:${action.url}`),
+							new TextEncoder().encode(
+								`${project.id}:${action.url}:${JSON.stringify(action.evidence)}`,
+							),
 						);
 						const key = `${config.boardKey}:signal:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 						if (
@@ -1091,9 +1102,27 @@ export function createPlanningSync(config) {
 						"export items",
 					),
 				);
+				const parent = snapshot.remote.find(
+					(remote) => externalId(remote.url) === entry[0],
+				);
+				const relatedTaskIds = new Set(
+					array(parent?.[config.projectFields.tasks]).map(externalId),
+				);
+				const remoteTitles = new Set(
+					snapshot.tasks
+						.filter(
+							(task) =>
+								relatedTaskIds.has(externalId(task.url)) ||
+								array(task[config.taskFields.project]).some(
+									(url) => externalId(url) === entry[0],
+								),
+						)
+						.map((task) => normalize(task[config.taskFields.name])),
+				);
 				for (const item of items.filter(
 					(w) =>
 						w.createdAt >= config.exportSince &&
+						!remoteTitles.has(normalize(w.title)) &&
 						!String(w.sourceIntentId || "").startsWith(
 							`${config.boardKey}:task:`,
 						) &&
