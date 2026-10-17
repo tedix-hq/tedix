@@ -41,6 +41,7 @@ import {
 } from "@/lib/os-query-options";
 import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
+import { OutboundCard } from "@/components/outbound-card";
 
 type InboxRow = {
 	request: {
@@ -99,6 +100,7 @@ export type NeedsYouAction =
 	| { type: "lane"; requestId: string; version: number };
 
 export type NeedsYouKind =
+	| "Outbound"
 	| "Approval"
 	| "Question"
 	| "Proposal"
@@ -255,6 +257,21 @@ function interactionItem(row: InboxRow): NeedsYouItem | null {
 	// A captured status update asks nothing of you; the Office shows it.
 	if (!isOpenRequestForYou(row)) return null;
 	const { request } = row;
+	if (metadataOf(request).schema === "tedix.outbound.v1")
+		return {
+			key: `interaction:${request.id}`,
+			kind: "Outbound",
+			label: request.subject,
+			href: `/work/interactions/${request.id}`,
+			askedBy: row.askedBy,
+			hint: "Review the draft and your tedi's notes, then approve or give feedback.",
+			at: request.requestedAt,
+			action: {
+				type: "link",
+				label: "Review",
+				href: `/work/interactions/${request.id}`,
+			},
+		};
 	const href = `/work/interactions/${request.id}`;
 	const kind: NeedsYouKind =
 		request.kind === "handoff"
@@ -421,6 +438,7 @@ export function needsYouCount(items: readonly NeedsYouItem[]): number {
 }
 
 const KIND_BADGE: Record<NeedsYouKind, BadgeVariant> = {
+	Outbound: "info",
 	Approval: "warning",
 	Question: "info",
 	Proposal: "info",
@@ -714,6 +732,19 @@ export function WorkNeedsYouPage() {
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
+			{sources.interactions.data?.data
+				.filter(
+					(row) =>
+						isOpenRequestForYou(row) &&
+						metadataOf(row.request).schema === "tedix.outbound.v1" &&
+						row.request.workItemId,
+				)
+				.map((row) => (
+					<OutboundCard
+						key={row.request.id}
+						workItemId={row.request.workItemId!}
+					/>
+				))}
 			{failed.length ? (
 				<Alert>
 					<AlertTitle>Some sources did not load</AlertTitle>

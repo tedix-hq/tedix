@@ -11,6 +11,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import * as z from "zod";
 import { WorkInteractionDeliveryOverlaySchema } from "@tedix/api-contract/schemas/work-interactions";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { OutboundCard } from "@/components/outbound-card";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
 import { BrowserTakeoverLiveView } from "@/components/browser-takeover-live-view";
 import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
@@ -2131,6 +2132,13 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 			</Page>
 		);
 	const { request, effectiveState, responses } = query.data;
+	if (request.metadata?.schema === "tedix.outbound.v1" && request.workItemId)
+		return (
+			<Page width="lg">
+				<PageBack render={<Link href="/work/needs-you" />}>Needs you</PageBack>
+				<OutboundCard workItemId={request.workItemId} />
+			</Page>
+		);
 	const isQuestion = request.kind === "question";
 	// A handoff is a yes/no: accepting a Work proposal creates its Work.
 	const isHandoff = request.kind === "handoff";

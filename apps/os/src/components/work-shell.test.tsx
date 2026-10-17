@@ -70,7 +70,7 @@ describe("Work shell navigation", () => {
 		).toEqual([
 			["Attention", ["Attention"]],
 			["Needs you", ["Needs you"]],
-			["Board", ["Projects", "Queue", "Agents", "Office"]],
+			["Board", ["Projects", "Queue", "Outbound", "Agents", "Office"]],
 			["History", ["Activity", "Completed"]],
 		]);
 		expect(MORE_WORK_SECTIONS.map((section) => section.label)).toEqual([

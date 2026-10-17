@@ -59,6 +59,7 @@ describe("Work interactions contract", () => {
 
 	it("exposes structured request, immutable response, cancellation, detail, and inbox operations", () => {
 		expect(Object.keys(workInteractionsContract)).toEqual([
+			"outbound",
 			"listCliInboxProjection",
 			"delegate",
 			"create",

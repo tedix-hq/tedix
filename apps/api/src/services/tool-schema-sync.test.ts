@@ -1532,6 +1532,26 @@ describe("oRPC tool projection sync", () => {
 		expect(result.items).toEqual([]);
 	});
 
+	it("projects outbound author/reviewer tools while keeping human decisions and personal mail out of MCP", async () => {
+		const { db } = makeDb([]);
+		const result = await runToolSchemaSync(db, {
+			mode: "projection",
+			apply: true,
+			endpoints: [
+				"workInteractions/outbound/submit",
+				"workInteractions/outbound/review",
+				"workInteractions/outbound/act",
+				"workInteractions/outbound/profile",
+				"workInteractions/outbound/importSentStyle",
+				"workInteractions/outbound/accounts",
+			],
+		});
+		expect(result.items.map((item) => item.toolId).sort()).toEqual([
+			"review_outbound_draft",
+			"submit_outbound_draft",
+		]);
+	});
+
 	it("projects only the curated external-agent lifecycle tools", async () => {
 		const { db, inserts } = makeDb([]);
 		const result = await runToolSchemaSync(db, {

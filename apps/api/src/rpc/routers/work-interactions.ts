@@ -4,6 +4,8 @@ import {
 	WorkProposalMetadataSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
 import { call, implement } from "@orpc/server";
+import { outboundRouter } from "./work-outbound";
+import { outboundInteractionOverlays } from "@tedix/db/queries/work-items/outbound";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getWorkItemBySourceIntentId,
@@ -661,9 +663,23 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 		const last = data.at(-1);
 		const observedAt = new Date().toISOString();
 		const state = effectiveState(request, observedAt);
+		const [outbound] = await outboundInteractionOverlays(context.db, orgId, [
+			request.id,
+		]);
 		return {
 			request: requestOutput(
-				request,
+				outbound
+					? {
+							...request,
+							subject: outbound.subject,
+							metadata: {
+								...request.metadata,
+								schema: "tedix.outbound.v1",
+								outboundWorkItemId: outbound.workItemId,
+								outboundStatus: outbound.status,
+							},
+						}
+					: request,
 				attention,
 				resolving
 					? {
@@ -770,9 +786,34 @@ const listInboxProcedure = readOs.listInbox.handler(
 			limit: input.limit,
 			observedAt,
 		});
-		const requests = page.data.map((row) =>
-			requestOutput(row.request, rowAttention(row), rowResolution(row)),
+		const outbound = new Map(
+			(
+				await outboundInteractionOverlays(
+					context.db,
+					orgId,
+					page.data.map((row) => row.request.id),
+				)
+			).map((overlay) => [overlay.interactionId, overlay]),
 		);
+		const requests = page.data.map((row) => {
+			const overlay = outbound.get(row.request.id);
+			return requestOutput(
+				overlay
+					? {
+							...row.request,
+							subject: overlay.subject,
+							metadata: {
+								...row.request.metadata,
+								schema: "tedix.outbound.v1",
+								outboundWorkItemId: overlay.workItemId,
+								outboundStatus: overlay.status,
+							},
+						}
+					: row.request,
+				rowAttention(row),
+				rowResolution(row),
+			);
+		});
 		const [tedis, references] = await Promise.all([
 			listTediDisplayNamesByIds(context.db, {
 				organizationId: orgId,
@@ -1047,6 +1088,7 @@ const recordDraftDeliveryProcedure = writeOs.recordDraftDelivery.handler(
 );
 
 export const workInteractionsContractRouter = interactionsOs.router({
+	outbound: outboundRouter,
 	create: createProcedure,
 	review: writeOs.review.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);

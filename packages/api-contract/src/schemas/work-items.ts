@@ -42,6 +42,7 @@ export const WorkItemKindSchema = z.enum([
 	"browser",
 	"operations",
 	"communication",
+	"outbound",
 	"finance",
 	"legal",
 	"stewardship",

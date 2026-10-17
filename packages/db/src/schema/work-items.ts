@@ -51,6 +51,7 @@ export const WORK_ITEM_KIND_VALUES = [
 	"browser",
 	"operations",
 	"communication",
+	"outbound",
 	"finance",
 	"legal",
 	"stewardship",

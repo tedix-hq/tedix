@@ -29,6 +29,11 @@ const tenantAggregateConfig = {
 
 describe("Interaction RPC authority through organization aliases", () => {
 	for (const [endpoint, scope] of [
+		["outbound/submit", "mcp:work.write"],
+		["outbound/review", "mcp:work.write"],
+		["outbound/requestReview", "mcp:work.write"],
+		["outbound/get", "mcp:messaging.read"],
+		["outbound/list", "mcp:messaging.read"],
 		["create", "mcp:messaging.write"],
 		["respond", "mcp:messaging.write"],
 		["review", "mcp:messaging.write"],

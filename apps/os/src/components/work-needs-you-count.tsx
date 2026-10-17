@@ -43,7 +43,17 @@ export function isOpenRequestForYou(row: {
 	effectiveState: string;
 	request: { metadata?: unknown };
 }): boolean {
-	return row.effectiveState === "open" && !isStatusUpdate(row.request.metadata);
+	const metadata = row.request.metadata as
+		| { schema?: string; outboundStatus?: string }
+		| undefined;
+	const reviewing =
+		metadata?.schema === "tedix.outbound.v1" &&
+		["reviewing", "feedback"].includes(metadata.outboundStatus ?? "");
+	return (
+		row.effectiveState === "open" &&
+		!reviewing &&
+		!isStatusUpdate(row.request.metadata)
+	);
 }
 
 /** A request from your own agent session that waits on you. */

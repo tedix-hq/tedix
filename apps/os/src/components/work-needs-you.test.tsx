@@ -21,6 +21,17 @@ import {
 
 const VIEWER = "user-rosa";
 
+it("waits for the outbound reviewer before asking the human", () => {
+	const outbound = (outboundStatus: string) => ({
+		effectiveState: "open",
+		request: { metadata: { schema: "tedix.outbound.v1", outboundStatus } },
+	});
+	for (const status of ["reviewing", "feedback"])
+		expect(needsYouSourceCount({ interactions: [outbound(status)] })).toBe(0);
+	for (const status of ["waiting_on_you", "send_unknown"])
+		expect(needsYouSourceCount({ interactions: [outbound(status)] })).toBe(1);
+});
+
 function request(
 	n: number,
 	kind: "question" | "input" | "handoff" | "coordination",

@@ -6,6 +6,7 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import { outboundContract } from "./outbound";
 import {
 	AckWorkInteractionDeliveryInputSchema,
 	AckWorkInteractionDeliveryResultSchema,
@@ -30,6 +31,7 @@ export const workInteractionsContract = oc
 	.route({ tags: ["work-interactions"], prefix: "/work-interactions" })
 	.errors(baseErrors)
 	.router({
+		outbound: outboundContract,
 		listCliInboxProjection: oc
 			.route({
 				method: "GET",

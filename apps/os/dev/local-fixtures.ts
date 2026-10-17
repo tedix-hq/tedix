@@ -1,4 +1,5 @@
 import { documentBlockText } from "@tedix/api-contract/utils/os-document";
+import { LOCAL_OUTBOUND } from "./outbound-fixture";
 import {
 	documentContent,
 	sheetContent,
@@ -3966,6 +3967,16 @@ const LOCAL_LESSONS = [
 // ---------------------------------------------------------------------------
 
 const handlers: Record<string, (input: never) => unknown> = {
+	"workInteractions/outbound/list": () => [LOCAL_OUTBOUND],
+	"workInteractions/outbound/get": () => LOCAL_OUTBOUND,
+	"workInteractions/outbound/accounts": () => [],
+	"workInteractions/outbound/policy": () => ({ routes: [] }),
+	"workInteractions/outbound/profile": () => ({
+		approvals: [],
+		lessons: [],
+		sentExamples: 0,
+		sentStyleHints: [],
+	}),
 	"workAgentSessions/list": (input: { includeEnded?: boolean } | undefined) =>
 		localAgentSessions(input?.includeEnded),
 	"workAgentSessions/contributors": (input: { projectId: string }) =>

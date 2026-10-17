@@ -72,6 +72,7 @@ import { Route as SessionTenantWorkGraphRouteImport } from './routes/_session/_t
 import { Route as SessionTenantWorkInteractionsRouteImport } from './routes/_session/_tenant/work.interactions'
 import { Route as SessionTenantWorkNeedsYouRouteImport } from './routes/_session/_tenant/work.needs-you'
 import { Route as SessionTenantWorkOfficeRouteImport } from './routes/_session/_tenant/work.office'
+import { Route as SessionTenantWorkOutboundRouteImport } from './routes/_session/_tenant/work.outbound'
 import { Route as SessionTenantWorkPortfolioRouteImport } from './routes/_session/_tenant/work.portfolio'
 import { Route as SessionTenantWorkQueueRouteImport } from './routes/_session/_tenant/work.queue'
 import { Route as SessionTenantWorkRecoveryRouteImport } from './routes/_session/_tenant/work.recovery'
@@ -434,6 +435,12 @@ const SessionTenantWorkOfficeRoute = SessionTenantWorkOfficeRouteImport.update({
   path: '/office',
   getParentRoute: () => SessionTenantWorkRoute,
 } as any)
+const SessionTenantWorkOutboundRoute =
+  SessionTenantWorkOutboundRouteImport.update({
+    id: '/outbound',
+    path: '/outbound',
+    getParentRoute: () => SessionTenantWorkRoute,
+  } as any)
 const SessionTenantWorkPortfolioRoute =
   SessionTenantWorkPortfolioRouteImport.update({
     id: '/portfolio',
@@ -646,6 +653,7 @@ export interface FileRoutesByFullPath {
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
   '/work/office': typeof SessionTenantWorkOfficeRoute
+  '/work/outbound': typeof SessionTenantWorkOutboundRoute
   '/work/portfolio': typeof SessionTenantWorkPortfolioRoute
   '/work/queue': typeof SessionTenantWorkQueueRoute
   '/work/recovery': typeof SessionTenantWorkRecoveryRoute
@@ -726,6 +734,7 @@ export interface FileRoutesByTo {
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
   '/work/office': typeof SessionTenantWorkOfficeRoute
+  '/work/outbound': typeof SessionTenantWorkOutboundRoute
   '/work/portfolio': typeof SessionTenantWorkPortfolioRoute
   '/work/queue': typeof SessionTenantWorkQueueRoute
   '/work/recovery': typeof SessionTenantWorkRecoveryRoute
@@ -818,6 +827,7 @@ export interface FileRoutesById {
   '/_session/_tenant/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/_session/_tenant/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
   '/_session/_tenant/work/office': typeof SessionTenantWorkOfficeRoute
+  '/_session/_tenant/work/outbound': typeof SessionTenantWorkOutboundRoute
   '/_session/_tenant/work/portfolio': typeof SessionTenantWorkPortfolioRoute
   '/_session/_tenant/work/queue': typeof SessionTenantWorkQueueRoute
   '/_session/_tenant/work/recovery': typeof SessionTenantWorkRecoveryRoute
@@ -906,6 +916,7 @@ export interface FileRouteTypes {
     | '/work/interactions'
     | '/work/needs-you'
     | '/work/office'
+    | '/work/outbound'
     | '/work/portfolio'
     | '/work/queue'
     | '/work/recovery'
@@ -986,6 +997,7 @@ export interface FileRouteTypes {
     | '/work/interactions'
     | '/work/needs-you'
     | '/work/office'
+    | '/work/outbound'
     | '/work/portfolio'
     | '/work/queue'
     | '/work/recovery'
@@ -1077,6 +1089,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant/work/interactions'
     | '/_session/_tenant/work/needs-you'
     | '/_session/_tenant/work/office'
+    | '/_session/_tenant/work/outbound'
     | '/_session/_tenant/work/portfolio'
     | '/_session/_tenant/work/queue'
     | '/_session/_tenant/work/recovery'
@@ -1557,6 +1570,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkOfficeRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
+    '/_session/_tenant/work/outbound': {
+      id: '/_session/_tenant/work/outbound'
+      path: '/outbound'
+      fullPath: '/work/outbound'
+      preLoaderRoute: typeof SessionTenantWorkOutboundRouteImport
+      parentRoute: typeof SessionTenantWorkRoute
+    }
     '/_session/_tenant/work/portfolio': {
       id: '/_session/_tenant/work/portfolio'
       path: '/portfolio'
@@ -1883,6 +1903,7 @@ interface SessionTenantWorkRouteChildren {
   SessionTenantWorkInteractionsRoute: typeof SessionTenantWorkInteractionsRouteWithChildren
   SessionTenantWorkNeedsYouRoute: typeof SessionTenantWorkNeedsYouRoute
   SessionTenantWorkOfficeRoute: typeof SessionTenantWorkOfficeRoute
+  SessionTenantWorkOutboundRoute: typeof SessionTenantWorkOutboundRoute
   SessionTenantWorkPortfolioRoute: typeof SessionTenantWorkPortfolioRoute
   SessionTenantWorkQueueRoute: typeof SessionTenantWorkQueueRoute
   SessionTenantWorkRecoveryRoute: typeof SessionTenantWorkRecoveryRoute
@@ -1908,6 +1929,7 @@ const SessionTenantWorkRouteChildren: SessionTenantWorkRouteChildren = {
     SessionTenantWorkInteractionsRouteWithChildren,
   SessionTenantWorkNeedsYouRoute: SessionTenantWorkNeedsYouRoute,
   SessionTenantWorkOfficeRoute: SessionTenantWorkOfficeRoute,
+  SessionTenantWorkOutboundRoute: SessionTenantWorkOutboundRoute,
   SessionTenantWorkPortfolioRoute: SessionTenantWorkPortfolioRoute,
   SessionTenantWorkQueueRoute: SessionTenantWorkQueueRoute,
   SessionTenantWorkRecoveryRoute: SessionTenantWorkRecoveryRoute,

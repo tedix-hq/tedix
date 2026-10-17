@@ -7,6 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { osApi } from "@/lib/api";
+import { OutboundStyleProfile } from "@/components/outbound-card";
 import { userProfileQueryOptions } from "@/lib/os-query-options";
 import { useOsIdentity } from "@/lib/use-os-identity";
 import { resolveOsTenant } from "@/shared/os-tenant";
@@ -383,6 +384,9 @@ export function ProfilePage() {
 						</CardContent>
 					) : null}
 				</Card>
+				{resolveOsTenant(window.location.hostname).kind === "tenant" ? (
+					<OutboundStyleProfile />
+				) : null}
 			</Surface>
 		</main>
 	);

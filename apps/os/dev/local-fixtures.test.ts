@@ -182,6 +182,13 @@ const portableBlueprintExport = {
 };
 
 const CALLS: Record<string, unknown> = {
+	"workInteractions/outbound/list": { limit: 50 },
+	"workInteractions/outbound/get": {
+		workItemId: "00000090-0000-4000-8000-000000000001",
+	},
+	"workInteractions/outbound/accounts": {},
+	"workInteractions/outbound/policy": {},
+	"workInteractions/outbound/profile": {},
 	"members/listMembers": { organizationId: IDS.orgId, limit: 25, offset: 0 },
 	"tedis/list": { limit: 50, offset: 0 },
 	"tedis/listOperationsSummaries": undefined,
