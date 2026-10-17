@@ -1,4 +1,5 @@
 import { requestInferenceOriginGuard } from "./runtime-inference-origin";
+import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
 import { azureExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 /** Azure serving through authenticated AI Gateway, plus Tedix MCP tool adapters.
  * Agent tool turns use stateless Responses with BYOK and billing admission.
@@ -207,19 +208,23 @@ function gatewayFetch(
 			aigToken,
 			metaHeader,
 		);
+		const providerUrl = reservedMetadata.restricted
+			? regionalAzureGatewayUrl(rewritten, reservedMetadata.execution)
+			: rewritten;
+		reservedMetadata.applyProviderCredential(headers);
+		if (reservedMetadata.restricted) init = { ...init, redirect: "error" };
 		signal.throwIfAborted();
-		// Cloudflare BYOK is authoritative on the authenticated gateway path. The
-		// Remove the SDK placeholder so AI Gateway supplies the stored provider key.
+		// Unrestricted requests keep Gateway BYOK; regional requests use the organization key.
 		if (typeof input === "string" || input instanceof URL) {
 			assertAiRequestSize(body, env.TEDI_MAX_AI_REQUEST_BYTES);
-			return send(rewritten, {
+			return send(providerUrl, {
 				...init,
 				headers,
 				body,
 				signal,
 			});
 		}
-		const request = new Request(rewritten, input);
+		const request = new Request(providerUrl, input);
 		const bodyText = typeof body === "string" ? body : null;
 		assertAiRequestSize(bodyText, env.TEDI_MAX_AI_REQUEST_BYTES);
 		return send(request, { ...init, body, headers, signal });

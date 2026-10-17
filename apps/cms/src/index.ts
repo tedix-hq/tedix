@@ -1,3 +1,4 @@
+import { requireUnrestrictedCmsModels } from "./agent/data-residency";
 import { checkUserTenantMembership } from "@tedix/auth/descope";
 import { validateToken } from "@tedix/auth/jwt";
 import { isPlatformPrincipal, type JWTPayload } from "@tedix/auth/types";
@@ -689,6 +690,7 @@ async function buildSiteBuilderContext(
 		cmsDispatch: env.CMS_DISPATCH,
 		geminiApiKey: env.GEMINI_API_KEY,
 		geminiGateway: {
+			beforeSend: () => requireUnrestrictedCmsModels(env.DB, orgSlug),
 			accountId: env.AI_GATEWAY_ACCOUNT_ID,
 			gatewayId: env.AI_GATEWAY_ID,
 			token: env.CF_AI_GATEWAY_TOKEN,

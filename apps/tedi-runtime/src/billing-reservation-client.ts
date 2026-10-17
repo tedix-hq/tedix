@@ -1,3 +1,4 @@
+import { modelInputModality } from "@tedix/api-contract/schemas/data-residency";
 import {
 	signRuntimeInferenceOrigin,
 	type NativeInferenceRequestProjection,
@@ -57,6 +58,10 @@ export interface BillingPolicyDeniedWorkflowResult {
 }
 
 const BILLING_POLICY_DENIAL_CODES = new Set<BillingPolicyDenialCode>([
+	"eu_provider_pool_required",
+	"eu_provider_route_required",
+	"eu_provider_credential_required",
+	"residency_policy_unavailable",
 	"billing_not_configured",
 	"subscription_inactive",
 	"billing_period_inactive",
@@ -122,7 +127,19 @@ export function billingPolicyDeniedWorkflowResult(
 	const billingCode = billingPolicyDenialCode(error);
 	if (!billingCode) return null;
 	return {
-		text: `I couldn't complete that turn because this workspace's billing policy blocked inference (${billingCode}). Please contact a workspace administrator.`,
+		text:
+			billingCode.startsWith("eu_") ||
+			billingCode === "residency_policy_unavailable"
+				? errorMessage(error)
+						.replace(
+							/^.*?Inference blocked by billing policy: [a-z_]+(?: — )?/,
+							"",
+						)
+						.replace(
+							/^(?:EU_PROVIDER_[A-Z_]+|RESIDENCY_POLICY_UNAVAILABLE): /,
+							"",
+						)
+				: `I couldn't complete that turn because this workspace's billing policy blocked inference (${billingCode}). Please contact a workspace administrator.`,
 		stopReason: BILLING_POLICY_DENIED_STOP_REASON,
 		error: errorMessage(error),
 		billingCode,
@@ -251,9 +268,14 @@ export interface AuthorizedInferenceRequest {
 	readonly attribution: Readonly<AigMetadata>;
 	readonly execution: Readonly<ProviderExecutionIdentity>;
 	readonly receipt: Readonly<
-		Extract<AuthorizeRuntimeInferenceResponse, { allowed: true }>
+		Omit<
+			Extract<AuthorizeRuntimeInferenceResponse, { allowed: true }>,
+			"providerApiKey"
+		>
 	>;
 	readonly beforeDispatch: ProviderBeforeDispatch;
+	readonly applyProviderCredential: (headers: Headers) => void;
+	readonly restricted: boolean;
 }
 
 /**
@@ -325,6 +347,7 @@ export async function authorizeInferenceEntitlement(
 		idempotencyKey,
 		metadata: {
 			source: input.metadata?.source ?? "system",
+			residencyModality: modelInputModality(input.body),
 		},
 	};
 	const mark = (outcome: "authorized" | "denied" | "error", rpcMs: number) =>
@@ -383,7 +406,7 @@ export async function authorizeInferenceEntitlement(
 		mark("denied", rpcMs);
 		throw new BillingAdmissionError(
 			decision.code,
-			`Inference blocked by billing policy: ${decision.code}`,
+			`Inference blocked by billing policy: ${decision.code}${decision.message ? ` — ${decision.message}` : ""}`,
 		);
 	}
 	if (decision.settlementMode !== settlementMode.data)
@@ -403,12 +426,23 @@ export async function authorizeInferenceEntitlement(
 		input.signal,
 	);
 	assertProviderDispatchReady(beforeDispatch);
+	const { providerApiKey, ...receipt } = decision;
 	return Object.freeze({
+		restricted: Boolean(providerApiKey),
+		applyProviderCredential: (headers: Headers) => {
+			if (providerApiKey) {
+				headers.set("api-key", providerApiKey);
+				headers.set("cf-aig-collect-log", "false");
+				headers.set("cf-aig-skip-cache", "true");
+			}
+		},
 		attribution: Object.freeze(
 			applyAuthorizedInferenceAttribution(input.metadata, decision),
 		),
-		execution: freezeProviderExecutionIdentity(input.execution),
-		receipt: Object.freeze(structuredClone(decision)),
+		execution: freezeProviderExecutionIdentity(
+			decision.providerExecution ?? input.execution,
+		),
+		receipt: Object.freeze(structuredClone(receipt)),
 		beforeDispatch,
 	});
 }

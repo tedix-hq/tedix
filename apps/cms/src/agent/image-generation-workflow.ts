@@ -1,3 +1,4 @@
+import { requireUnrestrictedCmsModels } from "./data-residency";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -594,13 +595,15 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 			const generated = await step.do(
 				"generate-image",
 				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "2 minutes" },
-				() =>
-					generateGeminiImage(
+				async () => {
+					await requireUnrestrictedCmsModels(this.env.DB, params.orgSlug);
+					return generateGeminiImage(
 						this.env.GEMINI_API_KEY,
 						model,
 						prompt,
 						apiAspectRatio,
-					),
+					);
+				},
 			);
 			const bytes = base64ToBytes(generated.dataBase64);
 			const dimensions = inferDimensions(bytes, generated.mimeType);
