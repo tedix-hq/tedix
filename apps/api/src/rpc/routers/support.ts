@@ -428,8 +428,13 @@ export const supportContractRouter = {
 				"The reporter must reopen a closed ticket before triage continues",
 			);
 		expected(row, input.expectedVersion, input.idempotencyKey);
-		if (row.updateKeys.includes(input.idempotencyKey))
+		const { config } = await supportStaff(context);
+		const { ensureSupportDraftDecision } =
+			await import("../../services/support-draft-decision");
+		if (row.updateKeys.includes(input.idempotencyKey)) {
+			await ensureSupportDraftDecision(context, row, config);
 			return staffSupportTicket(row);
+		}
 		if (row.mirrorDelivery !== "delivered")
 			throw createError(ErrorCodes.CONFLICT, "Ticket mirror is pending");
 		const answer = {
@@ -437,17 +442,16 @@ export const supportContractRouter = {
 			evidence: input.answer.evidence.map(redactSupportText),
 			nextStep: redactSupportText(input.answer.nextStep),
 		};
-		const { config } = await supportStaff(context);
-		return staffSupportTicket(
-			await changeSupportTicket(context, row, {
-				key: input.idempotencyKey,
-				actorId: context.tediId ?? config.adminUserId,
-				actorType: context.tediId ? "tedi" : "user",
-				now: new Date().toISOString(),
-				patch: { draft: answer, status: "in-progress" },
-				commentBody: `DRAFT — not sent\n${JSON.stringify(answer)}`,
-			}),
-		);
+		const next = await changeSupportTicket(context, row, {
+			key: input.idempotencyKey,
+			actorId: context.tediId ?? config.adminUserId,
+			actorType: context.tediId ? "tedi" : "user",
+			now: new Date().toISOString(),
+			patch: { draft: answer, status: "in-progress" },
+			commentBody: `DRAFT — not sent\n${JSON.stringify(answer)}`,
+		});
+		await ensureSupportDraftDecision(context, next, config);
+		return staffSupportTicket(next);
 	}),
 	publish: write.publish.handler(async ({ context, input }) => {
 		const { config } = await supportStaff(context, true),

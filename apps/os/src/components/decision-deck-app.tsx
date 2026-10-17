@@ -267,7 +267,10 @@ export function DecisionDeckApp({
 		: null;
 	const usesEnvelope = Boolean(
 		current &&
-		(practiceMode || current.kind === "adr" || current.kind === "decision"),
+		(practiceMode ||
+			current.kind === "adr" ||
+			current.kind === "decision" ||
+			current.options.some((option) => option.effect)),
 	);
 	const classId = current?.classId ?? selected?.kind;
 	const learning = classId
@@ -616,7 +619,8 @@ export function DecisionDeckApp({
 						) : current &&
 						  (practiceMode ||
 								current.kind === "adr" ||
-								current.kind === "decision") ? (
+								current.kind === "decision" ||
+								current.options.some((option) => option.effect)) ? (
 							<DecisionEnvelopeCard
 								decision={current}
 								defaultLowStakesToDelegate={config.defaultLowStakesToDelegate}

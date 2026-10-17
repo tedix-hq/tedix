@@ -498,6 +498,15 @@ export const outboundRouter = os.router({
 			targetId: current.workItemId,
 			metadata: {
 				schema: "tedix.learning-feed.decision.v1",
+				answerSource: "os-outbound-card",
+				feedbackText: input.feedback ?? null,
+				decisionContext: {
+					kind: "outbound",
+					projectId: current.projectId,
+					workItemId: current.workItemId,
+					proposal: state.draft.subject,
+					whyNow: state.draft.reasoning,
+				},
 				scope: {
 					repo: "outbound",
 					harness: state.draft.channel,

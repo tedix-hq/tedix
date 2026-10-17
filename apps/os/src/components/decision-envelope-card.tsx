@@ -42,7 +42,7 @@ export function DecisionEnvelopeCard({
 			kind={decision.kind}
 			title={decision.proposal}
 			askedBy={askedBy}
-			body={decision.recommendation}
+			body={decision.preview?.body ?? decision.recommendation}
 			disabled={disabled}
 			content={
 				<div className="grid min-w-0 gap-3 break-words">
@@ -107,7 +107,8 @@ export function DecisionEnvelopeCard({
 					: {}),
 			}))}
 			editAction={
-				decision.kind === "question"
+				decision.kind === "question" ||
+				decision.options.some((option) => option.effect)
 					? undefined
 					: { id: "change", label: "Save changes" }
 			}

@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { DecisionEffectSchema } from "./decision-effects";
 
 export const DECISION_DECK_ENTRY = "tedix:app/decision-deck";
 export const DecisionKindSchema = z.enum([
@@ -18,6 +19,7 @@ export const DecisionEnvelopeSchema = z.strictObject({
 	proposal: z.string().trim().min(1).max(500),
 	whyNow: z.string().min(1).max(2000),
 	recommendation: z.string().min(1).max(4000),
+	preview: z.strictObject({ body: z.string().min(1).max(40000) }).optional(),
 	reversibility: z.enum(["one_way", "two_way", "unknown"]),
 	tasteOrStrategy: z.boolean().default(false),
 	protectedEffects: z
@@ -61,6 +63,7 @@ export const DecisionEnvelopeSchema = z.strictObject({
 				intent: z.enum(["approve", "reject", "delegate", "later"]),
 				consequence: z.string().min(1).max(2000),
 				cost: z.string().min(1).max(1000),
+				effect: DecisionEffectSchema.optional(),
 			}),
 		)
 		.min(2)

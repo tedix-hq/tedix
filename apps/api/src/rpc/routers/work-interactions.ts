@@ -506,8 +506,9 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				}
 			}
 		}
-		const response = await respondToWorkInteraction(context.db, {
-			id: crypto.randomUUID(),
+		const { executeDecisionCardEffect } =
+			await import("../../services/decision-card-effects");
+		const decisionResponse = await executeDecisionCardEffect(context, {
 			orgId,
 			interactionId: input.requestId,
 			expectedVersion: input.expectedRequestVersion,
@@ -519,6 +520,10 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			artifactDigest: input.artifactDigest,
 			resolvesRequest: input.resolvesRequest,
 			metadata,
+		});
+		const response = await respondToWorkInteraction(context.db, {
+			...decisionResponse,
+			id: crypto.randomUUID(),
 			now: new Date().toISOString(),
 		});
 		const request = await getWorkInteraction(context.db, {

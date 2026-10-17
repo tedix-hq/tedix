@@ -6,6 +6,9 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { supportConfiguration, supportTickets } from "@tedix/db/schema/support";
 import { projects } from "@tedix/db/schema/projects";
+import { workInteractions } from "@tedix/db/schema/work-factory";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { tedis } from "@tedix/db/schema/tedis";
 import {
 	workItems,
 	workEvents,
@@ -36,9 +39,27 @@ async function fixture() {
 			workItems,
 			workEvents,
 			workItemComments,
+			workInteractions,
+			organizationMembers,
+			tedis,
 		),
 	);
 	const db = createDbClient(createD1Facade(sqlite));
+	await db.insert(tedis).values({
+		id: worker,
+		organizationId: platform,
+		name: "Support",
+		slug: "support",
+	});
+	await db.insert(organizationMembers).values({
+		id: "admin-membership",
+		organizationId: platform,
+		userId: "admin",
+		descopeUserId: "admin",
+		email: "admin@acme.test",
+		role: "owner",
+		status: "active",
+	});
 	await putSupportConfiguration(
 		db,
 		SupportConfigurationSchema.parse({
@@ -163,7 +184,7 @@ describe("Support intake authorization and human publication", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 	it("lets only the designated Support tedi draft, keeps the draft private, and requires the designated human to publish", async () => {
-		const { client } = await fixture(),
+		const { client, sqlite } = await fixture(),
 			receipt = await client().file(await request());
 		const asWorker = {
 			authType: "tedi",
@@ -192,6 +213,28 @@ describe("Support intake authorization and human publication", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		const drafted = await client(asWorker).draft(edit);
 		expect(drafted.draft?.body).toBe(edit.answer.body);
+		const card = sqlite
+			.prepare("select target_id,creator_type,metadata from work_interactions")
+			.get();
+		expect(card).toMatchObject({ target_id: "admin", creator_type: "tedi" });
+		expect(JSON.parse(String(card?.metadata)).decisionDeck).toMatchObject({
+			kind: "outbound",
+			preview: { body: edit.answer.body },
+			options: [
+				{
+					effect: {
+						kind: "publish_support",
+						ticketId: receipt.ticketId,
+						expectedVersion: 2,
+					},
+				},
+				{},
+			],
+		});
+		await client(asWorker).draft(edit);
+		expect(
+			sqlite.prepare("select count(*) as n from work_interactions").get()?.n,
+		).toBe(1);
 		const privateStatus = await client().status({ ticketId: receipt.ticketId });
 		expect(privateStatus.publicUpdates).toEqual([]);
 		expect(privateStatus.status).toBe("in-progress");

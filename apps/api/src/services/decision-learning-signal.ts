@@ -19,6 +19,7 @@
  */
 
 import type { LearningInteractionKind } from "@tedix/api-contract/schemas/learning-feedback";
+import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import type { WorkInteractionReplyDraft } from "@tedix/db/schema/work-factory";
 import {
 	AUTO_REPLY_FOLLOW_CLASSES,
@@ -128,6 +129,7 @@ export function decisionCaptureLearningSignal(input: {
 	const { request, response } = input;
 	const requestMeta = request.metadata ?? {};
 	const responseMeta = response.metadata ?? {};
+	const decision = DecisionEnvelopeSchema.safeParse(requestMeta.decisionDeck);
 	const cardFeedback = responseMeta.source === "os-decision-card";
 	if (requestMeta.schema !== DECISION_CAPTURE_SCHEMA && !cardFeedback)
 		return null;
@@ -150,7 +152,9 @@ export function decisionCaptureLearningSignal(input: {
 		str(requestMeta.host, 40) ?? str(responseMeta.host, 40),
 	);
 	const topic = learningScopeSlug(
-		str(responseMeta.decisionClass, 100) ??
+		(decision.success
+			? decision.data.classId
+			: str(responseMeta.decisionClass, 100)) ??
 			draft?.turnType ??
 			topTriageLabel(requestMeta),
 	);
@@ -170,7 +174,26 @@ export function decisionCaptureLearningSignal(input: {
 		metadata: {
 			schema: "tedix.learning-feed.decision.v1",
 			scope: { repo, harness, topic },
-			decisionClass: str(responseMeta.decisionClass, 100),
+			...(decision.success
+				? {
+						decisionContext: {
+							kind: decision.data.kind,
+							proposal: decision.data.proposal,
+							workItemId: request.workItemId,
+							projectId: request.projectId,
+							reversibility: decision.data.reversibility,
+							protectedEffects: decision.data.protectedEffects,
+							confidence: decision.data.confidence,
+							whyNow: decision.data.whyNow,
+							costOfWaiting: decision.data.costOfWaiting,
+							recommendation: decision.data.recommendation,
+						},
+						decisionEffect: responseMeta.decisionEffect ?? null,
+					}
+				: {}),
+			decisionClass: decision.success
+				? decision.data.classId
+				: str(responseMeta.decisionClass, 100),
 			decisionChoice: str(responseMeta.decisionChoice, 40),
 			elapsedMs:
 				typeof responseMeta.elapsedMs === "number" &&

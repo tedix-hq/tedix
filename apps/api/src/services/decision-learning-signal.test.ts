@@ -57,6 +57,69 @@ const draft = (
 });
 
 describe("decisionCaptureLearningSignal", () => {
+	it("keeps the reviewed proposal, organization context and waiting cost under the server's class", () => {
+		const signal = decisionCaptureLearningSignal({
+			organizationId: "org-fictional-acme",
+			request: request({
+				projectId: "acme-project",
+				workItemId: "acme-work",
+				metadata: {
+					decisionDeck: {
+						version: 1,
+						kind: "decision",
+						classId: "supplier.reminder",
+						proposal: "Remind the supplier tomorrow",
+						whyNow: "The delivery is due tomorrow",
+						recommendation: "Wait until tomorrow morning",
+						reversibility: "two_way",
+						tasteOrStrategy: true,
+						protectedEffects: [],
+						blastRadius: "One supplier",
+						confidence: 0.9,
+						costOfWaiting: "No cost before the delivery date",
+						reasoning: "The agreed date is tomorrow",
+						lessons: [],
+						options: [
+							{
+								id: "keep",
+								label: "Keep",
+								intent: "approve",
+								consequence: "Keep the timing",
+								cost: "None",
+							},
+							{
+								id: "reject",
+								label: "Change",
+								intent: "reject",
+								consequence: "Reconsider timing",
+								cost: "None",
+							},
+						],
+					},
+				},
+			}),
+			response: response({
+				metadata: {
+					source: "os-decision-card",
+					decisionClass: "untrusted-class",
+					decisionChoice: "approve",
+					feedbackSignal: "approve-as-is",
+				},
+			}),
+			draft: null,
+		});
+		expect(signal?.issueKey).toBe("decision:general:general:supplier.reminder");
+		expect(signal?.metadata).toMatchObject({
+			decisionClass: "supplier.reminder",
+			decisionContext: {
+				proposal: "Remind the supplier tomorrow",
+				projectId: "acme-project",
+				workItemId: "acme-work",
+				whyNow: "The delivery is due tomorrow",
+				costOfWaiting: "No cost before the delivery date",
+			},
+		});
+	});
 	it("records a plain answer as a scoped decision", () => {
 		const signal = decisionCaptureLearningSignal({
 			organizationId: "org-1",

@@ -246,12 +246,29 @@ export function decisionLessonLine(
 	const answer = text(meta.answer);
 	if (!answer) return null;
 	const question = text(rec(meta.question).tail);
+	const context = rec(meta.decisionContext);
+	const whyNow = text(context.whyNow);
+	const waiting = text(context.costOfWaiting);
+	const contextual =
+		whyNow || waiting
+			? ` Context: ${clip([whyNow, waiting].filter(Boolean).join("; "), 240)}.`
+			: "";
 	if (STRONG_KINDS.has(event.eventKind)) {
 		const draft = text(rec(meta.draft).body);
 		const avoid = draft ? ` Avoid: "${clip(draft, 200)}".` : "";
 		return {
-			line: `Prefer: "${clip(answer, 260)}".${avoid}`,
+			line: `Prefer: "${clip(answer, 260)}".${avoid}${contextual}`,
 			strong: true,
+		};
+	}
+	if (
+		["accepted", "rejected"].includes(event.eventKind) &&
+		["os-decision-card", "os-outbound-card"].includes(text(meta.answerSource))
+	) {
+		const feedback = text(meta.feedbackText);
+		return {
+			line: `${event.eventKind === "accepted" ? "Approved this suggestion" : "Rejected this suggestion"}: "${clip(answer, 260)}".${feedback ? ` Feedback: "${clip(feedback, 260)}".` : ""}${contextual}`,
+			strong: Boolean(feedback),
 		};
 	}
 	if (event.eventKind !== "answered") return null;
