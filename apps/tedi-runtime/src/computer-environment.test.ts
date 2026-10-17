@@ -1701,10 +1701,19 @@ for (const cachedAgeMs of [0, 60_000]) {
 }
 
 // A warm computer can finish reconciliation just after the foreground deadline.
-// Continue the same acquisition once, before any file or command dispatch.
+// Continue the same acquisition within three waits before dispatching an effect.
 for (const operation of ["file", "exec"] as const) {
-	for (const recovery of ["ready", "cold", "revoked"] as const) {
+	for (const recovery of [
+		"ready",
+		"late",
+		"cold",
+		"revoked",
+		"late_revoked",
+	] as const) {
 		const scope = `fictional-readiness-${operation}-${recovery}`;
+		const succeeds = recovery === "ready" || recovery === "late";
+		const readyAfter = recovery === "ready" ? 2 : 3;
+		const revokedAfter = recovery === "revoked" ? 1 : 2;
 		let warming = false;
 		let provisions = 0;
 		let nativeReads = 0;
@@ -1718,7 +1727,7 @@ for (const operation of ["file", "exec"] as const) {
 				status: async (_environment, _timeoutMs, refreshNative) => {
 					if (warming && refreshNative) {
 						nativeReads++;
-						if (nativeReads === 1 || recovery === "cold")
+						if (nativeReads < readyAfter || recovery === "cold")
 							return new Promise(() => {});
 					}
 					return {
@@ -1728,12 +1737,12 @@ for (const operation of ["file", "exec"] as const) {
 					};
 				},
 				files: async () => {
-					assert.equal(nativeReads, 2);
+					assert.equal(nativeReads, readyAfter);
 					effects++;
 					return { ok: true, content: "fictional source" };
 				},
 				start: async () => {
-					assert.equal(nativeReads, 2);
+					assert.equal(nativeReads, readyAfter);
 					effects++;
 					return { ok: true };
 				},
@@ -1744,7 +1753,11 @@ for (const operation of ["file", "exec"] as const) {
 			{
 				budgetMs: 10,
 				captureAuthority: async () => {
-					if (warming && recovery === "revoked" && nativeReads === 1)
+					if (
+						warming &&
+						recovery.includes("revoked") &&
+						nativeReads === revokedAfter
+					)
 						throw new Error("Original Work authority was revoked");
 					return null;
 				},
@@ -1759,16 +1772,16 @@ for (const operation of ["file", "exec"] as const) {
 			operation === "file"
 				? controller.file("read", { path: "source.md" })
 				: controller.exec({ command: "fictional-read-only-command" });
-		if (recovery === "revoked") {
+		if (recovery.includes("revoked")) {
 			await assert.rejects(result, /Work authority was revoked/);
-			assert.equal(nativeReads, 1);
+			assert.equal(nativeReads, revokedAfter);
 		} else {
 			const receipt = (await result) as Record<string, unknown>;
-			assert.equal(receipt.ok, recovery === "ready");
+			assert.equal(receipt.ok, succeeds);
 			if (recovery === "cold") assert.equal(receipt.executed, false);
-			assert.equal(nativeReads, 2);
+			assert.equal(nativeReads, readyAfter);
 		}
-		assert.equal(effects, recovery === "ready" ? 1 : 0);
+		assert.equal(effects, succeeds ? 1 : 0);
 		assert.equal(provisions, 1);
 		assert.equal((await controller.selected())?.leaseId, selected.leaseId);
 		assert.equal(values.get(`${scope}:generation`), generation);

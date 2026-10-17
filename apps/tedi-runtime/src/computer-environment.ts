@@ -1158,9 +1158,13 @@ export class ComputerEnvironmentController {
 		});
 		if (!environment.ready) {
 			let result = record(await this.open(environment.preparation));
-			// Preparation may settle just after its first foreground wait. Resume
-			// that acquisition once before dispatching any file or command effect.
-			if (result.error === UNCONFIRMED_READINESS)
+			// Native revalidation can outlast two foreground waits. Keep the same
+			// acquisition for at most three waits, before dispatching any effect.
+			for (
+				let resumed = 0;
+				resumed < 2 && result.error === UNCONFIRMED_READINESS;
+				resumed++
+			)
 				result = record(await this.open(environment.preparation));
 			if (result.ready !== true)
 				return {
