@@ -341,6 +341,7 @@
 		"./queries/work-items/evidence": "./src/queries/work-items/evidence.ts",
 		"./queries/work-items/events": "./src/queries/work-items/events.ts",
 		"./queries/work-items/commitment-changes": "./src/queries/work-items/commitment-changes.ts",
+		"./queries/work-items/stall-recovery": "./src/queries/work-items/stall-recovery.ts",
 		"./queries/work-items/readiness": "./src/queries/work-items/readiness.ts",
 		"./queries/work-items/projections": "./src/queries/work-items/projections.ts",
 		"./queries/work-items/cases": "./src/queries/work-items/cases.ts",

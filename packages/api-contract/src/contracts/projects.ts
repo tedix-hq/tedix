@@ -17,6 +17,10 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	ContinuityPageSchema,
+	ProjectMetadataSchema,
+} from "../schemas/work-attention";
+import {
 	JsonValueSchema,
 	PaginationMetaSchema,
 	PaginationSchema,
@@ -298,6 +302,15 @@ export const projectsContract = oc
 	.route({ tags: ["projects"], prefix: "/projects" })
 	.errors(baseErrors)
 	.router({
+		getContinuity: oc
+			.route({
+				method: "GET",
+				path: "/continuity",
+				summary:
+					"Read stalled recovery and cadence promises for the coordinator morning brief",
+			})
+			.input(z.object({ after: z.string().default("") }))
+			.output(ContinuityPageSchema),
 		create: oc
 			.route({
 				method: "POST",
@@ -320,7 +333,7 @@ export const projectsContract = oc
 					ownerUserId: z.string().max(200).optional(),
 					objectiveId: z.uuid().optional(),
 					targetDate: z.string().max(100).optional(),
-					metadata: z.record(z.string(), z.unknown()).optional(),
+					metadata: ProjectMetadataSchema.optional(),
 				}),
 			)
 			.output(ProjectSchema),
@@ -341,7 +354,7 @@ export const projectsContract = oc
 					ownerUserId: z.string().max(200).nullable().optional(),
 					objectiveId: z.uuid().nullable().optional(),
 					targetDate: z.string().max(100).nullable().optional(),
-					metadata: z.record(z.string(), z.unknown()).optional(),
+					metadata: ProjectMetadataSchema.optional(),
 				}),
 			)
 			.output(ProjectSchema),

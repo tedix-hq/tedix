@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { AgentSessionRequestSchema } from "./agent-session-requests";
+import { JsonValueSchema } from "./common";
 export const AttentionColumnSchema = z.enum([
 	"moving",
 	"waiting",
@@ -30,7 +31,49 @@ export const AttentionCardSchema = z.strictObject({
 export const AttentionInputSchema = z.strictObject({
 	utcOffsetMinutes: z.number().int().min(-840).max(840).default(0),
 });
+export const ContinuityPolicySchema = z.object({
+	idleHours: z.number().min(0.25).max(720).default(24),
+	coordinatorTediId: z.string().min(1).max(200).optional(),
+	cadence: z
+		.object({
+			everyHours: z.number().min(1).max(720),
+			minResults: z.number().int().min(1).max(1000).default(1),
+			description: z.string().min(1).max(240),
+		})
+		.optional(),
+});
+export const ProjectMetadataSchema = z
+	.object({ continuity: ContinuityPolicySchema.optional() })
+	.catchall(JsonValueSchema);
+
+export const StallSchema = z.strictObject({
+	scopeId: z.string(),
+	name: z.string(),
+	cause: z.string(),
+	reason: z.string(),
+	href: z.string(),
+	requestedAt: z.string(),
+	needsYou: z.boolean(),
+});
+export const CadencePromiseSchema = z.strictObject({
+	scopeId: z.string(),
+	name: z.string(),
+	href: z.string(),
+	description: z.string(),
+	status: z.enum(["kept", "missed"]),
+	delivered: z.number(),
+	required: z.number(),
+	start: z.string(),
+	end: z.string(),
+});
+export const ContinuityPageSchema = z.strictObject({
+	stalls: z.array(StallSchema),
+	promises: z.array(CadencePromiseSchema),
+	next: z.string().nullable(),
+});
 export const AttentionResultSchema = z.strictObject({
+	stalls: z.array(StallSchema).optional(),
+	cadencePromises: z.array(CadencePromiseSchema).optional(),
 	cards: z.array(AttentionCardSchema),
 	projects: z.array(
 		z.strictObject({

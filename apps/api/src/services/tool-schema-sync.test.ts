@@ -1345,6 +1345,7 @@ describe("oRPC tool projection sync", () => {
 				"projects/update",
 				"projects/archive",
 				"projects/getRollup",
+				"projects/getContinuity",
 			],
 		});
 		const byEndpoint = new Map(
@@ -1359,6 +1360,7 @@ describe("oRPC tool projection sync", () => {
 				["projects/update", "update_project"],
 				["projects/archive", "archive_project"],
 				["projects/getRollup", "get_project_rollup"],
+				["projects/getContinuity", "get_project_continuity"],
 			]),
 		);
 	});

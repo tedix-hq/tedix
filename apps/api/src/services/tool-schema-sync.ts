@@ -641,6 +641,7 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"projects/update": "update_project",
 	"projects/archive": "archive_project",
 	"projects/getRollup": "get_project_rollup",
+	"projects/getContinuity": "get_project_continuity",
 	"projects/getPortfolio": "get_project_portfolio",
 	"projects/getFactoryScoreboard": "get_factory_scoreboard",
 	"projects/createFactory": "create_factory",

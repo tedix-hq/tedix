@@ -6,7 +6,7 @@ vi.mock("@/lib/os-query-options", () => ({
 	osQueryKeys: {},
 }));
 import { AttentionBoard } from "./work-attention-page";
-it("shows lane proof, coverage gaps and bounded-data notice", () => {
+it("shows recovery evidence and bounded-data notice", () => {
 	const html = renderToStaticMarkup(
 		<AttentionBoard
 			file={() => {}}
@@ -28,6 +28,17 @@ it("shows lane proof, coverage gaps and bounded-data notice", () => {
 				projects: [
 					{ id: "docs", name: "Docs", status: "active", active: 0, recent: 0 },
 				],
+				stalls: [
+					{
+						scopeId: "docs",
+						name: "Docs",
+						cause: "blocked on a human decision",
+						reason: "waiting for your decision: choose publishing scope",
+						href: "/work/interactions/decision",
+						requestedAt: "2026-10-17T10:00:00Z",
+						needsYou: true,
+					},
+				],
 				unfiled: [],
 				truncated: true,
 			}}
@@ -38,7 +49,8 @@ it("shows lane proof, coverage gaps and bounded-data notice", () => {
 		"Blocked",
 		"Done today",
 		"Backlog",
-		"Nobody is on",
+		"Stalled",
+		"waiting for your decision: choose publishing scope",
 		"Docs",
 		"bounded overview",
 		"Unfiled",
@@ -47,4 +59,6 @@ it("shows lane proof, coverage gaps and bounded-data notice", () => {
 		expect(html).toContain(label);
 	expect(html).toContain('href="/work/items/item"');
 	expect(html).toContain("Not reported");
+	expect(html).not.toContain("Nobody is on");
+	expect(html).toContain('href="/work/interactions/decision"');
 });

@@ -388,7 +388,8 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 		const { readAttentionSources, listUnattendedObjectives } =
 			await import("@tedix/db/queries/work-attention");
 		const { buildAttention } = await import("../../lib/work-attention");
-		const [sources, sessions, requests, unattendedObjectives] =
+		const { readContinuity } = await import("../../lib/stall-attention");
+		const [sources, sessions, requests, unattendedObjectives, continuity] =
 			await Promise.all([
 				readAttentionSources(
 					context.db,
@@ -412,6 +413,14 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 					owner.organizationId,
 					new Date(now.getTime() - 86_400_000).toISOString(),
 				),
+				readContinuity(
+					context.db,
+					owner.organizationId,
+					now,
+					"",
+					owner.userId,
+					context.env.ENVIRONMENT,
+				),
 			]);
 		return {
 			...buildAttention(
@@ -422,6 +431,8 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				input.utcOffsetMinutes,
 			),
 			unattendedObjectives,
+			stalls: continuity.stalls,
+			cadencePromises: continuity.promises,
 		};
 	}),
 	fileRequest: writeOs.fileRequest.handler(async ({ input, context }) => {

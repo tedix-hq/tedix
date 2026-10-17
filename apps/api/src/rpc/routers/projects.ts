@@ -638,7 +638,23 @@ const listHealthJudgmentsProcedure = authOs.listHealthJudgments
 		);
 	});
 
+const getContinuityProcedure = authOs.getContinuity
+	.use(AUTHZ.objectiveRead)
+	.handler(async ({ input, context }) => {
+		const orgId = requireOrgIdOrInput(context);
+		const { readContinuity } = await import("../../lib/stall-attention");
+		return readContinuity(
+			context.db,
+			orgId,
+			new Date(),
+			input.after,
+			undefined,
+			context.env.ENVIRONMENT,
+		);
+	});
+
 export const projectsContractRouter = projectsOs.router({
+	getContinuity: getContinuityProcedure,
 	create: createProcedure,
 	update: updateProcedure,
 	archive: archiveProcedure,
