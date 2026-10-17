@@ -26,7 +26,12 @@ vi.mock("@/components/workspace-app-renderer", () => ({
 	),
 }));
 
-function render(search: WorkHomeSearch, accessible = true) {
+function render(
+	search: WorkHomeSearch,
+	accessible = true,
+	defaultEntry?: string,
+	pendingEntry?: string,
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
@@ -81,7 +86,9 @@ function render(search: WorkHomeSearch, accessible = true) {
 		items: gadgets,
 		truncated: false,
 	});
-	for (const gadget of gadgets)
+	for (const gadget of gadgets.filter(
+		(g) => g.entry !== `tedix:app/${pendingEntry}`,
+	))
 		client.setQueryData(
 			canvasGadgetDetailQueryOptions(workspaceId, gadget.id).queryKey,
 			{
@@ -94,7 +101,10 @@ function render(search: WorkHomeSearch, accessible = true) {
 					sourceArtifactRef: null,
 					manifest: {
 						entry: gadget.entry,
-						navigation: { board: true },
+						navigation: {
+							board: true,
+							workDefault: gadget.entry === `tedix:app/${defaultEntry}`,
+						},
 						capabilities: [],
 						config: { version: 1 },
 					},
@@ -163,4 +173,29 @@ it("does not recover apps from another fictional organization's cached details",
 	expect(pine.querySelector("article")).toBeNull();
 	expect(pine.body.textContent).not.toContain("Cedar");
 	expect(pine.body.textContent).toContain("Choose a Feed and Deck app");
+});
+
+it("opens the configured Work start app while explicit views and apps still win", () => {
+	const entry = (search: WorkHomeSearch, defaultEntry = "decision-deck") =>
+		render(search, true, defaultEntry)
+			.querySelector("article")
+			?.getAttribute("data-entry");
+	expect(entry({})).toBe("tedix:app/decision-deck");
+	expect(entry({ view: "feed" })).toBe("tedix:app/activity-feed");
+	expect(entry({ app: "office" })).toBe("tedix:app/office");
+	expect(entry({}, "office")).toBe("tedix:app/activity-feed");
+	expect(
+		render({}, false, "decision-deck").querySelector("article"),
+	).toBeNull();
+});
+
+it("waits for the configured default instead of flashing the Feed during discovery", () => {
+	expect(
+		render({}, true, "decision-deck", "decision-deck").querySelector("article"),
+	).toBeNull();
+	expect(
+		render({ view: "feed" }, true, "decision-deck", "decision-deck")
+			.querySelector("article")
+			?.getAttribute("data-entry"),
+	).toBe("tedix:app/activity-feed");
 });

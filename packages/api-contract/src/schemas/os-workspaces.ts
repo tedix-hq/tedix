@@ -472,6 +472,12 @@ export const OsGadgetManifestSchema = z
 			.strictObject({
 				board: z.boolean().optional(),
 				work: z.enum(["deck", "feed"]).optional(),
+				workDefault: z
+					.boolean()
+					.optional()
+					.describe(
+						"Open this accessible Work app when no view or app is selected",
+					),
 			})
 			.optional(),
 		capabilities: z.array(z.string().min(1).max(200)).max(100).default([]),

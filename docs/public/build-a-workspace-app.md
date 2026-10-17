@@ -562,7 +562,8 @@ as described above.
 
 ## Work: Feed and Deck
 
-Work opens the installed Feed app. **Decide** opens the installed Deck and
+Work opens the installed Feed app unless a Work app declares
+`navigation.workDefault: true`. **Decide** opens the installed Deck and
 shows its current personal inbox count, including Work and runtime approvals.
 A `+` means another page may contain more choices. The phone bar has only
 **Feed** and **Deck**; there is no Work tab bar or More menu.
@@ -571,8 +572,14 @@ Set `navigation: {"work": "feed"}` or `{"work": "deck"}` on the corresponding
 app manifest to choose its Work role. Existing Feed and Deck apps opted into
 `navigation.board` also work. Discovery uses the viewer's accessible workspaces;
 installing an app never grants access. If several apps declare the same role,
-the oldest active app is selected, with its id breaking creation-time ties.
+explicit role links select the oldest active app, with its id breaking
+creation-time ties.
 Other apps opted into `navigation.board` appear under **Apps** in the Feed.
+
+To start in Deck, set `navigation: {"work": "deck", "workDefault": true}` on its
+installed manifest. An explicit `view` or `app` in the URL still wins. If several
+accessible Work apps declare the default, the same oldest-app order breaks ties.
+An app without a Work role cannot become the Work start app.
 
 The Feed header summarizes choices due today, sessions currently reporting
 work in its projects, and the earliest known unresolved deadline. This is
