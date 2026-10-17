@@ -181,8 +181,16 @@ describe("request ledger reflector", () => {
 			JSON.stringify({
 				updates: [],
 				new: [
-					{ kind: "promise", text: "Report the deploy result" },
-					{ kind: "open_loop", text: "Codex lane on the docs page" },
+					{
+						kind: "promise",
+						text: "Report the deploy result",
+						evidence: "I’ll report the deploy result.",
+					},
+					{
+						kind: "open_loop",
+						text: "Codex lane on the docs page",
+						evidence: "I’ll report the docs lane result.",
+					},
 					{ kind: "request", text: "Not owed by the agent" },
 				],
 			}),
@@ -190,7 +198,7 @@ describe("request ledger reflector", () => {
 		await reflect(
 			db,
 			model,
-			"I'll report the deploy result.",
+			"I’ll report the deploy result. I’ll report the docs lane result.",
 			"Started agent: docs page",
 		);
 		expect(prompts[0]).toContain("ACTIVITY:\n<<<\nStarted agent: docs page");
@@ -304,7 +312,13 @@ describe("agent asks and semantic support", () => {
 			scripted(
 				JSON.stringify({
 					updates: [],
-					new: [{ kind: "ask", text: "Approve the README publication" }],
+					new: [
+						{
+							kind: "ask",
+							text: "Approve the README publication",
+							evidence: "README needs your OK",
+						},
+					],
 				}),
 			).model,
 			"Summary: README needs your OK. Say go.",
@@ -383,10 +397,16 @@ describe("agent asks and semantic support", () => {
 			scripted(
 				JSON.stringify({
 					updates: [],
-					new: [{ kind: "ask", text: "Approve publishing the legal page" }],
+					new: [
+						{
+							kind: "ask",
+							text: "Approve publishing the legal page",
+							evidence: "legal page needs your OK",
+						},
+					],
 				}),
 			).model,
-			"Legal page needs your OK.",
+			"The legal page needs your OK.",
 		);
 		const reply = JSON.stringify({
 			requests: [],
@@ -468,7 +488,13 @@ it("does not close a future ask from a late-uploaded older user message", async 
 		scripted(
 			JSON.stringify({
 				updates: [],
-				new: [{ kind: "ask", text: "Approve README publication" }],
+				new: [
+					{
+						kind: "ask",
+						text: "Approve README publication",
+						evidence: "README needs your OK",
+					},
+				],
 			}),
 		).model,
 		{
@@ -501,7 +527,13 @@ it("treats delegation back to the agent as an answered ask while keeping executi
 		scripted(
 			JSON.stringify({
 				updates: [],
-				new: [{ kind: "ask", text: "Click the six checkboxes and Submit" }],
+				new: [
+					{
+						kind: "ask",
+						text: "Click the six checkboxes and Submit",
+						evidence: "click the six checkboxes and Submit",
+					},
+				],
 			}),
 		).model,
 		{
@@ -563,7 +595,13 @@ it("keeps an answer open when the reflector did not propose a supported closure"
 	const { model } = scripted(
 		JSON.stringify({
 			updates: [],
-			new: [{ kind: "ask", text: "Approve publishing the legal page" }],
+			new: [
+				{
+					kind: "ask",
+					text: "Approve publishing the legal page",
+					evidence: "legal page needs your OK",
+				},
+			],
 		}),
 	);
 	await reflectAgentSessionRequests(db, model, {
@@ -571,7 +609,7 @@ it("keeps an answer open when the reflector did not propose a supported closure"
 		sourceAt: "2026-10-06T10:01:00Z",
 		now: T0,
 		repository: "example/app",
-		turn: "The factory reads feedback and proposes rules.",
+		turn: "The factory reads feedback and proposes rules. The legal page needs your OK.",
 		activity: null,
 	});
 	expect((await rows(db)).map((r) => [r.kind, r.status])).toEqual([
@@ -594,7 +632,13 @@ it("never closes an ask from an unproposed agent approval claim", async () => {
 		scripted(
 			JSON.stringify({
 				updates: [],
-				new: [{ kind: "ask", text: "Approve publishing the legal page" }],
+				new: [
+					{
+						kind: "ask",
+						text: "Approve publishing the legal page",
+						evidence: "legal page needs your OK",
+					},
+				],
 			}),
 		).model,
 		{ ...input, turn: "Publishing the legal page needs your OK." },
@@ -800,7 +844,7 @@ it("uses the reply reflector to recover an answered ask missed by the small obse
 	await reflectAgentSessionRequests(
 		db,
 		scripted(
-			'{"updates":[],"new":[{"kind":"ask","text":"Click the checkbox and Submit"}]}',
+			'{"updates":[],"new":[{"kind":"ask","text":"Click the checkbox and Submit","evidence":"click the checkbox and Submit"}]}',
 		).model,
 		{
 			...SCOPE,
@@ -852,8 +896,16 @@ it("retires operational asks from saved outcome evidence while preserving reserv
 				},
 			],
 			new: [
-				{ kind: "ask", text: "Reload the deck editor tab" },
-				{ kind: "ask", text: "Approve the public README publication" },
+				{
+					kind: "ask",
+					text: "Reload the deck editor tab",
+					evidence: "Reload the deck editor tab",
+				},
+				{
+					kind: "ask",
+					text: "Approve the public README publication",
+					evidence: "Approve the public README publication",
+				},
 			],
 		},
 		"Editor synchronization verified on the live page. Reload the deck editor tab. Approve the public README publication.",
@@ -948,8 +1000,12 @@ it("an approval closes the ask while retaining the exact unfinished execution cr
 	});
 	await reflectAgentSessionRequests(
 		db,
-		scripted(JSON.stringify({ updates: [], new: [{ kind: "ask", text }] }))
-			.model,
+		scripted(
+			JSON.stringify({
+				updates: [],
+				new: [{ kind: "ask", text, evidence: proposal }],
+			}),
+		).model,
 		{
 			...SCOPE,
 			sourceAt: T0,
@@ -1084,4 +1140,139 @@ it("requires an explicit retry to restart a failed duplicate event", async () =>
 		body: input.events[0]!.text,
 	});
 	expect(await rows(db)).toHaveLength(1);
+});
+
+it("keeps original request scope separate from a later implementation request", async () => {
+	const db = fixture();
+	const original = "Review authentication and report findings.";
+	await acceptAgentSessionEvents(db, {
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+		now: T0,
+		events: [
+			{ ...SCOPE, kind: "prompt", sourceAt: T0, text: original },
+			{
+				...SCOPE,
+				kind: "prompt",
+				sourceAt: "2026-10-06T10:01:00.000Z",
+				text: "Implement and deploy the findings.",
+			},
+		],
+	});
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Review authentication"},{"kind":"request","text":"Report findings"}]}',
+		).model,
+		original,
+	);
+	const { model, prompts } = scripted(
+		'{"updates":[{"ref":"r1","status":"done","evidence":"Review findings delivered in the report."}]}',
+	);
+	await reflectAgentSessionRequests(db, model, {
+		...SCOPE,
+		sourceAt: "2026-10-06T10:02:00.000Z",
+		now: T0,
+		repository: "example/app",
+		turn: "Review findings delivered in the report. Implementation is still running.",
+		activity: null,
+	});
+	expect(prompts[0]).toContain(
+		`ORIGINAL REQUEST SCOPES:\n<<<\nr1, r2:\n${original}`,
+	);
+	expect(prompts[0]).toContain(
+		"USER MESSAGE:\n<<<\nImplement and deploy the findings.",
+	);
+	expect((await rows(db))[0]?.status).toBe("done");
+});
+
+it("keeps quoted mention evidence through silence so a later turn can recover closure", async () => {
+	const db = fixture();
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Rename the widget to App"}]}',
+		).model,
+		"Rename the widget to App",
+	);
+	const evidence = "The widget is now called App (4f2a9c1).";
+	let tick = 0;
+	const reflect = (model: LedgerModel, turn: string) => {
+		const at = new Date(Date.parse(T0) + ++tick * 60000).toISOString();
+		return reflectAgentSessionRequests(db, model, {
+			...SCOPE,
+			turn,
+			activity: null,
+			sourceAt: at,
+			now: at,
+			repository: "example/app",
+		});
+	};
+	await reflect(
+		scripted(JSON.stringify({ updates: [], mentioned: { r1: evidence } }))
+			.model,
+		evidence,
+	);
+	expect((await rows(db))[0]).toMatchObject({ status: "open", evidence });
+	for (let i = 0; i < LEDGER_SILENCE_TURNS; i++)
+		await reflect(
+			scripted('{"updates":[]}').model,
+			"An unrelated check passed.",
+		);
+	expect((await rows(db))[0]).toMatchObject({
+		status: "dropped_risk",
+		evidence,
+	});
+	const { model, prompts } = scripted(
+		JSON.stringify({ updates: [{ ref: "r1", status: "done", evidence }] }),
+	);
+	await reflect(model, "Another unrelated check passed.");
+	expect(prompts[0]).toContain(evidence);
+	expect((await rows(db))[0]).toMatchObject({ status: "done", evidence });
+});
+
+it("does not label an agent promise with an unrelated human request's scope", async () => {
+	const db = fixture();
+	await acceptAgentSessionEvents(db, {
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+		now: T0,
+		events: [
+			{ ...SCOPE, kind: "prompt", sourceAt: T0, text: "Review the docs." },
+		],
+	});
+	await observe(
+		db,
+		scripted('{"requests":[{"kind":"request","text":"Review the docs"}]}')
+			.model,
+		"Review the docs.",
+	);
+	await reflectAgentSessionRequests(
+		db,
+		scripted(
+			'{"updates":[],"new":[{"kind":"promise","text":"Deliver a release report","evidence":"I will deliver a release report."}]}',
+		).model,
+		{
+			...SCOPE,
+			sourceAt: "2026-10-06T10:01:00Z",
+			now: T0,
+			repository: "example/app",
+			turn: "I will deliver a release report.",
+			activity: null,
+		},
+	);
+	const { model, prompts } = scripted('{"updates":[]}');
+	await reflectAgentSessionRequests(db, model, {
+		...SCOPE,
+		sourceAt: "2026-10-06T10:02:00Z",
+		now: T0,
+		repository: "example/app",
+		turn: "Another check passed.",
+		activity: null,
+	});
+	const scopes = prompts[0]!
+		.split("ORIGINAL REQUEST SCOPES:\n<<<\n")[1]!
+		.split("\n>>>\n\nUSER MESSAGE:")[0];
+	expect(scopes).toBe("r1:\nReview the docs.");
+	expect(prompts[0]).toContain("Deliver a release report");
 });

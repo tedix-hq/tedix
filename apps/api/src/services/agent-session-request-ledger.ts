@@ -33,6 +33,7 @@ import {
 	type AgentSessionRequestUpdate,
 	claimAgentSessionEvent,
 	getPreviousAgentSessionTurn,
+	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
 	listPendingAgentSessionEvents,
 	recordAgentSessionEvents,
@@ -385,6 +386,27 @@ export async function reflectAgentSessionRequests(
 		}),
 	]);
 	const { prompt, byRef } = refs([...active, ...resolved]);
+	const origins = await getAgentSessionRequestPrompts(db, {
+		...input,
+		ids: active
+			.filter(
+				(row) =>
+					row.kind === "request" ||
+					row.kind === "question" ||
+					row.kind === "decision",
+			)
+			.map((row) => row.id),
+	});
+	const originById = new Map(origins.map(({ id, message }) => [id, message]));
+	const scopes = new Map<string, string[]>();
+	for (const [index, row] of active.entries()) {
+		const message = originById.get(row.id);
+		if (!message) continue;
+		const ref = prompt[index]!.ref;
+		const group = scopes.get(message) ?? [];
+		group.push(ref);
+		scopes.set(message, group);
+	}
 	const openRefs = new Set(
 		prompt.slice(0, active.length).map((row) => row.ref),
 	);
@@ -398,6 +420,9 @@ export async function reflectAgentSessionRequests(
 			input.activity ?? "",
 			prompt.slice(active.length),
 			userMessage ?? "",
+			[...scopes]
+				.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
+				.join("\n\n"),
 		),
 		"agent-session-request-reflector",
 	);
@@ -435,8 +460,7 @@ export async function reflectAgentSessionRequests(
 		})),
 	];
 	const mentioned = parseLedgerMentions(raw, openRefs, currentSource);
-	for (const ref of currentRefs) mentioned.add(ref);
-	const newRows = parseReflectedNewRows(raw);
+	const newRows = parseReflectedNewRows(raw, currentSource);
 	const changeById = new Map(changes.map((change) => [change.id, change]));
 	const lanes = parseLedgerLanes(raw, openRefs, currentSource);
 	for (const [ref, row] of byRef) {
@@ -452,7 +476,7 @@ export async function reflectAgentSessionRequests(
 		);
 		const running = lane?.running ?? (row.laneRunning || inheritedRunning);
 		const changed = changeById.get(row.id);
-		const touched = mentioned.has(ref) || Boolean(lane);
+		const touched = mentioned.has(ref) || currentRefs.has(ref) || Boolean(lane);
 		const count = touched ? 0 : row.turnsUnaddressed + 1;
 		const atRisk =
 			!changed &&
@@ -464,9 +488,13 @@ export async function reflectAgentSessionRequests(
 		const change: AgentSessionRequestUpdate = changed ?? {
 			id: row.id,
 			status: atRisk ? "dropped_risk" : row.status,
-			evidence: atRisk
-				? `${count} turns without mention; no running lane for request: "${row.text}"`
-				: (lane?.evidence ?? null),
+			evidence:
+				lane?.evidence ??
+				mentioned.get(ref) ??
+				(atRisk
+					? (row.evidence ??
+						`${count} turns without mention; no running lane for request: "${row.text}"`)
+					: null),
 		};
 		change.turnsUnaddressed = touched || changed ? 0 : count;
 		change.laneRunning =
