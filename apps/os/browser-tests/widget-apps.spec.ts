@@ -1,7 +1,8 @@
 import { chromium, type Browser, type Page } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
-const origin = "http://127.0.0.1:3010";
+const port = process.env.TEDIX_BROWSER_TEST_PORT || "3010";
+const origin = `http://127.0.0.1:${port}`;
 
 async function waitForServer(proc: Bun.Subprocess) {
 	for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -42,7 +43,7 @@ async function run() {
 			"../../node_modules/.bin/vp",
 			"dev",
 			"--port",
-			"3010",
+			port,
 			"--strictPort",
 			"--host",
 			"127.0.0.1",
@@ -328,6 +329,8 @@ async function run() {
 		await fillGuest.getByRole("button", { name: "Call host tool" }).click();
 		await expectEvent(fillPage, "outboundResult");
 		await fillPage.close();
+		if (server.exitCode !== null)
+			throw new Error(`Own browser-test server exited: ${server.exitCode}`);
 		console.log(
 			"PASS: real MCP Apps v2 browser handshake, data, tool call, permissions, source/origin checks, and sandbox attributes.",
 		);

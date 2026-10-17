@@ -43,6 +43,7 @@ import {
 	resolveProductSession,
 } from "@tedix/auth/product-session-broker";
 import { resolveOsTenant } from "@/shared/os-tenant";
+import { legacyWorkRedirect } from "@/shared/work-redirects";
 import { applyInboundTrustHeaderHygiene } from "@tedix/worker-kit/request-auth";
 import { handleCliOAuthRelay } from "./auth/cli-oauth-relay";
 import {
@@ -1239,6 +1240,12 @@ export async function handleOsRequest(
 			return withSecurityHeaders(Response.redirect(bounce, 302));
 		}
 	}
+
+	// Legacy collection URLs select installed apps or feed filters after the
+	// ordinary host and session gates. They never mount a second fixed view.
+	const workRedirect = legacyWorkRedirect(url);
+	if (workRedirect && (request.method === "GET" || request.method === "HEAD"))
+		return withSecurityHeaders(Response.redirect(workRedirect, 307));
 
 	const asset = await env.ASSETS.fetch(request);
 	const isSandboxProxy =

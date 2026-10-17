@@ -1,10 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { WorkPortfolioPage } from "@/components/work-portfolio-page";
-import { prefetchWorkPortfolioRoute } from "@/lib/os-route-loaders";
-import { ListPending } from "@/routes/-pending";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_session/_tenant/work/portfolio")({
-	loader: ({ context }) => prefetchWorkPortfolioRoute(context.queryClient),
-	component: WorkPortfolioPage,
-	pendingComponent: ListPending,
+	beforeLoad: () => {
+		throw redirect({
+			to: "/work",
+			search: { app: "portfolio" },
+			replace: true,
+		});
+	},
 });

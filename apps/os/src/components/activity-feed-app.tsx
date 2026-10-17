@@ -1,5 +1,11 @@
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	ActivityFeedConfig,
@@ -37,11 +43,24 @@ import { OS_COPY } from "@/shared/os-copy";
 import { buildActivityFeedTools } from "@/components/activity-feed-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { ActivityFeedFactorySource } from "@/components/activity-feed-factory-source";
+import { FeedNowStrip } from "@/components/feed-now-strip";
 
 const copy = OS_COPY.feed;
 type Filter = keyof typeof copy.filters;
+export interface ActivityFeedNavigation {
+	filter?: Filter;
+	onFilterChange?: (filter: Filter) => void;
+	decide?: ReactNode;
+	apps?: ReactNode;
+}
 
-export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
+export function ActivityFeedApp({
+	config,
+	navigation,
+}: {
+	config: ActivityFeedConfig;
+	navigation?: ActivityFeedNavigation;
+}) {
 	const cache = useQueryClient();
 	const learningModel = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
@@ -62,7 +81,8 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 		[],
 	);
 	const [request, setRequest] = useState(0);
-	const [filter, setFilter] = useState<Filter>("all");
+	const [localFilter, setFilter] = useState<Filter>("all");
+	const filter = navigation?.filter ?? localFilter;
 	const [expandedDigest, setExpandedDigest] = useState(false);
 	const [now, setNow] = useState(() => new Date());
 	const [status, setStatus] = useState("");
@@ -108,7 +128,9 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 					? item.kind === "decision"
 					: filter === "history"
 						? item.done
-						: item.stalled),
+						: filter === "queue"
+							? item.kind === "work" && !item.done
+							: item.stalled),
 	);
 	const quiet = quietNow(
 		config,
@@ -265,7 +287,7 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 			key={item.id}
 			item={item}
 			project={config.projects.find((p) => p.id === item.projectId)?.label}
-			config={config}
+			config={navigation ? { ...config, deckUrl: "/work?view=deck" } : config}
 			busy={busy}
 			ignoredAfterMs={
 				learningModel.data?.config.enabled
@@ -301,10 +323,21 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 			))}
 			<header className="grid gap-2">
 				<Text as="h2" role="section" weight="semibold">
-					{copy.title}
+					{OS_COPY.workHome.feed}
 				</Text>
 				<Text tone="secondary">{copy.subtitle}</Text>
-				{config.deckUrl && <Link href={config.deckUrl}>{copy.deck}</Link>}
+				{navigation?.decide ??
+					(config.deckUrl && (
+						<Link href={config.deckUrl}>{OS_COPY.workHome.decide}</Link>
+					))}
+				<FeedNowStrip
+					items={ranked}
+					projectIds={visibleProjects.map((p) => p.id)}
+					now={now}
+					pending={loading}
+					failed={failed}
+				/>
+				{navigation?.apps}
 			</header>
 			<nav className="flex flex-wrap gap-1" aria-label={copy.title}>
 				{(Object.keys(copy.filters) as Filter[]).map((id) => (
@@ -313,7 +346,10 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 						size="sm"
 						variant={filter === id ? "secondary" : "ghost"}
 						aria-pressed={filter === id}
-						onClick={() => setFilter(id)}
+						onClick={() => {
+							setFilter(id);
+							navigation?.onFilterChange?.(id);
+						}}
 					>
 						{copy.filters[id]}
 					</Button>

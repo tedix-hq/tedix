@@ -46,7 +46,7 @@ These are targets, not a promise of a fix by a particular date.
 
 ## Find the answer
 
-Open **Work → Attention** in Tedix OS and look for **Support**. Your request
+Open **Work → Feed → Apps → Office** in Tedix OS and look for **Support**. Your request
 shows its status, who needs to act next, and when the next update is due.
 The latest published reply appears there. Use the request's Work link to
 open its history.

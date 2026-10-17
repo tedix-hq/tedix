@@ -1,10 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { WorkRecoveryPage } from "@/components/work-factory-pages";
-import { prefetchWorkRecoveryRoute } from "@/lib/os-route-loaders";
-import { ListPending } from "@/routes/-pending";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_session/_tenant/work/recovery")({
-	loader: ({ context }) => prefetchWorkRecoveryRoute(context.queryClient),
-	component: WorkRecoveryPage,
-	pendingComponent: ListPending,
+	beforeLoad: () => {
+		throw redirect({
+			to: "/work",
+			search: { view: "feed", filter: "stalled" },
+			replace: true,
+		});
+	},
 });

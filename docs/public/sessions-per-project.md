@@ -63,14 +63,14 @@ an admitted Attempt before it may change a Work Item.
 
 ## Where Tedix OS shows it
 
-| View                             | Shows                                                                                                                                                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Work (home) → Attention          | Live lanes, Work Attempts and runs in the selected organization, plus your own session activity and unfiled requests. Updates use the existing live connection, sampled every two seconds while open. Opening Work lands here. |
-| Work → Portfolio                 | Projects grouped into buckets, each card with its brief line and next item. A "Needs you" strip lists open questions in your inbox and approvals you can decide.                                                               |
-| Project page                     | The project's **Brief** (its description, verbatim) and **Contributors**: every session that reported into the project or held an Attempt on its Work Items, active first, with state, current item and Attempt count.         |
-| Work → Agents                    | Your sessions grouped by project, most urgent project first. Sessions with no binding sit under "No project".                                                                                                                  |
-| Work → Interactions              | The questions and handoffs those sessions raised, with their answers.                                                                                                                                                          |
-| Work → Needs you → Your requests | Your private requests, promises and open loops across your local sessions, with status and evidence.                                                                                                                           |
+| View                                        | Shows                                                                                                                                                                                                                  |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Work → Feed                                 | Ranked, receipt-backed changes across configured projects, with Needs action, Done, Stalled and In progress filters. Opening Work lands here.                                                                          |
+| Work → Feed → Apps → Portfolio              | Projects grouped into buckets, each card with its brief line and next item. A "Needs you" strip lists open questions in your inbox and approvals you can decide.                                                       |
+| Project page                                | The project's **Brief** (its description, verbatim) and **Contributors**: every session that reported into the project or held an Attempt on its Work Items, active first, with state, current item and Attempt count. |
+| Work → Feed → Apps → Agents                 | Your sessions grouped by project, most urgent project first. Sessions with no binding sit under "No project".                                                                                                          |
+| Work → Deck                                 | The questions and handoffs those sessions raised, with their answers.                                                                                                                                                  |
+| Work → Feed → Apps → Office → Your requests | Your private requests, promises and open loops across your local sessions, with status and evidence.                                                                                                                   |
 
 Independent local sessions register with `tedix lane start "<title>"
 --project <project-id>` after bootstrapping their own agent identity. Registration
@@ -119,7 +119,7 @@ you in Interactions; unrelated members cannot read their bodies.
 
 ## Automatic request filing
 
-Enable automatic filing from **Work → Attention** for your ledger in the
+Enable automatic filing from a personal **Sessions** app for your ledger in the
 selected organization. Capture alone does not enable sharing. Enabling filing
 allows concise container briefs and proposed Work to be visible to the
 organization, along with corrected filing examples that teach project routing.
@@ -152,10 +152,10 @@ bucket, fall under "Other". Placeholder briefs read as empty.
 
 ## A typical day
 
-1. The owner opens Work. Attention shows active lanes, waiting work and
-   unattended projects; Your requests holds their unfinished chat requests.
+1. The owner opens Work. Feed shows ranked updates with receipts; Office’s
+   Your requests section holds their unfinished chat requests.
 2. A session that cannot continue reports "waiting for you" and the question
-   appears under "Needs you" and in Interactions.
+   appears in the Deck.
 3. The owner answers in Tedix OS; the session's host picks up the answer and
    the project page moves the contributor back to "working".
 4. A new session in the same checkout inherits the binding and shows up as a
@@ -175,7 +175,7 @@ bucket, fall under "Other". Placeholder briefs read as empty.
 Related: [Factories, Workspaces and Projects](./factories-workspaces-projects.md),
 [Core concepts](./concepts.md).
 
-## Arrange your Attention view
+## Arrange a session activity app
 
 Attention combines local Claude and Codex sessions, cloud tedi turns, factory
 and skill runs, and scheduled skill coordinators. Its two-hour timeline ends
@@ -208,6 +208,6 @@ The same controls are available as browser tools while the app is open.
 A workspace app with manifest entry `tedix:app/attention` embeds the same
 renderer. It shows the workspace's linked projects, its factory executions and
 its conversation activity, after checking workspace access. The unfiled queue
-stays on the personal Attention page. Returning to Attention shows updates
+is available when the app is configured with `scope: "personal"`. Returning shows updates
 since your previous visit, using a server-side visit marker shared with your
 phone. Visit tracking is best effort when the connection is unavailable.

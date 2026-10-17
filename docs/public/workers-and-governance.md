@@ -190,8 +190,8 @@ department roster. The selected tedi checks voice, source grounding and
 commitments, then submits its verdict through `review_outbound_draft`. Sources
 that cannot be checked should block approval or require changes.
 
-After review, the addressed person sees an Outbound card in Work → Needs you
-and Attention → Waiting on you. Work → Outbound lists the same Work items.
+After review, the addressed person sees an Outbound card in Work → Deck.
+Work → Feed → Apps → Outbound lists the same Work items.
 The card shows the draft, reviewer notes and grounding. Edits invalidate the
 review and return to the reviewer. An existing open input request or question
 can become the card without changing its original prompt or history.
