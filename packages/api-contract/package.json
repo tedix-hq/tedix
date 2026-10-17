@@ -6,6 +6,9 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/support": "./src/schemas/support.ts",
+		"./contracts/support": "./src/contracts/support.ts",
+		"./utils/support-report": "./src/utils/support-report.ts",
 		"./schemas/work-attention": "./src/schemas/work-attention.ts",
 		"./contracts/tedi-console": "./src/contracts/tedi-console.ts",
 		"./schemas/credit-billing-activation": "./src/schemas/credit-billing-activation.ts",

@@ -497,7 +497,22 @@ const inboundEmail = serviceAuthed.inboundEmail.handler(
 			inReplyTo: input.inReplyTo,
 			references: input.references,
 		});
-		if (ingressDecision === "quarantine") {
+		const supportIntake =
+			routedAddress.routingPolicy?.supportIntake === true
+				? await (
+						await import("../../services/support-email")
+					).stageSupportEmail(context, {
+						organizationId,
+						tediId,
+						messageId: stored.message.id,
+						threadId: stored.thread.id,
+						subject,
+					})
+				: null;
+		const effectiveDecision = supportIntake
+			? ("quarantine" as const)
+			: ingressDecision;
+		if (effectiveDecision === "quarantine") {
 			// Persisted for operator triage, filed as spam, never woken.
 			await markTediEmail(context.db, {
 				tediId,
@@ -514,7 +529,7 @@ const inboundEmail = serviceAuthed.inboundEmail.handler(
 			threadId: stored.thread.id,
 			messageId: stored.message.id,
 			senderTrust,
-			ingressDecision,
+			ingressDecision: effectiveDecision,
 		};
 	},
 );

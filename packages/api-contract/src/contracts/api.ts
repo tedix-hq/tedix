@@ -10,6 +10,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { supportContract } from "./support";
 import { tediConsoleContract } from "./tedi-console";
 import { adapterBindingsContract } from "./adapter-bindings";
 import { aeoContract } from "./aeo";
@@ -297,6 +298,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 
 	// Provider-neutral issue/work coordination
 	workItems: workItemsContract,
+	support: supportContract,
 	workApprovals: workApprovalsContract,
 	workAgentSessions: workAgentSessionsContract,
 	workInteractions: workInteractionsContract,

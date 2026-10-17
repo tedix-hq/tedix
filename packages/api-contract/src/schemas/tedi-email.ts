@@ -47,6 +47,8 @@ export const EmailRoutingPolicySchema = z
 		allowedSenders: z.array(EmailAllowedSenderSchema).max(200).optional(),
 		untrustedSenders: EmailIngressDecisionSchema.optional(),
 		spamThreshold: z.number().min(0).max(20).optional(),
+		/** Restricted support intake; sender-to-tenant mapping stays with the admin. */
+		supportIntake: z.boolean().optional(),
 		/** Provenance label written by the creating surface. */
 		source: z.string().max(100).optional(),
 	})
