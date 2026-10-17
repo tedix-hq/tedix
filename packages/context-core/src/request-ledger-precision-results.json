@@ -1,6 +1,6 @@
 {
 	"model": "gpt-6-astra",
-	"systemHash": "bc366940a9416bc6b6e7107b52ec9059d07d1696558a67a0e1194c2cd2e20eb9",
+	"systemHash": "c28ca65dca27bad84063b6909cf506e9f749aae7a7b491f2337a1ce0f97be386",
 	"inputHash": "ae1c52be44e5500fe9b155e3ea60181a78eb7896f0c467bf6eca5479f90c6ff5",
 	"results": [
 		{
@@ -81,7 +81,7 @@
 		},
 		{
 			"id": "library-fix",
-			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"The security repair lane\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"security repair lane\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
 		},
 		{
 			"id": "catalog-cleanup",
@@ -97,7 +97,7 @@
 		},
 		{
 			"id": "needs-you-doc",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Keep the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Consolidate the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}],\"lessons\":[]}"
 		},
 		{
 			"id": "connection-check",
@@ -105,7 +105,7 @@
 		},
 		{
 			"id": "credits-draft",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts. Nothing was sent.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
 		},
 		{
 			"id": "pause-database",
@@ -113,7 +113,7 @@
 		},
 		{
 			"id": "keep-required-consent",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"ask\",\"text\":\"Authorize mail access before the workspace's first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"ask\",\"text\":\"Click Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}],\"lessons\":[]}"
 		},
 		{
 			"id": "keep-undelivered-screenshot",
@@ -125,7 +125,7 @@
 		},
 		{
 			"id": "do-not-infer-human-approval",
-			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"approval was granted\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
 		},
 		{
 			"id": "merge-completed-restatement",

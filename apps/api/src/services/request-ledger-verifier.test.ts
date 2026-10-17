@@ -160,3 +160,28 @@ describe("finding supported completions", () => {
 		).toEqual([]);
 	});
 });
+
+it("requires stronger execution proof while accepting a supported negative answer", async () => {
+	const run = vi.fn(async () => ({
+		answers: {
+			r1: { type: "noul", noul: 0.79 },
+			r2: { type: "noul", noul: 0.8 },
+			r3: { type: "noul", noul: 0.6 },
+		},
+	}));
+	expect([
+		...(await verifyLedgerEvidence(
+			env(run),
+			[
+				{ ...check("r1"), kind: "request" },
+				{ ...check("r2"), kind: "request" },
+				{
+					...check("r3"),
+					request: "Is the plugin connected?",
+					kind: "question",
+				},
+			],
+			"The plugin is disconnected. The deployment is verified.",
+		)),
+	]).toEqual(["r2", "r3"]);
+});

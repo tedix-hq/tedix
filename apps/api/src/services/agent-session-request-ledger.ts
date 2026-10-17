@@ -14,6 +14,7 @@ import {
 	isScheduledLedgerPrompt,
 	type LedgerRowRef,
 	type LedgerLesson,
+	ledgerEvidenceContext,
 	parseObservedRequests,
 	parseLedgerMentions,
 	parseLedgerLanes,
@@ -97,7 +98,7 @@ async function reflectWithGateway(
 					max_output_tokens: 6000,
 					reasoning: { effort: "low" },
 				}),
-				signal: AbortSignal.timeout(25_000),
+				signal: AbortSignal.timeout(20_000),
 			},
 		);
 		if (!response.ok) return null;
@@ -128,6 +129,8 @@ export interface LedgerCheck {
 	status: "done" | "dropped_risk";
 	evidence: string;
 	userReply?: boolean;
+	scope?: string;
+	kind?: LedgerRowRef["kind"];
 }
 
 export interface LedgerModel {
@@ -468,10 +471,38 @@ export async function reflectAgentSessionRequests(
 
 		return [{ id: row.id, status: update.status, evidence: update.evidence }];
 	});
+	const completionSupport = new Set<string>();
+	await Promise.all(
+		updated
+			.filter((update) => update.status === "done")
+			.map(async (update) => {
+				const entry = [...byRef].find(([, row]) => row.id === update.id)!;
+				const [ref, row] = entry;
+				const evidence = update.evidence!;
+				const supported = await model.verify?.(
+					[
+						{
+							ref,
+							request: row.text,
+							kind: row.kind,
+							status: "done",
+							evidence,
+							scope: originById.get(row.id) ?? row.evidence ?? undefined,
+						},
+					],
+					ledgerEvidenceContext(`${history}\n${currentSource}`, evidence),
+				);
+				if (supported?.has(ref)) completionSupport.add(row.id);
+			}),
+	);
 	const merges = parseReflectedMerges(raw, prompt);
 	const mergedIds = new Set(merges.map((merge) => byRef.get(merge.ref)!.id));
 	const changes: AgentSessionRequestUpdate[] = [
-		...updated.filter((update) => !mergedIds.has(update.id)),
+		...updated.filter(
+			(update) =>
+				!mergedIds.has(update.id) &&
+				(update.status !== "done" || completionSupport.has(update.id)),
+		),
 		...merges.map((merge) => ({
 			id: byRef.get(merge.ref)!.id,
 			status: "cancelled" as const,
@@ -637,7 +668,7 @@ export async function processAgentSessionEvents(
 	const startedAt = Date.now();
 	let processed = 0;
 	for (let index = 0; index < (options.limit ?? EVENTS_PER_PASS); index++) {
-		// Leave room for a 25s reflector and D1 writes within waitUntil's 30s.
+		// Budget 20s for reflection, 5s for proof checks, and D1 writes within 30s.
 		if (index > 0 && Date.now() - startedAt >= 1000) break;
 		const [event] = await listPendingAgentSessionEvents(db, {
 			...owner,

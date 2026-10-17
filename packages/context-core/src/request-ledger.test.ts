@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	acceptedDoneEvidence,
 	isScheduledLedgerPrompt,
+	ledgerEvidenceContext,
 	parseObservedRequests,
 	parseReflectedMerges,
 	parseLedgerMentions,
@@ -408,4 +409,21 @@ it("requires quoted lead evidence for new obligations while retaining report evi
 	expect(parseReflectedUpdates(raw, new Set(["r1"]), source)).toEqual([
 		{ ref: "r1", status: "done", evidence: "The deploy was verified live" },
 	]);
+});
+
+it("keeps negation and delivery context around a normalized completion citation", () => {
+	const source =
+		"Not sent: the message is **drafted** and ready. The recipient has not received it.";
+	expect(
+		ledgerEvidenceContext(source, "the message is drafted and ready"),
+	).toContain("not sent");
+	expect(
+		ledgerEvidenceContext(source, "the message is drafted and ready"),
+	).toContain("has not received it");
+	expect(
+		ledgerEvidenceContext(
+			"x".repeat(5000) + source,
+			"the message is drafted and ready",
+		).length,
+	).toBeLessThan(2000);
 });
