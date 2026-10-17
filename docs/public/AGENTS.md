@@ -67,9 +67,9 @@ the normal pre-push gates, and retries if main moved elsewhere.
 
 ## Worktrees and closeout
 
-Work in a worktree, never in a checkout another session is using. Put manual
-worktrees under `.worktrees/` (ignored); harness-managed ones may live
-elsewhere. Run `git worktree list` before creating one and reuse your own.
+Agents must create worktrees under `.worktrees/` (or harness-managed locations), never sibling clones.
+Work in a worktree, never in a checkout another session is using.
+Run `git worktree list` before creating one and reuse your own.
 Once your change is pushed or abandoned, remove your worktree and scratch
 files; never remove one a live session is in. `bun run worktree:gc` lists every
 worktree of this repo and `--apply` removes only merged, clean, idle ones. The
