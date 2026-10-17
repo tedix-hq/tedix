@@ -12,6 +12,21 @@ import {
 	userProfileQueryOptions,
 } from "@/lib/os-query-options";
 
+vi.mock("@/lib/api", async (original) => {
+	const actual = await original<typeof import("@/lib/api")>();
+	return {
+		...actual,
+		osApi: new Proxy(actual.osApi, {
+			get: (target, key) =>
+				key === "learningFeedback"
+					? {
+							recordInteraction: vi.fn(async () => ({})),
+							listInteractions: vi.fn(async () => ({ events: [] })),
+						}
+					: Reflect.get(target, key),
+		}),
+	};
+});
 vi.mock("@/components/kumo/toast", () => ({ toast: { success: vi.fn() } }));
 vi.mock("./work-decision-stack", () => ({
 	ApprovalDecisionCard: () => <p>Live approval</p>,
@@ -25,6 +40,7 @@ let host: HTMLDivElement;
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	client?.clear();
+	sessionStorage.clear();
 	host?.remove();
 	vi.restoreAllMocks();
 });
@@ -32,6 +48,12 @@ async function mount() {
 	client = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
+	client.setQueryData(
+		osQuery.learningFeedback.listInteractions.queryOptions({
+			input: { scopeKind: "personal", limit: 200 },
+		}).queryKey,
+		{ events: [] },
+	);
 	for (const state of ["open", "resolved"] as const)
 		client.setQueryData(
 			osQuery.workInteractions.listInbox.queryOptions({
@@ -98,6 +120,7 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	await mount();
 	await click("Try examples");
 	expect(host.textContent).toContain("Practice only");
+	await click("Find a decision");
 	expect(
 		host.querySelector('[aria-label="Decision kind"]')?.textContent,
 	).toContain("All kinds");
@@ -110,16 +133,15 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	for (const example of DECISION_DECK_EXAMPLES) {
 		expect(host.textContent).toContain(example.proposal);
 		expect(host.textContent).toContain(`${example.classId}: 0/5`);
+		await key("?");
+		expect(host.textContent).toContain(
+			"Prefer a bounded next step with evidence",
+		);
 		await key("j");
 	}
-	await click("Why this?");
-	expect(host.textContent).toContain(
-		"Prefer a bounded next step with evidence",
-	);
-	await key("ArrowLeft");
-	expect(host.textContent).not.toContain("1 practice choices");
-	await click("wrong tone");
-	expect(host.textContent).toContain("1 practice choices");
+	expect(host.textContent).toContain("Deck clear");
+	expect(host.textContent).toContain("0 left");
+	expect(host.querySelector("section")).toBeNull();
 	expect(respond).not.toHaveBeenCalled();
 });
 

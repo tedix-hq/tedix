@@ -84,7 +84,8 @@ export function WorkspaceAppRenderer({
 	}
 	if (entry === DECISION_DECK_ENTRY) {
 		const config = DecisionDeckConfigSchema.safeParse(manifest.config);
-		if (config.success) return <DecisionDeckApp config={config.data} />;
+		if (config.success)
+			return <DecisionDeckApp config={config.data} workspaceId={workspaceId} />;
 	}
 	if (entry === ACTIVITY_FEED_ENTRY) {
 		const config = ActivityFeedConfigSchema.safeParse(manifest.config);

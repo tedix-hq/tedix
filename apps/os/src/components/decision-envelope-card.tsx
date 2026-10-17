@@ -4,6 +4,7 @@ import {
 	WorkDecisionCard,
 	type DecisionCardFeedback,
 } from "@/components/work-decision-card";
+import { OS_COPY } from "@/shared/os-copy";
 import { Text } from "@/components/kumo/text";
 
 export function DecisionEnvelopeCard({
@@ -62,6 +63,16 @@ export function DecisionEnvelopeCard({
 							: `${Math.round(decision.confidence * 100)}%`}{" "}
 						· Waiting: {decision.costOfWaiting}
 					</Text>
+					{decision.expiresAt && (
+						<Text>
+							{OS_COPY.decisionDeck.expires(
+								Math.ceil(
+									(Date.parse(decision.expiresAt) - Date.now()) / 60_000,
+								),
+							)}
+						</Text>
+					)}
+					{decision.nobodyOn && <Text>{OS_COPY.decisionDeck.nobodyOn}</Text>}
 				</div>
 			}
 			why={
@@ -82,16 +93,10 @@ export function DecisionEnvelopeCard({
 			actions={decision.options.map((option) => ({
 				id: option.id,
 				label: option.label,
-				intent:
-					option.intent === "reject"
-						? "reject"
-						: (
-									preferDelegation
-										? option.intent === "delegate"
-										: option.intent === "approve"
-							  )
-							? "approve"
-							: undefined,
+				intent: option.intent,
+				primary: preferDelegation
+					? option.intent === "delegate"
+					: option.intent === "approve",
 				description: `${option.consequence} Cost: ${option.cost}`,
 				...(option.intent === "approve" &&
 				(decision.reversibility !== "two_way" ||

@@ -12,6 +12,7 @@
  */
 
 import * as z from "zod";
+import { DecisionClassPoliciesSchema } from "./os-decision-deck";
 import { TediCareerStageSchema } from "./earned-delegation";
 
 export const AGENT_TURN_TRIAGE_MODELS = [
@@ -355,6 +356,9 @@ const policyFields = {
 		DEFAULT_AGENT_REPLY_AUTO_SEND,
 	).describe(
 		"Guardrails for sending a reversible draft without review; off by default",
+	),
+	classPolicies: DecisionClassPoliciesSchema.optional().describe(
+		"Per-class earned delivery; rejection or correction resets unchanged approvals. Existing autoSend and delivery gates still apply.",
 	),
 	deliveryGate: AgentReplyDeliveryGatePolicySchema.optional().describe(
 		"Clef checks every auto-send candidate must pass; absent, the shipped default gate applies",

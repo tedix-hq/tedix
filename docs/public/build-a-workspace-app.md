@@ -344,7 +344,7 @@ Every app build must update its agent guide with these chat operations,
 required access and result checks. Test the chat path alongside the app's
 buttons; a WebMCP tool is available only while its app is open.
 
-## Decision deck prototype
+## Decision deck
 
 While the app is open, `get_decision_deck_card` reads the displayed card,
 options, consequences, reasoning, cited lessons and readiness. It is
@@ -367,11 +367,43 @@ radius, confidence, cost of waiting, reasoning, cited lessons and 2–4
 options with consequences and costs. The versioned schema is
 `packages/api-contract/src/schemas/os-decision-deck.ts`.
 
-Readiness counts only loaded human receipts for the current person and
-class; it cannot grant execution authority. Automatic policy promotion,
-audit scheduling, weekly digests and CTO-generated ADRs remain design
-work. Reversible implementation without protected effects or a taste
-choice is omitted from the deck, while unknown reversibility stays visible.
+Open Work to finish a short batch of decisions, then get back to your day.
+Set `navigation.work` to `"deck"` on the installed Deck app and to `"feed"`
+on the Feed app. Work opens the Deck on phone and desktop; Feed remains
+one click away. Both use the generic workspace app renderer and the
+viewer's existing access.
+
+The batch has a fixed list: new arrivals wait for the next batch instead
+of extending it. `batchTimesUtc` defaults to `["09:00", "16:00"]`; the
+completion message displays the next time in the viewer's timezone.
+`dailyAttentionBudget` caps each person's remaining batch. Set
+`gamification: false` to hide the streak and daily goal; `dailyGoal`
+defaults to 7. The current browser tab remembers deferred cards for that
+batch. These attention controls do not replace server permissions.
+
+Swipe or use the visible buttons. Desktop shortcuts are Left for Not this,
+Right for Approve, E for Change, L for Later, D for Decide for me and ? for
+Why this, when that action is available. Typing in a field never triggers
+these shortcuts. Right always means Approve, even when Decide for me is
+the primary button. Consequential choices retain their confirmation.
+
+Readiness counts distinct recorded human decisions for this person and
+class. In the person's organization-scoped reply policy,
+`classPolicies.<class>.autoApprove` enables earned delivery for reversible
+classes without protected effects or strategy decisions. The class's
+`unchangedThreshold` defaults to 5 and `auditSampleRate` to 0.1. A rejection
+or correction resets the count. Audit samples return to review. Existing
+`autoSend` permission, session limits and independent delivery checks still
+apply; the immutable reply draft remains the receipt. This does not enable
+automatic approval of money, messages, production or consent.
+
+The Deck's `classPolicies` settings control its readiness display; changing
+that display alone cannot enable delivery. The weekly learning digest in
+Office and decision history links back to the choices. Agents and Office
+show time to decide, Decide-for-me rate, cards today, visits today and
+correction rate from recent personal activity. Loaded history is bounded
+and is labeled as such. Cost of waiting, optional `expiresAt` and
+`nobodyOn` come from the decision's source; the app does not invent them.
 
 From chat, discover the Interaction inbox/detail tools and read the exact
 request and version. Explain the offered responses and consequences; do

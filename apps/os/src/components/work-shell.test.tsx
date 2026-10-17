@@ -175,3 +175,9 @@ describe("WorkShell routed tabs", () => {
 		expect(doc.querySelector("nav")).toBeNull();
 	});
 });
+
+it("lets the configured Work app own the landing without the legacy tab bar", () => {
+	const doc = renderShell("/work");
+	expect(doc.querySelector('[role="tablist"]')).toBeNull();
+	expect(doc.querySelector('[aria-label="More Work sections"]')).toBeNull();
+});

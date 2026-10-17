@@ -1,10 +1,16 @@
-import { useState } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	DecisionKindSchema,
-	decisionNeedsPerson,
 	type DecisionDeckConfig,
 } from "@tedix/api-contract/schemas/os-decision-deck";
+import { WeeklyDecisionDigest } from "@/components/weekly-decision-digest";
+import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { DecisionEnvelopeCard } from "@/components/decision-envelope-card";
 import { WorkInteractionDecisionCard } from "@/components/work-interaction-decision-card";
 import { ApprovalDecisionCard } from "@/components/work-decision-stack";
@@ -26,7 +32,6 @@ import {
 	pendingApprovalsQueryOptions,
 	projectListQueryOptions,
 	userProfileQueryOptions,
-	workInteractionDetailQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	classReadiness,
@@ -38,12 +43,20 @@ import { decisionCaptureSummary } from "@/lib/work-interaction-display";
 import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { isOpenRequestForYou } from "@/components/work-needs-you-count";
+import { useDeckBatch } from "@/lib/use-deck-batch";
+import { deckBatchWindow, attentionMetrics } from "@/lib/deck-attention";
 import { OS_COPY } from "@/shared/os-copy";
 
 const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
 const PROJECT_LABELS: Record<string, string> = OS_COPY.decisionDeck.projects;
 
-export function DecisionDeckApp({ config }: { config: DecisionDeckConfig }) {
+export function DecisionDeckApp({
+	config,
+	workspaceId,
+}: {
+	config: DecisionDeckConfig;
+	workspaceId?: string;
+}) {
 	const client = useQueryClient();
 	const [mode, setMode] = useState("decide");
 	const [kind, setKind] = useState("all");
@@ -84,40 +97,56 @@ export function DecisionDeckApp({ config }: { config: DecisionDeckConfig }) {
 		projectNames.get(id) ??
 		PROJECT_LABELS[id] ??
 		OS_COPY.decisionDeck.projectUnavailable;
-	const historical = (history.data?.data ?? []).filter(
-		(row) =>
-			row.effectiveState === "resolved" &&
-			decisionEnvelope(row.request.metadata),
-	);
-	const details = useQueries({
-		queries: historical.map((row) =>
-			workInteractionDetailQueryOptions(row.request.id),
-		),
-	});
-	const receipts: DecisionLearningReceipt[] = details.flatMap((detail) =>
-		(detail.data?.responses.data ?? []).flatMap((response) => {
-			const meta = response.metadata;
-			return response.respondedByType === "user" &&
-				response.respondedById === profile.data?.id &&
-				typeof meta?.decisionClass === "string"
-				? [
-						{
-							id: response.id,
-							classId: meta.decisionClass,
-							choice: String(meta.decisionChoice ?? "unknown"),
-							signal: String(meta.feedbackSignal ?? "unknown"),
-							at: response.respondedAt,
-							feedback:
-								typeof meta.feedbackText === "string"
-									? meta.feedbackText
-									: undefined,
-						},
-					]
-				: [];
+	const learningQuery = useQuery(
+		osQuery.learningFeedback.listInteractions.queryOptions({
+			input: { scopeKind: "personal", limit: 200 },
 		}),
 	);
-	const today = new Date().toISOString().slice(0, 10);
-	const todayCount = receipts.filter((row) => row.at.startsWith(today)).length;
+	const receipts: DecisionLearningReceipt[] = (
+		learningQuery.data?.events ?? []
+	).flatMap((event) => {
+		const meta = event.metadata;
+		return event.surface === "decision_capture" &&
+			meta?.answerSource === "os-decision-card" &&
+			typeof meta.decisionClass === "string"
+			? [
+					{
+						id: event.id,
+						requestId: event.targetId ?? undefined,
+						classId: meta.decisionClass,
+						choice: String(meta.decisionChoice ?? "unknown"),
+						signal: String(meta.feedbackSignal ?? "unknown"),
+						at: event.occurredAt,
+					},
+				]
+			: [];
+	});
+	const metrics = attentionMetrics(learningQuery.data?.events ?? []);
+	const todayCount = metrics.cardsToday;
+	const [now, setNow] = useState(() => new Date());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(new Date()), 30_000);
+		return () => clearInterval(timer);
+	}, []);
+	const window = deckBatchWindow(config.batchTimesUtc, now);
+	const visitId = useRef(crypto.randomUUID());
+	useEffect(() => {
+		if (!profile.data?.id) return;
+		void osApi.learningFeedback
+			.recordInteraction({
+				clientEventId: `deck-visit:${visitId.current}`,
+				eventKind: "delivered",
+				signalClass: "lifecycle",
+				scope: { kind: "personal" },
+				surface: "decision_deck_visit",
+			})
+			.then(() =>
+				client.invalidateQueries({
+					queryKey: osQuery.learningFeedback.listInteractions.key(),
+				}),
+			)
+			.catch(() => {});
+	}, [profile.data?.id, client]);
 	const practiceMode = mode === "practice";
 	const rows = practiceMode
 		? config.examples.map((decision, i) => ({
@@ -171,35 +200,71 @@ export function DecisionDeckApp({ config }: { config: DecisionDeckConfig }) {
 						}))
 					: []),
 			];
-	const filtered = rows
+	const ranked = rows
 		.sort((a, b) => Number(b.urgency === "now") - Number(a.urgency === "now"))
 		.filter(
 			(row) =>
-				(mode === "history" ||
-					!row.decision ||
-					decisionNeedsPerson(row.decision)) &&
 				(kind === "all" || row.kind === kind) &&
 				(project === "all" || row.project === project) &&
 				(urgency === "all" || row.urgency === urgency) &&
 				row.label.toLowerCase().includes(search.toLowerCase()) &&
-				(mode === "history" || !skipped.includes(row.id)),
+				(mode !== "practice" || !skipped.includes(row.id)),
 		);
-	const selected = filtered[index % Math.max(1, filtered.length)];
+	const batchKey = `${workspaceId ?? "preview"}:${profile.data?.id}:${config.projectId ?? "all"}:${window.key}`;
+	const { batch, dismiss } = useDeckBatch(
+		batchKey,
+		rows.map((row) => row.id),
+		Math.max(0, config.dailyAttentionBudget - todayCount),
+		mode === "decide" &&
+			!!profile.data?.id &&
+			!inbox.isPending &&
+			!inbox.isError &&
+			(!!config.projectId || (!approvals.isPending && !approvals.isError)) &&
+			!learningQuery.isPending &&
+			!learningQuery.isError,
+	);
+	const available =
+		mode === "decide"
+			? rows.filter(
+					(row) =>
+						batch?.ids.includes(row.id) && !batch.dismissed.includes(row.id),
+				)
+			: mode === "practice"
+				? rows.filter((row) => !skipped.includes(row.id))
+				: rows;
+	const filtered =
+		mode === "decide"
+			? ranked
+					.filter((row) =>
+						available.some((candidate) => candidate.id === row.id),
+					)
+					.sort((a, b) => batch!.ids.indexOf(a.id) - batch!.ids.indexOf(b.id))
+			: ranked;
+	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
 	const current = selected?.decision;
 	const classId = current?.classId ?? selected?.kind;
 	const learning = classId
 		? classReadiness(
 				practiceMode ? practice : receipts,
 				classId,
-				config.unchangedThreshold,
+				config.classPolicies[classId]?.unchangedThreshold ??
+					config.unchangedThreshold,
 			)
 		: null;
-	const next = () => setIndex((value) => value + 1);
+	const next = () => {
+		if (mode === "history")
+			setIndex((value) => Math.min(filtered.length - 1, value + 1));
+		else if (selected) {
+			if (practiceMode) setSkipped((value) => [...value, selected.id]);
+			else dismiss(selected.id);
+			setIndex(0);
+		}
+	};
 	const previous = () => setIndex((value) => Math.max(0, value - 1));
 	const budgetReached =
 		mode === "decide" &&
 		todayCount >= config.dailyAttentionBudget &&
-		selected?.urgency !== "now";
+		(!selected || !metrics.shownToday.includes(selected.id));
 	useAppWebMcpTools(
 		"decision_deck",
 		{
@@ -213,300 +278,428 @@ export function DecisionDeckApp({ config }: { config: DecisionDeckConfig }) {
 					}
 				: null,
 			readiness: learning,
-			remaining: filtered.length,
+			remaining: available.length,
 		},
 		buildDecisionDeckWebMcpTools,
 		[],
 	);
 	return (
-		<div
-			className="mx-auto grid w-full min-w-0 max-w-2xl gap-4 pb-8"
-			data-workspace-app-entry="decision-deck"
-		>
-			<div className="grid gap-2">
-				<Text as="h2" weight="semibold">
-					One decision at a time
-				</Text>
-				<Text>
-					Teach your OS what matters. Reversible work keeps moving and leaves
-					receipts.
-				</Text>
-				<Text tone="secondary">
-					{todayCount}/{config.dailyAttentionBudget} loaded learning receipts
-					today (UTC) · ←/→ choose · J/K browse · swipe left/right
-				</Text>
-			</div>
-			<div className="flex flex-wrap gap-2" aria-label="Deck view">
-				{[
-					"decide",
-					"history",
-					...(config.examples.length ? ["practice"] : []),
-				].map((value) => (
-					<Button
-						key={value}
-						variant={mode === value ? "default" : "outline"}
-						onClick={() => {
-							setMode(value);
-							setIndex(0);
-							setSkipped([]);
-						}}
-					>
-						{value === "decide"
-							? "For you"
-							: value === "history"
-								? "What you decided"
-								: "Try examples"}
-					</Button>
-				))}
-			</div>
-			<div className="flex flex-wrap gap-2">
-				<Select
-					value={kind}
-					onValueChange={(value) => {
-						setKind(value ?? "all");
-						setIndex(0);
-					}}
-				>
-					<SelectTrigger aria-label="Decision kind">
-						<SelectValue>{KIND_LABELS[kind]}</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All kinds</SelectItem>
-						{DecisionKindSchema.options.map((value) => (
-							<SelectItem key={value} value={value}>
-								{KIND_LABELS[value]}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-				<Select
-					value={project}
-					onValueChange={(value) => {
-						setProject(value ?? "all");
-						setIndex(0);
-					}}
-				>
-					<SelectTrigger aria-label="Decision project">
-						<SelectValue>
-							{project === "all" ? "All projects" : projectLabel(project)}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All projects</SelectItem>
-						{[...new Set(rows.map((row) => row.project))].map((value) => (
-							<SelectItem key={value} value={value}>
-								{projectLabel(value)}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-				<Select
-					value={urgency}
-					onValueChange={(value) => {
-						setUrgency(value ?? "all");
-						setIndex(0);
-					}}
-				>
-					<SelectTrigger aria-label="Decision urgency">
-						<SelectValue>
-							{urgency === "all"
-								? "Any urgency"
-								: urgency === "now"
-									? "Needs you now"
-									: "Can wait"}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">Any urgency</SelectItem>
-						<SelectItem value="now">Needs you now</SelectItem>
-						<SelectItem value="later">Can wait</SelectItem>
-					</SelectContent>
-				</Select>
-				<Input
-					aria-label="Find decisions"
-					placeholder="Find a decision"
-					value={search}
-					onChange={(event) => {
-						setSearch(event.target.value);
-						setIndex(0);
-					}}
-				/>
-			</div>
-			{practiceMode && (
-				<Text role="label">
-					Practice only. Choices below stay in this preview and never approve
-					Work, send messages or teach your real profile.
-				</Text>
-			)}
-			{!practiceMode && (inbox.isError || approvals.isError) && (
-				<Text role="body">
-					Some decisions could not be loaded.{" "}
-					<Button
-						variant="outline"
-						onClick={() => {
-							void inbox.refetch();
-							void approvals.refetch();
-						}}
-					>
-						Try again
-					</Button>
-				</Text>
-			)}
-			{!practiceMode && inbox.isPending && <Text>Loading decisions…</Text>}
-			{learning && classId && (
-				<div
-					className="rounded-xl border border-kumo-line p-3"
-					aria-label="Class readiness"
-				>
-					<Text weight="medium">
-						{classId}: {learning.unchanged}/{config.unchangedThreshold}{" "}
-						unchanged approvals
-					</Text>
-					<Text tone="secondary">
-						{learning.ready
-							? "Ready for a delegation review"
-							: "Learning your preferences"}{" "}
-						· {learning.delegated}/{learning.total} delegated ·{" "}
-						{Math.round(config.auditSampleRate * 100)}% proposed audits
-					</Text>
-					<Text role="label">
-						Recent loaded history only. Readiness does not grant permission or
-						turn on automation.
-					</Text>
-				</div>
-			)}
-			{budgetReached ? (
-				<Text>
-					You’ve reached your attention budget. Urgent choices still appear with
-					“Needs you now”. <Link href="/work/attention">Open Needs you</Link>
-				</Text>
-			) : selected ? (
-				<div key={`${mode}:${selected.id}`} className="grid gap-3">
-					<Text role="label">
-						{selected.kind === "adr" ? "Architecture decision" : selected.kind}{" "}
-						· {(index % filtered.length) + 1} of {filtered.length}
-					</Text>
-					{mode === "history" ? (
-						<WorkDecisionCard
-							kind={current?.kind ?? "decision"}
-							title={selected.label}
-							askedBy={selected.row?.askedBy ?? "Your tedi"}
-							body={selected.row?.request.prompt}
-							why={
-								<Link href={`/work/interactions/${selected.id}`}>
-									Read the saved answer and history
-								</Link>
-							}
-							disabled
-							onDecision={async () => {}}
-							onNext={next}
-							onPrevious={previous}
-						/>
-					) : selected.id.startsWith("approval:") ? (
-						<ApprovalDecisionCard
-							id={selected.id.slice("approval:".length)}
-							onNext={next}
-							onPrevious={previous}
-						/>
-					) : current &&
-					  (practiceMode ||
-							current.kind === "adr" ||
-							current.kind === "decision") ? (
-						<DecisionEnvelopeCard
-							decision={current}
-							defaultLowStakesToDelegate={config.defaultLowStakesToDelegate}
-							askedBy={
-								practiceMode
-									? "Example"
-									: (selected.row?.askedBy ?? "Your tedi")
-							}
-							disabled={mode === "history"}
-							onNext={next}
-							onPrevious={previous}
-							onDecision={async (feedback, choice, elapsedMs) => {
-								if (practiceMode) {
-									setPractice((value) => [
-										...value,
-										{
-											id: crypto.randomUUID(),
-											classId: current.classId,
-											choice,
-											signal: feedback.signal,
-											at: new Date().toISOString(),
-											elapsedMs,
-										},
-									]);
-									return;
-								}
-								const request = selected.row!.request;
-								await osApi.workInteractions.respond({
-									requestId: request.id,
-									expectedRequestVersion: request.version,
-									responseKind: "answer",
-									body:
-										choice === "change"
-											? feedback.body
-											: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
-									resolvesRequest: choice !== "later",
-									metadata: decisionFeedbackMetadata(
-										feedback,
-										current.classId,
-										choice,
-										elapsedMs,
+		<DecisionAttentionContext.Provider
+			value={(choice) => {
+				if (mode !== "decide" || !selected) return;
+				const intent =
+					choice.intent ??
+					current?.options.find((option) => option.id === choice.action)
+						?.intent ??
+					"approve";
+				const eventKey =
+					choice.signal === "shown"
+						? crypto.subtle
+								.digest(
+									"SHA-256",
+									new TextEncoder().encode(
+										`${profile.data?.id}:${selected.id}:${now.toISOString().slice(0, 10)}`,
 									),
-								});
-								if (choice === "later")
-									setSkipped((value) => [...value, selected.id]);
-								await client.invalidateQueries({
-									queryKey: osQuery.workInteractions.key({ type: "query" }),
-								});
-							}}
+								)
+								.then(
+									(hash) =>
+										`deck-shown:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
+								)
+						: Promise.resolve(`deck-action:${crypto.randomUUID()}`);
+				void eventKey
+					.then((clientEventId) =>
+						osApi.learningFeedback.recordInteraction({
+							clientEventId,
+							eventKind:
+								choice.signal === "shown"
+									? "delivered"
+									: choice.signal === "rejected"
+										? "rejected"
+										: choice.signal === "edited"
+											? "edited"
+											: "accepted",
+							scope: { kind: "personal" },
+							surface:
+								choice.signal === "shown"
+									? "decision_deck_shown"
+									: "decision_deck_action",
+							targetType: "decision",
+							targetId: selected.id,
+							metadata: {
+								answerSource: "os-decision-card",
+								decisionClass: classId ?? selected.kind,
+								decisionChoice: intent,
+								elapsedMs: choice.elapsedMs,
+							},
+						}),
+					)
+					.then(() =>
+						client.invalidateQueries({
+							queryKey: osQuery.learningFeedback.listInteractions.key(),
+						}),
+					)
+					.catch(() => {});
+			}}
+		>
+			<div
+				className="mx-auto grid w-full min-w-0 max-w-2xl gap-4 pb-8"
+				data-workspace-app-entry="decision-deck"
+			>
+				<div className="grid gap-2">
+					<Text as="h2" weight="semibold">
+						{OS_COPY.decisionDeck.title}
+					</Text>
+					<Text>{OS_COPY.decisionDeck.intro}</Text>
+					<Text tone="secondary">{OS_COPY.decisionDeck.shortcuts}</Text>
+				</div>
+				{mode !== "history" && (
+					<div className="grid gap-2" role="status">
+						<Text weight="semibold">
+							{OS_COPY.decisionDeck.left(available.length)}
+						</Text>
+						<progress
+							aria-label="Deck progress"
+							max={Math.max(
+								1,
+								mode === "practice"
+									? config.examples.length
+									: (batch?.ids.length ?? 0),
+							)}
+							value={Math.max(
+								0,
+								(mode === "practice"
+									? config.examples.length
+									: (batch?.ids.length ?? 0)) - available.length,
+							)}
+							className="w-full"
 						/>
-					) : (
-						<WorkInteractionDecisionCard
-							requestId={selected.id}
-							askedBy={selected.row?.askedBy}
-							autoFocus
-							onNext={next}
-							onPrevious={previous}
-						/>
-					)}
-					<div className="flex justify-between gap-2">
-						<Button variant="outline" onClick={previous}>
-							Previous
-						</Button>
+						{config.gamification && (
+							<Text tone="secondary">
+								{OS_COPY.decisionDeck.dailyGoal(
+									metrics.decisionsToday,
+									config.dailyGoal,
+								)}{" "}
+								· {OS_COPY.decisionDeck.streak(metrics.streak)}
+							</Text>
+						)}
+					</div>
+				)}
+				<div className="flex flex-wrap gap-2" aria-label="Deck view">
+					{[
+						"decide",
+						"history",
+						...(config.examples.length ? ["practice"] : []),
+					].map((value) => (
 						<Button
-							variant="outline"
+							key={value}
+							variant={mode === value ? "default" : "outline"}
 							onClick={() => {
-								setSkipped((value) => [...value, selected.id]);
+								setMode(value);
+								setIndex(0);
 							}}
 						>
-							Later in this visit
+							{value === "decide"
+								? "For you"
+								: value === "history"
+									? "What you decided"
+									: "Try examples"}
 						</Button>
-						<Button variant="outline" onClick={next}>
-							Next
-						</Button>
-					</div>
+					))}
 				</div>
-			) : (
-				!inbox.isPending && (
-					<Text>
-						No decisions match. Your OS can keep doing reversible work.
+				<Collapsible>
+					<CollapsibleTrigger>
+						{OS_COPY.decisionDeck.filters}
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<div className="flex flex-wrap gap-2">
+							<Select
+								value={kind}
+								onValueChange={(value) => {
+									setKind(value ?? "all");
+									setIndex(0);
+								}}
+							>
+								<SelectTrigger aria-label="Decision kind">
+									<SelectValue>{KIND_LABELS[kind]}</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">All kinds</SelectItem>
+									{DecisionKindSchema.options.map((value) => (
+										<SelectItem key={value} value={value}>
+											{KIND_LABELS[value]}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Select
+								value={project}
+								onValueChange={(value) => {
+									setProject(value ?? "all");
+									setIndex(0);
+								}}
+							>
+								<SelectTrigger aria-label="Decision project">
+									<SelectValue>
+										{project === "all" ? "All projects" : projectLabel(project)}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">All projects</SelectItem>
+									{[...new Set(rows.map((row) => row.project))].map((value) => (
+										<SelectItem key={value} value={value}>
+											{projectLabel(value)}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Select
+								value={urgency}
+								onValueChange={(value) => {
+									setUrgency(value ?? "all");
+									setIndex(0);
+								}}
+							>
+								<SelectTrigger aria-label="Decision urgency">
+									<SelectValue>
+										{urgency === "all"
+											? "Any urgency"
+											: urgency === "now"
+												? "Needs you now"
+												: "Can wait"}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">Any urgency</SelectItem>
+									<SelectItem value="now">Needs you now</SelectItem>
+									<SelectItem value="later">Can wait</SelectItem>
+								</SelectContent>
+							</Select>
+							<Input
+								aria-label="Find decisions"
+								placeholder="Find a decision"
+								value={search}
+								onChange={(event) => {
+									setSearch(event.target.value);
+									setIndex(0);
+								}}
+							/>
+						</div>
+					</CollapsibleContent>
+				</Collapsible>
+				{practiceMode && (
+					<Text role="label">
+						Practice only. Choices below stay in this preview and never approve
+						Work, send messages or teach your real profile.
 					</Text>
-				)
-			)}
-			{practiceMode && practice.length > 0 && (
-				<Text>{practice.length} practice choices in this preview.</Text>
-			)}
-			{!practiceMode &&
-				(inbox.data?.hasMore ||
-					history.data?.hasMore ||
-					details.some((detail) => detail.data?.responses.hasMore)) && (
-					<Link href="/work/attention">More history and decisions in Work</Link>
 				)}
-			<Link href="/account/profile">
-				Your style profile and last 10 approvals
-			</Link>
-		</div>
+				{!practiceMode &&
+					(inbox.isError || approvals.isError || learningQuery.isError) && (
+						<Text role="body">
+							Some decisions could not be loaded.{" "}
+							<Button
+								variant="outline"
+								onClick={() => {
+									void inbox.refetch();
+									void approvals.refetch();
+									void learningQuery.refetch();
+								}}
+							>
+								Try again
+							</Button>
+						</Text>
+					)}
+				{!practiceMode && inbox.isPending && <Text>Loading decisions…</Text>}
+				{learning && classId && (
+					<div
+						className="rounded-xl border border-kumo-line p-3"
+						aria-label="Class readiness"
+					>
+						<Text weight="medium">
+							{classId}: {learning.unchanged}/
+							{config.classPolicies[classId]?.unchangedThreshold ??
+								config.unchangedThreshold}{" "}
+							unchanged approvals
+						</Text>
+						<Text tone="secondary">
+							{learning.ready
+								? "Ready for a delegation review"
+								: "Learning your preferences"}{" "}
+							· {learning.delegated}/{learning.total} delegated ·{" "}
+							{Math.round(
+								(config.classPolicies[classId]?.auditSampleRate ??
+									config.auditSampleRate) * 100,
+							)}
+							% proposed audits
+						</Text>
+						<Text role="label">
+							Recent loaded history only. Readiness does not grant permission or
+							turn on automation.
+						</Text>
+					</div>
+				)}
+				{budgetReached ? (
+					<Text>
+						You’ve reached your attention budget.{" "}
+						<Link href="/work/attention">Open Needs you</Link>
+					</Text>
+				) : selected ? (
+					<div
+						key={`${mode}:${selected.id}:${selected.row?.request.version ?? 0}`}
+						className="grid gap-3"
+					>
+						<Text role="label">
+							{selected.kind === "adr"
+								? "Architecture decision"
+								: selected.kind}{" "}
+							· {(index % filtered.length) + 1} of {filtered.length}
+						</Text>
+						{mode === "history" ? (
+							<WorkDecisionCard
+								kind={current?.kind ?? "decision"}
+								title={selected.label}
+								askedBy={selected.row?.askedBy ?? "Your tedi"}
+								body={selected.row?.request.prompt}
+								why={
+									<Link href={`/work/interactions/${selected.id}`}>
+										Read the saved answer and history
+									</Link>
+								}
+								disabled
+								onDecision={async () => {}}
+								onNext={next}
+								onPrevious={previous}
+							/>
+						) : selected.id.startsWith("approval:") ? (
+							<ApprovalDecisionCard
+								id={selected.id.slice("approval:".length)}
+								onNext={next}
+								onPrevious={previous}
+							/>
+						) : current &&
+						  (practiceMode ||
+								current.kind === "adr" ||
+								current.kind === "decision") ? (
+							<DecisionEnvelopeCard
+								decision={current}
+								defaultLowStakesToDelegate={config.defaultLowStakesToDelegate}
+								askedBy={
+									practiceMode
+										? "Example"
+										: (selected.row?.askedBy ?? "Your tedi")
+								}
+								disabled={mode === "history"}
+								onNext={next}
+								onPrevious={previous}
+								onDecision={async (feedback, choice, elapsedMs) => {
+									if (practiceMode) {
+										setPractice((value) => [
+											...value,
+											{
+												id: crypto.randomUUID(),
+												classId: current.classId,
+												choice,
+												signal: feedback.signal,
+												at: new Date().toISOString(),
+												elapsedMs,
+											},
+										]);
+										return;
+									}
+									const request = selected.row!.request;
+									await osApi.workInteractions.respond({
+										requestId: request.id,
+										expectedRequestVersion: request.version,
+										responseKind: "answer",
+										body:
+											choice === "change"
+												? feedback.body
+												: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
+										resolvesRequest: choice !== "later",
+										metadata: decisionFeedbackMetadata(
+											feedback,
+											current.classId,
+											choice,
+											elapsedMs,
+										),
+									});
+									await client.invalidateQueries({
+										queryKey: osQuery.workInteractions.key({ type: "query" }),
+									});
+									await client.invalidateQueries({
+										queryKey: osQuery.learningFeedback.listInteractions.key(),
+									});
+								}}
+							/>
+						) : (
+							<WorkInteractionDecisionCard
+								requestId={selected.id}
+								askedBy={selected.row?.askedBy}
+								autoFocus
+								onNext={next}
+								onPrevious={previous}
+							/>
+						)}
+						{mode === "history" ? (
+							<div className="flex justify-between gap-2">
+								<Button variant="outline" onClick={previous}>
+									Previous
+								</Button>
+								<Button variant="outline" onClick={next}>
+									Next
+								</Button>
+							</div>
+						) : (
+							!current?.options.some((option) => option.intent === "later") && (
+								<Button variant="outline" onClick={next}>
+									Later
+								</Button>
+							)
+						)}
+					</div>
+				) : (
+					!inbox.isPending &&
+					(practiceMode || batch) && (
+						<Text>
+							{inbox.isError || approvals.isError || learningQuery.isError
+								? ""
+								: available.length > 0
+									? OS_COPY.decisionDeck.noMatches
+									: OS_COPY.decisionDeck.clear}
+							{!(
+								inbox.isError ||
+								approvals.isError ||
+								learningQuery.isError
+							) && (
+								<>
+									{" "}
+									—{" "}
+									{OS_COPY.decisionDeck.nextBatch(
+										window.next.toLocaleTimeString([], {
+											hour: "2-digit",
+											minute: "2-digit",
+										}),
+									)}
+								</>
+							)}
+						</Text>
+					)
+				)}
+				{mode === "history" && <WeeklyDecisionDigest />}
+				{practiceMode && practice.length > 0 && (
+					<Text>{practice.length} practice choices in this preview.</Text>
+				)}
+				{!practiceMode &&
+					(inbox.data?.hasMore ||
+						history.data?.hasMore ||
+						learningQuery.data?.events.length === 200) && (
+						<Link href="/work/attention">
+							More history and decisions in Work
+						</Link>
+					)}
+				<Link href="/account/profile">
+					Your style profile and last 10 approvals
+				</Link>
+			</div>
+		</DecisionAttentionContext.Provider>
 	);
 }

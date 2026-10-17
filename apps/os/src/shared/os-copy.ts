@@ -4,6 +4,46 @@ import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 /** Generic OS wording. Names and tenant-specific content come from records. */
 export const OS_COPY = {
 	decisionDeck: {
+		filters: "Find a decision",
+		noMatches: "No decisions match these filters",
+		workOverview: "Open Work overview",
+		weeklyTitle: "What I learned about you this week",
+		weeklyScope:
+			"Your recent recorded choices, with links to check them. Corrections reset unchanged approvals.",
+		learnedApprovals: (count: number) => `${count} unchanged approvals`,
+		readReceipt: "Read receipt",
+		workViews: "Work views",
+		deck: "Deck",
+		feed: "Feed",
+		loadingApp: "Loading your Work app…",
+		appUnavailable: "Your Work app could not be loaded.",
+		installApp: "Choose a Deck and Feed app in your workspace to start here.",
+		openWorkspaces: "Open workspaces",
+		retry: "Try again",
+		title: "One decision at a time",
+		intro: "Make a few choices, then get back to your day.",
+		shortcuts:
+			"← Not this · → Approve · E Change · L Later · D Decide for me · ? Why this",
+		left: (count: number) => `${count} left`,
+		clear: "Deck clear",
+		nextBatch: (time: string) => `Next cards at ${time}`,
+		dailyGoal: (done: number, goal: number) => `${done}/${goal} daily goal`,
+		streak: (days: number) => `${days} day streak`,
+		nobodyOn: "Nobody is carrying this yet — choose who takes the next step.",
+		expires: (minutes: number) =>
+			minutes <= 0
+				? "Expired — check the source before deciding"
+				: `Expires in ${minutes} min`,
+		metrics: {
+			title: "Decision attention",
+			loaded: "Recent recorded activity for you. Totals may be incomplete.",
+			time: "Time to decide",
+			delegation: "Decide for me",
+			cards: "Cards today",
+			visits: "Visits today",
+			corrections: "Corrections",
+			unavailable: "Decision attention could not be loaded.",
+		},
 		kinds: {
 			all: "All kinds",
 			outbound: "Messages",

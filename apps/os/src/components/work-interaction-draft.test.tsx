@@ -314,6 +314,9 @@ describe("tedi-drafted replies", () => {
 				source: "os-decision-card",
 				cardAction: "answer",
 				feedbackSignal: "approve-as-is",
+				decisionClass: "question",
+				decisionChoice: "approve",
+				elapsedMs: expect.any(Number),
 			},
 		});
 	});

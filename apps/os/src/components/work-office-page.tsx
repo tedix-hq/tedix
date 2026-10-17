@@ -1,3 +1,5 @@
+import { WeeklyDecisionDigest } from "@/components/weekly-decision-digest";
+import { DeckAttentionMetrics } from "@/components/deck-attention-metrics";
 import { OS_COPY } from "@/shared/os-copy";
 import {
 	officeAsk,
@@ -854,6 +856,8 @@ export function OfficeApp() {
 	const since = startOfToday();
 	return (
 		<div className="grid min-w-0 gap-10" data-workspace-app-entry="office">
+			<DeckAttentionMetrics />
+			<WeeklyDecisionDigest />
 			<div className="grid gap-5">
 				<OfficeHeader since={since} />
 				<TodayTiles since={since} />

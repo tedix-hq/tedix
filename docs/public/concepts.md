@@ -30,6 +30,12 @@ work. The compute is disposable; the identity, permissions, and record are not.
 
 ## Work and execution
 
+Open Work to review one decision at a time in your installed Deck app.
+Finish the batch to see when the next cards arrive, or open Feed to read
+recent activity and receipts. Your organization chooses the apps and batch
+settings; [workspace apps](./build-a-workspace-app.md#decision-deck)
+explains how to set them up.
+
 | Term        | Meaning                                                                                                                                                                                                             |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Home        | The conversation where you ask for work. Tedix answers there or hands the request to a tedi, and saves each turn as a run.                                                                                          |

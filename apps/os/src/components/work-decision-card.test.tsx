@@ -318,3 +318,54 @@ it("lets an architecture recommendation be changed with its original text preser
 		}),
 	);
 });
+
+it("keeps right-arrow approval separate from the preferred delegation and supports D, E and ?", async () => {
+	const decide = await mount({
+		kind: "decision",
+		why: <p>Source receipt</p>,
+		editAction: { id: "change", label: "Save changes" },
+		actions: [
+			{ id: "yes", label: "Approve", intent: "approve" },
+			{
+				id: "delegate",
+				label: "Decide for me",
+				intent: "delegate",
+				primary: true,
+			},
+			{ id: "later", label: "Later", intent: "later" },
+		],
+	});
+	const key = async (key: string) =>
+		act(async () =>
+			host
+				.querySelector("section")!
+				.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })),
+		);
+	await key("?");
+	expect(host.textContent).toContain("Source receipt");
+	await key("e");
+	expect(host.querySelector("textarea")).not.toBeNull();
+	await key("e");
+	await key("d");
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({ action: "delegate" }),
+	);
+	await act(async () => root.unmount());
+	host.remove();
+	const approve = await mount({
+		kind: "decision",
+		actions: [
+			{ id: "yes", label: "Approve", intent: "approve" },
+			{
+				id: "delegate",
+				label: "Decide for me",
+				intent: "delegate",
+				primary: true,
+			},
+		],
+	});
+	await key("ArrowRight");
+	expect(approve).toHaveBeenCalledWith(
+		expect.objectContaining({ action: "yes" }),
+	);
+});

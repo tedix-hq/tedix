@@ -4,7 +4,6 @@ import type {
 	ProjectPortfolioEntry,
 } from "@tedix/api-contract/contracts/projects";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { isRedirect } from "@tanstack/react-router";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -481,12 +480,9 @@ describe("Work landing", () => {
 		throw new Error("beforeLoad did not redirect");
 	}
 
-	it("redirects /work to Attention", () => {
-		const result = thrown({});
-		expect(isRedirect(result)).toBe(true);
-		expect((result as { options: { to: string } }).options.to).toBe(
-			"/work/attention",
-		);
+	it("keeps /work on the configured app landing", () => {
+		expect(() => beforeLoad({ search: {} })).not.toThrow();
+		expect(WorkIndexRoute.options.component).toBeDefined();
 	});
 
 	it("keeps old disposition links on the queue", () => {

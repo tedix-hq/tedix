@@ -63,6 +63,8 @@ import {
 	getTediByIdForOrganization,
 	getTedisByOrganization,
 } from "@tedix/db/queries/tedis";
+import { listLearningInteractions } from "@tedix/db/queries/learning-feedback";
+import { learnedClassDelivery } from "../../services/decision-class-policy";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
 import { listWorkAgentSessions } from "@tedix/db/queries/work-agent-sessions";
 import {
@@ -1287,6 +1289,26 @@ export async function decideReplyDraftDelivery(
 	if (!autoSend.enabled || params.reversible !== true) return review;
 	if (autoSend.maxConsecutive <= 0) return review;
 	const metadata = params.request.metadata as Record<string, unknown>;
+	if (metadata.decisionDeck || params.policy.classPolicies) {
+		const events = await listLearningInteractions(context.db, {
+			organizationId: params.request.orgId,
+			personalScopeId: params.targetUserId,
+			scopeKind: "personal",
+			scopeId: params.targetUserId,
+			surfaces: ["decision_capture"],
+			limit: 200,
+		});
+		if (
+			learnedClassDelivery({
+				metadata,
+				policies: params.policy.classPolicies ?? {},
+				events,
+				userId: params.targetUserId,
+				sample: crypto.getRandomValues(new Uint32Array(1))[0]! / 2 ** 32,
+			}) !== "auto"
+		)
+			return review;
+	}
 	const sessionId = metadata.sessionId;
 	if (typeof sessionId !== "string" || sessionId.length === 0) return review;
 	const consecutive = await countConsecutiveAutoReplies(context.db, {
