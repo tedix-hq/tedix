@@ -118,7 +118,9 @@ function fixture(overrides: Partial<OutboundState> = {}) {
 			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES(?,?,?,'question','Review reply','Draft','user','rosa','user','rosa',?)",
 		)
 		.run(QUESTION, ORG, WORK, "2026-10-17T10:00:00Z");
-	const queue = vi.fn(async (_event: { idempotencyKey: string }) => {});
+	const queue = vi.fn(
+		async (_event: { idempotencyKey: string; conversationId: string }) => {},
+	);
 	const db = createDbClient(createD1Facade(sqlite));
 	const client = (who = "rosa", organizationId = ORG, tedi = false) =>
 		createRouterClient(outboundRouter, {
@@ -157,7 +159,7 @@ beforeEach(() => {
 });
 
 describe("outbound authorization and delivery", () => {
-	it("gives an authorized review retry a fresh execution key without changing the draft", async () => {
+	it("gives an authorized review retry a fresh execution and conversation without changing the draft", async () => {
 		const { client, queue } = fixture({ status: "reviewing", review: null });
 		await expect(
 			client("lina").requestReview({ workItemId: WORK, expectedVersion: 1 }),
@@ -186,6 +188,10 @@ describe("outbound authorization and delivery", () => {
 			`outbound:${WORK}:2`,
 			`outbound:${WORK}:3`,
 		]);
+		expect(queue.mock.calls.map(([event]) => event.conversationId)).toEqual([
+			`outbound:${WORK}:2`,
+			`outbound:${WORK}:3`,
+		]);
 		expect(gmail.send).not.toHaveBeenCalled();
 	});
 	it("can retry a queue failure without reusing its failed execution identity", async () => {
@@ -207,6 +213,10 @@ describe("outbound authorization and delivery", () => {
 			`outbound:${WORK}:3`,
 		]);
 		expect(retried.outbound.review).toBeNull();
+		expect(queue.mock.calls.map(([event]) => event.conversationId)).toEqual([
+			`outbound:${WORK}:2`,
+			`outbound:${WORK}:3`,
+		]);
 		expect(gmail.send).not.toHaveBeenCalled();
 	});
 	it("accepts only the addressed human and never sends on manual approval", async () => {
