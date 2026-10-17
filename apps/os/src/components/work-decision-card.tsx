@@ -17,9 +17,14 @@ import {
 } from "@/components/kumo/alert-dialog";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+	FeedDeckCard,
+	FeedDeckDisclosure,
+	ProposerChip,
+} from "@/components/feed-deck-primitives";
+import { useDecisionMotion } from "@/components/use-decision-motion";
 import { Button } from "@/components/kumo/button";
 import {
-	Card,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -30,6 +35,7 @@ import { Textarea } from "@/components/kumo/textarea";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { relativeTime, absoluteTime } from "@/lib/time";
+import { OS_COPY } from "@/shared/os-copy";
 
 export type DecisionCardKind =
 	| "outbound"
@@ -120,7 +126,8 @@ export function WorkDecisionCard({
 		exposureSent.current = true;
 		attention({ action: "shown", signal: "shown", elapsedMs: 0 });
 	}, [attention]);
-	const section = useRef<HTMLElement>(null);
+	const motion = useDecisionMotion();
+	const section = motion.surface;
 	useEffect(() => {
 		if (
 			autoFocus &&
@@ -171,6 +178,9 @@ export function WorkDecisionCard({
 		inFlight.current = true;
 		setSaving(true);
 		setError("");
+		const departure = section.current?.closest(".fd-deck")
+			? motion.exit(action.intent)
+			: undefined;
 		try {
 			await onDecision({
 				action: action.id,
@@ -210,11 +220,13 @@ export function WorkDecisionCard({
 							: "accepted",
 				elapsedMs: Math.max(0, Math.round(performance.now() - shownAt.current)),
 			});
-			setSaved(true);
 			setConfirmation(null);
 			toast.success("Got it — your feedback helps me learn.");
+			await departure;
+			setSaved(true);
 			onNext?.();
 		} catch (cause) {
+			motion.cancelExit();
 			setError(
 				cause instanceof Error
 					? cause.message
@@ -234,6 +246,7 @@ export function WorkDecisionCard({
 	const reject = actions.find((action) => action.intent === "reject");
 	const choose = (action: DecisionCardAction | undefined) => {
 		if (!action || action.disabled || busy) return;
+		if (section.current?.closest(".fd-deck")) motion.pulse();
 		if (kind === "outbound" && action.intent === "reject") setReasonsOpen(true);
 		else void submit(action);
 	};
@@ -242,7 +255,22 @@ export function WorkDecisionCard({
 			ref={section}
 			aria-label={title}
 			tabIndex={0}
-			className="min-w-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring"
+			className="fd-decision min-w-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring"
+			style={motion.style}
+			data-dragging={motion.dragging}
+			data-direction={motion.direction}
+			onPointerDown={(event) => {
+				if (!busy && !confirmation && section.current?.closest(".fd-deck"))
+					motion.start(event);
+			}}
+			onPointerMove={motion.move}
+			onPointerCancel={motion.reset}
+			onPointerLeave={motion.reset}
+			onPointerUp={(event) => {
+				const direction = motion.end(event);
+				if (event.pointerType !== "touch" && !confirmation && direction)
+					choose(direction > 0 ? approve : reject);
+			}}
 			onKeyDown={(event) => {
 				if (
 					(event.target as HTMLElement).closest(
@@ -311,10 +339,10 @@ export function WorkDecisionCard({
 					choose(dx > 0 ? approve : reject);
 			}}
 		>
-			<Card tone="raised">
+			<FeedDeckCard>
 				<CardHeader>
 					<CardDescription className="flex flex-wrap items-center gap-2">
-						<span>{askedBy}</span>
+						<ProposerChip name={askedBy} />
 						{at ? (
 							<time dateTime={at} title={absoluteTime(at)}>
 								· {relativeTime(at)}
@@ -388,6 +416,7 @@ export function WorkDecisionCard({
 					) : (
 						<>
 							<div
+								data-decision-actions
 								className={
 									kind === "decision" ||
 									kind === "adr" ||
@@ -404,6 +433,7 @@ export function WorkDecisionCard({
 									.map((action) => (
 										<Button
 											key={action.id}
+											data-decision-intent={action.intent}
 											className={
 												kind === "decision" ||
 												kind === "adr" ||
@@ -433,8 +463,8 @@ export function WorkDecisionCard({
 														<span
 															className={
 																action.intent === "approve"
-																	? "font-normal opacity-90"
-																	: "font-normal text-kumo-subtle"
+																	? "fd-action-description font-normal opacity-90"
+																	: "fd-action-description font-normal text-kumo-subtle"
 															}
 														>
 															{action.description}
@@ -470,6 +500,20 @@ export function WorkDecisionCard({
 									</Button>
 								) : null}
 							</div>
+							{actions.some((action) => action.description) && (
+								<FeedDeckDisclosure
+									className="fd-action-details"
+									title={OS_COPY.feedDeckVisual.choices}
+								>
+									{actions
+										.filter((action) => action.description)
+										.map((action) => (
+											<p key={action.id}>
+												<strong>{action.label}.</strong> {action.description}
+											</p>
+										))}
+								</FeedDeckDisclosure>
+							)}
 							{reasonsOpen && reject ? (
 								<div
 									className="flex flex-wrap gap-2"
@@ -524,7 +568,7 @@ export function WorkDecisionCard({
 								</AlertDialogContent>
 							</AlertDialog>
 							{!disabled ? (
-								<div>
+								<div className="fd-feedback">
 									<Button
 										variant="ghost"
 										disabled={busy}
@@ -560,7 +604,11 @@ export function WorkDecisionCard({
 						</p>
 					) : null}
 					{why || learnedWhy ? (
-						<Collapsible open={whyOpen} onOpenChange={setWhyOpen}>
+						<Collapsible
+							className="fd-why"
+							open={whyOpen}
+							onOpenChange={setWhyOpen}
+						>
 							<CollapsibleTrigger>Why this?</CollapsibleTrigger>
 							<CollapsibleContent className="pt-3 text-kumo-subtle">
 								{why}
@@ -569,7 +617,7 @@ export function WorkDecisionCard({
 						</Collapsible>
 					) : null}
 				</CardContent>
-			</Card>
+			</FeedDeckCard>
 		</section>
 	);
 }

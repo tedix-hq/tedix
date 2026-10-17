@@ -57,7 +57,7 @@ try {
 			await card.waitFor();
 			assert.equal(
 				await page
-					.locator('[data-workspace-app-entry="decision-deck"] section')
+					.locator('[data-workspace-app-entry="decision-deck"] .fd-decision')
 					.count(),
 				1,
 				"one card at a time",
@@ -133,7 +133,7 @@ try {
 			await page.getByText("Deck clear", { exact: false }).waitFor();
 			assert.equal(
 				await page
-					.locator('[data-workspace-app-entry="decision-deck"] section')
+					.locator('[data-workspace-app-entry="decision-deck"] .fd-decision')
 					.count(),
 				0,
 				"the deck ends instead of wrapping",

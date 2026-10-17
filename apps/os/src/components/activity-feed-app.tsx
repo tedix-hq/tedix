@@ -1,5 +1,6 @@
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
+	Fragment,
 	useCallback,
 	useEffect,
 	useRef,
@@ -15,9 +16,13 @@ import {
 	ActivityFeedSources,
 	type FeedSourceState,
 } from "@/components/activity-feed-sources";
-import { Badge } from "@/components/kumo/badge";
+import {
+	ProposerChip,
+	FeedMomentHeader,
+	RichPreview,
+} from "@/components/feed-deck-primitives";
+import { feedMoment } from "@/lib/feed-moment";
 import { Button } from "@/components/kumo/button";
-import { Card, CardContent } from "@/components/kumo/card";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
@@ -300,7 +305,7 @@ export function ActivityFeedApp({
 	);
 	return (
 		<div
-			className="mx-auto grid w-full max-w-2xl min-w-0 gap-4 pb-8"
+			className="feed-deck fd-feed mx-auto grid w-full max-w-3xl min-w-0 gap-4 pb-8"
 			data-workspace-app-entry="activity-feed"
 		>
 			<DecisionLearningFeedback />
@@ -321,7 +326,7 @@ export function ActivityFeedApp({
 					onUpdate={onUpdate}
 				/>
 			))}
-			<header className="grid gap-2">
+			<header className="fd-feed-heading grid gap-2">
 				<Text as="h2" role="section" weight="semibold">
 					{OS_COPY.workHome.feed}
 				</Text>
@@ -340,7 +345,10 @@ export function ActivityFeedApp({
 				/>
 				{navigation?.apps}
 			</header>
-			<nav className="flex flex-wrap gap-1" aria-label={copy.title}>
+			<nav
+				className="fd-feed-filters flex flex-wrap gap-1"
+				aria-label={copy.title}
+			>
 				{(Object.keys(copy.filters) as Filter[]).map((id) => (
 					<Button
 						key={id}
@@ -409,22 +417,38 @@ export function ActivityFeedApp({
 				role="feed"
 				aria-label={copy.title}
 				aria-busy={loading}
-				className="grid gap-4"
+				className="fd-timeline"
 			>
-				{main.map(renderItem)}
+				{main.map((item, i) => {
+					const label = feedMoment(
+						item.at,
+						now,
+						preferences.data?.preferences.timezone,
+					);
+					return (
+						<Fragment key={item.id}>
+							{(i === 0 ||
+								label !==
+									feedMoment(
+										main[i - 1]!.at,
+										now,
+										preferences.data?.preferences.timezone,
+									)) && <FeedMomentHeader>{label}</FeedMomentHeader>}
+							{renderItem(item)}
+						</Fragment>
+					);
+				})}
 				{digest.length > 0 && (
-					<Card>
-						<CardContent className="grid gap-2">
-							<Button
-								variant="ghost"
-								aria-expanded={expandedDigest}
-								onClick={() => setExpandedDigest((v) => !v)}
-							>
-								{copy.digest(digest.length)}
-							</Button>
-							<Text tone="secondary">{copy.digestHint}</Text>
-						</CardContent>
-					</Card>
+					<div className="fd-quiet-updates">
+						<Button
+							variant="ghost"
+							aria-expanded={expandedDigest}
+							onClick={() => setExpandedDigest((v) => !v)}
+						>
+							{copy.digest(digest.length)}
+						</Button>
+						<Text tone="secondary">{copy.digestHint}</Text>
+					</div>
 				)}
 				{expandedDigest && digest.map(renderItem)}
 			</div>
@@ -539,155 +563,169 @@ function FeedCard({
 	const [why, setWhy] = useState(false);
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");
+	const [reacted, setReacted] = useState(false);
 	return (
 		<article
 			ref={article}
 			tabIndex={0}
 			aria-label={item.sentence}
-			className="min-w-0"
+			className="fd-story min-w-0"
 		>
-			<Card>
-				<CardContent className="grid gap-3 p-4 sm:p-5">
-					<div className="flex flex-wrap items-center gap-2">
-						<Badge variant="secondary">{copy.kinds[item.kind]}</Badge>
-						{project && (
-							<Text tone="secondary" role="caption">
-								{project}
-							</Text>
-						)}
-						<time
-							dateTime={item.at}
-							title={absoluteTime(item.at)}
-							className="ml-auto"
-						>
-							<Text role="caption" tone="secondary">
-								{relativeTime(item.at)}
-							</Text>
-						</time>
-					</div>
-					<Text role="caption" tone="secondary">
-						{item.actor}
-					</Text>
-					<Text as="h3" weight="medium" className="break-words">
-						{item.sentence}
-					</Text>
-					<div className="flex flex-wrap gap-2">
-						{item.unseen && <Badge variant="outline">{copy.new}</Badge>}
-						{item.deadline && <Badge variant="warning">{copy.due}</Badge>}
-					</div>
-					<div className="flex flex-wrap gap-4">
-						<Link href={item.source}>{copy.source}</Link>
-						{item.needsAction && (
-							<Link href={config.deckUrl ?? item.source}>{copy.deck}</Link>
-						)}
-					</div>
-					<div className="flex flex-wrap gap-1">
+			<div className="fd-story-body grid gap-4">
+				<div className="flex flex-wrap items-center gap-2">
+					<ProposerChip
+						name={item.actor}
+						detail={[project, copy.kinds[item.kind]]
+							.filter(Boolean)
+							.join(" · ")}
+					/>
+					<time
+						dateTime={item.at}
+						title={absoluteTime(item.at)}
+						className="ml-auto"
+					>
+						<Text role="caption" tone="secondary">
+							{relativeTime(item.at)}
+						</Text>
+					</time>
+				</div>
+				<Text as="h3" weight="medium" className="fd-story-title break-words">
+					{item.sentence}
+				</Text>
+				<div className="flex flex-wrap gap-2">
+					{item.unseen && (
+						<Text as="span" role="caption" className="fd-unseen">
+							{copy.new}
+						</Text>
+					)}
+					{item.deadline && (
+						<Text as="span" role="caption">
+							{copy.due}
+						</Text>
+					)}
+				</div>
+				<div className="grid gap-3">
+					<RichPreview
+						href={item.source}
+						title={project ?? copy.kinds[item.kind]}
+						summary={item.decision?.recommendation ?? copy.source}
+					/>
+					{item.needsAction && (
+						<Link href={config.deckUrl ?? item.source}>{copy.deck}</Link>
+					)}
+				</div>
+				<div className="fd-reactions flex flex-wrap gap-1">
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={busy}
+						className="fd-reaction"
+						data-reacted={reacted}
+						onClick={() =>
+							void react("more").then((ok) => {
+								if (ok) setReacted(true);
+							})
+						}
+					>
+						{copy.more}
+					</Button>
+					<Button
+						size="sm"
+						variant="ghost"
+						aria-expanded={why}
+						onClick={() => {
+							setWhy((v) => !v);
+							if (!why) void react("why");
+						}}
+					>
+						{copy.why}
+					</Button>
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={busy}
+						onClick={() => void react("mute")}
+					>
+						{copy.mute}
+					</Button>
+					<Button
+						size="sm"
+						variant="ghost"
+						aria-expanded={comment}
+						onClick={() => setComment((v) => !v)}
+					>
+						{copy.comment}
+					</Button>
+					{item.projectId && (
 						<Button
 							size="sm"
 							variant="ghost"
 							disabled={busy}
-							onClick={() => void react("more")}
-						>
-							{copy.more}
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							aria-expanded={why}
 							onClick={() => {
-								setWhy((v) => !v);
-								if (!why) void react("why");
+								engaged.current = true;
+								void onWork(item);
 							}}
 						>
-							{copy.why}
+							{copy.work}
 						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							disabled={busy}
-							onClick={() => void react("mute")}
-						>
-							{copy.mute}
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							aria-expanded={comment}
-							onClick={() => setComment((v) => !v)}
-						>
-							{copy.comment}
-						</Button>
-						{item.projectId && (
-							<Button
-								size="sm"
-								variant="ghost"
-								disabled={busy}
-								onClick={() => {
-									engaged.current = true;
-									void onWork(item);
-								}}
-							>
-								{copy.work}
-							</Button>
+					)}
+				</div>
+				{why && (
+					<div className="grid gap-2 border-t pt-3">
+						<Text>{item.explanation}</Text>
+						{item.decision && (
+							<>
+								<Text>{item.decision.whyNow}</Text>
+								<Text weight="medium">{copy.recommendation}</Text>
+								<Text>{item.decision.recommendation}</Text>
+								<Text weight="medium">{copy.waiting}</Text>
+								<Text>{item.decision.costOfWaiting}</Text>
+								{item.decision.lessons.length > 0 && (
+									<Text weight="medium">{copy.lessons}</Text>
+								)}
+								{item.decision.lessons.map((lesson) => (
+									<Text key={lesson.id} title={lesson.id}>
+										{lesson.text}
+									</Text>
+								))}
+							</>
 						)}
+						<Text tone="secondary">{copy.whyRank}</Text>
 					</div>
-					{why && (
-						<div className="grid gap-2 border-t pt-3">
-							<Text>{item.explanation}</Text>
-							{item.decision && (
-								<>
-									<Text>{item.decision.whyNow}</Text>
-									<Text weight="medium">{copy.recommendation}</Text>
-									<Text>{item.decision.recommendation}</Text>
-									<Text weight="medium">{copy.waiting}</Text>
-									<Text>{item.decision.costOfWaiting}</Text>
-									{item.decision.lessons.length > 0 && (
-										<Text weight="medium">{copy.lessons}</Text>
-									)}
-									{item.decision.lessons.map((lesson) => (
-										<Text key={lesson.id} title={lesson.id}>
-											{lesson.text}
-										</Text>
-									))}
-								</>
-							)}
-							<Text tone="secondary">{copy.whyRank}</Text>
+				)}
+				{comment && (
+					<div className="grid gap-2">
+						<Textarea
+							aria-label={copy.correction}
+							placeholder={copy.correction}
+							value={text}
+							maxLength={4000}
+							onChange={(e) => setText(e.target.value)}
+						/>
+						<Text role="caption" tone="secondary">
+							{copy.learningHint}
+						</Text>
+						<div className="flex gap-2">
+							<Button
+								disabled={busy || !text.trim()}
+								onClick={() =>
+									void react("comment", text.trim()).then((ok) => {
+										if (ok) {
+											setText("");
+											setComment(false);
+										}
+									})
+								}
+							>
+								{copy.save}
+							</Button>
+							<Button variant="ghost" onClick={() => setComment(false)}>
+								{copy.cancel}
+							</Button>
 						</div>
-					)}
-					{comment && (
-						<div className="grid gap-2">
-							<Textarea
-								aria-label={copy.correction}
-								placeholder={copy.correction}
-								value={text}
-								maxLength={4000}
-								onChange={(e) => setText(e.target.value)}
-							/>
-							<Text role="caption" tone="secondary">
-								{copy.learningHint}
-							</Text>
-							<div className="flex gap-2">
-								<Button
-									disabled={busy || !text.trim()}
-									onClick={() =>
-										void react("comment", text.trim()).then((ok) => {
-											if (ok) {
-												setText("");
-												setComment(false);
-											}
-										})
-									}
-								>
-									{copy.save}
-								</Button>
-								<Button variant="ghost" onClick={() => setComment(false)}>
-									{copy.cancel}
-								</Button>
-							</div>
-						</div>
-					)}
-				</CardContent>
-			</Card>
+					</div>
+				)}
+			</div>
 		</article>
 	);
 }

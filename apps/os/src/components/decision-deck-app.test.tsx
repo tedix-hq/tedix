@@ -166,7 +166,8 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	}
 	expect(host.textContent).toContain("Deck clear");
 	expect(host.textContent).toContain("0 left");
-	expect(host.querySelector("section")).toBeNull();
+	expect(host.querySelector(".fd-decision")).toBeNull();
+	expect(host.querySelector(".fd-closure")).not.toBeNull();
 	expect(respond).not.toHaveBeenCalled();
 });
 

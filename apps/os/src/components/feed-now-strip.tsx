@@ -40,7 +40,7 @@ export function FeedNowStrip({
 	return (
 		<aside
 			aria-label={copy.now}
-			className="grid min-w-0 gap-2 break-words rounded-lg border border-kumo-line bg-kumo-elevated p-3 type-tedix-label"
+			className="fd-now-strip grid min-w-0 gap-2 break-words rounded-lg border border-kumo-line bg-kumo-elevated p-3 type-tedix-label"
 		>
 			<Text>
 				{pending
