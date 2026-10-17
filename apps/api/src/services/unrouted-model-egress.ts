@@ -1,4 +1,7 @@
-import type { DbQueryClient } from "@tedix/db/query-client";
+import {
+	createDbQueryClient,
+	type DbQueryClient,
+} from "@tedix/db/query-client";
 import { getOrganizationResidencyPolicy } from "@tedix/db/queries/data-residency";
 import { DataResidencyError } from "./data-residency";
 
@@ -8,6 +11,7 @@ export async function requireUnrestrictedModelEgress(
 	db: DbQueryClient,
 	organizationId: string,
 	operation: string,
+	binding?: D1Database,
 ): Promise<void> {
 	if (!organizationId.trim())
 		throw new DataResidencyError(
@@ -16,7 +20,10 @@ export async function requireUnrestrictedModelEgress(
 		);
 	let policy;
 	try {
-		policy = await getOrganizationResidencyPolicy(db, organizationId);
+		policy = await getOrganizationResidencyPolicy(
+			binding ? createDbQueryClient(binding) : db,
+			organizationId,
+		);
 	} catch {
 		throw new DataResidencyError(
 			"RESIDENCY_POLICY_UNAVAILABLE",
@@ -31,16 +38,15 @@ export async function requireUnrestrictedModelEgress(
 }
 
 /** Bind legacy model helpers to their actual organization without changing shared Worker env. */
-export function organizationModelEnv<T extends { AI?: unknown }>(
-	env: T,
-	db: DbQueryClient,
-	organizationId: string,
-): T {
+export function organizationModelEnv<
+	T extends { AI?: unknown; DB?: D1Database },
+>(env: T, db: DbQueryClient, organizationId: string): T {
 	const check = () =>
 		requireUnrestrictedModelEgress(
 			db,
 			organizationId,
 			"This auxiliary model feature",
+			env.DB,
 		);
 	const scoped = { ...env };
 	checks.set(scoped, check);

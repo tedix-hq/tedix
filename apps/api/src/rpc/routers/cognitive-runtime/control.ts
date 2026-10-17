@@ -85,6 +85,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				context.db,
 				tedi.organizationId,
 				"Speech transcription",
+				context.env.DB,
 			);
 		const { content: dispatchContent, voiceTranscript } = isInboxWakeTurn
 			? {

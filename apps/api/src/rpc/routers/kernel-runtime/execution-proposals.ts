@@ -444,6 +444,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				context.db,
 				organizationId,
 				"Speech transcription",
+				context.env.DB,
 			);
 		const { content: turnContent, voiceTranscript } =
 			await resolveVoiceMessageContent({

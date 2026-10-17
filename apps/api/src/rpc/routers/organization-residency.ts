@@ -1,3 +1,4 @@
+import { createDbClient } from "@tedix/db/client";
 import { implement, ORPCError } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
 import {
@@ -13,13 +14,17 @@ import {
 import { AUTHZ, withAuth, type BaseContext } from "../orpc";
 import { requireOrgId } from "../org-scope";
 
+function primaryResidencyDb(context: BaseContext) {
+	return context.env.DB ? createDbClient(context.env.DB) : context.db;
+}
+
 const os = implement(organizationsContract).$context<BaseContext>();
 export const getDataResidency = os.getDataResidency
 	.use(withAuth)
 	.use(AUTHZ.settingsRead)
 	.handler(async ({ context }) => {
 		const row = await getOrganizationResidencyPolicy(
-			context.db,
+			primaryResidencyDb(context),
 			requireOrgId(context),
 		);
 		return (
@@ -43,11 +48,15 @@ export const setDataResidency = os.setDataResidency
 			});
 		const member = context.userId
 			? await getMemberByCanonicalUserId(
-					context.db,
+					primaryResidencyDb(context),
 					organizationId,
 					context.userId,
 				)
-			: await getMemberByUserId(context.db, organizationId, context.user.sub);
+			: await getMemberByUserId(
+					primaryResidencyDb(context),
+					organizationId,
+					context.user.sub,
+				);
 		if (
 			member?.status !== "active" ||
 			!["owner", "admin"].includes(member.role)
@@ -77,7 +86,9 @@ export const setDataResidency = os.setDataResidency
 export const listResidencyProviderCatalog = os.listResidencyProviderCatalog
 	.use(withAuth)
 	.use(AUTHZ.platformAdmin)
-	.handler(({ context }) => listResidencyProviders(context.db));
+	.handler(({ context }) =>
+		listResidencyProviders(primaryResidencyDb(context)),
+	);
 export const publishResidencyProviderVersion =
 	os.publishResidencyProviderVersion
 		.use(withAuth)

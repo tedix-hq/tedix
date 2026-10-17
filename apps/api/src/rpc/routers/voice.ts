@@ -70,6 +70,7 @@ export const voiceContractRouter = voiceOs.router({
 					context.db,
 					organizationId,
 					"Speech synthesis",
+					context.env.DB,
 				);
 				const speech = await synthesizeSpeech(
 					context.env as unknown as VoiceTtsEnv,

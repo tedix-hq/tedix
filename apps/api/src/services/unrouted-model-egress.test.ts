@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 const policy = vi.hoisted(() => vi.fn());
+const primaryDb = vi.hoisted(() => ({}));
+vi.mock("@tedix/db/query-client", () => ({
+	createDbQueryClient: () => primaryDb,
+}));
 vi.mock("@tedix/db/queries/data-residency", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
 	getOrganizationResidencyPolicy: policy,
@@ -21,6 +25,17 @@ beforeEach(() => {
 	policy.mockResolvedValue({ mode: "eu", revision: 1 });
 });
 describe("auxiliary model egress under organization residency", () => {
+	it("ignores a caller bookmark when checking the primary policy", async () => {
+		const send = vi.fn();
+		const scoped = organizationModelEnv(
+			{ AI: { run: send }, DB: {} as D1Database },
+			{} as never,
+			"org_lark",
+		);
+		await expect(scoped.AI.run()).rejects.toThrow("EU_PROVIDER_ROUTE_REQUIRED");
+		expect(policy.mock.calls[0]?.[0]).toBe(primaryDb);
+		expect(send).not.toHaveBeenCalled();
+	});
 	it("blocks direct learning and judging transports for EU without altering shared env or another organization", async () => {
 		const send = vi.fn(async () => ({ response: "fictional response" }));
 		const env = { AI: { run: send } };
