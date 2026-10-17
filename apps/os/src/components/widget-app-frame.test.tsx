@@ -12,7 +12,10 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("official bridge frame lifecycle", () => {
 	it("replays StrictMode safely, initializes theme/permissions, orders data and cleans up", async () => {
-		// happy-dom replaces Window objects on navigation; browsers retain WindowProxy.
+		// Keep a stable Window without navigating to Happy DOM's localhost page.
+		vi.spyOn(HTMLIFrameElement.prototype, "src", "get").mockReturnValue(
+			"about:blank",
+		);
 		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(
 			() => {},
 		);

@@ -1,5 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vite-plus/test";
+// The loopback binding lazily imports this graph on its first request.
+import "./index";
 
 // The runtime exposes a module Worker's default object handler here, while the
 // generated loopback type only enumerates RPC-compatible named exports.

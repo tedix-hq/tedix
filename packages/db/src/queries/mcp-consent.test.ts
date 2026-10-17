@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { appCatalog } from "../schema/catalog";
 import { apps } from "../schema/apps";
@@ -36,6 +36,7 @@ const GRANTS_MIGRATION = readFileSync(
 
 function fixture(options: { grants?: boolean } = {}) {
 	const sqlite = new DatabaseSync(":memory:");
+	onTestFinished(() => sqlite.close());
 	sqlite.exec(schemaDdl(mcpConsentSelections));
 	if (options.grants !== false) sqlite.exec(schemaDdl(mcpConsentGrants));
 	sqlite.exec(schemaDdl(mcpConsentPending));
@@ -339,6 +340,9 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 	});
 
 	it(`keeps at most ${MAX_MCP_CONSENT_GRANTS_PER_CLIENT} newest grants per client`, async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
+		onTestFinished(() => vi.useRealTimers());
 		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);
 		let expected = "old";
@@ -362,7 +366,7 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 			).toBe(true);
 			expected = revision;
 			// Distinct creation timestamps order the grants deterministically.
-			await new Promise((resolve) => setTimeout(resolve, 2));
+			vi.setSystemTime(Date.now() + 1);
 		}
 		const grants = await listMcpConsentGrants(db, key);
 		expect(grants).toHaveLength(MAX_MCP_CONSENT_GRANTS_PER_CLIENT);
