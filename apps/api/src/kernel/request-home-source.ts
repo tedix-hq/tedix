@@ -59,7 +59,7 @@ export async function captureHomeKernelRequest(
 		return;
 	}
 	const policy = await readKernelRequestPolicy(context, p.organizationId);
-	if (!policy) {
+	if (!policy || policy.homeCaptureEnabled === false) {
 		if (p.checks?.length)
 			throw new Error("Kernel request acceptance is not configured");
 		return;

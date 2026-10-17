@@ -1,6 +1,9 @@
 import { createRouterClient } from "@orpc/server";
 import { LOCAL_DEMO_PROJECT_ID } from "@tedix/auth/local-demo";
 import * as skillCrudQueries from "@tedix/db/queries/cognitive/skill-crud";
+import * as kernelRequestQueries from "@tedix/db/queries/kernel-requests";
+import * as kernelRequestSource from "../../kernel/request-home-source";
+import { receivedKernelRequest } from "../../kernel/request-coordinator";
 import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution-evidence";
 import {
 	findWorkItemsBlockedBy,
@@ -2219,6 +2222,9 @@ describe("kernel runtime router", () => {
 	});
 
 	afterEach(() => {
+		vi.mocked(kernelRequestQueries.getHomeKernelRequest).mockRestore?.();
+		vi.mocked(kernelRequestSource.readKernelRequestPolicy).mockRestore?.();
+		vi.mocked(kernelRequestSource.reconcileHomeKernelRequest).mockRestore?.();
 		kernelRuntimeTestHooks.setDelegateRunnerForTest(null);
 		kernelRuntimeTestHooks.setChildSteerForwarderForTest(null);
 		kernelRuntimeTestHooks.setChildStopperForTest(null);
@@ -4803,169 +4809,236 @@ describe("kernel runtime router", () => {
 		);
 	});
 
-	it("reconciles terminal child status back onto the durable Home run row", async () => {
-		const db = createKernelRuntimeDb();
-		const client = createKernelRuntimeClient(createContext(db));
-		kernelRuntimeTestHooks.setDelegateRunnerForTest(async (input) => ({
-			childConversationId: "agent:main:main",
-			childRunId: input.childRunId,
-			status: "queued",
-		}));
+	it.each(["untracked", "unchecked", "checked", "paused"])(
+		"reconciles terminal child status and preserves the source reply (%s)",
+		async (mode) => {
+			const db = createKernelRuntimeDb();
+			const client = createKernelRuntimeClient(createContext(db));
+			kernelRuntimeTestHooks.setDelegateRunnerForTest(async (input) => ({
+				childConversationId: "agent:main:main",
+				childRunId: input.childRunId,
+				status: "queued",
+			}));
 
-		await client.enqueueMessage({
-			conversationId: "home:test",
-			content: "Ask Echo to finish",
-			delegateToTediId: "tedi-echo",
-			idempotencyKey: "home-run-terminal-1",
-		});
-		const finalAnswer =
-			"Echo checked the requested data and found no discrepancies.";
-		db.runtimeEvents.push(
-			childRuntimeEvent({
-				createdAt: "2026-06-06T08:01:59.000Z",
-				id: "runtime-child-final-terminal",
+			await client.enqueueMessage({
+				conversationId: "home:test",
+				content: "Ask Echo to finish",
+				delegateToTediId: "tedi-echo",
+				idempotencyKey: "home-run-terminal-1",
+			});
+			const finalAnswer =
+				"Echo checked the requested data and found no discrepancies.";
+			if (mode !== "untracked") {
+				const row = db.runs.find((r) => r.id === "home-run-terminal-1")!;
+				row.metadata = {
+					...row.metadata,
+					kernelRequestId: "home:home-run-terminal-1",
+				};
+				const request = {
+					id: "home:home-run-terminal-1",
+					organizationId: ORG_ID,
+					ownerUserId: "user-1",
+					sourceKind: "home" as const,
+					sourceId: row.id,
+					conversationId: row.conversationId,
+					version: 1,
+					snapshot: {
+						...receivedKernelRequest(),
+						checks:
+							mode === "checked"
+								? [
+										{
+											kind: "os_output_revision" as const,
+											outputId: "output-one",
+											revisionId: "revision-one",
+										},
+									]
+								: [],
+					},
+					nextOwner: "kernel",
+					nextAction: "file_request",
+					nextDueAt: row.createdAt,
+					lastEventId: "received",
+					createdAt: row.createdAt,
+					updatedAt: row.createdAt,
+				};
+				vi.spyOn(
+					kernelRequestQueries,
+					"getHomeKernelRequest",
+				).mockResolvedValue(request);
+				vi.spyOn(
+					kernelRequestSource,
+					"readKernelRequestPolicy",
+				).mockResolvedValue(
+					mode === "paused"
+						? null
+						: {
+								version: 1,
+								enabled: true,
+								nextOwner: "kernel",
+								retryMs: 1000,
+								probeTimeoutMs: 1000,
+								maxProbeAttempts: 3,
+								runBudgetMs: 1000,
+								repositoryTargets: [],
+							},
+				);
+				vi.spyOn(
+					kernelRequestSource,
+					"reconcileHomeKernelRequest",
+				).mockResolvedValue(request);
+			}
+			db.runtimeEvents.push(
+				childRuntimeEvent({
+					createdAt: "2026-06-06T08:01:59.000Z",
+					id: "runtime-child-final-terminal",
+					kind: "message.completed",
+					messageId: "echo-terminal-final",
+					payload: { role: "assistant", content: finalAnswer },
+					runId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
+					tediId: "tedi-echo",
+				}),
+				{
+					artifactId: null,
+					approvalRequestId: null,
+					conversationId: "agent:main:main",
+					createdAt: "2026-06-06T08:01:00.000Z",
+					delta: null,
+					id: "runtime-child-started-terminal",
+					kind: "run.started",
+					messageId: null,
+					organizationId: ORG_ID,
+					payload: { status: "running" },
+					runId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
+					runtimeBackend: "cloudflare-agents",
+					runtimeExternalId: null,
+					runtimeExternalUrl: null,
+					runtimeMetadata: null,
+					sequence: null,
+					tediId: "tedi-echo",
+					toolCallId: null,
+				},
+				{
+					artifactId: null,
+					approvalRequestId: null,
+					conversationId: "agent:main:main",
+					createdAt: "2026-06-06T08:02:00.000Z",
+					delta: "Echo terminal proof.",
+					id: "runtime-child-completed-terminal",
+					kind: "run.completed",
+					messageId: null,
+					organizationId: ORG_ID,
+					payload: { status: "completed", content: "Echo terminal proof." },
+					runId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
+					runtimeBackend: "cloudflare-agents",
+					runtimeExternalId: null,
+					runtimeExternalUrl: null,
+					runtimeMetadata: null,
+					sequence: null,
+					tediId: "tedi-echo",
+					toolCallId: null,
+				},
+			);
+
+			const result = await client.readRunSet({
+				conversationId: "home:test",
+				limit: 10,
+			});
+
+			expect(result.runSet.activeRunIds).toEqual([]);
+			expect(result.runSet.runs[0]).toMatchObject({
+				id: "home-run-terminal-1",
+				status: "completed",
+				completedAt: "2026-06-06T08:02:00.000Z",
+				progress: {
+					current: 100,
+					label: "Complete",
+				},
+				metadata: {
+					childRunLatestEventKind: "run.completed",
+					childRunPreview: finalAnswer,
+					childRunStatus: "completed",
+				},
+			});
+			expect(db.runs[0]).toMatchObject({
+				id: "home-run-terminal-1",
+				status: "completed",
+				completedAt: "2026-06-06T08:02:00.000Z",
+				latestEventKind: "run.completed",
+				latestEventAt: "2026-06-06T08:02:00.000Z",
+				preview: finalAnswer,
+				progressLabel: "Complete",
+				progressValue: 100,
+			});
+			expect(db.submissionSettleCalls).toContainEqual({
+				submissionId: "sub:home-run-terminal-1",
+				outcome: "settled",
+			});
+			expect(db.runs[0]?.outputMessageId).toBe(
+				"home-run-terminal-1:async-completion:assistant",
+			);
+			const completionMessages = db.events.filter(
+				(event) =>
+					event.messageId === "home-run-terminal-1:async-completion:assistant",
+			);
+			expect(completionMessages).toHaveLength(1);
+			expect(completionMessages[0]).toMatchObject({
 				kind: "message.completed",
-				messageId: "echo-terminal-final",
-				payload: { role: "assistant", content: finalAnswer },
-				runId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
-				tediId: "tedi-echo",
-			}),
-			{
-				artifactId: null,
-				approvalRequestId: null,
-				conversationId: "agent:main:main",
-				createdAt: "2026-06-06T08:01:00.000Z",
-				delta: null,
-				id: "runtime-child-started-terminal",
-				kind: "run.started",
-				messageId: null,
-				organizationId: ORG_ID,
-				payload: { status: "running" },
-				runId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
-				runtimeBackend: "cloudflare-agents",
-				runtimeExternalId: null,
-				runtimeExternalUrl: null,
-				runtimeMetadata: null,
-				sequence: null,
-				tediId: "tedi-echo",
-				toolCallId: null,
-			},
-			{
-				artifactId: null,
-				approvalRequestId: null,
-				conversationId: "agent:main:main",
-				createdAt: "2026-06-06T08:02:00.000Z",
-				delta: "Echo terminal proof.",
-				id: "runtime-child-completed-terminal",
-				kind: "run.completed",
-				messageId: null,
-				organizationId: ORG_ID,
-				payload: { status: "completed", content: "Echo terminal proof." },
-				runId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
-				runtimeBackend: "cloudflare-agents",
-				runtimeExternalId: null,
-				runtimeExternalUrl: null,
-				runtimeMetadata: null,
-				sequence: null,
-				tediId: "tedi-echo",
-				toolCallId: null,
-			},
-		);
+				conversationId: "home:test",
+				delegatedTediId: "tedi-echo",
+				childRunId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
+				payload: {
+					role: "assistant",
+					content: finalAnswer,
+					metadata: {
+						asyncCompletion: true,
+						childRunStatus: "completed",
+						childRunLatestEventKind: "run.completed",
+						source: "kernelRuntime.delegationCompletion",
+					},
+				},
+			});
 
-		const result = await client.readRunSet({
-			conversationId: "home:test",
-			limit: 10,
-		});
+			expect(completionMessages[0]?.payload?.metadata).not.toHaveProperty(
+				"delegationProof",
+			);
 
-		expect(result.runSet.activeRunIds).toEqual([]);
-		expect(result.runSet.runs[0]).toMatchObject({
-			id: "home-run-terminal-1",
-			status: "completed",
-			completedAt: "2026-06-06T08:02:00.000Z",
-			progress: {
-				current: 100,
-				label: "Complete",
-			},
-			metadata: {
-				childRunLatestEventKind: "run.completed",
-				childRunPreview: finalAnswer,
-				childRunStatus: "completed",
-			},
-		});
-		expect(db.runs[0]).toMatchObject({
-			id: "home-run-terminal-1",
-			status: "completed",
-			completedAt: "2026-06-06T08:02:00.000Z",
-			latestEventKind: "run.completed",
-			latestEventAt: "2026-06-06T08:02:00.000Z",
-			preview: finalAnswer,
-			progressLabel: "Complete",
-			progressValue: 100,
-		});
-		expect(db.submissionSettleCalls).toContainEqual({
-			submissionId: "sub:home-run-terminal-1",
-			outcome: "settled",
-		});
-		const completionMessages = db.events.filter(
-			(event) =>
-				event.messageId === "home-run-terminal-1:async-completion:assistant",
-		);
-		expect(completionMessages).toHaveLength(1);
-		expect(completionMessages[0]).toMatchObject({
-			kind: "message.completed",
-			conversationId: "home:test",
-			delegatedTediId: "tedi-echo",
-			childRunId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
-			payload: {
+			await client.readRunSet({
+				conversationId: "home:test",
+				limit: 10,
+			});
+			expect(
+				db.events.filter(
+					(event) =>
+						event.messageId ===
+						"home-run-terminal-1:async-completion:assistant",
+				),
+			).toHaveLength(1);
+
+			const messages = await client.readMessages({
+				conversationId: "home:test",
+				limit: 10,
+			});
+			expect(
+				messages.messages.find(
+					(message) =>
+						message.id === "home-run-terminal-1:async-completion:assistant",
+				),
+			).toMatchObject({
+				id: "home-run-terminal-1:async-completion:assistant",
+				delegatedTediId: "tedi-echo",
+				childRunId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
 				role: "assistant",
 				content: finalAnswer,
 				metadata: {
-					asyncCompletion: true,
-					childRunStatus: "completed",
-					childRunLatestEventKind: "run.completed",
-					source: "kernelRuntime.delegationCompletion",
+					metadata: {
+						asyncCompletion: true,
+						childRunStatus: "completed",
+					},
 				},
-			},
-		});
-
-		expect(completionMessages[0]?.payload?.metadata).not.toHaveProperty(
-			"delegationProof",
-		);
-
-		await client.readRunSet({
-			conversationId: "home:test",
-			limit: 10,
-		});
-		expect(
-			db.events.filter(
-				(event) =>
-					event.messageId === "home-run-terminal-1:async-completion:assistant",
-			),
-		).toHaveLength(1);
-
-		const messages = await client.readMessages({
-			conversationId: "home:test",
-			limit: 10,
-		});
-		expect(
-			messages.messages.find(
-				(message) =>
-					message.id === "home-run-terminal-1:async-completion:assistant",
-			),
-		).toMatchObject({
-			id: "home-run-terminal-1:async-completion:assistant",
-			delegatedTediId: "tedi-echo",
-			childRunId: "tedi-echo:mcp:home-run-terminal-1_delegate_tedi-echo",
-			role: "assistant",
-			content: finalAnswer,
-			metadata: {
-				metadata: {
-					asyncCompletion: true,
-					childRunStatus: "completed",
-				},
-			},
-		});
-	});
+			});
+		},
+	);
 
 	it("skips live child-evidence queries for terminal runs (fan-out bound)", async () => {
 		// 20 delegation runs all in terminal state with their async-completion

@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import type { KernelRequestPolicy } from "@tedix/api-contract/schemas/kernel-request";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -40,7 +41,7 @@ const config = vi.hoisted(() => ({
 		maxProbeAttempts: 3,
 		runBudgetMs: 1000,
 		repositoryTargets: [],
-	},
+	} as KernelRequestPolicy,
 }));
 vi.mock("@tedix/db/queries/kernel-runtime-support", () => ({
 	getActivePolicyPackDefinition: async () => ({
@@ -189,6 +190,68 @@ describe("Home request source adapter", () => {
 		expect(await db.select().from(workItemComments)).toHaveLength(1);
 		expect(final.nextOwner).toBe("kernel-example");
 		expect(final.nextDueAt).not.toBeNull();
+	});
+	it("captures all conversations by default and restricts new capture to a configured cohort", async () => {
+		const { context, db } = await fixture();
+		const capture = (runId: string, conversationId: string) =>
+			captureHomeKernelRequest(context, {
+				organizationId: "org-example",
+				runId,
+				conversationId,
+			});
+		expect(await capture("run-two", "home-two")).toBe("home:run-two");
+		config.value.homeConversationIds = ["home-one"];
+		try {
+			expect(await capture("run-three", "home-three")).toBeUndefined();
+			expect(await capture("run-four", "home-one")).toBe("home:run-four");
+			config.value.homeConversationIds = [];
+			expect(await capture("run-five", "home-one")).toBeUndefined();
+			expect(
+				await getHomeKernelRequest(db, "org-example", "run-three"),
+			).toBeUndefined();
+		} finally {
+			delete config.value.homeConversationIds;
+		}
+	});
+	it("rolls back new capture while draining existing requests outside the restored cohort", async () => {
+		const { context, db } = await fixture();
+		config.value.homeCaptureEnabled = false;
+		config.value.homeConversationIds = [];
+		try {
+			expect(
+				await captureHomeKernelRequest(context, {
+					organizationId: "org-example",
+					runId: "run-disabled",
+					conversationId: "home-two",
+				}),
+			).toBeUndefined();
+			await expect(
+				captureHomeKernelRequest(context, {
+					organizationId: "org-example",
+					runId: "run-disabled-checks",
+					conversationId: "home-two",
+					checks: [
+						{
+							kind: "os_output_revision",
+							outputId: "output-one",
+							revisionId: "revision-one",
+						},
+					],
+				}),
+			).rejects.toThrow("not configured");
+			expect(
+				await getHomeKernelRequest(db, "org-example", "run-disabled"),
+			).toBeUndefined();
+			await db.update(kernelRequests).set({ nextDueAt: now });
+			await reconcileDueHomeKernelRequests(context, "org-example");
+			expect(
+				(await getHomeKernelRequest(db, "org-example", "run-one"))?.snapshot
+					.state,
+			).toBe("learned");
+		} finally {
+			delete config.value.homeCaptureEnabled;
+			delete config.value.homeConversationIds;
+		}
 	});
 	it("keeps paused requests owned while yielding the bounded tenant recovery scan", async () => {
 		const { context, db } = await fixture();

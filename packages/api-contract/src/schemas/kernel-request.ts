@@ -79,7 +79,17 @@ export const KernelRequestPolicySchema = z
 	.object({
 		version: z.literal(1),
 		enabled: z.boolean(),
-		homeConversationIds: z.array(identity).max(100).optional(),
+		homeCaptureEnabled: z
+			.boolean()
+			.optional()
+			.describe("False stops new Home capture while existing requests drain."),
+		homeConversationIds: z
+			.array(identity)
+			.max(100)
+			.optional()
+			.describe(
+				"Omit for all Home conversations; an empty list captures none.",
+			),
 		localSessionKeys: z.array(identity).max(100).optional(),
 		nextOwner: identity,
 		retryMs: z.number().int().min(1000).max(3_600_000),

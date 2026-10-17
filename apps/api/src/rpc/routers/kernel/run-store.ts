@@ -7,7 +7,6 @@
  */
 
 import { kernelSpanContext } from "./gateway-attribution";
-import { kernelRequestReportMessageId } from "../../../kernel/request-coordinator";
 import { createRouterClient } from "@orpc/server";
 import type {
 	TediRunStatus,
@@ -1214,13 +1213,10 @@ export async function reconcileHomeRunRowsFromChildStatus(
 			const nextProgressDetail = run.progress?.detail ?? null;
 			const nextCompletedAt = run.completedAt ?? null;
 			const nextUpdatedAt = run.updatedAt ?? row.updatedAt ?? row.createdAt;
-			// The terminal execution points to its source report; request acceptance
-			// can still be pending after the child finishes.
+			// The execution reply remains readable while target acceptance is pending.
 			const nextOutputMessageId =
 				terminal && row.delegatedTediId && row.childRunId
-					? typeof row.metadata?.kernelRequestId === "string"
-						? kernelRequestReportMessageId(row.id)
-						: asyncCompletionAssistantMessageId(row.id)
+					? asyncCompletionAssistantMessageId(row.id)
 					: (row.outputMessageId ?? null);
 			const nextRow = {
 				...row,
@@ -1879,7 +1875,6 @@ async function recordHomeDelegationCompletionMessage(
 			input.row.organizationId,
 		);
 		if (policy) await reconcileHomeKernelRequest(context, request, policy);
-		return;
 	}
 	const messageId = asyncCompletionAssistantMessageId(input.row.id);
 	// Relay-first (harness contract): the child's final assistant message IS
