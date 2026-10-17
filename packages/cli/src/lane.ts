@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { briefRepository } from "@tedix/context-core/situational-recall";
+import { repoSlug } from "./hooks/prompt-context";
 import { spawnSync } from "node:child_process";
 import {
 	mkdirSync,
@@ -11,8 +13,39 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getCurrentWorkspace } from "./credential-store";
 import { selfCommand } from "./shared";
+import { cliRead } from "./hooks/hook-io";
+import { recallForSituation } from "./hooks/situational-recall";
+
+export async function prefixLaneBrief(
+	brief: string,
+	scope: string[],
+	harness: string,
+	expectedOrganizationId?: string,
+): Promise<{ brief: string; recall: string; recallStatus: string }> {
+	try {
+		const recall = await recallForSituation(
+			{
+				env: process.env,
+				stdin: "{}",
+				cwd: process.cwd(),
+				read: cliRead,
+				write: () => {},
+			},
+			{ text: brief },
+			{ scope, harness, expectedOrganizationId },
+		);
+		return {
+			brief: recall ? `${recall}\n\n${brief}` : brief,
+			recall,
+			recallStatus: recall ? "matched" : "none",
+		};
+	} catch {
+		return { brief, recall: "", recallStatus: "unavailable" };
+	}
+}
 
 export const laneUsage = `tedix lane start "<title>" --project <id> [--work-item <id>]
+tedix lane brief <brief-file> [--host codex|claude]  # enriched brief for launchers
 tedix lane done|fail "<note>" [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
 
 Run inside the lane's own Codex/Claude session after tedix agent start.
@@ -39,6 +72,9 @@ type Lane = {
 	session: string;
 	phase?: "created" | "accepted" | "running" | "settled";
 	result?: Record<string, unknown>;
+	projectId?: string;
+	attemptId?: string;
+	repo?: string;
 };
 function lanePath(session: string, scope: string[], env: NodeJS.ProcessEnv) {
 	const dir = join(env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"), "lanes");
@@ -77,7 +113,10 @@ export async function runLane(args: string[]): Promise<number> {
 	const positional: string[] = [],
 		scope: string[] = [],
 		commits: string[] = [];
-	let project: string | undefined, existing: string | undefined;
+	let project: string | undefined,
+		existing: string | undefined,
+		briefFile: string | undefined,
+		host: string | undefined;
 	let needsUser: string | undefined, requestId: string | undefined;
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i]!;
@@ -91,6 +130,8 @@ export async function runLane(args: string[]): Promise<number> {
 				"--commit",
 				"--needs-user",
 				"--request-id",
+				"--brief-file",
+				"--host",
 			].includes(arg)
 		) {
 			const value = args[++i];
@@ -104,6 +145,8 @@ export async function runLane(args: string[]): Promise<number> {
 				if (!needsUser)
 					throw new Error("--needs-user needs an exact next click");
 			} else if (arg === "--request-id") requestId = value;
+			else if (arg === "--brief-file") briefFile = value;
+			else if (arg === "--host") host = value;
 			else scope.push(arg === "-w" ? "--workspace" : arg, value);
 		} else if (arg.startsWith("--"))
 			throw new Error(`Unknown lane option ${arg}`);
@@ -126,12 +169,36 @@ export async function runLane(args: string[]): Promise<number> {
 		scope.length,
 		...[...selectors].sort(([a], [b]) => a.localeCompare(b)).flat(),
 	);
+	if (positional[0] === "brief") {
+		const file = positional[1];
+		if (!file || positional.length !== 2)
+			throw new Error("lane brief requires one brief file");
+		const brief = readFileSync(file, "utf8");
+		if (brief.length > 1_048_576) throw new Error("Lane brief exceeds 1 MB");
+		const result = await prefixLaneBrief(
+			brief,
+			scope,
+			host === "claude" ? "claude-code" : "codex",
+		);
+		console.log(result.brief);
+		return 0;
+	}
 	const path = lanePath(session, scope, process.env);
 	let lane: Lane | undefined;
 	try {
 		lane = JSON.parse(readFileSync(path, "utf8")) as Lane;
 	} catch {}
 	const [verb, ...words] = positional;
+	const brief = briefFile ? readFileSync(briefFile, "utf8") : words.join(" ");
+	if (brief.length > 1_048_576) throw new Error("Lane brief exceeds 1 MB");
+	const recalled =
+		verb === "start"
+			? await prefixLaneBrief(
+					brief,
+					scope,
+					session.startsWith("codex:") ? "codex" : "claude-code",
+				)
+			: undefined;
 	const note =
 		words.join(" ").trim() || (needsUser ? "Lane result ready." : "");
 	if (verb === "start") {
@@ -144,7 +211,7 @@ export async function runLane(args: string[]): Promise<number> {
 				);
 			if (!lane.phase || lane.phase === "running") {
 				work(["heartbeat", lane.id], lane);
-				console.log(JSON.stringify(lane));
+				console.log(JSON.stringify({ ...lane, ...recalled }));
 				return 0;
 			}
 			if (lane.phase === "settled")
@@ -176,10 +243,21 @@ export async function runLane(args: string[]): Promise<number> {
 			lane.phase = "accepted";
 			writeFileSync(path, JSON.stringify(lane), { mode: 0o600 });
 		}
-		work(["start", lane.id, "--lane"], lane);
+		const started = work(["start", lane.id, "--lane"], lane);
+		lane.projectId = project;
+		lane.attemptId = String(
+			(started.attempt as Record<string, unknown> | undefined)?.id ?? lane.id,
+		);
+		lane.repo =
+			repoSlug(
+				spawnSync("git", ["config", "--get", "remote.origin.url"], {
+					encoding: "utf8",
+					timeout: 1000,
+				}).stdout,
+			) ?? briefRepository(brief);
 		lane.phase = "running";
 		writeFileSync(path, JSON.stringify(lane), { mode: 0o600 });
-		console.log(JSON.stringify(lane));
+		console.log(JSON.stringify({ ...lane, ...recalled }));
 	} else if (verb === "done" || verb === "fail") {
 		if (!lane?.id || !note)
 			throw new Error("lane settlement needs a registered lane and note");
@@ -200,6 +278,34 @@ export async function runLane(args: string[]): Promise<number> {
 			);
 			lane.phase = "settled";
 			writeFileSync(path, JSON.stringify(lane), { mode: 0o600 });
+		}
+		if (verb === "fail" && lane.projectId) {
+			const input = {
+				eventId: `${lane.attemptId ?? lane.id}:fail`,
+				reason: note,
+				occurredAt: new Date().toISOString(),
+				projectId: lane.projectId,
+				repo: lane.repo,
+				actor: {
+					sessionId: lane.session,
+					harness: lane.session.split(":")[0],
+					hookTrust: "unknown",
+					dispatchPath: "tedix lane start",
+					delivery: "unknown",
+				},
+			};
+			const result = command(
+				[
+					...lane.scope,
+					"code",
+					`async () => await agent.record_lesson_incident(${JSON.stringify(input)})`,
+				],
+				{ ...process.env, TEDIX_AGENT_SESSION: lane.session },
+			);
+			if (result.status !== 0)
+				console.error(
+					"Incident recall unavailable; lane failure is still settled.",
+				);
 		}
 		unlinkSync(path);
 		console.log(

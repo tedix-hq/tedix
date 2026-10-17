@@ -2541,7 +2541,21 @@ async function workHandoff(
 		throw new Error(
 			`work handoff requires an accepted Work Item; inspect ${id} with work context`,
 		);
-	const prompt = `Continue Tedix Work Item ${id} in CLI workspace ${ctx.workspace}. Read its current context and readiness through tedix first. Establish your own verified external-agent identity and Agent-Session before any Work mutation. Start or resume only your own admitted Attempt, then heartbeat, settle, and complete it under the Work protocol. The launcher did not transfer an Attempt, credential, or permission to act.`;
+	let prompt = `Continue Tedix Work Item ${id} in CLI workspace ${ctx.workspace}. Read its current context and readiness through tedix first. Establish your own verified external-agent identity and Agent-Session before any Work mutation. Start or resume only your own admitted Attempt, then heartbeat, settle, and complete it under the Work protocol. The launcher did not transfer an Attempt, credential, or permission to act.`;
+	const { prefixLaneBrief } = await import("./lane");
+	const recalled = await prefixLaneBrief(
+		`${String(item.title ?? "")}\n${String(item.description ?? "")}`,
+		[
+			"-w",
+			ctx.workspace,
+			...(process.env.TEDIX_ORGANIZATION
+				? ["--organization", process.env.TEDIX_ORGANIZATION]
+				: []),
+		],
+		host === "claude" ? "claude-code" : "codex",
+		ctx.organizationId,
+	);
+	if (recalled.recall) prompt = `${recalled.recall}\n\n${prompt}`;
 	if (targetChat) {
 		const target = `codex:${targetChat}`;
 		const binding = ctx.resolveContext

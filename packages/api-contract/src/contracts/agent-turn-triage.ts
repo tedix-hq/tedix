@@ -4,6 +4,11 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
+	UpdateLessonTriggersInputSchema,
+	BackfillLessonTriggersInputSchema,
+	BackfillLessonTriggersResultSchema,
+	RecordLessonIncidentInputSchema,
+	RecordLessonIncidentResultSchema,
 	GetAgentSessionLessonsInputSchema,
 	GetAgentSessionLessonsResultSchema,
 	GetLessonEffectivenessInputSchema,
@@ -184,6 +189,30 @@ export const agentTurnTriageContract = oc
 			.input(GetDecisionCaptureHealthInputSchema)
 			.output(GetDecisionCaptureHealthResultSchema),
 
+		updateLessonTriggers: oc
+			.route({
+				method: "POST",
+				path: "/session-lessons/triggers",
+				summary: "Edit an approved lesson's situational triggers",
+			})
+			.input(UpdateLessonTriggersInputSchema)
+			.output(BackfillLessonTriggersResultSchema),
+		backfillLessonTriggers: oc
+			.route({
+				method: "POST",
+				path: "/session-lessons/triggers/backfill",
+				summary: "Backfill missing lesson triggers with a small model",
+			})
+			.input(BackfillLessonTriggersInputSchema)
+			.output(BackfillLessonTriggersResultSchema),
+		recordLessonIncident: oc
+			.route({
+				method: "POST",
+				path: "/session-lessons/incidents",
+				summary: "Record a recurring incident and propose delivery-gap Work",
+			})
+			.input(RecordLessonIncidentInputSchema)
+			.output(RecordLessonIncidentResultSchema),
 		getSessionLessons: oc
 			.route({
 				method: "POST",

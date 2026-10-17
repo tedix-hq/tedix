@@ -27,7 +27,8 @@
 		"./tokens": "./src/tokens.ts",
 		"./trace-safety": "./src/trace-safety.ts",
 		"./types": "./src/types.ts",
-		"./work-provenance": "./src/work-provenance.ts"
+		"./work-provenance": "./src/work-provenance.ts",
+		"./situational-recall": "./src/situational-recall.ts"
 	},
 	"scripts": {
 		"clean": "true",

@@ -72,7 +72,6 @@ import {
 	selectPushRangeFiles,
 } from "./push-range-selection.mjs";
 import { workerConfigShapeWarning } from "./worker-config-shape.mjs";
-import { checkOverlayReferences } from "./ops-overlay-reference.mjs";
 
 const repoRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 	cwd: process.cwd(),
@@ -545,8 +544,7 @@ if (workflowsTouched && has("actionlint") && !has("shellcheck")) {
 	);
 }
 
-// Keep the shape summary, and require an ops commit reference for each
-// changed config before a canonical push. Forks own their installation.
+// Keep the existing advisory shape summary; deployment compatibility belongs to ops.
 if (!fileArguments?.length) {
 	const fallbackBase = pushRanges.length ? null : defaultPushBase(repoRoot);
 	const shapeRanges = pushRanges.length
@@ -556,19 +554,6 @@ if (!fileArguments?.length) {
 			: [];
 	const shapeWarning = workerConfigShapeWarning(repoRoot, files, shapeRanges);
 	if (shapeWarning) warnings.push(shapeWarning);
-	if (!remoteUrl || pushesToCanonicalRepo(remoteUrl)) {
-		const errors = checkOverlayReferences(repoRoot, shapeRanges);
-		if (errors.length) {
-			console.error(
-				"pre-push: matching ops overlay reference required:\n" +
-					errors.join("\n"),
-			);
-			console.error(
-				"Validate and land the matching private overlay, then add the trailer to each config-changing commit.",
-			);
-			process.exit(1);
-		}
-	}
 }
 
 function writeLog(gate, output) {

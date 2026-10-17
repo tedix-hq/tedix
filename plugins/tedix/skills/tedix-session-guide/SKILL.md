@@ -213,3 +213,12 @@ for an explicitly authorized task described above. Keep broad Tedix recording
 off unless separately designed and authorized. The only designed recording is
 decision capture, which the operator enables per organization with
 `tedix setup agents context enable-decision-capture`; never enable it for them.
+
+## Launch a local lane with relevant brain lessons
+
+Before dispatch, use `tedix lane brief <brief-file> --host codex` (or `claude`)
+and pass the returned text as the lane prompt. This recalls matching approved
+lessons independently of hook trust. `tedix lane start` prints matching lessons
+and an enriched brief too; pass `--brief-file` when the title omits relevant
+paths. `work handoff --launch` adds recall to its prompt automatically. Recall
+is advisory context, never an admission grant or a blocking gate.

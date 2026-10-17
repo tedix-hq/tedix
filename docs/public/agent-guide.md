@@ -361,3 +361,40 @@ changing files. The [coding-agent operating manual](./AGENTS.md) is the same
 guide on this site.
 
 For a human first run, continue with [Getting started](./getting-started.md).
+
+## Situational recall for local lanes
+
+Approved brain lessons can carry `learningFeed.triggers`: `pathGlobs`,
+`commands`, `keywords`, and optional `repos` and `organizations` constraints.
+Use `update_lesson_triggers` to edit them, or `backfill_lesson_triggers` to
+infer missing triggers in bounded batches with a small model. Existing triggers
+are preserved. These are memory records, not repository rules or CI gates.
+
+The local plugin's `PreToolUse` hook calls `tedix hooks situational-recall`
+for file edits and shell commands. Matching happens locally against a catalog
+cached for one hour per credential, organization, repository and harness. Local
+matching uploads no target paths, commands or brief text. Lessons arrive with a
+soft reminder to apply them; a failed recall never prevents the action.
+
+Launchers should obtain their prompt with `tedix lane brief <brief-file>
+--host codex` (or `claude`) and pass its output to the harness. `lane start`
+also prints the recalled context and enriched brief in its JSON receipt;
+`--brief-file` supplies the full brief instead of just the title. `work handoff`
+prefixes the launch prompt automatically. This path works independently of
+plugin hook trust. A missing catalog is reported as unavailable in the lane
+receipt, and grants no execution authority.
+
+Server dispatch also prefixes a lane-request Interaction with lessons matching
+its prompt. The repository comes from `metadata.laneRequest.repo` or an explicit
+`Repo <URL-or-path>` line in the brief;
+`laneRequest.harness` selects the host. The recipient preserves that context
+when launching the lane. Dispatch to another user never includes the sender's
+private lessons. `metadata.lessonRecall` records which lessons were prefixed;
+that is an offered brief, not proof the receiving model read it.
+
+`lane fail` reports the failure reason to `record_lesson_incident`. Incident
+fingerprints link recurring failures to lessons that already existed; the record
+keeps the reported session, harness, hook trust, dispatch path and delivery state.
+A suspected delivery gap creates proposed Work, once per fingerprint, lesson and
+actor session. Unknown delivery stays unknown; an observed delivery does not
+create a delivery-gap proposal. Other incident producers can use the same tool.

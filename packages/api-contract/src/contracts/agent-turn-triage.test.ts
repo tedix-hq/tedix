@@ -18,6 +18,7 @@ const question = {
 describe("agentTurnTriageContract", () => {
 	it("exposes exactly the triage and reply-draft procedures", () => {
 		expect(Object.keys(agentTurnTriageContract).sort()).toEqual([
+			"backfillLessonTriggers",
 			"getCaptureHealth",
 			"getLessonEffectiveness",
 			"getPolicy",
@@ -29,9 +30,11 @@ describe("agentTurnTriageContract", () => {
 			"listLessons",
 			"mineSessionLessons",
 			"proposeReplyDraft",
+			"recordLessonIncident",
 			"requestReplyDraft",
 			"retriageQuestions",
 			"triage",
+			"updateLessonTriggers",
 			"updatePolicy",
 		]);
 	});

@@ -144,6 +144,20 @@
 					}
 				]
 			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "Edit|Write|Bash|apply_patch|exec_command|shell_command|shell|.*__exec_command|.*__apply_patch",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "command -v tedix >/dev/null 2>&1 || exit 0; tedix hooks situational-recall",
+						"timeout": 12,
+						"additionalContextLimit": 16000,
+						"statusMessage": "Recalling relevant Tedix lessons"
+					}
+				]
+			}
 		]
 	}
 }

@@ -1837,7 +1837,43 @@ const retriageQuestions = retriageOs.retriageQuestions.handler(
 	},
 );
 
+const lessonWriteOs = os
+	.use(withAuth)
+	.use(withAuthorization("tedis:update", "mcp:memory.write"));
+const incidentWriteOs = os
+	.use(withAuth)
+	.use(withAuthorization("tedis:update", "mcp:work.write"))
+	.use(AUTHZ.memoryRead);
+const updateLessonTriggers = lessonWriteOs.updateLessonTriggers.handler(
+	async ({ context, input }) => {
+		const { updateTriggers } =
+			await import("../../services/situational-recall");
+		return updateTriggers(
+			context,
+			requireOrgId(context),
+			input.lessonId,
+			input.triggers,
+		);
+	},
+);
+const backfillLessonTriggers = lessonWriteOs.backfillLessonTriggers.handler(
+	async ({ context, input }) => {
+		const { backfillTriggers } =
+			await import("../../services/situational-recall");
+		return backfillTriggers(context, requireOrgId(context), input.limit);
+	},
+);
+const recordLessonIncident = incidentWriteOs.recordLessonIncident.handler(
+	async ({ context, input }) => {
+		const { recordIncident } =
+			await import("../../services/situational-recall");
+		return recordIncident(context, requireOrgId(context), input);
+	},
+);
 export const agentTurnTriageContractRouter = os.router({
+	updateLessonTriggers,
+	backfillLessonTriggers,
+	recordLessonIncident,
 	importSessionDecisions: importSessionDecisionsProcedure,
 	retriageQuestions,
 	triage,

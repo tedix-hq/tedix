@@ -237,6 +237,9 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	get_decision_capture_health: "mcp:messaging",
 	// Approved team lessons a local agent session reads before each prompt.
 	get_agent_session_lessons: "mcp:messaging",
+	update_lesson_triggers: "mcp:memory",
+	backfill_lesson_triggers: "mcp:memory",
+	record_lesson_incident: "mcp:work",
 	// The same lessons as one notebook, newest first, with their sources.
 	list_agent_session_lessons: "mcp:messaging",
 	// Whether those lessons reduce repeated corrections (delivered vs holdout).

@@ -21,7 +21,7 @@ export const CACHE_TTL_MS = 10 * 60_000;
 /** How long a stale copy still covers a failed live read. */
 export const CACHE_MAX_AGE_MS = 60 * 60_000;
 
-export type CacheKind = "preferences" | "lessons" | "organization";
+export type CacheKind = "preferences" | "lessons" | "organization" | "recall";
 
 export interface CacheEntry {
 	value: JsonObject;
