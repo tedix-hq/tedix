@@ -419,6 +419,7 @@ export const answerContentProcedure = authedContentOs.answer
 				db,
 				app.organizationId,
 				"Content query embeddings",
+				env.DB,
 			);
 			const aiEnv = env as unknown as AiSearchEnv;
 			const result = await aiSearchContent(aiEnv, query, {

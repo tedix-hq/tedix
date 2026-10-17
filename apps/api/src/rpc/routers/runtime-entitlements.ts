@@ -82,6 +82,7 @@ const checkModelEgress = os.checkModelEgress
 				context.db,
 				input.organizationId,
 				input.operation,
+				context.env.DB,
 			);
 			return { allowed: true };
 		} catch (error) {

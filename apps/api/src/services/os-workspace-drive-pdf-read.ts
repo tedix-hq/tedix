@@ -278,6 +278,7 @@ export async function readWorkspaceDrivePdf(
 		context.db,
 		input.resource.organizationId,
 		"PDF model conversion",
+		context.env.DB,
 	);
 	const converted = await ai.toMarkdown({
 		name: metadata.name,

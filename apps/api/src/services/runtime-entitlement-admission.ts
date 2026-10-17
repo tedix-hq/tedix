@@ -1,3 +1,4 @@
+import { createDbClient } from "@tedix/db/client";
 import {
 	captureCloudflareAutoRouting,
 	type AiGatewayTransportEnv,
@@ -43,6 +44,7 @@ export async function authorizeRuntimeInference(
 			| ({
 					TEDIX_BILLING_SETTLEMENT_MODE?: string;
 					SECRETS_MASTER_KEY?: string;
+					DB?: D1Database;
 			  } & AiGatewayTransportEnv);
 	} & (
 		| { plane: "remote_runtime"; request: AuthorizeRuntimeInferenceInput }
@@ -115,8 +117,10 @@ export async function authorizeRuntimeInference(
 			context.selectedGeneration = origin.selected.generation;
 		}
 		phase = "data_residency";
+		// The raw binding reads the primary rather than a caller-supplied request bookmark.
+		const residencyDb = input.env.DB ? createDbClient(input.env.DB) : input.db;
 		let residency = await authorizeDataResidency({
-			db: input.db,
+			db: residencyDb,
 			organizationId: input.request.organizationId,
 			execution: identity,
 			masterKey: input.env.SECRETS_MASTER_KEY,
@@ -261,7 +265,7 @@ export async function authorizeRuntimeInference(
 		phase = "validate_persisted_identity";
 		assertProviderExecutionMatches(persisted, execution);
 		const currentResidency = await authorizeDataResidency({
-			db: input.db,
+			db: residencyDb,
 			organizationId: candidate.organizationId,
 			execution: identity,
 			masterKey: input.env.SECRETS_MASTER_KEY,
