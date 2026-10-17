@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	AskRequestSchema,
+	awaitReasonTurn,
 	buildReasonSessionKey,
 	callIdentity,
 	PLATFORM_REASON_MANIFEST,
@@ -134,5 +135,74 @@ assert.equal(
 	AskRequestSchema.safeParse({ prompt: "q", key: "refute-1.a_B" }).success,
 	true,
 );
+
+const pending = {
+	ok: true,
+	run_id: "synthesis-run",
+	session_key: "workflow:synth:example",
+	assistant: null,
+	pending: true,
+};
+const settled = {
+	...pending,
+	pending: undefined,
+	assistant: { role: "assistant", content: '{"purpose":"A useful project"}' },
+};
+let elapsed = 0;
+let calls = 0;
+const clock = {
+	now: () => elapsed,
+	sleep: async (ms: number) => {
+		elapsed += ms;
+	},
+};
+assert.equal(
+	await awaitReasonTurn(
+		pending.session_key,
+		async () => (++calls < 3 ? pending : settled),
+		clock,
+	),
+	settled,
+);
+assert.equal(calls, 3);
+assert.equal(elapsed, 5_000);
+assert.equal(
+	await awaitReasonTurn(pending.session_key, async () => settled),
+	settled,
+);
+for (const changed of [
+	{ ...settled, run_id: "other" },
+	{ ...settled, session_key: "other" },
+]) {
+	let attempt = 0;
+	await assert.rejects(
+		awaitReasonTurn(
+			pending.session_key,
+			async () => (++attempt === 1 ? pending : changed),
+			clock,
+		),
+		/REASON_TURN_IDENTITY_CHANGED/,
+	);
+}
+await assert.rejects(
+	awaitReasonTurn(pending.session_key, async () => ({
+		...pending,
+		session_key: "other",
+	})),
+	/REASON_PENDING_RECEIPT_INVALID/,
+);
+calls = 0;
+await assert.rejects(
+	awaitReasonTurn(
+		pending.session_key,
+		async () => {
+			calls++;
+			return pending;
+		},
+		{ ...clock, timeoutMs: 5_000 },
+	),
+	/REASON_TURN_TIMEOUT/,
+);
+assert.equal(calls, 2);
 
 console.log("skill-runtime reason tests passed");
