@@ -1093,7 +1093,12 @@ export const runtimeFacetTurns = {
 		let firstFacetTurn = false;
 		try {
 			const facet = await this.subAgent(ConversationFacet, facetName);
-			const toolDescriptors = describeFacetTools(input.tools);
+			const toolDescriptors = describeFacetTools(
+				configuredRuntimeTools(
+					input.tools,
+					this.state.toolPolicy?.runtimeTools,
+				),
+			);
 			const source =
 				input.source ?? inferenceSource(input.sessionKey, input.surface);
 			this.admitInferenceTurn(
@@ -1328,7 +1333,12 @@ export const runtimeFacetTurns = {
 		let firstFacetTurn = false;
 		try {
 			const facet = await this.subAgent(ConversationFacet, facetName);
-			const toolDescriptors = describeFacetTools(input.tools);
+			const toolDescriptors = describeFacetTools(
+				configuredRuntimeTools(
+					input.tools,
+					this.state.toolPolicy?.runtimeTools,
+				),
+			);
 			const source =
 				input.source ?? inferenceSource(input.sessionKey, "operator");
 			this.admitInferenceTurn(input.runId, [
