@@ -153,8 +153,8 @@ function fixture() {
 	);
 	const step = { do: async (_name, ...args) => args.at(-1)() };
 	const nudge = mock(async () => ({ pending: true }));
-	const run = (overrides = {}) =>
-		workflow.run({ payload: { ...config, ...overrides } }, step, {
+	const run = (overrides = {}, runner = step) =>
+		workflow.run({ payload: { ...config, ...overrides } }, runner, {
 			MCP: { tedix: api, tedi: { run_tedi_turn: nudge } },
 			REASON: { ask: reason },
 			__RUN_CONTEXT__: { runId: "example-run" },
@@ -464,5 +464,29 @@ describe("native night coordination", () => {
 		});
 		await expect(f.run({ cycleKey: "second" })).rejects.toThrow("Tool failed");
 		expect([...f.outputs.values()][0].currentRevision.revision).toBe(1);
+	});
+	test("replays a persisted cycle clock after the quarter-hour grace and across morning", async () => {
+		const f = fixture();
+		const saved = new Map();
+		const runner = {
+			do: async (name, ...args) => {
+				if (!saved.has(name)) saved.set(name, await args.at(-1)());
+				return saved.get(name);
+			},
+		};
+		const first = await f.run({}, runner);
+		setSystemTime(new Date("2026-10-18T07:00:00.000Z"));
+		const replay = await f.run({}, runner);
+		expect(replay.status).toBe("coordinated");
+		expect(replay.logId).toBe(first.logId);
+		expect(f.outputs.size).toBe(1);
+		expect(f.reason).not.toHaveBeenCalled();
+	});
+	test("accepts a delayed native night cycle and a delayed 08:15 morning invocation", async () => {
+		const f = fixture();
+		setSystemTime(new Date("2026-10-17T22:08:00.000Z"));
+		expect((await f.run()).status).toBe("coordinated");
+		setSystemTime(new Date("2026-10-18T06:20:00.000Z"));
+		expect((await f.run()).briefs).toHaveLength(1);
 	});
 });
