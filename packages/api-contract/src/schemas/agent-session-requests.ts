@@ -83,6 +83,12 @@ export const AgentSessionEventSchema = z.strictObject({
 
 export const RecordAgentSessionEventsInputSchema = z.strictObject({
 	events: z.array(AgentSessionEventSchema).min(1).max(20),
+	retryFailed: z
+		.boolean()
+		.optional()
+		.describe(
+			"Explicitly restart failed copies of these exact events with a fresh retry budget, only when no later event in that session was processed or leased. Pending and processed events are unchanged.",
+		),
 });
 
 export const RecordAgentSessionEventsResultSchema = z.strictObject({
@@ -92,6 +98,12 @@ export const RecordAgentSessionEventsResultSchema = z.strictObject({
 		.int()
 		.nonnegative()
 		.describe("Events already uploaded; stored once."),
+	retried: z
+		.number()
+		.int()
+		.nonnegative()
+		.optional()
+		.describe("Failed events restarted by an explicit retryFailed request."),
 });
 
 export const ListAgentSessionRequestsInputSchema = z.strictObject({

@@ -215,6 +215,22 @@ it("keeps full turn text and accepts only grounded mentions of known refs", () =
 	]).toEqual(["r1"]);
 });
 
+it("grounds compact mention maps with the same quote rules as legacy arrays", () => {
+	expect([
+		...parseLedgerMentions(
+			JSON.stringify({
+				mentioned: {
+					r1: "The deployment still needs checking",
+					r2: "Invented success at 4f2a9c1",
+					unknown: "The deployment still needs checking",
+				},
+			}),
+			new Set(["r1", "r2"]),
+			"The deployment still needs checking. Commit 4f2a9c1 is pending.",
+		),
+	]).toEqual(["r1"]);
+});
+
 it("retains all obligations from a long summary instead of silently cutting off after eight", () => {
 	const obligations = Array.from({ length: 16 }, (_, i) => ({
 		kind: "ask",

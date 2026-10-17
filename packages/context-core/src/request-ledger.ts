@@ -76,7 +76,7 @@ Review EVERY OPEN ROW against the current turn and its saved evidence. Correct a
 - waiting_on_user: a specific required human decision, access, click or action remains.
 Judge the meaning, not only the stored kind. Recurring cadences and standing working instructions are satisfied when adopted and put into effect (or scheduled with a verified first cycle); do not keep them in_progress forever waiting for all future occurrences. Record a later concrete failure separately.
 Human-reserved asks (approval, consent, credentials, publishing/sending authorization and choices) close only from a later USER reply. Never infer approval from an agent claim. For a purely operational ask (reload a tab, inspect a result, perform a routine step), you may return done with operational:true when a quoted concrete result shows the step happened or became unnecessary because the parent problem was resolved. A bare claim of approval never qualifies. Do not emit dropped_risk: the caller applies the silence threshold and running-lane guard.
-List every mentioned OPEN ref in "mentioned" with an exact source quote, even when its status did not change. This resets the silence counter; a passing mention is not completion. Track lane state in "lanes": ref, running true/false, and an exact source quote. Set running true on each existing request a started background/delegated/deploy lane is working on; set false when its report/terminal result returns. Silence never sets false. Existing lane flags persist until evidence changes them. Do not create an extra visible obligation just to remember a running lane.
+Record mentioned OPEN refs in the compact "mentioned" object: ref to a short exact source quote, 12–60 characters. Include only refs absent from updates and lanes; those already count as mentions, so never repeat their citations here. A passing mention resets silence but is not completion. Track changed lane state in "lanes": ref, running true/false, and an exact source quote under 80 characters. Emit a lane only when its stored flag changes. Set running true on each existing request a started background/delegated/deploy lane is working on; set false when its report/terminal result returns. Silence never sets false. Existing lane flags persist until evidence changes them. Do not create an extra visible obligation just to remember a running lane.
 
 Record NEW obligations only when not already covered by a row:
 - ask: a real user dependency for accepted work: a needed reply, choice, approval, access or human action. Genuine direct human-reserved choices (personal, public, legal or security) count even when optional. Preserve their exact scope. An unadopted offer of new agent work, optional feedback, advice, a reminder, or a quoted email action list is not an obligation. "Say go if you want a new feature" does not create a pending duty unless the user already requested/adopted that work or it is a genuine reserved decision within accepted work. Routine agent next steps are not asks.
@@ -90,7 +90,7 @@ Merge semantic duplicates in "merges": the SAME outcome restated, even with diff
 When ACTIVITY records a failure and the source explicitly describes its successful fix, suggest a reusable lesson with exact failure/fix quotes. Otherwise no lesson.
 
 Return only JSON. Every status update needs a quote under 200 characters:
-{"updates":[{"ref":"...","status":"in_progress"|"done"|"waiting_on_user","evidence":"exact source quote","operational":false}],"mentioned":[{"ref":"...","evidence":"exact source quote"}],"lanes":[{"ref":"...","running":true,"evidence":"exact source quote"}],"merges":[{"ref":"redundant ref","into":"canonical ref","evidence":"exact row quote"}],"new":[{"kind":"ask"|"promise"|"open_loop","text":"..."}],"lessons":[{"rule":"...","failure":"exact activity quote","fix":"exact source quote"}]}`;
+{"updates":[{"ref":"...","status":"in_progress"|"done"|"waiting_on_user","evidence":"exact source quote","operational":false}],"mentioned":{"ref":"short exact source quote"},"lanes":[{"ref":"...","running":true,"evidence":"exact source quote"}],"merges":[{"ref":"redundant ref","into":"canonical ref","evidence":"exact row quote"}],"new":[{"kind":"ask"|"promise"|"open_loop","text":"..."}],"lessons":[{"rule":"...","failure":"exact activity quote","fix":"exact source quote"}]}`;
 
 function rowsBlock(rows: readonly LedgerRowRef[]): string {
 	if (!rows.length) return "OPEN ROWS: none";
@@ -338,9 +338,14 @@ export function parseLedgerMentions(
 	source: string,
 ): Set<string> {
 	const value = jsonObject(raw);
-	if (!Array.isArray(value?.mentioned)) return new Set();
+	const mentioned = value?.mentioned;
+	const entries = Array.isArray(mentioned)
+		? mentioned
+		: mentioned && typeof mentioned === "object"
+			? Object.entries(mentioned).map(([ref, evidence]) => ({ ref, evidence }))
+			: [];
 	return new Set(
-		value.mentioned.flatMap((item) => {
+		entries.flatMap((item) => {
 			if (!item || typeof item !== "object") return [];
 			const { ref, evidence } = item as Record<string, unknown>;
 			const quote = acceptedDoneEvidence(evidence, source);

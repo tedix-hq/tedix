@@ -10,7 +10,9 @@ import {
 	asc,
 	desc,
 	eq,
+	gt,
 	inArray,
+	isNotNull,
 	isNull,
 	lt,
 	notExists,
@@ -204,6 +206,60 @@ export async function recordAgentSessionEvents(
 		inserted += result.length;
 	}
 	return inserted;
+}
+
+/** Explicit retries never rewind a session past later completed or leased work. */
+export async function retryFailedAgentSessionEvents(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & { sourceKeys: readonly string[] },
+): Promise<number> {
+	const later = alias(agentSessionEvents, "later_session_event");
+	let retried = 0;
+	for (const keys of chunkForBoundParams(
+		[...params.sourceKeys],
+		AGENT_SESSION_EVENT_BATCH_LIMIT,
+	)) {
+		const rows = await db
+			.update(agentSessionEvents)
+			.set({
+				status: "pending",
+				attempts: 0,
+				claimedAt: null,
+				processedAt: null,
+			})
+			.where(
+				and(
+					eq(agentSessionEvents.organizationId, params.organizationId),
+					eq(agentSessionEvents.userId, params.userId),
+					inArray(agentSessionEvents.sourceKey, keys),
+					eq(agentSessionEvents.status, "failed"),
+					notExists(
+						db
+							.select({ id: later.id })
+							.from(later)
+							.where(
+								and(
+									eq(later.organizationId, agentSessionEvents.organizationId),
+									eq(later.userId, agentSessionEvents.userId),
+									eq(later.harness, agentSessionEvents.harness),
+									eq(later.sessionKey, agentSessionEvents.sessionKey),
+									or(eq(later.status, "processed"), isNotNull(later.claimedAt)),
+									or(
+										gt(later.sourceAt, agentSessionEvents.sourceAt),
+										and(
+											eq(later.sourceAt, agentSessionEvents.sourceAt),
+											gt(later.id, agentSessionEvents.id),
+										),
+									),
+								),
+							),
+					),
+				),
+			)
+			.returning({ id: agentSessionEvents.id });
+		retried += rows.length;
+	}
+	return retried;
 }
 
 /** A later event cannot overtake an earlier pending event in the same session. */

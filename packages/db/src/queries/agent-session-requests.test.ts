@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import {
@@ -12,6 +13,7 @@ import {
 	listAgentSessionRequests,
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
+	retryFailedAgentSessionEvents,
 	updateAgentSessionRequests,
 } from "./agent-session-requests";
 
@@ -259,4 +261,131 @@ it("reads the preceding turn only from the same owner, harness and session, befo
 			before: T0,
 		}),
 	).toBeNull();
+});
+
+it("retries only the owner's exact failed events and preserves their source", async () => {
+	const db = fixture();
+	const put = (
+		organizationId: string,
+		userId: string,
+		key: string,
+		sessionKey: string,
+		sourceAt = T0,
+	) =>
+		recordAgentSessionEvents(db, {
+			organizationId,
+			userId,
+			now: T0,
+			events: [
+				{
+					harness: "claude-code",
+					sessionKey,
+					repository: null,
+					kind: "turn",
+					body: "Original redacted source",
+					activity: null,
+					sourceAt,
+					sourceKey: key,
+				},
+			],
+		});
+	await put(ORG, USER, "failed", "chat-a");
+	await put(ORG, OTHER_USER, "failed", "chat-a");
+	await put("org-other", USER, "failed", "chat-a");
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "failed", attempts: 3 })
+		.where(eq(agentSessionEvents.sourceKey, "failed"));
+	await put(ORG, USER, "done", "other-chat", T1);
+	await put(ORG, OTHER_USER, "foreign-later", "chat-a", T1);
+	for (const key of ["done", "foreign-later"])
+		await db
+			.update(agentSessionEvents)
+			.set({ status: "processed", attempts: 1 })
+			.where(eq(agentSessionEvents.sourceKey, key));
+	await put(ORG, USER, "pending", "pending-chat");
+	expect(
+		await retryFailedAgentSessionEvents(db, {
+			organizationId: ORG,
+			userId: USER,
+			sourceKeys: ["failed", "done", "pending"],
+		}),
+	).toBe(1);
+	const all = await db.select().from(agentSessionEvents);
+	expect(
+		all.find(
+			(r) =>
+				r.organizationId === ORG &&
+				r.userId === USER &&
+				r.sourceKey === "failed",
+		),
+	).toMatchObject({
+		status: "pending",
+		attempts: 0,
+		body: "Original redacted source",
+	});
+	expect(
+		all
+			.filter(
+				(r) =>
+					r.sourceKey === "failed" &&
+					(r.organizationId !== ORG || r.userId !== USER),
+			)
+			.map((r) => [r.status, r.attempts]),
+	).toEqual([
+		["failed", 3],
+		["failed", 3],
+	]);
+	expect(all.find((r) => r.sourceKey === "done")).toMatchObject({
+		status: "processed",
+		attempts: 1,
+	});
+	expect(all.find((r) => r.sourceKey === "pending")).toMatchObject({
+		status: "pending",
+		attempts: 0,
+	});
+});
+
+it("refuses to rewind past a later processed or leased event in that session", async () => {
+	const db = fixture();
+	await recordAgentSessionEvents(db, {
+		organizationId: ORG,
+		userId: USER,
+		now: T0,
+		events: [T0, T1].map((sourceAt, i) => ({
+			harness: "claude-code",
+			sessionKey: "chat-a",
+			repository: null,
+			kind: "turn",
+			body: "Redacted source",
+			activity: null,
+			sourceAt,
+			sourceKey: `event-${i}`,
+		})),
+	});
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "failed", attempts: 3 })
+		.where(eq(agentSessionEvents.sourceKey, "event-0"));
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "processed" })
+		.where(eq(agentSessionEvents.sourceKey, "event-1"));
+	const retry = () =>
+		retryFailedAgentSessionEvents(db, {
+			organizationId: ORG,
+			userId: USER,
+			sourceKeys: ["event-0"],
+		});
+	expect(await retry()).toBe(0);
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "pending", claimedAt: T1 })
+		.where(eq(agentSessionEvents.sourceKey, "event-1"));
+	expect(await retry()).toBe(0);
+	await db
+		.update(agentSessionEvents)
+		.set({ claimedAt: null })
+		.where(eq(agentSessionEvents.sourceKey, "event-1"));
+	expect(await retry()).toBe(1);
 });

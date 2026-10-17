@@ -1034,3 +1034,54 @@ it("does not count a repeated saved progress citation as a new mention", async (
 		turnsUnaddressed: LEDGER_SILENCE_TURNS,
 	});
 });
+
+it("requires an explicit retry to restart a failed duplicate event", async () => {
+	const db = fixture();
+	const input = {
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+		now: T0,
+		events: [
+			{
+				...SCOPE,
+				kind: "prompt" as const,
+				text: "Check the example import",
+				sourceAt: T0,
+			},
+		],
+	};
+	await acceptAgentSessionEvents(db, input);
+	for (let i = 0; i < 3; i++)
+		await processAgentSessionEvents(db, scripted(null).model, SCOPE, {
+			limit: 1,
+			now: () => T0,
+		});
+	expect((await db.select().from(agentSessionEvents))[0]).toMatchObject({
+		status: "failed",
+		attempts: 3,
+	});
+	expect(await acceptAgentSessionEvents(db, input)).toEqual({
+		accepted: 0,
+		duplicates: 1,
+	});
+	expect((await db.select().from(agentSessionEvents))[0]?.status).toBe(
+		"failed",
+	);
+	expect(
+		await acceptAgentSessionEvents(db, { ...input, retryFailed: true }),
+	).toEqual({ accepted: 0, duplicates: 1, retried: 1 });
+	await processAgentSessionEvents(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Check the example import"}]}',
+		).model,
+		SCOPE,
+		{ limit: 1, now: () => T0 },
+	);
+	expect((await db.select().from(agentSessionEvents))[0]).toMatchObject({
+		status: "processed",
+		attempts: 1,
+		body: input.events[0]!.text,
+	});
+	expect(await rows(db)).toHaveLength(1);
+});

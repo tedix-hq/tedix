@@ -176,8 +176,10 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 		const result = await acceptAgentSessionEvents(context.db, {
 			...owner,
 			events: input.events,
+			retryFailed: input.retryFailed,
 			now: new Date().toISOString(),
 		});
+		if (input.retryFailed && !result.accepted && !result.retried) return result;
 		const model = workersAiLedgerModel(context.env);
 		model.learn = async (lessons, scope) => {
 			const ownerUserId = context.user?.sub;
