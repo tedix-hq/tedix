@@ -89,6 +89,7 @@ import {
 	WorkItemOwnerTypeSchema,
 	WorkItemAcceptanceContractSchema,
 	WorkItemPrioritySchema,
+	WorkItemTimestampSchema,
 	WorkItemRiskLevelSchema,
 	WorkItemReadinessSchema,
 	WorkItemReadinessProjectionSchema,
@@ -699,6 +700,7 @@ export const workItemsContract = oc
 						.array(z.string().min(1).max(200))
 						.max(100)
 						.optional(),
+					dueDate: WorkItemTimestampSchema.nullable().optional(),
 					startAt: z.iso
 						.datetime()
 						.nullable()
