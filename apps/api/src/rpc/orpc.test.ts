@@ -16,6 +16,7 @@ import {
 	authorizeOsShareRecipient,
 	CLIENT_ERROR_CODES,
 	createError,
+	createScopeMiddleware,
 	ErrorCodes,
 	hasConnectionCredentialResolutionAuthority,
 	withConnectionCredentialResolutionAuthority,
@@ -1151,6 +1152,31 @@ describe("forwarded MCP user organization context", () => {
 });
 
 describe("procedure scope enforcement", () => {
+	it("returns 403 for a verified OIDC user missing a scope and keeps Descope user behavior", async () => {
+		const guarded = os
+			.$context<BaseContext>()
+			.use(createScopeMiddleware("apps:write"))
+			.handler(async () => "ok");
+		await expect(
+			call(guarded, undefined, {
+				context: { authType: "user", oidcScopes: ["apps:read"] } as BaseContext,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			call(guarded, undefined, {
+				context: {
+					authType: "user",
+					oidcScopes: ["apps:write"],
+				} as BaseContext,
+			}),
+		).resolves.toBe("ok");
+		await expect(
+			call(guarded, undefined, {
+				context: { authType: "user" } as BaseContext,
+			}),
+		).resolves.toBe("ok");
+	});
+
 	it("requires an explicitly delegated scope for service bindings", () => {
 		expect(
 			hasRequiredScope({ authType: "service-binding" }, "apps:write"),

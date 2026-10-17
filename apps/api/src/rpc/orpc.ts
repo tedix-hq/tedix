@@ -1498,7 +1498,11 @@ function assertUserAnyPermission(
 function assertMachineScope(context: BaseContext, requiredScope: string): void {
 	if (hasRequiredScope(context, requiredScope)) return;
 
-	if (context.authType === "apikey" || context.authType === "m2m") {
+	if (
+		context.authType === "apikey" ||
+		context.authType === "m2m" ||
+		context.authType === "user"
+	) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			`Scope '${requiredScope}' required`,
