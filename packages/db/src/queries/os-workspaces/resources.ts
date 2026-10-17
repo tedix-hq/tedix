@@ -92,6 +92,29 @@ export async function listOsWorkspaceIdsLinkingSkill(
 	return [...new Set(rows.map((row) => row.workspaceId))];
 }
 
+export async function updateOsWorkspaceResourceMetadata(
+	db: DbQueryClient,
+	params: OsWorkspaceResourceIdentity & {
+		metadata: string;
+		expectedUpdatedAt: string;
+		now: string;
+	},
+): Promise<OsWorkspaceResourceRow | undefined> {
+	const [row] = await db
+		.update(osWorkspaceResources)
+		.set({ metadata: params.metadata, updatedAt: params.now })
+		.where(
+			and(
+				eq(osWorkspaceResources.organizationId, params.organizationId),
+				eq(osWorkspaceResources.workspaceId, params.workspaceId),
+				eq(osWorkspaceResources.id, params.resourceId),
+				eq(osWorkspaceResources.updatedAt, params.expectedUpdatedAt),
+			),
+		)
+		.returning();
+	return row;
+}
+
 export async function renameOsWorkspaceResource(
 	db: DbQueryClient,
 	params: OsWorkspaceResourceIdentity & {

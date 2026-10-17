@@ -13,6 +13,23 @@ const BERLIN_THREE_A_DAY = {
 };
 
 describe("scheduleRunTimes", () => {
+	it.each([
+		["2026-07-01T00:00:00Z", "2026-07-01T06:30:00.000Z"],
+		["2026-12-01T00:00:00Z", "2026-12-01T07:30:00.000Z"],
+		["2026-10-25T00:00:00Z", "2026-10-25T07:30:00.000Z"],
+		["2026-03-29T00:00:00Z", "2026-03-29T06:30:00.000Z"],
+	])(
+		"keeps Berlin 08:30 across seasons and DST transitions (%s)",
+		(now, fire) => {
+			expect(
+				scheduleRunTimes(
+					"30 6,7 * * *",
+					{ timeZone: "Europe/Berlin", times: ["08:30"] },
+					new Date(now),
+				),
+			).toEqual({ dailyTimes: [fire], nextRunAt: fire });
+		},
+	);
 	it("keeps only the local times a daylight-saving workflow runs at", () => {
 		// Summer time (UTC+2): 06:17, 11:17 and 16:17 UTC are the kept fires.
 		const summer = scheduleRunTimes(
@@ -66,6 +83,17 @@ describe("scheduleRunTimes", () => {
 });
 
 describe("readRunsAt", () => {
+	it("reads skill frontmatter when the Workspace resource has no local slots", () => {
+		const content =
+			'---\nrunsAt: {timeZone: Europe/Berlin, times: ["08:30"]}\n---\n# Daily';
+		expect(readRunsAt({}, content)).toEqual({
+			timeZone: "Europe/Berlin",
+			times: ["08:30"],
+		});
+		expect(readRunsAt({ runsAt: BERLIN_THREE_A_DAY }, content)).toEqual(
+			BERLIN_THREE_A_DAY,
+		);
+	});
 	it("accepts valid local times and rejects an unknown time zone", () => {
 		expect(readRunsAt({ runsAt: BERLIN_THREE_A_DAY })).toEqual(
 			BERLIN_THREE_A_DAY,

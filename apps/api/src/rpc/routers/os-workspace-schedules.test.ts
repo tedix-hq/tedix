@@ -126,3 +126,60 @@ it("recognizes a declared internal session activity read without a provider conn
 		requiredScopes: [],
 	});
 });
+
+it("backfills local slots on an existing skill resource without replacing it", async () => {
+	const { osWorkspaces, osWorkspaceResources } =
+		await import("@tedix/db/schema/os-workspaces");
+	const { ensureWorkspaceSkillLink } = await import("./os-workspaces-shared");
+	const { listOsWorkspaceResources, updateOsWorkspaceResourceMetadata } =
+		await import("@tedix/db/queries/os-workspaces/resources");
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec(
+		"CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL); INSERT INTO organizations VALUES ('org-1');",
+	);
+	sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources));
+	const binding = createD1Facade(sqlite);
+	const db = createDbClient(binding);
+	const context = {
+		db,
+		env: { DB: binding },
+		authType: "user",
+		user: { sub: "user-1" },
+	} as unknown as BaseContext;
+	await db.insert(osWorkspaces).values({
+		id: "workspace",
+		organizationId: "org-1",
+		name: "Factory",
+		createdByKind: "user",
+		createdById: "user-1",
+	});
+	const params = {
+		organizationId: "org-1",
+		workspaceId: "workspace",
+		skillId: "skill-1",
+		name: "Daily",
+	};
+	await ensureWorkspaceSkillLink(context, params);
+	const [original] = await listOsWorkspaceResources(db, params);
+	await updateOsWorkspaceResourceMetadata(db, {
+		...params,
+		resourceId: original!.id,
+		expectedUpdatedAt: original!.updatedAt,
+		metadata: '{"purpose":"Daily report"}',
+		now: "2026-01-01T00:00:00Z",
+	});
+	const runsAt = { timeZone: "Europe/Berlin", times: ["08:30"] };
+	expect(
+		await ensureWorkspaceSkillLink(context, { ...params, runsAt }),
+	).toEqual({ created: false, updated: true });
+	const rows = await listOsWorkspaceResources(db, params);
+	expect(rows).toHaveLength(1);
+	expect(rows[0]!.id).toBe(original!.id);
+	expect(JSON.parse(rows[0]!.metadata)).toEqual({
+		purpose: "Daily report",
+		runsAt,
+	});
+	expect(
+		await ensureWorkspaceSkillLink(context, { ...params, runsAt }),
+	).toEqual({ created: false, updated: false });
+});

@@ -14,6 +14,7 @@ import {
 	rebindOsWorkspaceResource,
 	renameOsWorkspaceResource,
 	restoreOsWorkspaceResource,
+	updateOsWorkspaceResourceMetadata,
 } from "./resources";
 
 function fixture() {
@@ -61,6 +62,36 @@ async function seed() {
 }
 
 describe("OS Workspace resources", () => {
+	it("updates metadata only within the tenant and Workspace at the observed revision", async () => {
+		const { db, resource } = await seed();
+		const params = {
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			resourceId: resource.id,
+			expectedUpdatedAt: resource.updatedAt,
+			now: "2026-10-17T10:00:00.000Z",
+			metadata: '{"runsAt":{"timeZone":"Europe/Berlin","times":["08:30"]}}',
+		};
+		expect(
+			await updateOsWorkspaceResourceMetadata(db, {
+				...params,
+				organizationId: "org-2",
+			}),
+		).toBeUndefined();
+		expect(
+			await updateOsWorkspaceResourceMetadata(db, {
+				...params,
+				workspaceId: "ws-other",
+			}),
+		).toBeUndefined();
+		const updated = await updateOsWorkspaceResourceMetadata(db, params);
+		expect(updated).toMatchObject({
+			id: resource.id,
+			metadata: params.metadata,
+			updatedAt: params.now,
+		});
+		expect(await updateOsWorkspaceResourceMetadata(db, params)).toBeUndefined();
+	});
 	it("creates, lists, and reads only through organization and Workspace scope", async () => {
 		const { db } = await seed();
 		expect(

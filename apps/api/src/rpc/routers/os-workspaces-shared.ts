@@ -30,9 +30,13 @@ import {
 	createOsWorkspaceResource,
 	findOsWorkspaceTenantResource,
 	restoreOsWorkspaceResource,
+	updateOsWorkspaceResourceMetadata,
 } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { WORKSPACE_SKILL_RESOURCE } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import {
+	WORKSPACE_SKILL_RESOURCE,
+	type WorkspaceSkillRunsAt,
+} from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import type {
@@ -545,8 +549,9 @@ export async function ensureWorkspaceSkillLink(
 		workspaceId: string;
 		skillId: string;
 		name: string;
+		runsAt?: WorkspaceSkillRunsAt;
 	},
-): Promise<{ created: boolean }> {
+): Promise<{ created: boolean; updated?: boolean }> {
 	const db = createDbQueryClient(context.env.DB);
 	const scope = {
 		organizationId: params.organizationId,
@@ -557,8 +562,30 @@ export async function ensureWorkspaceSkillLink(
 		...WORKSPACE_SKILL_RESOURCE,
 		providerResourceId: params.skillId,
 	});
-	if (existing?.status === "active") return { created: false };
 	const now = new Date().toISOString();
+	let metadataUpdated = false;
+	if (existing && params.runsAt) {
+		const raw = parseJsonColumn(existing.metadata);
+		const metadata =
+			raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+		if (!metadata.runsAt) {
+			const updated = await updateOsWorkspaceResourceMetadata(db, {
+				...scope,
+				resourceId: existing.id,
+				expectedUpdatedAt: existing.updatedAt,
+				metadata: JSON.stringify({ ...metadata, runsAt: params.runsAt }),
+				now,
+			});
+			if (!updated)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Workspace resource changed; retry the factory build",
+				);
+			metadataUpdated = true;
+		}
+	}
+	if (existing?.status === "active")
+		return { created: false, updated: metadataUpdated };
 	if (existing) {
 		const restored = await restoreOsWorkspaceResource(db, {
 			...scope,
@@ -581,7 +608,7 @@ export async function ensureWorkspaceSkillLink(
 			requiredScopes: "[]",
 			providerResourceId: params.skillId,
 			name: params.name,
-			metadata: "{}",
+			metadata: JSON.stringify(params.runsAt ? { runsAt: params.runsAt } : {}),
 			status: "active",
 			createdByKind: creator.kind,
 			createdById: creator.id,

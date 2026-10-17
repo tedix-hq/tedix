@@ -14,6 +14,7 @@ import {
 	type FactoryStore,
 	resolveFactoryOwner,
 	staggeredFactoryCron,
+	localFactoryCron,
 } from "./factory-builder";
 import { renderFactoryLane } from "./factory-lane-template";
 
@@ -74,6 +75,7 @@ function memoryStore(canActivate: boolean) {
 							tediId: OWNER,
 							lifecycleState: skill.lifecycleState,
 							revision: 1,
+							content: skill.content,
 						}
 					: null,
 				schedule: schedule ? { ...schedule, enabled: true } : null,
@@ -538,6 +540,70 @@ function laneHarness(
 	};
 	return { calls, env, step };
 }
+
+describe("local factory schedules", () => {
+	it("covers both Berlin UTC offsets and writes the local slots to the skill and resource", async () => {
+		const runsAt = { timeZone: "Europe/Berlin", times: ["08:30"] };
+		expect(localFactoryCron(runsAt)).toBe("30 6,7 * * *");
+		const { store, skills } = memoryStore(true);
+		let linked: unknown;
+		const link = store.linkWorkspaceSkill;
+		store.linkWorkspaceSkill = async (params) => {
+			linked = params;
+			return link(params);
+		};
+		const result = await buildFactory(
+			store,
+			input({ runsAt, workspaceId: WORKSPACE }),
+		);
+		expect(result.cron).toBe("30 6,7 * * *");
+		expect(linked).toMatchObject({ runsAt });
+		const lane = [...skills.values()][0]!;
+		expect(lane.content).toContain(
+			'runsAt: {"timeZone":"Europe/Berlin","times":["08:30"]}',
+		);
+		const { env, calls } = laneHarness(null);
+		const source = lane.files["scripts/workflow.ts"]!.replace(
+			"export default {",
+			"return {",
+		);
+		const rendered = new Function(source)() as Lane;
+		const fixedStep = {
+			do: async (name: string, fn: () => unknown) =>
+				name === "started-at" ? "2026-07-01T07:30:00Z" : fn(),
+		};
+		expect(await rendered.run({}, fixedStep, env)).toEqual({
+			status: "off_slot",
+		});
+		expect(calls).toEqual([]);
+		await buildFactory(store, input({ workspaceId: WORKSPACE }));
+		expect(linked).toMatchObject({ runsAt });
+		const probe = await rendered.run(
+			{ payload: { probe: true } },
+			{
+				...fixedStep,
+				do: async (
+					name: string,
+					optionsOrFn: unknown,
+					maybeFn?: () => unknown,
+				) =>
+					name === "started-at"
+						? "2026-07-01T06:30:00Z"
+						: typeof optionsOrFn === "function"
+							? optionsOrFn()
+							: maybeFn!(),
+			},
+			env,
+		);
+		expect(probe).toMatchObject({ probe: true });
+		expect(calls.map(([name]) => name)).toEqual(["work_items_list"]);
+	});
+	it("rejects unknown time zones", () => {
+		expect(() =>
+			localFactoryCron({ timeZone: "Mars/Olympus", times: ["08:30"] }),
+		).toThrow("IANA time zone");
+	});
+});
 
 describe("report lane template", () => {
 	it("passes skill validation with a schedule and a tedi-only manifest", () => {

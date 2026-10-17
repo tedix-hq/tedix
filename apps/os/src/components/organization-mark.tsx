@@ -9,10 +9,12 @@ export function OrganizationMark({
 	logoUrl,
 	name,
 	size = "default",
+	className = "",
 }: {
 	logoUrl?: string | null;
 	name: string;
 	size?: "default" | "sm";
+	className?: string;
 }) {
 	const [failedUrl, setFailedUrl] = useState<string | null>(null);
 	const sizeAttribute = size === "sm" ? "sm" : undefined;
@@ -22,7 +24,7 @@ export function OrganizationMark({
 		return (
 			<img
 				alt=""
-				className="brand-mark brand-mark-image"
+				className={`brand-mark brand-mark-image ${className}`}
 				data-size={sizeAttribute}
 				decoding="async"
 				height={pixels}
@@ -34,7 +36,11 @@ export function OrganizationMark({
 	}
 
 	return (
-		<span aria-hidden="true" className="brand-mark" data-size={sizeAttribute}>
+		<span
+			aria-hidden="true"
+			className={`brand-mark ${className}`}
+			data-size={sizeAttribute}
+		>
 			{name.trim().charAt(0).toUpperCase() || "T"}
 		</span>
 	);

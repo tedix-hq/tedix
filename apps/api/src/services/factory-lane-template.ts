@@ -13,6 +13,7 @@
  * health item. `{probe:true}` reads only and writes nothing.
  */
 
+import type { WorkspaceSkillRunsAt } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import type {
 	FactoryCadence,
 	FactoryOutputKind,
@@ -31,6 +32,7 @@ export interface FactoryLaneParams {
 	workspaceId: string | null;
 	maxProposals: number;
 	cadence: FactoryCadence;
+	runsAt?: WorkspaceSkillRunsAt;
 	/** The Output each run appends to; a null id is created by the first run. */
 	output: { id: string | null; title: string | null; kind: string } | null;
 }
@@ -103,9 +105,14 @@ function reportLaneWorkflow(params: FactoryLaneParams): string {
 			healthWorkItemId: params.healthWorkItemId,
 			workspaceId: params.workspaceId,
 			maxProposals: params.maxProposals,
+			runsAt: params.runsAt ?? null,
 			// Sub-daily lanes key each cycle by the hour, so a second run that day
 			// gets its own owner turn.
-			cycle: params.cadence === "daily" ? "day" : "hour",
+			cycle: params.runsAt
+				? "minute"
+				: params.cadence === "daily"
+					? "day"
+					: "hour",
 			output: laneOutput(params.output),
 		},
 		null,
@@ -312,10 +319,14 @@ export default {
 		const payload = event.payload ?? {};
 		const runId = env.__RUN_CONTEXT__?.runId ?? null;
 		const startedAt = await step.do("started-at", async () => new Date().toISOString());
+		if (FACTORY.runsAt && !payload.probe) {
+			const clock = new Intl.DateTimeFormat("en-GB", { timeZone: FACTORY.runsAt.timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(startedAt));
+			if (!FACTORY.runsAt.times.includes(clock)) return { status: "off_slot" };
+		}
 		const cycleKey = await step.do("cycle-key", async () =>
 			typeof payload.cycleKey === "string" && payload.cycleKey
 				? payload.cycleKey
-				: startedAt.slice(0, FACTORY.cycle === "hour" ? 13 : 10),
+				: startedAt.slice(0, FACTORY.cycle === "minute" ? 16 : FACTORY.cycle === "hour" ? 13 : 10),
 		);
 
 		const open = await step.do("gather-project-work", READ_STEP, async () =>
@@ -469,7 +480,7 @@ function reportLane(params: FactoryLaneParams): RenderedFactoryLane {
 	const content = `---
 name: ${params.slug}
 description: ${yamlString(description)}
-audience: ["tedi"]
+audience: ["tedi"]${params.runsAt ? `\nrunsAt: ${JSON.stringify(params.runsAt)}` : ""}
 capabilities:
   network: false
   mcp:

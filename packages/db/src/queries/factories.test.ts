@@ -11,7 +11,7 @@ import {
 
 const DDL = `
 CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, name TEXT NOT NULL, display_name TEXT);
-CREATE TABLE skill_entries (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, tedi_id TEXT, title TEXT NOT NULL, slug TEXT, lifecycle_state TEXT, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT);
+CREATE TABLE skill_entries (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, tedi_id TEXT, title TEXT NOT NULL, slug TEXT, lifecycle_state TEXT, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT, content TEXT NOT NULL DEFAULT '');
 CREATE TABLE skill_schedules (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, skill_id TEXT NOT NULL, tedi_id TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL, next_fire_at TEXT NOT NULL, last_fire_at TEXT, last_error TEXT, created_at TEXT);
 CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, skill_id TEXT NOT NULL, tedi_id TEXT NOT NULL, status TEXT NOT NULL, params TEXT, error TEXT, started_at TEXT, completed_at TEXT, created_by TEXT);
 CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'active', lead_tedi_id TEXT, owner_user_id TEXT, objective_id TEXT, target_date TEXT, metadata TEXT, created_at TEXT NOT NULL, updated_at TEXT, archived_at TEXT);
@@ -44,7 +44,7 @@ function seed() {
 	sqlite.exec(DDL);
 	sqlite.exec(`
 		INSERT INTO tedis VALUES ('tedi-nova', '${ORG}', 'nova', 'Nova');
-		INSERT INTO skill_entries VALUES
+		INSERT INTO skill_entries (id, organization_id, tedi_id, title, slug, lifecycle_state, revision, created_at) VALUES
 			('sk-docs', '${ORG}', 'tedi-nova', 'Docs factory', 'docs', 'active', 2, '2026-10-01'),
 			('sk-radar', '${ORG}', 'tedi-nova', 'Radar factory', 'radar', 'active', 1, '2026-10-01'),
 			('sk-qa', '${ORG}', 'tedi-nova', 'QA factory', 'qa', 'active', 1, '2026-10-01'),

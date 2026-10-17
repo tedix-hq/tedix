@@ -127,6 +127,7 @@ export interface FactoryBuildState {
 		tediId: string | null;
 		lifecycleState: string | null;
 		revision: number;
+		content: string;
 	} | null;
 	schedule: { cron: string; enabled: boolean; nextFireAt: string } | null;
 	/** The project already bound to this slug, else the project with the key. */
@@ -156,6 +157,7 @@ export async function loadFactoryBuildState(
 					tediId: skillEntries.tediId,
 					lifecycleState: skillEntries.lifecycleState,
 					revision: skillEntries.revision,
+					content: skillEntries.content,
 				})
 				.from(skillEntries)
 				.where(
