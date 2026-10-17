@@ -1,4 +1,9 @@
 import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import {
 	AlertDialog,
 	AlertDialogContent,
 	AlertDialogTitle,
@@ -450,12 +455,12 @@ export function WorkDecisionCard({
 						</p>
 					) : null}
 					{why ? (
-						<details>
-							<summary className="cursor-pointer text-kumo-subtle">
-								Why this?
-							</summary>
-							<div className="pt-3 text-kumo-subtle">{why}</div>
-						</details>
+						<Collapsible>
+							<CollapsibleTrigger>Why this?</CollapsibleTrigger>
+							<CollapsibleContent className="pt-3 text-kumo-subtle">
+								{why}
+							</CollapsibleContent>
+						</Collapsible>
 					) : null}
 				</CardContent>
 			</Card>

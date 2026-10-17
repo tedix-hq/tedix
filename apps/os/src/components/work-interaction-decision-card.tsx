@@ -217,6 +217,13 @@ export function WorkInteractionDecisionCard({
 				at={request.requestedAt}
 				content={
 					<div className="grid gap-3">
+						{effectiveState !== "open" ? (
+							<p>
+								{effectiveState === "resolved" && !choices.externalAction
+									? "Answer saved"
+									: "Request closed"}
+							</p>
+						) : null}
 						{capture?.attention === "fyi" ? (
 							<p>Update: nothing needed from you</p>
 						) : capture?.urgency === "now" ? (
@@ -252,13 +259,7 @@ export function WorkInteractionDecisionCard({
 						<Link href={`/work/interactions/${request.id}`}>
 							Open request history
 						</Link>
-						{effectiveState !== "open" ? (
-							<p>
-								{effectiveState === "resolved" && !choices.externalAction
-									? "Answer saved"
-									: "Request closed"}
-							</p>
-						) : null}
+
 						{canCancel && effectiveState === "open" ? (
 							<Button
 								className="w-fit"

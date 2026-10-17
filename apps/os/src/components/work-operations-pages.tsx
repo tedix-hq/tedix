@@ -2015,6 +2015,9 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 	const names = useWorkPrincipalNames(query.data?.request.orgId);
 	const request = query.data?.request;
 	const draft = latestDraftOf(query.data);
+	useDocumentTitle(
+		request ? `${interactionSubject(request)} · Requests` : "Request · Work",
+	);
 	return (
 		<Page width="lg">
 			<PageBack render={<Link href="/work/needs-you" />}>Needs you</PageBack>
@@ -2023,12 +2026,10 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 				requestId={requestId}
 				askedBy={
 					request
-						? namedWorkPrincipal(request.creatorType, request.creatorId, names)
+						? names.get(`${request.creatorType}:${request.creatorId}`)
 						: undefined
 				}
-				drafterName={
-					draft ? namedWorkPrincipal("tedi", draft.drafterId, names) : undefined
-				}
+				drafterName={draft ? names.get(`tedi:${draft.drafterId}`) : undefined}
 			/>
 		</Page>
 	);

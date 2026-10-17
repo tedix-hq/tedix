@@ -441,9 +441,10 @@ describe("Decision-capture questions", () => {
 			"acme-app · claude-code waiting: It's deployed. The live API runs commit fc6b8f9",
 		);
 		expect(text).toContain("your Claude Code session");
-		expect(container.querySelector("details summary")?.textContent).toBe(
-			"Why this?",
-		);
+		expect(
+			container.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+				?.textContent,
+		).toBe("Why this?");
 		expect(text).not.toContain("Question from");
 		expect(text).toContain("Blocked");
 		expect(text).not.toContain("Can wait");
