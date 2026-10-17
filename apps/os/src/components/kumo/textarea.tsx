@@ -15,7 +15,7 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
 			rows={rows}
 			data-kumo-component="Textarea"
 			className={cn(
-				"min-h-0 field-sizing-content w-full resize-y type-tedix-body",
+				"min-h-16 field-sizing-content w-full resize-y type-tedix-body",
 				className,
 			)}
 			{...props}
