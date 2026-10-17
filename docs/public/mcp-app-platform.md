@@ -98,7 +98,8 @@ Codex Goals own continuation of executable work. See [OpenAI MCP Events](https:/
 ### Poll Work and skill-run events
 
 The same flag also adds ledger events to `events/list`:
-`work.item.state_changed` (accepted, completed, cancelled, Attempt settled),
+`work.item.state_changed` (accepted, completed, cancelled, Attempt settled or
+expired, registered lane stale),
 `work.approval.requested`, `work.item.commented`,
 `work.interaction.requested` and `skill.run.failed`. Each poll needs human OAuth
 that selects `organization_id`, plus a Work read scope (`mcp:work.*`) or, for

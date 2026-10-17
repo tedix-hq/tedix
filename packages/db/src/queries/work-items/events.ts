@@ -32,6 +32,8 @@ export const WORK_STATE_CHANGE_EVENT_TYPES = [
 	"work.completed",
 	"work.cancelled",
 	"attempt.settled",
+	"attempt.expired",
+	"lane.stale",
 ] as const;
 
 export type WorkStateChangeEventRow = Pick<
