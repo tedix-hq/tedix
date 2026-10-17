@@ -1026,6 +1026,54 @@ describe("readEditTargetOutput", () => {
 			content: expect.stringContaining("First draft."),
 		});
 	});
+	it("prefers the selected output, deduplicates ids, and excludes the workspace id", async () => {
+		mocks.getOsOutput.mockClear();
+		mocks.getOsOutput.mockResolvedValueOnce(output as never);
+		mocks.getOsOutputRevision.mockResolvedValueOnce(revision([]) as never);
+		const workspaceId = "00000000-0000-4000-8000-0000000000b1";
+		const target = await readEditTargetOutput({
+			db: DB,
+			organizationId: "org-1",
+			viewer: { userIds: [] },
+			workspaceContext: {
+				workspaceId,
+				workspaceName: "Plans",
+				workpiece: { kind: "output", id: OUTPUT_ID },
+			} as never,
+			texts: [workspaceId, OUTPUT_ID.toUpperCase()],
+		});
+		expect(JSON.parse(target!)).toMatchObject({ outputId: OUTPUT_ID });
+		expect(mocks.getOsOutput).toHaveBeenCalledExactlyOnceWith(DB, {
+			organizationId: "org-1",
+			outputId: OUTPUT_ID,
+		});
+	});
+	it("skips a revision belonging to another output and caps the returned body", async () => {
+		const otherId = "00000000-0000-4000-8000-0000000000b2";
+		mocks.getOsOutput
+			.mockResolvedValueOnce(output as never)
+			.mockResolvedValueOnce({ ...output, id: otherId } as never);
+		mocks.getOsOutputRevision
+			.mockResolvedValueOnce({
+				...revision([]),
+				outputId: "different",
+			} as never)
+			.mockResolvedValueOnce({
+				...revision([]),
+				outputId: otherId,
+				content: "x".repeat(12001),
+			} as never);
+		const target = JSON.parse(
+			(await readEditTargetOutput({
+				db: DB,
+				organizationId: "org-1",
+				viewer: { userIds: [] },
+				texts: [OUTPUT_ID, otherId],
+			}))!,
+		);
+		expect(target).toMatchObject({ outputId: otherId, truncated: true });
+		expect(target.content).toHaveLength(12000);
+	});
 	it("never reads a protected revision", async () => {
 		mocks.getOsOutput.mockResolvedValueOnce(output as never);
 		mocks.getOsOutputRevision.mockResolvedValueOnce(
