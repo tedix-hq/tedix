@@ -81,6 +81,48 @@ The run ledger records each browser as `browser.session.opened`, `reused`
 `browser_session_status` and end it, discarding its logins, with
 `browser_session_close`.
 
+### Console sign-in and human takeover
+
+A human organization owner or admin can enable **Allow Tedix console
+sign-in** in the tedi's settings. It adds the `tedix-console-sign-in`
+hostname preset to `toolPolicy.browserEgress.presets`, covering the console
+and its sign-in dependencies. Organization restrictions, tedi policies and
+approval requirements still apply. This permits browser traffic; it grants
+no console identity or Workspace access.
+
+In workspace chat, ask "Open the console; request a takeover if sign-in
+needs me." For a takeover, open its approval and press **Open live view**.
+The server checks the current browser before opening it. Complete the
+human sign-in, consent or MFA step yourself, then approve continuation. The
+approval wakes the originating tedi session, which must read takeover status
+and continue only when `continuationReady` is true on the same browser.
+If that browser has gone, ask for a new takeover. A replacement request for
+the same browser supersedes its earlier approval; an old live-view link is
+not proof the session is still available.
+
+### Tedi console access
+
+A tedi can sign in as itself to a small read-only console. Access starts
+disabled. An active human organization owner or admin opens **Team → tedi →
+Settings → Console access**, selects Workspaces they can open, enables
+**Allow console access (read-only)** and saves. Neither a tedi nor an
+external agent can grant this access.
+
+The console shows the tedi's identity, selected Workspace names and
+descriptions, and Output titles and kinds. It does not expose Output bodies,
+connections or the human console. Sessions last at most five minutes;
+every read checks the current grant and active tedi. Saving a grant change
+revokes existing sessions. Creation and reads are audited as the tedi.
+The session cannot write, run, approve or widen its own access.
+
+From workspace chat, ask "Read this Workspace in your own console and tell
+me which Outputs are listed." The tedi uses its existing identity through
+the session broker and the organization's `/tedi-console` entry; it must
+never borrow a human session or expose credentials in chat, links or logs.
+If access is missing, give the administrator the exact setting above.
+Changes still use the normal governed Work and approval path; an approval
+does not turn the read-only console session into a write credential.
+
 ## What Tedix records
 
 - who or what asked for the work;

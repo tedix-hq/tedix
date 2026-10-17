@@ -293,6 +293,25 @@ The app holds no data of its own, so an agent reviews with the output tools:
   row index as `startRow`, the useful column's index as `startColumn`, and
   `cells: [["yes", "Great angle"]]` when the reason column follows it. Pass
   the revision you read as `expectedRevision`; on a conflict, read again.
+- "Carry out this card's action and show the result": read the app's
+  current source config and card row first. For `run_skill`, discover the
+  callable for `osWorkspaces.schedules.runNow` and pass its Workspace,
+  `run.skillId`, card params described in the [factory guide](./factory-agent-guide.md),
+  the mapped kind, and a fresh UUID `idempotencyKey`. Set `needs: "organise"`
+  for mailbox actions. Reuse that key only to retry the same request. A
+  `needs_access` result means nothing ran: point the owner to **Attached
+  resources → Read + organise**. Chat cannot grant another person's account.
+  Follow the run and read the result cell and provider record before
+  reporting success. For `approve` or `copy_and_open`, explain that the
+  decision or draft was recorded rather than claiming execution.
+- "Do the housekeeping card": use the same run with `kind: "bundle"` and
+  the source's `run.actions`. Check each listed tidy-up's result and the
+  linked Work for anything the skill could not map. Do not turn the bundle
+  into a request for the person to clean up agent Work.
+
+Every app build must update its agent guide with these chat operations,
+required access and result checks. Test the chat path alongside the app's
+buttons; a WebMCP tool is available only while its app is open.
 
 ## Expose WebMCP tools
 

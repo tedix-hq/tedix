@@ -204,6 +204,78 @@ with its outcome:
 tedix -w acme work delegate --done <id> --note "Merged; docs check green"
 ```
 
+## Operate from workspace chat
+
+Every app or factory build must update its agent guide with the actions,
+permissions and checks needed to operate it from workspace chat. Include a
+plain example request and the tools behind it; prove the chat path as well
+as the screen. Start with [Build a workspace app](./build-a-workspace-app.md)
+or the [factory guide](./factory-agent-guide.md).
+
+For Card review, ask "Show my next card", "Mark it useful: saves time", or
+"Carry out this card's action and show the result". The app guide explains
+the output writes and skill run; marking a card done alone proves no outside
+action. Gmail **Read** and **Read + organise** are separate owner grants;
+neither allows sending, trashing, spam or deletion.
+
+For a browser task, ask "Open the console as yourself, read this Workspace
+and report what you can verify". An administrator must first grant the
+tedi [read-only console access](./workers-and-governance.md#tedi-console-access).
+Ask for a takeover when a step needs human presence; the human completes
+sign-in or MFA in the live view.
+
+### Session request ledger
+
+With decision capture enabled, local Codex and Claude Code hooks upload
+redacted messages you type and agent turn endings, including a digest of
+tool failures, agents started and their reports. Events wait in a local
+outbox until uploaded; analysis runs in the background on Tedix. It records
+requests, questions, decisions, promises and unfinished follow-ups, and tracks
+in progress, waiting on you, at risk and done. Done needs evidence from the
+turn or its activity; it is not independent verification.
+
+The ledger is private to its signed-in owner in the organization. It uses
+the decision-capture opt-in, not ordinary read-only preflight; see the
+[CLI hook controls](./cli.md#set-up-codex-and-claude-code).
+Open **Work → Needs you → Your requests** to inspect it. The prompt hook's
+**Open requests** block brings unfinished rows back before each prompt.
+
+In workspace chat, ask "Show my open requests from my coding sessions" or
+"What did the agent promise and leave unfinished?" An agent must discover
+the private ledger read tool (`list_agent_session_requests`), read as you
+and cite the source session. A tedi's own identity does not inherit your
+private ledger access. Updating a row to done needs an evidence note, link
+or commit; it does not settle a related Work Item.
+
+### Tedi follow-through
+
+- **Action receipts:** after a write, read the changed record. The final
+  reply includes durable action receipts with what was checked; report
+  missing or failed verification plainly. In chat: "Do this and show the
+  receipt and current result."
+- **Commitment changes:** meaningful changes to owned Work, approvals,
+  Interactions and factories can wake the tedi through the existing scan.
+  Changes are batched and deduplicated; a wake grants no new authority.
+  In chat: "Check what changed on this Work and take the next allowed step."
+- **Quiet updates:** routine machine status updates to people use
+  coordination Interactions and batch into digests. Failures, blocked
+  approvals and deadlines under 24 hours bypass the batch. In chat: "Prepare
+  quietly and put routine progress in the digest; interrupt for a blocker."
+- **Needs you:** the original asking tedi or agent session owns the ask.
+  By default, after three unanswered days it rechecks the source, closes
+  the ask with a note or re-asks once. After an answer it must act within
+  authority and record a continuation receipt tied to that exact answer
+  and action evidence. Saved, delivered and acted on are separate states.
+  In chat: "Check whether my answer was acted on and show the evidence."
+- **Live refresh:** on ordinary turns, including "continue", the tedi
+  refreshes referenced commitments from the message, memory and session.
+  If a live read fails, it withholds task actions based on remembered state.
+  In chat: "Refresh this Work's current state before continuing."
+
+For external coding sessions, a directed inbox entry still needs a running
+host hook or listener to reach execution. A queued wake is not proof of a
+resumed turn.
+
 ## Authority and evidence rules
 
 - Read-only discovery does not authorize a mutation.

@@ -30,6 +30,18 @@ events into that local thread or resume it headlessly; the cloud schedule
 survives the local session ending, while local execution still needs that
 machine and listener. Events are hints: re-read Work and obtain admission.
 
+From workspace chat, ask "Run the night-shift coordinator once for these
+tedis, save their replies here and show the blocker Work and morning brief."
+Discover the installed coordinator skill and inspect its owner, inputs and
+schedule before running it; do not assume every organization has one. Ask
+"Show the last cycle and next run" to check its run and Output. Enabling or
+changing the schedule follows the approval rules below.
+
+Every factory build must update this guide or its linked operating guide
+with workspace-chat requests, permissions and result checks. For a card
+factory, include [card actions from chat](./build-a-workspace-app.md#review-cards-from-chat-or-mcp),
+not only its scheduled report.
+
 Connect to the requested organization using the [agent guide](./agent-guide.md).
 Discover each callable, then describe its exact schema before calling it.
 Use the returned namespace. Reads do not grant mutation authority; repository
