@@ -1,4 +1,8 @@
 import * as subscriptions from "@tedix/db/queries/provider-events";
+import { createRouterClient } from "@orpc/server";
+import * as organizations from "@tedix/db/queries/organizations";
+import * as tools from "@tedix/db/queries/tools";
+import { fetchTediToken } from "../rpc/routers/connections/credentials-tedi";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as accounts from "@tedix/db/queries/connection-instances";
 import * as members from "@tedix/db/queries/organization-members";
@@ -7,6 +11,7 @@ import * as workspaces from "@tedix/db/queries/os-workspaces/workspaces";
 import * as tedis from "@tedix/db/queries/tedis";
 import * as skills from "@tedix/db/queries/cognitive/skill-crud";
 import * as runs from "@tedix/db/queries/skill-runs";
+import * as artifacts from "@tedix/db/queries/skill-run-artifacts";
 import * as consents from "@tedix/db/queries/personal-resource-delegations";
 import * as vault from "../rpc/routers/connections/policy-resolution";
 import type { BaseContext } from "../rpc/orpc";
@@ -237,6 +242,118 @@ describe("explicit personal-resource delegation authority", () => {
 			connectionInstanceId: id,
 			approvedTokenIds: ["grant"],
 			skillRunId: id,
+		});
+	});
+	it("admits a queued projection only after this exact execution epoch started", async () => {
+		run.status = "queued";
+		const marker = vi
+			.spyOn(artifacts, "getRunArtifact")
+			.mockResolvedValue(null);
+		await expect(
+			authorizePersonalResourceDelegation(context(true), use),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		marker.mockImplementation(async (_db, runId, path) =>
+			runId === id && path === "epochs/2/started.json"
+				? ({ outcome: "success" } as never)
+				: null,
+		);
+		await expect(
+			authorizePersonalResourceDelegation(context(true), use),
+		).resolves.toMatchObject({ ownerUserId: "alice" });
+		const stale = context(true);
+		stale.headers.set("X-Tedix-Workflow-Execution-Epoch", "1");
+		await expect(
+			authorizePersonalResourceDelegation(stale, use),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		for (const status of ["paused", "completed", "failed", "canceled"]) {
+			run.status = status;
+			await expect(
+				authorizePersonalResourceDelegation(context(true), use),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+	});
+	it("uses an existing read grant after skill edits despite app-wide Gmail write scopes", async () => {
+		const readScope = "https://www.googleapis.com/auth/gmail.readonly";
+		const appScopes = [
+			readScope,
+			"https://www.googleapis.com/auth/gmail.compose",
+			"https://www.googleapis.com/auth/gmail.modify",
+		];
+		const gmailDoc =
+			"---\ncapabilities:\n  mcp:\n    google_gmail: [search_threads, label_thread]\n---\nGmail skill";
+		Object.assign(resource, {
+			providerId: "google-gmail",
+			resourceType: "mailbox",
+			providerResourceId: "alice@example.test",
+			requiredScopes: JSON.stringify([readScope]),
+		});
+		Object.assign(consent, {
+			providerId: resource.providerId,
+			resourceType: resource.resourceType,
+			providerResourceId: resource.providerResourceId,
+			requiredScopes: [readScope],
+			toolIds: ["search_threads"],
+			skillRevision: 5,
+		});
+		Object.assign(run, {
+			skillRevision: 9,
+			skillDoc: gmailDoc,
+			resourceAccessEnvelope: {
+				version: 1,
+				sources: [personalDelegationSource(consent as never)],
+			},
+		});
+		vi.mocked(skills.getSkillEntry).mockResolvedValue({
+			id,
+			revision: 10,
+			content: gmailDoc,
+			lifecycleState: "active",
+		} as never);
+		vi.spyOn(tedis, "getTediOrganizationId").mockResolvedValue(id);
+		vi.spyOn(organizations, "getOrganizationById").mockResolvedValue({
+			id,
+			descopeTenantId: "tenant-example",
+		} as never);
+		vi.spyOn(tools, "getToolByAppAndToolIdForOrganization").mockImplementation(
+			async (_db, { toolId }) =>
+				({ enabled: true, config: { mcpToolName: toolId } }) as never,
+		);
+		vi.mocked(vault.fetchNamedConnection).mockResolvedValue({
+			id: "grant",
+			tokenSub: "subject",
+			scopes: appScopes,
+			accessToken: "secret",
+		} as never);
+		const ctx = context(true);
+		ctx.headers.set("X-Tedix-Mcp-Tool-Id", "search_threads");
+		ctx.headers.set("X-Service-Binding", "true");
+		const client = createRouterClient({ fetchTediToken }, { context: ctx });
+		const request = {
+			tediId: id,
+			providerId: "google-gmail",
+			scope: "user" as const,
+			scopes: appScopes,
+			delegatedToolUse: { appId: id, arguments: { query: "newer_than:3d" } },
+		};
+		await expect(client.fetchTediToken(request)).resolves.toEqual({
+			accessToken: "secret",
+			scopes: [readScope],
+		});
+		expect(vault.fetchNamedConnection).toHaveBeenLastCalledWith(
+			expect.anything(),
+			{ userId: "alice" },
+			"google-gmail",
+			id,
+			[readScope],
+		);
+		ctx.headers.set("X-Tedix-Mcp-Tool-Id", "label_thread");
+		await expect(client.fetchTediToken(request)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		ctx.headers.set("X-Tedix-Mcp-Tool-Id", "search_threads");
+		consent.revokedAt = "2026-10-02";
+		await expect(client.fetchTediToken(request)).rejects.toMatchObject({
+			code: "FORBIDDEN",
 		});
 	});
 	it.each([

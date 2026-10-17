@@ -194,6 +194,19 @@ export function reviewedPersonalResourceBinding(
 		? tools[providerToolName]
 		: undefined;
 }
+/** App-wide OAuth scopes can include writes that a reviewed read tool never needs. */
+export function reviewedPersonalResourceReadScopes(
+	providerId: string,
+	providerToolName: unknown,
+): string[] | undefined {
+	if (
+		providerId === "google-gmail" &&
+		reviewedPersonalResourceBinding(providerId, providerToolName)?.operation ===
+			"read"
+	)
+		return ["https://www.googleapis.com/auth/gmail.readonly"];
+	return undefined;
+}
 /** Provider-documented scope implications only; never turns a read grant into write authority. */
 export function personalResourceScopesCover(
 	granted: readonly string[],

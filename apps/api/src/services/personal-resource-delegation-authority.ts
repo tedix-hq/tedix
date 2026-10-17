@@ -17,6 +17,7 @@ import {
 	listActiveOwnerSkillPersonalResourceDelegations,
 } from "@tedix/db/queries/personal-resource-delegations";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
+import { getRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type {
 	NewPersonalResourceDelegationRow,
@@ -258,9 +259,20 @@ export async function authorizePersonalResourceDelegation(
 		organizationId,
 		context.env.ENVIRONMENT,
 	);
+	// The engine can enter tenant code before the reconciler projects queued
+	// to running. The static dispatcher records this epoch fence before loading it.
+	const started =
+		run?.status === "queued"
+			? await getRunArtifact(
+					context.db,
+					runId,
+					`epochs/${Number(epoch)}/started.json`,
+				)
+			: undefined;
 	if (
 		!run ||
-		run.status !== "running" ||
+		(run.status !== "running" &&
+			!(run.status === "queued" && started?.outcome === "success")) ||
 		run.tediId !== input.tediId ||
 		run.skillId !== input.skillId ||
 		run.skillRevision !== input.skillRevision ||

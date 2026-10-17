@@ -6,6 +6,7 @@ import {
 	personalAccessLevel,
 	personalAccessOperations,
 	reviewedPersonalResourceBinding,
+	reviewedPersonalResourceReadScopes,
 } from "./personal-resource-tool-binding";
 import type { OsDerivedAccessEnvelope } from "../schemas/os-workspaces";
 const source = {
@@ -84,6 +85,25 @@ describe("personal provider argument confinement", () => {
 			}),
 		).toThrow();
 	});
+});
+
+it("narrows only reviewed Gmail read tools to their required scope", () => {
+	for (const tool of [
+		"search_threads",
+		"get_thread",
+		"get_message",
+		"list_labels",
+	])
+		expect(reviewedPersonalResourceReadScopes("google-gmail", tool)).toEqual([
+			"https://www.googleapis.com/auth/gmail.readonly",
+		]);
+	for (const tool of ["label_thread", "create_draft", "send", "unknown"])
+		expect(
+			reviewedPersonalResourceReadScopes("google-gmail", tool),
+		).toBeUndefined();
+	expect(
+		reviewedPersonalResourceReadScopes("other", "search_threads"),
+	).toBeUndefined();
 });
 
 it("recognizes exact provider scope implications without upgrading readonly grants", () => {
