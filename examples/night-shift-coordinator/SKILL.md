@@ -62,6 +62,10 @@ into the next lane. Configure `maxRetries` (default 3) and `maxReviews` (default
 4, ceiling 6) to bound each cycle. Set the owner's runtime profile
 `modelPolicy.synthesisModelRef` to an approved economy model for these reviews.
 Review receipts retain the actual model identity. Chat keeps its own setting.
+Reviews wait when model identity is unavailable. The server's outcome and
+finished timestamp establish settlement; a child's earlier summary cannot
+override that receipt. Missing outcome evidence still requires a re-brief.
+The retry limit also bounds repeated re-briefs of succeeded Attempts.
 Explicit executor assignments also review the latest settled result when a tedi
 has already fulfilled the Work. Unsettled Attempts remain held.
 

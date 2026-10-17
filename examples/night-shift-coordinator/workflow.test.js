@@ -255,6 +255,63 @@ describe("native night coordination", () => {
 		]);
 		await expect(f.run()).rejects.toThrow("Cannot accept unsuccessful lane");
 	});
+	test("provides the authoritative server settlement separately from the pre-settlement child summary", async () => {
+		const f = fixture();
+		f.item("done");
+		f.setDecision("accept");
+		f.histories.set("done", [
+			{
+				id: "settled",
+				outcome: "succeeded",
+				runtimeState: "finished",
+				finishedAt: AT,
+				summary: "Attempt settlement remains with the dispatcher",
+				metadata: { lane: true },
+			},
+		]);
+		await f.run();
+		expect(f.reason.mock.calls[0][0].prompt).toContain(
+			'"serverSettlement":{"attemptId":"settled","runtimeState":"finished","outcome":"succeeded","finishedAt":"' +
+				AT +
+				'"}',
+		);
+		expect(f.items.get("done").disposition).toBe("completed");
+	});
+	test("does not mutate Work when the review model identity is unavailable", async () => {
+		const f = fixture();
+		f.item("done");
+		f.histories.set("done", [
+			{ id: "settled", outcome: "succeeded", metadata: { lane: true } },
+		]);
+		f.reason.mockResolvedValue({
+			empty: false,
+			text: JSON.stringify({
+				decision: "accept",
+				reason: "Done",
+				learned: "Check receipts",
+			}),
+			modelIdentity: null,
+		});
+		await expect(f.run()).rejects.toThrow("model identity unavailable");
+		expect(f.writes).toHaveLength(0);
+	});
+	test("bounds repeated missing-proof rebriefs even when their Attempts succeeded", async () => {
+		const f = fixture();
+		f.item("again");
+		f.setOrder(["again"]);
+		f.histories.set("again", [
+			{ id: "latest", outcome: "succeeded", metadata: { lane: true } },
+		]);
+		for (const id of ["earlier-1", "earlier-2"])
+			f.comments
+				.get("again")
+				.push({
+					body: "Night review " + id,
+					metadata: { nightReview: { attemptId: id, decision: "rebrief" } },
+				});
+		expect((await f.run({ maxRetries: 2 })).selected).toEqual([]);
+		expect(f.items.get("again").metadata.executor).toBe("human");
+	});
 	test("reviews an assigned executor's latest settled result even when a tedi fulfilled it", async () => {
 		for (const executor of ["codex", "claude-code"]) {
 			const f = fixture();
