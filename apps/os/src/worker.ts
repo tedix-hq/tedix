@@ -28,6 +28,7 @@ import {
 	serviceBindingFetch,
 } from "@tedix/api-client/internal";
 import { validateToken } from "@tedix/auth/jwt";
+import { handleTediConsole } from "./auth/tedi-console";
 import {
 	decodeUnverifiedJwtClaims,
 	DESCOPE_SESSION_COOKIE,
@@ -898,6 +899,12 @@ export async function handleOsRequest(
 		}
 	}
 
+	// authz: restricted tedi console session; canonical grant and tenant checked by the API on every read.
+	if (
+		url.pathname === "/tedi-console" ||
+		url.pathname === "/tedi-console/session"
+	)
+		return handleTediConsole(request, env.API_SERVICE, hostTenantId);
 	// authz: public — the shared WebMCP bridge script. The
 	// zone-level toggle is off, so this Worker serves the @tedix/webmcp-core
 	// bridge itself; the script is static, identical for every caller, and

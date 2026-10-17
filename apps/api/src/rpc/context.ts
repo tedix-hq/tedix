@@ -44,6 +44,7 @@ export type ApiAuthType =
  * Includes Cloudflare bindings and request metadata
  */
 export interface BaseContext {
+	tediConsoleWorkspaceIds?: string[];
 	/** Cloudflare Worker environment bindings */
 	env: CloudflareEnv;
 	/** Database client (created lazily) */

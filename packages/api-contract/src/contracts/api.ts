@@ -10,6 +10,7 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import { tediConsoleContract } from "./tedi-console";
 import { adapterBindingsContract } from "./adapter-bindings";
 import { aeoContract } from "./aeo";
 import { agentTurnTriageContract } from "./agent-turn-triage";
@@ -124,6 +125,7 @@ import { workflowsContract } from "./workflows";
  * excluded by default, and `internal` remains an additional deny tag.
  */
 export const apiContract = oc.route({ prefix: "/v1" }).router({
+	tediConsole: tediConsoleContract,
 	// Billing (Stripe checkout, portal, status)
 	billing: billingContract,
 	runtimeEntitlements: runtimeEntitlementsContract,

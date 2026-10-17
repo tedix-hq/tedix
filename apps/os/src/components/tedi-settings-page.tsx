@@ -1,5 +1,6 @@
 /** Tedix OS ownership of the governed digital-worker settings seam. */
 
+import { TediConsoleAccess } from "./tedi-console-access";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { TediAppAssignmentRole } from "@tedix/api-contract/schemas/tedi-app-assignments";
@@ -1326,6 +1327,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 				</p>
 			) : null}
 
+			<TediConsoleAccess tediId={tediId} />
 			<div className="grid gap-6 lg:grid-cols-2">
 				<Card>
 					<CardHeader>

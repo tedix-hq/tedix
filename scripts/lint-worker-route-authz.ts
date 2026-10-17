@@ -247,6 +247,8 @@ export const WORKER_APPS: WorkerAppConfig[] = [
 			"apps/os/src/auth/session-broker.ts",
 		],
 		guards: {
+			"\\bhandleTediConsole\\s*\\(":
+				"Requires a separate tedi console credential; the API checks signature, expiry, live grant revision, chosen Workspace and tenant host on every read.",
 			"\\bauthenticateWidgetBridge\\s*\\(":
 				"Verifies the host-only broker session JWT and binds it to the host tenant before the widget bridge forwards anything.",
 			"\\brefuse\\(\\s*401\\b|\\brefuseApi\\(\\s*url,\\s*401\\b":
@@ -260,7 +262,10 @@ export const WORKER_APPS: WorkerAppConfig[] = [
 	{
 		app: "apps/session-broker",
 		pathnameFiles: ["apps/session-broker/src/index.ts"],
-		guards: {},
+		guards: {
+			"\\bcreateTediConsoleSession\\s*\\(":
+				"Relays only an explicit bearer to the API, which verifies the tedi JWT and administrator-owned console grant before minting a read-only credential.",
+		},
 	},
 	{
 		app: "apps/skill-runtime",

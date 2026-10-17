@@ -382,6 +382,7 @@
       "name": "@tedix/session-broker",
       "version": "0.1.0",
       "dependencies": {
+        "@tedix/api-client": "workspace:*",
         "@tedix/auth": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
       },

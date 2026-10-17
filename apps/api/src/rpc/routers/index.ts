@@ -79,6 +79,9 @@ const lazyRouter = <T>(load: () => Promise<T>): T =>
 // =============================================================================
 
 export const apiRouter = {
+	tediConsole: lazyRouter(() =>
+		import("./tedi-console").then((m) => m.tediConsoleRouter),
+	),
 	billing: lazyRouter(() =>
 		import("./billing").then((m) => m.billingContractRouter),
 	),

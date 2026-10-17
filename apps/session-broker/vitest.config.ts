@@ -7,6 +7,10 @@ export default defineConfig({
 			experimental: { newConfig: true },
 			remoteBindings: false,
 			miniflare: {
+				serviceBindings: {
+					API_SERVICE: async () =>
+						new Response("Unavailable in tests", { status: 503 }),
+				},
 				// The config binds both classes by this Worker's name. The pool runs the
 				// Worker under its own runner name, so bind them as local classes.
 				durableObjects: {

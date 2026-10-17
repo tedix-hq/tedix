@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./tedi-console-session": "./src/tedi-console-session.ts",
 		"./client": "./src/client.ts",
 		"./access-key-exchange": "./src/access-key-exchange.ts",
 		"./jwt": "./src/jwt.ts",

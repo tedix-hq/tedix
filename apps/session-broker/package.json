@@ -20,6 +20,7 @@
 		"type-check": "bun run types && tsc --noEmit"
 	},
 	"dependencies": {
+		"@tedix/api-client": "workspace:*",
 		"@tedix/auth": "workspace:*",
 		"@tedix/worker-kit": "workspace:*"
 	},

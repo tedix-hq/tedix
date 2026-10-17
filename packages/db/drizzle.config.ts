@@ -34,6 +34,7 @@ export default defineConfig({
 		"./src/schema/provider-events.ts",
 		"./src/schema/personal-resource-delegations.ts",
 		"./src/schema/calendar-coordinator.ts",
+		"./src/schema/tedi-console.ts",
 	],
 	out: "./drizzle",
 	dialect: "sqlite",

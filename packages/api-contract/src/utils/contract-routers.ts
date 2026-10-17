@@ -8,6 +8,7 @@
  */
 
 import { getOpenAPIMeta } from "@orpc/openapi";
+import { tediConsoleContract } from "../contracts/tedi-console";
 import { adapterBindingsContract } from "../contracts/adapter-bindings";
 import { aeoContract } from "../contracts/aeo";
 import { agentTurnTriageContract } from "../contracts/agent-turn-triage";
@@ -169,6 +170,7 @@ export const ROUTERS: Record<string, unknown> = {
 	osShares: osSharesContract,
 	osWorkspaces: osWorkspacesContract,
 	osGadgetState: osGadgetStateContract,
+	tediConsole: tediConsoleContract,
 	providerEvents: providerEventsContract,
 	personalResourceDelegations: personalResourceDelegationsContract,
 	calendarCoordinator: calendarCoordinatorContract,
