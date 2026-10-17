@@ -10,6 +10,7 @@ import {
 } from "@tedix/api-contract/schemas/repository-observer";
 import {
 	acceptsObserverClaims,
+	observerSubject,
 	handleRepositoryObserverWebhook,
 } from "./repository-observer";
 const config = RepositoryObserverConfigSchema.parse({
@@ -36,6 +37,37 @@ const claims = {
 	event_name: "push",
 	sha: event.sha,
 };
+describe("observer subject formats", () => {
+	it("binds legacy and immutable subjects to the configured repository and branch", () => {
+		const legacy = "repo:example/product:ref:refs/heads/main";
+		expect(observerSubject("example/product", "main", { sub: legacy })).toBe(
+			legacy,
+		);
+		const immutable = {
+			sub: "repo:example@123/product@456:ref:refs/heads/main",
+			repository_owner_id: "123",
+			repository_id: "456",
+		};
+		expect(observerSubject("example/product", "main", immutable)).toBe(
+			immutable.sub,
+		);
+		for (const changed of [
+			{ repository_owner_id: "999" },
+			{ repository_id: "999" },
+			{ repository_id: "456:ref:refs/heads/main" },
+			{ repository_id: undefined },
+			{ sub: "repo:attacker@123/product@456:ref:refs/heads/main" },
+			{ sub: "repo:example@123/product@456:ref:refs/heads/topic" },
+		])
+			expect(
+				observerSubject("example/product", "main", {
+					...immutable,
+					...changed,
+				}),
+			).toBeNull();
+		expect(observerSubject("example/ops", "main", immutable)).toBeNull();
+	});
+});
 describe("observer workload binding after signature verification", () => {
 	it("accepts only the configured main workflow and exact pushed SHA", () => {
 		expect(acceptsObserverClaims(config, event, claims)).toBe(true);
