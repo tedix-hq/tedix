@@ -1059,6 +1059,24 @@ export function createPlanningSync(config) {
 					p.metadata?.planningBoards?.includes(config.boardKey),
 			)) {
 				let entry = [...linked].find(([, p]) => p.id === project.id);
+				if (
+					!entry &&
+					(snapshot.links.some(
+						(source) =>
+							source.projectId === project.id &&
+							source.metadata?.role === "project",
+					) ||
+						Object.values(config.projectLinks).includes(project.id) ||
+						state[`export-project:${project.id}`] ||
+						state[`effect:export-project:${project.id}`])
+				) {
+					report.decisions.push({
+						projectId: project.id,
+						reason:
+							"Known Notion counterpart is unavailable or unnamed; no replacement created.",
+					});
+					continue;
+				}
 				if (!entry) {
 					try {
 						const page = await checkpoint(
