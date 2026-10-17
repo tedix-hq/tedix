@@ -6,6 +6,15 @@ import type { Project } from "@tedix/api-contract/contracts/projects";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import * as z from "zod";
+import { WorkItemDescription } from "@/components/work-item-description";
+import { OS_COPY } from "@/shared/os-copy";
+import {
+	plainWorkText,
+	workChecklist,
+	workDate,
+	workDue,
+	workReminders,
+} from "@/lib/work-detail";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
@@ -64,6 +73,8 @@ import { WorkProjectContributors } from "@/components/work-project-contributors"
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
 import { formatRatioPercent, sentenceCase } from "@/lib/format";
 import {
+	osQuery,
+	userProfileQueryOptions,
 	projectDetailQueryOptions,
 	projectRollupQueryOptions,
 	projectHealthJudgmentsQueryOptions,
@@ -487,7 +498,7 @@ type PrincipalNames = ReadonlyMap<string, string>;
 
 /**
  * The accountable owner's display name, resolved from the `type:id` name map
- * (people by Descope user id, tedis by id). Falls back to the shortened id
+ * (people by Descope user id, tedis by id). Opaque identifiers stay hidden
  * while names load or when the reader cannot list members.
  */
 export function workOwnerName(
@@ -495,22 +506,19 @@ export function workOwnerName(
 	id: string | null,
 	names: PrincipalNames = new Map(),
 ): string {
-	if (!id) return "Unassigned";
+	if (!id) return OS_COPY.work.unassigned;
 	const named = type
 		? names.get(`${type}:${id}`)
 		: (names.get(`user:${id}`) ?? names.get(`tedi:${id}`));
-	return named ?? workPrincipalLabel(id);
+	return named ?? OS_COPY.work.ownerUnavailable;
 }
 
-/** Tooltip for an owner name: the name plus the full id it stands for. */
 export function workOwnerTitle(
 	type: string | null | undefined,
 	id: string | null,
 	names?: PrincipalNames,
 ): string {
-	if (!id) return "Accountable: Unassigned";
-	const name = workOwnerName(type, id, names);
-	return name === id ? `Accountable: ${id}` : `Accountable: ${name} (${id})`;
+	return `${OS_COPY.work.owner}: ${workOwnerName(type, id, names)}`;
 }
 
 type WorkItemReadiness =
@@ -540,6 +548,7 @@ export function WorkItemStatusSummary({
 	accountableOwnerId,
 	principalNames,
 	readiness,
+	acceptAction,
 }: {
 	disposition: WorkItem["disposition"];
 	accountableOwnerType?: string | null;
@@ -550,63 +559,80 @@ export function WorkItemStatusSummary({
 		ready: boolean;
 		reasons: Array<{ detail: string }>;
 	};
+	acceptAction?: ReactNode;
 }) {
+	const owner = workOwnerName(
+		accountableOwnerType,
+		accountableOwnerId,
+		principalNames,
+	);
+	const firstName =
+		owner === OS_COPY.work.ownerUnavailable || owner === OS_COPY.work.unassigned
+			? "The owner"
+			: owner.split(/\s+/)[0]!;
 	return (
-		<div className="border-kumo-line border-y">
-			<dl
-				aria-label="Work item status"
-				className="m-0 grid sm:grid-cols-3 sm:divide-x sm:divide-kumo-line"
+		<div
+			className="grid gap-3 border-kumo-line border-y py-4"
+			aria-label="Work item status"
+		>
+			<Text as="p">
+				<span className="text-kumo-subtle">{OS_COPY.work.status}: </span>
+				{disposition === "proposed"
+					? OS_COPY.work.proposed
+					: sentenceCase(disposition)}
+			</Text>
+			{disposition === "proposed" ? (
+				<div className="flex flex-wrap items-center gap-3">
+					<Text as="p" tone="secondary">
+						{OS_COPY.work.needsAcceptance(firstName)}
+					</Text>
+					{acceptAction}
+				</div>
+			) : disposition === "accepted" ? (
+				<Text as="p" tone="secondary">
+					{readiness?.ready ? "Ready to start" : "Waiting for the next step"}
+				</Text>
+			) : null}
+		</div>
+	);
+}
+
+function WorkItemAcceptance({ item }: { item: WorkItem }) {
+	const viewer = useQuery(userProfileQueryOptions());
+	const client = useQueryClient();
+	const accept = useMutation({
+		mutationFn: () =>
+			osApi.workItems.accept({
+				id: item.id,
+				acceptanceContract: item.acceptanceContract ?? {
+					version: 1,
+					doneLooksLike: item.title,
+				},
+			}),
+		onSuccess: () =>
+			client.invalidateQueries({
+				queryKey: osQuery.workItems.key({ type: "query" }),
+			}),
+	});
+	if (
+		item.accountableOwnerType !== "user" ||
+		!viewer.data?.id ||
+		viewer.data.id !== item.accountableOwnerId
+	)
+		return null;
+	return (
+		<div className="grid gap-1">
+			<Button
+				size="sm"
+				disabled={accept.isPending}
+				onClick={() => accept.mutate()}
 			>
-				<div className="grid gap-1 px-4 py-3">
-					<Text as="dt" role="body" tone="secondary">
-						Business disposition
-					</Text>
-					<dd className="m-0">
-						<Badge variant={dispositionVariant(disposition)}>
-							{sentenceCase(disposition)}
-						</Badge>
-					</dd>
-				</div>
-				<div className="grid gap-1 border-kumo-line border-t px-4 py-3 sm:border-t-0">
-					<Text as="dt" role="body" tone="secondary">
-						Readiness
-					</Text>
-					<dd className="m-0">
-						{readiness ? (
-							<Badge variant={readiness.ready ? "success" : "warning"}>
-								{sentenceCase(readiness.state)}
-							</Badge>
-						) : (
-							<span className="text-kumo-subtle">Unavailable</span>
-						)}
-					</dd>
-				</div>
-				<div className="grid gap-1 border-kumo-line border-t px-4 py-3 sm:border-t-0">
-					<Text as="dt" role="body" tone="secondary">
-						Accountable
-					</Text>
-					<dd
-						className="m-0 truncate font-medium"
-						title={workOwnerTitle(
-							accountableOwnerType,
-							accountableOwnerId,
-							principalNames,
-						)}
-					>
-						{workOwnerName(
-							accountableOwnerType,
-							accountableOwnerId,
-							principalNames,
-						)}
-					</dd>
-				</div>
-			</dl>
-			{readiness?.reasons.length ? (
-				<ul className="m-0 grid gap-1 border-kumo-line border-t px-4 py-3 pl-9 text-sm">
-					{readiness.reasons.map((reason, index) => (
-						<li key={`${reason.detail}-${index}`}>{reason.detail}</li>
-					))}
-				</ul>
+				{accept.isPending ? OS_COPY.work.accepting : OS_COPY.work.accept}
+			</Button>
+			{accept.isError ? (
+				<Text role="label" tone="error">
+					{OS_COPY.work.acceptError}
+				</Text>
 			) : null}
 		</div>
 	);
@@ -641,15 +667,6 @@ function WorkItemMobileList({
 							className="flex min-h-11 min-w-0 flex-col items-start justify-center py-1 text-left font-medium leading-snug coarse:min-h-11"
 						>
 							<span className="line-clamp-2">{item.title}</span>
-							<Text
-								as="span"
-								role="label"
-								tone="mono-secondary"
-								className="hidden group-focus-within:inline group-hover:inline"
-								data-row-id
-							>
-								{item.id.slice(0, 8)}
-							</Text>
 						</Link>
 						<div className="flex min-h-7 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pb-1">
 							{showDisposition ? (
@@ -664,7 +681,8 @@ function WorkItemMobileList({
 								<div className="min-w-0">
 									<dt className="sr-only">Kind</dt>
 									<dd className="m-0 whitespace-nowrap text-kumo-default">
-										{sentenceCase(item.workKind)}
+										{OS_COPY.work.kinds[item.workKind] ??
+											OS_COPY.work.kinds.other}
 									</dd>
 								</div>
 								<span aria-hidden="true">·</span>
@@ -678,7 +696,7 @@ function WorkItemMobileList({
 								</div>
 								<span aria-hidden="true">·</span>
 								<div className="min-w-0 max-w-full">
-									<dt className="sr-only">Accountable</dt>
+									<dt className="sr-only">{OS_COPY.work.owner}</dt>
 									<dd
 										className="m-0"
 										title={workOwnerTitle(
@@ -764,7 +782,7 @@ export function WorkItemsTable({
 							Kind
 						</TableHead>
 						<TableHead className="hidden xl:table-cell xl:w-[21%]">
-							Accountable
+							{OS_COPY.work.owner}
 						</TableHead>
 						<TableHead className="w-[16%] xl:w-[10%]">Updated</TableHead>
 					</TableRow>
@@ -800,15 +818,6 @@ export function WorkItemsTable({
 												principalNames,
 											)}
 										</Text>
-										<Text
-											as="span"
-											role="label"
-											tone="mono-secondary"
-											className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
-											data-row-id
-										>
-											{item.id.slice(0, 8)}
-										</Text>
 									</div>
 								</TableCell>
 								{showDisposition ? (
@@ -824,7 +833,8 @@ export function WorkItemsTable({
 									</TableCell>
 								) : null}
 								<TableCell className="py-2!">
-									{sentenceCase(item.workKind)}
+									{OS_COPY.work.kinds[item.workKind] ??
+										OS_COPY.work.kinds.other}
 								</TableCell>
 								<TableCell
 									className="hidden truncate py-2! xl:table-cell"
@@ -2157,9 +2167,6 @@ export function WorkRecoveryLedger({
 							className="flex min-h-11 min-w-0 flex-col items-start justify-center text-left font-medium leading-snug"
 						>
 							<span className="line-clamp-2">{record.title}</span>
-							<Text as="span" role="label" tone="mono-secondary">
-								{record.id.slice(0, 8)}
-							</Text>
 						</Link>
 						<div className="flex min-h-11 min-w-0 flex-wrap content-center gap-1 overflow-hidden py-1">
 							<div className="flex min-w-0 flex-wrap gap-1">
@@ -2205,9 +2212,6 @@ export function WorkRecoveryLedger({
 								>
 									<span className="line-clamp-2">{record.title}</span>
 								</Link>
-								<Text as="p" role="label" tone="mono-secondary">
-									{record.id.slice(0, 8)}
-								</Text>
 							</TableCell>
 							<TableCell className="whitespace-normal">
 								<div className="flex flex-wrap gap-1">
@@ -2252,24 +2256,14 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 	});
 	useDocumentTitle(item ? `${item.title} · Work` : "Work item");
 	useWorkItemWebMcpTools(itemId);
-	/*
-	 * The detail verdict is checked BEFORE the aggregate pending gate, not after.
-	 * The four ledger queries are keyed to the same id, and for an id that does
-	 * not exist at least one of them never settles — so gating the not-found
-	 * branch behind "any query is pending" made it unreachable, and the page sat
-	 * on a loading skeleton indefinitely.
-	 */
+	// Ledger failures must not prevent the task itself from appearing.
 	if (detail.isError || (!detail.isPending && !item))
 		return (
 			<WorkItemInspectorPage>
 				<DetailUnavailable resource="Work item" error={detail.error} />
 			</WorkItemInspectorPage>
 		);
-	if (
-		[detail, readiness, attempts, evidence, events].some(
-			(query) => query.isPending,
-		)
-	)
+	if (detail.isPending)
 		return (
 			<WorkItemInspectorPage>
 				<LoadingTable />
@@ -2286,8 +2280,8 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 	return (
 		<WorkItemInspectorPage>
 			<FactoryPageHeader
-				title={item.title}
-				description={`${sentenceCase(item.workKind)} · ${item.id}`}
+				title={plainWorkText(item.title)}
+				description={OS_COPY.work.kinds[item.workKind]}
 			/>
 			<WorkItemStatusSummary
 				disposition={item.disposition}
@@ -2295,6 +2289,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 				accountableOwnerId={item.accountableOwnerId}
 				principalNames={principalNames}
 				readiness={readiness.data}
+				acceptAction={<WorkItemAcceptance item={item} />}
 			/>
 			{item.disposition === "completed" ? (
 				<WorkRecordedOutcome
@@ -2303,28 +2298,92 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 					error={latestAttempts.error}
 				/>
 			) : null}
+			<section
+				aria-label={OS_COPY.work.atAGlance}
+				className="grid gap-3 rounded-xl border border-kumo-line bg-kumo-base p-4"
+			>
+				<Text as="h2" weight="semibold">
+					{OS_COPY.work.atAGlance}
+				</Text>
+				<dl className="m-0 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+					{[
+						[
+							OS_COPY.work.owner,
+							workOwnerName(
+								item.accountableOwnerType,
+								item.accountableOwnerId,
+								principalNames,
+							),
+						],
+						[
+							OS_COPY.work.due,
+							item.deadline || item.dueDate
+								? `${workDate((item.deadline || item.dueDate)!)} · ${workDue((item.deadline || item.dueDate)!)}`
+								: OS_COPY.work.noDue,
+						],
+						[
+							OS_COPY.work.nextStep,
+							workChecklist(item.description ?? "", detail.data?.comments).find(
+								(task) => !task.checked,
+							)?.text ?? OS_COPY.work.noNextStep,
+						],
+						[
+							OS_COPY.work.reminders,
+							workReminders(item.metadata, item.description ?? "").join(
+								" · ",
+							) || OS_COPY.work.noReminders,
+						],
+					].map(([label, value]) => (
+						<div key={label} className="min-w-0">
+							<Text as="dt" role="label" tone="secondary">
+								{label}
+							</Text>
+							<dd className="m-0">
+								<WorkItemDescription
+									item={item}
+									comments={[]}
+									content={value}
+									interactive={false}
+								/>
+							</dd>
+						</div>
+					))}
+					<div className="min-w-0">
+						<Text as="dt" role="label" tone="secondary">
+							{OS_COPY.work.project}
+						</Text>
+						<dd className="m-0">
+							{detail.data?.project ? (
+								<Link
+									variant="record"
+									href={`/work/projects/${detail.data.project.id}`}
+								>
+									{detail.data.project.name}
+								</Link>
+							) : (
+								OS_COPY.work.noProject
+							)}
+						</dd>
+					</div>
+				</dl>
+			</section>
 			{item.description ? (
 				<Card>
 					<CardHeader>
-						<CardTitle>Work specification</CardTitle>
+						<CardTitle>{OS_COPY.work.description}</CardTitle>
 					</CardHeader>
-					<CardContent className="whitespace-pre-wrap">
-						{item.description}
+					<CardContent>
+						<WorkItemDescription
+							item={item}
+							comments={detail.data?.comments ?? []}
+						/>
 					</CardContent>
 				</Card>
 			) : null}
 			<SectionCollection
-				title={
-					item.disposition === "completed"
-						? "Historical updates and discussion"
-						: "Updates and discussion"
-				}
-				description={
-					item.disposition === "completed"
-						? "Earlier progress reports may describe blockers that preceded completion. Use the recorded outcome above for the latest Attempt result."
-						: "Saved progress and questions from people and agents. These updates do not change task status or grant permission."
-				}
-				empty="No updates saved yet."
+				title={OS_COPY.work.activity}
+				description={OS_COPY.work.activityDescription}
+				empty={OS_COPY.work.emptyActivity}
 			>
 				{detail.data?.comments.length
 					? detail.data.comments
@@ -2333,56 +2392,69 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 							.map((comment) => (
 								<li className="min-w-0" key={comment.id}>
 									<Text role="label" tone="secondary">
-										<span
-											title={`${comment.authorType}:${comment.authorId ?? "unknown"}`}
-										>
-											{sentenceCase(comment.authorType)}
-										</span>{" "}
+										{principalNames.get(
+											`${comment.authorType}:${comment.authorId}`,
+										) ?? "Team member"}{" "}
 										·{" "}
 										<time dateTime={comment.createdAt}>
-											{absoluteTime(comment.createdAt)}
+											{workDate(comment.createdAt, true)}
 										</time>
 									</Text>
-									<Text as="p" className="whitespace-pre-wrap break-words">
-										{comment.body}
-									</Text>
+									<WorkItemDescription
+										item={item}
+										comments={[]}
+										content={comment.body}
+										interactive={false}
+									/>
 								</li>
 							))
 					: undefined}
 			</SectionCollection>
-			<WorkItemReadOnlyLedgers
-				workItemId={item.id}
-				acceptanceContract={item.acceptanceContract}
-				attempts={attempts.data?.data ?? []}
-				attemptsError={attempts.error}
-				attemptControls={
-					<PageControls
-						hasPrevious={attemptPaging.hasPrevious}
-						hasNext={Boolean(attempts.data?.nextCursor)}
-						onPrevious={attemptPaging.reset}
-						onBack={attemptPaging.previous}
-						onNext={() => {
-							if (attempts.data?.nextCursor)
-								attemptPaging.next(attempts.data.nextCursor);
-						}}
-					/>
-				}
-				evidence={evidence.data?.data ?? []}
-				evidenceError={evidence.error}
-				evidenceControls={
-					<PageControls
-						hasPrevious={evidencePaging.hasPrevious}
-						hasNext={Boolean(evidence.data?.nextCursor)}
-						onPrevious={evidencePaging.reset}
-						onBack={evidencePaging.previous}
-						onNext={() => {
-							if (evidence.data?.nextCursor)
-								evidencePaging.next(evidence.data.nextCursor);
-						}}
-					/>
-				}
-				events={events.data?.events ?? []}
+			<ClipboardText
+				size="sm"
+				text={OS_COPY.work.copyLink}
+				className="w-fit max-w-full"
+				textToCopy={`${window.location.origin}/work/items/${item.id}`}
 			/>
+			<Collapsible>
+				<CollapsibleTrigger>{OS_COPY.work.technicalDetails}</CollapsibleTrigger>
+				<CollapsibleContent className="grid gap-4 pt-4">
+					<ClipboardText size="sm" text={item.id} textToCopy={item.id} />
+					<WorkItemReadOnlyLedgers
+						workItemId={item.id}
+						acceptanceContract={item.acceptanceContract}
+						attempts={attempts.data?.data ?? []}
+						attemptsError={attempts.error}
+						attemptControls={
+							<PageControls
+								hasPrevious={attemptPaging.hasPrevious}
+								hasNext={Boolean(attempts.data?.nextCursor)}
+								onPrevious={attemptPaging.reset}
+								onBack={attemptPaging.previous}
+								onNext={() => {
+									if (attempts.data?.nextCursor)
+										attemptPaging.next(attempts.data.nextCursor);
+								}}
+							/>
+						}
+						evidence={evidence.data?.data ?? []}
+						evidenceError={evidence.error}
+						evidenceControls={
+							<PageControls
+								hasPrevious={evidencePaging.hasPrevious}
+								hasNext={Boolean(evidence.data?.nextCursor)}
+								onPrevious={evidencePaging.reset}
+								onBack={evidencePaging.previous}
+								onNext={() => {
+									if (evidence.data?.nextCursor)
+										evidencePaging.next(evidence.data.nextCursor);
+								}}
+							/>
+						}
+						events={events.data?.events ?? []}
+					/>
+				</CollapsibleContent>
+			</Collapsible>
 		</WorkItemInspectorPage>
 	);
 }

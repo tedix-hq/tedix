@@ -300,6 +300,33 @@ describe("WorkPortfolioPage", () => {
 		}
 	});
 
+	it("stacks factory cards and links failures without exposing run identifiers", () => {
+		const runId = "11111111-1111-4111-8111-111111111111";
+		const doc = new DOMParser().parseFromString(
+			render(
+				seededClient({
+					factories: [
+						factory({
+							verdict: "failing",
+							verdictReason: `Run ${runId} failed: provider timeout`,
+						}),
+					],
+				}),
+			),
+			"text/html",
+		);
+		expect(doc.body.textContent).toContain("Last run failed: provider timeout");
+		expect(doc.body.textContent).not.toContain(runId);
+		expect(doc.querySelector(`a[href="/work/runs/${runId}"]`)).not.toBeNull();
+		const card = doc.querySelector('[aria-label="Nova factories"]');
+		expect(card?.className).toContain("break-inside-avoid");
+		expect(card?.parentElement?.className).toContain("columns-1");
+		expect(card?.parentElement?.className).toContain(
+			"md:max-[1200px]:columns-2",
+		);
+		expect(card?.parentElement?.className).toContain("min-[1200px]:columns-3");
+	});
+
 	it("scores each factory by tedi and flags one running but idle", () => {
 		const doc = new DOMParser().parseFromString(
 			render(seededClient()),
@@ -309,9 +336,7 @@ describe("WorkPortfolioPage", () => {
 		const digest = nova?.querySelector(
 			'[data-factory="skill_loop:skill-digest"]',
 		);
-		expect(digest?.textContent).toContain(
-			"7 runs (6 ok) · 2 Outputs · 1 Work closed",
-		);
+		expect(digest?.textContent).toContain("7 runs · 2 results · 1 closed");
 		expect(
 			digest?.querySelector('a[href="/skills/skill-digest/runs"]'),
 		).not.toBeNull();
@@ -323,7 +348,7 @@ describe("WorkPortfolioPage", () => {
 			'[aria-label="No tedi factories"] [data-factory="blueprint:bp-crm"]',
 		);
 		expect(crm?.textContent).toContain("Idle");
-		expect(crm?.textContent).toContain("No results in the last 30 days");
+		expect(crm?.textContent).toContain("Nothing produced yet");
 		expect(crm?.querySelector('a[href="/blueprints"]')).not.toBeNull();
 	});
 
@@ -357,7 +382,7 @@ describe("WorkPortfolioPage", () => {
 		);
 		const paused = doc.querySelector('[data-factory="skill_loop:skill-off"]');
 		expect(paused?.textContent).toContain("Paused");
-		expect(paused?.textContent).toContain("1 run (1 ok) · 1 Output ·");
+		expect(paused?.textContent).toContain("1 run · 1 result ·");
 		expect(
 			doc.querySelector('[data-factory="blueprint:bp-unused"]'),
 		).toBeNull();
