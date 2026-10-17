@@ -52,6 +52,11 @@ and durable answer settlement.
   Codex capture checks the host's exact stored thread before opening a question.
   An unavailable, ephemeral or archived target creates no automatic request;
   the original message remains in its chat.
+  SessionStart (`startup`, `clear`, `compact`) also reads the compact Open
+  requests list when decision capture is enabled. The reflector can turn an
+  evidenced tool failure and later fix into a private lesson proposal. It checks
+  approved lessons and memory for semantic duplicates; each candidate stays
+  proposed until reviewed through the existing learning pipeline.
 
 - **Session supervisor** (`supervise.ts`) — `tedix supervise` delivers a tedi
   auto reply that arrives after a Codex session's `await-draft` stopped waiting:

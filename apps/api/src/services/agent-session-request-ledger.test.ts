@@ -26,6 +26,88 @@ const SCOPE = {
 };
 const T0 = "2026-10-06T10:00:00.000Z";
 
+it("passes cited failure/fix pairs across stored turns to the learning pipeline", async () => {
+	const db = fixture();
+	const failure = "Failed native upload: payload exceeds inline limit";
+	const fix =
+		"Native uploader saved successfully after bypassing the inline limit";
+	await acceptAgentSessionEvents(db, {
+		...SCOPE,
+		events: [
+			{
+				kind: "turn",
+				harness: SCOPE.harness,
+				sessionKey: SCOPE.sessionKey,
+				sourceAt: T0,
+				text: "Inline limit reached",
+				activity: failure,
+			},
+		],
+		now: T0,
+	});
+	const { model, prompts } = scripted(JSON.stringify({ updates: [] }));
+	model.reflectLessons = vi.fn(async () =>
+		JSON.stringify({
+			lessons: [
+				{
+					rule: "Inline uploads fail → use the native uploader. Why: the inline limit.",
+					failure,
+					fix,
+				},
+			],
+		}),
+	);
+	model.learn = vi.fn(async () => {});
+	await reflectAgentSessionRequests(db, model, {
+		...SCOPE,
+		sourceEventId: "fix-event",
+		turn: fix,
+		activity: null,
+		repository: "example/app",
+		sourceAt: "2026-10-06T10:01:00.000Z",
+		now: T0,
+	});
+	expect(prompts[0]).toContain(failure);
+	expect(model.reflectLessons).toHaveBeenCalledWith(
+		expect.arrayContaining([
+			expect.objectContaining({ activity: failure }),
+			expect.objectContaining({ id: "fix-event", body: fix }),
+		]),
+	);
+	expect(model.learn).toHaveBeenCalledWith(
+		[
+			expect.objectContaining({
+				failure,
+				fix,
+				failureEventId: expect.any(String),
+				fixEventId: "fix-event",
+			}),
+		],
+		expect.objectContaining({ sessionKey: SCOPE.sessionKey }),
+	);
+});
+
+it("does not lose lesson extraction failures or malformed output as successful reflection", async () => {
+	for (const reply of [null, "{}", "not JSON"]) {
+		const db = fixture();
+		const { model } = scripted('{"updates":[]}');
+		model.reflectLessons = async () => reply;
+		model.learn = vi.fn(async () => {});
+		await expect(
+			reflectAgentSessionRequests(db, model, {
+				...SCOPE,
+				sourceEventId: "source",
+				turn: "Upload saved successfully",
+				activity: "Failed upload: payload limit",
+				repository: "example/app",
+				sourceAt: T0,
+				now: T0,
+			}),
+		).rejects.toThrow();
+		expect(model.learn).not.toHaveBeenCalled();
+	}
+});
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");

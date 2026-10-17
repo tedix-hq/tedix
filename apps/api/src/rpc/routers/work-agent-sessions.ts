@@ -190,12 +190,17 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 		model.learn = async (lessons, scope) => {
 			const ownerUserId = context.user?.sub;
 			if (!lessons.length || !ownerUserId) return;
-			const { recordLedgerLessonCandidates } =
+			const { recordLedgerLessonCandidates, ledgerLessonNoveltyModel } =
 				await import("../../services/request-ledger-lessons");
-			await recordLedgerLessonCandidates(context.db, lessons, {
-				...scope,
-				ownerUserId,
-			});
+			await recordLedgerLessonCandidates(
+				context.db,
+				lessons,
+				{
+					...scope,
+					ownerUserId,
+				},
+				ledgerLessonNoveltyModel(context.env),
+			);
 		};
 		context.waitUntil?.(
 			processAgentSessionEvents(context.db, model, owner).catch(() => 0),

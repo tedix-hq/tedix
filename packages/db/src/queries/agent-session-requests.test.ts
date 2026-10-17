@@ -273,8 +273,14 @@ it("reads the preceding turn only from the same owner, harness and session, befo
 			before: T1,
 		}),
 	).toEqual([
-		{ body: "Older question.", activity: null, sourceAt: T0 },
 		{
+			id: expect.any(String),
+			body: "Older question.",
+			activity: null,
+			sourceAt: T0,
+		},
+		{
+			id: expect.any(String),
 			body: "Choose option one or two.",
 			activity: null,
 			sourceAt: "2026-10-06T10:04:00.000Z",
