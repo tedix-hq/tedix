@@ -14,6 +14,26 @@ import {
 	observeRepositoryEvent,
 } from "../services/repository-observer";
 export const OBSERVER_AUDIENCE = "tedix:repository-observer";
+export function observerSubject(
+	repository: string,
+	branch: string,
+	claims: Record<string, unknown>,
+): string | null {
+	const legacy = `repo:${repository}:ref:refs/heads/${branch}`;
+	if (claims.sub === legacy) return legacy;
+	const ownerId = claims.repository_owner_id;
+	const repositoryId = claims.repository_id;
+	if (
+		typeof ownerId !== "string" ||
+		!/^[1-9]\d*$/.test(ownerId) ||
+		typeof repositoryId !== "string" ||
+		!/^[1-9]\d*$/.test(repositoryId)
+	)
+		return null;
+	const [owner, name] = repository.split("/");
+	const immutable = `repo:${owner}@${ownerId}/${name}@${repositoryId}:ref:refs/heads/${branch}`;
+	return claims.sub === immutable ? immutable : null;
+}
 /** Verified OIDC claims must bind both the repository and exact reporting workflow. */
 export function acceptsObserverClaims(
 	config: RepositoryObserverConfig,
@@ -60,13 +80,15 @@ export async function handleRepositoryObserverWebhook(
 		if (!repo) return c.text("Event source unavailable", 403);
 		const token = c.req.header("Authorization")?.replace(/^Bearer /, "") ?? "";
 		try {
+			const claims = decodeTokenUnsafe(token);
+			const subject = claims && observerSubject(repo, config.branch, claims);
+			if (!claims || !subject || !acceptsObserverClaims(config, event, claims))
+				return c.text("Invalid event identity", 403);
+			// Decoded claims only select an exact subject; verification authenticates them.
 			await verifyGithubActionsWorkloadToken(token, {
 				expectedAudience: OBSERVER_AUDIENCE,
-				expectedSubject: `repo:${repo}:ref:refs/heads/${config.branch}`,
+				expectedSubject: subject,
 			});
-			const claims = decodeTokenUnsafe(token);
-			if (!claims || !acceptsObserverClaims(config, event, claims))
-				return c.text("Invalid event identity", 403);
 		} catch {
 			return c.text("Invalid event identity", 403);
 		}
