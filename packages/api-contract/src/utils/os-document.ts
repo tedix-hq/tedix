@@ -284,6 +284,13 @@ type MarkdownNode = {
 	align?: ("left" | "center" | "right" | null)[] | null;
 	children?: MarkdownNode[];
 };
+function blockNodes(nodes: OsRichTextNode[]): OsRichTextNode[] {
+	return nodes.map((node) =>
+		node.type === "text" || node.type === "hardBreak"
+			? { type: "paragraph", content: [node] }
+			: node,
+	);
+}
 function convertMarkdown(node: MarkdownNode): OsRichTextNode[] {
 	const children = () => (node.children ?? []).flatMap(convertMarkdown);
 	switch (node.type) {
@@ -350,7 +357,7 @@ function convertMarkdown(node: MarkdownNode): OsRichTextNode[] {
 				{ type: "image", attrs: { src: node.url ?? "", alt: node.alt ?? "" } },
 			];
 		case "blockquote":
-			return [{ type: "blockquote", content: children() }];
+			return [{ type: "blockquote", content: blockNodes(children()) }];
 		case "list": {
 			const items = node.children ?? [];
 			// Split mixed task and ordinary items so both have valid editor schemas.
@@ -371,7 +378,7 @@ function convertMarkdown(node: MarkdownNode): OsRichTextNode[] {
 				groups.at(-1)!.content!.push({
 					type: task ? "taskItem" : "listItem",
 					...(task ? { attrs: { checked: item.checked! } } : {}),
-					content: (item.children ?? []).flatMap(convertMarkdown),
+					content: blockNodes((item.children ?? []).flatMap(convertMarkdown)),
 				});
 			}
 			return groups;
@@ -397,7 +404,9 @@ function convertMarkdown(node: MarkdownNode): OsRichTextNode[] {
 			];
 		// Raw HTML stays visible text; ingestion never executes agent-authored HTML.
 		case "html":
-			return [{ type: "paragraph", content: textNode(node.value ?? "") }];
+			return /^<br\s*\/?\s*>$/i.test(node.value ?? "")
+				? [{ type: "hardBreak" }]
+				: textNode(node.value ?? "");
 		default:
 			return children();
 	}
@@ -405,11 +414,13 @@ function convertMarkdown(node: MarkdownNode): OsRichTextNode[] {
 export function markdownDocument(markdown: string): OsRichTextDocument {
 	return {
 		type: "doc",
-		content: convertMarkdown(
-			fromMarkdown(markdown, {
-				extensions: [gfm()],
-				mdastExtensions: [gfmFromMarkdown()],
-			}),
+		content: blockNodes(
+			convertMarkdown(
+				fromMarkdown(markdown, {
+					extensions: [gfm()],
+					mdastExtensions: [gfmFromMarkdown()],
+				}),
+			),
 		),
 	};
 }

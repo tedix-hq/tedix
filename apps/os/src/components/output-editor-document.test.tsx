@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 import type { Editor } from "@tiptap/core";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { type DocumentContent } from "@/lib/output-models";
-import { blocksFromRichText } from "@tedix/api-contract/utils/os-document";
+import {
+	blocksFromRichText,
+	markdownDocument,
+} from "@tedix/api-contract/utils/os-document";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
 import { MAX_FILE_TEXT_LENGTH } from "@/collab/ot/code-change";
 import * as documentImages from "@/lib/document-images";
@@ -76,6 +79,25 @@ const button = (label: string, root: ParentNode = document) =>
 	root.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 
 describe("DocumentEditor", () => {
+	it("accepts literal HTML and cell breaks from Markdown as valid editor nodes", async () => {
+		const mounted = await mountEditor();
+		const richText = markdownDocument(
+			"Literal <script>text</script>\n\n| Name | Goal |\n| --- | --- |\n| A<br>B | <em>literal</em> |\n\n<div>literal block</div>",
+		);
+		expect(() =>
+			mounted.editor.schema.nodeFromJSON(richText).check(),
+		).not.toThrow();
+		await mounted.rerender({
+			kind: "document",
+			blocks: blocksFromRichText(richText),
+			richText,
+		});
+		expect(mounted.container.querySelector(".tiptap script")).toBeNull();
+		expect(mounted.editor.getText()).toContain("<script>text</script>");
+		expect(mounted.container.querySelectorAll("td br")).toHaveLength(1);
+		mounted.unmount();
+	});
+
 	it("edits tables and retains callouts, toggles and task lists", async () => {
 		const mounted = await mountEditor();
 		act(() => {
