@@ -23,10 +23,14 @@ export function WorkHome({
 	onFilterChange?: (filter: WorkFeedFilter) => void;
 }) {
 	const { apps, pending, failed, truncated, retry } = useWorkApps();
-	const view = search.view ?? "feed";
+	const defaultApp =
+		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
+		(pending ? undefined : apps.find((app) => app.role === "feed"));
 	const selected = search.app
 		? apps.find((app) => app.manifest.entry === WORK_APP_ENTRIES[search.app!])
-		: apps.find((app) => app.role === view);
+		: search.view
+			? apps.find((app) => app.role === search.view)
+			: defaultApp;
 	const deck = apps.find((app) => app.role === "deck");
 	const config = DecisionDeckConfigSchema.safeParse(deck?.manifest.config);
 	const decisions = useDecisionInbox(config.success ? config.data : undefined);

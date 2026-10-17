@@ -6,6 +6,15 @@ import {
 } from "./os-workspaces";
 
 describe("Built-in app manifest settings", () => {
+	it("preserves the Work start-app flag on a validated manifest revision", () => {
+		const manifest = OsGadgetManifestWriteSchema.parse({
+			entry: "tedix:app/decision-deck",
+			navigation: { work: "deck", workDefault: true },
+			config: { version: 1 },
+		});
+		expect(manifest.navigation).toEqual({ work: "deck", workDefault: true });
+	});
+
 	it("requires configured projects for the activity feed without constraining stored reads", () => {
 		expect(
 			OsGadgetManifestWriteSchema.safeParse({
