@@ -293,39 +293,45 @@ export function createPlanningSync(config) {
 			const signals = await step.do("signals", READ, async () => {
 				const found = [];
 				for (const workspaceId of config.signalWorkspaceIds) {
-					const list = checked(
-						await os.list_os_outputs({
-							workspaceId,
-							status: "active",
-							limit: 200,
-						}),
-					);
-					if (list.items.length === 200)
+					try {
+						const list = checked(
+							await os.list_os_outputs({
+								workspaceId,
+								status: "active",
+								limit: 200,
+							}),
+						);
+						if (list.items.length === 200)
+							report.gaps.push(
+								`Signal workspace ${workspaceId} reached its output limit`,
+							);
+						const recent = list.items
+							.filter(
+								(o) =>
+									Date.parse(o.updatedAt || o.createdAt) >=
+									Date.parse(slot.at) - config.signalDays * 86400_000,
+							)
+							.sort((a, b) =>
+								String(b.updatedAt || b.createdAt).localeCompare(
+									String(a.updatedAt || a.createdAt),
+								),
+							)
+							.slice(0, config.maxSignalOutputs);
+						for (const output of recent) {
+							const full = checked(
+								await os.get_os_output({ outputId: output.id }),
+							);
+							found.push({
+								url: `${config.osBaseUrl}/outputs/${output.id}`,
+								at: output.updatedAt || output.createdAt,
+								title: output.title,
+								content: full.currentRevision.content,
+							});
+						}
+					} catch (error) {
 						report.gaps.push(
-							`Signal workspace ${workspaceId} reached its output limit`,
+							`Signal workspace ${workspaceId}: ${String(error).slice(0, 400)}`,
 						);
-					const recent = list.items
-						.filter(
-							(o) =>
-								Date.parse(o.updatedAt || o.createdAt) >=
-								Date.parse(slot.at) - config.signalDays * 86400_000,
-						)
-						.sort((a, b) =>
-							String(b.updatedAt || b.createdAt).localeCompare(
-								String(a.updatedAt || a.createdAt),
-							),
-						)
-						.slice(0, config.maxSignalOutputs);
-					for (const output of recent) {
-						const full = checked(
-							await os.get_os_output({ outputId: output.id }),
-						);
-						found.push({
-							url: `${config.osBaseUrl}/outputs/${output.id}`,
-							at: output.updatedAt || output.createdAt,
-							title: output.title,
-							content: full.currentRevision.content,
-						});
 					}
 				}
 				for (const reader of config.signalReaders) {
