@@ -1,3 +1,4 @@
+import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
 import { ChatMarkdown } from "@/components/chat-markdown";
@@ -16,6 +17,8 @@ import {
 import { osApi } from "@/lib/api";
 import {
 	osQuery,
+	osQueryKeys,
+	workAttentionQueryOptions,
 	workFleetQueryOptions,
 	workSchedulerQueryOptions,
 	workInteractionDetailQueryOptions,
@@ -25,7 +28,16 @@ import {
 	interactionSubject,
 } from "@/lib/work-interaction-display";
 
+const laneHandoffSchema = z.object({
+	nextClick: z.string().optional(),
+	summary: z.string().optional(),
+});
 const offeredChoices = z.object({
+	laneHandoff: laneHandoffSchema.optional().catch(undefined),
+	followThrough: z
+		.object({ laneHandoff: laneHandoffSchema.optional() })
+		.optional()
+		.catch(undefined),
 	suggestedAnswers: z
 		.array(z.string().trim().min(1).max(300))
 		.max(8)
@@ -90,6 +102,10 @@ export function WorkInteractionDecisionCard({
 				queryKey: osQuery.workItems.key({ type: "query" }),
 			}),
 			client.invalidateQueries({ queryKey: workFleetQueryOptions().queryKey }),
+			client.invalidateQueries(workAttentionQueryOptions()),
+			client.invalidateQueries({
+				queryKey: osQueryKeys.agentSessionRequests(),
+			}),
 		]);
 	const respond = useMutation({
 		mutationFn: async (feedback: DecisionCardFeedback) => {
@@ -99,16 +115,23 @@ export function WorkInteractionDecisionCard({
 			const deferred = proposal && feedback.action === "not-now";
 			const draft = latestDraftOf(query.data);
 			const offered = offeredChoices.parse(request.metadata ?? {});
+			const lane =
+				request.kind === "question" &&
+				Boolean(offered.laneHandoff ?? offered.followThrough?.laneHandoff);
 			const option = offered.decisionCard?.options.find(
 				(choice) => choice.id === feedback.action,
 			);
-			const body = proposal
-				? feedback.action === "start"
-					? "Yes, start."
-					: deferred
-						? "Not now."
-						: "Never suggest this again."
-				: (option?.body ?? option?.label ?? feedback.body);
+			const body = lane
+				? feedback.action === "done"
+					? "Done."
+					: "Snoozed for one day."
+				: proposal
+					? feedback.action === "start"
+						? "Yes, start."
+						: deferred
+							? "Not now."
+							: "Never suggest this again."
+					: (option?.body ?? option?.label ?? feedback.body);
 			const result = await osApi.workInteractions.respond({
 				requestId,
 				expectedRequestVersion: request.version,
@@ -122,9 +145,10 @@ export function WorkInteractionDecisionCard({
 							? "coordination_update"
 							: "answer",
 				body,
-				resolvesRequest: !deferred,
+				resolvesRequest: !deferred && !(lane && feedback.action === "snooze"),
 				metadata: {
 					cardAction: feedback.action,
+					...(lane ? { laneAction: feedback.action } : {}),
 					feedbackSignal: draft
 						? body === draft.body
 							? "approve-as-is"
@@ -166,6 +190,15 @@ export function WorkInteractionDecisionCard({
 		);
 	const { request, effectiveState, canRespond, canCancel, responses } =
 		query.data;
+	if (request.metadata?.schema === "tedix.outbound.v1" && request.workItemId)
+		return (
+			<OutboundCard
+				workItemId={request.workItemId}
+				autoFocus={autoFocus}
+				onNext={onNext}
+				onPrevious={onPrevious}
+			/>
+		);
 	const choices = offeredChoices.parse(request.metadata ?? {});
 	const capture = decisionCaptureSummary(request.metadata);
 	const source =
@@ -180,29 +213,37 @@ export function WorkInteractionDecisionCard({
 				(request.creatorType === "tedi" ? "Your tedi" : "Your agent")));
 	const draft = latestDraftOf(query.data);
 	const proposal = request.kind === "handoff";
+	const lane =
+		request.kind === "question" &&
+		Boolean(choices.laneHandoff ?? choices.followThrough?.laneHandoff);
 	const active =
 		canRespond &&
 		(effectiveState === "open" ||
 			(request.kind === "question" && effectiveState === "resolved"));
-	const actions: DecisionCardAction[] = proposal
+	const actions: DecisionCardAction[] = lane
 		? [
-				{ id: "start", label: "Yes, start", intent: "approve" },
-				{ id: "not-now", label: "Not now", intent: "reject" },
-				{ id: "never", label: "Never", intent: "reject" },
+				{ id: "done", label: "Done", intent: "approve" },
+				{ id: "snooze", label: "Snooze 1 day", intent: "reject" },
 			]
-		: choices.decisionCard
-			? choices.decisionCard.options.map((option) => ({
-					id: option.id,
-					label: option.label,
-					description: option.body,
-				}))
-			: [
-					{
-						id: "answer",
-						label: draft?.delivery === "auto" ? "Override" : "Answer",
-						intent: "approve",
-					},
-				];
+		: proposal
+			? [
+					{ id: "start", label: "Yes, start", intent: "approve" },
+					{ id: "not-now", label: "Not now", intent: "reject" },
+					{ id: "never", label: "Never", intent: "reject" },
+				]
+			: choices.decisionCard
+				? choices.decisionCard.options.map((option) => ({
+						id: option.id,
+						label: option.label,
+						description: option.body,
+					}))
+				: [
+						{
+							id: "answer",
+							label: draft?.delivery === "auto" ? "Override" : "Answer",
+							intent: "approve",
+						},
+					];
 	return (
 		<div className="grid min-w-0 gap-3">
 			{deliveryText ? <p className="text-kumo-subtle">{deliveryText}</p> : null}
@@ -210,7 +251,11 @@ export function WorkInteractionDecisionCard({
 				autoFocus={autoFocus}
 				key={`${request.id}:${effectiveState}`}
 				kind={
-					proposal ? "proposal" : choices.decisionCard ? "decision" : "question"
+					proposal
+						? "proposal"
+						: choices.decisionCard || lane
+							? "decision"
+							: "question"
 				}
 				title={interactionSubject(request)}
 				askedBy={source}
