@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({ site: vi.fn(), policy: vi.fn() }));
 vi.mock("./storage", () => ({ getCmsTemplateSelection: mocks.site }));
-vi.mock("@tedix/db/query-client", () => ({ createDbQueryClient: () => ({}) }));
 vi.mock("@tedix/db/queries/data-residency", () => ({
 	getOrganizationResidencyPolicy: mocks.policy,
 }));

@@ -1,4 +1,3 @@
-import { createDbQueryClient } from "@tedix/db/query-client";
 import { getOrganizationResidencyPolicy } from "@tedix/db/queries/data-residency";
 import { getCmsTemplateSelection } from "./storage";
 
@@ -12,7 +11,7 @@ export async function requireUnrestrictedCmsModels(
 			"Data residency requires a verified site owner before model processing",
 		);
 	const policy = await getOrganizationResidencyPolicy(
-		createDbQueryClient(binding),
+		binding,
 		site.organizationId,
 	);
 	if (policy && policy.mode !== "unrestricted")

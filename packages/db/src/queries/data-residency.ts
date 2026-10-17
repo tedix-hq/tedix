@@ -1,5 +1,5 @@
 import { and, eq, desc, sql } from "drizzle-orm";
-import type { DbQueryClient } from "../query-client";
+import { createDbQueryClient, type DbQueryClient } from "../query-client";
 import {
 	organizationResidencyPolicies,
 	residencyProviderVersions,
@@ -12,10 +12,11 @@ import {
 } from "@tedix/api-contract/schemas/data-residency";
 
 export async function getOrganizationResidencyPolicy(
-	db: DbQueryClient,
+	db: DbQueryClient | D1Database,
 	organizationId: string,
 ) {
-	const [row] = await db
+	const query = "prepare" in db ? createDbQueryClient(db) : db;
+	const [row] = await query
 		.select()
 		.from(organizationResidencyPolicies)
 		.where(eq(organizationResidencyPolicies.organizationId, organizationId))

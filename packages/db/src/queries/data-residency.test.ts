@@ -64,6 +64,12 @@ describe("organization residency persistence", () => {
 				mode: "eu",
 				revision: 1,
 			});
+			expect(
+				await getOrganizationResidencyPolicy(
+					createD1Facade(sqlite),
+					"org_lark",
+				),
+			).toMatchObject({ mode: "eu", revision: 1 });
 			await expect(setOrganizationResidencyPolicy(db, update)).rejects.toThrow(
 				"revision conflict",
 			);
