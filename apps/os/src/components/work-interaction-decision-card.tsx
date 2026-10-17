@@ -194,6 +194,7 @@ export function WorkInteractionDecisionCard({
 			? choices.decisionCard.options.map((option) => ({
 					id: option.id,
 					label: option.label,
+					description: option.body,
 				}))
 			: [
 					{
