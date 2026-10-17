@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 	settleHomeToolWriteApproval: vi.fn(async () => {}),
 	insertAuditEvent: vi.fn(async () => ({}) as never),
 	recordObservedLearningInteraction: vi.fn(async () => true),
+	startIncrementalLessons: vi.fn(async () => true),
 }));
 
 // The sweep must run the canonical resolve procedure end to end; only its
@@ -35,8 +36,17 @@ vi.mock("./kernel/write-approval-settlement", () => ({
 vi.mock("@tedix/db/queries/audit", () => ({
 	insertAuditEvent: mocks.insertAuditEvent,
 }));
-vi.mock("../../services/learning-interaction-recorder", () => ({
-	recordObservedLearningInteraction: mocks.recordObservedLearningInteraction,
+vi.mock(
+	"../../services/learning-interaction-recorder",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("../../services/learning-interaction-recorder")
+		>()),
+		recordObservedLearningInteraction: mocks.recordObservedLearningInteraction,
+	}),
+);
+vi.mock("../../services/lesson-incremental-dispatch", () => ({
+	startIncrementalLessons: mocks.startIncrementalLessons,
 }));
 
 import { osApprovalRulesContractRouter } from "./os-approval-rules";
@@ -263,6 +273,11 @@ describe("verb matrix", () => {
 		// The sweep runs the REAL tediApprovals.resolve per match, so this proves
 		// resolve itself accepts os:approve (the shared AUTHZ.osApprove guard).
 		await expect(approver.apply()).resolves.toMatchObject({ resolved: 1 });
+		expect(mocks.startIncrementalLessons).toHaveBeenCalledWith(
+			fixture.env,
+			"org-1",
+			"user-1",
+		);
 		expect(
 			(await approvalRow(fixture, "11111111-1111-4111-8111-111111111111"))
 				?.status,

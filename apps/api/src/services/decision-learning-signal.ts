@@ -115,8 +115,8 @@ function eventKindFor(
 }
 
 /**
- * The learning event for one committed decision-capture answer, or null when
- * the Interaction is not decision capture or the answer is not a human's.
+ * The learning event for a committed capture answer or decision-card response.
+ * Agent responses never become human preference signals.
  * `draft` must be the draft the response cites (same id), else null.
  */
 export function decisionCaptureLearningSignal(input: {
@@ -127,13 +127,24 @@ export function decisionCaptureLearningSignal(input: {
 }): ObservedLearningInteractionInput | null {
 	const { request, response } = input;
 	const requestMeta = request.metadata ?? {};
-	if (requestMeta.schema !== DECISION_CAPTURE_SCHEMA) return null;
-	if (response.responseKind !== "answer" || response.responderType !== "user")
-		return null;
 	const responseMeta = response.metadata ?? {};
+	const cardFeedback = responseMeta.source === "os-decision-card";
+	if (requestMeta.schema !== DECISION_CAPTURE_SCHEMA && !cardFeedback)
+		return null;
+	if (response.responderType !== "user") return null;
+	if (!cardFeedback && response.responseKind !== "answer") return null;
 	const draft =
 		input.draft && input.draft.id === responseMeta.draftId ? input.draft : null;
-	const eventKind = eventKindFor(responseMeta, draft);
+	const eventKind: LearningInteractionKind = cardFeedback
+		? responseMeta.feedbackSignal === "approve-as-is"
+			? "accepted"
+			: responseMeta.feedbackSignal === "edited"
+				? "edited"
+				: responseMeta.feedbackSignal === "rejected" ||
+					  responseMeta.feedbackSignal === "reason"
+					? "rejected"
+					: "answered"
+		: eventKindFor(responseMeta, draft);
 	const repo = learningScopeSlug(str(requestMeta.repository, 80));
 	const harness = learningScopeSlug(
 		str(requestMeta.host, 40) ?? str(responseMeta.host, 40),
@@ -164,6 +175,11 @@ export function decisionCaptureLearningSignal(input: {
 			},
 			answer: response.body.slice(0, ANSWER_CHARS),
 			answerSource: str(responseMeta.source, 64),
+			cardAction: str(responseMeta.cardAction, 100),
+			feedbackSignal: str(responseMeta.feedbackSignal, 40),
+			feedbackReason: str(responseMeta.feedbackReason, 100),
+			feedbackText: str(responseMeta.feedbackText, ANSWER_CHARS),
+			originalBody: str(responseMeta.originalBody, DRAFT_CHARS),
 			replyClass: str(responseMeta.replyClass, 64),
 			draft: draft
 				? {

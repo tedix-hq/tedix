@@ -179,3 +179,57 @@ describe("decisionCaptureLearningSignal", () => {
 		expect(learningScopeSlug(null)).toBe("general");
 	});
 });
+
+describe("decision card feedback", () => {
+	it.each([
+		["approve-as-is", "accepted"],
+		["edited", "edited"],
+		["reason", "rejected"],
+		["free-text", "answered"],
+	])(
+		"records %s on non-capture requests in the same learning ledger",
+		(feedbackSignal, eventKind) => {
+			const signal = decisionCaptureLearningSignal({
+				organizationId: "org-fictional",
+				request: request({ metadata: {} }),
+				response: response({
+					responseKind: "handoff_declined",
+					metadata: {
+						source: "os-decision-card",
+						cardAction: "never",
+						feedbackSignal,
+						feedbackReason: "wrong facts",
+						feedbackText: "Morgan prefers a short reply.",
+					},
+				}),
+				draft: null,
+			});
+			expect(signal).toMatchObject({
+				eventKind,
+				targetId: "req-1",
+				metadata: {
+					cardAction: "never",
+					feedbackSignal,
+					feedbackReason: "wrong facts",
+					feedbackText: "Morgan prefers a short reply.",
+				},
+			});
+		},
+	);
+	it("does not promote an agent's card feedback into human learning", () => {
+		expect(
+			decisionCaptureLearningSignal({
+				organizationId: "org-fictional",
+				request: request({ metadata: {} }),
+				response: response({
+					responderType: "external_agent",
+					metadata: {
+						source: "os-decision-card",
+						feedbackSignal: "approve-as-is",
+					},
+				}),
+				draft: null,
+			}),
+		).toBeNull();
+	});
+});

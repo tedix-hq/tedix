@@ -121,7 +121,13 @@ async function mount(element: ReactNode) {
 		const labelElement = [...host.querySelectorAll("label")].find((candidate) =>
 			candidate.textContent?.trim().startsWith(label),
 		);
-		if (!labelElement) throw new Error(`no field labelled ${label}`);
+		if (!labelElement) {
+			const input = host.querySelector<HTMLInputElement>(
+				`input[aria-label="${label}"]`,
+			);
+			if (input) return input;
+			throw new Error(`no field labelled ${label}`);
+		}
 		return host.querySelector<HTMLInputElement | HTMLTextAreaElement>(
 			`#${CSS.escape(labelElement.htmlFor)}`,
 		)!;
@@ -142,11 +148,13 @@ async function mount(element: ReactNode) {
 	};
 	const submit = async (buttonText: string) => {
 		const button = [...host.querySelectorAll("button")].find(
-			(candidate) =>
-				candidate.form && candidate.textContent?.trim() === buttonText,
+			(candidate) => candidate.textContent?.trim() === buttonText,
 		);
-		if (!button?.form) throw new Error(`no submit button ${buttonText}`);
-		await act(async () => button.form!.requestSubmit());
+		if (!button) throw new Error(`no submit button ${buttonText}`);
+		await act(async () => {
+			if (button.form) button.form.requestSubmit();
+			else button.click();
+		});
 		await settle();
 	};
 	return { host, client, type, submit };
@@ -442,10 +450,10 @@ describe("Work interactions", () => {
 		const page = await mount(
 			<pages.WorkInteractionPage requestId="request-1" />,
 		);
-		expect(page.host.textContent).toContain("Question from your Codex chat");
+		expect(page.host.textContent).toContain("your Codex chat");
 		expect(page.host.textContent).toContain("What did you agree?");
-		expect(page.host.textContent).toContain("Send reply");
-		expect(page.host.textContent).not.toContain("Cancel request");
+		expect(page.host.textContent).toContain("Answer");
+		expect(page.host.querySelector("details")?.open).toBe(false);
 	});
 
 	it("keeps one action boundary and a quiet response collection on the detail page", async () => {
@@ -473,25 +481,19 @@ describe("Work interactions", () => {
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
 			pageClass("lg"),
 		);
-		expect(
-			page.host.querySelector('a[href="/work/interactions"]'),
-		).not.toBeNull();
+		expect(page.host.querySelector('a[href="/work/needs-you"]')).not.toBeNull();
 		expect(page.host.querySelectorAll('[data-slot="card"]')).toHaveLength(1);
-		expect(page.host.textContent).toContain("Question from OS");
+		expect(page.host.textContent).toContain("OS");
 		expect(page.host.textContent).not.toContain("Responses (0)");
 		expect(page.host.textContent).toContain("Can we refund within 30 days?");
-		expect(page.host.textContent).not.toContain("Cancel request");
-		const details = [...page.host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Request details",
-		)!;
-		await act(async () => details.click());
-		expect(page.host.textContent).toContain("Can we refund within 30 days?");
-		expect(page.host.textContent).not.toContain("Response kind");
-		await page.submit("Send to OS");
+		expect(page.host.querySelector("details")?.open).toBe(false);
+		expect(page.host.querySelector("details summary")?.textContent).toBe(
+			"Why this?",
+		);
+		await page.submit("Answer");
 		expect(mutations("workInteractions.respond")).toEqual([]);
-		expect(page.host.textContent).toContain("Enter a response.");
 		await page.type("Your answer", "  Keep access passwordless.  ");
-		await page.submit("Send to OS");
+		await page.submit("Answer");
 		expect(mutations("workInteractions.respond")).toEqual([
 			{
 				requestId: "request-1",
@@ -499,7 +501,11 @@ describe("Work interactions", () => {
 				responseKind: "answer",
 				body: "Keep access passwordless.",
 				resolvesRequest: true,
-				metadata: {},
+				metadata: {
+					source: "os-decision-card",
+					cardAction: "answer",
+					feedbackSignal: "answer",
+				},
 			},
 		]);
 	});
@@ -533,8 +539,8 @@ describe("External action requests", () => {
 		const page = await mount(
 			<pages.WorkInteractionPage requestId="request-1" />,
 		);
-		expect(page.host.textContent).toContain("Action from OS");
-		expect(page.host.textContent).toContain("Waiting for your action");
+		expect(page.host.textContent).toContain("OS");
+		expect(page.host.querySelector("input, textarea")).toBeNull();
 		expect(page.host.textContent).toContain(
 			"Complete reviewer sign-in on the provider site.",
 		);
@@ -556,7 +562,9 @@ describe("External action requests", () => {
 			<pages.WorkInteractionPage requestId="request-1" />,
 		);
 		expect(page.host.textContent).not.toContain("Open sign-in");
-		expect(page.host.querySelector("textarea")).not.toBeNull();
+		expect(
+			page.host.querySelector('input[aria-label="Your answer"]'),
+		).not.toBeNull();
 	});
 	it.each([
 		["cancelled", true],
@@ -572,8 +580,10 @@ describe("External action requests", () => {
 			expect(page.host.textContent).not.toContain("Open sign-in");
 			expect(page.host.querySelector("form, textarea")).toBeNull();
 			if (state !== "open")
-				expect(page.host.textContent).toContain("Step closed");
-			expect(page.host.textContent).not.toContain("Answer saved");
+				expect(page.host.textContent).toContain("Request closed");
+			expect(
+				page.host.querySelector('input[aria-label="Your answer"]'),
+			).toBeNull();
 		},
 	);
 });

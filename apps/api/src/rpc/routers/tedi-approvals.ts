@@ -54,7 +54,11 @@ import type {
 } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { canonicalDigest } from "../../lib/blueprint-digest";
-import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
+import {
+	observedLearningActor,
+	recordObservedLearningInteraction,
+} from "../../services/learning-interaction-recorder";
+import { startIncrementalLessons } from "../../services/lesson-incremental-dispatch";
 import {
 	executeApprovedProvisionalPromotion,
 	isApprovedProvisionalPromotion,
@@ -1370,9 +1374,13 @@ const resolveProcedure = authedOs.resolve
 				actionType: resolved.actionType,
 				status: input.status,
 				hadResolution: Boolean(input.resolution),
+				feedbackText: input.resolution ?? null,
 			},
 		});
 
+		const actor = observedLearningActor(context);
+		if (actor.actorType === "user" && actor.actorId)
+			await startIncrementalLessons(context.env, resolved.orgId, actor.actorId);
 		return normalizeApprovalRequest(resolved);
 	});
 
