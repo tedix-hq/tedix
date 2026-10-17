@@ -341,6 +341,7 @@ export const updateSpecificationProcedure =
 				expectedWorkItemVersion: workItem.version,
 				requiredCapabilities: input.requiredCapabilities,
 				requiredAuthorities: input.requiredAuthorities,
+				dueDate: input.dueDate,
 				startAt: input.startAt,
 				durationDays: input.durationDays,
 				updatedAt: new Date().toISOString(),

@@ -11,6 +11,17 @@ describe("Work Item factory contract", () => {
 		return workItemsContract[name]["~orpc"].inputSchemas[0]!;
 	}
 
+	it("updates and clears planning dates without changing disposition", () => {
+		const schema = inputSchema("updateSpecification");
+		const id = "11111111-1111-4111-8111-111111111111";
+		expect(schema.parse({ id, dueDate: "2026-10-20" })).toEqual({
+			id,
+			dueDate: "2026-10-20",
+		});
+		expect(schema.parse({ id, dueDate: null })).toEqual({ id, dueDate: null });
+		expect(schema.safeParse({ id, dueDate: "next week" }).success).toBe(false);
+	});
+
 	it("accepts an optional exact resource key without changing ordinary paging", () => {
 		const schema = inputSchema("listResourcePools");
 		const resourceKey = "file:tedix:src/My File.ts";
