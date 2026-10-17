@@ -29,6 +29,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { isScheduledLedgerPrompt } from "@tedix/context-core/request-ledger";
 import { humanText, scrub } from "../learn-import";
 import { asciiJson, harnessOf } from "./agent-status";
 import { bindingFor, redact, repositoryName } from "./decision-capture";
@@ -81,7 +82,11 @@ export function ledgerText(
 	event: JsonObject,
 ): string | undefined {
 	if (mode === "prompt") {
-		if (typeof event.prompt !== "string") return undefined;
+		if (
+			typeof event.prompt !== "string" ||
+			isScheduledLedgerPrompt(event.prompt)
+		)
+			return undefined;
 		const text = humanText(event.prompt);
 		return text ? bounded(text, TEXT_LIMIT, "head") || undefined : undefined;
 	}
