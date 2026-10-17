@@ -78,6 +78,7 @@ export function installLaneService(options: ServeOptions): number {
 		"--repo",
 		options.repo,
 		...(options.project ? ["--project", options.project] : []),
+		...(options.coordinated ? ["--coordinated"] : []),
 	];
 	const domain = `gui/${process.getuid!()}`;
 	const service = `${domain}/${label}`;

@@ -12,10 +12,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import type {
-	WorkItem,
-	WorkItemComment,
-	WorkAttemptSchema,
+import {
+	LaneDispatchPlanSchema,
+	type WorkItem,
+	type WorkItemComment,
+	type WorkAttemptSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { createCodexLaneThread } from "./codex-lane-thread";
 import { createClaudeLaneThread } from "./claude-lane-thread";
@@ -50,11 +51,17 @@ export function dispatchSkip(
 	item: DispatchItem,
 	comments: Pick<WorkItemComment, "authorType" | "authorId" | "body">[] = [],
 	executor: ServeOptions["executor"] = "codex",
+	coordinated = false,
 ): string | undefined {
 	if (item.disposition !== "accepted") return "Work is not accepted";
 	if (item.metadata?.executor !== executor)
 		return `Work is not assigned to ${executor}`;
 	if (!item.projectId) return "Work has no project";
+	if (coordinated) {
+		const plan = LaneDispatchPlanSchema.safeParse(item.metadata?.laneDispatch);
+		if (!plan.success || plan.data.state !== "ready")
+			return "Work has no ready coordinator selection";
+	}
 	if (item.startAt && Date.parse(item.startAt) > Date.now())
 		return `Work is scheduled for ${item.startAt}`;
 	if (item.activeAttempt) return "Work already has a live Attempt";
@@ -86,6 +93,7 @@ export function dispatchSkip(
 
 export interface ServeOptions {
 	executor: "codex" | "claude-code";
+	coordinated: boolean;
 	max: number;
 	project?: string;
 	rules: string;
@@ -100,6 +108,7 @@ export function parseServeOptions(
 ): ServeOptions {
 	const result: ServeOptions = {
 		executor: "codex",
+		coordinated: false,
 		max: 5,
 		rules: "lane-rules",
 		repo: process.cwd(),
@@ -115,6 +124,10 @@ export function parseServeOptions(
 		}
 		if (key === "--once") {
 			result.once = true;
+			continue;
+		}
+		if (key === "--coordinated") {
+			result.coordinated = true;
 			continue;
 		}
 		if (
@@ -445,7 +458,12 @@ export class LaneDispatcher {
 			for (const item of page.data) {
 				if (this.stopping || this.running.size + orphaned >= this.options.max)
 					break;
-				let reason = dispatchSkip(item, [], this.options.executor);
+				let reason = dispatchSkip(
+					item,
+					[],
+					this.options.executor,
+					this.options.coordinated,
+				);
 				if (reason?.startsWith("Possible human-reserved")) {
 					const detail = await this.call<{
 						workItem: DispatchItem;
@@ -455,6 +473,7 @@ export class LaneDispatcher {
 						{ ...item, ...detail.workItem },
 						detail.comments ?? [],
 						this.options.executor,
+						this.options.coordinated,
 					);
 				}
 				if (reason) {
@@ -514,6 +533,7 @@ export class LaneDispatcher {
 				item,
 				detail.comments ?? [],
 				this.options.executor,
+				this.options.coordinated,
 			);
 			if (reason || item.version !== candidate.version)
 				throw new Error(reason ?? "Work changed before admission");
@@ -839,7 +859,7 @@ export class LaneDispatcher {
 export async function runLaneServe(args: string[]): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane serve --executor codex|claude-code [--max 5] [--project UUID] [--rules <OS skill UUID|slug>] [--repo path] [--install] [--once]",
+			"tedix lane serve --executor codex|claude-code [--max 5] [--project UUID] [--coordinated] [--rules <OS skill UUID|slug>] [--repo path] [--install] [--once]",
 		);
 		return 0;
 	}
