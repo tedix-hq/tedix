@@ -47,6 +47,7 @@ is available today.
 | Start a new agent session with no context        | [Start here as an agent](./agent-start-here.md)                         |
 | Give an agent reliable Tedix context             | [Agent guide](./agent-guide.md)                                         |
 | Build or inspect a Workspace factory             | [Factory guide for agents](./factory-agent-guide.md)                    |
+| Get help as a person or an agent                 | [Get support](./support.md)                                             |
 | Install or build a workspace app                 | [Build a workspace app](./build-a-workspace-app.md)                     |
 | Connect applications and tools                   | [MCP app platform](./mcp-app-platform.md)                               |
 | Publish public or organization-only product docs | [Documentation sites](./docs-sites.md)                                  |
