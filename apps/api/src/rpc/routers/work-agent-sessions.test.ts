@@ -24,9 +24,18 @@ import { createDbClient } from "@tedix/db/client";
 import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workAgentSessionsContractRouter } from "./work-agent-sessions";
+
+const continuity = vi.hoisted(() => ({
+	read: vi
+		.fn<typeof import("../../lib/stall-attention").readContinuity>()
+		.mockResolvedValue({ stalls: [], promises: [], next: null }),
+}));
+vi.mock("../../lib/stall-attention", () => ({
+	readContinuity: continuity.read,
+}));
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -230,6 +239,19 @@ it("scopes the embedded view to linked projects and checks workspace visibility"
 		createdByKind: "user",
 		createdById: "ada-sub",
 	});
+	continuity.read.mockResolvedValueOnce({
+		stalls: ["supply", "other"].map((scopeId) => ({
+			scopeId,
+			name: scopeId,
+			cause: "Waiting for a reply",
+			reason: "Choose the next step",
+			href: "/work/needs-you",
+			requestedAt: new Date().toISOString(),
+			needsYou: true,
+		})),
+		promises: [],
+		next: null,
+	});
 	const result = await ada.attention({
 		workspaceId: "workspace-example",
 		utcOffsetMinutes: 0,
@@ -237,6 +259,7 @@ it("scopes the embedded view to linked projects and checks workspace visibility"
 	expect(result.projects.map((p) => p.id)).toEqual(["supply"]);
 	expect(result.cards.map((c) => c.title)).toEqual(["supply"]);
 	expect(result.unfiled).toEqual([]);
+	expect(result.stalls?.map((s) => s.scopeId)).toEqual(["supply"]);
 	await expect(
 		grace.attention({ workspaceId: "workspace-example", utcOffsetMinutes: 0 }),
 	).rejects.toThrow();
