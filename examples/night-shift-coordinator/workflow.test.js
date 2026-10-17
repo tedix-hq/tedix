@@ -74,7 +74,17 @@ function fixture() {
 			data: structuredClone(histories.get(id)),
 			nextCursor: null,
 		}),
-		list_attempt_projection: async () => ({ data: [] }),
+		list_attempt_projection: async ({ projectId }) => ({
+			data: projectId
+				? [...histories]
+						.filter(([id]) => items.get(id).projectId === projectId)
+						.flatMap(([id, rows]) =>
+							rows.map((attempt) => ({ workItem: { id }, attempt })),
+						)
+				: [],
+			hasMore: false,
+			nextCursor: null,
+		}),
 		list_ready_work: async ({ projectId }) => ({
 			items: order
 				.filter((id) => items.get(id)?.projectId === projectId)
@@ -249,7 +259,10 @@ describe("native night coordination", () => {
 		]);
 		f.api.list_attempt_projection = async () => ({
 			data: [
-				{ attempt: { outcome: null, expiresAt: "2026-10-17T22:05:00.000Z" } },
+				{
+					workItem: { id: "race" },
+					attempt: { outcome: null, expiresAt: "2026-10-17T22:05:00.000Z" },
+				},
 			],
 		});
 		await expect(f.run()).rejects.toThrow("new Attempt");
@@ -333,6 +346,27 @@ describe("native night coordination", () => {
 		expect((await f.run({ coordinatorId: "example-tedi" })).selected).toEqual(
 			[],
 		);
+		expect(f.writes).toHaveLength(0);
+	});
+	test("ordinary accepted Work and superseded lane Attempts do not pollute the night log", async () => {
+		const f = fixture();
+		f.item("ordinary", { metadata: { agentHarness: "codex" } });
+		f.histories.set("ordinary", [
+			{ attemptNumber: 2, metadata: {} },
+			{ attemptNumber: 1, metadata: { lane: true } },
+		]);
+		await f.run({ coordinatorId: "example-tedi" });
+		expect(JSON.stringify([...f.outputs.values()])).not.toContain("ordinary");
+		expect(f.reason).not.toHaveBeenCalled();
+	});
+	test("refuses truncated lane recovery projections before dispatch", async () => {
+		const f = fixture();
+		f.api.list_attempt_projection = async () => ({
+			data: [],
+			hasMore: true,
+			nextCursor: null,
+		});
+		await expect(f.run()).rejects.toThrow("cannot advance");
 		expect(f.writes).toHaveLength(0);
 	});
 	test("off-slot and probes make no model calls or writes", async () => {
