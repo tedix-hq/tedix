@@ -1,3 +1,4 @@
+import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 /**
  * Admin › Organization
  *
@@ -81,6 +82,7 @@ const ORGANIZATION_SECTION_ITEMS = [
 
 const ORGANIZATION_OWNER_SECTION_ITEMS = [
 	...ORGANIZATION_SECTION_ITEMS,
+	["Portfolio sections", "organization-portfolio"],
 	["Danger", "organization-danger"],
 ] as const;
 
@@ -184,6 +186,17 @@ function AdminOrganizationBody({
 						: ORGANIZATION_SECTION_ITEMS
 				}
 			/>
+
+			{isOwner && (
+				<div id="organization-portfolio" className="scroll-mt-24">
+					<WorkspaceAppRenderer
+						manifest={{
+							entry: "tedix:app/portfolio-settings",
+							capabilities: [],
+						}}
+					/>
+				</div>
+			)}
 
 			<div id="organization-profile" className="scroll-mt-24">
 				<Suspense fallback={<SectionSkeleton />}>

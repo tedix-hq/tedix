@@ -384,7 +384,28 @@ export const ProviderOnboardingSchema = z.object({
 		.describe("Omit to use the standard worker instructions."),
 });
 
+export const PortfolioBucketSchema = z.object({
+	key: z
+		.string()
+		.trim()
+		.min(1)
+		.max(80)
+		.regex(/^[a-z0-9][a-z0-9_-]*$/),
+	label: z.string().trim().min(1).max(100),
+	description: z.string().trim().max(500).optional(),
+});
+export type PortfolioBucket = z.infer<typeof PortfolioBucketSchema>;
+export const PortfolioBucketsSchema = z
+	.array(PortfolioBucketSchema)
+	.max(50)
+	.refine(
+		(buckets) =>
+			new Set(buckets.map((bucket) => bucket.key)).size === buckets.length,
+		"Each section needs a unique key",
+	);
+
 export const OrganizationMetadataSchema = z.object({
+	portfolioBuckets: PortfolioBucketsSchema.optional(),
 	githubWorkstationCredentials: z
 		.object({
 			enabled: z.boolean(),

@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import type {
 	OsPresentationElement,
 	OsPresentationElementProps,
@@ -70,16 +71,7 @@ export type SlideInspectorField =
 export type SlideInspectorEntry = SlideInspectorField & { advanced?: boolean };
 
 /** Families the Google Fonts loader can fetch; the stack keeps a fallback. */
-export const SLIDE_FONT_FAMILIES = [
-	["Inter", "Inter, sans-serif"],
-	["Space Grotesk", "Space Grotesk, sans-serif"],
-	["DM Sans", "DM Sans, sans-serif"],
-	["IBM Plex Sans", "IBM Plex Sans, sans-serif"],
-	["Manrope", "Manrope, sans-serif"],
-	["Playfair Display", "Playfair Display, serif"],
-	["Merriweather", "Merriweather, serif"],
-	["JetBrains Mono", "JetBrains Mono, monospace"],
-] as const;
+export const SLIDE_FONT_FAMILIES = OS_COPY.slideFontFamilies;
 
 const fontSize: SlideInspectorEntry = {
 	kind: "number",

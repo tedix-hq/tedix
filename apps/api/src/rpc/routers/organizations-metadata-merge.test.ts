@@ -281,3 +281,21 @@ it("tenant administrators cannot replace protected provider onboarding defaults"
 		}),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
+
+it("only owners can change portfolio sections, including clearing the list", async () => {
+	const { organizationsContractRouter } = await import("./organizations");
+	const client = createRouterClient(organizationsContractRouter, {
+		context: adminContext(),
+	});
+	for (const portfolioBuckets of [
+		[],
+		[{ key: "research", label: "Research" }],
+	]) {
+		await expect(
+			client.update({
+				organizationId: ORGANIZATION_ID,
+				metadata: { portfolioBuckets },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	}
+});

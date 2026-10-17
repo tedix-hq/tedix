@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import { Alarm, Play } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SkillSchedule } from "@tedix/api-contract/contracts/cognitive";
@@ -43,15 +44,7 @@ const TRIGGER_DEFINITION_LOOKUP_LIMIT = 200;
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
-const DAY_NAMES = [
-	"Sunday",
-	"Monday",
-	"Tuesday",
-	"Wednesday",
-	"Thursday",
-	"Friday",
-	"Saturday",
-] as const;
+const DAY_NAMES = OS_COPY.weekdays;
 
 const DAY_ALIASES: Record<string, number> = {
 	sun: 0,

@@ -1,3 +1,5 @@
+import type { PortfolioBucket } from "@tedix/api-contract/schemas/organization";
+import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { factoryHref } from "@/lib/work-display";
 import type {
 	FactoryScoreboardEntry,
@@ -45,20 +47,6 @@ import { useDocumentTitle } from "@/lib/use-document-title";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
 
-/** Portfolio buckets, in display order. `metadata.portfolioBucket` picks one. */
-export const PORTFOLIO_BUCKETS = [
-	"Projects",
-	"Active",
-	"Leads",
-	"Side",
-	"Rezagados",
-	"Programs",
-	"Applications",
-	"Communities",
-] as const;
-
-type PortfolioBucket = (typeof PORTFOLIO_BUCKETS)[number];
-
 export type PortfolioEntry = {
 	row: ProjectPortfolioEntry;
 	project: Project;
@@ -71,12 +59,12 @@ function metadataString(project: Project, key: string): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function portfolioBucketOf(project: Project): PortfolioBucket | null {
+export function portfolioBucketOf(
+	project: Project,
+	buckets: readonly PortfolioBucket[],
+): string | null {
 	const raw = metadataString(project, "portfolioBucket")?.toLowerCase();
-	if (!raw) return null;
-	return (
-		PORTFOLIO_BUCKETS.find((bucket) => bucket.toLowerCase() === raw) ?? null
-	);
+	return buckets.find((bucket) => bucket.key === raw)?.key ?? null;
 }
 
 function portfolioEntry(row: ProjectPortfolioEntry): PortfolioEntry {
@@ -92,31 +80,37 @@ function portfolioEntry(row: ProjectPortfolioEntry): PortfolioEntry {
 const byTitle = (a: PortfolioEntry, b: PortfolioEntry) =>
 	a.title.localeCompare(b.title);
 
-/**
- * Bucket projects in the fixed order. Archived and done projects, and projects
- * with no recognised bucket, fall into `other`.
- */
-export function groupPortfolio(rows: readonly ProjectPortfolioEntry[]): {
-	buckets: Array<{ name: PortfolioBucket; entries: PortfolioEntry[] }>;
-	other: PortfolioEntry[];
-} {
-	const grouped = new Map<PortfolioBucket, PortfolioEntry[]>(
-		PORTFOLIO_BUCKETS.map((bucket) => [bucket, []]),
+export function groupPortfolio(
+	rows: readonly ProjectPortfolioEntry[],
+	config: readonly PortfolioBucket[] = OS_COPY.portfolio.defaults,
+) {
+	const grouped = new Map(
+		config.map((bucket) => [bucket.key, [] as PortfolioEntry[]]),
 	);
 	const other: PortfolioEntry[] = [];
+	const unknown = new Map<string, number>();
 	for (const row of rows) {
-		const bucket = portfolioBucketOf(row.project);
-		const closed =
-			row.project.status === "archived" || row.project.status === "done";
-		if (!bucket || closed) other.push(portfolioEntry(row));
-		else grouped.get(bucket)?.push(portfolioEntry(row));
+		const key = portfolioBucketOf(row.project, config);
+		const raw = metadataString(row.project, "portfolioBucket")?.toLowerCase();
+		if (!key && raw) unknown.set(raw, (unknown.get(raw) ?? 0) + 1);
+		if (
+			!key ||
+			row.project.status === "archived" ||
+			row.project.status === "done"
+		)
+			other.push(portfolioEntry(row));
+		else grouped.get(key)?.push(portfolioEntry(row));
 	}
 	return {
-		buckets: PORTFOLIO_BUCKETS.map((name) => ({
-			name,
-			entries: (grouped.get(name) ?? []).sort(byTitle),
-		})),
+		buckets: config
+			.map((bucket) => ({
+				...bucket,
+				name: bucket.label,
+				entries: (grouped.get(bucket.key) ?? []).sort(byTitle),
+			}))
+			.filter((bucket) => bucket.entries.length > 0),
 		other: other.sort(byTitle),
+		unknown,
 	};
 }
 
@@ -558,9 +552,11 @@ function OtherProjects({ entries }: { entries: PortfolioEntry[] }) {
 	if (!entries.length) return null;
 	return (
 		<Collapsible>
-			<CollapsibleTrigger>Other ({entries.length})</CollapsibleTrigger>
+			<CollapsibleTrigger>
+				{OS_COPY.portfolio.unsorted} ({entries.length})
+			</CollapsibleTrigger>
 			<CollapsibleContent>
-				<Collection aria-label="Other projects" className="mt-2">
+				<Collection aria-label="Unsorted projects" className="mt-2">
 					{entries.map(({ project, title }) => (
 						<li
 							key={project.id}
@@ -585,6 +581,20 @@ function OtherProjects({ entries }: { entries: PortfolioEntry[] }) {
 }
 
 export function WorkPortfolioPage() {
+	return (
+		<WorkspaceAppRenderer
+			manifest={{ entry: "tedix:app/portfolio", capabilities: [] }}
+		/>
+	);
+}
+
+export function PortfolioApp({
+	buckets = OS_COPY.portfolio.defaults,
+	isOwner = false,
+}: {
+	buckets?: readonly PortfolioBucket[];
+	isOwner?: boolean;
+}) {
 	useDocumentTitle("Portfolio · Work");
 	const portfolio = useQuery(projectPortfolioQueryOptions());
 	const inbox = useQuery({
@@ -592,8 +602,8 @@ export function WorkPortfolioPage() {
 		refetchOnWindowFocus: false,
 	});
 	const grouped = useMemo(
-		() => groupPortfolio(portfolio.data?.data ?? []),
-		[portfolio.data],
+		() => groupPortfolio(portfolio.data?.data ?? [], buckets),
+		[portfolio.data, buckets],
 	);
 	const openInteractions = useMemo(
 		() =>
@@ -626,32 +636,44 @@ export function WorkPortfolioPage() {
 				</Alert>
 			) : (
 				<>
-					{grouped.buckets.map(({ name, entries }) => (
+					{isOwner && grouped.unknown.size > 0 && (
+						<Alert variant="warning">
+							<AlertTitle>Check your portfolio sections</AlertTitle>
+							<AlertDescription>
+								{[...grouped.unknown].map(([key, count]) => (
+									<p key={key}>{OS_COPY.portfolio.unknown(count, key)}</p>
+								))}
+								<Link href="/admin/organization#organization-portfolio">
+									Edit portfolio sections
+								</Link>
+							</AlertDescription>
+						</Alert>
+					)}
+					{grouped.buckets.map(({ key, name, description, entries }) => (
 						<PageSection
-							key={name}
-							aria-labelledby={`portfolio-bucket-${name.toLowerCase()}`}
-							data-portfolio-bucket={name}
+							key={key}
+							aria-labelledby={`portfolio-bucket-${key}`}
+							data-portfolio-bucket={key}
 						>
 							<SectionHeader>
 								<SectionHeading>
-									<SectionTitle id={`portfolio-bucket-${name.toLowerCase()}`}>
+									<SectionTitle id={`portfolio-bucket-${key}`}>
 										{name}
 									</SectionTitle>
+									{description && (
+										<SectionDescription>{description}</SectionDescription>
+									)}
 								</SectionHeading>
 							</SectionHeader>
-							{entries.length ? (
-								<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-									{entries.map((entry) => (
-										<PortfolioCard
-											key={entry.project.id}
-											entry={entry}
-											openInteractions={openInteractions}
-										/>
-									))}
-								</div>
-							) : (
-								<Muted>No records yet</Muted>
-							)}
+							<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+								{entries.map((entry) => (
+									<PortfolioCard
+										key={entry.project.id}
+										entry={entry}
+										openInteractions={openInteractions}
+									/>
+								))}
+							</div>
 						</PageSection>
 					))}
 					<OtherProjects entries={grouped.other} />

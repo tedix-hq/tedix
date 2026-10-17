@@ -3,6 +3,66 @@ import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 
 /** Generic OS wording. Names and tenant-specific content come from records. */
 export const OS_COPY = {
+	slideFontFamilies: [
+		["Inter", "Inter, sans-serif"],
+		["Space Grotesk", "Space Grotesk, sans-serif"],
+		["DM Sans", "DM Sans, sans-serif"],
+		["IBM Plex Sans", "IBM Plex Sans, sans-serif"],
+		["Manrope", "Manrope, sans-serif"],
+		["Playfair Display", "Playfair Display, serif"],
+		["Merriweather", "Merriweather, serif"],
+		["JetBrains Mono", "JetBrains Mono, monospace"],
+	],
+	chatStarterPrompts: [
+		"Create a doc titled Weekly update with three short sections.",
+		"Make a sheet that tracks open tasks, owners and due dates.",
+		"Summarize what changed this week and what I should decide next.",
+	],
+	tediCostHeaders: [
+		"Tedi",
+		"Estimated model cost",
+		"Observed tokens",
+		"Cache hit rate",
+		"Pricing coverage",
+		"Known subtotal",
+		"Priced rows",
+		"Unpriced rows",
+		"Unpriced tokens",
+	],
+	dailyCostHeaders: [
+		"Date",
+		"Estimated model cost",
+		"Observed tokens",
+		"Pricing coverage",
+		"Known subtotal",
+		"Priced rows",
+		"Unpriced rows",
+		"Unpriced tokens",
+	],
+	portfolio: {
+		defaults: [
+			{ key: "projects", label: "Projects" },
+			{ key: "programs", label: "Programs" },
+			{ key: "prospects", label: "Prospects" },
+			{ key: "applications", label: "Applications" },
+			{ key: "communities", label: "Communities" },
+			{ key: "other", label: "Other" },
+		],
+		unsorted: "Unsorted",
+		unknown: (count: number, key: string) =>
+			`${count} project${count === 1 ? " uses" : "s use"} section '${key}' which is not in your settings — add it or move them.`,
+	},
+	notebookSubjects: ["Answers", "Git", "Deploys", "Work", "Agents"],
+	weekdays: [
+		"Sunday",
+		"Monday",
+		"Tuesday",
+		"Wednesday",
+		"Thursday",
+		"Friday",
+		"Saturday",
+	],
+	chatFormats: ["Document", "Spreadsheet", "Presentation"],
 	work: {
 		status: "Status",
 		owner: "Owner",

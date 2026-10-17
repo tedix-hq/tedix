@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import type { OrgUsageOutput } from "@tedix/api-contract/contracts/org-usage";
 import * as echarts from "echarts";
 import { useMemo } from "react";
@@ -167,16 +168,7 @@ function DailyCostChart({
 				/>
 				<ChartDataTable
 					label="Daily estimated cost"
-					headers={[
-						"Date",
-						"Estimated model cost",
-						"Observed tokens",
-						"Pricing coverage",
-						"Known subtotal",
-						"Priced rows",
-						"Unpriced rows",
-						"Unpriced tokens",
-					]}
+					headers={OS_COPY.dailyCostHeaders}
 					rows={daily.map((day) => [
 						day.date,
 						formatCost(day.estimatedCostUsd),
@@ -273,17 +265,7 @@ function TediCostChart({
 				/>
 				<ChartDataTable
 					label="Cost concentration by tedi"
-					headers={[
-						"Tedi",
-						"Estimated model cost",
-						"Observed tokens",
-						"Cache hit rate",
-						"Pricing coverage",
-						"Known subtotal",
-						"Priced rows",
-						"Unpriced rows",
-						"Unpriced tokens",
-					]}
+					headers={OS_COPY.tediCostHeaders}
 					rows={sortedTedis.map((tedi) => [
 						`${tedi.tediName} (@${tedi.tediSlug})`,
 						formatCost(tedi.estimatedCostUsd),

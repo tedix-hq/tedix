@@ -46,7 +46,7 @@ describe("session genericity", () => {
 		expect(
 			sessionGenericityFindings(
 				"apps/os/src/components/work-attention-page.tsx",
-				"Your requests · Attention · Session activity",
+				'const copy = "Your requests · Attention · Session activity";',
 			),
 		).toEqual([]);
 	});
@@ -63,7 +63,7 @@ describe("configured Board apps", () => {
 		expect(
 			sessionGenericityFindings(
 				"apps/os/src/components/work-shell.tsx",
-				'id: "board", sections: [{ id: "sales", to: "/work/queue" }]',
+				'const board = {id: "board", sections: [{ id: "sales", to: "/work/queue" }]};',
 			),
 		).toHaveLength(1);
 	});
@@ -77,7 +77,7 @@ describe("configured Board apps", () => {
 		expect(
 			sessionGenericityFindings(
 				"apps/os/src/components/work-shell.tsx",
-				'id: "board", sections: [{ id: "queue", to: "/work/queue" }]',
+				'const board = {id: "board", sections: [{ id: "queue", to: "/work/queue" }]};',
 			),
 		).toEqual([]);
 		expect(
@@ -100,8 +100,36 @@ test("rejects reintroduced Office and Agents routes and fixed Board tabs", () =>
 		expect(
 			sessionGenericityFindings(
 				"apps/os/src/components/work-shell.tsx",
-				`id: "board", sections: [{ id: "${name}", to: "/work/${name}" }]`,
+				`const board = {id: "board", sections: [{ id: "${name}", to: "/work/${name}" }]};`,
 			),
 		).toHaveLength(1);
 	}
+});
+
+test("display labels belong in copy or organization configuration", () => {
+	for (const source of [
+		'const groups = ["Projects", "Rezagados"] as const;',
+		'const days = [\n"Monday",\n"Tuesday"\n];',
+		'const formats = ["Document", "Spreadsheet"];',
+	]) {
+		expect(
+			sessionGenericityFindings("apps/os/src/components/example.tsx", source),
+		).toHaveLength(1);
+	}
+	for (const source of [
+		'const keys = ["pending", "complete"];',
+		'const methods = ["GET", "POST"];',
+		"const groups = OS_COPY.portfolio.defaults;",
+		"const groups = metadata.portfolioBuckets;",
+	]) {
+		expect(
+			sessionGenericityFindings("apps/os/src/components/example.tsx", source),
+		).toEqual([]);
+	}
+	expect(
+		sessionGenericityFindings(
+			"apps/os/src/shared/os-copy.ts",
+			'const labels = ["Monday", "Tuesday"];',
+		),
+	).toEqual([]);
 });
