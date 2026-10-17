@@ -740,6 +740,24 @@ describe("verifyHumanMcpGrant", () => {
 		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
 	});
 
+	it.each(["invited", "pending", "inactive"])(
+		"does not stage consent for a %s member, even with provider tenant membership",
+		async (status) => {
+			const { stageHumanMcpConsent } = await import("./mcp-grant");
+			mocks.getMemberByUserId.mockResolvedValue({ status });
+			await expect(
+				stageHumanMcpConsent({} as never, env, input.descopeUserId, {
+					clientId: input.clientId,
+					resourceUrl: input.resourceUrl,
+					selectedTenantIds: tenantIds,
+					approvedScopes: ["mcp:apps.read"],
+				}),
+			).resolves.toBeNull();
+			expect(mocks.stageMcpConsentPending).not.toHaveBeenCalled();
+			expect(mocks.replaceMcpConsentSelection).not.toHaveBeenCalled();
+		},
+	);
+
 	it("stages only a verified client's exact member organizations and scopes, then revokes them", async () => {
 		const { stageHumanMcpConsent, revokeHumanMcpConsent } =
 			await import("./mcp-grant");
