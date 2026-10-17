@@ -153,6 +153,25 @@ export interface ReasonAskResult {
 	empty: boolean;
 }
 
+/** The native run_tedi_turn receipt uses model_identity on direct and wrapped replies. */
+export function extractReasonModelIdentity(
+	result: unknown,
+): ReasonAskResult["modelIdentity"] {
+	const payload = (result ?? {}) as Record<string, unknown>;
+	const inner = (payload.result ?? payload) as Record<string, unknown>;
+	const identity = (inner.model_identity ?? payload.model_identity) as
+		| Record<string, unknown>
+		| undefined;
+	const provider = identity?.provider;
+	const model = identity?.model;
+	return typeof provider === "string" &&
+		provider.trim() &&
+		typeof model === "string" &&
+		model.trim()
+		? { provider, model }
+		: null;
+}
+
 /**
  * Derive the per-call fan-out identity.
  *
