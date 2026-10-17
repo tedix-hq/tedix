@@ -10,7 +10,7 @@ import {
 	routeExplicitOutputCreate,
 } from "./output-create-intent";
 import type { KernelRouteDecision } from "./route-schema";
-import { canonicalWriteToolName } from "./write-proposal";
+import { canonicalWriteToolName } from "./write-tool-intent";
 
 describe("card verdict follow-ups", () => {
 	const sheet = "11111111-2222-4333-8444-555555555555";
