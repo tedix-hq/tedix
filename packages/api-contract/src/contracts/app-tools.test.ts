@@ -17,6 +17,7 @@ describe("ToolIdSchema (verb-first snake_case, CLAUDE.md 'MCP Tool Naming')", ()
 		["run_skill_workflow"],
 		["get_skill"],
 		["record_skill"],
+		["file_agent_review"],
 		["cancel_skill_workflow"],
 		["register_muscle_memory"],
 		["capture_page"],

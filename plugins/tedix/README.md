@@ -79,6 +79,7 @@ approval store.
 | Request                                   | Skill                                                            |
 | ----------------------------------------- | ---------------------------------------------------------------- |
 | Find the right Tedix path for a task      | [tedix-session-guide](skills/tedix-session-guide/SKILL.md)       |
+| Review Tedix for your project             | [review-tedix](skills/review-tedix/SKILL.md)                     |
 | Connect or diagnose Tedix access          | [tedix-connect](skills/tedix-connect/SKILL.md)                   |
 | Review a local coding session             | [tedix-guardian-session](skills/tedix-guardian-session/SKILL.md) |
 | Delegate a task or follow a tedi run      | [tedix-delegate](skills/tedix-delegate/SKILL.md)                 |

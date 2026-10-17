@@ -99,6 +99,9 @@ access:
 
 ## Docs and concepts
 
+Give your coding agent [AGENT-REVIEW.md](AGENT-REVIEW.md) to evaluate Tedix for
+your project in about 15 minutes and send feedback without installing the CLI.
+
 This repository is the whole product and the source Tedix Cloud is built from.
 [Core concepts](docs/public/concepts.md) defines tedis, Home, Work Items and
 the MCP app platform; [Release status](docs/public/release-status.md) lists
