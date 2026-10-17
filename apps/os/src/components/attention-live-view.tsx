@@ -256,7 +256,7 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 	);
 }
 export function AttentionBoard({
-	data,
+	data: allData,
 	file,
 	filing = false,
 	layout = DEFAULT_ATTENTION_LAYOUT,
@@ -276,6 +276,29 @@ export function AttentionBoard({
 	const [editing, setEditing] = useState(false);
 	const [focus, setFocus] = useState(layout.focusToday);
 	const [contributor, setContributor] = useState<string | null>(null);
+	const projects = allData.projects.filter(
+		(p) => !layout.focusProjectId || p.id === layout.focusProjectId,
+	);
+	const scopes = new Set(
+		projects.flatMap((p) => [p.id, ...(p.objectiveId ? [p.objectiveId] : [])]),
+	);
+	const data: AttentionResult = layout.focusProjectId
+		? {
+				...allData,
+				cards: allData.cards.filter(
+					(c) => c.projectId === layout.focusProjectId,
+				),
+				projects,
+				unattendedObjectives: allData.unattendedObjectives?.filter((o) =>
+					scopes.has(o.id),
+				),
+				stalls: allData.stalls?.filter((stall) => scopes.has(stall.scopeId)),
+				cadencePromises: allData.cadencePromises?.filter((promise) =>
+					scopes.has(promise.scopeId),
+				),
+			}
+		: allData;
+	useEffect(() => setContributor(null), [layout.focusProjectId]);
 	useEffect(() => {
 		const timer = setInterval(() => setNow(Date.now()), 1000);
 		return () => clearInterval(timer);
@@ -555,7 +578,7 @@ export function AttentionBoard({
 									<SelectValue placeholder="File to project" />
 								</SelectTrigger>
 								<SelectContent>
-									{data.projects
+									{allData.projects
 										.filter((p) => p.status === "active")
 										.map((p) => (
 											<SelectItem key={p.id} value={p.id}>
@@ -654,7 +677,7 @@ export function AttentionBoard({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="all">All projects</SelectItem>
-								{data.projects.map((p) => (
+								{allData.projects.map((p) => (
 									<SelectItem key={p.id} value={p.id}>
 										Only {p.name}
 									</SelectItem>
@@ -662,7 +685,7 @@ export function AttentionBoard({
 							</SelectContent>
 						</Select>
 						<div className="flex flex-wrap gap-2">
-							{data.projects.map((p) => (
+							{allData.projects.map((p) => (
 								<Button
 									key={p.id}
 									size="sm"
