@@ -22,6 +22,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
 import { lazy, Suspense } from "react";
 import { cn } from "@/lib/utils";
+import { BoardAppLinks } from "@/components/board-app-links";
 
 const WorkWebMcpTools = lazy(() =>
 	import("@/components/work-webmcp-tools").then((module) => ({
@@ -42,7 +43,6 @@ type WorkSectionPath =
 	| "/work/needs-you"
 	| "/work/portfolio"
 	| "/work/queue"
-	| "/work/outbound"
 	| "/work/agents"
 	| "/work/office"
 	| "/work/attempts"
@@ -79,7 +79,6 @@ export const WORK_TABS: readonly WorkTab[] = [
 		sections: [
 			{ id: "projects", label: "Projects", to: "/work/portfolio" },
 			{ id: "queue", label: "Queue", to: "/work/queue" },
-			{ id: "outbound", label: "Outbound", to: "/work/outbound" },
 			{ id: "agents", label: "Agents", to: "/work/agents" },
 			{ id: "office", label: "Office", to: "/work/office" },
 		],
@@ -279,8 +278,14 @@ export function WorkShell() {
 							current={section.id === activeSection.id}
 						/>
 					))}
+					{activeTab.id === "board" && <BoardAppLinks />}
 				</nav>
 			) : null}
+			{activeTab?.id === "board" && (
+				<nav aria-label="Board apps" className="flex gap-4 px-4 py-2 sm:hidden">
+					<BoardAppLinks />
+				</nav>
+			)}
 			<Outlet />
 		</div>
 	);

@@ -92,3 +92,33 @@ describe("portable output export formats", () => {
 		]);
 	});
 });
+
+describe("Outbound review app", () => {
+	it("validates configurable scope and filters on write, preserves old settings on read", () => {
+		const manifest = {
+			entry: "tedix:app/outbound-review",
+			capabilities: [],
+			navigation: { board: true },
+			config: {
+				version: 1,
+				projectId: "33333333-3333-4333-8333-333333333333",
+				limit: 25,
+				initialStatus: "waiting_on_you",
+			},
+		};
+		expect(OsGadgetManifestWriteSchema.parse(manifest)).toEqual(manifest);
+		for (const config of [
+			{ version: 2 },
+			{ version: 1, limit: 1000 },
+			{ version: 1, initialStatus: "approve_and_send" },
+			{ version: 1, projectId: "other-tenant" },
+		]) {
+			expect(
+				OsGadgetManifestWriteSchema.safeParse({ ...manifest, config }).success,
+			).toBe(false);
+			expect(
+				OsGadgetManifestSchema.parse({ ...manifest, config }).config,
+			).toEqual(config);
+		}
+	});
+});

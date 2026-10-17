@@ -35,13 +35,6 @@ import {
 } from "@/components/kumo/select";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
-import {
-	Page,
-	PageHeader,
-	PageHeading,
-	PageTitle,
-	PageDescription,
-} from "@/components/kumo/page";
 import { errorMessage } from "@/lib/orpc-error";
 
 type OutboundCardNavigation = {
@@ -306,42 +299,6 @@ export function OutboundReviewCard({
 				</Text>
 			) : null}
 		</div>
-	);
-}
-
-export function OutboundPage() {
-	const query = useQuery(
-		osQuery.workInteractions.outbound.list.queryOptions({
-			input: { limit: 50 },
-		}),
-	);
-	return (
-		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>Outbound</PageTitle>
-					<PageDescription>
-						Drafts, reviews and human decisions, kept with their originating
-						Work.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			<Link href="/account/profile">
-				Your style profile and last 10 approvals
-			</Link>
-			{query.isError ? (
-				<Text role="body">{errorMessage(query.error)}</Text>
-			) : query.data?.length === 0 ? (
-				<Text role="body">No outbound drafts yet.</Text>
-			) : (
-				query.data?.map((record) => (
-					<OutboundReviewCard
-						key={`${record.workItemId}:${record.version}`}
-						record={record}
-					/>
-				))
-			)}
-		</Page>
 	);
 }
 
