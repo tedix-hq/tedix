@@ -551,6 +551,14 @@ describe("planning board synchronization", () => {
 		await h.run("run-3");
 		expect(h.items).toHaveLength(3);
 	});
+	it("does not recreate a known Notion counterpart when it becomes unnamed", async () => {
+		const h = harness();
+		await h.run();
+		h.remote.Name = "";
+		expect((await h.run("run-2")).status).toBe("partial");
+		expect(h.calls.notionCreates).toBe(0);
+		expect(h.projects).toHaveLength(1);
+	});
 	it("exports an explicitly selected OS project without auto-merging", async () => {
 		const h = harness();
 		h.projects.push({
