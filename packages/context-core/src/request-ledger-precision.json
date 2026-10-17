@@ -9,7 +9,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -22,7 +23,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -42,7 +44,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -62,7 +65,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -82,7 +86,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -95,7 +100,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -115,7 +121,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -135,7 +142,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -155,7 +163,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -175,7 +184,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -195,7 +205,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -208,7 +219,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -221,7 +233,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -234,7 +247,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -254,7 +268,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -274,7 +289,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -294,7 +310,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -314,7 +331,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -327,7 +345,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -347,7 +366,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -360,7 +380,8 @@
 		"expected": {
 			"done": [],
 			"new": ["promise"],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -380,7 +401,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -393,7 +415,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -406,7 +429,8 @@
 		"expected": {
 			"done": [],
 			"new": ["promise"],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -426,7 +450,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -446,7 +471,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -466,7 +492,8 @@
 		"expected": {
 			"done": ["r1"],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -479,7 +506,8 @@
 		"expected": {
 			"done": [],
 			"new": ["ask"],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -492,7 +520,8 @@
 		"expected": {
 			"done": [],
 			"new": ["promise"],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -512,7 +541,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -532,7 +562,8 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": []
+			"merges": [],
+			"cancelled": []
 		}
 	},
 	{
@@ -559,7 +590,64 @@
 		"expected": {
 			"done": [],
 			"new": [],
-			"merges": [["r1", "r2"]]
+			"merges": [["r1", "r2"]],
+			"cancelled": []
+		}
+	},
+	{
+		"id": "selected-measured-goal",
+		"cause": "positive-control",
+		"turn": "I've merged the reviews. Here is the selected goal I'm starting now:\n| Goal | Status |\n| A doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests | Starting with Codex |",
+		"rows": [],
+		"message": "Review next goals and recommendations.",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": ["promise"],
+			"merges": [],
+			"cancelled": []
+		}
+	},
+	{
+		"id": "obsolete-ui-choice",
+		"cause": "later-lane-report",
+		"turn": "The Work page now has three tabs instead of seven. The new navigation is verified live.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Decide whether to trim the seven Work tabs",
+				"kind": "ask",
+				"status": "waiting_on_user"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": [],
+			"cancelled": ["r1"]
+		}
+	},
+	{
+		"id": "reserved-ui-publication",
+		"cause": "positive-control",
+		"turn": "The new navigation layout is ready in a private preview. Publication still needs your approval.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Approve publishing the new navigation layout",
+				"kind": "ask",
+				"status": "waiting_on_user"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": [],
+			"cancelled": []
 		}
 	}
 ]

@@ -67,7 +67,8 @@ it("passes cited failure/fix pairs across stored turns to the learning pipeline"
 		sourceAt: "2026-10-06T10:01:00.000Z",
 		now: T0,
 	});
-	expect(prompts[0]).toContain(failure);
+	// Recovery history belongs to lesson extraction, not request status inference.
+	expect(prompts[0]).not.toContain(failure);
 	expect(model.reflectLessons).toHaveBeenCalledWith(
 		expect.arrayContaining([
 			expect.objectContaining({ activity: failure }),
@@ -783,7 +784,7 @@ it("never closes an ask from an unproposed agent approval claim", async () => {
 	expect((await rows(db))[0]?.status).toBe("waiting_on_user");
 });
 
-it("uses Astra through the Gateway only for reflection and leaves the observer small", async () => {
+it("uses the Gateway for reflection and intake while keeping the observer small", async () => {
 	const run = vi.fn().mockResolvedValue({ response: '{"requests":[]}' });
 	const fetch = vi.fn().mockResolvedValue(
 		Response.json({
@@ -820,6 +821,21 @@ it("uses Astra through the Gateway only for reflection and leaves the observer s
 		model: "gpt-6-astra",
 		input: "full turn",
 	});
+	fetch.mockResolvedValueOnce(
+		Response.json({
+			status: "completed",
+			output: [
+				{
+					type: "message",
+					content: [{ type: "output_text", text: '{"new":[]}' }],
+				},
+			],
+		}),
+	);
+	expect(
+		await model.extractObligations!([], "Lead words", "User request"),
+	).toBe('{"new":[]}');
+	expect(run).toHaveBeenCalledTimes(1);
 	fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
 	expect(
 		await model("system", "prompt", "agent-session-request-reflector"),
@@ -1442,7 +1458,7 @@ it("closes a question from the assistant response following that same prompt", a
 	expect((await rows(db))[0]?.status).toBe("done");
 });
 
-it("recovers a missed lane result from prior assistant evidence without admitting its old promises", async () => {
+it("reads a later delegated lane result without admitting its old promises", async () => {
 	const db = fixture();
 	await observe(
 		db,
@@ -1473,7 +1489,7 @@ it("recovers a missed lane result from prior assistant evidence without admittin
 	);
 	await reflectAgentSessionRequests(db, model, {
 		...SCOPE,
-		turn: "A separate task is running.",
+		turn: `<agent-message>${evidence}</agent-message>`,
 		activity: null,
 		repository: null,
 		sourceAt: "2026-10-06T10:02:00Z",
@@ -1484,52 +1500,118 @@ it("recovers a missed lane result from prior assistant evidence without admittin
 	expect(await rows(db)).toHaveLength(1);
 });
 
-it.each([
-	{
-		request: "Send Bea the onboarding message",
-		evidence: "Tell Bea to click Allow mail access.",
-		qualifier: "The message is drafted, not sent.",
-	},
-	{
-		request: "Remove the scratch repos alpha and beta",
-		evidence: "Removed fourteen merged worktrees.",
-		qualifier: "The scratch repos alpha and beta are still present.",
-	},
-])(
-	"keeps $request open when its cited text does not prove execution",
-	async ({ request, evidence, qualifier }) => {
+it("uses independent intake instead of a status reflector's mistaken new obligation", async () => {
+	const db = fixture();
+	await observe(
+		db,
+		scripted('{"requests":[{"kind":"request","text":"Repair the CLI"}]}').model,
+		"Repair the CLI",
+	);
+	const { model } = scripted(
+		JSON.stringify({
+			updates: [],
+			new: [
+				{
+					kind: "promise",
+					text: "Fix the linked-project error",
+					evidence: "Codex is fixing the linked-project error.",
+				},
+			],
+		}),
+	);
+	model.extractObligations = vi.fn(async (known, turn) => {
+		expect(known[0]?.text).toBe("Repair the CLI");
+		expect(turn).toContain("Codex is fixing");
+		return '{"new":[]}';
+	});
+	await reflectAgentSessionRequests(db, model, {
+		...SCOPE,
+		turn: "Codex is fixing the linked-project error.",
+		activity: null,
+		repository: null,
+		sourceAt: "2026-10-06T10:01:00Z",
+		now: T0,
+	});
+	expect(await rows(db)).toHaveLength(1);
+});
+
+it.each([null, "not JSON", '{"updates":[]}'])(
+	"keeps the event retryable when intake is unavailable: %s",
+	async (intake) => {
 		const db = fixture();
-		await acceptAgentSessionEvents(db, {
-			...SCOPE,
-			events: [{ ...SCOPE, kind: "prompt", text: request, sourceAt: T0 }],
-			now: T0,
-		});
 		await observe(
 			db,
 			scripted(
-				JSON.stringify({ requests: [{ kind: "request", text: request }] }),
+				'{"requests":[{"kind":"question","text":"Check the CLI connection"}]}',
 			).model,
-			request,
+			"Check the CLI connection",
 		);
+		const evidence = "The CLI connection is verified.";
 		const { model } = scripted(
 			JSON.stringify({ updates: [{ ref: "r1", status: "done", evidence }] }),
 		);
-		model.verify = vi.fn(async (_checks, source) => {
-			expect(source).toContain(qualifier.toLowerCase());
-			return new Set<string>();
-		});
-		await reflectAgentSessionRequests(db, model, {
+		model.extractObligations = async () => intake;
+		const result = await reflectAgentSessionRequests(db, model, {
 			...SCOPE,
-			turn: `${evidence} ${qualifier}`,
+			turn: evidence,
 			activity: null,
 			repository: null,
 			sourceAt: "2026-10-06T10:01:00Z",
 			now: T0,
 		});
-		expect(model.verify).toHaveBeenCalledWith(
-			[expect.objectContaining({ request, scope: expect.anything() })],
-			expect.any(String),
-		);
+		expect(result.status).toBe("unavailable");
 		expect((await rows(db))[0]?.status).toBe("open");
+	},
+);
+
+it.each([
+	["Decide whether to trim the seven Work tabs", "cancelled"],
+	["Decide whether to remove the duplicate attention panel", "cancelled"],
+	["Approve publishing the new navigation layout", "waiting_on_user"],
+	["Choose whether agents may accept rules in the panel", "waiting_on_user"],
+	["Authorize deleting files through the sidebar", "waiting_on_user"],
+])(
+	"withdraws only obsolete routine UI dependencies: %s",
+	async (text, expected) => {
+		const db = fixture();
+		const quote = `Please decide: ${text}.`;
+		await reflectAgentSessionRequests(
+			db,
+			scripted(
+				JSON.stringify({
+					updates: [],
+					new: [{ kind: "ask", text, evidence: quote }],
+				}),
+			).model,
+			{
+				...SCOPE,
+				turn: quote,
+				activity: null,
+				repository: null,
+				sourceAt: T0,
+				now: T0,
+			},
+		);
+		const evidence =
+			"The Work page now has three tabs; the duplicate panel is removed and verified live.";
+		await reflectAgentSessionRequests(
+			db,
+			scripted(
+				JSON.stringify({
+					updates: [
+						{ ref: "r1", status: "cancelled", operational: true, evidence },
+					],
+				}),
+			).model,
+			{
+				...SCOPE,
+				turn: evidence,
+				activity: null,
+				repository: null,
+				sourceAt: "2026-10-06T10:01:00Z",
+				now: T0,
+			},
+		);
+		expect((await rows(db))[0]?.status).toBe(expected);
 	},
 );

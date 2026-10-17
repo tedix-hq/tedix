@@ -1,0 +1,57 @@
+[
+	{
+		"id": "recommendations-are-review",
+		"message": "Fan out across agents for next goals and recommendations.",
+		"previousTurn": "Now running: Codex is fixing the linked-project error and improving missing-tool messages. I can review what goals should come next.",
+		"rows": [],
+		"expected": { "answered": [], "requests": 0, "term": "" }
+	},
+	{
+		"id": "selected-draft-is-not-sending",
+		"message": "1 and go",
+		"previousTurn": "Choose 1 to create a private email draft, or 2 to send the draft. Which option should I do?",
+		"rows": [
+			{
+				"ref": "r1",
+				"kind": "ask",
+				"status": "waiting_on_user",
+				"text": "Choose whether to create the draft or send it"
+			}
+		],
+		"expected": { "answered": ["r1"], "requests": 1, "term": "draft" }
+	},
+	{
+		"id": "continue-is-not-consent",
+		"message": "continue",
+		"previousTurn": "The workspace cannot read mail until you grant consent. Approve mail access when you are ready.",
+		"rows": [
+			{
+				"ref": "r1",
+				"kind": "ask",
+				"status": "waiting_on_user",
+				"text": "Approve workspace mail access"
+			}
+		],
+		"expected": { "answered": [], "requests": 0, "term": "" }
+	},
+	{
+		"id": "plain-preference-answers-options",
+		"message": "Keep this request acceptance flow simple and straightforward.",
+		"previousTurn": "The simple option lets your approved response act as you. The strict option executes inside your own approval click. Which should we use?",
+		"rows": [
+			{
+				"ref": "r1",
+				"kind": "ask",
+				"status": "waiting_on_user",
+				"text": "Choose the simple or strict request acceptance option"
+			},
+			{
+				"ref": "r2",
+				"kind": "request",
+				"status": "open",
+				"text": "Implement chat request acceptance"
+			}
+		],
+		"expected": { "answered": ["r1"], "requests": 0, "term": "" }
+	}
+]
