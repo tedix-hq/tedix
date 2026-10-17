@@ -900,6 +900,10 @@
 		{
 			"name": "20261017004602_tedi-console-grants/migration.sql",
 			"sha256": "7c872710bd2e0daa9cc86a6fe8dbff20090835817831a58fb59cca189e1ad418"
+		},
+		{
+			"name": "20261017030502_request-ledger-lane-state/migration.sql",
+			"sha256": "7fbe085cfa1876df04bf1d5b16d1426402a9f32cd57371dca801448d40620911"
 		}
 	]
 }

@@ -52,7 +52,7 @@ export const workAgentSessionsContract = oc
 				path: "/events",
 				summary: "Upload redacted events from the caller's own agent sessions",
 				description:
-					"Stores up to 20 redacted events (messages the caller typed, agent turn ends with an activity digest) from the caller's own local Claude Code or Codex sessions and returns at once; a re-uploaded event is stored once. In the background, in session order, a small model observes each message (requests, questions, decisions become open rows of the caller's private request ledger) and reflects each turn (rows it worked on move to in_progress, waiting_on_user, dropped_risk or done, done only with evidence found in the turn; the agent's promises and open loops become new rows; open rows five turns pass by become dropped_risk).",
+					"Stores up to 20 redacted events from the caller's own Claude Code or Codex session and returns at once; re-uploaded events are stored once. A small observer extracts requests. A Gateway reflector judges full turn text and user replies, cites status changes, merges restatements, and records asks and unfinished commitments. At-risk status requires five turns without mention and no unresolved running lane. Rows remain private to the caller.",
 			})
 			.input(RecordAgentSessionEventsInputSchema)
 			.output(RecordAgentSessionEventsResultSchema),

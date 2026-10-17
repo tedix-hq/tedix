@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject } from "./hook-io";
 import { openRequestLines } from "./prompt-context";
-import { ledgerText, runRequestLedger, turnActivity } from "./request-ledger";
+import {
+	ledgerText,
+	runRequestLedger,
+	readTurnTranscript,
+} from "./request-ledger";
 
 const SESSION = "77777777-7777-4777-8777-777777777777";
 const OTHER = "88888888-8888-4888-8888-888888888888";
@@ -142,7 +146,7 @@ describe("session event upload", () => {
 			transcript,
 			lines.map((line) => JSON.stringify(line)).join("\n"),
 		);
-		expect(turnActivity(transcript)).toBe(
+		expect(readTurnTranscript(transcript).activity).toBe(
 			[
 				"Started background agent: Check the CSS",
 				"Failed Bash: Exit code 1",
@@ -310,18 +314,18 @@ test("preserves an earlier answer and a recovery receipt before a later summary"
 		},
 	];
 	writeFileSync(transcript, records.map((r) => JSON.stringify(r)).join("\n"));
-	const activity = turnActivity(transcript);
-	expect(activity).toContain(
+	const { text, activity } = readTurnTranscript(transcript);
+	expect(text).toContain(
 		"The upload failed because its file exceeded the limit",
 	);
 	expect(activity).toContain("Failed upload: File exceeds upload size limit");
 	expect(activity).toContain(
 		"Succeeded upload after failure: Native upload saved successfully",
 	);
-	expect(activity).toContain("legal page needs your OK");
+	expect(text).toContain("legal page needs your OK");
 });
 
-test("keeps asks below a long summary opening in the activity digest", () => {
+test("keeps the entire summary and earlier replies in the turn text", () => {
 	const transcript = join(config, "summary-asks.jsonl");
 	writeFileSync(
 		transcript,
@@ -350,8 +354,106 @@ test("keeps asks below a long summary opening in the activity digest", () => {
 			.map((r) => JSON.stringify(r))
 			.join("\n"),
 	);
-	const activity = turnActivity(transcript);
-	expect(activity).toContain("Public README needs your OK");
-	expect(activity).toContain("Say go to bundle cards");
-	expect(activity).toContain("Tell me if the legal sections should stay");
+	const { text } = readTurnTranscript(transcript);
+	expect(text).toContain("Public README needs your OK");
+	expect(text).toContain("Say go to bundle cards");
+	expect(text).toContain("Tell me if the legal sections should stay");
+	expect(text).toContain("Background: CI is still running.");
+});
+
+test("uploads all redacted messages in a turn without the old 8,000 character truncation", async () => {
+	const transcript = join(config, "full-turn.jsonl");
+	const first =
+		"Approve the public README before publishing. " +
+		"Detail ".repeat(1600) +
+		" token=supersecretvalue123";
+	writeFileSync(
+		transcript,
+		[
+			{ type: "user", message: { content: "Review the README" } },
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: first }] },
+			},
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "text", text: "Waiting for your decision." }],
+				},
+			},
+		]
+			.map((r) => JSON.stringify(r))
+			.join("\n"),
+	);
+	const [batch] = await run("turn", {
+		last_assistant_message: "Waiting for your decision.",
+		transcript_path: transcript,
+	});
+	expect(batch![0]!.text).toStartWith(
+		"Approve the public README before publishing.",
+	);
+	expect(batch![0]!.text).toContain("Waiting for your decision.");
+	expect(batch![0]!.text.length).toBeGreaterThan(8000);
+	expect(batch![0]!.text).not.toContain("supersecretvalue123");
+});
+
+test("keeps the host final response when the transcript write lags", async () => {
+	const transcript = join(config, "lagging-turn.jsonl");
+	writeFileSync(
+		transcript,
+		[
+			{ type: "user", message: { content: "Fix the result" } },
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Checking the result." }] },
+			},
+		]
+			.map((r) => JSON.stringify(r))
+			.join("\n"),
+	);
+	const [batch] = await run("turn", {
+		transcript_path: transcript,
+		last_assistant_message: "The result is fixed and verified.",
+	});
+	expect(batch![0]!.text).toBe(
+		"Checking the result.\n\nThe result is fixed and verified.",
+	);
+	expect(
+		await run("turn", {
+			transcript_path: transcript,
+			last_assistant_message: "<heartbeat/>",
+		}),
+	).toEqual([]);
+});
+
+test("Codex capture keeps visible commentary and final text only", () => {
+	const transcript = join(config, "visible-codex.jsonl");
+	const message = (channel: string, text: string) => ({
+		type: "response_item",
+		payload: {
+			type: "message",
+			role: "assistant",
+			channel,
+			content: [{ type: "output_text", text }],
+		},
+	});
+	writeFileSync(
+		transcript,
+		[
+			{
+				type: "event_msg",
+				payload: { type: "user_message", message: "Review this task" },
+			},
+			message("analysis", "Internal analysis marker must stay private"),
+			message("commentary", "Checking the requested result."),
+			message("final", "The result has been checked."),
+		]
+			.map((r) => JSON.stringify(r))
+			.join("\n"),
+	);
+	const turn = readTurnTranscript(transcript);
+	expect(turn.text).toBe(
+		"Checking the requested result.\n\nThe result has been checked.",
+	);
+	expect(JSON.stringify(turn)).not.toContain("Internal analysis marker");
 });

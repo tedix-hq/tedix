@@ -69,6 +69,12 @@ export const agentSessionRequests = sqliteTable(
 		evidence: text("evidence"),
 		/** Agent turns that ended without touching this open row. */
 		turnsUnaddressed: integer("turns_unaddressed").notNull().default(0),
+		/** A running lane for this request prevents silence-based risk. */
+		laneRunning: integer("lane_running", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		/** Source event already accounted for in the silence counter. */
+		lastReflectedAt: text("last_reflected_at"),
 		/** When the person sent the message (ISO 8601). */
 		sourceAt: text("source_at").notNull(),
 		/** Idempotency key: one message's nth request is recorded once. */

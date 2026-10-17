@@ -3,8 +3,8 @@
  * request the person sends, and nothing the agent promises, gets lost.
  *
  * The hooks stay thin. `capture-reply` (UserPromptSubmit) uploads the message
- * the person typed; `capture-stop` (Stop) uploads the agent's final turn
- * message with a digest of the turn's activity read from the host transcript:
+ * the person typed; `capture-stop` (Stop) uploads the agent's full turn
+ * text with a digest of the turn's activity read from the host transcript:
  * tool failures, subagents and other agents it started, and their reports.
  * Both go to `work.record_agent_session_events`, which stores them and
  * returns; the observer and reflector run on Tedix in the background and
@@ -21,13 +21,9 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-	closeSync,
-	fstatSync,
 	mkdirSync,
-	openSync,
 	readdirSync,
 	readFileSync,
-	readSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -51,8 +47,6 @@ import {
 const TEXT_LIMIT = 8000;
 const ACTIVITY_LIMIT = 4000;
 const LINE_LIMIT = 240;
-/** Transcript bytes read from the end to digest the last turn. */
-const TRANSCRIPT_TAIL_BYTES = 2_000_000;
 /** Events one upload carries; the server accepts up to 20. */
 const UPLOAD_BATCH = 20;
 /** Outbox entries kept per profile; the oldest go first beyond this. */
@@ -97,7 +91,7 @@ export function ledgerText(
 		/^\s*<heartbeat/.test(message)
 	)
 		return undefined;
-	return bounded(message, TEXT_LIMIT, "tail") || undefined;
+	return bounded(message, message.length, "tail") || undefined;
 }
 
 function blockText(content: unknown): string {
@@ -167,7 +161,10 @@ function codexActivity(entry: JsonObject, failed: Set<string>): string[] {
 	if (
 		entry.type === "response_item" &&
 		payload.type === "message" &&
-		payload.role === "assistant"
+		payload.role === "assistant" &&
+		(payload.channel === undefined ||
+			payload.channel === "commentary" ||
+			payload.channel === "final")
 	) {
 		const content = Array.isArray(payload.content) ? payload.content : [];
 		return content.flatMap((block: unknown) =>
@@ -211,52 +208,58 @@ function isHumanTurn(entry: JsonObject): boolean {
 }
 
 /**
- * The redacted activity digest of the last turn in a host transcript: tool
- * failures, agents started and their reports, and background task
- * notifications, since the person's last message. Empty when unreadable.
+ * Full redacted assistant text and the tool/lane activity since the person's
+ * last message. Empty when the transcript is unreadable.
  */
-export function turnActivity(transcript: unknown): string {
+export function readTurnTranscript(transcript: unknown): {
+	text: string;
+	activity: string;
+} {
+	const empty = { text: "", activity: "" };
 	if (
 		typeof transcript !== "string" ||
 		!isAbsolute(transcript) ||
 		!transcript.endsWith(".jsonl")
 	)
-		return "";
-	let text = "";
+		return empty;
+	let text: string;
 	try {
-		const fd = openSync(transcript, "r");
-		try {
-			const size = fstatSync(fd).size;
-			const length = Math.min(size, TRANSCRIPT_TAIL_BYTES);
-			const buffer = Buffer.alloc(length);
-			readSync(fd, buffer, 0, length, size - length);
-			text = buffer.toString("utf8");
-		} finally {
-			closeSync(fd);
-		}
+		text = readFileSync(transcript, "utf8");
 	} catch {
-		return "";
+		return empty;
 	}
 	const entries: JsonObject[] = [];
-	for (const raw of text.split("\n")) {
+	for (const raw of text.split("\n").reverse()) {
 		try {
 			const value: unknown = JSON.parse(raw);
-			if (isObject(value)) entries.push(value);
+			if (!isObject(value) || value.isSidechain) continue;
+			if (isHumanTurn(value)) break;
+			entries.push(value);
 		} catch {
-			// A partial first line or a torn write.
+			// A torn write at the end of a transcript.
 		}
 	}
-	let start = 0;
-	for (let index = entries.length - 1; index >= 0; index--)
-		if (isHumanTurn(entries[index]!)) {
-			start = index + 1;
-			break;
-		}
+	entries.reverse();
 	const tools = new Map<string, string>();
 	const failed = new Set<string>();
 	const lines: string[] = [];
-	for (const entry of entries.slice(start)) {
+	const messages: string[] = [];
+	for (const entry of entries) {
 		if (entry.isSidechain) continue;
+		const payload = isObject(entry.payload) ? entry.payload : {};
+		const message =
+			entry.type === "assistant"
+				? blockText(entry.message?.content)
+				: entry.type === "response_item" &&
+					  payload.type === "message" &&
+					  payload.role === "assistant" &&
+					  (payload.channel === undefined ||
+							payload.channel === "commentary" ||
+							payload.channel === "final")
+					? blockText(payload.content)
+					: "";
+		if (message.trim() && !/^\s*<heartbeat/.test(message))
+			messages.push(message);
 		if (entry.type === "user" || entry.type === "assistant") {
 			const notice =
 				/<task-notification>[\s\S]*?<summary>([\s\S]*?)<\/summary>/.exec(
@@ -266,7 +269,15 @@ export function turnActivity(transcript: unknown): string {
 			lines.push(...claudeActivity(entry, tools, failed));
 		} else lines.push(...codexActivity(entry, failed));
 	}
-	return bounded(lines.join("\n"), ACTIVITY_LIMIT, "tail");
+	const fullText = messages.join("\n\n");
+	return {
+		text: bounded(fullText, fullText.length, "head"),
+		activity: bounded(
+			lines.filter((item) => !item.startsWith("Agent said:")).join("\n"),
+			ACTIVITY_LIMIT,
+			"tail",
+		),
+	};
 }
 
 function outboxDir(env: NodeJS.ProcessEnv, key: string): string {
@@ -336,14 +347,25 @@ export async function runRequestLedger(
 			{ requireIdentity: true },
 		);
 		if (unattendedRun(event, hostEnv)) return;
-		const text = ledgerText(mode, event);
+		if (
+			mode === "turn" &&
+			typeof event.last_assistant_message === "string" &&
+			/^\s*<heartbeat/.test(event.last_assistant_message)
+		)
+			return;
+		const turn =
+			mode === "turn" ? readTurnTranscript(event.transcript_path) : null;
+		const lastText = ledgerText(mode, event);
+		const text = turn?.text
+			? `${turn.text}${lastText && !turn.text.endsWith(lastText) ? `\n\n${lastText}` : ""}`
+			: lastText;
 		if (!text) return;
 		// Child reads inherit this process's environment, as in decision capture.
 		for (const key of AGENT_IDENTITY_ENV) delete deps.env[key];
 		const binding = await bindingFor(deps, session!);
 		if (!binding || !PROFILE.test(String(binding.workspace))) return;
 		const now = (deps.now ?? (() => new Date()))();
-		const activity = mode === "turn" ? turnActivity(event.transcript_path) : "";
+		const activity = turn?.activity ?? "";
 		const dir = outboxDir(
 			deps.env,
 			`${binding.workspace}--${String(binding.organization ?? "default").replace(/[^A-Za-z0-9_-]/g, "")}`,

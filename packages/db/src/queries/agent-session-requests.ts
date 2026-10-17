@@ -80,6 +80,7 @@ export async function recordAgentSessionRequests(
 			request.kind === "ask" ? ("waiting_on_user" as const) : ("open" as const),
 		evidence: null,
 		turnsUnaddressed: 0,
+		laneRunning: request.kind === "open_loop",
 		sourceAt: params.sourceAt,
 		sourceKey: `${params.sourceKey}:${index}`,
 		statusChangedAt: params.now,
@@ -87,7 +88,7 @@ export async function recordAgentSessionRequests(
 		updatedAt: params.now,
 	}));
 	const inserted: AgentSessionRequestRow[] = [];
-	// 16 bound parameters per row: five rows stay under D1's 100.
+	// 17 bound parameters per row: five rows stay under D1's 100.
 	for (const chunk of chunkForBoundParams(rows, ROWS_PER_INSERT))
 		inserted.push(
 			...(await db
@@ -339,12 +340,45 @@ export interface AgentSessionRequestUpdate {
 	id: string;
 	status: AgentSessionRequestStatus;
 	evidence: string | null;
+	turnsUnaddressed?: number;
+	laneRunning?: boolean;
+	lastReflectedAt?: string;
+}
+
+export async function getPreviousAgentSessionTurn(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & {
+		harness: WorkAgentSessionHarness;
+		sessionKey: string;
+		before: string;
+		kind?: AgentSessionEventKind;
+	},
+): Promise<string | null> {
+	const [row] = await db
+		.select({ body: agentSessionEvents.body })
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, params.kind ?? "turn"),
+				lt(agentSessionEvents.sourceAt, params.before),
+			),
+		)
+		.orderBy(
+			desc(agentSessionEvents.sourceAt),
+			desc(agentSessionEvents.sourceKey),
+		)
+		.limit(1);
+	return row?.body ?? null;
 }
 
 /**
  * Apply status changes to the caller's own rows in one batch. A row whose
- * status changes gets a fresh `status_changed_at` and its unaddressed count
- * reset; evidence is replaced only when one is given.
+ * status changes gets a fresh `status_changed_at`. The counter resets unless
+ * explicitly supplied; evidence and lane state persist unless updated.
  */
 export async function updateAgentSessionRequests(
 	db: DbQueryClient,
@@ -363,7 +397,15 @@ export async function updateAgentSessionRequests(
 				evidence: update.evidence
 					? update.evidence
 					: sql`${agentSessionRequests.evidence}`,
-				turnsUnaddressed: 0,
+				turnsUnaddressed: update.turnsUnaddressed ?? 0,
+				laneRunning:
+					update.laneRunning ??
+					(update.status === "done" || update.status === "cancelled"
+						? false
+						: sql`${agentSessionRequests.laneRunning}`),
+				lastReflectedAt:
+					update.lastReflectedAt ??
+					sql`${agentSessionRequests.lastReflectedAt}`,
 				updatedAt: params.now,
 			})
 			.where(
