@@ -33,7 +33,7 @@ export interface TenantRuntimeEnvHashEnv {
  * shape changes. Loader handles survive parent deploys, so bundle and env
  * hashes alone do not guarantee that a corrected factory is re-evaluated.
  */
-export const TENANT_RUNTIME_LOADER_POLICY_VERSION = "10";
+export const TENANT_RUNTIME_LOADER_POLICY_VERSION = "11";
 
 function shortHash(input: string): string {
 	let hash = 2166136261;
@@ -103,6 +103,7 @@ export function tenantRuntimeCacheKey(
 	bundle: TenantRuntimeBundleHashBundle,
 	org: TenantRuntimeEnvHashOrg,
 	env: TenantRuntimeEnvHashEnv,
+	contentRevision?: string,
 ): string {
 	return [
 		slug,
@@ -111,5 +112,6 @@ export function tenantRuntimeCacheKey(
 		String(bundle.version),
 		tenantRuntimeBundleHash(bundle),
 		tenantRuntimeEnvHash(org, env),
+		...(contentRevision === undefined ? [] : [`content:${contentRevision}`]),
 	].join("@");
 }
