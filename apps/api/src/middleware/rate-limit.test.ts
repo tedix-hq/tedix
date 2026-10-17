@@ -1,3 +1,5 @@
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
@@ -199,5 +201,36 @@ describe("rateLimit diagnostics", () => {
 		expect(JSON.stringify(fail.mock.calls)).not.toMatch(
 			/203\.0\.113\.42|sk_live_secret|DSR=refresh-secret/,
 		);
+	});
+});
+
+describe("Office RPC rate-limit errors", () => {
+	it("preserves the reason through the actual oRPC client for a fictional tenant", async () => {
+		const app = new Hono<{ Bindings: CloudflareEnv }>();
+		app.use(
+			"/rpc/*",
+			rateLimit(
+				() => ({ limit: async () => ({ success: false }) }),
+				byCredentialOrIp,
+				{ errorMessage: "API rate limit exceeded. Please try again later." },
+			),
+		);
+		const client = createORPCClient<{
+			workAgentSessions: {
+				list: (input: { organizationId: string }) => Promise<unknown>;
+			};
+		}>(
+			new RPCLink({
+				url: "https://api.example.test/rpc",
+				headers: { Cookie: "DS=fictional-office-session" },
+				fetch: (request) => app.request(request),
+			}),
+		);
+		await expect(
+			client.workAgentSessions.list({ organizationId: "org-office-fixture" }),
+		).rejects.toMatchObject({
+			code: "TOO_MANY_REQUESTS",
+			message: "API rate limit exceeded. Please try again later.",
+		});
 	});
 });
