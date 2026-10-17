@@ -120,7 +120,7 @@ import { WIDGET_SDK_VERSION } from "./sdk-contract";
 			shell.style.right = `${options.horizontalOffset ?? 24}px`;
 			shell.style.left = "auto";
 		}
-		shell.style.bottom = `${options.bottomOffset ?? 24}px`;
+		shell.style.bottom = `calc(${options.bottomOffset ?? 24}px + var(--tedix-host-bottom-inset, 0px))`;
 		shell.style.zIndex = String(options.zIndex ?? 2147483000);
 		// Palette and artwork both carry a dark variant, and the launcher sits on
 		// the host's page — so it follows the host's scheme unless pinned.

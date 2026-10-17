@@ -22,6 +22,7 @@ export function WorkShell() {
 			</Suspense>
 			<Outlet />
 			<nav
+				data-slot="bottom-nav"
 				aria-label={OS_COPY.workHome.views}
 				className="sticky bottom-0 z-20 mt-auto flex shrink-0 border-kumo-line border-t bg-kumo-base pb-[env(safe-area-inset-bottom)] sm:hidden"
 			>

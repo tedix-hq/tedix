@@ -257,3 +257,9 @@ whether a person may chat. A changed identity returned by `identify()` clears
 the mounted conversation before remounting. Call `shutdown()` immediately on
 logout or before changing the authenticated account; it also cancels pending
 identification, preventing late responses from remounting the old account.
+
+## Host navigation
+
+Hosts with fixed bottom navigation can set `--tedix-host-bottom-inset` on
+their document root or widget host. The loader and runtime launchers add
+that inset to their normal offset. The chat panel keeps its normal layout.

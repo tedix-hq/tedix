@@ -12,6 +12,12 @@
  */
 @custom-variant coarse (@media (pointer: coarse));
 
+@media (width < 640px) {
+	:root:has([data-slot="bottom-nav"]) {
+		--tedix-host-bottom-inset: calc(3rem + 1px + env(safe-area-inset-bottom));
+	}
+}
+
 /*
  * Tedix OS palette — neutral surfaces, hairline borders, and semantic
  * interactive intent. Product identity stays in Tedix

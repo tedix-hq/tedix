@@ -196,7 +196,9 @@ describe("loader launcher visibility", () => {
 		const shell = loader.shell()!;
 		expect(shell.style.left).toBe("40px");
 		expect(shell.style.right).toBe("auto");
-		expect(shell.style.bottom).toBe("12px");
+		expect(shell.style.bottom).toBe(
+			"calc(12px + var(--tedix-host-bottom-inset, 0px))",
+		);
 		expect(shell.style.zIndex).toBe("10");
 		loader.Tedix.shutdown();
 		const hosted = await runLoader({ keepPage: true });
