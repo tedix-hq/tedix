@@ -38,7 +38,7 @@ function fixture() {
 				eventType,
 				JSON.stringify({
 					summary: "Private fictional notes",
-					outcome: "failed",
+					outcome: eventType === "attempt.expired" ? "expired" : "failed",
 				}),
 				"2026-10-17T00:00:00.000Z",
 			);
@@ -152,4 +152,17 @@ it("delivers lane requests only to a fresh active canonical recipient", async ()
 	await expect(
 		client().pollWorkInteractionRequests(input),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
+it("publishes server stale and expiry notices without requiring a human identity on the Attempt", async () => {
+	const { client, append } = fixture();
+	append("stale", "org-maple", "lane.stale");
+	append("expired", "org-maple", "attempt.expired");
+	append("foreign-stale", "org-birch", "lane.stale");
+	const r = await client().pollWorkStateChanges({ afterSequence: 0 });
+	expect(r.events.map((e) => [e.data.change, e.data.attempt_outcome])).toEqual([
+		["lane_stale", null],
+		["attempt_expired", "expired"],
+	]);
+	expect(JSON.stringify(r)).not.toContain("Private fictional notes");
 });

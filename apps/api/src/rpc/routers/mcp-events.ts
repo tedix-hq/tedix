@@ -73,6 +73,8 @@ const CHANGE_BY_EVENT_TYPE = {
 	"work.completed": { change: "completed", disposition: "completed" },
 	"work.cancelled": { change: "cancelled", disposition: "cancelled" },
 	"attempt.settled": { change: "attempt_settled", disposition: null },
+	"attempt.expired": { change: "attempt_expired", disposition: null },
+	"lane.stale": { change: "lane_stale", disposition: null },
 } as const;
 
 const pollWorkStateChangesProcedure = workReadOs.pollWorkStateChanges.handler(
@@ -109,7 +111,10 @@ const pollWorkStateChangesProcedure = workReadOs.pollWorkStateChanges.handler(
 							disposition: mapped.disposition,
 							attempt_id: row.attemptId,
 							attempt_outcome:
-								mapped.change === "attempt_settled" ? row.outcome : null,
+								mapped.change === "attempt_settled" ||
+								mapped.change === "attempt_expired"
+									? row.outcome
+									: null,
 						},
 					},
 				];

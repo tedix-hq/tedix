@@ -45,6 +45,8 @@ export const WorkStateChangeSchema = z.enum([
 	"completed",
 	"cancelled",
 	"attempt_settled",
+	"attempt_expired",
+	"lane_stale",
 ]);
 
 export const WorkStateChangedEventSchema = z.object({

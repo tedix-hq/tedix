@@ -56,7 +56,7 @@ function objectSchema(
 
 export const workStateChangedEventDefinition = {
 	name: WORK_STATE_CHANGED_EVENT,
-	description: `A Work Item was accepted, completed or cancelled, or one of its Attempts settled. ${NOTICE}`,
+	description: `A Work Item changed, an Attempt settled or expired, or a registered lane went stale. ${NOTICE}`,
 	delivery: ["poll"],
 	inputSchema: objectSchema(
 		{ organization_id: organizationProperty, work_item_id: idProperty },
@@ -68,7 +68,14 @@ export const workStateChangedEventDefinition = {
 			work_item_id: idProperty,
 			change: {
 				type: "string",
-				enum: ["accepted", "completed", "cancelled", "attempt_settled"],
+				enum: [
+					"accepted",
+					"completed",
+					"cancelled",
+					"attempt_settled",
+					"attempt_expired",
+					"lane_stale",
+				],
 			},
 			disposition: {
 				type: ["string", "null"],
