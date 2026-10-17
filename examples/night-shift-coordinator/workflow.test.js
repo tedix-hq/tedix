@@ -279,7 +279,7 @@ describe("native night coordination", () => {
 		setSystemTime(new Date("2026-10-25T07:15:00.000Z"));
 		expect((await f.run({ probe: true })).slots[0].brief).toBe(true);
 	});
-	test("recovers a registered legacy lane without overriding an explicit human executor", async () => {
+	test("reviews a legacy lane without granting a code executor or overriding human assignment", async () => {
 		const f = fixture();
 		f.item("legacy", { metadata: { agentHarness: "codex" } });
 		f.item("human", { metadata: { executor: "human", agentHarness: "codex" } });
@@ -292,8 +292,11 @@ describe("native night coordination", () => {
 			},
 		]);
 		f.setOrder(["legacy", "human"]);
-		expect((await f.run()).selected).toEqual(["legacy"]);
-		expect(f.items.get("legacy").metadata.executor).toBe("codex");
+		expect((await f.run()).selected).toEqual([]);
+		expect(f.items.get("legacy").description).toContain(
+			"Resume after Attempt lost",
+		);
+		expect(f.items.get("legacy").metadata.executor).toBeUndefined();
 		expect(f.items.get("human").metadata.executor).toBe("human");
 	});
 	test("nudges only accepted owned Work without a live Attempt", async () => {

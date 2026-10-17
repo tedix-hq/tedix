@@ -259,7 +259,9 @@ export const updateSpecificationProcedure =
 		if (
 			actor.type !== "user" &&
 			[
-				input.executor,
+				actor.type === "tedi" && input.executor === "human"
+					? undefined
+					: input.executor,
 				input.riskLevel,
 				input.workClass,
 				input.purposeExceptionExpiresAt,
@@ -324,6 +326,20 @@ export const updateSpecificationProcedure =
 					);
 				purpose = resolved;
 			}
+			const laneSteward =
+				actor.type === "user" &&
+				["codex", "claude-code"].includes(input.executor ?? "") &&
+				!workItem.stewardId &&
+				input.stewardType === undefined &&
+				input.stewardId === undefined &&
+				workItem.projectId
+					? (
+							await assertValidWorkItemProject(context.db, {
+								orgId: workItem.orgId,
+								projectId: workItem.projectId,
+							})
+						).leadTediId
+					: undefined;
 			return await updateWorkItemSpecification(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
@@ -339,8 +355,8 @@ export const updateSpecificationProcedure =
 				priority: input.priority,
 				accountableOwnerType: input.accountableOwnerType,
 				accountableOwnerId: input.accountableOwnerId,
-				stewardType: input.stewardType,
-				stewardId: input.stewardId,
+				stewardType: laneSteward ? "tedi" : input.stewardType,
+				stewardId: laneSteward ?? input.stewardId,
 				expectedWorkItemVersion: workItem.version,
 				requiredCapabilities: input.requiredCapabilities,
 				requiredAuthorities: input.requiredAuthorities,

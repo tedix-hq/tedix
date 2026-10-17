@@ -97,6 +97,12 @@ export const createProcedure = authOs.create.handler(
 			const existing = await replayFactoryCycle(context.db, orgId, input);
 			if (existing) return existing;
 			attemptedCreate = true;
+			const laneSteward =
+				["codex", "claude-code"].includes(input.executor ?? "") &&
+				!input.stewardType &&
+				!input.stewardId
+					? project?.leadTediId
+					: undefined;
 			return await createWorkItem(context.db, {
 				id: crypto.randomUUID(),
 				orgId,
@@ -109,8 +115,8 @@ export const createProcedure = authOs.create.handler(
 				priority: input.priority,
 				accountableOwnerType: input.accountableOwnerType,
 				accountableOwnerId: input.accountableOwnerId,
-				stewardType: input.stewardType,
-				stewardId: input.stewardId,
+				stewardType: input.stewardType ?? (laneSteward ? "tedi" : undefined),
+				stewardId: input.stewardId ?? laneSteward ?? undefined,
 				objectiveId: purpose.objectiveId ?? undefined,
 				workClass: purpose.workClass,
 				purposeExceptionExpiresAt:
