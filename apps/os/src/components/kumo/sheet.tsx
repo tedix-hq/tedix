@@ -66,7 +66,7 @@ function SheetContent({
 				data-side={side}
 				className={cn(
 					"fixed z-(--tedix-layer-overlay) flex flex-col bg-kumo-base text-kumo-default outline-none ring ring-kumo-line data-[side=right]:shadow-tedix-drawer data-[side=left]:shadow-tedix-drawer-left data-[side=top]:shadow-tedix-overlay data-[side=bottom]:shadow-tedix-overlay",
-					"max-h-dvh transition-[transform,opacity] duration-tedix-structural ease-tedix-standard motion-reduce:transition-none data-ending-style:opacity-0 data-starting-style:opacity-0",
+					"os-sheet max-h-[var(--viewport-tedix-height)] overflow-y-auto overscroll-contain transition-[transform,opacity] duration-tedix-structural ease-tedix-standard motion-reduce:transition-none data-ending-style:opacity-0 data-starting-style:opacity-0",
 					"data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-full data-[side=right]:sm:w-3/4",
 					"data-[side=left]:data-ending-style:-translate-x-full data-[side=left]:data-starting-style:-translate-x-full data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-full data-[side=left]:sm:w-3/4",
 					"data-[side=top]:data-ending-style:-translate-y-full data-[side=top]:data-starting-style:-translate-y-full data-[side=top]:inset-x-0 data-[side=top]:top-0",

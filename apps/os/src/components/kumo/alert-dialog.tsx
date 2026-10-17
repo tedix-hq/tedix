@@ -29,6 +29,7 @@ function AlertDialogTrigger({
 function AlertDialogContent({
 	className,
 	size = "default",
+	children,
 	...props
 }: Omit<React.ComponentProps<typeof KumoDialog>, "size"> & {
 	size?: "default" | "sm";
@@ -37,11 +38,13 @@ function AlertDialogContent({
 		<KumoDialog
 			size={size === "sm" ? "sm" : "base"}
 			className={cn(
-				"group/alert-dialog-content grid max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] gap-6 overflow-y-auto p-4 shadow-tedix-overlay motion-reduce:duration-0 sm:p-6",
+				"os-dialog-sheet group/alert-dialog-content top-1/2 sm:top-1/2 -translate-y-1/2 flex max-h-[min(90dvh,calc(var(--viewport-tedix-height)_-_2rem))] w-[calc(100vw-2rem)] overflow-hidden p-0 shadow-tedix-overlay motion-reduce:duration-0",
 				className,
 			)}
 			{...props}
-		/>
+		>
+			<div className="os-dialog-scroll">{children}</div>
+		</KumoDialog>
 	);
 }
 

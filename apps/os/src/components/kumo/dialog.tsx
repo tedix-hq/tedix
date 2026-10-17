@@ -56,18 +56,18 @@ function DialogContent({
 		<KumoDialog
 			container={container ?? overlayPortalContainer}
 			className={cn(
-				"os-dialog-sheet grid max-h-[calc(var(--viewport-tedix-height)_-_2rem)] w-[calc(100vw-2rem)] gap-4 overflow-y-auto p-4 shadow-tedix-overlay motion-reduce:duration-0 sm:p-5",
+				"os-dialog-sheet top-1/2 sm:top-1/2 -translate-y-1/2 flex max-h-[min(90dvh,calc(var(--viewport-tedix-height)_-_2rem))] w-[calc(100vw-2rem)] overflow-hidden p-0 shadow-tedix-overlay motion-reduce:duration-0",
 				className,
 			)}
 			{...props}
 		>
-			{children}
+			<div className="os-dialog-scroll">{children}</div>
 			{showCloseButton && (
 				<KumoDialog.Close
 					render={
 						<Button
 							aria-label="Close"
-							className="absolute top-4 right-4"
+							className="absolute top-4 right-4 z-20"
 							size="icon-sm"
 							variant="ghost"
 						/>

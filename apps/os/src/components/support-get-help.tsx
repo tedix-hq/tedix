@@ -102,13 +102,12 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 				Get help
 			</Button>
 			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent className="max-w-xl">
+				<DialogContent size="xl" className="min-[900px]:w-[52rem]">
 					<DialogHeader>
 						<DialogTitle>Get help</DialogTitle>
 						<DialogDescription>
 							Share a short report with your organization and Tedix Support.
-							Review exactly what is shared before filing. Leave out private
-							messages, customer data and credentials.
+							Review exactly what is shared before filing.
 						</DialogDescription>
 					</DialogHeader>
 					{receipt ? (
@@ -120,69 +119,76 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 					) : report ? (
 						<>
 							<p>Organization: {organization}</p>
-							<label>
-								Summary
-								<Input
-									value={report.title}
-									aria-label="Summary"
-									maxLength={200}
-									onChange={(e) => update("title", e.target.value)}
-								/>
-							</label>
-							<label>
-								What did you expect?
-								<Textarea
-									value={report.expected}
-									aria-label="What did you expect?"
-									maxLength={2000}
-									onChange={(e) => update("expected", e.target.value)}
-								/>
-							</label>
-							<label>
-								What happened?
-								<Textarea
-									value={report.actual}
-									aria-label="What happened?"
-									maxLength={2000}
-									onChange={(e) => update("actual", e.target.value)}
-								/>
-							</label>
-							<label>
-								Steps to reproduce
-								<Textarea
-									value={report.steps}
-									aria-label="Steps to reproduce"
-									maxLength={2000}
-									onChange={(e) => update("steps", e.target.value)}
-								/>
-							</label>
-							<label>
-								Impact
-								<Input
-									value={report.impact}
-									aria-label="Impact"
-									maxLength={500}
-									onChange={(e) => update("impact", e.target.value)}
-								/>
-							</label>
-							<label>
-								Page
-								<Input
-									value={report.page}
-									aria-label="Page"
-									maxLength={500}
-									onChange={(e) => update("page", e.target.value)}
-								/>
-							</label>
-							<label>
-								Last error, if known
-								<Input
-									value={report.lastError}
-									aria-label="Last error, if known"
-									maxLength={500}
-									onChange={(e) => update("lastError", e.target.value)}
-								/>
-							</label>
+							<div className="support-report-fields grid gap-4">
+								<div className="grid content-start gap-3">
+									<label>
+										Summary
+										<Input
+											autoFocus
+											value={report.title}
+											aria-label="Summary"
+											maxLength={200}
+											onChange={(e) => update("title", e.target.value)}
+										/>
+									</label>
+									<label>
+										What did you expect?
+										<Textarea
+											value={report.expected}
+											aria-label="What did you expect?"
+											maxLength={2000}
+											onChange={(e) => update("expected", e.target.value)}
+										/>
+									</label>
+									<label>
+										What happened?
+										<Textarea
+											value={report.actual}
+											aria-label="What happened?"
+											maxLength={2000}
+											onChange={(e) => update("actual", e.target.value)}
+										/>
+									</label>
+								</div>
+								<div className="grid content-start gap-3">
+									<label>
+										Steps to reproduce
+										<Textarea
+											value={report.steps}
+											aria-label="Steps to reproduce"
+											maxLength={2000}
+											onChange={(e) => update("steps", e.target.value)}
+										/>
+									</label>
+									<label>
+										Impact
+										<Input
+											value={report.impact}
+											aria-label="Impact"
+											maxLength={500}
+											onChange={(e) => update("impact", e.target.value)}
+										/>
+									</label>
+									<label>
+										Page
+										<Input
+											value={report.page}
+											aria-label="Page"
+											maxLength={500}
+											onChange={(e) => update("page", e.target.value)}
+										/>
+									</label>
+									<label>
+										Last error, if known
+										<Input
+											value={report.lastError}
+											aria-label="Last error, if known"
+											maxLength={500}
+											onChange={(e) => update("lastError", e.target.value)}
+										/>
+									</label>
+								</div>
+							</div>
 							{preview ? (
 								<>
 									<pre className="whitespace-pre-wrap break-words text-sm">
@@ -196,28 +202,33 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 								</>
 							) : null}
 							{error ? <p role="alert">{error}</p> : null}
-							<DialogFooter>
-								<Button
-									variant="secondary"
-									onClick={() => {
-										try {
-											setPreview(redactSupportReport(report));
-											setError("");
-										} catch {
-											setError(
-												"Add a summary, expected behavior and actual behavior before previewing.",
-											);
-										}
-									}}
-								>
-									Preview report
-								</Button>
-								<Button
-									disabled={!approved || !preview || busy}
-									onClick={() => void send()}
-								>
-									{busy ? "Filing…" : "File support request"}
-								</Button>
+							<DialogFooter className="flex-col sm:flex-col">
+								<p className="text-kumo-subtle type-tedix-caption">
+									Leave out private messages, customer data and credentials.
+								</p>
+								<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+									<Button
+										variant="secondary"
+										onClick={() => {
+											try {
+												setPreview(redactSupportReport(report));
+												setError("");
+											} catch {
+												setError(
+													"Add a summary, expected behavior and actual behavior before previewing.",
+												);
+											}
+										}}
+									>
+										Preview report
+									</Button>
+									<Button
+										disabled={!approved || !preview || busy}
+										onClick={() => void send()}
+									>
+										{busy ? "Filing…" : "File support request"}
+									</Button>
+								</div>
 							</DialogFooter>
 						</>
 					) : null}

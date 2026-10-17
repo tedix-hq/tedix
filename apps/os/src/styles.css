@@ -2963,6 +2963,57 @@ a:focus-visible {
 	}
 }
 
+/* Keep the modal's chrome visible while its contents scroll, including forms. */
+.os-dialog-scroll {
+	--dialog-padding: 1rem;
+	min-height: 0;
+	width: 100%;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
+	scroll-padding-block: 8rem;
+	padding: var(--dialog-padding);
+	display: grid;
+	gap: 1rem;
+}
+
+.os-dialog-scroll
+	:is([data-slot="dialog-header"], [data-slot="alert-dialog-header"]) {
+	position: sticky;
+	top: calc(-1 * var(--dialog-padding));
+	z-index: 10;
+	margin: calc(-1 * var(--dialog-padding)) calc(-1 * var(--dialog-padding)) 0;
+	padding: var(--dialog-padding);
+	padding-right: 3rem;
+	background: var(--color-kumo-base);
+}
+
+.os-dialog-scroll
+	:is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"]) {
+	position: sticky;
+	bottom: calc(-1 * var(--dialog-padding));
+	z-index: 10;
+	margin: 0 calc(-1 * var(--dialog-padding)) calc(-1 * var(--dialog-padding));
+	padding: var(--dialog-padding);
+	background: var(--color-kumo-base);
+	border-top: 1px solid var(--color-kumo-line);
+}
+
+.os-sheet [data-slot="sheet-header"] {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	flex-shrink: 0;
+	background: var(--color-kumo-base);
+	padding-right: 3rem;
+}
+
+@media (min-width: 900px) {
+	.support-report-fields {
+		grid-template-columns: 1fr 1fr;
+	}
+}
+
 /*
  * Dialogs are bottom sheets on phones and short windows.
  *
@@ -2993,7 +3044,8 @@ a:focus-visible {
 		width: auto !important;
 		max-width: none !important;
 		max-height: calc(
-			var(--viewport-tedix-height) - 0.5rem - env(safe-area-inset-top, 0px)
+			min(100dvh, var(--viewport-tedix-height)) -
+				env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px)
 		) !important;
 		border-bottom-right-radius: 0 !important;
 		border-bottom-left-radius: 0 !important;
