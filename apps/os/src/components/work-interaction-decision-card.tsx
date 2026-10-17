@@ -112,17 +112,15 @@ export function WorkInteractionDecisionCard({
 			const result = await osApi.workInteractions.respond({
 				requestId,
 				expectedRequestVersion: request.version,
-				responseKind: deferred
-					? "coordination_update"
-					: proposal
-						? feedback.action === "start"
-							? "handoff_accepted"
-							: "handoff_declined"
-						: request.kind === "input"
-							? "input_provided"
-							: request.kind === "coordination"
-								? "coordination_update"
-								: "answer",
+				responseKind: proposal
+					? feedback.action === "start"
+						? "handoff_accepted"
+						: "handoff_declined"
+					: request.kind === "input"
+						? "input_provided"
+						: request.kind === "coordination"
+							? "coordination_update"
+							: "answer",
 				body,
 				resolvesRequest: !deferred,
 				metadata: {

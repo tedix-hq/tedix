@@ -702,3 +702,46 @@ describe("Work case detail and clusters", () => {
 		).toBe(false);
 	});
 });
+
+describe("Proposal decision cards", () => {
+	it.each([
+		["Yes, start", "handoff_accepted", true, "start"],
+		["Not now", "handoff_declined", false, "not-now"],
+		["Never", "handoff_declined", true, "never"],
+	] as const)(
+		"records %s as a valid handoff response",
+		async (label, responseKind, resolvesRequest, cardAction) => {
+			api.reads["workInteractions.get"] = {
+				request: {
+					id: "proposal-1",
+					kind: "handoff",
+					version: 4,
+					subject: "Tedix can draft the harbor timetable",
+					prompt: "Robin can prepare a timetable for review.",
+					metadata: {},
+				},
+				effectiveState: "open",
+				canRespond: true,
+				canCancel: false,
+				responses: { data: [], hasMore: false, nextCursor: null },
+			};
+			const page = await mount(
+				<pages.WorkInteractionPage requestId="proposal-1" />,
+			);
+			expect(page.host.querySelector("input,textarea")).toBeNull();
+			await page.submit(label);
+			expect(mutations("workInteractions.respond")).toEqual([
+				expect.objectContaining({
+					requestId: "proposal-1",
+					expectedRequestVersion: 4,
+					responseKind,
+					resolvesRequest,
+					metadata: expect.objectContaining({
+						source: "os-decision-card",
+						cardAction,
+					}),
+				}),
+			]);
+		},
+	);
+});
