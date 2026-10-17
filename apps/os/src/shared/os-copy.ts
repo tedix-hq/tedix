@@ -3,6 +3,23 @@ import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 
 /** Generic OS wording. Names and tenant-specific content come from records. */
 export const OS_COPY = {
+	decisionDeck: {
+		kinds: {
+			all: "All kinds",
+			outbound: "Messages",
+			proposal: "Proposals",
+			question: "Questions",
+			approval: "Approvals",
+			decision: "Choices",
+			adr: "Architecture",
+		},
+		projects: {
+			Examples: "Examples",
+			Unfiled: "Unfiled",
+			Organization: "Organization",
+		},
+		projectUnavailable: "Project unavailable",
+	},
 	slideFontFamilies: [
 		["Inter", "Inter, sans-serif"],
 		["Space Grotesk", "Space Grotesk, sans-serif"],

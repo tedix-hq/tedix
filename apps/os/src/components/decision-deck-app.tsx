@@ -38,16 +38,10 @@ import { decisionCaptureSummary } from "@/lib/work-interaction-display";
 import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { isOpenRequestForYou } from "@/components/work-needs-you-count";
+import { OS_COPY } from "@/shared/os-copy";
 
-const KIND_LABELS: Record<string, string> = {
-	all: "All kinds",
-	outbound: "Messages",
-	proposal: "Proposals",
-	question: "Questions",
-	approval: "Approvals",
-	decision: "Choices",
-	adr: "Architecture",
-};
+const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
+const PROJECT_LABELS: Record<string, string> = OS_COPY.decisionDeck.projects;
 
 export function DecisionDeckApp({ config }: { config: DecisionDeckConfig }) {
 	const client = useQueryClient();
@@ -88,9 +82,8 @@ export function DecisionDeckApp({ config }: { config: DecisionDeckConfig }) {
 	);
 	const projectLabel = (id: string) =>
 		projectNames.get(id) ??
-		(["Examples", "Unfiled", "Organization"].includes(id)
-			? id
-			: "Project unavailable");
+		PROJECT_LABELS[id] ??
+		OS_COPY.decisionDeck.projectUnavailable;
 	const historical = (history.data?.data ?? []).filter(
 		(row) =>
 			row.effectiveState === "resolved" &&
