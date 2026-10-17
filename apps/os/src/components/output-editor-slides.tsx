@@ -1,7 +1,6 @@
-import {
-	slideElementStyle,
-	slideElementGeometry,
-} from "@tedix/api-contract/utils/presentation-style";
+import { SlideCanvas } from "@/components/slide-editor-canvas";
+import { createElement } from "@/components/slide-element-defaults";
+import { slideElementGeometry } from "@tedix/api-contract/utils/presentation-style";
 import {
 	ArrowUDownLeft,
 	ArrowUDownRight,
@@ -17,7 +16,7 @@ import type {
 	OsPresentationElement,
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { EditorTextDialog } from "@/components/editor-text-dialog";
 import {
 	insertSlideAfter,
@@ -34,13 +33,6 @@ import {
 import { Surface } from "@/components/kumo/surface";
 import { Toolbar } from "@/components/kumo/toolbar";
 import {
-	SlideBackground,
-	SlideElementContent,
-	SLIDE_ELEMENT_CLASS,
-	useSlideElementFont,
-	useSlideTextColor,
-} from "@/components/output-slide-element";
-import {
 	bareKey,
 	ownsSlideKeys,
 	slideNavigationTarget,
@@ -54,7 +46,6 @@ import {
 	EditorToolbarDivider,
 } from "@/components/output-editor-toolbar";
 import {
-	createOutputNodeId,
 	normalizePresentationContent,
 	PRESENTATION_HEIGHT,
 	PRESENTATION_WIDTH,
@@ -63,17 +54,11 @@ import {
 } from "@/lib/output-models";
 import { DECK_HISTORY } from "@/lib/output-history";
 import { useEditorHistory } from "@/lib/use-editor-history";
-import { usePresentationAppearance } from "@/lib/presentation-appearance";
 import {
 	applySlideElementAction,
 	type SlideElementAction,
 	slideElementShortcut,
 } from "@/components/slide-element-actions";
-import {
-	applySnap,
-	computeSnapTargets,
-	type SnapTargets,
-} from "@/components/slide-snap";
 import { SlideInsertLibrary } from "@/components/slide-insert-library";
 import {
 	centeredSlidePosition,
@@ -83,8 +68,6 @@ import {
 } from "@/lib/slide-image-upload";
 
 const MAX_SLIDES = 200;
-/** Screen pixels a press travels before it drags rather than clicks. */
-const DRAG_THRESHOLD = 3;
 /** The layouts the Add slide caret offers; the button itself adds the first. */
 const SLIDE_LAYOUTS = [
 	["title-content", "Title + content"],
@@ -96,130 +79,6 @@ const SLIDE_LAYOUTS = [
 	OsPresentationCanvasSlide["layout"],
 	string,
 ])[];
-export const PRESENTATION_ELEMENT_TYPES = [
-	"title",
-	"subtitle",
-	"text",
-	"bullet",
-	"label",
-	"card",
-	"box",
-	"image",
-	"svg",
-	"divider",
-	"shape",
-	"arrow",
-	"logo",
-] as const satisfies readonly OsPresentationElementType[];
-
-const ELEMENT_DEFAULTS: Record<
-	OsPresentationElementType,
-	Pick<OsPresentationElement, "width" | "height" | "text" | "style">
-> = {
-	title: {
-		width: 900,
-		height: 90,
-		text: "Title",
-		style: { fontSize: 48, fontWeight: "bold", color: "#171717" },
-	},
-	subtitle: {
-		width: 800,
-		height: 65,
-		text: "Subtitle",
-		style: { fontSize: 28, color: "#555555" },
-	},
-	text: {
-		width: 540,
-		height: 140,
-		text: "Text",
-		style: { fontSize: 24, color: "#242424" },
-	},
-	bullet: {
-		width: 650,
-		height: 250,
-		text: "First point\nSecond point",
-		style: { fontSize: 26, color: "#242424" },
-	},
-	label: {
-		width: 220,
-		height: 48,
-		text: "LABEL",
-		style: {
-			fontSize: 18,
-			fontWeight: "semibold",
-			color: "#333333",
-			background: "#f1f1f1",
-			borderRadius: 12,
-		},
-	},
-	card: {
-		width: 360,
-		height: 220,
-		text: "Card",
-		style: {
-			fontSize: 24,
-			color: "#242424",
-			background: "#ffffff",
-			borderColor: "#d1d1d1",
-			borderWidth: 2,
-			borderRadius: 18,
-		},
-	},
-	box: {
-		width: 300,
-		height: 180,
-		text: "Box",
-		style: {
-			fontSize: 22,
-			color: "#242424",
-			background: "#f3f5ff",
-			borderRadius: 12,
-		},
-	},
-	image: {
-		width: 420,
-		height: 260,
-		text: "Image",
-		style: { background: "#eeeeee", borderRadius: 12 },
-	},
-	svg: {
-		width: 280,
-		height: 200,
-		text: "SVG",
-		style: { background: "#eeeeee" },
-	},
-	divider: { width: 700, height: 8, style: { background: "#222222" } },
-	shape: {
-		width: 180,
-		height: 180,
-		style: { background: "#e5e5e5", borderRadius: 2 },
-	},
-	arrow: {
-		width: 300,
-		height: 40,
-		text: "→",
-		style: { fontSize: 56, color: "#222222", textAlign: "center" },
-	},
-	logo: {
-		width: 200,
-		height: 60,
-		style: { fontSize: 24, fontWeight: "semibold" },
-	},
-};
-
-function createElement(
-	type: OsPresentationElementType,
-	index: number,
-): OsPresentationElement {
-	return {
-		id: createOutputNodeId(type),
-		type,
-		x: 80 + (index % 5) * 24,
-		y: 80 + (index % 5) * 24,
-		...ELEMENT_DEFAULTS[type],
-	};
-}
-
 function replaceActiveSlide(
 	deck: OsPresentationDeck,
 	next: OsPresentationCanvasSlide,
@@ -228,311 +87,6 @@ function replaceActiveSlide(
 		...deck,
 		slides: deck.slides.map((slide) => (slide.id === next.id ? next : slide)),
 	};
-}
-
-function SlideElementView({
-	element,
-	others,
-	selected,
-	disabled,
-	onSelect,
-	onChange,
-	onGeometryCommit,
-}: {
-	element: OsPresentationElement;
-	others: readonly OsPresentationElement[];
-	selected: boolean;
-	disabled?: boolean;
-	onSelect: () => void;
-	onChange: (next: OsPresentationElement) => void;
-	onGeometryCommit: (next: OsPresentationElement) => void;
-}) {
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const [editing, setEditing] = useState(false);
-	const organization = usePresentationAppearance();
-	const [gesture, setGesture] = useState<null | {
-		mode: "move" | "resize";
-		startX: number;
-		startY: number;
-		origin: OsPresentationElement;
-		dx: number;
-		dy: number;
-		scale: number;
-		// A press becomes a drag only past DRAG_THRESHOLD, so a click still
-		// selects, and a click on the selected element starts text editing.
-		dragging: boolean;
-		wasSelected: boolean;
-		snap: boolean;
-		targets: SnapTargets;
-	}>(null);
-	const clampX = (x: number) =>
-		Math.max(0, Math.min(PRESENTATION_WIDTH - element.width, x));
-	const clampY = (y: number) =>
-		Math.max(0, Math.min(PRESENTATION_HEIGHT - element.height, y));
-	const moved =
-		gesture?.mode === "move" && gesture.dragging
-			? (() => {
-					const box = {
-						x: clampX(gesture.origin.x + gesture.dx / gesture.scale),
-						y: clampY(gesture.origin.y + gesture.dy / gesture.scale),
-						width: element.width,
-						height: element.height,
-					};
-					if (!gesture.snap) return { ...box, guidesV: [], guidesH: [] };
-					const snapped = applySnap(box, gesture.targets);
-					return { ...snapped, x: clampX(snapped.x), y: clampY(snapped.y) };
-				})()
-			: null;
-	const geometry =
-		gesture?.mode === "resize"
-			? {
-					...element,
-					width: Math.max(
-						24,
-						Math.min(
-							PRESENTATION_WIDTH - element.x,
-							gesture.origin.width + gesture.dx / gesture.scale,
-						),
-					),
-					height: Math.max(
-						24,
-						Math.min(
-							PRESENTATION_HEIGHT - element.y,
-							gesture.origin.height + gesture.dy / gesture.scale,
-						),
-					),
-				}
-			: moved
-				? { ...element, x: Math.round(moved.x), y: Math.round(moved.y) }
-				: element;
-	const current = slideElementGeometry(element, geometry);
-	useSlideElementFont(current.style.fontFamily);
-	const startGesture = (mode: "move" | "resize", event: React.PointerEvent) => {
-		if (disabled || event.button !== 0) return;
-		// Preventing the press also keeps the textarea from taking focus and
-		// starting a text selection, so a press on the element body drags it.
-		event.preventDefault();
-		event.stopPropagation();
-		event.currentTarget.setPointerCapture?.(event.pointerId);
-		onSelect();
-		const elementNode = (event.currentTarget as HTMLElement).closest(
-			"[data-element]",
-		) as HTMLElement | null;
-		// The prevented pointerdown also prevents focus, so focus the element
-		// explicitly: keyboard nudge, delete and undo need it to follow the click.
-		elementNode?.focus({ preventScroll: true });
-		const canvasWidth =
-			elementNode?.parentElement?.getBoundingClientRect().width;
-		setGesture({
-			mode,
-			startX: event.clientX,
-			startY: event.clientY,
-			origin: element,
-			dx: 0,
-			dy: 0,
-			scale:
-				canvasWidth && canvasWidth > 0 ? canvasWidth / PRESENTATION_WIDTH : 1,
-			dragging: mode === "resize",
-			wasSelected: selected,
-			snap: !event.altKey,
-			targets: computeSnapTargets(
-				others,
-				PRESENTATION_WIDTH,
-				PRESENTATION_HEIGHT,
-			),
-		});
-	};
-	const moveGesture = (event: React.PointerEvent) =>
-		setGesture((active) => {
-			if (!active) return active;
-			const dx = event.clientX - active.startX;
-			const dy = event.clientY - active.startY;
-			return {
-				...active,
-				dx,
-				dy,
-				dragging:
-					active.dragging ||
-					Math.abs(dx) > DRAG_THRESHOLD ||
-					Math.abs(dy) > DRAG_THRESHOLD,
-				// Alt/Option turns snapping off, to place an element just off a guide.
-				snap: !event.altKey,
-			};
-		});
-	/** Puts the caret where the selected element was clicked. */
-	const editText = (clientX: number, clientY: number) => {
-		const textarea = textareaRef.current;
-		if (!textarea) return;
-		textarea.focus({ preventScroll: true });
-		const caret = document.caretPositionFromPoint?.(clientX, clientY);
-		const offset =
-			caret?.offsetNode === textarea ? caret.offset : textarea.value.length;
-		textarea.setSelectionRange(offset, offset);
-	};
-	const endGesture = (event: React.PointerEvent) => {
-		if (!gesture) return;
-		setGesture(null);
-		if (gesture.dragging) {
-			if (gesture.dx !== 0 || gesture.dy !== 0) onGeometryCommit(current);
-		} else if (gesture.wasSelected) editText(event.clientX, event.clientY);
-	};
-	return (
-		<>
-			<div
-				data-element={element.type}
-				aria-label={`${element.type} element`}
-				role="group"
-				tabIndex={disabled ? -1 : 0}
-				data-slide-element={element.id}
-				data-selected={selected || undefined}
-				className={`${SLIDE_ELEMENT_CLASS} outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
-				style={slideElementStyle(current, "canvas", organization)}
-				onClick={(event) => {
-					event.stopPropagation();
-					onSelect();
-				}}
-				onDoubleClick={(event) => {
-					if (disabled) return;
-					event.stopPropagation();
-					onSelect();
-					editText(event.clientX, event.clientY);
-				}}
-				onKeyDown={(event) => {
-					// Keys typed in the element's textarea bubble here; selecting on them
-					// swallowed every line break and space.
-					if (event.target !== event.currentTarget) return;
-					if (event.key === "Enter" || event.key === " ") {
-						event.preventDefault();
-						onSelect();
-					}
-				}}
-				onPointerDown={(event) => {
-					// Text being edited keeps its caret and text selection; any other
-					// press on the element selects it, drags it, or starts editing.
-					if (
-						event.target === textareaRef.current &&
-						document.activeElement === textareaRef.current
-					)
-						return;
-					startGesture("move", event);
-				}}
-				onPointerMove={moveGesture}
-				onPointerUp={endGesture}
-			>
-				{!editing && <SlideElementContent element={current} />}
-				{!disabled &&
-					[
-						"title",
-						"subtitle",
-						"text",
-						"bullet",
-						"label",
-						"card",
-						"box",
-					].includes(current.type) &&
-					!current.props?.title &&
-					!current.props?.body && (
-						// A bare textarea, not the Kumo one: Kumo's `type-tedix-body` forces a
-						// 14px size and a 20px line height with `!important`, so the stage drew
-						// every slide's text at UI size inside boxes scaled to the slide.
-						// `.slide-element-input` resets it to inherit the shared element style.
-						<textarea
-							ref={textareaRef}
-							aria-label={`${current.type} text`}
-							className="slide-element-input"
-							style={{
-								position: "absolute",
-								inset: 0,
-								opacity: editing ? 1 : 0,
-								padding: "inherit",
-							}}
-							onFocus={() => setEditing(true)}
-							onBlur={() => setEditing(false)}
-							disabled={disabled}
-							value={current.text ?? ""}
-							onKeyDown={(event) => {
-								if (event.key !== "Escape") return;
-								event.preventDefault();
-								(event.currentTarget.parentElement as HTMLElement).focus();
-							}}
-							onChange={(event) =>
-								onChange({ ...element, text: event.target.value })
-							}
-						/>
-					)}
-				{selected && !disabled && (
-					<Button
-						aria-label="Resize selected element"
-						className="absolute right-0 bottom-0 size-5 min-h-5 min-w-5 cursor-se-resize rounded-sm bg-kumo-focus p-0 sm:size-5"
-						size="icon-xs"
-						variant="ghost"
-						onPointerDown={(event) => startGesture("resize", event)}
-						onPointerMove={moveGesture}
-						onPointerUp={endGesture}
-					/>
-				)}
-			</div>
-			{moved?.guidesV.map((x) => (
-				<div
-					key={`v${x}`}
-					data-snap-guide="vertical"
-					className="pointer-events-none absolute inset-y-0 z-50 w-px -translate-x-1/2 bg-kumo-focus"
-					style={{ left: `${(x / PRESENTATION_WIDTH) * 100}%` }}
-				/>
-			))}
-			{moved?.guidesH.map((y) => (
-				<div
-					key={`h${y}`}
-					data-snap-guide="horizontal"
-					className="pointer-events-none absolute inset-x-0 z-50 h-px -translate-y-1/2 bg-kumo-focus"
-					style={{ top: `${(y / PRESENTATION_HEIGHT) * 100}%` }}
-				/>
-			))}
-		</>
-	);
-}
-
-function SlideCanvas({
-	slide,
-	selectedElementId,
-	disabled,
-	onSelect,
-	onChangeElement,
-	onGeometryCommit,
-}: {
-	slide: OsPresentationCanvasSlide;
-	selectedElementId: string | null;
-	disabled?: boolean;
-	onSelect: (id: string | null) => void;
-	onChangeElement: (next: OsPresentationElement) => void;
-	onGeometryCommit: (next: OsPresentationElement) => void;
-}) {
-	const color = useSlideTextColor();
-	return (
-		<div
-			className="slides-editor-canvas relative overflow-hidden"
-			style={{
-				background: slide.background,
-				color,
-				containerType: "inline-size",
-			}}
-			onClick={() => onSelect(null)}
-		>
-			<SlideBackground slide={slide} />
-			{slide.elements.map((element) => (
-				<SlideElementView
-					key={element.id}
-					element={element}
-					others={slide.elements.filter((other) => other.id !== element.id)}
-					selected={element.id === selectedElementId}
-					disabled={disabled}
-					onSelect={() => onSelect(element.id)}
-					onChange={onChangeElement}
-					onGeometryCommit={onGeometryCommit}
-				/>
-			))}
-		</div>
-	);
 }
 
 interface SlidesEditorProps {
