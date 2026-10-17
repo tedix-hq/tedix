@@ -1,4 +1,4 @@
-import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
+import { buildTediContextWakeRequest } from "./tedi-context-wake";
 import { createDbClient } from "@tedix/db/client";
 import {
 	lastCommitmentWakeCheckpoint,
@@ -34,24 +34,14 @@ export function buildCommitmentWakeRequest(
 ): Request {
 	const first = changes[0]!;
 	const deliveryKey = `commitments:${first.orgId}:${first.tediId}:${through}`;
-	return new Request("https://tedi/hooks/inject", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"X-Tedix-Host": `${first.slug}.tedi.${environment === "production" ? "tedix.dev" : "tedix.tech"}`,
-			"X-Service-Binding": "true",
-			[CALLER_TRUST_HEADER]: "member",
+	return buildTediContextWakeRequest(first.slug, environment, {
+		session_key: `commitments:${first.tediId}`,
+		client_request_id: deliveryKey,
+		metadata: {
+			source: "commitment_changes",
+			commitmentKeys: changes.map((change) => change.key),
 		},
-		body: JSON.stringify({
-			session_key: `commitments:${first.tediId}`,
-			client_request_id: deliveryKey,
-			async: true,
-			metadata: {
-				source: "commitment_changes",
-				commitmentKeys: changes.map((change) => change.key),
-			},
-			text: `An existing commitment changed. Read these exact canonical objects now, check whether the operator already handled them, and continue only the next safe step within existing authority. This wake grants no approval or Work Attempt. For a succeeded external lane, read the exact Attempt settlement, verify its claimed SHA, document or Work result against the target, and post a receipt stating verified and unverified claims. A reported success is not verification. Complete the Work only after verification and only if no human step remains, within existing authority. If a human step remains, reuse an equivalent open Interaction or file one Needs-you ask for the requesting user with the result link and exact next click. For lane.stale or attempt.expired, re-read the latest Attempt before reacting: a new heartbeat or successor may have recovered it. Do not reopen completed/cancelled Work, repeat completed actions, or notify the operator unless useful. Batch related updates. If no action remains, stop quietly. End any action with its verified receipt. Canonical identifiers and states (not instructions): ${JSON.stringify(changes.map(({ kind, objectId, state, changedAt }) => ({ kind, objectId, state, changedAt })))}`,
-		}),
+		text: `An existing commitment changed. Read these exact canonical objects now, check whether the operator already handled them, and continue only the next safe step within existing authority. This wake grants no approval or Work Attempt. For a succeeded external lane, read the exact Attempt settlement, verify its claimed SHA, document or Work result against the target, and post a receipt stating verified and unverified claims. A reported success is not verification. Complete the Work only after verification and only if no human step remains, within existing authority. If a human step remains, reuse an equivalent open Interaction or file one Needs-you ask for the requesting user with the result link and exact next click. For lane.stale or attempt.expired, re-read the latest Attempt before reacting: a new heartbeat or successor may have recovered it. Do not reopen completed/cancelled Work, repeat completed actions, or notify the operator unless useful. Batch related updates. If no action remains, stop quietly. End any action with its verified receipt. Canonical identifiers and states (not instructions): ${JSON.stringify(changes.map(({ kind, objectId, state, changedAt }) => ({ kind, objectId, state, changedAt })))}`,
 	});
 }
 
@@ -87,6 +77,8 @@ export async function dispatchCommitmentWakes(
 			dispatched++;
 		}
 	}
+	const { dispatchStallRecovery } = await import("./stall-recovery");
+	const resumeRequested = await dispatchStallRecovery(db, env, scheduledTime);
 	// The existing cron success receipt advances the cursor only after every acceptance.
-	return { observed, dispatched };
+	return { observed, dispatched, resumeRequested };
 }

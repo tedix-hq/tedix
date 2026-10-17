@@ -69,9 +69,6 @@ export function AttentionBoard({
 	filing?: boolean;
 }) {
 	const names = new Map(data.projects.map((p) => [p.id, p.name]));
-	const missing = data.projects.filter(
-		(p) => p.status === "active" && p.active === 0 && p.recent === 0,
-	);
 	return (
 		<>
 			{data.truncated && (
@@ -109,35 +106,40 @@ export function AttentionBoard({
 				</Card>
 				<Card>
 					<CardHeader>
-						<CardTitle>Nobody is on</CardTitle>
+						<CardTitle>Stalled</CardTitle>
 					</CardHeader>
-					<CardContent className="flex flex-wrap gap-2">
-						{missing.slice(0, 6).map((p) => (
-							<Badge
-								key={p.id}
-								variant="outline"
-								className="max-w-full whitespace-normal [&_a]:min-w-0 [&_a]:break-words"
+					<CardContent className="flex flex-col gap-3">
+						{(data.stalls ?? []).slice(0, 10).map((stall) => (
+							<div
+								key={stall.scopeId}
+								className="min-w-0 space-y-1 break-words"
 							>
-								<Link href={`/work/projects/${p.id}`}>{p.name}</Link>
-							</Badge>
+								<Link href={stall.href}>
+									{stall.name}: {stall.reason}
+								</Link>
+								<Text role="label" tone="secondary">
+									{stall.cause}
+								</Text>
+								<When label="Resume requested" at={stall.requestedAt} />
+							</div>
 						))}
-						{data.unattendedObjectives?.slice(0, 4).map((objective) => (
-							<Badge
-								key={objective.id}
-								variant="outline"
-								className="max-w-full whitespace-normal [&_a]:min-w-0 [&_a]:break-words"
-							>
-								<Link href="/work/portfolio">{objective.title}</Link>
-							</Badge>
-						))}
-						<Text role="label" tone="secondary" className="w-full">
-							Active projects and objectives with no registered lane in 24
-							hours. Showing up to six projects and four objectives.
-						</Text>
-						<Link href="/work/portfolio">
-							Projects without attention: {missing.length} · Objectives:{" "}
-							{data.unattendedObjectives?.length ?? 0}
-						</Link>
+						{!data.stalls?.length && (
+							<Text tone="secondary">
+								No stalls need your attention. Tedix handles recovery first.
+							</Text>
+						)}
+						{!!data.cadencePromises?.length && (
+							<Text role="label" tone="secondary">
+								Cadence promises:{" "}
+								{data.cadencePromises.filter((p) => p.status === "kept").length}{" "}
+								kept ·{" "}
+								{
+									data.cadencePromises.filter((p) => p.status === "missed")
+										.length
+								}{" "}
+								missed
+							</Text>
+						)}
 					</CardContent>
 				</Card>
 			</div>

@@ -544,6 +544,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"projects/addMilestoneDependency": "mcp:memory.write",
 	"projects/createMilestone": "mcp:memory.write",
 	"projects/createSprint": "mcp:memory.write",
+	"projects/getContinuity": "mcp:memory.read",
 	"projects/getPortfolio": "mcp:memory.read",
 	"projects/listHealthJudgments": "mcp:memory.read",
 	"projects/listMilestones": "mcp:memory.read",
