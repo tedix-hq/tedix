@@ -170,6 +170,24 @@ export function unwrap(value) {
 	}
 	return value;
 }
+/** Project before Code Mode serializes: full proposal metadata can exceed its output budget. */
+export function runReadbackCode(runId) {
+	return `const detail = await home.read_home_run(${JSON.stringify({ runId })});
+const { id, status, completedAt, metadata: m } = detail.run;
+return { run: { id, status, completedAt, metadata: {
+  kernelTurnTimings: m.kernelTurnTimings,
+  kernelRouteHedge: m.kernelRouteHedge,
+  kernelRoute: m.kernelRoute,
+  kernelWriteExecutedAt: m.kernelWriteExecutedAt,
+  kernelWriteSettleTimings: m.kernelWriteSettleTimings,
+  kernelWriteReceipt: m.kernelWriteReceipt,
+  kernelWriteAdmissionMs: m.kernelWriteAdmissionMs,
+  bodyExecutionResult: m.bodyExecutionResult ? {
+    summary: m.bodyExecutionResult.summary,
+    usage: m.bodyExecutionResult.usage,
+  } : undefined,
+} } };`;
+}
 export function percentiles(values) {
 	const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
 	const at = (p) =>
@@ -549,8 +567,7 @@ async function main() {
 						join(values.out, `${round}-${f.id}-chat.json`),
 						JSON.stringify(chat.value, null, 2),
 					);
-					// Trace and child-tree reads are outside this eval's correctness contract.
-					const readback = (await cli(["run", row.runId, "--json"])).value;
+					const readback = await code(runReadbackCode(row.runId));
 					const metadata = unwrap(readback).run.metadata;
 					const inspected = {
 						run: readback,
