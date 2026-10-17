@@ -474,6 +474,39 @@ describe("finite repository transaction", () => {
 			expect(f.body.start).not.toHaveBeenCalled();
 			expect(existsSync(f.workdir + ".sync-process.json")).toBe(true);
 		}));
+	it("reports GitHub access recovery on sync and status without relaunching a denied clone", () =>
+		fixture(async (f) => {
+			f.config.repoConfig!.repoUrl = "https://github.com/example/project.git";
+			const marker = {
+				processId: "denied-clone",
+				branch: "main",
+				repoUrl: f.config.repoConfig!.repoUrl,
+				startedAt: new Date().toISOString(),
+			};
+			writeFileSync(f.workdir + ".sync-process.json", JSON.stringify(marker));
+			f.statuses.set(marker.processId, {
+				found: true,
+				running: false,
+				terminal: true,
+				exitCode: 128,
+				stderr: "fatal: 403 Egress blocked: Blocked host",
+			});
+			for (const operation of [
+				syncRepoIfConfigured,
+				readRepoSyncStatus,
+				syncRepoIfConfigured,
+			]) {
+				const result = await operation(f.native, f.config, f.options);
+				expect(result).toMatchObject({
+					status: "failed",
+					executionId: marker.processId,
+				});
+				expect(result.configured && result.error).toContain(
+					"Do not retry git clone or push until access changes",
+				);
+			}
+			expect(f.body.start).not.toHaveBeenCalled();
+		}));
 	it("does not clear or kill a mismatched retained clone during status reads", () =>
 		fixture(async (f) => {
 			writeFileSync(
