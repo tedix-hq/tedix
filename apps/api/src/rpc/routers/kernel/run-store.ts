@@ -1012,6 +1012,15 @@ export async function reconcileHomeRunRowsFromChildStatus(
 					: null;
 			if (!childRunStatus) {
 				if (isTerminalHomeRunStatus(row.status as TediRunStatus)) {
+					const outputMessageId = asyncCompletionAssistantMessageId(row.id);
+					if (row.outputMessageId !== outputMessageId) {
+						await updateKernelRuntimeRunForOrg(context.db, {
+							organizationId: row.organizationId,
+							id: row.id,
+							patch: { outputMessageId },
+						});
+						row = { ...row, outputMessageId };
+					}
 					const run = normalizeHomeRunRecord(row);
 					const runMetadata = nonNullRecord(run.metadata) ?? {};
 					const latestEventKindParse = row.latestEventKind
