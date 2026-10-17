@@ -26,6 +26,11 @@ export function referencedCommitEvidence(
 			execFileSync("git", ["--no-pager", "--no-replace-objects", ...args], {
 				cwd: root,
 				input,
+				env: {
+					...process.env,
+					GIT_NO_LAZY_FETCH: "1",
+					GIT_TERMINAL_PROMPT: "0",
+				},
 				encoding: "utf8",
 				timeout: 1000,
 				maxBuffer: 2 * 1024 * 1024,
