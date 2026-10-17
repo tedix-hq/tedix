@@ -39,6 +39,7 @@ import { logSkillRuntimeWarning } from "./control-log";
 import { callMcpTool } from "./mcp-bridge";
 import {
 	AskRequestSchema,
+	awaitReasonTurn,
 	buildReasonSessionKey,
 	callIdentity,
 	REASON_DEFAULT_MAX_CALLS,
@@ -142,7 +143,7 @@ export class ReasonBridge extends WorkerEntrypoint<
 		let modelIdentity: { provider: string; model: string } | null = null;
 		let failure: string | null = null;
 		try {
-			const result = await callMcpTool(this.env, this.ctx.props.mcp, {
+			const request = {
 				namespace: REASON_NAMESPACE,
 				method: REASON_METHOD,
 				args: {
@@ -152,7 +153,10 @@ export class ReasonBridge extends WorkerEntrypoint<
 					...(parsed.data.system ? { system: parsed.data.system } : {}),
 				},
 				workflow,
-			});
+			};
+			const result = await awaitReasonTurn(sessionKey, () =>
+				callMcpTool(this.env, this.ctx.props.mcp, request),
+			);
 			raw = extractAssistantText(result);
 			modelIdentity = extractModelIdentity(result);
 		} catch (error) {

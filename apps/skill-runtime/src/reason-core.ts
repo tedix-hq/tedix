@@ -51,6 +51,45 @@ export const REASON_MAX_CALLS_CEILING = 64;
 /** Default when a manifest enables reasoning without naming a budget. */
 export const REASON_DEFAULT_MAX_CALLS = 8;
 
+/** Ephemeral turns have no task projection; redelivery reads their exact settled receipt. */
+export async function awaitReasonTurn(
+	sessionKey: string,
+	dispatch: () => Promise<unknown>,
+	{
+		timeoutMs = 150_000,
+		now = Date.now,
+		sleep = (ms: number) =>
+			new Promise<void>((resolve) => setTimeout(resolve, ms)),
+	} = {},
+): Promise<unknown> {
+	const deadline = now() + timeoutMs;
+	let runId: string | undefined;
+	while (true) {
+		const result = await dispatch();
+		const payload = (result ?? {}) as Record<string, unknown>;
+		const receipt = (payload.result ?? payload) as Record<string, unknown>;
+		if (
+			runId &&
+			(receipt.run_id !== runId || receipt.session_key !== sessionKey)
+		)
+			throw new Error("REASON_TURN_IDENTITY_CHANGED");
+		if (receipt.pending !== true) return result;
+		if (
+			receipt.ok !== true ||
+			receipt.session_key !== sessionKey ||
+			typeof receipt.run_id !== "string" ||
+			!receipt.run_id ||
+			receipt.assistant !== null
+		)
+			throw new Error("REASON_PENDING_RECEIPT_INVALID");
+		runId = receipt.run_id;
+		const remaining = deadline - now();
+		if (remaining <= 0) throw new Error("REASON_TURN_TIMEOUT");
+		await sleep(Math.min(2_500, remaining));
+		if (now() >= deadline) throw new Error("REASON_TURN_TIMEOUT");
+	}
+}
+
 /** Prompt/reply bounds. Sealed copies are clipped to keep artifacts bounded. */
 const REASON_PROMPT_MAX_CHARS = 60_000;
 export const REASON_PROMPT_SEAL_CHARS = 4_000;
