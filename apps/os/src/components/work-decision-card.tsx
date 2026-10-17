@@ -9,6 +9,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogDescription,
 	AlertDialogFooter,
+	AlertDialogHeader,
 } from "@/components/kumo/alert-dialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/kumo/button";
@@ -418,10 +419,12 @@ export function WorkDecisionCard({
 								}}
 							>
 								<AlertDialogContent>
-									<AlertDialogTitle>Confirm decision</AlertDialogTitle>
-									<AlertDialogDescription>
-										{confirmation?.confirm}
-									</AlertDialogDescription>
+									<AlertDialogHeader>
+										<AlertDialogTitle>Confirm decision</AlertDialogTitle>
+										<AlertDialogDescription>
+											{confirmation?.confirm}
+										</AlertDialogDescription>
+									</AlertDialogHeader>
 									{confirmation?.confirmContent}
 									<AlertDialogFooter>
 										<Button

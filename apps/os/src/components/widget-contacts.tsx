@@ -20,6 +20,7 @@ import { Input } from "@/components/kumo/input";
 import {
 	Dialog,
 	DialogContent,
+	DialogHeader,
 	DialogTitle,
 	DialogDescription,
 } from "@/components/kumo/dialog";
@@ -341,18 +342,20 @@ export function WidgetContacts({
 				}}
 			>
 				<DialogContent className="sm:max-w-2xl">
-					<DialogTitle>
-						{person
-							? widgetPersonLabel(person)
-							: company
-								? widgetBusinessLabel(company)
-								: "Customer profile"}
-					</DialogTitle>
-					<DialogDescription>
-						{profile?.hostUserId
-							? "Contact details supplied by your application."
-							: "Company details supplied by your application."}
-					</DialogDescription>
+					<DialogHeader>
+						<DialogTitle>
+							{person
+								? widgetPersonLabel(person)
+								: company
+									? widgetBusinessLabel(company)
+									: "Customer profile"}
+						</DialogTitle>
+						<DialogDescription>
+							{profile?.hostUserId
+								? "Contact details supplied by your application."
+								: "Company details supplied by your application."}
+						</DialogDescription>
+					</DialogHeader>
 					{detail.isPending && <p role="status">Loading profile…</p>}
 					{detail.isError && (
 						<p role="alert">This profile could not be loaded.</p>

@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/kumo/card";
 import {
 	Dialog,
 	DialogContent,
+	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 	DialogDescription,
@@ -209,9 +210,11 @@ function ScheduleDialog({
 							</Button>
 						</div>
 					) : null}
-					<Button type="submit" disabled={save.isPending || save.isError}>
-						{save.isPending ? "Saving…" : "Save dates"}
-					</Button>
+					<DialogFooter>
+						<Button type="submit" disabled={save.isPending || save.isError}>
+							{save.isPending ? "Saving…" : "Save dates"}
+						</Button>
+					</DialogFooter>
 				</form>
 				{(sprints.data?.data.length ?? 0) > 0 ? (
 					<div className="grid gap-2 border-t border-kumo-line pt-4">
