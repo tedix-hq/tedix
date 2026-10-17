@@ -46,6 +46,11 @@ export function DecisionEnvelopeCard({
 			disabled={disabled}
 			content={
 				<div className="grid min-w-0 gap-3 break-words">
+					{decision.preview && (
+						<div className="whitespace-pre-wrap">
+							<Text>{decision.preview.body}</Text>
+						</div>
+					)}
 					<Text>
 						<strong>Recommended:</strong> {decision.recommendation}
 					</Text>
