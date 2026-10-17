@@ -57,6 +57,18 @@ export const OS_COPY = {
 		approvalConfirmation:
 			"Approve this exact Work proposal with the reason you entered?",
 	},
+	feedDeckVisual: {
+		context: "What to know",
+		choices: "What each choice does",
+		learning: "Learning your preferences",
+		clear: "Deck clear",
+		thisMorning: "This morning",
+		thisAfternoon: "This afternoon",
+		thisEvening: "This evening",
+		earlier: "Earlier",
+		doneToday: (count: number) =>
+			`${count} decision${count === 1 ? "" : "s"} made today. A little more room to think.`,
+	},
 	decisionDeck: {
 		filters: "Find a decision",
 		noMatches: "No decisions match these filters",

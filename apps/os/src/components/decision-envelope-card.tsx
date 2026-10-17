@@ -4,8 +4,9 @@ import {
 	WorkDecisionCard,
 	type DecisionCardFeedback,
 } from "@/components/work-decision-card";
-import { OS_COPY } from "@/shared/os-copy";
 import { Text } from "@/components/kumo/text";
+import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
+import { OS_COPY } from "@/shared/os-copy";
 
 export function DecisionEnvelopeCard({
 	decision,
@@ -52,23 +53,25 @@ export function DecisionEnvelopeCard({
 							<Text>{decision.preview.body}</Text>
 						</div>
 					)}
-					<Text>
-						<strong>Recommended:</strong> {decision.recommendation}
-					</Text>
-					<Text>
-						<strong>Why now:</strong> {decision.whyNow}
-					</Text>
-					<Text>
-						<strong>{decision.reversibility.replaceAll("_", " ")} door</strong>{" "}
-						· {decision.blastRadius}
-					</Text>
-					<Text>
-						Confidence:{" "}
-						{decision.confidence === null
-							? "not assessed"
-							: `${Math.round(decision.confidence * 100)}%`}{" "}
-						· Waiting: {decision.costOfWaiting}
-					</Text>
+					<Text className="fd-recommendation">{decision.recommendation}</Text>
+					<FeedDeckDisclosure title={OS_COPY.feedDeckVisual.context}>
+						<Text>
+							<strong>Why now:</strong> {decision.whyNow}
+						</Text>
+						<Text>
+							<strong>
+								{decision.reversibility.replaceAll("_", " ")} door
+							</strong>{" "}
+							· {decision.blastRadius}
+						</Text>
+						<Text>
+							Confidence:{" "}
+							{decision.confidence === null
+								? "not assessed"
+								: `${Math.round(decision.confidence * 100)}%`}{" "}
+							· Waiting: {decision.costOfWaiting}
+						</Text>
+					</FeedDeckDisclosure>
 					{decision.expiresAt && (
 						<Text>
 							{OS_COPY.decisionDeck.expires(

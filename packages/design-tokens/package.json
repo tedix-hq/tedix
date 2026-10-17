@@ -9,6 +9,7 @@
 		"**/*.css"
 	],
 	"exports": {
+		"./feed-deck.css": "./src/feed-deck.css",
 		"./kumo.css": "./src/kumo.css",
 		"./widget": "./src/widget.ts",
 		"./widget.css": "./src/widget.css"

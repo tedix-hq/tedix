@@ -1,10 +1,9 @@
 import { DecisionLearningContext } from "@/components/decision-learning-context";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
+	DeckClosure,
+	FeedDeckDisclosure,
+} from "@/components/feed-deck-primitives";
 import { createElement, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -437,20 +436,18 @@ export function DecisionDeckApp({
 			}}
 		>
 			<div
-				className="mx-auto grid w-full min-w-0 max-w-2xl gap-4 pb-8"
+				className="feed-deck fd-deck mx-auto grid w-full min-w-0 pb-8"
 				data-workspace-app-entry="decision-deck"
 			>
 				<DecisionLearningFeedback />
-
-				<div className="grid gap-2">
-					<Text as="h2" weight="semibold">
+				<header className="fd-deck-heading">
+					<Text as="h2" tone="mono">
 						{OS_COPY.decisionDeck.title}
 					</Text>
 					<Text>{OS_COPY.decisionDeck.intro}</Text>
-					<Text tone="secondary">{OS_COPY.decisionDeck.shortcuts}</Text>
-				</div>
+				</header>
 				{mode !== "history" && (
-					<div className="grid gap-2" role="status">
+					<div className="fd-deck-progress" role="status">
 						<Text weight="semibold">
 							{OS_COPY.decisionDeck.left(available.length)}
 						</Text>
@@ -481,7 +478,7 @@ export function DecisionDeckApp({
 						)}
 					</div>
 				)}
-				<div className="flex flex-wrap gap-2" aria-label="Deck view">
+				<div className="fd-deck-toolbar" aria-label="Deck view">
 					{[
 						"decide",
 						"history",
@@ -489,7 +486,8 @@ export function DecisionDeckApp({
 					].map((value) => (
 						<Button
 							key={value}
-							variant={mode === value ? "default" : "outline"}
+							aria-pressed={mode === value}
+							variant={mode === value ? "default" : "ghost"}
 							onClick={() => {
 								setMode(value);
 								setIndex(0);
@@ -503,86 +501,84 @@ export function DecisionDeckApp({
 						</Button>
 					))}
 				</div>
-				<Collapsible>
-					<CollapsibleTrigger>
-						{OS_COPY.decisionDeck.filters}
-					</CollapsibleTrigger>
-					<CollapsibleContent>
-						<div className="flex flex-wrap gap-2">
-							<Select
-								value={kind}
-								onValueChange={(value) => {
-									setKind(value ?? "all");
-									setIndex(0);
-								}}
-							>
-								<SelectTrigger aria-label="Decision kind">
-									<SelectValue>{KIND_LABELS[kind]}</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">All kinds</SelectItem>
-									{DecisionKindSchema.options.map((value) => (
-										<SelectItem key={value} value={value}>
-											{KIND_LABELS[value]}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-							<Select
-								value={project}
-								onValueChange={(value) => {
-									setProject(value ?? "all");
-									setIndex(0);
-								}}
-							>
-								<SelectTrigger aria-label="Decision project">
-									<SelectValue>
-										{project === "all" ? "All projects" : projectLabel(project)}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">All projects</SelectItem>
-									{[...new Set(rows.map((row) => row.project))].map((value) => (
-										<SelectItem key={value} value={value}>
-											{projectLabel(value)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-							<Select
-								value={urgency}
-								onValueChange={(value) => {
-									setUrgency(value ?? "all");
-									setIndex(0);
-								}}
-							>
-								<SelectTrigger aria-label="Decision urgency">
-									<SelectValue>
-										{urgency === "all"
-											? "Any urgency"
-											: urgency === "now"
-												? "Needs you now"
-												: "Can wait"}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">Any urgency</SelectItem>
-									<SelectItem value="now">Needs you now</SelectItem>
-									<SelectItem value="later">Can wait</SelectItem>
-								</SelectContent>
-							</Select>
-							<Input
-								aria-label="Find decisions"
-								placeholder="Find a decision"
-								value={search}
-								onChange={(event) => {
-									setSearch(event.target.value);
-									setIndex(0);
-								}}
-							/>
-						</div>
-					</CollapsibleContent>
-				</Collapsible>
+				<FeedDeckDisclosure
+					className="fd-deck-filters"
+					title={OS_COPY.decisionDeck.filters}
+				>
+					<div className="flex flex-wrap gap-2">
+						<Select
+							value={kind}
+							onValueChange={(value) => {
+								setKind(value ?? "all");
+								setIndex(0);
+							}}
+						>
+							<SelectTrigger aria-label="Decision kind">
+								<SelectValue>{KIND_LABELS[kind]}</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All kinds</SelectItem>
+								{DecisionKindSchema.options.map((value) => (
+									<SelectItem key={value} value={value}>
+										{KIND_LABELS[value]}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<Select
+							value={project}
+							onValueChange={(value) => {
+								setProject(value ?? "all");
+								setIndex(0);
+							}}
+						>
+							<SelectTrigger aria-label="Decision project">
+								<SelectValue>
+									{project === "all" ? "All projects" : projectLabel(project)}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All projects</SelectItem>
+								{[...new Set(rows.map((row) => row.project))].map((value) => (
+									<SelectItem key={value} value={value}>
+										{projectLabel(value)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<Select
+							value={urgency}
+							onValueChange={(value) => {
+								setUrgency(value ?? "all");
+								setIndex(0);
+							}}
+						>
+							<SelectTrigger aria-label="Decision urgency">
+								<SelectValue>
+									{urgency === "all"
+										? "Any urgency"
+										: urgency === "now"
+											? "Needs you now"
+											: "Can wait"}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">Any urgency</SelectItem>
+								<SelectItem value="now">Needs you now</SelectItem>
+								<SelectItem value="later">Can wait</SelectItem>
+							</SelectContent>
+						</Select>
+						<Input
+							aria-label="Find decisions"
+							placeholder="Find a decision"
+							value={search}
+							onChange={(event) => {
+								setSearch(event.target.value);
+								setIndex(0);
+							}}
+						/>
+					</div>
+				</FeedDeckDisclosure>
 				{practiceMode && (
 					<Text role="label">
 						Practice only. Choices below stay in this preview and never approve
@@ -606,31 +602,6 @@ export function DecisionDeckApp({
 					</Text>
 				)}
 				{!practiceMode && inbox.isPending && <Text>Loading decisions…</Text>}
-				{learning && classId && (
-					<div
-						className="rounded-xl border border-kumo-line p-3"
-						aria-label="Class readiness"
-					>
-						<Text weight="medium">
-							{classId}: {learning.unchanged}/{threshold} unchanged approvals
-						</Text>
-						<Text tone="secondary">
-							{learning.ready
-								? "Ready for a delegation review"
-								: "Learning your preferences"}{" "}
-							· {learning.delegated}/{learning.total} delegated ·{" "}
-							{Math.round(
-								(config.classPolicies[classId]?.auditSampleRate ??
-									config.auditSampleRate) * 100,
-							)}
-							% proposed audits
-						</Text>
-						<Text role="label">
-							Recent loaded history only. Readiness does not grant permission or
-							turn on automation.
-						</Text>
-					</div>
-				)}
 				{budgetReached ? (
 					<Text>
 						You’ve reached your attention budget.{" "}
@@ -657,103 +628,108 @@ export function DecisionDeckApp({
 						{!usesEnvelope && nobodyOn && (
 							<Text>{OS_COPY.decisionDeck.nobodyOn}</Text>
 						)}
-						{mode === "history" ? (
-							<WorkDecisionCard
-								kind={current?.kind ?? "decision"}
-								title={selected.label}
-								askedBy={selected.row?.askedBy ?? "Your tedi"}
-								body={selected.row?.request.prompt}
-								why={
-									<Link href={`/work/interactions/${selected.id}`}>
-										Read the saved answer and history
-									</Link>
-								}
-								disabled
-								onDecision={async () => {}}
-								onNext={next}
-								onPrevious={previous}
-							/>
-						) : selected.id.startsWith("work-approval:") ? (
-							<WorkApprovalDecisionCard
-								row={decisions.work.find(
-									(row) => `work-approval:${row.proposal.id}` === selected.id,
-								)!}
-								onNext={next}
-								onPrevious={previous}
-							/>
-						) : selected.id.startsWith("approval:") ? (
-							<ApprovalDecisionCard
-								id={selected.id.slice("approval:".length)}
-								onNext={next}
-								onPrevious={previous}
-							/>
-						) : current &&
-						  (practiceMode ||
-								current.kind === "adr" ||
-								current.kind === "decision" ||
-								current.options.some((option) => option.effect)) ? (
-							<DecisionEnvelopeCard
-								decision={current}
-								defaultLowStakesToDelegate={config.defaultLowStakesToDelegate}
-								askedBy={
-									practiceMode
-										? "Example"
-										: (selected.row?.askedBy ?? "Your tedi")
-								}
-								disabled={mode === "history"}
-								onNext={next}
-								onPrevious={previous}
-								onDecision={async (feedback, choice, elapsedMs) => {
-									if (practiceMode) {
-										setPractice((value) => [
-											...value,
-											{
-												id: crypto.randomUUID(),
-												classId: current.classId,
-												choice,
-												signal: feedback.signal,
-												at: new Date().toISOString(),
-												elapsedMs,
-											},
-										]);
-										return;
+						<div
+							className="fd-decision-stack"
+							data-has-next={filtered.length > 1}
+						>
+							{mode === "history" ? (
+								<WorkDecisionCard
+									kind={current?.kind ?? "decision"}
+									title={selected.label}
+									askedBy={selected.row?.askedBy ?? "Your tedi"}
+									body={selected.row?.request.prompt}
+									why={
+										<Link href={`/work/interactions/${selected.id}`}>
+											Read the saved answer and history
+										</Link>
 									}
-									const request = selected.row!.request;
-									await osApi.workInteractions.respond({
-										requestId: request.id,
-										expectedRequestVersion: request.version,
-										responseKind: "answer",
-										body:
-											choice === "change"
-												? feedback.body
-												: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
-										resolvesRequest: choice !== "later",
-										metadata: decisionFeedbackMetadata(
-											feedback,
-											current.classId,
-											choice,
-											elapsedMs,
-										),
-									});
-									await client.invalidateQueries({
-										queryKey: osQuery.workInteractions.key({ type: "query" }),
-									});
-									await client.invalidateQueries({
-										queryKey: osQuery.learningFeedback.key(),
-									});
-								}}
-							/>
-						) : (
-							<WorkInteractionDecisionCard
-								requestId={selected.id}
-								askedBy={selected.row?.askedBy}
-								autoFocus
-								onNext={next}
-								onPrevious={previous}
-							/>
-						)}
+									disabled
+									onDecision={async () => {}}
+									onNext={next}
+									onPrevious={previous}
+								/>
+							) : selected.id.startsWith("work-approval:") ? (
+								<WorkApprovalDecisionCard
+									row={decisions.work.find(
+										(row) => `work-approval:${row.proposal.id}` === selected.id,
+									)!}
+									onNext={next}
+									onPrevious={previous}
+								/>
+							) : selected.id.startsWith("approval:") ? (
+								<ApprovalDecisionCard
+									id={selected.id.slice("approval:".length)}
+									onNext={next}
+									onPrevious={previous}
+								/>
+							) : current &&
+							  (practiceMode ||
+									current.kind === "adr" ||
+									current.kind === "decision" ||
+									current.options.some((option) => option.effect)) ? (
+								<DecisionEnvelopeCard
+									decision={current}
+									defaultLowStakesToDelegate={config.defaultLowStakesToDelegate}
+									askedBy={
+										practiceMode
+											? "Example"
+											: (selected.row?.askedBy ?? "Your tedi")
+									}
+									disabled={mode === "history"}
+									onNext={next}
+									onPrevious={previous}
+									onDecision={async (feedback, choice, elapsedMs) => {
+										if (practiceMode) {
+											setPractice((value) => [
+												...value,
+												{
+													id: crypto.randomUUID(),
+													classId: current.classId,
+													choice,
+													signal: feedback.signal,
+													at: new Date().toISOString(),
+													elapsedMs,
+												},
+											]);
+											return;
+										}
+										const request = selected.row!.request;
+										await osApi.workInteractions.respond({
+											requestId: request.id,
+											expectedRequestVersion: request.version,
+											responseKind: "answer",
+											body:
+												choice === "change"
+													? feedback.body
+													: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
+											resolvesRequest: choice !== "later",
+											metadata: decisionFeedbackMetadata(
+												feedback,
+												current.classId,
+												choice,
+												elapsedMs,
+											),
+										});
+										await client.invalidateQueries({
+											queryKey: osQuery.workInteractions.key({ type: "query" }),
+										});
+										await client.invalidateQueries({
+											queryKey: osQuery.learningFeedback.key(),
+										});
+									}}
+								/>
+							) : (
+								<WorkInteractionDecisionCard
+									requestId={selected.id}
+									askedBy={selected.row?.askedBy}
+									autoFocus
+									onNext={next}
+									onPrevious={previous}
+								/>
+							)}
+						</div>
 						{mode === "history" ? (
-							<div className="flex justify-between gap-2">
+							<div className="fd-deck-navigation">
 								<Button variant="outline" onClick={previous}>
 									Previous
 								</Button>
@@ -798,30 +774,65 @@ export function DecisionDeckApp({
 					</div>
 				) : (
 					!inbox.isPending &&
-					(practiceMode || batch) && (
-						<Text>
-							{decisions.failed || learningQuery.isError
-								? ""
-								: available.length > 0
-									? OS_COPY.decisionDeck.noMatches
-									: OS_COPY.decisionDeck.clear}
-							{!(decisions.failed || learningQuery.isError) && (
-								<>
-									{" "}
-									—{" "}
-									{OS_COPY.decisionDeck.nextBatch(
-										window.next.toLocaleTimeString([], {
-											hour: "2-digit",
-											minute: "2-digit",
-										}),
-									)}
-								</>
+					(practiceMode || batch) &&
+					!(decisions.failed || learningQuery.isError) &&
+					(available.length > 0 ? (
+						<Text>{OS_COPY.decisionDeck.noMatches}</Text>
+					) : (
+						<DeckClosure
+							title={OS_COPY.feedDeckVisual.clear}
+							summary={
+								practiceMode
+									? practice.length > 0
+										? `${practice.length} practice choices in this preview.`
+										: undefined
+									: metrics.decisionsToday > 0
+										? OS_COPY.feedDeckVisual.doneToday(metrics.decisionsToday)
+										: undefined
+							}
+							streak={
+								!practiceMode && config.gamification && metrics.streak > 0
+									? OS_COPY.decisionDeck.streak(metrics.streak)
+									: undefined
+							}
+							detail={OS_COPY.decisionDeck.nextBatch(
+								window.next.toLocaleTimeString([], {
+									hour: "2-digit",
+									minute: "2-digit",
+								}),
 							)}
-						</Text>
-					)
+						/>
+					))
 				)}
+				{learning && classId && (
+					<FeedDeckDisclosure
+						className="fd-deck-learning"
+						label="Class readiness"
+						title={OS_COPY.feedDeckVisual.learning}
+					>
+						<Text weight="medium">
+							{classId}: {learning.unchanged}/{threshold} unchanged approvals
+						</Text>
+						<Text tone="secondary">
+							{learning.ready
+								? "Ready for a delegation review"
+								: "Learning your preferences"}{" "}
+							· {learning.delegated}/{learning.total} delegated ·{" "}
+							{Math.round(
+								(config.classPolicies[classId]?.auditSampleRate ??
+									config.auditSampleRate) * 100,
+							)}
+							% proposed audits
+						</Text>
+						<Text role="label">
+							Recent loaded history only. Readiness does not grant permission or
+							turn on automation.
+						</Text>
+					</FeedDeckDisclosure>
+				)}
+
 				{mode === "history" && <WeeklyDecisionDigest />}
-				{practiceMode && practice.length > 0 && (
+				{selected && practiceMode && practice.length > 0 && (
 					<Text>{practice.length} practice choices in this preview.</Text>
 				)}
 				{!practiceMode &&
@@ -832,6 +843,7 @@ export function DecisionDeckApp({
 							More history and decisions in Work
 						</Link>
 					)}
+				<p className="fd-deck-shortcuts">{OS_COPY.decisionDeck.shortcuts}</p>
 				<Link href="/account/profile">
 					Your style profile and last 10 approvals
 				</Link>
