@@ -295,53 +295,6 @@ export async function revokeHumanMcpConsent(
 	return revision;
 }
 
-// Collapse overlapping checks of the exact same signed grant within an isolate.
-// No settled decision survives: the next request checks revocation and membership
-// again. Bound caller-controlled keys without evicting a running verification.
-const pendingGrantChecks = new WeakMap<
-	CloudflareEnv,
-	Map<string, Promise<HumanMcpGrantDecision>>
->();
-const MAX_PENDING_GRANT_CHECKS = 200;
-
-/**
- * Recheck every signed selected tenant on each human MCP request. The MCP
- * edge first validates token signature and exact resource audience. No grant
- * or membership result is cached here: deleting consent must stop the next
- * request even while a previously issued access token remains unexpired.
- */
-export async function verifyHumanMcpGrant(
-	db: DbClient,
-	env: CloudflareEnv,
-	input: VerifyHumanMcpGrantInput,
-): Promise<HumanMcpGrantDecision> {
-	let pending = pendingGrantChecks.get(env);
-	if (!pending) {
-		pending = new Map();
-		pendingGrantChecks.set(env, pending);
-	}
-	const key = JSON.stringify([
-		input.descopeUserId,
-		input.mcpServerId,
-		input.clientId,
-		input.consentId,
-		input.consentRevision,
-		input.selectedTenantIds,
-		[...input.tokenScopes].sort(),
-	]);
-	const existing = pending.get(key);
-	if (existing) return existing;
-	if (pending.size >= MAX_PENDING_GRANT_CHECKS)
-		return verifyHumanMcpGrantUnshared(db, env, input);
-	const verification = verifyHumanMcpGrantUnshared(db, env, input);
-	pending.set(key, verification);
-	try {
-		return await verification;
-	} finally {
-		pending.delete(key);
-	}
-}
-
 function readGrantState<T>(label: string, read: () => Promise<T>): Promise<T> {
 	return withTransientD1ReadRetry(`mcp_grant.${label}`, read, {
 		delayMs: 150 + Math.floor(Math.random() * 150),
@@ -349,7 +302,11 @@ function readGrantState<T>(label: string, read: () => Promise<T>): Promise<T> {
 	});
 }
 
-async function verifyHumanMcpGrantUnshared(
+/** Authorization I/O belongs to this request: an isolate-wide pending promise
+ * can outlive its owner after disconnect and strand every subsequent caller.
+ * Never retain a pending or settled authorization decision across requests.
+ */
+export async function verifyHumanMcpGrant(
 	db: DbClient,
 	env: CloudflareEnv,
 	input: VerifyHumanMcpGrantInput,

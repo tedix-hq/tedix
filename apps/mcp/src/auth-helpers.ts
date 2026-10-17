@@ -37,6 +37,7 @@ import { CAPABILITY_SCOPES, hasScope } from "@tedix/mcp-shared/auth/scopes";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { getApiClient } from "./lib/api-client";
 import { createMcpLogger } from "./log";
+import { withStepBudget } from "./lib/step-budget";
 import type { AppTool } from "./mcp/server-context";
 import {
 	resolveMcpToolRequiredScopes,
@@ -206,8 +207,10 @@ export async function resolveHumanMcpSelection(
 	const azp = payload.azp;
 	const dci = payload.dci;
 	const tedixConsentRevision = payload.tedixConsentRevision;
-	const decision = await Promise.resolve()
-		.then(() =>
+	const decision = await withStepBudget(
+		"human_mcp_grant",
+		15_000,
+		Promise.resolve().then(() =>
 			getApiClient({
 				serviceFetch: env.API_SERVICE,
 			}).organizations.verifyMultiOrgMcpGrant({
@@ -219,8 +222,8 @@ export async function resolveHumanMcpSelection(
 				consentRevision: tedixConsentRevision,
 				tokenScopes: scopes,
 			}),
-		)
-		.catch(() => null);
+		),
+	).catch(() => null);
 	// The API was unreachable or failed: the grant was not judged.
 	if (!decision)
 		return { ok: false, unavailable: true, reason: "grant_check_failed" };
