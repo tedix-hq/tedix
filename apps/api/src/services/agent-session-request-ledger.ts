@@ -720,7 +720,11 @@ export async function processAgentSessionEvents(
 	db: DbQueryClient,
 	model: LedgerModel,
 	owner: { organizationId: string; userId: string },
-	options: { limit?: number; now?: () => string } = {},
+	options: {
+		limit?: number;
+		now?: () => string;
+		onRecorded?: (scope: SessionScope & { sourceAt: string }) => Promise<void>;
+	} = {},
 ): Promise<number> {
 	const now = options.now ?? (() => new Date().toISOString());
 	const startedAt = Date.now();
@@ -766,6 +770,8 @@ export async function processAgentSessionEvents(
 							now: now(),
 						});
 			ok = result.status !== "unavailable";
+			if (ok)
+				await options.onRecorded?.({ ...scope, sourceAt: event.sourceAt });
 		} catch {
 			ok = false;
 		}

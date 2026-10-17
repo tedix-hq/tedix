@@ -61,6 +61,26 @@ export async function runWorkAttemptLeaseSweeperTick(
 			`[WorkAttemptLeaseSweeper] retired ${result.expired} elapsed attempt lease(s)`,
 		);
 	}
+	let requestsRecovered = 0;
+	let requestRecoveryFailures = 0;
+	if (env.KERNEL) {
+		const { listDueKernelRequestOrganizations } =
+			await import("@tedix/db/queries/kernel-requests");
+		const organizations = await listDueKernelRequestOrganizations(
+			createDbQueryClient(env.DB),
+			new Date(scheduledTime).toISOString(),
+		);
+		for (const result of await Promise.allSettled(
+			organizations.map((row) =>
+				env.KERNEL.get(
+					env.KERNEL.idFromName(row.organizationId),
+				).reconcileRequests({ organizationId: row.organizationId }),
+			),
+		)) {
+			if (result.status === "fulfilled") requestsRecovered += result.value;
+			else requestRecoveryFailures++;
+		}
+	}
 	// Same tick, same shape: pure D1, idempotent, zero candidates at steady state.
 	// Closes kernel-delegation items whose failed Attempt nobody retried in a week.
 	const stale = await sweepStaleFailedDelegationWorkItems(
@@ -84,6 +104,8 @@ export async function runWorkAttemptLeaseSweeperTick(
 	);
 	return {
 		...result,
+		requestsRecovered,
+		requestRecoveryFailures,
 		lanesStale,
 		lanesNotified: await notifyStoppedLanes(
 			createDbQueryClient(env.DB),

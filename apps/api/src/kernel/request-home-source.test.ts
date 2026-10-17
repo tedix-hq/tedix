@@ -1,0 +1,216 @@
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { createDbClient } from "@tedix/db/client";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import {
+	kernelRequests,
+	kernelRequestEvents,
+} from "@tedix/db/schema/kernel-requests";
+import {
+	kernelRuntimeRuns,
+	kernelRuntimeEvents,
+	kernelConversationGrants,
+} from "@tedix/db/schema/cognitive-runtime";
+import {
+	workItems,
+	workAttempts,
+	workItemComments,
+} from "@tedix/db/schema/work-items";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { osOutputs, osWorkspaces } from "@tedix/db/schema/os-workspaces";
+import {
+	getHomeKernelRequest,
+	listDueKernelRequestOrganizations,
+} from "@tedix/db/queries/kernel-requests";
+import type { BaseContext } from "../rpc/orpc";
+import {
+	captureHomeKernelRequest,
+	readKernelRequestPolicy,
+	reconcileHomeKernelRequest,
+	reconcileDueHomeKernelRequests,
+} from "./request-home-source";
+const config = vi.hoisted(() => ({
+	value: {
+		version: 1,
+		enabled: true,
+		nextOwner: "kernel-example",
+		retryMs: 1000,
+		probeTimeoutMs: 1000,
+		maxProbeAttempts: 3,
+		runBudgetMs: 1000,
+		repositoryTargets: [],
+	},
+}));
+vi.mock("@tedix/db/queries/kernel-runtime-support", () => ({
+	getActivePolicyPackDefinition: async () => ({
+		kernelRequestCoordinator: config.value,
+	}),
+}));
+vi.mock("../rpc/routers/kernel/conversation-index", () => ({
+	applyKernelConversationEvent: async () => {},
+}));
+const now = "2026-10-17T10:00:00.000Z";
+async function fixture(revisionId = "revision-one") {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(
+		schemaDdl(
+			kernelRequests,
+			kernelRequestEvents,
+			kernelRuntimeRuns,
+			kernelRuntimeEvents,
+			kernelConversationGrants,
+			workItems,
+			workAttempts,
+			workItemComments,
+			organizationMembers,
+			osOutputs,
+			osWorkspaces,
+		),
+	);
+	const db = createDbClient(createD1Facade(sqlite));
+	const context = {
+		db,
+		env: {},
+		authType: "user",
+		user: { sub: "user-ada" },
+	} as BaseContext;
+	await db.insert(organizationMembers).values({
+		id: "member-one",
+		organizationId: "org-example",
+		descopeUserId: "user-ada",
+		email: "ada@example.com",
+		status: "active",
+	});
+	await db.insert(osWorkspaces).values({
+		id: "workspace-one",
+		organizationId: "org-example",
+		name: "Example workspace",
+		visibility: "private",
+		ownerUserId: "user-ada",
+		createdByKind: "user",
+		createdById: "user-ada",
+		createdAt: now,
+		updatedAt: now,
+	});
+	await db.insert(osOutputs).values({
+		id: "output-one",
+		organizationId: "org-example",
+		workspaceId: "workspace-one",
+		kind: "document",
+		title: "Example document",
+		status: "active",
+		currentRevisionId: revisionId,
+		createdByKind: "user",
+		createdById: "user-ada",
+		createdAt: now,
+		updatedAt: now,
+	});
+	await captureHomeKernelRequest(context, {
+		organizationId: "org-example",
+		runId: "run-one",
+		conversationId: "home-one",
+		checks: [
+			{
+				kind: "os_output_revision",
+				outputId: "output-one",
+				revisionId: "revision-one",
+			},
+		],
+	});
+	await db.insert(kernelRuntimeRuns).values({
+		id: "run-one",
+		organizationId: "org-example",
+		conversationId: "home-one",
+		status: "completed",
+		metadata: { workItemId: "work-one", preserveConcurrentField: "kept" },
+		createdAt: now,
+		updatedAt: now,
+	});
+	await db.insert(workItems).values({
+		id: "work-one",
+		orgId: "org-example",
+		title: "Read the requested revision",
+		disposition: "completed",
+		createdAt: now,
+	});
+	await db.insert(workAttempts).values({
+		id: "attempt-one",
+		orgId: "org-example",
+		workItemId: "work-one",
+		executorType: "tedi",
+		executorId: "tedi-example",
+		attemptNumber: 1,
+		runtimeState: "finished",
+		outcome: "succeeded",
+		startedAt: now,
+		heartbeatAt: now,
+		finishedAt: now,
+	});
+	return { context, db };
+}
+describe("Home request source adapter", () => {
+	it("carries a real durable source through canonical Work, target readback and acknowledged report", async () => {
+		const { context, db } = await fixture();
+		const row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		expect(row.snapshot.state).toBe("received");
+		const policy = (await readKernelRequestPolicy(context, "org-example"))!;
+		const final = await reconcileHomeKernelRequest(context, row, policy);
+		expect(final.snapshot).toMatchObject({
+			state: "learned",
+			outcome: "verified",
+			learning: "no_new_lesson",
+			workItemId: "work-one",
+			attemptId: "attempt-one",
+			delivery: { status: "acknowledged" },
+		});
+		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
+		await reconcileHomeKernelRequest(context, final, policy);
+		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
+		expect(
+			(await db.select().from(kernelRuntimeRuns))[0]?.metadata
+				?.preserveConcurrentField,
+		).toBe("kept");
+	});
+	it("keeps wrong revisions unverified and records a machine-owned repair on existing Work", async () => {
+		const { context, db } = await fixture("revision-other");
+		const row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		const final = await reconcileHomeKernelRequest(
+			context,
+			row,
+			(await readKernelRequestPolicy(context, "org-example"))!,
+		);
+		expect(final.snapshot).toMatchObject({
+			state: "verifying",
+			outcome: "failed",
+		});
+		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(0);
+		expect(await db.select().from(workItemComments)).toHaveLength(1);
+		expect(final.nextOwner).toBe("kernel-example");
+		expect(final.nextDueAt).not.toBeNull();
+	});
+	it("keeps paused requests owned while yielding the bounded tenant recovery scan", async () => {
+		const { context, db } = await fixture();
+		await db.update(kernelRequests).set({
+			nextDueAt: now,
+			updatedAt: "2026-10-17T09:59:59.000Z",
+		});
+		config.value.enabled = false;
+		try {
+			expect(await reconcileDueHomeKernelRequests(context, "org-example")).toBe(
+				1,
+			);
+			const row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+			expect(row.snapshot.state).toBe("received");
+			expect(row.nextOwner).toBe("kernel-example");
+			expect(row.nextAction).toBe("restore_request_coordinator_configuration");
+			expect(Date.parse(row.nextDueAt!)).toBeGreaterThan(Date.now());
+			expect(
+				await listDueKernelRequestOrganizations(db, new Date().toISOString()),
+			).toEqual([]);
+		} finally {
+			config.value.enabled = true;
+		}
+	});
+});

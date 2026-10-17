@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { WorkAgentSessionHarnessSchema } from "./work-agent-sessions";
+import { KernelAcceptanceCheckSchema } from "./kernel-request";
 
 /**
  * What a ledger row records: from the person's message a request, question or
@@ -160,6 +161,8 @@ export const UpdateAgentSessionRequestResultSchema = z.strictObject({
 export const FileAgentSessionRequestInputSchema = z.strictObject({
 	id: z.uuid(),
 	projectId: z.uuid().nullable(),
+	workItemId: z.uuid().optional(),
+	acceptanceChecks: z.array(KernelAcceptanceCheckSchema).max(20).optional(),
 });
 
 /** Internal personal resource: no OAuth connection or credential is involved. */

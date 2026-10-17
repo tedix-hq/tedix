@@ -5,10 +5,15 @@ import {
 	type KernelRequestSnapshot,
 } from "@tedix/api-contract/schemas/kernel-request";
 
+export function kernelRequestReportMessageId(sourceId: string): string {
+	return `${sourceId}:acceptance:assistant`;
+}
+
 export type KernelRequestEvent =
 	| { kind: "file"; workItemId: string }
 	| { kind: "brief"; revision: number; checks: KernelAcceptanceCheck[] }
 	| { kind: "start"; attemptId: string }
+	| { kind: "successor"; previousAttemptId: string; attemptId: string }
 	| {
 			kind: "terminal";
 			attemptId: string;
@@ -69,6 +74,7 @@ export function advanceKernelRequest(
 					checks: event.checks,
 					attemptId: null,
 					acceptanceKey: null,
+					probeAttempts: 0,
 					observations: [],
 					outcome: null,
 					delivery: null,
@@ -77,6 +83,22 @@ export function advanceKernelRequest(
 		case "start":
 			if (s.state === "briefed")
 				patch = { state: "running", attemptId: event.attemptId };
+			break;
+		case "successor":
+			if (
+				(s.state === "running" || s.state === "verifying") &&
+				s.attemptId === event.previousAttemptId
+			)
+				patch = {
+					state: "running",
+					attemptId: event.attemptId,
+					briefRevision: s.briefRevision + 1,
+					acceptanceKey: null,
+					observations: [],
+					outcome: null,
+					delivery: null,
+					probeAttempts: 0,
+				};
 			break;
 		case "terminal":
 			if (s.state === "running" && s.attemptId === event.attemptId)
@@ -108,6 +130,7 @@ export function advanceKernelRequest(
 					);
 				patch = {
 					observations: event.observations,
+					probeAttempts: (s.probeAttempts ?? 0) + 1,
 					outcome:
 						s.outcome === "failed"
 							? "failed"
@@ -156,7 +179,8 @@ export function advanceKernelRequest(
 				patch = { state: "learned", learning: event.disposition };
 			break;
 		case "cancel":
-			if (s.attemptId === event.attemptId) patch = { state: "cancelled" };
+			if (s.state !== "reported" && s.attemptId === event.attemptId)
+				patch = { state: "cancelled" };
 			break;
 	}
 	return patch

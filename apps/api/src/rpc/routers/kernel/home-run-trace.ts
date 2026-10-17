@@ -225,6 +225,33 @@ export async function assembleHomeRunTrace(
 	row: KernelRuntimeRun,
 	assembledAt = new Date().toISOString(),
 ): Promise<HomeRunTrace> {
+	let request: HomeRunTrace["request"] = null;
+	if (typeof row.metadata?.kernelRequestId === "string") {
+		const { getHomeKernelRequest, listKernelRequestEvents } =
+			await import("@tedix/db/queries/kernel-requests");
+		const owned = await getHomeKernelRequest(
+			context.db,
+			row.organizationId,
+			row.id,
+		);
+		if (owned)
+			request = {
+				id: owned.id,
+				version: owned.version,
+				nextOwner: owned.nextOwner,
+				nextAction: owned.nextAction,
+				nextDueAt: owned.nextDueAt,
+				snapshot: owned.snapshot,
+				events: (await listKernelRequestEvents(context.db, owned)).map(
+					(event) => ({
+						id: event.id,
+						version: event.version,
+						createdAt: event.createdAt,
+						snapshot: event.snapshot,
+					}),
+				),
+			};
+	}
 	const plan = readOptionalHomePlanFromRun(row);
 	const allBranchRefs = homeRunTraceBranchRefs(row);
 	const branchRefs = allBranchRefs.slice(0, BRANCH_LIMIT);
@@ -438,6 +465,7 @@ export async function assembleHomeRunTrace(
 			"kernel_wake_queue",
 			...(auditRows.length > 0 ? (["audit_events"] as const) : []),
 		],
+		request,
 	} satisfies Omit<HomeRunTrace, "complete" | "gaps" | "health">;
 	const rowMetadata = nonNullRecord(row.metadata);
 	const health = evaluateHomeRunConvergenceHealth({
@@ -470,6 +498,17 @@ export async function assembleHomeRunTrace(
 				finding.childRunId ? `:${finding.childRunId}` : ""
 			}`,
 		);
+	}
+	if (request) {
+		if (
+			request.snapshot.outcome !== "verified" &&
+			request.snapshot.state !== "cancelled"
+		)
+			gaps.push("request_acceptance_unverified");
+		if (request.snapshot.delivery?.status === "pending")
+			gaps.push("request_report_unacknowledged");
+		if (request.events.length < request.version)
+			gaps.push("request_history_truncated");
 	}
 	const uniqueGaps = uniqueStrings(gaps);
 	return {
