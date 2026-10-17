@@ -4,6 +4,7 @@ import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { tedis } from "@tedix/db/schema/tedis";
+import { projects } from "@tedix/db/schema/projects";
 import {
 	workItems,
 	workEvents,
@@ -38,6 +39,7 @@ function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			tedis,
+			projects,
 			workItems,
 			workEvents,
 			workAttempts,
@@ -272,4 +274,45 @@ describe("commitment wakes", () => {
 		expect(body.metadata).not.toHaveProperty("workItemId");
 		expect(request.headers.get("X-Tedix-Host")).toBe("orion.tedi.tedix.dev");
 	});
+});
+
+it("verifies an external lane success even when lane done already completed Work", async () => {
+	const { sqlite, db } = fixture();
+	sqlite
+		.prepare(
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES ('lane-result','org-1','work-1','attempt.settled','external_agent','agent',?,?)",
+		)
+		.run(JSON.stringify({ outcome: "succeeded" }), changedAt);
+	sqlite.exec("UPDATE work_items SET disposition='completed'");
+	expect(
+		(await listCommitmentChanges(db, after, through, "production")).map(
+			(c) => c.state,
+		),
+	).toEqual(["succeeded"]);
+	sqlite.exec("UPDATE work_items SET disposition='cancelled'");
+	expect(await listCommitmentChanges(db, after, through, "production")).toEqual(
+		[],
+	);
+});
+
+it("wakes the project's lead tedi for a lane without a Work-level owner", async () => {
+	const { sqlite, db } = fixture();
+	sqlite
+		.prepare(
+			"INSERT INTO projects(id,org_id,key,name,lead_tedi_id,created_at) VALUES ('project','org-1','EXAMPLE','Example','worker-1',?)",
+		)
+		.run(after);
+	sqlite.exec(
+		"UPDATE work_items SET accountable_owner_type=NULL,accountable_owner_id=NULL,project_id='project'",
+	);
+	sqlite
+		.prepare(
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES ('lane-result','org-1','work-1','attempt.settled','external_agent','agent',?,?)",
+		)
+		.run(JSON.stringify({ outcome: "succeeded" }), changedAt);
+	expect(
+		(await listCommitmentChanges(db, after, through, "production")).map(
+			(c) => c.tediId,
+		),
+	).toEqual(["worker-1"]);
 });

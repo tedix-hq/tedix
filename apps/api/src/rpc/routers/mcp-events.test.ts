@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { workEvents } from "@tedix/db/schema/work-items";
+import { workInteractions } from "@tedix/db/schema/work-factory";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
@@ -12,7 +14,7 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(workEvents));
+	sqlite.exec(schemaDdl(workEvents, workInteractions, organizationMembers));
 	const db = createDbClient(createD1Facade(sqlite));
 	const client = () =>
 		createRouterClient(mcpEventsContractRouter, {
@@ -40,7 +42,7 @@ function fixture() {
 				}),
 				"2026-10-17T00:00:00.000Z",
 			);
-	return { client, append };
+	return { client, append, db };
 }
 
 describe("MCP ledger replay", () => {
@@ -95,4 +97,59 @@ describe("MCP ledger replay", () => {
 		expect(next.events.map((event) => event.eventId)).toEqual(["evt_work_new"]);
 		expect(next.afterSequence).toBe(3);
 	});
+});
+
+it("delivers lane requests only to a fresh active canonical recipient", async () => {
+	const { client, db } = fixture();
+	const input = {
+		laneRequestsOnly: true,
+		after: { at: "", id: "" },
+		targetId: "another-user",
+	};
+	await expect(
+		client().pollWorkInteractionRequests(input),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	await db.insert(organizationMembers).values({
+		id: "membership",
+		organizationId: "org-maple",
+		descopeUserId: "member-robin",
+		userId: "user-robin",
+		email: "robin@example.invalid",
+		status: "active",
+	});
+	for (const [id, targetId] of [
+		["own", "user-robin"],
+		["other", "another-user"],
+	])
+		await db.insert(workInteractions).values({
+			id,
+			orgId: "org-maple",
+			workItemId: "work-cedar",
+			kind: "handoff",
+			subject: "Run lane",
+			prompt: "Read Work",
+			creatorType: "system",
+			creatorId: "tedix",
+			targetType: "user",
+			targetId,
+			createdAt: "2026-10-17T00:00:00.000Z",
+			metadata: { laneRequest: { harness: "codex" } },
+		});
+	expect(
+		(await client().pollWorkInteractionRequests(input)).events.map(
+			(e) => e.data.request_id,
+		),
+	).toEqual(["own"]);
+	await db.delete(organizationMembers);
+	await db.insert(organizationMembers).values({
+		id: "membership",
+		organizationId: "org-maple",
+		descopeUserId: "member-robin",
+		userId: null,
+		email: "robin@example.invalid",
+		status: "active",
+	});
+	await expect(
+		client().pollWorkInteractionRequests(input),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });

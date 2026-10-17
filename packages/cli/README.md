@@ -256,11 +256,13 @@ tedix lane done "Validated and shipped" --commit <sha>
 # Or: tedix lane fail "The provider refused the request"
 ```
 
-The helper uses ordinary Work admission, records the session identity, and
-starts a detached heartbeat for up to one hour. `capture-stop` heartbeats
-registered lanes as well. For a longer unattended run, keep
-`tedix work heartbeat <id> --watch 3600` running and renew it before its horizon.
-An expired lease requires fresh admission, never a stale heartbeat.
+The helper uses ordinary Work admission and records the session identity.
+Report liveness with `tedix lane heartbeat` while working; `capture-stop` also
+reports it. Tedix records stale lanes halfway through the server-issued lease
+and expires them at the lease boundary on its two-minute tick. Registration
+starts no detached heartbeat process. An expired lease requires fresh admission.
+`lane done` reports success; the owning tedi verifies the result before completing
+the Work. Give the Work a tedi owner or steward, or set the project's lead tedi.
 
 Launchers must run registration **inside the child session**, preserve its
 own native session id, and pass the same workspace and organization selectors

@@ -147,6 +147,7 @@ export interface CliOptions {
 	workExecutorTedi?: string;
 	/** `work start`: provision an isolated local Git worktree after admission. */
 	workWorktree?: boolean;
+	workLane?: boolean;
 	/** Optional parent directory for `work start --worktree`. */
 	workWorktreeRoot?: string;
 	/** Explicitly let a human OAuth operator terminally transition from a harness. */

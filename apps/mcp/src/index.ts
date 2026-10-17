@@ -1703,7 +1703,9 @@ export async function maybeHandleInteractionEvents(
 			resultType: "complete",
 			events: [
 				...pollableEventDefinitions.map((event) =>
-					webhooksEnabled && event.name !== interactionReplyEventDefinition.name
+					webhooksEnabled &&
+					event.name !== interactionReplyEventDefinition.name &&
+					event.name !== "lane.requested"
 						? { ...event, delivery: ["poll", "webhook"] }
 						: event,
 				),

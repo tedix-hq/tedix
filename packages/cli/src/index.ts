@@ -1343,6 +1343,7 @@ async function main() {
 						? { executorTedi: options.workExecutorTedi }
 						: {}),
 					...(options.workWorktree ? { worktree: true } : {}),
+					...(options.workLane ? { lane: true } : {}),
 					...(options.workWorktreeRoot
 						? { worktreeRoot: options.workWorktreeRoot }
 						: {}),

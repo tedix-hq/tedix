@@ -276,6 +276,39 @@ For external coding sessions, a directed inbox entry still needs a running
 host hook or listener to reach execution. A queued wake is not proof of a
 resumed turn.
 
+### Server-owned coding lanes
+
+Tedix owns lane lifecycle, readiness and follow-through. A Lead is a bound
+execution session; it does not watch local report files or decide when another
+lane is ready. Register inside the executing session with `tedix lane start`,
+report liveness with `tedix lane heartbeat`, and report the outcome with
+`tedix lane done` or `tedix lane fail`.
+
+The server records a stale event after N without a heartbeat and retires the
+Attempt at 2N. N is half the server-issued lease (currently 2.5 minutes); the
+two-minute server tick bounds detection latency. Heartbeats can recover a
+stale lane before expiry; expired Attempts need fresh admission. Killing the
+local harness does not stop server detection. Attention shows a stale lane as
+blocked and keeps expired Work available in its existing project's backlog.
+
+Coordinators read the server's `workItems.listAttemptProjection` projection,
+including `laneState`, and canonical Work readiness, request ledger rows and
+Interactions. They never use a local `night-log.md` as lane state. A reported
+success wakes the Work's owning, steward or project lead tedi to verify the exact settlement
+against its claimed SHA, document or Work result and post a receipt. Configure
+a tedi owner or steward on the Work, or a lead tedi on its project. The local
+session reports success; the tedi completes Work after verification. A wake
+grants no approval and does not itself prove verification or delivery.
+
+To dispatch a Codex or Claude lane, Tedix opens a Work-linked `handoff`
+Interaction for the executing user's canonical id, with
+`metadata.laneRequest.harness` set to `codex` or `claude-code`. Bound
+`tedix channel codex` and `tedix channel claude` sessions receive its
+`lane.requested` event. Pending open requests replay when a channel binds.
+The recipient reads the Interaction and server readiness, then obtains its
+own Work admission before executing; concurrent recipients cannot share an
+Attempt. Event content carries identifiers, never instructions or credentials.
+
 ## Authority and evidence rules
 
 - Read-only discovery does not authorize a mutation.

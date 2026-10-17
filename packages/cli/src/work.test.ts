@@ -3667,3 +3667,12 @@ describe("terminal Work worktree cleanup", () => {
 		).toBeNull();
 	});
 });
+
+test("registers a lane on its admitted Attempt and rejects the flag on other verbs", async () => {
+	const { ctx, sources } = makeContext({ lane: true });
+	expect((await capture(`start ${ITEM}`, ctx)).code).toBe(0);
+	expect(sources.some((source) => source.includes('"lane":true'))).toBe(true);
+	await expect(runWork(`heartbeat ${ITEM}`, ctx)).rejects.toThrow(
+		"only valid with work start",
+	);
+});

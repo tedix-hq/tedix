@@ -124,6 +124,9 @@ export function channelNotice(event: ChannelEvent): {
 		typeof d.work_item_id === "string" ? `Work Item ${d.work_item_id}` : null;
 	let content: string;
 	switch (event.name) {
+		case "lane.requested":
+			content = `Tedix dispatched a coding lane: Interaction ${String(d.request_id ?? "")} for ${item ?? "a Work Item"}. Read it with \`tedix work interaction-get ${String(d.request_id ?? "")}\`, check the requested harness and server readiness, then start your own lane Attempt. A competing bound session may already have claimed it.`;
+			break;
 		case "home.run.finished":
 			content = `Home finished: ${event.title || "Untitled conversation"} (${String(d.status)}). Run ${String(d.run_id)}; read it with \`tedix run ${String(d.run_id)}\`.`;
 			break;

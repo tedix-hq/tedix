@@ -23,12 +23,24 @@ export function buildAttention(
 		if (row.outcome && !today(row.finishedAt)) continue;
 		if (row.session) representedSessions.add(row.session);
 		if (row.runId) representedRuns.add(row.runId);
-		representedItems.add(row.workItemId);
+		if (!row.outcome || row.outcome === "succeeded")
+			representedItems.add(row.workItemId);
 		const session = sessions.find(
 			(s) => `${s.harness}:${s.sessionKey}` === row.session,
 		);
 		const expired =
 			!row.outcome && Date.parse(row.expiresAt ?? "") <= now.getTime();
+		const stale =
+			row.registeredLane &&
+			!row.outcome &&
+			now.getTime() >=
+				(Date.parse(row.heartbeatAt) + Date.parse(row.expiresAt ?? "")) / 2;
+		const needsHuman = requests.some(
+			(request) =>
+				`${request.harness}:${request.sessionKey}` === row.session &&
+				request.projectId === row.projectId &&
+				request.status === "waiting_on_user",
+		);
 		cards.push({
 			id: row.id,
 			title: row.title,
@@ -43,18 +55,21 @@ export function buildAttention(
 			column:
 				row.outcome === "succeeded"
 					? "done"
-					: row.outcome || expired
+					: row.outcome || expired || stale
 						? "blocked"
-						: session?.state === "needs_you"
+						: needsHuman || session?.state === "needs_you"
 							? "waiting"
 							: row.state === "waiting"
 								? "blocked"
 								: "moving",
 			startedAt: row.startedAt,
 			heartbeatAt: row.heartbeatAt,
-			note: expired
-				? "Attempt lease elapsed; activity is unconfirmed"
-				: session?.summary || row.note || row.state,
+			note:
+				stale && !expired
+					? "Lane stale: heartbeat stopped; Tedix is watching the lease"
+					: expired
+						? "Attempt lease elapsed; activity is unconfirmed"
+						: session?.summary || row.note || row.state,
 			href: `/work/items/${row.workItemId}`,
 			source: "attempt",
 		});

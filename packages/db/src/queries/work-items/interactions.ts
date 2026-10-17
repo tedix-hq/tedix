@@ -971,6 +971,7 @@ export async function listRequestedWorkInteractionEvents(
 	db: DbQueryClient,
 	p: {
 		orgId: string;
+		laneRequestsOnly?: boolean;
 		after: { at: string; id: string } | null;
 		workItemId?: string;
 		targetId?: string;
@@ -999,6 +1000,9 @@ export async function listRequestedWorkInteractionEvents(
 					: undefined,
 				p.targetId ? eq(workInteractions.targetId, p.targetId) : undefined,
 				p.kind ? eq(workInteractions.kind, p.kind) : undefined,
+				p.laneRequestsOnly
+					? sql`${workInteractions.kind} = 'handoff' AND ${workInteractions.targetType} = 'user' AND ${workInteractions.workItemId} IS NOT NULL AND ${workInteractions.status} = 'open' AND (${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt} > ${new Date().toISOString()}) AND json_extract(${workInteractions.metadata}, '$.laneRequest.harness') IN ('codex','claude-code')`
+					: undefined,
 				sql`(${workInteractions.targetType}<>'user' OR coalesce(json_extract(${workInteractions.metadata},'$.notification.state'),'immediate') NOT IN ('deferred','bundled','suppressed'))`,
 				p.after
 					? sql`(${workInteractions.createdAt}>${p.after.at} OR (${workInteractions.createdAt}=${p.after.at} AND ${workInteractions.id}>${p.after.id}))`

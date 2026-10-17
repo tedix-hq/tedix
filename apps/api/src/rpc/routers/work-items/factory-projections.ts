@@ -6,6 +6,7 @@ import { listWorkItemReadinessProjection } from "@tedix/db/queries/work-items/re
 import { requireOrgId } from "../../org-scope";
 import { withAuthorization } from "../../orpc";
 import { authOs } from "./policy-helpers";
+import { readLaneState } from "@tedix/db/queries/work-items/lane-lifecycle";
 
 const projectionOs = authOs.use(
 	withAuthorization(
@@ -38,8 +39,8 @@ export const listReadinessProjectionProcedure =
 	});
 
 export const listAttemptProjectionProcedure =
-	projectionOs.listAttemptProjection.handler(async ({ input, context }) =>
-		listOrgWorkAttempts(context.db, {
+	projectionOs.listAttemptProjection.handler(async ({ input, context }) => {
+		const page = await listOrgWorkAttempts(context.db, {
 			orgId: requireOrgId(context),
 			projectId: input.projectId,
 			workItemId: input.workItemId,
@@ -48,8 +49,26 @@ export const listAttemptProjectionProcedure =
 			executorType: input.executorType,
 			cursor: input.cursor,
 			limit: input.limit,
-		}),
-	);
+		});
+		const now = new Date().toISOString();
+		return {
+			...page,
+			data: await Promise.all(
+				page.data.map(async (row) => ({
+					...row,
+					laneState:
+						row.attempt.metadata.lane === true
+							? await readLaneState(
+									context.db,
+									requireOrgId(context),
+									row.attempt.id,
+									now,
+								)
+							: null,
+				})),
+			),
+		};
+	});
 
 export const listRecoveryProjectionProcedure =
 	projectionOs.listRecoveryProjection.handler(async ({ input, context }) => {

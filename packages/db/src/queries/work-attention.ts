@@ -85,6 +85,10 @@ export async function readAttentionSources(
 				finishedAt: workAttempts.finishedAt,
 				note: workAttempts.summary,
 				runId: workAttempts.runId,
+				registeredLane:
+					sql<boolean>`json_extract(${workAttempts.metadata}, '$.lane') = 1`.mapWith(
+						Boolean,
+					),
 			})
 			.from(workAttempts)
 			.innerJoin(
