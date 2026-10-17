@@ -367,6 +367,25 @@ radius, confidence, cost of waiting, reasoning, cited lessons and 2–4
 options with consequences and costs. The versioned schema is
 `packages/api-contract/src/schemas/os-decision-deck.ts`.
 
+An option can carry a typed `effect`: `accept_work`, `complete_work`,
+`record_adr`, `record_review`, `file_request`, `publish_docs` or
+`publish_support`. These reuse the original product's permissions. A card
+can show the exact draft in `preview.body`; a Support draft pins the ticket
+version, a document review pins its revision, and a filing correction pins
+its previous destination. The server saves an action claim before starting.
+An unconfirmed result leaves the request open and blocks another execution;
+check the saved receipt and target before preparing a new decision.
+
+New Support drafts create Outbound cards for the configured human admin.
+Automatic filing creates reviews only for uncertain matches. The owner's
+`decision-filing-reviews` setting in the organization's user-config namespace
+controls `enabled` (true), `confidenceBelow` (0.8), and `limit` (10).
+Choosing **No, refile it** returns the request to Unfiled and records the
+correction for the existing learning process. Decisions retain the proposal,
+project, timing, waiting cost and outcome with the person's feedback;
+explicit feedback can teach immediately, while an isolated approval remains
+an observation rather than a general rule.
+
 Open Work to finish a short batch of decisions, then get back to your day.
 Set `navigation.work` to `"deck"` on the installed Deck app and to `"feed"`
 on the Feed app. Work opens the Deck on phone and desktop; Feed remains

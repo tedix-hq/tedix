@@ -835,6 +835,14 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			id: input.id,
 		});
 		if (!previous) throw createError(ErrorCodes.NOT_FOUND, "Request not found");
+		if (
+			input.expectedProjectId !== undefined &&
+			previous.projectId !== input.expectedProjectId
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"This filing changed; reload the decision",
+			);
 		let row = previous;
 		if (previous.projectId !== input.projectId) {
 			const { recordRequestFiling } =

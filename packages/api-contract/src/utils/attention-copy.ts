@@ -115,6 +115,41 @@ export const ATTENTION_COPY = {
 	waitingDecision: "Waiting on your decision",
 	heartbeatOverdue: "Heartbeat overdue; activity is unconfirmed",
 	leaseElapsed: "Work lease elapsed; activity is unconfirmed",
+	filingProposal: "Filed to {{project}}?",
+	filingWhyNow:
+		"This request was filed automatically with a low confidence match.",
+	filingRecommendation:
+		"Keep the destination if it fits; otherwise return it for a better match.",
+	filingBlastRadius: "One request and its proposed Work",
+	filingWaitingCost: "Future requests may repeat the same filing mistake.",
+	filingFallbackReason: "Automatic project match",
+	filingKeep: "Yes, keep it",
+	filingKeepConsequence: "Keep this request in {{project}}.",
+	filingCorrect: "No, refile it",
+	filingCorrectConsequence:
+		"Return this request to Unfiled and teach the filer that this destination was wrong.",
+	filingCorrectionCost: "The filer will find a better destination.",
+	filingReviewReason:
+		"Only the ledger owner can correct this private request's destination.",
+	filingReviewPrompt: "{{request}}\n\nFiled automatically: {{reason}}",
+	noCost: "None",
+	supportDraftProposal: "Publish the Support answer: {{title}}?",
+	supportDraftWhyNow:
+		"Support has prepared a cited answer; the reporter is still waiting.",
+	supportDraftRecommendation:
+		"Review the exact reply and publish it if it answers the report.",
+	supportDraftBlastRadius: "One public reply on the reporter's support ticket",
+	supportDraftWaitingCost:
+		"The reporter cannot see the prepared answer until it is published.",
+	supportDraftApprove: "Publish this reply",
+	supportDraftConsequence:
+		"Publish this exact reviewed reply to the support ticket.",
+	supportDraftReject: "Keep it private",
+	supportDraftRejectConsequence:
+		"Leave the draft private for a revised answer.",
+	supportDraftRejectCost: "The reporter continues waiting.",
+	supportDraftReason:
+		"Only the designated human admin can publish this support reply.",
 } as const;
 
 export function attentionCopy(

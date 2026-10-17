@@ -129,6 +129,47 @@ beforeEach(() => {
 });
 
 describe("buildDecisionLessons", () => {
+	it("learns explicit card feedback immediately with its timing context, while an isolated approval stays an observation", () => {
+		const meta = {
+			answerSource: "os-decision-card",
+			answer: "Reject this proposed reminder",
+			feedbackText: "Show these only the day before they are due",
+			decisionContext: {
+				whyNow: "The meeting is next week",
+				costOfWaiting: "No action needed today",
+			},
+		};
+		const [lesson] = buildDecisionLessons([
+			event("e1", { ...personal("user-pine"), eventKind: "rejected", meta }),
+		]);
+		expect(lesson?.content).toContain(
+			"Show these only the day before they are due",
+		);
+		expect(lesson?.content).toContain("The meeting is next week");
+		expect(
+			buildDecisionLessons([
+				event("e2", {
+					...personal("user-pine"),
+					eventKind: "accepted",
+					meta: { ...meta, feedbackText: null },
+				}),
+			]),
+		).toHaveLength(0);
+		const approvals = buildDecisionLessons(
+			["e1", "e2"].map((id) =>
+				event(id, {
+					...personal("user-pine"),
+					eventKind: "accepted",
+					meta: {
+						...meta,
+						answer: "Approve the reviewed supplier summary as written",
+						feedbackText: null,
+					},
+				}),
+			),
+		);
+		expect(approvals[0]?.content).toContain("Approved this suggestion");
+	});
 	it("learns a feed correction only in its personal scope and ignores likes", () => {
 		const correction = event("e1", {
 			...personal("user-pine"),

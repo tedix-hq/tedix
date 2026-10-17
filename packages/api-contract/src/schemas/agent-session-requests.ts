@@ -163,6 +163,7 @@ export const UpdateAgentSessionRequestResultSchema = z.strictObject({
 export const FileAgentSessionRequestInputSchema = z.strictObject({
 	id: z.uuid(),
 	projectId: z.uuid().nullable(),
+	expectedProjectId: z.uuid().nullable().optional(),
 	workItemId: z.uuid().optional(),
 	acceptanceChecks: z.array(KernelAcceptanceCheckSchema).max(20).optional(),
 });
