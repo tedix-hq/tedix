@@ -118,7 +118,7 @@ function fixture(overrides: Partial<OutboundState> = {}) {
 			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES(?,?,?,'question','Review reply','Draft','user','rosa','user','rosa',?)",
 		)
 		.run(QUESTION, ORG, WORK, "2026-10-17T10:00:00Z");
-	const queue = vi.fn(async () => {});
+	const queue = vi.fn(async (_event: { idempotencyKey: string }) => {});
 	const db = createDbClient(createD1Facade(sqlite));
 	const client = (who = "rosa", organizationId = ORG, tedi = false) =>
 		createRouterClient(outboundRouter, {
@@ -157,6 +157,58 @@ beforeEach(() => {
 });
 
 describe("outbound authorization and delivery", () => {
+	it("gives an authorized review retry a fresh execution key without changing the draft", async () => {
+		const { client, queue } = fixture({ status: "reviewing", review: null });
+		await expect(
+			client("lina").requestReview({ workItemId: WORK, expectedVersion: 1 }),
+		).rejects.toThrow(/author, owner or reviewer/);
+		expect(queue).not.toHaveBeenCalled();
+		const first = await client().requestReview({
+			workItemId: WORK,
+			expectedVersion: 1,
+		});
+		expect(first.version).toBe(2);
+		expect(first.outbound).toEqual({
+			...state,
+			status: "reviewing",
+			review: null,
+		});
+		await expect(
+			client().requestReview({ workItemId: WORK, expectedVersion: 1 }),
+		).rejects.toThrow(/current pending draft/);
+		const second = await client().requestReview({
+			workItemId: WORK,
+			expectedVersion: first.version,
+		});
+		expect(second.version).toBe(3);
+		expect(second.outbound).toEqual(first.outbound);
+		expect(queue.mock.calls.map(([event]) => event.idempotencyKey)).toEqual([
+			`outbound:${WORK}:2`,
+			`outbound:${WORK}:3`,
+		]);
+		expect(gmail.send).not.toHaveBeenCalled();
+	});
+	it("can retry a queue failure without reusing its failed execution identity", async () => {
+		const { client, queue } = fixture({ status: "reviewing", review: null });
+		queue.mockRejectedValueOnce(new Error("Temporary queue failure"));
+		await expect(
+			client().requestReview({ workItemId: WORK, expectedVersion: 1 }),
+		).rejects.toThrow(/Temporary queue failure/);
+		const saved = await client().get({ workItemId: WORK });
+		expect(saved.version).toBe(2);
+		expect(saved.outbound.draft).toEqual(state.draft);
+		const retried = await client().requestReview({
+			workItemId: WORK,
+			expectedVersion: saved.version,
+		});
+		expect(retried.version).toBe(3);
+		expect(queue.mock.calls.map(([event]) => event.idempotencyKey)).toEqual([
+			`outbound:${WORK}:2`,
+			`outbound:${WORK}:3`,
+		]);
+		expect(retried.outbound.review).toBeNull();
+		expect(gmail.send).not.toHaveBeenCalled();
+	});
 	it("accepts only the addressed human and never sends on manual approval", async () => {
 		const { client, sqlite } = fixture();
 		await expect(

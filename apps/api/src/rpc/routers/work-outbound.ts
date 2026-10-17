@@ -432,8 +432,15 @@ export const outboundRouter = os.router({
 				ErrorCodes.FORBIDDEN,
 				"Only this draft's author, owner or reviewer can request its review",
 			);
-		await dispatchReview(context, current);
-		return current;
+		// Dispatch keys use the Work version; a failed run must not absorb retries.
+		const next = await save(
+			context,
+			current,
+			current.outbound,
+			"review_requested",
+		);
+		await dispatchReview(context, next);
+		return next;
 	}),
 	act: write.act.handler(async ({ input, context }) => {
 		const actor = await human(context);
