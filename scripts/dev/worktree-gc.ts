@@ -5,7 +5,9 @@
  *
  * Parallel agents leave worktrees in `.claude/worktrees`, `~/.codex/worktrees`,
  * `/tmp` scratchpads and `.worktrees/`. `git worktree list` sees all of them,
- * wherever they live, so this reads that list instead of scanning folders.
+ * wherever they live. Also scans the canonical checkout's parent for sibling
+ * clones sharing a tedix-hq origin with a canonical checkout in that folder.
+ * Clones must be clean, idle, unused and fully pushed to the current remote.
  *
  * A worktree is removable only when nothing can be lost and nobody is using it:
  * its HEAD is already in the base branch, it has no changes (untracked files
@@ -21,8 +23,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 export type WorktreeEntry = {
 	path: string;
@@ -103,6 +105,8 @@ function git(cwd: string, args: string[]): string {
 		cwd,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
+		timeout: 30_000,
+		env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
 	});
 }
 
@@ -150,6 +154,103 @@ function idleHours(path: string, now: number): number {
 		0,
 	);
 	return newest === 0 ? Number.POSITIVE_INFINITY : (now - newest) / 3_600_000;
+}
+
+export function findSiblingClones(mainPath: string): string[] {
+	const parent = dirname(mainPath);
+	const repos = readdirSync(parent, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => join(parent, entry.name))
+		.filter((path) => existsSync(join(path, ".git")));
+	const origins = new Map<string, string>();
+	for (const path of repos) {
+		const origin = tryGit(path, [
+			"config",
+			"--get",
+			"remote.origin.url",
+		])?.trim();
+		if (origin) origins.set(path, origin);
+	}
+	const canonical = new Map<string, string>();
+	for (const [path, origin] of origins) {
+		const name = origin.match(
+			/^(?:https:\/\/github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])tedix-hq\/([^/]+?)(?:\.git)?$/,
+		)?.[1];
+		if (name === basename(path)) canonical.set(origin, path);
+	}
+	return [...origins]
+		.filter(
+			([path, origin]) =>
+				canonical.has(origin) &&
+				canonical.get(origin) !== path &&
+				// Linked worktrees are removed through their owning repository, never rm.
+				statSync(join(path, ".git")).isDirectory(),
+		)
+		.map(([path]) => path);
+}
+
+export function cloneFullyPushed(path: string): boolean {
+	const worktrees = tryGit(path, ["worktree", "list", "--porcelain"]);
+	if (!worktrees || parseWorktreePorcelain(worktrees).length !== 1)
+		return false;
+	if (tryGit(path, ["rev-parse", "--verify", "refs/stash"]) !== null)
+		return false;
+	const remote = tryGit(path, ["ls-remote", "--heads", "origin"]);
+	const refs = tryGit(path, [
+		"for-each-ref",
+		"--format=%(objectname)",
+		"refs/heads",
+		"refs/tags",
+	]);
+	const head = tryGit(path, ["rev-parse", "HEAD"]);
+	if (!remote || refs === null || !head) return false;
+	const tips = remote
+		.trim()
+		.split("\n")
+		.map((line) => line.split(/\s/)[0] ?? "");
+	return [...new Set(`${head}\n${refs}`.split("\n").filter(Boolean))].every(
+		(ref) =>
+			tips.some(
+				(tip) =>
+					tryGit(path, ["merge-base", "--is-ancestor", ref, tip]) !== null,
+			),
+	);
+}
+
+export function collectSiblingClones(
+	mainPath: string,
+	cwds: string[],
+	minIdle: number,
+	apply: boolean,
+): number {
+	let count = 0;
+	for (const path of findSiblingClones(mainPath)) {
+		const safe = () => {
+			const live = processWorkingDirectories();
+			return (
+				live !== null &&
+				!live.some((dir) => isInside(dir, path)) &&
+				!cwds.some((dir) => isInside(dir, path)) &&
+				idleHours(path, Date.now()) >= minIdle &&
+				!readdirSync(join(path, ".git")).some((name) =>
+					name.endsWith(".lock"),
+				) &&
+				tryGit(path, ["status", "--porcelain", "--untracked-files=all"]) ===
+					"" &&
+				cloneFullyPushed(path)
+			);
+		};
+		const removable = safe();
+		if (removable) count += 1;
+		console.log(
+			`\nclone (${removable ? "fully pushed, removable" : "kept"})  ${path}`,
+		);
+		if (apply && removable && safe()) {
+			rmSync(path, { recursive: true });
+			console.log(`  removed clone ${path}`);
+		}
+	}
+	return count;
 }
 
 function parseArgs(argv: string[]) {
@@ -246,8 +347,15 @@ function main(): void {
 		}
 	}
 
+	const clones = collectSiblingClones(
+		mainPath,
+		cwds ?? [],
+		options.minIdleHours,
+		options.apply,
+	);
 	if (!options.apply) {
-		const count = rows.filter((row) => REMOVABLE.has(row.verdict)).length;
+		const count =
+			rows.filter((row) => REMOVABLE.has(row.verdict)).length + clones;
 		console.log(`\n${count} removable. Re-run with --apply to remove them.`);
 		return;
 	}

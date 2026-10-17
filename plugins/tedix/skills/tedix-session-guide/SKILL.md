@@ -74,6 +74,8 @@ server admission and Attempt fences establish actual access and state.
 
 ## Continue an authorized repository task
 
+Agents must create worktrees under `.worktrees/` (or harness-managed locations), never sibling clones.
+
 An explicit request to implement, fix or ship a repository task authorizes its
 required Work bookkeeping under that repository's and organization's policies.
 After bounded discovery, use the exact existing task when it matches the
