@@ -205,4 +205,18 @@ await assert.rejects(
 );
 assert.equal(calls, 2);
 
+calls = 0;
+assert.equal(
+	await awaitReasonTurn(
+		pending.session_key,
+		async () => ({
+			__tedixMcpResult: true,
+			value: ++calls === 1 ? pending : settled,
+		}),
+		clock,
+	),
+	settled,
+);
+assert.equal(calls, 2);
+
 console.log("skill-runtime reason tests passed");

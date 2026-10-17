@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "bun:test";
 import type { CapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
+import { awaitReasonTurn } from "../src/reason-core";
 
 mock.module("cloudflare:workers", () => ({
 	WorkerEntrypoint: class {},
@@ -421,4 +422,79 @@ test("an unrelated Code Mode failure keeps its original error", async () => {
 			return true;
 		},
 	);
+});
+
+test("reasoning unwraps real MCP bridge receipts while retaining the synthesis request", async () => {
+	const sessionKey = "workflow:synth:example";
+	const programs: string[] = [];
+	const pending = {
+		ok: true,
+		run_id: "synthesis-run",
+		session_key: sessionKey,
+		pending: true,
+		assistant: null,
+	};
+	const settled = {
+		ok: true,
+		run_id: "synthesis-run",
+		session_key: sessionKey,
+		assistant: { content: "Project purpose" },
+	};
+	const probeEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const body = (await new Request(input, init).json()) as {
+					params: { arguments: { code: string } };
+				};
+				programs.push(body.params.arguments.code);
+				return Response.json({
+					jsonrpc: "2.0",
+					id: "reply",
+					result: {
+						structuredContent: {
+							executionId: "execution",
+							result: programs.length === 1 ? pending : settled,
+						},
+					},
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+	let now = 0;
+	const result = await awaitReasonTurn(
+		sessionKey,
+		() =>
+			callMcpTool(
+				probeEnv,
+				{
+					...props,
+					tediNamespace: "chief",
+					manifest: {
+						...manifest,
+						mcp: { tedi: ["run_tedi_turn"] },
+						expectedAnnotations: { destructive: false, readOnly: false },
+					},
+				},
+				{
+					namespace: "tedi",
+					method: "run_tedi_turn",
+					workflow,
+					args: {
+						session_key: sessionKey,
+						text: "Explain the project purpose",
+						client_request_id: "reason:stable",
+					},
+				},
+			),
+		{
+			now: () => now,
+			sleep: async (ms) => {
+				now += ms;
+			},
+		},
+	);
+	assert.deepEqual(result, settled);
+	assert.equal(programs.length, 2);
+	assert.equal(programs[0], programs[1]);
+	assert.match(programs[0]!, /"client_request_id":"reason:stable"/);
 });

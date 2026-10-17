@@ -65,7 +65,13 @@ export async function awaitReasonTurn(
 	const deadline = now() + timeoutMs;
 	let runId: string | undefined;
 	while (true) {
-		const result = await dispatch();
+		const response = await dispatch();
+		const envelope = response as {
+			__tedixMcpResult?: boolean;
+			value?: unknown;
+		} | null;
+		const result =
+			envelope?.__tedixMcpResult === true ? envelope.value : response;
 		const payload = (result ?? {}) as Record<string, unknown>;
 		const receipt = (payload.result ?? payload) as Record<string, unknown>;
 		if (
