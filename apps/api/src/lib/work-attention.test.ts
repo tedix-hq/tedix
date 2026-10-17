@@ -148,4 +148,8 @@ it("keeps one persistent Waiting on you card for a human handoff", () => {
 		},
 	]);
 	expect(result.cards.filter((c) => c.column === "waiting")).toHaveLength(1);
+	input.waiting[0]!.creatorSession = "codex:example";
+	expect(buildAttention(input, [], [], now).cards[0]?.activitySource).toBe(
+		"local_codex",
+	);
 });

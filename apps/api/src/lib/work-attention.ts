@@ -36,6 +36,11 @@ export function buildAttention(
 			note: row.prompt,
 			href: `/work/interactions/${row.id}`,
 			source: "interaction",
+			activitySource: row.creatorSession?.startsWith("codex:")
+				? "local_codex"
+				: row.creatorSession?.startsWith("claude-code:")
+					? "local_claude"
+					: "unknown",
 		});
 		if (row.workItemId) representedItems.add(row.workItemId);
 	}

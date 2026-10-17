@@ -90,7 +90,8 @@ function LiveCard({
 	const source = attentionSource(card);
 	const age = heartbeatAge(card, now);
 	const live = card.column !== "done" && card.column !== "backlog";
-	const stale = live && (age === null || age >= 300_000);
+	const tracked = live && card.source !== "interaction";
+	const stale = tracked && (age === null || age >= 300_000);
 	const end =
 		attentionTimestamp(card.finishedAt || "") ||
 		(live || card.column === "backlog"
@@ -108,7 +109,7 @@ function LiveCard({
 						{card.column === "backlog" ? "Ready for someone" : card.who} ·{" "}
 						{ATTENTION_SOURCES[source].label}
 					</Text>
-					{live && (
+					{tracked && (
 						<span
 							aria-label={stale ? "Heartbeat stale" : "Heartbeat received"}
 							className={`ml-auto h-2 w-2 shrink-0 rounded-full ${!stale ? "attention-heartbeat" : ""}`}
