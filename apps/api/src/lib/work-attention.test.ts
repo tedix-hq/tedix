@@ -80,6 +80,34 @@ describe("Attention projection", () => {
 			["done", "done"],
 			["retry", "backlog"],
 		]);
+		input.skills = [
+			{
+				id: "skill-example",
+				createdBy: null,
+				title: "Inspect records",
+				who: "Ada",
+				workItemId: "item",
+				projectId: "project",
+				status: "completed",
+				startedAt: "2026-10-17T10:00:00Z",
+				finishedAt: "2026-10-17T11:00:00Z",
+				heartbeatAt: null,
+				note: null,
+			},
+		];
+		expect(
+			buildAttention(input, [], [], now).cards.find((c) => c.id === "attempt")
+				?.activitySource,
+		).toBe("local_codex");
+		input.attempts[0]!.runId = "skill-example";
+		expect(
+			buildAttention(input, [], [], now).cards.find((c) => c.id === "attempt"),
+		).toMatchObject({ activitySource: "factory", tediName: "Ada", who: "Ada" });
+		input.skills[0]!.createdBy = "schedule";
+		expect(
+			buildAttention(input, [], [], now).cards.find((c) => c.id === "attempt")
+				?.activitySource,
+		).toBe("coordinator");
 	});
 });
 
