@@ -395,3 +395,30 @@ describe("customerVisiblePreFilter", () => {
 		expect(page.data.map((row) => row.id)).toContain(idFor(6));
 	});
 });
+
+it("filters the executor before pagination and keeps organization scope", async () => {
+	for (let n = 0; n < 30; n++)
+		insert({ id: idFor(n), disposition: "accepted", projectId: PROJECT });
+	sqlite
+		.prepare("UPDATE work_items SET metadata = ? WHERE id = ?")
+		.run(JSON.stringify({ executor: "codex", retained: true }), idFor(0));
+	insert({
+		id: idFor(100),
+		orgId: OTHER_ORG,
+		disposition: "accepted",
+		projectId: PROJECT,
+	});
+	sqlite
+		.prepare("UPDATE work_items SET metadata = ? WHERE id = ?")
+		.run(JSON.stringify({ executor: "codex" }), idFor(100));
+	const page = await listWorkItemsPage(db, {
+		orgId: ORG,
+		executor: "codex",
+		disposition: "accepted",
+		projectId: PROJECT,
+		limit: 1,
+	});
+	expect(page.total).toBe(1);
+	expect(page.data.map((row) => row.id)).toEqual([idFor(0)]);
+	expect(page.data[0]!.metadata).toMatchObject({ retained: true });
+});

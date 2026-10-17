@@ -103,3 +103,12 @@ describe("skill commands", () => {
 		expect(skillUsage()).toContain("tedix workflow");
 	});
 });
+
+it("fetches standing rules by canonical slug without creating or running a skill", async () => {
+	const { calls, ctx } = harness({ entry: { id: SKILL_ID, revision: 2 } });
+	expect(await runSkillCommand("show lane-rules", ctx)).toBe(0);
+	expect(calls).toHaveLength(1);
+	expect(calls[0]).toContain(
+		'skills.get_skills_for_mcp({"slug":"lane-rules"})',
+	);
+});

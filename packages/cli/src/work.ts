@@ -1516,6 +1516,19 @@ async function workCreate(ctx: WorkContext, title: string): Promise<number> {
 	});
 }
 
+function workMetadataInput(ctx: WorkContext): Record<string, unknown> {
+	if (!ctx.work.input) return {};
+	const input = parseObjectArgument(ctx.work.input, "--input");
+	if (
+		Object.keys(input).some((key) => key !== "metadata") ||
+		!isRecord(input.metadata)
+	)
+		throw new Error(
+			"start/settle --input accepts only an object containing metadata",
+		);
+	return input.metadata;
+}
+
 async function workStart(ctx: WorkContext, id: string): Promise<number> {
 	if (!id) throw new Error("work start requires a work item id");
 	const { as } = ctx.work;
@@ -1525,7 +1538,14 @@ async function workStart(ctx: WorkContext, id: string): Promise<number> {
 		mutationCallable(as, "work.start_work_item_attempt"),
 		withSession(ctx, {
 			id,
-			...(ctx.work.lane ? { metadata: { lane: true } } : {}),
+			...(ctx.work.input || ctx.work.lane
+				? {
+						metadata: {
+							...workMetadataInput(ctx),
+							...(ctx.work.lane ? { lane: true } : {}),
+						},
+					}
+				: {}),
 		}),
 	);
 
@@ -2144,7 +2164,9 @@ async function workSettle(ctx: WorkContext, id: string): Promise<number> {
 	const as = ctx.work.as?.trim();
 	// Resolve BEFORE the board call: a fabricated sha must fail locally, not
 	// land as a settled pointer to nothing.
-	const metadata = buildSettlementMetadata(ctx.work.commit);
+	const metadata = ctx.work.input
+		? { ...workMetadataInput(ctx), ...buildSettlementMetadata(ctx.work.commit) }
+		: buildSettlementMetadata(ctx.work.commit);
 	const call = await boardCall(
 		ctx,
 		mutationCallable(as, "work.settle_work_item_attempt"),
@@ -3066,6 +3088,17 @@ interface StructuredFactoryVerb {
 }
 
 const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
+	"dispatch-list": { tool: "list_work_items", write: false },
+	"dispatch-get": {
+		tool: "get_work_items_by_id",
+		write: false,
+		pathField: "id",
+	},
+	"dispatch-attempts": {
+		tool: "list_work_item_attempts",
+		write: false,
+		pathField: "id",
+	},
 	"agent-turn-triage": {
 		tool: "triage_agent_turn",
 		namespace: "agent",

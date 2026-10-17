@@ -127,10 +127,10 @@ export const createProcedure = authOs.create.handler(
 					input.provenance === undefined
 						? undefined
 						: toJsonRecord(input.provenance),
-				metadata:
-					input.metadata === undefined
-						? undefined
-						: toJsonRecord(input.metadata),
+				metadata: toJsonRecord({
+					...input.metadata,
+					...(input.executor ? { executor: input.executor } : {}),
+				}),
 				createdAt: new Date().toISOString(),
 			});
 		} catch (error) {
@@ -159,6 +159,7 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 	const { data, total } = await listWorkItemsPage(context.db, {
 		orgId,
 		disposition: input?.disposition,
+		executor: input?.executor,
 		workKind: input?.workKind,
 		projectId: input?.projectId,
 		objectiveId: input?.objectiveId,

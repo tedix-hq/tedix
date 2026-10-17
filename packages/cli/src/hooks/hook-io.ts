@@ -42,6 +42,7 @@ export interface ReadOptions {
 	 * `process.chdir` round trip made `getcwd` fail with EINTR under launchd.
 	 */
 	cwd?: string;
+	env?: NodeJS.ProcessEnv;
 }
 
 /** Bytes of the child's stderr a read failure message carries. */
@@ -270,7 +271,7 @@ export function readJsonChild(
 		return Promise.reject(new Error("Invalid CLI read timeout"));
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
-			env: { ...process.env },
+			env: options.env ?? { ...process.env },
 			...(options.cwd ? { cwd: options.cwd } : {}),
 			detached: process.platform !== "win32",
 			stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],

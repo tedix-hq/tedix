@@ -263,6 +263,7 @@ export async function listWorkItemTitlesByShortIds(
 
 export interface ListWorkItemsPageOptions {
 	orgId: string;
+	executor?: string;
 	projectId?: string | null;
 	parentWorkItemId?: string | null;
 	disposition?: WorkItem["disposition"];
@@ -326,6 +327,9 @@ export async function listWorkItemsPage(
 				: eq(workItems.parentWorkItemId, options.parentWorkItemId),
 		options.disposition
 			? eq(workItems.disposition, options.disposition)
+			: undefined,
+		options.executor
+			? sql`json_extract(${workItems.metadata}, '$.executor') = ${options.executor}`
 			: undefined,
 		options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
 		options.objectiveId
@@ -768,6 +772,7 @@ export async function updateWorkItemSpecification(
 		orgId: string;
 		workItemId: string;
 		actor: WorkActor;
+		executor?: string;
 		title?: string;
 		description?: string | null;
 		workKind?: WorkItemKind;
@@ -793,6 +798,10 @@ export async function updateWorkItemSpecification(
 	const updateMutation = db
 		.update(workItems)
 		.set({
+			metadata:
+				params.executor === undefined
+					? undefined
+					: { ...prior.metadata, executor: params.executor },
 			title: params.title,
 			description: params.description,
 			workKind: params.workKind,

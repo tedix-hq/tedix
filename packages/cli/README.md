@@ -296,3 +296,44 @@ request usage and matching published model/scope rows; cached and reasoning
 counts are subsets, and context tiers apply per request. Estimates use rates
 at report time and never rewrite historical billing. Failed final uploads keep
 a private receipt for idempotent replay under the same lane identity.
+
+### Local Work dispatcher
+
+`tedix lane serve --executor codex --max 5 --rules <skill-uuid> --project <project-uuid> --repo <checkout>`
+finds accepted Work with `metadata.executor: "codex"`. `--project` is optional;
+workspace and organization are pinned explicitly. Rules default to the organization's
+`lane-rules` skill; `--rules` selects another skill by UUID or slug. Set the executor on a Work
+item or post it through the Work workspace app (`tedix:app/work`, config
+`{"version":1,"projectId":"<project-uuid>"}`). Posting and acceptance remain
+separate actions.
+
+The dispatcher creates an isolated worktree and persistent native Codex thread,
+obtains that thread's verified identity and Work Attempt, fetches the current
+revision of the selected OS rules skill, then runs `codex exec resume`. It
+preserves the configured model and permissions. The existing lane wrapper
+reports telemetry; the dispatcher heartbeats and settles the exact Attempt with
+its result and parsed usage. The server watcher owns lane lifecycle and Work
+completion.
+
+`--max` defaults to 5. One dispatcher per organization and executor runs on a
+machine; retained live process groups consume slots after restart. Each Work
+revision runs once. Ambiguous admission is retained for inspection. Pre-admission
+read failures and failed settlements retain bounded retries, a minute apart;
+settlement recovery checks the exact server Attempt before writing again.
+
+Possible money or personal messaging requests are skipped and logged unless an
+actual owner comment says `Delegation: codex work-version=<version> <bounded note>`.
+Consent, MFA and authentication remain human-only. The lexical screen is
+conservative; provider permissions and atomic Work admission still apply.
+
+On macOS, add `--install` to write and load a user LaunchAgent. It starts now
+and at login, survives the launching session, and defers during dark wake.
+Use a repository accessible to background processes, outside macOS protected
+folders unless the executable already has Full Disk Access. The command prints
+the plist and service name; stop it with `launchctl bootout <service>` before
+reinstalling. No credentials or launcher identity are written into the plist.
+
+`work dispatch-list`, `dispatch-get`, and `dispatch-attempts --input <json>`
+provide full native records for this dispatcher. `work start` and `work settle`
+accept `--input '{"metadata":{...}}'` for bounded execution receipts, while their
+normal identity and Attempt fences remain mandatory.

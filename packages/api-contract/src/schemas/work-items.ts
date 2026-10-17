@@ -1608,8 +1608,17 @@ export const WorkItemTimestampSchema = z.union([
 	z.iso.date(),
 ]);
 
+export const WorkExecutorSchema = z.enum([
+	"human",
+	"tedi",
+	"codex",
+	"claude-code",
+]);
+export type WorkExecutor = z.infer<typeof WorkExecutorSchema>;
+
 export const CreateWorkItemInputSchema = z
 	.object({
+		executor: WorkExecutorSchema.optional(),
 		factoryCycle: z
 			.object({
 				workspaceId: z.uuid(),

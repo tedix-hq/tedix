@@ -56,3 +56,41 @@ it("fences date updates, preserves omitted dates and audits clearing without lif
 	).toBe(3);
 	sqlite.close();
 });
+
+it("stores executor selection without losing other metadata and rejects another tenant", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(schemaDdl(workItems, workEvents));
+	sqlite
+		.prepare(
+			"INSERT INTO work_items(id,org_id,title,disposition,created_at,metadata) VALUES(?,?,?,?,?,?)",
+		)
+		.run(
+			"work",
+			"org-acme",
+			"A task",
+			"accepted",
+			"2026-10-01T00:00:00.000Z",
+			JSON.stringify({ retained: true }),
+		);
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const input = {
+		orgId: "org-acme",
+		workItemId: "work",
+		actor: { type: "user" as const, id: "acme-owner" },
+		executor: "codex",
+	};
+	const updated = await updateWorkItemSpecification(db, {
+		...input,
+		expectedWorkItemVersion: 1,
+	});
+	expect(updated.metadata).toEqual({ retained: true, executor: "codex" });
+	expect(updated.version).toBe(2);
+	await expect(
+		updateWorkItemSpecification(db, { ...input, orgId: "org-other" }),
+	).rejects.toThrow();
+	await expect(
+		updateWorkItemSpecification(db, { ...input, expectedWorkItemVersion: 1 }),
+	).rejects.toThrow();
+	sqlite.close();
+});

@@ -882,7 +882,7 @@ const REFRESH_FAMILY_INVALIDATED =
  * Power assertions do not keep a battery-powered Mac in dark wake, so the
  * renewal is not started there at all.
  */
-function inDarkWake(): boolean {
+export function inDarkWake(): boolean {
 	if (process.platform !== "darwin") return false;
 	const state = spawnSync("/usr/bin/pmset", ["-g", "systemstate"], {
 		encoding: "utf8",
