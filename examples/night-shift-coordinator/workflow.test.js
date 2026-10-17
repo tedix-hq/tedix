@@ -303,12 +303,10 @@ describe("native night coordination", () => {
 			{ id: "latest", outcome: "succeeded", metadata: { lane: true } },
 		]);
 		for (const id of ["earlier-1", "earlier-2"])
-			f.comments
-				.get("again")
-				.push({
-					body: "Night review " + id,
-					metadata: { nightReview: { attemptId: id, decision: "rebrief" } },
-				});
+			f.comments.get("again").push({
+				body: "Night review " + id,
+				metadata: { nightReview: { attemptId: id, decision: "rebrief" } },
+			});
 		expect((await f.run({ maxRetries: 2 })).selected).toEqual([]);
 		expect(f.items.get("again").metadata.executor).toBe("human");
 	});
