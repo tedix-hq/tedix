@@ -31,7 +31,8 @@ export type DecisionCardKind =
 	| "proposal"
 	| "question"
 	| "approval"
-	| "decision";
+	| "decision"
+	| "adr";
 export type DecisionCardSignal =
 	| "approve-as-is"
 	| "edited"
@@ -260,7 +261,7 @@ export function WorkDecisionCard({
 					</CardDescription>
 					<CardTitle className="text-xl leading-snug">{title}</CardTitle>
 				</CardHeader>
-				<CardContent className="grid gap-4">
+				<CardContent className="grid grid-cols-1 gap-4">
 					{editing ? (
 						<div className="grid gap-3">
 							{editContent}
@@ -326,8 +327,10 @@ export function WorkDecisionCard({
 						<>
 							<div
 								className={
-									kind === "decision"
-										? "grid gap-3 sm:grid-cols-2"
+									kind === "decision" ||
+									kind === "adr" ||
+									actions.some((action) => action.description)
+										? "grid grid-cols-1 gap-3 sm:grid-cols-2"
 										: "flex flex-wrap gap-2"
 								}
 							>
@@ -340,8 +343,10 @@ export function WorkDecisionCard({
 										<Button
 											key={action.id}
 											className={
-												kind === "decision"
-													? "h-auto min-h-20 whitespace-normal text-left"
+												kind === "decision" ||
+												kind === "adr" ||
+												action.description
+													? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
 													: "min-h-11 grow sm:grow-0"
 											}
 											variant={
@@ -358,10 +363,16 @@ export function WorkDecisionCard({
 											{saving ? (
 												"Saving…"
 											) : (
-												<span className="grid gap-1">
+												<span className="grid min-w-0 gap-1 whitespace-normal break-words">
 													<span>{action.label}</span>
 													{action.description ? (
-														<span className="font-normal text-kumo-subtle">
+														<span
+															className={
+																action.intent === "approve"
+																	? "font-normal opacity-90"
+																	: "font-normal text-kumo-subtle"
+															}
+														>
 															{action.description}
 														</span>
 													) : null}
@@ -382,7 +393,7 @@ export function WorkDecisionCard({
 										{editAction.label}
 									</Button>
 								) : null}
-								{kind === "outbound" && !disabled ? (
+								{(kind === "outbound" || editAction) && !disabled ? (
 									<Button
 										variant="outline"
 										className="min-h-11"

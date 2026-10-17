@@ -296,3 +296,25 @@ it("focuses an expanded stack card so Enter works without an extra click", async
 	);
 	expect(decide).toHaveBeenCalledTimes(1);
 });
+
+it("lets an architecture recommendation be changed with its original text preserved", async () => {
+	const decide = await mount({
+		kind: "adr",
+		body: "Remove the old field now.",
+		editAction: { id: "change", label: "Save changes" },
+	});
+	await click("Change");
+	await type(
+		'textarea[aria-label="Edit draft"]',
+		"Backfill and verify readers first.",
+	);
+	await click("Save changes");
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({
+			action: "change",
+			signal: "edited",
+			originalBody: "Remove the old field now.",
+			body: "Backfill and verify readers first.",
+		}),
+	);
+});

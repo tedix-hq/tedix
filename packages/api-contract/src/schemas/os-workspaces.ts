@@ -20,6 +20,10 @@ import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
 import { CARD_REVIEW_ENTRY, CardReviewConfigSchema } from "./os-card-review";
 import {
+	DECISION_DECK_ENTRY,
+	DecisionDeckConfigSchema,
+} from "./os-decision-deck";
+import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
 } from "./os-outbound-review";
@@ -555,7 +559,9 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 							? OfficeConfigSchema
 							: value.entry.trim() === AGENTS_ENTRY
 								? AgentsConfigSchema
-								: null;
+								: value.entry.trim() === DECISION_DECK_ENTRY
+									? DecisionDeckConfigSchema
+									: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;

@@ -13,6 +13,11 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { PersonalReadConsentApp } from "@/components/personal-read-consent-app";
 import {
+	DECISION_DECK_ENTRY,
+	DecisionDeckConfigSchema,
+} from "@tedix/api-contract/schemas/os-decision-deck";
+import { DecisionDeckApp } from "@/components/decision-deck-app";
+import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
 } from "@tedix/api-contract/schemas/os-outbound-review";
@@ -68,6 +73,10 @@ export function WorkspaceAppRenderer({
 					config={config.data}
 				/>
 			);
+	}
+	if (entry === DECISION_DECK_ENTRY) {
+		const config = DecisionDeckConfigSchema.safeParse(manifest.config);
+		if (config.success) return <DecisionDeckApp config={config.data} />;
 	}
 	if (entry === "tedix:app/attention")
 		return <AttentionApp workspaceId={workspaceId} />;

@@ -344,6 +344,42 @@ Every app build must update its agent guide with these chat operations,
 required access and result checks. Test the chat path alongside the app's
 buttons; a WebMCP tool is available only while its app is open.
 
+## Decision deck prototype
+
+While the app is open, `get_decision_deck_card` reads the displayed card,
+options, consequences, reasoning, cited lessons and readiness. It is
+read-only; a browser agent cannot answer or approve human decisions.
+
+`tedix:app/decision-deck` uses the same workspace renderer. Its manifest
+settings are `version: 1`, optional `projectId`, `limit` (default 50),
+`unchangedThreshold` (5), `dailyAttentionBudget` (10) and `auditSampleRate`
+(0.1). `defaultLowStakesToDelegate` (true) makes **Decide for me** the primary
+response for reversible taste choices with no protected effects. Optional
+`examples` hold up to twelve fictional decision envelopes
+for the separate **Try examples** preview. Practice choices stay in the
+preview and never train the person's profile or approve real work.
+
+The live deck reads the viewer's existing Interaction inbox and approvals.
+Existing outbound cards retain their reviewed-version and consent checks.
+Architecture and strategy requests can supply `metadata.decisionDeck`:
+proposal, why now, recommendation, reversibility, protected effects, blast
+radius, confidence, cost of waiting, reasoning, cited lessons and 2–4
+options with consequences and costs. The versioned schema is
+`packages/api-contract/src/schemas/os-decision-deck.ts`.
+
+Readiness counts only loaded human receipts for the current person and
+class; it cannot grant execution authority. Automatic policy promotion,
+audit scheduling, weekly digests and CTO-generated ADRs remain design
+work. Reversible implementation without protected effects or a taste
+choice is omitted from the deck, while unknown reversibility stays visible.
+
+From chat, discover the Interaction inbox/detail tools and read the exact
+request and version. Explain the offered responses and consequences; do
+not answer or approve a human's card. A saved response proves the choice
+was recorded. Follow the originating Work and provider receipt to check
+execution. History is read-only in the deck. **Why this?** shows reasoning
+and cited lessons; the account profile remains the style-profile surface.
+
 ## Expose WebMCP tools
 
 A built-in app registers its own WebMCP tools while it is open, so a browser

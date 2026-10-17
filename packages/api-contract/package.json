@@ -28,6 +28,7 @@
 		"./schemas/provider-events": "./src/schemas/provider-events.ts",
 		"./contracts/os-gadget-state": "./src/contracts/os-gadget-state.ts",
 		"./schemas/os-gadget-state": "./src/schemas/os-gadget-state.ts",
+		"./schemas/os-decision-deck": "./src/schemas/os-decision-deck.ts",
 		"./schemas/os-card-review": "./src/schemas/os-card-review.ts",
 		"./schemas/os-outbound-review": "./src/schemas/os-outbound-review.ts",
 		"./schemas/os-session-apps": "./src/schemas/os-session-apps.ts",
