@@ -6,6 +6,8 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./schema/support": "./src/schema/support.ts",
+		"./queries/support": "./src/queries/support.ts",
 		"./schema/tedi-console": "./src/schema/tedi-console.ts",
 		"./queries/tedi-console": "./src/queries/tedi-console.ts",
 		"./queries/billing/credit-activation": "./src/queries/billing/credit-activation.ts",

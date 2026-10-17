@@ -10,6 +10,16 @@
  * after this MCP gate.
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
+	"support/configure": "platform:admin",
+	"support/file": "mcp:work.write",
+	"support/status": "mcp:work.read",
+	"support/mine": "mcp:work.read",
+	"support/queue": "mcp:work.read",
+	"support/get": "mcp:work.read",
+	"support/draft": "mcp:work.write",
+	"support/publish": "mcp:work.write",
+	"support/escalate": "mcp:work.write",
+	"support/review": "mcp:work.write",
 	"adapterBindings/delete": "mcp:apps.admin",
 	"adapterBindings/deleteByPath": "mcp:apps.admin",
 	"adapterBindings/get": "mcp:apps.read",

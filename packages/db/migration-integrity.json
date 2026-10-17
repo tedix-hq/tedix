@@ -908,6 +908,10 @@
 		{
 			"name": "20261017095925_request-project-routing/migration.sql",
 			"sha256": "03005ab3bc666fd7b1618d70aa883819704eebd15efcffebb5653e22a7f62e8e"
+		},
+		{
+			"name": "20261017103247_support_factory/migration.sql",
+			"sha256": "be739da880bb70a3b591b3bc87c26a02f5ecb00fda6d004d8f9fedc672d675e2"
 		}
 	]
 }

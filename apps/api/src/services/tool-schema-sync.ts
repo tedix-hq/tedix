@@ -626,6 +626,16 @@ export const GRAPH_GOVERNANCE_KIND_OVERRIDES: Record<
  * explicit in discovery and authorization scope routing.
  */
 export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
+	"support/file": "file_support_request",
+	"support/status": "get_support_status",
+	"support/mine": "list_my_support_tickets",
+	"support/configure": "configure_support_factory",
+	"support/queue": "list_support_tickets",
+	"support/get": "get_support_ticket",
+	"support/draft": "draft_support_answer",
+	"support/publish": "publish_support_answer",
+	"support/escalate": "escalate_support_ticket",
+	"support/review": "record_support_review",
 	"projects/create": "create_project",
 	"projects/get": "get_project",
 	"projects/update": "update_project",

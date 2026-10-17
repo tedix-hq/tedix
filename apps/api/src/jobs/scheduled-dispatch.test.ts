@@ -59,6 +59,9 @@ vi.mock("./commitment-wakes", () => ({
 		.fn()
 		.mockResolvedValue({ observed: 0, dispatched: 0 }),
 }));
+vi.mock("./support-maintenance", () => ({
+	maintainSupport: vi.fn().mockResolvedValue({ mirrors: 0 }),
+}));
 vi.mock("./platform-cron-receipts", () => ({
 	runPlatformCronPath: async (
 		_env: unknown,

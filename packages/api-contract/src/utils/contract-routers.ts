@@ -8,6 +8,7 @@
  */
 
 import { getOpenAPIMeta } from "@orpc/openapi";
+import { supportContract } from "../contracts/support";
 import { tediConsoleContract } from "../contracts/tedi-console";
 import { adapterBindingsContract } from "../contracts/adapter-bindings";
 import { aeoContract } from "../contracts/aeo";
@@ -203,6 +204,7 @@ export const ROUTERS: Record<string, unknown> = {
 	waitlist: waitlistContract,
 	voice: voiceContract,
 	workItems: workItemsContract,
+	support: supportContract,
 	workApprovals: workApprovalsContract,
 	workAgentSessions: workAgentSessionsContract,
 	workInteractions: workInteractionsContract,
