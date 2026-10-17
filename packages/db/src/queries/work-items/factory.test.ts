@@ -151,6 +151,63 @@ function seed(sqlite: DatabaseSync, id: string, disposition = "accepted") {
 }
 
 describe("artifact-neutral work factory", () => {
+	it("admits only one concurrent factory retry and cannot exceed the last retry slot", async () => {
+		const { sqlite, db } = fixture();
+		seed(sqlite, "factory");
+		sqlite
+			.prepare("UPDATE work_items SET metadata=? WHERE id='factory'")
+			.run(JSON.stringify({ factoryCycle: { maxAttempts: 2 } }));
+		const start = (key: string, at: string) =>
+			startWorkItemAttempt(db, {
+				orgId: "org",
+				workItemId: "factory",
+				admissionId: `admission-factory-${key}`,
+				executor: { type: "tedi", id: key },
+				startedAt: at,
+				expiresAt: "2026-08-20T13:00:00.000Z",
+			});
+		const first = await start("worker", NOW);
+		await settleWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "factory",
+			attemptId: first.attempt.id,
+			executor: { type: "tedi", id: "worker" },
+			outcome: "failed",
+			settledAt: "2026-08-20T12:01:00.000Z",
+		});
+		const contenders = await Promise.allSettled([
+			start("one", "2026-08-20T12:02:00.000Z"),
+			start("two", "2026-08-20T12:02:00.000Z"),
+		]);
+		const winners = contenders.filter(
+			(result) => result.status === "fulfilled",
+		);
+		expect(winners).toHaveLength(1);
+		const losers = contenders.filter((result) => result.status === "rejected");
+		expect(losers).toHaveLength(1);
+		expect(losers[0]!.reason).toBeInstanceOf(WorkFactoryError);
+		const winner = winners[0]!.value.attempt;
+		expect(winner.attemptNumber).toBe(2);
+		await settleWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "factory",
+			attemptId: winner.id,
+			executor: { type: "tedi", id: winner.executorId },
+			outcome: "failed",
+			settledAt: "2026-08-20T12:03:00.000Z",
+		});
+		await expect(
+			start("worker", "2026-08-20T12:04:00.000Z"),
+		).rejects.toMatchObject({ code: "NOT_READY" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT attempt_number FROM work_attempts WHERE work_item_id='factory' ORDER BY attempt_number",
+				)
+				.all(),
+		).toEqual([{ attempt_number: 1 }, { attempt_number: 2 }]);
+	});
+
 	it("atomically rejects a stale admission after the factory retry cap is consumed", async () => {
 		const { sqlite, db } = fixture();
 		seed(sqlite, "factory");

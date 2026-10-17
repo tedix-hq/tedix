@@ -347,6 +347,54 @@ describe("run a linked skill now", () => {
 		...(needs ? { needs } : {}),
 	});
 
+	it("refuses run_skill Do it without a grant, including after revocation", async () => {
+		const env = createEnv();
+		const { workspaceId, mailbox } = await seed(env);
+		const owner = member(env, OWNER);
+		const request = press(workspaceId, "organise");
+		const denied = {
+			status: "needs_access",
+			level: "none",
+			providerName: "Gmail",
+			resourceId: mailbox,
+		};
+		await expect(owner.schedules.runNow(request)).resolves.toEqual(denied);
+		await owner.schedules.setPersonalAccess({
+			workspaceId,
+			resourceId: mailbox,
+			level: "organise",
+		});
+		await owner.schedules.setPersonalAccess({
+			workspaceId,
+			resourceId: mailbox,
+			level: "none",
+		});
+		await expect(owner.schedules.runNow(request)).resolves.toEqual(denied);
+		expect(mocks.runtime).not.toHaveBeenCalled();
+		expect(mocks.validate).not.toHaveBeenCalled();
+	});
+
+	it("denies another member a private Workspace's linked skill even with its exact ids", async () => {
+		const env = createEnv();
+		const { workspaceId, mailbox } = await seed(env);
+		await member(env, OWNER).schedules.setPersonalAccess({
+			workspaceId,
+			resourceId: mailbox,
+			level: "organise",
+		});
+		await expect(
+			member(env, OTHER).schedules.runNow(press(workspaceId, "organise")),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			member(env, OTHER).schedules.list({ workspaceId }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(mocks.runtime).not.toHaveBeenCalled();
+		expect(mocks.validate).not.toHaveBeenCalled();
+		await expect(
+			member(env, OWNER).schedules.runNow(press(workspaceId, "organise")),
+		).resolves.toEqual({ status: "started", runId: "run-1" });
+	});
+
 	it("does not start an organising run without organise access", async () => {
 		const env = createEnv();
 		const { workspaceId, mailbox } = await seed(env);

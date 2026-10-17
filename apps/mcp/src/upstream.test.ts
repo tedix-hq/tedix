@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { getApiClient } from "./lib/api-client";
 import {
 	isRetryableUpstreamError,
 	UPSTREAM_ATTEMPT_TIMEOUT_MS,
@@ -57,6 +58,26 @@ describe("isRetryableUpstreamError", () => {
 			true,
 		);
 	});
+
+	it.each([400, 401, 403, 404, 429, 500, 502, 503, 504])(
+		"classifies a real client's malformed HTTP %s response",
+		async (status) => {
+			const client = getApiClient({
+				serviceFetch: {
+					fetch: async () =>
+						new Response("Fictional upstream proxy error", { status }),
+					connect: () => {
+						throw new Error("Unexpected socket connection");
+					},
+				},
+			});
+			const error = await client.apps
+				.getBySlugWithTools({ slug: "cedar" })
+				.catch((error: unknown) => error);
+			expect(error).toMatchObject({ name: "MalformedResponseError" });
+			expect(isRetryableUpstreamError(error)).toBe(status >= 500);
+		},
+	);
 
 	it("uses the HTTP status of a malformed oRPC response", () => {
 		// Stand-in for @orpc/client's MalformedResponseError (name + response).
