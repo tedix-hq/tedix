@@ -119,6 +119,7 @@ import { inspectExistingPiFacet } from "./pi-recovery-diagnostic";
 import { RuntimeConfigCache } from "./runtime-config-cache";
 import { RuntimeEventOutbox } from "./runtime-event-outbox";
 import { repositoryModeForMetadata } from "./runtime-tool-guidance";
+import { capabilityPlanForMetadata } from "./delegation-capabilities";
 import { terminateWorkflow } from "./workflow-cancellation";
 import { WorkflowImageCleanup } from "./workflow-image-cleanup";
 import { type WorkflowImageRef } from "./workflow-image-handoff";
@@ -737,6 +738,7 @@ export async function handleRuntimeRequest(
 					const metadata = host.unknownRecord(payload.metadata);
 					let authorityMode: DelegationAuthorityMode;
 					let authorityEnvelope: DelegationAuthorityEnvelope | null;
+					let capabilityPlan: ReturnType<typeof capabilityPlanForMetadata>;
 					try {
 						authorityMode = parseDelegationAuthorityMode(
 							metadata?.delegationAuthorityMode,
@@ -744,6 +746,7 @@ export async function handleRuntimeRequest(
 						authorityEnvelope = parseDelegationAuthorityEnvelope(
 							metadata?.delegationAuthority,
 						);
+						capabilityPlan = capabilityPlanForMetadata(metadata);
 					} catch (error) {
 						return Response.json(
 							{
@@ -922,6 +925,7 @@ export async function handleRuntimeRequest(
 								executionSurface,
 								repositoryMode,
 								authorityMode,
+								capabilityPlan,
 								...(authorityEnvelope ? { authorityEnvelope } : {}),
 								...(operatorConsent ? { operatorConsent } : {}),
 								trustedInstructionOrigin,

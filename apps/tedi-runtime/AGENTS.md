@@ -66,17 +66,19 @@ None of these announce themselves when broken.
   perpetual entries treated as already expired, approval replay via a one-shot
   grant keyed to session plus code hash, and fail-closed on any read error or
   malformed entry. Do not add a second path to `execute`.
-- **Per-tool delegation permission checks exist only for a turn that carries an
+- **Per-tool earned-delegation checks exist only for a turn that carries an
   earned grant.** The envelope on a Home delegation is the entrustment Home
   matched at dispatch (`selectDelegationAuthorityEnvelope` in `apps/api`). A
   facet tool call on such a turn is evaluated against it
   (`src/delegation-authority.ts`) and the verdict is recorded as
   `delegation.authority.evaluated` — shadow records `wouldHaveDenied`,
   enforce denies. A delegation with **no** envelope was authorized by Home's
-  dispatch decision (operator-forced, approved, or autonomous); its ceiling is `supervisedDelegationToolSet` and it is
-  evaluated and logged by nothing per tool. `delegatedTurnAuthority` is the
-  one place that decides which case a turn is. Do not reintroduce an
-  envelope-less "would have denied" verdict: enforce mode refuses such a run at
+  dispatch decision (operator-forced, approved, or autonomous); its ceiling is
+  `supervisedDelegationToolSet`, narrowed by a `capabilityPlan` when present.
+  Request ceilings are enforced and logged with source `delegation-capabilities`;
+  they never add executor entitlement. `delegatedTurnAuthority` decides whether
+  earned authority is evaluated. Do not reintroduce an envelope-less earned
+  "would have denied" verdict: enforce mode refuses such a run at
   dispatch policy and at runtime ingress (403) before any tool call, so that
   verdict mirrors no enforcement that can happen and only logs unowned rows.
   The default mode stays `shadow`

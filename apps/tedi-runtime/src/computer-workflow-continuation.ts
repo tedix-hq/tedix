@@ -76,6 +76,7 @@ function identity(input: FacetWorkflowTurnInput): string {
 		input.learningMode,
 		input.agentName,
 		...(input.repositoryMode ? [input.repositoryMode] : []),
+		...(input.capabilityPlan ? [input.capabilityPlan] : []),
 	]);
 }
 

@@ -1,6 +1,9 @@
 import type { WorkflowImageRef } from "./workflow-image-handoff";
 import type { TurnModelSelection } from "@tedix/api-contract/schemas/automation-events";
-import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
+import type {
+	DelegationAuthorityEnvelope,
+	DelegationCapabilityPlan,
+} from "@tedix/api-contract/schemas/kernel-runtime";
 import type { RepositoryMode } from "./runtime-tool-guidance";
 import type { ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
 import type { DelegationAuthorityMode } from "./delegation-authority";
@@ -49,6 +52,7 @@ export interface ChatTurnParams {
 	repositoryMode?: RepositoryMode;
 	/** Server-derived delegated activity/tool ceiling. */
 	authorityEnvelope?: DelegationAuthorityEnvelope;
+	capabilityPlan?: DelegationCapabilityPlan;
 	/** Enforce fails closed if the envelope is lost; shadow preserves rollout. */
 	authorityMode?: DelegationAuthorityMode;
 	/**
