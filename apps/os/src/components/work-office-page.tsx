@@ -33,6 +33,7 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
+import { OfficeReadError } from "@/components/office-read-error";
 import { OfficeLeaderboard } from "@/components/office-leaderboard";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
@@ -204,7 +205,12 @@ function useTodayTotals(since: string) {
 		}),
 		{ answered: 0, corrected: 0 },
 	);
-	return { ...totals, waiting: urgent.data?.data.length ?? 0 };
+	return {
+		...totals,
+		waiting: urgent.data?.data.length ?? 0,
+		acceptance,
+		urgent,
+	};
 }
 
 function OfficeHeader({ since }: { since: string }) {
@@ -215,7 +221,13 @@ function OfficeHeader({ since }: { since: string }) {
 			<PageHeading>
 				<PageTitle>Your office</PageTitle>
 				<PageDescription className="text-kumo-default type-tedix-dialog">
-					{knocks.isPending ? (
+					{knocks.isError ||
+					totals.acceptance.isError ||
+					totals.urgent.isError ? (
+						"Office activity could not be read. See the errors below."
+					) : knocks.isPending ||
+					  totals.acceptance.isPending ||
+					  totals.urgent.isPending ? (
 						"Reading today's knocks…"
 					) : (
 						<OfficeSummarySentence
@@ -243,7 +255,28 @@ function TodayTiles({ since }: { since: string }) {
 	const { knocks, rows, more } = useTodayKnocks(since);
 	const totals = useTodayTotals(since);
 	const health = useQuery(captureHealthQueryOptions(since));
-	if (knocks.isPending)
+	const failures = [
+		{ resource: "knocks", query: knocks },
+		{ resource: "reply outcomes", query: totals.acceptance },
+		{ resource: "requests waiting for you", query: totals.urgent },
+	].filter(({ query }) => query.isError);
+	if (failures.length)
+		return (
+			<>
+				{failures.map(({ resource, query }) => (
+					<OfficeReadError
+						key={resource}
+						resource={resource}
+						error={query.error}
+					/>
+				))}
+			</>
+		);
+	if (
+		knocks.isPending ||
+		totals.acceptance.isPending ||
+		totals.urgent.isPending
+	)
 		return <Skeleton className="h-24 w-full" aria-label="Loading today" />;
 	return (
 		<div className="grid gap-2">
@@ -251,10 +284,20 @@ function TodayTiles({ since }: { since: string }) {
 				knocks={`${rows.length}${more ? "+" : ""}`}
 				totals={totals}
 			/>
-			{health.data ? (
-				<Text as="p" role="label" tone="secondary">
-					{captureHealthLine(health.data)}
-				</Text>
+			{health.isError ? (
+				<OfficeReadError resource="capture health" error={health.error} />
+			) : health.data ? (
+				<div className="grid gap-1">
+					<Text as="p" role="label" tone="secondary">
+						{captureHealthLine(health.data)}
+					</Text>
+					{health.data.turns === 0 ? (
+						<Text as="p" role="label" tone="secondary">
+							No agent turns captured today. Unattended sessions and context
+							checks do not create knocks.
+						</Text>
+					) : null}
+				</div>
 			) : null}
 		</div>
 	);
@@ -330,7 +373,31 @@ function Knocks({ since }: { since: string }) {
 			tedi.displayName || tedi.name,
 		]),
 	);
-	if (knocks.isPending) return null;
+	const failures = [
+		{ resource: "knocks", query: knocks },
+		{ resource: "requests waiting for you", query: urgent },
+		{ resource: "drafting tedis", query: tedis },
+		...details.map((query) => ({ resource: "a knock's reply", query })),
+	].filter(({ query }) => query.isError);
+	if (failures.length)
+		return (
+			<>
+				{failures.map(({ resource, query }, index) => (
+					<OfficeReadError
+						key={`${resource}-${index}`}
+						resource={resource}
+						error={query.error}
+					/>
+				))}
+			</>
+		);
+	if (
+		knocks.isPending ||
+		urgent.isPending ||
+		tedis.isPending ||
+		details.some((query) => query.isPending)
+	)
+		return <Skeleton className="h-24 w-full" aria-label="Loading knocks" />;
 	const items = rows.map((row, index) => {
 		const summary = decisionCaptureSummary(row.request.metadata);
 		const draft = latestDraftOf(details[index]?.data);
@@ -604,58 +671,74 @@ function Activity() {
 				<CardTitle id="office-activity-title" className="flex-1">
 					Activity
 				</CardTitle>
-				<svg
-					viewBox="0 0 96 16"
-					className="h-4 w-24 text-kumo-brand"
-					role="img"
-					aria-label={`Knocks per hour, last 24 hours: ${hours.reduce((a, b) => a + b, 0)} in all`}
-				>
-					{hours.map((count, index) => {
-						const height = count ? Math.max(2, (count / peak) * 16) : 1;
-						return (
-							<rect
-								key={index}
-								x={index * 4}
-								y={16 - height}
-								width={2.5}
-								height={height}
-								rx={1}
-								fill="currentColor"
-								opacity={count ? 1 : 0.25}
-							>
-								<title>
-									{count} {count === 1 ? "knock" : "knocks"},{" "}
-									{23 - index === 0 ? "this hour" : `${23 - index}h ago`}
-								</title>
-							</rect>
-						);
-					})}
-				</svg>
+				{knocks.isError ? (
+					<OfficeReadError resource="knock activity" error={knocks.error} />
+				) : knocks.isPending ? (
+					<Skeleton className="h-4 w-24" aria-label="Loading knock activity" />
+				) : (
+					<svg
+						viewBox="0 0 96 16"
+						className="h-4 w-24 text-kumo-brand"
+						role="img"
+						aria-label={`Knocks per hour, last 24 hours: ${hours.reduce((a, b) => a + b, 0)} in all`}
+					>
+						{hours.map((count, index) => {
+							const height = count ? Math.max(2, (count / peak) * 16) : 1;
+							return (
+								<rect
+									key={index}
+									x={index * 4}
+									y={16 - height}
+									width={2.5}
+									height={height}
+									rx={1}
+									fill="currentColor"
+									opacity={count ? 1 : 0.25}
+								>
+									<title>
+										{count} {count === 1 ? "knock" : "knocks"},{" "}
+										{23 - index === 0 ? "this hour" : `${23 - index}h ago`}
+									</title>
+								</rect>
+							);
+						})}
+					</svg>
+				)}
 			</CardHeader>
 			<CardContent className="grid gap-3">
 				<div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
 					<Text as="span" role="label" tone="secondary" className="w-14">
 						Sessions
 					</Text>
-					{harnesses.map(({ harness, active, idle }) => (
-						<Text key={harness} as="span" role="body">
-							{HARNESS_LABELS[harness]}{" "}
-							<Text as="span" role="body" tone="strong" weight="semibold">
-								{active}
-							</Text>{" "}
-							active
-							<Text as="span" role="body" tone="secondary">
-								{" "}
-								/ {idle} idle
+					{sessions.isError ? (
+						<OfficeReadError resource="sessions" error={sessions.error} />
+					) : sessions.isPending ? (
+						<Skeleton className="h-4 w-48" aria-label="Loading sessions" />
+					) : (
+						harnesses.map(({ harness, active, idle }) => (
+							<Text key={harness} as="span" role="body">
+								{HARNESS_LABELS[harness]}{" "}
+								<Text as="span" role="body" tone="strong" weight="semibold">
+									{active}
+								</Text>{" "}
+								active
+								<Text as="span" role="body" tone="secondary">
+									{" "}
+									/ {idle} idle
+								</Text>
 							</Text>
-						</Text>
-					))}
+						))
+					)}
 				</div>
 				<div className="flex flex-wrap items-center gap-x-6 gap-y-2">
 					<Text as="span" role="label" tone="secondary" className="w-14">
 						Tedis
 					</Text>
-					{roster.length ? (
+					{tedis.isError ? (
+						<OfficeReadError resource="tedis" error={tedis.error} />
+					) : tedis.isPending ? (
+						<Skeleton className="h-8 w-48" aria-label="Loading tedis" />
+					) : roster.length ? (
 						<div className="flex flex-wrap gap-1.5">
 							{roster.map((tedi) => {
 								const name = tedi.displayName || tedi.name;
@@ -717,9 +800,7 @@ function Notebook({ since }: { since: string }) {
 			{lessons.isPending ? (
 				<Skeleton className="h-24 w-full" />
 			) : lessons.isError ? (
-				<Text as="p" role="body" tone="secondary">
-					The notebook could not be read right now.
-				</Text>
+				<OfficeReadError resource="notebook" error={lessons.error} />
 			) : groups.length === 0 ? (
 				<Empty appearance="quiet">
 					<EmptyHeader>

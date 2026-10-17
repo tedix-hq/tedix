@@ -12,6 +12,7 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
+import { OfficeReadError } from "@/components/office-read-error";
 import { Progress } from "@/components/kumo/progress";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -178,9 +179,7 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 			{board.isPending ? (
 				<Skeleton className="h-32 w-full" aria-label="Loading leaderboard" />
 			) : board.isError ? (
-				<Text as="p" role="body" tone="secondary">
-					The leaderboard could not be read right now.
-				</Text>
+				<OfficeReadError resource="leaderboard" error={board.error} />
 			) : (
 				<Table scrollLabel="Leaderboard">
 					<TableHeader>

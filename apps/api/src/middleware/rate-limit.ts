@@ -151,12 +151,22 @@ export function rateLimit(
 					outcome: "denied",
 				});
 				return c.json(
-					{
-						error: "Rate limit exceeded",
-						message:
-							errorMessage || "Too many requests. Please try again later.",
-						retryAfter: retryAfterSeconds,
-					},
+					c.req.path.startsWith("/rpc/")
+						? {
+								json: {
+									defined: false,
+									code: "TOO_MANY_REQUESTS",
+									message:
+										errorMessage ||
+										"Too many requests. Please try again later.",
+								},
+							}
+						: {
+								error: "Rate limit exceeded",
+								message:
+									errorMessage || "Too many requests. Please try again later.",
+								retryAfter: retryAfterSeconds,
+							},
 					429,
 					{
 						"Retry-After": String(retryAfterSeconds),
