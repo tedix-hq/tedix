@@ -132,32 +132,28 @@ it("keeps factory links tenant-scoped and private-workspace names owner-only", a
 		["private", "org-example", "private", "owner-sub"],
 		["foreign", "other-org", "org", null],
 	] as const) {
-		await db
-			.insert(osWorkspaces)
-			.values({
-				id,
-				organizationId,
-				name: id,
-				visibility,
-				ownerUserId,
-				createdByKind: "user",
-				createdById: "owner-sub",
-			});
-		await db
-			.insert(osGadgetExecutions)
-			.values({
-				id: `execution-${id}`,
-				organizationId,
-				workspaceId: id,
-				gadgetId: "app-example",
-				runId: `run-${id}`,
-				status: "running",
-				grantedCapabilities: "[]",
-				policyDecision: "{}",
-				createdByKind: "user",
-				createdById: "owner-sub",
-				createdAt: "2026-10-17T11:00:00Z",
-			});
+		await db.insert(osWorkspaces).values({
+			id,
+			organizationId,
+			name: id,
+			visibility,
+			ownerUserId,
+			createdByKind: "user",
+			createdById: "owner-sub",
+		});
+		await db.insert(osGadgetExecutions).values({
+			id: `execution-${id}`,
+			organizationId,
+			workspaceId: id,
+			gadgetId: "app-example",
+			runId: `run-${id}`,
+			status: "running",
+			grantedCapabilities: "[]",
+			policyDecision: "{}",
+			createdByKind: "user",
+			createdById: "owner-sub",
+			createdAt: "2026-10-17T11:00:00Z",
+		});
 	}
 	const since = "2026-10-17T00:00:00Z";
 	expect(
