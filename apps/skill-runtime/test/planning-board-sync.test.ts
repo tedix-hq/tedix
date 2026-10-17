@@ -102,6 +102,10 @@ function harness(
 		[taskId, "Human task notes."],
 	]);
 	const links: unknown[] = [];
+	const interactions = new Map<
+		string,
+		{ id: string; version: number; state: string }
+	>();
 	const items: any[] = [];
 	const calls = {
 		creates: 0,
@@ -128,9 +132,16 @@ function harness(
 	const step = {
 		do: async (
 			name: string,
-			_options: unknown,
+			options: { retries: { limit: number; delay?: string }; timeout: string },
 			action: () => Promise<unknown>,
 		) => {
+			// Enforce the native provider boundary instead of accepting any fake config.
+			if (
+				!Number.isInteger(options.retries.limit) ||
+				options.retries.limit < 1 ||
+				!options.retries.delay?.trim()
+			)
+				throw new Error(`Invalid Cloudflare retry configuration for ${name}`);
 			if (checkpointCache.has(name))
 				return structuredClone(checkpointCache.get(name));
 			const result = await action();
@@ -169,7 +180,28 @@ function harness(
 				list_os_outputs: async () => ({ items: [] }),
 				create_work_interaction: async () => {
 					calls.interactions++;
-					return { interaction: { id: "decision-1" } };
+					const request = {
+						id: `decision-${calls.interactions}`,
+						version: 1,
+						state: "open",
+					};
+					interactions.set(request.id, request);
+					return { interaction: structuredClone(request) };
+				},
+				get_work_interaction: async ({ requestId }: any) => ({
+					request: structuredClone(interactions.get(requestId)),
+					effectiveState: interactions.get(requestId)?.state,
+				}),
+				cancel_work_interaction: async ({
+					requestId,
+					expectedRequestVersion,
+				}: any) => {
+					const request = interactions.get(requestId)!;
+					if (request.version !== expectedRequestVersion)
+						throw new Error("Interaction version conflict");
+					request.state = "cancelled";
+					request.version++;
+					return structuredClone(request);
 				},
 			},
 			tedi: {
@@ -331,6 +363,7 @@ function harness(
 		projects,
 		pages,
 		links,
+		interactions,
 		calls,
 		remote,
 		tasks,
@@ -555,6 +588,35 @@ describe("planning board synchronization", () => {
 		await h.run("run-3");
 		expect(h.items[0].dueDate).toBeNull();
 		expect(h.items[0].disposition).toBe("proposed");
+	});
+	it("closes resolved conflict cards and re-arms a later disagreement", async () => {
+		const h = harness();
+		await h.run();
+		h.projects[0].name = "OS edit";
+		h.remote.Name = "Notion edit";
+		await h.run("run-2");
+		h.projects[0].name = h.remote.Name;
+		await h.run("run-3");
+		expect(h.interactions.get("decision-1")?.state).toBe("cancelled");
+		h.projects[0].name = "New OS edit";
+		h.remote.Name = "New Notion edit";
+		await h.run("run-4");
+		expect(h.calls.interactions).toBe(2);
+		expect(h.interactions.get("decision-2")?.state).toBe("open");
+	});
+	it("recovers a confirmed conflict card when its local flag was lost", async () => {
+		const h = harness();
+		await h.run();
+		h.projects[0].name = "OS edit";
+		h.remote.Name = "Notion edit";
+		await h.run("run-2");
+		const rows = h.outputs.get("state")!.currentRevision.content.rows;
+		rows.splice(
+			rows.findIndex((row) => row[0] === `conflict:${pageId}`),
+			1,
+		);
+		await h.run("run-3");
+		expect(h.calls.interactions).toBe(1);
 	});
 	it("deduplicates conflict cards across passes", async () => {
 		const h = harness();

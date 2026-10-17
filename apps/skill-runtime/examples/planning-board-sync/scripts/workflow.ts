@@ -5,7 +5,10 @@ const READ = {
 	timeout: "3 minutes",
 };
 // A lost provider response must never replay a create or overwrite human edits.
-const WRITE = { retries: { limit: 0 }, timeout: "3 minutes" };
+const WRITE = {
+	retries: { limit: 1, delay: "1 second" },
+	timeout: "3 minutes",
+};
 
 export function externalId(url) {
 	const match = String(url).match(
@@ -516,6 +519,7 @@ export function createPlanningSync(config) {
 								}),
 							async (r) => r.source?.id,
 						);
+						await resolveConflict(id);
 						state[`base:${id}`] = { remote: remoteFields, local: remoteFields };
 						state[`human:${id}`] = { remote: remoteHuman, local: remoteHuman };
 						await save();
@@ -540,25 +544,70 @@ export function createPlanningSync(config) {
 
 			async function conflict(id, projectId, page, values) {
 				if (!state[`conflict:${id}`]) {
-					await effect(
-						`conflict:${id}`,
-						() =>
-							os.create_work_interaction({
-								projectId,
-								kind: "question",
-								subject: "Planning board conflict",
-								reason:
-									"Both copies changed; choosing a value would discard a human decision.",
-								prompt: `Resolve the planning conflict by editing Notion at ${page} to the desired value, then make the OS field agree. The next pass will resume when both values agree. Notion and OS values: ${JSON.stringify(values)}`,
-								requestedFrom: { type: "user", id: config.decisionUserId },
-								metadata: { boardKey: config.boardKey, externalId: id },
-							}),
-						async (r) => r.interaction?.id || r.id,
-					);
-					state[`conflict:${id}`] = { values };
+					const receipt = state[`effect:conflict:${id}`];
+					const made =
+						receipt?.phase === "confirmed"
+							? { id: receipt.target }
+							: await effect(
+									`conflict:${id}`,
+									() =>
+										os.create_work_interaction({
+											projectId,
+											kind: "question",
+											subject: "Planning board conflict",
+											reason:
+												"Both copies changed; choosing a value would discard a human decision.",
+											prompt: `Choose which value to keep for each field. Reply here with your choice, or make the linked copies agree directly. Notion: ${page}. The next pass resumes after agreement. Notion and OS values: ${JSON.stringify(values)}`,
+											requestedFrom: {
+												type: "user",
+												id: config.decisionUserId,
+											},
+											metadata: { boardKey: config.boardKey, externalId: id },
+										}),
+									async (r) => r.interaction?.id || r.id,
+								);
+					state[`conflict:${id}`] = {
+						requestId: (made.interaction || made).id,
+						values,
+					};
 					await save();
 				}
 				report.decisions.push({ page, reason: "Both sides changed", values });
+			}
+
+			async function resolveConflict(id) {
+				const receipt = state[`effect:conflict:${id}`];
+				const requestId =
+					state[`conflict:${id}`]?.requestId ||
+					(receipt?.phase === "confirmed" ? receipt.target : null);
+				if (!requestId) return;
+				const detail = checked(
+					await os.get_work_interaction({ requestId, responseLimit: 1 }),
+				);
+				const request = detail.request;
+				if (detail.effectiveState === "open")
+					await effect(
+						`resolve-conflict:${id}:${requestId}`,
+						() =>
+							os.cancel_work_interaction({
+								requestId,
+								expectedRequestVersion: request.version,
+								confirmDestructive: true,
+								reason:
+									"Both planning copies now agree; withdraw this factory's resolved conflict question.",
+							}),
+						async (result) =>
+							(result.request || result).state === "cancelled"
+								? requestId
+								: null,
+					);
+				state[`effect:conflict:${id}`] = {
+					...receipt,
+					phase: "resolved",
+					resolvedAt: slot.at,
+				};
+				delete state[`conflict:${id}`];
+				await save();
 			}
 
 			async function syncProject(remote, project, id) {
@@ -730,6 +779,7 @@ export function createPlanningSync(config) {
 									}),
 								async (r) => r.source?.id,
 							);
+							await resolveConflict(taskId);
 							state[`base:${taskId}`] = {
 								remote: remoteFields,
 								local: remoteFields,
