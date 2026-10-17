@@ -1,3 +1,4 @@
+import { normalizePortablePath } from "./portable-path";
 import type { TediArtifact } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { TEDIX_ARTIFACTS_R2_BUCKET_NAME } from "./artifacts-contract";
@@ -49,20 +50,6 @@ function artifactObjectKey(artifact: TediArtifact): string | null {
 		return null;
 	}
 	return key;
-}
-
-function normalizePortablePath(path: unknown): string | null {
-	if (typeof path !== "string") return null;
-	const trimmed = path.trim().replace(/^\/+/, "");
-	if (
-		!trimmed ||
-		trimmed.length > 1024 ||
-		trimmed.includes("\0") ||
-		trimmed.split("/").some((part) => !part || part === "." || part === "..")
-	) {
-		return null;
-	}
-	return trimmed;
 }
 
 async function listDeliverables(
