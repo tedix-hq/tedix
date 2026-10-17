@@ -226,18 +226,12 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		let predictedRunId: string | undefined;
 		let submissionPreAdmitted = false;
 		try {
-			// The isolate's OWN `buildRunId(tediId, ...)` call (apps/tedi-runtime)
-			// uses ITS identity — `isolate_agent_id` (the DO key), falling back to
-			// `slug` when unset, exactly mirroring `resolveIdentityFromD1` in
-			// apps/tedi-runtime/src/do.ts. The D1 primary key (`input.tediId`,
-			// used below for the ledger row's own subject identity) is a
-			// DIFFERENT value and must never be used here — using it would predict
-			// a run id the isolate will never actually report, silently stranding
-			// this pre-admitted row forever instead of matching the choke-point
-			// admit.
+			// Runtime identity resolves to the canonical tedi row id before inject.
+			// The DO routing name (isolateAgentId/slug) is not its ledger identity.
+			// A cold accept timeout must still return the id the child will publish.
 			predictedRunId = predictAgentRunId({
 				clientRequestId: input.idempotencyKey,
-				tediId: tedi.isolateAgentId ?? tedi.slug ?? input.tediId,
+				tediId: tedi.id,
 			});
 			await recordTediSubmissionStarted(context.db, {
 				tediId: input.tediId,

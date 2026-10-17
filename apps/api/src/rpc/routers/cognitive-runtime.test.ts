@@ -2769,7 +2769,7 @@ describe("cognitive runtime router invariants", () => {
 				"recordTediSubmissionStarted",
 			);
 			mocks.injectAgentMessage.mockResolvedValue({
-				run_id: "alpha:mcp:predict-match-key",
+				run_id: `${TEDI_ID}:mcp:predict-match-key`,
 				success: true,
 				session_key: "agent:main:qa",
 			});
@@ -2786,12 +2786,12 @@ describe("cognitive runtime router invariants", () => {
 			// mismatch here would silently strand a phantom ledger row.
 			expect(recordSpy.mock.calls[0]?.[1]).toMatchObject({
 				tediId: TEDI_ID,
-				runId: "alpha:mcp:predict-match-key",
+				runId: `${TEDI_ID}:mcp:predict-match-key`,
 			});
 			// The choke-point admit (on run.started, elsewhere in the module) is
 			// the second call, idempotent onto the SAME id — not a double-count.
 			expect(recordSpy.mock.calls[1]?.[1]).toMatchObject({
-				runId: "alpha:mcp:predict-match-key",
+				runId: `${TEDI_ID}:mcp:predict-match-key`,
 			});
 		});
 
@@ -2819,7 +2819,7 @@ describe("cognitive runtime router invariants", () => {
 			expect(settleSpy).toHaveBeenCalledWith(
 				expect.anything(),
 				expect.objectContaining({
-					runId: "alpha:mcp:predict-reject-key",
+					runId: `${TEDI_ID}:mcp:predict-reject-key`,
 					outcome: "failed",
 				}),
 			);
@@ -2848,13 +2848,13 @@ describe("cognitive runtime router invariants", () => {
 			expect(settleSpy).toHaveBeenCalledWith(
 				expect.anything(),
 				expect.objectContaining({
-					runId: "alpha:mcp:predict-throw-key",
+					runId: `${TEDI_ID}:mcp:predict-throw-key`,
 					outcome: "failed",
 				}),
 			);
 		});
 
-		it("preserves one pre-admitted run when a cold runtime accept times out with unknown delivery", async () => {
+		it("observes late child events by canonical tedi id after a cold accept timeout", async () => {
 			mockTedi({ runtimeKind: "agent", isolateAgentId: "alpha" });
 			const db = createRuntimeDb();
 			const client = createRuntimeClient(createContext(db));
@@ -2881,7 +2881,7 @@ describe("cognitive runtime router invariants", () => {
 			expect(result).toEqual({
 				idempotencyKey: "cold-timeout-key",
 				conversationId: "agent:main:qa",
-				runId: "alpha:mcp:cold-timeout-key",
+				runId: `${TEDI_ID}:mcp:cold-timeout-key`,
 				status: "queued",
 			});
 			expect(mocks.injectAgentMessage).toHaveBeenCalledTimes(1);
@@ -2892,6 +2892,30 @@ describe("cognitive runtime router invariants", () => {
 				limit: 20,
 			});
 			expect(events.events).toEqual([]);
+			await client.recordEvent({
+				tediId: TEDI_ID,
+				kind: "message.completed",
+				conversationId: "alpha:agent:main:qa",
+				runId: `${TEDI_ID}:mcp:cold-timeout-key`,
+				payload: {
+					role: "assistant",
+					content: "Summary from the fetched page",
+				},
+			});
+			const observed = await client.listEvents({
+				tediId: TEDI_ID,
+				runId: result.runId,
+				limit: 20,
+			});
+			expect(observed.events).toEqual([
+				expect.objectContaining({
+					kind: "message.completed",
+					payload: {
+						role: "assistant",
+						content: "Summary from the fetched page",
+					},
+				}),
+			]);
 		});
 
 		it("does not claim a supervised timeout when durable pre-admission failed", async () => {
