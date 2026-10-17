@@ -82,6 +82,29 @@ describe("document body generation", () => {
 		expect(generate).not.toHaveBeenCalled();
 	});
 
+	it("keeps a five-step handoff checklist in the requested OS document", async () => {
+		const blocks = [
+			{
+				type: "checklist",
+				items: ["Scope", "Status", "Evidence", "Owners", "Next steps"].map(
+					(text) => ({ text, checked: false }),
+				),
+			},
+		];
+		const draft = await planDocumentCreate({
+			content: `Create a short OS document titled "Review" in the existing workspace ${workspaceId}. Draft a five-step checklist for reviewing an internal handoff. Return the OS output link.`,
+			toolName: "os.create_os_output",
+			model: model(blocks),
+			abortSignal: new AbortController().signal,
+		});
+		expect(draft?.args).toEqual({
+			kind: "document",
+			title: "Review",
+			workspaceId,
+			content: { kind: "document", blocks },
+		});
+	});
+
 	it("keeps a drafting refusal as a declined write", async () => {
 		expect(
 			await planDocumentCreate({
