@@ -91,7 +91,11 @@ export function AttentionBoard({
 						{data.projects
 							.filter((p) => p.active > 0)
 							.map((p) => (
-								<Badge key={p.id} variant="info">
+								<Badge
+									key={p.id}
+									variant="info"
+									className="max-w-full whitespace-normal [&_a]:min-w-0 [&_a]:break-words"
+								>
 									<Link href={`/work/projects/${p.id}`}>
 										{p.name} · {p.active}
 									</Link>
@@ -108,12 +112,20 @@ export function AttentionBoard({
 					</CardHeader>
 					<CardContent className="flex flex-wrap gap-2">
 						{missing.slice(0, 6).map((p) => (
-							<Badge key={p.id} variant="outline">
+							<Badge
+								key={p.id}
+								variant="outline"
+								className="max-w-full whitespace-normal [&_a]:min-w-0 [&_a]:break-words"
+							>
 								<Link href={`/work/projects/${p.id}`}>{p.name}</Link>
 							</Badge>
 						))}
 						{data.unattendedObjectives?.slice(0, 4).map((objective) => (
-							<Badge key={objective.id} variant="outline">
+							<Badge
+								key={objective.id}
+								variant="outline"
+								className="max-w-full whitespace-normal [&_a]:min-w-0 [&_a]:break-words"
+							>
 								<Link href="/work/portfolio">{objective.title}</Link>
 							</Badge>
 						))}
