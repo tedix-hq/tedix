@@ -232,6 +232,11 @@ describe("stored login renewal", () => {
 				expect(result.loginError).not.toContain("tedix login");
 				continue;
 			}
+			if (outcome === "invalidated") {
+				expect(result.loginError).toContain("is invalidated");
+				expect(result.loginError).not.toContain("tedix login");
+				continue;
+			}
 			expect(result.loginError, outcome).toContain(
 				`could not be refreshed (${outcome})`,
 			);

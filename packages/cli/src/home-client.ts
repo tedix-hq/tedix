@@ -1268,7 +1268,9 @@ export class TedixHomeClient {
 									if (outcome === "refreshed" || outcome === "not-needed")
 										return;
 									throw new Error(
-										`Stored session could not be refreshed (${outcome}). Run \`tedix login\` to re-authenticate, then resume the existing run.`,
+										outcome === "invalidated"
+											? "Stored session is invalidated."
+											: `Stored session could not be refreshed (${outcome}). Run \`tedix login\` to re-authenticate, then resume the existing run.`,
 									);
 								}
 								const challenge = extractWWWAuthenticateParams(response);

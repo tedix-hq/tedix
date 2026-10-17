@@ -25,6 +25,7 @@ export interface CredentialStoreOpts {
 export interface WorkspaceCredential {
 	loginId: string;
 	accessTokenExpiresAtSeconds?: number;
+	oauthRefreshInvalidated?: boolean;
 	// Optional per-resource OAuth metadata (used to target + refresh the right
 	// `*-unified` MCP gateway). Present only when the login flow captured them.
 	mcpUrl?: string;
@@ -75,6 +76,7 @@ function coerceWorkspace(value: unknown): WorkspaceCredential | null {
 	const v = value as Record<string, unknown>;
 	if (typeof v.loginId !== "string") return null;
 	const cred: WorkspaceCredential = { loginId: v.loginId };
+	if (v.oauthRefreshInvalidated === true) cred.oauthRefreshInvalidated = true;
 	if (
 		typeof v.accessTokenExpiresAtSeconds === "number" &&
 		Number.isFinite(v.accessTokenExpiresAtSeconds)

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +17,7 @@ import {
 import {
 	RENEWAL_HANDOFF_ENV,
 	renewStoredSession,
-	type WorkspaceOAuthProvider,
+	WorkspaceOAuthProvider,
 } from "./oauth-provider";
 
 const CLI = fileURLToPath(new URL("./index.ts", import.meta.url));
@@ -212,16 +218,42 @@ describe("stored login renewal across processes", () => {
 process.stdout.write("unavailable\\n");`,
 		);
 		const workspace = `acme; touch ${canary} $(touch ${canary}) \`touch ${canary}\``;
-		const outcome = await renewStoredSession({} as WorkspaceOAuthProvider, {
+		writeWorkspaceCredentials(
 			workspace,
-			command: [process.execPath, [renewer]],
-		});
-		expect(outcome).toBe("unavailable");
-		const seen = JSON.parse(readFileSync(record, "utf8"));
-		expect(seen.argv).toEqual(["auth", "renew", "--workspace", workspace]);
-		// Started directly: a shell in between would be the renewer's parent.
-		expect(seen.ppid).toBe(process.pid);
-		expect(seen.handoff).toBe(process.platform === "win32" ? null : "1");
-		expect(existsSync(canary)).toBe(false);
+			{
+				loginId: "fixture-user",
+				mcpUrl: "https://fixture.example/mcp",
+				accessTokenExpiresAtSeconds: 1,
+				oauthTokens: {
+					access_token: "expired",
+					refresh_token: "refresh",
+					token_type: "Bearer",
+				},
+			},
+			{ configDir: dir },
+		);
+		const previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = dir;
+		try {
+			const provider = new WorkspaceOAuthProvider({
+				workspace,
+				mcpUrl: "https://fixture.example/mcp",
+			});
+			const outcome = await renewStoredSession(provider, {
+				workspace,
+				command: [process.execPath, [renewer]],
+			});
+			expect(outcome).toBe("unavailable");
+			const seen = JSON.parse(readFileSync(record, "utf8"));
+			expect(seen.argv).toEqual(["auth", "renew", "--workspace", workspace]);
+			// Started directly: a shell in between would be the renewer's parent.
+			expect(seen.ppid).toBe(process.pid);
+			expect(seen.handoff).toBe(process.platform === "win32" ? null : "1");
+			expect(existsSync(canary)).toBe(false);
+		} finally {
+			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+			else process.env.TEDIX_CONFIG_DIR = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

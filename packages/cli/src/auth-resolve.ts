@@ -164,7 +164,10 @@ export async function resolveStoredLoginAuth(
 		if (outcome !== "refreshed" && outcome !== "not-needed") {
 			return {
 				auth: null,
-				loginError: `Stored login for workspace "${workspace}" could not be refreshed (${outcome}). Run \`tedix login --workspace ${workspace}\` to re-authenticate.`,
+				loginError:
+					outcome === "invalidated"
+						? `Stored login for workspace "${workspace}" is invalidated.`
+						: `Stored login for workspace "${workspace}" could not be refreshed (${outcome}). Run \`tedix login --workspace ${workspace}\` to re-authenticate.`,
 			};
 		}
 	}
