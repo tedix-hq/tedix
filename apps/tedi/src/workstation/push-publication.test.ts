@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+	cpSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
@@ -8,7 +9,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+} from "vite-plus/test";
 import {
 	commandMayPush,
 	pushPublicationProof,
@@ -18,6 +26,15 @@ import {
 } from "./push-publication";
 const quote = (value: string) => `'${value.replace(/'/g, "'\"'\"'")}'`;
 const fixtureDirectories: string[] = [];
+let seed: { directory: string; repo: string; remote: string } | undefined;
+beforeAll(() => {
+	seed = fixture();
+	// The seed outlives the per-test copies.
+	fixtureDirectories.pop();
+});
+afterAll(() => {
+	if (seed) rmSync(seed.directory, { recursive: true, force: true });
+});
 afterEach(() => {
 	for (const directory of fixtureDirectories.splice(0))
 		rmSync(directory, { recursive: true, force: true });
@@ -51,14 +68,20 @@ function fixture() {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 		}).trim();
-	git("init", "-b", "main");
-	git("init", "--bare", remote);
-	writeFileSync(join(repo, "initial"), "initial\n");
-	git("add", ".");
-	git("commit", "-m", "initial");
-	git("remote", "add", "origin", remote);
-	git("push", "-u", "origin", "main");
-	git("config", "tedix.preparedStartSha", git("rev-parse", "HEAD"));
+	if (seed) {
+		cpSync(seed.repo, repo, { recursive: true });
+		cpSync(seed.remote, remote, { recursive: true });
+		git("remote", "set-url", "origin", remote);
+	} else {
+		git("init", "-b", "main");
+		git("init", "--bare", remote);
+		writeFileSync(join(repo, "initial"), "initial\n");
+		git("add", ".");
+		git("commit", "-m", "initial");
+		git("remote", "add", "origin", remote);
+		git("push", "-u", "origin", "main");
+		git("config", "tedix.preparedStartSha", git("rev-parse", "HEAD"));
+	}
 	const commit = (file = "change", content = "changed\n") => {
 		writeFileSync(join(repo, file), content);
 		git("add", file);
