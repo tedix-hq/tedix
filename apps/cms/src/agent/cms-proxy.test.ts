@@ -24,6 +24,20 @@ import {
 import { registerCmsProxyTools } from "./cms-proxy-tools";
 import { encodeCmsHumanIdentity } from "./cms-human-auth";
 
+// Load installed upstream source during collection, outside the permission test's deadline.
+const { dispatchPluginApiRequest } = await import(
+	new URL(
+		"../../templates/tedix/node_modules/emdash/src/plugins/http-route-dispatch.ts",
+		import.meta.url,
+	).href
+);
+const { default: forms } = await import(
+	new URL(
+		"../../templates/tedix/node_modules/@emdash-cms/plugin-forms/src/index.ts",
+		import.meta.url,
+	).href
+);
+
 const baseContext: CmsProxyContext = {
 	orgSlug: "tedix",
 	forwardedAuth: undefined,
@@ -6379,18 +6393,6 @@ describe("Fixed native Forms forwarding", () => {
 });
 
 it("enforces installed native Forms permissions and token scopes before handler execution", async () => {
-	const { dispatchPluginApiRequest } = await import(
-		new URL(
-			"../../templates/tedix/node_modules/emdash/src/plugins/http-route-dispatch.ts",
-			import.meta.url,
-		).href
-	);
-	const { default: forms } = await import(
-		new URL(
-			"../../templates/tedix/node_modules/@emdash-cms/plugin-forms/src/index.ts",
-			import.meta.url,
-		).href
-	);
 	const plugin = forms();
 	let dispatched = 0;
 	const runtime = {
@@ -6433,9 +6435,7 @@ it("enforces installed native Forms permissions and token scopes before handler 
 	});
 	expect(allowed.status).toBe(200);
 	expect(dispatched).toBe(1);
-	// Cold-imports the emdash and Forms plugin sources, which takes 4-5 s on a
-	// loaded machine and timed out the pre-push gate at the 5 s default.
-}, 30_000);
+});
 
 describe("Native existing-site onboarding forwarding", () => {
 	it("registers one empty-input REST operation and preserves the human administrator", async () => {

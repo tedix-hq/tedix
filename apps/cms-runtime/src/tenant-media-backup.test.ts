@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import {
 	assertSourceMediaMatches,
 	copyAndVerifyMediaObject,
@@ -110,7 +111,8 @@ describe("private CMS media backup", () => {
 			backupKey: "private/media/image.png",
 		});
 		expect(backup.get).toHaveBeenCalledTimes(2);
-		expect(stored).toEqual(bytes);
+		// Compare every byte natively instead of enumerating millions of properties.
+		expect(Buffer.compare(stored!, bytes)).toBe(0);
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 		for (const [name, value] of [
 			["content-type", record.contentType],

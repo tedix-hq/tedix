@@ -151,6 +151,14 @@ describe("testRunnerFor", () => {
 		expect(testRunnerFor({ testScript: "vitest run" }, false)).toBe("vitest");
 	});
 
+	test.each([
+		"vp test run && bun run test:workerd",
+		"bun run test:unit && bun run test:workerd",
+	])("runs both pools from the workspace script: %s", (testScript) => {
+		for (const hasViteConfig of [false, true])
+			expect(testRunnerFor({ testScript }, hasViteConfig)).toBe("bun");
+	});
+
 	test("a config file alone still counts, for a script that delegates", () => {
 		// apps/tedi-workstation-egress-broker: "bun run test:workerd".
 		expect(testRunnerFor({ testScript: "bun run test:workerd" }, true)).toBe(

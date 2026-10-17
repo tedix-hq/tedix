@@ -201,6 +201,8 @@ export function relatedTestTargetsByWorkspace(files, io) {
 export function testRunnerFor(manifest, hasViteConfig) {
 	if (!manifest) return null;
 	const script = manifest.testScript ?? "";
+	// `related` sees only the default config, not the second workerd pool.
+	if (script.includes("&&") && /\btest:workerd\b/.test(script)) return "bun";
 	if (/\bvp test\b|\bvitest\b/.test(script) || hasViteConfig) return "vitest";
 	return script ? "bun" : null;
 }

@@ -59,6 +59,11 @@ it("targets the selected customer after returning from another audience editor",
 		name: "Acme",
 		metadata: {},
 	});
+	seed(
+		osQuery.tedis.list.queryOptions({ input: { limit: 100, offset: 0 } })
+			.queryKey,
+		{ data: [] },
+	);
 	seed(providerCapacitySponsorshipsQueryOptions().queryKey, {
 		data: ["staging", "production"].map((installationId) => ({
 			installationId,

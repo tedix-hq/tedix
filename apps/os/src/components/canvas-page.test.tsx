@@ -186,6 +186,11 @@ vi.mock("@/components/approval-notifications", () => ({
 	ApprovalNotifications: () => null,
 }));
 
+// Review loading and saving are covered by shared-review-batch.test.tsx.
+vi.mock("@/components/shared-review-batch", () => ({
+	WorkspaceGadgetReview: ({ gadget }: { gadget: React.ReactNode }) => gadget,
+}));
+
 vi.mock("@/components/widget-frame", () => ({
 	WidgetFrame: ({
 		appSlug,
@@ -751,6 +756,7 @@ function createPageHarness(workspaceId = WORKSPACE_ID): {
 	rerender();
 	cleanups.push(() => {
 		act(() => root.unmount());
+		client.clear();
 		container.remove();
 	});
 	return { container, rerender };

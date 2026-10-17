@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import type { PluginManifest, SerializedRequest } from "emdash";
+import { POST } from "emdash/internal/routes/api/plugins/_pluginId_/_...path_";
 import {
 	finalizePluginInstall,
 	finalizePluginUpdate,
@@ -130,9 +131,6 @@ for (const [name, createRunner] of [
 }
 
 test("the native Emdash private route authenticates before invoking the tenant host", async () => {
-	// Exercise the 1.0 route that authenticates private plugin calls before dispatch.
-	const { POST } =
-		await import("emdash/internal/routes/api/plugins/_pluginId_/_...path_");
 	const instance = await createTedixRunner({ db: {} as never }).load(
 		manifest,
 		"bytes",
