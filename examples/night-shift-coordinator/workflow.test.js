@@ -255,6 +255,35 @@ describe("native night coordination", () => {
 		]);
 		await expect(f.run()).rejects.toThrow("Cannot accept unsuccessful lane");
 	});
+	test("reviews an assigned executor's latest settled result even when a tedi fulfilled it", async () => {
+		for (const executor of ["codex", "claude-code"]) {
+			const f = fixture();
+			f.item("fulfilled", { metadata: { executor } });
+			f.histories.set("fulfilled", [
+				{
+					id: "tedi-result",
+					executorType: "tedi",
+					outcome: "succeeded",
+					metadata: {},
+				},
+			]);
+			f.setDecision("accept");
+			await f.run();
+			expect(f.items.get("fulfilled").disposition).toBe("completed");
+			expect(f.reason).toHaveBeenCalledTimes(1);
+		}
+	});
+	test("holds an assigned item until its latest ordinary Attempt is retired", async () => {
+		const f = fixture();
+		f.item("unsettled");
+		f.setOrder(["unsettled"]);
+		f.histories.set("unsettled", [
+			{ id: "ordinary", outcome: null, metadata: {} },
+		]);
+		expect((await f.run()).selected).toEqual([]);
+		expect(f.items.get("unsettled").metadata.laneDispatch.state).toBe("held");
+		expect(f.reason).not.toHaveBeenCalled();
+	});
 	test("checks for a new live Attempt immediately before applying a cached review", async () => {
 		const f = fixture();
 		f.item("race");
@@ -321,6 +350,9 @@ describe("native night coordination", () => {
 		const config = {
 			tediTurns: [{ namespace: "tedi", ownerId: "example-tedi" }],
 		};
+		await f.run(config);
+		expect(f.nudge).not.toHaveBeenCalled();
+		f.item("code-owned", { accountableOwnerId: "example-tedi" });
 		await f.run(config);
 		expect(f.nudge).not.toHaveBeenCalled();
 		f.item("owned", {
