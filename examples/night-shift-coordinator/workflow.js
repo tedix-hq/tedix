@@ -160,6 +160,50 @@ export default {
 			];
 		});
 		const notes = [];
+		if (
+			slots.some((s) => s.cycle) &&
+			Number(
+				new Intl.DateTimeFormat("en-GB", {
+					timeZone: config.people[0].timeZone,
+					minute: "2-digit",
+				}).format(now),
+			) %
+				30 <=
+				2
+		) {
+			for (const target of config.tediTurns ?? []) {
+				const nudged = await step.do("nudge-" + target.namespace, async () => {
+					let ready = false;
+					for (const projectId of scope) {
+						const page = checked(
+							await api.list_work_items({
+								projectId,
+								disposition: "accepted",
+								accountableOwnerId: target.ownerId,
+								limit: 5,
+							}),
+						);
+						if (page.data.some((item) => !item.activeAttempt)) ready = true;
+					}
+					if (!ready) return false;
+					checked(
+						await env.MCP[target.namespace].run_tedi_turn({
+							session_key: `night-shift:${cycle}:${target.namespace}`,
+							client_request_id: `night-shift:${cycle}:${target.namespace}`,
+							text:
+								"Native night coordination. Review your accepted Work in projects " +
+								scope.join(", ") +
+								". Advance one bounded step with evidence under your own admission. Preserve peer Attempts. Do not create duplicate blocker Work or approve human-reserved actions. Record a material result or blocker on its existing Work item. Your reply remains an attributed report, not deployment proof.",
+						}),
+					);
+					return true;
+				});
+				if (nudged)
+					notes.push(
+						`Nudged ${target.namespace}; read its Work receipts for the result.`,
+					);
+			}
+		}
 		let active = 0;
 		let reviews = 0;
 		const held = new Set();
@@ -168,11 +212,43 @@ export default {
 			const items = await step.do("backlog-" + projectId, async () =>
 				allWork(api, projectId),
 			);
-			for (const item of items.filter((x) =>
-				["codex", "claude-code"].includes(x.metadata?.executor),
+			for (const item of items.filter(
+				(x) =>
+					["codex", "claude-code"].includes(x.metadata?.executor) ||
+					(x.metadata?.executor === undefined &&
+						["codex", "claude-code"].includes(x.metadata?.agentHarness)),
 			)) {
 				if (item.activeAttempt) {
-					active++;
+					if (["codex", "claude-code"].includes(item.metadata?.executor))
+						active++;
+					else {
+						const live = await step.do("live-" + item.id, async () =>
+							checked(
+								await api.list_attempt_projection({
+									workItemId: item.id,
+									runtimeStates: ["queued", "running", "waiting", "retrying"],
+									limit: 1,
+								}),
+							),
+						);
+						if (live.data.some((row) => row.attempt.metadata?.lane === true))
+							active++;
+					}
+					continue;
+				}
+				if (
+					config.coordinatorId &&
+					!(
+						(item.stewardType === "tedi" &&
+							item.stewardId === config.coordinatorId) ||
+						(item.accountableOwnerType === "tedi" &&
+							item.accountableOwnerId === config.coordinatorId)
+					)
+				) {
+					held.add(item.id);
+					notes.push(
+						`${item.title}: the coordinator is not its owner or steward; existing ownership is preserved.`,
+					);
 					continue;
 				}
 				const state = await step.do("read-" + item.id, async () => {
@@ -273,7 +349,13 @@ export default {
 								startAt: null,
 								...(review.decision === "escalate"
 									? { executor: "human" }
-									: {}),
+									: {
+											executor:
+												item.metadata?.executor ??
+												(latest.externalSessionKey?.startsWith("claude-code:")
+													? "claude-code"
+													: "codex"),
+										}),
 							}),
 						);
 					}

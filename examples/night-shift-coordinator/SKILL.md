@@ -28,12 +28,16 @@ capabilities:
         create_os_output,
         revise_os_output,
       ]
+    tedi: [run_tedi_turn]
+    ceo: [run_tedi_turn]
+    cro: [run_tedi_turn]
 ---
 
 # Night shift coordinator
 
 Install this skill under an existing project lead. Configure its native schedule
-with `workspaceId`, `projectIds`, `maxLanes` and `people`. Each person supplies
+with `workspaceId`, `projectIds`, `coordinatorId`, `maxLanes` and `people`. The
+coordinator must be the owner or steward of Work it plans or completes. Each person supplies
 `id`, `timeZone`, `briefAt`, `nightStart` and the real `deckUrl`. Keep installation
 coordinates in organization configuration. The example schedule is disabled.
 
@@ -54,8 +58,13 @@ reasoner and either completes succeeded Work, re-briefs it for a fresh Attempt,
 or holds it for escalation. It never renews or settles a peer's Attempt.
 Review comments retain the model identity and lesson; re-briefs carry the lesson
 into the next lane. Configure `maxRetries` (default 3) and `maxReviews` (default
-4, ceiling 6) to bound each cycle. The platform controls the reasoner's model;
-verify its returned identity before calling it a small-model review.
+4, ceiling 6) to bound each cycle. Set the owner's runtime profile
+`modelPolicy.synthesisModelRef` to an approved economy model for these reviews.
+Review receipts retain the actual model identity. Chat keeps its own setting.
+
+Optional `tediTurns` entries (`namespace`, `ownerId`) retain half-hour nudges for
+existing tedis. A tedi is nudged only when it has accepted Work in scope without
+a live Attempt. Empty queues do not create blocker proposals.
 
 `startAt` is the dispatch plan on canonical Work: selected work starts now;
 queued work is held until a later coordination cycle. Use this only for Work
