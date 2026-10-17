@@ -403,8 +403,14 @@ export async function reflectAgentSessionRequests(
 	// Evidence may come from the turn or from its activity (a tool result).
 	const reflected = parseReflectedUpdates(raw, openRefs, source);
 	if (!reflected) return { status: "unavailable" };
+	const currentRefs = new Set(
+		(parseReflectedUpdates(raw, openRefs, currentSource) ?? []).map(
+			(update) => update.ref,
+		),
+	);
 	const updated = reflected.flatMap((update) => {
 		const row = byRef.get(update.ref)!;
+		if (row.status === update.status && !currentRefs.has(update.ref)) return [];
 		if (
 			row.kind === "ask" &&
 			(update.status !== "done" ||
@@ -428,10 +434,10 @@ export async function reflectAgentSessionRequests(
 		})),
 	];
 	const mentioned = parseLedgerMentions(raw, openRefs, currentSource);
-	for (const update of reflected) mentioned.add(update.ref);
+	for (const ref of currentRefs) mentioned.add(ref);
 	const newRows = parseReflectedNewRows(raw);
 	const changeById = new Map(changes.map((change) => [change.id, change]));
-	const lanes = parseLedgerLanes(raw, openRefs, source);
+	const lanes = parseLedgerLanes(raw, openRefs, currentSource);
 	for (const [ref, row] of byRef) {
 		if (
 			!openRefs.has(ref) ||

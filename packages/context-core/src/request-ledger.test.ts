@@ -192,7 +192,7 @@ it("keeps full turn text and accepts only grounded mentions of known refs", () =
 	const turn =
 		"Beginning: the pending deployment still needs verification.\n" +
 		"middle ".repeat(2000) +
-		"\nFinal: continue tomorrow.";
+		"\nFinal: continue tomorrow. Commit 4f2a9c1 is pending.";
 	expect(requestReflectorInput(turn, [])).toContain(turn);
 	expect([
 		...parseLedgerMentions(
@@ -202,7 +202,7 @@ it("keeps full turn text and accepts only grounded mentions of known refs", () =
 						ref: "r1",
 						evidence: "the pending deployment still needs verification",
 					},
-					{ ref: "r2", evidence: "invented evidence" },
+					{ ref: "r2", evidence: "invented completion at 4f2a9c1" },
 					{
 						ref: "unknown",
 						evidence: "the pending deployment still needs verification",
