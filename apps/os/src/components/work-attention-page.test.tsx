@@ -1,3 +1,4 @@
+import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-layout";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("@/lib/api", () => ({ osApi: {} }));
@@ -93,4 +94,63 @@ it("keeps a human handoff prominent without treating it as an offline worker", (
 	expect(html).toContain("waiting on you");
 	expect(html).not.toContain("opacity-65");
 	expect(html).not.toContain("Heartbeat stale");
+});
+
+it("applies project focus to contributions and attention gaps as well as cards", () => {
+	const at = new Date().toISOString();
+	const base = {
+		who: "Mira",
+		title: "Supply check",
+		column: "moving" as const,
+		startedAt: "2026-10-17T10:00:00Z",
+		heartbeatAt: at,
+		note: "Checking records",
+		href: "/work/agents",
+		source: "run" as const,
+	};
+	const html = renderToStaticMarkup(
+		<AttentionBoard
+			file={() => {}}
+			layout={{ ...DEFAULT_ATTENTION_LAYOUT, focusProjectId: "supply" }}
+			data={{
+				cards: [
+					{
+						...base,
+						id: "supply",
+						projectId: "supply",
+						tediName: "Supply helper",
+					},
+					{
+						...base,
+						id: "search",
+						projectId: "search",
+						tediName: "Search helper",
+						title: "Unrelated search work",
+					},
+				],
+				projects: [
+					{
+						id: "supply",
+						name: "Supply",
+						status: "active",
+						active: 1,
+						recent: 1,
+					},
+					{
+						id: "search",
+						name: "Search",
+						status: "active",
+						active: 0,
+						recent: 0,
+					},
+				],
+				unfiled: [],
+				truncated: false,
+			}}
+		/>,
+	);
+	expect(html).toContain("Supply helper");
+	expect(html).not.toContain("Search helper");
+	expect(html).not.toContain("Unrelated search work");
+	expect(html).not.toContain("Nobody has touched Search");
 });
