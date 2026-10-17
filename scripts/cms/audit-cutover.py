@@ -135,6 +135,14 @@ def discovery_body(path, body):
     return body
 
 
+def latency_summary(samples):
+    valid = [x for x in samples if x['status'] == 200]
+    return dict(median_ttfb_ms=statistics.median(x['ttfb_ms'] for x in valid) if valid else None,
+                median_wait_ms=statistics.median(x['wait_ms'] for x in valid) if valid else None,
+                hits=sum(x['headers'].get('x-tedix-page-cache') == 'HIT' for x in valid),
+                errors=len(samples) - len(valid))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--source', required=True)
@@ -164,7 +172,11 @@ def main():
                 cmd += ['--resolve', urlsplit(a.source).hostname + ':443:' + a.source_ip]
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode:
-                raise RuntimeError(f'{side} {path}: {r.stderr}')
+                # Retain the whole matrix even when one download fails. Partial
+                # bytes must never become a successful body hash or fast timing.
+                return dict(status=0, headers={}, bytes=0, sha256=None,
+                            ttfb_ms=None, wait_ms=None, ip=None,
+                            error=r.stderr.strip()), b''
             status, ttfb, pre, ip = r.stdout.split()
             raw = Path(d + '/headers').read_text()
             headers = {}
@@ -261,6 +273,9 @@ def main():
 
     for path, results in sorted(fetched.items()):
         l, c = results['source'], results['cms']
+        for side, result in results.items():
+            if 'error' in result:
+                differences.append(dict(path=path, field='transport_error', side=side))
         for field in ('status', 'seo', 'body_text_sha256'):
             if l.get(field) != c.get(field):
                 if field == 'seo' and l['status'] == c['status'] and 'seo' in l and 'seo' in c:
@@ -324,9 +339,7 @@ def main():
     print(json.dumps(dict(routes=len(fetched), app_population=len(app_paths),
                           app_sample=len(sample), assets=len(assets), differences=differences,
                           overweight=[w for w in weights if not w['passed']],
-                          latency={p: {s: dict(median_ttfb_ms=statistics.median(x['ttfb_ms'] for x in v),
-                                              median_wait_ms=statistics.median(x['wait_ms'] for x in v),
-                                              hits=sum(x['headers'].get('x-tedix-page-cache') == 'HIT' for x in v))
+                          latency={p: {s: latency_summary(v)
                                        for s, v in sides.items()} for p, sides in latency.items()}), indent=2))
 
 

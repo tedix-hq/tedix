@@ -1,6 +1,12 @@
 import importlib.util
+import contextlib
+import io
+import json
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     'audit', Path(__file__).with_name('audit-cutover.py'))
@@ -9,6 +15,27 @@ spec.loader.exec_module(audit)
 
 
 class AuditTest(unittest.TestCase):
+    def test_transport_failures_preserve_report_and_never_count_as_fast_responses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = ['audit', '--source', 'https://source.example', '--cms', 'https://cms.example',
+                    '--public-host', 'example.com', '--pages', str(root),
+                    '--latency-samples', '1', '--output', str(root)]
+            failure = subprocess.CompletedProcess([], 28, stdout='', stderr='download timed out')
+            with patch('sys.argv', args), patch.object(audit.subprocess, 'run', return_value=failure), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                audit.main()
+            report = json.loads((root / 'audit.json').read_text())
+            self.assertTrue(report['routes'])
+            self.assertTrue(any(d['field'] == 'transport_error' for d in report['differences']))
+            for sides in report['routes'].values():
+                for result in sides.values():
+                    self.assertEqual(result['status'], 0)
+                    self.assertIsNone(result['sha256'])
+            summary = audit.latency_summary(report['latency']['/']['cms'])
+            self.assertIsNone(summary['median_ttfb_ms'])
+            self.assertEqual(summary['errors'], 1)
+
     def test_body_text_ignores_build_code_but_detects_content_changes(self):
         def digest(markup):
             text = audit.BodyText()
