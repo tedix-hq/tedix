@@ -40,7 +40,7 @@ const EXPLICIT_DELEGATION_PATTERNS: readonly RegExp[] = [
 	/\bkick\s*off\b/i,
 	/\bstart\s+(?:a\s+|the\s+|this\s+)?(?:job|task|run|background\s+job)\b/i,
 	/\brun\s+(?:this|it|that)\s+as\s+(?:a\s+)?(?:job|task|background\s+job)\b/i,
-	/\bhand(?:\s*|-)?(?:off|over)\b/i,
+	/\bhand(?:\s+(?:this|it|that))?\s+(?:off|over)\b|\bhand-?(?:off|over)\s+(?:this|it|that|to)\b/i,
 	/\bwork\s+order\b/i,
 	// Spanish
 	/\bdeleg(?:a|ar|ue|alo|arlo|uen|ando|ación|acion)\b/i,
@@ -70,7 +70,7 @@ export function hasExplicitDelegationIntent(content: string): boolean {
 	// governance metadata with explicitDelegationIntent=true merely because the
 	// prohibited verb appears in the sentence.
 	const withoutNegatedDelegation = text.replace(
-		/\b(?:do\s+not|don't|never|without|no)\b[^.?!\n]{0,100}?\b(?:delegat(?:e|es|ed|ing|ion)|assign(?:s|ed|ing)?|hand(?:\s*|-)?(?:off|over)|work\s+orders?|delegaci(?:o|ó)n|delegar|asignar|orden(?:es)?\s+de\s+trabajo)\b/gi,
+		/\b(?:do\s+not|don't|never|without|no)\b[^.?!\n]{0,100}?\b(?:delegat(?:e|es|ed|ing|ion)|assign(?:s|ed|ing)?|hand(?:\s+(?:this|it|that))?(?:\s*|-)?(?:off|over)|work\s+orders?|delegaci(?:o|ó)n|delegar|asignar|orden(?:es)?\s+de\s+trabajo)\b/gi,
 		" ",
 	);
 	// A read over work items ("list/show/what are my work items") is a read,
