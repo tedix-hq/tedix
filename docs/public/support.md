@@ -1,128 +1,88 @@
 ---
 title: "Get support"
-description: "File a consented support report as a person or an authenticated agent and follow its answer."
-summary: "Shared support tickets, agent intake, human-reviewed answers and operator setup"
+description: "Ask for help with Tedix, follow your request, and find the answer."
+summary: "How to ask for help, what Support does next, and where to read the reply"
 read_when:
   - Getting help with a Tedix workflow
   - Filing or following a support ticket from an agent
-  - Configuring a Support factory
+  - Understanding how Support replies
 visibility: public
 ---
 
 # Get support
 
-In Tedix OS, choose **Get help**. Describe what you expected, what happened,
-the impact and any reproduction steps. The form includes the current route,
-selected organization and last known query error when one exists. Edit those
-fields, preview the report, then approve sharing that exact report with your
-organization and Tedix Support. Do not include credentials, private messages,
-customer records, screenshots or full logs.
+If something in Tedix is stopping you from working, you can ask Support for
+help and follow the answer in Tedix OS. Start by choosing **Get help**.
 
-The receipt gives you a ticket ID, a Work link, mirror delivery state and the
-next response target. Find your tickets on **Work → Attention**. A receipt
-acknowledges storage; it is not a support answer. Your organization's ordinary
-Work visibility applies to its source ticket. The status tool restricts reads
-to the original reporter identity in the selected organization.
+Tedix Cloud is an invited beta. See [Release status](./release-status.md)
+for what is available today.
 
-Support checks approved documentation, known issues and past answers. It drafts
-an answer with evidence and a next step, or escalates diagnosis to engineering
-Work. A designated human admin reviews and publishes replies. A draft and an
-engineering fix do not prove that your workflow recovered: report your retest
-to confirm recovery or reopen the request. Support does not promise prices or
-delivery dates.
+## Ask for help
 
-## From an agent
+1. Open **Get help** in Tedix OS.
+2. Give the request a short title. Say what you were trying to do, what you
+   expected, and what happened instead. Add the steps that caused the problem
+   and how it affects your work.
+3. Check the page and error details filled in by the form. Edit them if needed.
+   Leave out passwords, access keys, private messages, customer records,
+   screenshots, and full logs.
+4. Preview the report. Approve sharing that report with your organization and
+   Tedix Support, then choose **File support request**.
 
-Any authenticated agent with the selected organization's Work read/write
-capabilities can use the same intake: a tedi, local Codex or a supported
-ChatGPT connector. Discover and describe `file_support_request` and
-`get_support_status` through your gateway; use the returned namespace.
+You receive a request number and a link to its Work item. Keep that link.
+It confirms that your request was saved; Support still needs to review it.
+People who can normally read your organization's Work can read that item.
 
-1. Prepare a bounded report: `title`, `expected`, `actual`, optional `steps`,
-   `impact`, `page`, `lastError` and approved `diagnosticRefs`, plus
-   `observedAt`, `origin: "agent"` and `language: "en" | "es"`.
-2. Redact it before transmission. Remove tokens, cookies, personal/customer
-   data and URL query strings, fragments and userinfo. Show the exact report
-   and recipient to the user. A standing delegation may authorize its defined
-   metadata; never invent human approval.
-3. Send the approved report, a stable `idempotencyKey`, and `consent` containing
-   `approved: true`, the approval `reference` and `payloadDigest`.
-4. Save the returned ticket ID. Read status with `ticketId` and optional
-   `afterVersion`; honor `nextPollMs`. The result contains public updates,
-   evidence, waiting-on state and the next response target. It contains no
-   private drafts or platform investigation notes.
-5. For a follow-up, use `file_support_request` with the same `ticketId`, its
-   current `expectedVersion`, a new idempotency key, a newly approved report
-   and, when appropriate, `retest: "unblocked" | "still-blocked"`.
+## What happens next
 
-The digest is lowercase SHA-256 of UTF-8 JSON in this order, with all defaults
-included: `title`, `expected`, `actual`, `steps`, `impact`, `page`, `lastError`,
-`observedAt`, `origin`, `language`, `diagnosticRefs`. Source integrations can
-use `redactSupportReport` and `supportPayloadDigest` from
-`@tedix/api-contract/utils/support-report`. Intake scans again and rejects a
-digest mismatch. Reusing a creation key with different content is a conflict.
-A stale version requires a fresh read; retries preserve the original receipt.
+The Support tedi checks the documentation, known problems, and previous
+answers. It prepares a reply with sources and a next step. If the problem
+needs investigation, it asks engineering to investigate.
 
-If the bridge is temporarily unavailable, the source receipt remains durable
-with `mirrorDelivery: "pending"`. Scheduled reconciliation retries the same
-mirror. Filing grants no patch, deployment, administrator or cross-tenant
-Work authority.
+A designated person reviews the draft before publishing the answer to you.
+A tedi's draft does not go straight to you. Support aims to respond within
+one hour and resolve the request or give a clear next step within two days.
+These are targets, not a promise of a fix by a particular date.
 
-## Operate a Support factory
+## Find the answer
 
-An installation operator creates a dedicated Support tedi using `create_tedi`,
-then configures its persona, scoped tools and `configure_support_factory`.
-Use `create_factory` with that owner, `projectKey: "SUPPORT"` and
-`runsAt: { timeZone: "Europe/Berlin", times: ["09:00"] }` for the daily review.
-Preview first, then build within the operator's authorization. This creates
-the standing objective, revisioned skill, schedule and health Work item;
-inspect them using the [factory guide](./factory-agent-guide.md).
-Keep tenant IDs, owners and routing configuration in D1; do not embed them in
-product code. Support projects are created lazily on first intake and mirrored
-to the configured platform organization. Only the consented structured report
-crosses that bridge.
+Open **Work → Attention** in Tedix OS and look for **Support**. Your request
+shows its status, who needs to act next, and when the next update is due.
+The latest published reply appears there. Use the request's Work link to
+open its history.
 
-Use the tedi's `toolPolicy.runtimeTools`, `mcpScopes` and `mcpEndpoints` as
-exact ceilings. Missing ceilings preserve the existing surface; an empty
-ceiling disables it. Keep only the MCP execution/read-skill runtime tools and
-the specific ticket/document read, draft, escalation and review endpoints.
-Exclude deployment, repository, credential and administrator tools. Scope
-ceilings intersect the tedi's normal capability profile. The API still checks
-the configured Support identity for every staff operation.
+The reply appears in Tedix OS; publishing it does not send an email.
+Try the suggested steps and tell Support whether you can work again. If the
+problem remains, share what happened so the request can be followed up or
+reopened. A code fix alone does not confirm that your problem is solved.
 
-New mirrors emit an owned Work acceptance event. The existing commitment-wake
-dispatcher batches these into idempotent Support turns. Follow-ups and failed
-retests wake the same owner. A separate maintenance receipt tracks mirror
-retries. The factory's existing skill scheduler runs the daily review at its
-saved local time, including daylight-saving changes. The initial goals are a first response within one
-hour and resolution or a clear next step within two days; these are operating
-targets, not guaranteed fix dates.
+## Ask through your agent
 
-The review checks stale tickets and repeated issues, proposes engineering
-Work and records an internal admin digest using `record_support_review`.
-`escalate_support_ticket` creates either a diagnosis Work item for the
-configured engineering owner or one focused Needs-you question. Engineering
-Work follows ordinary admission. Local Codex execution can take that Work
-through an opted-in channel; channel delivery and acknowledgment must be
-verified separately before calling it started.
+A signed-in tedi, Codex session, or supported ChatGPT connector can file and
+follow a request for you if it has permission to read and write your
+organization's Work. Ask it to show you the report and who will receive it
+before sending. It needs your approval for what it shares.
 
-The designated admin opens **Review support queue** on Attention, reads a
-draft and its evidence, then chooses **Publish this answer to the reporter**.
-Only that human can publish. This action updates the ticket; it sends no email
-or other external message.
+Your agent uses `file_support_request` to submit the report and
+`get_support_status` to read replies. It must first discover those tools
+through your connection, because their names can have different prefixes.
+For follow-ups, it uses the same request number, checks the current version,
+and asks you to approve any new report. These tools show your published
+updates, not Support's private drafts or investigation notes.
 
-## Email fallback
+## If you cannot sign in
 
-An email ingress stub reuses the existing opt-in tedi mailbox. An operator
-must provision the actual recipient address and set its routing policy's
-`supportIntake: true`. Mail addressed to the configured Support tedi creates
-a restricted **Verify support email** Work item, deduplicated by the durable
-mailbox message ID. Original content and attachments remain in the mailbox.
-The stub quarantines the message from model execution and automatic replies.
+Use the contact channel published by the person who runs your Tedix
+installation. Email support works only if they have set up and verified a
+support address. Installing Tedix does not create a public support inbox.
 
-The admin verifies the sender, organization and approved report before filing
-a tenant ticket. An email address or domain never establishes membership.
-Public `support@` routing requires separately verified mailbox ownership and
-provider configuration; installing this source does not activate that address.
-When MCP sign-in fails, use your operator's published contact channel while
-that independent email route is being configured.
+When that email option is configured, incoming mail first waits for a person
+to check the sender, organization, and report before creating a support
+request. The original message and attachments stay in the mailbox. A tedi
+does not automatically read that message or reply to it, and an email address
+alone does not prove that someone belongs to an organization.
+
+If you run an installation, the [factory guide](./factory-agent-guide.md)
+explains how to inspect and set up a factory. Support needs its own tedi and
+a person responsible for reviewing replies. Give that tedi only the tools
+needed to read requests, prepare answers, and ask for help with investigations.
