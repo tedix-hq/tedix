@@ -1401,3 +1401,53 @@ it("recovers a missed lane result from prior assistant evidence without admittin
 	expect((await rows(db))[0]?.status).toBe("done");
 	expect(await rows(db)).toHaveLength(1);
 });
+
+it.each([
+	{
+		request: "Send Bea the onboarding message",
+		evidence: "Tell Bea to click Allow mail access.",
+		qualifier: "The message is drafted, not sent.",
+	},
+	{
+		request: "Remove the scratch repos alpha and beta",
+		evidence: "Removed fourteen merged worktrees.",
+		qualifier: "The scratch repos alpha and beta are still present.",
+	},
+])(
+	"keeps $request open when its cited text does not prove execution",
+	async ({ request, evidence, qualifier }) => {
+		const db = fixture();
+		await acceptAgentSessionEvents(db, {
+			...SCOPE,
+			events: [{ ...SCOPE, kind: "prompt", text: request, sourceAt: T0 }],
+			now: T0,
+		});
+		await observe(
+			db,
+			scripted(
+				JSON.stringify({ requests: [{ kind: "request", text: request }] }),
+			).model,
+			request,
+		);
+		const { model } = scripted(
+			JSON.stringify({ updates: [{ ref: "r1", status: "done", evidence }] }),
+		);
+		model.verify = vi.fn(async (_checks, source) => {
+			expect(source).toContain(qualifier.toLowerCase());
+			return new Set<string>();
+		});
+		await reflectAgentSessionRequests(db, model, {
+			...SCOPE,
+			turn: `${evidence} ${qualifier}`,
+			activity: null,
+			repository: null,
+			sourceAt: "2026-10-06T10:01:00Z",
+			now: T0,
+		});
+		expect(model.verify).toHaveBeenCalledWith(
+			[expect.objectContaining({ request, scope: expect.anything() })],
+			expect.any(String),
+		);
+		expect((await rows(db))[0]?.status).toBe("open");
+	},
+);
