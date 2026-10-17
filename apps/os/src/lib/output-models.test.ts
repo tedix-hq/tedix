@@ -5,13 +5,15 @@ import { canonicalJsonText } from "@/lib/diff/canonical-json";
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { describe, expect, it } from "vite-plus/test";
 import {
-	blocksFromRichText,
 	normalizeOutputContent,
 	projectDeck,
 	projectWorkbook,
-	richTextFromBlocks,
 	workbookFromProjection,
 } from "./output-models";
+import {
+	blocksFromRichText,
+	richTextFromBlocks,
+} from "@tedix/api-contract/utils/os-document";
 
 describe("output authoring models", () => {
 	it("projects presentation pixels onto the current canvas width", () => {

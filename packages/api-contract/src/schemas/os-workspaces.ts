@@ -801,6 +801,29 @@ export const OsDocumentBlockSchema = z.discriminatedUnion("type", [
 		text: z.string().max(40_000),
 	}),
 	z.object({ type: z.literal("quote"), text: z.string().max(20_000) }),
+	z.object({
+		type: z.literal("table"),
+		headers: z.array(z.string().max(4_000)).min(1).max(64),
+		rows: z.array(z.array(z.string().max(4_000)).max(64)).max(1_000),
+		align: z
+			.array(z.enum(["left", "center", "right"]).nullable())
+			.max(64)
+			.optional(),
+		widths: z.array(z.number().int().min(40).max(2_000)).max(64).optional(),
+	}),
+	z.object({ type: z.literal("divider") }),
+	z.object({ type: z.literal("callout"), text: z.string().max(20_000) }),
+	z.object({
+		type: z.literal("toggle"),
+		summary: z.string().max(2_000),
+		text: z.string().max(20_000),
+	}),
+	z.object({
+		type: z.literal("checklist"),
+		items: z
+			.array(z.object({ text: z.string().max(20_000), checked: z.boolean() }))
+			.max(200),
+	}),
 ]);
 
 export const OsSheetCellSchema = z.union([

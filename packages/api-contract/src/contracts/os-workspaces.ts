@@ -962,9 +962,20 @@ export const osWorkspacesContract = oc
 							.uuid()
 							.optional()
 							.describe("Optional workspace to group the output under"),
-						content: OsOutputContentSchema.optional().describe(
-							"Optional initial body. Omit it to create an empty artifact of the declared kind — an empty document, sheet, or presentation — and fill it afterwards with patchDocument or patchSlides. An empty sheet has no columns, so give a sheet its columns here (or through revise) before writing cells with setSheetRange. A video must supply its body, because a video without a renderId names nothing.",
-						),
+						content: z
+							.union([
+								OsOutputContentSchema,
+								z
+									.string()
+									.max(200_000)
+									.describe(
+										"Markdown document text; converted to structured blocks",
+									),
+							])
+							.optional()
+							.describe(
+								"Optional initial body. Omit it to create an empty artifact of the declared kind — an empty document, sheet, or presentation — and fill it afterwards with patchDocument or patchSlides. An empty sheet has no columns, so give a sheet its columns here (or through revise) before writing cells with setSheetRange. A video must supply its body, because a video without a renderId names nothing.",
+							),
 						note: z
 							.string()
 							.max(2_000)
@@ -1018,12 +1029,27 @@ export const osWorkspacesContract = oc
 				})
 				.input(
 					outputIdInput.extend({
-						content: OsOutputContentSchema,
+						content: z.union([
+							OsOutputContentSchema,
+							z
+								.string()
+								.max(200_000)
+								.describe(
+									"Markdown document text; converted to structured blocks",
+								),
+						]),
 						note: z
 							.string()
 							.max(2_000)
 							.optional()
 							.describe("Optional revision message describing the edit"),
+						expectedRevisionId: z
+							.string()
+							.uuid()
+							.optional()
+							.describe(
+								"Exact current revision ID read by the caller; a mismatch returns CONFLICT",
+							),
 						expectedRevision: z
 							.number()
 							.int()

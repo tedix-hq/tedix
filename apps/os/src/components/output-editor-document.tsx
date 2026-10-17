@@ -1,3 +1,11 @@
+import { TableKit } from "@tiptap/extension-table";
+import { TaskList, TaskItem } from "@tiptap/extension-list";
+import {
+	Details,
+	DetailsSummary,
+	DetailsContent,
+} from "@tiptap/extension-details";
+import { Node, mergeAttributes } from "@tiptap/core";
 import {
 	ArrowCounterClockwise,
 	DotsThree,
@@ -62,11 +70,11 @@ import {
 	EditorToolbarColorButton,
 	EditorToolbarDivider,
 } from "@/components/output-editor-toolbar";
+import { type DocumentContent } from "@/lib/output-models";
 import {
 	blocksFromRichText,
 	normalizeDocumentContent,
-	type DocumentContent,
-} from "@/lib/output-models";
+} from "@tedix/api-contract/utils/os-document";
 import { incomingDocumentTransaction } from "@/lib/document-remote-merge";
 import {
 	REMOTE_CHANGE_META,
@@ -212,6 +220,24 @@ export function DocumentEditor({
 			Extension.create({
 				name: "remoteCursors",
 				addProseMirrorPlugins: () => [remoteCursorsPlugin()],
+			}),
+			TableKit.configure({ table: { resizable: true } }),
+			TaskList,
+			TaskItem.configure({ nested: true }),
+			Details.configure({ persist: true }),
+			DetailsSummary,
+			DetailsContent,
+			Node.create({
+				name: "callout",
+				group: "block",
+				content: "block+",
+				defining: true,
+				parseHTML: () => [{ tag: 'aside[data-type="callout"]' }],
+				renderHTML: ({ HTMLAttributes }) => [
+					"aside",
+					mergeAttributes(HTMLAttributes, { "data-type": "callout" }),
+					0,
+				],
 			}),
 			StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
 			DocumentFormatting,
@@ -589,6 +615,101 @@ export function DocumentEditor({
 							onClick={() => toggleMark("code")}
 						>
 							<Code size={15} />
+						</EditorToolbarButton>
+						<EditorToolbarButton
+							label="Insert table"
+							disabled={disabled}
+							onClick={() =>
+								editor
+									.chain()
+									.focus()
+									.insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+									.run()
+							}
+						>
+							Table
+						</EditorToolbarButton>
+						{editor.isActive("table") && (
+							<>
+								<EditorToolbarButton
+									label="Add row"
+									disabled={disabled}
+									onClick={() => editor.chain().focus().addRowAfter().run()}
+								>
+									+ Row
+								</EditorToolbarButton>
+								<EditorToolbarButton
+									label="Add column"
+									disabled={disabled}
+									onClick={() => editor.chain().focus().addColumnAfter().run()}
+								>
+									+ Column
+								</EditorToolbarButton>
+								<EditorToolbarButton
+									label="Delete row"
+									disabled={disabled}
+									onClick={() => editor.chain().focus().deleteRow().run()}
+								>
+									− Row
+								</EditorToolbarButton>
+								<EditorToolbarButton
+									label="Delete column"
+									disabled={disabled}
+									onClick={() => editor.chain().focus().deleteColumn().run()}
+								>
+									− Column
+								</EditorToolbarButton>
+								<EditorToolbarButton
+									label="Toggle header row"
+									disabled={disabled}
+									onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+								>
+									Header
+								</EditorToolbarButton>
+								<EditorToolbarButton
+									label="Delete table"
+									disabled={disabled}
+									onClick={() => editor.chain().focus().deleteTable().run()}
+								>
+									Delete table
+								</EditorToolbarButton>
+							</>
+						)}
+						<EditorToolbarButton
+							label="Checklist"
+							active={editor.isActive("taskList")}
+							disabled={disabled}
+							onClick={() => editor.chain().focus().toggleTaskList().run()}
+						>
+							☑
+						</EditorToolbarButton>
+						<EditorToolbarButton
+							label="Callout"
+							disabled={disabled}
+							onClick={() =>
+								editor
+									.chain()
+									.focus()
+									.insertContent({
+										type: "callout",
+										content: [
+											{
+												type: "paragraph",
+												content: [{ type: "text", text: "Note" }],
+											},
+										],
+									})
+									.run()
+							}
+						>
+							Note
+						</EditorToolbarButton>
+						<EditorToolbarButton
+							label="Toggle section"
+							disabled={disabled}
+							onClick={() => editor.chain().focus().setDetails().run()}
+						>
+							Toggle
 						</EditorToolbarButton>
 						<EditorToolbarButton
 							label="Horizontal rule"

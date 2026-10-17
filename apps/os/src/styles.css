@@ -3269,3 +3269,113 @@ a:focus-visible {
 		transition: none !important;
 	}
 }
+
+.document-table-scroll,
+.document-prose .tableWrapper {
+	max-width: 100%;
+	overflow-x: auto;
+	margin-block: 1rem;
+}
+.document-prose table {
+	border-collapse: collapse;
+	table-layout: fixed;
+	width: 100%;
+	min-width: 36rem;
+	font-size: 0.875em;
+}
+.document-prose :is(th, td) {
+	border: 1px solid var(--tedix-document-rule);
+	padding: 0.6rem 0.75rem;
+	min-width: 5rem;
+	vertical-align: top;
+	overflow-wrap: anywhere;
+	position: relative;
+}
+.document-prose th {
+	background: color-mix(
+		in srgb,
+		var(--tedix-document-ink) 5%,
+		var(--tedix-document-paper)
+	);
+	font-weight: 600;
+	text-align: left;
+}
+.document-prose :is(th, td) > p {
+	margin: 0;
+}
+.document-prose .selectedCell::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: color-mix(in srgb, var(--tedix-document-link) 18%, transparent);
+	pointer-events: none;
+}
+.document-prose .column-resize-handle {
+	position: absolute;
+	right: -2px;
+	top: 0;
+	bottom: 0;
+	width: 4px;
+	background: var(--tedix-document-link);
+	pointer-events: none;
+}
+.document-prose.resize-cursor {
+	cursor: col-resize;
+}
+.document-prose [data-type="callout"] {
+	border: 1px solid var(--tedix-document-rule);
+	border-left: 4px solid var(--tedix-document-link);
+	border-radius: 0.5rem;
+	padding: 1rem;
+	background: color-mix(
+		in srgb,
+		var(--tedix-document-ink) 5%,
+		var(--tedix-document-paper)
+	);
+}
+.document-prose :is(details, [data-type="details"]) {
+	border: 1px solid var(--tedix-document-rule);
+	border-radius: 0.5rem;
+	padding: 0.75rem;
+}
+.document-prose summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+.document-prose [data-type="details"] {
+	display: flex;
+	gap: 0.5rem;
+}
+.document-prose [data-type="details"] > button {
+	cursor: pointer;
+}
+.document-prose [data-type="details"] > button::before {
+	content: "▶";
+}
+.document-prose [data-type="details"].is-open > button::before {
+	content: "▼";
+}
+.document-prose ul[data-type="taskList"] {
+	list-style: none;
+	padding-left: 0;
+}
+.document-prose li[data-type="taskItem"] {
+	display: flex;
+	gap: 0.65rem;
+	align-items: baseline;
+}
+.document-prose li[data-type="taskItem"] > div {
+	flex: 1;
+	min-width: 0;
+}
+.document-prose li[data-type="taskItem"] p {
+	margin: 0;
+}
+.document-prose input[type="checkbox"] {
+	accent-color: var(--tedix-document-link);
+}
+.document-prose hr {
+	border: 0;
+	border-top: 1px solid var(--tedix-document-rule);
+	margin-block: 1.5rem;
+}

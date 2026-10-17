@@ -2,7 +2,8 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Editor } from "@tiptap/core";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { blocksFromRichText, type DocumentContent } from "@/lib/output-models";
+import { type DocumentContent } from "@/lib/output-models";
+import { blocksFromRichText } from "@tedix/api-contract/utils/os-document";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
 import { MAX_FILE_TEXT_LENGTH } from "@/collab/ot/code-change";
 import * as documentImages from "@/lib/document-images";
@@ -75,6 +76,47 @@ const button = (label: string, root: ParentNode = document) =>
 	root.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 
 describe("DocumentEditor", () => {
+	it("edits tables and retains callouts, toggles and task lists", async () => {
+		const mounted = await mountEditor();
+		act(() => {
+			mounted.editor
+				.chain()
+				.focus()
+				.insertTable({ rows: 2, cols: 2, withHeaderRow: true })
+				.run();
+		});
+		expect(mounted.container.querySelectorAll("th")).toHaveLength(2);
+		act(() => {
+			mounted.editor.chain().addColumnAfter().addRowAfter().run();
+		});
+		expect(
+			mounted.editor.getJSON().content?.find((node) => node.type === "table")
+				?.content,
+		).toHaveLength(3);
+		const value: DocumentContent = {
+			kind: "document",
+			blocks: [
+				{ type: "callout", text: "Note" },
+				{ type: "toggle", summary: "More", text: "Hidden" },
+				{ type: "checklist", items: [{ text: "Review", checked: false }] },
+			],
+		};
+		await mounted.rerender(value);
+		expect(mounted.editor.getJSON().content?.map((node) => node.type)).toEqual(
+			expect.arrayContaining(["callout", "details", "taskList"]),
+		);
+		act(() => {
+			mounted.container
+				.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+				.click();
+		});
+		expect(mounted.onChange.mock.calls.at(-1)?.[0].blocks).toContainEqual({
+			type: "checklist",
+			items: [{ text: "Review", checked: true }],
+		});
+		mounted.unmount();
+	});
+
 	it("opening and connection changes do not publish edits or create undo history", async () => {
 		const mounted = await mountEditor();
 		expect(mounted.onChange).not.toHaveBeenCalled();

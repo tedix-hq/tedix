@@ -183,7 +183,7 @@ describe("renderOsOutputHtml", () => {
 		expect(html).toContain("<article>");
 		expect(html).toContain("<h2>Plan</h2>");
 		expect(html).toContain("<p>Ship it.</p>");
-		expect(html).toContain("<ol><li>one</li><li>two</li></ol>");
+		expect(html).toContain("<ol><li><p>one</p></li><li><p>two</p></li></ol>");
 		expect(html).toContain(
 			'<pre><code data-language="ts">const a = 1 &lt; 2;</code></pre>',
 		);

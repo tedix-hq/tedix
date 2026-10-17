@@ -1,3 +1,4 @@
+import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 import {
 	documentContent,
 	sheetContent,
@@ -3431,9 +3432,7 @@ const localOutputLibraryItem = (
 			? {
 					kind: "document",
 					lines: content.blocks
-						.flatMap((block) =>
-							block.type === "list" ? block.items : [block.text],
-						)
+						.flatMap((block) => documentBlockText(block))
 						.map(compactOutputPreviewText)
 						.filter(Boolean)
 						.slice(0, 6),
