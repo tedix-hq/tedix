@@ -4,6 +4,12 @@ import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { apps } from "../schema/apps";
+import {
+	appCatalog,
+	appCatalogMcpResources,
+	appCatalogMcpResourceTemplates,
+	appCatalogMcpPrompts,
+} from "../schema/catalog";
 import { appToolCspDomains } from "../schema/configuration";
 import { organizations } from "../schema/organizations";
 import { providerInstallations } from "../schema/provider-installations";
@@ -39,6 +45,10 @@ function ddlFor(table: SQLiteTable): string {
 }
 
 const DDL = [
+	appCatalog,
+	appCatalogMcpResources,
+	appCatalogMcpResourceTemplates,
+	appCatalogMcpPrompts,
 	appToolCspDomains,
 	appTools,
 	apps,
@@ -126,9 +136,22 @@ function db(
 
 	const statements: string[] = [];
 	const facade = createD1Facade(sqlite);
+	let batchDepth = 0;
 	const counted = new Proxy(facade as object, {
 		get(target, prop, receiver) {
 			const value = Reflect.get(target, prop, receiver);
+			if (prop === "batch" && typeof value === "function") {
+				return async (...args: unknown[]) => {
+					if (roundTripMs)
+						await new Promise((resolve) => setTimeout(resolve, roundTripMs));
+					batchDepth++;
+					try {
+						return await value.apply(target, args);
+					} finally {
+						batchDepth--;
+					}
+				};
+			}
 			if (prop === "prepare" && typeof value === "function") {
 				return (sql: string) => {
 					statements.push(sql);
@@ -144,7 +167,7 @@ function db(
 							}
 							if (typeof execute !== "function") return execute;
 							return async (...args: unknown[]) => {
-								if (roundTripMs)
+								if (roundTripMs && batchDepth === 0)
 									await new Promise((resolve) =>
 										setTimeout(resolve, roundTripMs),
 									);
@@ -166,6 +189,34 @@ function db(
 }
 
 describe("getAppsBySlugsWithTools", () => {
+	it("hydrates twenty distinct selections with catalog data within one second of D1 round trips", async () => {
+		vi.useFakeTimers();
+		const { client, sqlite } = db(20, 250);
+		sqlite.exec(
+			"INSERT INTO app_catalog (id) VALUES ('catalog-beta'); UPDATE apps SET catalog_app_id = 'catalog-beta' WHERE slug = 'beta'",
+		);
+		try {
+			const requests = Array.from({ length: 20 }, (_, i) => ({
+				slug: "beta",
+				toolIds: [`extra_${i}`],
+			}));
+			const started = Date.now();
+			const pending = getAppsBySlugsWithTools(client, requests);
+			await vi.runAllTimersAsync();
+			const results = await pending;
+			expect(results.map((r) => r?.tools.map((t) => t.toolId))).toEqual(
+				requests.map((r) => r.toolIds),
+			);
+			expect(results.every((r) => r?.catalogMcp?.id === "catalog-beta")).toBe(
+				true,
+			);
+			expect(Date.now() - started).toBeLessThan(1000);
+		} finally {
+			sqlite.close();
+			vi.useRealTimers();
+		}
+	});
+
 	it.each(["single", "batch", "owned-id"] as const)(
 		"keeps %s hydration of 1,900 tools below a one-second D1 round-trip budget",
 		async (mode) => {

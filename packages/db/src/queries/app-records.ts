@@ -76,7 +76,7 @@ async function getCatalogMcpSurfaceForApp(
 		catalogResources,
 		catalogResourceTemplates,
 		catalogPrompts,
-	] = await Promise.all([
+	] = await db.batch([
 		db
 			.select({
 				id: appCatalog.id,
@@ -154,7 +154,7 @@ async function getCatalogMcpSurfacesForApps(
 			catalogResources,
 			catalogResourceTemplates,
 			catalogPrompts,
-		] = await Promise.all([
+		] = await db.batch([
 			db
 				.select({
 					id: appCatalog.id,
@@ -626,34 +626,34 @@ export async function getAppsBySlugsWithTools(
 				orgIds.add(request.hostOrganizationId);
 			}
 			const orgById = new Map<string, AggregateOwnershipOrg>();
-			for (const chunk of chunked([...orgIds], APP_SURFACE_ID_CHUNK)) {
-				const rows = await db
-					.select({
-						id: organizations.id,
-						slug: organizations.slug,
-						descopeTenantId: organizations.descopeTenantId,
-					})
-					.from(organizations)
-					.where(inArray(organizations.id, chunk));
-				for (const row of rows) orgById.set(row.id, row);
-			}
 			const providerGrants = new Set<string>();
 			for (const chunk of chunked([...orgIds], APP_SURFACE_ID_CHUNK)) {
-				const rows = await db
-					.select({
-						providerOrganizationId:
-							providerInstallations.providerOrganizationId,
-						customerOrganizationId:
-							providerInstallations.customerOrganizationId,
-					})
-					.from(providerInstallations)
-					.where(
-						and(
-							eq(providerInstallations.status, "active"),
-							inArray(providerInstallations.providerOrganizationId, chunk),
+				const [rows, grants] = await db.batch([
+					db
+						.select({
+							id: organizations.id,
+							slug: organizations.slug,
+							descopeTenantId: organizations.descopeTenantId,
+						})
+						.from(organizations)
+						.where(inArray(organizations.id, chunk)),
+					db
+						.select({
+							providerOrganizationId:
+								providerInstallations.providerOrganizationId,
+							customerOrganizationId:
+								providerInstallations.customerOrganizationId,
+						})
+						.from(providerInstallations)
+						.where(
+							and(
+								eq(providerInstallations.status, "active"),
+								inArray(providerInstallations.providerOrganizationId, chunk),
+							),
 						),
-					);
-				for (const row of rows) {
+				]);
+				for (const row of rows) orgById.set(row.id, row);
+				for (const row of grants) {
 					if (!orgIds.has(row.customerOrganizationId)) continue;
 					providerGrants.add(
 						`${row.providerOrganizationId}:${row.customerOrganizationId}`,
@@ -705,61 +705,6 @@ export async function getAppsBySlugsWithTools(
 				selectionGroups.set(signature, group);
 			}
 
-			const toolsBySelection = new Map<
-				string,
-				Map<string, Array<typeof appTools.$inferSelect>>
-			>();
-			const allToolRows: Array<typeof appTools.$inferSelect> = [];
-			for (const [signature, group] of selectionGroups) {
-				const byApp = new Map<string, Array<typeof appTools.$inferSelect>>();
-				for (const appId of group.appIds) byApp.set(appId, []);
-				const seen = new Set<string>();
-				for (const selection of chunkToolSelection(group.options)) {
-					const conditions = buildToolSelectionConditions(selection);
-					const reserved =
-						(selection.toolIds?.length ?? 0) +
-						(selection.endpointPrefixes?.length ?? 0) * 2 +
-						1;
-					const appChunkSize = Math.max(
-						1,
-						Math.min(
-							APP_SURFACE_ID_CHUNK,
-							APP_TOOL_SELECTION_PARAM_BUDGET - reserved,
-						),
-					);
-					for (const appChunk of chunked(group.appIds, appChunkSize)) {
-						const rows = await db
-							.select()
-							.from(appTools)
-							.where(and(inArray(appTools.appId, appChunk), ...conditions))
-							.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
-						for (const row of rows) {
-							if (seen.has(row.id)) continue;
-							seen.add(row.id);
-							byApp.get(row.appId)?.push(row);
-							allToolRows.push(row);
-						}
-					}
-				}
-				for (const rows of byApp.values()) rows.sort(compareAppToolOrder);
-				toolsBySelection.set(signature, byApp);
-			}
-
-			// ── CSP domains for every tool row in one sweep ───────────────────────
-			const toolCspByToolId = new Map<
-				string,
-				Array<typeof appToolCspDomains.$inferSelect>
-			>();
-			const cspDomains = await getAppSurfaceCspDomains(db, [
-				...new Set(allToolRows.map((tool) => tool.appId)),
-			]);
-			for (const row of cspDomains) {
-				const list = toolCspByToolId.get(row.appToolId) ?? [];
-				list.push(row);
-				toolCspByToolId.set(row.appToolId, list);
-			}
-
-			// ── catalog surfaces, batched by catalog app id ───────────────────────
 			const catalogAppIds = [
 				...new Set(
 					appRows
@@ -767,10 +712,83 @@ export async function getAppsBySlugsWithTools(
 						.filter((id): id is string => Boolean(id)),
 				),
 			];
-			const catalogSurfaces = await getCatalogMcpSurfacesForApps(
-				db,
-				catalogAppIds,
+			const loadTools = async () => {
+				const bySelection = new Map<
+					string,
+					Map<string, Array<typeof appTools.$inferSelect>>
+				>();
+				const seenBySelection = new Map<string, Set<string>>();
+				const reads = [...selectionGroups].flatMap(([signature, group]) => {
+					bySelection.set(
+						signature,
+						new Map(group.appIds.map((id) => [id, []])),
+					);
+					seenBySelection.set(signature, new Set());
+					return chunkToolSelection(group.options).flatMap((selection) => {
+						const conditions = buildToolSelectionConditions(selection);
+						const reserved =
+							(selection.toolIds?.length ?? 0) +
+							(selection.endpointPrefixes?.length ?? 0) * 2 +
+							1;
+						const appChunkSize = Math.max(
+							1,
+							Math.min(
+								APP_SURFACE_ID_CHUNK,
+								APP_TOOL_SELECTION_PARAM_BUDGET - reserved,
+							),
+						);
+						return chunked(group.appIds, appChunkSize).map((appChunk) => ({
+							signature,
+							query: db
+								.select()
+								.from(appTools)
+								.where(and(inArray(appTools.appId, appChunk), ...conditions))
+								.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt)),
+						}));
+					});
+				});
+				// Bound each response while sharing one D1 round trip across selections.
+				for (const chunk of chunked(reads, 20)) {
+					const [first, ...rest] = chunk;
+					if (!first) continue;
+					const results = await db.batch([
+						first.query,
+						...rest.map((read) => read.query),
+					]);
+					for (const [index, rows] of results.entries()) {
+						const { signature } = chunk[index]!;
+						const seen = seenBySelection.get(signature)!;
+						const byApp = bySelection.get(signature)!;
+						for (const row of rows) {
+							if (seen.has(row.id)) continue;
+							seen.add(row.id);
+							byApp.get(row.appId)?.push(row);
+						}
+					}
+				}
+				for (const byApp of bySelection.values())
+					for (const rows of byApp.values()) rows.sort(compareAppToolOrder);
+				return bySelection;
+			};
+			const [toolsBySelection, cspDomains, catalogSurfaces] = await Promise.all(
+				[
+					loadTools(),
+					getAppSurfaceCspDomains(
+						db,
+						appRows.map((app) => app.id),
+					),
+					getCatalogMcpSurfacesForApps(db, catalogAppIds),
+				],
 			);
+			const toolCspByToolId = new Map<
+				string,
+				Array<typeof appToolCspDomains.$inferSelect>
+			>();
+			for (const row of cspDomains) {
+				const list = toolCspByToolId.get(row.appToolId) ?? [];
+				list.push(row);
+				toolCspByToolId.set(row.appToolId, list);
+			}
 
 			return requests.map((request, index) => {
 				const app = resolvedApps[index];
