@@ -71,6 +71,15 @@ describe("reloadOnceForStaleChunk", () => {
 		"Failed to fetch dynamically imported module: /assets/descope-wc-B1x9.js",
 	);
 
+	it("recovers once when Safari receives the shell instead of a retired module", () => {
+		const error = new TypeError(
+			"'text/html' is not a valid JavaScript MIME type.",
+		);
+		expect(reloadOnceForStaleChunk(harness.win, error)).toBe(true);
+		expect(reloadOnceForStaleChunk(harness.win, error)).toBe(false);
+		expect(harness.reload).toHaveBeenCalledTimes(1);
+	});
+
 	it("reloads at most once per tab, even if the failure repeats", () => {
 		expect(reloadOnceForStaleChunk(harness.win, staleChunk)).toBe(true);
 		expect(harness.reload).toHaveBeenCalledTimes(1);
