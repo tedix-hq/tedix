@@ -9,7 +9,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
 	retainedLaneWorktree,
@@ -117,6 +117,19 @@ function fixture({ refuse = false, dark = false, failSettle = false } = {}) {
 		},
 		launch: async (args, deps) => {
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
+			expect(args.slice(args.indexOf("codex", args.indexOf("--") + 1))).toEqual(
+				[
+					"codex",
+					"exec",
+					"-C",
+					join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+					"resume",
+					expect.any(String),
+					"-o",
+					expect.any(String),
+					"-",
+				],
+			);
 			expect(brief).toContain("revision 7");
 			expect(brief).toContain("Keep all evidence in OS.");
 			expect(brief).toContain("already holds Attempt");
