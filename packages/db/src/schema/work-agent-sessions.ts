@@ -16,6 +16,8 @@ import { organizations } from "./organizations";
 export const WORK_AGENT_SESSION_HARNESS_VALUES = [
 	"claude-code",
 	"codex",
+	"tedi",
+	"skill",
 ] as const;
 export type WorkAgentSessionHarness =
 	(typeof WORK_AGENT_SESSION_HARNESS_VALUES)[number];
@@ -29,6 +31,45 @@ export const WORK_AGENT_SESSION_STATE_VALUES = [
 ] as const;
 export type WorkAgentSessionState =
 	(typeof WORK_AGENT_SESSION_STATE_VALUES)[number];
+
+export interface LaneTelemetry {
+	executor: "codex" | "claude-code" | "tedi" | "skill";
+	model: string | null;
+	provider: string | null;
+	reasoningEffort: string | null;
+	brief: string;
+	startedAt: string;
+	finishedAt: string | null;
+	heartbeatAt: string;
+	outcome: "succeeded" | "stopped" | "failed" | null;
+	finalMessage: string;
+	tools: Record<string, number>;
+	usage: {
+		input: number;
+		cached: number;
+		output: number;
+		reasoning: number;
+	} | null;
+	usageSamples?: Array<{
+		model: string;
+		input: number;
+		cached: number;
+		output: number;
+		reasoning: number;
+		cacheWrite: number;
+	}>;
+	shas: string[];
+	workItems: string[];
+	corrections: string[];
+	source: "wrapper" | "hook" | "import" | "runtime";
+	rateScope?: string;
+	estimatedCostUsd: number | null;
+	rateVersionId: string | null;
+	rateVersionIds?: string[];
+	estimatedAt?: string;
+	lesson: string | null;
+	lessonStatus: "pending" | "extracted" | "unavailable";
+}
 
 export const workAgentSessions = sqliteTable(
 	"work_agent_sessions",
@@ -45,6 +86,7 @@ export const workAgentSessions = sqliteTable(
 		/** The host's own session id, such as Claude Code `session_id`. */
 		sessionKey: text("session_key").notNull(),
 		label: text("label").notNull().default(""),
+		telemetry: text("telemetry", { mode: "json" }).$type<LaneTelemetry>(),
 		/**
 		 * Work project the session's checkout is bound to, if any. A plain column,
 		 * not a foreign key: adding one would rebuild this existing table. The

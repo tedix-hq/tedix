@@ -30,8 +30,12 @@ self-hosted installation contacts `*.tedix.dev` until you override them. See
 
 ## Tedix Cloud and plugin hooks
 
-- **Tedix CLI:** sends no analytics, telemetry, or crash reports. It contacts
-  Tedix only for the commands you run.
+- **Tedix CLI:** sends no unsolicited analytics or crash reports. It contacts
+  Tedix for the commands you run. `tedix lane run` explicitly uploads its brief,
+  redacted final message and corrections, model, token counts, tool names and
+  counts, timing and outcome to your selected organization's private session
+  board. `lane import` previews a transcript; `--apply` uploads the same fields.
+  Estimates use published list rates at report time and are not invoices.
 - **Tedix Cloud:** as the operator, Tedix keeps normal server logs and the
   counters in the table below for the requests your organization sends.
 - **Tedix plugin hooks:** each hook sends nothing to Tedix until you opt in to

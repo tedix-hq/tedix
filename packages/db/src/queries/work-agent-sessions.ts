@@ -1,3 +1,5 @@
+import { tediCallCosts } from "../schema/tedis";
+import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 /**
  * Local agent session status board persistence.
  *
@@ -18,6 +20,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import {
+	type LaneTelemetry,
 	type WorkAgentSessionHarness,
 	type WorkAgentSessionRow,
 	type WorkAgentSessionState,
@@ -39,6 +42,7 @@ export interface ReportWorkAgentSessionStatusParams {
 	state: WorkAgentSessionState;
 	summary: string;
 	label: string;
+	telemetry?: LaneTelemetry;
 	/** Bound Work project; null keeps the stored binding. */
 	projectId?: string | null;
 	/** Selected Work Item; null keeps the stored selection. */
@@ -109,6 +113,7 @@ export async function reportWorkAgentSessionStatus(
 			harness: params.harness,
 			sessionKey: params.sessionKey,
 			label: params.label,
+			telemetry: params.telemetry,
 			projectId: project?.id ?? null,
 			workItemId: workItem?.id ?? null,
 			state: params.state,
@@ -126,6 +131,11 @@ export async function reportWorkAgentSessionStatus(
 				workAgentSessions.sessionKey,
 			],
 			set: {
+				telemetry: sql`CASE
+ WHEN excluded.telemetry IS NULL THEN ${workAgentSessions.telemetry}
+ WHEN json_extract(${workAgentSessions.telemetry}, '$.heartbeatAt') > json_extract(excluded.telemetry, '$.heartbeatAt') THEN ${workAgentSessions.telemetry}
+ WHEN json_extract(${workAgentSessions.telemetry}, '$.source') = 'wrapper' AND json_extract(excluded.telemetry, '$.source') = 'hook' THEN json_set(excluded.telemetry, '$.brief', json_extract(${workAgentSessions.telemetry}, '$.brief'), '$.source', 'wrapper')
+ ELSE excluded.telemetry END`,
 				label: sql`CASE WHEN excluded.label = '' THEN ${workAgentSessions.label} ELSE excluded.label END`,
 				projectId: sql`COALESCE(excluded.project_id, ${workAgentSessions.projectId})`,
 				workItemId: sql`COALESCE(excluded.work_item_id, ${workAgentSessions.workItemId})`,
@@ -135,12 +145,14 @@ export async function reportWorkAgentSessionStatus(
 				lastEventAt: sql`excluded.last_event_at`,
 				updatedAt: sql`excluded.updated_at`,
 			},
+			setWhere: sql`excluded.telemetry IS NULL OR ${workAgentSessions.telemetry} IS NULL OR json_extract(${workAgentSessions.telemetry}, '$.heartbeatAt') <= json_extract(excluded.telemetry, '$.heartbeatAt')`,
 		})
 		.returning();
-	if (!row) {
+	const current = row ?? (await getWorkAgentSession(db, params));
+	if (!current) {
 		throw new Error("Work agent session upsert returned no row");
 	}
-	return { row, changed: existing?.state !== params.state };
+	return { row: current, changed: existing?.state !== current.state };
 }
 
 export interface ListWorkAgentSessionsParams {
@@ -204,6 +216,7 @@ const sessionReportColumns = {
 	harness: workAgentSessions.harness,
 	sessionKey: workAgentSessions.sessionKey,
 	label: workAgentSessions.label,
+	telemetry: workAgentSessions.telemetry,
 	projectId: workAgentSessions.projectId,
 	workItemId: workAgentSessions.workItemId,
 	state: workAgentSessions.state,
@@ -303,4 +316,99 @@ export async function listWorkProjectContributorSources(
 		}
 	}
 	return { reports, attempts };
+}
+
+export async function getWorkAgentSession(
+	db: DbQueryClient,
+	input: {
+		organizationId: string;
+		userId: string;
+		harness: WorkAgentSessionHarness;
+		sessionKey: string;
+	},
+) {
+	const [row] = await db
+		.select()
+		.from(workAgentSessions)
+		.where(
+			and(
+				eq(workAgentSessions.organizationId, input.organizationId),
+				eq(workAgentSessions.userId, input.userId),
+				eq(workAgentSessions.harness, input.harness),
+				eq(workAgentSessions.sessionKey, input.sessionKey),
+			),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
+/** Organization-visible tedi Attempts; private host transcripts are not joined. */
+export async function listTediLaneSources(
+	db: DbQueryClient,
+	organizationId: string,
+	since: string,
+) {
+	const attempts = await db
+		.select({
+			id: workAttempts.id,
+			workItemId: workAttempts.workItemId,
+			projectId: workItems.projectId,
+			title: workItems.title,
+			brief: workItems.description,
+			runId: workAttempts.runId,
+			startedAt: workAttempts.startedAt,
+			finishedAt: workAttempts.finishedAt,
+			heartbeatAt: workAttempts.heartbeatAt,
+			outcome: workAttempts.outcome,
+			summary: workAttempts.summary,
+		})
+		.from(workAttempts)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.id, workAttempts.workItemId),
+				eq(workItems.orgId, workAttempts.orgId),
+			),
+		)
+		.where(
+			and(
+				eq(workAttempts.orgId, organizationId),
+				eq(workAttempts.executorType, "tedi"),
+				gte(workAttempts.startedAt, since),
+			),
+		)
+		.orderBy(desc(workAttempts.startedAt))
+		.limit(200);
+	const runIds = attempts.flatMap((row) => (row.runId ? [row.runId] : []));
+	const costs: Array<typeof tediCallCosts.$inferSelect> = [];
+	const events: Array<typeof tediRuntimeEvents.$inferSelect> = [];
+	for (let i = 0; i < runIds.length; i += 50) {
+		const ids = runIds.slice(i, i + 50);
+		const [callRows, eventRows] = await Promise.all([
+			db
+				.select()
+				.from(tediCallCosts)
+				.where(
+					and(
+						eq(tediCallCosts.orgId, organizationId),
+						inArray(tediCallCosts.runId, ids),
+					),
+				)
+				.limit(2000),
+			db
+				.select()
+				.from(tediRuntimeEvents)
+				.where(
+					and(
+						eq(tediRuntimeEvents.organizationId, organizationId),
+						inArray(tediRuntimeEvents.runId, ids),
+						eq(tediRuntimeEvents.kind, "tool.started"),
+					),
+				)
+				.limit(2000),
+		]);
+		costs.push(...callRows);
+		events.push(...eventRows);
+	}
+	return { attempts, costs, events };
 }

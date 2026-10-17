@@ -6,6 +6,7 @@ import { type NewProviderModelRateVersionRow } from "../../schema/provider-model
 import { createD1Facade } from "../../test/d1-facade";
 import {
 	findProviderModelRates,
+	listEffectiveProviderModelRates,
 	listProviderModelRates,
 	publishProviderModelRate,
 } from "./provider-model-rates";
@@ -511,4 +512,22 @@ describe("immutable provider rates", () => {
 			sqlite.close();
 		}
 	});
+});
+
+it("lists only effective leaves for the exact estimate scenario", async () => {
+	const { db } = fixture();
+	const original = rate();
+	await publishProviderModelRate(db, original);
+	const correction = rate({ supersedesRateVersionId: original.id });
+	await publishProviderModelRate(db, correction);
+	await publishProviderModelRate(
+		db,
+		rate({ deploymentScope: "other-account" }),
+	);
+	await publishProviderModelRate(
+		db,
+		rate({ modelId: "future", effectiveFrom: "2027-01-01T00:00:00.000Z" }),
+	);
+	const rows = await listEffectiveProviderModelRates(db, lookup);
+	expect(rows.map((r) => r.id)).toEqual([correction.id]);
 });

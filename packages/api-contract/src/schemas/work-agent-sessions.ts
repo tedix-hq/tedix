@@ -1,7 +1,12 @@
 import * as z from "zod";
 
 /** Local coding-agent hosts that report turn status through the Tedix plugin. */
-export const WorkAgentSessionHarnessSchema = z.enum(["claude-code", "codex"]);
+export const WorkAgentSessionHarnessSchema = z.enum([
+	"claude-code",
+	"codex",
+	"tedi",
+	"skill",
+]);
 
 /** State reported by a plugin hook at a turn boundary. */
 export const WorkAgentSessionStateSchema = z.enum([
@@ -28,7 +33,71 @@ const SummarySchema = z
 	.max(200)
 	.describe("One plain-text line describing the session's latest outcome.");
 
+/** Observed execution facts, separate from Work admission and verification. */
+export const LaneTelemetryInputSchema = z
+	.strictObject({
+		executor: z.enum(["codex", "claude-code", "tedi", "skill"]),
+		model: z.string().max(200).nullable(),
+		provider: z.string().max(80).nullable(),
+		reasoningEffort: z.string().max(40).nullable(),
+		brief: z.string().max(24000),
+		startedAt: z.iso.datetime(),
+		finishedAt: z.iso.datetime().nullable(),
+		heartbeatAt: z.iso.datetime(),
+		outcome: z.enum(["succeeded", "stopped", "failed"]).nullable(),
+		finalMessage: z.string().max(24000),
+		tools: z
+			.record(z.string().max(200), z.number().int().nonnegative())
+			.refine((v) => Object.keys(v).length <= 200),
+		usage: z
+			.strictObject({
+				input: z.number().int().nonnegative(),
+				cached: z.number().int().nonnegative(),
+				output: z.number().int().nonnegative(),
+				reasoning: z.number().int().nonnegative(),
+			})
+			.nullable(),
+		usageSamples: z
+			.array(
+				z.strictObject({
+					model: z.string().max(200),
+					input: z.number().int().nonnegative(),
+					cached: z.number().int().nonnegative(),
+					output: z.number().int().nonnegative(),
+					reasoning: z.number().int().nonnegative(),
+					cacheWrite: z.number().int().nonnegative().default(0),
+				}),
+			)
+			.max(10000)
+			.optional(),
+		shas: z.array(z.string().regex(/^[a-f0-9]{40}$/)).max(100),
+		workItems: z.array(z.uuid()).max(100),
+		corrections: z.array(z.string().max(2000)).max(20),
+		source: z.enum(["wrapper", "hook", "import", "runtime"]),
+		rateScope: z.string().max(200).optional(),
+	})
+	.refine((v) => !v.finishedAt || v.finishedAt >= v.startedAt, {
+		message: "Finish precedes start",
+	})
+	.refine(
+		(v) =>
+			!v.usage ||
+			(v.usage.cached <= v.usage.input && v.usage.reasoning <= v.usage.output),
+		{ message: "Token subsets exceed totals" },
+	);
+
+export const LaneTelemetrySchema = z.object({
+	...LaneTelemetryInputSchema.shape,
+	estimatedCostUsd: z.number().nonnegative().nullable(),
+	rateVersionId: z.string().nullable(),
+	rateVersionIds: z.array(z.string()).optional(),
+	estimatedAt: z.iso.datetime().optional(),
+	lesson: z.string().nullable(),
+	lessonStatus: z.enum(["pending", "extracted", "unavailable"]),
+});
+
 export const ReportWorkAgentSessionStatusInputSchema = z.strictObject({
+	telemetry: LaneTelemetryInputSchema.optional(),
 	harness: WorkAgentSessionHarnessSchema,
 	sessionKey: z
 		.string()
@@ -59,6 +128,7 @@ export const ReportWorkAgentSessionStatusInputSchema = z.strictObject({
 
 export const WorkAgentSessionStatusSchema = z.strictObject({
 	id: z.uuid(),
+	telemetry: LaneTelemetrySchema.nullable().optional(),
 	harness: WorkAgentSessionHarnessSchema,
 	sessionKey: z.string(),
 	label: z.string(),

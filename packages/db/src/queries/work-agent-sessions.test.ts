@@ -294,3 +294,52 @@ describe("project contributors", () => {
 		expect(foreign).toEqual({ reports: [], attempts: [] });
 	});
 });
+
+it("a late observation cannot reopen a completed lane or discard its usage", async () => {
+	const db = fixture();
+	const telemetry = {
+		executor: "codex",
+		model: "fictional-model",
+		provider: "fictional",
+		reasoningEffort: null,
+		brief: "Fix example",
+		startedAt: T0,
+		heartbeatAt: T2,
+		finishedAt: T2,
+		outcome: "succeeded",
+		finalMessage: "Done",
+		tools: { Read: 1 },
+		usage: { input: 10, cached: 0, output: 2, reasoning: 0 },
+		shas: [],
+		workItems: [],
+		corrections: [],
+		source: "wrapper",
+		estimatedCostUsd: null,
+		rateVersionId: null,
+		lesson: null,
+		lessonStatus: "unavailable",
+	} as const;
+	await report(db, {
+		state: "done",
+		telemetry: { ...telemetry, shas: [], workItems: [], corrections: [] },
+		now: T2,
+	});
+	const late = await report(db, {
+		state: "working",
+		telemetry: {
+			...telemetry,
+			heartbeatAt: T1,
+			finishedAt: null,
+			outcome: null,
+			shas: [],
+			workItems: [],
+			corrections: [],
+		},
+		now: T2,
+	});
+	expect(late.row.state).toBe("done");
+	expect(late.row.telemetry?.finishedAt).toBe(T2);
+	expect(late.changed).toBe(false);
+	const hook = await report(db, { state: "needs_you", now: T2 });
+	expect(hook.row.telemetry?.usage).toEqual(telemetry.usage);
+});

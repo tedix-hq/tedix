@@ -85,6 +85,8 @@ export const AGENT_BOARD_SECTIONS: readonly {
 export const AGENT_HARNESS_LABEL: Record<string, string> = {
 	"claude-code": ATTENTION_COPY.local_claude,
 	codex: ATTENTION_COPY.local_codex,
+	tedi: "Tedi",
+	skill: "Skill",
 };
 
 type AgentStateBadgeState = z.output<typeof WorkProjectContributorStateSchema>;
@@ -158,7 +160,9 @@ export function groupAgentSessions(
 	projectNames: ReadonlyMap<string, string> = new Map(),
 ): AgentProjectGroup[] {
 	const ordered = sessions
-		.filter((session) => session.effectiveState !== "ended")
+		.filter(
+			(session) => session.effectiveState !== "ended" || session.telemetry,
+		)
 		.map((session, index) => ({ session, index }))
 		.sort(
 			(a, b) =>
@@ -177,7 +181,7 @@ export function groupAgentSessions(
 				title:
 					projectId === null
 						? NO_PROJECT_TITLE
-						: (projectNames.get(projectId) ?? projectId.slice(0, 8)),
+						: (projectNames.get(projectId) ?? "Project unavailable"),
 				sessions: [],
 				idle: [],
 			};
@@ -192,6 +196,44 @@ export function groupAgentSessions(
 	return unbound ? [...groups.values(), unbound] : [...groups.values()];
 }
 
+export function laneDailyTotals(sessions: readonly AgentSession[], now: Date) {
+	const day = (at: string) => new Date(at).toLocaleDateString("en-CA");
+	const lanes = sessions.flatMap((s) =>
+		s.telemetry && day(s.telemetry.startedAt) === day(now.toISOString())
+			? [s.telemetry]
+			: [],
+	);
+	const measured = lanes.filter((l) => l.usage !== null);
+	const priced = lanes.filter((l) => l.estimatedCostUsd !== null);
+	const settled = lanes.filter((l) => l.outcome !== null);
+	return {
+		lanes: lanes.length,
+		tokens: measured.reduce((n, l) => n + l.usage!.input + l.usage!.output, 0),
+		unmeasured: lanes.length - measured.length,
+		cost: priced.reduce((n, l) => n + l.estimatedCostUsd!, 0),
+		unpriced: lanes.length - priced.length,
+		successRate: settled.length
+			? settled.filter((l) => l.outcome === "succeeded").length / settled.length
+			: null,
+	};
+}
+const number = (value: number) => new Intl.NumberFormat().format(value);
+const cost = (value: number) =>
+	new Intl.NumberFormat(undefined, {
+		style: "currency",
+		currency: "USD",
+		maximumFractionDigits: 4,
+	}).format(value);
+function duration(from: string, to: string) {
+	const seconds = Math.max(
+		0,
+		Math.round((Date.parse(to) - Date.parse(from)) / 1000),
+	);
+	return seconds < 60
+		? `${seconds}s`
+		: `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
 function AgentSessionRow({
 	session,
 	now,
@@ -199,50 +241,124 @@ function AgentSessionRow({
 	session: AgentSession;
 	now: Date;
 }) {
-	const state = session.effectiveState as BoardState;
+	const lane = session.telemetry;
+	const state = session.effectiveState;
 	return (
 		<li
 			data-agent-state={state}
-			className={cn(
-				"flex min-w-0 items-center gap-3 px-3 py-2",
-				ROW_TINT[state],
-			)}
+			className={cn("min-w-0 px-3 py-2", ROW_TINT[state as BoardState])}
 		>
-			<Badge variant="outline" className="shrink-0">
-				{AGENT_HARNESS_LABEL[session.harness] ?? ATTENTION_COPY.local}
-			</Badge>
-			<AgentStateBadge
-				state={state}
-				lastSeenAt={session.lastEventAt}
-				reason={session.summary}
-				now={now}
-			/>
-			<Text
-				as="span"
-				role="body"
-				tone="strong"
-				className="max-w-[40%] shrink-0 truncate"
-				title={session.label}
-			>
-				{session.label || session.sessionKey}
-			</Text>
-			<Text
-				as="span"
-				role="body"
-				tone="secondary"
-				className="min-w-0 flex-1 truncate"
-				title={session.summary}
-			>
-				{session.summary}
-			</Text>
-			<Text as="span" role="label" tone="secondary" className="shrink-0">
-				<time
-					dateTime={session.stateSince}
-					title={absoluteTime(session.stateSince)}
+			<div className="flex flex-wrap items-center gap-3">
+				<Badge variant="outline">
+					{AGENT_HARNESS_LABEL[lane?.executor ?? session.harness] ?? "Agent"}
+				</Badge>
+				<AgentStateBadge
+					state={state}
+					lastSeenAt={session.lastEventAt}
+					reason={session.summary}
+					now={now}
+				/>
+				<Text as="span" role="body" tone="strong">
+					{lane?.model ??
+						(lane ? "Model unknown" : session.label || "Unnamed session")}
+				</Text>
+				{lane?.reasoningEffort ? (
+					<Text as="span" role="label" tone="secondary">
+						{lane.reasoningEffort} reasoning
+					</Text>
+				) : null}
+				<Text
+					as="span"
+					role="body"
+					tone="secondary"
+					className="min-w-0 flex-1 truncate"
+					title={lane?.brief ?? session.summary}
 				>
-					{relativeTime(session.stateSince, now)}
-				</time>
-			</Text>
+					{lane?.brief.split("\n").find((line) => line.trim()) ||
+						session.summary}
+				</Text>
+				<Text as="span" role="label" tone="secondary">
+					{lane ? (
+						duration(lane.startedAt, lane.finishedAt ?? now.toISOString())
+					) : (
+						<time
+							dateTime={session.stateSince}
+							title={absoluteTime(session.stateSince)}
+						>
+							{relativeTime(session.stateSince, now)}
+						</time>
+					)}
+				</Text>
+			</div>
+			{lane ? (
+				<div className="mt-2 space-y-2">
+					<Text role="label" tone="secondary">
+						{lane.outcome ?? "Running"} ·{" "}
+						{lane.usage
+							? `${number(lane.usage.input + lane.usage.output)} tokens`
+							: "Tokens unknown"}{" "}
+						·{" "}
+						{lane.estimatedCostUsd === null
+							? "Cost unknown"
+							: `${cost(lane.estimatedCostUsd)} estimated`}
+						{" · "}Heartbeat {relativeTime(lane.heartbeatAt, now)}
+					</Text>
+					<Text role="body">
+						{lane.lesson
+							? `What we learned: ${lane.lesson}`
+							: `What we learned: ${lane.lessonStatus === "pending" ? "waiting for the result" : "unavailable"}`}
+					</Text>
+					<Collapsible>
+						<CollapsibleTrigger>
+							Result and execution details
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<div className="space-y-2 py-2">
+								<Text role="body">
+									Asked: {lane.brief || "Brief unavailable"}
+								</Text>
+								<Text role="body">
+									Result: {lane.finalMessage || "No final message recorded"}
+								</Text>
+								<Text role="body">
+									Tools:{" "}
+									{Object.entries(lane.tools)
+										.map(([name, count]) => `${name} (${number(count)})`)
+										.join(", ") || "No calls recorded"}
+								</Text>
+								{lane.usage ? (
+									<Text role="body">
+										Input {number(lane.usage.input)}, cached{" "}
+										{number(lane.usage.cached)}, output{" "}
+										{number(lane.usage.output)}, reasoning{" "}
+										{number(lane.usage.reasoning)}. Cached and reasoning are
+										included in input and output.
+									</Text>
+								) : null}
+								<Text role="body">
+									Started {absoluteTime(lane.startedAt)}
+									{lane.finishedAt
+										? ` · Finished ${absoluteTime(lane.finishedAt)}`
+										: ""}
+								</Text>
+								<Text role="body">
+									{lane.shas.length} reported commits · {lane.workItems.length}{" "}
+									Work items touched ·{" "}
+									{lane.source === "import"
+										? "Imported observation"
+										: "Executor observation"}
+								</Text>
+								<Text role="label" tone="secondary">
+									Executor success records that the process finished.
+									Verification is recorded separately on Work. Costs use
+									published Standard list rates at report time, not subscription
+									invoices.
+								</Text>
+							</div>
+						</CollapsibleContent>
+					</Collapsible>
+				</div>
+			) : null}
 		</li>
 	);
 }
@@ -277,6 +393,7 @@ export function WorkAgentsBoard({
 	now?: Date;
 }) {
 	const groups = groupAgentSessions(data.sessions, projectNames);
+	const totals = laneDailyTotals(data.sessions, now);
 	if (!groups.length) {
 		return (
 			<Empty appearance="quiet">
@@ -297,6 +414,20 @@ export function WorkAgentsBoard({
 	}
 	return (
 		<>
+			<div aria-label="Today’s delegation totals" className="space-y-1">
+				<Text role="body" tone="strong">
+					Today: {number(totals.lanes)} lanes · {number(totals.tokens)} measured
+					tokens · {cost(totals.cost)} estimated ·{" "}
+					{totals.successRate === null
+						? "Success rate unknown"
+						: `${Math.round(totals.successRate * 100)}% executor success`}
+				</Text>
+				<Text role="label" tone="secondary">
+					{totals.unmeasured} lanes without usage · {totals.unpriced} without
+					rates · Time to verified: see Work verification receipts. Totals cover
+					the sessions returned by the board.
+				</Text>
+			</div>
 			<AgentCountStrip counts={data.counts} />
 			{groups.map((group) => (
 				<PageSection key={group.projectId ?? "none"} aria-label={group.title}>
@@ -358,8 +489,7 @@ export function WorkAgentsPage() {
 				<PageHeading>
 					<PageTitle>Agents</PageTitle>
 					<PageDescription>
-						Your local Claude Code and Codex sessions by project, most urgent
-						first.
+						Delegated agents, their results and what they learned, by project.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>

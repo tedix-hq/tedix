@@ -19,7 +19,6 @@ import {
 	type DetachedOptions,
 	harnessOf,
 	pruneStatusFiles,
-	REPORT_VERB,
 	recordAutoContinued,
 	reportInput,
 	runAgentStatus,
@@ -291,7 +290,10 @@ describe("tedix hooks status", () => {
 		expect(notifications()).toHaveLength(2);
 		await fire("SessionEnd", { reason: "other" });
 		expect(state()).toBeUndefined();
-		expect(JSON.parse(reports().at(-1)!.at(-1)!).state).toBe("ended");
+		expect(
+			JSON.parse(reports().at(-1)![reports().at(-1)!.indexOf("--input") + 1]!)
+				.state,
+		).toBe("ended");
 	});
 
 	test("notify false suppresses notifications", async () => {
@@ -332,8 +334,8 @@ describe("tedix hooks status", () => {
 			"connect",
 			"--organization",
 			"org_example",
-			"work",
-			REPORT_VERB,
+			"lane",
+			"report",
 			"--input",
 		]);
 	});
@@ -371,8 +373,8 @@ describe("tedix hooks status", () => {
 			"tedix",
 			"-w",
 			"connect",
-			"work",
-			REPORT_VERB,
+			"lane",
+			"report",
 			"--input",
 		]);
 		expect(args).toHaveLength(7);
@@ -452,10 +454,15 @@ describe("tedix hooks status", () => {
 		await fire("SessionEnd", { transcript_path: transcript, reason: "other" });
 		expect(state("codex")).toBeUndefined();
 		expect(state("claude-code")).toBeUndefined();
-		expect(reports().map((report) => JSON.parse(report.at(-1)!).state)).toEqual(
-			["working", "ended"],
-		);
-		expect(JSON.parse(reports().at(-1)!.at(-1)!).harness).toBe("codex");
+		expect(
+			reports().map(
+				(report) => JSON.parse(report[report.indexOf("--input") + 1]!).state,
+			),
+		).toEqual(["working", "ended"]);
+		expect(
+			JSON.parse(reports().at(-1)![reports().at(-1)!.indexOf("--input") + 1]!)
+				.harness,
+		).toBe("codex");
 	});
 
 	test("an unsaved Codex side thread is not a session", async () => {
@@ -661,7 +668,8 @@ describe("tedix hooks status", () => {
 describe("session name and binding", () => {
 	const PROJECT = "22222222-2222-4222-8222-222222222222";
 	const WORK_ITEM = "33333333-3333-4333-8333-333333333333";
-	const lastReport = () => JSON.parse(reports().at(-1)!.at(-1)!);
+	const lastReport = () =>
+		JSON.parse(reports().at(-1)![reports().at(-1)!.indexOf("--input") + 1]!);
 
 	test("a bound session reports its project and Work item", async () => {
 		enable();

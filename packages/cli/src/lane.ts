@@ -1,3 +1,4 @@
+import { runLaneProcess, laneRunUsage } from "./lane-run";
 import { createHash } from "node:crypto";
 import { briefRepository } from "@tedix/context-core/situational-recall";
 import { repoSlug } from "./hooks/prompt-context";
@@ -44,7 +45,9 @@ export async function prefixLaneBrief(
 	}
 }
 
-export const laneUsage = `tedix lane start "<title>" --project <id> [--work-item <id>]
+export const laneUsage = `${laneRunUsage}
+
+tedix lane start "<title>" --project <id> [--work-item <id>]
 tedix lane brief <brief-file> [--host codex|claude]  # enriched brief for launchers
 tedix lane done|fail "<note>" [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
 
@@ -106,6 +109,22 @@ function work(args: string[], lane: Pick<Lane, "scope" | "session">) {
 }
 
 export async function runLane(args: string[]): Promise<number> {
+	let verbIndex = 0;
+	while (
+		["-w", "--workspace", "--organization"].includes(args[verbIndex] ?? "")
+	)
+		verbIndex += 2;
+	if (
+		["run", "import", "report"].includes(args[verbIndex] ?? "") &&
+		!args
+			.slice(0, args.indexOf("--") < 0 ? args.length : args.indexOf("--"))
+			.includes("--help")
+	)
+		return runLaneProcess([
+			args[verbIndex]!,
+			...args.slice(0, verbIndex),
+			...args.slice(verbIndex + 1),
+		]);
 	if (!args.length || args.includes("--help")) {
 		console.log(laneUsage);
 		return 0;

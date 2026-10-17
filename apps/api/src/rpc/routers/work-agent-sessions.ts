@@ -15,6 +15,7 @@ import {
 	upsertUserConfig,
 } from "@tedix/db/queries/user-configs";
 import { readAttentionLayout } from "../../services/attention-layout";
+import { enrichLaneTelemetry } from "../../services/lane-telemetry";
 import { SESSION_ACTIVITY_RESOURCE } from "@tedix/api-contract/schemas/agent-session-requests";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { scrubText } from "@tedix/context-core/trace-safety";
@@ -31,6 +32,8 @@ import {
 } from "@tedix/db/queries/agent-session-requests";
 import type { AgentSessionRequestRow } from "@tedix/db/schema/agent-session-requests";
 import {
+	listTediLaneSources,
+	getWorkAgentSession,
 	listWorkAgentSessions,
 	listWorkProjectContributorSources,
 	reportWorkAgentSessionStatus,
@@ -151,6 +154,9 @@ export function requireBoardOwner(context: BaseContext): {
 function sessionOutput(row: WorkAgentSessionRow) {
 	return {
 		id: row.id,
+		telemetry: row.telemetry
+			? { ...row.telemetry, usageSamples: undefined }
+			: null,
 		harness: row.harness,
 		sessionKey: row.sessionKey,
 		label: row.label,
@@ -166,8 +172,45 @@ function sessionOutput(row: WorkAgentSessionRow) {
 const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 	const owner = requireBoardOwner(context);
 	const now = new Date().toISOString();
+	const prior = input.telemetry
+		? await getWorkAgentSession(context.db, {
+				...owner,
+				harness: input.harness,
+				sessionKey: input.sessionKey,
+			})
+		: null;
+	const sameResult =
+		prior?.telemetry?.finishedAt &&
+		prior.telemetry.estimatedCostUsd !== null &&
+		JSON.stringify(prior.telemetry.usage) ===
+			JSON.stringify(input.telemetry?.usage) &&
+		JSON.stringify(prior.telemetry.usageSamples) ===
+			JSON.stringify(input.telemetry?.usageSamples) &&
+		prior.telemetry.rateScope === input.telemetry?.rateScope &&
+		prior.telemetry.finalMessage === input.telemetry?.finalMessage &&
+		JSON.stringify(prior.telemetry.corrections) ===
+			JSON.stringify(input.telemetry.corrections);
+	const telemetry = input.telemetry
+		? sameResult
+			? {
+					...input.telemetry,
+					estimatedCostUsd: prior.telemetry!.estimatedCostUsd,
+					rateVersionId: prior.telemetry!.rateVersionId,
+					rateVersionIds: prior.telemetry!.rateVersionIds,
+					estimatedAt: prior.telemetry!.estimatedAt,
+					lesson: prior.telemetry!.lesson,
+					lessonStatus: prior.telemetry!.lessonStatus,
+				}
+			: await enrichLaneTelemetry(
+					context,
+					input.telemetry,
+					owner,
+					input.sessionKey,
+				)
+		: undefined;
 	const { row, changed } = await reportWorkAgentSessionStatus(context.db, {
 		...owner,
+		telemetry,
 		harness: input.harness,
 		sessionKey: input.sessionKey,
 		state: input.state,
@@ -175,7 +218,8 @@ const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 		label: sanitizeWorkAgentSessionText(input.label, 120),
 		projectId: input.projectId,
 		workItemId: input.workItemId,
-		now,
+		now:
+			input.telemetry?.source === "import" ? input.telemetry.heartbeatAt : now,
 	});
 	return {
 		session: {
@@ -194,7 +238,87 @@ const listProcedure = readOs.list.handler(async ({ input, context }) => {
 		includeEnded: input.includeEnded === true,
 		now,
 	});
-	return buildWorkAgentSessionBoard(rows.map(sessionOutput), now);
+	const tediSources = await listTediLaneSources(
+		context.db,
+		owner.organizationId,
+		new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString(),
+	);
+	const tediLanes = tediSources.attempts.map((attempt) => {
+		const calls = tediSources.costs.filter(
+			(call) => call.runId === attempt.runId,
+		);
+		const events = tediSources.events.filter(
+			(event) => event.runId === attempt.runId,
+		);
+		const tools: Record<string, number> = {};
+		for (const event of events) {
+			const name = event.payload?.toolName ?? event.payload?.name;
+			if (typeof name === "string") tools[name] = (tools[name] ?? 0) + 1;
+		}
+		const models = [...new Set(calls.map((call) => call.model))];
+		const usage = calls.length
+			? {
+					input: calls.reduce((n, c) => n + c.inputTokens, 0),
+					cached: calls.reduce((n, c) => n + c.cacheReadTokens, 0),
+					output: calls.reduce((n, c) => n + c.outputTokens, 0),
+					reasoning: 0,
+				}
+			: null;
+		const telemetry = {
+			executor: "tedi" as const,
+			model: models.length ? models.join(", ") : null,
+			provider: null,
+			reasoningEffort: null,
+			brief: attempt.brief ?? attempt.title,
+			startedAt: attempt.startedAt,
+			finishedAt: attempt.finishedAt,
+			heartbeatAt: attempt.heartbeatAt,
+			outcome:
+				attempt.outcome === "succeeded"
+					? ("succeeded" as const)
+					: attempt.outcome === "failed"
+						? ("failed" as const)
+						: attempt.outcome
+							? ("stopped" as const)
+							: null,
+			finalMessage: attempt.summary ?? "",
+			tools,
+			usage,
+			shas: [],
+			workItems: [attempt.workItemId],
+			corrections: [],
+			source: "runtime" as const,
+			estimatedCostUsd:
+				calls.length && calls.every((c) => c.estimatedCostUsd !== null)
+					? calls.reduce((n, c) => n + c.estimatedCostUsd!, 0)
+					: null,
+			rateVersionId: null,
+			lesson: null,
+			lessonStatus: "unavailable" as const,
+		};
+		return {
+			id: attempt.id,
+			harness: "tedi" as const,
+			sessionKey: attempt.id,
+			label: attempt.title,
+			state:
+				attempt.outcome === "failed"
+					? ("error" as const)
+					: attempt.outcome
+						? ("done" as const)
+						: ("working" as const),
+			summary: attempt.summary ?? "",
+			projectId: attempt.projectId,
+			workItemId: attempt.workItemId,
+			stateSince: attempt.finishedAt ?? attempt.startedAt,
+			lastEventAt: attempt.heartbeatAt,
+			telemetry,
+		};
+	});
+	return buildWorkAgentSessionBoard(
+		[...rows.map(sessionOutput), ...tediLanes],
+		now,
+	);
 });
 
 const contributorsProcedure = projectReadOs.contributors.handler(
