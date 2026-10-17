@@ -1,4 +1,8 @@
 import {
+	createObjectStoreTools,
+	OBJECT_STORE_PREFIX,
+} from "./object-store-tools";
+import {
 	isVisionCapableChatDeployment,
 	sanitizeChatAttachments,
 } from "./chat-attachments";
@@ -365,10 +369,7 @@ import {
 	trustedExistingWorkstationArtifactIds,
 	trustedPersistedWorkstationArtifactIds,
 } from "./artifact-recorder";
-import {
-	createDeliverableArtifactTools,
-	readRecordedArtifact,
-} from "./deliverable-artifact-reader";
+import { readRecordedArtifact } from "./deliverable-artifact-reader";
 import { isTerminalFailureWorkflowResult } from "./runtime-error-settlement";
 import { FINAL_STEP_STOP_RULE } from "./turn-model-selection";
 import { DoDedupStore } from "./brain-bridge-do";
@@ -1326,8 +1327,6 @@ const CODE_MODE_BATCHING_NOTE =
 	"Provider-call budget: the active runtime and plan policy set the permitted provider rounds for each turn, and the runtime reserves the final permitted round for a tool-free answer. Treat the budget as finite. Each Code Mode execution costs ONE round no matter how many tool calls it composes inside. Batch aggressively: put any needed discovery, all dependent namespace.tool(args) calls, filtering, and readbacks into ONE async Code Mode program instead of one program per tool call. Reuse schemas already present in this conversation instead of rediscovering them. Return only the IDs, concise facts, completionEvidence, and readback needed for your answer; do not return full discovery catalogs or raw bulk payloads.";
 
 const ARTIFACT_READ_MAX_CHARS = 80_000;
-const OBJECT_STORE_MAX_TEXT_CHARS = 200_000;
-const OBJECT_STORE_PREFIX = "objects/";
 const DEFAULT_R2_SQL_TABLE = "default.mcp_tool_calls";
 
 type OptionalPrimitiveEnv = {
@@ -5430,103 +5429,6 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			...this.artifactRepoAiTools(computer, turnContext?.runId),
 		};
 	}
-	private objectStoreKey(path: unknown): string | null {
-		const normalized = normalizePortablePath(path);
-		if (!normalized) return null;
-		const tediId = identityValue(this.state.tediId);
-		if (!tediId) return null;
-		return `${tediId}/${OBJECT_STORE_PREFIX}${normalized}`;
-	}
-
-	private async listObjectStoreTool(input: {
-		prefix?: string;
-		limit?: number;
-	}): Promise<unknown> {
-		await this.ensureIdentity();
-		const tediId = identityValue(this.state.tediId);
-		if (!tediId) return { ok: false, error: "Tedi identity is not resolved" };
-		const prefix =
-			typeof input.prefix === "string" && input.prefix.trim()
-				? (normalizePortablePath(input.prefix) ?? "")
-				: "";
-		const limit = clampPositiveInt(input.limit, 100, 500);
-		const root = `${tediId}/${OBJECT_STORE_PREFIX}`;
-		const result = await this.env.TEDI_STORAGE.list({
-			prefix: `${root}${prefix}`,
-			limit,
-		});
-		return {
-			ok: true,
-			prefix,
-			root,
-			objects: result.objects.map((object) => ({
-				path: object.key.slice(root.length),
-				size: object.size,
-				uploaded: object.uploaded?.toISOString?.() ?? null,
-			})),
-			truncated: result.truncated,
-			cursor: result.truncated ? result.cursor : null,
-		};
-	}
-
-	private async readObjectStoreTool(input: {
-		path?: string;
-		maxChars?: number;
-	}): Promise<unknown> {
-		await this.ensureIdentity();
-		const key = this.objectStoreKey(input.path);
-		if (!key) return { ok: false, error: "path must be a safe object path" };
-		const maxChars = clampPositiveInt(
-			input.maxChars,
-			OBJECT_STORE_MAX_TEXT_CHARS,
-			OBJECT_STORE_MAX_TEXT_CHARS,
-		);
-		const object = await this.env.TEDI_STORAGE.get(key);
-		if (!object) return { ok: false, error: "not_found", key };
-		const content = await object.text();
-		return {
-			ok: true,
-			key,
-			content: content.slice(0, maxChars),
-			chars: content.length,
-			truncated: content.length > maxChars,
-			httpMetadata: object.httpMetadata ?? null,
-			customMetadata: object.customMetadata ?? null,
-		};
-	}
-
-	private async writeObjectStoreTool(input: {
-		path?: string;
-		content?: string;
-		contentType?: string;
-	}): Promise<unknown> {
-		await this.ensureIdentity();
-		const key = this.objectStoreKey(input.path);
-		if (!key) return { ok: false, error: "path must be a safe object path" };
-		if (typeof input.content !== "string") {
-			return { ok: false, error: "content must be a string" };
-		}
-		const result = await this.env.TEDI_STORAGE.put(key, input.content, {
-			httpMetadata: {
-				contentType:
-					typeof input.contentType === "string" && input.contentType
-						? input.contentType
-						: "text/plain; charset=utf-8",
-			},
-			customMetadata: {
-				producer: "tedi-runtime",
-				slug: this.state.slug ?? "",
-			},
-		});
-		return {
-			ok: true,
-			key,
-			etag: result.etag,
-			version: result.version,
-			size: new TextEncoder().encode(input.content).byteLength,
-		};
-	}
-
 	private async recordArtifactTool(
 		input: {
 			name?: string;
@@ -5565,74 +5467,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	private objectStoreAiTools(): ToolSet {
-		return {
-			object_store_list: tool({
-				description:
-					"List durable R2 text objects under your per-tedi object store. Use this for large generated artifacts or scratch outputs that do not belong in canonical Artifacts/Git history.",
-				inputSchema: z.object({
-					prefix: z.string().optional(),
-					limit: z.number().int().positive().max(500).optional(),
-				}),
-				execute: async (input) => this.listObjectStoreTool(input),
-			}),
-			object_store_read_text: tool({
-				description:
-					"Read a UTF-8 text object from your per-tedi R2 object store.",
-				inputSchema: z.object({
-					path: z.string().min(1),
-					maxChars: z
-						.number()
-						.int()
-						.positive()
-						.max(OBJECT_STORE_MAX_TEXT_CHARS)
-						.optional(),
-				}),
-				execute: async (input) => this.readObjectStoreTool(input),
-			}),
-			object_store_write_text: tool({
-				description:
-					"Write a UTF-8 text object to your per-tedi R2 object store. This is for durable generated artifacts, not canonical memory or identity files.",
-				inputSchema: z.object({
-					path: z.string().min(1),
-					content: z.string(),
-					contentType: z.string().optional(),
-				}),
-				execute: async (input) => this.writeObjectStoreTool(input),
-			}),
-			...createDeliverableArtifactTools({
-				bucket: this.env.TEDI_STORAGE,
-				ensureIdentity: () => this.ensureIdentity(),
-				getTediId: () => identityValue(this.state.tediId),
-				getPlatformClient: async () =>
-					this.activeTurnBinding?.platform ?? (await this.getPlatformClient()),
-			}),
-			record_artifact: tool({
-				description:
-					"Publish a finished text deliverable (report, summary, CSV/markdown) as a durable artifact in R2, registered in the artifact ledger and linked to this run. Return the result's actual name and artifactId to the user; read it with artifact_read_file(path: artifactId). The requested name is normalized to a filename, not a repository path, and the r2:// uri is not a browser URL. A missing uri means the body was not saved. Use for finished work products, not scratch text (object_store_write_text) or canonical memory/identity.",
-				inputSchema: z.object({
-					name: z
-						.string()
-						.min(1)
-						.describe("File name, e.g. 'weekly-trend-report.md'"),
-					content: z.string().min(1).describe("UTF-8 text body"),
-					mimeType: z.string().optional(),
-					kind: z
-						.enum([
-							"document",
-							"spreadsheet",
-							"presentation",
-							"file",
-							"link",
-							"image",
-							"widget",
-							"other",
-						])
-						.optional(),
-					description: z.string().optional(),
-				}),
-				execute: async (input) => this.recordArtifactTool(input),
-			}),
-		};
+		return createObjectStoreTools({
+			bucket: this.env.TEDI_STORAGE,
+			ensureIdentity: () => this.ensureIdentity(),
+			getTediId: () => identityValue(this.state.tediId),
+			getSlug: () => this.state.slug,
+			getPlatformClient: async () =>
+				this.activeTurnBinding?.platform ?? (await this.getPlatformClient()),
+			recordArtifact: (input) => this.recordArtifactTool(input),
+		});
 	}
 
 	/** Clone into the captured workspace using governed repository configuration. */
