@@ -386,10 +386,10 @@ project, timing, waiting cost and outcome with the person's feedback;
 explicit feedback can teach immediately, while an isolated approval remains
 an observation rather than a general rule.
 
-Open Work to finish a short batch of decisions, then get back to your day.
+Open Deck to finish a short batch of decisions, then get back to your day.
 Set `navigation.work` to `"deck"` on the installed Deck app and to `"feed"`
-on the Feed app. Work opens the Deck on phone and desktop; Feed remains
-one click away. Both use the generic workspace app renderer and the
+on the Feed app. Work opens the Feed on phone and desktop; **Decide** opens
+the Deck. Both use the generic workspace app renderer and the
 viewer's existing access.
 
 The batch has a fixed list: new arrivals wait for the next batch instead

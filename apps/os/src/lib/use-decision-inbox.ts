@@ -55,6 +55,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		inbox,
 		approvals,
 		workApprovals,
+		requests,
 		work,
 		count: requests.length + work.length + runtime.length,
 		pending:
