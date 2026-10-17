@@ -265,7 +265,9 @@ An expired lease requires fresh admission, never a stale heartbeat.
 Lead launchers must run registration **inside the child session**, preserve its
 own native session id, and pass the same workspace and organization selectors
 on settlement. Do not export the launcher's `TEDIX_AGENT_SESSION` into a child.
-Claude subagents sharing a host session stay under that host's admitted Attempt;
-independently launched sessions get their own Attempt and worktree. The Attention
-page shows unregistered ledger lanes as unconfirmed activity, since a transcript
-report cannot grant the missing child identity execution authority.
+For a Claude subagent, pass its actual immutable child session id through
+`TEDIX_AGENT_SESSION=claude-code:<child-session-id>` and bootstrap that identity
+before registration. Independently executing lanes get their own Attempt and
+worktree. If the host exposes only the parent's identity, the ledger report
+links to its host Attempt and remains visibly unconfirmed until the child
+registers; a transcript report cannot grant child execution authority.
