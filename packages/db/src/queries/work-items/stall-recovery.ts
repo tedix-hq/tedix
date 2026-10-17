@@ -17,7 +17,11 @@ export interface ContinuityScope {
 	failedCount: number;
 }
 
-/** Scheduler inventory. All activity/ownership joins retain the scope's tenant. */
+/**
+ * Materialize the bounded scope page and its Work once. Correlated history
+ * scans per scope saturated D1 when Attention polling repeated this inventory.
+ * All activity/ownership joins retain the scope's tenant.
+ */
 export async function listContinuityScopes(
 	db: DbClient,
 	after = "",
@@ -28,30 +32,58 @@ export async function listContinuityScopes(
  WITH scopes AS (
  SELECT 'project:' || p.id AS key, p.id, p.org_id AS orgId, 'project' AS kind, p.name,
  CASE WHEN json_type(p.metadata, '$.continuity') = 'object' THEN json_extract(p.metadata, '$.continuity') END AS policy, p.created_at AS createdAt,
- coalesce(p.lead_tedi_id, o.tedi_id) AS owner
+ coalesce(p.lead_tedi_id, o.tedi_id) AS owner, p.objective_id AS objectiveId
  FROM projects p LEFT JOIN tedi_objectives o ON o.id = p.objective_id AND o.org_id = p.org_id AND o.status = 'active'
  WHERE p.status = 'active'
  UNION ALL
  SELECT 'objective:' || o.id, o.id, o.org_id, 'objective', o.title,
  CASE WHEN json_type(o.gate_config, '$.continuity') = 'object' THEN json_extract(o.gate_config, '$.continuity') END, o.created_at,
- o.tedi_id
+ o.tedi_id, o.id
  FROM tedi_objectives o WHERE o.status = 'active'
  AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.org_id = o.org_id AND p.objective_id = o.id AND p.status = 'active')
- ), page AS (
+ ), page AS MATERIALIZED (
  SELECT * FROM scopes WHERE key > ${after} AND (${orgId ?? null} IS NULL OR orgId = ${orgId ?? null}) ORDER BY key LIMIT 100
+ ), scope_work AS MATERIALIZED (
+ SELECT s.key, w.id AS workItemId, w.org_id AS orgId, w.disposition
+ FROM page s JOIN work_items w ON w.org_id = s.orgId AND w.project_id = s.id WHERE s.kind = 'project'
+ UNION ALL
+ SELECT s.key, w.id, w.org_id, w.disposition
+ FROM page s JOIN work_items w ON w.org_id = s.orgId AND w.objective_id = s.id WHERE s.kind = 'objective'
+ ), work_counts AS (
+ SELECT key, sum(disposition IN ('proposed','accepted')) AS pendingCount FROM scope_work GROUP BY key
+ ), attempt_activity AS MATERIALIZED (
+ SELECT w.key, max(julianday(coalesce(a.finished_at, a.heartbeat_at, a.started_at))) AS activity,
+ sum(a.outcome = 'failed' AND w.disposition NOT IN ('completed','cancelled')) AS failedCount
+ FROM scope_work w JOIN work_attempts a ON a.work_item_id = w.workItemId AND a.org_id = w.orgId GROUP BY w.key
+ ), activity AS (
+ SELECT key, activity FROM attempt_activity
+ UNION ALL
+ SELECT s.key, max(julianday(l.last_event_at)) FROM page s JOIN work_agent_sessions l
+ ON l.organization_id = s.orgId AND l.project_id = s.id WHERE s.kind = 'project' GROUP BY s.key
+ UNION ALL
+ SELECT w.key, max(julianday(CASE WHEN r.status IN ('completed','failed','canceled') THEN coalesce(r.completed_at, r.started_at) ELSE coalesce(r.last_reconciled_at, r.started_at) END))
+ FROM scope_work w JOIN skill_runs r ON r.work_item_id = w.workItemId AND r.organization_id = w.orgId
+ WHERE r.runtime_environment = ${environment} GROUP BY w.key
+ UNION ALL
+ SELECT s.key, max(julianday(coalesce(g.completed_at, g.created_at)))
+ FROM page s JOIN os_workspace_projects p ON p.organization_id = s.orgId AND p.project_id = s.id AND p.status = 'active'
+ JOIN os_gadget_executions g ON g.organization_id = p.organization_id AND g.workspace_id = p.workspace_id
+ WHERE s.kind = 'project' AND g.runtime_environment = ${environment} GROUP BY s.key
+ UNION ALL
+ SELECT s.key, max(julianday(coalesce(k.updated_at, k.created_at)))
+ FROM page s JOIN tedi_tasks k ON k.org_id = s.orgId AND k.objective_id = s.objectiveId GROUP BY s.key
+ ), latest_activity AS (
+ SELECT key, max(activity) AS activity FROM activity GROUP BY key
  )
- SELECT s.key, s.id, s.orgId, s.kind, s.name, s.policy, strftime('%Y-%m-%dT%H:%M:%fZ', s.createdAt) AS createdAt, coalesce(t.id, c.id) AS tediId, coalesce(t.slug, c.slug) AS slug, (t.id IS NOT NULL) AS hasOwner,
- strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(s.createdAt),
- coalesce((SELECT max(julianday(coalesce(a.finished_at, a.heartbeat_at, a.started_at))) FROM work_attempts a JOIN work_items w ON w.id = a.work_item_id AND w.org_id = a.org_id WHERE w.org_id = s.orgId AND ((s.kind = 'project' AND w.project_id = s.id) OR (s.kind = 'objective' AND w.objective_id = s.id))), julianday(s.createdAt)),
- coalesce((SELECT max(julianday(l.last_event_at)) FROM work_agent_sessions l WHERE l.organization_id = s.orgId AND s.kind = 'project' AND l.project_id = s.id), julianday(s.createdAt)),
- coalesce((SELECT max(julianday(CASE WHEN r.status IN ('completed','failed','canceled') THEN coalesce(r.completed_at, r.started_at) ELSE coalesce(r.last_reconciled_at, r.started_at) END)) FROM skill_runs r JOIN work_items w ON w.id = r.work_item_id AND w.org_id = r.organization_id WHERE r.runtime_environment = ${environment} AND w.org_id = s.orgId AND ((s.kind = 'project' AND w.project_id = s.id) OR (s.kind = 'objective' AND w.objective_id = s.id))), julianday(s.createdAt)),
- coalesce((SELECT max(julianday(coalesce(g.completed_at, g.created_at))) FROM os_gadget_executions g JOIN os_workspace_projects p ON p.organization_id = g.organization_id AND p.workspace_id = g.workspace_id AND p.status = 'active' WHERE g.runtime_environment = ${environment} AND g.organization_id = s.orgId AND s.kind = 'project' AND p.project_id = s.id), julianday(s.createdAt)),
- coalesce((SELECT max(julianday(coalesce(k.updated_at, k.created_at))) FROM tedi_tasks k WHERE k.org_id = s.orgId AND ((s.kind = 'objective' AND k.objective_id = s.id) OR (s.kind = 'project' AND EXISTS (SELECT 1 FROM projects p WHERE p.org_id = s.orgId AND p.id = s.id AND p.objective_id = k.objective_id)))), julianday(s.createdAt))
- )) AS lastActivityAt,
- (SELECT count(*) FROM work_items w WHERE w.org_id = s.orgId AND w.disposition IN ('proposed','accepted') AND ((s.kind = 'project' AND w.project_id = s.id) OR (s.kind = 'objective' AND w.objective_id = s.id))) AS pendingCount,
- (SELECT count(*) FROM work_attempts a JOIN work_items w ON w.id = a.work_item_id AND w.org_id = a.org_id WHERE w.org_id = s.orgId AND a.outcome = 'failed' AND w.disposition NOT IN ('completed','cancelled') AND ((s.kind = 'project' AND w.project_id = s.id) OR (s.kind = 'objective' AND w.objective_id = s.id))) AS failedCount
+ SELECT s.key, s.id, s.orgId, s.kind, s.name, s.policy, strftime('%Y-%m-%dT%H:%M:%fZ', s.createdAt) AS createdAt,
+ coalesce(t.id, c.id) AS tediId, coalesce(t.slug, c.slug) AS slug, (t.id IS NOT NULL) AS hasOwner,
+ strftime('%Y-%m-%dT%H:%M:%fZ', max(julianday(s.createdAt), coalesce(l.activity, julianday(s.createdAt)))) AS lastActivityAt,
+ coalesce(w.pendingCount, 0) AS pendingCount, coalesce(a.failedCount, 0) AS failedCount
  FROM page s LEFT JOIN tedis t ON t.id = s.owner AND t.organization_id = s.orgId AND t.status = 'active'
  LEFT JOIN tedis c ON c.id = json_extract(s.policy, '$.coordinatorTediId') AND c.organization_id = s.orgId AND c.status = 'active'
+ LEFT JOIN latest_activity l ON l.key = s.key
+ LEFT JOIN work_counts w ON w.key = s.key
+ LEFT JOIN attempt_activity a ON a.key = s.key
  ORDER BY s.key
  `);
 }
