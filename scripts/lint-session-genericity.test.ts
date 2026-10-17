@@ -88,3 +88,20 @@ describe("configured Board apps", () => {
 		).toEqual([]);
 	});
 });
+
+test("rejects reintroduced Office and Agents routes and fixed Board tabs", () => {
+	for (const name of ["office", "agents"]) {
+		expect(
+			sessionGenericityFindings(
+				`apps/os/src/routes/_session/_tenant/work.${name}.tsx`,
+				`createFileRoute("/_session/_tenant/work/${name}")`,
+			),
+		).toHaveLength(1);
+		expect(
+			sessionGenericityFindings(
+				"apps/os/src/components/work-shell.tsx",
+				`id: "board", sections: [{ id: "${name}", to: "/work/${name}" }]`,
+			),
+		).toHaveLength(1);
+	}
+});

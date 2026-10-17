@@ -20,8 +20,6 @@ const PLATFORM_WORK_ROUTES = new Set([
 	"needs-you",
 	"portfolio",
 	"queue",
-	"agents",
-	"office",
 	"attempts",
 	"approvals",
 	"interactions",
@@ -39,12 +37,7 @@ const PLATFORM_WORK_ROUTES = new Set([
 	"runs/$runId",
 	"cases/$caseId",
 ]);
-const PLATFORM_BOARD_SECTIONS = new Set([
-	"projects",
-	"queue",
-	"agents",
-	"office",
-]);
+const PLATFORM_BOARD_SECTIONS = new Set(["projects", "queue"]);
 
 export function boardGenericityFindings(
 	path: string,

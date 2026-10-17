@@ -1,3 +1,5 @@
+import type { AgentsConfig } from "@tedix/api-contract/schemas/os-session-apps";
+import { WorkspaceAppRenderer } from "./workspace-app-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -5,7 +7,7 @@ import {
 	projectListQueryOptions,
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
-import { WorkAgentsPage, AgentStateBadge } from "./work-agents-page";
+import { AgentStateBadge, filterAgentSessions } from "./work-agents-page";
 
 const NOW = Date.now();
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -37,7 +39,10 @@ function session(
 	};
 }
 
-function render(sessions: ReturnType<typeof session>[]) {
+function render(
+	sessions: ReturnType<typeof session>[],
+	config: AgentsConfig = { version: 1 },
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
@@ -50,10 +55,13 @@ function render(sessions: ReturnType<typeof session>[]) {
 		ended: 0,
 	};
 	for (const row of sessions) counts[row.effectiveState] += 1;
-	client.setQueryData(workAgentSessionsQueryOptions().queryKey, {
-		sessions,
-		counts,
-	});
+	client.setQueryData(
+		workAgentSessionsQueryOptions(config.states?.includes("ended")).queryKey,
+		{
+			sessions,
+			counts,
+		},
+	);
 	client.setQueryData(projectListQueryOptions(100).queryKey, {
 		data: [
 			{ id: PROJECT_A, name: "Billing revamp" },
@@ -64,7 +72,10 @@ function render(sessions: ReturnType<typeof session>[]) {
 	return new DOMParser().parseFromString(
 		renderToStaticMarkup(
 			<QueryClientProvider client={client}>
-				<WorkAgentsPage />
+				<WorkspaceAppRenderer
+					workspaceId={PROJECT_A}
+					manifest={{ entry: "tedix:app/agents", capabilities: [], config }}
+				/>
 			</QueryClientProvider>,
 		),
 		"text/html",
@@ -200,4 +211,64 @@ it("shows measured lane facts, estimates and a daily roll-up", () => {
 	expect(doc.body.textContent).toContain(
 		"What we learned: Read the owning query",
 	);
+});
+
+it("scopes configured projects, states and harnesses through the generic renderer", () => {
+	const doc = render(
+		[
+			session(2, "working", "Selected lane", PROJECT_A),
+			session(4, "error", "Wrong state", PROJECT_A),
+			session(1, "working", "Wrong harness", PROJECT_A),
+			session(6, "working", "Other project", PROJECT_B),
+		],
+		{
+			version: 1,
+			projectId: PROJECT_A,
+			states: ["working"],
+			harnesses: ["codex"],
+		},
+	);
+	expect(
+		doc.querySelector('[data-workspace-app-entry="agents"]'),
+	).not.toBeNull();
+	expect(doc.body.textContent).toContain("Selected lane");
+	for (const hidden of ["Wrong state", "Wrong harness", "Other project"])
+		expect(doc.body.textContent).not.toContain(hidden);
+	expect(doc.querySelectorAll("li[data-agent-state]")).toHaveLength(1);
+});
+it("screen selections cannot widen manifest scope and recompute counts", () => {
+	const sessions = [
+		session(2, "working", "One", PROJECT_A),
+		session(4, "error", "Two", PROJECT_B),
+	];
+	const data = {
+		sessions,
+		counts: { needs_you: 0, error: 1, done: 0, working: 1, idle: 0, ended: 0 },
+	};
+	expect(
+		filterAgentSessions(data, { version: 1, projectId: PROJECT_A }).counts,
+	).toEqual({ ...data.counts, error: 0 });
+	expect(
+		filterAgentSessions(
+			data,
+			{ version: 1, projectId: PROJECT_A },
+			{ project: PROJECT_B, state: "all", harness: "all" },
+		).sessions,
+	).toEqual([]);
+	expect(
+		filterAgentSessions(
+			data,
+			{ version: 1 },
+			{ project: "all", state: "error", harness: "codex" },
+		).sessions,
+	).toEqual([sessions[1]]);
+});
+
+it("can explicitly show ended sessions through its configured state scope", () => {
+	const doc = render([session(2, "ended", "Finished local lane", PROJECT_A)], {
+		version: 1,
+		states: ["ended"],
+	});
+	expect(doc.body.textContent).toContain("Finished local lane");
+	expect(doc.querySelector('li[data-agent-state="ended"]')).not.toBeNull();
 });

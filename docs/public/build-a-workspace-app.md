@@ -30,6 +30,15 @@ A built-in app keeps every tenant choice in the manifest `config`, never in
 code. The OS validates `config` against the app's schema when a revision is
 written, so a wrong setting fails the write with the exact path that is wrong.
 
+Office (`tedix:app/office`) and Agents (`tedix:app/agents`) are built-in apps.
+Both require `config: {"version": 1}`. Office shows the viewer's live activity,
+reply outcomes, leaderboard and notebook. Agents accepts optional `projectId`,
+`states` (`needs_you`, `error`, `done`, `working`, `idle`, `ended`) and
+`harnesses` (`codex`, `claude-code`, `tedi`, `skill`). Its screen filters narrow these
+settings; counts and delegation totals use the same filtered sessions.
+The organization and viewer access checks remain authoritative; app filters
+never grant access. Install and opt these apps into Board to make them visible.
+
 ## Install and configure an app
 
 From chat or MCP, use the OS app tools in the organization's namespace

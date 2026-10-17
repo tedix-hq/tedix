@@ -695,9 +695,9 @@ export const workAttentionQueryOptions = (workspaceId?: string) =>
 		staleTime: 0,
 	});
 
-export const workAgentSessionsQueryOptions = () =>
+export const workAgentSessionsQueryOptions = (includeEnded = false) =>
 	osQuery.workAgentSessions.list.queryOptions({
-		input: {},
+		input: includeEnded ? { includeEnded: true } : {},
 		refetchInterval: WORK_AGENT_SESSIONS_REFETCH_MS,
 		refetchOnWindowFocus: true,
 	});

@@ -344,7 +344,7 @@ export function createPlanningSync(config) {
 							);
 						found.push({
 							source: reader.label,
-							url: `${config.osBaseUrl}/work/agents`,
+							url: `${config.osBaseUrl}/work/portfolio`,
 							data,
 						});
 						if (data.data?.length === reader.args.limit)

@@ -153,7 +153,11 @@ export function buildAttention(
 			startedAt: row.stateSince,
 			heartbeatAt: row.lastEventAt,
 			note: row.summary,
-			href: row.workItemId ? `/work/items/${row.workItemId}` : "/work/agents",
+			href: row.workItemId
+				? `/work/items/${row.workItemId}`
+				: row.projectId
+					? `/work/projects/${row.projectId}`
+					: "/work/portfolio",
 			source: "session",
 			activitySource: row.harness === "codex" ? "local_codex" : "local_claude",
 			finishedAt: row.state === "done" ? row.lastEventAt : null,

@@ -23,6 +23,12 @@ import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
 } from "./os-outbound-review";
+import {
+	OFFICE_ENTRY,
+	AGENTS_ENTRY,
+	OfficeConfigSchema,
+	AgentsConfigSchema,
+} from "./os-session-apps";
 import { ModelRefSchema } from "./model-catalog";
 import {
 	ExecutionPreflightPinSchema,
@@ -526,7 +532,11 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 				? CardReviewConfigSchema
 				: value.entry.trim() === OUTBOUND_REVIEW_ENTRY
 					? OutboundReviewConfigSchema
-					: null;
+					: value.entry.trim() === OFFICE_ENTRY
+						? OfficeConfigSchema
+						: value.entry.trim() === AGENTS_ENTRY
+							? AgentsConfigSchema
+							: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;

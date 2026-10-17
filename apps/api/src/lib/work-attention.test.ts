@@ -263,3 +263,42 @@ it("shows the red Ship diagnosis promise and its missed deadline on Attention", 
 		"Diagnosis: Provider outage",
 	);
 });
+
+it("links unclaimed sessions to their project or the configured Board apps", () => {
+	const session = {
+		id: "fictional-session",
+		organizationId: "org-fictional",
+		userId: "fictional-owner",
+		harness: "codex" as const,
+		sessionKey: "session",
+		label: "Current work",
+		state: "working" as const,
+		summary: "Reviewing",
+		telemetry: null,
+		projectId: null,
+		workItemId: null,
+		stateSince: now.toISOString(),
+		lastEventAt: now.toISOString(),
+		createdAt: now.toISOString(),
+		updatedAt: now.toISOString(),
+	};
+	expect(buildAttention(sources(), [session], [], now).cards[0]?.href).toBe(
+		"/work/portfolio",
+	);
+	expect(
+		buildAttention(
+			sources(),
+			[{ ...session, projectId: "fictional-project" }],
+			[],
+			now,
+		).cards[0]?.href,
+	).toBe("/work/projects/fictional-project");
+	expect(
+		buildAttention(
+			sources(),
+			[{ ...session, workItemId: "fictional-item" }],
+			[],
+			now,
+		).cards[0]?.href,
+	).toBe("/work/items/fictional-item");
+});

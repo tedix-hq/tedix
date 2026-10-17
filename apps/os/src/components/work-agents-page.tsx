@@ -4,12 +4,23 @@ import {
 	inactiveSessionLabel,
 } from "@tedix/api-contract/utils/attention-copy";
 import { useQuery } from "@tanstack/react-query";
+import {
+	WorkAgentSessionHarnessSchema,
+	WorkAgentSessionEffectiveStateSchema,
+} from "@tedix/api-contract/schemas/work-agent-sessions";
 import type {
 	ListWorkAgentSessionsResultSchema,
-	WorkAgentSessionEffectiveStateSchema,
 	WorkProjectContributorStateSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import type { AgentsConfig } from "@tedix/api-contract/schemas/os-session-apps";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import type * as z from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -26,12 +37,7 @@ import {
 } from "@/components/kumo/empty";
 import {
 	Collection,
-	Page,
-	PageDescription,
-	PageHeader,
-	PageHeading,
 	PageSection,
-	PageTitle,
 	SectionHeader,
 	SectionHeading,
 	SectionTitle,
@@ -43,7 +49,6 @@ import {
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
-import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn } from "@/lib/utils";
 
 type AgentSessionList = z.output<typeof ListWorkAgentSessionsResultSchema>;
@@ -158,10 +163,12 @@ export type AgentProjectGroup = {
 export function groupAgentSessions(
 	sessions: readonly AgentSession[],
 	projectNames: ReadonlyMap<string, string> = new Map(),
+	includeEnded = false,
 ): AgentProjectGroup[] {
 	const ordered = sessions
 		.filter(
-			(session) => session.effectiveState !== "ended" || session.telemetry,
+			(session) =>
+				includeEnded || session.effectiveState !== "ended" || session.telemetry,
 		)
 		.map((session, index) => ({ session, index }))
 		.sort(
@@ -384,15 +391,17 @@ function AgentCountStrip({ counts }: { counts: AgentSessionList["counts"] }) {
 }
 
 export function WorkAgentsBoard({
+	includeEnded = false,
 	data,
 	projectNames,
 	now = new Date(),
 }: {
 	data: AgentSessionList;
+	includeEnded?: boolean;
 	projectNames?: ReadonlyMap<string, string>;
 	now?: Date;
 }) {
-	const groups = groupAgentSessions(data.sessions, projectNames);
+	const groups = groupAgentSessions(data.sessions, projectNames, includeEnded);
 	const totals = laneDailyTotals(data.sessions, now);
 	if (!groups.length) {
 		return (
@@ -469,9 +478,13 @@ export function WorkAgentsBoard({
 	);
 }
 
-export function WorkAgentsPage() {
-	useDocumentTitle("Agents · Work");
-	const query = useQuery(workAgentSessionsQueryOptions());
+export function AgentsApp({ config }: { config: AgentsConfig }) {
+	const [project, setProject] = useState("all");
+	const [state, setState] = useState("all");
+	const [harness, setHarness] = useState("all");
+	const includeEnded =
+		config.states?.includes("ended") === true || state === "ended";
+	const query = useQuery(workAgentSessionsQueryOptions(includeEnded));
 	const projects = useQuery(projectListQueryOptions(100));
 	const projectNames = useMemo(
 		() =>
@@ -483,18 +496,76 @@ export function WorkAgentsPage() {
 			),
 		[projects.data],
 	);
+	const data =
+		query.data &&
+		filterAgentSessions(query.data, config, { project, state, harness });
 	return (
-		<Page width="xl">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>Agents</PageTitle>
-					<PageDescription>
-						Delegated agents, their results and what they learned, by project.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			{query.data ? (
-				<WorkAgentsBoard data={query.data} projectNames={projectNames} />
+		<div className="grid min-w-0 gap-4" data-workspace-app-entry="agents">
+			<div className="flex flex-wrap gap-3">
+				<Select
+					value={project}
+					onValueChange={(value) => setProject(value ?? "all")}
+				>
+					<SelectTrigger aria-label="Agent project">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">
+							{config.projectId
+								? (projectNames.get(config.projectId) ?? "Configured project")
+								: "All projects"}
+						</SelectItem>
+						{!config.projectId &&
+							[...projectNames].map(([id, name]) => (
+								<SelectItem key={id} value={id}>
+									{name}
+								</SelectItem>
+							))}
+					</SelectContent>
+				</Select>
+				<Select
+					value={state}
+					onValueChange={(value) => setState(value ?? "all")}
+				>
+					<SelectTrigger aria-label="Agent state">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">All configured states</SelectItem>
+						{(
+							config.states ?? WorkAgentSessionEffectiveStateSchema.options
+						).map((value) => (
+							<SelectItem key={value} value={value}>
+								{STATE_BADGE[value].label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<Select
+					value={harness}
+					onValueChange={(value) => setHarness(value ?? "all")}
+				>
+					<SelectTrigger aria-label="Agent harness">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">All configured harnesses</SelectItem>
+						{(config.harnesses ?? WorkAgentSessionHarnessSchema.options).map(
+							(value) => (
+								<SelectItem key={value} value={value}>
+									{AGENT_HARNESS_LABEL[value] ?? value}
+								</SelectItem>
+							),
+						)}
+					</SelectContent>
+				</Select>
+			</div>
+			{data ? (
+				<WorkAgentsBoard
+					data={data}
+					projectNames={projectNames}
+					includeEnded={includeEnded}
+				/>
 			) : query.isError ? (
 				<Alert variant="destructive">
 					<AlertTitle>Agent sessions unavailable</AlertTitle>
@@ -511,6 +582,33 @@ export function WorkAgentsPage() {
 					<Skeleton className="h-10 w-full" />
 				</div>
 			)}
-		</Page>
+		</div>
 	);
+}
+
+/** Filters affect rows, state counts and telemetry totals together. */
+export function filterAgentSessions(
+	data: AgentSessionList,
+	config: AgentsConfig,
+	selected = { project: "all", state: "all", harness: "all" },
+): AgentSessionList {
+	const sessions = data.sessions.filter(
+		(session) =>
+			(!config.projectId || session.projectId === config.projectId) &&
+			(!config.states || config.states.includes(session.effectiveState)) &&
+			(!config.harnesses || config.harnesses.includes(session.harness)) &&
+			(selected.project === "all" || session.projectId === selected.project) &&
+			(selected.state === "all" || session.effectiveState === selected.state) &&
+			(selected.harness === "all" || session.harness === selected.harness),
+	);
+	const counts: AgentSessionList["counts"] = {
+		needs_you: 0,
+		error: 0,
+		done: 0,
+		working: 0,
+		idle: 0,
+		ended: 0,
+	};
+	for (const session of sessions) counts[session.effectiveState] += 1;
+	return { sessions, counts };
 }

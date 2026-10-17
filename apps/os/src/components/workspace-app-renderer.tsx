@@ -1,3 +1,11 @@
+import {
+	OFFICE_ENTRY,
+	AGENTS_ENTRY,
+	OfficeConfigSchema,
+	AgentsConfigSchema,
+} from "@tedix/api-contract/schemas/os-session-apps";
+import { OfficeApp } from "@/components/work-office-page";
+import { AgentsApp } from "@/components/work-agents-page";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	OUTBOUND_REVIEW_ENTRY,
@@ -26,6 +34,18 @@ export function WorkspaceAppRenderer({
 		const config = OutboundReviewConfigSchema.safeParse(manifest.config);
 		if (config.success) return <OutboundReviewApp config={config.data} />;
 	}
+	if (
+		entry === OFFICE_ENTRY &&
+		OfficeConfigSchema.safeParse(manifest.config).success
+	)
+		return <OfficeApp />;
+	if (entry === AGENTS_ENTRY) {
+		const config = AgentsConfigSchema.safeParse(manifest.config);
+		if (config.success)
+			return (
+				<AgentsApp key={JSON.stringify(config.data)} config={config.data} />
+			);
+	}
 	const review = cardReviewConfigFromManifest(manifest);
 	if (review.kind === "ok") return <CardReviewApp config={review.config} />;
 	return (
@@ -47,22 +67,27 @@ export function WorkspaceAppRunsInfo({
 }) {
 	const attention = manifest.entry.trim() === "tedix:app/attention";
 	const cards = cardReviewConfigFromManifest(manifest).kind !== "none";
+	const sessions = [OFFICE_ENTRY, AGENTS_ENTRY].includes(manifest.entry.trim());
 	return (
 		<Card size="sm">
 			<CardContent className="grid gap-3">
 				<Text as="h3" weight="medium">
-					{attention
-						? "Activity comes from your workspace"
-						: cards
-							? "Cards come from scheduled skills"
-							: "Activity comes from linked Work"}
+					{sessions
+						? "Activity comes from your sessions"
+						: attention
+							? "Activity comes from your workspace"
+							: cards
+								? "Cards come from scheduled skills"
+								: "Activity comes from linked Work"}
 				</Text>
 				<Text>
-					{attention
-						? "Open Preview to see local sessions and cloud work in this workspace, with their latest progress."
-						: cards
-							? "Card review opens saved card sheets. To check when new cards were produced, open Resources and choose See runs on a scheduled skill."
-							: "Open Preview to review drafts. Each card keeps its reviews, decisions and sending result with its originating Work."}
+					{sessions
+						? "Open Preview to see live activity, replies and delegation results."
+						: attention
+							? "Open Preview to see local sessions and cloud work in this workspace, with their latest progress."
+							: cards
+								? "Card review opens saved card sheets. To check when new cards were produced, open Resources and choose See runs on a scheduled skill."
+								: "Open Preview to review drafts. Each card keeps its reviews, decisions and sending result with its originating Work."}
 				</Text>
 				<Button variant="outline" onClick={onShowResources}>
 					Open Resources
