@@ -57,7 +57,11 @@ export interface RecordAgentSessionRequestsParams extends AgentSessionRequestOwn
 	sourceAt: string;
 	/** Stable per message; each request appends its index. */
 	sourceKey: string;
-	requests: ReadonlyArray<{ kind: AgentSessionRequestKind; text: string }>;
+	requests: ReadonlyArray<{
+		kind: AgentSessionRequestKind;
+		text: string;
+		evidence?: string;
+	}>;
 	now: string;
 }
 
@@ -80,7 +84,7 @@ export async function recordAgentSessionRequests(
 		text: request.text,
 		status:
 			request.kind === "ask" ? ("waiting_on_user" as const) : ("open" as const),
-		evidence: null,
+		evidence: request.evidence ?? null,
 		turnsUnaddressed: 0,
 		laneRunning: request.kind === "open_loop",
 		sourceAt: params.sourceAt,
@@ -429,6 +433,55 @@ export async function getPreviousAgentSessionTurn(
 		)
 		.limit(1);
 	return row?.body ?? null;
+}
+
+/** Recover each row's original scope without borrowing a later prompt's goals. */
+export async function getAgentSessionRequestPrompts(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & { ids: readonly string[] },
+): Promise<Array<{ id: string; message: string | null }>> {
+	const result: Array<{ id: string; message: string | null }> = [];
+	for (const ids of chunkForBoundParams([...new Set(params.ids)], 50)) {
+		result.push(
+			...(await db
+				.select({
+					id: agentSessionRequests.id,
+					message: sql<string | null>`(${db
+						.select({ body: agentSessionEvents.body })
+						.from(agentSessionEvents)
+						.where(
+							and(
+								eq(
+									agentSessionEvents.organizationId,
+									agentSessionRequests.organizationId,
+								),
+								eq(agentSessionEvents.userId, agentSessionRequests.userId),
+								eq(agentSessionEvents.harness, agentSessionRequests.harness),
+								eq(
+									agentSessionEvents.sessionKey,
+									agentSessionRequests.sessionKey,
+								),
+								eq(agentSessionEvents.kind, "prompt"),
+								sql`${agentSessionEvents.sourceAt} <= ${agentSessionRequests.sourceAt}`,
+							),
+						)
+						.orderBy(
+							desc(agentSessionEvents.sourceAt),
+							desc(agentSessionEvents.sourceKey),
+						)
+						.limit(1)})`.as("message"),
+				})
+				.from(agentSessionRequests)
+				.where(
+					and(
+						eq(agentSessionRequests.organizationId, params.organizationId),
+						eq(agentSessionRequests.userId, params.userId),
+						inArray(agentSessionRequests.id, ids),
+					),
+				)),
+		);
+	}
+	return result;
 }
 
 /**

@@ -72,18 +72,35 @@ describe("parseReflectedNewRows", () => {
 			parseReflectedNewRows(
 				JSON.stringify({
 					new: [
-						{ kind: "promise", text: "Report the deploy result" },
-						{ kind: "open_loop", text: "Codex lane on the docs page" },
+						{
+							kind: "promise",
+							text: "Report the deploy result",
+							evidence: "Report the deploy result",
+						},
+						{
+							kind: "open_loop",
+							text: "Codex lane on the docs page",
+							evidence: "Codex lane on the docs page",
+						},
 						{ kind: "request", text: "Not owed by the agent" },
 						{ kind: "promise", text: "report the deploy result" },
 					],
 				}),
+				"Report the deploy result. Codex lane on the docs page.",
 			),
 		).toEqual([
-			{ kind: "promise", text: "Report the deploy result" },
-			{ kind: "open_loop", text: "Codex lane on the docs page" },
+			{
+				kind: "promise",
+				text: "Report the deploy result",
+				evidence: "Report the deploy result",
+			},
+			{
+				kind: "open_loop",
+				text: "Codex lane on the docs page",
+				evidence: "Codex lane on the docs page",
+			},
 		]);
-		expect(parseReflectedNewRows("nope")).toEqual([]);
+		expect(parseReflectedNewRows("nope", "")).toEqual([]);
 	});
 });
 
@@ -108,10 +125,23 @@ it("extracts agent asks from summaries without treating them as promises", () =>
 	expect(
 		parseReflectedNewRows(
 			JSON.stringify({
-				new: [{ kind: "ask", text: "Approve the public README wording" }],
+				new: [
+					{
+						kind: "ask",
+						text: "Approve the public README wording",
+						evidence: "Approve the public README wording",
+					},
+				],
 			}),
+			"Approve the public README wording",
 		),
-	).toEqual([{ kind: "ask", text: "Approve the public README wording" }]);
+	).toEqual([
+		{
+			kind: "ask",
+			text: "Approve the public README wording",
+			evidence: "Approve the public README wording",
+		},
+	]);
 });
 
 it("reads the first complete JSON object despite a trailing model brace", () => {
@@ -212,7 +242,7 @@ it("keeps full turn text and accepts only grounded mentions of known refs", () =
 			new Set(["r1", "r2"]),
 			turn,
 		),
-	]).toEqual(["r1"]);
+	]).toEqual([["r1", "the pending deployment still needs verification"]]);
 });
 
 it("grounds compact mention maps with the same quote rules as legacy arrays", () => {
@@ -228,16 +258,20 @@ it("grounds compact mention maps with the same quote rules as legacy arrays", ()
 			new Set(["r1", "r2"]),
 			"The deployment still needs checking. Commit 4f2a9c1 is pending.",
 		),
-	]).toEqual(["r1"]);
+	]).toEqual([["r1", "The deployment still needs checking"]]);
 });
 
 it("retains all obligations from a long summary instead of silently cutting off after eight", () => {
 	const obligations = Array.from({ length: 16 }, (_, i) => ({
 		kind: "ask",
 		text: `Approve the specific decision number ${i + 1}`,
+		evidence: `Approve the specific decision number ${i + 1}`,
 	}));
 	expect(
-		parseReflectedNewRows(JSON.stringify({ new: obligations })),
+		parseReflectedNewRows(
+			JSON.stringify({ new: obligations }),
+			obligations.map((row) => row.evidence).join("\n"),
+		),
 	).toHaveLength(16);
 });
 
@@ -310,5 +344,43 @@ it("accepts a duplicate merge's exact saved result quote", () => {
 			into: "r1",
 			evidence: "The guide was published and read back.",
 		},
+	]);
+});
+
+it("requires quoted lead evidence for new obligations while retaining report evidence for closure", () => {
+	const source =
+		'I will deliver the release report. <agent-message from="delegate">Would you like me to change the layout? The deploy was verified live.</agent-message>';
+	const raw = JSON.stringify({
+		new: [
+			{
+				kind: "promise",
+				text: "Deliver the release report",
+				evidence: "I will deliver the release report",
+			},
+			{
+				kind: "ask",
+				text: "Choose a layout",
+				evidence: "Would you like me to change the layout",
+			},
+			{
+				kind: "promise",
+				text: "Deliver a different report",
+				evidence: "An invented commitment",
+			},
+			{ kind: "ask", text: "Approve another idea" },
+		],
+		updates: [
+			{ ref: "r1", status: "done", evidence: "The deploy was verified live" },
+		],
+	});
+	expect(parseReflectedNewRows(raw, source)).toEqual([
+		{
+			kind: "promise",
+			text: "Deliver the release report",
+			evidence: "I will deliver the release report",
+		},
+	]);
+	expect(parseReflectedUpdates(raw, new Set(["r1"]), source)).toEqual([
+		{ ref: "r1", status: "done", evidence: "The deploy was verified live" },
 	]);
 });

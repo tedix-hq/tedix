@@ -10,6 +10,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	getPreviousAgentSessionTurn,
+	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
@@ -388,4 +389,62 @@ it("refuses to rewind past a later processed or leased event in that session", a
 		.set({ claimedAt: null })
 		.where(eq(agentSessionEvents.sourceKey, "event-1"));
 	expect(await retry()).toBe(1);
+});
+
+it("recovers original prompts without later goals or another owner's events", async () => {
+	const db = fixture();
+	const original = "Review the authentication integration and report findings.";
+	for (const [organizationId, userId, sessionKey, harness, sourceAt, body] of [
+		[ORG, USER, "session-1", "claude-code", T0, original],
+		[
+			ORG,
+			USER,
+			"session-1",
+			"claude-code",
+			T1,
+			"Now implement the findings and deploy.",
+		],
+		["org-other", USER, "session-1", "claude-code", T0, "Other org"],
+		[ORG, OTHER_USER, "session-1", "claude-code", T0, "Other owner"],
+		[ORG, USER, "session-other", "claude-code", T0, "Other session"],
+		[ORG, USER, "session-1", "codex", T0, "Other harness"],
+	] as const) {
+		await recordAgentSessionEvents(db, {
+			organizationId,
+			userId,
+			now: sourceAt,
+			events: [
+				{
+					sessionKey,
+					harness,
+					sourceAt,
+					body,
+					kind: "prompt",
+					repository: null,
+					activity: null,
+					sourceKey: `${organizationId}:${userId}:${sessionKey}:${harness}:${sourceAt}`,
+				},
+			],
+		});
+	}
+	const requests = Array.from({ length: 55 }, (_, i) => ({
+		kind: "request" as const,
+		text: `Review item ${i}`,
+	}));
+	const own = await record(db, { requests });
+	const other = await record(db, { userId: OTHER_USER });
+	const prompts = await getAgentSessionRequestPrompts(db, {
+		organizationId: ORG,
+		userId: USER,
+		ids: [...own, ...other].map((row) => row.id),
+	});
+	expect(prompts).toHaveLength(55);
+	expect(prompts.every((row) => row.message === original)).toBe(true);
+	expect(
+		await getAgentSessionRequestPrompts(db, {
+			organizationId: ORG,
+			userId: USER,
+			ids: [],
+		}),
+	).toEqual([]);
 });

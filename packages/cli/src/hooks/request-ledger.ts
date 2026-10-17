@@ -32,6 +32,7 @@ import { isAbsolute, join } from "node:path";
 import { humanText, scrub } from "../learn-import";
 import { asciiJson, harnessOf } from "./agent-status";
 import { bindingFor, redact, repositoryName } from "./decision-capture";
+import { referencedCommitEvidence } from "./referenced-commits";
 import {
 	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
@@ -370,6 +371,12 @@ export async function runRequestLedger(
 		const binding = await bindingFor(deps, session!);
 		if (!binding || !PROFILE.test(String(binding.workspace))) return;
 		const now = (deps.now ?? (() => new Date()))();
+		const sourceAt = isoSeconds(now, true);
+		const commitEvidence =
+			mode === "turn"
+				? referencedCommitEvidence(binding.root, text, sourceAt)
+				: "";
+		const source = text + commitEvidence;
 		const activity = turn?.activity ?? "";
 		const dir = outboxDir(
 			deps.env,
@@ -379,8 +386,8 @@ export async function runRequestLedger(
 			kind: mode,
 			harness: harnessOf(event, hostEnv),
 			sessionKey: session!,
-			sourceAt: isoSeconds(now, true),
-			text,
+			sourceAt,
+			text: bounded(source, source.length, "head"),
 			...(activity ? { activity } : {}),
 			...(binding.contextSource === "default"
 				? {}
