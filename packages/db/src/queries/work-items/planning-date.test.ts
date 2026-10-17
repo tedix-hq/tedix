@@ -136,6 +136,11 @@ it("fences dispatch plans against live Attempts and preserves calendar and metad
 			"2026-10-17T21:04:00.000Z",
 		);
 	await expect(updateWorkItemSpecification(db, input)).rejects.toThrow();
+	sqlite.exec("UPDATE work_attempts SET expires_at = NULL");
+	await expect(updateWorkItemSpecification(db, input)).rejects.toThrow();
+	sqlite.exec(
+		"UPDATE work_attempts SET expires_at = '2026-10-17T21:04:00.000Z'",
+	);
 	expect(sqlite.prepare("SELECT version FROM work_items").get()?.version).toBe(
 		1,
 	);

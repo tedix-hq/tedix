@@ -848,7 +848,7 @@ export async function updateWorkItemSpecification(
 					WHERE ${workAttempts.orgId} = ${params.orgId}
 					AND ${workAttempts.workItemId} = ${params.workItemId}
 					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
-					AND ${workAttempts.expiresAt} > ${updatedAt}
+					AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt} > ${updatedAt})
 				)`,
 				ne(workItems.disposition, "completed"),
 				ne(workItems.disposition, "cancelled"),
