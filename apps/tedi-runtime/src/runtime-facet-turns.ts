@@ -2204,6 +2204,7 @@ export const runtimeFacetTurns = {
 				clientRequestId: input.clientRequestId,
 				learningMode: input.learningMode,
 				...(synthesis.usage ? { facetUsage: synthesis.usage } : {}),
+				modelIdentity: synthesis.modelIdentity,
 			});
 			return {
 				text: assistantText,
