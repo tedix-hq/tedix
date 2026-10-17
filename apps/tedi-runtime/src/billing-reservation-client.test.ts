@@ -384,3 +384,66 @@ console.log(
 	}
 }
 console.log("PASS unselected turns bill against their own run id");
+
+{
+	const regionalExecution = {
+		provider: "azure-openai",
+		requestModel: "text-model",
+		deployment: "text-model",
+		providerResource: "lark-eu",
+		providerOrigin: "https://lark-eu.openai.azure.com",
+		gatewayAccountId: "account",
+		gatewayId: "gateway",
+		transportKind: "gateway-https",
+		apiKind: "azure-responses",
+	} as const;
+	const admitted = await authorizeInferenceEntitlement(
+		{
+			SECRETS_MASTER_KEY: "fixture-signing-secret",
+			TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+			API_SERVICE: {
+				fetch: async () =>
+					Response.json({
+						json: {
+							...admission,
+							providerApiKey: "fictional-regional-key",
+							providerExecution: regionalExecution,
+						},
+					}),
+			} as unknown as Fetcher,
+		},
+		{
+			metadata: { orgId: "org_lark", tediId: "fixture-tedi" },
+			beforeDispatch: fixtureOriginGuard("org_lark"),
+			execution: {
+				...regionalExecution,
+				providerResource: "lark-global",
+				providerOrigin: "https://lark-global.openai.azure.com",
+			},
+			body: "{}",
+		},
+	);
+	const headers = new Headers();
+	admitted.applyProviderCredential(headers);
+	assert.equal(headers.get("api-key"), "fictional-regional-key");
+	assert.equal(headers.get("cf-aig-collect-log"), "false");
+	assert.equal(
+		admitted.execution.providerOrigin,
+		regionalExecution.providerOrigin,
+	);
+	assert(!JSON.stringify(admitted.receipt).includes("fictional-regional-key"));
+	assert(
+		!JSON.stringify(admitted.attribution).includes("fictional-regional-key"),
+	);
+	const denied = billingPolicyDeniedWorkflowResult(
+		new BillingAdmissionError(
+			"eu_provider_credential_required",
+			"Inference blocked by billing policy: eu_provider_credential_required — An administrator must add REGIONAL_MODEL_KEY to this organization's encrypted secrets.",
+		),
+	);
+	assert(denied?.text.includes("administrator must add REGIONAL_MODEL_KEY"));
+	assert(!denied?.text.includes("billing policy"));
+}
+console.log(
+	"PASS EU credential isolation, approved regional route and actionable terminal denial",
+);
