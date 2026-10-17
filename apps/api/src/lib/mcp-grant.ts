@@ -9,6 +9,7 @@ import {
 } from "@tedix/auth/aih-client";
 import { getManagementClient } from "@tedix/auth/client";
 import type { DbClient } from "@tedix/db/client";
+import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import {
 	getMemberByUserId,
 	getMembershipsByDescopeTenants,
@@ -91,7 +92,9 @@ async function registeredResourceScopes(
 		return null;
 	const audience = server.audienceWhitelist[0];
 	if (resourceUrl !== undefined && audience !== resourceUrl) return null;
-	const owner = await getMcpConsentResource(db, { resourceUrl: audience });
+	const owner = await readGrantState("resource_owner", () =>
+		getMcpConsentResource(db, { resourceUrl: audience }),
+	);
 	if (
 		!owner ||
 		owner.appId !== resource.appId ||
@@ -292,6 +295,15 @@ export async function revokeHumanMcpConsent(
 	return revision;
 }
 
+// Collapse overlapping checks of the exact same signed grant within an isolate.
+// No settled decision survives: the next request checks revocation and membership
+// again. Bound caller-controlled keys without evicting a running verification.
+const pendingGrantChecks = new WeakMap<
+	CloudflareEnv,
+	Map<string, Promise<HumanMcpGrantDecision>>
+>();
+const MAX_PENDING_GRANT_CHECKS = 200;
+
 /**
  * Recheck every signed selected tenant on each human MCP request. The MCP
  * edge first validates token signature and exact resource audience. No grant
@@ -299,6 +311,45 @@ export async function revokeHumanMcpConsent(
  * request even while a previously issued access token remains unexpired.
  */
 export async function verifyHumanMcpGrant(
+	db: DbClient,
+	env: CloudflareEnv,
+	input: VerifyHumanMcpGrantInput,
+): Promise<HumanMcpGrantDecision> {
+	let pending = pendingGrantChecks.get(env);
+	if (!pending) {
+		pending = new Map();
+		pendingGrantChecks.set(env, pending);
+	}
+	const key = JSON.stringify([
+		input.descopeUserId,
+		input.mcpServerId,
+		input.clientId,
+		input.consentId,
+		input.consentRevision,
+		input.selectedTenantIds,
+		[...input.tokenScopes].sort(),
+	]);
+	const existing = pending.get(key);
+	if (existing) return existing;
+	if (pending.size >= MAX_PENDING_GRANT_CHECKS)
+		return verifyHumanMcpGrantUnshared(db, env, input);
+	const verification = verifyHumanMcpGrantUnshared(db, env, input);
+	pending.set(key, verification);
+	try {
+		return await verification;
+	} finally {
+		pending.delete(key);
+	}
+}
+
+function readGrantState<T>(label: string, read: () => Promise<T>): Promise<T> {
+	return withTransientD1ReadRetry(`mcp_grant.${label}`, read, {
+		delayMs: 150 + Math.floor(Math.random() * 150),
+		timeoutMs: 5000,
+	});
+}
+
+async function verifyHumanMcpGrantUnshared(
 	db: DbClient,
 	env: CloudflareEnv,
 	input: VerifyHumanMcpGrantInput,
@@ -338,9 +389,9 @@ async function verifyHumanMcpGrantStages(
 	mark: (stage: string) => void,
 ): Promise<HumanMcpGrantDecision> {
 	if (!env.DESCOPE_MANAGEMENT_KEY) return deny("provider_unavailable");
-	const resource = await getMcpConsentResource(db, {
-		mcpServerId: input.mcpServerId,
-	});
+	const resource = await readGrantState("resource", () =>
+		getMcpConsentResource(db, { mcpServerId: input.mcpServerId }),
+	);
 	if (
 		!resource ||
 		resource.metadata?.mcpConfig?.descopeResourceId !== input.mcpServerId ||
@@ -361,17 +412,21 @@ async function verifyHumanMcpGrantStages(
 	// Descope is asked. Every result is still judged after the provider checks,
 	// in the same order, and the active grant is re-read before allowing.
 	const ledgerReads = Promise.all([
-		getMcpConsentGrant(db, grantKey),
-		getMcpConsentPending(db, grantKey),
-		getMembershipsByDescopeTenants(
-			db,
-			input.selectedTenantIds,
-			input.descopeUserId,
+		readGrantState("active", () => getMcpConsentGrant(db, grantKey)),
+		readGrantState("pending", () => getMcpConsentPending(db, grantKey)),
+		readGrantState("memberships", () =>
+			getMembershipsByDescopeTenants(
+				db,
+				input.selectedTenantIds,
+				input.descopeUserId,
+			),
 		).then(async (memberships) => ({
 			memberships,
-			gateways: await getOrganizationAggregatorGateways(
-				db,
-				memberships.map((row) => row.organizationId),
+			gateways: await readGrantState("gateways", () =>
+				getOrganizationAggregatorGateways(
+					db,
+					memberships.map((row) => row.organizationId),
+				),
 			),
 		})),
 	]).then(
@@ -552,7 +607,13 @@ async function verifyHumanMcpGrantStages(
 		}
 		// A concurrent request may already have activated this revision, or a
 		// revoke may have won. Only an exact active grant can allow.
-		if (!matchesActive(await getMcpConsentGrant(db, grantKey))) {
+		if (
+			!matchesActive(
+				await readGrantState("finalize", () =>
+					getMcpConsentGrant(db, grantKey),
+				),
+			)
+		) {
 			return deny("selection_replaced");
 		}
 	} catch {
