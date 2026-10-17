@@ -180,7 +180,6 @@ import type { AggregateTediEntry } from "./mcp/aggregate-tedis";
 import { isDirectHomeKernelCall } from "./mcp/caller-identity";
 import { buildAggregateCompletionHandler } from "./mcp/completions";
 import {
-	buildHomeSurfaceTools,
 	removeProjectedKernelConversationLifecycleTools,
 	shouldExposeHomeSurface,
 } from "./mcp/home-surface";
@@ -3370,6 +3369,7 @@ export async function handleMcpRequest(
 			...cachedData,
 			tools: removeProjectedKernelConversationLifecycleTools(cachedData.tools),
 		};
+		const { buildHomeSurfaceTools } = await import("./mcp/home-surface-tools");
 		const homeSurfaceTools = buildHomeSurfaceTools();
 		if (homeSurfaceTools.length > 0) {
 			cachedData = {

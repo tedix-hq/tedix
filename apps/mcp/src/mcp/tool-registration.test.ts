@@ -6,7 +6,7 @@ import {
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
 import { enforceMcpAccess } from "../index";
-import { buildHomeSurfaceTools } from "./home-surface";
+import { buildHomeSurfaceTools } from "./home-surface-tools";
 import type { AppTool, ServerContext } from "./server-context";
 import {
 	enforceNativeToolScopeGate,

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
+import { buildHomeSurfaceTools } from "./home-surface-tools";
 import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import {
-	buildHomeSurfaceTools,
 	homeQueuedAckText,
 	removeProjectedKernelConversationLifecycleTools,
 	shouldExposeHomeSurface,

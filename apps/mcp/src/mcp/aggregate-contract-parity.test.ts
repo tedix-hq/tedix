@@ -1,7 +1,7 @@
 import { resolveContractEndpoint } from "@tedix/api-contract/utils/contract-routers";
 import { describe, expect, it } from "vite-plus/test";
 import { buildAggregateTediTools } from "./aggregate-tedis";
-import { buildHomeSurfaceTools } from "./home-surface";
+import { buildHomeSurfaceTools } from "./home-surface-tools";
 
 // API's contract-parity test separately proves every resolved contract is served.
 describe("native MCP RPC endpoint parity", () => {

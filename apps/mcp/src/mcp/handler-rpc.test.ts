@@ -4,7 +4,7 @@ import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schema
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ZodType } from "zod";
 import { buildAggregateTediTools } from "./aggregate-tedis";
-import { buildHomeSurfaceTools } from "./home-surface";
+import { buildHomeSurfaceTools } from "./home-surface-tools";
 import {
 	resolveInternalTransportTimeout,
 	type ToolExecutionContext,
