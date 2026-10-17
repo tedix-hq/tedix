@@ -8,6 +8,7 @@ import {
 	fixtures,
 	percentiles,
 	phases,
+	runReadbackCode,
 	summarize,
 	unwrap,
 } from "./chat-latency.mjs";
@@ -87,6 +88,50 @@ describe("live chat eval accounting", () => {
 		expect(
 			unwrap({ result: { result: { run: { id: "fictional" } } } }),
 		).toEqual({ run: { id: "fictional" } });
+	});
+	test("projects oversized run metadata before serialization without losing scoring or timing fields", async () => {
+		const runId = '\"); throw new Error("injected"); //';
+		const metadata = {
+			kernelTurnTimings: { totalMs: 120, stages: {} },
+			kernelRoute: { routeKind: "answer_in_home", answer: "102" },
+			kernelWriteExecutedAt: "2026-01-01T00:00:00Z",
+			kernelWriteSettleTimings: { executeMs: 25, retainMs: 10 },
+			kernelWriteReceipt: "checked; revision 1",
+			kernelWriteProposal: { args: { content: "x".repeat(100_000) } },
+			bodyExecutionResult: {
+				summary: "102",
+				usage: { model: "fictional-model" },
+				structuredResult: { content: "x".repeat(100_000) },
+			},
+		};
+		const readback = await new Function(
+			"home",
+			`return (async () => { ${runReadbackCode(runId)} })()`,
+		)({
+			read_home_run: async (input: { runId: string }) => {
+				expect(input.runId).toBe(runId);
+				return {
+					run: {
+						id: runId,
+						status: "completed",
+						completedAt: "2026-01-01T00:00:01Z",
+						metadata,
+					},
+				};
+			},
+		});
+		expect(JSON.stringify(readback).length).toBeLessThan(2000);
+		expect(readback.run).toMatchObject({ id: runId, status: "completed" });
+		expect(readback.run.metadata.kernelRoute).toEqual(metadata.kernelRoute);
+		expect(readback.run.metadata.kernelWriteReceipt).toBe(
+			metadata.kernelWriteReceipt,
+		);
+		expect(readback.run.metadata.bodyExecutionResult.usage).toEqual(
+			metadata.bodyExecutionResult.usage,
+		);
+		expect(phases(readback.run.metadata, readback.run.completedAt)).toEqual(
+			phases(metadata, readback.run.completedAt),
+		);
 	});
 	test("an edit must preserve expected content and advance the same output", () => {
 		const fixture = { kind: "document", contains: ["Welcome", "Fresh bread"] };
