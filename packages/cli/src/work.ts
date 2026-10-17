@@ -76,6 +76,7 @@ import {
 import type { NativeBootstrapCache } from "./native-bootstrap-cache";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import {
+	cleanupAttemptWorktrees,
 	provisionAttemptWorktree,
 	type WorktreeRequest,
 } from "./worktree-adapter";
@@ -198,6 +199,7 @@ export interface WorkContext {
 	/** Resolved credential source (`stored-login:*`, `external-agent:*`, ...). */
 	authSource?: string;
 	attemptStore: WorkAttemptStore;
+	cleanupWorktrees?: typeof cleanupAttemptWorktrees;
 	provisionWorktree?: (request: WorktreeRequest) => {
 		path: string;
 		branch: string;
@@ -2157,8 +2159,50 @@ async function workSettle(ctx: WorkContext, id: string): Promise<number> {
 		);
 	}
 	ctx.attemptStore.remove(workAttemptKey(ctx, id), attemptId);
-	return ok(ctx, call.value, () =>
-		console.log(`${green("Settled", ctx.color)} ${id} (${outcome}).`),
+	return terminalWorkResult(
+		ctx,
+		id,
+		call.value,
+		`Settled ${id} (${outcome}).`,
+		attemptId,
+	);
+}
+
+function terminalWorkResult(
+	ctx: WorkContext,
+	id: string,
+	value: unknown,
+	message: string,
+	attemptId?: string,
+): number {
+	const session = resolveAgentSession(ctx.work.session);
+	let cleanup: ReturnType<typeof cleanupAttemptWorktrees> = [];
+	if (session && !session.derived) {
+		try {
+			cleanup = (ctx.cleanupWorktrees ?? cleanupAttemptWorktrees)({
+				workItemId: id,
+				agentSession: session.session,
+				...(attemptId ? { attemptId } : {}),
+			});
+		} catch (error) {
+			cleanup = [
+				{ path: process.cwd(), removed: false, reason: errorText(error) },
+			];
+		}
+	}
+	return ok(
+		ctx,
+		cleanup.length && isRecord(value)
+			? { ...value, localWorktreeCleanup: cleanup }
+			: value,
+		() => {
+			console.log(message);
+			for (const result of cleanup) {
+				console.log(
+					`${result.removed ? "Removed" : "Kept"} ${result.path}${result.reason ? `: ${result.reason}` : ""}`,
+				);
+			}
+		},
 	);
 }
 
@@ -2234,9 +2278,7 @@ async function workComplete(ctx: WorkContext, id: string): Promise<number> {
 			call.error,
 			`Could not complete ${id}: ${call.error.message}${ownerActionHint(ctx, call.error)}`,
 		);
-	return ok(ctx, call.value, () =>
-		console.log(`${green("Completed", ctx.color)} ${id}.`),
-	);
+	return terminalWorkResult(ctx, id, call.value, `Completed ${id}.`);
 }
 
 async function workTrailers(ctx: WorkContext, id: string): Promise<number> {
@@ -2906,7 +2948,7 @@ Lifecycle:
               [--project <id>]
   accept <id> --done-when "<what done looks like>"
   readiness <id>
-  start <id> [--worktree [--worktree-root <outside-repo-path>]]
+  start <id> [--worktree [--worktree-root <path>]]
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
   heartbeat <id> [--watch [seconds]]
   settle <id> --outcome succeeded|failed|cancelled|expired [--note <summary>]
@@ -3613,9 +3655,7 @@ async function workCancel(ctx: WorkContext, id: string): Promise<number> {
 			call.error,
 			`Could not cancel ${id}: ${call.error.message}`,
 		);
-	return ok(ctx, call.value, () =>
-		console.log(`${green("Cancelled", ctx.color)} ${id}.`),
-	);
+	return terminalWorkResult(ctx, id, call.value, `Cancelled ${id}.`);
 }
 
 const VERBS: Record<string, VerbHandler> = {
