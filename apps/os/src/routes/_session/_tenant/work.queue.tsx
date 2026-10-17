@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
 	WorkQueuePage,
 	WorkCompletedPage,
-	workQueueSearch,
 } from "@/components/work-factory-pages";
+import { workQueueSearch } from "@/lib/work-route-search";
 import { prefetchWorkQueueRoute } from "@/lib/os-route-loaders";
 import { workItemListQueryOptions } from "@/lib/os-query-options";
 import { ListPending } from "@/routes/-pending";

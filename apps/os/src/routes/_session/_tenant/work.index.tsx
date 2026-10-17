@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { workQueueSearch } from "@/components/work-factory-pages";
+import { workQueueSearch } from "@/lib/work-route-search";
 
 /** Work opens on Needs you; old queue links (`/work?disposition=…`) keep working. */
 export const Route = createFileRoute("/_session/_tenant/work/")({

@@ -15,6 +15,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { workInteractionsSearch } from "@/lib/work-route-search";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -99,7 +100,7 @@ async function mount(element: ReactNode) {
 	const route = createRoute({
 		getParentRoute: () => rootRoute,
 		path: "/work/interactions",
-		validateSearch: pages.workInteractionsSearch,
+		validateSearch: workInteractionsSearch,
 		component: () => element,
 	});
 	const router = createRouter({

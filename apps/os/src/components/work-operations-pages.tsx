@@ -1,3 +1,4 @@
+import { workInteractionsSearch } from "@/lib/work-route-search";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@tanstack/react-form";
@@ -101,28 +102,6 @@ import {
 } from "@/lib/os-query-options";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { workPrincipalLabel } from "@/lib/work-display";
-
-export function workCapacitySearch(search: Record<string, unknown>) {
-	const resourceKey =
-		typeof search.resourceKey === "string" &&
-		search.resourceKey.length > 0 &&
-		search.resourceKey.length <= 300
-			? search.resourceKey
-			: undefined;
-	const explicit =
-		search.saturated === true || search.saturated === "true"
-			? true
-			: search.saturated === false || search.saturated === "false"
-				? false
-				: undefined;
-	return {
-		resourceKey,
-		saturated: explicit ?? !resourceKey,
-		view:
-			search.view === "budgets" ? ("budgets" as const) : ("resources" as const),
-		exhausted: search.exhausted === true || search.exhausted === "true",
-	};
-}
 
 export function ResourcePressureLinks({
 	resourceKeys,
@@ -1431,19 +1410,6 @@ const interactionRequestSchema = z.object({
 	targetType: z.enum(["user", "tedi", "external_agent"]),
 	targetId: z.string().trim().min(1, "Enter a target principal id."),
 });
-
-export function workInteractionsSearch(search: Record<string, unknown>): {
-	view: "inbox" | "outbox" | "audit";
-	state: "open" | "all";
-} {
-	return {
-		view:
-			search.view === "outbox" || search.view === "audit"
-				? search.view
-				: ("inbox" as const),
-		state: search.state === "open" ? ("open" as const) : ("all" as const),
-	};
-}
 
 const URGENT_LABEL_TEXT: Record<string, string> = {
 	blocker_or_failure: "Blocked",

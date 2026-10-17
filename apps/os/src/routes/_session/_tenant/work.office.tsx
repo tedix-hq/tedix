@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { startOfToday, WorkOfficePage } from "@/components/work-office-page";
+import { WorkOfficePage } from "@/components/work-office-page";
+import { startOfToday } from "@/lib/time";
 import {
 	notebookLessonsQueryOptions,
 	replyDraftAcceptanceQueryOptions,

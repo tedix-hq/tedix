@@ -859,12 +859,6 @@ export function WorkItemsTable({
 	);
 }
 
-export function workQueueSearch(search: Record<string, unknown>): {
-	disposition?: "completed";
-} {
-	return search.disposition === "completed" ? { disposition: "completed" } : {};
-}
-
 export function WorkCompletedPage() {
 	const [offset, setOffset] = useState(0);
 	const query = useQuery(
@@ -2019,12 +2013,6 @@ export function WorkAttemptsLedger({
 			</Table>
 		</>
 	);
-}
-
-export function workActivitySearch(search: Record<string, unknown>): {
-	view: WorkActivityView;
-} {
-	return { view: search.view === "history" ? "history" : "active" };
 }
 
 export function WorkAttemptsPage({

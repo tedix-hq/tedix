@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-	WorkAttemptsPage,
-	workActivitySearch,
-} from "@/components/work-factory-pages";
+import { WorkAttemptsPage } from "@/components/work-factory-pages";
+import { workActivitySearch } from "@/lib/work-route-search";
 import { workAttemptProjectionQueryOptions } from "@/lib/os-query-options";
 import { ListPending } from "@/routes/-pending";
 

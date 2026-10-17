@@ -1,5 +1,5 @@
-import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vite-plus/test";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	activeOutputLibraryQueryOptions,
 	artifactReleaseTargetQueryOptions,
@@ -8,6 +8,7 @@ import {
 	appToolsListQueryOptions,
 	blueprintListQueryOptions,
 	osQuery,
+	workPendingApprovalsQueryOptions,
 	osQueryKeys,
 	osSharesQueryOptions,
 	outputDetailQueryOptions,
@@ -238,5 +239,29 @@ describe("canonical OS Query definitions", () => {
 
 		expect(queryClient.getQueryState(first)?.isInvalidated).toBe(true);
 		expect(queryClient.getQueryState(next)?.isInvalidated).toBe(true);
+	});
+});
+
+describe("shared approval reads", () => {
+	it("does not repeat a failed prefetch when the sidebar and page mount", async () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: 2 } },
+		});
+		const queryFn = vi.fn().mockRejectedValue(new Error("Unavailable"));
+		const options = { ...workPendingApprovalsQueryOptions(), queryFn };
+		await expect(client.fetchQuery(options)).rejects.toThrow("Unavailable");
+		const sidebar = new QueryObserver(client, options);
+		const page = new QueryObserver(client, options);
+		const unsubscribeSidebar = sidebar.subscribe(() => {});
+		const unsubscribePage = page.subscribe(() => {});
+		await Promise.resolve();
+		expect(queryFn).toHaveBeenCalledTimes(1);
+		// Explicit refresh and realtime invalidation must still recover the read.
+		queryFn.mockResolvedValue({ data: [] });
+		await client.invalidateQueries({ queryKey: options.queryKey });
+		expect(queryFn).toHaveBeenCalledTimes(2);
+		unsubscribeSidebar();
+		unsubscribePage();
+		client.clear();
 	});
 });

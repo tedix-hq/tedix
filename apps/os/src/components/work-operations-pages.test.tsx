@@ -32,8 +32,6 @@ import {
 } from "@/lib/os-query-options";
 import {
 	ResourcePressureLinks,
-	workCapacitySearch,
-	workInteractionsSearch,
 	WorkInteractionsRoute,
 	WorkApprovalsPage,
 	BudgetScopeLink,
@@ -49,6 +47,10 @@ import {
 	interactionSubject,
 	groupSessionQuestions,
 } from "./work-operations-pages";
+import {
+	workCapacitySearch,
+	workInteractionsSearch,
+} from "@/lib/work-route-search";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 
 type Paging = ReturnType<typeof useCursorPaging<string>>;

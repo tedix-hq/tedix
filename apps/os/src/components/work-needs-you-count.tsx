@@ -91,10 +91,7 @@ export function isBlockedWorkYouOwn(
  */
 export function useNeedsYouSources() {
 	const interactions = useQuery(workNeedsYouInteractionsQueryOptions());
-	const workApprovals = useQuery({
-		...workPendingApprovalsQueryOptions(),
-		retry: false,
-	});
+	const workApprovals = useQuery(workPendingApprovalsQueryOptions());
 	const runtimeApprovals = useQuery(pendingApprovalsQueryOptions());
 	const factories = useQuery(factoryScoreboardQueryOptions());
 	const readiness = useQuery(workReadinessProjectionQueryOptions());

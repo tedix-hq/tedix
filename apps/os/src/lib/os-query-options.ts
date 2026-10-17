@@ -583,6 +583,10 @@ export const workApprovalsQueryOptions = (cursor?: {
 export const workPendingApprovalsQueryOptions = () =>
 	osQuery.workApprovals.listInbox.queryOptions({
 		input: { limit: 100, statuses: ["pending"] },
+		// Share the no-retry policy with route prefetch; a failed prefetch must
+		// not repeat when both the sidebar and the Needs you page mount.
+		retry: false,
+		retryOnMount: false,
 	});
 
 export type WorkInteractionListView = "inbox" | "outbox" | "audit";

@@ -49,19 +49,17 @@ import {
 	workOfficeKnocksQueryOptions,
 	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
-import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
+import {
+	absoluteTime,
+	normalizeD1Timestamp,
+	relativeTime,
+	startOfToday,
+} from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn } from "@/lib/utils";
 
 /** Knocks whose answer is looked up (one detail read each). */
 const KNOCKS_SHOWN = 12;
-
-/** Local midnight today, as an ISO instant. */
-export function startOfToday(now = new Date()): string {
-	const day = new Date(now);
-	day.setHours(0, 0, 0, 0);
-	return day.toISOString();
-}
 
 function isToday(iso: string | null | undefined, since: string) {
 	if (!iso) return false;
