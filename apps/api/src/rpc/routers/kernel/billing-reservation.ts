@@ -1,3 +1,4 @@
+import { modelInputModality } from "@tedix/api-contract/schemas/data-residency";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 import { createDbClient } from "@tedix/db/client";
 import type { AuthorizeRuntimeInferenceInput } from "@tedix/api-contract/schemas/runtime-entitlements";
@@ -9,6 +10,25 @@ import type { z } from "zod";
 import { resolveBillingSettlementMode } from "../../../lib/billing-settlement-mode";
 import { authorizeRuntimeInference } from "../../../services/runtime-entitlement-admission";
 import type { KernelGatewayContext } from "./gateway-attribution";
+
+const providerCredentials = new WeakMap<
+	KernelGatewayContext,
+	{ apiKey: string; execution: ProviderExecutionIdentity }
+>();
+export function kernelRegionalExecution(context: KernelGatewayContext) {
+	return providerCredentials.get(context)?.execution;
+}
+export function applyKernelProviderCredential(
+	context: KernelGatewayContext,
+	headers: Headers,
+): boolean {
+	const key = providerCredentials.get(context);
+	if (!key) return false;
+	headers.set("api-key", key.apiKey);
+	headers.set("cf-aig-collect-log", "false");
+	headers.set("cf-aig-skip-cache", "true");
+	return true;
+}
 
 /**
  * Canonical policy-denial marker. `billingPolicyDenialCode` in
@@ -130,7 +150,10 @@ export async function reserveKernelBilling(
 			runId: context.runId,
 			traceId: context.sessionKey,
 			idempotencyKey,
-			metadata: { source: context.source ?? "kernel" },
+			metadata: {
+				source: context.source ?? "kernel",
+				residencyModality: modelInputModality(input.body),
+			},
 		},
 	});
 	if (!decision.allowed) {
@@ -139,7 +162,9 @@ export async function reserveKernelBilling(
 		// in apps/tedi-runtime/src/billing-reservation-client.ts. Any other shape
 		// is treated as a retryable transport failure and re-runs admission on
 		// every retry.
-		throw new Error(`${BILLING_POLICY_DENIED_MESSAGE}${decision.code}`);
+		throw new Error(
+			`${BILLING_POLICY_DENIED_MESSAGE}${decision.code}${decision.message ? ` — ${decision.message}` : ""}`,
+		);
 	}
 	AuthorizeRuntimeInferenceResponseSchema.parse(decision);
 	if (
@@ -149,13 +174,19 @@ export async function reserveKernelBilling(
 		throw new Error("Invalid or expired kernel execution admission");
 	}
 	context.executionAttempts?.push({
-		identity: input.execution,
+		identity: decision.providerExecution ?? input.execution,
 		occurredAt: new Date().toISOString(),
 		executionId: decision.executionId,
 	});
-	return {
+	const result = {
 		...context,
 		executionId: decision.executionId,
 		billingReservationId: decision.reservationId ?? undefined,
 	};
+	if (decision.providerApiKey)
+		providerCredentials.set(result, {
+			apiKey: decision.providerApiKey,
+			execution: decision.providerExecution ?? input.execution,
+		});
+	return result;
 }

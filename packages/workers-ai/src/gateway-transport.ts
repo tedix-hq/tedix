@@ -390,3 +390,20 @@ export function resolveAiGatewayTransport(
 					}) as typeof fetch),
 	};
 }
+
+/** Keep the admitted gateway and model while selecting its verified regional resource. */
+export function regionalAzureGatewayUrl(
+	url: string,
+	execution: { provider: string; providerResource: string | null },
+): string {
+	if (execution.provider !== "azure-openai" || !execution.providerResource)
+		return url;
+	const parsed = new URL(url);
+	if (!/\/azure-openai\/[^/]+\//.test(parsed.pathname))
+		throw new Error("Regional Azure routing requires a gateway provider path");
+	parsed.pathname = parsed.pathname.replace(
+		/(\/azure-openai\/)[^/]+\//,
+		`$1${execution.providerResource}/`,
+	);
+	return parsed.href;
+}

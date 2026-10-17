@@ -1,3 +1,4 @@
+import { organizationModelEnv } from "../../services/unrouted-model-egress";
 /**
  * oRPC AEO (Answer Engine Optimization) Router
  *
@@ -108,7 +109,11 @@ export const measureCitationRate = authedOs.measureCitationRate
 		for (const query of queries) {
 			let responseText: string;
 			try {
-				responseText = await queryModel(context.env, modelId, query);
+				responseText = await queryModel(
+					organizationModelEnv(context.env, context.db, requireOrgId(context)),
+					modelId,
+					query,
+				);
 			} catch (error) {
 				throw createError(
 					ErrorCodes.INTERNAL_SERVER_ERROR,

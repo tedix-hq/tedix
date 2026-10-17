@@ -1,3 +1,5 @@
+import { createDbClient } from "@tedix/db/client";
+import { requireUnrestrictedModelEgress } from "../services/unrouted-model-egress";
 import { encodeBase64Audio, transcribeAudioAttachment } from "@tedix/voice/stt";
 import { authenticateKernelEdge } from "./edge-auth";
 import { logKernelVoiceFailure } from "./kernel-voice-log";
@@ -25,6 +27,11 @@ export async function handleKernelVoiceTranscription(
 			{ status: 413 },
 		);
 	try {
+		await requireUnrestrictedModelEgress(
+			createDbClient(env.DB),
+			auth.identity.organizationId,
+			"Speech transcription",
+		);
 		const result = await transcribeAudioAttachment(
 			env as unknown as Parameters<typeof transcribeAudioAttachment>[0],
 			{
@@ -45,6 +52,12 @@ export async function handleKernelVoiceTranscription(
 		logKernelVoiceFailure("voice.transcription_failed", error, {
 			organizationId: auth.identity.organizationId,
 		});
-		return Response.json({ error: "Transcription failed" }, { status: 502 });
+		const residencyFailure =
+			error instanceof Error &&
+			/^(EU_PROVIDER_|RESIDENCY_POLICY_)/.test(error.message);
+		return Response.json(
+			{ error: residencyFailure ? error.message : "Transcription failed" },
+			{ status: residencyFailure ? 403 : 502 },
+		);
 	}
 }

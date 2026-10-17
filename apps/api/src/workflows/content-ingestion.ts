@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "../services/unrouted-model-egress";
 /**
  * ContentIngestionWorkflow - Cloudflare Workflow for ingesting content sources
  *
@@ -390,6 +391,17 @@ export class ContentIngestionWorkflow extends WorkflowEntrypoint<
 						let page: ScrapedPage | null;
 						let browserTelemetry: IngestionBrowserTelemetry | undefined;
 						if (isPdfSource) {
+							const residencyDb = createDbClient(this.env.DB);
+							const owner = await getAppById(residencyDb, appId);
+							if (!owner?.organizationId)
+								throw new Error(
+									"PDF processing requires organization attribution",
+								);
+							await requireUnrestrictedModelEgress(
+								residencyDb,
+								owner.organizationId,
+								"PDF model conversion",
+							);
 							page = await extractPdf(this.env.AI, url);
 						} else {
 							const browserEnv = this.env as CloudflareEnv & {

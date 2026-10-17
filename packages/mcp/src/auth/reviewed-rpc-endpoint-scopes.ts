@@ -10,6 +10,7 @@
  * after this MCP gate.
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
+	"runtimeEntitlements/checkModelEgress": "platform:admin",
 	"workAgentSessions/getAttentionLayout": "mcp:work.read",
 	"workAgentSessions/updateAttentionLayout": "mcp:work.write",
 	"workAgentSessions/visitAttention": "mcp:work.write",
@@ -437,6 +438,10 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"organizations/disableMcpAuthorization": "platform:admin",
 	"organizations/generateSsoSetupLink": "platform:admin",
 	"organizations/get": "platform:admin",
+	"organizations/getDataResidency": "mcp:apps.read",
+	"organizations/setDataResidency": "mcp:apps.write",
+	"organizations/listResidencyProviderCatalog": "platform:admin",
+	"organizations/publishResidencyProviderVersion": "platform:admin",
 	"organizations/getBySlug": "platform:admin",
 	"organizations/getFeatures": "platform:admin",
 	"organizations/getMyOrganization": "platform:admin",

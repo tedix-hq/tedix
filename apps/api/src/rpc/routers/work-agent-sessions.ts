@@ -1,3 +1,4 @@
+import { organizationModelEnv } from "../../services/unrouted-model-egress";
 /**
  * Local agent session status board.
  *
@@ -372,7 +373,9 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 			(input.retryFailed && !result.accepted && !result.retried)
 		)
 			return result;
-		const model = workersAiLedgerModel(context.env);
+		const model = workersAiLedgerModel(
+			organizationModelEnv(context.env, context.db, requireOrgId(context)),
+		);
 		const { enqueueRequestFiling } =
 			await import("../../services/request-filing-queue");
 		model.enqueueFilings = async (owner) => {
@@ -396,7 +399,9 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 					...scope,
 					ownerUserId,
 				},
-				ledgerLessonNoveltyModel(context.env),
+				ledgerLessonNoveltyModel(
+					organizationModelEnv(context.env, context.db, scope.organizationId),
+				),
 			);
 		};
 		context.waitUntil?.(

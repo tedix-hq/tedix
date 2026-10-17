@@ -1,3 +1,7 @@
+vi.mock("@tedix/db/queries/data-residency", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
+	getOrganizationResidencyPolicy: vi.fn().mockResolvedValue(null),
+}));
 /**
  * Agent-turn triage router: urgency scoring over a mocked Clef binding, the
  * never-throw degradation on model error/timeout, and the policy row's

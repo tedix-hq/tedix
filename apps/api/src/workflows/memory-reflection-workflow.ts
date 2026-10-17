@@ -1,3 +1,4 @@
+import { organizationModelEnv } from "../services/unrouted-model-egress";
 /**
  * Memory Reflection Workflow
  *
@@ -535,8 +536,12 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 				try {
 					return await mineLearningFeed(db, {
 						orgId: organizationId,
-						route: clefLessonRouter(this.env),
-						distill: modelLessonDistiller(this.env),
+						route: clefLessonRouter(
+							organizationModelEnv(this.env, db, organizationId),
+						),
+						distill: modelLessonDistiller(
+							organizationModelEnv(this.env, db, organizationId),
+						),
 					});
 				} catch (e) {
 					console.error("[LearningFeed] mine-learning-feed failed:", e);
@@ -821,7 +826,7 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 				if (lines.length === 0) continue;
 
 				const raw = await runDistillModel(
-					this.env,
+					organizationModelEnv(this.env, db, organizationId),
 					buildCapabilityDistillationPrompt({
 						tediName: nameById.get(evidence.tediId) ?? evidence.tediId,
 						passed: evidence.passed,

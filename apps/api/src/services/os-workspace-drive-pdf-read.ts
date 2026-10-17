@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 import { getManagementClient } from "@tedix/auth/client";
 import {
 	fetchConnectionTokenByScopes,
@@ -273,6 +274,11 @@ export async function readWorkspaceDrivePdf(
 			ErrorCodes.BAD_GATEWAY,
 			"PDF text conversion is unavailable",
 		);
+	await requireUnrestrictedModelEgress(
+		context.db,
+		input.resource.organizationId,
+		"PDF model conversion",
+	);
 	const converted = await ai.toMarkdown({
 		name: metadata.name,
 		blob: new Blob([bytes], { type: "application/pdf" }),

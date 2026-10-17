@@ -924,6 +924,10 @@
 		{
 			"name": "20261017211324_oidc_sessions/migration.sql",
 			"sha256": "2513ea467fb44893ea4fbb19aa272deeacf5088f0ecd0c4af101a58d2d37ca73"
+		},
+		{
+			"name": "20261017223106_organization-data-residency/migration.sql",
+			"sha256": "1d280f6ff814dcf26e8efabf517173cc704fd810fd83daa01cf66cc0465866e9"
 		}
 	]
 }

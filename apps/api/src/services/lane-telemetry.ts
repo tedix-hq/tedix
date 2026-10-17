@@ -1,3 +1,4 @@
+import { organizationModelEnv } from "./unrouted-model-egress";
 import type { LaneTelemetryInputSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type { LaneTelemetry } from "@tedix/db/schema/work-agent-sessions";
 import type * as z from "zod";
@@ -56,7 +57,7 @@ export async function enrichLaneTelemetry(
 	}
 	if (!input.finishedAt || !telemetry.finalMessage) return telemetry;
 	const raw = await runDistillModel(
-		context.env,
+		organizationModelEnv(context.env, context.db, owner.organizationId),
 		JSON.stringify({
 			finalMessage: telemetry.finalMessage,
 			corrections: telemetry.corrections,
@@ -102,7 +103,9 @@ export async function enrichLaneTelemetry(
 					sessionKey,
 					sourceAt: input.finishedAt,
 				},
-				ledgerLessonNoveltyModel(context.env),
+				ledgerLessonNoveltyModel(
+					organizationModelEnv(context.env, context.db, owner.organizationId),
+				),
 			);
 		}
 	} catch {

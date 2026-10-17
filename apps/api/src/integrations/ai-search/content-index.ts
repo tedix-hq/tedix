@@ -1,3 +1,5 @@
+import { getAppById } from "@tedix/db/queries/app-records";
+import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 import type { ContentNativeMediaType } from "@tedix/api-contract/contracts/content";
 import type { DbClient } from "@tedix/db/client";
 import {
@@ -200,6 +202,14 @@ export async function indexContentDocument(
 	env: ContentIndexEnv,
 	input: IndexContentDocumentInput,
 ): Promise<{ id: string; objectKey: string; digest: string; itemId: string }> {
+	const app = await getAppById(db, input.appId);
+	if (!app?.organizationId)
+		throw new Error("Model indexing requires organization attribution");
+	await requireUnrestrictedModelEgress(
+		db,
+		app.organizationId,
+		"Content embeddings and OCR",
+	);
 	const canonicalUrl = new URL(input.canonicalUrl).toString();
 	let content: string | Blob;
 	let digestInput: string | ArrayBuffer;

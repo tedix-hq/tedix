@@ -1,3 +1,4 @@
+import { assertModelEgressAllowed } from "./unrouted-model-egress";
 /**
  * Request ledger for a person's own local agent sessions.
  *
@@ -79,6 +80,7 @@ async function reflectWithGateway(
 	prompt: string,
 	surface: string,
 ): Promise<string | null> {
+	await assertModelEgressAllowed(env);
 	const transport = resolveAiGatewayTransport(
 		env,
 		env.AI_GATEWAY_LLM_ID ?? "",

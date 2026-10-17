@@ -764,6 +764,7 @@ export async function runKernelTurnWork(
 	// throw stays the fail-soft null → model-unavailable path.
 	const executionAttempts: KernelExecutionAttempt[] = [];
 	let billingDenialCode: BillingPolicyDenialCode | null = null;
+	let residencyDenialMessage: string | null = null;
 	const kernelResult = await deps
 		.kernel({
 			onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
@@ -843,6 +844,22 @@ export async function runKernelTurnWork(
 		})
 		.catch((e) => {
 			billingDenialCode = billingPolicyDenialCode(e);
+			if (
+				billingDenialCode?.startsWith("eu_") ||
+				billingDenialCode === "residency_policy_unavailable"
+			) {
+				const message = e instanceof Error ? e.message : String(e);
+				residencyDenialMessage =
+					message
+						.split(" — ")
+						.slice(1)
+						.join(" — ")
+						.replace(
+							/^(?:EU_PROVIDER_[A-Z_]+|RESIDENCY_POLICY_UNAVAILABLE): /,
+							"",
+						) ||
+					"An administrator must configure a verified EU model provider and its credential for this organization.";
+			}
 			if (billingDenialCode) {
 				console.warn({
 					component: "kernel.turn_work",
@@ -1292,7 +1309,8 @@ export async function runKernelTurnWork(
 		? `Observation only: Kernel selected ${kernelResult?.route?.routeKind ?? "no route"}. No tools, workflows, approvals, writes, Work Items, or delegations were executed.`
 		: modelUnavailable
 			? billingDenialCode
-				? renderKernelBillingBlockedMessage(billingDenialCode)
+				? (residencyDenialMessage ??
+					renderKernelBillingBlockedMessage(billingDenialCode))
 				: KERNEL_MODEL_UNAVAILABLE_MESSAGE
 			: writeProposalActive && writeProposal && writeApprovalRequestId
 				? writeWillAutoResolve
@@ -1442,7 +1460,9 @@ export async function runKernelTurnWork(
 			? billingDenialCode
 				? {
 						kind: "policy" as const,
-						message: `Runtime inference blocked by billing policy (${billingDenialCode})`,
+						message:
+							residencyDenialMessage ??
+							`Runtime inference blocked by billing policy (${billingDenialCode})`,
 						retryable: false,
 					}
 				: {
@@ -1752,7 +1772,8 @@ export async function runKernelTurnWork(
 			childRunId: autoChildRunId,
 			error: modelUnavailable
 				? billingDenialCode
-					? `Billing policy denied inference (${billingDenialCode})`
+					? (residencyDenialMessage ??
+						`Billing policy denied inference (${billingDenialCode})`)
 					: "Model unavailable"
 				: null,
 			delegationError: autoDispatch?.error ?? null,

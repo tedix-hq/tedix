@@ -5,6 +5,11 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import {
+	DataResidencyPolicySchema,
+	SetDataResidencyInputSchema,
+	ResidencyProviderSchema,
+} from "../schemas/data-residency";
 import { SURFACE_SLUG_PATTERN } from "@tedix/tenant-directory";
 import * as z from "zod";
 import { baseErrors } from "../errors";
@@ -52,6 +57,30 @@ export const organizationsContract = oc
 	.route({ tags: ["organizations"], prefix: "/organizations" })
 	.errors(baseErrors)
 	.router({
+		getDataResidency: oc
+			.route({
+				summary: "Read this organization's model data residency setting",
+			})
+			.input(z.object({}))
+			.output(DataResidencyPolicySchema),
+		setDataResidency: oc
+			.route({
+				summary: "Set this organization's model data residency requirement",
+			})
+			.input(SetDataResidencyInputSchema)
+			.output(DataResidencyPolicySchema),
+		listResidencyProviderCatalog: oc
+			.route({
+				summary: "List operator-verified residency provider catalog entries",
+			})
+			.input(z.strictObject({}))
+			.output(z.array(ResidencyProviderSchema)),
+		publishResidencyProviderVersion: oc
+			.route({
+				summary: "Publish an operator-verified residency provider version",
+			})
+			.input(ResidencyProviderSchema)
+			.output(ResidencyProviderSchema),
 		listMcpAuthorizations: oc
 			.route({ summary: "List your Tedix Connect authorizations" })
 			.input(ListMcpAuthorizationsInputSchema)

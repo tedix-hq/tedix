@@ -1,3 +1,7 @@
+vi.mock("@tedix/db/queries/data-residency", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
+	getOrganizationResidencyPolicy: vi.fn().mockResolvedValue(null),
+}));
 import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";

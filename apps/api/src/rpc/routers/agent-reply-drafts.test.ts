@@ -1,3 +1,7 @@
+vi.mock("@tedix/db/queries/data-residency", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
+	getOrganizationResidencyPolicy: vi.fn().mockResolvedValue(null),
+}));
 /**
  * Tedi-drafted replies on the agent-turn triage router: only the question's
  * target user may request a draft, only the target's configured drafting tedi

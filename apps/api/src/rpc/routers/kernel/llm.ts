@@ -1,3 +1,4 @@
+import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
 import {
 	azureExecutionIdentity,
 	type ProviderExecutionIdentity,
@@ -28,7 +29,11 @@ import {
 	wrapLanguageModel,
 	type LanguageModel,
 } from "ai";
-import { reserveKernelBilling } from "./billing-reservation";
+import {
+	reserveKernelBilling,
+	applyKernelProviderCredential,
+	kernelRegionalExecution,
+} from "./billing-reservation";
 import {
 	type KernelGatewayContext,
 	captureKernelAttemptUsage,
@@ -254,16 +259,21 @@ export function kernelGatewayFetch(
 			headers.delete("api-key");
 			headers.delete("cf-aig-authorization");
 		}
-		// Cloudflare BYOK is authoritative on the authenticated gateway path. The
-		// Remove the SDK placeholder so Gateway can supply the stored provider key.
+		const regionalExecution = kernelRegionalExecution(reservedContext);
+		const providerUrl = regionalExecution
+			? regionalAzureGatewayUrl(rewritten, regionalExecution)
+			: rewritten;
+		if (applyKernelProviderCredential(reservedContext, headers))
+			init = { ...init, redirect: "error" };
+		// Unrestricted requests keep Gateway BYOK; regional requests use the organization key.
 		if (typeof input === "string" || input instanceof URL) {
-			return send(rewritten, {
+			return send(providerUrl, {
 				...init,
 				headers,
 				body,
 			});
 		}
-		return send(new Request(rewritten, input), { ...init, headers, body });
+		return send(new Request(providerUrl, input), { ...init, headers, body });
 	};
 }
 

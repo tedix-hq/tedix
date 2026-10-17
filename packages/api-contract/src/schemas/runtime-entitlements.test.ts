@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { AuthorizeRuntimeInferenceInputSchema } from "./runtime-entitlements";
+import {
+	AuthorizeRuntimeInferenceInputSchema,
+	AuthorizeRuntimeInferenceResponseSchema,
+} from "./runtime-entitlements";
 const request = {
 	organizationId: "org",
 	settlementMode: "external",
@@ -85,4 +88,39 @@ it("requires modern Auto routing on new signed admission and keeps fixed request
 			},
 		}).success,
 	).toBe(true);
+});
+
+it("never admits a regional key without its regional execution identity", () => {
+	const admitted = {
+		allowed: true,
+		settlementMode: "external",
+		attributionVersion: 3,
+		executionId: "11111111-1111-4111-8111-111111111111",
+		sendBefore: "2099-01-01T00:00:00.000Z",
+		reservationId: null,
+		expiresAt: null,
+		estimatedChargeMicros: null,
+	};
+	expect(
+		AuthorizeRuntimeInferenceResponseSchema.safeParse(admitted).success,
+	).toBe(true);
+	expect(
+		AuthorizeRuntimeInferenceResponseSchema.safeParse({
+			...admitted,
+			providerApiKey: "fictional-regional-key",
+		}).success,
+	).toBe(false);
+	expect(
+		AuthorizeRuntimeInferenceResponseSchema.safeParse({
+			...admitted,
+			providerExecution: request.execution,
+		}).success,
+	).toBe(false);
+	expect(
+		AuthorizeRuntimeInferenceResponseSchema.safeParse({
+			...admitted,
+			providerExecution: request.execution,
+			providerApiKey: "fictional-regional-key",
+		}).success,
+	).toBe(false);
 });
