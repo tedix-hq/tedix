@@ -15,6 +15,7 @@ export type KernelRequestState = z.infer<typeof KernelRequestStateSchema>;
 const identity = z.string().trim().min(1).max(300);
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 export const KernelAcceptanceCheckSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("home_response") }).strict(),
 	z
 		.object({
 			kind: z.literal("os_output_revision"),

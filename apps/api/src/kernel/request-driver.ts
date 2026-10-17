@@ -129,6 +129,9 @@ export async function driveKernelRequest(
 		const timeout = () =>
 			Math.max(1, Math.min(policy.probeTimeoutMs, deadline - Date.now()));
 		const timed: KernelAcceptanceReader = {
+			readHomeResponse: reader.readHomeResponse
+				? () => withDeadline(() => reader.readHomeResponse!(), timeout())
+				: undefined,
 			readOutputRevision: (check) =>
 				withDeadline(() => reader.readOutputRevision(check), timeout()),
 			readRepositoryDelivery: (check) =>

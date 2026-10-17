@@ -93,7 +93,7 @@ export async function captureHomeKernelRequest(
 	return row?.id;
 }
 
-/** No authority is copied from the request: every execution link is read from canonical Work. */
+/** Execution links come from canonical Work or the admitted Home submission. */
 export async function reconcileHomeKernelRequest(
 	context: BaseContext,
 	initial: KernelRequestRow,
@@ -113,7 +113,17 @@ export async function reconcileHomeKernelRequest(
 	if (!run) return row;
 	const workItemId =
 		run.metadata?.workItemId ?? run.runtimeMetadata?.workItemId;
-	if (typeof workItemId !== "string") return row;
+	if (typeof workItemId !== "string") {
+		// Delegations must retain their canonical Work ownership, including while
+		// dispatch is still establishing its link. Native answers use Home's ledger.
+		if (run.delegatedTediId || run.childRunId || row.snapshot.workItemId)
+			return row;
+		return (await import("./request-home-native")).reconcileNativeHomeRequest(
+			context,
+			row,
+			policy,
+		);
+	}
 	const work = await getWorkItemById(
 		context.db,
 		workItemId,
