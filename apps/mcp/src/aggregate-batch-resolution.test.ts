@@ -937,3 +937,134 @@ describe("aggregate entries link by stable app id", () => {
 		expect(new Set([bySlug, byId, otherHost]).size).toBe(3);
 	});
 });
+
+describe("nested durable aggregate snapshots", () => {
+	it("keeps a cold-isolate Connect rebuild under one second after warm-up and honors schema epochs", async () => {
+		vi.useFakeTimers();
+		const snapshots = new Map<string, Response>();
+		vi.stubGlobal("caches", {
+			default: {
+				match: vi.fn(async (request: Request) =>
+					snapshots.get(request.url)?.clone(),
+				),
+				put: vi.fn(async (request: Request, response: Response) => {
+					snapshots.set(request.url, response.clone());
+				}),
+			},
+		});
+		let epoch = "schema-1";
+		const env = createEnv();
+		env.AGGREGATE_EPOCH_KV = {
+			get: vi.fn(async () => epoch),
+		} as unknown as KVNamespace;
+		installFixtures([
+			{ slug: "alpha", mcpConfig: { aggregateApps: [{ slug: "beta" }] } },
+			{ slug: "beta", tools: [tool("list_records")] },
+		]);
+		const upstream = getBySlugsWithTools.getMockImplementation()!;
+		getBySlugsWithTools.mockImplementation(
+			async (input: { apps: Array<{ slug: string }> }) => {
+				if (input.apps.some((app) => app.slug === "beta")) {
+					await new Promise((resolve) => setTimeout(resolve, 9000));
+				}
+				return upstream(input);
+			},
+		);
+		const entries = [{ slug: "alpha", prefix: "mount" }];
+		const ctx = createExecutionContext();
+		try {
+			const first = aggregateAndPrefixTools(
+				entries,
+				env,
+				new Set(),
+				ctx,
+				"connect",
+				undefined,
+				false,
+			);
+			await vi.runAllTimersAsync();
+			expect((await first).tools).toHaveLength(1);
+			// The combined consent surface stays transient; only its nested source
+			// snapshot may survive an isolate. No second graph is retained in L1.
+			expect(snapshots.size).toBe(1);
+
+			vi.resetModules();
+			const fresh = await import("./aggregate-surface");
+			getBySlugsWithTools.mockClear();
+			const started = Date.now();
+			const second = fresh.aggregateAndPrefixTools(
+				entries,
+				env,
+				new Set(),
+				ctx,
+				"connect",
+				undefined,
+				false,
+			);
+			await vi.runAllTimersAsync();
+			expect((await second).tools).toHaveLength(1);
+			expect(Date.now() - started).toBeLessThan(1000);
+			expect(
+				getBySlugsWithTools.mock.calls.flatMap(([input]) =>
+					input.apps.map((app: { slug: string }) => app.slug),
+				),
+			).toEqual(["alpha"]);
+
+			const cycle = fresh.aggregateAndPrefixTools(
+				[{ slug: "beta", prefix: "mount" }],
+				env,
+				new Set(["beta", "app-beta"]),
+			);
+			await vi.runAllTimersAsync();
+			expect((await cycle).tools).toHaveLength(0);
+
+			vi.setSystemTime(Date.now() + 120_001);
+			const stale = fresh.aggregateAndPrefixTools(
+				entries,
+				env,
+				new Set(),
+				ctx,
+				"connect",
+				undefined,
+				false,
+			);
+			await vi.advanceTimersByTimeAsync(100);
+			expect((await stale).tools).toHaveLength(1);
+			await vi.runAllTimersAsync();
+			expect(ctx.waitUntil).toHaveBeenCalled();
+
+			epoch = "schema-2";
+			const changed = fresh.aggregateAndPrefixTools(
+				entries,
+				env,
+				new Set(),
+				ctx,
+				"connect",
+				undefined,
+				false,
+			);
+			await vi.runAllTimersAsync();
+			expect((await changed).tools).toHaveLength(1);
+			expect(
+				getBySlugsWithTools.mock.calls.flatMap(([input]) =>
+					input.apps.map((app: { slug: string }) => app.slug),
+				),
+			).toContain("beta");
+		} finally {
+			vi.unstubAllGlobals();
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe("aggregate snapshot context", () => {
+	it("separates organization mounts and legacy namespace projections", () => {
+		const entry = { slug: "alpha", prefix: "mount" };
+		const keys = [
+			aggregateSurfaceCacheKey([entry]),
+			aggregateSurfaceCacheKey([{ ...entry, organizationMount: true }]),
+			aggregateSurfaceCacheKey([{ ...entry, legacyNamespace: "legacy" }]),
+		];
+		expect(new Set(keys).size).toBe(3);
+	});
+});
