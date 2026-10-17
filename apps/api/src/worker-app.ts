@@ -649,6 +649,17 @@ app.get("/docs", (c) => {
 // Health check. Mirrors the eager handler in index.ts, including deployedSha —
 // the two must not disagree about which release is live.
 // authz: public — liveness and deployed-sha provenance only; no tenant state.
+app.use(
+	"/auth/oidc/*",
+	rateLimit((env) => env.API_RATE_LIMITER, byIp, { limit: 100 }),
+);
+
+// authz: public — OIDC protocol routes validate state, provider signatures and active membership.
+app.all("/auth/oidc/:verb", async (c) => {
+	const { handleOidcLogin } = await import("./oidc-login");
+	return handleOidcLogin(c.req.raw, createContext(c.req.raw, c.env));
+});
+
 app.get("/health", (c) =>
 	c.json({
 		status: "ok",

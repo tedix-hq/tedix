@@ -42,6 +42,7 @@ export const osTenantContract = oc
 			.output(
 				z.object({
 					provisioned: z.boolean(),
+					identityProvider: z.literal("oidc").optional(),
 					organizationId: z
 						.string()
 						.nullable()

@@ -1598,6 +1598,31 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 	.handler(async ({ context }) => {
 		const { db, user } = context as BaseContext & { user?: JWTPayload };
 
+		if (context.oidcScopes !== undefined) {
+			if (!context.organizationId || !context.userId)
+				throw createError(ErrorCodes.FORBIDDEN, "OIDC organization required");
+			const organization = await getOrganizationById(
+				db,
+				context.organizationId,
+			);
+			const member = await getMemberByCanonicalUserId(
+				db,
+				context.organizationId,
+				context.userId,
+			);
+			if (!organization || member?.status !== "active")
+				throw createError(ErrorCodes.FORBIDDEN, "Active membership required");
+			return {
+				organization: mapOrgToContract(organization),
+				member: {
+					...member,
+					role: normalizeMemberRole(member.role),
+					customPermissions: filterGrantableOverrides(member.customPermissions),
+				},
+				created: { organization: false, member: false },
+			};
+		}
+
 		// Require user JWT with Descope claims
 		if (!user?.sub) {
 			throw createError(

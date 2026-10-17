@@ -54,6 +54,23 @@ import {
 } from "@tedix/auth/session-broker";
 ```
 
+## Optional browser OIDC (experimental)
+
+An installation can select a public OIDC client in an organization's
+`metadata.identityProvider` row, validated by
+`@tedix/api-contract/schemas/oidc-identity`. The default remains Descope.
+The API's `/auth/oidc/start`, `callback`, `session` and `logout` endpoints use
+code + PKCE, issuer/audience/nonce verification, explicit `principal_identities`
+bindings (`provider: "oidc"`) and active canonical membership. OS forwards the
+host-only `__Host-tedix-oidc` cookie; the API rechecks membership and config on
+each request. Provider scopes map to explicit API scopes and never replace
+Tedix roles. There is no email-based account linking or automatic provisioning.
+
+This browser spike does not implement agent MCP OAuth/CIMD, step-up, provider
+consent journeys, refresh-token rotation, back-channel logout or collaboration
+and embedded-gateway session adapters. Production activation remains separate
+installation work; no organization row selects OIDC by default.
+
 ## JWT Validation
 
 ```typescript

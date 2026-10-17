@@ -959,6 +959,7 @@ export function hasRequiredScope(
 		| "serviceAccount"
 		| "serviceBindingAuthorization"
 		| "tediScopes"
+		| "oidcScopes"
 	>,
 	requiredScope: string,
 ): boolean {
@@ -974,7 +975,10 @@ export function hasRequiredScope(
 	}
 
 	if (context.authType === "user") {
-		return true;
+		return (
+			context.oidcScopes === undefined ||
+			context.oidcScopes.includes(requiredScope)
+		);
 	}
 
 	if (context.authType === "apikey") {
@@ -1142,6 +1146,8 @@ export function withAuthorization(
 	}
 	return base.middleware(async ({ context, next }) => {
 		if (context.authType === "user") {
+			if (context.oidcScopes && !context.oidcScopes.includes(requiredScope))
+				throw createError(ErrorCodes.FORBIDDEN, "OIDC scope required");
 			if (handlerOwnedUserAuthorization) {
 				return next({ context });
 			}
@@ -1543,6 +1549,36 @@ async function authenticateUserJwt(
 	context: BaseContext,
 	tokenOverride?: string,
 ): Promise<void> {
+	const { OIDC_SESSION_COOKIE } = await import("@tedix/auth/oidc-cookies");
+	const { resolveProductSession } =
+		await import("@tedix/auth/product-session-broker");
+	const oidcCredential = resolveProductSession(
+		context.headers.get("Cookie"),
+		OIDC_SESSION_COOKIE,
+	);
+	if (oidcCredential && !tokenOverride) {
+		const { resolveOidcUser } = await import("../oidc-login");
+		const result = await resolveOidcUser(context, oidcCredential);
+		context.user = {
+			sub: result.member.userId,
+			email: result.member.email,
+			name: result.member.name ?? undefined,
+			iss: result.config.issuer,
+			exp: result.session.expiresAt,
+			dct: result.session.organizationId,
+			roles: [],
+			permissions: [],
+		};
+		context.authType = "user";
+		context.userId = result.member.userId;
+		context.organizationId = result.session.organizationId;
+		context.userRole = result.member.role;
+		context.userPermissionOverrides = readMemberOverrides({
+			customPermissions: result.member.permissions,
+		});
+		context.oidcScopes = result.scopes;
+		return;
+	}
 	const token =
 		tokenOverride ||
 		extractBearerToken(context.headers.get("Authorization")) ||

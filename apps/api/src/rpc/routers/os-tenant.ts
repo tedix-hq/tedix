@@ -20,6 +20,9 @@ const resolve = service.resolve.handler(async ({ input, context }) => {
 	const provisioned = organization?.features?.os === true;
 	return {
 		provisioned,
+		...(provisioned && organization?.metadata?.identityProvider?.kind === "oidc"
+			? { identityProvider: "oidc" as const }
+			: {}),
 		organizationId: provisioned && organization ? organization.id : null,
 		descopeTenantId:
 			provisioned && organization

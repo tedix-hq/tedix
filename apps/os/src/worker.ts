@@ -309,6 +309,8 @@ async function handleDescopeOutboundConnect(
 
 export interface TenantResolution {
 	provisioned: boolean;
+	organizationId?: string | null;
+	identityProvider?: "oidc";
 	/**
 	 * The host org's Descope tenant id. The proxy asserts it as
 	 * `X-Tedix-Tenant-Id` on every forwarded request so the HOSTNAME decides
@@ -350,6 +352,10 @@ export const resolveTenantViaApi: TenantResolver = async (env, slug) => {
 	);
 	return {
 		provisioned: result.provisioned === true,
+		organizationId: result.organizationId ?? null,
+		...(result.identityProvider
+			? { identityProvider: result.identityProvider }
+			: {}),
 		descopeTenantId: result.descopeTenantId ?? null,
 	};
 };
@@ -883,6 +889,7 @@ export async function handleOsRequest(
 	// tenant.kind === "launcher" (os.tedix.dev) resolves no tenant and falls
 	// through to asset serving below — it is the central login/launcher surface.
 	let hostTenantId: string | null = null;
+	let oidcOrganization = false;
 	if (tenant.kind === "tenant" && env.API_SERVICE) {
 		const resolution = await resolveWithCache(env, tenant.slug, resolver);
 		if (resolution === "unavailable") {
@@ -891,7 +898,10 @@ export async function handleOsRequest(
 		if (!resolution.provisioned) {
 			return refuse(404, "No Tedix OS workspace at this hostname.");
 		}
-		hostTenantId = resolution.descopeTenantId ?? null;
+		oidcOrganization = resolution.identityProvider === "oidc";
+		hostTenantId = oidcOrganization
+			? (resolution.organizationId ?? null)
+			: (resolution.descopeTenantId ?? null);
 		if (!hostTenantId) {
 			return refuse(
 				503,
@@ -951,6 +961,22 @@ export async function handleOsRequest(
 		);
 	}
 
+	if (oidcOrganization && hostTenantId && env.API_SERVICE) {
+		const { handleOidcBroker } = await import("./auth/oidc");
+		const result = await handleOidcBroker(
+			request,
+			env.API_SERVICE,
+			hostTenantId,
+		);
+		if (result) return withSecurityHeaders(result);
+	}
+	// authz: public — OIDC protocol; API validates correlation, signature and active membership.
+	if (url.pathname.startsWith("/auth/oidc/") && env.API_SERVICE) {
+		const { proxyOidcProtocol } = await import("./auth/oidc");
+		return withSecurityHeaders(
+			await proxyOidcProtocol(request, env.API_SERVICE, hostTenantId),
+		);
+	}
 	const brokerResponse = await handleOsSessionBroker(
 		request,
 		env,
@@ -1007,7 +1033,9 @@ export async function handleOsRequest(
 			(url.pathname ===
 				`${cliApi ? "/cli/api" : "/api"}/rpc/organizations/getMyOrganization` ||
 				(!cliApi && url.pathname === "/api/rpc/members/acceptInvitation"));
+		const { hasOidcSession } = await import("./auth/oidc");
 		let authenticated =
+			(!cliApi && hasOidcSession(request) ? request : null) ??
 			withLocalDemoAuthorization(request, env) ??
 			withBrokerApiSession(
 				request,
@@ -1219,6 +1247,9 @@ export async function handleOsRequest(
 		tenant.kind === "tenant" &&
 		hostTenantId &&
 		isDocumentNavigation(request) &&
+		!(await (
+			await import("./auth/oidc")
+		).oidcSessionMatchesTenant(request, env.API_SERVICE, hostTenantId)) &&
 		!productSessionMatchesTenant(
 			resolveProductSession(
 				request.headers.get("cookie"),
@@ -1227,6 +1258,16 @@ export async function handleOsRequest(
 			hostTenantId,
 		)
 	) {
+		if (oidcOrganization)
+			return withSecurityHeaders(
+				Response.redirect(
+					new URL(
+						`/auth/oidc/start?organization=${encodeURIComponent(hostTenantId)}`,
+						url.origin,
+					),
+					302,
+				),
+			);
 		// A failed broker callback deliberately returns to the fixed product
 		// recovery document with an error. Let that one document mount the login
 		// UI; redirecting it immediately would create an unbounded recovery loop.
