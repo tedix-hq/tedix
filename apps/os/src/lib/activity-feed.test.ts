@@ -10,6 +10,7 @@ import {
 	rankFeed,
 	safeSource,
 	decisionFeedItems,
+	sentence,
 } from "./activity-feed";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
@@ -48,6 +49,17 @@ function item(
 	});
 }
 describe("activity feed", () => {
+	it("keeps a multi-sentence receipt to one sentence on the card", () => {
+		expect(
+			sentence("The review finished.\n\nThe receipt includes more detail."),
+		).toBe("The review finished.");
+		expect(
+			sentence(
+				"Open https://supplier.example/receipt for the result. Next step.",
+			),
+		).toBe("Open https://supplier.example/receipt for the result.");
+		expect(sentence("  A short\nupdate  ")).toBe("A short update");
+	});
 	it("retains the deck's exact ADR envelope and class without adding feed approval actions", () => {
 		const envelope = DECISION_DECK_EXAMPLES.find(
 			(card) => card.kind === "adr",

@@ -32,7 +32,12 @@ const reactions: ActivityFeedItem["reactions"] = [
 	"work",
 ];
 export function sentence(text: string) {
-	return text.replace(/\s+/g, " ").trim().slice(0, 1000);
+	const plain = text.replace(/\s+/g, " ").trim();
+	const first = new Intl.Segmenter(undefined, { granularity: "sentence" })
+		.segment(plain)
+		[Symbol.iterator]()
+		.next().value?.segment;
+	return (first ?? plain).trim().slice(0, 1000);
 }
 export function workSource(id: string) {
 	return `/work/items/${id}`;
