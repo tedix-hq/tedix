@@ -1,0 +1,77 @@
+{
+	"baseline": "8dcb2206a582f8d00bf286a7294fedc67fde5256",
+	"measuredSource": "848a87e134aa584c8d07a4716bccfeb81ecd6696",
+	"date": "2026-10-17",
+	"samples": 5,
+	"cpuSlowdown": 4,
+	"latencyMs": 40,
+	"downloadBytesPerSecond": 1250000,
+	"viewport": [1440, 1000],
+	"observationWindowMs": 8000,
+	"results": {
+		"before": {
+			"Workspaces": {
+				"usefulMs": 2941,
+				"samplesMs": [2960, 2941, 2922, 2926, 2942],
+				"jsBytes": 2172770,
+				"gzipBytes": 712679,
+				"apiAttempts": [15, 15, 15, 15, 15]
+			},
+			"Needs you": {
+				"usefulMs": 5973,
+				"samplesMs": [5955, 5987, 5976, 5973, 5957],
+				"jsBytes": 2119363,
+				"gzipBytes": 694620,
+				"apiAttempts": [21, 21, 21, 21, 21]
+			},
+			"Card review": {
+				"usefulMs": 4524,
+				"samplesMs": [4524, 4508, 4504, 4524, 4524],
+				"jsBytes": 3832855,
+				"gzipBytes": 1216849,
+				"apiAttempts": [21, 21, 21, 21, 21]
+			}
+		},
+		"after": {
+			"Workspaces": {
+				"usefulMs": 2891,
+				"samplesMs": [2890, 2889, 2891, 2893, 2892],
+				"jsBytes": 1716487,
+				"gzipBytes": 571745,
+				"apiAttempts": [15, 15, 15, 15, 15]
+			},
+			"Needs you": {
+				"usefulMs": 2908,
+				"samplesMs": [2908, 2908, 2890, 2910, 2947],
+				"jsBytes": 2064623,
+				"gzipBytes": 680440,
+				"apiAttempts": [18, 18, 18, 18, 18]
+			},
+			"Card review": {
+				"usefulMs": 3907,
+				"samplesMs": [3923, 3905, 3906, 3925, 3907],
+				"jsBytes": 2766205,
+				"gzipBytes": 896335,
+				"apiAttempts": [21, 21, 21, 21, 21]
+			}
+		},
+		"live-initial": {
+			"Live sign-in": {
+				"usefulMs": 2595,
+				"samplesMs": [2569, 2654, 2750, 2560, 2595],
+				"jsBytes": 1934807,
+				"gzipBytes": 632042,
+				"apiAttempts": [0, 0, 0, 0, 0]
+			}
+		},
+		"live-recheck": {
+			"Live sign-in": {
+				"usefulMs": 2628,
+				"samplesMs": [2657, 2699, 2534, 2623, 2628],
+				"jsBytes": 1934807,
+				"gzipBytes": 632042,
+				"apiAttempts": [0, 0, 0, 0, 0]
+			}
+		}
+	}
+}
