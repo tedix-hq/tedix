@@ -167,7 +167,7 @@ export const OS_COPY = {
 		deck: "Open decision deck",
 		new: "New since you looked",
 		due: "Time matters",
-		digest: (n: number) => `${n} quieter updates`,
+		digest: (n: number) => `${n} quieter ${n === 1 ? "update" : "updates"}`,
 		digestHint: "Grouped to protect your attention. Open when you have time.",
 		loading: "Loading your activity…",
 		empty: "Nothing here needs your attention right now.",
