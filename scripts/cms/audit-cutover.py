@@ -29,9 +29,30 @@ class Head(HTMLParser):
         self.invalid_json = []
         self.capture = False
         self.script = ''
+        self.in_head = True
+        self.in_title = False
+        self.titles = []
+        self.meta = []
+        self.links = []
+        self.resources = []
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if tag == 'body':
+            self.in_head = False
+        if self.in_head:
+            if tag == 'title':
+                self.in_title = True
+                self.titles.append('')
+            if tag == 'meta':
+                self.meta.append(sorted(a.items()))
+            if tag == 'link':
+                if set(a.get('rel', '').split()) & {'stylesheet', 'preload', 'modulepreload'}:
+                    self.resources.append(dict(tag=tag, attributes=a))
+                else:
+                    self.links.append(sorted(a.items()))
+            if tag == 'script' and a.get('src'):
+                self.resources.append(dict(tag=tag, attributes=a))
         if tag == 'link' and a.get('rel') == 'canonical':
             self.canonical.append(a.get('href'))
         if tag == 'link' and a.get('hreflang'):
@@ -43,10 +64,16 @@ class Head(HTMLParser):
             self.script = ''
 
     def handle_data(self, data):
+        if self.in_title:
+            self.titles[-1] += data
         if self.capture:
             self.script += data
 
     def handle_endtag(self, tag):
+        if tag == 'head':
+            self.in_head = False
+        if tag == 'title':
+            self.in_title = False
         if tag == 'script' and self.capture:
             self.capture = False
             try:
@@ -55,10 +82,36 @@ class Head(HTMLParser):
                 self.invalid_json.append(self.script)
 
     def result(self):
-        return dict(canonical=sorted(self.canonical), hreflang=sorted(self.hreflang),
+        return dict(titles=self.titles, meta=sorted(self.meta), links=sorted(self.links),
+                    canonical=sorted(self.canonical), hreflang=sorted(self.hreflang),
                     robots=sorted(self.robots), structured=sorted(
                         self.structured, key=lambda x: json.dumps(x, sort_keys=True)),
                     invalid_json=self.invalid_json)
+
+
+class BodyText(HTMLParser):
+    """Compare server-rendered text, excluding head and executable markup."""
+    excluded = {'head', 'script', 'style', 'svg', 'template', 'noscript'}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.excluded:
+            self.depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self.excluded:
+            self.depth -= 1
+
+    def handle_data(self, data):
+        if not self.depth and data.strip():
+            self.parts.append(' '.join(data.split()))
+
+    def digest(self):
+        return hashlib.sha256(' '.join(self.parts).encode()).hexdigest()
 
 
 def xml_tree(body):
@@ -141,6 +194,12 @@ def main():
                 head = Head()
                 head.feed(bodies[side].decode(errors='replace'))
                 results[side]['seo'] = head.result()
+                # Compiled asset paths differ between builds; retain their full
+                # inventory separately from semantic head equality.
+                results[side]['head_resources'] = head.resources
+                text = BodyText()
+                text.feed(bodies[side].decode(errors='replace'))
+                results[side]['body_text_sha256'] = text.digest()
         return path, results, bodies
 
     machine = ['/robots.txt', '/sitemap-index.xml', '/sitemap-pages.xml',
@@ -202,13 +261,13 @@ def main():
 
     for path, results in sorted(fetched.items()):
         l, c = results['source'], results['cms']
-        for field in ('status', 'seo'):
+        for field in ('status', 'seo', 'body_text_sha256'):
             if l.get(field) != c.get(field):
                 if field == 'seo' and l['status'] == c['status'] and 'seo' in l and 'seo' in c:
                     for key in sorted(set(l.get(field, {})) | set(c.get(field, {}))):
                         if l.get(field, {}).get(key) != c.get(field, {}).get(key):
                             differences.append(dict(path=path, field=key))
-                elif field == 'status':
+                else:
                     differences.append(dict(path=path, field=field))
         for field in ('location', 'x-robots-tag'):
             if l['headers'].get(field) != c['headers'].get(field):
