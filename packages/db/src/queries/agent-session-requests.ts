@@ -690,3 +690,30 @@ export async function listAgentSessionActivity(
 		.orderBy(desc(agentSessionEvents.sourceAt), desc(agentSessionEvents.id))
 		.limit(Math.min(100, Math.max(1, input.limit ?? 50)));
 }
+
+/** File a private request without changing its status or completion evidence. */
+export async function fileAgentSessionRequest(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & {
+		id: string;
+		projectId: string | null;
+		now: string;
+		onlyIfUnfiled?: boolean;
+	},
+): Promise<AgentSessionRequestRow | null> {
+	const [row] = await db
+		.update(agentSessionRequests)
+		.set({ projectId: params.projectId, updatedAt: params.now })
+		.where(
+			and(
+				eq(agentSessionRequests.organizationId, params.organizationId),
+				eq(agentSessionRequests.userId, params.userId),
+				eq(agentSessionRequests.id, params.id),
+				params.onlyIfUnfiled
+					? isNull(agentSessionRequests.projectId)
+					: undefined,
+			),
+		)
+		.returning();
+	return row ?? null;
+}

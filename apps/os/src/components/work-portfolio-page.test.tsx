@@ -450,11 +450,11 @@ describe("Work landing", () => {
 		throw new Error("beforeLoad did not redirect");
 	}
 
-	it("redirects /work to Needs you", () => {
+	it("redirects /work to Attention", () => {
 		const result = thrown({});
 		expect(isRedirect(result)).toBe(true);
 		expect((result as { options: { to: string } }).options.to).toBe(
-			"/work/needs-you",
+			"/work/attention",
 		);
 	});
 

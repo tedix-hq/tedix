@@ -686,6 +686,12 @@ export const workFleetQueryOptions = () =>
 /** Polled every 10s: the board is a glance surface for live local sessions. */
 export const WORK_AGENT_SESSIONS_REFETCH_MS = 10_000;
 
+export const workAttentionQueryOptions = () =>
+	osQuery.workAgentSessions.attention.queryOptions({
+		input: { utcOffsetMinutes: new Date().getTimezoneOffset() },
+		staleTime: 0,
+	});
+
 export const workAgentSessionsQueryOptions = () =>
 	osQuery.workAgentSessions.list.queryOptions({
 		input: {},

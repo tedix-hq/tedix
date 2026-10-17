@@ -123,6 +123,9 @@ function mockServer() {
 	};
 
 	const root: CapnSessionStub = {
+		readAttention: async () => {
+			throw new Error("unused in chat tests");
+		},
 		ping: async () => {},
 		openConversation: (conversationId: string) => {
 			const conversation = conversationFor(conversationId);

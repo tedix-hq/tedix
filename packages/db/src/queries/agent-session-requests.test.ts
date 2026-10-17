@@ -14,6 +14,7 @@ import {
 	listRecentAgentSessionTurns,
 	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
+	fileAgentSessionRequest,
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
 	retryFailedAgentSessionEvents,
@@ -58,6 +59,38 @@ function record(
 }
 
 describe("agent session request ledger", () => {
+	it("files only the owner's request without changing its status or evidence", async () => {
+		const db = fixture();
+		const [row] = await record(db);
+		expect(
+			await fileAgentSessionRequest(db, {
+				organizationId: ORG,
+				userId: OTHER_USER,
+				id: row!.id,
+				projectId: "project-example",
+				now: T1,
+			}),
+		).toBeNull();
+		expect(
+			await fileAgentSessionRequest(db, {
+				organizationId: "other-org",
+				userId: USER,
+				id: row!.id,
+				projectId: "project-example",
+				now: T1,
+			}),
+		).toBeNull();
+		const filed = await fileAgentSessionRequest(db, {
+			organizationId: ORG,
+			userId: USER,
+			id: row!.id,
+			projectId: "project-example",
+			now: T1,
+		});
+		expect(filed?.projectId).toBe("project-example");
+		expect(filed?.status).toBe(row!.status);
+		expect(filed?.evidence).toBe(row!.evidence);
+	});
 	it("records each request once per message", async () => {
 		const db = fixture();
 		expect(await record(db)).toHaveLength(2);

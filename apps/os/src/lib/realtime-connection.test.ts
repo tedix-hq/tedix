@@ -90,6 +90,9 @@ function mockServer() {
 
 	const brokenCallbacks: Array<(error: unknown) => void> = [];
 	const root: CapnSessionStub = {
+		readAttention: async () => {
+			throw new Error("unused in chat tests");
+		},
 		ping: async () => {},
 		openConversation: (conversationId: string) => {
 			openCalls += 1;
@@ -183,6 +186,9 @@ function stallableServer() {
 	};
 
 	const root: CapnSessionStub = {
+		readAttention: async () => {
+			throw new Error("unused in chat tests");
+		},
 		ping: async () => {},
 		openConversation: () =>
 			Object.assign(Promise.resolve(conversation), conversation),

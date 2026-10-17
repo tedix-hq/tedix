@@ -38,6 +38,7 @@ export const AgentSessionRequestSchema = z.strictObject({
 	harness: WorkAgentSessionHarnessSchema,
 	sessionKey: z.string(),
 	repository: z.string().nullable(),
+	projectId: z.uuid().nullable().optional(),
 	kind: AgentSessionRequestKindSchema,
 	text: z.string().describe("The request in plain words."),
 	status: AgentSessionRequestStatusSchema,
@@ -154,6 +155,11 @@ export const UpdateAgentSessionRequestInputSchema = z.strictObject({
 
 export const UpdateAgentSessionRequestResultSchema = z.strictObject({
 	request: AgentSessionRequestSchema,
+});
+
+export const FileAgentSessionRequestInputSchema = z.strictObject({
+	id: z.uuid(),
+	projectId: z.uuid().nullable(),
 });
 
 /** Internal personal resource: no OAuth connection or credential is involved. */

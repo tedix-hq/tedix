@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { listAgentSessionRequests } from "@tedix/db/queries/agent-session-requests";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { projects } from "@tedix/db/schema/projects";
+import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import {
 	agentSessionEvents,
 	agentSessionRequests,
@@ -115,6 +117,8 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(agentSessionRequests));
 	sqlite.exec(schemaDdl(agentSessionEvents));
+	sqlite.exec(schemaDdl(projects));
+	sqlite.exec(schemaDdl(tediObjectives));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -151,6 +155,37 @@ const rows = (db: ReturnType<typeof fixture>) =>
 	});
 
 describe("request ledger observer", () => {
+	it("files semantic matches only against the current organization's project briefs", async () => {
+		const db = fixture();
+		await db.insert(projects).values({
+			id: "project-example",
+			orgId: SCOPE.organizationId,
+			key: "DOCS",
+			name: "Documentation",
+			description: "Installation and onboarding guides",
+			createdAt: T0,
+		});
+		const model: LedgerModel = async (_system, prompt, surface) => {
+			if (surface === "agent-session-project-routing") {
+				const input = JSON.parse(prompt);
+				expect(input.projects.map((p: { id: string }) => p.id)).toEqual([
+					"project-example",
+				]);
+				return JSON.stringify({
+					filings: [
+						{ id: input.requests[0].id, projectId: "project-example" },
+						{ id: input.requests[0].id, projectId: "foreign-project" },
+					],
+				});
+			}
+			return JSON.stringify({
+				requests: [{ kind: "request", text: "Improve the installation guide" }],
+			});
+		};
+		model.routeProjects = true;
+		await observe(db, model, "Improve the installation guide");
+		expect((await rows(db))[0]?.projectId).toBe("project-example");
+	});
 	it("ignores scheduled prompts before calling either model or touching rows", async () => {
 		const db = fixture();
 		const { model, prompts } = scripted(null);

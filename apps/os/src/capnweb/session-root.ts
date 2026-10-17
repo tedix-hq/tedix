@@ -806,6 +806,22 @@ export class CapnChatSession extends RpcTarget implements CapnSessionApi {
 		this.#core = new SessionCore(init);
 	}
 
+	/** Fresh canonical snapshot, with the caller's authority rechecked on every read. */
+	async readAttention(
+		utcOffsetMinutes = 0,
+	): Promise<
+		import("@tedix/api-contract/schemas/work-attention").AttentionResult
+	> {
+		this.#core.ensureLive();
+		this.#core.takeToken();
+		const { AttentionInputSchema } =
+			await import("@tedix/api-contract/schemas/work-attention");
+		return this.#core.call(
+			"workAgentSessions/attention",
+			AttentionInputSchema.parse({ utcOffsetMinutes }),
+		);
+	}
+
 	/** Proves the session and its caller authority still reach this Worker. */
 	async ping(): Promise<void> {
 		this.#core.ensureLive();

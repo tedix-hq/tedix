@@ -147,6 +147,9 @@ function fakeServer() {
 	};
 
 	const root: CapnSessionStub = {
+		readAttention: async () => {
+			throw new Error("unused in chat tests");
+		},
 		ping: async () => {},
 		// The stub is usable before it resolves, like capnweb's RpcPromise.
 		openConversation: () =>

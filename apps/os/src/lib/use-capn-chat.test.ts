@@ -225,6 +225,9 @@ function mockServer(log: CapnEventFrame[] = []) {
 	};
 
 	const root: CapnSessionStub = {
+		readAttention: async () => {
+			throw new Error("unused in chat tests");
+		},
 		ping: async () => {},
 		openConversation: () => pipelinedStub(conversation),
 		onRpcBroken: (callback) => {

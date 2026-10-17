@@ -59,6 +59,7 @@ export const agentSessionRequests = sqliteTable(
 		sessionKey: text("session_key").notNull(),
 		/** Repository name or working folder label, when known. */
 		repository: text("repository"),
+		projectId: text("project_id"),
 		kind: text("kind", { enum: AGENT_SESSION_REQUEST_KIND_VALUES }).notNull(),
 		/** The request in plain words. */
 		text: text("text").notNull(),
