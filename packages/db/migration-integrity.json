@@ -912,6 +912,10 @@
 		{
 			"name": "20261017103247_support_factory/migration.sql",
 			"sha256": "be739da880bb70a3b591b3bc87c26a02f5ecb00fda6d004d8f9fedc672d675e2"
+		},
+		{
+			"name": "20261017144007_kernel_request_ownership/migration.sql",
+			"sha256": "11a93cf0f06951729c0ea8682c0fa6abdf12fe2a342fbf7edc268483be7a1f51"
 		}
 	]
 }

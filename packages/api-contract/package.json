@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/kernel-request": "./src/schemas/kernel-request.ts",
 		"./utils/attention-copy": "./src/utils/attention-copy.ts",
 		"./schemas/repository-observer": "./src/schemas/repository-observer.ts",
 		"./contracts/repository-observer": "./src/contracts/repository-observer.ts",
