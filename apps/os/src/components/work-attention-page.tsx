@@ -107,20 +107,24 @@ export function AttentionBoard({
 						<CardTitle>Nobody is on</CardTitle>
 					</CardHeader>
 					<CardContent className="flex flex-wrap gap-2">
-						{missing.map((p) => (
+						{missing.slice(0, 6).map((p) => (
 							<Badge key={p.id} variant="outline">
 								<Link href={`/work/projects/${p.id}`}>{p.name}</Link>
 							</Badge>
 						))}
-						{data.unattendedObjectives?.map((objective) => (
+						{data.unattendedObjectives?.slice(0, 4).map((objective) => (
 							<Badge key={objective.id} variant="outline">
 								<Link href="/work/portfolio">{objective.title}</Link>
 							</Badge>
 						))}
 						<Text role="label" tone="secondary" className="w-full">
 							Active projects and objectives with no registered lane in 24
-							hours.
+							hours. Showing up to six projects and four objectives.
 						</Text>
+						<Link href="/work/portfolio">
+							Projects without attention: {missing.length} · Objectives:{" "}
+							{data.unattendedObjectives?.length ?? 0}
+						</Link>
 					</CardContent>
 				</Card>
 			</div>
@@ -128,7 +132,11 @@ export function AttentionBoard({
 				{ATTENTION_COLUMNS.map(([key, title]) => {
 					const cards = data.cards.filter((c) => c.column === key);
 					return (
-						<section key={key} aria-label={title} className="min-w-0 space-y-3">
+						<section
+							key={key}
+							aria-label={title}
+							className="max-h-[70vh] min-w-0 space-y-3 overflow-y-auto"
+						>
 							<Text
 								as="h2"
 								role="section"
@@ -165,7 +173,11 @@ export function AttentionBoard({
 					);
 				})}
 			</div>
-			<section aria-label="Unfiled" className="space-y-3">
+			<section
+				id="attention-unfiled"
+				aria-label="Unfiled"
+				className="space-y-3"
+			>
 				<Text as="h2" role="section">
 					Unfiled · {data.unfiled.length}
 				</Text>
@@ -250,6 +262,9 @@ export function WorkAttentionPage() {
 						Where agent attention is going, what needs you, and what is missing.
 					</PageDescription>
 				</PageHeading>
+				<Link href="#attention-unfiled">
+					Unfiled · {query.data?.unfiled.length ?? 0}
+				</Link>
 				<Badge variant={query.isError ? "warning" : "info"}>
 					{query.isError
 						? "Live updates paused"
