@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./utils/attention-copy": "./src/utils/attention-copy.ts",
 		"./schemas/support": "./src/schemas/support.ts",
 		"./contracts/support": "./src/contracts/support.ts",
 		"./utils/support-report": "./src/utils/support-report.ts",

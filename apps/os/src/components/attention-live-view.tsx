@@ -1,3 +1,8 @@
+import {
+	ATTENTION_COPY,
+	attentionCopy,
+	attentionSourceLabel,
+} from "@tedix/api-contract/utils/attention-copy";
 import { useEffect, useState } from "react";
 import {
 	CloudIcon,
@@ -35,6 +40,7 @@ import {
 	ATTENTION_SOURCES,
 	activityDuration,
 	attentionSource,
+	attentionUpdatesSince,
 	attentionStatus,
 	attentionTimestamp,
 	duration,
@@ -45,18 +51,18 @@ import {
 import "./attention-live-view.css";
 
 export const ATTENTION_COLUMNS = [
-	["waiting", "Waiting on you"],
-	["blocked", "Blocked"],
-	["moving", "Moving now"],
-	["backlog", "Backlog"],
-	["done", "Done today"],
+	["waiting", ATTENTION_COPY.waiting],
+	["blocked", ATTENTION_COPY.blockedOrInactive],
+	["moving", ATTENTION_COPY.running],
+	["backlog", ATTENTION_COPY.backlog],
+	["done", ATTENTION_COPY.doneToday],
 ] as const;
 const WIDGET_LABELS = {
-	now: "Now",
-	contributions: "Today's contributions",
-	cards: "Work",
-	gaps: "Needs attention",
-	unfiled: "Unfiled",
+	now: ATTENTION_COPY.now,
+	contributions: ATTENTION_COPY.contributions,
+	cards: ATTENTION_COPY.work,
+	gaps: ATTENTION_COPY.gaps,
+	unfiled: ATTENTION_COPY.unfiled,
 };
 function SourceIcon({ source }: { source: keyof typeof ATTENTION_SOURCES }) {
 	const Icon = source.startsWith("local_")
@@ -106,12 +112,22 @@ function LiveCard({
 				<div className="flex items-center gap-2">
 					<SourceIcon source={source} />
 					<Text role="label" tone="secondary" className="min-w-0 break-words">
-						{card.column === "backlog" ? "Ready for someone" : card.who} ·{" "}
-						{ATTENTION_SOURCES[source].label}
+						{card.column === "backlog"
+							? ATTENTION_COPY.ready
+							: attentionSourceLabel(
+									source,
+									source === "factory" ? card.factoryName : card.tediName,
+								)}
 					</Text>
 					{tracked && (
 						<span
-							aria-label={stale ? "Heartbeat stale" : "Heartbeat received"}
+							aria-label={
+								age === null
+									? ATTENTION_COPY.heartbeatUnknown
+									: stale
+										? ATTENTION_COPY.heartbeatStale
+										: ATTENTION_COPY.heartbeatReceived
+							}
 							className={`ml-auto h-2 w-2 shrink-0 rounded-full ${!stale ? "attention-heartbeat" : ""}`}
 							style={{
 								background: ATTENTION_SOURCES[source].color,
@@ -142,11 +158,6 @@ function LiveCard({
 				<Text key={card.note} className="attention-note" tone="secondary">
 					{card.note}
 				</Text>
-				{stale && source.startsWith("local_") && (
-					<Text role="label" tone="secondary">
-						Local session paused or laptop offline · last reported state above
-					</Text>
-				)}
 			</CardContent>
 		</Card>
 	);
@@ -165,16 +176,16 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 		<Card>
 			<CardHeader>
 				<div className="flex flex-wrap items-center justify-between gap-2">
-					<CardTitle>Now</CardTitle>
+					<CardTitle>{ATTENTION_COPY.now}</CardTitle>
 					<Text role="label" tone="secondary">
-						Last 2 hours · {lanes.length} lanes
+						{attentionCopy("recentLanes", { count: lanes.length })}
 					</Text>
 				</div>
 			</CardHeader>
 			<CardContent>
 				<div
 					className="attention-timeline flex h-12 items-end gap-1 sm:hidden"
-					aria-label="Activity sparkline"
+					aria-label={ATTENTION_COPY.sparkline}
 				>
 					{Array.from({ length: 24 }, (_, i) => {
 						const at = start + i * 300_000;
@@ -196,6 +207,11 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 				</div>
 				<div className="hidden max-h-64 space-y-2 overflow-y-auto sm:block">
 					{lanes.map((c) => {
+						const source = attentionSource(c);
+						const sourceLabel = attentionSourceLabel(
+							source,
+							source === "factory" ? c.factoryName : c.tediName,
+						);
 						const left = Math.max(
 							0,
 							((attentionTimestamp(c.startedAt) - start) / 7_200_000) * 100,
@@ -218,9 +234,9 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 								<Link
 									href={c.href}
 									className="truncate text-xs"
-									title={`${c.who} · ${c.title}`}
+									title={`${sourceLabel} · ${c.title}`}
 								>
-									{c.who} · {c.title}
+									{sourceLabel} · {c.title}
 								</Link>
 								<div className="attention-timeline relative h-5 rounded bg-kumo-control">
 									<div
@@ -238,18 +254,15 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 					})}
 				</div>
 				{!lanes.length && (
-					<Text tone="secondary">
-						No reported activity in the last two hours.
-					</Text>
+					<Text tone="secondary">{ATTENTION_COPY.noRecentActivity}</Text>
 				)}
 				<div className="mt-2 flex justify-between text-xs text-kumo-subtle">
-					<span>2 hours ago</span>
-					<span>1 hour ago</span>
-					<span>Now</span>
+					<span>{ATTENTION_COPY.twoHoursAgo}</span>
+					<span>{ATTENTION_COPY.oneHourAgo}</span>
+					<span>{ATTENTION_COPY.now}</span>
 				</div>
 				<Text role="label" tone="secondary">
-					Bars follow confirmed heartbeats. Cloud work can continue when your
-					laptop closes.
+					{ATTENTION_COPY.timelineHelp}
 				</Text>
 			</CardContent>
 		</Card>
@@ -317,15 +330,7 @@ export function AttentionBoard({
 		(sum, c) => sum + activityDuration(c, now),
 		0,
 	);
-	const since = attentionTimestamp(previousVisitAt || "");
-	const away =
-		Number.isFinite(since) && now - since > 60_000
-			? data.cards.filter(
-					(c) =>
-						attentionTimestamp(c.finishedAt || c.heartbeatAt || c.startedAt) >
-						since,
-				)
-			: [];
+	const away = attentionUpdatesSince(data.cards, previousVisitAt);
 	const gaps = [
 		...data.projects
 			.filter((p) => p.status === "active" && !p.active && !p.recent)
@@ -344,16 +349,15 @@ export function AttentionBoard({
 		contributions: (
 			<Card>
 				<CardHeader>
-					<CardTitle>Today's contributions</CardTitle>
+					<CardTitle>{ATTENTION_COPY.contributions}</CardTitle>
 					<Text role="label" tone="secondary">
-						Share of reported time in this overview · overlapping work counts
-						separately
+						{ATTENTION_COPY.contributionHelp}
 					</Text>
 				</CardHeader>
 				<CardContent className="space-y-3">
 					<div
 						className="flex h-2 overflow-hidden rounded-full bg-kumo-control"
-						aria-label="Activity by source"
+						aria-label={ATTENTION_COPY.activityBySource}
 					>
 						{Object.entries(ATTENTION_SOURCES).map(([key, source]) => {
 							const time = data.cards
@@ -470,24 +474,24 @@ export function AttentionBoard({
 							{!group.length && (
 								<Text tone="secondary">
 									{key === "waiting"
-										? "Nothing needs your reply."
-										: "Nothing here right now."}
+										? ATTENTION_COPY.noReplyNeeded
+										: ATTENTION_COPY.nothingHere}
 								</Text>
 							)}
 						</section>
 					);
 				})}
-				{!cards.length && <Text>No work matches your current focus.</Text>}
+				{!cards.length && <Text>{ATTENTION_COPY.noFocusMatches}</Text>}
 			</div>
 		),
 		gaps: (
 			<Card>
 				<CardHeader>
-					<CardTitle>Needs attention</CardTitle>
+					<CardTitle>{ATTENTION_COPY.gaps}</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-3">
 					<Text as="h3" role="section">
-						Stalled
+						{ATTENTION_COPY.stalled}
 					</Text>
 					{(data.stalls ?? []).slice(0, 10).map((stall) => (
 						<div key={stall.scopeId} className="min-w-0 space-y-1 break-words">
@@ -495,23 +499,27 @@ export function AttentionBoard({
 								{stall.name}: {stall.reason}
 							</Link>
 							<Text role="label" tone="secondary">
-								{stall.cause} · resume requested{" "}
-								{duration(now - attentionTimestamp(stall.requestedAt))} ago
+								{attentionCopy("resumeRequested", {
+									cause: stall.cause,
+									duration: duration(
+										now - attentionTimestamp(stall.requestedAt),
+									),
+								})}
 							</Text>
 						</div>
 					))}
 					{!data.stalls?.length && (
-						<Text tone="secondary">
-							No stalls need your attention. Tedix handles recovery first.
-						</Text>
+						<Text tone="secondary">{ATTENTION_COPY.noStalls}</Text>
 					)}
 					{!!data.cadencePromises?.length && (
 						<Text role="label" tone="secondary">
-							Cadence promises:{" "}
-							{data.cadencePromises.filter((p) => p.status === "kept").length}{" "}
-							kept ·{" "}
-							{data.cadencePromises.filter((p) => p.status === "missed").length}{" "}
-							missed
+							{attentionCopy("schedulePromises", {
+								kept: data.cadencePromises.filter((p) => p.status === "kept")
+									.length,
+								missed: data.cadencePromises.filter(
+									(p) => p.status === "missed",
+								).length,
+							})}
 						</Text>
 					)}
 
@@ -527,10 +535,14 @@ export function AttentionBoard({
 						return (
 							<div key={p.id} className="min-w-0 space-y-1 break-words">
 								<Link href={p.href}>
-									Nobody has touched {p.title}
-									{days === null
-										? " · no activity recorded"
-										: ` for ${days} ${days === 1 ? "day" : "days"}`}
+									{attentionCopy(
+										days === null
+											? "gapUnknown"
+											: days === 1
+												? "gapDay"
+												: "gapDays",
+										{ name: p.title, days: days ?? 0 },
+									)}
 								</Link>
 								<div className="h-1 rounded bg-kumo-control">
 									<div
@@ -544,9 +556,7 @@ export function AttentionBoard({
 						);
 					})}
 					{!gaps.length && (
-						<Text tone="secondary">
-							Every tracked goal has recent attention.
-						</Text>
+						<Text tone="secondary">{ATTENTION_COPY.allGoalsRecent}</Text>
 					)}
 				</CardContent>
 			</Card>
@@ -554,11 +564,11 @@ export function AttentionBoard({
 		unfiled: (
 			<section
 				id="attention-unfiled"
-				aria-label="Unfiled"
+				aria-label={ATTENTION_COPY.unfiled}
 				className="space-y-3"
 			>
 				<Text as="h2" role="section">
-					Unfiled · {data.unfiled.length}
+					{attentionCopy("unfiledCount", { count: data.unfiled.length })}
 				</Text>
 				{data.unfiled.map((row) => (
 					<Card key={row.id} size="sm">
@@ -572,10 +582,10 @@ export function AttentionBoard({
 								}}
 							>
 								<SelectTrigger
-									aria-label={`File to project: ${row.text}`}
+									aria-label={attentionCopy("fileRequest", { text: row.text })}
 									className="w-full sm:w-64"
 								>
-									<SelectValue placeholder="File to project" />
+									<SelectValue placeholder={ATTENTION_COPY.fileToProject} />
 								</SelectTrigger>
 								<SelectContent>
 									{allData.projects
@@ -591,7 +601,7 @@ export function AttentionBoard({
 					</Card>
 				))}
 				{!data.unfiled.length && (
-					<Text tone="secondary">All captured requests are filed.</Text>
+					<Text tone="secondary">{ATTENTION_COPY.allFiled}</Text>
 				)}
 			</section>
 		),
@@ -600,7 +610,7 @@ export function AttentionBoard({
 		<div className="min-w-0 space-y-5" data-attention-live>
 			{data.stalls?.some((s) => s.needsYou) && (
 				<Alert>
-					<AlertTitle>Waiting on your decision</AlertTitle>
+					<AlertTitle>{ATTENTION_COPY.waitingDecision}</AlertTitle>
 					<AlertDescription>
 						{data.stalls
 							.filter((s) => s.needsYou)
@@ -614,11 +624,13 @@ export function AttentionBoard({
 			)}
 			{away.length > 0 && (
 				<Alert>
-					<AlertTitle>While you were away</AlertTitle>
+					<AlertTitle>{ATTENTION_COPY.away}</AlertTitle>
 					<AlertDescription>
-						{away.filter((c) => c.column === "done").length} finished ·{" "}
-						{away.filter((c) => c.column === "waiting").length} waiting on you ·{" "}
-						{away.length} updated since your last visit.
+						{attentionCopy("awaySummary", {
+							done: away.filter((c) => c.column === "done").length,
+							waiting: away.filter((c) => c.column === "waiting").length,
+							updated: away.length,
+						})}
 						<div className="mt-2 flex flex-wrap gap-2">
 							{away.slice(0, 3).map((c) => (
 								<Link key={`${c.source}:${c.id}`} href={c.href}>
@@ -639,7 +651,7 @@ export function AttentionBoard({
 						}}
 					>
 						<Input
-							aria-label="Focus today"
+							aria-label={ATTENTION_COPY.focusToday}
 							placeholder="Focus today…"
 							value={focus}
 							maxLength={500}
@@ -649,7 +661,7 @@ export function AttentionBoard({
 							type="submit"
 							disabled={saving || focus === layout.focusToday}
 						>
-							Set focus
+							{ATTENTION_COPY.setFocus}
 						</Button>
 					</form>
 					<Button
@@ -657,14 +669,14 @@ export function AttentionBoard({
 						aria-expanded={editing}
 						onClick={() => setEditing(!editing)}
 					>
-						Arrange view
+						{ATTENTION_COPY.arrange}
 					</Button>
 				</div>
 			)}
 			{editing && (
 				<Card>
 					<CardContent className="space-y-4 pt-4">
-						<Text role="label">Your view · saved across devices</Text>
+						<Text role="label">{ATTENTION_COPY.savedView}</Text>
 						<Select
 							value={layout.focusProjectId ?? "all"}
 							onValueChange={(v) =>
@@ -672,14 +684,16 @@ export function AttentionBoard({
 							}
 							disabled={saving}
 						>
-							<SelectTrigger aria-label="Focus project">
+							<SelectTrigger aria-label={ATTENTION_COPY.focusProject}>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="all">All projects</SelectItem>
+								<SelectItem value="all">
+									{ATTENTION_COPY.allProjects}
+								</SelectItem>
 								{allData.projects.map((p) => (
 									<SelectItem key={p.id} value={p.id}>
-										Only {p.name}
+										{attentionCopy("onlyProject", { name: p.name })}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -726,7 +740,10 @@ export function AttentionBoard({
 										})
 									}
 								>
-									{layout.hiddenColumns.includes(key) ? "Show" : "Hide"} {title}
+									{layout.hiddenColumns.includes(key)
+										? ATTENTION_COPY.show
+										: ATTENTION_COPY.hide}{" "}
+									{title}
 								</Button>
 							))}
 							<Button
@@ -741,8 +758,8 @@ export function AttentionBoard({
 								}
 							>
 								{layout.density === "compact"
-									? "Comfortable spacing"
-									: "Compact spacing"}
+									? ATTENTION_COPY.comfortable
+									: ATTENTION_COPY.compact}
 							</Button>
 						</div>
 						<div className="flex flex-wrap gap-2">
@@ -773,18 +790,15 @@ export function AttentionBoard({
 								saveLayout?.(DEFAULT_ATTENTION_LAYOUT);
 							}}
 						>
-							Reset view
+							{ATTENTION_COPY.reset}
 						</Button>
 					</CardContent>
 				</Card>
 			)}
 			{data.truncated && (
 				<Alert>
-					<AlertTitle>Showing a bounded overview</AlertTitle>
-					<AlertDescription>
-						Some older activity is outside this view. Counts and contributions
-						describe the records shown.
-					</AlertDescription>
+					<AlertTitle>{ATTENTION_COPY.bounded}</AlertTitle>
+					<AlertDescription>{ATTENTION_COPY.boundedHelp}</AlertDescription>
 				</Alert>
 			)}
 			<div className="attention-widgets flex flex-col gap-5">

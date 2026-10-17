@@ -24,6 +24,7 @@ it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
 						note: "Checking results",
 						href: "/work/items/item",
 						source: "attempt",
+						activitySource: "local_codex",
 					},
 				],
 				projects: [
@@ -46,7 +47,7 @@ it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
 		/>,
 	);
 	for (const label of [
-		"Moving now",
+		"Running",
 		"Blocked",
 		"Done today",
 		"Backlog",
@@ -60,9 +61,54 @@ it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
 	])
 		expect(html).toContain(label);
 	expect(html).toContain('href="/work/items/item"');
-	expect(html).toContain("heartbeat not reported");
+	expect(html).toContain("Heartbeat not reported");
 	expect(html).not.toContain("Nobody is on");
 	expect(html).toContain('href="/work/interactions/decision"');
+});
+
+it("uses factual labels and the viewer's last visit without device explanations", () => {
+	const clock = vi
+		.spyOn(Date, "now")
+		.mockReturnValue(Date.parse("2026-10-17T12:00:00Z"));
+	const data = {
+		cards: [
+			{
+				id: "local",
+				who: "Claude",
+				title: "Review search",
+				projectId: null,
+				column: "moving" as const,
+				startedAt: "2026-10-17T11:00:00Z",
+				heartbeatAt: "2026-10-17T11:48:00Z",
+				note: "Checking results",
+				href: "/work/agents",
+				source: "session" as const,
+				activitySource: "local_codex" as const,
+			},
+		],
+		projects: [],
+		unfiled: [],
+		truncated: false,
+	};
+	try {
+		const render = (previousVisitAt: string | null) =>
+			renderToStaticMarkup(
+				<AttentionBoard
+					data={data}
+					file={() => {}}
+					previousVisitAt={previousVisitAt}
+				/>,
+			);
+		const html = render("2026-10-17T11:40:00Z");
+		expect(html).toContain("Local session (Codex)");
+		expect(html).toContain("Inactive · last seen 12 min ago");
+		expect(html).toContain("While you were away");
+		expect(html).not.toMatch(/\b(laptop|offline|asleep|Lead|Aaron)\b/i);
+		expect(render("2026-10-17T11:55:00Z")).not.toContain("While you were away");
+		expect(render(null)).not.toContain("While you were away");
+	} finally {
+		clock.mockRestore();
+	}
 });
 
 it("keeps a human handoff prominent without treating it as an offline worker", () => {
@@ -78,6 +124,7 @@ it("keeps a human handoff prominent without treating it as an offline worker", (
 						projectId: null,
 						column: "waiting",
 						source: "interaction",
+						activitySource: "local_codex",
 						startedAt: "2026-10-17T10:00:00Z",
 						heartbeatAt: null,
 						note: "The draft is ready",
@@ -91,7 +138,8 @@ it("keeps a human handoff prominent without treating it as an offline worker", (
 		/>,
 	);
 	expect(html).toContain("Confirm the address");
-	expect(html).toContain("waiting on you");
+	expect(html).toContain("Waiting on you");
+	expect(html).not.toContain("Heartbeat not reported");
 	expect(html).not.toContain("opacity-65");
 	expect(html).not.toContain("Heartbeat stale");
 });

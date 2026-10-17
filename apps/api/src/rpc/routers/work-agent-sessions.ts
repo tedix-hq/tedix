@@ -133,6 +133,7 @@ const projectReadOs = authenticatedOs.use(
 export function requireBoardOwner(context: BaseContext): {
 	organizationId: string;
 	userId: string;
+	descopeUserId: string;
 } {
 	if (context.authType !== "user" || !context.user?.sub || !context.userId) {
 		throw createError(
@@ -140,7 +141,11 @@ export function requireBoardOwner(context: BaseContext): {
 			"The agent session board requires an authenticated human user",
 		);
 	}
-	return { organizationId: requireOrgId(context), userId: context.userId };
+	return {
+		organizationId: requireOrgId(context),
+		userId: context.userId,
+		descopeUserId: context.user.sub,
+	};
 }
 
 function sessionOutput(row: WorkAgentSessionRow) {
@@ -516,7 +521,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				context.db,
 				owner.organizationId,
 				new Date(now.getTime() - 86_400_000).toISOString(),
-				context.user!.sub,
+				owner.descopeUserId,
 				owner.userId,
 			),
 			listWorkAgentSessions(context.db, {
@@ -532,7 +537,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			readAttentionFactoryLinks(
 				context.db,
 				owner.organizationId,
-				context.user!.sub!,
+				owner.descopeUserId,
 				new Date(now.getTime() - 86_400_000).toISOString(),
 			),
 			listUnattendedObjectives(
@@ -580,7 +585,10 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			if (link) {
 				card.workspaceId = link.workspaceId;
 				card.factoryName = link.factoryName;
-				if (card.activitySource !== "coordinator")
+				if (
+					card.activitySource === "cloud_tedi" ||
+					card.activitySource === "unknown"
+				)
 					card.activitySource = "factory";
 			}
 		}

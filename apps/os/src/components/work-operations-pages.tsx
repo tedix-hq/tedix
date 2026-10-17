@@ -1459,7 +1459,7 @@ export function answerDeliveryLine(
 			return { text: "Closed (no delivery)", pending: false };
 		case "handed_off":
 			return {
-				text: `Couldn't reach the session — handed to ${delivery.handoffTo ?? "your lead session"}`,
+				text: `Couldn't reach the session — handed to ${delivery.handoffTo ?? "another session"}`,
 				pending: true,
 			};
 	}

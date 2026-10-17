@@ -181,3 +181,57 @@ it("keeps one persistent Waiting on you card for a human handoff", () => {
 		"local_codex",
 	);
 });
+
+it.each([
+	["codex:session", "external_agent", "Claude", "local_codex"],
+	[null, "external_agent", "Codex", "unknown"],
+	[null, "tedi", null, "cloud_tedi"],
+] as const)(
+	"uses registered source metadata for %s / %s",
+	(session, who, name, expected) => {
+		const input = sources();
+		input.attempts = [
+			{
+				id: "attempt",
+				workItemId: "item",
+				title: "Review search",
+				projectId: null,
+				session,
+				who,
+				name,
+				registeredLane: false,
+				state: "running",
+				outcome: null,
+				startedAt: "2026-10-17T11:00:00Z",
+				heartbeatAt: "2026-10-17T11:59:00Z",
+				expiresAt: "2026-10-17T12:05:00Z",
+				finishedAt: null,
+				note: null,
+				runId: null,
+			},
+		];
+		expect(buildAttention(input, [], [], now).cards[0]?.activitySource).toBe(
+			expected,
+		);
+	},
+);
+
+it("does not treat queued work as running or a paused skill as a request for the viewer", () => {
+	const input = sources();
+	input.skills = ["queued", "paused"].map((status) => ({
+		id: status,
+		title: "Review inbox",
+		createdBy: null,
+		who: null,
+		workItemId: null,
+		projectId: null,
+		status,
+		startedAt: "2026-10-17T11:00:00Z",
+		finishedAt: null,
+		heartbeatAt: null,
+		note: null,
+	}));
+	const cards = buildAttention(input, [], [], now).cards;
+	expect(cards.find((card) => card.id === "queued")?.column).toBe("backlog");
+	expect(cards.find((card) => card.id === "paused")?.column).toBe("blocked");
+});

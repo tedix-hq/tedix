@@ -1,3 +1,8 @@
+import {
+	ATTENTION_COPY,
+	attentionCopy,
+	attentionStatusLabel,
+} from "@tedix/api-contract/utils/attention-copy";
 import { normalizeD1Timestamp } from "@/lib/time";
 import type { AttentionResult } from "@tedix/api-contract/schemas/work-attention";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
@@ -10,51 +15,70 @@ export function attentionTimestamp(at: string): number {
 
 export type AttentionCard = AttentionResult["cards"][number];
 export const ATTENTION_SOURCES = {
-	local_claude: { label: "Local Claude", color: "var(--tedix-hue-amber)" },
-	local_codex: { label: "Local Codex", color: "var(--tedix-hue-blue)" },
-	cloud_tedi: { label: "Cloud tedi", color: "var(--tedix-hue-violet)" },
-	factory: { label: "Factory / skill", color: "var(--color-kumo-success)" },
+	local_claude: {
+		label: ATTENTION_COPY.local_claude,
+		color: "var(--tedix-hue-amber)",
+	},
+	local_codex: {
+		label: ATTENTION_COPY.local_codex,
+		color: "var(--tedix-hue-blue)",
+	},
+	cloud_tedi: {
+		label: ATTENTION_COPY.cloud_tedi,
+		color: "var(--tedix-hue-violet)",
+	},
+	factory: {
+		label: ATTENTION_COPY.factory,
+		color: "var(--color-kumo-success)",
+	},
 	coordinator: {
-		label: "Scheduled coordinator",
+		label: ATTENTION_COPY.coordinator,
 		color: "var(--color-kumo-warning)",
 	},
-	unknown: { label: "Other activity", color: "var(--color-kumo-line)" },
+	unknown: {
+		label: ATTENTION_COPY.unknownSource,
+		color: "var(--color-kumo-line)",
+	},
 } as const;
 export function attentionSource(
 	card: AttentionCard,
 ): keyof typeof ATTENTION_SOURCES {
-	return (
-		card.activitySource ??
-		(card.source === "session"
-			? card.who === "Codex"
-				? "local_codex"
-				: "local_claude"
-			: card.source === "skill"
-				? "factory"
-				: card.source === "run"
-					? "cloud_tedi"
-					: "unknown")
-	);
+	return card.activitySource ?? "unknown";
 }
 export function duration(ms: number): string {
-	if (!Number.isFinite(ms)) return "Time unknown";
+	if (!Number.isFinite(ms)) return ATTENTION_COPY.timeUnknown;
 	const seconds = Math.max(0, Math.floor(ms / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-	return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+	if (seconds < 60) return attentionCopy("seconds", { seconds });
+	if (seconds < 3600)
+		return attentionCopy("minutesSeconds", {
+			minutes: Math.floor(seconds / 60),
+			seconds: seconds % 60,
+		});
+	return attentionCopy("hoursMinutes", {
+		hours: Math.floor(seconds / 3600),
+		minutes: Math.floor((seconds % 3600) / 60),
+	});
 }
 export function heartbeatAge(card: AttentionCard, now: number): number | null {
 	const at = attentionTimestamp(card.heartbeatAt ?? "");
 	return Number.isFinite(at) ? Math.max(0, now - at) : null;
 }
 export function attentionStatus(card: AttentionCard, now: number): string {
-	if (card.column === "done") return "finished";
-	if (card.column === "backlog") return "ready to start";
-	if (card.column === "waiting") return "waiting on you";
-	const age = heartbeatAge(card, now);
-	if (age === null) return "heartbeat not reported";
-	if (age >= 300_000) return `no heartbeat for ${Math.floor(age / 60_000)}m`;
-	return card.column === "blocked" ? "blocked" : "working";
+	return attentionStatusLabel(card, new Date(now));
+}
+export function attentionUpdatesSince(
+	cards: AttentionCard[],
+	previousVisitAt: string | null,
+): AttentionCard[] {
+	const since = attentionTimestamp(previousVisitAt ?? "");
+	return Number.isFinite(since)
+		? cards.filter(
+				(card) =>
+					attentionTimestamp(
+						card.finishedAt || card.heartbeatAt || card.startedAt,
+					) > since,
+			)
+		: [];
 }
 export function rankAttention(
 	cards: AttentionCard[],

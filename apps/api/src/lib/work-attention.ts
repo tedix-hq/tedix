@@ -1,3 +1,4 @@
+import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import type { AttentionResult } from "@tedix/api-contract/schemas/work-attention";
 import type { readAttentionSources } from "@tedix/db/queries/work-attention";
 import type { AgentSessionRequestRow } from "@tedix/db/schema/agent-session-requests";
@@ -29,7 +30,7 @@ export function buildAttention(
 				sources.attempts.find((a) => a.workItemId === row.workItemId)
 					?.projectId ??
 				null,
-			who: "Needs you",
+			who: ATTENTION_COPY.waiting,
 			column: "waiting",
 			startedAt: row.createdAt,
 			heartbeatAt: null,
@@ -81,10 +82,10 @@ export function buildAttention(
 			who:
 				worker ||
 				(row.session?.startsWith("codex:")
-					? "Codex"
+					? ATTENTION_COPY.local_codex
 					: row.session?.startsWith("claude-code:")
-						? "Claude"
-						: "Agent"),
+						? ATTENTION_COPY.local_claude
+						: ATTENTION_COPY.unknownSource),
 			column:
 				row.outcome === "succeeded"
 					? "done"
@@ -94,14 +95,16 @@ export function buildAttention(
 							? "waiting"
 							: row.state === "waiting"
 								? "blocked"
-								: "moving",
+								: row.state === "queued"
+									? "backlog"
+									: "moving",
 			startedAt: row.startedAt,
 			heartbeatAt: row.heartbeatAt,
 			note:
 				stale && !expired
-					? "Heartbeat stopped; Tedix is watching for activity"
+					? ATTENTION_COPY.heartbeatOverdue
 					: expired
-						? "Work stopped reporting; activity is unconfirmed"
+						? ATTENTION_COPY.leaseElapsed
 						: session?.summary || row.note || row.state,
 			href: `/work/items/${row.workItemId}`,
 			source: "attempt",
@@ -116,7 +119,7 @@ export function buildAttention(
 						? "local_codex"
 						: row.session?.startsWith("claude-code:")
 							? "local_claude"
-							: row.name
+							: row.who === "tedi"
 								? "cloud_tedi"
 								: "unknown",
 			tediName: worker,
@@ -133,7 +136,10 @@ export function buildAttention(
 		if (!fresh && !today(row.lastEventAt)) continue;
 		cards.push({
 			id: row.id,
-			who: row.harness === "codex" ? "Codex" : "Claude",
+			who:
+				row.harness === "codex"
+					? ATTENTION_COPY.local_codex
+					: ATTENTION_COPY.local_claude,
 			title: row.label,
 			projectId: row.projectId,
 			column:
@@ -166,16 +172,16 @@ export function buildAttention(
 			continue;
 		cards.push({
 			id: row.id,
-			who: row.who || "tedi",
-			title: row.title || "Skill run",
+			who: row.who || ATTENTION_COPY.cloud_tedi,
+			title: row.title || ATTENTION_COPY.skillRun,
 			projectId: row.projectId,
 			column:
 				row.status === "completed"
 					? "done"
-					: row.status === "paused"
-						? "waiting"
-						: ["failed", "canceled"].includes(row.status)
-							? "blocked"
+					: ["paused", "failed", "canceled"].includes(row.status)
+						? "blocked"
+						: row.status === "queued"
+							? "backlog"
 							: "moving",
 			startedAt: row.startedAt || "",
 			heartbeatAt: row.heartbeatAt,
@@ -197,8 +203,8 @@ export function buildAttention(
 			continue;
 		cards.push({
 			id: row.id,
-			who: row.who || "tedi",
-			title: row.title || "Tedi run",
+			who: row.who || ATTENTION_COPY.cloud_tedi,
+			title: row.title || ATTENTION_COPY.tediRun,
 			projectId: null,
 			column:
 				row.status === "completed"
@@ -207,7 +213,9 @@ export function buildAttention(
 						? "waiting"
 						: ["failed", "canceled"].includes(row.status)
 							? "blocked"
-							: "moving",
+							: row.status === "queued"
+								? "backlog"
+								: "moving",
 			startedAt: row.startedAt,
 			heartbeatAt: row.heartbeatAt,
 			note: row.note || row.status,
@@ -239,17 +247,20 @@ export function buildAttention(
 		);
 		cards.push({
 			id: row.id,
-			who: row.harness === "codex" ? "Codex" : "Claude",
+			who:
+				row.harness === "codex"
+					? ATTENTION_COPY.local_codex
+					: ATTENTION_COPY.local_claude,
 			title: row.text,
 			projectId: row.projectId ?? parent?.projectId ?? null,
 			column: reportedDone ? "done" : "blocked",
 			startedAt: row.sourceAt,
 			heartbeatAt: null,
 			note: reportedDone
-				? row.evidence || "Reported complete"
+				? row.evidence || ATTENTION_COPY.reportedComplete
 				: parent
-					? "Part of an active session; progress has not been confirmed"
-					: "Reported by a session; progress has not been confirmed",
+					? ATTENTION_COPY.childUnconfirmed
+					: ATTENTION_COPY.laneUnconfirmed,
 			href: parent ? `/work/items/${parent.workItemId}` : "/work/needs-you",
 			source: "reported_lane",
 			activitySource: row.harness === "codex" ? "local_codex" : "local_claude",
@@ -260,13 +271,13 @@ export function buildAttention(
 		if (!representedItems.has(row.id))
 			cards.push({
 				id: row.id,
-				who: "Unassigned",
+				who: ATTENTION_COPY.unassigned,
 				title: row.title,
 				projectId: row.projectId,
 				column: "backlog",
 				startedAt: row.createdAt,
 				heartbeatAt: null,
-				note: "Ready for someone to pick up",
+				note: ATTENTION_COPY.readyToPickUp,
 				href: `/work/items/${row.id}`,
 				source: "backlog",
 			});
