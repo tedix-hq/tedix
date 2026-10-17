@@ -188,6 +188,7 @@ export function createPlanningSync(config) {
 				});
 
 			// Checkpoints restore closure state too: durable replay skips callback bodies.
+			let checkpointCount = 0;
 			const checkpoint = async (name, action) => {
 				const saved = await step.do(name, WRITE, async () => {
 					const current = checked(
@@ -215,6 +216,9 @@ export function createPlanningSync(config) {
 				revision = saved.revision;
 				report = saved.report;
 				if (saved.error) throw new Error(saved.error);
+				// Hibernation starts a fresh invocation before provider/evidence calls exhaust its quota.
+				if (++checkpointCount % 4 === 0)
+					await step.sleep(`batch-${name}`, "2 minutes");
 				return saved.value;
 			};
 
@@ -268,7 +272,7 @@ export function createPlanningSync(config) {
 				throw new Error("Notion pagination ceiling reached");
 			};
 			const [projects, links, remote, tasks, meetings] = await Promise.all([
-				step.do("snapshot-projects", READ, () =>
+				step.do("snapshot-projects", { ...READ, timeout: "15 minutes" }, () =>
 					paged((args) => work.list_projects(args), {}, "projects"),
 				),
 				step.do("snapshot-links", READ, () =>
@@ -287,6 +291,7 @@ export function createPlanningSync(config) {
 				),
 			]);
 			const snapshot = { projects, links, remote, tasks, meetings };
+			await step.sleep("snapshot-yield", "2 minutes");
 			await step.do("markdown-spec", READ, () =>
 				notion.notion_fetch({ id: "notion://docs/enhanced-markdown-spec" }),
 			);
