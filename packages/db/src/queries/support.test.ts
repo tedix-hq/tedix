@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
@@ -22,6 +23,18 @@ function fixture() {
 			workItemComments,
 		),
 	);
+	const guards = readFileSync(
+		new URL(
+			"../../drizzle/20260821020828_work_factory_external_session_fences/migration.sql",
+			import.meta.url,
+		),
+		"utf8",
+	)
+		.split("--> statement-breakpoint")
+		.filter((statement) =>
+			/CREATE TRIGGER `work_items_admission_revision_/.test(statement),
+		);
+	for (const guard of guards) sqlite.exec(guard);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 function ticket() {
