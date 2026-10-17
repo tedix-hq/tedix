@@ -30,7 +30,7 @@ function clock(at, person) {
 	};
 }
 function checked(result) {
-	if (!result || result.ok === false || result.error)
+	if (!result || result.ok === false || result.isError === true || result.error)
 		throw new Error("Tool failed: " + JSON.stringify(result));
 	return result;
 }
@@ -127,12 +127,14 @@ async function appendLog(api, workspaceId, title, key, lines) {
 						...blocks.slice(-(479 - addition.length)),
 					]
 				: blocks;
-		await api.revise_os_output({
-			outputId: found.id,
-			expectedRevision: revision.revision,
-			content: { kind: "document", blocks: [...retained, ...addition] },
-			note: key,
-		});
+		checked(
+			await api.revise_os_output({
+				outputId: found.id,
+				expectedRevision: revision.revision,
+				content: { kind: "document", blocks: [...retained, ...addition] },
+				note: key,
+			}),
+		);
 	}
 	return found.id;
 }

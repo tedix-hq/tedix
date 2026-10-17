@@ -455,4 +455,14 @@ describe("native night coordination", () => {
 		expect(f.items.get("unretired").metadata.laneDispatch.state).toBe("held");
 		expect(f.reason).not.toHaveBeenCalled();
 	});
+	test("does not claim a log write when a tool returns a revision conflict envelope", async () => {
+		const f = fixture();
+		await f.run({ cycleKey: "first" });
+		f.api.revise_os_output = async () => ({
+			isError: true,
+			content: [{ type: "text", text: "Revision conflict" }],
+		});
+		await expect(f.run({ cycleKey: "second" })).rejects.toThrow("Tool failed");
+		expect([...f.outputs.values()][0].currentRevision.revision).toBe(1);
+	});
 });
