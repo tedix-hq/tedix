@@ -1163,20 +1163,23 @@ async function owningDraftTediId(
 		if (candidates.length === 0)
 			return { tediId: null, probability: null, choiceTediId: null };
 		const metadata = params.request.metadata as Record<string, unknown>;
-		const routing = await routeToOwningTedi(context.env, {
-			tedis: candidates,
-			instructions:
-				"An operator's coding agent asked them this question during a work session. Which AI worker's area of responsibility (for example engineering and deploys, marketing and go-to-market, finance) does the subject clearly belong to? Choose the worker that owns and does that work, not one that only reviews, validates or benchmarks it. Choose none unless one worker plainly owns it.",
-			state: {
-				subject: oneLine(params.request.subject, 300),
-				agentMessage: oneLine(params.request.prompt, 2_000),
-				projectId: params.request.projectId,
-				...(typeof metadata.repository === "string"
-					? { repository: metadata.repository }
-					: {}),
+		const routing = await routeToOwningTedi(
+			organizationModelEnv(context.env, context.db, params.orgId),
+			{
+				tedis: candidates,
+				instructions:
+					"An operator's coding agent asked them this question during a work session. Which AI worker's area of responsibility (for example engineering and deploys, marketing and go-to-market, finance) does the subject clearly belong to? Choose the worker that owns and does that work, not one that only reviews, validates or benchmarks it. Choose none unless one worker plainly owns it.",
+				state: {
+					subject: oneLine(params.request.subject, 300),
+					agentMessage: oneLine(params.request.prompt, 2_000),
+					projectId: params.request.projectId,
+					...(typeof metadata.repository === "string"
+						? { repository: metadata.repository }
+						: {}),
+				},
+				surface: "reply-draft-routing",
 			},
-			surface: "reply-draft-routing",
-		});
+		);
 		return {
 			tediId: replyDraftOwnerFrom(routing),
 			probability: routing.probability,
