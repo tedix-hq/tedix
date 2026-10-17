@@ -2394,8 +2394,7 @@ export async function runProfile(
 			matches: {},
 		};
 		try {
-			if (candidates.length)
-				found = await matchBoard(candidates, `${today}T00:00:00.000Z`, call);
+			if (candidates.length) found = await matchBoard(candidates, call);
 		} catch {
 			/* Proposing without the check would risk a duplicate; skip below. */
 		}

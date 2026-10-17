@@ -246,6 +246,43 @@ function setup() {
 }
 
 describe("Work proposal acceptance", () => {
+	it("puts a member's onboarding proposal in their inbox, outside the owner's inbox", async () => {
+		const f = setup();
+		const request = await f.other.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "handoff",
+			subject: "Add to the board: fictional member task",
+			prompt: "Accept or decline this task from your local sessions.",
+			requestedFrom: { type: "user", id: "other-id" },
+			metadata: metadata(false),
+		});
+		expect((await f.owner.listInbox({ states: ["open"] })).data).toEqual([]);
+		const inbox = await f.other.listInbox({ states: ["open"] });
+		expect(inbox.data).toHaveLength(1);
+		expect(inbox.data[0]).toMatchObject({
+			request: { id: request.id },
+			canRespond: true,
+		});
+		await expect(
+			f.owner.respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "handoff_accepted",
+				resolvesRequest: true,
+				body: "Accepted",
+			}),
+		).rejects.toThrow();
+		expect(f.rows()).toHaveLength(0);
+		await f.other.respond({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			responseKind: "handoff_accepted",
+			resolvesRequest: true,
+			body: "Accepted",
+		});
+		expect(f.rows()).toHaveLength(1);
+	});
+
 	it("creates Work for the approving human and records the chat tedi as actor", async () => {
 		const f = setup();
 		const request = await f.propose();

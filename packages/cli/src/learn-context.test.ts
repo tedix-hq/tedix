@@ -398,7 +398,7 @@ function candidate(title: string, extra: Partial<Candidate> = {}): Candidate {
 }
 
 describe("board match and judge", () => {
-	it("finds the covering item, places new work under a project and never files a goal", async () => {
+	it("finds completed work older than the sessions, places new work and never files a goal", async () => {
 		const board = new Board(PROJECTS);
 		board.items = [
 			{
@@ -407,7 +407,7 @@ describe("board match and judge", () => {
 				projectId: "p-billing",
 				disposition: "completed",
 				parentWorkItemId: null,
-				createdAt: T(1),
+				createdAt: "2020-03-01T00:00:00.000Z",
 			},
 			{
 				id: "w-open",
@@ -427,7 +427,6 @@ describe("board match and judge", () => {
 		const matches = await board.run(
 			boardMatchSource({
 				candidates: candidates.map((c) => ({ k: c.key, t: c.title })),
-				since: T(1),
 				dispositions: ["proposed", "accepted", "completed"],
 				projects: true,
 			}),
@@ -460,11 +459,11 @@ describe("board match and judge", () => {
 		const many = Array.from({ length: 20 }, (_, i) =>
 			candidate(`Topic ${i} work`),
 		);
-		const result = await matchBoard(many, T(1), (source) => {
+		const result = await matchBoard(many, (source) => {
 			sources.push(source);
 			return board.run(source);
 		});
-		expect(sources).toHaveLength(6);
+		expect(sources).toHaveLength(13);
 		expect(Object.keys(result.matches)).toHaveLength(20);
 		expect(result.matches[many[17]!.key]!.w[0]![0]).toBe("w-1");
 		expect(result.me?.name).toBe("Ada Lovelace");
@@ -594,6 +593,34 @@ describe("board match and judge", () => {
 			new Map(),
 		);
 		expect(agreed[0]).toMatchObject({ action: "tracked", workId: "w-close" });
+	});
+
+	it("checks a proposed parent even below the word-match threshold before creating a duplicate", async () => {
+		const c = candidate("Tighten event pitch script and speaker notes");
+		const board = closeBoard(c.key, [
+			[
+				"w-pitch",
+				"Prepare and give the event pitch",
+				"p-site",
+				"proposed",
+				null,
+				0.34,
+			],
+		]);
+		const prompts: string[] = [];
+		const [proposal] = await judge(
+			[c],
+			board,
+			async (prompt) => {
+				prompts.push(prompt);
+				return prompt.startsWith(SECOND)
+					? "1"
+					: '[{"c":1,"same":"","parent":"W1","project":"P1"}]';
+			},
+			new Map(),
+		);
+		expect(prompts.some((p) => p.startsWith(SECOND))).toBe(true);
+		expect(proposal).toMatchObject({ action: "tracked", workId: "w-pitch" });
 	});
 
 	it("drops a match on words alone the second look rejects, and ignores a chatty answer", async () => {
@@ -894,6 +921,45 @@ describe("context and review", () => {
 		expect(second.created).toHaveLength(0);
 	});
 
+	it("keeps a new member's proposals and decisions in their own inbox on a shared machine", async () => {
+		const board = new Board(PROJECTS);
+		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
+		const out: string[] = [];
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		await runReview(["--reject", "all"], deps(board, stateDir, out));
+		const firstMember = board.me;
+		const earlier = [...board.interactions];
+
+		board.me = { id: "Ugrace000", name: "Grace Hopper" };
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		const own = board.interactions.slice(earlier.length);
+		expect(own).toHaveLength(2);
+		expect(own.every((r) => r.requestedFrom.id === board.me.id)).toBe(true);
+		expect(
+			own.every((r) =>
+				r.metadata.proposal.item.sourceIntentId.startsWith(
+					`learn-context:${board.me.id}:`,
+				),
+			),
+		).toBe(true);
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		expect(board.interactions).toHaveLength(4);
+
+		await runReview(["--accept", "all"], deps(board, stateDir, out));
+		expect(board.created).toHaveLength(2);
+		expect(board.created.every((r) => r.description.includes("Grace's"))).toBe(
+			true,
+		);
+		expect(
+			earlier.every(
+				(r) => r.requestedFrom.id === firstMember.id && r.status === "resolved",
+			),
+		).toBe(true);
+		await runContext(["--no-model"], deps(board, stateDir, out));
+		expect(board.interactions).toHaveLength(4);
+		expect(board.created).toHaveLength(2);
+	});
+
 	it("remembers a rejection and never asks again", async () => {
 		const board = new Board(PROJECTS);
 		const stateDir = mkdtempSync(join(tmpdir(), "learn-state-"));
@@ -1080,6 +1146,7 @@ describe("context and review", () => {
 		).toBe(0);
 		expect(modelCalls).toBeGreaterThan(0);
 		expect(out[0]).toContain("takes a few minutes");
+		expect(out.at(-1)).toBe("Preview finished. Nothing was saved or sent.");
 		expect(board.created).toHaveLength(0);
 		expect(board.interactions).toHaveLength(0);
 		expect(existsSync(stateDir)).toBe(false);
@@ -1100,6 +1167,7 @@ describe("context and review", () => {
 		expect(await runOnboard(["--no-model"], onboardDeps)).toBe(0);
 		expect(started).toEqual([["--no-model", "--worker"]]);
 		expect(out.join("\n")).toContain("Tedix inbox");
+		expect(out.join("\n")).toContain("Next: open Tedix > Work > Needs you");
 		// A run that is still going is not started twice.
 		writeFileSync(
 			join(stateDir, "onboard.json"),
@@ -1139,6 +1207,9 @@ describe("context and review", () => {
 		expect(text).toContain("import: finished in the earlier run, skipped.");
 		expect(text).toContain("analyze: finished in the earlier run, skipped.");
 		expect(text).toContain("Onboarding finished.");
+		expect(out.at(-1)).toBe(
+			"Onboarding finished. Next: open Tedix > Work > Needs you and accept or decline your proposals.",
+		);
 		expect(board.interactions.length).toBeGreaterThan(0);
 	});
 });

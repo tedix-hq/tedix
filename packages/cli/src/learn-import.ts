@@ -548,7 +548,7 @@ Runs import-sessions, profile, analyze-sessions and context below, in that
 order: what a new member runs once. It works in the background and returns at once
 (--wait stays in the foreground); its proposals arrive in your Tedix inbox.
 Run it again to resume a run that stopped. Nothing reaches the shared board
-until you accept a proposal, in Tedix (Work > Interactions), in chat or with
+until you accept a proposal, in Tedix (Work > Needs you), in chat or with
 tedix learn review.
 
 --dry-run quickly previews session counts per host and organization, preference
