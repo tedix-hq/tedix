@@ -1019,7 +1019,7 @@ export async function reconcileHomeRunRowsFromChildStatus(
 							id: row.id,
 							patch: { outputMessageId },
 						});
-						row = { ...row, outputMessageId };
+						row.outputMessageId = outputMessageId;
 					}
 					const run = normalizeHomeRunRecord(row);
 					const runMetadata = nonNullRecord(run.metadata) ?? {};
