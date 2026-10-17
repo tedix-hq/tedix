@@ -1,0 +1,53 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Code Mode UI provider > preserves rows, metadata and caller app identity in an inferred view 1`] = `
+{
+  "elements": {
+    "shell": {
+      "children": [
+        "title",
+        "table",
+      ],
+      "props": {
+        "gap": 3,
+      },
+      "type": "Stack",
+    },
+    "table": {
+      "children": [],
+      "props": {
+        "columns": [
+          {
+            "field": "name",
+            "format": "text",
+            "header": "Name",
+            "sortable": true,
+          },
+          {
+            "field": "count",
+            "format": "number",
+            "header": "Count",
+            "sortable": true,
+          },
+        ],
+        "compact": true,
+        "data": {
+          "$state": "/rows",
+        },
+        "pageSize": 10,
+        "striped": true,
+      },
+      "type": "DataTable",
+    },
+    "title": {
+      "children": [],
+      "props": {
+        "text": "Counts",
+        "variant": "default",
+      },
+      "type": "Text",
+    },
+  },
+  "root": "shell",
+}
+`;

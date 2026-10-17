@@ -8,6 +8,24 @@ from configuration, so adding a tool never means adding a handler file.
 Architecture overview: [MCP app platform](../../docs/public/mcp-app-platform.md).
 Operating rules for changes in this directory: [`AGENTS.md`](./AGENTS.md).
 
+## Responsibility and test map
+
+| Responsibility                                                 | Owner                    | Coverage                                                                                                                                               |
+| -------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Host routing, request access and protocol handling             | `src/index.ts`           | `index.test.ts`, `base-domain-routing.test.ts`, `connect-organization.test.ts`, `subscriptions.test.ts`                                                |
+| Aggregate resolution, caches and connection defaults           | `src/index.ts`           | `aggregate-batch-resolution.test.ts`, `aggregate-cache-purge.test.ts`, `aggregate-host-connection-defaults.test.ts`, `aggregate-join-deadline.test.ts` |
+| Namespace targeting and aggregate filtering                    | `src/index.ts`           | `scope-extraction.test.ts`                                                                                                                             |
+| Tool-list projection, pagination and task/approval envelopes   | `src/index.ts`           | `mcp/outer-surface-lanes.test.ts`, `mcp/tools-list-pagination.test.ts`, `subscriptions.test.ts`                                                        |
+| Provider wiring, discovery and flow composition                | `src/mcp/codemode.ts`    | `mcp/codemode-catalog.test.ts`, `mcp/codemode-flow.test.ts`                                                                                            |
+| Code execution, authorization, payments and read receipts      | `src/mcp/codemode.ts`    | `mcp/codemode-telemetry.test.ts`, `mcp/codemode-auth.test.ts`, `mcp/codemode-payment-input.test.ts`, `mcp/codemode-isolation.workerd.test.ts`          |
+| UI catalog, layout inference, health sweeps and transient HTML | `src/mcp/codemode-ui.ts` | `mcp/codemode-ui.test.ts`                                                                                                                              |
+
+The gateway runs bounded stateless programs; the persistent turn loop belongs
+in `apps/tedi-runtime`. Browser and memory operations are configured provider
+tools dispatched through `src/mcp/tool-execution.ts` and `src/mcp/handler.ts`.
+Destructive approvals remain in `src/mcp/governance.ts` and payment policy in
+`src/mcp/payments.ts`; these extractions do not change those boundaries.
+
 ## What a tool is
 
 A tool is a **D1 row**, not a TypeScript module. Each `app_tools` row names the
