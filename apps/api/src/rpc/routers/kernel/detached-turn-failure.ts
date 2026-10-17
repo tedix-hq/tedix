@@ -3,7 +3,7 @@ import { settleKernelSubmission } from "../../../kernel/runtime-submission-bridg
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { BaseContext } from "../../orpc";
 import { insertKernelRuntimeEvent } from "./run-store";
-import type { KernelTurnWorkInput } from "./turn-work";
+import type { KernelTurnWorkInput } from "./turn-work-context";
 
 const INTERRUPTION_MESSAGE =
 	"This request was interrupted after it was accepted. Your message is saved. Check the run details and any changes before retrying.";

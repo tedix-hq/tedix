@@ -11,12 +11,12 @@ import { getKernelContextCache } from "./context-cache";
 
 import { injectAgentMessage } from "@tedix/provisioning";
 import type { BaseContext } from "../rpc/context";
+import type { KernelTurnWorkResult } from "../rpc/routers/kernel/turn-work";
 import type {
 	KernelTurnPhase,
 	KernelTurnProgress,
 	KernelTurnWorkInput,
-	KernelTurnWorkResult,
-} from "../rpc/routers/kernel/turn-work";
+} from "../rpc/routers/kernel/turn-work-context";
 import {
 	type AgentMemoryCandidate,
 	HOME_RELEVANCE_RECALL_CANDIDATE_LIMIT,

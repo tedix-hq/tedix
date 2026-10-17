@@ -51,13 +51,17 @@ vi.mock(
 );
 
 import {
-	type HomeTurnRuntimeEventInput,
 	chatApprovalReplyContent,
-	type KernelTurnWorkDeps,
-	type KernelTurnWorkInput,
+	readChatApprovalReply,
 	readDelegationDepth,
 	runKernelTurnWork,
 } from "./turn-work";
+import {
+	type HomeTurnRuntimeEventInput,
+	KERNEL_TURN_PHASES,
+	type KernelTurnWorkDeps,
+	type KernelTurnWorkInput,
+} from "./turn-work-context";
 
 function chainDbProxy(rows: unknown[] = [{}]): DbClient {
 	const proxy: unknown = new Proxy(function noop() {}, {
@@ -222,6 +226,67 @@ function progressRecorder() {
 		},
 	};
 }
+
+describe("turn metadata boundaries", () => {
+	it("keeps the shared chat phase vocabulary", () => {
+		expect(KERNEL_TURN_PHASES).toEqual([
+			"preparing_context",
+			"planning",
+			"generating",
+			"using_tool",
+			"delegating",
+			"finalizing",
+		]);
+	});
+
+	it.each([
+		undefined,
+		null,
+		[],
+		"approve",
+		{},
+		{ runId: 1, decision: "approve", tool: "os.x" },
+		{ runId: "r", decision: "yes", tool: "os.x" },
+		{ runId: "r", decision: "approve", tool: null },
+	])("ignores malformed approval replies: %j", (chatApprovalReply) => {
+		expect(readChatApprovalReply({ chatApprovalReply })).toBeNull();
+	});
+
+	it("normalizes optional approval fields and preserves a valid receipt", () => {
+		const reply = { runId: "r", decision: "approve", tool: "os.x" };
+		expect(
+			readChatApprovalReply({
+				chatApprovalReply: {
+					...reply,
+					runStatus: 1,
+					error: {},
+					receipt: false,
+				},
+			}),
+		).toEqual({ ...reply, runStatus: null, error: null, receipt: null });
+		expect(
+			readChatApprovalReply({
+				chatApprovalReply: {
+					...reply,
+					receipt: "Saved document.",
+				},
+			})?.receipt,
+		).toBe("Saved document.");
+	});
+
+	it("falls through to planning for an invalid approval reply", async () => {
+		const kernel = vi.fn(async () => ({
+			route: route({ answer: "A normal answer." }),
+			assistantContent: "A normal answer.",
+			evidence: null,
+		}));
+		const input = turnInput();
+		input.runtimeMetadata.chatApprovalReply = { decision: "approve" };
+		const result = await runKernelTurnWork(stubDeps({ kernel }), input);
+		expect(kernel).toHaveBeenCalledOnce();
+		expect(result.assistantMessage.content).toBe("A normal answer.");
+	});
+});
 
 describe("runKernelTurnWork progress seam", () => {
 	it("passes the ingress-authorized document, not a caller metadata projection, to the planner", async () => {
@@ -610,6 +675,35 @@ describe("runKernelTurnWork progress seam", () => {
 			"Finalizing",
 		]);
 		expect(result.status).toBe("needs_delegation");
+	});
+
+	it("a throwing write planner records the decline and never parks an approval", async () => {
+		const anchor = vi.fn(async () => "anchor");
+		const recorder = progressRecorder();
+		const result = await runKernelTurnWork(
+			stubDeps({
+				kernel: async () => ({
+					route: route({ routeKind: "propose_tool_write" }),
+					assistantContent: "Write recommendation.",
+					evidence: null,
+				}),
+				writeProposalPlanner: async () => {
+					throw new Error("planner unavailable");
+				},
+				resolveKernelWriteAnchorTediId: anchor,
+				onProgress: recorder.onProgress,
+			}),
+			turnInput(),
+		);
+		expect(anchor).not.toHaveBeenCalled();
+		expect(recorder.stages).not.toContain("Awaiting approval");
+		expect(result.run.status).toBe("completed");
+		expect(result.run.metadata).toMatchObject({
+			kernelWriteProposalDeclined: {
+				stage: "error",
+				detail: "planner unavailable",
+			},
+		});
 	});
 
 	it("a throwing onProgress sink never affects the turn (fail-soft emission)", async () => {
