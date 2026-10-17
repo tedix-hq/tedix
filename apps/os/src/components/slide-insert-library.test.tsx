@@ -2,10 +2,8 @@ import type { PresentationContent } from "@/lib/output-models";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import {
-	PRESENTATION_ELEMENT_TYPES,
-	SlidesEditor,
-} from "./output-editor-slides";
+import { SlidesEditor } from "./output-editor-slides";
+import { OsPresentationElementTypeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	filterSlideComponents,
 	SLIDE_COMPONENT_CATEGORIES,
@@ -111,7 +109,9 @@ describe("slide component library", () => {
 		const types = SLIDE_COMPONENT_CATEGORIES.flatMap((category) =>
 			category.components.map((component) => component.type),
 		);
-		expect([...types].sort()).toEqual([...PRESENTATION_ELEMENT_TYPES].sort());
+		expect([...types].sort()).toEqual(
+			[...OsPresentationElementTypeSchema.options].sort(),
+		);
 		for (const component of filterSlideComponents("")) {
 			expect(component.name).not.toBe("");
 			expect(component.description).not.toBe("");
@@ -139,7 +139,7 @@ describe("slide component library", () => {
 				section.getAttribute("aria-label"),
 			),
 		).toEqual(["Text", "Containers", "Decoration", "Visual"]);
-		expect(rows()).toHaveLength(PRESENTATION_ELEMENT_TYPES.length);
+		expect(rows()).toHaveLength(OsPresentationElementTypeSchema.options.length);
 		expect(
 			document
 				.querySelector('[data-slide-component="divider"]')
@@ -190,7 +190,7 @@ describe("slide component library", () => {
 		expect(
 			document.querySelector('[aria-label="Component library"]'),
 		).not.toBeNull();
-		expect(rows()).toHaveLength(PRESENTATION_ELEMENT_TYPES.length);
+		expect(rows()).toHaveLength(OsPresentationElementTypeSchema.options.length);
 		mounted.cleanup();
 	});
 });

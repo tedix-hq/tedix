@@ -3,10 +3,8 @@ import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vite-plus/test";
-import {
-	PRESENTATION_ELEMENT_TYPES,
-	SlidesEditor,
-} from "./output-editor-slides";
+import { SlidesEditor } from "./output-editor-slides";
+import { OsPresentationElementTypeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -261,7 +259,7 @@ describe("SlidesEditor", () => {
 		expect(
 			mounted.container.querySelector('[aria-label="Insert slide element"]'),
 		).not.toBeNull();
-		expect(PRESENTATION_ELEMENT_TYPES).toEqual([
+		expect(OsPresentationElementTypeSchema.options).toEqual([
 			"title",
 			"subtitle",
 			"text",
