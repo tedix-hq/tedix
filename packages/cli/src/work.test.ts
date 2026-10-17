@@ -3618,3 +3618,52 @@ describe("resolveAgentSession", () => {
 		}
 	});
 });
+
+describe("terminal Work worktree cleanup", () => {
+	for (const verb of ["settle", "complete", "cancel"]) {
+		test(`${verb} cleans up only after board success`, async () => {
+			let succeed = false;
+			const { ctx } = makeContext({ outcome: "succeeded" }, ATTEMPT, () =>
+				succeed
+					? { id: ITEM }
+					: { code: "CONFLICT", status: 409, message: "refused" },
+			);
+			const requests: unknown[] = [];
+			ctx.cleanupWorktrees = (request) => {
+				requests.push(request);
+				return [{ path: "/tmp/owned", removed: true }];
+			};
+			expect((await capture(`${verb} ${ITEM}`, ctx)).code).toBe(WORK_EXIT_FAIL);
+			expect(requests).toHaveLength(0);
+			succeed = true;
+			expect((await capture(`${verb} ${ITEM}`, ctx)).code).toBe(0);
+			expect(requests).toEqual([
+				{
+					workItemId: ITEM,
+					agentSession: ctx.work.session,
+					...(verb === "settle" ? { attemptId: ATTEMPT } : {}),
+				},
+			]);
+		});
+	}
+	test("cleanup failure does not misreport a successful settlement as a failed remote write", async () => {
+		const { ctx, attemptStore } = makeContext(
+			{ outcome: "succeeded" },
+			ATTEMPT,
+		);
+		ctx.cleanupWorktrees = () => {
+			throw new Error("offline");
+		};
+		const result = await capture(`settle ${ITEM}`, ctx);
+		expect(result.code).toBe(0);
+		expect(result.out.join("\n")).toContain("offline");
+		expect(
+			attemptStore.get({
+				workspace: "test",
+				actor: "credential",
+				agentSession: ctx.work.session!,
+				workItemId: ITEM,
+			}),
+		).toBeNull();
+	});
+});

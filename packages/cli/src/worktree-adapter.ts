@@ -2,10 +2,12 @@ import { execFileSync } from "node:child_process";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import {
 	existsSync,
+	appendFileSync,
 	mkdirSync,
 	readFileSync,
 	realpathSync,
 	renameSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import {
@@ -102,19 +104,25 @@ export function provisionAttemptWorktree(
 		resolve(repo, git(repo, ["rev-parse", "--git-common-dir"])),
 	);
 	const primaryRepo = dirname(commonDir);
-	const repoName = safeSegment(basename(primaryRepo)) || "repo";
 	const suffix = `${request.workItemId.slice(0, 8)}-${request.attemptId.slice(0, 8)}`;
 	const harness =
 		safeSegment(request.agentSession.split(":", 1)[0] ?? "agent") || "agent";
 	const branch = `${harness}/work-${suffix}`;
 	const root = canonicalProspectivePath(
-		request.root ?? join(dirname(primaryRepo), ".tedix-worktrees", repoName),
+		request.root ?? join(primaryRepo, ".worktrees"),
 	);
 	const path = join(root, suffix);
 	const marker = `${path}${MARKER_SUFFIX}`;
 	const rootFromRepo = relative(primaryRepo, root);
-	if (!rootFromRepo.startsWith("..") && !isAbsolute(rootFromRepo)) {
-		throw new Error("Worktree root must be outside the primary repository");
+	if (
+		!rootFromRepo.startsWith("..") &&
+		!isAbsolute(rootFromRepo) &&
+		rootFromRepo !== ".worktrees" &&
+		!rootFromRepo.startsWith(".worktrees/")
+	) {
+		throw new Error(
+			"Worktree root inside the repository must be under .worktrees",
+		);
 	}
 	const expected: WorktreeMarker = {
 		version: 1,
@@ -148,6 +156,14 @@ export function provisionAttemptWorktree(
 		);
 	}
 
+	if (rootFromRepo === ".worktrees" || rootFromRepo.startsWith(".worktrees/")) {
+		const exclude = join(commonDir, "info", "exclude");
+		mkdirSync(dirname(exclude), { recursive: true });
+		const existing = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
+		if (!existing.split("\n").includes("/.worktrees/")) {
+			appendFileSync(exclude, "\n/.worktrees/\n");
+		}
+	}
 	mkdirSync(root, { recursive: true });
 	git(primaryRepo, ["worktree", "add", "-b", branch, path, "origin/main"]);
 	const temp = `${marker}.${process.pid}.tmp`;
@@ -158,4 +174,90 @@ export function provisionAttemptWorktree(
 	});
 	renameSync(temp, marker);
 	return { path, branch, reused: false };
+}
+
+export interface WorktreeCleanupRequest {
+	workItemId: string;
+	agentSession: string;
+	attemptId?: string;
+	cwd?: string;
+}
+
+export interface WorktreeCleanupResult {
+	path: string;
+	removed: boolean;
+	reason?: string;
+}
+
+/** Called only after the board confirms a terminal lifecycle operation. */
+export function cleanupAttemptWorktrees(
+	request: WorktreeCleanupRequest,
+): WorktreeCleanupResult[] {
+	const cwd = resolve(request.cwd ?? process.cwd());
+	const commonDir = realpathSync(
+		resolve(cwd, git(cwd, ["rev-parse", "--git-common-dir"])),
+	);
+	const primaryRepo = dirname(commonDir);
+	const entries = git(primaryRepo, ["worktree", "list", "--porcelain", "-z"])
+		.split("\0\0")
+		.map((block) => block.split("\0"));
+	const results: WorktreeCleanupResult[] = [];
+	let fetched = false;
+	for (const entry of entries) {
+		const path = entry.find((line) => line.startsWith("worktree "))?.slice(9);
+		if (!path || path === primaryRepo) continue;
+		const marker = markerAt(path);
+		if (
+			!marker ||
+			marker.workItemId !== request.workItemId ||
+			marker.agentSession !== request.agentSession ||
+			(request.attemptId && marker.attemptId !== request.attemptId)
+		)
+			continue;
+		try {
+			if (
+				entry.some((line) => line === "locked" || line.startsWith("locked "))
+			) {
+				throw new Error("worktree is locked");
+			}
+			if (git(path, ["branch", "--show-current"]) !== marker.branch) {
+				throw new Error("worktree branch differs from its marker");
+			}
+			if (git(path, ["status", "--porcelain", "--untracked-files=all"])) {
+				throw new Error("worktree has local changes");
+			}
+			if (!fetched) {
+				git(primaryRepo, [
+					"fetch",
+					"origin",
+					"+refs/heads/main:refs/remotes/origin/main",
+				]);
+				fetched = true;
+			}
+			git(primaryRepo, [
+				"merge-base",
+				"--is-ancestor",
+				git(path, ["rev-parse", "HEAD"]),
+				"origin/main",
+			]);
+			// Keep this CLI process in an existing directory when settling from the worktree.
+			const current = relative(path, process.cwd());
+			if (
+				current === "" ||
+				(!current.startsWith("..") && !isAbsolute(current))
+			) {
+				process.chdir(primaryRepo);
+			}
+			git(primaryRepo, ["worktree", "remove", path]);
+			unlinkSync(`${path}${MARKER_SUFFIX}`);
+			results.push({ path, removed: true });
+		} catch (error) {
+			results.push({
+				path,
+				removed: false,
+				reason: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+	return results;
 }

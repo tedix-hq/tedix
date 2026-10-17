@@ -230,3 +230,16 @@ input and task continuations. Cancellation stops local reads and refuses late
 results; it does not prove that a remote write stopped. Ambiguous writes are not
 replayed. Explicit user-authored `tedix code` and the decision-capture hook retain
 their separate transport purposes.
+
+`work start <id> --worktree` creates an isolated checkout under the primary
+repository's ignored `.worktrees/<work-prefix>-<attempt-prefix>` directory.
+`--worktree-root <path>` overrides its parent directory. A successful
+`work settle`, `work complete`, or `work cancel` removes matching worktrees
+owned by the current Agent-Session, together with their `.tedix.json` files,
+only when clean, unlocked, and confirmed in freshly fetched `origin/main`.
+Settlement targets its exact Attempt; complete and cancel can retry cleanup
+for the current session's earlier Attempts on that Work Item. Custom roots
+and older external worktrees are found through Git's worktree registry.
+Cleanup failures leave the checkout available and are reported separately
+from the successful Work operation. When invoked inside a removed worktree,
+return your shell to the primary repository afterwards.
