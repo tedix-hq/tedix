@@ -1,5 +1,13 @@
 import { defineMiddleware, sequence } from "astro:middleware";
 import { env } from "cloudflare:workers";
+import type { MiddlewareHandler } from "astro";
+
+// Optional tenant source owns URL policy; the locked middleware still owns
+// organization context and buffering across the Worker Loader boundary.
+const themeMiddleware = import.meta.glob<MiddlewareHandler>(
+	"./utils/request-middleware.ts",
+	{ eager: true, import: "onRequest" },
+)["./utils/request-middleware.ts"];
 
 function envString(name: string): string | undefined {
 	const value = (env as Record<string, unknown>)[name];
@@ -24,6 +32,7 @@ const CANONICAL_SLASH_ROUTE_RE =
 const CANONICAL_ROOT_CONTENT_TRAILING_RE = /^\/[^/._][^/.]*\/$/;
 
 const canonicalSlashRedirect = defineMiddleware(async (context, next) => {
+	if (themeMiddleware) return themeMiddleware(context, next);
 	const { pathname, search } = context.url;
 	if (CANONICAL_SLASH_ROUTE_RE.test(pathname)) {
 		return context.redirect(`${pathname}/${search}`, 301);

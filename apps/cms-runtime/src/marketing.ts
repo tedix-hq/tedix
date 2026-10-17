@@ -454,8 +454,17 @@ export async function marketingResponse(
 			},
 		});
 	}
-	// Same body apps/landing served, so deploy tooling that reads the apex
-	// /health keeps working once this runtime answers for it.
+	if (url.pathname === "/health" || url.pathname === "/tedixpay-demo") {
+		const target = new URL(`${url.pathname}/`, url);
+		const publicHost = request.headers.get("X-Tedix-Public-Host");
+		if (
+			isMarketingTenantOrigin &&
+			publicHost &&
+			isMarketingHost(publicHost, env)
+		)
+			target.host = publicHost;
+		return redirect(target.href, 308);
+	}
 	if (path === "/health")
 		return Response.json({
 			status: "ok",
@@ -463,7 +472,7 @@ export async function marketingResponse(
 		});
 	if (path === "/waitlist") return redirect("https://os.tedix.dev/", 308);
 	if (path === "/tedixpay-demo") return redirect("/tedixpay/");
-	if (path === "/eurolabs") return redirect("/EuroLabs");
+	if (path === "/eurolabs") return redirect("/EuroLabs/");
 	if (path === "/install")
 		return redirect(`https://${env.CLI_DOWNLOAD_HOST}/install.sh`, 302);
 	// Posts are served at /blog/{slug}; /posts is the collection's former path.
@@ -541,12 +550,14 @@ export async function marketingResponse(
 				});
 				break;
 			}
+			case "/api/catalog/tools.json":
 			case "/api/catalog/app": {
 				const slug = q.get("slug");
 				if (!slug || slug.length > 256)
 					return json({ error: "App slug required" }, 400);
-				result = await client.catalog.getBySlug({ slug });
-				if (!result) return json({ error: "App not found" }, 404);
+				const app = await client.catalog.getBySlug({ slug });
+				if (!app) return json({ error: "App not found" }, 404);
+				result = path === "/api/catalog/tools.json" ? (app.tools ?? []) : app;
 				break;
 			}
 			case "/api/catalog/categories":
@@ -569,7 +580,7 @@ export async function marketingResponse(
 		});
 	} catch (error) {
 		if (
-			path === "/api/catalog/app" &&
+			(path === "/api/catalog/app" || path === "/api/catalog/tools.json") &&
 			typeof error === "object" &&
 			error !== null &&
 			"code" in error &&

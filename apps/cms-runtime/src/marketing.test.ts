@@ -69,13 +69,15 @@ describe("public marketing adapters", () => {
 		expect(r?.headers.get("Content-Type")).toMatch(/^text\/plain/);
 		expect(await r?.text()).toContain("Contact: mailto:security@tedix.dev");
 	});
-	it("answers /health with the deployed sha on marketing hosts and its tenant origin", async () => {
+	it("redirects /health and answers /health/ with the deployed sha", async () => {
 		const r = await marketingResponse(
 			new Request("https://landing.tedix.dev/health"),
 			{ ...env, GIT_SHA: "abc123" },
 		);
-		expect(r?.status).toBe(200);
-		expect(await r?.json()).toEqual({ status: "ok", deployedSha: "abc123" });
+		expect(r?.status).toBe(308);
+		expect(r?.headers.get("Location")).toBe(
+			"https://landing.tedix.dev/health/",
+		);
 		const tenantEnv = {
 			...env,
 			MARKETING_SITE_SLUG: "example-marketing",
@@ -90,6 +92,17 @@ describe("public marketing adapters", () => {
 			status: "ok",
 			deployedSha: "abc123",
 		});
+		const staged = await marketingResponse(
+			new Request("https://example-marketing.cms.tedix.dev/health?probe=1", {
+				method: "HEAD",
+				headers: { "X-Tedix-Public-Host": "landing.tedix.dev" },
+			}),
+			tenantEnv,
+		);
+		expect(staged?.status).toBe(308);
+		expect(staged?.headers.get("Location")).toBe(
+			"https://landing.tedix.dev/health/?probe=1",
+		);
 		expect(
 			await marketingResponse(
 				new Request("https://customer.cms.tedix.dev/health"),
@@ -223,6 +236,19 @@ describe("public marketing adapters", () => {
 			log.mockRestore();
 		}
 	});
+	it("serves deferred public tool details without the rest of the app payload", async () => {
+		const tools = [{ id: "tool-example", inputSchema: { type: "object" } }];
+		mocks.getBySlug.mockResolvedValue({ tools, name: "Example" });
+		const response = await marketingResponse(
+			new Request(
+				"https://landing.tedix.dev/api/catalog/tools.json?slug=example",
+			),
+			env,
+		);
+		expect(response?.status).toBe(200);
+		expect(await response?.json()).toEqual(tools);
+		expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: "example" });
+	});
 	it("keeps contact fallbacks while logging failures without intake data", async () => {
 		const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		try {
@@ -267,7 +293,7 @@ describe("public marketing adapters", () => {
 	});
 	it.each([
 		["/waitlist/?ref=a", "https://os.tedix.dev/?ref=a", 308],
-		["/eurolabs/?ref=a", "https://landing.tedix.dev/EuroLabs?ref=a", 301],
+		["/eurolabs/?ref=a", "https://landing.tedix.dev/EuroLabs/?ref=a", 301],
 		["/tedixpay-demo/", "https://landing.tedix.dev/tedixpay/", 301],
 		["/docs", "https://docs.tedix.dev/", 301],
 		["/docs/getting-started/", "https://docs.tedix.dev/getting-started", 301],

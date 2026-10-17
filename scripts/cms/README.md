@@ -25,6 +25,8 @@ XML trees. Assets are followed only through the configured origins to compare
 final bytes. Deployment controls such as `_headers` are excluded from assets.
 Warm latency samples alternate origins; both total TTFB and time after TLS are
 recorded. HTML weights are decoded bytes, with decimal 250/400 KB budgets.
+Only the `Generated:` timestamp in `/apps/llms.txt` is excluded from its body
+comparison; raw hashes remain in the report.
 
 `audit.json` retains per-URL evidence, discrepancies, weights, asset hashes,
 and timings. A finished audit can contain readiness failures; the process

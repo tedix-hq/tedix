@@ -74,6 +74,11 @@ blog posts (with FAQ items) through the CMS REST proxy.
 
 ## Cloudflare Workflows
 
+Marketing themes may export an Astro `onRequest` handler from
+`src/utils/request-middleware.ts` to own redirects and rewrites. Without it,
+the template keeps its default canonical URL policy. Platform organization
+context, authentication and response buffering remain outside that handler.
+
 - **`DeployWorkflow`** (`DEPLOY_WORKFLOW`) — durable, retryable theme deploy:
   preflight → build-and-snapshot → publish-bundle → health-check →
   cleanup.
