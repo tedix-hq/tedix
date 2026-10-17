@@ -4894,6 +4894,12 @@ const handlers: Record<string, (input: never) => unknown> = {
 			),
 			input,
 		),
+	"tediApprovals/getById": (input: { id: string }) => {
+		const approval = state.approvals.find((row) => row.id === input.id);
+		if (!approval)
+			throw new RpcError("NOT_FOUND", "Approval request not found");
+		return approval;
+	},
 	"tediApprovals/resolve": (input: {
 		id: string;
 		status: "approved" | "rejected";

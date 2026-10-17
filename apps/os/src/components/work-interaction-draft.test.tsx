@@ -299,7 +299,7 @@ describe("tedi-drafted replies", () => {
 		expect(container.textContent).toContain("Recommended answer from");
 		expect(container.textContent).toContain(DRAFT.body);
 		expect(container.textContent).toContain("Codex receives your answer");
-		await act(async () => click(container, "Send this"));
+		await act(async () => click(container, "Answer"));
 		expect(respond).toHaveBeenCalledWith({
 			requestId,
 			expectedRequestVersion: 3,
@@ -310,7 +310,9 @@ describe("tedi-drafted replies", () => {
 				draftId: DRAFT.id,
 				draftOutcome: "accepted",
 				editRatio: 0,
-				source: "os-inbox",
+				source: "os-decision-card",
+				cardAction: "answer",
+				feedbackSignal: "approve-as-is",
 			},
 		});
 	});

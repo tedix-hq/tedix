@@ -345,7 +345,7 @@ describe("Decision-capture questions", () => {
 		client.setQueryData<unknown>(
 			membersListQueryOptions({ organizationId: orgId, limit: 100, offset: 0 })
 				.queryKey,
-			{ data: [{ userId: "user-1", name: "Fixture Person" }] },
+			{ data: [{ descopeUserId: "user-1", name: "Fixture Person" }] },
 		);
 		client.setQueryData<unknown>(
 			workExternalPrincipalsQueryOptions(orgId).queryKey,
@@ -384,8 +384,8 @@ describe("Decision-capture questions", () => {
 		const labels = [...container.querySelectorAll("button")].map(
 			(button) => button.textContent,
 		);
-		expect(labels).toContain("Accept");
-		expect(labels).toContain("Decline");
+		expect(labels).toContain("Yes, start");
+		expect(labels).toContain("Not now");
 	});
 
 	it("summarizes origin and urgency only for decision-capture rows", () => {
@@ -437,13 +437,13 @@ describe("Decision-capture questions", () => {
 			}),
 		);
 		const text = container.textContent ?? "";
-		expect(container.querySelector("h1")?.textContent).toBe(
+		expect(container.querySelector("h2")?.textContent).toBe(
 			"acme-app · claude-code waiting: It's deployed. The live API runs commit fc6b8f9",
 		);
-		expect(text).toContain("From your Claude Code session · acme-app · main");
-		expect(
-			container.querySelector('[title="Session abcdef12"]'),
-		).not.toBeNull();
+		expect(text).toContain("your Claude Code session");
+		expect(container.querySelector("details summary")?.textContent).toBe(
+			"Why this?",
+		);
 		expect(text).not.toContain("Question from");
 		expect(text).toContain("Blocked");
 		expect(text).not.toContain("Can wait");
@@ -461,10 +461,10 @@ describe("Decision-capture questions", () => {
 			attention: { kind: "needs_you", need: "Approve the production deploy." },
 		};
 		const asked = await renderDetail(ask);
-		expect(asked.querySelector("h1")?.textContent).toBe(
+		expect(asked.querySelector("h2")?.textContent).toBe(
 			"Approve the production deploy.",
 		);
-		expect(asked.textContent).toContain("What's needed from you");
+		expect(asked.textContent).not.toContain("Response kind");
 		expect(asked.textContent).not.toContain("Share what you know");
 
 		const update = {
@@ -496,9 +496,9 @@ describe("Decision-capture questions", () => {
 	it("keeps the existing source label and plain prompt for other questions", async () => {
 		const container = await renderDetail({});
 		const text = container.textContent ?? "";
-		expect(text).toContain("Question from");
-		expect(text).toContain("**It's deployed.**");
-		expect(container.querySelector(".chat-markdown")).toBeNull();
+		expect(text).toContain("Fixture Person");
+		expect(text).toContain("It's deployed.");
+		expect(container.querySelector(".chat-markdown strong")).not.toBeNull();
 	});
 });
 

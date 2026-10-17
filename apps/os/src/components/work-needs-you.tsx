@@ -1,7 +1,8 @@
+import { WorkDecisionStack } from "@/components/work-decision-stack";
 import type { FactoryScoreboardEntry } from "@tedix/api-contract/contracts/projects";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import type { WorkFleetControlTower } from "@tedix/api-contract/schemas/work-fleet";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
@@ -33,12 +34,7 @@ import {
 } from "@/components/work-session-requests";
 import { officeAsk } from "@/lib/work-interaction-display";
 import { factoryHref } from "@/lib/work-display";
-import { osApi } from "@/lib/api";
-import {
-	osQueryKeys,
-	workFleetQueryOptions,
-	workAttentionQueryOptions,
-} from "@/lib/os-query-options";
+import { workFleetQueryOptions, workAttentionQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { OutboundCard } from "@/components/outbound-card";
@@ -630,7 +626,6 @@ export function NeedsYouList({
 
 export function WorkNeedsYouPage() {
 	useDocumentTitle("Needs you · Work");
-	const client = useQueryClient();
 	const sources = useNeedsYouSources();
 	const fleet = useQuery(workFleetQueryOptions());
 	const items = useMemo(
@@ -656,34 +651,6 @@ export function WorkNeedsYouPage() {
 			sources.sessionRequests.data,
 		],
 	);
-	const approve = useMutation({
-		mutationFn: (id: string) =>
-			osApi.tediApprovals.resolve({
-				id,
-				status: "approved",
-				resolution:
-					"Approved from Work › Needs you after reviewing the request.",
-			}),
-		onSuccess: () =>
-			client.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
-	});
-	const handoff = useMutation({
-		mutationFn: (input: {
-			requestId: string;
-			version: number;
-			accepted: boolean;
-		}) =>
-			osApi.workInteractions.respond({
-				requestId: input.requestId,
-				expectedRequestVersion: input.version,
-				responseKind: input.accepted ? "handoff_accepted" : "handoff_declined",
-				body: input.accepted ? "Accepted." : "Declined.",
-				resolvesRequest: true,
-				metadata: {},
-			}),
-		onSuccess: () =>
-			client.invalidateQueries({ queryKey: osQueryKeys.workInteractions() }),
-	});
 	const failed = [
 		sources.interactions.isError ? "requests" : null,
 		sources.workApprovals.isError || sources.runtimeApprovals.isError
@@ -714,7 +681,6 @@ export function WorkNeedsYouPage() {
 			? { label: "All approvals", href: "/work/approvals" }
 			: null,
 	].filter((link): link is { label: string; href: string } => link !== null);
-	const error = approve.error ?? handoff.error;
 	const count = needsYouCount(items);
 	return (
 		<Page width="xl">
@@ -753,21 +719,8 @@ export function WorkNeedsYouPage() {
 					</AlertDescription>
 				</Alert>
 			) : null}
-			{error ? (
-				<Text as="p" role="label" tone="error">
-					The decision could not be recorded:{" "}
-					{error instanceof Error ? error.message : "Unknown error"}
-				</Text>
-			) : null}
 			{items.length ? (
-				<NeedsYouList
-					items={items}
-					busy={approve.isPending || handoff.isPending}
-					onApprove={(id) => approve.mutate(id)}
-					onHandoff={(requestId, version, accepted) =>
-						handoff.mutate({ requestId, version, accepted })
-					}
-				/>
+				<WorkDecisionStack items={items} />
 			) : loading ? null : (
 				<Text as="p" role="body" tone="secondary">
 					{failed.length
