@@ -1,3 +1,6 @@
+import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
+import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
+import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import { latestDraftOf } from "@/components/work-interaction-draft";
 import {
 	decisionCaptureSummary,
@@ -845,6 +848,16 @@ export function WorkApprovalsPage() {
 	const query = useQuery(approvalOptions);
 	const pendingApprovals = useQuery(workPendingApprovalsQueryOptions());
 	const runtimeApprovals = useQuery(pendingApprovalsQueryOptions());
+	const delegate = useMutation({
+		mutationFn: (approval: ApprovalRequest) =>
+			osApi.tediApprovals.resolve({
+				id: approval.id,
+				status: approvalDecision(approval).recommendation,
+				delegateRecommendation: true,
+			}),
+		onSuccess: () =>
+			client.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
+	});
 	const [selectedRuntimeIds, setSelectedRuntimeIds] = useState<string[]>([]);
 	const [reviewRuntimeIds, setReviewRuntimeIds] = useState<string[]>([]);
 	const [rationales, setRationales] = useState<Record<string, string>>({});
@@ -1014,25 +1027,7 @@ export function WorkApprovalsPage() {
 								className="grid gap-3 px-3 py-3"
 								render={<li />}
 							>
-								<div className="flex flex-wrap items-start justify-between gap-2">
-									<div className="grid min-w-0 gap-1">
-										<Text as="strong" role="body" tone="strong">
-											{approval.description}
-										</Text>
-										<Text as="span" role="label" tone="secondary">
-											{approval.review.operatorQuestion}
-										</Text>
-									</div>
-									<div className="flex flex-wrap items-center gap-1.5">
-										<Badge variant="warning">Awaiting approval</Badge>
-										<Badge variant="outline">
-											{sentenceCase(approval.review.intent)}
-										</Badge>
-									</div>
-								</div>
-								<Text as="p" role="body" className="m-0">
-									{approval.review.summary}
-								</Text>
+								<ApprovalDecisionCopy approval={approval} />
 								<div className="flex flex-wrap gap-x-4 gap-y-1">
 									<Text as="span" role="label" tone="secondary">
 										Expires {new Date(approval.expiresAt).toLocaleString()}
@@ -1049,6 +1044,7 @@ export function WorkApprovalsPage() {
 										className="mt-2 max-h-64 overflow-auto"
 										code={JSON.stringify(
 											{
+												description: approval.description,
 												payload: approval.payload,
 												evidenceRefs: approval.review.evidenceRefs,
 												timeout: approval.review.timeout,
@@ -1065,6 +1061,13 @@ export function WorkApprovalsPage() {
 								) : null}
 								{approval.review.decisionMode === "approve_or_reject" ? (
 									<div className="flex flex-wrap gap-2">
+										<Button
+											disabled={delegate.isPending}
+											onClick={() => delegate.mutate(approval)}
+										>
+											Decide for me
+										</Button>
+										<MutationError error={delegate.error} />
 										<Button
 											variant="outline"
 											aria-pressed={selectedRuntimeIds.includes(approval.id)}

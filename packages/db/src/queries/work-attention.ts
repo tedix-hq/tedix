@@ -15,6 +15,9 @@ export async function attentionProjectBriefs(db: DbQueryClient, orgId: string) {
 			id: projects.id,
 			name: projects.name,
 			description: projects.description,
+			factory: sql<
+				string | null
+			>`json_extract(${projects.metadata}, '$.factory')`.as("factory_brief"),
 			objectiveId: projects.objectiveId,
 			objective: sql<string | null>`${tediObjectives.description}`.as(
 				"objective_brief",

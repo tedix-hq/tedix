@@ -1,3 +1,4 @@
+import { RequestFilingReview } from "@/components/request-filing-review";
 import {
 	ATTENTION_COPY,
 	attentionCopy,
@@ -511,50 +512,7 @@ export function AttentionBoard({
 				</CardContent>
 			</Card>
 		),
-		unfiled: (
-			<section
-				id="attention-unfiled"
-				aria-label={ATTENTION_COPY.unfiled}
-				className="space-y-3"
-			>
-				<Text as="h2" role="section">
-					{attentionCopy("unfiledCount", { count: data.unfiled.length })}
-				</Text>
-				{data.unfiled.map((row) => (
-					<Card key={row.id} size="sm">
-						<CardContent className="flex min-w-0 flex-col gap-3 pt-3 sm:flex-row sm:items-center">
-							<Text className="min-w-0 flex-1 break-words">{row.text}</Text>
-							<Select
-								disabled={filing}
-								value={null}
-								onValueChange={(value) => {
-									if (value) file(row.id, value);
-								}}
-							>
-								<SelectTrigger
-									aria-label={attentionCopy("fileRequest", { text: row.text })}
-									className="w-full sm:w-64"
-								>
-									<SelectValue placeholder={ATTENTION_COPY.fileToProject} />
-								</SelectTrigger>
-								<SelectContent>
-									{allData.projects
-										.filter((p) => p.status === "active")
-										.map((p) => (
-											<SelectItem key={p.id} value={p.id}>
-												{p.name}
-											</SelectItem>
-										))}
-								</SelectContent>
-							</Select>
-						</CardContent>
-					</Card>
-				))}
-				{!data.unfiled.length && (
-					<Text tone="secondary">{ATTENTION_COPY.allFiled}</Text>
-				)}
-			</section>
-		),
+		unfiled: <RequestFilingReview data={allData} file={file} filing={filing} />,
 	};
 	return (
 		<div className="min-w-0 space-y-5" data-attention-live>

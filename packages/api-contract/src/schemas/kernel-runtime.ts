@@ -1099,6 +1099,7 @@ export const RespondHomeApprovalInputSchema = z.object({
 	 * order, or a proposed Home plan.
 	 */
 	decision: z.enum(["approve", "reject"]),
+	delegateRecommendation: z.boolean().optional(),
 	/** Plan target only: optional subset of plan assignment ids. */
 	assignmentIds: z.array(z.string().min(1)).optional(),
 	note: z.string().max(2000).optional(),

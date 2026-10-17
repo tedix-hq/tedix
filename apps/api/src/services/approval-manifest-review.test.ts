@@ -43,6 +43,7 @@ vi.mock("@tedix/db/queries/audit", () => ({
 }));
 vi.mock("./learning-interaction-recorder", () => ({
 	recordObservedLearningInteraction: mocks.recordLearning,
+	observedLearningActor: () => ({ actorType: "service", actorId: "fixture" }),
 }));
 vi.mock("./provisional-outcome-promotion", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./provisional-outcome-promotion")>()),
@@ -448,5 +449,34 @@ describe("ordered approval manifest resolution", () => {
 				}),
 			]),
 		);
+	});
+});
+
+describe("delegated recommendation", () => {
+	it("records the server recommendation and delegation", async () => {
+		rows.set(ids.normal, approvalRow());
+		const result = await client().resolve({
+			id: ids.normal,
+			status: "rejected",
+			delegateRecommendation: true,
+		});
+		expect(result.resolution).toContain("Decide for me: rejected");
+		expect(mocks.insertAudit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				metadata: expect.objectContaining({ delegatedRecommendation: true }),
+			}),
+		);
+	});
+	it("rejects a changed recommendation before resolving", async () => {
+		rows.set(ids.normal, approvalRow());
+		await expect(
+			client().resolve({
+				id: ids.normal,
+				status: "approved",
+				delegateRecommendation: true,
+			}),
+		).rejects.toThrow("recommendation changed");
+		expect(mocks.resolveApproval).not.toHaveBeenCalled();
 	});
 });

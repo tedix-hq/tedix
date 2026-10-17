@@ -716,6 +716,7 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workAgentSessions/listRequests": "list_agent_session_requests",
 	"workAgentSessions/updateRequest": "update_agent_session_request",
 	"workAgentSessions/fileRequest": "file_agent_session_request",
+	"workAgentSessions/classifyRequests": "classify_agent_session_requests",
 	"workScheduler/listReady": "list_ready_work",
 	"workScheduler/planClusters": "plan_work_execution_clusters",
 	"workItems/updateSpecification": "update_work_item_specification",

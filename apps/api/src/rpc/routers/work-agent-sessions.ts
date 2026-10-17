@@ -26,7 +26,6 @@ import { workAgentSessionsContract } from "@tedix/api-contract/contracts/work-ag
 import {
 	listAgentSessionActivity,
 	getAgentSessionRequest,
-	fileAgentSessionRequest,
 	listAgentSessionRequests,
 	updateAgentSessionRequests,
 } from "@tedix/db/queries/agent-session-requests";
@@ -56,6 +55,7 @@ import {
 	createError,
 	ErrorCodes,
 	withAuth,
+	userHoldsPermission,
 	withAuthorization,
 } from "../orpc";
 
@@ -373,6 +373,17 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 		)
 			return result;
 		const model = workersAiLedgerModel(context.env);
+		const { enqueueRequestFiling } =
+			await import("../../services/request-filing-queue");
+		model.enqueueFilings = async (owner) => {
+			const { automaticFilingEnabled } =
+				await import("../../services/request-filing-settings");
+			if (await automaticFilingEnabled(context.db, owner))
+				await enqueueRequestFiling(context.env, {
+					...owner,
+					ownerSubject: context.user!.sub!,
+				});
+		};
 		model.learn = async (lessons, scope) => {
 			const ownerUserId = context.user?.sub;
 			if (!lessons.length || !ownerUserId) return;
@@ -684,7 +695,15 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				context.env.ENVIRONMENT,
 			),
 		]);
+		const { readFilingReview } =
+			await import("../../services/request-filing-review");
+		const review = await readFilingReview(
+			context.db,
+			{ ...owner, learningOwnerId: owner.descopeUserId },
+			now.toISOString(),
+		);
 		const result = {
+			...review,
 			...buildAttention(
 				sources,
 				sessions,
@@ -731,6 +750,10 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			);
 			result.projects = result.projects.filter((p) => ids.has(p.id));
 			result.unfiled = [];
+			result.filings = result.filings.filter(
+				(row) => row.projectId && ids.has(row.projectId),
+			);
+			result.pendingFilingCount = 0;
 			const scopeIds = new Set([
 				...ids,
 				...result.projects.flatMap((p) =>
@@ -747,6 +770,32 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 		}
 		return result;
 	}),
+	classifyRequests: writeOs.classifyRequests.handler(
+		async ({ context, input }) => {
+			const owner = requireBoardOwner(context);
+			if (
+				input.enabled !== false &&
+				!userHoldsPermission(context, "tedis:update")
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Automatic filing requires project creation permission",
+				);
+			const { setAutomaticFiling, automaticFilingEnabled } =
+				await import("../../services/request-filing-settings");
+			if (input.enabled !== undefined)
+				await setAutomaticFiling(context.db, owner, input.enabled);
+			if (!(await automaticFilingEnabled(context.db, owner)))
+				return { queued: false };
+			const { enqueueRequestFiling } =
+				await import("../../services/request-filing-queue");
+			await enqueueRequestFiling(context.env, {
+				...owner,
+				ownerSubject: context.user!.sub!,
+			});
+			return { queued: true };
+		},
+	),
 	fileRequest: writeOs.fileRequest.handler(async ({ input, context }) => {
 		const owner = requireBoardOwner(context);
 		if (input.acceptanceChecks && !input.workItemId)
@@ -780,12 +829,45 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			)
 				throw createError(ErrorCodes.NOT_FOUND, "Project not found");
 		}
-		const row = await fileAgentSessionRequest(context.db, {
-			...owner,
-			...input,
-			now: new Date().toISOString(),
+		const previous = await getAgentSessionRequest(context.db, {
+			organizationId: owner.organizationId,
+			userId: owner.userId,
+			id: input.id,
 		});
-		if (!row) throw createError(ErrorCodes.NOT_FOUND, "Request not found");
+		if (!previous) throw createError(ErrorCodes.NOT_FOUND, "Request not found");
+		let row = previous;
+		if (previous.projectId !== input.projectId) {
+			const { recordRequestFiling } =
+				await import("@tedix/db/queries/request-filings");
+			const result = await recordRequestFiling(context.db, {
+				...owner,
+				row: previous,
+				projectId: input.projectId,
+				by: "correction",
+				shareCorrection: await (
+					await import("../../services/request-filing-settings")
+				).automaticFilingEnabled(context.db, owner),
+				learningOwnerId: context.user!.sub,
+				confidence: 1,
+				reason: "Destination corrected by the ledger owner",
+				now: new Date().toISOString(),
+			});
+			if (!result)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Request moved; refresh before correcting it",
+				);
+			const { enqueueRequestFiling } =
+				await import("../../services/request-filing-queue");
+			await enqueueRequestFiling(context.env, {
+				...owner,
+				ownerSubject: context.user!.sub!,
+			});
+			const { recordFilingCorrectionLesson } =
+				await import("../../services/request-ledger-lessons");
+			await recordFilingCorrectionLesson(context.db, result.event);
+			row = result.row;
+		}
 		if (input.workItemId) {
 			const { bindLocalKernelRequest } =
 				await import("../../kernel/request-local-source");

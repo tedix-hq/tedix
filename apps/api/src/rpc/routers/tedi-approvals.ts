@@ -1,3 +1,5 @@
+import { disposableCleanupApprover } from "../../services/disposable-cleanup-approval";
+import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 /**
  * oRPC Tedi Approvals Router
  * Human-in-the-loop approval queue for tedi governance
@@ -37,6 +39,7 @@ import {
 } from "@tedix/api-contract/utils/approval-policy";
 import {
 	createApprovalRequest,
+	createApprovalRequestWithAudit,
 	createProvisionalOutcome,
 	ensureProvisionalPromotionApprovalRequest,
 	getApprovalRequestById,
@@ -721,7 +724,8 @@ const createApprovalProcedure = approvalsOs.create
 			}
 		}
 
-		const request = await createApprovalRequest(context.db, {
+		const cleanupApprover = await disposableCleanupApprover(context.db, input);
+		const data = {
 			id,
 			tediId: input.tediId,
 			orgId: input.orgId,
@@ -731,7 +735,32 @@ const createApprovalProcedure = approvalsOs.create
 			createdAt: now.toISOString(),
 			expiresAt: expiresAt.toISOString(),
 			workflowId,
-		});
+		};
+		const request = cleanupApprover
+			? await createApprovalRequestWithAudit(
+					context.db,
+					{
+						...data,
+						automaticApproval: {
+							tediId: cleanupApprover,
+							reason:
+								"Owning tedi approved cancellation of its low-risk disposable agent Work; no active Attempt. Evidence and expired Attempts are preserved.",
+						},
+					},
+					{
+						organizationId: input.orgId,
+						actorId: cleanupApprover,
+						actorType: "tedi",
+						action: "approval.approved",
+						resourceType: "approval_request",
+						resourceId: id,
+						metadata: {
+							source: "disposable_work_cleanup",
+							workItemId: String(input.payload.workItemId),
+						},
+					},
+				)
+			: await createApprovalRequest(context.db, data);
 
 		// The row exists before the Workflow can read it, closing the startup race.
 		try {
@@ -1288,6 +1317,19 @@ const resolveProcedure = authedOs.resolve
 
 		assertApprovalStillPending(existing);
 
+		const recommendation = approvalDecision(normalizeApprovalRequest(existing));
+		if (
+			input.delegateRecommendation &&
+			input.status !== recommendation.recommendation
+		) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"The recommendation changed; refresh this request.",
+			);
+		}
+		if (input.delegateRecommendation) {
+			input.resolution = `Decide for me: ${recommendation.recommendation}. ${recommendation.reason}`;
+		}
 		const resolvedBy = resolveApprovalPrincipal(context, existing);
 
 		const resolved = await resolveApprovalRequest(context.db, input.id, {
@@ -1315,6 +1357,7 @@ const resolveProcedure = authedOs.resolve
 				tediId: resolved.tediId,
 				actionType: resolved.actionType,
 				resolution: input.resolution,
+				delegatedRecommendation: input.delegateRecommendation === true,
 			}),
 		});
 		await signalApprovalWorkflow(context, resolved);

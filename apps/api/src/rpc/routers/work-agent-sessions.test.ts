@@ -1,3 +1,4 @@
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { projects } from "@tedix/db/schema/projects";
@@ -15,6 +16,9 @@ import {
 	osWorkspaces,
 	osWorkspaceProjects,
 	osGadgetExecutions,
+	osOutputs,
+	osGadgets,
+	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
 import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-layout";
 import { userConfigs } from "@tedix/db/schema/user-configs";
@@ -44,6 +48,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(schemaDdl(workAgentSessions));
 	sqlite.exec(schemaDdl(userConfigs));
+	sqlite.exec(schemaDdl(learningInteractionEvents));
 	for (const table of [
 		projects,
 		organizationMembers,
@@ -60,23 +65,35 @@ function fixture() {
 		osWorkspaces,
 		osWorkspaceProjects,
 		osGadgetExecutions,
+		osOutputs,
+		osGadgets,
+		osWorkspaceResources,
 	])
 		sqlite.exec(schemaDdl(table));
+	const queued: unknown[] = [];
 	const facade = createD1Facade(sqlite);
 	const baseContext = {
 		db: createDbClient(facade),
-		env: { ENVIRONMENT: "test", DB: facade } as CloudflareEnv,
+		env: {
+			ENVIRONMENT: "test",
+			DB: facade,
+			AUTOMATION_EVENTS: {
+				send: async (body: unknown) => {
+					queued.push(body);
+				},
+			},
+		} as unknown as CloudflareEnv,
 		headers: new Headers(),
 		organizationId: ORG_ID,
 		url: new URL("https://api.tedix.test/rpc/workAgentSessions"),
 	};
-	const userClient = (userId: string) =>
+	const userClient = (userId: string, userRole = "member") =>
 		createRouterClient(workAgentSessionsContractRouter, {
 			context: {
 				...baseContext,
 				authType: "user",
 				userId,
-				userRole: "member",
+				userRole,
 				user: {
 					aud: "test",
 					dct: "tenant-1",
@@ -104,6 +121,8 @@ function fixture() {
 	return {
 		sqlite,
 		ada: userClient("ada"),
+		owner: userClient("owner", "owner"),
+		queued,
 		grace: userClient("grace"),
 		tediClient,
 	};
@@ -332,4 +351,29 @@ it("backfilling an old unfinished lane does not claim fresh activity", async () 
 	});
 	expect(result.session.lastEventAt).toBe(observedAt);
 	expect(result.session.effectiveState).toBe("idle");
+});
+
+it("keeps automatic container creation behind existing project permission and explicit owner opt-in", async () => {
+	const { ada, owner, queued, tediClient } = fixture();
+	await expect(ada.classifyRequests({ enabled: true })).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	await expect(
+		tediClient.classifyRequests({ enabled: true }),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	expect(await owner.classifyRequests({ enabled: true })).toEqual({
+		queued: true,
+	});
+	expect(queued).toEqual([
+		{
+			kind: "request_filing",
+			organizationId: ORG_ID,
+			userId: "owner",
+			ownerSubject: "owner-sub",
+		},
+	]);
+	expect(await owner.classifyRequests({ enabled: false })).toEqual({
+		queued: false,
+	});
+	expect(queued).toHaveLength(1);
 });

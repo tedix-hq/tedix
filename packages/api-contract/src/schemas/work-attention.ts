@@ -102,6 +102,40 @@ export const AttentionResultSchema = z.strictObject({
 		}),
 	),
 	unfiled: z.array(AgentSessionRequestSchema),
+	automaticFilingEnabled: z.boolean().optional(),
+	pendingFilingCount: z.number().int().nonnegative().optional(),
+	filings: z
+		.array(
+			z.strictObject({
+				id: z.string(),
+				text: z.string(),
+				projectId: z.string().nullable(),
+				previousProjectId: z.string().nullable(),
+				by: z.enum(["auto", "correction"]),
+				confidence: z.number(),
+				reason: z.string(),
+				at: z.string(),
+				review: z.boolean(),
+			}),
+		)
+		.optional(),
+	filingDigest: z
+		.strictObject({
+			since: z.string(),
+			total: z.number(),
+			corrected: z.number(),
+			correctionRate: z.number().nullable(),
+		})
+		.optional(),
+	emptyAutoCreated: z
+		.array(
+			z.strictObject({
+				id: z.string(),
+				name: z.string(),
+				kind: z.enum(["project", "workspace"]),
+			}),
+		)
+		.optional(),
 	unattendedObjectives: z
 		.array(
 			z.strictObject({

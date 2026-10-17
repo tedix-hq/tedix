@@ -541,6 +541,7 @@ export const tediApprovalsContract = oc
 					id: z.uuid(),
 					status: z.enum(["approved", "rejected"]),
 					resolution: z.string().max(2000).optional(),
+					delegateRecommendation: z.boolean().optional(),
 				}),
 			)
 			.output(ApprovalRequestSchema),

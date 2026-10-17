@@ -11,6 +11,8 @@ export const AgentSessionRequestKindSchema = z.enum([
 	"request",
 	"question",
 	"decision",
+	"idea",
+	"issue",
 	"ask",
 	"promise",
 	"open_loop",
@@ -194,4 +196,16 @@ export const ListAgentSessionActivityResultSchema = z.strictObject({
 			activity: z.string().nullable(),
 		}),
 	),
+});
+
+export const ClassifyAgentSessionRequestsInputSchema = z.strictObject({
+	enabled: z
+		.boolean()
+		.optional()
+		.describe(
+			"Enable or disable automatic filing for your private ledger. Enabling allows organization-visible container briefs, proposed Work and corrected filing examples; uploaded source events remain private.",
+		),
+});
+export const ClassifyAgentSessionRequestsResultSchema = z.strictObject({
+	queued: z.boolean(),
 });

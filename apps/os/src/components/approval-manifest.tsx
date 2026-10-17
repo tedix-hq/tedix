@@ -1,3 +1,4 @@
+import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -50,12 +51,7 @@ export function ApprovalManifestActions({
 						render={<li />}
 						className="grid gap-3 px-3 py-3"
 					>
-						<Text as="strong" role="body" tone="strong">
-							{action.order + 1}. {request.description}
-						</Text>
-						<Text as="p" role="body" className="m-0">
-							{request.review.operatorQuestion}
-						</Text>
+						<ApprovalDecisionCopy approval={request} />
 						<div className="flex flex-wrap gap-2">
 							<Badge variant="outline">
 								{action.inclusion === "requested"
@@ -114,6 +110,7 @@ export function ApprovalManifestActions({
 										organizationId: request.orgId,
 										workflowId: request.workflowId,
 										actionType: request.actionType,
+										description: request.description,
 										canonicalInputHash: action.canonicalInputHash,
 										expiresAt: request.expiresAt,
 										payload: request.payload,

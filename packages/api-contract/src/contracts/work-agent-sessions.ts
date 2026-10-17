@@ -12,6 +12,8 @@ import {
 	AttentionResultSchema,
 } from "../schemas/work-attention";
 import {
+	ClassifyAgentSessionRequestsInputSchema,
+	ClassifyAgentSessionRequestsResultSchema,
 	ListAgentSessionActivityInputSchema,
 	FileAgentSessionRequestInputSchema,
 	ListAgentSessionActivityResultSchema,
@@ -134,6 +136,15 @@ export const workAgentSessionsContract = oc
 			})
 			.input(UpdateAgentSessionRequestInputSchema)
 			.output(UpdateAgentSessionRequestResultSchema),
+		classifyRequests: oc
+			.route({
+				method: "POST",
+				path: "/requests/classify",
+				summary:
+					"Automatically classify and file this owner's pending session requests",
+			})
+			.input(ClassifyAgentSessionRequestsInputSchema)
+			.output(ClassifyAgentSessionRequestsResultSchema),
 		fileRequest: oc
 			.route({
 				method: "POST",

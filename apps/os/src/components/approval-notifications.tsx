@@ -1,3 +1,5 @@
+import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
+import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import { Check, Pulse, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { approvalsFromRunSet } from "@/components/chat-cards";
@@ -68,10 +70,17 @@ export function ApprovalNotifications({
 		mutationFn: ({
 			runId,
 			decision,
+			delegateRecommendation,
 		}: {
 			runId: string;
 			decision: "approve" | "reject";
-		}) => osChatMutationApi.kernelRuntime.respondApproval({ runId, decision }),
+			delegateRecommendation?: boolean;
+		}) =>
+			osChatMutationApi.kernelRuntime.respondApproval({
+				runId,
+				decision,
+				delegateRecommendation,
+			}),
 		onSuccess: async () => {
 			if (conversationId !== null) {
 				await queryClient.invalidateQueries({
@@ -84,13 +93,16 @@ export function ApprovalNotifications({
 		mutationFn: ({
 			id,
 			status,
+			delegateRecommendation,
 		}: {
 			id: string;
 			status: "approved" | "rejected";
+			delegateRecommendation?: boolean;
 		}) =>
 			osApi.tediApprovals.resolve({
 				id,
 				status,
+				delegateRecommendation,
 				resolution:
 					status === "approved"
 						? "Approved from the Tedix OS attention menu after reviewing the exact request."
@@ -157,7 +169,14 @@ export function ApprovalNotifications({
 								className="grid min-w-0 gap-2 rounded-lg border border-kumo-warning bg-kumo-warning-tint p-3"
 								key={approval.approvalId}
 							>
-								<div className="grid min-w-0 gap-0.5">
+								<ApprovalDecisionCopy
+									approval={{
+										actionType: "home_request",
+										review: { intent: "home_request" },
+									}}
+								/>
+								<details>
+									<summary>Technical details</summary>
 									<Text as="strong" role="body" tone="strong">
 										{approval.summary}
 									</Text>
@@ -166,8 +185,21 @@ export function ApprovalNotifications({
 											{approval.detail}
 										</Text>
 									) : null}
-								</div>
+								</details>
 								<div className="flex flex-wrap gap-2">
+									<Button
+										size="sm"
+										disabled={respondHome.isPending}
+										onClick={() =>
+											respondHome.mutate({
+												runId: approval.runId,
+												decision: "reject",
+												delegateRecommendation: true,
+											})
+										}
+									>
+										Decide for me
+									</Button>
 									<Button
 										disabled={respondHome.isPending}
 										icon={<Check size={14} />}
@@ -203,16 +235,28 @@ export function ApprovalNotifications({
 								className="grid min-w-0 gap-2 rounded-lg border border-kumo-hairline bg-kumo-tint p-3"
 								key={approval.id}
 							>
-								<div className="grid min-w-0 gap-0.5">
-									<Text as="strong" role="body" tone="strong">
+								<ApprovalDecisionCopy approval={approval} />
+								<details>
+									<summary>Technical details</summary>
+									<Text as="p" role="body">
 										{approval.description}
 									</Text>
-									<Text role="label" tone="secondary">
-										{approval.review.operatorQuestion}
-									</Text>
-								</div>
+								</details>
 								{approval.review.decisionMode === "approve_or_reject" ? (
 									<div className="flex flex-wrap gap-2">
+										<Button
+											size="sm"
+											disabled={resolveRuntime.isPending}
+											onClick={() =>
+												resolveRuntime.mutate({
+													id: approval.id,
+													status: approvalDecision(approval).recommendation,
+													delegateRecommendation: true,
+												})
+											}
+										>
+											Decide for me
+										</Button>
 										<Button
 											disabled={resolveRuntime.isPending}
 											onClick={() =>

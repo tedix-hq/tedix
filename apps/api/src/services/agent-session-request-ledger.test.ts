@@ -2,6 +2,12 @@ import { userConfigs } from "@tedix/db/schema/user-configs";
 import { DatabaseSync } from "node:sqlite";
 import { listAgentSessionRequests } from "@tedix/db/queries/agent-session-requests";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
+import {
+	osWorkspaces,
+	osWorkspaceProjects,
+} from "@tedix/db/schema/os-workspaces";
+import { workEvents, workItems } from "@tedix/db/schema/work-items";
 import { projects } from "@tedix/db/schema/projects";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import { workInteractions } from "@tedix/db/schema/work-factory";
@@ -123,6 +129,14 @@ function fixture() {
 	sqlite.exec(schemaDdl(projects));
 	sqlite.exec(schemaDdl(userConfigs));
 	sqlite.exec(schemaDdl(tediObjectives));
+	for (const table of [
+		learningInteractionEvents,
+		osWorkspaces,
+		osWorkspaceProjects,
+		workItems,
+		workEvents,
+	])
+		sqlite.exec(schemaDdl(table));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -176,10 +190,12 @@ describe("request ledger observer", () => {
 					"project-example",
 				]);
 				return JSON.stringify({
-					filings: [
-						{ id: input.requests[0].id, projectId: "project-example" },
-						{ id: input.requests[0].id, projectId: "foreign-project" },
-					],
+					projectId: "project-example",
+					name: "Documentation",
+					brief: "Installation and onboarding guides",
+					container: "project",
+					actionable: true,
+					reason: "Matches installation brief",
 				});
 			}
 			return JSON.stringify({
@@ -187,6 +203,7 @@ describe("request ledger observer", () => {
 			});
 		};
 		model.routeProjects = true;
+		model.scoreProjectFit = async () => 0.9;
 		await observe(db, model, "Improve the installation guide");
 		expect((await rows(db))[0]?.projectId).toBe("project-example");
 	});
@@ -1353,49 +1370,57 @@ it("requires an explicit retry to restart a failed duplicate event", async () =>
 	expect(await rows(db)).toHaveLength(1);
 });
 
-it("keeps original request scope separate from a later implementation request", async () => {
-	const db = fixture();
-	const original = "Review authentication and report findings.";
-	await acceptAgentSessionEvents(db, {
-		organizationId: SCOPE.organizationId,
-		userId: SCOPE.userId,
-		now: T0,
-		events: [
-			{ ...SCOPE, kind: "prompt", sourceAt: T0, text: original },
-			{
-				...SCOPE,
-				kind: "prompt",
-				sourceAt: "2026-10-06T10:01:00.000Z",
-				text: "Implement and deploy the findings.",
-			},
-		],
-	});
-	await observe(
-		db,
-		scripted(
-			'{"requests":[{"kind":"request","text":"Review authentication"},{"kind":"request","text":"Report findings"}]}',
-		).model,
-		original,
-	);
-	const { model, prompts } = scripted(
-		'{"updates":[{"ref":"r1","status":"done","evidence":"Review findings delivered in the report."}]}',
-	);
-	await reflectAgentSessionRequests(db, model, {
-		...SCOPE,
-		sourceAt: "2026-10-06T10:02:00.000Z",
-		now: T0,
-		repository: "example/app",
-		turn: "Review findings delivered in the report. Implementation is still running.",
-		activity: null,
-	});
-	expect(prompts[0]).toContain(
-		`ORIGINAL REQUEST SCOPES:\n<<<\nr1, r2:\n${original}`,
-	);
-	expect(prompts[0]).toContain(
-		"USER MESSAGE:\n<<<\nImplement and deploy the findings.",
-	);
-	expect((await rows(db))[0]?.status).toBe("done");
-});
+it.each(["request", "idea", "issue"])(
+	"keeps original %s scope separate from a later implementation request",
+	async (kind) => {
+		const db = fixture();
+		const original = "Review authentication and report findings.";
+		await acceptAgentSessionEvents(db, {
+			organizationId: SCOPE.organizationId,
+			userId: SCOPE.userId,
+			now: T0,
+			events: [
+				{ ...SCOPE, kind: "prompt", sourceAt: T0, text: original },
+				{
+					...SCOPE,
+					kind: "prompt",
+					sourceAt: "2026-10-06T10:01:00.000Z",
+					text: "Implement and deploy the findings.",
+				},
+			],
+		});
+		await observe(
+			db,
+			scripted(
+				JSON.stringify({
+					requests: [
+						{ kind, text: "Review authentication" },
+						{ kind, text: "Report findings" },
+					],
+				}),
+			).model,
+			original,
+		);
+		const { model, prompts } = scripted(
+			'{"updates":[{"ref":"r1","status":"done","evidence":"Review findings delivered in the report."}]}',
+		);
+		await reflectAgentSessionRequests(db, model, {
+			...SCOPE,
+			sourceAt: "2026-10-06T10:02:00.000Z",
+			now: T0,
+			repository: "example/app",
+			turn: "Review findings delivered in the report. Implementation is still running.",
+			activity: null,
+		});
+		expect(prompts[0]).toContain(
+			`ORIGINAL REQUEST SCOPES:\n<<<\nr1, r2:\n${original}`,
+		);
+		expect(prompts[0]).toContain(
+			"USER MESSAGE:\n<<<\nImplement and deploy the findings.",
+		);
+		expect((await rows(db))[0]?.status).toBe("done");
+	},
+);
 
 it("keeps quoted mention evidence through silence so a later turn can recover closure", async () => {
 	const db = fixture();

@@ -25,6 +25,8 @@ export const AGENT_SESSION_REQUEST_KIND_VALUES = [
 	"request",
 	"question",
 	"decision",
+	"idea",
+	"issue",
 	"ask",
 	"promise",
 	"open_loop",

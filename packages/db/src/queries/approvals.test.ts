@@ -448,3 +448,33 @@ describe("createApprovalRequestWithAudit", () => {
 		});
 	});
 });
+
+describe("automatic scratch approval", () => {
+	it("is inserted resolved and never enters the human pending list", async () => {
+		const { db } = setup();
+		const row = await createApprovalRequest(db, {
+			id: "scratch",
+			orgId: "fictional-org",
+			tediId: "fictional-owner",
+			actionType: "work_item.cleanup",
+			description: "Cancel scratch Work",
+			payload: { workItemId: "scratch-work" },
+			createdAt: "2026-10-17T00:00:00Z",
+			expiresAt: "2099-10-18T00:00:00Z",
+			automaticApproval: {
+				tediId: "fictional-owner",
+				reason: "Disposable agent Work; no active Attempt",
+			},
+		});
+		expect(row.status).toBe("approved");
+		expect(row.resolvedBy).toBe("fictional-owner");
+		expect(
+			(
+				await listApprovalRequests(db, {
+					orgId: "fictional-org",
+					status: "pending",
+				})
+			).total,
+		).toBe(0);
+	});
+});
