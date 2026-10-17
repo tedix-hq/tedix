@@ -3,6 +3,24 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.10.1 — 2026-10-17
+
+### Patch Changes
+
+- 3d06f60: Useful profile suggestions keep the same inbox identity across updates. Tedix keeps at most three open and avoids adding duplicates when it cannot read the inbox.
+- 58d6498: Claude and Codex can receive an update when Home or delegated work finishes, fails or needs your input. The update names the conversation and tells you how to open its result.
+- 01fbcba: Your personal profile is saved in your private workspace, visible only to you and your own tedis and agents.
+- bb11acc: Accepting a profile suggestion starts its first step: handing a task to a tedi, preparing a factory for you to switch on, or drafting a document. Accepting twice does not start it twice. Re-running your profile keeps existing workstream sections and names only facts found in your sessions.
+- 7fad22b: Your profile opens with “Your week in Tedix,” groups related work into up to 12 workstreams, and offers three next steps based on your goals and what matters now. Work links need evidence, and suggestions that no longer fit are withdrawn.
+- c15827b: When Tedix suggests work from your sessions, it checks older completed work first and verifies which existing task a suggestion belongs under. It tells you to open Work > Needs you to accept or decline suggestions.
+- 42794dc: An agent can no longer run login and replace your shared connection. Login requires a human terminal. When a sleeping Mac briefly wakes, Tedix waits to renew the connection without asking you to sign in again.
+- 729aceb: Your Needs you list stays quieter: uncertain agent summaries stay out, questions keep the identity of the chat that asked, and unanswered onboarding suggestions expire.
+- 2624634: Starting, clearing or shortening a chat brings back unfinished requests and questions waiting for your answer.
+- 5b6d824: New Work can use its project's purpose automatically. Tedix explains when that purpose takes precedence over the usual short-lived task defaults.
+- 4b1785c: When a captured turn cites a commit, Tedix reads its local details so request status checks can use the original completion evidence.
+- f4bcfd7: With decision capture enabled, Tedix keeps a private list of your requests and the agent's promises across Claude Code and Codex chats. If sending fails, it keeps the message for another try. Before each prompt, the agent sees recent open requests from this chat and earlier chats in the same repository. Request completion needs supporting evidence. You can see the list in Work > Needs you > Your requests.
+- f011e96: Request status checks receive the full redacted agent turn, including reports from supporting agents.
+
 ## 0.10.0 — 2026-10-16
 
 ### Minor Changes
