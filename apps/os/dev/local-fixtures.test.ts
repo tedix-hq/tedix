@@ -1,3 +1,4 @@
+import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-layout";
 // @vitest-environment node
 import { apiContract } from "@tedix/api-contract/contracts/api";
 import { dynamicSkillDefinitionId } from "@tedix/api-contract/constants/workflow-definition-keys";
@@ -245,6 +246,13 @@ const CALLS: Record<string, unknown> = {
 	"audit/search": { limit: 100 },
 	"workItems/list": { limit: 50 },
 	"workAgentSessions/list": {},
+	"workAgentSessions/attention": {},
+	"workAgentSessions/getAttentionLayout": {},
+	"workAgentSessions/updateAttentionLayout": {
+		layout: DEFAULT_ATTENTION_LAYOUT,
+		expectedRevision: 0,
+	},
+	"workAgentSessions/visitAttention": {},
 	"workAgentSessions/contributors": {
 		projectId: "00000076-0000-4000-8000-000000000001",
 	},

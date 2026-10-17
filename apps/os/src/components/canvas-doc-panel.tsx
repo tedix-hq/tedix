@@ -1,3 +1,4 @@
+import { AttentionApp } from "@/components/work-attention-page";
 import {
 	ArrowsIn,
 	ArrowsOut,
@@ -529,11 +530,16 @@ export function CanvasDocPanel({
 			)
 		: null;
 	// A built-in app (entry `tedix:app/<id>`) renders first-party, with no iframe.
+	const attentionApp =
+		isGadget &&
+		gadgetDetail.data?.currentRevision?.manifest.entry ===
+			"tedix:app/attention";
 	const builtinApp = isGadget
 		? cardReviewConfigFromManifest(gadgetDetail.data?.currentRevision?.manifest)
 		: ({ kind: "none" } as const);
 	const builtinAppView =
-		builtinApp.kind !== "none" && effectiveGadgetView === "preview";
+		(attentionApp || builtinApp.kind !== "none") &&
+		effectiveGadgetView === "preview";
 	const executionGadgetId = isGadget ? doc.id : doc.linkedGadgetId;
 	useEffect(() => {
 		setPreviewExecution(null);
@@ -766,14 +772,18 @@ export function CanvasDocPanel({
 							value={gadgetView}
 						/>
 					)}
-					{builtinApp.kind === "ok" ? (
+					{attentionApp ? (
+						<AttentionApp workspaceId={workspaceId} />
+					) : builtinApp.kind === "ok" ? (
 						<CardReviewApp config={builtinApp.config} />
 					) : (
 						<Alert variant="warning">
 							<AlertTitle>This app's settings need a fix</AlertTitle>
 							<AlertDescription>
-								{builtinApp.message}. Open Code to edit the settings in
-								manifest.json.
+								{builtinApp.kind === "invalid"
+									? builtinApp.message
+									: "Unknown built-in app"}
+								. Open Code to edit the settings in manifest.json.
 							</AlertDescription>
 						</Alert>
 					)}
@@ -792,7 +802,7 @@ export function CanvasDocPanel({
 							: undefined
 					}
 				>
-					{(gadgetWidgetTarget || builtinApp.kind !== "none") &&
+					{(gadgetWidgetTarget || attentionApp || builtinApp.kind !== "none") &&
 						gadgetViewOverride === undefined && (
 							<SegmentedControl
 								ariaLabel="App view"
@@ -842,17 +852,19 @@ export function CanvasDocPanel({
 							</CardContent>
 						</Card>
 					) : effectiveGadgetView === "runs" &&
-					  builtinApp.kind !== "none" &&
+					  (attentionApp || builtinApp.kind !== "none") &&
 					  !gadgetDetail.data?.currentRevision?.manifest.skillSlug ? (
 						<Card size="sm">
 							<CardContent className="grid gap-3">
 								<Text as="h3" weight="medium">
-									Cards come from scheduled skills
+									{attentionApp
+										? "Activity comes from your workspace"
+										: "Cards come from scheduled skills"}
 								</Text>
 								<Text>
-									Card review opens saved card sheets. To check when new cards
-									were produced, open Resources and choose See runs on a
-									scheduled skill.
+									{attentionApp
+										? "Open Preview to see local sessions and cloud work in this workspace, with their latest progress."
+										: "Card review opens saved card sheets. To check when new cards were produced, open Resources and choose See runs on a scheduled skill."}
 								</Text>
 								<Button variant="outline" onClick={onShowResources}>
 									Open Resources

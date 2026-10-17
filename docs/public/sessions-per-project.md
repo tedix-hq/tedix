@@ -145,3 +145,39 @@ bucket, fall under "Other". Placeholder briefs read as empty.
 
 Related: [Factories, Workspaces and Projects](./factories-workspaces-projects.md),
 [Core concepts](./concepts.md).
+
+## Arrange your Attention view
+
+Attention combines local Claude and Codex sessions, cloud tedi turns, factory
+and skill runs, and scheduled skill coordinators. Its two-hour timeline ends
+at each lane's latest confirmed heartbeat. Elapsed timers keep ticking while
+work is open; finished work keeps its final duration. A fading dot and a
+"no heartbeat" label distinguish silent work from fresh reports. A silent
+local session may mean a closed laptop; silence alone does not prove that.
+Cloud work runs independently of your laptop.
+
+Today's contribution bar shows the share of reported time in the bounded
+overview, with overlapping work counted separately. Select a source, tedi or
+factory to narrow the view. Waiting work appears before blocked, moving and
+backlog work. Unfiled remains the review queue for captured requests without
+a project match.
+
+Use **Focus today** to describe what matters. It helps rank cards and provides
+a relevance hint to the automatic project classifier; uncertain matches still
+stay unfiled. **Arrange view** pins projects, focuses one project, hides columns,
+changes spacing and moves widgets. The composition is a versioned per-user,
+per-organization config row, shared across devices. Concurrent edits return a
+conflict instead of overwriting each other.
+
+A chat assistant acting through your authenticated connection can read
+`get_attention_layout`, then call `update_attention_layout` with the complete
+layout and its `expectedRevision`. No owner id is accepted. A worker without
+your user identity cannot edit your personal layout. The same controls are
+available as browser tools while the app is open.
+
+A workspace app with manifest entry `tedix:app/attention` embeds the same
+renderer. It shows the workspace's linked projects, its factory executions and
+its conversation activity, after checking workspace access. The unfiled queue
+stays on the personal Attention page. Returning to Attention shows updates
+since your previous visit, using a server-side visit marker shared with your
+phone. Visit tracking is best effort when the connection is unavailable.

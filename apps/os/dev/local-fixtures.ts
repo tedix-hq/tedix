@@ -1,3 +1,11 @@
+import {
+	attentionFixture,
+	getAttentionFixtureLayout,
+	updateAttentionFixtureLayout,
+	visitAttentionFixture,
+	resetAttentionFixtures,
+} from "./attention-fixtures";
+import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 import { LOCAL_OUTBOUND } from "./outbound-fixture";
 import {
@@ -1059,6 +1067,7 @@ const seedState = (): LocalState => ({
 let state = seedState();
 
 export function resetLocalFixtures(): void {
+	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
 }
@@ -3977,6 +3986,14 @@ const handlers: Record<string, (input: never) => unknown> = {
 		sentExamples: 0,
 		sentStyleHints: [],
 	}),
+	"workAgentSessions/attention": (input: { workspaceId?: string }) =>
+		attentionFixture(input.workspaceId),
+	"workAgentSessions/getAttentionLayout": () => getAttentionFixtureLayout(),
+	"workAgentSessions/updateAttentionLayout": (input: {
+		layout: AttentionLayout;
+		expectedRevision: number;
+	}) => updateAttentionFixtureLayout(input),
+	"workAgentSessions/visitAttention": () => visitAttentionFixture(),
 	"workAgentSessions/list": (input: { includeEnded?: boolean } | undefined) =>
 		localAgentSessions(input?.includeEnded),
 	"workAgentSessions/contributors": (input: { projectId: string }) =>

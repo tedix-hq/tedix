@@ -1,0 +1,57 @@
+.attention-card {
+	animation: attention-enter 240ms ease-out both;
+}
+.attention-heartbeat {
+	animation: attention-beat 2s ease-in-out infinite;
+}
+.attention-note {
+	animation: attention-enter 180ms ease-out;
+}
+.attention-timeline {
+	background-image: linear-gradient(
+		to right,
+		var(--color-kumo-line) 1px,
+		transparent 1px
+	);
+	background-size: 25% 100%;
+}
+@keyframes attention-enter {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@keyframes attention-beat {
+	50% {
+		transform: scale(0.65);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.attention-card,
+	.attention-heartbeat,
+	.attention-note {
+		animation: none;
+	}
+}
+
+@media (max-width: 639px) {
+	.attention-widgets > [data-attention-widget="now"] {
+		order: 0;
+	}
+	.attention-widgets > [data-attention-widget="cards"] {
+		order: 1;
+	}
+	.attention-widgets > [data-attention-widget="contributions"] {
+		order: 2;
+	}
+	.attention-widgets > [data-attention-widget="gaps"] {
+		order: 3;
+	}
+	.attention-widgets > [data-attention-widget="unfiled"] {
+		order: 4;
+	}
+}

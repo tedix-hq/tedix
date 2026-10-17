@@ -1,15 +1,11 @@
+import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
+import { buildAttentionWebMcpTools } from "@/components/attention-webmcp-tools";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { SupportAttention } from "@/components/support-attention";
-import type { AttentionResult } from "@tedix/api-contract/schemas/work-attention";
 import { useEffect, useState } from "react";
+import { SupportAttention } from "@/components/support-attention";
+import { AttentionBoard } from "@/components/attention-live-view";
 import { Alert, AlertTitle, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
 import { Link } from "@/components/kumo/link";
 import {
 	Page,
@@ -18,250 +14,111 @@ import {
 	PageTitle,
 	PageDescription,
 } from "@/components/kumo/page";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
-import { osApi } from "@/lib/api";
-import { workAttentionQueryOptions, osQueryKeys } from "@/lib/os-query-options";
+import { osApi, OS_USES_FIXTURES } from "@/lib/api";
+import {
+	workAttentionQueryOptions,
+	attentionLayoutQueryOptions,
+	osQueryKeys,
+} from "@/lib/os-query-options";
 import {
 	getSharedCapnSessionHub,
 	type CapnSessionLeaseHandle,
 } from "@/lib/capn-session-hub";
 import { connectCapnSocket } from "@/lib/capn-chat-machine";
-import { relativeTime, absoluteTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
+import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 
-export const ATTENTION_COLUMNS = [
-	["moving", "Moving now"],
-	["waiting", "Waiting on you"],
-	["blocked", "Blocked"],
-	["done", "Done today"],
-	["backlog", "Backlog"],
-] as const;
-
-function When({ label, at }: { label: string; at: string | null }) {
-	return (
-		<Text as="span" role="label" tone="secondary">
-			{label}:{" "}
-			{at ? (
-				<time dateTime={at} title={absoluteTime(at)}>
-					{relativeTime(at, new Date())}
-				</time>
-			) : (
-				"Not reported"
-			)}
-		</Text>
-	);
-}
-
-export function AttentionBoard({
-	data,
-	file,
-	filing = false,
-}: {
-	data: AttentionResult;
-	file: (id: string, projectId: string) => void;
-	filing?: boolean;
-}) {
-	const names = new Map(data.projects.map((p) => [p.id, p.name]));
-	return (
-		<>
-			{data.truncated && (
-				<Alert>
-					<AlertTitle>Showing a bounded overview</AlertTitle>
-					<AlertDescription>
-						Some older records are outside this view. Open Projects or Activity
-						for the complete ledgers.
-					</AlertDescription>
-				</Alert>
-			)}
-			<div className="grid min-w-0 gap-4 md:grid-cols-2">
-				<Card>
-					<CardHeader>
-						<CardTitle>Attention by project</CardTitle>
-					</CardHeader>
-					<CardContent className="flex flex-wrap gap-2">
-						{data.projects
-							.filter((p) => p.active > 0)
-							.map((p) => (
-								<Badge
-									key={p.id}
-									variant="info"
-									className="max-w-full whitespace-normal [&_a]:min-w-0 [&_a]:break-words"
-								>
-									<Link href={`/work/projects/${p.id}`}>
-										{p.name} · {p.active}
-									</Link>
-								</Badge>
-							))}
-						{!data.projects.some((p) => p.active > 0) && (
-							<Text tone="secondary">No active registered lanes</Text>
-						)}
-					</CardContent>
-				</Card>
-				<Card>
-					<CardHeader>
-						<CardTitle>Stalled</CardTitle>
-					</CardHeader>
-					<CardContent className="flex flex-col gap-3">
-						{(data.stalls ?? []).slice(0, 10).map((stall) => (
-							<div
-								key={stall.scopeId}
-								className="min-w-0 space-y-1 break-words"
-							>
-								<Link href={stall.href}>
-									{stall.name}: {stall.reason}
-								</Link>
-								<Text role="label" tone="secondary">
-									{stall.cause}
-								</Text>
-								<When label="Resume requested" at={stall.requestedAt} />
-							</div>
-						))}
-						{!data.stalls?.length && (
-							<Text tone="secondary">
-								No stalls need your attention. Tedix handles recovery first.
-							</Text>
-						)}
-						{!!data.cadencePromises?.length && (
-							<Text role="label" tone="secondary">
-								Cadence promises:{" "}
-								{data.cadencePromises.filter((p) => p.status === "kept").length}{" "}
-								kept ·{" "}
-								{
-									data.cadencePromises.filter((p) => p.status === "missed")
-										.length
-								}{" "}
-								missed
-							</Text>
-						)}
-					</CardContent>
-				</Card>
-			</div>
-			<div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-				{ATTENTION_COLUMNS.map(([key, title]) => {
-					const cards = data.cards.filter((c) => c.column === key);
-					return (
-						<section
-							key={key}
-							aria-label={title}
-							className="max-h-[70vh] min-w-0 space-y-3 overflow-y-auto"
-						>
-							<Text
-								as="h2"
-								role="section"
-								className="flex items-center justify-between"
-							>
-								{title}
-								<Badge variant="secondary">{cards.length}</Badge>
-							</Text>
-							{cards.map((card) => (
-								<Card key={`${card.source}:${card.id}`} size="sm">
-									<CardHeader>
-										<Text role="label" tone="secondary">
-											{card.who} · {card.source.replaceAll("_", " ")}
-										</Text>
-										<CardTitle className="break-words">
-											<Link href={card.href}>{card.title}</Link>
-										</CardTitle>
-									</CardHeader>
-									<CardContent className="flex flex-col gap-2 break-words">
-										<Text role="label" tone="secondary">
-											{card.projectId
-												? names.get(card.projectId) || "Project"
-												: "No project filed"}
-										</Text>
-										<Text>{card.note}</Text>
-										<When label="Started" at={card.startedAt || null} />
-										<When label="Last heartbeat" at={card.heartbeatAt} />
-										<Link href={card.href}>View proof and activity</Link>
-									</CardContent>
-								</Card>
-							))}
-							{!cards.length && <Text tone="secondary">Nothing here</Text>}
-						</section>
-					);
-				})}
-			</div>
-			<section
-				id="attention-unfiled"
-				aria-label="Unfiled"
-				className="space-y-3"
-			>
-				<Text as="h2" role="section">
-					Unfiled · {data.unfiled.length}
-				</Text>
-				{data.unfiled.map((row) => (
-					<Card key={row.id} size="sm">
-						<CardContent className="flex min-w-0 flex-col gap-3 pt-3 sm:flex-row sm:items-center">
-							<Text className="min-w-0 flex-1 break-words">{row.text}</Text>
-							<Select
-								disabled={filing}
-								value={null}
-								onValueChange={(value) => {
-									if (value) file(row.id, value);
-								}}
-							>
-								<SelectTrigger
-									aria-label={`File to project: ${row.text}`}
-									className="w-full sm:w-64"
-								>
-									<SelectValue placeholder="File to project" />
-								</SelectTrigger>
-								<SelectContent>
-									{data.projects
-										.filter((p) => p.status === "active")
-										.map((p) => (
-											<SelectItem key={p.id} value={p.id}>
-												{p.name}
-											</SelectItem>
-										))}
-								</SelectContent>
-							</Select>
-						</CardContent>
-					</Card>
-				))}
-				{!data.unfiled.length && (
-					<Text tone="secondary">All captured requests are filed.</Text>
-				)}
-			</section>
-		</>
-	);
-}
-
-export function WorkAttentionPage() {
-	useDocumentTitle("Attention · Work");
+export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 	const cache = useQueryClient();
 	const [lease, setLease] = useState<CapnSessionLeaseHandle | null>(null);
+	const [previousVisitAt, setPreviousVisitAt] = useState<string | null>(null);
 	useEffect(() => {
+		if (OS_USES_FIXTURES) return;
 		const current = getSharedCapnSessionHub({
 			connect: connectCapnSocket,
 		}).lease();
 		setLease(current);
 		return () => current.release();
 	}, []);
+	useEffect(() => {
+		let alive = true;
+		let hiddenAt = 0;
+		const visit = () => {
+			void osApi.workAgentSessions
+				.visitAttention({})
+				.then((r) => {
+					if (alive) setPreviousVisitAt(r.previousVisitAt);
+				})
+				.catch(() => {});
+		};
+		visit();
+		const visibility = () => {
+			if (document.hidden) hiddenAt = Date.now();
+			else if (hiddenAt && Date.now() - hiddenAt > 60_000) {
+				visit();
+				hiddenAt = 0;
+			}
+		};
+		const checkpoint = setInterval(() => {
+			if (!document.hidden)
+				void osApi.workAgentSessions.visitAttention({}).catch(() => {});
+		}, 60_000);
+		document.addEventListener("visibilitychange", visibility);
+		return () => {
+			alive = false;
+			clearInterval(checkpoint);
+			document.removeEventListener("visibilitychange", visibility);
+		};
+	}, []);
 	const query = useQuery({
-		...workAttentionQueryOptions(),
+		...workAttentionQueryOptions(workspaceId),
 		queryFn: async () => {
+			if (OS_USES_FIXTURES)
+				return osApi.workAgentSessions.attention({
+					utcOffsetMinutes: new Date().getTimezoneOffset(),
+					workspaceId,
+				});
 			if (!lease) throw new Error("Attention connection is starting");
 			const { root } = await lease.session();
-			return root.readAttention(new Date().getTimezoneOffset());
+			return root.readAttention(new Date().getTimezoneOffset(), workspaceId);
 		},
-		enabled: !!lease,
+		enabled: OS_USES_FIXTURES || !!lease,
 		refetchInterval: 2000,
 		retry: false,
 	});
+	const layout = useQuery({
+		...attentionLayoutQueryOptions(),
+		refetchInterval: 5000,
+	});
+	const save = useMutation({
+		mutationFn: (value: AttentionLayout) =>
+			osApi.workAgentSessions.updateAttentionLayout({
+				layout: value,
+				expectedRevision: layout.data!.revision,
+			}),
+		onSuccess: (result) => {
+			cache.setQueryData(attentionLayoutQueryOptions().queryKey, result);
+		},
+		onError: () => {
+			void cache.invalidateQueries(attentionLayoutQueryOptions());
+		},
+	});
+	useAppWebMcpTools(
+		"attention",
+		{
+			layout: layout.data?.layout ?? null,
+			save: (value: AttentionLayout) => save.mutateAsync(value),
+		},
+		buildAttentionWebMcpTools,
+		[],
+	);
 	const filing = useMutation({
 		mutationFn: ({ id, projectId }: { id: string; projectId: string }) =>
 			osApi.workAgentSessions.fileRequest({ id, projectId }),
 		onSuccess: async () => {
 			await Promise.all([
-				cache.invalidateQueries(workAttentionQueryOptions()),
+				cache.invalidateQueries(workAttentionQueryOptions(workspaceId)),
 				cache.invalidateQueries({
 					queryKey: osQueryKeys.agentSessionRequests(),
 				}),
@@ -269,17 +126,11 @@ export function WorkAttentionPage() {
 		},
 	});
 	return (
-		<Page width="xl">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>Attention</PageTitle>
-					<PageDescription>
-						Where agent attention is going, what needs you, and what is missing.
-					</PageDescription>
-				</PageHeading>
-				<Link href="#attention-unfiled">
-					Unfiled · {query.data?.unfiled.length ?? 0}
-				</Link>
+		<div className="min-w-0 space-y-4">
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<Text tone="secondary">
+					Local sessions and cloud workers, together.
+				</Text>
 				<Badge variant={query.isError ? "warning" : "info"}>
 					{query.isError
 						? "Live updates paused"
@@ -287,7 +138,7 @@ export function WorkAttentionPage() {
 							? "Connecting…"
 							: "Live · every 2 seconds"}
 				</Badge>
-			</PageHeader>
+			</div>
 			{query.isError && (
 				<Alert variant="destructive">
 					<AlertTitle>Live updates paused</AlertTitle>
@@ -296,21 +147,46 @@ export function WorkAttentionPage() {
 					</AlertDescription>
 				</Alert>
 			)}
-			{filing.isError && (
+			{(filing.isError || save.isError || layout.isError) && (
 				<Alert variant="destructive">
-					<AlertTitle>Request could not be filed</AlertTitle>
-					<AlertDescription>{filing.error.message}</AlertDescription>
+					<AlertTitle>Changes could not be saved</AlertTitle>
+					<AlertDescription>
+						{filing.error?.message ||
+							save.error?.message ||
+							layout.error?.message}
+					</AlertDescription>
 				</Alert>
 			)}
 			{query.data ? (
 				<AttentionBoard
 					data={query.data}
+					layout={layout.data?.layout}
+					saveLayout={layout.data ? (value) => save.mutate(value) : undefined}
+					saving={save.isPending}
+					previousVisitAt={previousVisitAt}
 					filing={filing.isPending}
 					file={(id, projectId) => filing.mutate({ id, projectId })}
 				/>
 			) : (
 				<Text>Loading attention…</Text>
 			)}
+		</div>
+	);
+}
+export function WorkAttentionPage() {
+	useDocumentTitle("Attention · Work");
+	return (
+		<Page width="xl">
+			<PageHeader>
+				<PageHeading>
+					<PageTitle>Attention</PageTitle>
+					<PageDescription>
+						What needs you. What's moving. What needs a little attention.
+					</PageDescription>
+				</PageHeading>
+				<Link href="#attention-unfiled">Review unfiled requests</Link>
+			</PageHeader>
+			<AttentionApp />
 			<SupportAttention />
 		</Page>
 	);

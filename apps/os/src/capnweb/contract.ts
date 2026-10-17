@@ -175,6 +175,7 @@ export interface CapnConversationApi {
 export interface CapnSessionApi {
 	readAttention(
 		utcOffsetMinutes?: number,
+		workspaceId?: string,
 	): Promise<
 		import("@tedix/api-contract/schemas/work-attention").AttentionResult
 	>;
