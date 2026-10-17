@@ -56,6 +56,7 @@ import {
 	APP_TOOLS_PAGE_SIZE,
 	appAdaptersListQueryOptions,
 	appToolsListQueryOptions,
+	osQuery,
 	osQueryKeys,
 } from "@/lib/os-query-options";
 
@@ -157,6 +158,9 @@ function ToolRow({
 		},
 		onSettled: () => {
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.appTools() });
+			queryClient.invalidateQueries({
+				queryKey: osQuery.mcpServer.previewToolScopes.key({ type: "query" }),
+			});
 			// The Overview tab renders the same rows via apps.getByIdWithTools.
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.apps() });
 		},
@@ -310,6 +314,8 @@ export function AppToolsPage() {
 	const params = useParams({ from: "/_session/_tenant/apps_/$appId" });
 	const appId = params.appId ?? "";
 	const canManage = useCanManageApps();
+	const [gatewayQuery, setGatewayQuery] = useState("");
+	const [gatewayPage, setGatewayPage] = useState(1);
 	const [toolQuery, setToolQuery] = useState("");
 	const [toolPage, setToolPage] = useState(1);
 	const deferredToolQuery = useDeferredValue(toolQuery.trim());
@@ -329,6 +335,19 @@ export function AppToolsPage() {
 		staleTime: 30_000,
 	});
 
+	const gateway = useQuery({
+		...osQuery.mcpServer.previewToolScopes.queryOptions({ input: { appId } }),
+		enabled: appId.length > 0,
+		staleTime: 30_000,
+	});
+	const gatewayTools = Object.entries(gateway.data?.toolScopes ?? {}).filter(
+		([name]) => name.toLowerCase().includes(gatewayQuery.trim().toLowerCase()),
+	);
+	const currentGatewayPage = Math.min(
+		gatewayPage,
+		Math.max(1, Math.ceil(gatewayTools.length / APP_TOOLS_PAGE_SIZE)),
+	);
+
 	const toolRows = tools.data?.data ?? [];
 	const adapterRows = adapters.data?.data ?? [];
 
@@ -347,9 +366,12 @@ export function AppToolsPage() {
 			<PageSection aria-labelledby="app-tools-title">
 				<SectionHeader>
 					<SectionHeading>
-						<SectionTitle id="app-tools-title">MCP tools</SectionTitle>
+						<SectionTitle id="app-tools-title">
+							Direct tool configuration
+						</SectionTitle>
 						<SectionDescription>
-							Capabilities served through this app's MCP endpoint.
+							Tools configured directly on this app. A gateway can also compose
+							tools from other apps and the host.
 						</SectionDescription>
 					</SectionHeading>
 					<div className="flex min-w-0 items-center gap-2 sm:shrink-0">
@@ -406,12 +428,12 @@ export function AppToolsPage() {
 							<EmptyTitle>
 								{deferredToolQuery
 									? "No matching tools"
-									: "No MCP tools configured"}
+									: "No direct tools configured"}
 							</EmptyTitle>
 							<EmptyDescription>
 								{deferredToolQuery
 									? `No tool in this app's ${inventoryTotal}-tool inventory matches this search.`
-									: "No MCP tools configured for this app."}
+									: "No direct tools configured for this app. This does not mean its gateway has no tools."}
 							</EmptyDescription>
 						</EmptyHeader>
 					</Empty>
@@ -440,6 +462,100 @@ export function AppToolsPage() {
 						<Pagination.Info />
 						<Pagination.Controls controls="simple" />
 					</Pagination>
+				)}
+			</PageSection>
+
+			<PageSection aria-labelledby="gateway-tools-title">
+				<SectionHeader>
+					<SectionHeading>
+						<SectionTitle id="gateway-tools-title">
+							Gateway tool preview
+						</SectionTitle>
+						<SectionDescription>
+							Configured tools from this app and its composed apps.
+							Host-generated tools and your connection's granted access can
+							differ; this is not a connection health check.
+						</SectionDescription>
+					</SectionHeading>
+					<Badge variant="secondary">
+						{gateway.data ? gateway.data.toolCount : "—"}
+					</Badge>
+				</SectionHeader>
+				{gateway.isPending && <ListSkeleton />}
+				{gateway.isError && (
+					<Alert variant="destructive">
+						<AlertTitle>Gateway preview is unavailable</AlertTitle>
+						<AlertDescription>{gateway.error.message}</AlertDescription>
+					</Alert>
+				)}
+				{gateway.data && (
+					<>
+						{!gateway.data.complete && (
+							<Alert>
+								<AlertTitle>Partial gateway inventory</AlertTitle>
+								<AlertDescription>
+									Some sources could not be included:{" "}
+									{gateway.data.skippedSources
+										.map((source) => source.slug)
+										.join(", ")}
+									.
+								</AlertDescription>
+							</Alert>
+						)}
+						<SearchInput
+							aria-label="Search gateway tools"
+							placeholder="Search gateway tools"
+							value={gatewayQuery}
+							onChange={(event) => {
+								setGatewayQuery(
+									event.target.value.slice(0, MAX_TOOL_QUERY_CHARS),
+								);
+								setGatewayPage(1);
+							}}
+						/>
+						{gatewayTools.length === 0 && (
+							<Text as="p">
+								{gatewayQuery
+									? "No matching gateway tools."
+									: "No configured tools found in this preview. Host-generated tools may still be available."}
+							</Text>
+						)}
+						<Collection>
+							{gatewayTools
+								.slice(
+									(currentGatewayPage - 1) * APP_TOOLS_PAGE_SIZE,
+									currentGatewayPage * APP_TOOLS_PAGE_SIZE,
+								)
+								.map(([name, scopes]) => (
+									<li
+										key={name}
+										className="flex flex-wrap items-center gap-2 px-4 py-3"
+									>
+										<Text as="span">{name}</Text>
+										{scopes.map((scope) => (
+											<Badge
+												key={scope}
+												variant="outline"
+												title={scopeHint(scope)}
+											>
+												{scope}
+											</Badge>
+										))}
+									</li>
+								))}
+						</Collection>
+						{gatewayTools.length > APP_TOOLS_PAGE_SIZE && (
+							<Pagination
+								page={currentGatewayPage}
+								perPage={APP_TOOLS_PAGE_SIZE}
+								totalCount={gatewayTools.length}
+								setPage={setGatewayPage}
+							>
+								<Pagination.Info />
+								<Pagination.Controls controls="simple" />
+							</Pagination>
+						)}
+					</>
 				)}
 			</PageSection>
 

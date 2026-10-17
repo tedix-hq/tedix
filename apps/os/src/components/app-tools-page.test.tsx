@@ -19,13 +19,14 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 
 vi.mock("@/lib/app-permissions", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/app-permissions")>()),
-	useCanManageApps: () => true,
+	useCanManageApps: () => false,
 }));
 
 import {
 	APP_TOOLS_PAGE_SIZE,
 	appAdaptersListQueryOptions,
 	appToolsListQueryOptions,
+	osQuery,
 } from "@/lib/os-query-options";
 import { AppToolsPage } from "./app-tools-page";
 
@@ -105,11 +106,34 @@ interface ToolsSeed {
 
 const cleanups: Array<() => void> = [];
 
-function renderTools(initial: ToolsResponse, additional: ToolsSeed[] = []) {
+const gatewayPreview = {
+	toolScopes: { acme__list_orders: ["mcp:apps.read"] },
+	grouped: {},
+	granularToolScopes: {},
+	granularGrouped: {},
+	toolCount: 1,
+	complete: true,
+	scopeSummary: {},
+	granularScopeSummary: {},
+	sources: [{ slug: "acme", appId: APP_ID, prefix: "acme", toolCount: 1 }],
+	skippedSources: [] as Array<{ slug: string; reason: string }>,
+};
+
+function renderTools(
+	initial: ToolsResponse,
+	additional: ToolsSeed[] = [],
+	preview = gatewayPreview,
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
 	client.setQueryData(appToolsListQueryOptions(APP_ID).queryKey, initial);
+	client.setQueryData(
+		osQuery.mcpServer.previewToolScopes.queryOptions({
+			input: { appId: APP_ID },
+		}).queryKey,
+		preview,
+	);
 	for (const seed of additional) {
 		client.setQueryData(
 			appToolsListQueryOptions(APP_ID, {
@@ -305,9 +329,9 @@ describe("server-owned pagination", () => {
 });
 
 describe("empty states", () => {
-	it("claims the app has no tools only from an exact zero inventory", () => {
+	it("limits the zero inventory claim to direct configuration", () => {
 		const container = renderTools(pageResponse([], { total: 0 }));
-		expect(sectionText(container)).toContain("No MCP tools configured");
+		expect(sectionText(container)).toContain("No direct tools configured");
 	});
 
 	it("scopes a fruitless server search to the complete inventory", async () => {
@@ -324,6 +348,35 @@ describe("empty states", () => {
 		const text = sectionText(container);
 		expect(text).toContain("No matching tools");
 		expect(text).toContain("3-tool inventory");
-		expect(text).not.toContain("No MCP tools configured");
+		expect(text).not.toContain("No direct tools configured");
+	});
+});
+
+describe("gateway inventory for a read-only member", () => {
+	it("shows composed tools alongside zero direct rows without management controls", () => {
+		const container = renderTools(pageResponse([], { total: 0 }));
+		const gateway = container.querySelector(
+			'[aria-labelledby="gateway-tools-title"]',
+		);
+		expect(gateway?.textContent).toContain("acme__list_orders");
+		expect(gateway?.textContent).toContain("mcp:apps.read");
+		expect(gateway?.textContent).toContain("not a connection health check");
+		expect(gateway?.querySelector('[role="switch"]')).toBeNull();
+		expect(sectionText(container)).toContain(
+			"does not mean its gateway has no tools",
+		);
+	});
+
+	it("keeps missing sources visibly partial", () => {
+		const container = renderTools(pageResponse([], { total: 0 }), [], {
+			...gatewayPreview,
+			complete: false,
+			skippedSources: [
+				{ slug: "unavailable-app", reason: "aggregate app not found" },
+			],
+		});
+		expect(container.textContent).toContain("Partial gateway inventory");
+		expect(container.textContent).toContain("unavailable-app");
+		expect(container.textContent).toContain("acme__list_orders");
 	});
 });
