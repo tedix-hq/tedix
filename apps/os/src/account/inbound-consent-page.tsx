@@ -1,4 +1,5 @@
 import {
+	CONSENT_PROTOCOL_SCOPES,
 	isReadOnlyConsentSelection,
 	selectConsentPreset,
 } from "@tedix/mcp-shared/auth/consent-scopes";
@@ -670,12 +671,7 @@ function GroupedConsentScreen({
 						resourceUrl,
 						selectedTenantIds,
 						approvedScopes: approvedPermissions
-							.filter(
-								(scope) =>
-									!["openid", "offline_access", "profile", "email"].includes(
-										scope.name,
-									),
-							)
+							.filter((scope) => !CONSENT_PROTOCOL_SCOPES.includes(scope.name))
 							.map((scope) => scope.name),
 					});
 					consentRevision = staged.revision;

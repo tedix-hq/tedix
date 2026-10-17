@@ -7,6 +7,8 @@
 	"type": "module",
 	"exports": {
 		"./schemas/data-residency": "./src/schemas/data-residency.ts",
+		"./utils/mcp-scope-catalog": "./src/utils/mcp-scope-catalog.ts",
+		"./schemas/mcp-grant": "./src/schemas/mcp-grant.ts",
 		"./schemas/kernel-request": "./src/schemas/kernel-request.ts",
 		"./utils/approval-decision": "./src/utils/approval-decision.ts",
 		"./utils/attention-copy": "./src/utils/attention-copy.ts",

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { reconcileConnectionScopeMappings } from "./connection-scope-mapping";
+import {
+	collectAdvertisedScopes,
+	collectDescopeResourceScopes,
+	connectionScopeMappingValues,
+	reconcileConnectionScopeMappings,
+	toDescopeConnectionScopes,
+} from "./mcp-scope-catalog";
 
 describe("D1 connection scope mappings", () => {
 	it("does not carry one provider's defaults into a different aggregate provider", () => {
@@ -96,5 +102,78 @@ describe("D1 connection scope mappings", () => {
 				toolScopes: { mail: ["mail.read"] },
 			}).connectionsScopes?.[0]?.values,
 		).toEqual([]);
+	});
+});
+
+describe("scope catalog projection", () => {
+	it("uses the same D1 declarations for gateway discovery and provider synchronization", () => {
+		const config = {
+			connectionProviderId: "fictional-mail",
+			connectionScopes: ["Mail.Read"],
+			toolScopes: { mail: ["mail.read"] },
+			scopeDescriptions: {
+				"mail.read": "Read fictional mail",
+				"mail.write": "Write fictional mail",
+			},
+		};
+		const gateway = collectAdvertisedScopes({ mcpConfig: config });
+		const registration = toDescopeConnectionScopes(
+			collectDescopeResourceScopes({ mcpConfig: config }),
+			config,
+		);
+		expect(registration).toEqual(
+			expect.arrayContaining(
+				gateway.map((scope) => expect.objectContaining(scope)),
+			),
+		);
+		expect(
+			connectionScopeMappingValues({ connectionsScopes: registration }),
+		).toEqual({ "mail.read": ["Mail.Read"] });
+		expect(registration.every((scope) => scope.optional === true)).toBe(true);
+		expect(
+			connectionScopeMappingValues(
+				reconcileConnectionScopeMappings(
+					{ connectionsScopes: registration },
+					config,
+				),
+			),
+		).toEqual({ "mail.read": ["Mail.Read"] });
+	});
+
+	it("keeps managed mappings optional when correcting stale required provider grants", () => {
+		const result = reconcileConnectionScopeMappings(
+			{
+				connectionsScopes: [
+					{ name: "mail.read", optional: false, values: ["Mail.Write"] },
+				],
+			},
+			{
+				connectionProviderId: "fictional-mail",
+				connectionScopes: ["Mail.Read"],
+				toolScopes: { mail: ["mail.read"] },
+			},
+		);
+		expect(result.connectionsScopes).toEqual([
+			{ name: "mail.read", optional: true, values: ["Mail.Read"] },
+		]);
+	});
+
+	it("preserves explicit policy-mode scopes without inventing provider mappings", () => {
+		const config = {
+			enforcePolicies: true,
+			toolScopes: { mail: ["mail.read"] },
+			connectionProviderId: "fictional-mail",
+			connectionScopes: ["Mail.Read"],
+		};
+		const scopes = collectAdvertisedScopes({
+			mcpConfig: config,
+			tools: [{ name: "list_mail" }],
+		});
+		expect(scopes.map((scope) => scope.name)).toEqual(["mcp:list.mail"]);
+		expect(
+			toDescopeConnectionScopes(scopes, config).find(
+				(scope) => scope.name === "mcp:list.mail",
+			)?.values,
+		).toBeUndefined();
 	});
 });

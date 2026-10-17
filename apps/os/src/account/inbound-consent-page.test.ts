@@ -1,3 +1,12 @@
+import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
+import {
+	collectDescopeResourceScopes,
+	toDescopeConnectionScopes,
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
+import {
+	isReadOnlyConsentSelection,
+	selectConsentPreset,
+} from "@tedix/mcp-shared/auth/consent-scopes";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	consentForm,
@@ -453,4 +462,42 @@ describe("product-session bounce keeps the authorization transaction", () => {
 			),
 		).toBeNull();
 	});
+});
+
+it("submits every read-only capability subset without adding declined authority", () => {
+	const config = { scopeDescriptions: MCP_GRANULAR_CAPABILITY_SCOPES };
+	const registered = toDescopeConnectionScopes(
+		collectDescopeResourceScopes({ mcpConfig: config }),
+		config,
+	);
+	const offered = normalizeConsentPermissions(registered);
+	const read = selectConsentPreset(offered, "read").filter(
+		(name) => name.startsWith("mcp:") || name.startsWith("connections."),
+	);
+	expect(read).toHaveLength(11);
+	for (let mask = 0; mask < 2 ** read.length; mask++) {
+		const selected = read.filter((_, index) => Boolean(mask & (1 << index)));
+		const permissions = selectedConsentPermissions(
+			offered,
+			selected,
+			false,
+			false,
+		);
+		const form = consentForm(
+			{},
+			permissions,
+			["fictional-viewer-tenant"],
+			"fictional-revision",
+		);
+		expect(form.thirdPartyAppApproveScopes).toEqual(
+			permissions.map((scope) => scope.name),
+		);
+		expect([...(form.thirdPartyAppApproveScopes as string[])].sort()).toEqual(
+			[...selected].sort(),
+		);
+		expect(
+			isReadOnlyConsentSelection(form.thirdPartyAppApproveScopes as string[]),
+		).toBe(true);
+		expect(permissions.every((permission) => !permission.required)).toBe(true);
+	}
 });

@@ -1,3 +1,5 @@
+import { CONNECTION_SCOPE_DESCRIPTIONS } from "@tedix/api-contract/utils/mcp-scope-catalog";
+
 export type ConsentPermission = {
 	name: string;
 	description: string;
@@ -17,13 +19,6 @@ export type ConsentScopeGroupDefinition = {
 	label: string;
 	description?: string;
 	scopes: readonly string[];
-};
-
-const PLATFORM_SCOPE_DESCRIPTIONS: Record<string, string> = {
-	"platform:admin": "Administer the Tedix platform across organizations",
-	"connections.read": "Read verified connected app data",
-	"connections.execute": "Run connected app actions, including writes",
-	"connections.admin": "Run destructive connected app actions",
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -109,7 +104,7 @@ export function normalizeConsentPermissions(
 		permissions.push({
 			name,
 			description:
-				PLATFORM_SCOPE_DESCRIPTIONS[name] ??
+				CONNECTION_SCOPE_DESCRIPTIONS[name] ??
 				scopeDescription(raw, titleCase(capability)),
 			group: group || "Other",
 			authority,

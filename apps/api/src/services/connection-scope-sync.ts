@@ -5,9 +5,9 @@ import {
 } from "@tedix/auth/aih-client";
 import {
 	reconcileConnectionScopeMappings,
-	connectionScopeMappingValues,
+	connectionScopeMappingState,
 	type ConnectionScopeConfig,
-} from "@tedix/auth/connection-scope-mapping";
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { syncConnectionProviderScopes } from "@tedix/auth/connections";
 import type { DbClient } from "@tedix/db/client";
 import {
@@ -65,16 +65,16 @@ export async function syncDeclaredConnectionScopes(params: {
 			config,
 		);
 		mappingChanged =
-			JSON.stringify(connectionScopeMappingValues(server.approvedScopes)) !==
-			JSON.stringify(connectionScopeMappingValues(approvedScopes));
+			JSON.stringify(connectionScopeMappingState(server.approvedScopes)) !==
+			JSON.stringify(connectionScopeMappingState(approvedScopes));
 		if (mappingChanged && !dryRun) {
 			const updated = await updateDescopeMcpServer(env, {
 				...server,
 				approvedScopes,
 			});
 			if (
-				JSON.stringify(connectionScopeMappingValues(updated.approvedScopes)) !==
-				JSON.stringify(connectionScopeMappingValues(approvedScopes))
+				JSON.stringify(connectionScopeMappingState(updated.approvedScopes)) !==
+				JSON.stringify(connectionScopeMappingState(approvedScopes))
 			) {
 				throw new Error(
 					`Descope MCP server ${server.id} connection scope readback failed`,

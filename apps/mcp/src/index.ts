@@ -92,7 +92,7 @@ import {
 	type McpCompletionResult,
 	type McpDirectoryReadHandler,
 } from "@tedix/mcp-shared/transport";
-import { collectAdvertisedScopes } from "@tedix/mcp-shared/well-known/oauth";
+import { collectAdvertisedScopes } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
 import {
 	applyInboundTrustHeaderHygiene,

@@ -23,7 +23,6 @@ import {
 import {
 	hardenDescopeMcpServerRegistration,
 	loadDescopeMcpServer,
-	type McpServerScope,
 	registerDescopeMcpResource,
 	updateDescopeMcpServer,
 } from "@tedix/auth/aih-client";
@@ -32,8 +31,10 @@ import {
 	getDescopeBaseUrl,
 	resolveDescopeMcpScopeSyncConfig,
 } from "@tedix/auth/descope-mcp";
-import { collectDescopeResourceScopes } from "@tedix/auth/scope-sync";
-import { reconcileConnectionScopeMappings } from "@tedix/auth/connection-scope-mapping";
+import {
+	collectDescopeResourceScopes,
+	toDescopeConnectionScopes,
+} from "@tedix/api-contract/utils/mcp-scope-catalog";
 import type { DbClient } from "@tedix/db/client";
 import {
 	getAppById,
@@ -362,24 +363,6 @@ function buildUpdatedMcpConfig(params: {
 			...scopeSyncChanges,
 		},
 	};
-}
-
-function toDescopeConnectionScopes(
-	scopes: Array<{ name: string; description: string }>,
-	config?: McpConfig | null,
-): McpServerScope[] {
-	return (
-		reconcileConnectionScopeMappings(
-			{
-				connectionsScopes: scopes.map((scope) => ({
-					name: scope.name,
-					description: scope.description,
-					optional: true,
-				})),
-			},
-			config ?? {},
-		).connectionsScopes ?? []
-	);
 }
 
 async function persistMcpConfig(
