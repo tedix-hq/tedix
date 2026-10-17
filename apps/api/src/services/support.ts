@@ -87,6 +87,16 @@ export function staffSupportTicket(row: SupportTicketRow) {
 		interactionId: row.interactionId,
 	};
 }
+export async function repairSupportTicketPurpose(
+	context: Pick<BaseContext, "db">,
+	row: SupportTicketRow,
+) {
+	await tickets.repairSupportWorkPurpose(context.db, row, {
+		sourceEventId: await supportObjectId(`support-purpose-source:${row.id}`),
+		mirrorEventId: await supportObjectId(`support-purpose-mirror:${row.id}`),
+		now: new Date().toISOString(),
+	});
+}
 export async function deliverSupportTicket(
 	context: Pick<BaseContext, "db">,
 	row: SupportTicketRow,

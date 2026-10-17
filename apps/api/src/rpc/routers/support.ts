@@ -23,6 +23,7 @@ import { getProjectById } from "@tedix/db/queries/projects";
 import {
 	changeSupportTicket,
 	deliverSupportTicket,
+	repairSupportTicketPurpose,
 	staffSupportTicket,
 	supportConfig,
 	supportReceipt,
@@ -363,6 +364,7 @@ export const supportContractRouter = {
 		}
 		if (!row || row.reporterKey !== reporterKey || row.payloadDigest !== digest)
 			throw createError(ErrorCodes.CONFLICT, "Support intake conflict");
+		await repairSupportTicketPurpose(context, row);
 		if (row.mirrorDelivery === "pending") {
 			try {
 				await deliverSupportTicket(context, row);

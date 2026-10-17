@@ -8,8 +8,127 @@ import {
 import { projects } from "../schema/projects";
 import { workItems, workEvents, workItemComments } from "../schema/work-items";
 import type { SupportConfiguration } from "@tedix/api-contract/schemas/support";
+import { workItemPurposeFor } from "./work-items/purpose";
 
 export class SupportStateError extends Error {}
+
+async function supportWorkPurpose(
+	db: DbQueryClient,
+	orgId: string,
+	projectId: string,
+	now: string,
+) {
+	const [project] = await db
+		.select({ objectiveId: projects.objectiveId })
+		.from(projects)
+		.where(and(eq(projects.orgId, orgId), eq(projects.id, projectId)))
+		.limit(1);
+	if (project?.objectiveId)
+		return {
+			objectiveId: project.objectiveId,
+			workClass: "objective" as const,
+			purposeExceptionExpiresAt: null,
+		};
+	return {
+		objectiveId: null,
+		...workItemPurposeFor({ workClass: "maintenance", now: new Date(now) }),
+	};
+}
+
+/** Repair only the incomplete purpose emitted by the original Support intake. */
+export async function repairSupportWorkPurpose(
+	db: DbQueryClient,
+	ticket: SupportTicketRow,
+	p: { sourceEventId: string; mirrorEventId: string; now: string },
+) {
+	for (const target of [
+		{
+			orgId: ticket.orgId,
+			id: ticket.workItemId,
+			eventId: p.sourceEventId,
+			intent: `support:${ticket.id}`,
+		},
+		{
+			orgId: ticket.platformOrgId,
+			id: ticket.mirrorWorkItemId,
+			eventId: p.mirrorEventId,
+			intent: `support-mirror:${ticket.id}`,
+		},
+	]) {
+		const [work] = await db
+			.select()
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, target.orgId),
+					eq(workItems.id, target.id),
+					eq(workItems.sourceIntentId, target.intent),
+				),
+			)
+			.limit(1);
+		if (
+			!work ||
+			work.workClass !== "maintenance" ||
+			work.objectiveId ||
+			work.purposeExceptionExpiresAt ||
+			work.disposition === "completed" ||
+			work.disposition === "cancelled" ||
+			!work.projectId
+		)
+			continue;
+		const purpose = await supportWorkPurpose(
+			db,
+			target.orgId,
+			work.projectId,
+			p.now,
+		);
+		await db.batch([
+			db
+				.update(workItems)
+				.set({
+					...purpose,
+					admissionSpecRevision: target.eventId,
+					updatedAt: p.now,
+					version: sql`${workItems.version} + 1`,
+				})
+				.where(
+					and(
+						eq(workItems.orgId, target.orgId),
+						eq(workItems.id, target.id),
+						eq(workItems.version, work.version),
+					),
+				),
+			db
+				.insert(workEvents)
+				.select(
+					db
+						.select({
+							id: sql<string>`${target.eventId}`.as("id"),
+							orgId: sql<string>`${target.orgId}`.as("org_id"),
+							workItemId: sql<string>`${target.id}`.as("work_item_id"),
+							attemptId: sql<null>`NULL`.as("attempt_id"),
+							eventType: sql<string>`'work.specification_updated'`.as(
+								"event_type",
+							),
+							actorType: sql<"system">`'system'`.as("actor_type"),
+							actorId: sql<string>`'support-intake'`.as("actor_id"),
+							actorSessionId: sql<null>`NULL`.as("actor_session_id"),
+							payload: sql`'{}'`.as("payload"),
+							occurredAt: sql<string>`${p.now}`.as("occurred_at"),
+						})
+						.from(workItems)
+						.where(
+							and(
+								eq(workItems.orgId, target.orgId),
+								eq(workItems.id, target.id),
+								eq(workItems.admissionSpecRevision, target.eventId),
+							),
+						),
+				)
+				.onConflictDoNothing(),
+		]);
+	}
+}
 
 /** Installation singleton, read only by the reviewed support bridge handlers. */
 export async function getSupportConfiguration(db: DbQueryClient) {
@@ -151,6 +270,12 @@ export async function createSupportTicket(
 	db: DbQueryClient,
 	ticket: typeof supportTickets.$inferInsert,
 ) {
+	const purpose = await supportWorkPurpose(
+		db,
+		ticket.orgId,
+		ticket.projectId,
+		ticket.createdAt,
+	);
 	await db.batch([
 		db
 			.insert(workItems)
@@ -164,7 +289,7 @@ export async function createSupportTicket(
 				disposition: "accepted",
 				riskLevel: "low",
 				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
-				workClass: "maintenance",
+				...purpose,
 				acceptanceContract: {
 					version: 1,
 					doneLooksLike:
@@ -185,6 +310,12 @@ export async function deliverSupportMirror(
 	ticket: SupportTicketRow,
 	p: { projectId: string; tediId: string; eventId: string; now: string },
 ) {
+	const purpose = await supportWorkPurpose(
+		db,
+		ticket.platformOrgId,
+		p.projectId,
+		p.now,
+	);
 	await db.batch([
 		db
 			.insert(workItems)
@@ -201,7 +332,7 @@ export async function deliverSupportMirror(
 				disposition: "accepted",
 				riskLevel: "low",
 				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
-				workClass: "maintenance",
+				...purpose,
 				accountableOwnerType: "tedi",
 				accountableOwnerId: p.tediId,
 				deadline: ticket.nextUpdateDue,
