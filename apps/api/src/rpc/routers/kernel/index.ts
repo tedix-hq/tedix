@@ -1147,6 +1147,9 @@ export async function runKernel(args: {
 				route,
 				card,
 				userContent: content,
+				traceExcerpts: context.history
+					.slice(-4)
+					.map((message) => `${message.role}: ${message.content}`),
 				executionRequirement,
 				executionEnvironment,
 				authorityMode: earnedDelegationEnforcement,

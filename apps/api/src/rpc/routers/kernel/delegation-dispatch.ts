@@ -636,10 +636,11 @@ export function buildDelegationWorkOrder(input: {
 	// Tool guidance: steer the worker to its actual capabilities. Scope groups
 	// are the authorization surface; apps are the product surface.
 	const guidanceSeeds: string[] = [];
+	const readingContext = [sourceContent, ...(traceExcerpts ?? [])].join("\n");
 	if (
-		/https?:\/\/\S+/i.test(sourceContent) ||
+		/https?:\/\/\S+/i.test(readingContext) ||
 		/\b(?:read|summari[sz]e|fetch)\b[^.!?\n]{0,80}\b(?:page|article|website)\b/i.test(
-			sourceContent,
+			readingContext,
 		)
 	) {
 		guidanceSeeds.push(
