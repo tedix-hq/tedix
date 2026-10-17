@@ -375,4 +375,28 @@ describe("autonomous stall recovery", () => {
 			).stalls,
 		).toHaveLength(1);
 	});
+
+	it("keeps coordination updates out of Needs you unless server triage requires a decision", async () => {
+		const { sqlite, db, recover } = fixture();
+		await recover();
+		sqlite.exec(
+			`INSERT INTO work_interactions(id,org_id,project_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES ('update','fictional-orchard','orchard','coordination','Research is continuing','The worker resumed its queue.','tedi','river','user','ada','${now}');`,
+		);
+		const read = () =>
+			readContinuity(db, "fictional-orchard", new Date(now), "", "ada");
+		expect((await read()).stalls[0]?.needsYou).toBe(false);
+		sqlite.exec(
+			`INSERT INTO work_interaction_attention(org_id,interaction_id,kind,need,decided_at) VALUES ('fictional-orchard','update','needs_you',NULL,'${now}');`,
+		);
+		expect((await read()).stalls[0]?.needsYou).toBe(false);
+		sqlite.exec(
+			"UPDATE work_interaction_attention SET need='Choose which connector may be used'",
+		);
+		expect((await read()).stalls[0]).toMatchObject({
+			needsYou: true,
+			reason: "waiting for your decision: Choose which connector may be used",
+		});
+		sqlite.exec("UPDATE work_interaction_attention SET kind='fyi', need=NULL");
+		expect((await read()).stalls[0]?.needsYou).toBe(false);
+	});
 });

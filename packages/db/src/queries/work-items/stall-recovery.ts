@@ -150,6 +150,7 @@ export async function listContinuityHumanAsks(
  WHERE i.org_id = ${orgId} AND i.target_type = 'user' AND i.target_id = ${userId}
  AND i.status = 'open' AND (i.expires_at IS NULL OR i.expires_at > ${now})
  AND i.creator_type = 'tedi' AND a.kind IS NOT 'fyi'
+ AND (i.kind <> 'coordination' OR (a.kind = 'needs_you' AND length(trim(a.need)) > 0))
  ORDER BY i.created_at, i.id LIMIT 200
  `);
 }
