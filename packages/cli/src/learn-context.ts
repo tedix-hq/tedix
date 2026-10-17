@@ -852,7 +852,7 @@ export function boardMatchSource(input: {
 	// than scanning the organization's entire history in one gateway call.
 	if (input.dispositions.includes("completed")) {
 		const seen = new Set(items.map((w) => w.id));
-		const terms = new Set(input.candidates.flatMap((c) => String(c.t).toLowerCase().replace(/[^\\p{L}\\p{N}\\s]/gu, " ").split(/\\s+/).filter((w) => w.length > 3 && !STOP.has(w)).slice(0, 3)));
+		const terms = new Set(input.candidates.flatMap((c) => words(c.t).filter((w) => w.length >= 3).slice(0, 3)));
 		for (const titleContains of terms) {
 			for (let offset = 0; ; offset += 100) {
 				const r = await work.list_work_items({ titleContains, limit: 100, offset });

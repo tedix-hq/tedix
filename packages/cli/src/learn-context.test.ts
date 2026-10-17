@@ -443,6 +443,40 @@ describe("board match and judge", () => {
 		]);
 	});
 
+	it("finds historic protocol work with short names and stemmed topic searches", async () => {
+		const board = new Board(PROJECTS);
+		board.items = [
+			{
+				id: "old-mcp",
+				title:
+					"Reuse successful MCP preparation and refresh stale tool schemas",
+				disposition: "completed",
+				createdAt: "2020-01-01",
+			},
+			{
+				id: "old-dedup",
+				title: "Dedup catalog pages",
+				disposition: "completed",
+				createdAt: "2020-01-01",
+			},
+		];
+		const matches = await board.run(
+			boardMatchSource({
+				candidates: [
+					{
+						k: "mcp",
+						t: "Fix OpenAI MCP scanner receiving stale tool schemas",
+					},
+					{ k: "dedup", t: "Dedupe catalog pages by exact title" },
+				],
+				dispositions: ["completed", "cancelled"],
+				projects: false,
+			}),
+		);
+		expect(matches.matches.mcp.w[0][0]).toBe("old-mcp");
+		expect(matches.matches.dedup.w[0][0]).toBe("old-dedup");
+	});
+
 	it("splits many candidates across programs so no result outgrows the gateway cap", async () => {
 		const board = new Board(PROJECTS);
 		board.items = [
