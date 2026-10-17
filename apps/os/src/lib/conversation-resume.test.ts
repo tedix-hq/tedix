@@ -127,6 +127,9 @@ function fakeServer() {
 	};
 
 	const root: CapnSessionStub = {
+		readAttention: async () => {
+			throw new Error("unused in chat tests");
+		},
 		ping: async () => {},
 		openConversation: () =>
 			Object.assign(Promise.resolve(conversation), conversation),

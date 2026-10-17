@@ -2,7 +2,12 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import {
+	AttentionInputSchema,
+	AttentionResultSchema,
+} from "../schemas/work-attention";
+import {
 	ListAgentSessionActivityInputSchema,
+	FileAgentSessionRequestInputSchema,
 	ListAgentSessionActivityResultSchema,
 	ListAgentSessionRequestsInputSchema,
 	ListAgentSessionRequestsResultSchema,
@@ -24,6 +29,14 @@ export const workAgentSessionsContract = oc
 	.route({ tags: ["work-agent-sessions"], prefix: "/work-agent-sessions" })
 	.errors(baseErrors)
 	.router({
+		attention: oc
+			.route({
+				method: "GET",
+				path: "/attention",
+				summary: "Read live session and Work attention",
+			})
+			.input(AttentionInputSchema)
+			.output(AttentionResultSchema),
 		report: oc
 			.route({
 				method: "POST",
@@ -87,6 +100,14 @@ export const workAgentSessionsContract = oc
 					"The person closes, reopens or withdraws one of their own rows. `done` requires `evidence` (a commit SHA, link or note).",
 			})
 			.input(UpdateAgentSessionRequestInputSchema)
+			.output(UpdateAgentSessionRequestResultSchema),
+		fileRequest: oc
+			.route({
+				method: "POST",
+				path: "/requests/file",
+				summary: "File a private session request to an organization project",
+			})
+			.input(FileAgentSessionRequestInputSchema)
 			.output(UpdateAgentSessionRequestResultSchema),
 	});
 

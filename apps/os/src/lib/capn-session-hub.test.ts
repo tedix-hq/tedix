@@ -20,6 +20,9 @@ function fakeConnect(mode: "object" | "function" = "object") {
 		}
 		let onBroken: (() => void) | null = null;
 		const shared = {
+			readAttention: async () => {
+				throw new Error("unused in hub tests");
+			},
 			disposed: false,
 			ping: () => ping(),
 			// Throws synchronously, so its `never` return satisfies the pipelined

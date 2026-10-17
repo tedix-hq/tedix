@@ -38,6 +38,7 @@ export type WorkSection = {
 };
 
 type WorkSectionPath =
+	| "/work/attention"
 	| "/work/needs-you"
 	| "/work/portfolio"
 	| "/work/queue"
@@ -54,13 +55,18 @@ type WorkSectionPath =
 	| "/work/recovery";
 
 export type WorkTab = {
-	id: "needs-you" | "board" | "history";
+	id: "attention" | "needs-you" | "board" | "history";
 	label: string;
 	sections: readonly WorkSection[];
 };
 
-/** The three primary tabs; each opens on its first section. */
+/** Each primary tab opens on its first section. */
 export const WORK_TABS: readonly WorkTab[] = [
+	{
+		id: "attention",
+		label: "Attention",
+		sections: [{ id: "attention", label: "Attention", to: "/work/attention" }],
+	},
 	{
 		id: "needs-you",
 		label: "Needs you",
@@ -108,7 +114,7 @@ export const ALL_WORK_SECTIONS: readonly WorkSection[] = [
 	...MORE_WORK_SECTIONS,
 ];
 
-const BOARD = WORK_TABS[1]!;
+const BOARD = WORK_TABS.find((tab) => tab.id === "board")!;
 
 /**
  * The tab (or More) and section a Work URL belongs to. Record pages (projects,
@@ -120,7 +126,7 @@ export function workLocation(
 ): { tab: WorkTab | null; section: WorkSection } {
 	const path = pathname.replace(/\/$/, "");
 	if (path === "/work/queue" && search.disposition === "completed")
-		return { tab: WORK_TABS[2]!, section: WORK_TABS[2]!.sections[1]! };
+		return { tab: WORK_TABS[3]!, section: WORK_TABS[3]!.sections[1]! };
 	for (const tab of WORK_TABS)
 		for (const section of tab.sections)
 			if (

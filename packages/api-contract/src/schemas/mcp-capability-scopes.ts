@@ -166,9 +166,11 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// The local agent session board names its own resource, outside WORK_TOOL_RE.
 	report_work_agent_session_status: "mcp:work",
 	list_work_agent_sessions: "mcp:work",
+	read_work_attention: "mcp:work",
 	record_agent_session_events: "mcp:work",
 	list_agent_session_activity: "mcp:work",
 	list_agent_session_requests: "mcp:work",
+	file_agent_session_request: "mcp:work",
 	update_agent_session_request: "mcp:work",
 	list_work_project_contributors: "mcp:work",
 	// Factory output (runs, Outputs, closed Work) is a Work read.

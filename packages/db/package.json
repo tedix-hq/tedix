@@ -326,6 +326,7 @@
 		"./queries/strategy-map": "./src/queries/strategy-map.ts",
 		"./queries/work-agent-sessions": "./src/queries/work-agent-sessions.ts",
 		"./queries/agent-session-requests": "./src/queries/agent-session-requests.ts",
+		"./queries/work-attention": "./src/queries/work-attention.ts",
 		"./queries/work-item-sources": "./src/queries/work-item-sources.ts",
 		"./queries/work-items/comments": "./src/queries/work-items/comments.ts",
 		"./queries/work-items/activity": "./src/queries/work-items/activity.ts",

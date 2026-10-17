@@ -904,6 +904,10 @@
 		{
 			"name": "20261017030502_request-ledger-lane-state/migration.sql",
 			"sha256": "7fbe085cfa1876df04bf1d5b16d1426402a9f32cd57371dca801448d40620911"
+		},
+		{
+			"name": "20261017095925_request-project-routing/migration.sql",
+			"sha256": "03005ab3bc666fd7b1618d70aa883819704eebd15efcffebb5653e22a7f62e8e"
 		}
 	]
 }

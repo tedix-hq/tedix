@@ -58,8 +58,9 @@ function renderShell(pathname: string, search: Record<string, unknown> = {}) {
 }
 
 describe("Work shell navigation", () => {
-	it("shows three primary tabs and keeps every other section under More", () => {
+	it("shows Attention first in primary tabs and keeps every other section under More", () => {
 		expect(WORK_TABS.map((tab) => tab.label)).toEqual([
+			"Attention",
 			"Needs you",
 			"Board",
 			"History",
@@ -67,6 +68,7 @@ describe("Work shell navigation", () => {
 		expect(
 			WORK_TABS.map((tab) => [tab.label, tab.sections.map((s) => s.label)]),
 		).toEqual([
+			["Attention", ["Attention"]],
 			["Needs you", ["Needs you"]],
 			["Board", ["Projects", "Queue", "Agents", "Office"]],
 			["History", ["Activity", "Completed"]],
@@ -142,6 +144,7 @@ describe("WorkShell routed tabs", () => {
 		const doc = renderShell("/work/admission");
 		const tabs = [...doc.querySelectorAll('[role="tab"]')];
 		expect(tabs.map((tab) => tab.textContent)).toEqual([
+			"Attention",
 			"Needs you",
 			"Board",
 			"History",

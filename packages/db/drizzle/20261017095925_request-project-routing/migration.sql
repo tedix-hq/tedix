@@ -1,0 +1,1 @@
+ALTER TABLE `agent_session_requests` ADD `project_id` text;

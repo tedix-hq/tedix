@@ -165,7 +165,28 @@ describe("CapnChatSession capability shape", () => {
 		const prototypeMethods = Object.getOwnPropertyNames(
 			CapnChatSession.prototype,
 		).filter((name) => name !== "constructor");
-		expect(prototypeMethods).toEqual(["ping", "openConversation"]);
+		expect(prototypeMethods).toEqual([
+			"readAttention",
+			"ping",
+			"openConversation",
+		]);
+	});
+	it("rechecks Attention through the canonical API with tenant and caller credentials", async () => {
+		const { service, calls } = mockApiService(() => ({}));
+		const session = makeSession(service);
+		await session.readAttention();
+		await session.readAttention();
+		expect(calls.map((call) => call.path)).toEqual([
+			"workAgentSessions/attention",
+			"workAgentSessions/attention",
+		]);
+		for (const call of calls) {
+			expect(call.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+			expect(call.headers.get("Cookie")).toBe("DS=abc");
+		}
+		session[Symbol.dispose]();
+		await expect(session.readAttention()).rejects.toThrow("disposed");
+		expect(calls).toHaveLength(2);
 	});
 });
 

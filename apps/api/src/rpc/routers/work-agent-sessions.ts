@@ -18,6 +18,7 @@ import { workAgentSessionsContract } from "@tedix/api-contract/contracts/work-ag
 import {
 	listAgentSessionActivity,
 	getAgentSessionRequest,
+	fileAgentSessionRequest,
 	listAgentSessionRequests,
 	updateAgentSessionRequests,
 } from "@tedix/db/queries/agent-session-requests";
@@ -163,6 +164,7 @@ function requestOutput(row: AgentSessionRequestRow) {
 		harness: row.harness,
 		sessionKey: row.sessionKey,
 		repository: row.repository,
+		projectId: row.projectId ?? null,
 		kind: row.kind,
 		text: row.text,
 		status: row.status,
@@ -380,6 +382,69 @@ const updateRequestProcedure = writeOs.updateRequest.handler(
 );
 
 export const workAgentSessionsContractRouter = sessionsOs.router({
+	attention: readOs.attention.handler(async ({ context, input }) => {
+		const owner = requireBoardOwner(context);
+		const now = new Date();
+		const { readAttentionSources, listUnattendedObjectives } =
+			await import("@tedix/db/queries/work-attention");
+		const { buildAttention } = await import("../../lib/work-attention");
+		const [sources, sessions, requests, unattendedObjectives] =
+			await Promise.all([
+				readAttentionSources(
+					context.db,
+					owner.organizationId,
+					new Date(now.getTime() - 86_400_000).toISOString(),
+					context.user!.sub,
+				),
+				listWorkAgentSessions(context.db, {
+					...owner,
+					includeEnded: false,
+					now: now.toISOString(),
+				}),
+				listAgentSessionRequests(context.db, {
+					...owner,
+					limit: 200,
+					newestFirst: true,
+				}),
+				listUnattendedObjectives(
+					context.db,
+					owner.organizationId,
+					new Date(now.getTime() - 86_400_000).toISOString(),
+				),
+			]);
+		return {
+			...buildAttention(
+				sources,
+				sessions,
+				requests,
+				now,
+				input.utcOffsetMinutes,
+			),
+			unattendedObjectives,
+		};
+	}),
+	fileRequest: writeOs.fileRequest.handler(async ({ input, context }) => {
+		const owner = requireBoardOwner(context);
+		if (input.projectId) {
+			const { attentionProjectExists } =
+				await import("@tedix/db/queries/work-attention");
+			if (
+				!(await attentionProjectExists(
+					context.db,
+					owner.organizationId,
+					input.projectId,
+				))
+			)
+				throw createError(ErrorCodes.NOT_FOUND, "Project not found");
+		}
+		const row = await fileAgentSessionRequest(context.db, {
+			...owner,
+			...input,
+			now: new Date().toISOString(),
+		});
+		if (!row) throw createError(ErrorCodes.NOT_FOUND, "Request not found");
+		return { request: requestOutput(row) };
+	}),
 	report: reportProcedure,
 	list: listProcedure,
 	contributors: contributorsProcedure,

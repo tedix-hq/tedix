@@ -173,6 +173,11 @@ export interface CapnConversationApi {
 }
 
 export interface CapnSessionApi {
+	readAttention(
+		utcOffsetMinutes?: number,
+	): Promise<
+		import("@tedix/api-contract/schemas/work-attention").AttentionResult
+	>;
 	/** Lightweight round trip used to detect a zombie browser socket on wake. */
 	ping(): Promise<void>;
 	openConversation(conversationId: string): CapnConversationApi;
@@ -244,6 +249,7 @@ export type CapnConversationStub = CapnStubLike & {
 };
 
 export type CapnSessionStub = CapnStubLike & {
+	readAttention: CapnSessionApi["readAttention"];
 	ping(
 		...args: Parameters<CapnSessionApi["ping"]>
 	): Returned<CapnSessionApi["ping"]>;
