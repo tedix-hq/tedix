@@ -16,7 +16,10 @@ vi.mock("@tedix/db/queries/organization-members", () => ({
 vi.mock("@tedix/db/queries/work-items/project-access", () => ({
 	hasProjectWorkItemReference: mocks.item,
 }));
-import { guardAgentReviewAccess } from "./agent-review-access";
+import {
+	excludedAgentReviewProjectId,
+	guardAgentReviewAccess,
+} from "./agent-review-access";
 
 const project = {
 	id: "private-reviews",
@@ -149,4 +152,49 @@ it("fails closed when the configured private project cannot be loaded", async ()
 		guardAgentReviewAccess(context(), {}, next),
 	).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
 	expect(next).not.toHaveBeenCalled();
+});
+
+describe("private review collection scope", () => {
+	it.each(["tedi", "service-binding"] as const)(
+		"excludes the private project for another %s worker",
+		async (authType) => {
+			expect(
+				await excludedAgentReviewProjectId(
+					context({
+						authType,
+						tediId: "another-tedi",
+						tediScopes: ["platform:admin"],
+					}),
+					project.orgId,
+				),
+			).toBe(project.id);
+			expect(
+				await excludedAgentReviewProjectId(
+					context({ authType, tediId: project.leadTediId }),
+					project.orgId,
+				),
+			).toBeUndefined();
+		},
+	);
+	it("rechecks current membership instead of trusting a cached admin role", async () => {
+		const caller = context({ userRole: "admin" });
+		mocks.member.mockResolvedValueOnce({ status: "active", role: "admin" });
+		expect(
+			await excludedAgentReviewProjectId(caller, project.orgId),
+		).toBeUndefined();
+		mocks.member.mockResolvedValueOnce({ status: "inactive", role: "admin" });
+		expect(await excludedAgentReviewProjectId(caller, project.orgId)).toBe(
+			project.id,
+		);
+		expect(mocks.member).toHaveBeenCalledTimes(2);
+	});
+	it("does not filter other organizations and fails closed on missing policy", async () => {
+		expect(
+			await excludedAgentReviewProjectId(context(), "another-org"),
+		).toBeUndefined();
+		mocks.project.mockResolvedValue(undefined);
+		await expect(
+			excludedAgentReviewProjectId(context(), project.orgId),
+		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+	});
 });

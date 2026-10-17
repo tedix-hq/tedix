@@ -7,27 +7,21 @@ import { getProjectById } from "@tedix/db/queries/projects";
 import { hasProjectWorkItemReference } from "@tedix/db/queries/work-items/project-access";
 import type { BaseContext } from "../rpc/context";
 
-/** Runs inside authentication, covering RPC, REST and forwarded MCP calls. */
-export async function guardAgentReviewAccess<T extends { output: unknown }>(
-	context: BaseContext,
-	input: unknown,
-	next: () => Promise<T>,
-): Promise<T> {
+async function agentReviewProjectScope(context: BaseContext) {
 	const projectId = context.env.AGENT_REVIEW_PROJECT_ID;
-	if (!projectId) return next();
+	if (!projectId) return undefined;
 	const project = await getProjectById(context.db, projectId);
 	if (!project)
 		throw new ORPCError("SERVICE_UNAVAILABLE", {
 			message: "Private review policy unavailable",
 		});
-	const orgId = project.orgId;
 
 	if (context.organizationId === project.orgId) {
 		if (
 			(context.authType === "tedi" || context.authType === "service-binding") &&
 			context.tediId === project.leadTediId
 		)
-			return next();
+			return { project, allowed: true };
 		if (context.authType === "user" && context.user?.sub) {
 			const member = context.userId
 				? ((await getMemberByCanonicalUserId(
@@ -45,10 +39,35 @@ export async function guardAgentReviewAccess<T extends { output: unknown }>(
 				member?.status === "active" &&
 				(member.role === "owner" || member.role === "admin")
 			) {
-				return next();
+				return { project, allowed: true };
 			}
 		}
 	}
+
+	return { project, allowed: false };
+}
+
+/** Restrict a collection query before counting or paging; direct-access guards remain strict. */
+export async function excludedAgentReviewProjectId(
+	context: BaseContext,
+	organizationId: string,
+): Promise<string | undefined> {
+	const scope = await agentReviewProjectScope(context);
+	return scope && !scope.allowed && scope.project.orgId === organizationId
+		? scope.project.id
+		: undefined;
+}
+
+/** Runs inside authentication, covering RPC, REST and forwarded MCP calls. */
+export async function guardAgentReviewAccess<T extends { output: unknown }>(
+	context: BaseContext,
+	input: unknown,
+	next: () => Promise<T>,
+): Promise<T> {
+	const scope = await agentReviewProjectScope(context);
+	if (!scope || scope.allowed) return next();
+	const projectId = scope.project.id;
+	const orgId = scope.project.orgId;
 
 	const checked = new Set<string>();
 	const forbidden = () =>

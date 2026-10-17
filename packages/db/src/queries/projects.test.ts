@@ -483,3 +483,42 @@ it("cannot install observer authority through ordinary project metadata", async 
 	});
 	expect(updated?.metadata).toEqual({ label: "safe" });
 });
+
+it("excludes a protected project before counting, search and paging", async () => {
+	const { db } = fixture();
+	for (let index = 0; index < 5; index++)
+		await createProject(db, {
+			id: index === 2 ? "private-project" : `public-project-${index}`,
+			orgId: ORG,
+			key: `PX${index}`,
+			name: "Scoped project",
+			createdAt: NOW,
+		});
+	await createProject(db, {
+		id: "other-project",
+		orgId: "other-org",
+		key: "PX9",
+		name: "Scoped project",
+		createdAt: NOW,
+	});
+	const input = {
+		orgId: ORG,
+		excludeProjectId: "private-project",
+		search: "Scoped",
+		limit: 2,
+	};
+	const first = await listProjects(db, { ...input, offset: 0 });
+	const second = await listProjects(db, { ...input, offset: 2 });
+	expect(first.total).toBe(4);
+	expect(second.total).toBe(4);
+	expect(first.data.map((project) => project.key)).toEqual(["PX0", "PX1"]);
+	expect(second.data.map((project) => project.key)).toEqual(["PX3", "PX4"]);
+	expect(
+		(
+			await listProjects(db, {
+				orgId: "other-org",
+				excludeProjectId: "private-project",
+			})
+		).total,
+	).toBe(1);
+});
