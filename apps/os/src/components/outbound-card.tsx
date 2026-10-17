@@ -1,9 +1,10 @@
+import { OS_COPY } from "@/shared/os-copy";
 import {
 	WorkDecisionCard,
 	type DecisionCardAction,
 	type DecisionCardFeedback,
 } from "@/components/work-decision-card";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	reviewedOutbound,
@@ -68,7 +69,15 @@ export function OutboundReviewCard({
 	...navigation
 }: { record: OutboundRecord } & OutboundCardNavigation) {
 	const client = useQueryClient();
+	const shownAt = useRef(Date.now());
 	const state = record.outbound;
+	const outcome = useQuery({
+		...osQuery.workInteractions.outbound.checkOutcome.queryOptions({
+			input: { workItemId: record.workItemId },
+		}),
+		enabled: state.status === "sent" && !!state.connectionInstanceId,
+		staleTime: 60000,
+	});
 	const roster = useQuery(tediRosterQueryOptions(100));
 	const reviewer = roster.data?.data.find(
 		(tedi) => tedi.id === state.reviewerTediId,
@@ -145,6 +154,7 @@ export function OutboundReviewCard({
 			workItemId: record.workItemId,
 			expectedVersion: record.version,
 			action,
+			elapsedMs: Math.min(86400000, Math.max(0, Date.now() - shownAt.current)),
 			...(action === "edit"
 				? {
 						draft: {
@@ -173,6 +183,7 @@ export function OutboundReviewCard({
 			client.invalidateQueries({
 				queryKey: osQuery.workItems.key({ type: "query" }),
 			}),
+			client.invalidateQueries({ queryKey: osQuery.learningFeedback.key() }),
 			client.invalidateQueries(workAttentionQueryOptions()),
 		]);
 		if (result.outbound.status === "send_unknown")
@@ -205,7 +216,11 @@ export function OutboundReviewCard({
 						{state.status === "approved_manual" ? (
 							<p>Approved for you to send. Delivery is unconfirmed.</p>
 						) : state.status === "sent" ? (
-							<p>Sent through your Gmail account.</p>
+							<p>
+								{outcome.data?.status === "replied"
+									? OS_COPY.learning.replied
+									: "Sent through your Gmail account."}
+							</p>
 						) : state.status === "send_unknown" ||
 						  state.status === "sending" ? (
 							<p>

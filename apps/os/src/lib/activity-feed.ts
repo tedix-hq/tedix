@@ -1,3 +1,5 @@
+import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
+import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
 import type {
 	ActivityFeedConfig,
 	ActivityFeedItem,
@@ -139,8 +141,16 @@ export function decisionFeedItems(
 				r.workItemId,
 			),
 			kind: "decision",
-			classId: decision?.classId ?? `decision:${r.kind}`,
+			classId:
+				decision?.classId ??
+				(typeof r.metadata?.decisionClass === "string"
+					? r.metadata.decisionClass
+					: r.kind),
 			actor: askedBy ?? "Tedi",
+			tediId:
+				typeof r.metadata?.proposerTediId === "string"
+					? r.metadata.proposerTediId
+					: null,
 			sentence: sentence(decision?.proposal ?? r.subject),
 			source: `/work/interactions/${r.id}`,
 			needsAction: effectiveState === "open",
@@ -221,6 +231,7 @@ export function rankFeed(
 	config: ActivityFeedConfig,
 	prefs: FeedPreferences,
 	now: Date,
+	model?: DecisionLearningModel,
 ) {
 	const allowed = new Set(config.projects.map((p) => p.id));
 	const seen = new Set<string>();
@@ -264,7 +275,45 @@ export function rankFeed(
 				Number(unseen) * config.weights.unseen +
 				Number(prefs.preferredClasses.includes(item.classId)) *
 					config.weights.preference;
-			return { ...item, score, unseen, deadline: deadline > 0 };
+			const learned = model
+				? scoreLearning(
+						{
+							id: item.id,
+							classId: item.classId,
+							text: item.sentence,
+							projectId: item.projectId,
+							tediId: item.tediId,
+							source: item.source,
+							dueAt: item.done ? null : item.dueAt,
+							protected: item.needsAction || item.importance === "critical",
+							lessons: item.decision?.lessons.map((l) => ({
+								...l,
+								classId: item.classId,
+								text: item.sentence,
+							})),
+						},
+						model,
+						now,
+					)
+				: null;
+			const why = learned?.factors
+				.map((f) => `${f.reason} [${f.evidenceIds.join(", ")}]`)
+				.join("; ");
+			return {
+				...item,
+				explanation: [
+					item.explanation,
+					why,
+					learned?.lessonIds.length
+						? `Lessons: ${learned.lessonIds.join(", ")}`
+						: "",
+				]
+					.filter(Boolean)
+					.join("\n"),
+				score: score + (learned?.score ?? 0),
+				unseen,
+				deadline: deadline > 0,
+			};
 		})
 		.sort(
 			(a, b) =>
@@ -286,18 +335,22 @@ export function quietNow(config: ActivityFeedConfig, hour: number) {
 
 export function feedLearningInput(
 	item: ActivityFeedItem,
-	reaction: "more" | "mute" | "comment",
+	reaction: "more" | "mute" | "comment" | "why" | "work" | "ignore",
 	text: string,
 	clientEventId: string,
 ) {
 	return {
 		clientEventId,
 		eventKind:
-			reaction === "comment"
-				? ("edited" as const)
-				: reaction === "more"
-					? ("accepted" as const)
-					: ("rejected" as const),
+			reaction === "ignore"
+				? ("ignored" as const)
+				: reaction === "comment"
+					? ("edited" as const)
+					: reaction === "why"
+						? ("answered" as const)
+						: reaction === "more" || reaction === "work"
+							? ("accepted" as const)
+							: ("rejected" as const),
 		scope: { kind: "personal" as const },
 		surface: "activity_feed",
 		issueKey: `feed:${item.classId}`,
@@ -306,6 +359,7 @@ export function feedLearningInput(
 		metadata: {
 			reaction,
 			classId: item.classId,
+			proposerTediId: item.tediId,
 			source: item.source,
 			projectId: item.projectId,
 			workItemId: item.workItemId,

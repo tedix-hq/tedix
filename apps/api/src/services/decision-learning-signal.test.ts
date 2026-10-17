@@ -327,4 +327,24 @@ describe("decision card feedback", () => {
 			},
 		});
 	});
+
+	it("retains full edit lengths and canonical draft text when ledger text is clipped", () => {
+		for (const draftOutcome of ["edited", "replaced"]) {
+			const signal = decisionCaptureLearningSignal({
+				organizationId: "fictional-harbor",
+				request: request(),
+				response: response({
+					body: "b".repeat(1500),
+					metadata: { draftId: "draft-1", draftOutcome },
+				}),
+				draft: draft({ orgId: "fictional-harbor", body: "a".repeat(3600) }),
+			});
+			expect(signal?.metadata).toMatchObject({
+				originalLength: 3600,
+				editedLength: 1500,
+				originalBody: "a".repeat(1000),
+				editedBody: "b".repeat(1000),
+			});
+		}
+	});
 });

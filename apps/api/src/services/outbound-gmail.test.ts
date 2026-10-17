@@ -1,3 +1,4 @@
+import { readOutboundReply } from "./outbound-gmail";
 import { describe, expect, it, vi, afterEach } from "vite-plus/test";
 import {
 	outboundMime,
@@ -64,4 +65,39 @@ describe("outbound Gmail adapter", () => {
 			}),
 		).toBe("Hi Lina, thanks! Rosa");
 	});
+});
+
+it("learns from an actual incoming reply, excluding the owner's follow-ups and drafts", async () => {
+	const fetcher = vi
+		.fn()
+		.mockResolvedValueOnce(
+			Response.json({
+				id: "sent-one",
+				threadId: "thread-one",
+				internalDate: "1000",
+				payload: { headers: [{ name: "Message-ID", value: "<one>" }] },
+			}),
+		)
+		.mockResolvedValueOnce(
+			Response.json({
+				id: "thread-one",
+				messages: [
+					{
+						id: "follow-up",
+						internalDate: "2000",
+						labelIds: ["SENT"],
+						payload: { headers: [{ name: "In-Reply-To", value: "<one>" }] },
+					},
+					{
+						id: "reply",
+						internalDate: "3000",
+						labelIds: ["INBOX"],
+						payload: { headers: [{ name: "In-Reply-To", value: "<one>" }] },
+					},
+				],
+			}),
+		);
+	vi.stubGlobal("fetch", fetcher);
+	expect(await readOutboundReply("fictional-token", "sent-one")).toBe("reply");
+	expect(fetcher).toHaveBeenCalledTimes(2);
 });

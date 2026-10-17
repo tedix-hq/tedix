@@ -33,6 +33,12 @@
  * asset.
  */
 
+import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { learningAutoReadiness } from "@tedix/api-contract/utils/decision-learning";
+import {
+	readDecisionLearning,
+	readDraftPreferences,
+} from "../../services/decision-learning";
 import { ORPCError, implement } from "@orpc/server";
 import { agentTurnTriageContract } from "@tedix/api-contract/contracts/agent-turn-triage";
 import {
@@ -1311,6 +1317,40 @@ export async function decideReplyDraftDelivery(
 	}
 	const sessionId = metadata.sessionId;
 	if (typeof sessionId !== "string" || sessionId.length === 0) return review;
+	let learningReceipt: AgentReplyDeliveryGateResult["learningReceipt"];
+	try {
+		const learned = await readDecisionLearning(
+			context.db,
+			params.request.orgId,
+			params.targetUserId,
+		);
+		if (learned.config.enabled) {
+			const decision = DecisionEnvelopeSchema.safeParse(metadata.decisionDeck);
+			const classId = decision.success
+				? decision.data.classId
+				: typeof metadata.decisionClass === "string"
+					? metadata.decisionClass
+					: params.request.kind;
+			const readiness = learningAutoReadiness(
+				{ id: params.request.id, classId, protected: !params.reversible },
+				learned,
+			);
+			if (
+				!learned.config.autoApproveClasses.includes(classId) ||
+				!readiness.ready
+			)
+				return review;
+			learningReceipt = {
+				classId,
+				unchanged: readiness.unchanged,
+				threshold: learned.config.unchangedThreshold,
+				sampled: readiness.sampled,
+				evidenceIds: readiness.evidenceIds,
+			};
+		}
+	} catch {
+		return review;
+	}
 	const consecutive = await countConsecutiveAutoReplies(context.db, {
 		orgId: params.request.orgId,
 		interactionId: params.request.id,
@@ -1331,7 +1371,10 @@ export async function decideReplyDraftDelivery(
 		agentMessage: params.request.prompt,
 		draftReply: params.body,
 	});
-	return { delivery: gate.status === "pass" ? "auto" : "review", gate };
+	return {
+		delivery: gate.status === "pass" ? "auto" : "review",
+		gate: learningReceipt ? { ...gate, learningReceipt } : gate,
+	};
 }
 
 const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
@@ -1398,40 +1441,48 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 		// The first attempt goes to the tedi that owns the question's subject;
 		// a re-request, or no clear owner, goes to the configured drafter.
 		const build = async (): Promise<AutomationEvent> => {
-			const [owner, ownerTurnModel, sessions, examples, board, skill] =
-				await Promise.all([
-					next.attempt === 1
-						? owningDraftTediId(context, {
-								orgId,
-								targetUserId: actor.id,
-								drafterTediId: tediId,
-								request,
-							})
-						: Promise.resolve({
-								tediId: null,
-								probability: null,
-								choiceTediId: null,
-							}),
-					next.attempt === 1
-						? drafterTurnModel(context, drafter)
-						: Promise.resolve(null),
-					listWorkAgentSessions(context.db, {
-						organizationId: orgId,
-						userId: actor.id,
-						includeEnded: false,
-						now: observedAt,
-					}),
-					replyDraftExamples(context, policy, {
-						orgId,
-						targetUserId: actor.id,
-						request,
-					}),
-					replyDraftBoard(context, orgId, request),
-					replyDraftSkill(context, orgId, {
-						slug: policy.drafting.skillSlug,
-						tediId,
-					}),
-				]);
+			const [
+				owner,
+				ownerTurnModel,
+				sessions,
+				examples,
+				board,
+				skill,
+				preferences,
+			] = await Promise.all([
+				next.attempt === 1
+					? owningDraftTediId(context, {
+							orgId,
+							targetUserId: actor.id,
+							drafterTediId: tediId,
+							request,
+						})
+					: Promise.resolve({
+							tediId: null,
+							probability: null,
+							choiceTediId: null,
+						}),
+				next.attempt === 1
+					? drafterTurnModel(context, drafter)
+					: Promise.resolve(null),
+				listWorkAgentSessions(context.db, {
+					organizationId: orgId,
+					userId: actor.id,
+					includeEnded: false,
+					now: observedAt,
+				}),
+				replyDraftExamples(context, policy, {
+					orgId,
+					targetUserId: actor.id,
+					request,
+				}),
+				replyDraftBoard(context, orgId, request),
+				replyDraftSkill(context, orgId, {
+					slug: policy.drafting.skillSlug,
+					tediId,
+				}),
+				readDraftPreferences(context.db, orgId, actor.id),
+			]);
 			const source = `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`;
 			console.log("reply-draft route", {
 				requestId: request.id,
@@ -1457,7 +1508,7 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 					skillContent: skill,
 					board,
 					turnTypeChoices: policy.turnTypeChoices,
-					examples,
+					examples: [examples, preferences].filter(Boolean).join("\n"),
 					attention: askedAttention(request.metadata),
 					steer: steer === "steer" ? steeringOf(policy)?.draft : null,
 				}),

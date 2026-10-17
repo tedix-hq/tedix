@@ -3,6 +3,25 @@ import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 
 /** Generic OS wording. Names and tenant-specific content come from records. */
 export const OS_COPY = {
+	learning: {
+		preference: (sentence: string) =>
+			`Got it — ${sentence.replace(/^(Prefer|Use) /, "I’ll use ")}`,
+		replied: "They replied — this outcome will help rank future suggestions.",
+		shorter: (subject: string) => `Got it — shorter wording for ${subject}.`,
+		less: (subject: string) => `Got it — less like this for ${subject}.`,
+		later: (subject: string) =>
+			`Got it — ${subject} can wait. I'll adjust what comes next.`,
+		noted: (subject: string) =>
+			`Got it — I'll use this signal for the next ${subject} suggestion.`,
+		undo: "Undo learning",
+		undone: "Learning corrected. Your decision is unchanged.",
+		failed: "Couldn't correct that learning. Try again.",
+		why: "Why this?",
+		signals: "Signals used",
+		evidence: "Evidence",
+		initial: "I’ll learn from your next choice.",
+		lessons: "Lessons used",
+	},
 	decisionDeck: {
 		filters: "Find a decision",
 		noMatches: "No decisions match these filters",

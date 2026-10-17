@@ -1,3 +1,8 @@
+import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
+import {
+	scoreLearning,
+	type LearningCandidate,
+} from "@tedix/api-contract/utils/decision-learning";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import type { DecisionCardFeedback } from "@/components/work-decision-card";
 import diff from "fast-diff";
@@ -92,4 +97,38 @@ export function workIsUnowned(
 		| undefined,
 ) {
 	return work?.activeAttempt === null && work.accountableOwnerId === null;
+}
+
+export function rankDecision<
+	T extends {
+		id: string;
+		kind: string;
+		project: string;
+		urgency: string;
+		decision: ReturnType<typeof decisionEnvelope>;
+	},
+>(
+	row: T,
+	model: DecisionLearningModel | undefined,
+	now: Date,
+	context: Partial<LearningCandidate> = {},
+) {
+	return model
+		? scoreLearning(
+				{
+					id: row.id,
+					classId: row.decision?.classId ?? row.kind,
+					projectId: row.project,
+					urgency: row.urgency === "now" ? 1 : 0,
+					protected: row.decision ? true : row.kind === "approval",
+					lessons: row.decision?.lessons.map((l) => ({
+						...l,
+						classId: row.decision!.classId,
+					})),
+					...context,
+				},
+				model,
+				now,
+			)
+		: { score: 0, factors: [], lessonIds: [] };
 }

@@ -313,10 +313,10 @@ describe("tedi-drafted replies", () => {
 				editRatio: 0,
 				source: "os-decision-card",
 				cardAction: "answer",
-				feedbackSignal: "approve-as-is",
+				elapsedMs: expect.any(Number),
 				decisionClass: "question",
 				decisionChoice: "approve",
-				elapsedMs: expect.any(Number),
+				feedbackSignal: "approve-as-is",
 			},
 		});
 	});

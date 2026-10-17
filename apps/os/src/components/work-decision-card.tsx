@@ -1,4 +1,8 @@
 import {
+	DecisionLearningContext,
+	DecisionLearningWhy,
+} from "@/components/decision-learning-context";
+import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
@@ -106,6 +110,7 @@ export function WorkDecisionCard({
 	onPrevious?: () => void;
 }) {
 	const attention = useContext(DecisionAttentionContext);
+	const learnedWhy = useContext(DecisionLearningContext);
 	const shownAt = useRef(performance.now());
 	const exposureSent = useRef(false);
 	useEffect(() => {
@@ -539,11 +544,12 @@ export function WorkDecisionCard({
 							{error}
 						</p>
 					) : null}
-					{why ? (
+					{why || learnedWhy ? (
 						<Collapsible open={whyOpen} onOpenChange={setWhyOpen}>
 							<CollapsibleTrigger>Why this?</CollapsibleTrigger>
 							<CollapsibleContent className="pt-3 text-kumo-subtle">
 								{why}
+								{learnedWhy && <DecisionLearningWhy explanation={learnedWhy} />}
 							</CollapsibleContent>
 						</Collapsible>
 					) : null}

@@ -216,6 +216,15 @@ export type AgentReplyDeliveryGatePolicy = z.infer<
 
 /** The stored audit of one delivery-gate evaluation. */
 export const AgentReplyDeliveryGateResultSchema = z.object({
+	learningReceipt: z
+		.object({
+			classId: z.string(),
+			unchanged: z.number().int(),
+			threshold: z.number().int(),
+			sampled: z.boolean(),
+			evidenceIds: z.array(z.string()),
+		})
+		.optional(),
 	status: z
 		.enum(["pass", "fail", "unavailable"])
 		.describe(

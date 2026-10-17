@@ -1,3 +1,4 @@
+import { recordObservedLearningInteraction } from "../../../services/learning-interaction-recorder";
 import {
 	assertValidWorkItemProject,
 	resolveWorkItemPurpose,
@@ -892,13 +893,39 @@ export const completeProcedure = factoryOs.complete.handler(
 		const workItem = await assertWorkItemAccess(context, input.id);
 		const actor = await workItemStewardActor(context, workItem, "completion");
 		try {
-			return await completeWorkItem(context.db, {
+			const completed = await completeWorkItem(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				actor,
 				expectedWorkItemVersion: workItem.version,
 				completedAt: new Date().toISOString(),
 			});
+			await recordObservedLearningInteraction(context, {
+				organizationId: workItem.orgId,
+				clientEventId: `work-outcome:${workItem.id}:completed`,
+				eventKind: "accepted",
+				surface: "work_outcome",
+				targetType: "work_item",
+				targetId: workItem.id,
+				metadata: {
+					decisionClass: workItem.workKind,
+					projectId: workItem.projectId,
+					outcome:
+						!completed.deadline || !completed.completedAt
+							? "completed"
+							: Date.parse(completed.completedAt) <=
+								  Date.parse(
+										completed.deadline.length === 10
+											? `${completed.deadline}T23:59:59.999Z`
+											: completed.deadline,
+								  )
+								? "completed_on_time"
+								: "completed_late",
+					deadline: completed.deadline,
+					completedAt: completed.completedAt,
+				},
+			});
+			return completed;
 		} catch (error) {
 			rethrowWorkItemWriteError(error);
 		}

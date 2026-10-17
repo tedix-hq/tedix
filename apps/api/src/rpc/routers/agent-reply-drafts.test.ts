@@ -6,6 +6,11 @@
  * autoSend guardrails, and acceptance is measured from cited responses.
  */
 
+import { organizations } from "@tedix/db/schema/organizations";
+import { memoryFacts } from "@tedix/db/schema/memory-graph";
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
+import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
+import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import type { AgentTurnTriagePolicyInput } from "@tedix/api-contract/schemas/agent-turn-triage";
@@ -115,6 +120,9 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
 		schemaDdl(
+			organizations,
+			memoryFacts,
+			learningInteractionEvents,
 			userConfigs,
 			workItems,
 			workEvents,
@@ -135,6 +143,9 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			tediRoleAssignments,
 		),
 	);
+	sqlite
+		.prepare("INSERT INTO organizations (id,name,slug) VALUES (?,?,?)")
+		.run(ORG_ID, "Fictional Harbor", "fictional-harbor");
 	sqlite
 		.prepare(
 			"INSERT INTO work_items (id,org_id,title,created_at) VALUES (?,?,?,?)",
@@ -1089,6 +1100,150 @@ describe("proposeReplyDraft delivery", () => {
 		});
 		return { requestId, delivery };
 	}
+
+	it("promotes only configured classes after five unchanged approvals, records the evidence and demotes on rejection", async () => {
+		const f = fixture();
+		await f.configure(AUTO_SEND);
+		const policy = DecisionLearningConfigSchema.parse({
+			enabled: true,
+			autoApproveClasses: ["question"],
+			auditSampleRate: 0,
+		});
+		f.sqlite
+			.prepare("UPDATE organizations SET metadata=? WHERE id=?")
+			.run(JSON.stringify({ decisionLearning: policy }), ORG_ID);
+		const insert = f.sqlite.prepare(
+			"INSERT INTO learning_interaction_events(id,organization_id,actor_type,actor_id,client_event_id,event_kind,scope_kind,scope_id,surface,metadata,created_at,occurred_at) VALUES(?,?,'user','target-id',?,?,'personal','target-id','decision_capture',?,'2026-08-20T00:00:00Z',?)",
+		);
+		for (let i = 0; i < 5; i++)
+			insert.run(
+				`approval-${i}`,
+				ORG_ID,
+				`approval-${i}`,
+				"accepted",
+				JSON.stringify({
+					decisionClass: "question",
+					decisionChoice: "approve",
+					feedbackSignal: "approve-as-is",
+					serverObserved: true,
+				}),
+				`2026-08-20T00:0${i}:00.000Z`,
+			);
+		const promoted = await turn(f, 1);
+		expect(promoted.delivery).toBe("auto");
+		const row = f.sqlite
+			.prepare(
+				"SELECT gate FROM work_interaction_reply_drafts WHERE interaction_id=?",
+			)
+			.get(promoted.requestId) as { gate: string };
+		expect(JSON.parse(row.gate).learningReceipt).toMatchObject({
+			classId: "question",
+			unchanged: 5,
+			threshold: 5,
+			evidenceIds: expect.arrayContaining(["approval-0", "approval-4"]),
+		});
+		insert.run(
+			"rejection",
+			ORG_ID,
+			"rejection",
+			"rejected",
+			JSON.stringify({ decisionClass: "question" }),
+			new Date().toISOString(),
+		);
+		expect((await turn(f, 2)).delivery).toBe("review");
+	});
+
+	it("uses the canonical envelope class and honors Undo after a class earned delivery", async () => {
+		const f = fixture();
+		await f.configure({
+			...AUTO_SEND,
+			classPolicies: {
+				filing: {
+					autoApprove: true,
+					unchangedThreshold: 5,
+					auditSampleRate: 0,
+				},
+			},
+		});
+		const policy = DecisionLearningConfigSchema.parse({
+			enabled: true,
+			autoApproveClasses: ["filing"],
+			auditSampleRate: 0,
+		});
+		f.sqlite
+			.prepare("UPDATE organizations SET metadata=? WHERE id=?")
+			.run(JSON.stringify({ decisionLearning: policy }), ORG_ID);
+		const insert = f.sqlite.prepare(
+			"INSERT INTO learning_interaction_events(id,organization_id,actor_type,actor_id,client_event_id,event_kind,scope_kind,scope_id,surface,metadata,created_at,occurred_at) VALUES(?,?,'user','target-id',?,?,'personal','target-id','decision_capture',?,'2026-08-20T00:00:00Z',?)",
+		);
+		for (let i = 0; i < 5; i++)
+			insert.run(
+				`filing-approval-${i}`,
+				ORG_ID,
+				`decision-capture:filing-${i}`,
+				"accepted",
+				JSON.stringify({
+					decisionClass: "filing",
+					decisionChoice: "approve",
+					feedbackSignal: "approve-as-is",
+					serverObserved: true,
+				}),
+				`2026-08-20T00:0${i}:00.000Z`,
+			);
+		const decisionDeck = DecisionEnvelopeSchema.parse({
+			version: 1,
+			kind: "decision",
+			classId: "filing",
+			proposal: "File the fictional workshop receipt?",
+			whyNow: "The receipt is ready.",
+			recommendation: "File it under Workshop repairs.",
+			reversibility: "two_way",
+			blastRadius: "One fictional folder",
+			confidence: 1,
+			costOfWaiting: "The receipt remains unfiled.",
+			reasoning: "The filing can be corrected.",
+			options: [
+				{
+					id: "yes",
+					label: "Approve",
+					intent: "approve",
+					consequence: "File the receipt.",
+					cost: "None",
+				},
+				{
+					id: "no",
+					label: "Not this",
+					intent: "reject",
+					consequence: "Leave it unchanged.",
+					cost: "One more review",
+				},
+			],
+		});
+		const metadata = { ...SESSION, decisionDeck };
+		const promoted = await turn(f, 1, {}, metadata);
+		expect(promoted.delivery).toBe("auto");
+		const row = f.sqlite
+			.prepare(
+				"SELECT gate FROM work_interaction_reply_drafts WHERE interaction_id=?",
+			)
+			.get(promoted.requestId) as { gate: string };
+		expect(JSON.parse(row.gate).learningReceipt).toMatchObject({
+			classId: "filing",
+			unchanged: 5,
+		});
+		insert.run(
+			"filing-correction",
+			ORG_ID,
+			"filing-correction",
+			"undone",
+			JSON.stringify({
+				learningCorrection: true,
+				correctsEventId: "filing-approval-0",
+			}),
+			new Date().toISOString(),
+		);
+		expect((await turn(f, 2, {}, metadata)).delivery).toBe("review");
+	});
 
 	function userReply(
 		f: ReturnType<typeof fixture>,

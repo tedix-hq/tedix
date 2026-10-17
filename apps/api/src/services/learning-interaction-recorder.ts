@@ -7,6 +7,7 @@
  * the primary action already committed.
  */
 
+import { classifyDecisionEdit } from "./decision-edit-preference";
 import type {
 	LearningInteractionKind,
 	LearningSignalClass,
@@ -100,7 +101,11 @@ export async function recordObservedLearningInteraction(
 		| "descopeUserId"
 		| "serviceAccount"
 		| "apiKey"
-	> & { db: DbClient },
+	> & {
+		db: DbClient;
+		env?: CloudflareEnv;
+		waitUntil?: (promise: Promise<unknown>) => void;
+	},
 	input: ObservedLearningInteractionInput,
 ): Promise<boolean> {
 	const actor = observedLearningActor(context);
@@ -112,7 +117,7 @@ export async function recordObservedLearningInteraction(
 				: { kind: "organization" as const, id: input.organizationId };
 
 	try {
-		await recordLearningInteraction(context.db, {
+		const result = await recordLearningInteraction(context.db, {
 			organizationId: input.organizationId,
 			...actor,
 			tediId: input.tediId ?? context.tediId ?? null,
@@ -127,10 +132,19 @@ export async function recordObservedLearningInteraction(
 			targetId: input.targetId,
 			threadId: input.threadId,
 			runId: input.runId,
-			metadata:
-				input.metadata === undefined ? undefined : toJsonRecord(input.metadata),
+			metadata: toJsonRecord({ ...input.metadata, serverObserved: true }),
 			occurredAt: input.occurredAt ?? new Date().toISOString(),
 		});
+		if (
+			!result.duplicate &&
+			context.env &&
+			context.waitUntil &&
+			["edited", "manually_replaced"].includes(input.eventKind)
+		) {
+			context.waitUntil(
+				classifyDecisionEdit(context.db, context.env, result.event),
+			);
+		}
 		return true;
 	} catch (error) {
 		console.warn("[learning-feedback] product interaction stamp failed", {

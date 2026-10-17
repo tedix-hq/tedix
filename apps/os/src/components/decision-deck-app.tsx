@@ -1,9 +1,11 @@
+import { DecisionLearningContext } from "@/components/decision-learning-context";
+import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	DecisionKindSchema,
@@ -35,6 +37,7 @@ import {
 	workItemListQueryOptions,
 } from "@/lib/os-query-options";
 import {
+	rankDecision,
 	workIsUnowned,
 	classReadiness,
 	decisionEnvelope,
@@ -60,6 +63,10 @@ export function DecisionDeckApp({
 	workspaceId?: string;
 }) {
 	const client = useQueryClient();
+	const learningModel = useQuery({
+		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
+		refetchInterval: 60000,
+	});
 	const [mode, setMode] = useState("decide");
 	const [kind, setKind] = useState("all");
 	const [project, setProject] = useState("all");
@@ -144,7 +151,7 @@ export function DecisionDeckApp({
 			})
 			.then(() =>
 				client.invalidateQueries({
-					queryKey: osQuery.learningFeedback.listInteractions.key(),
+					queryKey: osQuery.learningFeedback.key(),
 				}),
 			)
 			.catch(() => {});
@@ -202,8 +209,38 @@ export function DecisionDeckApp({
 						}))
 					: []),
 			];
+	const rank = (row: (typeof rows)[number]) =>
+		rankDecision(row, learningModel.data, new Date(), {
+			classId:
+				row.decision?.classId ??
+				(typeof row.row?.request.metadata?.decisionClass === "string"
+					? row.row.request.metadata.decisionClass
+					: (row.row?.request.kind ?? row.kind)),
+			dueAt: row.row?.request.dueAt,
+			text: row.label,
+			tediId:
+				typeof row.row?.request.metadata?.proposerTediId === "string"
+					? row.row.request.metadata.proposerTediId
+					: null,
+			source:
+				typeof row.row?.request.metadata?.source === "string"
+					? row.row.request.metadata.source
+					: "decision_capture",
+			channel:
+				typeof row.row?.request.metadata?.channel === "string"
+					? row.row.request.metadata.channel
+					: undefined,
+			personIds:
+				typeof row.row?.request.metadata?.personId === "string"
+					? [row.row.request.metadata.personId]
+					: [],
+		});
 	const ranked = rows
-		.sort((a, b) => Number(b.urgency === "now") - Number(a.urgency === "now"))
+		.sort((a, b) =>
+			learningModel.data?.config.enabled
+				? rank(b).score - rank(a).score
+				: Number(b.urgency === "now") - Number(a.urgency === "now"),
+		)
 		.filter(
 			(row) =>
 				(kind === "all" || row.kind === kind) &&
@@ -240,7 +277,12 @@ export function DecisionDeckApp({
 					.filter((row) =>
 						available.some((candidate) => candidate.id === row.id),
 					)
-					.sort((a, b) => batch!.ids.indexOf(a.id) - batch!.ids.indexOf(b.id))
+					.sort(
+						(a, b) =>
+							(learningModel.data?.config.enabled
+								? rank(b).score - rank(a).score
+								: 0) || batch!.ids.indexOf(a.id) - batch!.ids.indexOf(b.id),
+					)
 			: ranked;
 	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
 	const linkedWorkId = selected?.row?.workItem?.id;
@@ -273,7 +315,7 @@ export function DecisionDeckApp({
 			current.options.some((option) => option.effect)),
 	);
 	const classId = current?.classId ?? selected?.kind;
-	const learning = classId
+	const historicalLearning = classId
 		? classReadiness(
 				practiceMode ? practice : receipts,
 				classId,
@@ -281,6 +323,23 @@ export function DecisionDeckApp({
 					config.unchangedThreshold,
 			)
 		: null;
+	const learnedReadiness = learningModel.data?.readiness.find(
+		(r) => r.classId === classId,
+	);
+	const learning =
+		!practiceMode && learningModel.data?.config.enabled && historicalLearning
+			? {
+					...historicalLearning,
+					unchanged: learnedReadiness?.unchanged ?? 0,
+					ready: learnedReadiness?.ready ?? false,
+				}
+			: historicalLearning;
+	const threshold =
+		!practiceMode && learningModel.data?.config.enabled
+			? learningModel.data.config.unchangedThreshold
+			: ((classId
+					? config.classPolicies[classId]?.unchangedThreshold
+					: undefined) ?? config.unchangedThreshold);
 	const next = () => {
 		if (mode === "history")
 			setIndex((value) => Math.min(filtered.length - 1, value + 1));
@@ -313,7 +372,14 @@ export function DecisionDeckApp({
 		buildDecisionDeckWebMcpTools,
 		[],
 	);
-	return (
+	return createElement(
+		DecisionLearningContext.Provider,
+		{
+			value:
+				mode === "decide" && selected && learningModel.data?.config.enabled
+					? rank(selected)
+					: null,
+		},
 		<DecisionAttentionContext.Provider
 			value={(choice) => {
 				if (mode !== "decide" || !selected) return;
@@ -366,7 +432,7 @@ export function DecisionDeckApp({
 					)
 					.then(() =>
 						client.invalidateQueries({
-							queryKey: osQuery.learningFeedback.listInteractions.key(),
+							queryKey: osQuery.learningFeedback.key(),
 						}),
 					)
 					.catch(() => {});
@@ -376,6 +442,8 @@ export function DecisionDeckApp({
 				className="mx-auto grid w-full min-w-0 max-w-2xl gap-4 pb-8"
 				data-workspace-app-entry="decision-deck"
 			>
+				<DecisionLearningFeedback />
+
 				<div className="grid gap-2">
 					<Text as="h2" weight="semibold">
 						{OS_COPY.decisionDeck.title}
@@ -546,10 +614,7 @@ export function DecisionDeckApp({
 						aria-label="Class readiness"
 					>
 						<Text weight="medium">
-							{classId}: {learning.unchanged}/
-							{config.classPolicies[classId]?.unchangedThreshold ??
-								config.unchangedThreshold}{" "}
-							unchanged approvals
+							{classId}: {learning.unchanged}/{threshold} unchanged approvals
 						</Text>
 						<Text tone="secondary">
 							{learning.ready
@@ -668,7 +733,7 @@ export function DecisionDeckApp({
 										queryKey: osQuery.workInteractions.key({ type: "query" }),
 									});
 									await client.invalidateQueries({
-										queryKey: osQuery.learningFeedback.listInteractions.key(),
+										queryKey: osQuery.learningFeedback.key(),
 									});
 								}}
 							/>
@@ -692,7 +757,34 @@ export function DecisionDeckApp({
 							</div>
 						) : (
 							!current?.options.some((option) => option.intent === "later") && (
-								<Button variant="outline" onClick={next}>
+								<Button
+									variant="outline"
+									onClick={() => {
+										if (!practiceMode)
+											void osApi.learningFeedback
+												.recordInteraction({
+													clientEventId: crypto.randomUUID(),
+													eventKind: "ignored",
+													scope: { kind: "personal" },
+													surface: "decision_deck",
+													targetType: "work_interaction",
+													targetId: selected.id,
+													metadata: {
+														decisionClass: classId ?? selected.kind,
+														decisionChoice: "later",
+														reaction: "skip",
+														projectId: selected.project,
+													},
+												})
+												.then(() =>
+													client.invalidateQueries({
+														queryKey: osQuery.learningFeedback.key(),
+													}),
+												)
+												.catch(() => {});
+										next();
+									}}
+								>
 									Later
 								</Button>
 							)
@@ -742,6 +834,6 @@ export function DecisionDeckApp({
 					Your style profile and last 10 approvals
 				</Link>
 			</div>
-		</DecisionAttentionContext.Provider>
+		</DecisionAttentionContext.Provider>,
 	);
 }

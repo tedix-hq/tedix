@@ -178,3 +178,62 @@ export async function readSentStyleExamples(token: string) {
 	}
 	return samples;
 }
+
+/** Verify an incoming reply in the provider thread; sent follow-ups never count. */
+export async function readOutboundReply(
+	token: string,
+	sentMessageId: string,
+): Promise<string | null> {
+	const headers = { Authorization: `Bearer ${token}` };
+	const sent = await fetch(
+		`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(sentMessageId)}?format=metadata&metadataHeaders=Message-ID&fields=id,threadId,internalDate,payload/headers`,
+		{ headers, signal: AbortSignal.timeout(5000) },
+	);
+	if (!sent.ok) throw new Error("Sent message could not be verified");
+	const message = (await sent.json()) as {
+		id?: string;
+		threadId?: string;
+		internalDate?: string;
+		payload?: { headers?: Array<{ name: string; value: string }> };
+	};
+	if (
+		message.id !== sentMessageId ||
+		!message.threadId ||
+		!message.internalDate
+	)
+		throw new Error("Sent receipt is incomplete");
+	const sentHeader = message.payload?.headers
+		?.find((h) => h.name.toLowerCase() === "message-id")
+		?.value.trim();
+	if (!sentHeader) throw new Error("Sent message header missing");
+	const thread = await fetch(
+		`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(message.threadId)}?format=metadata&metadataHeaders=In-Reply-To&fields=id,messages(id,internalDate,labelIds,payload/headers)`,
+		{ headers, signal: AbortSignal.timeout(5000) },
+	);
+	if (!thread.ok) throw new Error("Reply thread could not be verified");
+	const body = (await thread.json()) as {
+		id?: string;
+		messages?: Array<{
+			id: string;
+			internalDate: string;
+			labelIds?: string[];
+			payload?: { headers?: Array<{ name: string; value: string }> };
+		}>;
+	};
+	if (body.id !== message.threadId)
+		throw new Error("Reply thread does not match");
+	return (
+		body.messages?.find(
+			(m) =>
+				m.id !== sentMessageId &&
+				Number(m.internalDate) > Number(message.internalDate) &&
+				!m.labelIds?.includes("SENT") &&
+				!m.labelIds?.includes("DRAFT") &&
+				m.payload?.headers?.some(
+					(h) =>
+						h.name.toLowerCase() === "in-reply-to" &&
+						h.value.split(/\s+/).includes(sentHeader),
+				),
+		)?.id ?? null
+	);
+}

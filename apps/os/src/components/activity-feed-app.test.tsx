@@ -1,3 +1,5 @@
+import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
+import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,7 +16,12 @@ import type { FeedSourceState } from "./activity-feed-sources";
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
-		learningFeedback: { recordInteraction: vi.fn(), listInteractions: vi.fn() },
+		learningFeedback: {
+			recordInteraction: vi.fn(),
+			listInteractions: vi.fn(),
+			model: vi.fn(),
+			correct: vi.fn(),
+		},
 		userSettings: { getPreferences: vi.fn(), updatePreferences: vi.fn() },
 	},
 }));
@@ -72,6 +79,16 @@ it("shows receipt-backed activity, explains it and persists a personal mute", as
 	const client = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
+	client.setQueryData(
+		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+		learnDecisions({
+			organizationId: "fictional-acme",
+			personId: "fictional-acme-user",
+			events: [],
+			config: DecisionLearningConfigSchema.parse({}),
+			now: new Date(),
+		}),
+	);
 	const initial = {
 		preferences: DEFAULT_OS_USER_PREFERENCES,
 		revision: 0,

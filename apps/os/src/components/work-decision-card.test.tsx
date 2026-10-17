@@ -1,3 +1,4 @@
+import { DecisionLearningContext } from "./decision-learning-context";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -368,4 +369,67 @@ it("keeps right-arrow approval separate from the preferred delegation and suppor
 	expect(approve).toHaveBeenCalledWith(
 		expect.objectContaining({ action: "yes" }),
 	);
+});
+
+it("keeps ranking evidence inside the selected card's single explanation drawer", async () => {
+	await mount({ why: "The workshop is waiting on this answer." });
+	const card = (
+		<WorkDecisionCard
+			kind="question"
+			title="Confirm the repair window"
+			askedBy="Cedar"
+			why="The workshop is waiting on this answer."
+			onDecision={async () => {}}
+		/>
+	);
+	await act(async () =>
+		root.render(
+			<DecisionLearningContext.Provider
+				value={{
+					score: 12,
+					factors: [
+						{
+							level: "personal",
+							contribution: 8,
+							evidenceIds: ["fictional-choice-1"],
+							reason: "Your recent workshop decisions",
+						},
+						{
+							level: "organization",
+							contribution: 4,
+							evidenceIds: ["fictional-lesson-1"],
+							reason:
+								"Applicable lesson: confirm the time before promising delivery",
+						},
+					],
+					lessonIds: ["fictional-lesson-1"],
+				}}
+			>
+				{card}
+			</DecisionLearningContext.Provider>,
+		),
+	);
+	expect(
+		[...host.querySelectorAll("button")].filter(
+			(button) => button.textContent === "Why this?",
+		),
+	).toHaveLength(1);
+	await click("Why this?");
+	expect(host.textContent).toContain("The workshop is waiting on this answer.");
+	expect(host.textContent).toContain("Your recent workshop decisions");
+	expect(host.textContent).toContain(
+		"Applicable lesson: confirm the time before promising delivery",
+	);
+	expect(host.querySelector("details")?.textContent).toContain(
+		"fictional-choice-1",
+	);
+	await act(async () =>
+		root.render(
+			<DecisionLearningContext.Provider value={null}>
+				{card}
+			</DecisionLearningContext.Provider>,
+		),
+	);
+	expect(host.textContent).not.toContain("Your recent workshop decisions");
+	expect(host.textContent).toContain("The workshop is waiting on this answer.");
 });

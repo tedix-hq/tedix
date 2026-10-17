@@ -11,6 +11,7 @@
  * as a whole stays fail-soft.
  */
 
+import { readDraftPreferences } from "../../../services/decision-learning";
 import {
 	rerankContextCandidates,
 	type ContextCandidateRanker,
@@ -1849,6 +1850,15 @@ export async function assembleHomeContext(
 			...(typeof confidence === "number" ? { confidence } : {}),
 		}),
 	);
+
+	if (opts?.descopeUserId) {
+		const preferences = await readDraftPreferences(
+			db,
+			organizationId,
+			opts.descopeUserId,
+		);
+		if (preferences) facts.unshift({ text: preferences });
+	}
 
 	// Persisted checkpoint first: the replay is the checkpoint message plus the
 	// messages after its fold, so a settled compaction stays settled across

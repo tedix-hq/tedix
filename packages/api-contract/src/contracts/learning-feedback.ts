@@ -1,6 +1,12 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
+import * as z from "zod";
+import {
+	DecisionLearningConfigSchema,
+	DecisionLearningModelSchema,
+	LearningCorrectionInputSchema,
+} from "../schemas/decision-learning";
 import {
 	AnalyzeRecurringLearningIssuesInputSchema,
 	AnalyzeRecurringLearningIssuesOutputSchema,
@@ -28,6 +34,13 @@ export const learningFeedbackContract = oc
 	.route({ tags: ["learning-feedback"], prefix: "/learning-feedback" })
 	.errors(baseErrors)
 	.router({
+		model: oc.input(z.object({})).output(DecisionLearningModelSchema),
+		configure: oc
+			.input(DecisionLearningConfigSchema)
+			.output(DecisionLearningConfigSchema),
+		correct: oc
+			.input(LearningCorrectionInputSchema)
+			.output(RecordLearningInteractionOutputSchema),
 		recordInteraction: oc
 			.route({
 				method: "POST",

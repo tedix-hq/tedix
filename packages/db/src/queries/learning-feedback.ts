@@ -12,6 +12,7 @@ import {
 	max,
 	ne,
 	or,
+	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
@@ -262,6 +263,10 @@ export async function listLearningInteractions(
  * review-pending memory) may call this — never a user-facing handler, which
  * must use {@link listLearningInteractions} and its personal-scope fence.
  */
+function notCorrectedLearningEvent() {
+	return sql`NOT EXISTS (SELECT 1 FROM learning_interaction_events AS correction WHERE correction.organization_id = ${learningInteractionEvents.organizationId} AND correction.actor_id = ${learningInteractionEvents.actorId} AND correction.scope_kind = ${learningInteractionEvents.scopeKind} AND correction.scope_id = ${learningInteractionEvents.scopeId} AND correction.event_kind = 'undone' AND json_extract(correction.metadata, '$.learningCorrection') = 1 AND json_extract(correction.metadata, '$.correctsEventId') = ${learningInteractionEvents.id})`;
+}
+
 export async function listLearningInteractionsForReflection(
 	db: DbClient,
 	input: {
@@ -278,6 +283,7 @@ export async function listLearningInteractionsForReflection(
 		.where(
 			and(
 				eq(learningInteractionEvents.organizationId, input.organizationId),
+				notCorrectedLearningEvent(),
 				// bound-params: callers pass a fixed list of producer surfaces
 				inArray(learningInteractionEvents.surface, input.surfaces),
 				gte(learningInteractionEvents.occurredAt, input.since),
@@ -471,6 +477,7 @@ export async function listOwnerLearningInteractionsPage(
 		.where(
 			and(
 				eq(learningInteractionEvents.organizationId, input.organizationId),
+				notCorrectedLearningEvent(),
 				eq(learningInteractionEvents.scopeKind, "personal"),
 				eq(learningInteractionEvents.scopeId, input.ownerUserId),
 				// bound-params: callers pass a fixed list of producer surfaces

@@ -1,4 +1,7 @@
+import { archiveCorrectedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { implement } from "@orpc/server";
+import { readDecisionLearning } from "../../services/decision-learning";
+import { setDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { learningFeedbackContract } from "@tedix/api-contract/contracts/learning-feedback";
 import type {
 	LearningScopeKind,
@@ -34,6 +37,7 @@ import {
 	createError,
 	ErrorCodes,
 	withAuth,
+	withAuthorization,
 } from "../orpc";
 
 const learningFeedbackOs = implement(
@@ -234,7 +238,14 @@ const recordInteraction = authed.recordInteraction
 				metadata:
 					input.metadata === undefined
 						? undefined
-						: toJsonRecord(input.metadata),
+						: toJsonRecord({
+								...input.metadata,
+								preferenceSource: null,
+								preferenceSentence: null,
+								preferenceEvidenceEventId: null,
+								learningCorrection: false,
+								serverObserved: false,
+							}),
 				occurredAt: input.occurredAt ?? new Date().toISOString(),
 			}),
 		);
@@ -305,7 +316,14 @@ const attributeFeedback = authed.attributeFeedback
 				metadata:
 					input.metadata === undefined
 						? undefined
-						: toJsonRecord(input.metadata),
+						: toJsonRecord({
+								...input.metadata,
+								preferenceSource: null,
+								preferenceSentence: null,
+								preferenceEvidenceEventId: null,
+								learningCorrection: false,
+								serverObserved: false,
+							}),
 				occurredAt: input.occurredAt ?? new Date().toISOString(),
 			}),
 		);
@@ -355,7 +373,14 @@ const recordMeasurement = authed.recordMeasurement
 				metadata:
 					input.metadata === undefined
 						? undefined
-						: toJsonRecord(input.metadata),
+						: toJsonRecord({
+								...input.metadata,
+								preferenceSource: null,
+								preferenceSentence: null,
+								preferenceEvidenceEventId: null,
+								learningCorrection: false,
+								serverObserved: false,
+							}),
 			}),
 		);
 	});
@@ -720,7 +745,72 @@ const reviewImprovement = authed.reviewImprovement
 		};
 	});
 
+const model = authed.model
+	.use(AUTHZ.tedisRead)
+	.handler(({ context }) =>
+		readDecisionLearning(
+			context.db,
+			requireOrgId(context),
+			resolveLearningActor(context).actorId,
+		),
+	);
+const configure = authed.configure
+	.use(withAuthorization("settings:manage", "mcp:settings.write"))
+	.handler(({ input, context }) =>
+		setDecisionLearningConfig(context.db, requireOrgId(context), input),
+	);
+const correct = authed.correct
+	.use(AUTHZ.tedisWrite)
+	.handler(async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const actor = resolveLearningActor(context);
+		if (actor.actorType !== "user" || !actor.actorId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only a person can correct their own learning",
+			);
+		const [event] = await getLearningInteractionsByIds(
+			context.db,
+			organizationId,
+			[input.eventId],
+		);
+		if (
+			!event ||
+			event.scopeKind !== "personal" ||
+			event.scopeId !== actor.actorId ||
+			event.actorId !== actor.actorId ||
+			event.metadata?.learningCorrection === true
+		)
+			throw createError(ErrorCodes.NOT_FOUND, "Learning signal not found");
+		const recorded = await withIdempotencyConflict(() =>
+			recordLearningInteraction(context.db, {
+				organizationId,
+				...actor,
+				clientEventId: input.clientEventId,
+				eventKind: "undone",
+				scopeKind: "personal",
+				scopeId: actor.actorId!,
+				surface: "decision_learning",
+				targetType: "learning_event",
+				targetId: event.id,
+				metadata: { learningCorrection: true, correctsEventId: event.id },
+				occurredAt: new Date().toISOString(),
+			}),
+		);
+		await archiveCorrectedAgentLessons(
+			context.db,
+			organizationId,
+			actor.actorId,
+			event.id,
+			new Date().toISOString(),
+		);
+		return recorded;
+	});
+
 export const learningFeedbackContractRouter = learningFeedbackOs.router({
+	model,
+	configure,
+	correct,
 	recordInteraction,
 	listInteractions,
 	attributeFeedback,

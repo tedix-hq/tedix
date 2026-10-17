@@ -382,7 +382,8 @@
 		"./schema/personal-resource-delegations": "./src/schema/personal-resource-delegations.ts",
 		"./queries/personal-resource-delegations": "./src/queries/personal-resource-delegations.ts",
 		"./schema/calendar-coordinator": "./src/schema/calendar-coordinator.ts",
-		"./queries/calendar-coordinator": "./src/queries/calendar-coordinator.ts"
+		"./queries/calendar-coordinator": "./src/queries/calendar-coordinator.ts",
+		"./queries/decision-learning": "./src/queries/decision-learning.ts"
 	},
 	"scripts": {
 		"clean": "true",

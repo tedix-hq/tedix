@@ -1,3 +1,5 @@
+import { readDraftPreferences } from "./decision-learning";
+import { OutboundStateSchema } from "@tedix/api-contract/schemas/outbound";
 import type { DbClient } from "@tedix/db/client";
 import type {
 	TaskStateSnapshot,
@@ -110,6 +112,32 @@ export async function readTurnMemory(
 		references,
 		checkedAt,
 	);
+	const writers = new Set<string>();
+	for (const id of [...new Set(references)].slice(0, 10)) {
+		const work = await getWorkItemById(db, id, orgId);
+		if (!work) continue;
+		const outbound = OutboundStateSchema.safeParse(work.metadata?.outbound);
+		if (
+			outbound.success &&
+			(outbound.data.reviewerTediId === tediId ||
+				(outbound.data.author.type === "tedi" &&
+					outbound.data.author.id === tediId))
+		)
+			writers.add(outbound.data.ownerUserId);
+		else if (
+			work.accountableOwnerType === "user" &&
+			work.accountableOwnerId &&
+			work.stewardType === "tedi" &&
+			work.stewardId === tediId
+		)
+			writers.add(work.accountableOwnerId);
+	}
+	const writing = await Promise.all(
+		(writers.size ? [...writers].slice(0, 5) : [null]).map(async (person) => ({
+			id: `decision-learning:${person ?? "organization"}`,
+			content: await readDraftPreferences(db, orgId, person),
+		})),
+	);
 	const tasks: TaskStateSnapshot[] = [
 		...referenced,
 		...owned.data
@@ -125,6 +153,7 @@ export async function readTurnMemory(
 	return {
 		checkedAt,
 		preferences: [
+			...writing.filter((p) => p.content),
 			...preferences
 				.filter(
 					(fact) =>
