@@ -439,6 +439,23 @@ export const OsGadgetExportDescriptorSchema = z
 	})
 	.strict();
 
+export const PERSONAL_READ_CONSENT_ENTRY = "tedix:app/personal-read-consent";
+export const PersonalReadConsentConfigSchema = z.strictObject({
+	version: z.literal(1),
+	skillId: z.string().uuid(),
+	resourceId: z.string().uuid(),
+	workerName: z.string().min(1).max(80),
+	providers: z
+		.array(
+			z.strictObject({
+				id: z.string().min(1).max(200),
+				name: z.string().min(1).max(80),
+			}),
+		)
+		.min(1)
+		.max(5),
+});
+
 export const OsGadgetManifestSchema = z
 	.object({
 		navigation: z.strictObject({ board: z.boolean().optional() }).optional(),
@@ -532,11 +549,13 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 				? CardReviewConfigSchema
 				: value.entry.trim() === OUTBOUND_REVIEW_ENTRY
 					? OutboundReviewConfigSchema
-					: value.entry.trim() === OFFICE_ENTRY
-						? OfficeConfigSchema
-						: value.entry.trim() === AGENTS_ENTRY
-							? AgentsConfigSchema
-							: null;
+					: value.entry.trim() === PERSONAL_READ_CONSENT_ENTRY
+						? PersonalReadConsentConfigSchema
+						: value.entry.trim() === OFFICE_ENTRY
+							? OfficeConfigSchema
+							: value.entry.trim() === AGENTS_ENTRY
+								? AgentsConfigSchema
+								: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;

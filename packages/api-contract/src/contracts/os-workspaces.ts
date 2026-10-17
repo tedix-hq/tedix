@@ -635,6 +635,14 @@ export const osWorkspacesContract = oc
 								.string()
 								.uuid()
 								.describe("The schedule's resourceId from schedules list"),
+							providerId: z
+								.string()
+								.min(1)
+								.max(200)
+								.optional()
+								.describe(
+									"Select one declared provider for a skill that reads multiple accounts; omitted keeps the first-provider behavior",
+								),
 						})
 						.strict(),
 				)

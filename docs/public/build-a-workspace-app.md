@@ -58,6 +58,16 @@ From chat or MCP, use the OS app tools in the organization's namespace
 In the OS, the same settings are editable under the app's **Code** view
 (`manifest.json`).
 
+For one read-only consent button covering several personal accounts, use
+`entry: "tedix:app/personal-read-consent"`. Its `config` contains `version: 1`,
+the scheduled skill's `skillId`, its Workspace `resourceId`, a `workerName`,
+and `providers: [{id, name}]` (for example, `google-gmail` / `Gmail` and
+`google-calendar` / `Calendar`). The person must click the button while signed
+in as the Workspace owner. Each provider is checked against the skill's
+declared, reviewed read tools; an unconnected account links to Settings →
+Connections. Partial consent remains visible and can be retried. Revoke each
+account's access in Resources. Installing the app grants no access.
+
 Set `navigation: {"board": true}` in a manifest to show that active app on
 **Work → Board**. Its stored name becomes the link label; it opens the same
 workspace resource. Only apps in workspaces the viewer can access appear.
