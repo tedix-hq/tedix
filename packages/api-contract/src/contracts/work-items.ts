@@ -20,6 +20,10 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import {
+	FileAgentReviewInputSchema,
+	AgentReviewReceiptSchema,
+} from "../schemas/agent-review";
 import { PaginationMetaSchema, PaginationSchema } from "../schemas/common";
 import {
 	RepositoryInspectionRequestSchema,
@@ -139,6 +143,14 @@ export const workItemsContract = oc
 	.route({ tags: ["work-items"], prefix: "/work-items" })
 	.errors(baseErrors)
 	.router({
+		fileAgentReview: oc
+			.route({
+				method: "POST",
+				path: "/agent-reviews",
+				summary: "File a private agent review",
+			})
+			.input(FileAgentReviewInputSchema)
+			.output(AgentReviewReceiptSchema),
 		listCliProjection: oc
 			.route({
 				method: "GET",

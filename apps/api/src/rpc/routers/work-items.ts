@@ -56,6 +56,7 @@ import {
 	listBudgetEnvelopesProcedure,
 } from "./work-items/factory-lifecycle";
 import { workItemsOs } from "./work-items/policy-helpers";
+import { fileAgentReviewProcedure } from "./work-items/agent-review";
 import {
 	listAttemptProjectionProcedure,
 	listReadinessProjectionProcedure,
@@ -72,6 +73,7 @@ import {
 import { inspectAttemptRepositoryProcedure } from "./work-items/workstation-inspection";
 
 export const workItemsContractRouter = workItemsOs.router({
+	fileAgentReview: fileAgentReviewProcedure,
 	listCliProjection: listCliProjectionProcedure,
 	getCheckpointProjection: getCheckpointProjectionProcedure,
 	listAttemptCliProjection: listAttemptCliProjectionProcedure,
