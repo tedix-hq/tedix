@@ -207,7 +207,8 @@ const sessionReportColumns = {
 	projectId: workAgentSessions.projectId,
 	workItemId: workAgentSessions.workItemId,
 	state: workAgentSessions.state,
-	summary: workAgentSessions.summary,
+	// Project contributors are organization-visible; turn text stays owner-only.
+	summary: sql<string>`''`.as("summary"),
 	stateSince: workAgentSessions.stateSince,
 	lastEventAt: workAgentSessions.lastEventAt,
 	createdAt: workAgentSessions.createdAt,

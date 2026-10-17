@@ -514,7 +514,7 @@ function PortfolioCard({
 				<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
 					{row.leadTediName ? (
 						<Text as="span" role="label" tone="secondary">
-							Lead: {row.leadTediName}
+							Coordinator: {row.leadTediName}
 						</Text>
 					) : null}
 					{lastActivity ? (

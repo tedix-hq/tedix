@@ -40,7 +40,7 @@ function parse(textValue) {
 export default {
 	async run(event, step, env) {
 		const p = event.payload;
-		if (!p?.outputId || !p?.workspaceId || !p?.ownerUserId || !p?.baseUrl)
+		if (!p?.workspaceId || !p?.ownerUserId || !p?.baseUrl)
 			throw new Error("Board destination, owner and baseUrl are required");
 		const now = new Date().toISOString();
 		const zone = p.timeZone || "UTC";
@@ -318,8 +318,37 @@ export default {
 			};
 		});
 		return await step.do("save-and-verify", EFFECT, async () => {
+			const { workspace } = await env.MCP.tedix.get_os_workspace({
+				workspaceId: p.workspaceId,
+			});
+			if (
+				workspace.visibility !== "private" ||
+				workspace.ownerUserId !== p.ownerUserId
+			)
+				throw new Error("Board requires its owner's private workspace");
+			let outputId = p.outputId;
+			if (!outputId) {
+				const title = p.title || "Session activity";
+				const listing = await env.MCP.tedix.list_os_outputs({
+					workspaceId: p.workspaceId,
+					kind: "document",
+					status: "active",
+					limit: 100,
+				});
+				if (listing.truncated)
+					throw new Error("Board lookup reached its bound");
+				outputId = listing.items.find((item) => item.title === title)?.id;
+				if (!outputId) {
+					const created = await env.MCP.tedix.create_os_output({
+						workspaceId: p.workspaceId,
+						kind: "document",
+						title,
+					});
+					outputId = created.output.id;
+				}
+			}
 			const before = await env.MCP.tedix.get_os_output({
-				outputId: p.outputId,
+				outputId,
 			});
 			if (
 				before.output.workspaceId !== p.workspaceId ||
@@ -327,12 +356,12 @@ export default {
 			)
 				throw new Error("Board destination changed");
 			await env.MCP.tedix.revise_os_output({
-				outputId: p.outputId,
+				outputId,
 				expectedRevision: before.currentRevision.revision,
 				content: document,
 				note: "Living status refresh; source records checked " + now,
 			});
-			const after = await env.MCP.tedix.get_os_output({ outputId: p.outputId });
+			const after = await env.MCP.tedix.get_os_output({ outputId });
 			if (
 				JSON.stringify(after.currentRevision.content.richText) !==
 				JSON.stringify(document.richText)
@@ -340,7 +369,7 @@ export default {
 				throw new Error("Saved board differs from the verified document");
 			return {
 				status: "updated",
-				outputId: p.outputId,
+				outputId,
 				revision: after.currentRevision.revision,
 				refreshedAt: now,
 				goals: source.goals.length,

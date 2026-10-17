@@ -16,7 +16,7 @@ export const laneUsage = `tedix lane start "<title>" --project <id> [--work-item
 tedix lane done|fail "<note>" [--commit <sha> ...]
 
 Run inside the lane's own Codex/Claude session after tedix agent start.
-Uses normal Work admission and a session-scoped pointer; never inherits a Lead's
+Uses normal Work admission and a session-scoped pointer; never inherits a launcher's
 Attempt. --work-item attaches an existing accepted item. A detached heartbeat
 renews the same Attempt for at most one hour; capture-stop also heartbeats it.
 Workspace and organization must stay the same on start and settlement.`;

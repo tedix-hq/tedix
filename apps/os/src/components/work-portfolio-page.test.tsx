@@ -258,7 +258,7 @@ describe("WorkPortfolioPage", () => {
 	it("shows brief, lead, counts and the next accepted item on a card", () => {
 		const html = render(seededClient());
 		expect(html).toContain("Run weekend harbor tours");
-		expect(html).toContain("Lead: Nova");
+		expect(html).toContain("Coordinator: Nova");
 		expect(html).toContain("2 open · 1 accepted");
 		expect(html).toContain("At risk");
 		expect(html).toContain('href="/work/items/item-accepted"');

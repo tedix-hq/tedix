@@ -2,7 +2,7 @@
  * Opt-in decision capture for Claude Code and Codex.
  *
  * `capture-stop` triages an agent turn before opening an Interaction addressed
- * to the signed-in user. Unclassified turns stay on bound Work or in their chat.
+ * to the signed-in user. Unclassified turns stay in their chat and private ledger.
  * A captured question carries the turn's final message. `capture-reply` runs when the user submits the next prompt: it
  * answers that Interaction with the reply, so the pair becomes one durable
  * decision record.
@@ -1083,13 +1083,7 @@ async function onStop(
 	);
 	await settle(triage);
 	if (triage.status !== "ok") {
-		// Unclassified turns stay with the agent, never become a human request.
-		if (binding.workItemId)
-			await deps.read(
-				[...binding.command, "code"],
-				15000,
-				`async () => await work.add_comment(${asciiJson({ id: binding.workItemId, body: `Turn capture (triage unavailable):\n\n${text}`, metadata: { source: "agent-turn-end", host, sessionId: session } })})`,
-			);
+		// Shared Work comments must not become a fallback transcript store.
 		rmSync(state, { force: true });
 		return;
 	}

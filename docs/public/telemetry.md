@@ -37,6 +37,9 @@ self-hosted installation contacts `*.tedix.dev` until you override them. See
 - **Tedix plugin hooks:** each hook sends nothing to Tedix until you opt in to
   its feature. The [CLI hooks table](./cli.md#set-up-codex-and-claude-code)
   lists what each one sends and how to turn it off.
+  Decision-capture opt-in includes private session content uploads, a request
+  ledger and session status. See [Session ingestion and privacy](./sessions-per-project.md#session-ingestion-and-privacy)
+  for uploaded fields, redaction, visibility and opt-out.
 
 ## What is collected, and where it goes
 

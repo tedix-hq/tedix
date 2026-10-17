@@ -742,7 +742,7 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(notifications()).toEqual([]);
 	});
 
-	test("unclassified captures are retained as a note on the agent's bound Work", async () => {
+	test("unclassified captures never publish turn text to shared Work", async () => {
 		await runHook(
 			"stop",
 			{ last_assistant_message: "The build passed." },
@@ -754,11 +754,7 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(payloads).toEqual([]);
 		expect(
 			gatewayCalls.find(([name]) => name === "work.add_comment")?.[1],
-		).toMatchObject({
-			id: WORK,
-			body: "Turn capture (triage unavailable):\n\nThe build passed.",
-			metadata: { source: "agent-turn-end", sessionId: SESSION },
-		});
+		).toBeUndefined();
 	});
 
 	test("an owned Stop still reports when capture fails before triage", async () => {

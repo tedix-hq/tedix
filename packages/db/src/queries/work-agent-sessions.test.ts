@@ -278,6 +278,14 @@ describe("project contributors", () => {
 			"claude-code:only-attempts",
 		]);
 		expect(attempts[0]).toMatchObject({ workItemTitle: "Ship alpha" });
+		expect(reports.every((row) => row.summary === "")).toBe(true);
+		const own = await listWorkAgentSessions(db, {
+			organizationId: ORG,
+			userId: OTHER_USER,
+			includeEnded: false,
+			now: T2,
+		});
+		expect(own[0]?.summary).toBe("Editing the router");
 
 		const foreign = await listWorkProjectContributorSources(db, {
 			organizationId: OTHER_ORG,
