@@ -308,6 +308,11 @@ item or post it through the Work workspace app (`tedix:app/work`, config
 `{"version":1,"projectId":"<project-uuid>"}`). Posting and acceptance remain
 separate actions.
 
+Use `--coordinated` without `--project` to execute ready coordinator selections
+across projects. This mode requires an explicit `metadata.laneDispatch.state`
+of `ready`; accepted Work without a plan stays queued. Existing service modes
+retain their behavior when `--coordinated` is absent.
+
 The dispatcher creates an isolated worktree and native executor session,
 obtains its verified identity and Work Attempt, fetches the current
 revision of the selected OS rules skill, then runs the admitted session. Codex

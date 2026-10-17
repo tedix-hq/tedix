@@ -46,6 +46,7 @@ const item = (n = 1): DispatchItem => ({
 });
 const options: ServeOptions = {
 	executor: "codex",
+	coordinated: false,
 	max: 2,
 	project: projectId,
 	rules: projectId,
@@ -59,12 +60,18 @@ function fixture({
 	dark = false,
 	failSettle = false,
 	executor = "codex" as ServeOptions["executor"],
+	coordinated = false,
 } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-dispatch-test-"));
 	dirs.push(dir);
 	const items = [item(1), item(2), item(3)].map((row) => ({
 		...row,
-		metadata: { executor },
+		metadata: {
+			executor,
+			...(coordinated && row.id === item(1).id
+				? { laneDispatch: { state: "ready" } }
+				: {}),
+		},
 	}));
 	const events: Array<{
 		verb: string;
@@ -73,7 +80,8 @@ function fixture({
 	}> = [];
 	const releases: Array<() => void> = [];
 	let threadNumber = 0;
-	const dispatcher = new LaneDispatcher({ ...options, executor }, dir, {
+	const config = { ...options, executor, coordinated };
+	const dispatcher = new LaneDispatcher(config, dir, {
 		darkWake: () => dark,
 		provision: () => {},
 		cleanup: () => true,
@@ -187,6 +195,26 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher admission", () => {
+	it("admits only explicit server selections when serving coordinated Work across projects", async () => {
+		const { dispatcher, events, releases } = fixture({ coordinated: true });
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(events.filter((e) => e.verb === "settle")).toHaveLength(1);
+		expect(
+			dispatchSkip(
+				{
+					...item(),
+					metadata: { executor: "codex", laneDispatch: { state: "held" } },
+				},
+				[],
+				"codex",
+				true,
+			),
+		).toContain("no ready");
+		expect(dispatchSkip(item(), [], "codex", false)).toBeUndefined();
+	});
 	it("admits the native Claude identity before launch and settles through the same dispatcher", async () => {
 		const { dispatcher, events, releases } = fixture({
 			executor: "claude-code",
@@ -325,6 +353,9 @@ it("validates concurrency and pins selectors without persisting inherited identi
 	const args = ["--executor", "codex", "--rules", projectId];
 	const env = { TEDIX_WORKSPACE: "acme", TEDIX_ORGANIZATION: "org_acme" };
 	expect(parseServeOptions(args, env).max).toBe(5);
+	expect(parseServeOptions([...args, "--coordinated"], env).coordinated).toBe(
+		true,
+	);
 	expect(parseServeOptions(["--executor", "codex"], env).rules).toBe(
 		"lane-rules",
 	);
