@@ -138,6 +138,13 @@ const REVIEWED_ACCOUNT_BINDINGS: Readonly<
 			),
 		),
 	},
+	"google-calendar": {
+		list_events: {
+			operation: "read",
+			resourceType: "calendar_account",
+			target: "account",
+		},
+	},
 };
 /**
  * Adding Trash or Spam is how a label tool deletes mail, so no delegated call
@@ -176,6 +183,7 @@ export function forbiddenPersonalToolArguments(
 /** What people call a reviewed account, for consent copy ("read my Gmail"). */
 const REVIEWED_ACCOUNT_NAMES: Readonly<Record<string, string>> = {
 	"google-gmail": "Gmail",
+	"google-calendar": "Calendar",
 };
 export function reviewedPersonalAccountName(
 	providerId: string,
@@ -205,6 +213,8 @@ export function reviewedPersonalResourceReadScopes(
 			"read"
 	)
 		return ["https://www.googleapis.com/auth/gmail.readonly"];
+	if (providerId === "google-calendar" && providerToolName === "list_events")
+		return ["https://www.googleapis.com/auth/calendar.events.readonly"];
 	return undefined;
 }
 /** Provider-documented scope implications only; never turns a read grant into write authority. */

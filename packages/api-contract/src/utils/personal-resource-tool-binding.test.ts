@@ -106,6 +106,32 @@ it("narrows only reviewed Gmail read tools to their required scope", () => {
 	).toBeUndefined();
 });
 
+it("reviews Calendar event listing without admitting Calendar writes", () => {
+	expect(
+		reviewedPersonalResourceBinding("google-calendar", "list_events"),
+	).toEqual({
+		operation: "read",
+		resourceType: "calendar_account",
+		target: "account",
+	});
+	expect(
+		reviewedPersonalResourceReadScopes("google-calendar", "list_events"),
+	).toEqual(["https://www.googleapis.com/auth/calendar.events.readonly"]);
+	for (const tool of [
+		"create_event",
+		"update_event",
+		"delete_event",
+		"unknown",
+	]) {
+		expect(
+			reviewedPersonalResourceBinding("google-calendar", tool),
+		).toBeUndefined();
+		expect(
+			reviewedPersonalResourceReadScopes("google-calendar", tool),
+		).toBeUndefined();
+	}
+});
+
 it("recognizes exact provider scope implications without upgrading readonly grants", () => {
 	const root = "https://www.googleapis.com/auth/calendar";
 	expect(

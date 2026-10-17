@@ -8,6 +8,11 @@ import { OfficeApp } from "@/components/work-office-page";
 import { AgentsApp } from "@/components/work-agents-page";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import {
+	PERSONAL_READ_CONSENT_ENTRY,
+	PersonalReadConsentConfigSchema,
+} from "@tedix/api-contract/schemas/os-workspaces";
+import { PersonalReadConsentApp } from "@/components/personal-read-consent-app";
+import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
 } from "@tedix/api-contract/schemas/os-outbound-review";
@@ -54,6 +59,16 @@ export function WorkspaceAppRenderer({
 				)}
 			</Suspense>
 		);
+	if (entry === PERSONAL_READ_CONSENT_ENTRY && workspaceId) {
+		const config = PersonalReadConsentConfigSchema.safeParse(manifest.config);
+		if (config.success)
+			return (
+				<PersonalReadConsentApp
+					workspaceId={workspaceId}
+					config={config.data}
+				/>
+			);
+	}
 	if (entry === "tedix:app/attention")
 		return <AttentionApp workspaceId={workspaceId} />;
 	if (entry === OUTBOUND_REVIEW_ENTRY) {

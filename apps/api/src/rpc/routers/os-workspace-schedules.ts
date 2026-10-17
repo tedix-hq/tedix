@@ -124,12 +124,13 @@ function toolIdsFor(need: PersonalAccessNeed, operations: readonly string[]) {
  * tools in its manifest whose installed tool uses a personal connection and
  * whose binding (the tool's own, else the server-reviewed one) acts on the
  * connected account, with the operation each one needs (read, or modify for
- * organising). Only one provider is supported per skill.
+ * organising). An explicit provider selects that account in a multi-source skill.
  */
 export async function personalAccessNeed(
 	context: BaseContext,
 	organizationId: string,
 	skill: SkillEntry,
+	requestedProviderId?: string,
 ): Promise<PersonalAccessNeed | null> {
 	const manifest = parseCapabilityManifest(
 		(skill.files as Record<string, string> | null)?.["SKILL.md"] ??
@@ -137,6 +138,8 @@ export async function personalAccessNeed(
 			"",
 	);
 	if (
+		(!requestedProviderId ||
+			requestedProviderId === SESSION_ACTIVITY_RESOURCE.providerId) &&
 		Object.values(manifest.mcp)
 			.flat()
 			.includes(SESSION_ACTIVITY_RESOURCE.toolId)
@@ -167,6 +170,8 @@ export async function personalAccessNeed(
 			const providerId = auth?.connectionId;
 			if (
 				typeof providerId !== "string" ||
+				(requestedProviderId !== undefined &&
+					providerId !== requestedProviderId) ||
 				(auth?.credentialScope ?? auth?.scope) !== "user"
 			)
 				continue;
@@ -370,7 +375,12 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				: undefined;
 		if (!link || !skill)
 			throw createError(ErrorCodes.NOT_FOUND, "Scheduled skill not found");
-		const need = await personalAccessNeed(context, organizationId, skill);
+		const need = await personalAccessNeed(
+			context,
+			organizationId,
+			skill,
+			input.providerId,
+		);
 		const readTools = need ? toolIdsFor(need, ["read"]) : [];
 		if (!need || readTools.length === 0 || !skill.tediId || !skill.revision)
 			throw createError(
@@ -501,7 +511,12 @@ const setPersonalAccess = authorOs.schedules.setPersonalAccess.handler(
 				organizationId,
 			);
 			if (!skill?.tediId || !skill.revision) continue;
-			const need = await personalAccessNeed(context, organizationId, skill);
+			const need = await personalAccessNeed(
+				context,
+				organizationId,
+				skill,
+				resource.providerId,
+			);
 			if (
 				!need ||
 				need.providerId !== resource.providerId ||

@@ -25,6 +25,12 @@ async function setup() {
 			slug: "google-gmail",
 		},
 		{ id: "app-tedix", organizationId: "org-1", name: "Tedix", slug: "tedix" },
+		{
+			id: "app-calendar",
+			organizationId: "org-1",
+			name: "Calendar",
+			slug: "google-calendar",
+		},
 	] as never);
 	const tool = (
 		id: string,
@@ -54,6 +60,16 @@ async function setup() {
 	await db.insert(appTools).values([
 		tool("t1", "app-mail", "search_threads", mail("search_threads")),
 		tool("t2", "app-mail", "create_draft", mail("create_draft")),
+		tool("t4", "app-calendar", "list_events", {
+			transport: "mcp",
+			mcpToolName: "list_events",
+			auth: {
+				type: "connection",
+				connectionId: "google-calendar",
+				credentialScope: "user",
+				scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+			},
+		}),
 		tool("t3", "app-tedix", "list_os_outputs", {
 			endpoint: "osWorkspaces/outputs/list",
 		}),
@@ -69,6 +85,24 @@ function skill(frontmatterMcp: string) {
 }
 
 describe("a scheduled skill's personal account access", () => {
+	it("selects the second declared account without granting undeclared providers", async () => {
+		const context = await setup();
+		const multi = skill(
+			"    google_gmail: [search_threads]\n    google_calendar: [list_events]",
+		);
+		expect(
+			await personalAccessNeed(context, "org-1", multi, "google-calendar"),
+		).toMatchObject({
+			providerId: "google-calendar",
+			tools: [{ toolId: "list_events", operation: "read" }],
+		});
+		expect(
+			await personalAccessNeed(context, "org-1", multi, "google-gmail"),
+		).toMatchObject({ providerId: "google-gmail" });
+		expect(
+			await personalAccessNeed(context, "org-1", multi, "unrelated-provider"),
+		).toBeNull();
+	});
 	it("comes from the reviewed account tools the skill declares, with their operation", async () => {
 		const context = await setup();
 		await expect(
