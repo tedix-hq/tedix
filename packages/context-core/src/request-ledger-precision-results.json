@@ -1,135 +1,204 @@
 {
 	"model": "gpt-6-astra",
-	"systemHash": "c28ca65dca27bad84063b6909cf506e9f749aae7a7b491f2337a1ce0f97be386",
-	"inputHash": "ae1c52be44e5500fe9b155e3ea60181a78eb7896f0c467bf6eca5479f90c6ff5",
+	"systemHash": "a334c940145effd96acf6bc2159b428480d990b1a76309833de7854bdd7a53fe",
+	"intakeSystemHash": "41800be56ce428637c825c15c2024ca90331a77bc732e8ab324bd99d9d60ee89",
+	"inputHash": "3e25bd5e298788bd2b5ec69ca3e42b3d07c74834fc4a9ba2d323689a7d2bfb90",
+	"intakeInputHash": "88221c69663d2d4a4216bf8083e129bc2d537ee512334e981c52659ee318bfe8",
 	"results": [
 		{
 			"id": "trim-tabs",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "attention-panel",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "authority-choice",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"You chose the simple option. Approved answers now act as the approving person; live checks passed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Approved answers now act as the approving person; live checks passed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "normal-name-removal",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The names were already removed from current source.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The names were already removed from current source.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "chat-acceptance",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Codex is building chat acceptance and will test it live.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is building chat acceptance and will test it live.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Codex is building chat acceptance and will test it live.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "older-drive",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "missing-tool-error",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Both belong to the running CLI repair lane.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Both belong to the running CLI repair lane.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "linked-project-error",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Now running: Codex is fixing work creation under linked projects.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is fixing work creation under linked projects.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Now running: Codex is fixing work creation under linked projects.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\": []}"
 		},
 		{
 			"id": "notifications",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Both host sessions received their completion event in live tests.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Both host sessions received their completion event in live tests.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "acted-thread-rule",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"waiting_on_user\",\"evidence\":\"I will add that rule once your verdict is logged.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"waiting_on_user\",\"evidence\":\"I will add that rule once your verdict is logged.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "exact-post-rule",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The exact-post rule is saved as a proposed revision and read back.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The exact-post rule is saved as a proposed revision and read back.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "borderline-archive",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "borderline-event",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "borderline-filter",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "worktree-cleanup",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"I removed all merged, clean, idle worktrees. Locked and dirty worktrees are preserved. Cleanup report delivered.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"I removed all merged, clean, idle worktrees. Locked and dirty worktrees are preserved. Cleanup report delivered.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "milestone-error",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "phone-screenshot",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested local phone screenshot is saved at shots/cards-phone.png and visually checked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested local phone screenshot is saved at shots/cards-phone.png and visually checked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "factory-security",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"An agent is making the security factory read code-scan warnings and check private names.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"making the security factory read code-scan warnings and check private names.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"An agent is making the security factory read code-scan warnings and check private names.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"making the security factory read code-scan warnings and check private names.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "public-pages",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"ask\",\"text\":\"Confirm whether the two public pages should be taken down if their visibility is unintended.\",\"evidence\":\"These two pages are public. If intended, nothing to do. Otherwise tell me and I will take them down.\"}],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "library-fix",
-			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"security repair lane\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"The security repair lane\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "catalog-cleanup",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Fix catalog cleanup so manually added apps stay listed.\",\"evidence\":\"I will fix catalog cleanup so manually added apps stay listed.\"}],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Fix catalog cleanup so manually added apps stay listed.\",\"evidence\":\"I will fix catalog cleanup so manually added apps stay listed.\"}],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Fix catalog cleanup so manually added apps stay listed.\",\"evidence\":\"I will fix catalog cleanup so manually added apps stay listed.\"}]}"
 		},
 		{
 			"id": "private-setup",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The private workspace, app and schedules are created and verified.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The private workspace, app and schedules are created and verified.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "excluded-work",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "needs-you-doc",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Consolidate the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Keep the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Maintain the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
 		},
 		{
 			"id": "connection-check",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"CLI is connected. The plugin call completed successfully; the apparent hang came from inherited stdin.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"CLI is connected. The plugin call completed successfully; the apparent hang came from inherited stdin.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "credits-draft",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts. Nothing was sent.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "pause-database",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The database is paused; the console readback shows Paused.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The database is paused; the console readback shows Paused.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "keep-required-consent",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"ask\",\"text\":\"Click Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"ask\",\"text\":\"Click Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[{\"kind\":\"ask\",\"text\":\"Click “Allow mail access” before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}]}"
 		},
 		{
 			"id": "keep-undelivered-screenshot",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Send a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Send a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send you a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
 		},
 		{
 			"id": "do-not-close-live-with-local",
-			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The screenshot is saved from local fixtures. Cloud capture is still blocked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The screenshot is saved from local fixtures. Cloud capture is still blocked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "do-not-infer-human-approval",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"approval was granted\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
 		},
 		{
 			"id": "merge-completed-restatement",
-			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[{\"ref\":\"r1\",\"into\":\"r2\",\"evidence\":\"Report the deploy result\"}],\"new\":[],\"lessons\":[]}"
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[{\"ref\":\"r1\",\"into\":\"r2\",\"evidence\":\"Report the deploy result\"}],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
+		},
+		{
+			"id": "selected-measured-goal",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Achieve document retrieval under 5 seconds and answers under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"| A doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests | Starting with Codex |\"}],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver a doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\"}]}"
+		},
+		{
+			"id": "obsolete-ui-choice",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"cancelled\",\"evidence\":\"The Work page now has three tabs instead of seven. The new navigation is verified live.\",\"operational\":true}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
+		},
+		{
+			"id": "reserved-ui-publication",
+			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"Publication still needs your approval.\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}",
+			"intakeRaw": "{\"new\":[]}"
+		}
+	],
+	"replySystemHash": "8bef28a75cc40e4cafd4f5651e5e07da8c700e183ae909964c97bd14e9c97377",
+	"replyInputHash": "68b49226bbd9e327e5beb27c562d97c40c85f7ae35cafaabc4a827ccbc534d58",
+	"replyResults": [
+		{
+			"id": "recommendations-are-review",
+			"raw": "{\"requests\":[],\"answered\":[],\"cancelled\":[]}"
+		},
+		{
+			"id": "selected-draft-is-not-sending",
+			"raw": "{\"requests\":[{\"kind\":\"request\",\"text\":\"Create a private email draft.\"}],\"answered\":[{\"ref\":\"r1\",\"evidence\":\"1 and go\"}],\"cancelled\":[]}"
+		},
+		{
+			"id": "continue-is-not-consent",
+			"raw": "{\"requests\":[],\"answered\":[],\"cancelled\":[]}"
+		},
+		{
+			"id": "plain-preference-answers-options",
+			"raw": "{\"requests\":[],\"answered\":[{\"ref\":\"r1\",\"evidence\":\"Keep this request acceptance flow simple and straightforward.\"}],\"cancelled\":[]}"
 		}
 	]
 }

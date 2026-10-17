@@ -5,7 +5,7 @@
  * person types (`prompt`) and each agent turn end with a digest of its
  * activity (`turn`). The upload stores them and returns; a background pass
  * ({@link processAgentSessionEvents}) runs them in session order through a
- * small Workers AI observer and a Gateway reflector, prompted by
+ * small Workers AI observer and separate Gateway status/intake passes, prompted by
  * `@tedix/context-core/request-ledger`, into private ledger rows
  * and status moves. A model failure leaves the event pending for a later pass.
  */
@@ -14,7 +14,11 @@ import {
 	isScheduledLedgerPrompt,
 	type LedgerRowRef,
 	type LedgerLesson,
-	ledgerEvidenceContext,
+	type LedgerLessonSource,
+	SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+	REQUEST_INTAKE_SYSTEM_PROMPT,
+	requestIntakeInput,
+	hasLedgerIntake,
 	parseObservedRequests,
 	parseLedgerMentions,
 	parseLedgerLanes,
@@ -25,8 +29,6 @@ import {
 	REQUEST_OBSERVER_SYSTEM_PROMPT,
 	REQUEST_REFLECTOR_SYSTEM_PROMPT,
 	REQUEST_REPLY_REFLECTOR_SYSTEM_PROMPT,
-	SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
-	type LedgerLessonSource,
 	requestObserverInput,
 	requestReplyReflectorInput,
 	requestReflectorInput,
@@ -37,9 +39,9 @@ import {
 	type AgentSessionRequestUpdate,
 	claimAgentSessionEvent,
 	getPreviousAgentSessionTurn,
-	listRecentAgentSessionTurns,
 	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
+	listRecentAgentSessionTurns,
 	listPendingAgentSessionEvents,
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
@@ -100,7 +102,7 @@ async function reflectWithGateway(
 					max_output_tokens: 6000,
 					reasoning: { effort: "low" },
 				}),
-				signal: AbortSignal.timeout(20_000),
+				signal: AbortSignal.timeout(24_000),
 			},
 		);
 		if (!response.ok) return null;
@@ -131,12 +133,15 @@ export interface LedgerCheck {
 	status: "done" | "dropped_risk";
 	evidence: string;
 	userReply?: boolean;
-	scope?: string;
-	kind?: LedgerRowRef["kind"];
 }
 
 export interface LedgerModel {
 	(system: string, prompt: string, surface: string): Promise<string | null>;
+	extractObligations?: (
+		rows: LedgerRowRef[],
+		turn: string,
+		userMessage: string,
+	) => Promise<string | null>;
 	reflectReplies?: (
 		rows: LedgerRowRef[],
 		message: string,
@@ -157,7 +162,8 @@ export interface LedgerModel {
 
 export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 	const model: LedgerModel = (system, prompt, surface) =>
-		surface === "agent-session-request-reflector"
+		surface === "agent-session-request-reflector" ||
+		surface === "agent-session-request-intake"
 			? reflectWithGateway(env, system, prompt, surface)
 			: runDistillModel(env, prompt, {
 					model: LEDGER_MODEL,
@@ -166,6 +172,12 @@ export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 					maxTokens: 2500,
 					timeoutMs: MODEL_TIMEOUT_MS,
 				});
+	model.extractObligations = (rows, turn, userMessage) =>
+		model(
+			REQUEST_INTAKE_SYSTEM_PROMPT,
+			requestIntakeInput(turn, rows, userMessage),
+			"agent-session-request-intake",
+		);
 	model.verify = async (checks, source) => {
 		if (!checks.length) return new Set();
 		const { verifyLedgerEvidence } = await import("./request-ledger-verifier");
@@ -382,8 +394,8 @@ export async function reflectAgentSessionRequests(
 	db: DbQueryClient,
 	model: LedgerModel,
 	input: SessionScope & {
-		turn: string;
 		sourceEventId?: string;
+		turn: string;
 		activity: string | null;
 		repository: string | null;
 		sourceAt: string;
@@ -439,13 +451,7 @@ export async function reflectAgentSessionRequests(
 		prompt.slice(0, active.length).map((row) => row.ref),
 	);
 	const currentSource = `AGENT TURN:\n${input.turn}\nACTIVITY:\n${input.activity ?? ""}`;
-	const history = recentTurns
-		.map(
-			(event) =>
-				`${event.sourceAt}:\n${event.body}\nACTIVITY:\n${event.activity ?? ""}`,
-		)
-		.join("\n\n");
-	const source = `RECENT ASSISTANT EVIDENCE:\n${history}\nUSER MESSAGE:\n${userMessage ?? ""}\n${currentSource}\nSAVED ROW EVIDENCE:\n${[...active, ...resolved].map((row) => row.evidence ?? "").join("\n")}`;
+	const source = `USER MESSAGE:\n${userMessage ?? ""}\n${currentSource}\nSAVED ROW EVIDENCE:\n${[...active, ...resolved].map((row) => row.evidence ?? "").join("\n")}`;
 	const lessonSources = [
 		...recentTurns,
 		{
@@ -461,7 +467,7 @@ export async function reflectAgentSessionRequests(
 		)
 			? model.reflectLessons(lessonSources)
 			: Promise.resolve(undefined);
-	const [raw, lessonRaw] = await Promise.all([
+	const [raw, intakeRaw, lessonRaw] = await Promise.all([
 		model(
 			REQUEST_REFLECTOR_SYSTEM_PROMPT,
 			requestReflectorInput(
@@ -473,12 +479,14 @@ export async function reflectAgentSessionRequests(
 				[...scopes]
 					.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
 					.join("\n\n"),
-				history,
 			),
 			"agent-session-request-reflector",
 		),
+		model.extractObligations?.(prompt, input.turn, userMessage ?? ""),
 		lessonsPending,
 	]);
+	if (model.extractObligations && !hasLedgerIntake(intakeRaw ?? null))
+		return { status: "unavailable" };
 	// Evidence may come from the turn or from its activity (a tool result).
 	const reflected = parseReflectedUpdates(raw, openRefs, source);
 	if (!reflected) return { status: "unavailable" };
@@ -490,8 +498,18 @@ export async function reflectAgentSessionRequests(
 	const updated = reflected.flatMap((update) => {
 		const row = byRef.get(update.ref)!;
 		if (row.status === update.status && !currentRefs.has(update.ref)) return [];
+		const obsoleteUiChoice =
+			update.status === "cancelled" &&
+			update.operational &&
+			row.kind === "ask" &&
+			/\b(tabs?|panels?|layout|navigation|sidebar)\b/i.test(row.text) &&
+			!/\b(approv\w*|auth\w*|consent|permission|credentials?|passwords?|tokens?|keys?|publish\w*|send|delete|archive|budget|billing|payment|pricing|legal|licen[cs]e|identity|access|public|private|personal|rules?|policy|policies|accept|reject|trust|logins?|sessions?|limits?|rates?)\b/i.test(
+				row.text,
+			);
+		if (update.status === "cancelled" && !obsoleteUiChoice) return [];
 		if (
 			row.kind === "ask" &&
+			!obsoleteUiChoice &&
 			(update.status !== "done" ||
 				!update.operational ||
 				/\b(approv\w*|authoriz\w*|consent|permission|credentials?|tokens?|keys?|decide|choose|whether|publish\w*|send|delete|remove)\b/i.test(
@@ -502,38 +520,10 @@ export async function reflectAgentSessionRequests(
 
 		return [{ id: row.id, status: update.status, evidence: update.evidence }];
 	});
-	const completionSupport = new Set<string>();
-	await Promise.all(
-		updated
-			.filter((update) => update.status === "done")
-			.map(async (update) => {
-				const entry = [...byRef].find(([, row]) => row.id === update.id)!;
-				const [ref, row] = entry;
-				const evidence = update.evidence!;
-				const supported = await model.verify?.(
-					[
-						{
-							ref,
-							request: row.text,
-							kind: row.kind,
-							status: "done",
-							evidence,
-							scope: originById.get(row.id) ?? row.evidence ?? undefined,
-						},
-					],
-					ledgerEvidenceContext(`${history}\n${currentSource}`, evidence),
-				);
-				if (supported?.has(ref)) completionSupport.add(row.id);
-			}),
-	);
 	const merges = parseReflectedMerges(raw, prompt);
 	const mergedIds = new Set(merges.map((merge) => byRef.get(merge.ref)!.id));
 	const changes: AgentSessionRequestUpdate[] = [
-		...updated.filter(
-			(update) =>
-				!mergedIds.has(update.id) &&
-				(update.status !== "done" || completionSupport.has(update.id)),
-		),
+		...updated.filter((update) => !mergedIds.has(update.id)),
 		...merges.map((merge) => ({
 			id: byRef.get(merge.ref)!.id,
 			status: "cancelled" as const,
@@ -541,7 +531,10 @@ export async function reflectAgentSessionRequests(
 		})),
 	];
 	const mentioned = parseLedgerMentions(raw, openRefs, currentSource);
-	const newRows = parseReflectedNewRows(raw, currentSource);
+	const newRows = parseReflectedNewRows(
+		model.extractObligations ? (intakeRaw ?? null) : raw,
+		model.extractObligations ? input.turn : currentSource,
+	);
 	const changeById = new Map(changes.map((change) => [change.id, change]));
 	const lanes = parseLedgerLanes(raw, openRefs, currentSource);
 	for (const [ref, row] of byRef) {
@@ -708,7 +701,7 @@ export async function processAgentSessionEvents(
 	const startedAt = Date.now();
 	let processed = 0;
 	for (let index = 0; index < (options.limit ?? EVENTS_PER_PASS); index++) {
-		// Budget 20s for reflection, 5s for proof checks, and D1 writes within 30s.
+		// Both model passes run in parallel, leaving D1 time within waitUntil's 30s.
 		if (index > 0 && Date.now() - startedAt >= 1000) break;
 		const [event] = await listPendingAgentSessionEvents(db, {
 			...owner,
@@ -740,8 +733,8 @@ export async function processAgentSessionEvents(
 						})
 					: await reflectAgentSessionRequests(db, model, {
 							...scope,
-							turn: event.body,
 							sourceEventId: event.id,
+							turn: event.body,
 							activity: event.activity,
 							repository: event.repository,
 							sourceAt: event.sourceAt,
