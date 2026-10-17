@@ -5,7 +5,19 @@
  * visible only to the person whose message it came from.
  */
 
-import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	lt,
+	notExists,
+	or,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { chunkForBoundParams } from "../utils/batch";
 import {
@@ -28,8 +40,6 @@ export const AGENT_SESSION_REQUEST_ACTIVE_STATUSES = [
 	"waiting_on_user",
 	"dropped_risk",
 ] as const satisfies readonly AgentSessionRequestStatus[];
-/** Ids per `IN (...)` lookup, under D1's bound-parameter limit. */
-const ID_CHUNK = 50;
 /** Rows per multi-row INSERT, under D1's 100 bound parameters. */
 const ROWS_PER_INSERT = 5;
 
@@ -50,7 +60,7 @@ export interface RecordAgentSessionRequestsParams extends AgentSessionRequestOwn
 }
 
 /**
- * Record a message's requests as open rows. A repeated message (same source
+ * Record requests as open rows and agent asks as waiting on the user. A repeated message (same source
  * key) records nothing new. Returns the rows that were inserted.
  */
 export async function recordAgentSessionRequests(
@@ -66,7 +76,8 @@ export async function recordAgentSessionRequests(
 		repository: params.repository,
 		kind: request.kind,
 		text: request.text,
-		status: "open" as const,
+		status:
+			request.kind === "ask" ? ("waiting_on_user" as const) : ("open" as const),
 		evidence: null,
 		turnsUnaddressed: 0,
 		sourceAt: params.sourceAt,
@@ -194,7 +205,33 @@ export async function recordAgentSessionEvents(
 	return inserted;
 }
 
-/** The caller's oldest pending events (stale leases included), in order. */
+/** A later event cannot overtake an earlier pending event in the same session. */
+function noEarlierPendingEvent(db: DbQueryClient) {
+	const earlier = alias(agentSessionEvents, "earlier_session_event");
+	return notExists(
+		db
+			.select({ id: earlier.id })
+			.from(earlier)
+			.where(
+				and(
+					eq(earlier.organizationId, agentSessionEvents.organizationId),
+					eq(earlier.userId, agentSessionEvents.userId),
+					eq(earlier.harness, agentSessionEvents.harness),
+					eq(earlier.sessionKey, agentSessionEvents.sessionKey),
+					eq(earlier.status, "pending"),
+					or(
+						lt(earlier.sourceAt, agentSessionEvents.sourceAt),
+						and(
+							eq(earlier.sourceAt, agentSessionEvents.sourceAt),
+							lt(earlier.id, agentSessionEvents.id),
+						),
+					),
+				),
+			),
+	);
+}
+
+/** The caller's first pending event per session, including stale leases. */
 export async function listPendingAgentSessionEvents(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { limit: number; now: string },
@@ -208,6 +245,7 @@ export async function listPendingAgentSessionEvents(
 				eq(agentSessionEvents.organizationId, params.organizationId),
 				eq(agentSessionEvents.userId, params.userId),
 				eq(agentSessionEvents.status, "pending"),
+				noEarlierPendingEvent(db),
 				or(
 					isNull(agentSessionEvents.claimedAt),
 					lt(agentSessionEvents.claimedAt, stale),
@@ -236,6 +274,7 @@ export async function claimAgentSessionEvent(
 				eq(agentSessionEvents.userId, params.userId),
 				eq(agentSessionEvents.id, params.id),
 				eq(agentSessionEvents.status, "pending"),
+				noEarlierPendingEvent(db),
 				or(
 					isNull(agentSessionEvents.claimedAt),
 					lt(agentSessionEvents.claimedAt, stale),
@@ -337,37 +376,4 @@ export async function updateAgentSessionRequests(
 	);
 	const [first, ...rest] = statements;
 	await db.batch([first!, ...rest]);
-}
-
-/**
- * Count one more agent turn that left these open rows untouched, and mark a
- * row `dropped_risk` once `threshold` turns have passed it by.
- */
-export async function markAgentSessionRequestsUnaddressed(
-	db: DbQueryClient,
-	params: AgentSessionRequestOwner & {
-		ids: readonly string[];
-		threshold: number;
-		now: string;
-	},
-): Promise<void> {
-	for (let start = 0; start < params.ids.length; start += ID_CHUNK) {
-		const ids = params.ids.slice(start, start + ID_CHUNK);
-		await db
-			.update(agentSessionRequests)
-			.set({
-				turnsUnaddressed: sql`${agentSessionRequests.turnsUnaddressed} + 1`,
-				status: sql`CASE WHEN ${agentSessionRequests.turnsUnaddressed} + 1 >= ${params.threshold} THEN 'dropped_risk' ELSE ${agentSessionRequests.status} END`,
-				statusChangedAt: sql`CASE WHEN ${agentSessionRequests.turnsUnaddressed} + 1 >= ${params.threshold} THEN ${params.now} ELSE ${agentSessionRequests.statusChangedAt} END`,
-				updatedAt: params.now,
-			})
-			.where(
-				and(
-					eq(agentSessionRequests.organizationId, params.organizationId),
-					eq(agentSessionRequests.userId, params.userId),
-					eq(agentSessionRequests.status, "open"),
-					inArray(agentSessionRequests.id, ids),
-				),
-			);
-	}
 }

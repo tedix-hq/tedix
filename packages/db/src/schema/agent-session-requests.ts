@@ -4,7 +4,7 @@
  * One row per distinct request, question or decision a person sent to their
  * own Claude Code or Codex session, extracted from the message by a small
  * observer model, then moved by a reflector model as the agent's turns answer
- * it. The ledger exists so no request is lost: an open row is shown to the
+ * it. Agent turns also supply asks, promises and open loops. An open row is shown to the
  * agent before every prompt and to the person in Tedix OS. Rows are private to
  * the person inside one organization, and are linked to the Agent-Session by
  * (harness, session key), the same identity as `work_agent_sessions`.
@@ -25,6 +25,7 @@ export const AGENT_SESSION_REQUEST_KIND_VALUES = [
 	"request",
 	"question",
 	"decision",
+	"ask",
 	"promise",
 	"open_loop",
 ] as const;

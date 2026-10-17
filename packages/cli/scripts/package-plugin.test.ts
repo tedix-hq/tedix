@@ -452,3 +452,25 @@ describe("plugin packager", () => {
 			}
 		}));
 });
+
+test("local SessionStart hooks have room and time for the open request ledger", () => {
+	const openai = decode(
+		packageFiles({ local: true }),
+		"hooks/hooks.json",
+	).hooks;
+	const start = handlers(openai).find(
+		(handler) => hookName(handler) === "session-start",
+	);
+	expect(start.timeout).toBe(30);
+	expect(start.additionalContextLimit).toBeGreaterThanOrEqual(
+		EXPANDED_HOOK_BYTES,
+	);
+	const claude = decode(
+		packageFiles({ host: "claude", local: true }),
+		"hooks/hooks.json",
+	).hooks;
+	expect(
+		handlers(claude).find((handler) => hookName(handler) === "session-start")
+			.timeout,
+	).toBe(30);
+});

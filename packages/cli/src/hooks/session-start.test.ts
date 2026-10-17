@@ -391,3 +391,61 @@ test("context-reset lifecycle events clear delivery receipts; resume preserves t
 		rmSync(config, { recursive: true, force: true });
 	}
 });
+
+describe("SessionStart request ledger", () => {
+	for (const source of ["startup", "clear", "compact"]) {
+		test(`injects waiting asks on ${source}`, async () => {
+			const session = "77777777-7777-4777-8777-777777777777";
+			const { output, calls } = await run(
+				[
+					{
+						status: "bound",
+						workspace: "tedix",
+						org: "org_tedix",
+						mcpUrl: AUTH.mcpUrl,
+						decisionCapture: true,
+						root: process.cwd(),
+					},
+					AUTH,
+					{
+						requests: {
+							data: [
+								{
+									sessionKey: session,
+									kind: "ask",
+									status: "waiting_on_user",
+									sourceAt: "2026-10-16T10:00:00Z",
+									text: "Approve README publication",
+								},
+							],
+						},
+					},
+				],
+				{},
+				{ source, session_id: session },
+			);
+			expect(context(output)).toContain("Open requests (1)");
+			expect(context(output)).toContain("waiting on user");
+			expect(context(output)).toContain("Approve README publication");
+			expect(calls.at(-1)?.at(-1)).toContain(
+				"work.list_agent_session_requests",
+			);
+		});
+	}
+	test("does not read the ledger without decision-capture opt-in", async () => {
+		const { calls } = await run(
+			[
+				{
+					status: "bound",
+					workspace: "tedix",
+					org: "org_tedix",
+					mcpUrl: AUTH.mcpUrl,
+				},
+				AUTH,
+			],
+			{},
+			{ source: "startup", session_id: "77777777-7777-4777-8777-777777777777" },
+		);
+		expect(calls).toHaveLength(2);
+	});
+});

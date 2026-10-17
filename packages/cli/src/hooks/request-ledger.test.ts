@@ -244,3 +244,114 @@ describe("open request lines", () => {
 		expect(openRequestLines({}, { session: SESSION }, now)).toEqual([]);
 	});
 });
+
+test("preserves an earlier answer and a recovery receipt before a later summary", () => {
+	const transcript = join(config, "earlier-answer.jsonl");
+	const records = [
+		{
+			type: "user",
+			message: { content: [{ type: "text", text: "Why did upload fail?" }] },
+		},
+		{
+			type: "assistant",
+			message: {
+				content: [
+					{
+						type: "text",
+						text: "The upload failed because its file exceeded the limit. Use the native uploader.",
+					},
+					{ type: "tool_use", id: "failed-upload", name: "upload", input: {} },
+				],
+			},
+		},
+		{
+			type: "user",
+			message: {
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "failed-upload",
+						is_error: true,
+						content: "File exceeds upload size limit",
+					},
+				],
+			},
+		},
+		{
+			type: "assistant",
+			message: {
+				content: [
+					{ type: "tool_use", id: "fixed-upload", name: "upload", input: {} },
+				],
+			},
+		},
+		{
+			type: "user",
+			message: {
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "fixed-upload",
+						content: "Native upload saved successfully",
+					},
+				],
+			},
+		},
+		{
+			type: "assistant",
+			message: {
+				content: [
+					{
+						type: "text",
+						text: "Summary: legal page needs your OK. Say go to publish.",
+					},
+				],
+			},
+		},
+	];
+	writeFileSync(transcript, records.map((r) => JSON.stringify(r)).join("\n"));
+	const activity = turnActivity(transcript);
+	expect(activity).toContain(
+		"The upload failed because its file exceeded the limit",
+	);
+	expect(activity).toContain("Failed upload: File exceeds upload size limit");
+	expect(activity).toContain(
+		"Succeeded upload after failure: Native upload saved successfully",
+	);
+	expect(activity).toContain("legal page needs your OK");
+});
+
+test("keeps asks below a long summary opening in the activity digest", () => {
+	const transcript = join(config, "summary-asks.jsonl");
+	writeFileSync(
+		transcript,
+		[
+			{ type: "user", message: { content: "What needs me?" } },
+			{
+				type: "assistant",
+				message: {
+					content: [
+						{
+							type: "text",
+							text:
+								"Long status report ".repeat(30) +
+								"\n- Public README needs your OK.\n- Say go to bundle cards.\n- Tell me if the legal sections should stay.",
+						},
+					],
+				},
+			},
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "text", text: "Background: CI is still running." }],
+				},
+			},
+		]
+			.map((r) => JSON.stringify(r))
+			.join("\n"),
+	);
+	const activity = turnActivity(transcript);
+	expect(activity).toContain("Public README needs your OK");
+	expect(activity).toContain("Say go to bundle cards");
+	expect(activity).toContain("Tell me if the legal sections should stay");
+});

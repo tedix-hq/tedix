@@ -3,13 +3,14 @@ import { WorkAgentSessionHarnessSchema } from "./work-agent-sessions";
 
 /**
  * What a ledger row records: from the person's message a request, question or
- * decision; from the agent's turn a promise it made or an open loop (a lane it
- * started that has not reported back).
+ * decision; from the agent's turn an ask for the user, a promise or an open
+ * loop (a lane it started that has not reported back).
  */
 export const AgentSessionRequestKindSchema = z.enum([
 	"request",
 	"question",
 	"decision",
+	"ask",
 	"promise",
 	"open_loop",
 ]);

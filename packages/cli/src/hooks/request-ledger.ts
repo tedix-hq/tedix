@@ -110,16 +110,33 @@ function blockText(content: unknown): string {
 		.join("\n");
 }
 
+/** Keep asks below a summary's opening paragraph visible to the reflector. */
+export function assistantActivity(text: string): string[] {
+	if (/^\s*<heartbeat/.test(text)) return [];
+	return text
+		.split("\n")
+		.filter((part) => part.trim())
+		.map((part) => `Agent said: ${line(part)}`);
+}
+
 /** Activity lines of one Claude Code transcript entry. */
 function claudeActivity(
 	entry: JsonObject,
 	tools: Map<string, string>,
+	failed: Set<string>,
 ): string[] {
 	const content = entry.message?.content;
 	if (!Array.isArray(content)) return [];
 	const lines: string[] = [];
 	for (const block of content) {
 		if (!isObject(block)) continue;
+		if (
+			entry.type === "assistant" &&
+			block.type === "text" &&
+			typeof block.text === "string" &&
+			!/^\s*<heartbeat/.test(block.text)
+		)
+			lines.push(...assistantActivity(block.text));
 		if (block.type === "tool_use" && typeof block.id === "string") {
 			const name = String(block.name ?? "tool");
 			tools.set(block.id, name);
@@ -132,9 +149,12 @@ function claudeActivity(
 		if (block.type === "tool_result") {
 			const name = tools.get(String(block.tool_use_id)) ?? "tool";
 			const text = blockText(block.content);
-			if (block.is_error === true)
+			if (block.is_error === true) {
+				failed.add(name);
 				lines.push(`Failed ${name}: ${line(text.split("\n")[0] ?? "")}`);
-			else if (name === "Agent" || name === "Task")
+			} else if (failed.delete(name)) {
+				lines.push(`Succeeded ${name} after failure: ${line(text)}`);
+			} else if (name === "Agent" || name === "Task")
 				lines.push(`Agent reported: ${line(text)}`);
 		}
 	}
@@ -142,13 +162,33 @@ function claudeActivity(
 }
 
 /** Activity lines of one Codex rollout entry. */
-function codexActivity(entry: JsonObject): string[] {
+function codexActivity(entry: JsonObject, failed: Set<string>): string[] {
 	const payload = isObject(entry.payload) ? entry.payload : {};
+	if (
+		entry.type === "response_item" &&
+		payload.type === "message" &&
+		payload.role === "assistant"
+	) {
+		const content = Array.isArray(payload.content) ? payload.content : [];
+		return content.flatMap((block: unknown) =>
+			isObject(block) &&
+			typeof block.text === "string" &&
+			!/^\s*<heartbeat/.test(block.text)
+				? assistantActivity(block.text)
+				: [],
+		);
+	}
 	if (payload.type !== "function_call_output") return [];
 	const output = String(payload.output ?? "");
 	const code = /"exit_code"\s*:\s*(-?\d+)|Exit code:\s*(-?\d+)/.exec(output);
 	const exit = code ? Number(code[1] ?? code[2]) : 0;
-	return exit !== 0 ? [`Failed command (exit ${exit}): ${line(output)}`] : [];
+	if (exit !== 0) {
+		failed.add("command");
+		return [`Failed command (exit ${exit}): ${line(output)}`];
+	}
+	return code && failed.delete("command")
+		? [`Succeeded command after failure: ${line(output)}`]
+		: [];
 }
 
 function isHumanTurn(entry: JsonObject): boolean {
@@ -213,6 +253,7 @@ export function turnActivity(transcript: unknown): string {
 			break;
 		}
 	const tools = new Map<string, string>();
+	const failed = new Set<string>();
 	const lines: string[] = [];
 	for (const entry of entries.slice(start)) {
 		if (entry.isSidechain) continue;
@@ -222,8 +263,8 @@ export function turnActivity(transcript: unknown): string {
 					blockText(entry.message?.content),
 				);
 			if (notice) lines.push(`Background task: ${line(notice[1] ?? "")}`);
-			lines.push(...claudeActivity(entry, tools));
-		} else lines.push(...codexActivity(entry));
+			lines.push(...claudeActivity(entry, tools, failed));
+		} else lines.push(...codexActivity(entry, failed));
 	}
 	return bounded(lines.join("\n"), ACTIVITY_LIMIT, "tail");
 }

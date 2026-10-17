@@ -178,12 +178,19 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 			events: input.events,
 			now: new Date().toISOString(),
 		});
+		const model = workersAiLedgerModel(context.env);
+		model.learn = async (lessons, scope) => {
+			const ownerUserId = context.user?.sub;
+			if (!lessons.length || !ownerUserId) return;
+			const { recordLedgerLessonCandidates } =
+				await import("../../services/request-ledger-lessons");
+			await recordLedgerLessonCandidates(context.db, lessons, {
+				...scope,
+				ownerUserId,
+			});
+		};
 		context.waitUntil?.(
-			processAgentSessionEvents(
-				context.db,
-				workersAiLedgerModel(context.env),
-				owner,
-			).catch(() => 0),
+			processAgentSessionEvents(context.db, model, owner).catch(() => 0),
 		);
 		return result;
 	},
