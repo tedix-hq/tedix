@@ -1,3 +1,4 @@
+import { createBrowserTools } from "./browser-tools";
 import { createR2SqlTools } from "./r2-sql-tools";
 import {
 	createObjectStoreTools,
@@ -86,7 +87,6 @@ import {
 } from "@tedix/context-core/work-provenance";
 import { FacetDispatchJournal } from "./facet-dispatch-journal";
 import { recordEmailRuntimeOutcome } from "./email-outcome-receipt";
-import { browserResultTools, retainBrowserResult } from "./browser-results";
 import {
 	hydrateFacetHistory,
 	type FacetHistoryInput,
@@ -205,8 +205,6 @@ import {
 	createTediBrowserSession,
 	browserSessionRuntimeEvent,
 	browserSessionSignature,
-	browserSessionTools,
-	governBrowserTools,
 	type TediBrowserSession,
 } from "./browser-session";
 import {
@@ -6523,14 +6521,14 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		const approvalRequired =
 			(this.state.toolPolicy?.browser ?? "always-allow") === "always-approve";
 		const session = this.getBrowserSession();
-		const governed: ToolSet = {
-			...browserResultTools(resultFiles),
-			...browserSessionTools(
-				() => this.getBrowserSession(),
-				() => this.state.toolPolicy?.browserSession,
-				() => this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY).then(() => {}),
-			),
-			...governBrowserTools(session.tools, {
+		return createBrowserTools({
+			resultFiles,
+			session,
+			getSession: () => this.getBrowserSession(),
+			getSessionPolicy: () => this.state.toolPolicy?.browserSession,
+			onClosed: () =>
+				this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY).then(() => {}),
+			gates: {
 				approvalRequired,
 				hostnamePolicies: this.browserHostnamePolicies(),
 				executeEgress: session.executeEgress,
@@ -6538,14 +6536,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				onEgressDenied: (name, egress) =>
 					this.recordBrowserEgressDenial(name, egress, binding),
 				consumeBudget: () => this.getBrowserBudgetStore().consume(limit),
-				retain: (result) => retainBrowserResult(result, resultFiles),
-			}),
-		};
-		governed.browser_budget_status = tool({
-			description:
-				"Read today's governed Cloudflare Browser Run usage and remaining per-tedi daily calls. Does not consume budget.",
-			inputSchema: z.object({}),
-			execute: async () => ({
+			},
+			budgetStatus: () => ({
 				...this.getBrowserBudgetStore().status(limit),
 				approvalPolicy: approvalRequired ? "always-approve" : "always-allow",
 				hostnamePolicy: {
@@ -6554,31 +6546,11 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				},
 				timezone: "UTC",
 			}),
-		});
-		governed.request_browser_takeover = tool({
-			description:
-				"Request human control of the current promoted Browser Run session for login, MFA, CAPTCHA, consent, or another operator-only step. First open the page with browser_execute; unless the browser is persistent, call cdp.startSession() there so the session is durable. This creates a Tedix OS approval with a short-lived interactive Live View; credentials never enter the model. After the operator completes the step and approves, call get_browser_takeover_status and continue with browser_execute in the same session. Does not consume browser budget.",
-			inputSchema: z.object({
-				reason: z.enum([
-					"login",
-					"mfa",
-					"captcha",
-					"consent",
-					"operator_takeover",
-				]),
-				note: z.string().min(1).max(500),
-			}),
-			execute: async (input) =>
+			requestTakeover: (input) =>
 				this.requestBrowserTakeover({ ...input, limit }, binding),
-		});
-		governed.get_browser_takeover_status = tool({
-			description:
-				"Read a Browser Live View approval status. Continue browser_execute only after status is approved; rejection, cancellation, or expiry closes the continuation. Returns a refreshed Live View while the shared session still exists. Does not consume browser budget.",
-			inputSchema: z.object({ approvalRequestId: z.uuid() }),
-			execute: async ({ approvalRequestId }) =>
+			takeoverStatus: (approvalRequestId) =>
 				this.browserTakeoverStatus(approvalRequestId, limit),
 		});
-		return governed;
 	}
 
 	private browserHostnamePolicies() {
