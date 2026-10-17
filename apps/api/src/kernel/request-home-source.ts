@@ -145,13 +145,16 @@ export async function reconcileHomeKernelRequest(
 			policy,
 			now(),
 		);
-	if (row.snapshot.state === "filed")
+	if (
+		row.snapshot.state === "filed" ||
+		(row.snapshot.state === "verifying" && row.snapshot.checks.length === 0)
+	)
 		row = await applyKernelRequestEvent(
 			context.db,
 			row,
 			{
 				kind: "brief",
-				revision: work.version,
+				revision: Math.max(work.version, row.snapshot.briefRevision + 1),
 				checks: row.snapshot.checks.length
 					? row.snapshot.checks.map((c) => KernelAcceptanceCheckSchema.parse(c))
 					: [{ kind: "home_response" }],

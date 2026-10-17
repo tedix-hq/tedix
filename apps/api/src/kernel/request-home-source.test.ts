@@ -25,6 +25,8 @@ import {
 	listDueKernelRequestOrganizations,
 } from "@tedix/db/queries/kernel-requests";
 import type { BaseContext } from "../rpc/orpc";
+import { applyKernelRequestEvent } from "./request-driver";
+import type { KernelRequestEvent } from "./request-coordinator";
 import {
 	captureHomeKernelRequest,
 	readKernelRequestPolicy,
@@ -193,6 +195,61 @@ describe("Home request source adapter", () => {
 		expect(await db.select().from(workItemComments)).toHaveLength(1);
 		expect(final.nextOwner).toBe("kernel-example");
 		expect(final.nextDueAt).not.toBeNull();
+	});
+	it("recovers an old empty-check request after its probe budget was exhausted", async () => {
+		const { context, db } = await fixture("revision-one", true);
+		const policy = (await readKernelRequestPolicy(context, "org-example"))!;
+		let row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		for (const event of [
+			{ kind: "file", workItemId: "work-one" },
+			{ kind: "brief", revision: 1, checks: [] },
+			{ kind: "start", attemptId: "attempt-one" },
+			{ kind: "terminal", attemptId: "attempt-one", outcome: "succeeded" },
+		] satisfies KernelRequestEvent[])
+			row = await applyKernelRequestEvent(db, row, event, policy, now);
+		for (let i = 0; i < policy.maxProbeAttempts; i++)
+			row = await applyKernelRequestEvent(
+				db,
+				row,
+				{
+					kind: "checked",
+					acceptanceKey: row.snapshot.acceptanceKey!,
+					observations: [],
+				},
+				policy,
+				now,
+			);
+		expect(row.snapshot).toMatchObject({
+			state: "verifying",
+			checks: [],
+			outcome: "unknown",
+			probeAttempts: 3,
+		});
+		const priorVersion = row.version;
+		await db.insert(kernelRuntimeEvents).values({
+			id: "reply-one",
+			organizationId: "org-example",
+			conversationId: "home-one",
+			runId: "run-one",
+			messageId: "answer-one",
+			kind: "message.completed",
+			payload: { role: "assistant", content: "The requested summary." },
+			runtimeBackend: "custom",
+			createdAt: now,
+		});
+		const final = await reconcileHomeKernelRequest(context, row, policy);
+		expect(final.snapshot).toMatchObject({
+			state: "learned",
+			outcome: "verified",
+			briefRevision: 2,
+			attemptId: "attempt-one",
+			checks: [{ kind: "home_response" }],
+			probeAttempts: 1,
+			delivery: { status: "acknowledged" },
+		});
+		expect(final.version).toBeGreaterThan(priorVersion);
+		expect(await db.select().from(workAttempts)).toHaveLength(1);
+		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(2);
 	});
 	it("waits for an unchecked delegation reply without exhausting probes, then verifies delivery only", async () => {
 		const { context, db } = await fixture("revision-one", true);
