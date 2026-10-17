@@ -39,6 +39,8 @@ capabilities:
         list_os_outputs,
         list_agent_session_activity,
         create_work_interaction,
+        get_work_interaction,
+        cancel_work_interaction,
       ]
 ---
 
@@ -78,7 +80,7 @@ intent just to retry a create.
 
 Two changed copies of an owned field produce one Needs you interaction per
 entity. Resolve by making Notion and OS agree on the chosen value; a later pass
-resumes. Signal reads use configured shared Workspace Outputs and explicit
+withdraws the resolved question and permits a new card for a later conflict. Signal reads use configured shared Workspace Outputs and explicit
 readers. Current meetings and signals may propose one new, cited task per project
 per pass. A stable evidence key prevents repeated proposals; proposed work still
 requires normal admission before execution and exports to the shared board. Missing personal delegation is reported as incomplete coverage; it
@@ -88,7 +90,7 @@ permission button before enabling them.
 
 Inspect the run, state sheet and first-pass document separately. A partial run
 lists exact failed entities and missing signals; it is not proof of a full sync.
-Writes use single-attempt durable checkpoints and readback receipts. Keep the
+Writes use journaled durable checkpoints and readback receipts. Keep the
 state sheet dedicated to this skill and do not edit it during an active lease.
 
 ## Render and install
