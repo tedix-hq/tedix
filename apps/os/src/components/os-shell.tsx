@@ -51,6 +51,7 @@ import { OsOrganizationIdentity } from "@/components/os-organization-identity";
 import { OsWorkspaceSwitcher } from "@/components/os-workspace-switcher";
 import { TransportStatus } from "@/components/transport-status";
 import { WorkNeedsYouCount } from "@/components/work-needs-you-count";
+import { SupportGetHelp } from "@/components/support-get-help";
 import { shouldUseWorkspaceWorkbench } from "@/lib/os-layout-routing";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { useOsIdentity } from "@/lib/use-os-identity";
@@ -361,6 +362,7 @@ export function OsShell() {
 							<strong>{routeContext.label}</strong>
 						</div>
 						<div className="topbar-actions">
+							<SupportGetHelp organization={tenantLabel} />
 							<ApprovalNotifications />
 							<TopbarSearch onOpenPalette={() => setPaletteOpen(true)} />
 							<TransportStatus />

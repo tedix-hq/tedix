@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { SupportAttention } from "@/components/support-attention";
 import type { AttentionResult } from "@tedix/api-contract/schemas/work-attention";
 import { useEffect, useState } from "react";
 import { Alert, AlertTitle, AlertDescription } from "@/components/kumo/alert";
@@ -308,6 +309,7 @@ export function WorkAttentionPage() {
 			) : (
 				<Text>Loading attention…</Text>
 			)}
+			<SupportAttention />
 		</Page>
 	);
 }
