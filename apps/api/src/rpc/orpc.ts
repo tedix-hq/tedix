@@ -673,8 +673,16 @@ export function resolveForwardedMcpUserTenantContext({
  * about service-binding transport and forwarded identities, not about deduping
  * against a prior pass.
  */
-export const withAuth = base.middleware(async (options) => {
-	const { context, next } = options;
+export const withAuth = base.middleware(async (options, input) => {
+	const { context } = options;
+	const next: typeof options.next = async (...args) => {
+		if (!context.env.AGENT_REVIEW_PROJECT_ID) return options.next(...args);
+		const { guardAgentReviewAccess } =
+			await import("../services/agent-review-access");
+		return guardAgentReviewAccess(context, input, async () =>
+			options.next(...args),
+		);
+	};
 	// Console credentials never inherit service-binding or general tedi authority.
 	const consoleToken = extractBearerToken(context.headers.get("Authorization"));
 	if (consoleToken?.startsWith("tcs_")) {

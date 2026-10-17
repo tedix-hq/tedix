@@ -338,6 +338,7 @@
 		"./queries/work-items/attempts": "./src/queries/work-items/attempts.ts",
 		"./queries/work-items/lane-lifecycle": "./src/queries/work-items/lane-lifecycle.ts",
 		"./queries/work-items/stale-delegation-sweep": "./src/queries/work-items/stale-delegation-sweep.ts",
+		"./queries/work-items/project-access": "./src/queries/work-items/project-access.ts",
 		"./queries/work-items/crud": "./src/queries/work-items/crud.ts",
 		"./queries/work-items/evidence": "./src/queries/work-items/evidence.ts",
 		"./queries/work-items/events": "./src/queries/work-items/events.ts",

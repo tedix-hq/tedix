@@ -2,7 +2,7 @@
 	"toolId": "file_agent_review",
 	"toolTypeId": "rpc",
 	"title": "File agent review",
-	"description": "Submit a sanitized Tedix adoption review to the public feedback intake. Returns an opaque receipt, not verified findings. No project authority or execution is granted.",
+	"description": "Submit a sanitized Tedix adoption review to the private review intake. Returns an opaque receipt, not verified findings. No project authority or execution is granted.",
 	"inputSchema": {
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"type": "object",
