@@ -34,5 +34,16 @@ class AuditTest(unittest.TestCase):
                             audit.xml_tree(b'<a><b>y</b></a>'))
 
 
+    def test_discovery_ignores_only_catalog_generation_clock(self):
+        a = b'Generated: 2026-01-01\nApps: 10\n'
+        b = b'Generated: 2026-01-02\nApps: 10\n'
+        self.assertEqual(audit.discovery_body('/apps/llms.txt', a),
+                         audit.discovery_body('/apps/llms.txt', b))
+        self.assertNotEqual(audit.discovery_body('/llms.txt', a),
+                            audit.discovery_body('/llms.txt', b))
+        self.assertNotEqual(audit.discovery_body('/apps/llms.txt', a),
+                            audit.discovery_body('/apps/llms.txt', b.replace(b'10', b'11')))
+
+
 if __name__ == '__main__':
     unittest.main()

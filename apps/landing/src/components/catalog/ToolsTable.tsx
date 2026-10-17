@@ -25,11 +25,12 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface ToolsTableProps {
 	tools: CatalogMcpToolWithMetrics[];
+	toolsUrl?: string;
 }
 
 type ToolRow = CatalogMcpToolWithMetrics;
@@ -100,7 +101,26 @@ function getSuccessBadge(
 	};
 }
 
-export default function ToolsTable({ tools }: ToolsTableProps) {
+export default function ToolsTable({
+	tools: initialTools,
+	toolsUrl,
+}: ToolsTableProps) {
+	const [tools, setTools] = useState(initialTools);
+	const [visibleCount, setVisibleCount] = useState(10);
+	const [detailsError, setDetailsError] = useState(false);
+	useEffect(() => {
+		if (!toolsUrl) return;
+		const controller = new AbortController();
+		fetch(toolsUrl, { signal: controller.signal })
+			.then(async (response) => {
+				if (!response.ok) throw new Error("Tool details unavailable");
+				setTools(await response.json());
+			})
+			.catch(() => {
+				if (!controller.signal.aborted) setDetailsError(true);
+			});
+		return () => controller.abort();
+	}, [toolsUrl]);
 	const [search, setSearch] = useState("");
 	const [showTested, setShowTested] = useState(false);
 	const [showReadOnly, setShowReadOnly] = useState(false);
@@ -345,88 +365,106 @@ export default function ToolsTable({ tools }: ToolsTableProps) {
 							))}
 						</TableHeader>
 						<TableBody>
-							{table.getRowModel().rows.map((row) => (
-								<Fragment key={row.id}>
-									<TableRow key={row.id} className="border-border/40">
-										{row.getAllCells().map((cell) => (
-											<TableCell
-												key={cell.id}
-												className={cn(
-													"align-top",
-													cell.column.id === "description" &&
-														"whitespace-normal break-words leading-relaxed",
-													cell.column.id === "toolName" &&
-														"whitespace-normal break-words",
-													cell.column.id === "flags" && "whitespace-normal",
-												)}
-											>
-												{flexRender(
-													cell.column.columnDef.cell,
-													cell.getContext(),
-												)}
-											</TableCell>
-										))}
-									</TableRow>
-									{expandedRowId === row.original.id && (
-										<TableRow className="bg-muted/30">
-											<TableCell
-												colSpan={table.getAllColumns().length}
-												className="p-4"
-											>
-												<div className="grid gap-4 md:grid-cols-2">
-													{row.original.exampleInput && (
-														<div>
-															<p className="mb-2 font-medium text-muted-foreground text-xs">
-																Example Input
-															</p>
-															<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
-																{JSON.stringify(
-																	row.original.exampleInput,
-																	null,
-																	2,
-																)}
-															</pre>
-														</div>
+							{table
+								.getRowModel()
+								.rows.slice(0, visibleCount)
+								.map((row) => (
+									<Fragment key={row.id}>
+										<TableRow key={row.id} className="border-border/40">
+											{row.getAllCells().map((cell) => (
+												<TableCell
+													key={cell.id}
+													className={cn(
+														"align-top",
+														cell.column.id === "description" &&
+															"whitespace-normal break-words leading-relaxed",
+														cell.column.id === "toolName" &&
+															"whitespace-normal break-words",
+														cell.column.id === "flags" && "whitespace-normal",
 													)}
-													{!!row.original.exampleOutput && (
-														<div>
-															<p className="mb-2 font-medium text-muted-foreground text-xs">
-																Example Output
-															</p>
-															<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
-																{typeof row.original.exampleOutput === "string"
-																	? row.original.exampleOutput
-																	: JSON.stringify(
-																			row.original.exampleOutput,
-																			null,
-																			2,
-																		)}
-															</pre>
-														</div>
+												>
+													{flexRender(
+														cell.column.columnDef.cell,
+														cell.getContext(),
 													)}
-													{row.original.inputSchema && (
-														<div className="md:col-span-2">
-															<p className="mb-2 font-medium text-muted-foreground text-xs">
-																Input Schema
-															</p>
-															<pre className="max-h-56 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
-																{JSON.stringify(
-																	row.original.inputSchema,
-																	null,
-																	2,
-																)}
-															</pre>
-														</div>
-													)}
-												</div>
-											</TableCell>
+												</TableCell>
+											))}
 										</TableRow>
-									)}
-								</Fragment>
-							))}
+										{expandedRowId === row.original.id && (
+											<TableRow className="bg-muted/30">
+												<TableCell
+													colSpan={table.getAllColumns().length}
+													className="p-4"
+												>
+													<div className="grid gap-4 md:grid-cols-2">
+														{row.original.exampleInput && (
+															<div>
+																<p className="mb-2 font-medium text-muted-foreground text-xs">
+																	Example Input
+																</p>
+																<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
+																	{JSON.stringify(
+																		row.original.exampleInput,
+																		null,
+																		2,
+																	)}
+																</pre>
+															</div>
+														)}
+														{!!row.original.exampleOutput && (
+															<div>
+																<p className="mb-2 font-medium text-muted-foreground text-xs">
+																	Example Output
+																</p>
+																<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
+																	{typeof row.original.exampleOutput ===
+																	"string"
+																		? row.original.exampleOutput
+																		: JSON.stringify(
+																				row.original.exampleOutput,
+																				null,
+																				2,
+																			)}
+																</pre>
+															</div>
+														)}
+														{row.original.inputSchema && (
+															<div className="md:col-span-2">
+																<p className="mb-2 font-medium text-muted-foreground text-xs">
+																	Input Schema
+																</p>
+																<pre className="max-h-56 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
+																	{JSON.stringify(
+																		row.original.inputSchema,
+																		null,
+																		2,
+																	)}
+																</pre>
+															</div>
+														)}
+													</div>
+												</TableCell>
+											</TableRow>
+										)}
+									</Fragment>
+								))}
 						</TableBody>
 					</Table>
 				</div>
+				{filteredTools.length > visibleCount && (
+					<Button
+						variant="outline"
+						onClick={() => setVisibleCount((count) => count + 10)}
+					>
+						Show more tools ({Math.min(visibleCount, filteredTools.length)} of{" "}
+						{filteredTools.length})
+					</Button>
+				)}
+				{detailsError && (
+					<p role="status">
+						Tool schemas and examples could not load. Reload to try again.
+					</p>
+				)}
 			</CardContent>
 		</Card>
 	);

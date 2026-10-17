@@ -73,6 +73,15 @@ def robot_rules(body):
             if line.strip() and not line.lstrip().startswith('#')]
 
 
+def discovery_body(path, body):
+    # Keep raw response hashes in the report; only the generation clock is
+    # excluded from the independently generated catalog overview comparison.
+    if path == '/apps/llms.txt':
+        return '\n'.join(line for line in body.decode().splitlines()
+                         if not line.startswith('Generated: '))
+    return body
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--source', required=True)
@@ -160,7 +169,7 @@ def main():
         elif path == '/robots.txt' and robot_rules(bodies['source']) != robot_rules(bodies['cms']):
             differences.append(dict(path=path, field='robots_policy'))
         elif path in ('/rss.xml', '/llms.txt', '/apps/llms.txt', '/.well-known/agent-card.json', '/site.webmanifest'):
-            if bodies['source'] != bodies['cms']:
+            if discovery_body(path, bodies['source']) != discovery_body(path, bodies['cms']):
                 differences.append(dict(path=path, field='body'))
         if path.rstrip('/') == '/health':
             for side in bodies:
