@@ -34,6 +34,7 @@ export async function createRepositoryObservation(
 			workKind: "stewardship",
 			workClass: "objective",
 			riskLevel: "medium",
+			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
 			disposition: "proposed",
 			priority: input.deadline ? "high" : "low",
 			accountableOwnerType: "tedi",
