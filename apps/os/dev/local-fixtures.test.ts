@@ -832,6 +832,19 @@ describe("work graph fixture coherence", () => {
 	});
 });
 
+describe("seeded output content", () => {
+	beforeEach(() => resetLocalFixtures());
+
+	it.each([
+		[IDS.outputDocument, IDS.documentContent],
+		[IDS.outputSheet, IDS.sheetContent],
+		[IDS.outputDeck, IDS.deckContent],
+	])("keeps the initial revision and content for %s", (outputId, content) => {
+		const detail = callLocalOk("osWorkspaces/outputs/get", { outputId });
+		expect(detail).toMatchObject({ currentRevision: { revision: 1, content } });
+	});
+});
+
 describe("wire envelope", () => {
 	beforeEach(() => {
 		resetLocalFixtures();
