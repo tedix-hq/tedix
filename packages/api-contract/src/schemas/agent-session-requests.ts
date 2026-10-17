@@ -108,6 +108,12 @@ export const RecordAgentSessionEventsResultSchema = z.strictObject({
 
 export const ListAgentSessionRequestsInputSchema = z.strictObject({
 	statuses: z.array(AgentSessionRequestStatusSchema).max(6).optional(),
+	changedSince: z.iso
+		.datetime()
+		.optional()
+		.describe(
+			"Keep rows whose status changed at or after this instant, including requests originally made earlier.",
+		),
 	harness: WorkAgentSessionHarnessSchema.optional(),
 	sessionKey: SessionKeySchema.optional(),
 	limit: z.number().int().min(1).max(200).default(100),
@@ -147,10 +153,14 @@ export const SESSION_ACTIVITY_RESOURCE = {
 export const ListAgentSessionActivityInputSchema = z.strictObject({
 	since: z.iso.datetime(),
 	limit: z.number().int().min(1).max(100).default(50),
+	requests: ListAgentSessionRequestsInputSchema.optional().describe(
+		"Also read the consenting owner's derived request ledger with these filters. Never accepts an owner identity.",
+	),
 });
 export const ListAgentSessionActivityResultSchema = z.strictObject({
 	status: z.enum(["ready", "needs_grant"]),
 	summary: z.string(),
+	requests: z.array(AgentSessionRequestSchema).optional(),
 	data: z.array(
 		z.strictObject({
 			id: z.string(),

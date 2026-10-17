@@ -52,10 +52,15 @@ describe("delegated session activity reader", () => {
 			resourceAccessEnvelope: null,
 		} as never);
 		const read = vi.spyOn(activity, "listAgentSessionActivity");
+		const ledger = vi.spyOn(activity, "listAgentSessionRequests");
 		expect(
-			await client().listActivity({ since: "2026-10-01T00:00:00Z" }),
+			await client().listActivity({
+				since: "2026-10-01T00:00:00Z",
+				requests: { statuses: ["in_progress"] },
+			}),
 		).toMatchObject({ status: "needs_grant", data: [] });
 		expect(read).not.toHaveBeenCalled();
+		expect(ledger).not.toHaveBeenCalled();
 	});
 	it("reads only the grant's canonical ledger owner, scrubs secrets and rechecks consent", async () => {
 		vi.spyOn(runs, "getSkillRun").mockResolvedValue({
@@ -115,8 +120,64 @@ describe("delegated session activity reader", () => {
 			} as never)
 			.mockRejectedValueOnce(new Error("revoked"));
 		vi.spyOn(activity, "listAgentSessionActivity").mockResolvedValue([]);
+		vi.spyOn(activity, "listAgentSessionRequests").mockResolvedValue([]);
 		await expect(
-			client().listActivity({ since: "2026-10-01T00:00:00Z" }),
+			client().listActivity({
+				since: "2026-10-01T00:00:00Z",
+				requests: { statuses: ["done"] },
+			}),
 		).rejects.toThrow("revoked");
+	});
+	it("reads and scrubs derived requests only for the live delegation's owner", async () => {
+		vi.spyOn(runs, "getSkillRun").mockResolvedValue({
+			id,
+			tediId: id,
+			skillId: id,
+			skillRevision: 1,
+			resourceAccessEnvelope: { version: 1, sources: [source] },
+		} as never);
+		const auth = vi
+			.spyOn(delegation, "authorizePersonalResourceDelegation")
+			.mockResolvedValue({
+				delegation: { accountSubject: "canonical-ada" },
+			} as never);
+		vi.spyOn(activity, "listAgentSessionActivity").mockResolvedValue([]);
+		const ledger = vi
+			.spyOn(activity, "listAgentSessionRequests")
+			.mockResolvedValue([
+				{
+					id,
+					harness: "codex",
+					sessionKey: "chat",
+					repository: "sample",
+					kind: "request",
+					status: "done",
+					text: "api_key=never-share-this",
+					evidence: "Authorization: Bearer secret-value",
+					sourceAt: "2026-10-01T01:00:00Z",
+					statusChangedAt: "2026-10-01T02:00:00Z",
+				},
+			] as never);
+		const result = await client().listActivity({
+			since: "2026-10-01T00:00:00Z",
+			requests: { statuses: ["done"], order: "newest", limit: 20 },
+		});
+		expect(ledger).toHaveBeenCalledWith(
+			{},
+			{
+				organizationId: id,
+				userId: "canonical-ada",
+				statuses: ["done"],
+				changedSince: undefined,
+				harness: undefined,
+				sessionKey: undefined,
+				limit: 20,
+				newestFirst: true,
+			},
+		);
+		expect(result.requests).toHaveLength(1);
+		expect(auth).toHaveBeenCalledTimes(2);
+		expect(JSON.stringify(result)).not.toContain("secret-value");
+		expect(JSON.stringify(result)).not.toContain("never-share-this");
 	});
 });

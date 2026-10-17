@@ -2167,6 +2167,12 @@ export const ListWorkActivityInputSchema = z
 				"Scope the feed to one Work Item's own history. Absent keeps the org-wide board feed, which is the established behavior every existing caller depends on.",
 			),
 		projectId: z.uuid().optional(),
+		objectiveId: z
+			.uuid()
+			.optional()
+			.describe(
+				"Scope to the latest activity across all Work linked to this objective, before limiting.",
+			),
 		// Capped: passed straight into an unchunked inArray; keep well under D1's
 		// 100 bound-param limit.
 		eventTypes: z.array(z.string().max(100)).max(50).optional(),
