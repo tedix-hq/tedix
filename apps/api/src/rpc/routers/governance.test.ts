@@ -161,12 +161,19 @@ describe("buildDecisionRightsMatrix", () => {
 		}
 	});
 
-	it("names its ungoverned surfaces plainly (SOUL directives, tedi budgets)", () => {
+	it("names SOUL directives as ungoverned and budget updates as enforced", () => {
 		const ungoverned = controls.filter((c) => c.status === "ungoverned");
 		expect(ungoverned.some((c) => c.surface.includes("personality"))).toBe(
 			true,
 		);
-		expect(ungoverned.some((c) => c.surface.includes("budgets"))).toBe(true);
+		const budgets = controls.find((c) =>
+			c.surface.startsWith("Tedi budget values"),
+		);
+		expect(budgets?.decide).toEqual(["human", "apikey"]);
+		expect(budgets?.status).toBe("enforced");
+		expect(budgets?.enforcedBy).toContain(
+			"agentUnreachableCapabilityFieldsTouched()",
+		);
 	});
 
 	it("capability-tier cells match the live allowlist gate", () => {
@@ -426,6 +433,11 @@ describe("governance.overview gap redaction (A7)", () => {
 		const overview = await client.overview({});
 		const serialized = JSON.stringify(overview.decisionRights);
 		expect(serialized).toContain("personality");
-		expect(serialized).toContain("an agent can raise its own spend ceilings");
+		expect(serialized).toContain(
+			"Only a human or operator-issued API key can change budget values",
+		);
+		expect(serialized).not.toContain(
+			"an agent can raise its own spend ceilings",
+		);
 	});
 });

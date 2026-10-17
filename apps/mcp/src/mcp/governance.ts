@@ -383,16 +383,14 @@ async function requiresExplicitThirdPartyApprovalPolicy(
  * finds-and-(if "once")-consumes the grant server-side — so this never leaves
  * a two-step race window.
  *
- * FAIL-CLOSED at every branch: any missing prerequisite (no approvalPolicy
- * override, no org/appSlug/apiClient/callerIdentity, no resolvable subject
- * id) or any error/non-approval from the resolve call returns `null` — the
- * caller then falls through to exactly today's elicitation behavior. Nothing
- * here can turn into auto-approval on failure.
+ * `null` means no grant policy applies. A configured grant policy returns an
+ * explicit denial on missing prerequisites, lookup failure, or non-approval;
+ * the caller must not fall through to another approval path.
  */
 async function tryResolveApprovalGrant(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
-): Promise<{ grantId: string } | null> {
+): Promise<{ approved: true; grantId: string } | { approved: false } | null> {
 	const grantKind = readApprovalPolicy(agent, tool);
 	if (!grantKind || grantKind === "work_item") return null;
 
@@ -401,11 +399,11 @@ async function tryResolveApprovalGrant(
 	const apiClient = agent.apiClient;
 	const callerIdentity = agent.callerIdentity;
 	if (!organizationId || !appSlug || !apiClient || !callerIdentity) {
-		return null;
+		return { approved: false };
 	}
 
 	const subjectId = normalizeCallerIdentity(callerIdentity).actorId;
-	if (!subjectId) return null;
+	if (!subjectId) return { approved: false };
 
 	try {
 		const result = await apiClient.mcpGovernance.resolveToolApprovalGrant({
@@ -416,16 +414,16 @@ async function tryResolveApprovalGrant(
 			grantKind,
 		});
 		if (result?.approved && result.grantId) {
-			return { grantId: result.grantId };
+			return { approved: true, grantId: result.grantId };
 		}
-		return null;
+		return { approved: false };
 	} catch (error) {
-		// Network/API failure is not approval. Fail closed to elicitation.
+		// Network/API failure cannot weaken the configured policy.
 		console.warn(
-			`[governance] grant lookup failed for ${tool.toolId}; falling through to elicitation:`,
+			`[governance] grant lookup failed for ${tool.toolId}; denying:`,
 			error,
 		);
-		return null;
+		return { approved: false };
 	}
 }
 
@@ -676,6 +674,17 @@ export async function requireDestructiveToolApproval(
 	// exactly today's behavior below.
 	const grantApproval = await tryResolveApprovalGrant(agent, tool);
 	if (grantApproval) {
+		if (!grantApproval.approved) {
+			emitGovernanceAuditEvent(
+				agent,
+				tool,
+				"destructive_denied",
+				"grant_not_approved",
+			);
+			return approvalFailure(
+				`Action "${tool.toolId}" was not approved: the configured approval policy requires a current durable grant. No side effect was executed.`,
+			);
+		}
 		emitGovernanceAuditEvent(
 			agent,
 			tool,

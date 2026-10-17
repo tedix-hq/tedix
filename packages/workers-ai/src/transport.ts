@@ -347,22 +347,12 @@ async function callViaGateway(
 	});
 	if (!response.ok) {
 		const detail = await response.text().catch(() => "");
-		// On 4xx include the REQUEST BODY head: Workers AI's "AiError: Invalid
-		// input" (8001) names nothing, and the same-shaped request succeeding
-		// from outside the Worker made a body-less error undiagnosable. The body
-		// is our own prompt + params — no credentials live in it.
-		// A rejected credential (401) is not the request's fault either.
-		const bodyHead =
-			response.status >= 400 && response.status < 500 && response.status !== 401
-				? ` — sent body: ${serialized.slice(0, 500)}`
-				: "";
 		const error = aiGatewayHttpError(
 			`workers-ai gateway ${modelId}`,
 			response.status,
 			response.statusText,
 			detail,
 		);
-		error.message += bodyHead;
 		throw error;
 	}
 	const data = (await response.json()) as OpenAiChatResponse;

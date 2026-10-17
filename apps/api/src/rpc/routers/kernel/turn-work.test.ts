@@ -19,6 +19,7 @@ import type { BodyExecutionResult } from "@tedix/api-contract/schemas/body-certi
 import type { HarnessSubjectTraceBundle } from "@tedix/api-contract/schemas/harness-version";
 import type { KernelRuntimeEvent } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { DbClient } from "@tedix/db/client";
+import { callWorkersAi } from "@tedix/workers-ai/transport";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	createKernelTurnStageTimings,
@@ -288,6 +289,112 @@ describe("turn metadata boundaries", () => {
 });
 
 describe("runKernelTurnWork progress seam", () => {
+	it("keeps a rejected Workers AI prompt out of replies, logs, traces, and conversation events", async () => {
+		const marker = "SYNTHETIC_PRIVATE_PROMPT_7c92";
+		const events: unknown[] = [];
+		const traces: unknown[] = [];
+		const writes: Array<Record<string, unknown>> = [];
+		const base = stubDeps({});
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(
+				new Response("AiError: Invalid input", { status: 400 }),
+			);
+		const logs = ["log", "warn", "error"] as const;
+		const spies = logs.map((method) =>
+			vi.spyOn(console, method).mockImplementation(() => {}),
+		);
+		const deps = stubDeps({
+			db: capturingDbProxy(writes),
+			kernel: async () =>
+				({
+					route: {
+						...route({ routeKind: "delegate_tedi", targetTediId: "tedi-1" }),
+						routerVersion: "router-test",
+					},
+					assistantContent: "Delegating.",
+					evidence: null,
+					delegation: {
+						workOrder: {
+							kind: "tedi.delegate",
+							objective: "Summarize.",
+							outputContract: "Summary.",
+							status: "draft",
+							toolGuidance: [],
+							boundaries: [],
+							sourceContent: "Summarize.",
+							targetTediId: "tedi-1",
+							targetTediLabel: "Worker",
+						},
+						decision: { mode: "auto", canAutoDispatch: true, reason: "test" },
+					},
+				}) as unknown as Awaited<ReturnType<KernelTurnWorkDeps["kernel"]>>,
+			dispatchAutoDelegation: async () => {
+				await callWorkersAi(
+					{
+						env: {
+							AI_GATEWAY_ACCOUNT_ID: "account-test",
+							AI_GATEWAY_LLM_ID: "gateway-test",
+							CF_AI_GATEWAY_TOKEN: "test-token",
+							CF_WORKERS_AI_TOKEN: "test-token",
+						},
+						authorize: async (input) => ({ attribution: input.attribution }),
+					},
+					"@cf/openai/gpt-oss-120b",
+					{ messages: [{ role: "user", content: marker }] },
+				);
+				throw new Error("Expected provider rejection");
+			},
+			insertKernelRuntimeEvent: async (input) => {
+				events.push(input);
+				return base.insertKernelRuntimeEvent(input);
+			},
+			ensureKernelHarnessVersion: async (input) => ({
+				bumped: true,
+				version: {
+					id: "khv-test",
+					subjectKind: "kernel",
+					subjectId: "kernel:org-1",
+					tediId: null,
+					orgId: "org-1",
+					version: "1",
+					runtimeKind: "kernel",
+					components: { attention_router: input.routerVersion },
+					parentVersionId: null,
+					reason: "test",
+					promotionStatus: "active",
+					createdAt: input.createdAt,
+				},
+			}),
+			recordKernelTraceBundle: async (bundle) => {
+				traces.push(bundle);
+			},
+			writeKernelTraceBundle: async (evidence) => {
+				traces.push(evidence);
+				return "r2://test/trace";
+			},
+		});
+		try {
+			const response = await runKernelTurnWork(deps, turnInput());
+			expect(fetchSpy).toHaveBeenCalledOnce();
+			expect(response.run.status).toBe("failed");
+			expect(JSON.stringify(writes)).toContain("400");
+			expect(events.length).toBeGreaterThan(0);
+			expect(traces.length).toBeGreaterThan(0);
+			for (const sink of [
+				response,
+				events,
+				traces,
+				writes,
+				spies.flatMap((spy) => spy.mock.calls),
+			]) {
+				expect(JSON.stringify(sink)).not.toContain(marker);
+			}
+		} finally {
+			fetchSpy.mockRestore();
+			spies.forEach((spy) => spy.mockRestore());
+		}
+	});
 	it("passes the ingress-authorized document, not a caller metadata projection, to the planner", async () => {
 		const kernel = vi.fn(async () => null);
 		const input = turnInput();

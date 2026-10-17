@@ -296,12 +296,13 @@ export function buildDecisionRightsMatrix(): DecisionRightsRow[] {
 				{
 					surface:
 						"Tedi budget values (tedis.update `budgets`: dailyTokenLimit, dailyMessageLimit, operatorTokenReserve, operatorMessageReserve, governedLearningTokenReserve, governedLearningMessageReserve, maxCronJobs, browserBudgetDaily)",
-					decide: ["human", "apikey", "tedi:mcp-admin", "tedi:self"],
+					decide: ["human", "apikey"],
 					propose: ["tedi:any"],
-					enforcedBy: null,
-					status: "ungoverned",
+					enforcedBy:
+						"agentUnreachableCapabilityFieldsTouched() — apps/api/src/rpc/routers/tedis/crud.ts (allowlist: user/apikey only, before privilege/scope lookup)",
+					status: "enforced",
 					notes:
-						"Named plainly in the ADR: budgets remain agent-writable — an agent can raise its own spend ceilings. Configured ceilings ARE enforced at runtime (e.g. the browser daily budget store in apps/tedi-runtime), but the VALUES carry no human gate.",
+						"Only a human or operator-issued API key can change budget values; every other authType is blocked regardless of scopes. Configured ceilings are enforced by the owning runtime paths.",
 				},
 				{
 					surface:

@@ -39,15 +39,18 @@ access.
 | -------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Identity persists                      | The worker, its memory, and its record survive the run, the session, and runtime changes.   |
 | Budgets hold                           | The owner sets spend and capacity limits. A worker cannot raise its own.                    |
-| The approver is never the requester    | A protected action is approved by someone else: a person or another worker.                 |
+| Approval follows the mutation policy   | A boundary can require an independent designated approver: a person or another worker.      |
 | The record shows who did what, and why | Who asked, who acted, under which policy, with which sources, at what cost, and the result. |
 
 ## Permissions
 
 A worker gets an identity, a role, policies, tool grants, and spending limits.
-Sensitive operations can require approval before they run. Delegating work to
-another worker passes only the scope that work needs, not every permission the
-delegating worker holds.
+Approval policy applies at each mutation boundary. A boundary may require a
+durable grant or an independent designated approver, which can be a person or
+a tedi. Other scoped Code Mode actions can use agent auto-confirm; there is no
+universal human-confirmation requirement. Consent, MFA, and user presence
+remain human steps. Delegating work to another worker passes only the scope
+that work needs, not every permission the delegating worker holds.
 
 A tedi acts under its own identity rather than signing in as the person who
 asked. The requester stays on the record, but their permissions are not
