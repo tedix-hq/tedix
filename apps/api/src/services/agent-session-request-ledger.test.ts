@@ -836,6 +836,29 @@ it("uses the Gateway for reflection and intake while keeping the observer small"
 		await model.extractObligations!([], "Lead words", "User request"),
 	).toBe('{"new":[]}');
 	expect(run).toHaveBeenCalledTimes(1);
+	const longSources = [
+		{
+			id: "long-turn",
+			body: "Completed work. ".repeat(14_000),
+			activity: "Failed upload",
+		},
+	];
+	fetch.mockResolvedValueOnce(
+		Response.json({
+			status: "completed",
+			output: [
+				{
+					type: "message",
+					content: [{ type: "output_text", text: '{"lessons":[]}' }],
+				},
+			],
+		}),
+	);
+	expect(await model.reflectLessons!(longSources)).toBe('{"lessons":[]}');
+	expect(run).toHaveBeenCalledTimes(1);
+	expect(JSON.parse(fetch.mock.calls.at(-1)![1].body).input).toBe(
+		JSON.stringify(longSources),
+	);
 	fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
 	expect(
 		await model("system", "prompt", "agent-session-request-reflector"),

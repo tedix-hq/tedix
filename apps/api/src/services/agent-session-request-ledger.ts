@@ -163,7 +163,8 @@ export interface LedgerModel {
 export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 	const model: LedgerModel = (system, prompt, surface) =>
 		surface === "agent-session-request-reflector" ||
-		surface === "agent-session-request-intake"
+		surface === "agent-session-request-intake" ||
+		surface === "agent-session-lesson-reflector"
 			? reflectWithGateway(env, system, prompt, surface)
 			: runDistillModel(env, prompt, {
 					model: LEDGER_MODEL,
@@ -190,12 +191,11 @@ export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 			"agent-session-request-reflector",
 		);
 	model.reflectLessons = (sources) =>
-		runDistillModel(env, JSON.stringify(sources), {
-			system: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
-			surface: "agent-session-lesson-reflector",
-			maxTokens: 1500,
-			timeoutMs: 15_000,
-		});
+		model(
+			SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+			JSON.stringify(sources),
+			"agent-session-lesson-reflector",
+		);
 	return model;
 }
 
