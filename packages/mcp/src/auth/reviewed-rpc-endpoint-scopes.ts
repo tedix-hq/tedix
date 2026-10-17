@@ -10,6 +10,9 @@
  * after this MCP gate.
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
+	"workAgentSessions/getAttentionLayout": "mcp:work.read",
+	"workAgentSessions/updateAttentionLayout": "mcp:work.write",
+	"workAgentSessions/visitAttention": "mcp:work.write",
 	"support/configure": "platform:admin",
 	"support/file": "mcp:work.write",
 	"support/status": "mcp:work.read",

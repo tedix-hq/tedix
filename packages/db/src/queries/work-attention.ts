@@ -5,6 +5,7 @@ import { workItems, workAttempts } from "../schema/work-items";
 import { skillRuns } from "../schema/cognitive";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { tedis } from "../schema/tedis";
+import { osGadgetExecutions, osWorkspaces } from "../schema/os-workspaces";
 import { tediObjectives } from "../schema/tedi-objectives";
 import { workInteractions } from "../schema/work-factory";
 
@@ -58,6 +59,12 @@ export async function readAttentionSources(
 				id: projects.id,
 				name: projects.name,
 				status: projects.status,
+				objectiveId: projects.objectiveId,
+				lastAttentionAt: sql<
+					string | null
+				>`(select max(a.heartbeat_at) from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.project_id = projects.id)`.as(
+					"project_last_attention_at",
+				),
 				active:
 					sql<number>`(select count(*) from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.project_id = projects.id and a.outcome is null and a.expires_at > ${new Date().toISOString()})`.mapWith(
 						Number,
@@ -144,6 +151,7 @@ export async function readAttentionSources(
 			.select({
 				id: skillRuns.id,
 				title: skillRuns.skillSlug,
+				createdBy: skillRuns.createdBy,
 				who: tedis.name,
 				workItemId: skillRuns.workItemId,
 				projectId: workItems.projectId,
@@ -176,6 +184,11 @@ export async function readAttentionSources(
 		db
 			.select({
 				id: kernelRuntimeRuns.id,
+				workspaceId: sql<
+					string | null
+				>`(select c.workspace_id from kernel_conversations c where c.organization_id = ${orgId} and c.id = kernel_runtime_runs.conversation_id)`.as(
+					"attention_workspace_id",
+				),
 				who: tedis.name,
 				status: kernelRuntimeRuns.status,
 				startedAt: kernelRuntimeRuns.createdAt,
@@ -266,7 +279,15 @@ export async function listUnattendedObjectives(
 	since: string,
 ) {
 	return db
-		.select({ id: tediObjectives.id, title: tediObjectives.title })
+		.select({
+			id: tediObjectives.id,
+			title: tediObjectives.title,
+			lastAttentionAt: sql<
+				string | null
+			>`(select max(a.heartbeat_at) from work_attempts a join work_items w on w.id = a.work_item_id and w.org_id = a.org_id where a.org_id = ${orgId} and w.objective_id = tedi_objectives.id)`.as(
+				"objective_last_attention_at",
+			),
+		})
 		.from(tediObjectives)
 		.where(
 			and(
@@ -277,4 +298,46 @@ export async function listUnattendedObjectives(
 		)
 		.orderBy(tediObjectives.priority)
 		.limit(100);
+}
+
+export async function readAttentionFactoryLinks(
+	db: DbQueryClient,
+	organizationId: string,
+	descopeUserId: string,
+	since: string,
+) {
+	return db
+		.select({
+			runId: osGadgetExecutions.runId,
+			workspaceId: osGadgetExecutions.workspaceId,
+			factoryName: osWorkspaces.name,
+		})
+		.from(osGadgetExecutions)
+		.innerJoin(
+			osWorkspaces,
+			and(
+				eq(osWorkspaces.organizationId, organizationId),
+				eq(osWorkspaces.id, osGadgetExecutions.workspaceId),
+			),
+		)
+		.where(
+			and(
+				eq(osGadgetExecutions.organizationId, organizationId),
+				or(
+					gte(osGadgetExecutions.createdAt, since),
+					inArray(osGadgetExecutions.status, [
+						"running",
+						"queued",
+						"awaiting_approval",
+						"paused",
+					]),
+				),
+				or(
+					eq(osWorkspaces.visibility, "org"),
+					eq(osWorkspaces.ownerUserId, descopeUserId),
+				),
+			),
+		)
+		.orderBy(desc(osGadgetExecutions.createdAt))
+		.limit(500);
 }

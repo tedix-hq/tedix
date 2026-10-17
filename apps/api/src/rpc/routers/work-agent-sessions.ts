@@ -8,6 +8,13 @@
  * or write another person's board.
  */
 
+import { ATTENTION_LAYOUT_NAMESPACE } from "@tedix/api-contract/schemas/attention-layout";
+import {
+	getUserConfig,
+	putUserConfig,
+	upsertUserConfig,
+} from "@tedix/db/queries/user-configs";
+import { readAttentionLayout } from "../../services/attention-layout";
 import { SESSION_ACTIVITY_RESOURCE } from "@tedix/api-contract/schemas/agent-session-requests";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { scrubText } from "@tedix/context-core/trace-safety";
@@ -382,47 +389,118 @@ const updateRequestProcedure = writeOs.updateRequest.handler(
 );
 
 export const workAgentSessionsContractRouter = sessionsOs.router({
+	getAttentionLayout: readOs.getAttentionLayout.handler(async ({ context }) => {
+		const owner = requireBoardOwner(context);
+		return readAttentionLayout(context.db, owner.userId, owner.organizationId);
+	}),
+	updateAttentionLayout: writeOs.updateAttentionLayout.handler(
+		async ({ context, input }) => {
+			const owner = requireBoardOwner(context);
+			const saved = await putUserConfig(context.db, {
+				userId: owner.userId,
+				namespace: ATTENTION_LAYOUT_NAMESPACE,
+				key: owner.organizationId,
+				value: input.layout,
+				expectedRevision: input.expectedRevision,
+			});
+			if (!saved.ok)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Your layout changed elsewhere. Reload it before saving again.",
+				);
+			return { layout: input.layout, revision: saved.row.revision };
+		},
+	),
+	visitAttention: writeOs.visitAttention.handler(async ({ context }) => {
+		const owner = requireBoardOwner(context);
+		const key = {
+			userId: owner.userId,
+			namespace: "work.attention.visit",
+			key: owner.organizationId,
+		};
+		const previous = await getUserConfig(context.db, key);
+		await upsertUserConfig(context.db, {
+			...key,
+			value: { at: new Date().toISOString() },
+		});
+		return {
+			previousVisitAt:
+				typeof previous?.value.at === "string" ? previous.value.at : null,
+		};
+	}),
 	attention: readOs.attention.handler(async ({ context, input }) => {
 		const owner = requireBoardOwner(context);
 		const now = new Date();
-		const { readAttentionSources, listUnattendedObjectives } =
-			await import("@tedix/db/queries/work-attention");
+		let workspaceProjects: Set<string> | null = null;
+		if (input.workspaceId) {
+			const { requireWorkspace } = await import("./os-workspaces-shared");
+			await requireWorkspace(context, input.workspaceId);
+			const { listOsWorkspaceProjects } =
+				await import("@tedix/db/queries/os-workspaces/projects");
+			workspaceProjects = new Set(
+				(
+					await listOsWorkspaceProjects(context.db, {
+						organizationId: owner.organizationId,
+						workspaceId: input.workspaceId,
+						status: "active",
+						limit: 500,
+					})
+				).map((p) => p.projectId),
+			);
+		}
+		const {
+			readAttentionSources,
+			listUnattendedObjectives,
+			readAttentionFactoryLinks,
+		} = await import("@tedix/db/queries/work-attention");
 		const { buildAttention } = await import("../../lib/work-attention");
 		const { readContinuity } = await import("../../lib/stall-attention");
-		const [sources, sessions, requests, unattendedObjectives, continuity] =
-			await Promise.all([
-				readAttentionSources(
-					context.db,
-					owner.organizationId,
-					new Date(now.getTime() - 86_400_000).toISOString(),
-					context.user!.sub,
-					owner.userId,
-				),
-				listWorkAgentSessions(context.db, {
-					...owner,
-					includeEnded: false,
-					now: now.toISOString(),
-				}),
-				listAgentSessionRequests(context.db, {
-					...owner,
-					limit: 200,
-					newestFirst: true,
-				}),
-				listUnattendedObjectives(
-					context.db,
-					owner.organizationId,
-					new Date(now.getTime() - 86_400_000).toISOString(),
-				),
-				readContinuity(
-					context.db,
-					owner.organizationId,
-					now,
-					"",
-					owner.userId,
-					context.env.ENVIRONMENT,
-				),
-			]);
-		return {
+		const [
+			sources,
+			sessions,
+			requests,
+			factoryLinks,
+			unattendedObjectives,
+			continuity,
+		] = await Promise.all([
+			readAttentionSources(
+				context.db,
+				owner.organizationId,
+				new Date(now.getTime() - 86_400_000).toISOString(),
+				context.user!.sub,
+				owner.userId,
+			),
+			listWorkAgentSessions(context.db, {
+				...owner,
+				includeEnded: false,
+				now: now.toISOString(),
+			}),
+			listAgentSessionRequests(context.db, {
+				...owner,
+				limit: 200,
+				newestFirst: true,
+			}),
+			readAttentionFactoryLinks(
+				context.db,
+				owner.organizationId,
+				context.user!.sub,
+				new Date(now.getTime() - 86_400_000).toISOString(),
+			),
+			listUnattendedObjectives(
+				context.db,
+				owner.organizationId,
+				new Date(now.getTime() - 86_400_000).toISOString(),
+			),
+			readContinuity(
+				context.db,
+				owner.organizationId,
+				now,
+				"",
+				owner.userId,
+				context.env.ENVIRONMENT,
+			),
+		]);
+		const result = {
 			...buildAttention(
 				sources,
 				sessions,
@@ -434,6 +512,41 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			stalls: continuity.stalls,
 			cadencePromises: continuity.promises,
 		};
+		result.unattendedObjectives = result.unattendedObjectives.filter(
+			(o) =>
+				!result.projects.some(
+					(p) => p.objectiveId === o.id && (p.active > 0 || p.recent > 0),
+				),
+		);
+		for (const card of result.cards) {
+			const runId =
+				card.source === "attempt"
+					? sources.attempts.find((a) => a.id === card.id)?.runId
+					: card.source === "skill"
+						? card.id
+						: null;
+			const link = runId
+				? factoryLinks.find((f) => f.runId === runId)
+				: undefined;
+			if (link) {
+				card.workspaceId = link.workspaceId;
+				card.factoryName = link.factoryName;
+				if (card.activitySource !== "coordinator")
+					card.activitySource = "factory";
+			}
+		}
+		if (workspaceProjects) {
+			const ids = workspaceProjects;
+			result.cards = result.cards.filter(
+				(c) =>
+					c.workspaceId === input.workspaceId ||
+					(!!c.projectId && ids.has(c.projectId)),
+			);
+			result.projects = result.projects.filter((p) => ids.has(p.id));
+			result.unfiled = [];
+			result.unattendedObjectives = [];
+		}
+		return result;
 	}),
 	fileRequest: writeOs.fileRequest.handler(async ({ input, context }) => {
 		const owner = requireBoardOwner(context);

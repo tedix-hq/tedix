@@ -18,6 +18,20 @@ export const AttentionCardSchema = z.strictObject({
 	heartbeatAt: z.string().nullable(),
 	note: z.string(),
 	href: z.string(),
+	activitySource: z
+		.enum([
+			"local_claude",
+			"local_codex",
+			"cloud_tedi",
+			"factory",
+			"coordinator",
+			"unknown",
+		])
+		.optional(),
+	finishedAt: z.string().nullable().optional(),
+	tediName: z.string().nullable().optional(),
+	factoryName: z.string().nullable().optional(),
+	workspaceId: z.string().nullable().optional(),
 	source: z.enum([
 		"attempt",
 		"session",
@@ -29,6 +43,7 @@ export const AttentionCardSchema = z.strictObject({
 	]),
 });
 export const AttentionInputSchema = z.strictObject({
+	workspaceId: z.string().optional(),
 	utcOffsetMinutes: z.number().int().min(-840).max(840).default(0),
 });
 export const ContinuityPolicySchema = z.object({
@@ -80,13 +95,21 @@ export const AttentionResultSchema = z.strictObject({
 			id: z.string(),
 			name: z.string(),
 			status: z.string(),
+			objectiveId: z.string().nullable().optional(),
 			active: z.number(),
 			recent: z.number(),
+			lastAttentionAt: z.string().nullable().optional(),
 		}),
 	),
 	unfiled: z.array(AgentSessionRequestSchema),
 	unattendedObjectives: z
-		.array(z.strictObject({ id: z.string(), title: z.string() }))
+		.array(
+			z.strictObject({
+				id: z.string(),
+				title: z.string(),
+				lastAttentionAt: z.string().nullable().optional(),
+			}),
+		)
 		.optional(),
 	truncated: z.boolean(),
 });

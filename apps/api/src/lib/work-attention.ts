@@ -53,6 +53,9 @@ export function buildAttention(
 		const session = sessions.find(
 			(s) => `${s.harness}:${s.sessionKey}` === row.session,
 		);
+		const skill = sources.skills.find(
+			(s) => s.id === row.runId || s.workItemId === row.workItemId,
+		);
 		const expired =
 			!row.outcome && Date.parse(row.expiresAt ?? "") <= now.getTime();
 		const stale =
@@ -76,7 +79,7 @@ export function buildAttention(
 					? "Codex"
 					: row.session?.startsWith("claude-code:")
 						? "Claude"
-						: row.who),
+						: "Agent"),
 			column:
 				row.outcome === "succeeded"
 					? "done"
@@ -91,12 +94,26 @@ export function buildAttention(
 			heartbeatAt: row.heartbeatAt,
 			note:
 				stale && !expired
-					? "Lane stale: heartbeat stopped; Tedix is watching the lease"
+					? "Heartbeat stopped; Tedix is watching for activity"
 					: expired
-						? "Attempt lease elapsed; activity is unconfirmed"
+						? "Work stopped reporting; activity is unconfirmed"
 						: session?.summary || row.note || row.state,
 			href: `/work/items/${row.workItemId}`,
 			source: "attempt",
+			factoryName: skill?.title,
+			activitySource: skill
+				? skill.createdBy === "schedule"
+					? "coordinator"
+					: "factory"
+				: row.session?.startsWith("codex:")
+					? "local_codex"
+					: row.session?.startsWith("claude-code:")
+						? "local_claude"
+						: row.name
+							? "cloud_tedi"
+							: "unknown",
+			tediName: row.name,
+			finishedAt: row.finishedAt,
 		});
 	}
 	for (const row of sessions) {
@@ -125,6 +142,8 @@ export function buildAttention(
 			note: row.summary,
 			href: row.workItemId ? `/work/items/${row.workItemId}` : "/work/agents",
 			source: "session",
+			activitySource: row.harness === "codex" ? "local_codex" : "local_claude",
+			finishedAt: row.state === "done" ? row.lastEventAt : null,
 		});
 	}
 	for (const row of sources.skills) {
@@ -156,6 +175,10 @@ export function buildAttention(
 			note: row.note || row.status,
 			href: `/work/executions/${row.id}`,
 			source: "skill",
+			activitySource: row.createdBy === "schedule" ? "coordinator" : "factory",
+			tediName: row.who,
+			factoryName: row.title,
+			finishedAt: row.finishedAt,
 		});
 	}
 	for (const row of sources.runs) {
@@ -183,6 +206,12 @@ export function buildAttention(
 			note: row.note || row.status,
 			href: `/work/runs/${row.id}`,
 			source: "run",
+			workspaceId: row.workspaceId,
+			activitySource: "cloud_tedi",
+			tediName: row.who,
+			finishedAt: ["completed", "failed", "canceled"].includes(row.status)
+				? row.updatedAt
+				: null,
 		});
 	}
 	for (const row of requests) {
@@ -210,12 +239,14 @@ export function buildAttention(
 			startedAt: row.sourceAt,
 			heartbeatAt: null,
 			note: reportedDone
-				? row.evidence || "Lane reported complete"
+				? row.evidence || "Reported complete"
 				: parent
-					? "Reported sublane linked to its host's admitted Attempt; child heartbeat unconfirmed"
-					: "Reported lane; no registered Attempt or verified heartbeat",
+					? "Part of an active session; progress has not been confirmed"
+					: "Reported by a session; progress has not been confirmed",
 			href: parent ? `/work/items/${parent.workItemId}` : "/work/needs-you",
 			source: "reported_lane",
+			activitySource: row.harness === "codex" ? "local_codex" : "local_claude",
+			finishedAt: reportedDone ? row.statusChangedAt : null,
 		});
 	}
 	for (const row of sources.backlog) {
@@ -228,7 +259,7 @@ export function buildAttention(
 				column: "backlog",
 				startedAt: row.createdAt,
 				heartbeatAt: null,
-				note: "No active Attempt",
+				note: "Ready for someone to pick up",
 				href: `/work/items/${row.id}`,
 				source: "backlog",
 			});
@@ -243,7 +274,30 @@ export function buildAttention(
 			title: card.title.slice(0, 160),
 			note: card.note.slice(0, 300),
 		})),
-		projects: sources.projects,
+		projects: sources.projects.map((project) => {
+			const lanes = cards.filter((c) => c.projectId === project.id);
+			const lastAttentionAt =
+				[project.lastAttentionAt, ...lanes.map((c) => c.heartbeatAt)]
+					.filter((at): at is string => !!at)
+					.sort()
+					.at(-1) ?? null;
+			return {
+				...project,
+				lastAttentionAt,
+				active: Math.max(
+					project.active,
+					lanes.filter((c) => c.column === "moving" || c.column === "waiting")
+						.length,
+				),
+				recent: Math.max(
+					project.recent,
+					lanes.filter(
+						(c) =>
+							Date.parse(c.heartbeatAt ?? "") >= now.getTime() - 86_400_000,
+					).length,
+				),
+			};
+		}),
 		truncated:
 			sources.truncated ||
 			requests.length >= 200 ||
