@@ -1,6 +1,6 @@
 import { safeMarkdownHref } from "@tedix/chat-transport/markdown";
 import { createContext, useContext, type MouseEvent } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, CodeInline } from "@/components/kumo/code";
 import { outputIdFromHref } from "@/lib/output-navigation";
@@ -89,10 +89,12 @@ function isPlainPrimaryClick(event: MouseEvent<HTMLAnchorElement>): boolean {
 export function ChatMarkdown({
 	content,
 	preserveLineBreaks = false,
+	components,
 }: {
 	content: string;
 	/** User-authored turns preserve deliberate single newlines; model prose uses Markdown flow. */
 	preserveLineBreaks?: boolean;
+	components?: Components;
 }) {
 	const { openOutput } = useContext(ChatOutputLinkContext);
 	// `skipHtml` discards raw HTML nodes; `sanitizeUntrustedMarkdown` escapes the
@@ -243,6 +245,7 @@ export function ChatMarkdown({
 							</a>
 						);
 					},
+					...components,
 				}}
 			>
 				{markdown}

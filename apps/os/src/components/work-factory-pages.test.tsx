@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	userProfileQueryOptions,
 	workReadinessProjectionQueryOptions,
 	workAttemptProjectionQueryOptions,
 	workItemDetailQueryOptions,
@@ -167,8 +168,8 @@ describe("Work factory queue", () => {
 
 		expect(html).toContain('aria-label="Work queue"');
 		expect(html).toContain("Verify the customer export");
-		expect(html).toContain("Accountable");
-		expect(html).toContain("owner-1");
+		expect(html).toContain("Owner");
+		expect(html).toContain("Owner name unavailable");
 		expect(html).toContain("Kind");
 		expect(html).toContain("Operations");
 		expect(html).toContain("Updated");
@@ -184,34 +185,33 @@ describe("Work factory queue", () => {
 			"flex min-h-7 min-w-0 items-center gap-2 overflow-hidden",
 		);
 		expect(html).toContain("py-2! whitespace-normal");
-		expect(html).toContain('title="Accountable: owner-1"');
+		expect(html).toContain('title="Owner: Owner name unavailable"');
 		expect(html).toContain("hidden truncate py-2! xl:table-cell");
 	});
 
-	it("names the accountable owner and keeps the id in the tooltip", () => {
+	it("names the owner without exposing the underlying identifier", () => {
 		const names = new Map([["user:owner-1", "Mira Okafor"]]);
 		const html = renderToStaticMarkup(
 			<WorkItemsTable items={[item]} principalNames={names} />,
 		);
 		expect(html).toContain(">Mira Okafor<");
-		expect(html).toContain('title="Accountable: Mira Okafor (owner-1)"');
+		expect(html).toContain('title="Owner: Mira Okafor"');
 		expect(workOwnerName("tedi", "t-1", new Map([["tedi:t-1", "Sana"]]))).toBe(
 			"Sana",
 		);
 		expect(workOwnerName(null, "owner-1", names)).toBe("Mira Okafor");
 		expect(workOwnerName("user", null)).toBe("Unassigned");
-		expect(workOwnerTitle("user", "owner-1")).toBe("Accountable: owner-1");
+		expect(workOwnerTitle("user", "owner-1")).toBe(
+			"Owner: Owner name unavailable",
+		);
 	});
 
-	it("reveals the short row id only on hover or focus", () => {
+	it("keeps row identifiers out of visible text and tooltips", () => {
 		const html = renderToStaticMarkup(<WorkItemsTable items={[item]} />);
-		expect(html.match(/data-row-id/g)).toHaveLength(2);
-		expect(html).toContain(
-			"opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100",
-		);
-		expect(html).toContain(
-			"hidden group-focus-within:inline group-hover:inline",
-		);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		expect(doc.body.textContent).not.toContain(ITEM_ID.slice(0, 8));
+		expect(html).not.toContain("data-row-id");
+		expect(doc.body.textContent).not.toContain("owner-1");
 	});
 
 	it("shortens opaque accountable UUIDs without abbreviating human labels", () => {
@@ -487,6 +487,54 @@ describe("Work project brief", () => {
 });
 
 describe("Work item status summary", () => {
+	it("puts acceptance beside the owner message only for the signed-in owner", () => {
+		for (const viewerId of ["owner-1", "another-person"]) {
+			const client = new QueryClient({
+				defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+			});
+			seedPrincipalNames(client, item.orgId);
+			client.setQueryData<unknown>(
+				membersListQueryOptions({
+					organizationId: item.orgId,
+					limit: 100,
+					offset: 0,
+				}).queryKey,
+				{ data: [{ descopeUserId: "owner-1", name: "Mira Okafor" }] },
+			);
+			client.setQueryData<unknown>(userProfileQueryOptions().queryKey, {
+				id: viewerId,
+			});
+			client.setQueryData<unknown>(
+				workItemDetailQueryOptions(item.id).queryKey,
+				{
+					workItem: {
+						...item,
+						disposition: "proposed",
+						acceptanceContract: null,
+					},
+					project: null,
+					comments: [],
+				},
+			);
+			const html = renderToStaticMarkup(
+				<QueryClientProvider client={client}>
+					<WorkItemPage itemId={item.id} />
+				</QueryClientProvider>,
+			);
+			const doc = new DOMParser().parseFromString(html, "text/html");
+			expect(doc.body.textContent).toContain(
+				"Not started yet · Mira needs to accept this",
+			);
+			expect(doc.body.textContent).not.toContain("WorkSpec");
+			expect(doc.body.textContent).not.toContain(item.id);
+			const accept = [...doc.querySelectorAll("button")].some(
+				(button) => button.textContent === "Accept",
+			);
+			expect(accept).toBe(viewerId === "owner-1");
+			client.clear();
+		}
+	});
+
 	it("uses a semantic status strip instead of statistic cards", () => {
 		const html = renderToStaticMarkup(
 			<WorkItemStatusSummary
@@ -501,9 +549,9 @@ describe("Work item status summary", () => {
 		);
 
 		expect(html).toContain('aria-label="Work item status"');
-		expect(html).toContain("Business disposition");
-		expect(html).toContain("Dependencies blocked");
-		expect(html).toContain("A required dependency is still active.");
+		expect(html).toContain("Status");
+		expect(html).toContain("Waiting for the next step");
+		expect(html).not.toContain("Business disposition");
 		expect(html).not.toContain('data-slot="card"');
 	});
 });
@@ -930,7 +978,7 @@ describe("Recorded Work outcomes and activity", () => {
 				<WorkItemPage itemId={item.id} />
 			</QueryClientProvider>,
 		);
-		expect(html).toContain("Historical updates and discussion");
+		expect(html).toContain("Activity");
 		expect(html.indexOf("Recorded outcome")).toBeLessThan(
 			html.indexOf("Activation pending before release"),
 		);
@@ -946,6 +994,11 @@ describe("Recorded Work outcomes and activity", () => {
 					</QueryClientProvider>,
 				),
 			);
+			const disclosure = [...host.querySelectorAll("button")].find(
+				(button) => button.textContent?.trim() === "Technical details",
+			);
+			if (!disclosure) throw new Error("Technical details disclosure missing");
+			await act(async () => disclosure.click());
 			const next = [...host.querySelectorAll("button")].find(
 				(button) =>
 					button.textContent?.trim() === "Next page" && !button.disabled,

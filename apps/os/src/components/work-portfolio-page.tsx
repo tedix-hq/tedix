@@ -32,6 +32,8 @@ import {
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { sentenceCase } from "@/lib/format";
+import { OS_COPY } from "@/shared/os-copy";
+import { plainWorkText } from "@/lib/work-detail";
 import { errorMessage } from "@/lib/orpc-error";
 import {
 	factoryScoreboardQueryOptions,
@@ -282,6 +284,13 @@ function isBroken(row: FactoryScoreboardEntry): boolean {
 	return row.verdict === "failing" || row.verdict === "not_firing";
 }
 
+export function factoryFailureHref(row: FactoryScoreboardEntry): string {
+	const runId = row.verdictReason?.match(
+		/\bRun ([0-9a-f]{8}-[0-9a-f-]{27})\b/i,
+	)?.[1];
+	return runId ? `/work/runs/${runId}` : factoryHref(row);
+}
+
 function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 	const status = factoryStatus(row);
 	return (
@@ -301,7 +310,9 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 					{status ? (
 						<Badge
 							variant={status.variant}
-							title={row.verdictReason ?? undefined}
+							title={
+								row.verdictReason ? plainWorkText(row.verdictReason) : undefined
+							}
 						>
 							{status.label}
 						</Badge>
@@ -311,13 +322,19 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 					</Badge>
 				</div>
 			</div>
-			<Text as="p" role="label" className="tabular-nums">
-				{counted(row.runs, "run")} ({row.succeeded} ok) ·{" "}
-				{counted(row.outputs, "Output")} · {row.workClosed} Work closed
+			<Text
+				as="p"
+				role="label"
+				className="truncate whitespace-nowrap tabular-nums"
+			>
+				{counted(row.runs, "run")} · {counted(row.outputs, "result")} ·{" "}
+				{row.workClosed} closed
 			</Text>
 			{isBroken(row) && row.verdictReason ? (
 				<Text as="p" role="label" tone="error" className="line-clamp-2">
-					{row.verdictReason}
+					<Link variant="record" href={factoryFailureHref(row)}>
+						{plainWorkText(row.verdictReason)}
+					</Link>
 				</Text>
 			) : null}
 			{row.lastResult ? (
@@ -340,7 +357,7 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 					</span>
 				</Text>
 			) : (
-				<Muted>No results in the last 30 days</Muted>
+				<Muted>{OS_COPY.work.nothingProduced}</Muted>
 			)}
 		</li>
 	);
@@ -395,10 +412,14 @@ function FactoryScoreboard() {
 					</AlertDescription>
 				</Alert>
 			) : groups.length ? (
-				<div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+				<div className="columns-1 gap-3 md:max-[1200px]:columns-2 min-[1200px]:columns-3">
 					{groups.map((group) => (
-						<Collection key={group.tedi} aria-label={`${group.tedi} factories`}>
-							<li className="px-4 pt-3">
+						<Collection
+							key={group.tedi}
+							aria-label={`${group.tedi} factories`}
+							className="mb-3 break-inside-avoid"
+						>
+							<li className="px-4 py-3">
 								<Text as="p" role="label" tone="secondary">
 									{group.tedi}
 								</Text>
@@ -489,7 +510,11 @@ function PortfolioCard({
 				{row.total === 0 ? (
 					<Muted>No records yet</Muted>
 				) : (
-					<Text as="p" role="label" className="tabular-nums">
+					<Text
+						as="p"
+						role="label"
+						className="truncate whitespace-nowrap tabular-nums"
+					>
 						{row.byDisposition.proposed ?? 0} open ·{" "}
 						{row.byDisposition.accepted ?? 0} accepted
 						{needsYou ? ` · ${needsYou} need you` : ""}
