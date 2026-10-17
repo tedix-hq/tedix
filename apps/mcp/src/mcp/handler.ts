@@ -69,6 +69,7 @@ import {
 } from "@tedix/mcp-shared/auth/caller-trust";
 import { withModelAuthoredCodeIsolation } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { getApiClient } from "../lib/api-client";
+import { tediToolCeilingDenial } from "../tedi-tool-ceiling";
 import { callApiRpc } from "../lib/rpc";
 import { contentFreeMcpException, createMcpLogger } from "../log";
 
@@ -1435,6 +1436,14 @@ export class ToolHandler {
 		}
 		const endpoint = config.endpoint;
 		const transport = config.transport ?? "rpc";
+		if (ctx.callerIdentity?.tediId) {
+			const denial = tediToolCeilingDenial(
+				ctx.callerIdentity.mcpEndpoints,
+				transport,
+				endpoint,
+			);
+			if (denial) return { status: 403, data: { error: denial } };
+		}
 
 		if (transport === "catalog") {
 			const configured = CatalogueTransportConfigSchema.safeParse(config);

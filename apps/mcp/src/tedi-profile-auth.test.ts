@@ -17,6 +17,22 @@ afterEach(() => {
 });
 
 describe("resolveTediProfileAuth", () => {
+	it("intersects a D1 scope ceiling and carries the exact endpoint ceiling", async () => {
+		getTedi.mockResolvedValue({
+			mcpCapabilityProfile: "org_admin",
+			organizationId: "org-acme",
+			toolPolicy: {
+				mcpScopes: ["mcp:work.read", "platform:admin"],
+				mcpEndpoints: ["support/get"],
+			},
+		});
+		const auth = await resolveTediProfileAuth(env, "worker");
+		expect(auth).toMatchObject({
+			status: "active",
+			scopes: ["mcp:work.read"],
+			mcpEndpoints: ["support/get"],
+		});
+	});
 	it("returns the live profile scopes and organization", async () => {
 		getTedi.mockResolvedValue({
 			mcpCapabilityProfile: "org_admin",

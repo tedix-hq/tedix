@@ -35,6 +35,8 @@ export interface CallerIdentity {
 	ownerHostSessionId?: string;
 	credentialMode?: string;
 	scopes?: string[];
+	/** Exact endpoint ceiling derived from live tedi policy, never client input. */
+	mcpEndpoints?: string[];
 	skillRunId?: string;
 	skillRunCreatedBy?: string;
 	skillId?: string;

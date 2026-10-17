@@ -8,7 +8,12 @@ import { UPSTREAM_RETRY_AFTER_SECONDS } from "./upstream";
  * may be read as the standard profile.
  */
 export type TediProfileAuth =
-	| { status: "active"; scopes: string[]; orgId: string | null }
+	| {
+			status: "active";
+			scopes: string[];
+			orgId: string | null;
+			mcpEndpoints?: string[];
+	  }
 	| { status: "missing" }
 	| { status: "unavailable"; errorCode: string };
 
@@ -55,8 +60,15 @@ export async function resolveTediProfileAuth(
 						? tedi.mcpCapabilityProfile
 						: null,
 				),
-			],
+			].filter(
+				(scope) =>
+					tedi.toolPolicy?.mcpScopes === undefined ||
+					tedi.toolPolicy.mcpScopes.includes(scope),
+			),
 			orgId: tedi.organizationId ?? null,
+			...(tedi.toolPolicy?.mcpEndpoints === undefined
+				? {}
+				: { mcpEndpoints: tedi.toolPolicy.mcpEndpoints }),
 		};
 	} catch (error) {
 		if (isNotFound(error)) return { status: "missing" };

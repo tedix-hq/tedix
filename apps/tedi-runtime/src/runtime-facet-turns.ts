@@ -1,4 +1,5 @@
 import { type ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
+import { configuredRuntimeTools } from "./configured-tool-surface";
 import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	buildDanglingTurnAnalyticsDataPoint,
@@ -1055,10 +1056,21 @@ export const runtimeFacetTurns = {
 		await this.acceptRuntimeTurn(
 			input.runId,
 			input.sessionKey,
-			{ ...input, tools: describeFacetTools(input.tools) },
+			{
+				...input,
+				tools: describeFacetTools(
+					configuredRuntimeTools(
+						input.tools,
+						this.state.toolPolicy?.runtimeTools,
+					),
+				),
+			},
 			true,
 		);
-		this.activeFacetTurnTools.set(input.runId, input.tools);
+		this.activeFacetTurnTools.set(
+			input.runId,
+			configuredRuntimeTools(input.tools, this.state.toolPolicy?.runtimeTools),
+		);
 		this.activeFacetTurnConversations.set(
 			input.runId,
 			buildTediConversationId({
@@ -1289,10 +1301,21 @@ export const runtimeFacetTurns = {
 		await this.acceptRuntimeTurn(
 			input.runId,
 			input.sessionKey,
-			{ ...input, tools: describeFacetTools(input.tools) },
+			{
+				...input,
+				tools: describeFacetTools(
+					configuredRuntimeTools(
+						input.tools,
+						this.state.toolPolicy?.runtimeTools,
+					),
+				),
+			},
 			true,
 		);
-		this.activeFacetTurnTools.set(input.runId, input.tools);
+		this.activeFacetTurnTools.set(
+			input.runId,
+			configuredRuntimeTools(input.tools, this.state.toolPolicy?.runtimeTools),
+		);
 		this.activeFacetTurnConversations.set(
 			input.runId,
 			buildTediConversationId({

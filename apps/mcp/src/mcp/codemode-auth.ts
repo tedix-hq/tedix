@@ -1,4 +1,5 @@
 import { hasScope } from "@tedix/mcp-shared/auth/scopes";
+import { tediToolCeilingDenial } from "../tedi-tool-ceiling";
 import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
@@ -75,6 +76,21 @@ export function evaluateMcpToolScopeAuthorization(
 		toolCall?: { arguments: unknown };
 	} = {},
 ): McpToolScopeDecision {
+	if (
+		tediToolCeilingDenial(
+			serverCtx.callerIdentity?.mcpEndpoints,
+			typeof tool.config?.transport === "string"
+				? tool.config.transport
+				: "rpc",
+			tool.config?.endpoint,
+		)
+	)
+		return {
+			authorized: false,
+			requiredScopes: ["configured-endpoint"],
+			missingScopes: ["configured-endpoint"],
+			authenticated: !!serverCtx.callerIdentity,
+		};
 	if (
 		serverCtx.callerIdentity?.credentialMode === "delegated-mcp" &&
 		isDelegatedWorkTool(tool.toolId, namespace, tool.config, tool.toolTypeId)

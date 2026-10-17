@@ -11,6 +11,7 @@
  * @module @tedix/mcp/mcp/server-factory
  */
 import type { McpServer } from "@modelcontextprotocol/server";
+import { readTediEndpointCeiling } from "../tedi-tool-ceiling";
 import type {
 	AppCapabilities,
 	AppMetadata,
@@ -380,6 +381,9 @@ export function extractCallerIdentity(
 		organizationId: request.headers.get("x-tedix-auth-org-id") ?? undefined,
 		email: request.headers.get("x-tedix-auth-email") ?? undefined,
 		tediId: request.headers.get("x-tedix-auth-tedi-id") ?? undefined,
+		mcpEndpoints: readTediEndpointCeiling(
+			request.headers.get("x-tedix-auth-mcp-endpoints"),
+		),
 		externalAgentPrincipalId:
 			request.headers.get("x-tedix-auth-external-principal-id") ?? undefined,
 		externalAgentSessionId:
