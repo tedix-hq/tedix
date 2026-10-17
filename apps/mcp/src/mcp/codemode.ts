@@ -24,7 +24,7 @@ import {
 } from "./connect-payment-policy";
 import { INPUT_REQUIRED_META_KEY } from "./mrtr";
 import { isToolDeniedForConnection } from "./no-funds-policy";
-import { nativeDescriptor } from "./registration/bootstrap";
+import { createNativeDescriptorLookup } from "./registration/bootstrap";
 /**
  * Code Mode for Tedix MCP
  *
@@ -2060,6 +2060,7 @@ export function buildCatalogProvider(
 ): ToolProvider {
 	const catalog: Record<string, Record<string, CatalogToolEntry>> = {};
 	const catalogBuiltAt = new Date().toISOString();
+	const describeNativeTool = createNativeDescriptorLookup(serverCtx);
 	const policyHidden = new Map<string, string>();
 	// A quarantined collision is withheld from every owner; say so where callers
 	// look, instead of only in a log line.
@@ -2153,7 +2154,7 @@ export function buildCatalogProvider(
 				scopeMappingMissing: true,
 			};
 		}
-		const native = nativeDescriptor(serverCtx, tool);
+		const native = describeNativeTool(tool);
 		const primaryEntry = {
 			...(native ? { native } : {}),
 			...createCatalogToolEntry(ns, safeName, {

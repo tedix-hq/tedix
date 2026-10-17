@@ -97,10 +97,10 @@ const log = createMcpLogger("mcp.registration.bootstrap");
  * Satisfies OpenAI Apps SDK requirement of ≥1 tool during initialize handshake.
  */
 /** Literal wire identity and caller-relative eligibility; never an execution grant. */
-export function nativeDescriptor(
+function nativeDescriptor(
 	agent: ServerContext,
 	tool: AppTool,
-	registry: ReadonlyArray<AppTool> = [...agent.loadedTools.values()],
+	registry: ReadonlyArray<AppTool>,
 ) {
 	const unique =
 		registry.filter((row) => row.toolId === tool.toolId).length === 1;
@@ -139,10 +139,26 @@ export function nativeDescriptor(
 	return parsed.success ? parsed.data : null;
 }
 
+/** Index once per request; repeated full-registry copies exhaust large gateways. */
+export function createNativeDescriptorLookup(
+	agent: ServerContext,
+	registry: Iterable<AppTool> = agent.loadedTools.values(),
+) {
+	const byName = new Map<string, AppTool[]>();
+	for (const tool of registry) {
+		const matches = byName.get(tool.toolId);
+		if (matches) matches.push(tool);
+		else byName.set(tool.toolId, [tool]);
+	}
+	return (tool: AppTool) =>
+		nativeDescriptor(agent, tool, byName.get(tool.toolId) ?? []);
+}
+
 export function buildNativeBootstrap(
 	agent: ServerContext,
 	registry: ReadonlyArray<AppTool> = [...agent.loadedTools.values()],
 ) {
+	const describeNativeTool = createNativeDescriptorLookup(agent, registry);
 	const caller = agent.callerIdentity;
 	const org = agent.app?.organizationId;
 	const authenticated =
@@ -161,9 +177,7 @@ export function buildNativeBootstrap(
 					actor: { authType: caller.authType },
 					nativeTransportAvailable:
 						!caller.forceCodeMode &&
-						registry.some(
-							(tool) => nativeDescriptor(agent, tool, registry)?.eligible,
-						),
+						registry.some((tool) => describeNativeTool(tool)?.eligible),
 				}
 			: null,
 	);
@@ -181,7 +195,7 @@ export function buildNativeBootstrap(
 			return null;
 		const configured = CatalogueTransportConfigSchema.parse(matches[0]!.config);
 		return configured.endpoint === endpoint
-			? nativeDescriptor(agent, matches[0]!, registry)
+			? describeNativeTool(matches[0]!)
 			: null;
 	};
 	const search = select("catalog/search"),
