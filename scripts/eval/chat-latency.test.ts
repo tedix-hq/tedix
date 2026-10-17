@@ -8,6 +8,7 @@ import {
 	fixtures,
 	percentiles,
 	phases,
+	readScratchWithBackoff,
 	runReadbackCode,
 	summarize,
 	unwrap,
@@ -180,6 +181,35 @@ describe("live chat eval accounting", () => {
 });
 
 describe("scratch archive readback", () => {
+	test("retries failed cleanup reads without a mutation and preserves exhausted errors", async () => {
+		const delays: number[] = [];
+		let reads = 0;
+		const inventory = { items: [], truncated: false };
+		expect(
+			await readScratchWithBackoff(
+				async () => {
+					if (++reads < 3) throw new Error("Rate limit exceeded");
+					return inventory;
+				},
+				async (ms: number) => {
+					delays.push(ms);
+				},
+			),
+		).toBe(inventory);
+		expect(delays).toEqual([1000, 2000]);
+		const failure = new Error("Read remains unavailable");
+		reads = 0;
+		await expect(
+			readScratchWithBackoff(
+				async () => {
+					reads++;
+					throw failure;
+				},
+				async () => {},
+			),
+		).rejects.toBe(failure);
+		expect(reads).toBe(8);
+	});
 	test("retries null bounded writes until a separate read confirms the archive", async () => {
 		let writes = 0;
 		let reads = 0;
