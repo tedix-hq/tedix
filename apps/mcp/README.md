@@ -10,15 +10,15 @@ Operating rules for changes in this directory: [`AGENTS.md`](./AGENTS.md).
 
 ## Responsibility and test map
 
-| Responsibility                                                 | Owner                       | Coverage                                                                                                                                               |
-| -------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Host routing, request access and protocol handling             | `src/index.ts`              | `index.test.ts`, `base-domain-routing.test.ts`, `connect-organization.test.ts`, `subscriptions.test.ts`                                                |
-| Aggregate resolution, caches and connection defaults           | `src/aggregate-surface.ts`  | `aggregate-batch-resolution.test.ts`, `aggregate-cache-purge.test.ts`, `aggregate-host-connection-defaults.test.ts`, `aggregate-join-deadline.test.ts` |
-| Namespace targeting and aggregate filtering                    | `src/codemode-targeting.ts` | `scope-extraction.test.ts`                                                                                                                             |
-| Tool-list projection, pagination and task/approval envelopes   | `src/index.ts`              | `mcp/outer-surface-lanes.test.ts`, `mcp/tools-list-pagination.test.ts`, `subscriptions.test.ts`                                                        |
-| Provider wiring, discovery and flow composition                | `src/mcp/codemode.ts`       | `mcp/codemode-catalog.test.ts`, `mcp/codemode-flow.test.ts`                                                                                            |
-| Code execution, authorization, payments and read receipts      | `src/mcp/codemode.ts`       | `mcp/codemode-telemetry.test.ts`, `mcp/codemode-auth.test.ts`, `mcp/codemode-payment-input.test.ts`, `mcp/codemode-isolation.workerd.test.ts`          |
-| UI catalog, layout inference, health sweeps and transient HTML | `src/mcp/codemode-ui.ts`    | `mcp/codemode-ui.test.ts`                                                                                                                              |
+| Responsibility                                                 | Owner                         | Coverage                                                                                                                                               |
+| -------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Host routing, request access and protocol handling             | `src/index.ts`                | `index.test.ts`, `base-domain-routing.test.ts`, `connect-organization.test.ts`, `subscriptions.test.ts`                                                |
+| Aggregate resolution, caches and connection defaults           | `src/aggregate-surface.ts`    | `aggregate-batch-resolution.test.ts`, `aggregate-cache-purge.test.ts`, `aggregate-host-connection-defaults.test.ts`, `aggregate-join-deadline.test.ts` |
+| Namespace targeting and aggregate filtering                    | `src/codemode-targeting.ts`   | `scope-extraction.test.ts`                                                                                                                             |
+| Tool-list projection, pagination and task/approval envelopes   | `src/mcp-result-transform.ts` | `mcp/outer-surface-lanes.test.ts`, `mcp/tools-list-pagination.test.ts`, `mcp-result-transform.test.ts`                                                 |
+| Provider wiring, discovery and flow composition                | `src/mcp/codemode.ts`         | `mcp/codemode-catalog.test.ts`, `mcp/codemode-flow.test.ts`                                                                                            |
+| Code execution, authorization, payments and read receipts      | `src/mcp/codemode.ts`         | `mcp/codemode-telemetry.test.ts`, `mcp/codemode-auth.test.ts`, `mcp/codemode-payment-input.test.ts`, `mcp/codemode-isolation.workerd.test.ts`          |
+| UI catalog, layout inference, health sweeps and transient HTML | `src/mcp/codemode-ui.ts`      | `mcp/codemode-ui.test.ts`                                                                                                                              |
 
 The gateway runs bounded stateless programs; the persistent turn loop belongs
 in `apps/tedi-runtime`. Browser and memory operations are configured provider

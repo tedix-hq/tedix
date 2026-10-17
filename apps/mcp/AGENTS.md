@@ -46,7 +46,7 @@ Scope enforcement lives in **two** gates, and a tool is guarded by exactly one
 of them:
 
 - **Request-level edge gate:** `enforceMcpAccess()`
-  (`src/index.ts:1803`) evaluates `resolvedApp.tools` before dispatch. Required
+  (`src/index.ts`) evaluates `resolvedApp.tools` before dispatch. Required
   scopes come from three config idioms: `mcpConfig.enforcePolicies` (Descope
   policy mode — `mcp:<tool_name>` via `toolToScope`), the explicit
   `mcpConfig.toolScopes` map, or per-tool `authRequired`
@@ -84,11 +84,11 @@ write-guard rejects it for every principal in `assertTenantMcpConfigAllowed`
 ## Module-cache discipline
 
 Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
-(`src/resolution.ts`, `src/mcp/skill-cache.ts`, `src/index.ts`
+(`src/resolution.ts`, `src/mcp/skill-cache.ts`, `src/aggregate-surface.ts`
 `internalToolCache`/`aggregateSurfaceCache`). Two rules:
 
 - A cache keyed by caller/token/client input must be **size-bounded** like the
-  existing siblings: `userTediCache` (`src/index.ts:2435`, 200),
+  existing siblings: `userTediCache` (`src/index.ts`, 200),
   `aihM2mClientScopeCache` (`src/auth-helpers.ts`, 100), `credentialTokenCache` (`src/mcp/handler.ts:300`, 500), the x402
   facilitator cache (`src/mcp/x402-facilitator.ts:14`, 16). TTL-only maps are
   acceptable only when the key space is app/org-bounded.
