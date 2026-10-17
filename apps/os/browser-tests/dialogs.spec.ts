@@ -1,14 +1,27 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import { chromium, type Browser } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
-const origin = "http://127.0.0.1:3017";
+// Parallel worktrees must not share the browser fixture's listener.
+const probe = createServer();
+await new Promise<void>((resolve, reject) => {
+	probe.once("error", reject);
+	probe.listen(0, "127.0.0.1", resolve);
+});
+const address = probe.address();
+assert(address && typeof address !== "string");
+const port = String(address.port);
+await new Promise<void>((resolve, reject) => {
+	probe.close((error) => (error ? reject(error) : resolve()));
+});
+const origin = `http://127.0.0.1:${port}`;
 const server = Bun.spawn(
 	[
 		"../../node_modules/.bin/vp",
 		"dev",
 		"--port",
-		"3017",
+		port,
 		"--strictPort",
 		"--host",
 		"127.0.0.1",
@@ -151,6 +164,10 @@ try {
 } finally {
 	await browser?.close();
 	// vp launches Vite in a child; close the group so test gates receive EOF.
-	process.kill(-server.pid, "SIGTERM");
+	try {
+		process.kill(-server.pid, "SIGTERM");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
 	await server.exited;
 }
