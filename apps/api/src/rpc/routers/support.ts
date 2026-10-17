@@ -1,4 +1,5 @@
 import { implement } from "@orpc/server";
+import { ZodError } from "zod";
 import { supportContract } from "@tedix/api-contract/contracts/support";
 import {
 	redactSupportReport,
@@ -39,7 +40,18 @@ import {
 import { requireOrgId } from "../org-scope";
 import { auditActor, emitAuditEvent } from "../audit-helpers";
 
-const authed = implement(supportContract).$context<BaseContext>().use(withAuth);
+const authed = implement(supportContract)
+	.$context<BaseContext>()
+	.use(withAuth)
+	.use(async ({ next }) => {
+		try {
+			return await next();
+		} catch (error) {
+			if (error instanceof tickets.SupportStateError)
+				throw createError(ErrorCodes.CONFLICT, error.message);
+			throw error;
+		}
+	});
 const read = authed.use(
 	withAuthorization(
 		{
@@ -211,9 +223,17 @@ export const supportContractRouter = {
 					ErrorCodes.CONFLICT,
 					"Support destination cannot be rebound over existing tickets",
 				);
-			new Intl.DateTimeFormat("en", {
-				timeZone: input.reviewTimezone,
-			}).format();
+			try {
+				new Intl.DateTimeFormat("en", {
+					timeZone: input.reviewTimezone,
+				}).format();
+			} catch (error) {
+				if (!(error instanceof RangeError)) throw error;
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Support reviewTimezone must be a valid timezone",
+				);
+			}
 			await tickets.putSupportConfiguration(
 				context.db,
 				input,
@@ -234,8 +254,17 @@ export const supportContractRouter = {
 		const orgId = requireOrgId(context),
 			reporterKey = supportReporter(context),
 			config = await supportConfig(context);
-		const report = redactSupportReport(input.report),
-			digest = await supportPayloadDigest(report);
+		let report;
+		try {
+			report = redactSupportReport(input.report);
+		} catch (error) {
+			if (!(error instanceof ZodError)) throw error;
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`Redacted support report is invalid: ${error.issues.map((issue) => issue.path.join(".")).join(", ")}. Preview and approve a valid redacted report.`,
+			);
+		}
+		const digest = await supportPayloadDigest(report);
 		if (digest !== input.consent.payloadDigest)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,

@@ -84,6 +84,55 @@ async function request() {
 	};
 }
 describe("Support intake authorization and human publication", () => {
+	it("returns a safe client error when redaction expands a report past its limits", async () => {
+		const { client, sqlite } = await fixture();
+		const input = await request();
+		await expect(
+			client().file({
+				...input,
+				report: {
+					...input.report,
+					title: ["a", "b.test "].join("@").repeat(22),
+				},
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message:
+				"Redacted support report is invalid: title. Preview and approve a valid redacted report.",
+		});
+		expect(
+			sqlite.prepare("SELECT count(*) n FROM support_tickets").get(),
+		).toEqual({ n: 0 });
+	});
+	it("returns a conflict for an inactive Support project", async () => {
+		const { client, sqlite } = await fixture();
+		sqlite
+			.prepare(
+				"INSERT INTO projects (id,org_id,key,name,status,created_at) VALUES (?,?,?,?,?,?)",
+			)
+			.run(
+				"paused-project",
+				tenant,
+				"SUPPORT",
+				"Support",
+				"paused",
+				"2026-10-17T10:00:00Z",
+			);
+		await expect(client().file(await request())).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: expect.stringContaining("Support project is unavailable"),
+		});
+	});
+	it("returns a conflict for malformed saved configuration", async () => {
+		const { client, sqlite } = await fixture();
+		sqlite
+			.prepare("UPDATE support_configuration SET configuration = ?")
+			.run(JSON.stringify({ enabled: true }));
+		await expect(client().file(await request())).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: expect.stringContaining("Support configuration is invalid"),
+		});
+	});
 	it("rejects changed/unapproved payloads and cross-tenant or other-reporter status reads", async () => {
 		const { client } = await fixture(),
 			input = await request();

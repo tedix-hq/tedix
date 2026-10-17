@@ -13,7 +13,13 @@ export async function supportConfig(context: Pick<BaseContext, "db">) {
 			ErrorCodes.SERVICE_UNAVAILABLE,
 			"Support intake is not configured for this installation",
 		);
-	return SupportConfigurationSchema.parse(value);
+	const parsed = SupportConfigurationSchema.safeParse(value);
+	if (!parsed.success)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Support configuration is invalid; ask the installation admin to configure Support",
+		);
+	return parsed.data;
 }
 export function supportReporter(context: BaseContext) {
 	const userId = context.userId ?? context.gatewayEndUserId;

@@ -9,6 +9,8 @@ import { projects } from "../schema/projects";
 import { workItems, workEvents, workItemComments } from "../schema/work-items";
 import type { SupportConfiguration } from "@tedix/api-contract/schemas/support";
 
+export class SupportStateError extends Error {}
+
 /** Installation singleton, read only by the reviewed support bridge handlers. */
 export async function getSupportConfiguration(db: DbQueryClient) {
 	return (
@@ -63,7 +65,9 @@ export async function ensureSupportProject(
 			.limit(1)
 	)[0];
 	if (!row || row.status !== "active")
-		throw new Error("Support project is unavailable");
+		throw new SupportStateError(
+			"Support project is unavailable; activate the Support project before filing",
+		);
 	return row;
 }
 export async function getSupportTicket(
@@ -159,6 +163,7 @@ export async function createSupportTicket(
 				workKind: "operations",
 				disposition: "accepted",
 				riskLevel: "low",
+				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
 				workClass: "maintenance",
 				acceptanceContract: {
 					version: 1,
@@ -195,6 +200,7 @@ export async function deliverSupportMirror(
 				workKind: "operations",
 				disposition: "accepted",
 				riskLevel: "low",
+				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
 				workClass: "maintenance",
 				accountableOwnerType: "tedi",
 				accountableOwnerId: p.tediId,
@@ -294,7 +300,9 @@ export async function updateSupportTicket(
 ) {
 	if (old.updateKeys.includes(p.key)) return old;
 	if (old.updateKeys.length >= 200)
-		throw new Error("Support ticket update limit reached");
+		throw new SupportStateError(
+			"Support ticket update limit reached; file a new ticket",
+		);
 	const guard = and(
 		eq(supportTickets.orgId, old.orgId),
 		eq(supportTickets.id, old.id),
