@@ -18,6 +18,7 @@
  * | surface    | chain                                             |
  * | ---------- | ------------------------------------------------- |
  * | `chat`     | `chatModelRef` → env default                      |
+ * | `synthesis` | `synthesisModelRef` → `chatModelRef` → env default |
  * | `cron`     | `cronModelRef` → `chatModelRef` → env default     |
  * | `observer` | `observerModelRef` → env default                  |
  *
@@ -52,7 +53,7 @@ import {
 	type ModelGenerationSettings,
 } from "@tedix/api-contract/schemas/model-generation";
 /** Runtime surface a turn belongs to, for model selection only. */
-export type ModelPolicySurface = "chat" | "cron" | "observer";
+export type ModelPolicySurface = "chat" | "cron" | "observer" | "synthesis";
 
 /**
  * Resolved per-tedi model policy. Every field is normalized to `string | null`
@@ -62,6 +63,7 @@ export interface TediModelPolicy {
 	generation?: ModelGenerationPolicy;
 	/** Interactive/default chat ref. The pre-existing, only field. */
 	chatModelRef: string | null;
+	synthesisModelRef?: string | null;
 	/** Scheduled (cron / trusted-scheduler) turns. Falls back to chat. */
 	cronModelRef: string | null;
 	/**
@@ -103,6 +105,9 @@ export function normalizeModelPolicy(
 		chatModelRef: refOrNull(parsed.chatModelRef),
 		cronModelRef: refOrNull(parsed.cronModelRef),
 		observerModelRef: refOrNull(parsed.observerModelRef),
+		...(parsed.synthesisModelRef === undefined
+			? {}
+			: { synthesisModelRef: refOrNull(parsed.synthesisModelRef) }),
 	};
 }
 
@@ -122,6 +127,8 @@ export function resolveSurfaceModelRef(
 	}
 	if (!policy) return CLOUDFLARE_AUTO_MODEL_REF;
 	switch (surface) {
+		case "synthesis":
+			return policy.synthesisModelRef ?? policy.chatModelRef;
 		case "cron":
 			return policy.cronModelRef ?? policy.chatModelRef;
 		default:

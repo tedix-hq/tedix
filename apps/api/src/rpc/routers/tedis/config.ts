@@ -101,10 +101,8 @@ function policyRefOrNull(value: unknown): string | null {
  *      `runtime_profile_id → runtime_profiles.config.modelPolicy.chatModelRef`.
  *   3. `null` → the runtime's env default deployment.
  *
- * The per-surface refs (`cronModelRef`, `observerModelRef`) come only from the
- * runtime profile: a per-tedi override is a whole-tedi pin, so it deliberately
- * returns null surface refs and every surface resolves onto the pin through the
- * runtime's fallback chain — exactly what a per-tedi override does today.
+ * The per-surface refs come from the runtime profile. A whole-tedi model pin
+ * takes precedence over each explicit surface choice.
  *
  * Read by the tedi runtime DO to pick this role's model. Read-only +
  * tedi-scoped; the runtime calls it over the service binding (org="system").
@@ -140,6 +138,12 @@ export const getModelPolicy = authedTedisOs.getModelPolicy
 						generation: ModelGenerationPolicySchema.parse(
 							modelPolicy.generation,
 						),
+					}),
+			...(modelPolicy?.synthesisModelRef === undefined
+				? {}
+				: {
+						synthesisModelRef:
+							overrideRef ?? policyRefOrNull(modelPolicy.synthesisModelRef),
 					}),
 		};
 	});

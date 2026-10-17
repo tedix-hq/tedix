@@ -7,6 +7,7 @@ describe("model generation response contract", () => {
 	it("preserves explicit generation settings alongside a model override", () => {
 		const response = {
 			chatModelRef: "azure-openai/gpt-5.6-terra",
+			synthesisModelRef: "azure-openai/gpt-6-luna",
 			cronModelRef: "cloudflare/auto",
 			observerModelRef: "cloudflare/auto",
 			generation: {

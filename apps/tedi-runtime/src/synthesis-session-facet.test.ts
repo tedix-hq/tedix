@@ -35,11 +35,16 @@ import { selectChatModelForTurn } from "./turn-model-selection";
 					assistantText: "summary",
 					turnError: null,
 					usage: { totalTokens: 4 },
+					modelIdentity: { provider: "example", model: "small-review" },
 				};
 			},
 		},
 	});
-	await probe.run({ sessionKey: "workflow:synth:report" });
+	const reply = await probe.run({ sessionKey: "workflow:synth:report" });
+	assert.deepEqual(reply.modelIdentity, {
+		provider: "example",
+		model: "small-review",
+	});
 	assert.equal(probe.prepared.length, 0, "synthesis skips MCP setup");
 	assert.equal(probe.facetInputs.length, 0);
 	assert.deepEqual(probe.commits[0]?.facetUsage, { totalTokens: 4 });
@@ -61,6 +66,27 @@ import { selectChatModelForTurn } from "./turn-model-selection";
 	assert.notEqual(a, b);
 	assert.equal(a, again);
 	assert.match(a!, /^synth_/);
+}
+
+{
+	const probe = facetRunnerProbe({
+		fields: {
+			modelOverrideForSurface: (surface: string) =>
+				surface === "synthesis"
+					? { modelRef: "azure-openai/gpt-6-luna" }
+					: { modelRef: "azure-openai/gpt-6-astra" },
+		},
+	});
+	const reply = await probe.agent.runSynthesisFacetTurn({
+		sessionKey: "workflow:synth:review",
+		guardedUserText: "Review the lane.",
+		runId: "review-run",
+	});
+	assert.equal(probe.configs[0]?.modelRef, "azure-openai/gpt-6-luna");
+	assert.deepEqual(reply.modelIdentity, {
+		provider: "workers-ai",
+		model: "judge-model",
+	});
 }
 
 // ctx.exports must expose the facet class.

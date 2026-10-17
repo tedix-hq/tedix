@@ -130,4 +130,24 @@ assert.equal(
 );
 assert.equal(turnModelForInject(undefined), undefined);
 
+const reviewPolicy = normalizeModelPolicy({
+	chatModelRef: CHAT_REF,
+	cronModelRef: CRON_REF,
+	observerModelRef: OBSERVER_REF,
+	synthesisModelRef: "azure-openai/gpt-6-luna",
+});
+assert.equal(
+	resolveSurfaceModelRef(reviewPolicy, "synthesis"),
+	"azure-openai/gpt-6-luna",
+);
+assert.equal(resolveSurfaceModelRef(reviewPolicy, "chat"), CHAT_REF);
+assert.equal(resolveSurfaceModelRef(reviewPolicy, "cron"), CRON_REF);
+assert.equal(
+	resolveSurfaceModelRef(
+		{ ...reviewPolicy, synthesisModelRef: undefined },
+		"synthesis",
+	),
+	CHAT_REF,
+);
+
 console.log("model-policy.test.ts: all assertions passed");
