@@ -63,3 +63,34 @@ it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
 	expect(html).not.toContain("Nobody is on");
 	expect(html).toContain('href="/work/interactions/decision"');
 });
+
+it("keeps a human handoff prominent without treating it as an offline worker", () => {
+	const html = renderToStaticMarkup(
+		<AttentionBoard
+			file={() => {}}
+			data={{
+				cards: [
+					{
+						id: "ask",
+						who: "Needs you",
+						title: "Confirm the address",
+						projectId: null,
+						column: "waiting",
+						source: "interaction",
+						startedAt: "2026-10-17T10:00:00Z",
+						heartbeatAt: null,
+						note: "The draft is ready",
+						href: "/work/interactions/ask",
+					},
+				],
+				projects: [],
+				unfiled: [],
+				truncated: false,
+			}}
+		/>,
+	);
+	expect(html).toContain("Confirm the address");
+	expect(html).toContain("waiting on you");
+	expect(html).not.toContain("opacity-65");
+	expect(html).not.toContain("Heartbeat stale");
+});

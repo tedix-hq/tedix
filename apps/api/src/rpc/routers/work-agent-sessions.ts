@@ -483,7 +483,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			readAttentionFactoryLinks(
 				context.db,
 				owner.organizationId,
-				context.user!.sub,
+				context.user!.sub!,
 				new Date(now.getTime() - 86_400_000).toISOString(),
 			),
 			listUnattendedObjectives(
