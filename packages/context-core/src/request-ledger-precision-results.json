@@ -1,0 +1,135 @@
+{
+	"model": "gpt-6-astra",
+	"systemHash": "bc366940a9416bc6b6e7107b52ec9059d07d1696558a67a0e1194c2cd2e20eb9",
+	"inputHash": "ae1c52be44e5500fe9b155e3ea60181a78eb7896f0c467bf6eca5479f90c6ff5",
+	"results": [
+		{
+			"id": "trim-tabs",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "attention-panel",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "authority-choice",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"You chose the simple option. Approved answers now act as the approving person; live checks passed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "normal-name-removal",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The names were already removed from current source.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "chat-acceptance",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Codex is building chat acceptance and will test it live.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "older-drive",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "missing-tool-error",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Both belong to the running CLI repair lane.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "linked-project-error",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Now running: Codex is fixing work creation under linked projects.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "notifications",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Both host sessions received their completion event in live tests.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "acted-thread-rule",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"waiting_on_user\",\"evidence\":\"I will add that rule once your verdict is logged.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "exact-post-rule",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The exact-post rule is saved as a proposed revision and read back.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "borderline-archive",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "borderline-event",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "borderline-filter",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "worktree-cleanup",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"I removed all merged, clean, idle worktrees. Locked and dirty worktrees are preserved. Cleanup report delivered.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "milestone-error",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "phone-screenshot",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested local phone screenshot is saved at shots/cards-phone.png and visually checked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "factory-security",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"An agent is making the security factory read code-scan warnings and check private names.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"making the security factory read code-scan warnings and check private names.\"}],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "public-pages",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "library-fix",
+			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"The security repair lane\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "catalog-cleanup",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Fix catalog cleanup so manually added apps stay listed.\",\"evidence\":\"I will fix catalog cleanup so manually added apps stay listed.\"}],\"lessons\":[]}"
+		},
+		{
+			"id": "private-setup",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The private workspace, app and schedules are created and verified.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "excluded-work",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "needs-you-doc",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Keep the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}],\"lessons\":[]}"
+		},
+		{
+			"id": "connection-check",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"CLI is connected. The plugin call completed successfully; the apparent hang came from inherited stdin.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "credits-draft",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts. Nothing was sent.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "pause-database",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The database is paused; the console readback shows Paused.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "keep-required-consent",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"ask\",\"text\":\"Authorize mail access before the workspace's first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}],\"lessons\":[]}"
+		},
+		{
+			"id": "keep-undelivered-screenshot",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[{\"kind\":\"promise\",\"text\":\"Send a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}],\"lessons\":[]}"
+		},
+		{
+			"id": "do-not-close-live-with-local",
+			"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The screenshot is saved from local fixtures. Cloud capture is still blocked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "do-not-infer-human-approval",
+			"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"approval was granted\"},\"lanes\":[],\"merges\":[],\"new\":[],\"lessons\":[]}"
+		},
+		{
+			"id": "merge-completed-restatement",
+			"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[{\"ref\":\"r1\",\"into\":\"r2\",\"evidence\":\"Report the deploy result\"}],\"new\":[],\"lessons\":[]}"
+		}
+	]
+}

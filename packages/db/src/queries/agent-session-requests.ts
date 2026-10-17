@@ -435,6 +435,40 @@ export async function getPreviousAgentSessionTurn(
 	return row?.body ?? null;
 }
 
+/** Bounded prior responses for closure recovery; never reads ahead in a backfill. */
+export async function listRecentAgentSessionTurns(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & {
+		harness: WorkAgentSessionHarness;
+		sessionKey: string;
+		before: string;
+	},
+): Promise<Array<{ body: string; activity: string | null; sourceAt: string }>> {
+	const rows = await db
+		.select({
+			body: agentSessionEvents.body,
+			activity: agentSessionEvents.activity,
+			sourceAt: agentSessionEvents.sourceAt,
+		})
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, "turn"),
+				lt(agentSessionEvents.sourceAt, params.before),
+			),
+		)
+		.orderBy(
+			desc(agentSessionEvents.sourceAt),
+			desc(agentSessionEvents.sourceKey),
+		)
+		.limit(3);
+	return rows.reverse();
+}
+
 /** Recover each row's original scope without borrowing a later prompt's goals. */
 export async function getAgentSessionRequestPrompts(
 	db: DbQueryClient,

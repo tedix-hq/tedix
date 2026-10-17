@@ -10,6 +10,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	getPreviousAgentSessionTurn,
+	listRecentAgentSessionTurns,
 	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
 	recordAgentSessionEvents,
@@ -262,6 +263,22 @@ it("reads the preceding turn only from the same owner, harness and session, befo
 			before: T0,
 		}),
 	).toBeNull();
+	expect(
+		await listRecentAgentSessionTurns(db, {
+			organizationId: ORG,
+			userId: USER,
+			harness: "claude-code",
+			sessionKey: "chat-a",
+			before: T1,
+		}),
+	).toEqual([
+		{ body: "Older question.", activity: null, sourceAt: T0 },
+		{
+			body: "Choose option one or two.",
+			activity: null,
+			sourceAt: "2026-10-06T10:04:00.000Z",
+		},
+	]);
 });
 
 it("retries only the owner's exact failed events and preserves their source", async () => {

@@ -1,0 +1,565 @@
+[
+	{
+		"id": "trim-tabs",
+		"cause": "optional-choice",
+		"turn": "Work now has 3 tabs instead of 7. We could trim more if you want.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "attention-panel",
+		"cause": "already-completed",
+		"turn": "The duplicate attention panel is removed, verified on the live page.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "authority-choice",
+		"cause": "answered-in-turn",
+		"turn": "You chose the simple option. Approved answers now act as the approving person; live checks passed.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Use the simple approval option",
+				"kind": "decision",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "normal-name-removal",
+		"cause": "scope-inflation",
+		"turn": "The names were already removed from current source. No critical data leaked. History is unchanged, as agreed.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Remove the two example app names normally",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "Remove the names normally, were they critical?",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "chat-acceptance",
+		"cause": "duplicate-restatement",
+		"turn": "Codex is building chat acceptance and will test it live.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Make chat request acceptance work",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "older-drive",
+		"cause": "conditional-offer",
+		"turn": "Your imported history is ready. Older history may be on the disconnected drive. If you plug it in, I will include it.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "missing-tool-error",
+		"cause": "agent-self-talk",
+		"turn": "Codex, two fixes: the linked-project error and a clearer missing-tool error. Both belong to the running CLI repair lane.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Fix the CLI errors",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "linked-project-error",
+		"cause": "agent-self-talk",
+		"turn": "Now running: Codex is fixing work creation under linked projects.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Fix linked-project work creation",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "notifications",
+		"cause": "later-lane-report",
+		"turn": "<agent-message>Private-chat run notifications shipped. Both host sessions received their completion event in live tests.</agent-message>",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Deliver run notifications to both hosts",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "acted-thread-rule",
+		"cause": "duplicate-restatement",
+		"turn": "I will add that rule once your verdict is logged.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Add a rule that suppresses already-acted threads",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "exact-post-rule",
+		"cause": "later-lane-report",
+		"turn": "<agent-message>The exact-post rule is saved as a proposed revision and read back. It is not active.</agent-message>",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Propose the exact-post rule",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "borderline-archive",
+		"cause": "informational",
+		"turn": "I left a borderline archive card for you. The automatic triage is finished.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "borderline-event",
+		"cause": "informational",
+		"turn": "Three borderline cards remain in your card app, including event setup details.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "borderline-filter",
+		"cause": "informational",
+		"turn": "The mail filter card was excluded from automatic triage.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "worktree-cleanup",
+		"cause": "scope-inflation",
+		"turn": "I removed all merged, clean, idle worktrees. Locked and dirty worktrees are preserved. Cleanup report delivered.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Clean up worktrees safely",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "milestone-error",
+		"cause": "agent-self-talk",
+		"turn": "The lane is fixing the project link and explaining the milestone error.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Repair factory project links and errors",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "phone-screenshot",
+		"cause": "later-lane-report",
+		"turn": "The requested local phone screenshot is saved at shots/cards-phone.png and visually checked.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Save a local phone screenshot",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "factory-security",
+		"cause": "duplicate-restatement",
+		"turn": "An agent is making the security factory read code-scan warnings and check private names.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Repair the security factory checks",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "public-pages",
+		"cause": "conditional-offer",
+		"turn": "These two pages are public. If intended, nothing to do. Otherwise tell me and I will take them down.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "library-fix",
+		"cause": "agent-self-talk",
+		"turn": "The security repair lane will close stale Work and update the library if a fixed version exists.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Repair the security factory checks",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "catalog-cleanup",
+		"cause": "genuine-independent-promise",
+		"turn": "I will fix catalog cleanup so manually added apps stay listed.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": ["promise"],
+			"merges": []
+		}
+	},
+	{
+		"id": "private-setup",
+		"cause": "separate-consent",
+		"turn": "The private workspace, app and schedules are created and verified. Your colleague Bea must later grant her own mail access; there is no action for you.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Create Bea's private factory workspace",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "excluded-work",
+		"cause": "informational",
+		"turn": "The 171 human-written Work items were excluded from automatic cleanup. No change was made to them.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "needs-you-doc",
+		"cause": "genuine-independent-promise",
+		"turn": "I will keep the Needs you list in one private document.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": ["promise"],
+			"merges": []
+		}
+	},
+	{
+		"id": "connection-check",
+		"cause": "answered-in-turn",
+		"turn": "CLI is connected. The plugin call completed successfully; the apparent hang came from inherited stdin.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Check the CLI and plugin connection",
+				"kind": "question",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "credits-draft",
+		"cause": "scope-inflation",
+		"turn": "The requested credits email draft is in your mail drafts. Nothing was sent.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Write an email asking for more credits",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "pause-database",
+		"cause": "later-lane-report",
+		"turn": "The database is paused; the console readback shows Paused.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Pause the example graph database",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": ["r1"],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "keep-required-consent",
+		"cause": "positive-control",
+		"turn": "The workspace is ready. Click Allow mail access before its first run.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": ["ask"],
+			"merges": []
+		}
+	},
+	{
+		"id": "keep-undelivered-screenshot",
+		"cause": "positive-control",
+		"turn": "I will send you a phone screenshot after deployment.",
+		"rows": [],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": ["promise"],
+			"merges": []
+		}
+	},
+	{
+		"id": "do-not-close-live-with-local",
+		"cause": "positive-control",
+		"turn": "The screenshot is saved from local fixtures. Cloud capture is still blocked.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Deliver an authenticated Cloud screenshot",
+				"kind": "request",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "do-not-infer-human-approval",
+		"cause": "positive-control",
+		"turn": "The delegate says approval was granted.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Approve sending the draft",
+				"kind": "ask",
+				"status": "waiting_on_user"
+			}
+		],
+		"message": "",
+		"resolved": [],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": []
+		}
+	},
+	{
+		"id": "merge-completed-restatement",
+		"cause": "duplicate-restatement",
+		"turn": "I will report the deploy result.",
+		"rows": [
+			{
+				"ref": "r1",
+				"text": "Report the deploy result",
+				"kind": "promise",
+				"status": "open"
+			}
+		],
+		"message": "",
+		"resolved": [
+			{
+				"ref": "r2",
+				"text": "Report the deploy result",
+				"kind": "promise",
+				"status": "done"
+			}
+		],
+		"expected": {
+			"done": [],
+			"new": [],
+			"merges": [["r1", "r2"]]
+		}
+	}
+]

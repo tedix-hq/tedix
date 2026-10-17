@@ -1276,3 +1276,78 @@ it("does not label an agent promise with an unrelated human request's scope", as
 	expect(scopes).toBe("r1:\nReview the docs.");
 	expect(prompts[0]).toContain("Deliver a release report");
 });
+
+it("closes a question from the assistant response following that same prompt", async () => {
+	const db = fixture();
+	const prompt = "Is the Example CLI connected?";
+	await acceptAgentSessionEvents(db, {
+		...SCOPE,
+		events: [{ ...SCOPE, kind: "prompt", text: prompt, sourceAt: T0 }],
+		now: T0,
+	});
+	await observe(
+		db,
+		scripted(JSON.stringify({ requests: [{ kind: "question", text: prompt }] }))
+			.model,
+		prompt,
+	);
+	const answer = "The Example CLI is connected; the plugin is unavailable.";
+	const { model, prompts } = scripted(
+		JSON.stringify({
+			updates: [{ ref: "r1", status: "done", evidence: answer }],
+		}),
+	);
+	await reflectAgentSessionRequests(db, model, {
+		...SCOPE,
+		turn: answer,
+		activity: null,
+		repository: null,
+		sourceAt: "2026-10-06T10:01:00Z",
+		now: T0,
+	});
+	expect(prompts[0]).toContain(prompt);
+	expect(prompts[0]).toContain(answer);
+	expect((await rows(db))[0]?.status).toBe("done");
+});
+
+it("recovers a missed lane result from prior assistant evidence without admitting its old promises", async () => {
+	const db = fixture();
+	await observe(
+		db,
+		scripted(
+			JSON.stringify({
+				requests: [{ kind: "request", text: "Create Bea's private workspace" }],
+			}),
+		).model,
+		"Create Bea's private workspace",
+	);
+	const evidence =
+		"Bea's private workspace is created and read back; her separate consent is pending.";
+	await acceptAgentSessionEvents(db, {
+		...SCOPE,
+		events: [
+			{
+				...SCOPE,
+				kind: "turn",
+				text: "I will create the workspace.",
+				activity: evidence,
+				sourceAt: "2026-10-06T10:01:00Z",
+			},
+		],
+		now: T0,
+	});
+	const { model, prompts } = scripted(
+		JSON.stringify({ updates: [{ ref: "r1", status: "done", evidence }] }),
+	);
+	await reflectAgentSessionRequests(db, model, {
+		...SCOPE,
+		turn: "A separate task is running.",
+		activity: null,
+		repository: null,
+		sourceAt: "2026-10-06T10:02:00Z",
+		now: T0,
+	});
+	expect(prompts[0]).toContain(evidence);
+	expect((await rows(db))[0]?.status).toBe("done");
+	expect(await rows(db)).toHaveLength(1);
+});
