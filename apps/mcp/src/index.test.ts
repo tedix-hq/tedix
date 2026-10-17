@@ -1305,7 +1305,8 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 		"keeps %s fast/session identity and Home catalog without loading code",
 		async (authType) => {
 			const factory = await import("./mcp/server-factory");
-			const { buildHomeSurfaceTools } = await import("./mcp/home-surface");
+			const { buildHomeSurfaceTools } =
+				await import("./mcp/home-surface-tools");
 			const { buildBootstrapInfo } =
 				await import("./mcp/registration/bootstrap");
 			const { buildServerContext } = factory;
