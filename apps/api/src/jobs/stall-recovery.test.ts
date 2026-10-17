@@ -81,6 +81,53 @@ function fixture() {
 }
 
 describe("autonomous stall recovery", () => {
+	it("counts pending Work once across retries and excludes foreign attempts", async () => {
+		const { sqlite, scope } = fixture();
+		// schemaDdl omits partial predicates; use the production active-attempt fence.
+		sqlite.exec(
+			"DROP INDEX uniq_work_attempt_active; CREATE UNIQUE INDEX uniq_work_attempt_active ON work_attempts(org_id,work_item_id) WHERE runtime_state IN ('queued','running','waiting','retrying')",
+		);
+		sqlite.exec(`
+		 INSERT INTO work_items(id,org_id,title,project_id,created_at,disposition)
+		 VALUES ('next','fictional-orchard','Next','orchard','${createdAt}','accepted'),
+		 ('done','fictional-orchard','Done','orchard','${createdAt}','completed');
+		 INSERT INTO work_attempts(id,org_id,work_item_id,executor_type,executor_id,attempt_number,started_at,heartbeat_at,finished_at,runtime_state,outcome)
+		 VALUES ('first','fictional-orchard','next','tedi','river',1,'${createdAt}','${createdAt}','2026-10-16T15:00:00.000Z','failed','failed'),
+		 ('second','fictional-orchard','next','tedi','river',2,'${createdAt}','${createdAt}','2026-10-17T11:00:00.000Z','succeeded','succeeded'),
+		 ('completed-failure','fictional-orchard','done','tedi','river',1,'${createdAt}','${createdAt}','2026-10-16T16:00:00.000Z','failed','failed'),
+		 ('foreign','fictional-forest','next','tedi','moss',1,'${createdAt}','${now}','${now}','failed','failed');
+		`);
+		expect(await scope()).toMatchObject({
+			pendingCount: 1,
+			failedCount: 1,
+			lastActivityAt: "2026-10-17T11:00:00.000Z",
+		});
+	});
+
+	it("pages scope activity before aggregating history", async () => {
+		const { sqlite, db } = fixture();
+		for (let index = 0; index < 101; index++) {
+			const id = `page-${String(index).padStart(3, "0")}`;
+			sqlite
+				.prepare(
+					"INSERT INTO projects(id,org_id,key,name,created_at) VALUES (?,?,?,?,?)",
+				)
+				.run(id, "fictional-orchard", id, id, createdAt);
+		}
+		const first = await listContinuityScopes(db, "", "fictional-orchard");
+		const second = await listContinuityScopes(
+			db,
+			first.at(-1)!.key,
+			"fictional-orchard",
+		);
+		expect(first).toHaveLength(100);
+		expect(second).toHaveLength(2);
+		expect(new Set([...first, ...second].map((row) => row.key)).size).toBe(102);
+		expect(
+			[...first, ...second].every((row) => row.orgId === "fictional-orchard"),
+		).toBe(true);
+	});
+
 	it("defaults to 24h, preserves per-project settings and rejects unsafe thresholds", () => {
 		expect(continuityPolicy(null).idleHours).toBe(24);
 		expect(continuityPolicy('{"idleHours":48}').idleHours).toBe(48);
