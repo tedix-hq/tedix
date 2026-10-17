@@ -48,6 +48,11 @@ import { selectChatModelForTurn } from "./turn-model-selection";
 	assert.equal(probe.prepared.length, 0, "synthesis skips MCP setup");
 	assert.equal(probe.facetInputs.length, 0);
 	assert.deepEqual(probe.commits[0]?.facetUsage, { totalTokens: 4 });
+	assert.deepEqual(
+		probe.commits[0]?.modelIdentity,
+		reply.modelIdentity,
+		"the settled receipt must retain the selected model for idempotent redelivery",
+	);
 	assert.equal(synthesized.length, 1, "workflow synthesis runs its facet");
 }
 
