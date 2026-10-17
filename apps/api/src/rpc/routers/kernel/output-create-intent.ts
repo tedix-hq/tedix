@@ -23,7 +23,7 @@ const CREATE_VERB_RE =
 // "The" is left out on purpose: "make the deck shorter" edits an existing one.
 // A lone "slide" is a slide inside a deck; "slide deck" still reads as a deck.
 const MODIFIER_RE =
-	/^(?:me|us|a|an|new|short|quick|simple|brief|basic|blank|clean|small|slide|[0-9]+(?:-?(?:slides?|pages?|tabs?|columns?|rows?|sections?))?|one|two|three|four|five|six|seven|eight|nine|ten)$/i;
+	/^(?:me|us|a|an|new|short|quick|simple|brief|basic|blank|clean|small|slide|os|tedix|[0-9]+(?:-?(?:slides?|pages?|tabs?|columns?|rows?|sections?))?|one|two|three|four|five|six|seven|eight|nine|ten)$/i;
 /** "a new sheet in the budget": a part of an existing output. */
 const INSIDE_RE = /^(?:in|inside|into|within)$/i;
 const KIND_WORDS: ReadonlyArray<readonly [RegExp, OutputCreateKind]> = [

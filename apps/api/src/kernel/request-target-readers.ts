@@ -5,6 +5,10 @@ import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { getConnectionProviderById } from "@tedix/db/queries/connection-providers";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
+import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
+import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	getOsWorkspace,
@@ -46,6 +50,7 @@ export function kernelAcceptanceReader(
 		organizationId: string;
 		ownerUserId: string;
 		conversationId: string | null;
+		sourceId?: string;
 	},
 	policy: KernelRequestPolicy,
 	fetchFn: typeof fetch = fetch,
@@ -72,6 +77,61 @@ export function kernelAcceptanceReader(
 			throw new Error("Source conversation access revoked");
 	}
 	return {
+		async readHomeResponse() {
+			await assertSourceAccess();
+			if (!source.sourceId || !source.conversationId)
+				throw new Error("Home source unavailable");
+			const run = await getKernelRuntimeRun(context.db, {
+				organizationId: source.organizationId,
+				id: source.sourceId,
+			});
+			if (
+				run?.status !== "completed" ||
+				run.conversationId !== source.conversationId ||
+				!run.outputMessageId
+			)
+				throw new Error("Home response is not settled");
+			const workItemId =
+				run.metadata?.workItemId ?? run.runtimeMetadata?.workItemId;
+			if (typeof workItemId !== "string")
+				throw new Error("Canonical Work unavailable");
+			const work = await getWorkItemById(
+				context.db,
+				workItemId,
+				source.organizationId,
+			);
+			const attempt = (
+				await listWorkItemAttempts(context.db, {
+					orgId: source.organizationId,
+					workItemId,
+					limit: 1,
+				})
+			).data[0];
+			if (
+				!work ||
+				work.disposition === "cancelled" ||
+				attempt?.outcome !== "succeeded"
+			)
+				throw new Error("Canonical Work is not settled");
+			const events = await listKernelRuntimeEvents(context.db, {
+				organizationId: source.organizationId,
+				runId: source.sourceId,
+				order: "desc",
+				limit: 100,
+			});
+			const response = events.find(
+				(e) =>
+					e.kind === "message.completed" &&
+					e.conversationId === source.conversationId &&
+					e.messageId === run.outputMessageId &&
+					e.payload?.role === "assistant" &&
+					typeof e.payload.content === "string" &&
+					e.payload.content.trim().length > 0 &&
+					Date.parse(e.createdAt) >= Date.parse(attempt.startedAt),
+			);
+			if (!response) throw new Error("Durable Home reply unavailable");
+			return { attemptId: attempt.id, receiptRef: response.id };
+		},
 		async readOutputRevision(check) {
 			await assertSourceAccess();
 			const output = await getOsOutput(context.db, {

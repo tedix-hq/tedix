@@ -52,7 +52,7 @@ vi.mock("../rpc/routers/kernel/conversation-index", () => ({
 	applyKernelConversationEvent: async () => {},
 }));
 const now = "2026-10-17T10:00:00.000Z";
-async function fixture(revisionId = "revision-one") {
+async function fixture(revisionId = "revision-one", responseOnly = false) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
@@ -112,19 +112,22 @@ async function fixture(revisionId = "revision-one") {
 		organizationId: "org-example",
 		runId: "run-one",
 		conversationId: "home-one",
-		checks: [
-			{
-				kind: "os_output_revision",
-				outputId: "output-one",
-				revisionId: "revision-one",
-			},
-		],
+		checks: responseOnly
+			? []
+			: [
+					{
+						kind: "os_output_revision",
+						outputId: "output-one",
+						revisionId: "revision-one",
+					},
+				],
 	});
 	await db.insert(kernelRuntimeRuns).values({
 		id: "run-one",
 		organizationId: "org-example",
 		conversationId: "home-one",
 		status: "completed",
+		outputMessageId: responseOnly ? "answer-one" : null,
 		metadata: { workItemId: "work-one", preserveConcurrentField: "kept" },
 		createdAt: now,
 		updatedAt: now,
@@ -190,6 +193,36 @@ describe("Home request source adapter", () => {
 		expect(await db.select().from(workItemComments)).toHaveLength(1);
 		expect(final.nextOwner).toBe("kernel-example");
 		expect(final.nextDueAt).not.toBeNull();
+	});
+	it("waits for an unchecked delegation reply without exhausting probes, then verifies delivery only", async () => {
+		const { context, db } = await fixture("revision-one", true);
+		const policy = (await readKernelRequestPolicy(context, "org-example"))!;
+		let row = (await getHomeKernelRequest(db, "org-example", "run-one"))!;
+		for (let i = 0; i < 4; i++)
+			row = await reconcileHomeKernelRequest(context, row, policy);
+		expect(row.snapshot.state).toBe("running");
+		expect(row.snapshot.probeAttempts).toBe(0);
+		await db.insert(kernelRuntimeEvents).values({
+			id: "reply-one",
+			organizationId: "org-example",
+			conversationId: "home-one",
+			runId: "run-one",
+			messageId: "answer-one",
+			kind: "message.completed",
+			payload: { role: "assistant", content: "The requested summary." },
+			runtimeBackend: "custom",
+			createdAt: now,
+		});
+		const final = await reconcileHomeKernelRequest(context, row, policy);
+		expect(final.snapshot).toMatchObject({
+			state: "learned",
+			outcome: "verified",
+			delivery: { status: "acknowledged" },
+		});
+		expect(final.snapshot.observations[0]?.limitations).toContain(
+			"not factual correctness or external target state",
+		);
+		expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(2);
 	});
 	it("captures all conversations by default and restricts new capture to a configured cohort", async () => {
 		const { context, db } = await fixture();
