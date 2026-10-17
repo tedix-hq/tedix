@@ -268,16 +268,26 @@ export function buildAttention(
 		});
 	}
 	for (const row of sources.backlog) {
+		const observer = row.observer === 1 && row.deadline;
+		const overdue = observer && Date.parse(row.deadline!) <= now.getTime();
 		if (!representedItems.has(row.id))
 			cards.push({
 				id: row.id,
-				who: ATTENTION_COPY.unassigned,
+				who: observer ? "Ship observer" : ATTENTION_COPY.unassigned,
 				title: row.title,
 				projectId: row.projectId,
-				column: "backlog",
+				column: observer
+					? overdue && !row.diagnosis
+						? "blocked"
+						: "waiting"
+					: "backlog",
 				startedAt: row.createdAt,
 				heartbeatAt: null,
-				note: ATTENTION_COPY.readyToPickUp,
+				note: observer
+					? row.diagnosis
+						? `Diagnosis: ${row.diagnosis}`
+						: `${overdue ? "Missed promise" : "Promise"}: no red Ship older than 30 min without a diagnosis; due ${row.deadline}`
+					: ATTENTION_COPY.readyToPickUp,
 				href: `/work/items/${row.id}`,
 				source: "backlog",
 			});

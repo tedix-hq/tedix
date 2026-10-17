@@ -176,6 +176,11 @@ export const apiRouter = {
 	workItems: lazyRouter(() =>
 		import("./work-items").then((m) => m.workItemsContractRouter),
 	),
+	repositoryObserver: lazyRouter(() =>
+		import("./repository-observer").then(
+			(m) => m.repositoryObserverContractRouter,
+		),
+	),
 	support: lazyRouter(() =>
 		import("./support").then((m) => m.supportContractRouter),
 	),

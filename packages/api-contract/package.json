@@ -7,6 +7,8 @@
 	"type": "module",
 	"exports": {
 		"./utils/attention-copy": "./src/utils/attention-copy.ts",
+		"./schemas/repository-observer": "./src/schemas/repository-observer.ts",
+		"./contracts/repository-observer": "./src/contracts/repository-observer.ts",
 		"./schemas/support": "./src/schemas/support.ts",
 		"./contracts/support": "./src/contracts/support.ts",
 		"./utils/support-report": "./src/utils/support-report.ts",

@@ -150,6 +150,11 @@ export type McpGranularCapabilityScopeName =
 const DOCS_SCOPES_BY_TOOL = new Map(Object.entries(DOCS_TOOL_SCOPES));
 
 const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
+	configure_repository_observer: "mcp:work",
+	observe_repository_event: "mcp:work",
+	report_repository_observation: "mcp:work",
+	dispatch_repository_repair: "mcp:work",
+	list_repository_observations: "mcp:work",
 	list_work_item_cli_rows: "mcp:work",
 	get_work_item_checkpoint: "mcp:work",
 	list_work_attempt_cli_rows: "mcp:work",
@@ -602,6 +607,11 @@ const READ_TOOL_NAME_RE =
 	/(^|[_.:/-])(analyze|ask|check|fetch|find|get|health|inspect|list|load|preview|query|read|resolve|search|status|stats|summary|validate)([_.:/-]|$)/i;
 
 const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
+	configure_repository_observer: "admin",
+	observe_repository_event: "write",
+	report_repository_observation: "write",
+	dispatch_repository_repair: "write",
+	list_repository_observations: "read",
 	request_budget_override: "write",
 	set_budget_policy: "admin",
 	// "triage"/"label" match neither verb regex; both are stateless model

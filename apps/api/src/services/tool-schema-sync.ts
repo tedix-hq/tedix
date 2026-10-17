@@ -626,6 +626,11 @@ export const GRAPH_GOVERNANCE_KIND_OVERRIDES: Record<
  * explicit in discovery and authorization scope routing.
  */
 export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
+	"repositoryObserver/configure": "configure_repository_observer",
+	"repositoryObserver/observe": "observe_repository_event",
+	"repositoryObserver/report": "report_repository_observation",
+	"repositoryObserver/repair": "dispatch_repository_repair",
+	"repositoryObserver/pending": "list_repository_observations",
 	"support/file": "file_support_request",
 	"support/status": "get_support_status",
 	"support/mine": "list_my_support_tickets",
@@ -738,6 +743,11 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	string,
 	"read" | "write" | "destructive"
 > = {
+	"repositoryObserver/configure": "write",
+	"repositoryObserver/observe": "write",
+	"repositoryObserver/report": "write",
+	"repositoryObserver/repair": "write",
+	"repositoryObserver/pending": "read",
 	"projects/create": "write",
 	"projects/update": "write",
 	"projects/archive": "destructive",

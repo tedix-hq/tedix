@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/repository-observer": "./src/queries/repository-observer.ts",
 		"./schema/support": "./src/schema/support.ts",
 		"./queries/support": "./src/queries/support.ts",
 		"./schema/tedi-console": "./src/schema/tedi-console.ts",

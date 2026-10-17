@@ -119,6 +119,24 @@ it("scopes Attention reads and project matches to the organization through the D
 		(await readAttentionSources(db, "other-org", "2026-10-16T00:00:00Z"))
 			.projects,
 	).toEqual([]);
+	await db.insert(workItems).values({
+		id: "old-red",
+		orgId: "org-example",
+		title: "Red Ship",
+		createdAt: "2026-10-01T00:00:00Z",
+		deadline: "2026-10-01T00:30:00Z",
+		metadata: { repositoryObserver: 1, event: { kind: "ship_red" } },
+	});
+	await db.insert(workItems).values({
+		id: "newer-backlog",
+		orgId: "org-example",
+		title: "Newer proposed work",
+		createdAt: at,
+	});
+	expect(
+		(await readAttentionSources(db, "org-example", "2026-10-16T00:00:00Z"))
+			.backlog[0]?.id,
+	).toBe("old-red");
 });
 
 it("keeps factory links tenant-scoped and private-workspace names owner-only", async () => {

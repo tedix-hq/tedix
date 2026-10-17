@@ -59,6 +59,9 @@ vi.mock("./commitment-wakes", () => ({
 		.fn()
 		.mockResolvedValue({ observed: 0, dispatched: 0 }),
 }));
+vi.mock("./repository-observer", () => ({
+	maintainRepositoryObservers: vi.fn().mockResolvedValue({ overdue: 0 }),
+}));
 vi.mock("./support-maintenance", () => ({
 	maintainSupport: vi.fn().mockResolvedValue({ mirrors: 0 }),
 }));
