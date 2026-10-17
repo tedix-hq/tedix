@@ -46,7 +46,6 @@ import {
 import { decisionCaptureSummary } from "@/lib/work-interaction-display";
 import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
-import { isOpenRequestForYou } from "@/components/work-needs-you-count";
 import { useDeckBatch } from "@/lib/use-deck-batch";
 import { deckBatchWindow, attentionMetrics } from "@/lib/deck-attention";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
@@ -158,35 +157,34 @@ export function DecisionDeckApp({
 				row: undefined,
 			}))
 		: [
-				...((mode === "history" ? history : inbox).data?.data ?? [])
-					.filter((row) =>
-						mode === "history"
-							? row.effectiveState === "resolved"
-							: isOpenRequestForYou(row) && row.canRespond,
-					)
-					.map((row) => {
-						const decision = decisionEnvelope(row.request.metadata);
-						const metadata = row.request.metadata;
-						const cardKind =
-							decision?.kind ??
-							(metadata?.schema === "tedix.outbound.v1"
-								? "outbound"
-								: row.request.kind === "handoff"
-									? "proposal"
-									: metadata?.decisionCard
-										? "decision"
-										: "question");
-						return {
-							id: row.request.id,
-							kind: cardKind,
-							label: row.request.subject,
-							project:
-								row.workItem?.projectId ?? row.request.projectId ?? "Unfiled",
-							urgency: decisionCaptureSummary(metadata)?.urgency ?? "later",
-							decision,
-							row,
-						};
-					}),
+				...(mode === "history"
+					? (history.data?.data ?? []).filter(
+							(row) => row.effectiveState === "resolved",
+						)
+					: decisions.requests
+				).map((row) => {
+					const decision = decisionEnvelope(row.request.metadata);
+					const metadata = row.request.metadata;
+					const cardKind =
+						decision?.kind ??
+						(metadata?.schema === "tedix.outbound.v1"
+							? "outbound"
+							: row.request.kind === "handoff"
+								? "proposal"
+								: metadata?.decisionCard
+									? "decision"
+									: "question");
+					return {
+						id: row.request.id,
+						kind: cardKind,
+						label: row.request.subject,
+						project:
+							row.workItem?.projectId ?? row.request.projectId ?? "Unfiled",
+						urgency: decisionCaptureSummary(metadata)?.urgency ?? "later",
+						decision,
+						row,
+					};
+				}),
 				...(mode === "decide"
 					? decisions.work.map((row) => ({
 							id: `work-approval:${row.proposal.id}`,
@@ -591,23 +589,22 @@ export function DecisionDeckApp({
 						Work, send messages or teach your real profile.
 					</Text>
 				)}
-				{!practiceMode &&
-					(decisions.failed || learningQuery.isError) && (
-						<Text role="body">
-							Some decisions could not be loaded.{" "}
-							<Button
-								variant="outline"
-								onClick={() => {
-									void inbox.refetch();
-									void approvals.refetch();
-									void decisions.workApprovals.refetch();
-									void learningQuery.refetch();
-								}}
-							>
-								Try again
-							</Button>
-						</Text>
-					)}
+				{!practiceMode && (decisions.failed || learningQuery.isError) && (
+					<Text role="body">
+						Some decisions could not be loaded.{" "}
+						<Button
+							variant="outline"
+							onClick={() => {
+								void inbox.refetch();
+								void approvals.refetch();
+								void decisions.workApprovals.refetch();
+								void learningQuery.refetch();
+							}}
+						>
+							Try again
+						</Button>
+					</Text>
+				)}
 				{!practiceMode && inbox.isPending && <Text>Loading decisions…</Text>}
 				{learning && classId && (
 					<div
@@ -808,10 +805,7 @@ export function DecisionDeckApp({
 								: available.length > 0
 									? OS_COPY.decisionDeck.noMatches
 									: OS_COPY.decisionDeck.clear}
-							{!(
-								decisions.failed ||
-								learningQuery.isError
-							) && (
+							{!(decisions.failed || learningQuery.isError) && (
 								<>
 									{" "}
 									—{" "}
