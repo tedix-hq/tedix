@@ -1,7 +1,8 @@
 # Needs you cold-load measurements — 17 October 2026
 
 Baseline: `f011e9616e4b9ad4134e1698eac2e9566df624b6`.
-The implementation and this report are committed together.
+Measured OS implementation: `e39e1327ccc0ff5d5b72109e611f9e5b3aa8e675`.
+The final report update changes only these measurement artifacts.
 [Samples and API timings](needs-you-performance.results.json) contain the receipts.
 
 Five fresh Chromium contexts per gzip build, cache disabled, 4× CPU slowdown,
@@ -90,7 +91,7 @@ Authenticated Needs you timing and deployment of this change are unverified.
 - `bun run --cwd apps/os type-check`
 - `bun run --cwd apps/os test:run`: 3,685 browser-side tests and 11 Worker tests passed.
 - `bun run --cwd apps/api type-check`
-- `bun run --cwd apps/api test:run`: 7,281 tests passed; two tests and one file skipped; lazy import boundary check passed.
+- `bun run --cwd apps/api test:run`: 7,282 tests passed; two tests and one file skipped; lazy import boundary check passed.
 - `bun run lint:repo`: all 13 gates passed.
 - `bun run docs:public:check` and `bun run scan:secrets` passed.
 - Changed-file formatting, production fixture build and Playwright checks passed.
