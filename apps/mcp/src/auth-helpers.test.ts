@@ -60,6 +60,37 @@ describe("multi-organization MCP consent", () => {
 		tedixSelectedOrganizations: ["org_tedix", "org_sample"],
 	};
 
+	it("bounds a wedged grant check and permits a fresh request afterward", async () => {
+		vi.useFakeTimers();
+		const fetch = vi.fn().mockImplementationOnce(() => new Promise(() => {}));
+		const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+		try {
+			const pending = resolveHumanMcpSelection(payload, env, config);
+			await vi.advanceTimersByTimeAsync(15_000);
+			expect(await pending).toEqual({
+				ok: false,
+				unavailable: true,
+				reason: "grant_check_failed",
+			});
+			fetch.mockResolvedValueOnce(
+				Response.json({
+					json: {
+						allowed: false,
+						reason: "selection_replaced",
+						organizations: [],
+					},
+				}),
+			);
+			expect(await resolveHumanMcpSelection(payload, env, config)).toEqual({
+				ok: false,
+				unavailable: false,
+				reason: "selection_replaced",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("requires signed revision, exact single selection and matching tenant for human resources", async () => {
 		const fetch = vi.fn();
 		const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;

@@ -205,7 +205,33 @@ describe("verifyHumanMcpGrant", () => {
 		});
 	});
 
-	it("shares overlapping exact grant checks but rechecks after revocation", async () => {
+	it("does not join an orphaned verification from another request", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		const server = await mocks.loadDescopeMcpServer();
+		mocks.loadDescopeMcpServer.mockClear();
+		let release!: (value: typeof server) => void;
+		mocks.loadDescopeMcpServer.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					release = resolve;
+				}),
+		);
+		const orphan = verifyHumanMcpGrant({} as never, env, input);
+		await vi.waitFor(() =>
+			expect(mocks.loadDescopeMcpServer).toHaveBeenCalledTimes(1),
+		);
+		try {
+			expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+				true,
+			);
+			expect(mocks.loadDescopeMcpServer).toHaveBeenCalledTimes(2);
+		} finally {
+			release(server);
+			await orphan;
+		}
+	});
+
+	it("keeps overlapping grant checks request-local and rechecks revocation", async () => {
 		const { verifyHumanMcpGrant } = await import("./mcp-grant");
 		const results = await Promise.all(
 			Array.from({ length: 24 }, () =>
@@ -213,14 +239,14 @@ describe("verifyHumanMcpGrant", () => {
 			),
 		);
 		expect(results.every((result) => result.allowed)).toBe(true);
-		expect(mocks.loadByUserId).toHaveBeenCalledTimes(1);
-		expect(mocks.getMcpConsentGrant).toHaveBeenCalledTimes(2);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(24);
+		expect(mocks.getMcpConsentGrant).toHaveBeenCalledTimes(48);
 		mocks.searchConsents.mockResolvedValue({ ok: true, data: [] });
 		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
 			allowed: false,
 			reason: "consent_missing",
 		});
-		expect(mocks.loadByUserId).toHaveBeenCalledTimes(2);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(25);
 	});
 
 	it("does not share a decision across signed revisions or scopes", async () => {
