@@ -771,3 +771,51 @@ it("routes a card verdict follow-up to the card an earlier answer showed", async
 		'card #2 of the Tedix sheet titled "Social cards 2026-01-02 08:15"',
 	);
 });
+
+it("carries the previous article URL into a tldr delegation", async () => {
+	const { assembleHomeContext } = await import("./context-assembly");
+	const { planKernelRoute } = await import("./route-planner");
+	const { readOrgDispatchPolicyLayer } = await import("./tedi-capabilities");
+	const url = "https://news.globex.example/article/predictions";
+	vi.mocked(readOrgDispatchPolicyLayer).mockResolvedValue(null);
+	vi.mocked(assembleHomeContext).mockResolvedValue({
+		tedis: [{ id: "tedi-cto", slug: "cto", name: "CTO", role: "engineering" }],
+		apps: [],
+		workflows: [],
+		workItems: [],
+		facts: [],
+		rationale: [],
+		speaker: null,
+		history: [
+			{ role: "user", content: url },
+			{ role: "assistant", content: "Would you like a summary?" },
+		],
+		promptCharsEstimate: 1000,
+		lastStepPromptTokens: 1,
+	} as never);
+	vi.mocked(planKernelRoute).mockResolvedValue({
+		...blockedRoute,
+		rationale: "Summarize the article from the previous message.",
+		risk: "low",
+		effortClass: "single_read",
+		targetActivityId: null,
+		plannedToolIds: [],
+		usage: null,
+	} as never);
+	const result = await runKernel({
+		db: {} as never,
+		env: {
+			AI: {},
+			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+		} as never,
+		organizationId: "org",
+		content: "tldr",
+	});
+	const workOrder = result?.delegation?.workOrder;
+	expect(workOrder?.sourceContent).toBe("tldr");
+	expect(workOrder?.traceExcerpts).toContain(`user: ${url}`);
+	expect(workOrder?.toolGuidance).toContain(
+		"Read source pages with native browser_markdown({ url }) before summarizing; cite the fetched claims. A URL or headline alone is not article content.",
+	);
+	expect(workOrder?.authorityEnvelope).toBeUndefined();
+});
