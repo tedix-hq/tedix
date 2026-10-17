@@ -435,7 +435,9 @@ export function scoreLearning(
 			contribution: urgency * model.config.weights.urgency,
 			evidenceIds: [],
 			reason: deadline
-				? `Deadline ${candidate.dueAt}; cost of waiting rises as it approaches`
+				? due <= now.getTime()
+					? `Overdue since ${candidate.dueAt}; waiting has a cost`
+					: `Deadline ${candidate.dueAt}; cost of waiting rises as it approaches`
 				: "Recorded urgency and cost of waiting",
 		});
 	const q = model.config.quietHours;
