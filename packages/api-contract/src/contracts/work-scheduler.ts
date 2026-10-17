@@ -10,6 +10,10 @@ import {
 } from "../schemas/work-scheduler";
 
 const WorkSchedulerIdentityInputSchema = z.strictObject({
+	projectId: z
+		.uuid()
+		.optional()
+		.describe("Rank candidates inside this project before paging."),
 	limit: z
 		.number()
 		.int()
