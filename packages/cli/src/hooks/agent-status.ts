@@ -656,6 +656,7 @@ export function reportInput(payload: JsonObject): string {
 		label: oneLine(payload.label || "", LABEL_LIMIT),
 		...uuidField("projectId", payload.projectId),
 		...uuidField("workItemId", payload.workItemId),
+		...(payload.telemetry ? { telemetry: payload.telemetry } : {}),
 	};
 	return asciiJson(fields);
 }
@@ -884,10 +885,13 @@ function recordStatus(
 				...(configured.organization
 					? ["--organization", configured.organization]
 					: []),
-				"work",
-				REPORT_VERB,
+				"lane",
+				"report",
 				"--input",
-				reportInput(record),
+				reportInput({ ...record, sessionKey: env.TEDIX_LANE_ID || sessionKey }),
+				...(typeof event.transcript_path === "string"
+					? ["--lane-transcript", event.transcript_path]
+					: []),
 			],
 			{ ...DETACHED, env: userEnv },
 		);

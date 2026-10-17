@@ -103,7 +103,7 @@ describe("Agents board", () => {
 		);
 		expect(sections).toEqual([
 			"Billing revamp",
-			"00000076",
+			"Project unavailable",
 			"Docs refresh",
 			"No project",
 		]);
@@ -164,4 +164,40 @@ describe("Agents board", () => {
 		expect(doc.body.textContent).toContain('"enabled": true');
 		expect(doc.querySelector("section[aria-label]")).toBeNull();
 	});
+});
+
+it("shows measured lane facts, estimates and a daily roll-up", () => {
+	const lane = {
+		...session(1, "done", "Done", PROJECT_A),
+		telemetry: {
+			executor: "codex",
+			model: "fictional-model",
+			provider: "openai",
+			reasoningEffort: "medium",
+			brief: "Fix a widget",
+			startedAt: ago(1),
+			finishedAt: ago(0),
+			heartbeatAt: ago(0),
+			outcome: "succeeded",
+			finalMessage: "Fixed",
+			tools: { Read: 2 },
+			usage: { input: 100, cached: 80, output: 10, reasoning: 5 },
+			shas: [],
+			workItems: [],
+			corrections: [],
+			source: "import",
+			estimatedCostUsd: 0.0123,
+			rateVersionId: "fictional-rate",
+			lesson: "Read the owning query",
+			lessonStatus: "extracted",
+		},
+	};
+	const doc = render([lane]);
+	expect(doc.body.textContent).toContain("fictional-model");
+	expect(doc.body.textContent).toContain("110 tokens");
+	expect(doc.body.textContent).toContain("$0.0123 estimated");
+	expect(doc.body.textContent).toContain("100% executor success");
+	expect(doc.body.textContent).toContain(
+		"What we learned: Read the owning query",
+	);
 });

@@ -124,3 +124,26 @@ export async function findProviderModelRates(
 		.orderBy(asc(providerModelRateVersions.id))
 		.limit(2);
 }
+
+/** Current list-price estimates use published rows without rewriting historical usage. */
+export async function listEffectiveProviderModelRates(
+	db: DbQueryClient,
+	input: {
+		provider: string;
+		deploymentScope: string;
+		occurredAt: string;
+	},
+) {
+	return db
+		.select()
+		.from(providerModelRateVersions)
+		.where(
+			and(
+				eq(providerModelRateVersions.provider, input.provider),
+				eq(providerModelRateVersions.deploymentScope, input.deploymentScope),
+				lte(providerModelRateVersions.effectiveFrom, input.occurredAt),
+				sql`NOT EXISTS (SELECT 1 FROM provider_model_rate_versions AS correction WHERE correction.supersedes_rate_version_id = ${providerModelRateVersions.id} AND correction.effective_from <= ${input.occurredAt})`,
+			),
+		)
+		.limit(1000);
+}

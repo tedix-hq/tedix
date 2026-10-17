@@ -273,3 +273,26 @@ before registration. Independently executing lanes get their own Attempt and
 worktree. If the host exposes only the parent's identity, the ledger report
 links to its host Attempt and remains visibly unconfirmed until the child
 registers; a transcript report cannot grant child execution authority.
+
+## Delegated lane observations
+
+`lane run` registers a process on Board → Agents, sends a heartbeat while it
+runs, then reports its observed result. The child obtains its own Work Attempt;
+the wrapper grants no execution authority. Codex JSON thread receipts select
+that child's exact transcript even when several lanes run concurrently.
+
+```sh
+tedix -w acme lane run --executor codex --project <project-id> \
+  --brief brief.txt --rate-scope '<published estimate scope>' -- codex exec -C . -
+tedix -w acme lane import --executor codex --project <project-id> \
+  --transcript rollout.jsonl                   # preview; --apply uploads
+tedix -w acme lane report --input-file <saved-receipt>
+```
+
+Claude Code hooks report into the same lane when launched by the wrapper.
+Other executors can write the common observation JSON to
+`TEDIX_LANE_TELEMETRY_PATH`. Missing facts stay unknown. Costs require complete
+request usage and matching published model/scope rows; cached and reasoning
+counts are subsets, and context tiers apply per request. Estimates use rates
+at report time and never rewrite historical billing. Failed final uploads keep
+a private receipt for idempotent replay under the same lane identity.

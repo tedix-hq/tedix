@@ -916,6 +916,10 @@
 		{
 			"name": "20261017144007_kernel_request_ownership/migration.sql",
 			"sha256": "11a93cf0f06951729c0ea8682c0fa6abdf12fe2a342fbf7edc268483be7a1f51"
+		},
+		{
+			"name": "20261017152332_delegation-telemetry/migration.sql",
+			"sha256": "1aee8a1c6867d1c8fd34d57d67be2006d226be5f1e2ea593bb907fd74df90437"
 		}
 	]
 }

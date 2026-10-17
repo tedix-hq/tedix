@@ -1,0 +1,1 @@
+ALTER TABLE `work_agent_sessions` ADD `telemetry` text;

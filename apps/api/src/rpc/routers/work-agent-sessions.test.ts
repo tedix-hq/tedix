@@ -304,3 +304,32 @@ it("lets an active personal tedi edit only its owner's layout and rejects a revo
 		}),
 	).rejects.toThrow(/active membership/);
 });
+
+it("backfilling an old unfinished lane does not claim fresh activity", async () => {
+	const { ada } = fixture();
+	const observedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+	const result = await ada.report({
+		...report,
+		state: "working",
+		telemetry: {
+			executor: "codex",
+			model: null,
+			provider: null,
+			reasoningEffort: null,
+			brief: "Fix a fictional widget",
+			startedAt: observedAt,
+			heartbeatAt: observedAt,
+			finishedAt: null,
+			outcome: null,
+			finalMessage: "",
+			tools: {},
+			usage: null,
+			shas: [],
+			workItems: [],
+			corrections: [],
+			source: "import",
+		},
+	});
+	expect(result.session.lastEventAt).toBe(observedAt);
+	expect(result.session.effectiveState).toBe("idle");
+});
