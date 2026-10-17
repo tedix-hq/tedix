@@ -254,9 +254,15 @@ export default {
 					return { detail, attempts: history.data };
 				});
 				const latest = state.attempts[0];
-				if (latest?.metadata?.lane === true && !latest.outcome)
-					held.add(item.id);
-				if (!latest || !latest.outcome || latest.metadata?.lane !== true)
+				if (latest && !latest.outcome) held.add(item.id);
+				const assigned = ["codex", "claude-code"].includes(
+					item.metadata?.executor,
+				);
+				if (
+					!latest ||
+					!latest.outcome ||
+					(!assigned && latest.metadata?.lane !== true)
+				)
 					continue;
 				const marker = `Night review ${latest.id}`;
 				const prior = state.detail.comments.find((c) =>
@@ -495,7 +501,16 @@ export default {
 										limit: 5,
 									}),
 								);
-								if (page.data.some((item) => !item.activeAttempt)) ready = true;
+								if (
+									page.data.some(
+										(item) =>
+											!item.activeAttempt &&
+											!["codex", "claude-code"].includes(
+												item.metadata?.executor,
+											),
+									)
+								)
+									ready = true;
 							}
 							if (!ready) return { state: "idle" };
 							checked(
@@ -505,7 +520,7 @@ export default {
 									text:
 										"Native night coordination. Review your accepted Work in projects " +
 										scope.join(", ") +
-										". Advance one bounded step with evidence under your own admission. Preserve peer Attempts. Do not contact people, change approvals or create duplicate blocker Work. Record material progress or a blocker on the existing Work item. Your reply remains a report, not deployment proof.",
+										". Advance one bounded step with evidence under your own admission. Leave Work assigned to codex or claude-code to the native lane queue. Preserve peer Attempts. Do not contact people, change approvals or create duplicate blocker Work. Record material progress or a blocker on the existing Work item. Your reply remains a report, not deployment proof.",
 								}),
 							);
 							return { state: "requested" };

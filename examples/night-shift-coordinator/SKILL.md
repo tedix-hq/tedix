@@ -47,7 +47,8 @@ contains `night-shift`. Work with `metadata.executor` equal to `codex` or
 priority, urgency, fairness and downstream impact. Ranking is advisory; the
 local dispatcher admits each child independently.
 
-Use `tedix lane serve` as the execution host. It must honor planned start times,
+Use `tedix lane serve --coordinated` as the execution host. Omit `--project`
+to follow ready selections across projects. It must honor planned start times,
 retain telemetry and reuse a dead lane's own worktree on retry. Run the host as
 an operating-system service so ending a chat cannot stop it. A machine that is
 off or asleep cannot execute local agents; server coordination remains durable.
@@ -61,10 +62,13 @@ into the next lane. Configure `maxRetries` (default 3) and `maxReviews` (default
 4, ceiling 6) to bound each cycle. Set the owner's runtime profile
 `modelPolicy.synthesisModelRef` to an approved economy model for these reviews.
 Review receipts retain the actual model identity. Chat keeps its own setting.
+Explicit executor assignments also review the latest settled result when a tedi
+has already fulfilled the Work. Unsettled Attempts remain held.
 
 Optional `tediTurns` entries (`namespace`, `ownerId`) retain half-hour nudges for
 existing tedis. A tedi is nudged only when it has accepted Work in scope without
-a live Attempt. Empty queues do not create blocker proposals. Lane planning
+a live Attempt, excluding Work assigned to Codex or Claude Code. Empty queues
+do not create blocker proposals. Lane planning
 and the core log finish before these optional turns. A still-running tedi turn
 is logged as pending without replaying it or failing lane coordination.
 
