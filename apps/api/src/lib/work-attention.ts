@@ -193,8 +193,11 @@ export function buildAttention(
 				source: "backlog",
 			});
 	}
+	const displayed = ["moving", "waiting", "blocked", "done", "backlog"].flatMap(
+		(column) => cards.filter((card) => card.column === column).slice(0, 60),
+	);
 	return {
-		cards: cards.slice(0, 300).map((card) => ({
+		cards: displayed.map((card) => ({
 			...card,
 			who: card.who.slice(0, 120),
 			title: card.title.slice(0, 160),
@@ -202,7 +205,9 @@ export function buildAttention(
 		})),
 		projects: sources.projects,
 		truncated:
-			sources.truncated || requests.length >= 200 || cards.length > 300,
+			sources.truncated ||
+			requests.length >= 200 ||
+			cards.length > displayed.length,
 		unfiled: requests
 			.filter(
 				(row) => !row.projectId && !["done", "cancelled"].includes(row.status),

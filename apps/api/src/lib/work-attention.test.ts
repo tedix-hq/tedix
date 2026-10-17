@@ -55,3 +55,43 @@ describe("Attention projection", () => {
 		]);
 	});
 });
+
+it("retains Backlog when completed runs fill the overview", () => {
+	const input = sources();
+	input.skills = Array.from({ length: 100 }, (_, i) => ({
+		id: `skill-${i}`,
+		title: "Inspect",
+		who: "Ada",
+		workItemId: null,
+		projectId: null,
+		status: "completed",
+		startedAt: "2026-10-17T10:00:00Z",
+		finishedAt: "2026-10-17T11:00:00Z",
+		heartbeatAt: null,
+		note: null,
+	}));
+	input.runs = Array.from({ length: 100 }, (_, i) => ({
+		id: `run-${i}`,
+		who: "Ada",
+		status: "completed",
+		startedAt: "2026-10-17T10:00:00Z",
+		updatedAt: "2026-10-17T11:00:00Z",
+		heartbeatAt: null,
+		note: null,
+		title: "Inspect",
+	}));
+	input.backlog = Array.from({ length: 100 }, (_, i) => ({
+		id: `item-${i}`,
+		title: "Next feature",
+		projectId: null,
+		createdAt: "2026-10-17T10:00:00Z",
+	}));
+	const result = buildAttention(input, [], [], now);
+	expect(result.cards.filter((card) => card.column === "done")).toHaveLength(
+		60,
+	);
+	expect(result.cards.filter((card) => card.column === "backlog")).toHaveLength(
+		60,
+	);
+	expect(result.truncated).toBe(true);
+});
