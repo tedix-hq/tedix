@@ -76,6 +76,49 @@ const readOs = authenticatedOs.use(
 		"mcp:work.read",
 	),
 );
+const layoutReadOs = authenticatedOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Personal layout rows belong to the authenticated human or to the freshly verified active owner of its own personal tedi; no caller-selected owner is accepted",
+		},
+		"mcp:work.read",
+	),
+);
+const layoutWriteOs = authenticatedOs.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"Personal layout rows belong to the authenticated human or to the freshly verified active owner of its own personal tedi; no caller-selected owner is accepted",
+		},
+		"mcp:work.write",
+	),
+);
+
+async function requireLayoutOwner(
+	context: BaseContext,
+): Promise<{ organizationId: string; userId: string }> {
+	if (context.authType === "user") return requireBoardOwner(context);
+	const organizationId = requireOrgId(context);
+	const { resolveOsWorkspaceOwnerCandidate } =
+		await import("../../services/os-workspace-visibility");
+	const subject = await resolveOsWorkspaceOwnerCandidate(context);
+	if (!subject)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"A personal layout requires its human owner or their own active personal tedi",
+		);
+	const { getMemberByUserId } =
+		await import("@tedix/db/queries/organization-members");
+	const member = await getMemberByUserId(context.db, organizationId, subject);
+	if (member?.status !== "active" || !member.userId)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"The layout owner needs an active membership and canonical user identity",
+		);
+	return { organizationId, userId: member.userId };
+}
+
 const projectReadOs = authenticatedOs.use(
 	withAuthorization(
 		{
@@ -389,13 +432,19 @@ const updateRequestProcedure = writeOs.updateRequest.handler(
 );
 
 export const workAgentSessionsContractRouter = sessionsOs.router({
-	getAttentionLayout: readOs.getAttentionLayout.handler(async ({ context }) => {
-		const owner = requireBoardOwner(context);
-		return readAttentionLayout(context.db, owner.userId, owner.organizationId);
-	}),
-	updateAttentionLayout: writeOs.updateAttentionLayout.handler(
+	getAttentionLayout: layoutReadOs.getAttentionLayout.handler(
+		async ({ context }) => {
+			const owner = await requireLayoutOwner(context);
+			return readAttentionLayout(
+				context.db,
+				owner.userId,
+				owner.organizationId,
+			);
+		},
+	),
+	updateAttentionLayout: layoutWriteOs.updateAttentionLayout.handler(
 		async ({ context, input }) => {
-			const owner = requireBoardOwner(context);
+			const owner = await requireLayoutOwner(context);
 			const saved = await putUserConfig(context.db, {
 				userId: owner.userId,
 				namespace: ATTENTION_LAYOUT_NAMESPACE,

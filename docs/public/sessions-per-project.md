@@ -171,9 +171,10 @@ conflict instead of overwriting each other.
 
 A chat assistant acting through your authenticated connection can read
 `get_attention_layout`, then call `update_attention_layout` with the complete
-layout and its `expectedRevision`. No owner id is accepted. A worker without
-your user identity cannot edit your personal layout. The same controls are
-available as browser tools while the app is open.
+layout and its `expectedRevision`. No owner id is accepted. Your own active
+personal tedi can edit the same row: Tedix checks its owner binding and the
+owner's active membership on each call. A tedi cannot select another owner.
+The same controls are available as browser tools while the app is open.
 
 A workspace app with manifest entry `tedix:app/attention` embeds the same
 renderer. It shows the workspace's linked projects, its factory executions and
