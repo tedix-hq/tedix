@@ -9,11 +9,15 @@ import { cn } from "@/lib/utils";
 type TextareaProps = InputAreaProps;
 
 const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-	({ className, ...props }, ref) => (
+	({ className, rows = 3, ...props }, ref) => (
 		<KumoTextarea
 			ref={ref}
+			rows={rows}
 			data-kumo-component="Textarea"
-			className={cn("min-h-20 w-full resize-y type-tedix-body", className)}
+			className={cn(
+				"min-h-0 field-sizing-content w-full resize-y type-tedix-body",
+				className,
+			)}
 			{...props}
 		/>
 	),

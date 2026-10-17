@@ -59,7 +59,7 @@ function PopoverContent({
 			>
 				<PopoverPrimitive.Popup
 					className={cn(
-						"kumo-popover-popup flex origin-(--transform-origin) flex-col rounded-lg bg-kumo-base px-4 py-3 text-kumo-default type-tedix-body shadow-tedix-floating outline outline-kumo-line",
+						"kumo-popover-popup max-h-[var(--available-height)] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain flex origin-(--transform-origin) flex-col rounded-lg bg-kumo-base px-4 py-3 text-kumo-default type-tedix-body shadow-tedix-floating outline outline-kumo-line",
 						"transition-[transform,scale,opacity] duration-tedix-standard ease-tedix-standard motion-reduce:transition-none data-ending-style:scale-90 data-starting-style:scale-90 data-ending-style:opacity-0 data-starting-style:opacity-0 data-[instant]:duration-0",
 						className,
 					)}

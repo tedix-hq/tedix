@@ -133,7 +133,7 @@ export function ApprovalNotifications({
 				className="grid max-h-[min(36rem,var(--available-height))] w-[min(28rem,calc(100vw-2rem))] gap-3 overflow-y-auto p-3"
 				side="bottom"
 			>
-				<div className="grid gap-1">
+				<div className="sticky -top-3 z-10 -mx-3 -mt-3 grid gap-1 border-b border-kumo-line bg-kumo-base p-3">
 					<PopoverTitle className="m-0 uppercase tracking-wide text-kumo-subtle type-tedix-caption font-semibold">
 						Action approvals
 					</PopoverTitle>
