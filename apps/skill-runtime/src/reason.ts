@@ -142,6 +142,7 @@ export class ReasonBridge extends WorkerEntrypoint<
 		let raw = "";
 		let modelIdentity: { provider: string; model: string } | null = null;
 		let failure: string | null = null;
+		let replyShape: Record<string, unknown> | null = null;
 		try {
 			const request = {
 				namespace: REASON_NAMESPACE,
@@ -159,6 +160,19 @@ export class ReasonBridge extends WorkerEntrypoint<
 			);
 			raw = extractAssistantText(result);
 			modelIdentity = extractModelIdentity(result);
+			if (!raw.trim()) {
+				const payload = (result ?? {}) as Record<string, unknown>;
+				const nested = payload.result;
+				replyShape = {
+					type: typeof result,
+					keys: Object.keys(payload).slice(0, 20),
+					nestedType: typeof nested,
+					nestedKeys:
+						nested && typeof nested === "object"
+							? Object.keys(nested).slice(0, 20)
+							: [],
+				};
+			}
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);
 		}
@@ -180,6 +194,7 @@ export class ReasonBridge extends WorkerEntrypoint<
 				reply: raw.slice(0, REASON_REPLY_SEAL_CHARS),
 				replyChars: raw.length,
 				replyTruncated: raw.length > REASON_REPLY_SEAL_CHARS,
+				...(replyShape ? { replyShape } : {}),
 				...(failure ? { error: failure.slice(0, 1_000) } : {}),
 			},
 		});
