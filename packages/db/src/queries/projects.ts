@@ -9,7 +9,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { workAgentSessions } from "../schema/work-agent-sessions";
@@ -49,6 +49,7 @@ export interface CreateProjectParams {
 
 export interface ListProjectsOptions {
 	orgId: string;
+	excludeProjectId?: string;
 	status?: ProjectStatus;
 	search?: string;
 	limit?: number;
@@ -148,6 +149,8 @@ export async function listProjects(
 ): Promise<{ data: Project[]; total: number }> {
 	const { limit = 50, offset = 0 } = options;
 	const conditions = [eq(projects.orgId, options.orgId)];
+	if (options.excludeProjectId)
+		conditions.push(ne(projects.id, options.excludeProjectId));
 	if (options.status) conditions.push(eq(projects.status, options.status));
 	const search = options.search?.trim();
 	if (search) {

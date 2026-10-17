@@ -20,6 +20,7 @@
  */
 
 import { implement } from "@orpc/server";
+import { excludedAgentReviewProjectId } from "../../services/agent-review-access";
 import { projectMetadataForUpdate } from "../../lib/project-metadata";
 import {
 	ProjectHealthJudgmentSchema,
@@ -232,8 +233,10 @@ const listProcedure = authOs.list
 		const orgId = requireOrgIdOrInput(context, input?.organizationId);
 		const limit = input?.limit ?? 50;
 		const offset = input?.offset ?? 0;
+		const excludeProjectId = await excludedAgentReviewProjectId(context, orgId);
 		const { data, total } = await listProjects(context.db, {
 			orgId,
+			...(excludeProjectId ? { excludeProjectId } : {}),
 			status: input?.status,
 			search: input?.search,
 			limit,
