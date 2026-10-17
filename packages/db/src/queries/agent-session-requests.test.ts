@@ -7,6 +7,7 @@ import {
 	agentSessionEvents,
 } from "../schema/agent-session-requests";
 import { createD1Facade } from "../test/d1-facade";
+import { workInteractions } from "../schema/work-factory";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	listAgentSessionActivity,
@@ -34,6 +35,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(agentSessionRequests));
 	sqlite.exec(schemaDdl(agentSessionEvents));
+	sqlite.exec(schemaDdl(workInteractions));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 

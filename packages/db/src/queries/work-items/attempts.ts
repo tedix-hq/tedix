@@ -6,6 +6,7 @@ import {
 } from "@tedix/api-contract/schemas/work-items";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { prepareLaneHandoff, laneHandoffStatements } from "./lane-handoffs";
 import { workAttemptFailureReason } from "./attempt-failure";
 import {
 	type WorkAttempt,
@@ -829,14 +830,53 @@ export async function settleWorkItemAttempt(
 		externalSessionKey?: string;
 		outcome: WorkAttemptOutcome;
 		summary?: string;
+		needsUser?: string;
+		requestId?: string;
 		metadata?: Record<string, JsonValue>;
 		repositoryLifecycle?: WorkAttemptRepositoryLifecycle;
 		/** Spend committed by this Attempt, in micros; replaces any running total. */
 		costMicros?: number;
 		settledAt?: string;
 	},
-): Promise<{ workItem: WorkItem; attempt: WorkAttempt }> {
+): Promise<{
+	workItem: WorkItem;
+	attempt: WorkAttempt;
+	interactionId?: string;
+}> {
 	const settledAt = params.settledAt ?? new Date().toISOString();
+	if (params.needsUser) {
+		const [settled] = await db
+			.select()
+			.from(workAttempts)
+			.where(
+				and(
+					eq(workAttempts.orgId, params.orgId),
+					eq(workAttempts.workItemId, params.workItemId),
+					eq(workAttempts.id, params.attemptId),
+					eq(workAttempts.executorType, params.executor.type),
+					eq(workAttempts.executorId, params.executor.id),
+					params.sessionId
+						? eq(workAttempts.executorSessionId, params.sessionId)
+						: isNull(workAttempts.executorSessionId),
+					params.externalSessionKey
+						? eq(workAttempts.externalSessionKey, params.externalSessionKey)
+						: isNull(workAttempts.externalSessionKey),
+					eq(workAttempts.outcome, params.outcome),
+					sql`json_extract(${workAttempts.metadata},'$.laneHandoff.nextClick')=${params.needsUser.trim()}`,
+					sql`json_extract(${workAttempts.metadata},'$.laneHandoff.requestId') IS ${params.requestId ?? null}`,
+					sql`EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${workAttempts.orgId} AND i.work_item_id=${workAttempts.workItemId} AND i.id=json_extract(${workAttempts.metadata},'$.laneHandoff.interactionId'))`,
+				),
+			)
+			.limit(1);
+		if (settled) {
+			const receipt = settled.metadata.laneHandoff as { interactionId: string };
+			return {
+				workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
+				attempt: settled,
+				interactionId: receipt.interactionId,
+			};
+		}
+	}
 	const failureReason =
 		params.outcome === "failed"
 			? workAttemptFailureReason(params.summary, params.metadata)
@@ -864,6 +904,18 @@ export async function settleWorkItemAttempt(
 		});
 		const runtimeState: WorkAttemptRuntimeState =
 			params.outcome === "succeeded" ? "finished" : params.outcome;
+		const work = params.needsUser
+			? await getScopedWorkItem(db, params.orgId, params.workItemId)
+			: null;
+		const handoff = work
+			? await prepareLaneHandoff(db, {
+					work,
+					attempt: prior,
+					nextClick: params.needsUser!,
+					requestId: params.requestId,
+					now: settledAt,
+				})
+			: null;
 		const settlementMetadata = buildWorkAttemptSettlementMetadata({
 			priorMetadata: prior.metadata,
 			metadata: failureReason
@@ -880,7 +932,16 @@ export async function settleWorkItemAttempt(
 				outcome: params.outcome,
 				summary,
 				finishedAt: settledAt,
-				metadata: settlementMetadata,
+				metadata: handoff
+					? {
+							...settlementMetadata,
+							laneHandoff: {
+								interactionId: handoff.interactionId,
+								nextClick: handoff.nextClick,
+								requestId: params.requestId ?? null,
+							},
+						}
+					: settlementMetadata,
 				version: sql`${workAttempts.version} + 1`,
 			})
 			.where(
@@ -968,12 +1029,22 @@ export async function settleWorkItemAttempt(
 			releaseResources,
 			consumeBudgets,
 			settleEvent,
+			...(handoff && work
+				? laneHandoffStatements(db, {
+						work,
+						attempt: prior,
+						handoff,
+						summary,
+						now: settledAt,
+					})
+				: []),
 		]);
 		const attempt = settledRows[0];
 		if (attempt)
 			return {
 				workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
 				attempt,
+				...(handoff ? { interactionId: handoff.interactionId } : {}),
 			};
 		if (tries >= SETTLE_VERSION_RETRIES)
 			throw new WorkFactoryError(

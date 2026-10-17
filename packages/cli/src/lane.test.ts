@@ -25,3 +25,10 @@ describe("lane attribution and dispatch", () => {
 		expect(text).toContain("own Codex/Claude session");
 	});
 });
+
+it("rejects a blank human next click before connecting or settling Work", async () => {
+	const { runLane } = await import("./lane");
+	await expect(runLane(["done", "--needs-user", "   "])).rejects.toThrow(
+		"exact next click",
+	);
+});

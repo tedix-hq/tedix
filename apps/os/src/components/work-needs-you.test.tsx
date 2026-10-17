@@ -429,3 +429,38 @@ describe("Needs you rows explain themselves", () => {
 		expect(html).not.toContain("5a7c0de1");
 	});
 });
+
+it("gives a lane's human ask Done and Snooze actions instead of another ask", () => {
+	const row = {
+		...request(42, "question", "Confirm address"),
+		canRespond: true,
+	};
+	row.request.metadata = { laneHandoff: { nextClick: "Confirm address" } };
+	const items = needsYouItems({ viewerId: VIEWER, interactions: [row] });
+	expect(items[0]?.action).toMatchObject({
+		type: "lane",
+		requestId: row.request.id,
+		version: row.request.version,
+	});
+	const html = renderToStaticMarkup(
+		<QueryClientProvider client={new QueryClient()}>
+			<NeedsYouList items={items} onApprove={() => {}} onHandoff={() => {}} />
+		</QueryClientProvider>,
+	);
+	expect(html).toContain("Done");
+	expect(html).toContain("Snooze 1 day");
+});
+
+it("counts the Interaction once and keeps its snoozed ledger row from becoming a second ask", () => {
+	const ledger = {
+		status: "waiting_on_user",
+		evidence: "/work/interactions/example",
+	};
+	expect(needsYouSourceCount({ sessionRequests: [ledger] })).toBe(0);
+	expect(
+		needsYouSourceCount({
+			sessionRequests: [ledger],
+			interactions: [request(1, "question", "Review the reply")],
+		}),
+	).toBe(1);
+});

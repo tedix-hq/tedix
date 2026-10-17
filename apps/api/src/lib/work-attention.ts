@@ -19,7 +19,32 @@ export function buildAttention(
 	const representedSessions = new Set<string>();
 	const representedRuns = new Set<string>();
 	const representedItems = new Set<string>();
+	for (const row of sources.waiting ?? []) {
+		if (row.creatorSession) representedSessions.add(row.creatorSession);
+		cards.push({
+			id: row.id,
+			title: row.subject,
+			projectId:
+				row.projectId ??
+				sources.attempts.find((a) => a.workItemId === row.workItemId)
+					?.projectId ??
+				null,
+			who: "Needs you",
+			column: "waiting",
+			startedAt: row.createdAt,
+			heartbeatAt: null,
+			note: row.prompt,
+			href: `/work/interactions/${row.id}`,
+			source: "interaction",
+		});
+		if (row.workItemId) representedItems.add(row.workItemId);
+	}
 	for (const row of sources.attempts) {
+		if ((sources.waiting ?? []).some((r) => r.workItemId === row.workItemId)) {
+			if (row.session) representedSessions.add(row.session);
+			if (row.runId) representedRuns.add(row.runId);
+			continue;
+		}
 		if (row.outcome && !today(row.finishedAt)) continue;
 		if (row.session) representedSessions.add(row.session);
 		if (row.runId) representedRuns.add(row.runId);

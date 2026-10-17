@@ -434,3 +434,22 @@ test("lane dispatch names the server request and requires fresh admission", () =
 	expect(notice.content).toContain("server readiness");
 	expect(notice.content).toContain("own lane Attempt");
 });
+
+test("a private human ask says Needs you in both host channels and points to its authorized reader", () => {
+	const event = {
+		eventId: "ask-event",
+		name: "work.interaction.requested",
+		timestamp: "2026-10-17T08:00:00Z",
+		data: {
+			request_id: ITEM,
+			target_type: "user",
+			target_id: "person",
+			kind: "question",
+		},
+	};
+	expect(channelNotice(event).content).toContain("Needs you:");
+	expect(channelNotice(event).content).toContain(
+		`tedix work interaction-get ${ITEM}`,
+	);
+	expect(codexEventMessage([event])).toContain("Needs you:");
+});

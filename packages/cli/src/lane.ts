@@ -13,7 +13,7 @@ import { getCurrentWorkspace } from "./credential-store";
 import { selfCommand } from "./shared";
 
 export const laneUsage = `tedix lane start "<title>" --project <id> [--work-item <id>]
-tedix lane done|fail "<note>" [--commit <sha> ...]
+tedix lane done|fail "<note>" [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
 
 Run inside the lane's own Codex/Claude session after tedix agent start.
 Uses normal Work admission and a session-scoped pointer; never inherits a launcher's
@@ -38,6 +38,7 @@ type Lane = {
 	scope: string[];
 	session: string;
 	phase?: "created" | "accepted" | "running" | "settled";
+	result?: Record<string, unknown>;
 };
 function lanePath(session: string, scope: string[], env: NodeJS.ProcessEnv) {
 	const dir = join(env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"), "lanes");
@@ -77,6 +78,7 @@ export async function runLane(args: string[]): Promise<number> {
 		scope: string[] = [],
 		commits: string[] = [];
 	let project: string | undefined, existing: string | undefined;
+	let needsUser: string | undefined, requestId: string | undefined;
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i]!;
 		if (
@@ -87,6 +89,8 @@ export async function runLane(args: string[]): Promise<number> {
 				"--project",
 				"--work-item",
 				"--commit",
+				"--needs-user",
+				"--request-id",
 			].includes(arg)
 		) {
 			const value = args[++i];
@@ -95,6 +99,11 @@ export async function runLane(args: string[]): Promise<number> {
 			if (arg === "--project") project = value;
 			else if (arg === "--work-item") existing = value;
 			else if (arg === "--commit") commits.push(value);
+			else if (arg === "--needs-user") {
+				needsUser = value.trim();
+				if (!needsUser)
+					throw new Error("--needs-user needs an exact next click");
+			} else if (arg === "--request-id") requestId = value;
 			else scope.push(arg === "-w" ? "--workspace" : arg, value);
 		} else if (arg.startsWith("--"))
 			throw new Error(`Unknown lane option ${arg}`);
@@ -123,7 +132,8 @@ export async function runLane(args: string[]): Promise<number> {
 		lane = JSON.parse(readFileSync(path, "utf8")) as Lane;
 	} catch {}
 	const [verb, ...words] = positional;
-	const note = words.join(" ").trim();
+	const note =
+		words.join(" ").trim() || (needsUser ? "Lane result ready." : "");
 	if (verb === "start") {
 		if (!note || !project)
 			throw new Error("lane start requires a title and --project");
@@ -174,7 +184,7 @@ export async function runLane(args: string[]): Promise<number> {
 		if (!lane?.id || !note)
 			throw new Error("lane settlement needs a registered lane and note");
 		if (lane.phase !== "settled") {
-			work(
+			lane.result = work(
 				[
 					"settle",
 					lane.id,
@@ -183,6 +193,8 @@ export async function runLane(args: string[]): Promise<number> {
 					"--note",
 					note,
 					...commits.flatMap((sha) => ["--commit", sha]),
+					...(needsUser ? ["--needs-user", needsUser] : []),
+					...(requestId ? ["--request-id", requestId] : []),
 				],
 				lane,
 			);
@@ -190,7 +202,9 @@ export async function runLane(args: string[]): Promise<number> {
 			writeFileSync(path, JSON.stringify(lane), { mode: 0o600 });
 		}
 		unlinkSync(path);
-		console.log(JSON.stringify({ id: lane.id, outcome: verb }));
+		console.log(
+			JSON.stringify({ id: lane.id, outcome: verb, result: lane.result }),
+		);
 	} else if (verb === "heartbeat") {
 		if (lane?.id) work(["heartbeat", lane.id], lane);
 	} else throw new Error(laneUsage);

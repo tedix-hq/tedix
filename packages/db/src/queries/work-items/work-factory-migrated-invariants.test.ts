@@ -37,6 +37,7 @@ import { proposeWorkApproval } from "./approvals";
 import {
 	heartbeatWorkItemAttempt,
 	startWorkItemAttempt,
+	settleWorkItemAttempt,
 	sweepElapsedWorkAttempts,
 } from "./attempts";
 import {
@@ -52,6 +53,12 @@ import {
 	reviewWorkInteraction,
 } from "./interactions";
 import { boundSchedulerFactChunks, listReadyWork } from "./scheduler";
+import { nudgeLaneHandoffs } from "./lane-handoffs";
+import {
+	listDueWorkInteractionReviews,
+	listRequestedWorkInteractionEvents,
+	listWorkInteractionInbox,
+} from "./interactions";
 import {
 	linkWorkItemToMilestone,
 	listWorkMilestoneViews,
@@ -1990,4 +1997,269 @@ it("runs digests and owner follow-through with migrated D1 guards", async () => 
 	expect(receipt.metadata.followThrough).toMatchObject({
 		receipt: { responseId: "answer", evidenceId: "action" },
 	});
+});
+
+async function laneFixture() {
+	const sqlite = migrated();
+	seedCore(sqlite);
+	seedTedi(sqlite);
+	sqlite.exec(
+		"UPDATE work_items SET accountable_owner_type='user',accountable_owner_id='user',source_session_key='codex:lead' WHERE id='work'; UPDATE tedis SET status='active' WHERE id='tedi'",
+	);
+	admitWithCapacity(sqlite);
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const { attempt } = await startWorkItemAttempt(db, {
+		orgId: "org",
+		workItemId: "work",
+		executor: { type: "tedi", id: "tedi" },
+		admissionId: "admission",
+		startedAt: "2026-08-20T00:10:00.000Z",
+		expiresAt: "2026-08-20T02:00:00.000Z",
+	});
+	const settle = () =>
+		settleWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "work",
+			attemptId: attempt.id,
+			executor: { type: "tedi", id: "tedi" },
+			outcome: "succeeded",
+			summary: "Draft prepared: /docs/example-reply",
+			needsUser: "Confirm the address and send the reply",
+			settledAt: "2026-08-20T00:20:00.000Z",
+		});
+	return { sqlite, db, attempt, settle };
+}
+
+describe("lane human handoffs with production triggers", () => {
+	it("settles atomically, addresses the requester, preserves Work, and replays one receipt", async () => {
+		const { sqlite, settle, db } = await laneFixture();
+		const result = await settle();
+		expect(result.workItem.disposition).toBe("accepted");
+		const ask = sqlite
+			.prepare("SELECT * FROM work_interactions WHERE id=?")
+			.get(result.interactionId!)!;
+		expect(ask.target_id).toBe("user");
+		expect(ask.prompt).toContain("/docs/example-reply");
+		expect(ask.prompt).toContain("/work/items/work");
+		expect(JSON.parse(String(ask.metadata)).followThrough.reviewAt).toBe(
+			"2026-08-27T00:20:00.000Z",
+		);
+		expect(
+			sqlite
+				.prepare("SELECT status,evidence FROM agent_session_requests")
+				.get(),
+		).toEqual({
+			status: "waiting_on_user",
+			evidence: `/work/interactions/${result.interactionId}`,
+		});
+		expect((await settle()).interactionId).toBe(result.interactionId);
+		expect(
+			sqlite.prepare("SELECT count(*) n FROM work_interactions").get()!.n,
+		).toBe(1);
+		expect(
+			(
+				await listRequestedWorkInteractionEvents(db, {
+					orgId: "org",
+					after: null,
+					targetId: "user",
+					limit: 10,
+				})
+			).length,
+		).toBe(1);
+	});
+	it("reuses an equivalent existing human ask", async () => {
+		const { db, sqlite, settle } = await laneFixture();
+		await createWorkInteraction(db, {
+			id: "existing-ask",
+			orgId: "org",
+			workItemId: "work",
+			kind: "question",
+			subject: "Confirm the address and send the reply",
+			prompt: "Ready for your review",
+			creator: { type: "tedi", id: "tedi" },
+			targetType: "user",
+			targetId: "user",
+			now: "2026-08-20T00:15:00.000Z",
+		});
+		expect((await settle()).interactionId).toBe("existing-ask");
+		expect(
+			sqlite.prepare("SELECT count(*) n FROM work_interactions").get()!.n,
+		).toBe(1);
+	});
+	it("rolls settlement back if the ask cannot be persisted", async () => {
+		const { sqlite, settle, attempt } = await laneFixture();
+		sqlite.exec(
+			"CREATE TRIGGER reject_lane_ask BEFORE INSERT ON work_interactions BEGIN SELECT RAISE(ABORT,'ask rejected'); END",
+		);
+		await expect(settle()).rejects.toThrow("ask rejected");
+		expect(
+			sqlite
+				.prepare("SELECT outcome FROM work_attempts WHERE id=?")
+				.get(attempt.id)!.outcome,
+		).toBeNull();
+		expect(
+			sqlite.prepare("SELECT count(*) n FROM agent_session_requests").get()!.n,
+		).toBe(0);
+	});
+	it("nudges only after 24h, once per morning per ask, and asks its owner to review after seven days", async () => {
+		const { db, settle } = await laneFixture();
+		await settle();
+		expect(await nudgeLaneHandoffs(db, "2026-08-20T08:00:00.000Z")).toBe(0);
+		expect(await nudgeLaneHandoffs(db, "2026-08-21T07:59:00.000Z")).toBe(0);
+		expect(await nudgeLaneHandoffs(db, "2026-08-21T08:00:00.000Z")).toBe(1);
+		expect(await nudgeLaneHandoffs(db, "2026-08-21T10:00:00.000Z")).toBe(0);
+		expect(await nudgeLaneHandoffs(db, "2026-08-22T08:00:00.000Z")).toBe(1);
+		expect(await nudgeLaneHandoffs(db, "2026-08-27T08:00:00.000Z")).toBe(0);
+		expect(
+			await listDueWorkInteractionReviews(db, "2026-08-26T08:00:00.000Z"),
+		).toHaveLength(0);
+		expect(
+			await listDueWorkInteractionReviews(db, "2026-08-27T08:00:00.000Z"),
+		).toHaveLength(1);
+	});
+	it("snoozes for exactly one day, then Done resolves the ask and ledger with the response fence", async () => {
+		const { db, sqlite, settle } = await laneFixture();
+		const { interactionId } = await settle();
+		await respondToWorkInteraction(db, {
+			id: "snooze",
+			orgId: "org",
+			interactionId: interactionId!,
+			expectedVersion: 1,
+			responder: { type: "user", id: "user" },
+			responseKind: "answer",
+			body: "Snoozed",
+			resolvesRequest: false,
+			metadata: { laneAction: "snooze" },
+			now: "2026-08-21T08:00:00.000Z",
+		});
+		expect(await nudgeLaneHandoffs(db, "2026-08-21T08:02:00.000Z")).toBe(0);
+		expect(
+			(
+				await listWorkInteractionInbox(db, {
+					orgId: "org",
+					targetType: "user",
+					targetId: "user",
+					observedAt: "2026-08-21T09:00:00.000Z",
+				})
+			).data,
+		).toHaveLength(0);
+		expect(await nudgeLaneHandoffs(db, "2026-08-22T08:00:00.000Z")).toBe(1);
+		await expect(
+			respondToWorkInteraction(db, {
+				id: "stale",
+				orgId: "org",
+				interactionId: interactionId!,
+				expectedVersion: 1,
+				responder: { type: "user", id: "user" },
+				responseKind: "answer",
+				body: "Done",
+				resolvesRequest: true,
+				metadata: { laneAction: "done" },
+				now: "2026-08-22T08:01:00.000Z",
+			}),
+		).rejects.toThrow();
+		await respondToWorkInteraction(db, {
+			id: "done",
+			orgId: "org",
+			interactionId: interactionId!,
+			expectedVersion: 2,
+			responder: { type: "user", id: "user" },
+			responseKind: "answer",
+			body: "Done",
+			resolvesRequest: true,
+			metadata: { laneAction: "done" },
+			now: "2026-08-22T08:02:00.000Z",
+		});
+		expect(
+			sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id=?")
+				.get(interactionId!)!.status,
+		).toBe("resolved");
+		expect(
+			sqlite.prepare("SELECT status FROM agent_session_requests").get()!.status,
+		).toBe("done");
+		expect(await nudgeLaneHandoffs(db, "2026-08-23T08:00:00.000Z")).toBe(0);
+	});
+	it("rejects a different executor and a stale lease without creating an ask", async () => {
+		const { db, attempt, sqlite } = await laneFixture();
+		await expect(
+			settleWorkItemAttempt(db, {
+				orgId: "org",
+				workItemId: "work",
+				attemptId: attempt.id,
+				executor: { type: "tedi", id: "other" },
+				outcome: "succeeded",
+				needsUser: "Review",
+				settledAt: "2026-08-20T00:20:00.000Z",
+			}),
+		).rejects.toThrow("authoritative");
+		await expect(
+			settleWorkItemAttempt(db, {
+				orgId: "org",
+				workItemId: "work",
+				attemptId: attempt.id,
+				executor: { type: "tedi", id: "tedi" },
+				outcome: "succeeded",
+				needsUser: "Review",
+				settledAt: "2026-08-21T00:20:00.000Z",
+			}),
+		).rejects.toThrow("authoritative");
+		expect(
+			sqlite.prepare("SELECT count(*) n FROM work_interactions").get()!.n,
+		).toBe(0);
+	});
+});
+
+it("updates the original request and prevents the observer from overruling the human ask", async () => {
+	const { sqlite, db, attempt } = await laneFixture();
+	sqlite.exec(
+		"INSERT INTO agent_session_requests(id,organization_id,user_id,harness,session_key,kind,text,status,source_at,source_key,status_changed_at) VALUES('original','org','user','codex','lead','request','Prepare reply','in_progress','2026-08-20T00:00:00.000Z','source-original','2026-08-20T00:00:00.000Z')",
+	);
+	const result = await settleWorkItemAttempt(db, {
+		orgId: "org",
+		workItemId: "work",
+		attemptId: attempt.id,
+		executor: { type: "tedi", id: "tedi" },
+		outcome: "succeeded",
+		needsUser: "Review the prepared reply",
+		requestId: "original",
+		settledAt: "2026-08-20T00:20:00.000Z",
+	});
+	const { updateAgentSessionRequests } =
+		await import("../agent-session-requests");
+	await updateAgentSessionRequests(db, {
+		organizationId: "org",
+		userId: "user",
+		updates: [{ id: "original", status: "done", evidence: "agent says done" }],
+		now: "2026-08-20T00:21:00.000Z",
+	});
+	expect(
+		sqlite
+			.prepare("SELECT id,status,evidence FROM agent_session_requests")
+			.all(),
+	).toEqual([
+		{
+			id: "original",
+			status: "waiting_on_user",
+			evidence: `/work/interactions/${result.interactionId}`,
+		},
+	]);
+});
+
+it("withdraws the linked waiting ledger row when the original owner closes an obsolete ask", async () => {
+	const { db, sqlite, settle } = await laneFixture();
+	const { interactionId } = await settle();
+	await reviewWorkInteraction(db, {
+		orgId: "org",
+		interactionId: interactionId!,
+		expectedVersion: 1,
+		actor: { type: "tedi", id: "tedi" },
+		action: "close",
+		note: "The draft is no longer relevant",
+		now: "2026-08-27T08:00:00.000Z",
+	});
+	expect(
+		sqlite.prepare("SELECT status FROM agent_session_requests").get()!.status,
+	).toBe("cancelled");
+	expect(await nudgeLaneHandoffs(db, "2026-08-28T08:00:00.000Z")).toBe(0);
 });

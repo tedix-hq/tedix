@@ -656,6 +656,7 @@ export async function updateAgentSessionRequests(
 					eq(agentSessionRequests.organizationId, params.organizationId),
 					eq(agentSessionRequests.userId, params.userId),
 					eq(agentSessionRequests.id, update.id),
+					sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${agentSessionRequests.organizationId} AND i.target_type='user' AND i.target_id=${agentSessionRequests.userId} AND i.status='open' AND (json_extract(i.metadata,'$.laneHandoff.requestId')=${agentSessionRequests.id} OR ${agentSessionRequests.evidence}='/work/interactions/' || i.id))`,
 				),
 			),
 	);

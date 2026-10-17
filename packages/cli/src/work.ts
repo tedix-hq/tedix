@@ -130,6 +130,8 @@ export interface WorkOptions {
 	doneWhen?: string;
 	/** `settle`: succeeded|failed|cancelled|expired. */
 	outcome?: string;
+	needsUser?: string;
+	requestId?: string;
 	/** `settle`: repeatable `--commit <sha>`; each is resolved locally. */
 	commit?: string[];
 	/** `submit-evidence`: acceptance claim key. */
@@ -2151,6 +2153,8 @@ async function workSettle(ctx: WorkContext, id: string): Promise<number> {
 			attemptId,
 			outcome,
 			...(ctx.work.note?.trim() ? { summary: ctx.work.note.trim() } : {}),
+			...(ctx.work.needsUser ? { needsUser: ctx.work.needsUser } : {}),
+			...(ctx.work.requestId ? { requestId: ctx.work.requestId } : {}),
 			...(metadata ? { metadata } : {}),
 		}),
 	);
@@ -2956,7 +2960,7 @@ Lifecycle:
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
   heartbeat <id> [--watch [seconds]]
   settle <id> --outcome succeeded|failed|cancelled|expired [--note <summary>]
-              [--commit <sha> ...]
+              [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
   complete <id>
   cancel <id> [--reason <summary>]
 
