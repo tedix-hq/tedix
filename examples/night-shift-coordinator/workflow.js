@@ -184,12 +184,14 @@ export default {
 				...new Set([
 					...config.projectIds,
 					...page.data
-						.filter((p) =>
-							[p.metadata?.labels, p.metadata?.tags].some(
-								(labels) =>
-									Array.isArray(labels) &&
-									labels.includes(config.projectLabel ?? "night-shift"),
-							),
+						.filter(
+							(p) =>
+								p.metadata?.nightShift?.enabled === true ||
+								[p.metadata?.labels, p.metadata?.tags].some(
+									(labels) =>
+										Array.isArray(labels) &&
+										labels.includes(config.projectLabel ?? "night-shift"),
+								),
 						)
 						.map((p) => p.id),
 				]),
