@@ -11,6 +11,7 @@ it("shows the exact source reply before approving its effect and keeps edits out
 	document.body.append(host);
 	const root = createRoot(host);
 	const decision = structuredClone(DECISION_DECK_EXAMPLES[0]!);
+	decision.kind = "outbound";
 	decision.preview = {
 		body: "Hello Morgan,\n\nYour source reply is ready for review.",
 	};
@@ -33,6 +34,11 @@ it("shows the exact source reply before approving its effect and keeps edits out
 		expect(host.textContent).toContain(decision.preview.body);
 		expect(host.textContent).toContain(decision.recommendation);
 		expect(host.textContent).not.toContain("Save changes");
+		expect(
+			[...host.querySelectorAll("button")].some(
+				(button) => button.textContent === "Change",
+			),
+		).toBe(false);
 	} finally {
 		await act(async () => root.unmount());
 		host.remove();
