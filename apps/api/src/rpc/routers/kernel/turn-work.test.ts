@@ -2741,6 +2741,8 @@ describe("runKernelTurnWork inbox-wake synthesis", () => {
 
 		expect(result.run.status).toBe("completed");
 		expect(result.assistantMessage.content).toBe("synthesized fallback");
+		expect(mockGenerateText.mock.calls).toHaveLength(1);
+		expect(mockGenerateText.mock.calls[0]?.[0]).not.toHaveProperty("tools");
 	});
 });
 

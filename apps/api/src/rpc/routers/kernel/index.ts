@@ -1142,22 +1142,24 @@ export async function runKernel(args: {
 				route.targetActivityId,
 			) ??
 				false);
+		const workOrder = buildDelegationWorkOrder({
+			route,
+			card,
+			userContent: content,
+			traceExcerpts: context.history
+				.slice(-4)
+				.map((message) => `${message.role}: ${message.content}`),
+			executionRequirement,
+			executionEnvironment,
+			authorityMode: earnedDelegationEnforcement,
+		});
 		delegation = {
-			workOrder: buildDelegationWorkOrder({
-				route,
-				card,
-				userContent: content,
-				traceExcerpts: context.history
-					.slice(-4)
-					.map((message) => `${message.role}: ${message.content}`),
-				executionRequirement,
-				executionEnvironment,
-				authorityMode: earnedDelegationEnforcement,
-			}),
+			workOrder,
 			decision: decideDelegationDispatch({
 				route,
 				card,
 				executionRequirement,
+				capabilityPlan: workOrder.capabilityPlan,
 				// End to end: this run's own chain depth gates whether it may
 				// delegate further (a chain past MAX_DELEGATION_DEPTH is refused).
 				delegationDepth,

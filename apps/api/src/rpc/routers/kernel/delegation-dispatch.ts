@@ -34,6 +34,7 @@ import type {
 import type {
 	DelegationAuthorityEnvelope,
 	DelegationBudget,
+	DelegationCapabilityPlan,
 	DelegationContract,
 	DelegationWorkOrder,
 	HomePlanAssignment,
@@ -52,6 +53,7 @@ import {
 } from "./delegated-stop";
 import type { HomeEffortClass, KernelRouteDecision } from "./route-schema";
 import type { TediCapabilityCard } from "./tedi-capabilities";
+import { deriveDelegationCapabilityPlan } from "./delegation-capabilities";
 
 export type { DelegationWorkOrder };
 
@@ -161,14 +163,20 @@ function classifyCapabilities(
 	route: KernelRouteDecision,
 ): ExecutionCapability[] {
 	const capabilities = new Set<ExecutionCapability>();
-	const requestedContent = content.replace(NEGATED_CAPABILITY_CLAUSE, " ");
+	const requestedContent = content
+		.replace(NEGATED_CAPABILITY_CLAUSE, " ")
+		.replace(/https?:\/\/\S+/gi, " ");
 	for (const signal of CAPABILITY_SIGNALS) {
 		if (signal.pattern.test(requestedContent))
 			capabilities.add(signal.capability);
 	}
 	for (const toolId of route.plannedToolIds) {
 		const value = toolId.toLowerCase();
-		if (value.includes("browser")) capabilities.add("browser_session");
+		if (
+			value.includes("browser") &&
+			!["browser_markdown", "browser_read_result"].includes(value)
+		)
+			capabilities.add("browser_session");
 		if (value.includes("deploy")) capabilities.add("deploy");
 		if (MANAGED_JOB_TOOL.test(value)) capabilities.add("data");
 		if (/(?:^|[.:])(?:open_computer|close_computer)$/.test(value))
@@ -240,7 +248,10 @@ export function deriveExecutionRequirement(
 			satisfiable: true,
 		};
 	}
-	if (route.effortClass === "embodied") {
+	if (
+		route.effortClass === "embodied" &&
+		!(requiredCapabilities.length === 0 && /https?:\/\//i.test(content))
+	) {
 		return {
 			surface: "workstation",
 			requiredCapabilities,
@@ -479,6 +490,20 @@ export function renderDelegationWorkOrderMessage(input: {
 	if (failurePolicy) lines.push(`Failure policy: ${failurePolicy}`);
 	if (verifyCommand) lines.push(...verificationRequirementLines(verifyCommand));
 	if (workItemId) lines.push(`Work Item: ${workItemId}`);
+	const capabilityPlan = recordField(workOrder, "capabilityPlan");
+	if (capabilityPlan) {
+		lines.push(
+			`Required capabilities: ${stringListField(capabilityPlan, "requiredCapabilities").join(", ")}.`,
+		);
+		lines.push(
+			`Granted tools (subject to executor policy): ${stringListField(capabilityPlan, "allowedToolIds").join(", ") || "none"}.`,
+		);
+		const missing = stringListField(capabilityPlan, "missingCapabilities");
+		if (missing.length)
+			lines.push(
+				`Capability gap: ${missing.join(", ")}; stop and return to Home for rerouting.`,
+			);
+	}
 	if (toolGuidance.length > 0) {
 		lines.push("Tool guidance:");
 		for (const item of toolGuidance) lines.push(`- ${item}`);
@@ -593,11 +618,18 @@ export function buildDelegationWorkOrder(input: {
 	const executionRequirement =
 		input.executionRequirement ??
 		deriveExecutionRequirement(userContent, route);
+	const capabilityPlan = deriveDelegationCapabilityPlan({
+		content: userContent,
+		route,
+		requirement: executionRequirement,
+		card,
+	});
 	const authorityEnvelope = card
 		? selectDelegationAuthorityEnvelope({
 				card,
 				route,
 				executionRequirement,
+				capabilityPlan,
 				environment: input.executionEnvironment ?? "production",
 			})
 		: null;
@@ -788,6 +820,7 @@ export function buildDelegationWorkOrder(input: {
 		outputContract,
 		status: "draft",
 		toolGuidance,
+		...(capabilityPlan ? { capabilityPlan } : {}),
 		boundaries,
 		executionRequirement,
 		sourceContent,
@@ -1040,10 +1073,13 @@ export function selectDelegationAuthorityEnvelope(input: {
 	card: TediCapabilityCard;
 	route: KernelRouteDecision;
 	executionRequirement?: ExecutionRequirement;
+	capabilityPlan?: DelegationCapabilityPlan;
 	environment: string;
 }): DelegationAuthorityEnvelope | null {
 	const action = "kernel.receive_delegation";
-	const plannedToolIds = input.route.plannedToolIds;
+	const plannedToolIds =
+		input.capabilityPlan?.allowedToolIds ?? input.route.plannedToolIds;
+	if (input.capabilityPlan?.missingCapabilities.length) return null;
 	const surfaceToolIds =
 		input.executionRequirement?.surface === "managed_job"
 			? [
@@ -1172,6 +1208,7 @@ export function hasMatchingDelegationEntrustment(input: {
 	card: TediCapabilityCard;
 	route: KernelRouteDecision;
 	executionRequirement?: ExecutionRequirement;
+	capabilityPlan?: DelegationCapabilityPlan;
 	environment: string;
 }): boolean {
 	return selectDelegationAuthorityEnvelope(input) !== null;
@@ -1270,6 +1307,7 @@ export function decideDelegationDispatch(input: {
 	card: TediCapabilityCard | null;
 	speaker: { approvalAuthority?: boolean } | null;
 	executionRequirement?: ExecutionRequirement;
+	capabilityPlan?: DelegationCapabilityPlan;
 	/**
 	 * Layered gating policy (precedence session → tedi → org, deny short-circuits,
 	 * fail-closed). All fields optional; when none are present the layered check
@@ -1304,6 +1342,14 @@ export function decideDelegationDispatch(input: {
 	delegationDepth?: number;
 }): DispatchDecision {
 	const { route, card, speaker } = input;
+	if (input.capabilityPlan?.missingCapabilities.length) {
+		return {
+			canAutoDispatch: false,
+			mode: "blocked",
+			reason: `capability gap: ${input.capabilityPlan.missingCapabilities.join(", ")}; Home must reroute to an executor with an exact catalog mapping`,
+			failure: { category: "capability", retryable: false },
+		};
+	}
 
 	// Depth bound (fail closed, before the capability verdict): a delegation
 	// chain deeper than MAX_DELEGATION_DEPTH is refused as a policy failure —
@@ -1353,6 +1399,7 @@ export function decideDelegationDispatch(input: {
 			card,
 			route,
 			executionRequirement: input.executionRequirement,
+			capabilityPlan: input.capabilityPlan,
 			environment: input.executionEnvironment ?? "production",
 		});
 	// Earned authority is a hard ceiling in enforce mode, including in open-

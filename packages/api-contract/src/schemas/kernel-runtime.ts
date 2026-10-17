@@ -239,6 +239,19 @@ export type DelegationContract = z.infer<typeof DelegationContractSchema>;
 /** Operator-supplied verify command carried by a delegation (bounded). */
 export const DelegationVerifyCommandSchema = z.string().trim().min(1).max(500);
 
+/** Request-derived ceiling intersected with the executor's existing authority. */
+export const DelegationCapabilityPlanSchema = z.object({
+	version: z.literal("delegation-capabilities.v1"),
+	requiredCapabilities: z.array(z.string().min(1)).max(64),
+	allowedToolIds: z.array(z.string().min(1)).max(64),
+	missingCapabilities: z.array(z.string().min(1)).max(64),
+	urls: z.array(z.url()).max(64),
+	outputIds: z.array(z.uuid()).max(64),
+});
+export type DelegationCapabilityPlan = z.infer<
+	typeof DelegationCapabilityPlanSchema
+>;
+
 export const DelegationWorkOrderSchema = z.object({
 	id: z.string().optional(),
 	approvalRequestId: z.string().optional(),
@@ -251,6 +264,7 @@ export const DelegationWorkOrderSchema = z.object({
 	objective: z.string(),
 	outputContract: z.string(),
 	toolGuidance: z.array(z.string()).default([]),
+	capabilityPlan: DelegationCapabilityPlanSchema.optional(),
 	boundaries: z.array(z.string()).default([]),
 	executionRequirement: ExecutionRequirementSchema,
 	contract: DelegationContractSchema,
