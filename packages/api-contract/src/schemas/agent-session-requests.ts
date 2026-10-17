@@ -83,6 +83,17 @@ export const AgentSessionEventSchema = z.strictObject({
 
 export const RecordAgentSessionEventsInputSchema = z.strictObject({
 	events: z.array(AgentSessionEventSchema).min(1).max(20),
+	rebuildFailedSession: z
+		.strictObject({
+			harness: WorkAgentSessionHarnessSchema,
+			sessionKey: SessionKeySchema,
+			expectedEvents: z.number().int().min(1),
+			expectedRequests: z.number().int().nonnegative(),
+		})
+		.optional()
+		.describe(
+			"Explicitly discard this caller-owned failed session’s derived request rows and replay all its immutable events. Requires exact current counts, a failed event, and no processing leases. Other sessions are untouched. Export rows before rebuilding.",
+		),
 	retryFailed: z
 		.boolean()
 		.optional()
@@ -93,6 +104,7 @@ export const RecordAgentSessionEventsInputSchema = z.strictObject({
 
 export const RecordAgentSessionEventsResultSchema = z.strictObject({
 	accepted: z.number().int().nonnegative(),
+	rebuilt: z.number().int().nonnegative().optional(),
 	duplicates: z
 		.number()
 		.int()

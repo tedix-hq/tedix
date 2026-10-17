@@ -46,6 +46,8 @@ import {
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
 	retryFailedAgentSessionEvents,
+	rebuildFailedAgentSession,
+	type RebuildFailedAgentSessionParams,
 	settleAgentSessionEvent,
 	updateAgentSessionRequests,
 } from "@tedix/db/queries/agent-session-requests";
@@ -632,6 +634,10 @@ export async function acceptAgentSessionEvents(
 		organizationId: string;
 		userId: string;
 		retryFailed?: boolean;
+		rebuildFailedSession?: Omit<
+			RebuildFailedAgentSessionParams,
+			"organizationId" | "userId"
+		>;
 		events: ReadonlyArray<{
 			kind: AgentSessionEventKind;
 			harness: WorkAgentSessionHarness;
@@ -643,7 +649,21 @@ export async function acceptAgentSessionEvents(
 		}>;
 		now: string;
 	},
-): Promise<{ accepted: number; duplicates: number; retried?: number }> {
+): Promise<{
+	accepted: number;
+	duplicates: number;
+	retried?: number;
+	rebuilt?: number;
+}> {
+	const rebuilt = input.rebuildFailedSession
+		? await rebuildFailedAgentSession(db, {
+				...input.rebuildFailedSession,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			})
+		: undefined;
+	if (rebuilt === 0)
+		return { accepted: 0, duplicates: input.events.length, rebuilt: 0 };
 	const events = await Promise.all(
 		input.events.map(async (event) => ({
 			harness: event.harness,
@@ -679,6 +699,7 @@ export async function acceptAgentSessionEvents(
 		accepted,
 		duplicates: events.length - accepted,
 		...(retried === undefined ? {} : { retried }),
+		...(rebuilt === undefined ? {} : { rebuilt }),
 	};
 }
 

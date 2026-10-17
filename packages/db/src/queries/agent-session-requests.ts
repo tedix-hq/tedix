@@ -10,6 +10,7 @@ import {
 	asc,
 	desc,
 	eq,
+	exists,
 	gt,
 	gte,
 	inArray,
@@ -271,7 +272,98 @@ export async function retryFailedAgentSessionEvents(
 	return retried;
 }
 
-/** A later event cannot overtake an earlier pending event in the same session. */
+export interface RebuildFailedAgentSessionParams extends AgentSessionRequestOwner {
+	harness: WorkAgentSessionHarness;
+	sessionKey: string;
+	expectedEvents: number;
+	expectedRequests: number;
+}
+
+/** Atomically discard a failed session's derived rows and replay its immutable events. */
+export async function rebuildFailedAgentSession(
+	db: DbQueryClient,
+	params: RebuildFailedAgentSessionParams,
+): Promise<number> {
+	const events = alias(agentSessionEvents, "rebuild_event");
+	const requests = alias(agentSessionRequests, "rebuild_request");
+	const eventScope = and(
+		eq(events.organizationId, params.organizationId),
+		eq(events.userId, params.userId),
+		eq(events.harness, params.harness),
+		eq(events.sessionKey, params.sessionKey),
+	);
+	const requestScope = and(
+		eq(requests.organizationId, params.organizationId),
+		eq(requests.userId, params.userId),
+		eq(requests.harness, params.harness),
+		eq(requests.sessionKey, params.sessionKey),
+	);
+	const ready = and(
+		sql`(${db
+			.select({ count: sql<number>`count(*)` })
+			.from(events)
+			.where(eventScope)}) = ${params.expectedEvents}`,
+		exists(
+			db
+				.select({ id: events.id })
+				.from(events)
+				.where(and(eventScope, eq(events.status, "failed"))),
+		),
+		notExists(
+			db
+				.select({ id: events.id })
+				.from(events)
+				.where(and(eventScope, isNotNull(events.claimedAt))),
+		),
+	);
+	const [removed, reset] = await db.batch([
+		db
+			.delete(agentSessionRequests)
+			.where(
+				and(
+					eq(agentSessionRequests.organizationId, params.organizationId),
+					eq(agentSessionRequests.userId, params.userId),
+					eq(agentSessionRequests.harness, params.harness),
+					eq(agentSessionRequests.sessionKey, params.sessionKey),
+					ready,
+					sql`(${db
+						.select({ count: sql<number>`count(*)` })
+						.from(requests)
+						.where(requestScope)}) = ${params.expectedRequests}`,
+				),
+			)
+			.returning({ id: agentSessionRequests.id }),
+		db
+			.update(agentSessionEvents)
+			.set({
+				status: "pending",
+				attempts: 0,
+				claimedAt: null,
+				processedAt: null,
+			})
+			.where(
+				and(
+					eq(agentSessionEvents.organizationId, params.organizationId),
+					eq(agentSessionEvents.userId, params.userId),
+					eq(agentSessionEvents.harness, params.harness),
+					eq(agentSessionEvents.sessionKey, params.sessionKey),
+					ready,
+					// changes() is the immediately preceding DELETE within the atomic D1 batch.
+					sql`changes() = ${params.expectedRequests}`,
+					notExists(
+						db.select({ id: requests.id }).from(requests).where(requestScope),
+					),
+				),
+			)
+			.returning({ id: agentSessionEvents.id }),
+	]);
+	return removed.length === params.expectedRequests &&
+		reset.length === params.expectedEvents
+		? reset.length
+		: 0;
+}
+
+/** A later event cannot overtake an earlier pending or failed event in the same session. */
 function noEarlierPendingEvent(db: DbQueryClient) {
 	const earlier = alias(agentSessionEvents, "earlier_session_event");
 	return notExists(
@@ -284,7 +376,7 @@ function noEarlierPendingEvent(db: DbQueryClient) {
 					eq(earlier.userId, agentSessionEvents.userId),
 					eq(earlier.harness, agentSessionEvents.harness),
 					eq(earlier.sessionKey, agentSessionEvents.sessionKey),
-					eq(earlier.status, "pending"),
+					inArray(earlier.status, ["pending", "failed"]),
 					or(
 						lt(earlier.sourceAt, agentSessionEvents.sourceAt),
 						and(

@@ -7,6 +7,7 @@ import {
 } from "@tedix/db/schema/agent-session-requests";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	acceptAgentSessionEvents,
@@ -1638,3 +1639,82 @@ it.each([
 		expect((await rows(db))[0]?.status).toBe(expected);
 	},
 );
+
+it("rebuilds derived rows after a failed event and later processed work", async () => {
+	const db = fixture();
+	const input = {
+		...SCOPE,
+		now: T0,
+		events: [
+			{
+				...SCOPE,
+				kind: "prompt" as const,
+				sourceAt: T0,
+				text: "Check the example import",
+			},
+			{
+				...SCOPE,
+				kind: "turn" as const,
+				sourceAt: "2026-10-06T10:01:00.000Z",
+				text: "Import checked",
+			},
+		],
+	};
+	await acceptAgentSessionEvents(db, input);
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Check the example import"}]}',
+		).model,
+		input.events[0]!.text,
+	);
+	const events = await db.select().from(agentSessionEvents);
+	await db.update(agentSessionEvents).set({ status: "failed", attempts: 3 });
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "processed", attempts: 1 })
+		.where(eq(agentSessionEvents.sourceAt, input.events[1]!.sourceAt));
+	const failed = {
+		...input,
+		rebuildFailedSession: {
+			harness: SCOPE.harness,
+			sessionKey: SCOPE.sessionKey,
+			expectedEvents: 2,
+			expectedRequests: 2,
+		},
+	};
+	expect(await acceptAgentSessionEvents(db, failed)).toEqual({
+		accepted: 0,
+		duplicates: 2,
+		rebuilt: 0,
+	});
+	expect(await rows(db)).toHaveLength(1);
+	expect(
+		await acceptAgentSessionEvents(db, {
+			...failed,
+			rebuildFailedSession: {
+				...failed.rebuildFailedSession,
+				expectedRequests: 1,
+			},
+		}),
+	).toEqual({ accepted: 0, duplicates: 2, rebuilt: 2 });
+	expect(await rows(db)).toEqual([]);
+	expect(
+		(await db.select().from(agentSessionEvents)).map((e) => e.id).sort(),
+	).toEqual(events.map((e) => e.id).sort());
+	expect(
+		(await db.select().from(agentSessionEvents)).every(
+			(e) => e.status === "pending" && e.attempts === 0,
+		),
+	).toBe(true);
+	await processAgentSessionEvents(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Check the example import"}]}',
+			'{"updates":[{"ref":"r1","status":"done","evidence":"Import checked"}]}',
+		).model,
+		SCOPE,
+		{ limit: 2, now: () => T0 },
+	);
+	expect((await rows(db))[0]?.status).toBe("done");
+});
