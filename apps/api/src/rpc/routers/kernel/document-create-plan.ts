@@ -30,7 +30,7 @@ export async function planDocumentCreate(input: {
 	if (titles.length !== 1 || titles[0]![1]!.length > 200) return undefined;
 	const workspaceIds = [
 		...input.content.matchAll(
-			/\bworkspaceId\s+([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b/gi,
+			/\bworkspace(?:Id|\s+id)?\s+([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b/gi,
 		),
 	].map((match) => match[1]!.toLowerCase());
 	if (new Set(workspaceIds).size > 1) return undefined;

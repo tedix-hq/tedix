@@ -152,9 +152,9 @@ export async function reconcileHomeKernelRequest(
 			{
 				kind: "brief",
 				revision: work.version,
-				checks: row.snapshot.checks.map((c) =>
-					KernelAcceptanceCheckSchema.parse(c),
-				),
+				checks: row.snapshot.checks.length
+					? row.snapshot.checks.map((c) => KernelAcceptanceCheckSchema.parse(c))
+					: [{ kind: "home_response" }],
 			},
 			policy,
 			now(),
@@ -180,6 +180,22 @@ export async function reconcileHomeKernelRequest(
 			policy,
 			now(),
 		);
+	const reader = kernelAcceptanceReader(context, row, policy);
+	if (
+		attempt.outcome === "succeeded" &&
+		row.snapshot.checks.every((c) => c.kind === "home_response") &&
+		(row.snapshot.state === "running" || row.snapshot.state === "verifying") &&
+		!row.snapshot.delivery
+	) {
+		// Completion reconciliation runs before the ordinary child reply is written.
+		// Wait for that durable reply without spending the target-probe retry budget.
+		try {
+			await reader.readHomeResponse!();
+		} catch {
+			await projectKernelRequestOnHomeRun(context.db, row);
+			return row;
+		}
+	}
 	row =
 		(await driveKernelRequest(
 			context.db,
@@ -224,7 +240,7 @@ export async function reconcileHomeKernelRequest(
 						payload: {
 							role: "assistant",
 							channel: "home",
-							content: `Verified the requested target state. ${current.snapshot.observations.flatMap((o) => o.evidenceRefs).join("\n")}`,
+							content: `${current.snapshot.checks.every((c) => c.kind === "home_response") ? "Confirmed durable Home reply delivery only; factual correctness and external target state are not verified." : "Verified the requested target state."} ${current.snapshot.observations.flatMap((o) => o.evidenceRefs).join("\n")}`,
 							metadata: {
 								kernelRequestAcceptance: toJsonRecord(current.snapshot),
 								requestId: current.id,
@@ -238,7 +254,7 @@ export async function reconcileHomeKernelRequest(
 					return { status: "acknowledged", receiptRef: event.id };
 				},
 			},
-			kernelAcceptanceReader(context, row, policy),
+			reader,
 			now,
 		)) ?? row;
 	await projectKernelRequestOnHomeRun(context.db, row);

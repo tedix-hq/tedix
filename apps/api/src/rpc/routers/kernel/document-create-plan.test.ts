@@ -38,27 +38,30 @@ describe("document body generation", () => {
 		});
 	});
 
-	it("fixes metadata from the request and generates only semantic blocks", async () => {
-		const blocks = [{ type: "paragraph", text: "Welcome to our shop." }];
-		const draftModel = model(blocks);
-		const generate = vi.spyOn(draftModel, "doGenerate");
-		const draft = await planDocumentCreate({
-			content: `Create a document titled "Shop welcome" welcoming visitors. Use workspaceId ${workspaceId}.`,
-			toolName: "os.create_os_output",
-			model: draftModel,
-			abortSignal: new AbortController().signal,
-		});
-		expect(draft?.args).toEqual({
-			kind: "document",
-			title: "Shop welcome",
-			workspaceId,
-			content: { kind: "document", blocks },
-		});
-		const schema = JSON.stringify(generate.mock.calls[0]![0].responseFormat);
-		expect(schema).toContain("paragraph");
-		expect(schema).not.toContain("toolName");
-		expect(schema).not.toContain("richText");
-	});
+	it.each(["workspaceId", "workspace", "workspace id"])(
+		"fixes metadata from the request and generates only semantic blocks (%s)",
+		async (marker) => {
+			const blocks = [{ type: "paragraph", text: "Welcome to our shop." }];
+			const draftModel = model(blocks);
+			const generate = vi.spyOn(draftModel, "doGenerate");
+			const draft = await planDocumentCreate({
+				content: `Create a short OS document titled "Shop welcome" welcoming visitors. Use ${marker} ${workspaceId}.`,
+				toolName: "os.create_os_output",
+				model: draftModel,
+				abortSignal: new AbortController().signal,
+			});
+			expect(draft?.args).toEqual({
+				kind: "document",
+				title: "Shop welcome",
+				workspaceId,
+				content: { kind: "document", blocks },
+			});
+			const schema = JSON.stringify(generate.mock.calls[0]![0].responseFormat);
+			expect(schema).toContain("paragraph");
+			expect(schema).not.toContain("toolName");
+			expect(schema).not.toContain("richText");
+		},
+	);
 
 	it.each([
 		"Create a document welcoming visitors.",
