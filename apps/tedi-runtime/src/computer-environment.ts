@@ -406,6 +406,8 @@ const scratchOnly = new Set([
 	"run_git",
 	"workspace_snapshot",
 ]);
+const UNCONFIRMED_READINESS =
+	"Computer readiness and ownership are unconfirmed after the foreground deadline; reopen this same acquisition, do not reprovision";
 
 /** One explicit filesystem selection per immutable conversation/Work scope. */
 export class ComputerEnvironmentController {
@@ -581,8 +583,7 @@ export class ComputerEnvironmentController {
 						...(context.lastObservation?.leaseId === context.confirmed.leaseId
 							? { lastObservation: context.lastObservation }
 							: {}),
-						error:
-							"Computer readiness and ownership are unconfirmed after the foreground deadline; reopen this same acquisition, do not reprovision",
+						error: UNCONFIRMED_READINESS,
 						instruction: `The computer is still starting after a ${Math.round(budgetMs / 1000)}s foreground wait; this is not a provisioning failure. Call open_computer again with the same arguments to resume this acquisition (it never reprovisions); it returns ready:true once the computer is up.`,
 					};
 				}
@@ -1156,7 +1157,11 @@ export class ComputerEnvironmentController {
 			return selected;
 		});
 		if (!environment.ready) {
-			const result = record(await this.open(environment.preparation));
+			let result = record(await this.open(environment.preparation));
+			// Preparation may settle just after its first foreground wait. Resume
+			// that acquisition once before dispatching any file or command effect.
+			if (result.error === UNCONFIRMED_READINESS)
+				result = record(await this.open(environment.preparation));
 			if (result.ready !== true)
 				return {
 					result: {
