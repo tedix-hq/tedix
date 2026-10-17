@@ -11,7 +11,8 @@ Register `file-agent-review.json` as an `app_tools` row in the installation's
 agent-facing MCP app, using its real `appId`. Replace the API origin for an
 own-account installation. Its external transport POSTs to the same intake as
 curl, with the same validation, redaction, deduplication and rate limits. It
-requires no provider credential. Regenerate `inputSchema` from
+requires no provider credential. Its explicit `work` namespace keeps the
+public HTTP path from becoming a reserved JavaScript namespace. Regenerate `inputSchema` from
 `FileAgentReviewInputSchema` when changing the envelope.
 
 The project lead receives an asynchronous, idempotent wake pointing to the

@@ -120,7 +120,8 @@
 		"endpoint": "public/agent-review",
 		"method": "POST",
 		"timeout": 20000,
-		"approvalPolicy": "never"
+		"approvalPolicy": "never",
+		"_aggregateNamespace": "work"
 	},
 	"enabled": true
 }
