@@ -1,4 +1,4 @@
-import { OrganizationMark } from "@/components/organization-mark";
+import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 import { ArrowLeft, FileX, SidebarSimple } from "@phosphor-icons/react";
 import type {

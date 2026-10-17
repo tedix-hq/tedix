@@ -34,6 +34,10 @@ const SESSION = "b".repeat(43);
 
 function payload(role: "use" | "build") {
 	return {
+		organization: {
+			name: "Example",
+			logoUrl: "https://images.example.test/org.png",
+		},
 		share: {
 			id: "share-1",
 			resourceType: "gadget",
@@ -122,6 +126,9 @@ describe("SharedResourcePage", () => {
 			expect.objectContaining({ body: JSON.stringify({ token: TOKEN }) }),
 		);
 		expect(container.textContent).toContain("Launch dashboard");
+		expect(
+			container.querySelector("header img.brand-mark")?.getAttribute("src"),
+		).toBe("https://images.example.test/org.png");
 		expect(container.querySelector("[data-widget]")).not.toBeNull();
 		expect(container.textContent).not.toContain("Shared source manifest");
 		expect(container.textContent).not.toContain("Open authenticated Canvas");

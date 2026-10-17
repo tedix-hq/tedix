@@ -14,6 +14,7 @@ import type {
 	RuntimeEntitlementGrant,
 } from "@tedix/api-contract/schemas/runtime-entitlements";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import { apiKeys } from "../schema/api-keys";
 import { apps } from "../schema/apps";
 import { organizationMembers } from "../schema/organization-members";
@@ -112,7 +113,7 @@ export interface OrganizationProfileRow {
  * render a name.
  */
 export async function getOrganizationProfile(
-	db: DbClient,
+	db: DbQueryClient,
 	id: string,
 ): Promise<OrganizationProfileRow | null> {
 	const [row] = await db

@@ -4,6 +4,7 @@
  * the redemption handler proving the minted token actually redeems.
  */
 
+import { organizations } from "@tedix/db/schema/organizations";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -32,11 +33,11 @@ import { osWorkspacesContractRouter } from "./os-workspaces";
 
 function createEnv(): CloudflareEnv {
 	const sqlite = new DatabaseSync(":memory:");
-	// The router always binds the caller's organization into every predicate,
-	// so the fixture does not need the organizations parent table; FKs stay off.
+	// Tenant predicates are exercised below; unrelated FK parents are omitted.
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			organizations,
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaces,

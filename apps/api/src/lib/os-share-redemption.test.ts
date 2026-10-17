@@ -1,3 +1,4 @@
+import { organizations } from "@tedix/db/schema/organizations";
 import { DatabaseSync } from "node:sqlite";
 import {
 	countActiveOsShareSessions,
@@ -44,6 +45,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			organizations,
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaces,
@@ -52,6 +54,9 @@ function fixture() {
 			osShareLinks,
 			osShareSessions,
 		),
+	);
+	sqlite.exec(
+		"INSERT INTO organizations (id, name, slug, logo_url) VALUES ('org-1', 'Example', 'example', 'https://images.example.test/org.png');",
 	);
 	return createDbQueryClient(createD1Facade(sqlite));
 }
@@ -219,6 +224,10 @@ describe("handleOsShareRedemption", () => {
 		expect(response.status).toBe(200);
 		expect(response.headers.get("cache-control")).toBe("no-store");
 		expect(await response.json()).toMatchObject({
+			organization: {
+				name: "Example",
+				logoUrl: "https://images.example.test/org.png",
+			},
 			share: {
 				resourceType: "output",
 				role: "viewer",

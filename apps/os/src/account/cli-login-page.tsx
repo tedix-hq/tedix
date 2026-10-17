@@ -1,3 +1,4 @@
+import { OrganizationMark } from "@/shared/organization-mark";
 import { buildBrokerStartPath } from "@/shared/session-status";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -459,12 +460,10 @@ export function CliLoginPage() {
 												}
 												label={
 													<span className="flex items-center gap-3">
-														<span
-															className="grid size-7 shrink-0 place-items-center rounded-md bg-kumo-brand font-bold text-kumo-inverse type-tedix-control"
-															aria-hidden="true"
-														>
-															{org.name.charAt(0).toUpperCase()}
-														</span>
+														<OrganizationMark
+															name={org.name}
+															logoUrl={org.logoUrl}
+														/>
 														<Text as="span" role="body" weight="medium">
 															{org.name}
 														</Text>
@@ -483,12 +482,7 @@ export function CliLoginPage() {
 											}}
 											variant="ghost"
 										>
-											<span
-												className="grid size-7 shrink-0 place-items-center rounded-md bg-kumo-brand font-bold text-kumo-inverse type-tedix-control"
-												aria-hidden="true"
-											>
-												{org.name.charAt(0).toUpperCase()}
-											</span>
+											<OrganizationMark name={org.name} logoUrl={org.logoUrl} />
 											<Text
 												as="span"
 												role="body"
