@@ -4,6 +4,7 @@ import {
 	createPlanningSync,
 	externalId,
 	managedBlock,
+	reasoningSources,
 	reconcileFields,
 	slotAt,
 } from "../examples/planning-board-sync/scripts/workflow";
@@ -401,6 +402,57 @@ function harness(
 }
 
 describe("planning board synchronization", () => {
+	it("keeps current meetings and signals despite oversized older notes", () => {
+		const sources = reasoningSources(
+			[{ url: "https://example.test/project", text: "Human planning context" }],
+			[
+				{
+					url: "https://example.test/old",
+					date: "2026-01-01",
+					text: "Older transcript ".repeat(5000),
+				},
+				{
+					url: "https://example.test/current",
+					date: "2026-10-16",
+					text: "Current project decision",
+				},
+			],
+			[
+				{
+					url: "https://example.test/signal",
+					at: "2026-10-17T10:00:00Z",
+					data: { summary: "Latest signal" },
+				},
+			],
+		);
+		expect(sources.map((s) => s.url)).toEqual([
+			"https://example.test/project",
+			"https://example.test/signal",
+			"https://example.test/current",
+			"https://example.test/old",
+		]);
+		expect(JSON.stringify(sources)).toContain("Current project decision");
+		expect(JSON.stringify(sources)).toContain("Latest signal");
+		expect(JSON.stringify(sources).length).toBeLessThanOrEqual(42000);
+		expect(sources.every((s) => s.text.length <= 3000)).toBe(true);
+	});
+	it("bounds a complete JSON packet while retaining the newest source URLs", () => {
+		const evidence = Array.from({ length: 30 }, (_, index) => ({
+			url: `https://example.test/meeting/${index}`,
+			date: `2026-10-${String(index + 1).padStart(2, "0")}`,
+			text: "Meeting notes\n".repeat(1000),
+		}));
+		const packet = JSON.stringify(reasoningSources([], evidence, []));
+		const sources = JSON.parse(packet);
+		expect(packet.length).toBeLessThanOrEqual(42000);
+		expect(sources[0].url).toBe("https://example.test/meeting/29");
+		expect(sources.length).toBeLessThan(30);
+		expect(
+			sources.every((s: { url: string }) =>
+				evidence.some((e) => e.url === s.url),
+			),
+		).toBe(true);
+	});
 	it("normalizes provider page identities", () => {
 		expect(externalId(`https://www.notion.so/${pageId}?x=1`)).toBe(pageId);
 		expect(externalId("11111111-1111-4111-8111-111111111111")).toBe(pageId);
