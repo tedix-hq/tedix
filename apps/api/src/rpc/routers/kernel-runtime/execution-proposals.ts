@@ -26,10 +26,10 @@ import {
 import type { KernelDO } from "../../../kernel/kernel-do";
 import { recordDetachedKernelFailure } from "../kernel/detached-turn-failure";
 import {
-	type KernelTurnWorkInput,
 	type KernelTurnWorkResult,
 	runKernelTurnWork,
 } from "../kernel/turn-work";
+import { type KernelTurnWorkInput } from "../kernel/turn-work-context";
 import { REPO_COMMIT_WRITE_KIND } from "@tedix/api-contract/schemas/repo-commit-write";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { type VoiceSttEnv, resolveVoiceMessageContent } from "@tedix/voice/stt";

@@ -32,7 +32,7 @@ import {
 	delegationWorkItemTitle,
 	requiredProofKindForExecution,
 } from "../kernel/delegation-work-item";
-import type { HomeDelegationAgentReviewRequest } from "../kernel/turn-work";
+import type { HomeDelegationAgentReviewRequest } from "../kernel/turn-work-context";
 
 /** Requester of every Home delegation review: the platform, never the approver. */
 const HOME_REVIEW_REQUESTER = { type: "system", id: "tedix" } as const;

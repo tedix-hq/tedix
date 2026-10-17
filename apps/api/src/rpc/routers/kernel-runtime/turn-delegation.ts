@@ -12,11 +12,11 @@ import {
 	readLatestRunAwaitingApproval,
 	updateKernelRuntimeRun,
 } from "@tedix/db/queries/kernel-runtime-runs";
+import type { ChatApprovalReply } from "../kernel/turn-work";
 import type {
-	ChatApprovalReply,
 	KernelTurnWorkDeps,
 	KernelTurnWorkInput,
-} from "../kernel/turn-work";
+} from "../kernel/turn-work-context";
 import { getApprovalRequestById } from "@tedix/db/queries/approvals";
 import { parseHomeToolWritePayload } from "../kernel/write-executor";
 import { classifyApprovalReply } from "../kernel/workflow-confirm";

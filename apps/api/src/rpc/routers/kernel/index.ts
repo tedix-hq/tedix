@@ -122,7 +122,7 @@ import {
 } from "./delegation-approver";
 // Type-only (erased — no runtime cycle): shared progress contract so the
 // forwarded executor progress carries structured per-tool events.
-import type { KernelTurnProgress } from "./turn-work";
+import type { KernelTurnProgress } from "./turn-work-context";
 import type { KernelWriteProposalDeclined } from "./write-proposal";
 import { renderWriteDeclined } from "./write-proposal";
 

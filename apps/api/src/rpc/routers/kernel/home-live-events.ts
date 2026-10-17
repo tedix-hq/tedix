@@ -10,7 +10,7 @@ import { homeRuntimeEventId } from "@tedix/api-contract/utils/runtime-events";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { BaseContext } from "../../orpc";
 import { insertKernelRuntimeEvent } from "./run-store";
-import type { KernelTurnPhase } from "./turn-work";
+import type { KernelTurnPhase } from "./turn-work-context";
 
 /**
  * Persist one batched answer-delta chunk as a durable `message.delta` event on
