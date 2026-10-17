@@ -11,17 +11,19 @@ export function FeedNowStrip({
 	items,
 	projectIds,
 	now,
+	timezone,
 	pending,
 	failed,
 }: {
 	items: readonly ActivityFeedItem[];
 	projectIds: readonly string[];
 	now: Date;
+	timezone?: string;
 	pending: boolean;
 	failed: boolean;
 }) {
 	const sessions = useQuery(workAgentSessionsQueryOptions());
-	const summary = feedNow(items, now);
+	const summary = feedNow(items, now, timezone);
 	const names = [
 		...new Set(
 			(sessions.data?.sessions ?? [])
