@@ -232,4 +232,36 @@ describe("decision card feedback", () => {
 			}),
 		).toBeNull();
 	});
+	it("keeps class, edits and elapsed time in the existing learning feed for a fictional organization", () => {
+		const signal = decisionCaptureLearningSignal({
+			organizationId: "org-fictional-acme",
+			request: request({ metadata: {} }),
+			response: response({
+				metadata: {
+					source: "os-decision-card",
+					decisionClass: "schema-migrations",
+					decisionChoice: "change",
+					feedbackSignal: "edited",
+					originalBody: "Drop now",
+					editedBody: "Backfill first",
+					editRatio: 0.8,
+					elapsedMs: 1800,
+				},
+			}),
+			draft: null,
+		});
+		expect(signal).toMatchObject({
+			organizationId: "org-fictional-acme",
+			eventKind: "edited",
+			issueKey: "decision:general:general:schema-migrations",
+			metadata: {
+				decisionClass: "schema-migrations",
+				decisionChoice: "change",
+				originalBody: "Drop now",
+				editedBody: "Backfill first",
+				editRatio: 0.8,
+				elapsedMs: 1800,
+			},
+		});
+	});
 });

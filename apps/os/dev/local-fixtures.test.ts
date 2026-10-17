@@ -985,11 +985,17 @@ describe("optimistic-concurrency conflicts", () => {
 				capabilities: [],
 				entry: "gadgets/next/index.html",
 				skillSlug: "weekly-revenue-report",
+				config: { version: 1, limit: 25 },
+				navigation: { board: true },
 			},
 			expectedRevision: 1,
 		}) as { revision: { revision: number; manifest: { skillSlug?: string } } };
 		expect(revised.revision.revision).toBe(2);
 		expect(revised.revision.manifest.skillSlug).toBe("weekly-revenue-report");
+		expect(revised.revision.manifest).toMatchObject({
+			config: { version: 1, limit: 25 },
+			navigation: { board: true },
+		});
 
 		const stale = callLocal("osWorkspaces/gadgets/revise", {
 			workspaceId: IDS.workspaceRevenue,

@@ -11,7 +11,7 @@ import type { NeedsYouItem } from "@/components/work-needs-you";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 
-function ApprovalDecisionCard({
+export function ApprovalDecisionCard({
 	id,
 	onNext,
 	onPrevious,

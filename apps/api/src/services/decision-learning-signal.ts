@@ -150,7 +150,9 @@ export function decisionCaptureLearningSignal(input: {
 		str(requestMeta.host, 40) ?? str(responseMeta.host, 40),
 	);
 	const topic = learningScopeSlug(
-		draft?.turnType ?? topTriageLabel(requestMeta),
+		str(responseMeta.decisionClass, 100) ??
+			draft?.turnType ??
+			topTriageLabel(requestMeta),
 	);
 	const sessionId = str(requestMeta.sessionId, 200);
 	return {
@@ -168,6 +170,13 @@ export function decisionCaptureLearningSignal(input: {
 		metadata: {
 			schema: "tedix.learning-feed.decision.v1",
 			scope: { repo, harness, topic },
+			decisionClass: str(responseMeta.decisionClass, 100),
+			decisionChoice: str(responseMeta.decisionChoice, 40),
+			elapsedMs:
+				typeof responseMeta.elapsedMs === "number" &&
+				Number.isFinite(responseMeta.elapsedMs)
+					? Math.max(0, responseMeta.elapsedMs)
+					: null,
 			branch: str(requestMeta.branch, 200),
 			question: {
 				subject: request.subject.slice(0, 300),
@@ -180,6 +189,12 @@ export function decisionCaptureLearningSignal(input: {
 			feedbackReason: str(responseMeta.feedbackReason, 100),
 			feedbackText: str(responseMeta.feedbackText, ANSWER_CHARS),
 			originalBody: str(responseMeta.originalBody, DRAFT_CHARS),
+			editedBody: str(responseMeta.editedBody, DRAFT_CHARS),
+			editRatio:
+				typeof responseMeta.editRatio === "number" &&
+				Number.isFinite(responseMeta.editRatio)
+					? Math.max(0, Math.min(1, responseMeta.editRatio))
+					: null,
 			replyClass: str(responseMeta.replyClass, 64),
 			draft: draft
 				? {

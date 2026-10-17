@@ -6002,14 +6002,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 			gadgetId: gadget.id,
 			revision: currentNumber + 1,
 			manifest: {
+				...input.manifest,
 				capabilities: input.manifest.capabilities ?? [],
-				entry: input.manifest.entry,
-				...(input.manifest.skillSlug !== undefined
-					? { skillSlug: input.manifest.skillSlug }
-					: {}),
-				...(input.manifest.notes !== undefined
-					? { notes: input.manifest.notes }
-					: {}),
 			},
 			sourceArtifactRef: input.sourceArtifactRef ?? null,
 			createdByKind: "user",
