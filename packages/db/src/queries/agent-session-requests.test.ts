@@ -17,6 +17,8 @@ import {
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
 	retryFailedAgentSessionEvents,
+	rebuildFailedAgentSession,
+	listPendingAgentSessionEvents,
 	updateAgentSessionRequests,
 } from "./agent-session-requests";
 
@@ -542,3 +544,116 @@ it("scopes activity to its owner and organization, with deterministic bounded da
 		}),
 	).toEqual([]);
 });
+
+for (const requestCount of [0, 1])
+	it(`rebuilds a failed owner session atomically with ${requestCount} derived rows`, async () => {
+		const db = fixture();
+		for (const [organizationId, userId, sessionKey] of [
+			[ORG, USER, "session-1"],
+			[ORG, OTHER_USER, "session-1"],
+			["org-other", USER, "session-1"],
+			[ORG, USER, "other-session"],
+		]) {
+			await recordAgentSessionEvents(db, {
+				organizationId,
+				userId,
+				now: T0,
+				events: [T0, T1].map((sourceAt, i) => ({
+					harness: "claude-code" as const,
+					sessionKey,
+					repository: null,
+					kind: "turn" as const,
+					body: "Immutable source",
+					activity: null,
+					sourceAt,
+					sourceKey: `${sessionKey}-${i}`,
+				})),
+			});
+			if (requestCount)
+				await record(db, {
+					organizationId,
+					userId,
+					sessionKey,
+					sourceKey: `request-${sessionKey}`,
+					requests: [{ kind: "request", text: "Keep this outcome" }],
+				});
+		}
+		await db
+			.update(agentSessionEvents)
+			.set({ status: "failed", attempts: 3 })
+			.where(eq(agentSessionEvents.sourceAt, T0));
+		const before = await db.select().from(agentSessionEvents);
+		const options = {
+			organizationId: ORG,
+			userId: USER,
+			harness: "claude-code" as const,
+			sessionKey: "session-1",
+			expectedEvents: 2,
+			expectedRequests: requestCount,
+		};
+		expect(
+			await listPendingAgentSessionEvents(db, {
+				organizationId: ORG,
+				userId: USER,
+				limit: 10,
+				now: T1,
+			}),
+		).toEqual([]);
+		expect(
+			await rebuildFailedAgentSession(db, { ...options, expectedEvents: 3 }),
+		).toBe(0);
+		expect(
+			await rebuildFailedAgentSession(db, {
+				...options,
+				expectedRequests: requestCount + 1,
+			}),
+		).toBe(0);
+		expect(
+			await rebuildFailedAgentSession(db, {
+				...options,
+				userId: "missing-user",
+			}),
+		).toBe(0);
+		expect(await db.select().from(agentSessionEvents)).toEqual(before);
+		const target = before.find(
+			(r) =>
+				r.organizationId === ORG &&
+				r.userId === USER &&
+				r.sessionKey === "session-1" &&
+				r.sourceAt === T1,
+		)!;
+		await db
+			.update(agentSessionEvents)
+			.set({ status: "processed", claimedAt: T1 })
+			.where(eq(agentSessionEvents.id, target.id));
+		expect(await rebuildFailedAgentSession(db, options)).toBe(0);
+		expect((await db.select().from(agentSessionRequests)).length).toBe(
+			requestCount * 4,
+		);
+		await db
+			.update(agentSessionEvents)
+			.set({ claimedAt: null })
+			.where(eq(agentSessionEvents.id, target.id));
+		expect(await rebuildFailedAgentSession(db, options)).toBe(2);
+		const after = await db.select().from(agentSessionEvents);
+		for (const e of before) {
+			const actual = after.find((r) => r.id === e.id)!;
+			if (
+				e.organizationId === ORG &&
+				e.userId === USER &&
+				e.sessionKey === "session-1"
+			)
+				expect(actual).toEqual({
+					...e,
+					status: "pending",
+					attempts: 0,
+					claimedAt: null,
+					processedAt: null,
+				});
+			else expect(actual).toEqual(e);
+		}
+		expect((await db.select().from(agentSessionRequests)).length).toBe(
+			requestCount * 3,
+		);
+		expect(await rebuildFailedAgentSession(db, options)).toBe(0);
+	});

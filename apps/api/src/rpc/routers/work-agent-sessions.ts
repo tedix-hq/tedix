@@ -183,9 +183,14 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 			...owner,
 			events: input.events,
 			retryFailed: input.retryFailed,
+			rebuildFailedSession: input.rebuildFailedSession,
 			now: new Date().toISOString(),
 		});
-		if (input.retryFailed && !result.accepted && !result.retried) return result;
+		if (
+			result.rebuilt === 0 ||
+			(input.retryFailed && !result.accepted && !result.retried)
+		)
+			return result;
 		const model = workersAiLedgerModel(context.env);
 		model.learn = async (lessons, scope) => {
 			const ownerUserId = context.user?.sub;
