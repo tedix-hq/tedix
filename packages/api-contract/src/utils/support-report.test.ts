@@ -28,9 +28,10 @@ describe("support payload preview", () => {
 		);
 	});
 	it("redacts common token formats and scopes stable IDs to the tenant", async () => {
-		expect(
-			redactSupportText("ghp_examplelongtoken12345 Bearer abc.def.ghi"),
-		).toBe("[token removed] [credential removed]");
+		const syntheticToken = ["ghp", "synthetic".repeat(3)].join("_");
+		expect(redactSupportText(`${syntheticToken} Bearer abc.def.ghi`)).toBe(
+			"[token removed] [credential removed]",
+		);
 		expect(await supportObjectId("tenant-a:key")).not.toBe(
 			await supportObjectId("tenant-b:key"),
 		);
