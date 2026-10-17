@@ -7,7 +7,6 @@ import {
 } from "./auth-helpers";
 import {
 	directToolCallNamespaces,
-	extractCodeModeProviderNamespacesFromCode,
 	filterAggregateAppsForCodeNamespaces,
 	filterAggregateTedisForCodeNamespaces,
 } from "./index";
@@ -15,6 +14,7 @@ import {
 	PLATFORM_OPERATOR_ADMIN_APP_SLUG,
 	PLATFORM_OPERATOR_CODE_MODE_NAMESPACES,
 } from "./mcp/platform-operator-aggregation";
+import { extractCodeModeProviderNamespacesFromCode } from "./mcp/code-mode-namespaces";
 import type { AppTool } from "./mcp/server-context";
 
 const URL_OK = "https://test.local/mcp";
@@ -304,6 +304,14 @@ describe("extractRequiredScopes — D1 toolScopes mode", () => {
 });
 
 describe("targeted Code Mode surface extraction", () => {
+	it("bounds discovery with parentheses inside JSON string arguments", () => {
+		expect(
+			extractCodeModeProviderNamespacesFromCode(
+				'async () => { await discover.search({"namespace":"acme","query":"a ) ( b"}); return acme.list({}); }',
+			),
+		).toEqual(new Set(["acme"]));
+	});
+
 	it("extracts explicit provider calls without treating built-ins as namespaces", () => {
 		const namespaces = extractCodeModeProviderNamespacesFromCode(
 			`async () => {
