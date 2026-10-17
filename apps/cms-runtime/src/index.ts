@@ -4536,6 +4536,7 @@ async function fetchCmsSite(
 	knownAlias?: Awaited<ReturnType<typeof getCmsSiteByActiveWwwAlias>>,
 	knownRestoreEpoch?: number,
 	knownPageCacheRevision?: string,
+	knownBundle?: TenantBundle | null,
 ): Promise<Response> {
 	const url = new URL(request.url);
 	// authz: public — liveness + deployed-sha probe; serves no tenant data.
@@ -4849,9 +4850,12 @@ async function fetchCmsSite(
 	);
 	if (imageTransform) return imageTransform;
 
-	const bundle = await span(spans, "tenant.lookupBundle", () =>
-		lookupActiveBundle(env, slug),
-	);
+	const bundle =
+		knownBundle === undefined
+			? await span(spans, "tenant.lookupBundle", () =>
+					lookupActiveBundle(env, slug),
+				)
+			: knownBundle;
 	if (!bundle) {
 		return new Response(`502 — no active bundle for "${slug}"`, {
 			status: 502,
@@ -5186,7 +5190,14 @@ export default {
 					: await resolveSlug(env, url.hostname);
 			const slug = alias?.slug ?? marketingSlug ?? resolved?.slug;
 			if (!slug) return fetchCmsSite(request, env, ctx, resolved, alias);
-			const site = alias ?? (await getCmsSiteBySlug(db, slug));
+			// Both reads stay fresh. Overlap platform metadata I/O before admission;
+			// tenant content and cache bodies still require the restore permit.
+			const [site, bundle] = await Promise.all([
+				alias ?? getCmsSiteBySlug(db, slug),
+				pageCacheEligible(request, url.pathname)
+					? lookupActiveBundle(env, slug)
+					: undefined,
+			]);
 			if (!site) {
 				// Only an unclaimed platform subdomain is provably absent; the
 				// marketing site and custom domains keep failing closed.
@@ -5211,6 +5222,7 @@ export default {
 					alias,
 					site.restoreEpoch,
 					site.config?.pageCacheRevision ?? "0",
+					bundle,
 				);
 			const restoreQueries = publicRestorePermitEligible(request)
 				? () => publicRestorePermitQueries((task) => ctx.waitUntil(task))

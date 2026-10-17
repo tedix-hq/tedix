@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
 	getSiteBySlug: vi.fn(),
 	getSiteByAlias: vi.fn(),
+	getBundle: vi.fn(),
 	permit: vi.fn(),
 }));
 
@@ -10,6 +11,10 @@ vi.mock("@tedix/db/queries/cms-sites", () => ({
 	getCmsSiteBySlug: mocks.getSiteBySlug,
 	getCmsSiteByActiveWwwAlias: mocks.getSiteByAlias,
 	getCmsSiteByHostname: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/tenant-bundles", () => ({
+	getActiveTenantBundle: mocks.getBundle,
+	listActiveTenantBundles: vi.fn(),
 }));
 vi.mock("./tenant-restore-fence", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./tenant-restore-fence")>()),
@@ -27,10 +32,50 @@ beforeEach(() => {
 		restoreEpoch: 7,
 	});
 	mocks.getSiteByAlias.mockResolvedValue(null);
+	mocks.getBundle.mockResolvedValue(null);
 	mocks.permit.mockResolvedValue({ admitted: false });
 });
 
 describe("early public restore gate", () => {
+	it("overlaps fresh metadata reads and still refuses content behind a closed fence", async () => {
+		let resolveSite!: (site: {
+			id: string;
+			slug: string;
+			restoreEpoch: number;
+		}) => void;
+		let resolveBundle!: (bundle: null) => void;
+		mocks.getSiteBySlug.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSite = resolve;
+			}),
+		);
+		mocks.getBundle.mockReturnValue(
+			new Promise((resolve) => {
+				resolveBundle = resolve;
+			}),
+		);
+		const loader = vi.fn();
+		const response = cmsRuntime.fetch(
+			new Request("https://tenant.cms.tedix.dev/"),
+			{
+				PLATFORM_DB: {},
+				ENVIRONMENT: "production",
+				LOADER: { get: loader },
+			} as never,
+			{} as never,
+		);
+		await vi.waitFor(() => {
+			expect(mocks.getSiteBySlug).toHaveBeenCalledTimes(1);
+			expect(mocks.getBundle).toHaveBeenCalledTimes(1);
+		});
+		expect(mocks.permit).not.toHaveBeenCalled();
+		resolveSite({ id: "site-1", slug: "tenant", restoreEpoch: 7 });
+		resolveBundle(null);
+		expect((await response).status).toBe(503);
+		expect(mocks.permit).toHaveBeenCalledTimes(1);
+		expect(loader).not.toHaveBeenCalled();
+	});
+
 	it.each([
 		"/",
 		"/.well-known/security.txt",
