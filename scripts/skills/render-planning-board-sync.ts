@@ -30,6 +30,17 @@ export const PlanningSyncConfigSchema = z
 			);
 		}, "Expected a credential-free HTTPS origin"),
 		provider: z.string().min(1).max(100).default("notion"),
+		notionNamespace: z
+			.string()
+			.regex(/^[a-z][a-z0-9_]*$/)
+			.max(80)
+			.refine(
+				(value) =>
+					!["tedi", "tedix", "work", "constructor", "prototype"].includes(
+						value,
+					),
+			)
+			.default("notion"),
 		projectsSource: source,
 		tasksSource: source,
 		meetingsSource: source,
@@ -131,10 +142,9 @@ export async function renderPlanningSync(input: unknown) {
 	const marker = "const CONFIG = /* PLANNING_SYNC_CONFIG */ {};";
 	if (workflow.split(marker).length !== 2)
 		throw new Error("Workflow configuration marker changed");
-	const content = document.replace(
-		"name: planning-board-sync",
-		`name: ${config.boardKey}`,
-	);
+	const content = document
+		.replace("name: planning-board-sync", `name: ${config.boardKey}`)
+		.replace("    notion:", `    ${config.notionNamespace}:`);
 	const manifest = parseCapabilityManifest(content);
 	if (manifest.schedule?.enabled)
 		throw new Error("Rendered skills must start with their schedule disabled");

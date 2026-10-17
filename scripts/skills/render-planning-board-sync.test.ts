@@ -45,6 +45,20 @@ const config = {
 	workingHours: [9],
 	nightlyHour: 3,
 };
+it("pins the configured provider namespace and uses the native Tedix conflict tool", async () => {
+	const assets = await renderPlanningSync({
+		...config,
+		notionNamespace: "planning_notion",
+	});
+	const manifest = parseCapabilityManifest(assets.content);
+	expect(manifest.mcp?.planning_notion).toContain("notion_fetch");
+	expect(manifest.mcp?.notion).toBeUndefined();
+	expect(manifest.mcp?.tedix).toContain("create_work_interaction");
+	expect(manifest.mcp?.work).toBeUndefined();
+	expect(assets.files["scripts/workflow.ts"]).toContain(
+		'"notionNamespace":"planning_notion"',
+	);
+});
 it("renders a pinned draft with its schedule disabled and no live calls", async () => {
 	const assets = await renderPlanningSync(config);
 	const manifest = parseCapabilityManifest(assets.content);

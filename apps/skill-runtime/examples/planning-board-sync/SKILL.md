@@ -38,8 +38,8 @@ capabilities:
         revise_os_output,
         list_os_outputs,
         list_agent_session_activity,
+        create_work_interaction,
       ]
-    work: [create_work_interaction]
 ---
 
 # Shared planning board sync
@@ -97,6 +97,9 @@ Prepare a private JSON configuration with source collection URLs, property names
 status mapping, explicit existing-project links, owner and recipient identities,
 working-hour slots, selected signal Workspaces, a dedicated state sheet and the
 report document. No live coordinates belong in this public repository.
+
+Set `notionNamespace` to the exact provider namespace returned by discovery.
+The renderer pins it into both the manifest and the workflow configuration.
 
 `bun scripts/skills/render-planning-board-sync.ts CONFIG.json ASSETS.json`
 validates the configuration and renders a draft with scheduling disabled. Record
