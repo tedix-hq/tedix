@@ -50,12 +50,11 @@ vi.mock(
 	}),
 );
 
+import { readDelegationDepth, runKernelTurnWork } from "./turn-work";
 import {
 	chatApprovalReplyContent,
 	readChatApprovalReply,
-	readDelegationDepth,
-	runKernelTurnWork,
-} from "./turn-work";
+} from "./turn-work-intercepts";
 import {
 	type HomeTurnRuntimeEventInput,
 	KERNEL_TURN_PHASES,

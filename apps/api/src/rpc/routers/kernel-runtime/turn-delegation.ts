@@ -12,7 +12,7 @@ import {
 	readLatestRunAwaitingApproval,
 	updateKernelRuntimeRun,
 } from "@tedix/db/queries/kernel-runtime-runs";
-import type { ChatApprovalReply } from "../kernel/turn-work";
+import type { ChatApprovalReply } from "../kernel/turn-work-intercepts";
 import type {
 	KernelTurnWorkDeps,
 	KernelTurnWorkInput,
