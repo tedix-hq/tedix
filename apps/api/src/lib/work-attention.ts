@@ -58,9 +58,9 @@ export function buildAttention(
 		const session = sessions.find(
 			(s) => `${s.harness}:${s.sessionKey}` === row.session,
 		);
-		const skill = sources.skills.find(
-			(s) => s.id === row.runId || s.workItemId === row.workItemId,
-		);
+		const skill = sources.skills.find((s) => s.id === row.runId);
+		const run = sources.runs.find((r) => r.id === row.runId);
+		const worker = skill?.who || run?.who || row.name;
 		const expired =
 			!row.outcome && Date.parse(row.expiresAt ?? "") <= now.getTime();
 		const stale =
@@ -79,7 +79,7 @@ export function buildAttention(
 			title: row.title,
 			projectId: row.projectId,
 			who:
-				row.name ||
+				worker ||
 				(row.session?.startsWith("codex:")
 					? "Codex"
 					: row.session?.startsWith("claude-code:")
@@ -110,14 +110,16 @@ export function buildAttention(
 				? skill.createdBy === "schedule"
 					? "coordinator"
 					: "factory"
-				: row.session?.startsWith("codex:")
-					? "local_codex"
-					: row.session?.startsWith("claude-code:")
-						? "local_claude"
-						: row.name
-							? "cloud_tedi"
-							: "unknown",
-			tediName: row.name,
+				: run
+					? "cloud_tedi"
+					: row.session?.startsWith("codex:")
+						? "local_codex"
+						: row.session?.startsWith("claude-code:")
+							? "local_claude"
+							: row.name
+								? "cloud_tedi"
+								: "unknown",
+			tediName: worker,
 			finishedAt: row.finishedAt,
 		});
 	}
