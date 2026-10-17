@@ -1,3 +1,4 @@
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { projects } from "@tedix/db/schema/projects";
 import { workItems, workAttempts } from "@tedix/db/schema/work-items";
@@ -36,6 +37,7 @@ function fixture() {
 	sqlite.exec(schemaDdl(userConfigs));
 	for (const table of [
 		projects,
+		organizationMembers,
 		workItems,
 		workAttempts,
 		workInteractions,
@@ -238,4 +240,44 @@ it("scopes the embedded view to linked projects and checks workspace visibility"
 	await expect(
 		grace.attention({ workspaceId: "workspace-example", utcOffsetMinutes: 0 }),
 	).rejects.toThrow();
+});
+
+it("lets an active personal tedi edit only its owner's layout and rejects a revoked owner", async () => {
+	const { ada, grace, tediClient, sqlite } = fixture();
+	const db = createDbClient(createD1Facade(sqlite));
+	await db.insert(tedis).values({
+		id: "55555555-5555-4555-8555-555555555555",
+		organizationId: ORG_ID,
+		name: "Personal helper",
+		slug: "personal-helper",
+		scope: "personal",
+		ownerUserId: "ada-sub",
+		status: "active",
+	});
+	await db.insert(organizationMembers).values({
+		id: "member-ada",
+		organizationId: ORG_ID,
+		userId: "ada",
+		descopeUserId: "ada-sub",
+		email: "ada@example.test",
+		status: "active",
+		role: "member",
+	});
+	expect((await tediClient.getAttentionLayout({})).revision).toBe(0);
+	await tediClient.updateAttentionLayout({
+		expectedRevision: 0,
+		layout: { ...DEFAULT_ATTENTION_LAYOUT, focusToday: "Supply" },
+	});
+	expect((await ada.getAttentionLayout({})).layout.focusToday).toBe("Supply");
+	expect((await grace.getAttentionLayout({})).layout.focusToday).toBe("");
+	await db.delete(organizationMembers);
+	await expect(tediClient.getAttentionLayout({})).rejects.toThrow(
+		/active membership/,
+	);
+	await expect(
+		tediClient.updateAttentionLayout({
+			expectedRevision: 1,
+			layout: DEFAULT_ATTENTION_LAYOUT,
+		}),
+	).rejects.toThrow(/active membership/);
 });
