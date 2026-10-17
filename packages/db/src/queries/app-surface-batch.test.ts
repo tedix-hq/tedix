@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { getColumns, getTableName } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { apps } from "../schema/apps";
 import { appToolCspDomains } from "../schema/configuration";
@@ -9,7 +9,11 @@ import { organizations } from "../schema/organizations";
 import { providerInstallations } from "../schema/provider-installations";
 import { appTools } from "../schema/tools";
 import { createD1Facade } from "../test/d1-facade";
-import { getAppBySlugWithTools, getAppsBySlugsWithTools } from "./app-records";
+import {
+	getAppByIdWithToolsForOrganization,
+	getAppBySlugWithTools,
+	getAppsBySlugsWithTools,
+} from "./app-records";
 
 /**
  * `getAppsBySlugsWithTools` is the batched form of `getAppBySlugWithTools`.
@@ -44,7 +48,10 @@ const DDL = [
 	.map((table) => ddlFor(table as SQLiteTable))
 	.join("\n");
 
-function db(extraToolCount = 0): {
+function db(
+	extraToolCount = 0,
+	roundTripMs = 0,
+): {
 	client: DbClient;
 	sqlite: DatabaseSync;
 	statements: () => string[];
@@ -125,7 +132,27 @@ function db(extraToolCount = 0): {
 			if (prop === "prepare" && typeof value === "function") {
 				return (sql: string) => {
 					statements.push(sql);
-					return (value as (s: string) => unknown).call(target, sql);
+					const prepared = (value as (s: string) => object).call(target, sql);
+					const delayed = new Proxy(prepared, {
+						get(statement, method) {
+							const execute = Reflect.get(statement, method);
+							if (method === "bind") {
+								return (...args: unknown[]) => {
+									execute.apply(statement, args);
+									return delayed;
+								};
+							}
+							if (typeof execute !== "function") return execute;
+							return async (...args: unknown[]) => {
+								if (roundTripMs)
+									await new Promise((resolve) =>
+										setTimeout(resolve, roundTripMs),
+									);
+								return execute.apply(statement, args);
+							};
+						},
+					});
+					return delayed;
 				};
 			}
 			return value;
@@ -139,6 +166,65 @@ function db(extraToolCount = 0): {
 }
 
 describe("getAppsBySlugsWithTools", () => {
+	it.each(["single", "batch", "owned-id"] as const)(
+		"keeps %s hydration of 1,900 tools below a one-second D1 round-trip budget",
+		async (mode) => {
+			vi.useFakeTimers();
+			const { client, sqlite, statements } = db(1898, 250);
+			sqlite.exec("UPDATE apps SET organization_id = 'org-alpha'");
+			try {
+				const started = Date.now();
+				const pending =
+					mode === "single"
+						? getAppBySlugWithTools(client, "beta")
+						: mode === "owned-id"
+							? getAppByIdWithToolsForOrganization(
+									client,
+									"app-beta",
+									"org-alpha",
+								)
+							: getAppsBySlugsWithTools(client, [{ slug: "beta" }]).then(
+									([result]) => result,
+								);
+				await vi.runAllTimersAsync();
+				expect((await pending)?.tools).toHaveLength(1900);
+				// Model network latency, not local SQLite speed. The old 38 sequential
+				// CSP reads alone consumed 9.5s even when the table was empty.
+				expect(Date.now() - started).toBeLessThan(1000);
+				expect(statements()).toHaveLength(3);
+			} finally {
+				sqlite.close();
+				vi.useRealTimers();
+			}
+		},
+	);
+
+	it("attaches CSP only to selected tools of the resolved app", async () => {
+		const { client, sqlite } = db();
+		sqlite.exec(`INSERT INTO app_tool_csp_domains (id, app_tool_id, domain_type, domain_url, active) VALUES
+			('csp-first', 't-beta-1', 'connect', 'https://first.example', 1),
+			('csp-second', 't-beta-2', 'resource', 'https://second.example', 0),
+			('csp-disabled', 't-beta-off', 'connect', 'https://disabled.example', 1),
+			('csp-foreign', 't-alpha-1', 'connect', 'https://foreign.example', 1)`);
+		for (const surface of [
+			await getAppBySlugWithTools(client, "beta", { toolIds: ["second"] }),
+			...(await getAppsBySlugsWithTools(client, [
+				{ slug: "beta", toolIds: ["second"] },
+			])),
+		]) {
+			expect(surface?.tools).toHaveLength(1);
+			expect(surface?.tools[0]?.toolCspDomains).toEqual([
+				{
+					toolId: "second",
+					domainType: "resource",
+					domainUrl: "https://second.example",
+					active: false,
+				},
+			]);
+		}
+		sqlite.close();
+	});
+
 	it("answers every requested slug in request order, distinguishing empty from missing", async () => {
 		const { client } = db();
 		const results = await getAppsBySlugsWithTools(client, [
@@ -174,7 +260,9 @@ describe("getAppsBySlugsWithTools", () => {
 		expect(selects.length).toBeGreaterThan(0);
 		expect(selects.length).toBeLessThanOrEqual(3);
 		// And every app must be covered by a single `in (...)` read, not by N reads.
-		expect(selects.filter((sql) => sql.includes("app_tools"))).toHaveLength(1);
+		expect(
+			selects.filter((sql) => sql.includes('from "app_tools"')),
+		).toHaveLength(1);
 	});
 
 	it("preserves per-app tool ordering (sort_order, created_at)", async () => {
