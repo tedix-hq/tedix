@@ -113,7 +113,7 @@ export const UserConnectionSchema = z.object({
 	/** Provider display name */
 	providerName: z.string(),
 	/** Connection status */
-	status: z.enum(["connected", "expired", "revoked"]),
+	status: z.enum(["connected", "expired", "revoked", "reconnect_needed"]),
 	/** When the connection was established (unix seconds) */
 	connectedAt: z.number().nullable(),
 	/** Token expiration (unix seconds), if known */

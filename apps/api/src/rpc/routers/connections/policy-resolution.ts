@@ -164,7 +164,7 @@ export function chooseEffectiveConsentScopes(input: {
 export function mapConnectionRecord(input: {
 	appId: string;
 	providerName: string;
-	status: "connected" | "expired" | "revoked";
+	status: "connected" | "expired" | "revoked" | "reconnect_needed";
 	connectedAt: number | null;
 	tokenExpiresAt: number | null;
 	scopes: string[] | string | null | undefined;
@@ -1863,6 +1863,11 @@ export async function resolveCredentialChain(
 				args.connectionInstanceId,
 				args.scopes,
 			);
+			if (selected?.reconnectNeeded)
+				throw createError(
+					ErrorCodes.UNPROCESSABLE_CONTENT,
+					`Reconnect ${args.providerId} in Settings → Connections`,
+				);
 			if (selected)
 				return {
 					accessToken: selected.accessToken,
@@ -1928,6 +1933,11 @@ export async function resolveCredentialChain(
 			`No connection found for provider ${args.providerId}. Connect via Settings > Connections.`,
 		);
 	}
+	if (token.reconnectNeeded)
+		throw createError(
+			ErrorCodes.UNPROCESSABLE_CONTENT,
+			`Reconnect ${args.providerId} in Settings → Connections`,
+		);
 	if (!token.accessToken) {
 		throw createError(
 			ErrorCodes.INTERNAL_SERVER_ERROR,

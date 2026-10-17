@@ -185,6 +185,7 @@ export function connectionTone(status: UserConnection["status"]): ChipTone {
 		case "connected":
 			return "done";
 		case "expired":
+		case "reconnect_needed":
 			return "warn";
 		case "revoked":
 			return "blocked";
@@ -214,6 +215,7 @@ export function appConnectionStatus(
 			(row) =>
 				["missing", "expired", "restricted"].includes(row.accountState) ||
 				row.connection?.status === "expired" ||
+				row.connection?.status === "reconnect_needed" ||
 				row.connection?.status === "revoked",
 		)
 	)
