@@ -1,32 +1,75 @@
 ---
-summary: "Proposed organization residency policy and routing acceptance tests; no runtime activation"
+summary: "Organization model-egress residency policy, regional provider catalog and remaining migration boundaries"
 read_when:
   - Designing organization data residency or provider region enforcement
   - Auditing model routing for regional data processing
 ---
 
-# Organization data residency — phase 0 design
+# Organization data residency
 
-Status: specification, 17 October 2026. This document does not implement a
-setting, migrate data, change routing, add bindings, or certify EU residency.
-The private operator runbook owns installation inventory and migration steps.
+Phase 1 adds an organization model-egress setting and a versioned provider
+catalog. A missing policy row preserves existing routing. An explicit `eu`
+row requires a verified regional route or stops the model request with an
+administrator action. No organization is enabled by the migration.
+
+This setting does not migrate storage, change bindings, move identity or
+connected tools, or certify end-to-end EU residency. The private operator
+runbook owns installation inventory, provider attestation and migration steps.
 
 An organization owner should be able to require EU processing without choosing
 a different model for every tedi. A missing eligible credential must stop the
 request before any prompt, attachment, embedding, audio, or tool result leaves
 the policy boundary. Other organizations retain their current behavior.
 
-## Why implementation is deferred
+## Phase 1 routing and activation
 
-The current model catalog explicitly reports its default as deployment-scoped
+Owners/admins read `organizations.getDataResidency` and update with
+`organizations.setDataResidency({ mode, expectedRevision })` in their selected
+organization. Revision zero means no row. Updates use a conditional revision
+check and an atomic audit receipt. Tenant administrators cannot publish
+geography claims: `organizations.publishResidencyProviderVersion` and
+`organizations.listResidencyProviderCatalog` require platform authority.
+
+Provider rows pin the model, API kind, transport, gateway identity, regional
+resource and origin, supported text/image modalities, credential reference,
+processing evidence and expiry. Publish a later version of the same member
+with `enabled: false` to revoke it. Regional routing preserves the selected
+model and existing budget/model permissions; it may only replace its resource
+with a verified EU resource. Auto Router and unknown geography are ineligible.
+
+Both the kernel and native tedi transports obtain authoritative policy before
+budget admission and recheck before returning dispatch authority. EU requests
+use the selected organization's encrypted provider key, disable gateway logs
+and cache, reject redirects and have a short send window. Execution evidence
+records policy/pool revisions and references, never the credential value.
+
+Auxiliary learning, speech, CMS generation, OCR and content-embedding paths
+without a regional adapter are blocked for restricted organizations. Drain
+pre-existing live voice connections and asynchronous indexing work before
+activation: this setting cannot recall bytes already sent or relocate a
+provider session that is already open. Storage and connected-provider policy
+remain separate work.
+
+For a first Azure pilot, supply the API key for an explicitly **regional EU**
+Azure OpenAI resource in organization encrypted secrets. Use the catalog row's
+exact `credentialRef` (for example `AZURE_OPENAI_EU_API_KEY`), not a new Worker
+binding. Supply its origin, resource/deployment names, supported modalities,
+regional deployment SKU/location and current retention/processing evidence
+covering the intermediary gateway too. A Global deployment or an EU-looking
+hostname alone is insufficient. No live provider pool is seeded by source.
+
+## Remaining installation boundaries
+
+The presentation model catalog reports its default as deployment-scoped
 (`apps/api/src/services/model-catalog-projection.ts`). Runtime profiles and tedi
 overrides add further choices. Kernel, operator, observer, cron, judging,
 voice, embeddings, learning jobs, CMS generation, and direct Workers AI calls
 have separate execution paths. A filter in the chat selector alone would
 misrepresent enforcement. EU endpoint credentials, model availability, regional
 gateway processing/logging and fallback behavior need verified evidence first.
-The phase-0 lane cannot establish zero customer impact and zero new cost for
-that implementation; the approved fallback is this specification and test plan.
+Phase 0 established the design and test plan. Phase 1 adds routing enforcement
+and denies unsupported auxiliary paths; installation activation still needs
+verified provider evidence and a separate operator decision.
 
 ## Persistence and contracts
 
@@ -124,11 +167,12 @@ DO migration requires a writer fence, logical-key inventory, authenticated
 export/import, schema/checksum verification and an explicit cutover checkpoint.
 Rollback after new writes requires reverse replay, not merely changing a flag.
 
-## Required implementation acceptance tests
+## Required acceptance tests
 
-These are test specifications; they have not been implemented or passed.
-Use fictional organizations and endpoint origins. No test may contact a live
-model or infrastructure account.
+Phase-1 tests live beside the residency contract, query, API admission and
+transport owners. The remaining installation/migration cases below are design
+requirements for later operator work. Use fictional organizations and endpoint
+origins. No test may contact a live model or infrastructure account.
 
 | Case                             | Required assertion                                                                                           |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
