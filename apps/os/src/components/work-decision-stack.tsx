@@ -58,6 +58,7 @@ function ApprovalDecisionCard({
 	};
 	return (
 		<WorkDecisionCard
+			autoFocus
 			kind="approval"
 			title={approval.review.operatorQuestion || approval.description}
 			askedBy="Your tedi"
@@ -151,7 +152,7 @@ export function WorkDecisionStack({
 					key={item.key}
 					data-decision-row
 					data-needs-you={item.kind}
-					tabIndex={0}
+					tabIndex={-1}
 					className="min-w-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring"
 				>
 					{index !== current ? (
@@ -169,6 +170,7 @@ export function WorkDecisionStack({
 						</Button>
 					) : item.key.startsWith("interaction:") ? (
 						<WorkInteractionDecisionCard
+							autoFocus
 							requestId={item.key.slice("interaction:".length)}
 							askedBy={item.askedBy}
 							onNext={() => move(index + 1)}
@@ -182,6 +184,7 @@ export function WorkDecisionStack({
 						/>
 					) : (
 						<WorkDecisionCard
+							autoFocus
 							kind="question"
 							title={item.label}
 							askedBy={item.askedBy ?? "Tedix"}

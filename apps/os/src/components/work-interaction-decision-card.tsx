@@ -64,6 +64,7 @@ export function WorkInteractionDecisionCard({
 	askedBy,
 	drafterName,
 	deliveryText,
+	autoFocus,
 	onNext,
 	onPrevious,
 }: {
@@ -71,6 +72,7 @@ export function WorkInteractionDecisionCard({
 	askedBy?: string;
 	drafterName?: string;
 	deliveryText?: string;
+	autoFocus?: boolean;
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
@@ -207,6 +209,7 @@ export function WorkInteractionDecisionCard({
 		<div className="grid min-w-0 gap-3">
 			{deliveryText ? <p className="text-kumo-subtle">{deliveryText}</p> : null}
 			<WorkDecisionCard
+				autoFocus={autoFocus}
 				key={`${request.id}:${effectiveState}`}
 				kind={
 					proposal ? "proposal" : choices.decisionCard ? "decision" : "question"

@@ -5,7 +5,7 @@ import {
 	AlertDialogDescription,
 	AlertDialogFooter,
 } from "@/components/kumo/alert-dialog";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
@@ -68,6 +68,7 @@ export function WorkDecisionCard({
 	initialAnswer = "",
 	pending = false,
 	disabled = false,
+	autoFocus = false,
 	onDecision,
 	onNext,
 	onPrevious,
@@ -86,10 +87,15 @@ export function WorkDecisionCard({
 	initialAnswer?: string;
 	pending?: boolean;
 	disabled?: boolean;
+	autoFocus?: boolean;
 	onDecision: (feedback: DecisionCardFeedback) => Promise<unknown>;
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
+	const section = useRef<HTMLElement>(null);
+	useEffect(() => {
+		if (autoFocus) section.current?.focus({ preventScroll: true });
+	}, [autoFocus]);
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(body);
 	const [answer, setAnswer] = useState(initialAnswer);
@@ -175,6 +181,7 @@ export function WorkDecisionCard({
 	};
 	return (
 		<section
+			ref={section}
 			aria-label={title}
 			tabIndex={0}
 			className="min-w-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring"

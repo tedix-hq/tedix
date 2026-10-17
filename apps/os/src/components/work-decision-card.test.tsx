@@ -285,3 +285,14 @@ it("does not let keyboard shortcuts activate a disabled action", async () => {
 	);
 	expect(decide).not.toHaveBeenCalled();
 });
+
+it("focuses an expanded stack card so Enter works without an extra click", async () => {
+	const decide = await mount({ autoFocus: true });
+	expect(document.activeElement).toBe(host.querySelector("section"));
+	await act(async () =>
+		document.activeElement!.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		),
+	);
+	expect(decide).toHaveBeenCalledTimes(1);
+});
