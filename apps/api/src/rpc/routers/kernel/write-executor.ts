@@ -12,13 +12,13 @@ import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
  * executor from ever running twice for the same run.
  *
  * Safety order of operations:
- *   1. `tools/list` (plus Code Mode discovery for aggregate providers)
+ *   1. `tools/list` for direct providers, or exact Code Mode description,
  *      re-validates the stored tool still exists upstream AND is still not
  *      read-only-annotated (a provider that re-published the tool as something
  *      else between proposal and approval aborts the write). The catalog is
- *      walked to exhaustion under the shared pagination bounds — one page is
- *      200 tools and the aggregate surface serves several hundred — and a walk
- *      that hit a bound reports the tool unverified, never missing;
+ *      walked under the shared pagination bounds; a walk that hit a bound
+ *      reports the tool unverified, never missing. An aggregate descriptor
+ *      may supply an authorized native wire name, avoiding sandbox execution;
  *   2. one `tools/call` with the stored args — user-first credential
  *      (X-Tedix-Acting-User = initiatedByUserId), tenant fallback when the
  *      personal connection is missing (the approved hybrid credential model);
@@ -42,7 +42,6 @@ import {
 	requestFirstPartyMcp,
 } from "../../../lib/first-party-mcp";
 import {
-	CODE_MODE_TOOL_NAME,
 	codeModeCanonicalDescribeParams,
 	codeModeExecutionParams,
 	codeModeResultData,
@@ -319,14 +318,18 @@ export async function executeApprovedKernelWrite(args: {
 
 		// Re-validate the stored tool still exists upstream before calling — the
 		// provider catalog may have changed between proposal and approval.
-		const listed = await listUpstreamTools(
-			env,
-			host,
-			payload.organizationId,
-			payload.initiatedByUserId ?? undefined,
-		);
 		const transport = payload.transport ?? "direct";
-		const tool =
+		// A successful exact describe verifies the Code Mode surface itself.
+		const listed =
+			transport === "direct"
+				? await listUpstreamTools(
+						env,
+						host,
+						payload.organizationId,
+						payload.initiatedByUserId ?? undefined,
+					)
+				: { items: [], truncated: false };
+		const described =
 			transport === "codemode"
 				? parseCodeModeCatalog(
 						await mcpCall(
@@ -338,22 +341,10 @@ export async function executeApprovedKernelWrite(args: {
 							payload.initiatedByUserId ?? undefined,
 						),
 					).find((candidate) => candidate.name === payload.toolName)
-				: listed.items.find((candidate) => candidate.name === payload.toolName);
-		// An absence read out of a catalog we cut short is not an absence. Both
-		// checks below still abort the write — the approval is never executed on a
-		// guess — but they say the catalog could not be verified rather than
-		// asserting the provider dropped the tool.
-		if (
-			transport === "codemode" &&
-			!listed.items.some((candidate) => candidate.name === CODE_MODE_TOOL_NAME)
-		) {
-			return {
-				ok: false,
-				error: listed.truncated
-					? `Code Mode could not be verified on ${payload.appSlug}: its tool catalog exceeded the pagination bound`
-					: `Code Mode is no longer available on ${payload.appSlug}`,
-			};
-		}
+				: undefined;
+		const tool =
+			described ??
+			listed.items.find((candidate) => candidate.name === payload.toolName);
 		if (!tool) {
 			return {
 				ok: false,
@@ -374,8 +365,10 @@ export async function executeApprovedKernelWrite(args: {
 
 		// One tools/call with the STORED args — user-first credential, tenant
 		// fallback when the personal connection is missing.
-		const params =
-			transport === "codemode"
+		const nativeName = described?.native?.name;
+		const params = nativeName
+			? { name: nativeName, arguments: payload.args }
+			: transport === "codemode"
 				? codeModeExecutionParams(payload.toolName, payload.args)
 				: { name: payload.toolName, arguments: payload.args };
 		let result = (await mcpCall(
@@ -417,9 +410,9 @@ export async function executeApprovedKernelWrite(args: {
 			};
 		}
 		const data =
-			transport === "codemode"
+			transport === "codemode" && !nativeName
 				? codeModeResultData(result)
-				: unwrapCallToolResult(result, payload.toolName);
+				: unwrapCallToolResult(result, nativeName ?? payload.toolName);
 		const failure = reportedWriteFailure(data);
 		if (failure !== null) return { ok: false, error: boundedError(failure) };
 		const actionReceipt = await verifyAction({

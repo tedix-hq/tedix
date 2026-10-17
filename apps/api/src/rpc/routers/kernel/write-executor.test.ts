@@ -363,6 +363,117 @@ describe("executeApprovedKernelWrite", () => {
 		expect(toolCalls[1]?.headers.get("X-Tedix-Acting-User")).toBeNull();
 	});
 
+	it.each([
+		"native",
+		"denied",
+		"ineligible",
+		"malformed",
+		"read-only",
+		"missing",
+		"transport",
+		"tool-error",
+	])(
+		"executes the stored write through a fresh descriptor (%s)",
+		async (scenario) => {
+			const service = mcpService((body) => {
+				if (
+					body.params.name === "code" &&
+					String((body.params.arguments as { code: string }).code).includes(
+						"discover.describe",
+					)
+				) {
+					return {
+						json: {
+							jsonrpc: "2.0",
+							result: {
+								structuredContent: {
+									callable:
+										scenario === "missing"
+											? "work.another_write"
+											: "work.create_work_items",
+									annotations: { readOnlyHint: scenario === "read-only" },
+									native:
+										scenario === "malformed"
+											? { name: "unverified" }
+											: {
+													name: "create_work_items",
+													toolRowId: "configured-row",
+													endpoint: "workItems/create",
+													eligible: scenario !== "ineligible",
+													authorized: scenario !== "denied",
+													schemaFreshness: {
+														source: "rpc",
+														sourceRef: "workItems/create",
+														sourceHash: "schema-hash",
+														syncedAt: "2026-10-01T00:00:00Z",
+													},
+												},
+								},
+							},
+						},
+					};
+				}
+				if (scenario === "transport") return { status: 503, json: {} };
+				return {
+					json: {
+						jsonrpc: "2.0",
+						result: {
+							isError: scenario === "tool-error",
+							structuredContent: { id: "WI-1" },
+							content:
+								scenario === "tool-error"
+									? [{ type: "text", text: "write refused" }]
+									: [],
+						},
+					},
+				};
+			});
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload({
+					toolName: "work.create_work_items",
+					args: { title: "Stored arguments" },
+					transport: "codemode",
+				}),
+			});
+			const rejected = [
+				"read-only",
+				"missing",
+				"transport",
+				"tool-error",
+			].includes(scenario);
+			expect(result.ok).toBe(!rejected);
+			expect(service.calls.every((call) => call.method === "tools/call")).toBe(
+				true,
+			);
+			const writes = service.calls.filter(
+				(call) => call.params.name === "create_work_items",
+			);
+			const fallback = ["denied", "ineligible", "malformed"].includes(scenario);
+			if (["read-only", "missing"].includes(scenario))
+				expect(service.calls).toHaveLength(1);
+			else if (fallback) {
+				expect(writes).toHaveLength(0);
+				expect(service.calls[1]?.params).toMatchObject({
+					name: "code",
+					arguments: {
+						code: 'async () => await work.create_work_items({"title":"Stored arguments"})',
+					},
+				});
+			} else {
+				expect(writes).toHaveLength(1);
+				expect(writes[0]?.params.arguments).toEqual({
+					title: "Stored arguments",
+				});
+			}
+			for (const call of service.calls) {
+				expect(call.headers.get("X-Tedix-Org-Id")).toBe("org-1");
+				expect(call.headers.get("X-Tedix-Acting-User")).toBe("user-123");
+				expect(call.headers.get("X-Tedix-Kernel")).toBe("true");
+			}
+		},
+	);
+
 	it("revalidates and executes an approved Code Mode callable", async () => {
 		let codeCall = 0;
 		const service = mcpService((body) => {
@@ -426,19 +537,18 @@ describe("executeApprovedKernelWrite", () => {
 			data: { id: "WI-1", actionReceipt: { verified: false } },
 		});
 		expect(service.calls.map((call) => call.method)).toEqual([
-			"tools/list",
 			"tools/call",
 			"tools/call",
 			"tools/call",
 		]);
-		expect(service.calls[1]?.params).toEqual({
+		expect(service.calls[0]?.params).toEqual({
 			_meta: HOME_REQUEST_META,
 			name: "code",
 			arguments: {
 				code: 'async () => await discover.describe({"callable":"work.create_work_items"})',
 			},
 		});
-		expect(service.calls[2]?.params).toEqual({
+		expect(service.calls[1]?.params).toEqual({
 			_meta: HOME_REQUEST_META,
 			name: "code",
 			arguments: {
@@ -523,7 +633,6 @@ describe("executeApprovedKernelWrite", () => {
 			expect(result.error).toContain("insufficient authentication scopes");
 		}
 		expect(service.calls.map((call) => call.method)).toEqual([
-			"tools/list",
 			"tools/call",
 			"tools/call",
 		]);
