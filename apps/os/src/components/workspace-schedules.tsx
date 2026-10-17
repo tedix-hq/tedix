@@ -217,7 +217,9 @@ function PersonalReadControl({
 				disabled={allow.isPending}
 				onClick={() => allow.mutate()}
 			>
-				Let this read my {access.providerName} (read-only)
+				{access.providerId === "tedix-session-activity"
+					? `Let the ${access.workerName ?? "scheduled"} tedi read my session activity (read-only)`
+					: `Let this read my ${access.providerName} (read-only)`}
 			</Button>
 			{error && (
 				<Text

@@ -81,6 +81,7 @@ export type PersonalAccessLevelValue = z.infer<
 export const OsWorkspaceSchedulePersonalReadSchema = z
 	.object({
 		providerId: z.string(),
+		workerName: z.string().optional(),
 		providerName: z
 			.string()
 			.describe("The account's name people know, such as Gmail"),

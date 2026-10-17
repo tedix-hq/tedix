@@ -9,6 +9,7 @@ import {
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
+	listAgentSessionActivity,
 	getPreviousAgentSessionTurn,
 	listRecentAgentSessionTurns,
 	getAgentSessionRequestPrompts,
@@ -462,6 +463,52 @@ it("recovers original prompts without later goals or another owner's events", as
 			organizationId: ORG,
 			userId: USER,
 			ids: [],
+		}),
+	).toEqual([]);
+});
+
+it("scopes activity to its owner and organization, with deterministic bounded dates", async () => {
+	const db = fixture();
+	for (const [organizationId, userId, sourceAt, sourceKey] of [
+		[ORG, USER, T0, "old"],
+		[ORG, USER, T1, "own"],
+		[ORG, OTHER_USER, T1, "other-user"],
+		["other-org", USER, T1, "other-org"],
+	])
+		await recordAgentSessionEvents(db, {
+			organizationId,
+			userId,
+			now: T1,
+			events: [
+				{
+					kind: "turn",
+					harness: "codex",
+					sessionKey: "chat",
+					repository: null,
+					sourceAt,
+					sourceKey,
+					body: sourceKey,
+					activity: "tool failure digest",
+				},
+			],
+		});
+	const rows = await listAgentSessionActivity(db, {
+		organizationId: ORG,
+		userId: USER,
+		since: T0,
+		limit: 1,
+	});
+	expect(rows).toHaveLength(1);
+	expect(rows[0]).toMatchObject({
+		body: "own",
+		activity: "tool failure digest",
+	});
+	expect(rows[0]).not.toHaveProperty("userId");
+	expect(
+		await listAgentSessionActivity(db, {
+			organizationId: ORG,
+			userId: USER,
+			since: T1,
 		}),
 	).toEqual([]);
 });

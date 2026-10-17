@@ -137,3 +137,30 @@ export const UpdateAgentSessionRequestInputSchema = z.strictObject({
 export const UpdateAgentSessionRequestResultSchema = z.strictObject({
 	request: AgentSessionRequestSchema,
 });
+
+/** Internal personal resource: no OAuth connection or credential is involved. */
+export const SESSION_ACTIVITY_RESOURCE = {
+	providerId: "tedix-session-activity",
+	resourceType: "session_activity",
+	toolId: "list_agent_session_activity",
+} as const;
+export const ListAgentSessionActivityInputSchema = z.strictObject({
+	since: z.iso.datetime(),
+	limit: z.number().int().min(1).max(100).default(50),
+});
+export const ListAgentSessionActivityResultSchema = z.strictObject({
+	status: z.enum(["ready", "needs_grant"]),
+	summary: z.string(),
+	data: z.array(
+		z.strictObject({
+			id: z.string(),
+			harness: WorkAgentSessionHarnessSchema,
+			sessionKey: z.string(),
+			repository: z.string().nullable(),
+			kind: z.enum(["prompt", "turn"]),
+			sourceAt: z.string(),
+			text: z.string(),
+			activity: z.string().nullable(),
+		}),
+	),
+});

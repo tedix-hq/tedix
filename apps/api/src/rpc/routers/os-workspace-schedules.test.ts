@@ -109,3 +109,20 @@ describe("a scheduled skill's personal account access", () => {
 		).resolves.toBeNull();
 	});
 });
+
+it("recognizes a declared internal session activity read without a provider connection", async () => {
+	const context = await setup();
+	await expect(
+		personalAccessNeed(
+			context,
+			"org-1",
+			skill("    tedix: [list_agent_session_activity]"),
+		),
+	).resolves.toEqual({
+		providerId: "tedix-session-activity",
+		providerName: "session activity",
+		resourceType: "session_activity",
+		tools: [{ toolId: "list_agent_session_activity", operation: "read" }],
+		requiredScopes: [],
+	});
+});

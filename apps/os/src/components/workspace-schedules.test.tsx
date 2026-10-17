@@ -190,3 +190,34 @@ describe("personal read on a scheduled skill", () => {
 		}
 	});
 });
+
+it("leaves the session grant absent until the owner presses the named tedi button", async () => {
+	mocks.list.mockResolvedValue({
+		items: [
+			schedule({
+				...gmail,
+				providerId: "tedix-session-activity",
+				providerName: "session activity",
+				workerName: "CTO",
+				toolIds: ["list_agent_session_activity"],
+			}),
+		],
+	});
+	mocks.allow.mockResolvedValue({ status: "allowed", grantId: GRANT_ID });
+	const view = await mount();
+	try {
+		expect(mocks.allow).not.toHaveBeenCalled();
+		const button = view.button(
+			"Let the CTO tedi read my session activity (read-only)",
+		);
+		expect(button).toBeDefined();
+		await act(async () => button!.click());
+		await settle();
+		expect(mocks.allow).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+			resourceId: RESOURCE_ID,
+		});
+	} finally {
+		await view.close();
+	}
+});

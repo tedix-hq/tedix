@@ -1,3 +1,4 @@
+import { SESSION_ACTIVITY_RESOURCE } from "@tedix/api-contract/schemas/agent-session-requests";
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import {
 	OsDerivedAccessEnvelopeSchema,
@@ -149,6 +150,43 @@ export async function preparePersonalResourceDelegation(
 	const declared = declaredToolIds(skill.files?.["SKILL.md"] ?? skill.content);
 	if (input.toolIds.some((toolId) => !declared.has(toolId)))
 		deny("Consent cannot grant an undeclared skill tool");
+	if (resource.providerId === SESSION_ACTIVITY_RESOURCE.providerId) {
+		if (
+			(workspace.visibility === "private"
+				? workspace.ownerUserId
+				: workspace.createdByKind === "user"
+					? workspace.createdById
+					: null) !== owner.ownerUserId ||
+			!context.userId ||
+			resource.resourceType !== SESSION_ACTIVITY_RESOURCE.resourceType ||
+			resource.personalOwnerUserId !== owner.ownerUserId ||
+			resource.providerResourceId !== context.userId ||
+			resource.connectionInstanceId !== resource.id ||
+			input.connectionInstanceId !== resource.id ||
+			input.operations.length !== 1 ||
+			input.operations[0] !== "read" ||
+			input.toolIds.length !== 1 ||
+			input.toolIds[0] !== SESSION_ACTIVITY_RESOURCE.toolId ||
+			scopesFromResource(resource.requiredScopes).length
+		)
+			deny(
+				"Session activity consent must be the owner's private read-only resource",
+			);
+		return {
+			...input,
+			...owner,
+			id: crypto.randomUUID(),
+			providerId: resource.providerId,
+			resourceType: resource.resourceType,
+			providerResourceId: context.userId,
+			accountSubject: context.userId,
+			grantFingerprint: resource.id,
+			requiredScopes: [],
+			createdAt: now.toISOString(),
+			expiresAt: new Date(expires).toISOString(),
+			revokedAt: null,
+		};
+	}
 	const account = await getConnectionInstance(
 		context.db,
 		{ userId: owner.ownerUserId },
@@ -240,7 +278,8 @@ export async function authorizePersonalResourceDelegation(
 	if (
 		context.authType !== "service-binding" ||
 		context.tediId !== input.tediId ||
-		!hasConnectionCredentialResolutionAuthority(context) ||
+		(input.providerId !== SESSION_ACTIVITY_RESOURCE.providerId &&
+			!hasConnectionCredentialResolutionAuthority(context)) ||
 		context.headers.get("X-Tedix-Mcp-Tool-Id") !== input.toolId
 	)
 		deny("Delegation requires a trusted worker tool execution");
@@ -408,12 +447,14 @@ async function validateLivePersonalDelegation(
 				workspaceId: row.workspaceId,
 				resourceId: row.resourceId,
 			}),
-			getConnectionInstance(
-				context.db,
-				{ userId: row.ownerUserId },
-				row.connectionInstanceId,
-				row.providerId,
-			),
+			row.providerId === SESSION_ACTIVITY_RESOURCE.providerId
+				? Promise.resolve(null)
+				: getConnectionInstance(
+						context.db,
+						{ userId: row.ownerUserId },
+						row.connectionInstanceId,
+						row.providerId,
+					),
 			getSkillEntry(context.db, row.skillId, organizationId),
 		]);
 	if (
@@ -432,10 +473,33 @@ async function validateLivePersonalDelegation(
 		resource.providerId !== row.providerId ||
 		resource.resourceType !== row.resourceType ||
 		resource.providerResourceId !== row.providerResourceId ||
-		!account ||
-		account.tokenSub !== row.accountSubject
+		(row.providerId !== SESSION_ACTIVITY_RESOURCE.providerId &&
+			(!account || account.tokenSub !== row.accountSubject))
 	)
 		deny("Personal consent dependencies are no longer active or have changed");
+	if (row.providerId === SESSION_ACTIVITY_RESOURCE.providerId) {
+		if (
+			(workspace.visibility === "private"
+				? workspace.ownerUserId
+				: workspace.createdByKind === "user"
+					? workspace.createdById
+					: null) !== row.ownerUserId ||
+			membership.userId !== row.accountSubject ||
+			row.providerResourceId !== row.accountSubject ||
+			row.resourceType !== SESSION_ACTIVITY_RESOURCE.resourceType ||
+			row.connectionInstanceId !== row.resourceId ||
+			row.grantFingerprint !== row.resourceId ||
+			row.operations.length !== 1 ||
+			row.operations[0] !== "read" ||
+			row.toolIds.length !== 1 ||
+			row.toolIds[0] !== SESSION_ACTIVITY_RESOURCE.toolId ||
+			row.requiredScopes.length ||
+			scopesFromResource(resource.requiredScopes).length
+		)
+			deny("Session activity consent dependencies changed");
+		return [];
+	}
+	if (!account) deny("The exact personal account is disconnected");
 	const currentScopes = scopesFromResource(resource.requiredScopes);
 	if (
 		currentScopes.length !== row.requiredScopes.length ||

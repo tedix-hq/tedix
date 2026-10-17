@@ -228,6 +228,7 @@ export const ToolAnnotationsSchema = z.object({
 	destructiveHint: z.boolean().optional(),
 	idempotentHint: z.boolean().optional(),
 	openWorldHint: z.boolean().optional(),
+	untrustedContentHint: z.boolean().optional(),
 });
 export type ToolAnnotations = z.infer<typeof ToolAnnotationsSchema>;
 

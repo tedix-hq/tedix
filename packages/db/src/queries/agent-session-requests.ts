@@ -562,3 +562,31 @@ export async function updateAgentSessionRequests(
 	const [first, ...rest] = statements;
 	await db.batch([first!, ...rest]);
 }
+
+/** Bounded newest-first activity for exactly one ledger owner and tenant. */
+export async function listAgentSessionActivity(
+	db: DbQueryClient,
+	input: AgentSessionRequestOwner & { since: string; limit?: number },
+) {
+	return db
+		.select({
+			id: agentSessionEvents.id,
+			harness: agentSessionEvents.harness,
+			sessionKey: agentSessionEvents.sessionKey,
+			repository: agentSessionEvents.repository,
+			kind: agentSessionEvents.kind,
+			sourceAt: agentSessionEvents.sourceAt,
+			body: agentSessionEvents.body,
+			activity: agentSessionEvents.activity,
+		})
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, input.organizationId),
+				eq(agentSessionEvents.userId, input.userId),
+				gt(agentSessionEvents.sourceAt, input.since),
+			),
+		)
+		.orderBy(desc(agentSessionEvents.sourceAt), desc(agentSessionEvents.id))
+		.limit(Math.min(100, Math.max(1, input.limit ?? 50)));
+}
