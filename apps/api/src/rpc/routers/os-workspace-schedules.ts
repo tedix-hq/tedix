@@ -423,7 +423,9 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				providerAccess: null,
 				resourceType: need.resourceType,
 				providerResourceId: account.label,
-				name: `${need.providerName}: ${account.label}`.slice(0, 200),
+				name: localActivity
+					? "My session activity"
+					: `${need.providerName}: ${account.label}`.slice(0, 200),
 				metadata: "{}",
 				status: "active",
 				createdByKind: creator.kind,
