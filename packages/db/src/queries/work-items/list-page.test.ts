@@ -433,15 +433,13 @@ it("pages server-selected lanes and keeps held or malformed plans out of dispatc
 	];
 	for (let n = 0; n < plans.length; n++) {
 		insert({ id: idFor(n), disposition: "accepted" });
-		sqlite
-			.prepare("UPDATE work_items SET metadata = ? WHERE id = ?")
-			.run(
-				JSON.stringify({
-					executor: "codex",
-					...(n === 0 ? {} : { laneDispatch: plans[n] }),
-				}),
-				idFor(n),
-			);
+		sqlite.prepare("UPDATE work_items SET metadata = ? WHERE id = ?").run(
+			JSON.stringify({
+				executor: "codex",
+				...(n === 0 ? {} : { laneDispatch: plans[n] }),
+			}),
+			idFor(n),
+		);
 	}
 	insert({ id: idFor(100), orgId: OTHER_ORG });
 	sqlite
