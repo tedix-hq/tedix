@@ -1,3 +1,8 @@
+import {
+	isVisionCapableChatDeployment,
+	sanitizeChatAttachments,
+} from "./chat-attachments";
+import { normalizePortablePath } from "./portable-path";
 import { noFundsTurnTools, NO_FUNDS_TURN_MESSAGE } from "./no-funds-turn";
 import {
 	privateInferenceOriginGuard,
@@ -1256,14 +1261,6 @@ function serializeObservationsForReflector(
 	return JSON.stringify(observations);
 }
 
-function bodyString(
-	body: Record<string, unknown> | undefined,
-	key: string,
-): string | undefined {
-	const value = body?.[key];
-	return typeof value === "string" && value.trim() ? value : undefined;
-}
-
 function unknownRecord(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
@@ -1315,48 +1312,6 @@ function repoCommitStatusSnapshot(
 }
 
 /**
- * Validate + normalize inbound chat attachments. Untrusted JSON from the Tedix OS /
- * MCP edge; we keep only well-formed `{content,fileName,mimeType,type}` entries
- * and cap the array so a malformed/oversized body cannot blow the DO budget.
- * The per-attachment byte cap is enforced downstream by `@tedix/voice/stt`.
- */
-const MAX_CHAT_ATTACHMENTS = 8;
-
-/**
- * Azure chat deployments known to be multimodal (vision) on this runtime. The
- * isolate body is pinned to a single `AZURE_CHAT_DEPLOYMENT` (GPT-6.1 Sol by default);
- * image attachments only reach the model when that deployment is vision-capable.
- * If the deployment ever changes to a non-vision model, image resolution FAILS
- * SOFT to the filename note (the existing behavior) — this is the runtime
- * vision-capability guard the multimodal turn path checks. Match is by prefix so
- * dated/region-suffixed deployment names still resolve.
- */
-const VISION_CHAT_DEPLOYMENT_PREFIXES = [
-	"gpt-6.1-sol",
-	"gpt-6-astra",
-	"gpt-6-sol",
-	"gpt-6-luna",
-	"gpt-5.6",
-	"gpt-5",
-	"gpt-4.1",
-	"gpt-4o",
-	"gpt-4-vision",
-	"gpt-4-turbo",
-] as const;
-
-/** True when the pinned Azure chat deployment is vision-capable. Drives the
- * FAIL-SOFT decision to inline image attachments vs. fall back to the note. */
-function isVisionCapableChatDeployment(
-	deployment: string | undefined,
-): boolean {
-	if (!deployment) return false;
-	const normalized = deployment.trim().toLowerCase();
-	return VISION_CHAT_DEPLOYMENT_PREFIXES.some((prefix) =>
-		normalized.startsWith(prefix),
-	);
-}
-
-/**
  * Per-turn provider-call discipline for interactive/delegated turns.
  * Cron turns learn their four-call budget from the
  * cron message body; operator/delegated turns previously learned about the
@@ -1390,20 +1345,6 @@ type R2SqlQueryInput = R2SqlRowQuery & {
 	action?: R2SqlIntrospection["action"];
 };
 
-function normalizePortablePath(path: unknown): string | null {
-	if (typeof path !== "string") return null;
-	const trimmed = path.trim().replace(/^\/+/, "");
-	if (
-		!trimmed ||
-		trimmed.length > 1024 ||
-		trimmed.includes("\0") ||
-		trimmed.split("/").some((part) => !part || part === "." || part === "..")
-	) {
-		return null;
-	}
-	return trimmed;
-}
-
 function clampPositiveInt(
 	value: unknown,
 	defaultValue: number,
@@ -1411,25 +1352,6 @@ function clampPositiveInt(
 ): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) return defaultValue;
 	return Math.max(1, Math.min(maxValue, Math.floor(value)));
-}
-
-function sanitizeChatAttachments(
-	value: unknown,
-): AudioAttachment[] | undefined {
-	if (!Array.isArray(value) || value.length === 0) return undefined;
-	const out: AudioAttachment[] = [];
-	for (const raw of value.slice(0, MAX_CHAT_ATTACHMENTS)) {
-		if (!raw || typeof raw !== "object") continue;
-		const a = raw as Record<string, unknown>;
-		const content = typeof a.content === "string" ? a.content : "";
-		const fileName = typeof a.fileName === "string" ? a.fileName : "";
-		const mimeType = typeof a.mimeType === "string" ? a.mimeType : "";
-		const type = a.type;
-		if (!content) continue;
-		if (type !== "audio" && type !== "file" && type !== "image") continue;
-		out.push({ content, fileName, mimeType, type });
-	}
-	return out.length > 0 ? out : undefined;
 }
 
 export class AgentTediDO extends Agent<Cloudflare.Env, State> {
