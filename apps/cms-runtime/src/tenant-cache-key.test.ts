@@ -42,6 +42,18 @@ describe("tenant Loader cache key", () => {
 		).toBe(after);
 	});
 
+	it("recreates public renderers when published content changes", () => {
+		const privateRuntime = tenantRuntimeCacheKey("example", bundle, org, env);
+		const before = tenantRuntimeCacheKey("example", bundle, org, env, "before");
+		const after = tenantRuntimeCacheKey("example", bundle, org, env, "after");
+
+		expect(before).not.toBe(privateRuntime);
+		expect(after).not.toBe(before);
+		expect(tenantRuntimeCacheKey("example", bundle, org, env, "after")).toBe(
+			after,
+		);
+	});
+
 	it("invalidates when human assertion capability is activated or removed", () => {
 		const before = tenantRuntimeCacheKey("example", bundle, org, env);
 		const enabled = tenantRuntimeCacheKey(

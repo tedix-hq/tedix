@@ -4898,7 +4898,9 @@ async function fetchCmsSite(
 			restoreEpoch,
 			spans,
 		};
-		const baseLoaderKey = `${tenantRuntimeCacheKey(slug, bundle, org, env)}@restore:${restoreEpoch}`;
+		// Publication must also discard EmDash's isolate-lifetime settings cache.
+		const publicPageEligible = pageCacheEligible(request, tenantUrl.pathname);
+		const baseLoaderKey = `${tenantRuntimeCacheKey(slug, bundle, org, env, publicPageEligible ? pageRevision : undefined)}@restore:${restoreEpoch}`;
 		const fetchTenant = (tenantFetchRequest: Request) =>
 			fetchWithTenantLoaderRecovery(
 				tenantFetchRequest,
@@ -4945,7 +4947,7 @@ async function fetchCmsSite(
 		let loaderResponse: Response;
 		try {
 			spans["tenant.preDispatch"] = Date.now() - preDispatchStarted;
-			const pageKey = pageCacheEligible(request, tenantUrl.pathname)
+			const pageKey = publicPageEligible
 				? await pageCacheKey(request, tenantUrl, {
 						siteId: org.siteId,
 						slug,
