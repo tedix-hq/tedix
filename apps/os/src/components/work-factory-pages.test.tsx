@@ -36,8 +36,6 @@ import {
 	WorkRecoveryLedger,
 	WorkAttemptsLedger,
 	WorkAttemptsPage,
-	workActivitySearch,
-	workQueueSearch,
 	WorkCompletedPage,
 	workAttemptSessionLabel,
 	WorkItemsTable,
@@ -46,6 +44,7 @@ import {
 	workEventActorLabel,
 	evidenceTrustLabel,
 } from "./work-factory-pages";
+import { workActivitySearch, workQueueSearch } from "@/lib/work-route-search";
 import { workPrincipalLabel } from "@/lib/work-display";
 
 /** Seeds the accountable-name reads so a mounted page never reaches the network. */

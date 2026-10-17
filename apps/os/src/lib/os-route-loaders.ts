@@ -774,11 +774,14 @@ export async function prefetchWorkInteractionsRoute(queryClient: QueryClient) {
 
 /** Needs you reads the same sources as the sidebar count, plus organization pressure. */
 export async function prefetchWorkNeedsYouRoute(queryClient: QueryClient) {
+	// Organization pressure is supplementary. Keep its read in flight for the
+	// page to share rather than blocking personal requests on it (and retrying
+	// a failed read again on mount).
+	void queryClient.prefetchQuery(workFleetQueryOptions());
 	await Promise.allSettled([
 		queryClient.ensureQueryData(workNeedsYouInteractionsQueryOptions()),
 		queryClient.ensureQueryData(workPendingApprovalsQueryOptions()),
 		queryClient.ensureQueryData(pendingApprovalsQueryOptions()),
-		queryClient.ensureQueryData(workFleetQueryOptions()),
 	]);
 }
 

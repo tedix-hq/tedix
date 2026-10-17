@@ -132,3 +132,10 @@ export function formatDurationBetween(
 	if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null;
 	return formatDurationMs(end - start);
 }
+
+/** Local midnight today, as an ISO instant. */
+export function startOfToday(now = new Date()): string {
+	const day = new Date(now);
+	day.setHours(0, 0, 0, 0);
+	return day.toISOString();
+}

@@ -28,6 +28,8 @@ const api = vi.hoisted(() => ({
 	listModels: vi.fn(),
 	getOperationalContext: vi.fn(),
 	listApprovals: vi.fn(),
+	listInteractions: vi.fn(),
+	listWorkApprovals: vi.fn(),
 	listWorkItems: vi.fn(),
 	listReadinessProjection: vi.fn(),
 	getControlTower: vi.fn(),
@@ -71,6 +73,8 @@ vi.mock("@/lib/api", () => ({
 			runWorkflowHistory: api.listSkillRuns,
 		},
 		tediApprovals: { list: api.listApprovals },
+		workInteractions: { listInbox: api.listInteractions },
+		workApprovals: { listInbox: api.listWorkApprovals },
 		workItems: {
 			list: api.listWorkItems,
 			listReadinessProjection: api.listReadinessProjection,
@@ -104,6 +108,7 @@ import {
 	optionalUuidSearchParam,
 	prefetchBlueprintsRoute,
 	prefetchWorkQueueRoute,
+	prefetchWorkNeedsYouRoute,
 	prefetchWorkPortfolioRoute,
 	prefetchWorkAttemptsRoute,
 	prefetchWorkRecoveryRoute,
@@ -152,6 +157,7 @@ import {
 	workflowDefinitionHealthQueryOptions,
 	workflowRunInspectQueryOptions,
 	workFleetQueryOptions,
+	workNeedsYouInteractionsQueryOptions,
 	projectPortfolioQueryOptions,
 	workReadinessProjectionQueryOptions,
 	workAttemptProjectionQueryOptions,
@@ -208,6 +214,8 @@ beforeEach(() => {
 		permissions: ["tedis:create"],
 	});
 	api.listApprovals.mockResolvedValue({ data: [] });
+	api.listInteractions.mockResolvedValue({ data: [] });
+	api.listWorkApprovals.mockResolvedValue({ data: [] });
 	api.listWorkItems.mockResolvedValue({
 		data: [],
 		pagination: { total: 0, limit: 50, offset: 0, hasMore: false },
@@ -732,5 +740,28 @@ describe("list-route prefetchers", () => {
 
 		await expect(prefetchTeamRoute(queryClient)).resolves.toBeUndefined();
 		expect(api.listTediSummaries).not.toHaveBeenCalled();
+	});
+});
+
+describe("Needs you first paint", () => {
+	it("renders personal requests while the shared organization read is pending", async () => {
+		const queryClient = client();
+		let resolveFleet!: (value: unknown) => void;
+		api.getControlTower.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveFleet = resolve;
+				}),
+		);
+		await prefetchWorkNeedsYouRoute(queryClient);
+		expect(
+			queryClient.getQueryData(workNeedsYouInteractionsQueryOptions().queryKey),
+		).toEqual({ data: [] });
+		expect(api.getControlTower).toHaveBeenCalledTimes(1);
+		const pageRead = queryClient.fetchQuery(workFleetQueryOptions());
+		expect(api.getControlTower).toHaveBeenCalledTimes(1);
+		resolveFleet({ attention: { actions: [] } });
+		await expect(pageRead).resolves.toEqual({ attention: { actions: [] } });
+		queryClient.clear();
 	});
 });

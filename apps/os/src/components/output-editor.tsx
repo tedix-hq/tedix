@@ -1,15 +1,22 @@
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
-import {
-	type DocumentCollab,
-	DocumentEditor,
-} from "@/components/output-editor-document";
-import {
-	SheetEditor,
-	type SheetEditorPresence,
-} from "@/components/output-editor-sheet";
-import { SlidesEditor } from "@/components/output-editor-slides";
-import { VideoOutputView } from "@/components/output-content";
+import { lazy, Suspense, type ReactNode } from "react";
+import type { DocumentCollab } from "@/components/output-editor-document";
+import type { SheetEditorPresence } from "@/components/output-editor-sheet";
+import { Text } from "@/components/kumo/text";
 import type { RemoteCursor } from "@/lib/document-remote-cursors";
+
+const DocumentEditor = lazy(async () => ({
+	default: (await import("@/components/output-editor-document")).DocumentEditor,
+}));
+const SheetEditor = lazy(async () => ({
+	default: (await import("@/components/output-editor-sheet")).SheetEditor,
+}));
+const SlidesEditor = lazy(async () => ({
+	default: (await import("@/components/output-editor-slides")).SlidesEditor,
+}));
+const VideoOutputView = lazy(async () => ({
+	default: (await import("@/components/output-content")).VideoOutputView,
+}));
 
 export function OutputEditor({
 	value,
@@ -28,9 +35,10 @@ export function OutputEditor({
 	/** Live collab presence for a sheet: peers' cell ranges in, ours out. */
 	presence?: SheetEditorPresence;
 }) {
+	let editor: ReactNode;
 	switch (value.kind) {
 		case "document":
-			return (
+			editor = (
 				<DocumentEditor
 					value={value}
 					onChange={onChange}
@@ -39,8 +47,9 @@ export function OutputEditor({
 					remoteCursors={remoteCursors}
 				/>
 			);
+			break;
 		case "sheet":
-			return (
+			editor = (
 				<SheetEditor
 					value={value}
 					onChange={onChange}
@@ -48,11 +57,25 @@ export function OutputEditor({
 					presence={presence}
 				/>
 			);
+			break;
 		case "presentation":
-			return (
+			editor = (
 				<SlidesEditor value={value} onChange={onChange} disabled={disabled} />
 			);
+			break;
 		case "video":
-			return <VideoOutputView content={value} />;
+			editor = <VideoOutputView content={value} />;
+			break;
 	}
+	return (
+		<Suspense
+			fallback={
+				<Text role="body" tone="secondary">
+					Loading editor…
+				</Text>
+			}
+		>
+			{editor}
+		</Suspense>
+	);
 }
