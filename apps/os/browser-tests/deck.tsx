@@ -28,7 +28,21 @@ for (const state of ["open", "resolved"])
 		}).queryKey,
 		{ data: [], hasMore: false },
 	);
-client.setQueryData(pendingApprovalsQueryOptions().queryKey, { data: [] });
+client.setQueryData(pendingApprovalsQueryOptions().queryKey, {
+	data: [],
+	pagination: { limit: 50, offset: 0, total: 0, hasMore: false },
+});
+client.setQueryData(
+	osQuery.workApprovals.listInbox.queryOptions({
+		input: { projectId: undefined, limit: 50, statuses: ["pending"] },
+	}).queryKey,
+	{
+		data: [],
+		hasMore: false,
+		nextCursor: null,
+		observedAt: "2026-10-17T12:00:00Z",
+	},
+);
 client.setQueryData(projectListQueryOptions(100).queryKey, { data: [] });
 client.setQueryData(userProfileQueryOptions().queryKey, { id: "" });
 client.setQueryData(
