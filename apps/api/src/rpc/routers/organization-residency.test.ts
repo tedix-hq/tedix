@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	get: vi.fn(),
 	set: vi.fn(),
 	member: vi.fn(),
+	canonicalMember: vi.fn(),
 	list: vi.fn(),
 	publish: vi.fn(),
 }));
@@ -18,6 +19,7 @@ vi.mock("@tedix/db/queries/organization-members", async (original) => ({
 		typeof import("@tedix/db/queries/organization-members")
 	>()),
 	getMemberByUserId: mocks.member,
+	getMemberByCanonicalUserId: mocks.canonicalMember,
 }));
 import {
 	getDataResidency,
@@ -126,4 +128,33 @@ describe("organization model residency authorization", () => {
 			client().setDataResidency({ mode: "eu", expectedRevision: 0 }),
 		).rejects.toMatchObject({ code: "CONFLICT" });
 	});
+});
+
+it("uses fresh canonical membership for provider-neutral user sessions", async () => {
+	mocks.canonicalMember.mockResolvedValue({ status: "active", role: "owner" });
+	await client(context({ userId: "user_lark" })).setDataResidency({
+		mode: "eu",
+		expectedRevision: 0,
+	});
+	expect(mocks.canonicalMember.mock.calls[0]?.slice(1)).toEqual([
+		"org_lark",
+		"user_lark",
+	]);
+	expect(mocks.member).not.toHaveBeenCalled();
+	expect(mocks.set.mock.calls[0]?.[1]).toMatchObject({ actorId: "user_lark" });
+});
+
+it("does not fall back to provider membership when a known canonical membership is inactive", async () => {
+	mocks.canonicalMember.mockResolvedValue({
+		status: "inactive",
+		role: "owner",
+	});
+	await expect(
+		client(context({ userId: "user_lark" })).setDataResidency({
+			mode: "eu",
+			expectedRevision: 0,
+		}),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	expect(mocks.member).not.toHaveBeenCalled();
+	expect(mocks.set).not.toHaveBeenCalled();
 });

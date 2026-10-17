@@ -6,7 +6,10 @@ import {
 	listResidencyProviders,
 	publishResidencyProvider,
 } from "@tedix/db/queries/data-residency";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import {
+	getMemberByUserId,
+	getMemberByCanonicalUserId,
+} from "@tedix/db/queries/organization-members";
 import { AUTHZ, withAuth, type BaseContext } from "../orpc";
 import { requireOrgId } from "../org-scope";
 
@@ -38,11 +41,13 @@ export const setDataResidency = os.setDataResidency
 				message:
 					"An organization owner or administrator must change data residency",
 			});
-		const member = await getMemberByUserId(
-			context.db,
-			organizationId,
-			context.user.sub,
-		);
+		const member = context.userId
+			? await getMemberByCanonicalUserId(
+					context.db,
+					organizationId,
+					context.userId,
+				)
+			: await getMemberByUserId(context.db, organizationId, context.user.sub);
 		if (
 			member?.status !== "active" ||
 			!["owner", "admin"].includes(member.role)
@@ -55,7 +60,7 @@ export const setDataResidency = os.setDataResidency
 			return await setOrganizationResidencyPolicy(context.db, {
 				...input,
 				organizationId,
-				actorId: context.user.sub,
+				actorId: context.userId ?? context.user.sub,
 				now: new Date().toISOString(),
 			});
 		} catch (error) {
@@ -77,11 +82,17 @@ export const publishResidencyProviderVersion =
 	os.publishResidencyProviderVersion
 		.use(withAuth)
 		.use(AUTHZ.platformAdmin)
-		.handler(({ context, input }) =>
-			publishResidencyProvider(
+		.handler(({ context, input }) => {
+			const actorId = context.userId ?? context.user?.sub ?? context.apiKey?.id;
+			if (!actorId)
+				throw new ORPCError("FORBIDDEN", {
+					message:
+						"An attributable platform principal must publish residency provider evidence",
+				});
+			return publishResidencyProvider(
 				context.db,
 				input,
-				context.user?.sub ?? context.authType ?? "platform",
+				actorId,
 				new Date().toISOString(),
-			),
-		);
+			);
+		});
