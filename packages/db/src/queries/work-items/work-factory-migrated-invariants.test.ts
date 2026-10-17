@@ -969,6 +969,32 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		);
 	});
 
+	it("filters the scheduler project before the candidate bound", async () => {
+		const sqlite = migrated();
+		seedCore(sqlite);
+		seedTedi(sqlite);
+		sqlite.exec(`
+			INSERT INTO projects(id,org_id,key,name,created_at) VALUES('night-project','org','NIGHT','Example night','2026-08-20T00:00:00.000Z');
+			UPDATE work_items SET disposition='accepted',priority='critical' WHERE id='work';
+			INSERT INTO work_items(id,org_id,title,disposition,project_id,work_class,purpose_exception_expires_at,admission_spec_revision,created_at)
+			VALUES('night-work','org','Night Work','accepted','night-project','hygiene','${LIVE_PURPOSE_EXCEPTION}','night-revision','2026-08-20T00:00:00.000Z');
+		`);
+		const result = await listReadyWork(
+			createDbQueryClient(createD1Facade(sqlite)),
+			{
+				orgId: "org",
+				executorType: "tedi",
+				executorId: "tedi",
+				now: "2026-08-20T00:00:00.000Z",
+				projectId: "night-project",
+				candidateLimit: 1,
+				limit: 1,
+			},
+		);
+		expect(result.evaluatedCandidates).toBe(1);
+		expect(result.data.map((row) => row.workItem.id)).toEqual(["night-work"]);
+	});
+
 	it("bounds scheduler candidates and rejects ended external sessions", async () => {
 		const sqlite = migrated();
 		seedCore(sqlite);

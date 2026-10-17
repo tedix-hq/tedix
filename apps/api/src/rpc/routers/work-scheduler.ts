@@ -156,6 +156,7 @@ const listReadyProcedure = authOs.listReady.handler(
 				executorSessionId: actor.sessionId,
 				externalSessionKey: actor.externalSessionKey,
 				now,
+				projectId: input.projectId,
 				limit: input.limit,
 				candidateLimit: input.candidateLimit,
 				cursor: input.cursor,
@@ -221,6 +222,7 @@ const planClustersProcedure = authOs.planClusters.handler(
 						: undefined,
 				now: new Date().toISOString(),
 				limit: input.limit,
+				projectId: input.projectId,
 				candidateLimit: input.candidateLimit,
 				maxParallelism: input.maxParallelism,
 			});

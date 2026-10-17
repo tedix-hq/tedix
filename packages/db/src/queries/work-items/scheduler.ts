@@ -205,6 +205,7 @@ export async function listReadyWork(
 		executorSessionId?: string;
 		externalSessionKey?: string;
 		now: string;
+		projectId?: string;
 		cursor?: string;
 		limit?: number;
 		candidateLimit?: number;
@@ -251,6 +252,7 @@ export async function listReadyWork(
 			and(
 				eq(workItems.orgId, p.orgId),
 				eq(workItems.disposition, "accepted"),
+				p.projectId ? eq(workItems.projectId, p.projectId) : undefined,
 				activePurposeContext(p.now),
 				sql`NOT EXISTS (SELECT 1 FROM work_attempts active_attempt WHERE active_attempt.org_id=${p.orgId} AND active_attempt.work_item_id=${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND active_attempt.expires_at>${p.now})`,
 			),
