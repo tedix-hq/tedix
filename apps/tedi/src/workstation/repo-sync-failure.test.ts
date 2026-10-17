@@ -22,6 +22,13 @@ describe("repository access failures", () => {
 		expect(
 			repoSyncFailure("https://github.com/example/project.git", "disk full"),
 		).toBe("disk full");
+		expect(
+			repoSyncFailure(
+				"https://github.com/example/project.git",
+				"github_app_upstream_503",
+			),
+		).toBe("github_app_upstream_503");
+		expect(repoSyncFailure("invalid-url", "disk full")).toBe("disk full");
 		expect(repoSyncFailure("file:///tmp/project", "repository not found")).toBe(
 			"repository not found",
 		);
