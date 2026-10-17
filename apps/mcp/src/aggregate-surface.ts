@@ -1661,7 +1661,12 @@ async function aggregateAndPrefixToolsUncached(
 					},
 					activationEpoch,
 					cacheable,
-				),
+				).catch((error: unknown) => {
+					// Joiners time out before the owner's resolve budget. Degrade this
+					// entry just like the soft deadline instead of aborting discovery.
+					if (error instanceof StepBudgetExceededError) return null;
+					throw error;
+				}),
 				new Promise<null>((resolveTimeout) => {
 					entryTimer = setTimeout(() => {
 						console.warn(

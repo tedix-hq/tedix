@@ -205,6 +205,43 @@ describe("aggregate entry resolution is batched", () => {
 		buildMcpServer.mockResolvedValue({} as unknown);
 	});
 
+	it("degrades a timed-out shared source join without rejecting the catalog", async () => {
+		vi.useFakeTimers();
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const env = createEnv();
+			installFixtures([{ slug: "join-timeout-source", tools: [tool("list")] }]);
+			getBySlugsWithTools.mockRejectedValue(new Error("batch unavailable"));
+			getBySlugWithTools.mockImplementation(() => new Promise(() => {}));
+			const load = (prefix: string) =>
+				aggregateAndPrefixTools(
+					[{ slug: "join-timeout-source", prefix }],
+					env,
+					new Set(),
+					undefined,
+					"connect",
+					undefined,
+					false,
+				);
+			const owner = load("owner");
+			await vi.advanceTimersByTimeAsync(26);
+			const joined = load("joined");
+			const outcome = joined.then(
+				(value) => ({ value }),
+				(error: unknown) => ({ error }),
+			);
+			await vi.advanceTimersByTimeAsync(8_001);
+			expect(await outcome).toMatchObject({
+				value: { tools: [], degraded: true },
+			});
+			await vi.advanceTimersByTimeAsync(4_000);
+			await owner;
+		} finally {
+			vi.useRealTimers();
+			vi.restoreAllMocks();
+		}
+	});
+
 	it("keeps consent-composed catalogs transient while sharing source caches and concurrent loads", async () => {
 		const cache = { match: vi.fn(), put: vi.fn() };
 		vi.stubGlobal("caches", { default: cache });
