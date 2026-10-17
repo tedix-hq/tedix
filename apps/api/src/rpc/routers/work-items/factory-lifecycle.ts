@@ -258,6 +258,7 @@ export const updateSpecificationProcedure =
 		if (
 			actor.type !== "user" &&
 			[
+				input.executor,
 				input.riskLevel,
 				input.workClass,
 				input.purposeExceptionExpiresAt,
@@ -326,6 +327,7 @@ export const updateSpecificationProcedure =
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				actor,
+				executor: input.executor,
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,

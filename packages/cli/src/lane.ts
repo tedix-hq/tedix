@@ -45,7 +45,9 @@ export async function prefixLaneBrief(
 	}
 }
 
-export const laneUsage = `${laneRunUsage}
+export const laneUsage = `tedix lane serve --executor codex [--max N] [--project <id>] [--rules <skill-id|slug>] [--repo <path>] [--install]
+
+${laneRunUsage}
 
 tedix lane start "<title>" --project <id> [--work-item <id>]
 tedix lane brief <brief-file> [--host codex|claude]  # enriched brief for launchers
@@ -114,6 +116,13 @@ export async function runLane(args: string[]): Promise<number> {
 		["-w", "--workspace", "--organization"].includes(args[verbIndex] ?? "")
 	)
 		verbIndex += 2;
+	if (args[verbIndex] === "serve") {
+		const { runLaneServe } = await import("./lane-serve");
+		return runLaneServe([
+			...args.slice(0, verbIndex),
+			...args.slice(verbIndex + 1),
+		]);
+	}
 	if (
 		["run", "import", "report"].includes(args[verbIndex] ?? "") &&
 		!args

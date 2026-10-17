@@ -1,4 +1,7 @@
+import { WorkDispatchApp } from "@/components/work-dispatch-app";
 import {
+	WORK_DISPATCH_ENTRY,
+	WorkDispatchConfigSchema,
 	OFFICE_ENTRY,
 	AGENTS_ENTRY,
 	OfficeConfigSchema,
@@ -86,6 +89,11 @@ export function WorkspaceAppRenderer({
 	if (entry === ACTIVITY_FEED_ENTRY) {
 		const config = ActivityFeedConfigSchema.safeParse(manifest.config);
 		if (config.success) return <ActivityFeedApp config={config.data} />;
+	}
+	if (entry === WORK_DISPATCH_ENTRY) {
+		const config = WorkDispatchConfigSchema.safeParse(manifest.config);
+		if (config.success)
+			return <WorkDispatchApp projectId={config.data.projectId} />;
 	}
 	if (entry === "tedix:app/attention")
 		return <AttentionApp workspaceId={workspaceId} />;

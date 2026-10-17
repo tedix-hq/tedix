@@ -34,6 +34,8 @@ import {
 import {
 	OFFICE_ENTRY,
 	AGENTS_ENTRY,
+	WORK_DISPATCH_ENTRY,
+	WorkDispatchConfigSchema,
 	OfficeConfigSchema,
 	AgentsConfigSchema,
 } from "./os-session-apps";
@@ -567,7 +569,9 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 									? DecisionDeckConfigSchema
 									: value.entry.trim() === ACTIVITY_FEED_ENTRY
 										? ActivityFeedConfigSchema
-										: null;
+										: value.entry.trim() === WORK_DISPATCH_ENTRY
+											? WorkDispatchConfigSchema
+											: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;

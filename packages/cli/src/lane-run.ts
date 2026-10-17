@@ -99,6 +99,11 @@ export async function runLaneProcess(
 	deps: {
 		report?: typeof reportLaneObservation;
 		heartbeatMs?: number;
+		sessionKey?: string;
+		childScope?: { workspace: string; organization: string };
+		detachedChild?: boolean;
+		onSpawn?: (pid: number) => void;
+		onTelemetry?: (value: LaneObservation) => void;
 	} = {},
 ): Promise<number> {
 	const sendReport = deps.report ?? reportLaneObservation;
@@ -180,7 +185,7 @@ export async function runLaneProcess(
 		throw new Error("Choose --executor codex|claude-code|tedi|skill");
 	const projectId = options.get("--project");
 	if (!projectId) throw new Error("--project is required");
-	const sessionKey = randomUUID();
+	const sessionKey = deps.sessionKey ?? randomUUID();
 	const startedAt = new Date().toISOString();
 	let telemetry: LaneObservation = {
 		executor: executor as LaneObservation["executor"],
@@ -259,6 +264,9 @@ export async function runLaneProcess(
 	const receipt = join(dir, "telemetry.json");
 	const env = {
 		...process.env,
+		TEDIX_WORKSPACE: deps.childScope?.workspace ?? process.env.TEDIX_WORKSPACE,
+		TEDIX_ORGANIZATION:
+			deps.childScope?.organization ?? process.env.TEDIX_ORGANIZATION,
 		TEDIX_LANE_ID: sessionKey,
 		TEDIX_LANE_TELEMETRY_PATH: receipt,
 		TEDIX_LANE_RATE_SCOPE: telemetry.rateScope ?? "",
@@ -268,10 +276,11 @@ export async function runLaneProcess(
 		"CODEX_THREAD_ID",
 		"CODEX_SESSION_ID",
 		"CLAUDE_CODE_SESSION_ID",
-		"TEDIX_AGENT_SESSION",
+		...AGENT_IDENTITY_ENV,
 	])
 		delete env[key as keyof typeof env];
 	let nativeId: string | undefined,
+		identityMismatch = false,
 		buffer = "";
 	const codexJson =
 		executor === "codex" &&
@@ -280,8 +289,10 @@ export async function runLaneProcess(
 	if (codexJson && !command.includes("--json")) command.splice(2, 0, "--json");
 	const child = spawn(command[0]!, command.slice(1), {
 		env,
+		detached: deps.detachedChild,
 		stdio: ["pipe", codexJson ? "pipe" : "inherit", "inherit"],
 	});
+	if (child.pid) deps.onSpawn?.(child.pid);
 	child.stdin?.end(readFileSync(options.get("--brief")!));
 	child.stdout?.on("data", (chunk) => {
 		process.stdout.write(chunk);
@@ -291,7 +302,13 @@ export async function runLaneProcess(
 		for (const line of lines) {
 			try {
 				const event = JSON.parse(line);
-				if (event.type === "thread.started") nativeId = event.thread_id;
+				if (event.type === "thread.started") {
+					nativeId = event.thread_id;
+					if (deps.sessionKey && nativeId !== deps.sessionKey) {
+						identityMismatch = true;
+						child.kill("SIGTERM");
+					}
+				}
 			} catch {}
 		}
 	});
@@ -309,7 +326,14 @@ export async function runLaneProcess(
 				heartbeat = undefined;
 			});
 	}, deps.heartbeatMs ?? 30_000);
-	const forward = (signal: NodeJS.Signals) => child.kill(signal);
+	const forward = (signal: NodeJS.Signals) => {
+		try {
+			if (deps.detachedChild && child.pid) process.kill(-child.pid, signal);
+			else child.kill(signal);
+		} catch {
+			/* The child may have just exited. */
+		}
+	};
 	const interrupt = () => forward("SIGINT"),
 		terminate = () => forward("SIGTERM");
 	process.on("SIGINT", interrupt);
@@ -331,6 +355,11 @@ export async function runLaneProcess(
 		process.off("SIGINT", interrupt);
 		process.off("SIGTERM", terminate);
 	}
+	if (
+		identityMismatch ||
+		(deps.sessionKey && codexJson && nativeId !== deps.sessionKey)
+	)
+		exitCode = 1;
 	try {
 		const path =
 			options.get("--transcript") ??
@@ -370,6 +399,7 @@ export async function runLaneProcess(
 		heartbeatAt: new Date().toISOString(),
 		outcome: signal ? "stopped" : exitCode === 0 ? "succeeded" : "failed",
 	};
+	deps.onTelemetry?.(telemetry);
 	writeFileSync(
 		receipt,
 		JSON.stringify(observationInput(sessionKey, telemetry)),

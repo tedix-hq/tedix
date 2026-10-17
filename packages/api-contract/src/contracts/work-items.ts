@@ -1,4 +1,5 @@
 import {
+	WorkExecutorSchema,
 	ListWorkCliProjectionInputSchema,
 	ListWorkCliProjectionResultSchema,
 	WorkCheckpointProjectionSchema,
@@ -231,6 +232,7 @@ export const workItemsContract = oc
 						disposition: WorkItemDispositionSchema.optional().describe(
 							'Server-side lifecycle filter: proposed | accepted | completed | cancelled. There is no "status" field — "pending" work is disposition proposed (not yet accepted) or accepted (admitted, not completed).',
 						),
+						executor: WorkExecutorSchema.optional(),
 						workKind: WorkItemKindSchema.optional(),
 						objectiveId: z.uuid().optional(),
 						workClass: WorkItemClassSchema.optional(),
@@ -663,6 +665,7 @@ export const workItemsContract = oc
 			.input(
 				z.object({
 					id: z.uuid(),
+					executor: WorkExecutorSchema.optional(),
 					expectedWorkItemVersion: z
 						.number()
 						.int()

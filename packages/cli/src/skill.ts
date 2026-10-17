@@ -24,7 +24,7 @@ export function skillUsage(): string {
 		"",
 		"Verbs:",
 		"  tedix skill list [--limit <n>]",
-		"  tedix skill show <skillUuid>",
+		"  tedix skill show <skillUuid|slug>",
 		"  tedix skill run <skillUuid> [--watch[=secs]] [--param k=v] [--params '<json>']",
 		"  tedix skill status <runId> [--watch[=secs]]",
 		"  tedix skill inspect <runId>",
@@ -69,10 +69,13 @@ async function listSkills(ctx: SkillContext): Promise<number> {
 }
 
 async function showSkill(ctx: SkillContext, id: string): Promise<number> {
-	requireUuid(id, "skill show");
-	const value = await readGatewayProjection(ctx.client, "skills.get_skills", {
-		id,
-	});
+	if (!UUID_RE.test(id) && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))
+		throw new Error("skill show requires a UUID or canonical slug");
+	const value = await readGatewayProjection(
+		ctx.client,
+		UUID_RE.test(id) ? "skills.get_skills" : "skills.get_skills_for_mcp",
+		UUID_RE.test(id) ? { id } : { slug: id },
+	);
 	console.log(JSON.stringify(value, null, ctx.json ? 0 : 2));
 	return 0;
 }
@@ -117,7 +120,8 @@ export async function runSkillCommand(
 			case "list":
 				return await listSkills(ctx);
 			case "show":
-				if (!target) throw new Error("Usage: tedix skill show <skillUuid>");
+				if (!target)
+					throw new Error("Usage: tedix skill show <skillUuid|slug>");
 				return await showSkill(ctx, target);
 			case "run":
 				if (!target) throw new Error("Usage: tedix skill run <skillUuid>");

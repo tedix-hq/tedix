@@ -1,3 +1,4 @@
+import { WorkExecutorChoice } from "@/components/work-dispatch-app";
 import type {
 	WorkItem,
 	WorkItemRelationEdge,
@@ -2283,6 +2284,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 				title={plainWorkText(item.title)}
 				description={OS_COPY.work.kinds[item.workKind]}
 			/>
+			<WorkExecutorChoice item={item} />
 			<WorkItemStatusSummary
 				disposition={item.disposition}
 				accountableOwnerType={item.accountableOwnerType}

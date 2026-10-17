@@ -6,6 +6,11 @@ import {
 
 export const OFFICE_ENTRY = "tedix:app/office";
 export const AGENTS_ENTRY = "tedix:app/agents";
+export const WORK_DISPATCH_ENTRY = "tedix:app/work";
+export const WorkDispatchConfigSchema = z.strictObject({
+	version: z.literal(1),
+	projectId: z.uuid(),
+});
 
 export const OfficeConfigSchema = z.strictObject({ version: z.literal(1) });
 export const AgentsConfigSchema = z.strictObject({

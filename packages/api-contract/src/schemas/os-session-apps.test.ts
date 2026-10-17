@@ -51,3 +51,29 @@ it("validates session app configuration on writes while preserving old reads", (
 			}).success,
 		).toBe(false);
 });
+
+it("requires a project-scoped Work app configuration while keeping legacy reads lenient", () => {
+	const entry = "tedix:app/work";
+	expect(
+		OsGadgetManifestWriteSchema.safeParse({
+			entry,
+			config: { version: 1, projectId: "11111111-1111-4111-8111-111111111111" },
+		}).success,
+	).toBe(true);
+	for (const config of [
+		{ version: 1 },
+		{ version: 1, projectId: "wrong-project" },
+		{
+			version: 1,
+			projectId: "11111111-1111-4111-8111-111111111111",
+			organizationId: "other",
+		},
+	]) {
+		expect(
+			OsGadgetManifestWriteSchema.safeParse({ entry, config }).success,
+		).toBe(false);
+		expect(OsGadgetManifestSchema.safeParse({ entry, config }).success).toBe(
+			true,
+		);
+	}
+});

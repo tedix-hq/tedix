@@ -782,6 +782,24 @@ describe("canonical work lifecycle", () => {
 		expect(sources).toHaveLength(0);
 	});
 
+	test("keeps dispatcher receipts in metadata without replacing the Work or Attempt fence", async () => {
+		const { ctx, sources } = makeContext({
+			lane: true,
+			input: JSON.stringify({ metadata: { dispatchVersion: 2, lane: false } }),
+		});
+		expect(await runWork(`start ${ITEM}`, ctx)).toBe(0);
+		expect(sources[0]).toContain('"dispatchVersion":2');
+		expect(sources[0]).toContain('"lane":true');
+		expect(sources[0]).toContain(ITEM);
+		const invalid = makeContext({
+			input: JSON.stringify({ id: "replacement", metadata: {} }),
+		});
+		await expect(runWork(`start ${ITEM}`, invalid.ctx)).rejects.toThrow(
+			"only an object containing metadata",
+		);
+		expect(invalid.sources).toHaveLength(0);
+	});
+
 	test("starts and persists a fenced attempt", async () => {
 		const { ctx, sources, attemptStore } = makeContext();
 		expect(await runWork(`start ${ITEM}`, ctx)).toBe(0);
@@ -3253,7 +3271,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(65);
+		expect(covered).toHaveLength(68);
 	});
 });
 
