@@ -432,6 +432,7 @@ export const listActivityProcedure = authOs.listActivity.handler(
 			orgId,
 			workItemId: input.workItemId,
 			projectId: input.projectId,
+			objectiveId: input.objectiveId,
 			eventTypes: input.eventTypes,
 			limit: input.limit,
 		});

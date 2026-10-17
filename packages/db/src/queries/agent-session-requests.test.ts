@@ -96,6 +96,30 @@ describe("agent session request ledger", () => {
 		expect(newest?.text).toBe("Ship the docs");
 	});
 
+	it("filters by status-change time before limiting, including older requests closed today", async () => {
+		const db = fixture();
+		const [old] = await record(db);
+		await record(db, {
+			sourceKey: "message-2",
+			sourceAt: T1,
+			requests: [{ kind: "request", text: "Newer but unchanged" }],
+		});
+		await updateAgentSessionRequests(db, {
+			organizationId: ORG,
+			userId: USER,
+			updates: [{ id: old.id, status: "done", evidence: "Verified result" }],
+			now: "2026-10-07T00:00:00.000Z",
+		});
+		const rows = await listAgentSessionRequests(db, {
+			organizationId: ORG,
+			userId: USER,
+			limit: 1,
+			newestFirst: true,
+			changedSince: "2026-10-07T00:00:00.000Z",
+		});
+		expect(rows.map((row) => row.id)).toEqual([old.id]);
+	});
+
 	it("never shows one person's rows to another", async () => {
 		const db = fixture();
 		await record(db);

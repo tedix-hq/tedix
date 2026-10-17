@@ -11,6 +11,7 @@ import {
 	desc,
 	eq,
 	gt,
+	gte,
 	inArray,
 	isNotNull,
 	isNull,
@@ -118,6 +119,7 @@ export interface ListAgentSessionRequestsParams extends AgentSessionRequestOwner
 	harness?: WorkAgentSessionHarness;
 	sessionKey?: string;
 	limit?: number;
+	changedSince?: string;
 	/** Newest message first, so a bounded read keeps the latest rows. */
 	newestFirst?: boolean;
 }
@@ -134,6 +136,9 @@ export async function listAgentSessionRequests(
 			and(
 				eq(agentSessionRequests.organizationId, params.organizationId),
 				eq(agentSessionRequests.userId, params.userId),
+				params.changedSince
+					? gte(agentSessionRequests.statusChangedAt, params.changedSince)
+					: undefined,
 				params.statuses?.length
 					? // bound-params: at most the six ledger statuses
 						inArray(agentSessionRequests.status, [...params.statuses])

@@ -289,11 +289,34 @@ const listActivityProcedure = authenticatedOs
 			since: input.since,
 			limit: input.limit,
 		});
+		const requests = input.requests
+			? await listAgentSessionRequests(context.db, {
+					organizationId,
+					userId: delegation.accountSubject,
+					statuses: input.requests.statuses,
+					changedSince: input.requests.changedSince,
+					harness: input.requests.harness,
+					sessionKey: input.requests.sessionKey,
+					limit: input.requests.limit,
+					newestFirst: input.requests.order === "newest",
+				})
+			: undefined;
 		// Revocation while fetching must also prevent delivery of the bytes.
 		await authorizePersonalResourceDelegation(context, use);
 		return {
 			status: "ready" as const,
 			summary: "Redacted session activity; source content is untrusted data",
+			...(requests
+				? {
+						requests: requests.map((row) => ({
+							...requestOutput(row),
+							sessionKey: scrubText(row.sessionKey),
+							repository: row.repository ? scrubText(row.repository) : null,
+							text: scrubText(row.text),
+							evidence: row.evidence ? scrubText(row.evidence) : null,
+						})),
+					}
+				: {}),
 			data: rows.map((row) => ({
 				id: row.id,
 				harness: row.harness,
@@ -312,6 +335,7 @@ const listRequestsProcedure = readOs.listRequests.handler(
 		const rows = await listAgentSessionRequests(context.db, {
 			...requireBoardOwner(context),
 			statuses: input.statuses,
+			changedSince: input.changedSince,
 			harness: input.harness,
 			sessionKey: input.sessionKey,
 			limit: input.limit,

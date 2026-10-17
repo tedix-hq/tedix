@@ -62,6 +62,7 @@ export interface ListWorkActivityParams {
 	orgId: string;
 	workItemId?: string;
 	projectId?: string;
+	objectiveId?: string;
 	eventTypes?: string[];
 	limit?: number;
 }
@@ -88,6 +89,9 @@ export async function listWorkActivity(
 	}
 	if (params.projectId) {
 		conditions.push(eq(workItems.projectId, params.projectId));
+	}
+	if (params.objectiveId) {
+		conditions.push(eq(workItems.objectiveId, params.objectiveId));
 	}
 	if (params.eventTypes && params.eventTypes.length > 0) {
 		// bound-params: API contract caps eventTypes at 50 values
