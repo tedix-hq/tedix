@@ -1,3 +1,4 @@
+import { DeckAttentionMetrics } from "@/components/deck-attention-metrics";
 import {
 	ATTENTION_COPY,
 	attentionCopy,
@@ -501,6 +502,7 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 		filterAgentSessions(query.data, config, { project, state, harness });
 	return (
 		<div className="grid min-w-0 gap-4" data-workspace-app-entry="agents">
+			<DeckAttentionMetrics />
 			<div className="flex flex-wrap gap-3">
 				<Select
 					value={project}

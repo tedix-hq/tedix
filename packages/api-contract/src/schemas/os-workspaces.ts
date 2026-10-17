@@ -468,7 +468,12 @@ export const PersonalReadConsentConfigSchema = z.strictObject({
 
 export const OsGadgetManifestSchema = z
 	.object({
-		navigation: z.strictObject({ board: z.boolean().optional() }).optional(),
+		navigation: z
+			.strictObject({
+				board: z.boolean().optional(),
+				work: z.enum(["deck", "feed"]).optional(),
+			})
+			.optional(),
 		capabilities: z.array(z.string().min(1).max(200)).max(100).default([]),
 		resourceGrants: z
 			.array(OsGadgetResourceGrantSchema)

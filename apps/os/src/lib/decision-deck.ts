@@ -11,6 +11,7 @@ export function decisionEnvelope(
 
 export interface DecisionLearningReceipt {
 	id: string;
+	requestId?: string;
 	classId: string;
 	choice: string;
 	signal: string;
@@ -32,10 +33,14 @@ export function classReadiness(
 				.map((row) => [row.id, row]),
 		).values(),
 	].sort((a, b) => b.at.localeCompare(a.at));
+	const seen = new Set<string>();
 	let unchanged = 0;
 	for (const row of history) {
 		if (row.choice === "later") continue;
 		if (row.signal !== "approve-as-is" || row.choice !== "approve") break;
+		const key = row.requestId ?? row.id;
+		if (seen.has(key)) continue;
+		seen.add(key);
 		unchanged++;
 	}
 	return {

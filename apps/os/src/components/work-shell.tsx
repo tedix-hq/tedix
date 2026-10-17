@@ -193,6 +193,12 @@ export function WorkShell() {
 				? { to: section.to, search: section.search }
 				: { to: section.to },
 		);
+	if (location.pathname.replace(/\/$/, "") === "/work")
+		return (
+			<div className="flex min-h-0 flex-1 flex-col">
+				<Outlet />
+			</div>
+		);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<Suspense fallback={null}>

@@ -37,6 +37,8 @@ export const DecisionEnvelopeSchema = z.strictObject({
 	blastRadius: z.string().min(1).max(1000),
 	confidence: z.number().min(0).max(1).nullable(),
 	costOfWaiting: z.string().min(1).max(1000),
+	expiresAt: z.iso.datetime().optional(),
+	nobodyOn: z.boolean().optional(),
 	reasoning: z.string().min(1).max(8000),
 	lessons: z
 		.array(
@@ -81,6 +83,16 @@ export function decisionNeedsPerson(decision: DecisionEnvelope): boolean {
 	);
 }
 
+export const DecisionClassPolicySchema = z.strictObject({
+	unchangedThreshold: z.number().int().min(1).max(100).default(5),
+	auditSampleRate: z.number().min(0).max(1).default(0.1),
+	autoApprove: z.boolean().default(false),
+});
+export const DecisionClassPoliciesSchema = z.record(
+	z.string().min(1).max(100),
+	DecisionClassPolicySchema,
+);
+
 export const DecisionDeckConfigSchema = z.strictObject({
 	version: z.literal(1),
 	projectId: z.uuid().optional(),
@@ -89,6 +101,14 @@ export const DecisionDeckConfigSchema = z.strictObject({
 	dailyAttentionBudget: z.number().int().min(1).max(100).default(10),
 	auditSampleRate: z.number().min(0).max(1).default(0.1),
 	defaultLowStakesToDelegate: z.boolean().default(true),
+	gamification: z.boolean().default(true),
+	dailyGoal: z.number().int().min(1).max(100).default(7),
+	batchTimesUtc: z
+		.array(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/))
+		.min(1)
+		.max(24)
+		.default(["09:00", "16:00"]),
+	classPolicies: DecisionClassPoliciesSchema.default({}),
 	examples: z.array(DecisionEnvelopeSchema).max(12).default([]),
 });
 export type DecisionDeckConfig = z.infer<typeof DecisionDeckConfigSchema>;

@@ -514,6 +514,9 @@ describe("Work interactions", () => {
 					source: "os-decision-card",
 					cardAction: "answer",
 					feedbackSignal: "answer",
+					decisionClass: "question",
+					decisionChoice: "approve",
+					elapsedMs: expect.any(Number),
 				},
 			},
 		]);

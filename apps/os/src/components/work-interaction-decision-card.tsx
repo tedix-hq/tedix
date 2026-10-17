@@ -1,3 +1,5 @@
+import { decisionEnvelope } from "@/lib/decision-deck";
+import { useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
@@ -88,6 +90,7 @@ export function WorkInteractionDecisionCard({
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
+	const shownAt = useRef(performance.now());
 	const client = useQueryClient();
 	const query = useQuery(workInteractionDetailQueryOptions(requestId));
 	const refresh = () =>
@@ -148,6 +151,20 @@ export function WorkInteractionDecisionCard({
 				resolvesRequest: !deferred && !(lane && feedback.action === "snooze"),
 				metadata: {
 					cardAction: feedback.action,
+					decisionClass:
+						decisionEnvelope(request.metadata)?.classId ?? request.kind,
+					decisionChoice:
+						deferred || feedback.action === "snooze"
+							? "later"
+							: feedback.signal === "rejected"
+								? "reject"
+								: feedback.signal === "edited"
+									? "change"
+									: "approve",
+					elapsedMs: Math.max(
+						0,
+						Math.round(performance.now() - shownAt.current),
+					),
 					...(lane ? { laneAction: feedback.action } : {}),
 					feedbackSignal: draft
 						? body === draft.body

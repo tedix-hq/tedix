@@ -11,7 +11,8 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 } from "@/components/kumo/alert-dialog";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { DecisionAttentionContext } from "@/components/decision-attention-context";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
@@ -43,7 +44,8 @@ export type DecisionCardSignal =
 export interface DecisionCardAction {
 	id: string;
 	label: string;
-	intent?: "approve" | "reject";
+	intent?: "approve" | "reject" | "delegate" | "later";
+	primary?: boolean;
 	confirm?: string;
 	confirmContent?: ReactNode;
 	confirmDisabled?: boolean;
@@ -103,11 +105,20 @@ export function WorkDecisionCard({
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
+	const attention = useContext(DecisionAttentionContext);
+	const shownAt = useRef(performance.now());
+	const exposureSent = useRef(false);
+	useEffect(() => {
+		if (!attention || exposureSent.current) return;
+		exposureSent.current = true;
+		attention({ action: "shown", signal: "shown", elapsedMs: 0 });
+	}, [attention]);
 	const section = useRef<HTMLElement>(null);
 	useEffect(() => {
 		if (autoFocus) section.current?.focus({ preventScroll: true });
 	}, [autoFocus]);
 	const [editing, setEditing] = useState(false);
+	const [whyOpen, setWhyOpen] = useState(false);
 	const [draft, setDraft] = useState(body);
 	const [answer, setAnswer] = useState(initialAnswer);
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -171,6 +182,21 @@ export function WorkDecisionCard({
 				...(reason ? { reason } : {}),
 				...(feedback.trim() ? { feedback: feedback.trim() } : {}),
 			});
+			attention?.({
+				action: action.id,
+				intent: action.id === editAction?.id ? "change" : action.intent,
+				signal:
+					action.intent === "reject"
+						? "rejected"
+						: draft !== body ||
+							  hasEdits ||
+							  (kind === "question" &&
+									Boolean(initialAnswer) &&
+									answer.trim() !== initialAnswer.trim())
+							? "edited"
+							: "accepted",
+				elapsedMs: Math.max(0, Math.round(performance.now() - shownAt.current)),
+			});
 			setSaved(true);
 			setConfirmation(null);
 			toast.success("Got it — your feedback helps me learn.");
@@ -215,6 +241,24 @@ export function WorkDecisionCard({
 					confirmation
 				)
 					return;
+				if (event.key.toLowerCase() === "e" && editAction && !busy) {
+					event.preventDefault();
+					setEditing((value) => !value);
+				}
+				if (event.key === "?" && why) {
+					event.preventDefault();
+					setWhyOpen((value) => !value);
+				}
+				if (["d", "l"].includes(event.key.toLowerCase())) {
+					event.preventDefault();
+					const action = actions.find(
+						(action) =>
+							action.intent ===
+							(event.key.toLowerCase() === "d" ? "delegate" : "later"),
+					);
+					if (action) choose(action);
+					else if (event.key.toLowerCase() === "l" && !busy) onNext?.();
+				}
 				if (event.key === "j" || event.key === "k") {
 					event.preventDefault();
 					(event.key === "j" ? onNext : onPrevious)?.();
@@ -350,7 +394,9 @@ export function WorkDecisionCard({
 													: "min-h-11 grow sm:grow-0"
 											}
 											variant={
-												action.intent === "approve" ? "default" : "outline"
+												(action.primary ?? action.intent === "approve")
+													? "default"
+													: "outline"
 											}
 											disabled={
 												busy ||
@@ -494,7 +540,7 @@ export function WorkDecisionCard({
 						</p>
 					) : null}
 					{why ? (
-						<Collapsible>
+						<Collapsible open={whyOpen} onOpenChange={setWhyOpen}>
 							<CollapsibleTrigger>Why this?</CollapsibleTrigger>
 							<CollapsibleContent className="pt-3 text-kumo-subtle">
 								{why}

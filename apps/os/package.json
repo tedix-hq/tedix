@@ -19,10 +19,11 @@
 		"deploy:production": "vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"lint": "vp lint .",
 		"test": "bun run test:run",
-		"test:run": "vp test run && bun run test:workerd && bun run test:browser:dialogs",
+		"test:run": "vp test run && bun run test:workerd && bun run test:browser:dialogs && bun run test:browser:deck",
 		"test:workerd": "vp test run --config vitest.workers.config.ts",
 		"test:browser:dialogs": "bun browser-tests/dialogs.spec.ts",
 		"test:browser:apps": "bun browser-tests/widget-apps.spec.ts",
+		"test:browser:deck": "bun browser-tests/deck.spec.ts",
 		"test:ci": "bun run test:run && bun run test:browser:apps",
 		"type-check": "tsc --noEmit"
 	},
