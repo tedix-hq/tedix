@@ -31,4 +31,9 @@ export const FileAgentReviewInputSchema = z.strictObject({
 	website: z.string().max(0).optional(),
 });
 
+export const AgentReviewReceiptSchema = z.object({
+	receiptUrl: z.url(),
+	status: z.literal("received"),
+});
+
 export type FileAgentReviewInput = z.infer<typeof FileAgentReviewInputSchema>;

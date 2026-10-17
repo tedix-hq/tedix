@@ -1,6 +1,6 @@
 {
 	"toolId": "file_agent_review",
-	"toolTypeId": "rest",
+	"toolTypeId": "rpc",
 	"title": "File agent review",
 	"description": "Submit a sanitized Tedix adoption review to the public feedback intake. Returns an opaque receipt, not verified findings. No project authority or execution is granted.",
 	"inputSchema": {
@@ -115,13 +115,10 @@
 	},
 	"writeCapability": "write",
 	"config": {
-		"transport": "external",
-		"baseUrl": "https://api.tedix.dev",
-		"endpoint": "public/agent-review",
-		"method": "POST",
-		"timeout": 20000,
-		"approvalPolicy": "never",
-		"_aggregateNamespace": "work"
+		"transport": "rpc",
+		"endpoint": "workItems/fileAgentReview",
+		"_aggregateNamespace": "work",
+		"approvalPolicy": "never"
 	},
 	"enabled": true
 }
