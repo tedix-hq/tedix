@@ -50,10 +50,11 @@ vi.mock("./mcp/server-factory", async (importOriginal) => {
 	};
 });
 
-import worker, {
+import {
 	aggregateSurfaceCacheKey,
 	applyHostConnectionDefaultsToAggregateEntries,
-} from "./index";
+} from "./aggregate-surface";
+import worker from "./index";
 
 describe("aggregate surface cache fingerprint", () => {
 	it("isolates account slots in durable aggregate snapshots", () => {
