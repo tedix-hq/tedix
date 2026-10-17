@@ -1,3 +1,4 @@
+import type { PolicyCronReconcileReceipt } from "./runtime-cron";
 import { type ProxyToolOutput, resolveProvider } from "@cloudflare/codemode";
 import { stateTools } from "@cloudflare/shell/workers";
 import { ExecutionSurfaceSchema } from "@tedix/api-contract/schemas/execution-evidence";
@@ -86,12 +87,7 @@ import {
 	parseDelegationAuthorityEnvelope,
 	parseDelegationAuthorityMode,
 } from "./delegation-authority";
-import type {
-	ActiveTurnBinding,
-	AgentTediDO,
-	PolicyCronReconcileReceipt,
-	State,
-} from "./do";
+import type { ActiveTurnBinding, AgentTediDO, State } from "./do";
 import {
 	createDurableCodeRecovery,
 	type RecoverableCodemodeRuntimeHandle,
@@ -321,9 +317,7 @@ export interface RuntimeRequestHost {
 		scope: ComputerCodeBinding,
 	) => Promise<RecoverableCodemodeRuntimeHandle>;
 	brainAuditTool: (input: BrainAuditInput) => Promise<unknown>;
-	readConversationForSession: (
-		sessionKey: string,
-	) => Promise<{
+	readConversationForSession: (sessionKey: string) => Promise<{
 		session_key: string;
 		title: string;
 		messageCount: number;
@@ -335,9 +329,7 @@ export interface RuntimeRequestHost {
 			timestamp: number;
 		}[];
 	}>;
-	readConversationSummaryForSession: (
-		sessionKey: string,
-	) => Promise<{
+	readConversationSummaryForSession: (sessionKey: string) => Promise<{
 		session_key: string;
 		title: string;
 		messageCount: number;

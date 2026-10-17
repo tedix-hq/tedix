@@ -1,8 +1,8 @@
 /**
  * Pure cron helpers for the isolate tedi cron tool.
  *
- * The DO-bound dispatch + scheduling (`cronTool`/`onCronFire`) lives in `do.ts`
- * and calls the Agents SDK scheduler directly; this module holds only the pure
+ * DO-bound dispatch + scheduling (`cronTool`/`onCronFire`) lives in `runtime-cron.ts`
+ * through the parent's Agents SDK scheduler; this module holds only the pure
  * mapping/validation logic so it can be unit-tested without a DO harness. See
  * docs/engineering/tedi/agent-runtime.md.
  */
