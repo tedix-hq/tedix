@@ -63,6 +63,7 @@ function harness(
 		failPageReadback?: boolean;
 		badCitation?: boolean;
 		signalAction?: boolean;
+		deniedSignal?: "list" | "output";
 	} = {},
 ) {
 	const outputs = new Map([
@@ -153,8 +154,11 @@ function harness(
 		__RUN_CONTEXT__: { runId: "run-1" },
 		MCP: {
 			tedix: {
-				get_os_output: async ({ outputId }: any) =>
-					structuredClone(outputs.get(outputId)),
+				get_os_output: async ({ outputId }: any) => {
+					if (outputId === "denied")
+						throw new Error("FORBIDDEN: Output source access is unavailable");
+					return structuredClone(outputs.get(outputId));
+				},
 				revise_os_output: async ({
 					outputId,
 					expectedRevision,
@@ -177,7 +181,24 @@ function harness(
 					});
 					return { output: { id: outputId } };
 				},
-				list_os_outputs: async () => ({ items: [] }),
+				list_os_outputs: async () => {
+					if (options.deniedSignal === "list")
+						throw new Error(
+							"FORBIDDEN: Workspace source access is unavailable",
+						);
+					return {
+						items:
+							options.deniedSignal === "output"
+								? [
+										{
+											id: "denied",
+											title: "Restricted signal",
+											updatedAt: new Date().toISOString(),
+										},
+									]
+								: [],
+					};
+				},
 				create_work_interaction: async () => {
 					calls.interactions++;
 					const request = {
@@ -351,11 +372,10 @@ function harness(
 	const run = (runId = "run-1", replay = false) => {
 		env.__RUN_CONTEXT__.runId = runId;
 		if (!replay) checkpointCache.clear();
-		return createPlanningSync(config).run(
-			{ payload: { manual: true } },
-			step,
-			env,
-		);
+		return createPlanningSync({
+			...config,
+			signalWorkspaceIds: options.deniedSignal ? ["restricted-workspace"] : [],
+		}).run({ payload: { manual: true } }, step, env);
 	};
 	return {
 		run,
@@ -435,6 +455,20 @@ describe("planning board synchronization", () => {
 		expect(h.calls.notionWrites).toBe(2);
 		expect(h.projects).toHaveLength(1);
 	});
+	it.each(["list", "output"] as const)(
+		"reports denied %s signals while completing authorized board enrichment",
+		async (deniedSignal) => {
+			const h = harness({ deniedSignal });
+			const result = await h.run();
+			expect(result.status).toBe("partial");
+			expect(result.changed).toHaveLength(2);
+			expect(result.gaps.join(" ")).toContain(
+				"Signal workspace restricted-workspace: Error: FORBIDDEN",
+			);
+			expect(h.pages.get(pageId)).toContain("TEDIX SYNC BEGIN");
+			expect(JSON.stringify(h.outputs.get("report"))).toContain("FORBIDDEN");
+		},
+	);
 	it("does not duplicate a task already linked under a different project", async () => {
 		const h = harness();
 		h.links.push({
