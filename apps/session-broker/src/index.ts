@@ -29,6 +29,7 @@ import {
 	serializeCookie,
 } from "@tedix/auth/web";
 import type { BrokerEnv } from "./env";
+import { createTediConsoleSession } from "./tedi-console";
 import type {
 	SessionIntentOwner,
 	StoreLogoutGrantInput,
@@ -1263,6 +1264,9 @@ export default {
 				headers: noStoreHeaders(),
 			});
 		}
+		// authz: tedi JWT plus an administrator-owned console grant, checked by the API.
+		if (url.pathname === "/tedix/session/tedi")
+			return createTediConsoleSession(request, env.API_SERVICE);
 		// authz: public — release health contains only status and the source commit SHA.
 		if (url.pathname === HEALTH_PATH) {
 			return Response.json({

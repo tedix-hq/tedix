@@ -675,6 +675,16 @@ export function resolveForwardedMcpUserTenantContext({
  */
 export const withAuth = base.middleware(async (options) => {
 	const { context, next } = options;
+	// Console credentials never inherit service-binding or general tedi authority.
+	const consoleToken = extractBearerToken(context.headers.get("Authorization"));
+	if (consoleToken?.startsWith("tcs_")) {
+		if (options.path.join(".") !== "tediConsole.read")
+			throw createError(ErrorCodes.FORBIDDEN, "Console sessions are read-only");
+		const { authenticateTediConsoleSession } =
+			await import("./tedi-console-auth");
+		await authenticateTediConsoleSession(context, consoleToken);
+		return next({ context });
+	}
 
 	// Service binding detection: trusted Worker-to-Worker transport. When the
 	// MCP edge forwards a human caller token, authenticate and authorize as that

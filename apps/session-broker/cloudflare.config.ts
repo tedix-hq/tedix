@@ -38,6 +38,12 @@ export default defineConfig(({ mode }) => {
 				SessionIntentOwner: exports.durableObject({ storage: "sqlite" }),
 			},
 			env: {
+				API_SERVICE: bindings.worker({
+					worker: production
+						? "public-installation-api-production"
+						: "public-installation-api",
+					exportName: "InternalEntrypoint",
+				}),
 				SESSION_ROTATION: bindings.durableObject({
 					worker: production
 						? "public-installation-session-broker-production"

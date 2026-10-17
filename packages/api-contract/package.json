@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./contracts/tedi-console": "./src/contracts/tedi-console.ts",
 		"./schemas/credit-billing-activation": "./src/schemas/credit-billing-activation.ts",
 		"./contracts/credit-billing-activation": "./src/contracts/credit-billing-activation.ts",
 		"./schemas/provider-cost-evidence": "./src/schemas/provider-cost-evidence.ts",

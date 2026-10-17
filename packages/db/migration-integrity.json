@@ -896,6 +896,10 @@
 		{
 			"name": "20261016230947_interaction_follow_through/migration.sql",
 			"sha256": "c3c2c94d9a85ae15a1b127077aa9b115935b957afe68df2bec0e7430c93c8750"
+		},
+		{
+			"name": "20261017004602_tedi-console-grants/migration.sql",
+			"sha256": "7c872710bd2e0daa9cc86a6fe8dbff20090835817831a58fb59cca189e1ad418"
 		}
 	]
 }

@@ -1520,6 +1520,16 @@ describe("oRPC tool projection sync", () => {
 		}
 	});
 
+	it("never projects tedi console credentials or grants as tools", async () => {
+		const { db } = makeDb([]);
+		const result = await runToolSchemaSync(db, {
+			mode: "projection",
+			apply: true,
+			router: "tediConsole",
+		});
+		expect(result.items).toEqual([]);
+	});
+
 	it("projects only the curated external-agent lifecycle tools", async () => {
 		const { db, inserts } = makeDb([]);
 		const result = await runToolSchemaSync(db, {

@@ -1536,6 +1536,8 @@ function targetColumns(target: ToolSchemaSyncInput["target"]): SchemaColumn[] {
  * ROUTERS for contract/router parity without becoming MCP tools.
  */
 const UNPROJECTABLE_ROUTERS = new Set([
+	// Browser credentials and human-admin console grants are not MCP tools.
+	"tediConsole",
 	"osTenant",
 	"tenantBehavioralEvals",
 	"mcpCredentials",
