@@ -86,7 +86,7 @@ export const KernelRouteDecisionSchema = z.object({
 	plannedToolIds: z
 		.array(z.string())
 		.describe(
-			"for delegate_tedi: the exact minimal tool ids needed, selected only from the chosen activity's tools; use namespace.tool for MCP callables and local tool keys for native tools; empty for other routes or a tool-free delegation",
+			"for delegate_tedi: derive the minimal exact tools from the request; native URL reads need browser_markdown and browser_read_result, repository execution needs open_computer/exec/files; MCP namespace.tool callables must be selected from the chosen activity's tools; empty only for other routes or genuinely tool-free work",
 		),
 	toolIntent: z
 		.object({

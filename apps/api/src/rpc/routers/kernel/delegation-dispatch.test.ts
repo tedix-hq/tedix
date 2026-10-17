@@ -179,6 +179,29 @@ describe("task-scoped earned delegation", () => {
 		// The miss is recorded, never smuggled into the text an operator reads.
 		expect(decision.reason).not.toContain("earned-delegation-shadow");
 	});
+	it("matches a URL capability ceiling against the exact expiring grant", () => {
+		const route = makeRoute({ plannedToolIds: [] });
+		const card = makeCard();
+		const grant = card.delegationEntrustments[0]!;
+		grant.activityToolIds = ["browser_markdown", "browser_read_result"];
+		grant.scope.toolIds = [...grant.activityToolIds];
+		const build = () =>
+			buildDelegationWorkOrder({
+				route,
+				card,
+				userContent: "TLDR https://example.com/article",
+				authorityMode: "enforce",
+				executionEnvironment: "production",
+			});
+		expect(build().authorityEnvelope?.allowedToolIds).toEqual(
+			grant.activityToolIds,
+		);
+		grant.scope.toolIds = ["browser_markdown"];
+		expect(build().authorityEnvelope).toBeUndefined();
+		grant.scope.toolIds = [...grant.activityToolIds];
+		grant.expiresAt = "2020-01-01T00:00:00Z";
+		expect(build().authorityEnvelope).toBeUndefined();
+	});
 });
 
 function makeRoute(
