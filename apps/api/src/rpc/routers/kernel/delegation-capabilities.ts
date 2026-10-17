@@ -3,6 +3,11 @@ import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kerne
 import type { KernelRouteDecision } from "./route-schema";
 import type { TediCapabilityCard } from "./tedi-capabilities";
 
+/** CLI repository metadata supplies context, never additional requested access. */
+export function delegationRequestContent(content: string): string {
+	return content.split(/\n\nLocal terminal context:\n- cwd: /, 1)[0] ?? content;
+}
+
 /** A task ceiling, never a substitute for executor entitlement or dispatch policy. */
 export function deriveDelegationCapabilityPlan(input: {
 	content: string;
@@ -10,7 +15,8 @@ export function deriveDelegationCapabilityPlan(input: {
 	requirement: ExecutionRequirement;
 	card: TediCapabilityCard | null;
 }): DelegationCapabilityPlan | undefined {
-	const { content, route, requirement, card } = input;
+	const { route, requirement, card } = input;
+	const content = delegationRequestContent(input.content);
 	const capabilities: string[] = [];
 	const tools = new Set<string>();
 	const missingCapabilities: string[] = [];

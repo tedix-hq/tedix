@@ -53,7 +53,10 @@ import {
 } from "./delegated-stop";
 import type { HomeEffortClass, KernelRouteDecision } from "./route-schema";
 import type { TediCapabilityCard } from "./tedi-capabilities";
-import { deriveDelegationCapabilityPlan } from "./delegation-capabilities";
+import {
+	delegationRequestContent,
+	deriveDelegationCapabilityPlan,
+} from "./delegation-capabilities";
 
 export type { DelegationWorkOrder };
 
@@ -195,8 +198,9 @@ export function deriveExecutionRequirement(
 	content: string,
 	route: KernelRouteDecision,
 ): ExecutionRequirement {
-	const requiredCapabilities = classifyCapabilities(content, route);
-	const nativeOnly = NATIVE_ONLY_SIGNAL.test(content);
+	const requestContent = delegationRequestContent(content);
+	const requiredCapabilities = classifyCapabilities(requestContent, route);
+	const nativeOnly = NATIVE_ONLY_SIGNAL.test(requestContent);
 	const prohibitedSurfaces: ExecutionRequirement["prohibitedSurfaces"] =
 		nativeOnly ? ["managed_job", "workstation"] : [];
 	const nativeOnlyConflict =
@@ -250,7 +254,7 @@ export function deriveExecutionRequirement(
 	}
 	if (
 		route.effortClass === "embodied" &&
-		!(requiredCapabilities.length === 0 && /https?:\/\//i.test(content))
+		!(requiredCapabilities.length === 0 && /https?:\/\//i.test(requestContent))
 	) {
 		return {
 			surface: "workstation",
@@ -668,7 +672,9 @@ export function buildDelegationWorkOrder(input: {
 	// Tool guidance: steer the worker to its actual capabilities. Scope groups
 	// are the authorization surface; apps are the product surface.
 	const guidanceSeeds: string[] = [];
-	const readingContext = [sourceContent, ...(traceExcerpts ?? [])].join("\n");
+	const readingContext = [sourceContent, ...(traceExcerpts ?? [])]
+		.map(delegationRequestContent)
+		.join("\n");
 	if (
 		/https?:\/\/\S+/i.test(readingContext) ||
 		/\b(?:read|summari[sz]e|fetch)\b[^.!?\n]{0,80}\b(?:page|article|website)\b/i.test(

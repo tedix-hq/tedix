@@ -32,6 +32,23 @@ function order(content: string, plannedToolIds: string[] = []) {
 }
 
 describe("request-derived capability plans", () => {
+	it("does not grant access from appended CLI repository metadata", () => {
+		const content =
+			"Read https://example.com/\n\nLocal terminal context:\n- cwd: /workspace/acme\n- origin: https://code.example/acme/repo.git\n- gitStatus:\n M package.json";
+		expect(order(content).capabilityPlan?.urls).toEqual([
+			"https://example.com/",
+		]);
+		expect(
+			deriveExecutionRequirement(content, route).requiredCapabilities,
+		).toEqual([]);
+		expect(order(content).sourceContent).toBe(content);
+		expect(
+			deriveExecutionRequirement(
+				"Run a shell command\n\nLocal terminal context:\n- cwd: /workspace/no workstation",
+				route,
+			).surface,
+		).toBe("workstation");
+	});
 	it("does not infer execution from URL path words or an oversized effort budget", () => {
 		expect(
 			deriveExecutionRequirement("TLDR https://example.com/deploy/docs", {
