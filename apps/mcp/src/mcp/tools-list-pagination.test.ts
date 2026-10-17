@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { mcpToolsListResultTransform } from "../index";
+import { mcpToolsListResultTransform } from "../mcp-result-transform";
 import {
 	decodeToolsListCursor,
 	encodeToolsListCursor,

@@ -15,7 +15,8 @@ import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tool
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { compactCodeModeTools, mcpToolsListResultTransform } from "../index";
+import { compactCodeModeTools } from "../index";
+import { mcpToolsListResultTransform } from "../mcp-result-transform";
 import { SESSION_NATIVE_HOME_TOOL_IDS } from "./server-factory";
 
 function resolvedAppStub() {
