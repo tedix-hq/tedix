@@ -1004,3 +1004,33 @@ it("can adopt a preceding proposal even when there are no open rows", async () =
 		status: "open",
 	});
 });
+
+it("does not count a repeated saved progress citation as a new mention", async () => {
+	const db = fixture();
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Verify the deployed login fix"}]}',
+		).model,
+		"Verify the deployed login fix",
+	);
+	const evidence = "The code is fixed but the live check is still pending";
+	const reply = JSON.stringify({
+		updates: [{ ref: "r1", status: "in_progress", evidence }],
+	});
+	for (let i = 0; i <= LEDGER_SILENCE_TURNS; i++) {
+		const at = new Date(Date.parse(T0) + (i + 1) * 60000).toISOString();
+		await reflectAgentSessionRequests(db, scripted(reply).model, {
+			...SCOPE,
+			turn: i === 0 ? evidence : "Unrelated work was checked.",
+			activity: null,
+			repository: "example/app",
+			sourceAt: at,
+			now: at,
+		});
+	}
+	expect((await rows(db))[0]).toMatchObject({
+		status: "dropped_risk",
+		turnsUnaddressed: LEDGER_SILENCE_TURNS,
+	});
+});
