@@ -100,7 +100,7 @@ it("preserves an existing steward when an owner selects a code executor", async 
 		stewardId: "existing-steward",
 	});
 	await select();
-	expect(mocks.project).not.toHaveBeenCalled();
+	expect(mocks.project).toHaveBeenCalledWith({}, "org-acme", "example-project");
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
 		expect.objectContaining({ stewardId: undefined }),
@@ -116,9 +116,55 @@ it("preserves an owner's explicit removal of stewardship", async () => {
 		stewardId: "existing-steward",
 	});
 	await select(2, "codex", { stewardType: null, stewardId: null });
-	expect(mocks.project).not.toHaveBeenCalled();
+	expect(mocks.project).toHaveBeenCalledWith({}, "org-acme", "example-project");
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
 		expect.objectContaining({ stewardType: null, stewardId: null }),
 	);
+});
+
+it("holds owner-assigned code in a coordinated project before the dispatcher can see it", async () => {
+	mocks.actor.mockResolvedValue({ type: "user", id: "acme-owner" });
+	mocks.access.mockResolvedValue({
+		...item,
+		projectId: "example-project",
+		stewardType: "tedi",
+		stewardId: "existing-steward",
+	});
+	mocks.project.mockResolvedValue({
+		metadata: { labels: ["night-shift"] },
+		leadTediId: "example-lead",
+	});
+	await select();
+	expect(mocks.update).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({
+			executor: "codex",
+			laneDispatch: { state: "held" },
+			stewardId: undefined,
+		}),
+	);
+});
+it("lets an admitted tedi steward publish a selection without granting an executor", async () => {
+	mocks.actor.mockResolvedValue({ type: "tedi", id: "acme-lead" });
+	await updateSpecificationProcedure["~orpc"].handler!({
+		input: {
+			id: item.id,
+			expectedWorkItemVersion: 2,
+			laneDispatch: { state: "ready", score: 80 },
+		},
+		context: { db: {} } as BaseContext,
+		path: ["workItems", "updateSpecification"],
+		procedure: updateSpecificationProcedure,
+		signal: undefined,
+		lastEventId: undefined,
+	});
+	expect(mocks.update).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({
+			executor: undefined,
+			laneDispatch: { state: "ready", score: 80 },
+		}),
+	);
+	expect(mocks.project).not.toHaveBeenCalled();
 });

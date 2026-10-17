@@ -44,6 +44,7 @@ import {
 	replayFactoryCycle,
 } from "../../../services/factory-cycle";
 import { resolveWorkEvidenceRow } from "../../../services/work-evidence-resolution";
+import { initialLaneDispatch } from "../../../services/lane-dispatch-plan";
 import { requireOrgId } from "../../org-scope";
 import { ErrorCodes, createError } from "../../orpc";
 import {
@@ -100,19 +101,20 @@ export const createProcedure = authOs.create.handler(
 			const existing = await replayFactoryCycle(context.db, orgId, input);
 			if (existing) return existing;
 			attemptedCreate = true;
-			const laneSteward =
-				["codex", "claude-code"].includes(input.executor ?? "") &&
-				!input.stewardType &&
-				!input.stewardId &&
-				input.projectId
-					? (
-							await getProjectByIdForOrganization(
-								context.db,
-								orgId,
-								input.projectId,
-							)
-						)?.leadTediId
+			const executor = input.executor ?? input.metadata?.executor;
+			const laneProject =
+				["codex", "claude-code"].includes(String(executor)) && input.projectId
+					? await getProjectByIdForOrganization(
+							context.db,
+							orgId,
+							input.projectId,
+						)
 					: undefined;
+			const laneSteward =
+				!input.stewardType && !input.stewardId
+					? laneProject?.leadTediId
+					: undefined;
+			const laneDispatch = initialLaneDispatch(executor, laneProject?.metadata);
 			return await createWorkItem(context.db, {
 				id: crypto.randomUUID(),
 				orgId,
@@ -146,6 +148,7 @@ export const createProcedure = authOs.create.handler(
 				metadata: toJsonRecord({
 					...input.metadata,
 					...(input.executor ? { executor: input.executor } : {}),
+					...(laneDispatch ? { laneDispatch } : {}),
 				}),
 				createdAt: new Date().toISOString(),
 			});
@@ -176,6 +179,7 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 		orgId,
 		disposition: input?.disposition,
 		executor: input?.executor,
+		dispatchReadyOnly: input?.dispatchReadyOnly,
 		workKind: input?.workKind,
 		projectId: input?.projectId,
 		objectiveId: input?.objectiveId,

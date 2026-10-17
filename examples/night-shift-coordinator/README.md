@@ -31,6 +31,13 @@ accept the intended outcome and run the existing local dispatcher as a service.
 The coordinator never starts a local process itself. Keep the local machine
 awake when overnight execution is required.
 
+Label coordinated projects `night-shift` (or set project metadata
+`nightShift.enabled` to `true`). Code assignments then enter with a held
+`laneDispatch` plan. The coordinator publishes ready selections; the dispatcher
+requests `dispatchReadyOnly` so acceptance cannot race native ranking. Calendar
+start dates retain their original meaning. Unlabelled projects retain their
+existing dispatcher behavior.
+
 Run the workflow checks with `bun test examples/night-shift-coordinator/workflow.test.js`.
 A passing mock test is not proof of Cloud scheduling or unattended local recovery.
 For that proof, kill a disposable admitted lane, observe server expiry, then

@@ -83,6 +83,7 @@ function fixture({ refuse = false, dark = false, failSettle = false } = {}) {
 			const input =
 				inputIndex < 0 ? undefined : JSON.parse(args[inputIndex + 1]!);
 			events.push({ verb, env, input });
+			if (verb === "dispatch-list") expect(input.dispatchReadyOnly).toBe(true);
 			let response: unknown;
 			if (verb === "dispatch-list")
 				response = { data: items, pagination: { hasMore: false } };

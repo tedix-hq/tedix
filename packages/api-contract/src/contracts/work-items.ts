@@ -1,4 +1,5 @@
 import {
+	LaneDispatchPlanSchema,
 	WorkExecutorSchema,
 	ListWorkCliProjectionInputSchema,
 	ListWorkCliProjectionResultSchema,
@@ -233,6 +234,7 @@ export const workItemsContract = oc
 							'Server-side lifecycle filter: proposed | accepted | completed | cancelled. There is no "status" field — "pending" work is disposition proposed (not yet accepted) or accepted (admitted, not completed).',
 						),
 						executor: WorkExecutorSchema.optional(),
+						dispatchReadyOnly: z.boolean().optional(),
 						workKind: WorkItemKindSchema.optional(),
 						objectiveId: z.uuid().optional(),
 						workClass: WorkItemClassSchema.optional(),
@@ -666,6 +668,7 @@ export const workItemsContract = oc
 				z.object({
 					id: z.uuid(),
 					executor: WorkExecutorSchema.optional(),
+					laneDispatch: LaneDispatchPlanSchema.optional(),
 					expectedWorkItemVersion: z
 						.number()
 						.int()

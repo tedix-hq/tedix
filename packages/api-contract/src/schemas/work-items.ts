@@ -1616,6 +1616,14 @@ export const WorkExecutorSchema = z.enum([
 ]);
 export type WorkExecutor = z.infer<typeof WorkExecutorSchema>;
 
+export const LaneDispatchPlanSchema = z
+	.object({
+		state: z.enum(["held", "ready"]),
+		score: z.number().finite().optional(),
+	})
+	.strict();
+export type LaneDispatchPlan = z.infer<typeof LaneDispatchPlanSchema>;
+
 export const CreateWorkItemInputSchema = z
 	.object({
 		executor: WorkExecutorSchema.optional(),
