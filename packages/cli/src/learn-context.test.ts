@@ -443,7 +443,7 @@ describe("board match and judge", () => {
 		]);
 	});
 
-	it("finds historic protocol work with short names and stemmed topic searches", async () => {
+	it("finds historic work using distinctive stems and short protocol names", async () => {
 		const board = new Board(PROJECTS);
 		board.items = [
 			{
@@ -468,6 +468,7 @@ describe("board match and judge", () => {
 						t: "Fix OpenAI MCP scanner receiving stale tool schemas",
 					},
 					{ k: "dedup", t: "Dedupe catalog pages by exact title" },
+					{ k: "short", t: "MCP schemas" },
 				],
 				dispositions: ["completed", "cancelled"],
 				projects: false,
@@ -475,6 +476,7 @@ describe("board match and judge", () => {
 		);
 		expect(matches.matches.mcp.w[0][0]).toBe("old-mcp");
 		expect(matches.matches.dedup.w[0][0]).toBe("old-dedup");
+		expect(matches.matches.short.w[0][0]).toBe("old-mcp");
 	});
 
 	it("splits many candidates across programs so no result outgrows the gateway cap", async () => {
