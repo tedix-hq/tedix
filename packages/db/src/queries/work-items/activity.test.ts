@@ -4,7 +4,7 @@ import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { listWorkActivity } from "./activity";
 
-function seed() {
+function seed(equalTimes = false) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, disposition TEXT NOT NULL, project_id TEXT, objective_id TEXT);
@@ -16,10 +16,40 @@ function seed() {
 			('e2','org','sweep','attempt.settled','external_agent','agent','{}','2026-08-28T04:33:00.000Z'),
 			('e3','org','other','attempt.started','external_agent','agent','{}','2026-08-28T04:32:00.000Z');
 	`);
+	if (equalTimes)
+		sqlite.exec(
+			"UPDATE work_events SET occurred_at = '2026-08-28T04:33:00.000Z' WHERE id = 'e3'",
+		);
 	return createDbClient(createD1Facade(sqlite));
 }
 
 describe("listWorkActivity", () => {
+	it("continues through equal timestamps without duplicates and retains tenant scope", async () => {
+		const db = seed(true);
+		const first = await listWorkActivity(db, { orgId: "org", limit: 1 });
+		const second = await listWorkActivity(db, {
+			orgId: "org",
+			limit: 1,
+			cursor: first.nextCursor!,
+		});
+		const third = await listWorkActivity(db, {
+			orgId: "org",
+			limit: 1,
+			cursor: second.nextCursor!,
+		});
+		expect(
+			[...first.events, ...second.events, ...third.events].map((e) => e.id),
+		).toEqual(["e3", "e2", "e1"]);
+		expect(third.nextCursor).toBeNull();
+		expect(
+			(
+				await listWorkActivity(db, {
+					orgId: "another-org",
+					cursor: first.nextCursor!,
+				})
+			).events,
+		).toEqual([]);
+	});
 	it("filters the objective before taking the newest event and retains tenant scope", async () => {
 		const db = seed();
 		const result = await listWorkActivity(db, {

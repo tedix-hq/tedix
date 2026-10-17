@@ -1,0 +1,174 @@
+import { describe, expect, it } from "vite-plus/test";
+import {
+	ActivityFeedConfigSchema,
+	ActivityFeedItemSchema,
+} from "@tedix/api-contract/schemas/os-activity-feed";
+import {
+	EMPTY_FEED_PREFERENCES,
+	feedLearningInput,
+	quietNow,
+	rankFeed,
+	safeSource,
+	decisionFeedItems,
+} from "./activity-feed";
+import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
+import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
+
+const project = "11111111-1111-4111-8111-111111111111";
+const other = "22222222-2222-4222-8222-222222222222";
+const config = ActivityFeedConfigSchema.parse({
+	version: 1,
+	projects: [{ id: project, label: "Pine Studio" }],
+	quietHours: { start: 22, end: 7 },
+});
+const now = new Date("2026-10-17T12:00:00.000Z");
+function item(
+	id: string,
+	extra: Partial<ReturnType<typeof ActivityFeedItemSchema.parse>> = {},
+) {
+	return ActivityFeedItemSchema.parse({
+		id,
+		actor: "Cedar",
+		sentence: "The review finished.",
+		source: `/work/items/${project}`,
+		projectId: project,
+		tediId: null,
+		workItemId: project,
+		kind: "result",
+		classId: "review",
+		importance: "normal",
+		at: now.toISOString(),
+		dueAt: null,
+		needsAction: false,
+		stalled: false,
+		done: false,
+		explanation: "Source receipt",
+		reactions: ["more", "why", "mute", "comment", "work"],
+		...extra,
+	});
+}
+describe("activity feed", () => {
+	it("retains the deck's exact ADR envelope and class without adding feed approval actions", () => {
+		const envelope = DECISION_DECK_EXAMPLES.find(
+			(card) => card.kind === "adr",
+		)!;
+		const row = WorkInteractionInboxRowSchema.parse({
+			request: {
+				id: project,
+				orgId: other,
+				workItemId: project,
+				caseId: null,
+				projectId: project,
+				kind: "question",
+				subject: "Choose a plan",
+				prompt: "Which plan?",
+				requestedFromType: "user",
+				requestedFromId: "pine",
+				creatorType: "user",
+				creatorId: "birch",
+				creatorSessionId: null,
+				state: "open",
+				requestedAt: now.toISOString(),
+				dueAt: null,
+				expiresAt: null,
+				resolvedAt: null,
+				version: 1,
+				metadata: { decisionDeck: envelope },
+			},
+			effectiveState: "open",
+			canRespond: true,
+			canCancel: false,
+			workItem: { id: project, title: "Plan", projectId: project },
+			responseCount: 0,
+		});
+		const card = decisionFeedItems([row])[0]!;
+		expect(ActivityFeedItemSchema.parse(card).decision).toEqual(envelope);
+		expect(card.classId).toBe(envelope.classId);
+		expect(card.sentence).toBe(envelope.proposal);
+		expect(card.reactions).not.toContain("approve");
+	});
+	it("ranks an old approaching deadline ahead of a recent routine update", () => {
+		const ranked = rankFeed(
+			[
+				item("new"),
+				item("deadline", {
+					at: "2026-10-10T10:00:00.000Z",
+					dueAt: "2026-10-17T13:00:00.000Z",
+					needsAction: true,
+				}),
+			],
+			config,
+			EMPTY_FEED_PREFERENCES,
+			now,
+		);
+		expect(ranked.map((r) => r.id)).toEqual(["deadline", "new"]);
+	});
+	it("deduplicates receipts and excludes unconfigured projects and unsafe sources", () => {
+		expect(
+			rankFeed(
+				[
+					item("a"),
+					item("a"),
+					item("other", { projectId: other }),
+					item("unsafe", { source: "javascript:alert(1)" }),
+				],
+				config,
+				EMPTY_FEED_PREFERENCES,
+				now,
+			).map((r) => r.id),
+		).toEqual(["a"]);
+		expect(safeSource("//evil.example")).toBe(false);
+	});
+	it("keeps pending human decisions visible after a personal class mute", () => {
+		const prefs = { ...EMPTY_FEED_PREFERENCES, mutedClasses: ["review"] };
+		expect(
+			rankFeed(
+				[item("receipt"), item("ask", { needsAction: true })],
+				config,
+				prefs,
+				now,
+			).map((r) => r.id),
+		).toEqual(["ask"]);
+		expect(
+			rankFeed([item("receipt")], config, EMPTY_FEED_PREFERENCES, now),
+		).toHaveLength(1);
+	});
+	it("recomputes urgency as time passes and identifies changed-since-last-look", () => {
+		const row = item("due", { dueAt: "2026-10-18T12:00:00.000Z" });
+		const prefs = {
+			...EMPTY_FEED_PREFERENCES,
+			lastSeenAt: "2026-10-16T00:00:00.000Z",
+		};
+		const before = rankFeed([row], config, prefs, now)[0]!;
+		const after = rankFeed(
+			[row],
+			config,
+			prefs,
+			new Date("2026-10-18T11:00:00.000Z"),
+		)[0]!;
+		expect(after.score).toBeGreaterThan(before.score);
+		expect(before.unseen).toBe(true);
+		expect(quietNow(config, 23)).toBe(true);
+		expect(quietNow(config, 6)).toBe(true);
+		expect(quietNow(config, 12)).toBe(false);
+	});
+	it("records a correction in the personal learning shape without granting an action", () => {
+		const input = feedLearningInput(
+			item("receipt"),
+			"comment",
+			"Keep supplier names out of public drafts.",
+			"correction-1",
+		);
+		expect(input).toMatchObject({
+			surface: "activity_feed",
+			eventKind: "edited",
+			scope: { kind: "personal" },
+			metadata: {
+				answer: "Keep supplier names out of public drafts.",
+				draft: { body: "The review finished." },
+				source: `/work/items/${project}`,
+			},
+		});
+		expect(input).not.toHaveProperty("approverId");
+	});
+});

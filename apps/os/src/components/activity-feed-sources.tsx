@@ -1,0 +1,96 @@
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
+import { osQuery } from "@/lib/os-query-options";
+import {
+	approvalFeedItems,
+	decisionFeedItems,
+	resultFeedItems,
+	workFeedItems,
+} from "@/lib/activity-feed";
+
+type Cursor = { at: string; id: string } | undefined;
+export interface FeedSourceState {
+	items: ActivityFeedItem[];
+	loading: boolean;
+	failed: boolean;
+	more: boolean;
+}
+
+/** Each reader retains its own canonical cursor; rank never becomes a pagination cursor. */
+export function ActivityFeedSources({
+	projectId,
+	pageSize,
+	request,
+	onUpdate,
+}: {
+	projectId: string;
+	pageSize: number;
+	request: number;
+	onUpdate: (projectId: string, state: FeedSourceState) => void;
+}) {
+	const work = useInfiniteQuery(
+		osQuery.workItems.listActivity.infiniteOptions({
+			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
+			initialPageParam: undefined as Cursor,
+			getNextPageParam: (page) => page.nextCursor ?? undefined,
+		}),
+	);
+	const results = useInfiniteQuery(
+		osQuery.workItems.listAttemptProjection.infiniteOptions({
+			input: (cursor: Cursor) => ({
+				projectId,
+				limit: pageSize,
+				cursor,
+				outcomes: ["succeeded", "failed", "expired", "cancelled"],
+			}),
+			initialPageParam: undefined as Cursor,
+			getNextPageParam: (page) => page.nextCursor ?? undefined,
+		}),
+	);
+	const decisions = useInfiniteQuery(
+		osQuery.workInteractions.listInbox.infiniteOptions({
+			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
+			initialPageParam: undefined as Cursor,
+			getNextPageParam: (page) => page.nextCursor ?? undefined,
+		}),
+	);
+	const approvals = useInfiniteQuery(
+		osQuery.workApprovals.listInbox.infiniteOptions({
+			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
+			initialPageParam: undefined as Cursor,
+			getNextPageParam: (page) => page.nextCursor ?? undefined,
+		}),
+	);
+	const items = useMemo(
+		() => [
+			...workFeedItems(
+				work.data?.pages.flatMap((p) => p.events) ?? [],
+				projectId,
+			),
+			...resultFeedItems(results.data?.pages.flatMap((p) => p.data) ?? []),
+			...decisionFeedItems(decisions.data?.pages.flatMap((p) => p.data) ?? []),
+			...approvalFeedItems(approvals.data?.pages.flatMap((p) => p.data) ?? []),
+		],
+		[work.data, results.data, decisions.data, approvals.data, projectId],
+	);
+	const queries = [work, results, decisions, approvals];
+	const loading = queries.some((q) => q.isFetching);
+	const failed = queries.some((q) => q.isError);
+	const more = queries.some((q) => q.hasNextPage);
+	useEffect(
+		() => onUpdate(projectId, { items, loading, failed, more }),
+		[projectId, items, loading, failed, more, onUpdate],
+	);
+	const lastRequest = useRef(0);
+	useEffect(() => {
+		if (request <= lastRequest.current) return;
+		lastRequest.current = request;
+		for (const query of queries) {
+			if (query.isError) void query.refetch();
+			else if (query.hasNextPage && !query.isFetching)
+				void query.fetchNextPage();
+		}
+	}, [request]);
+	return null;
+}

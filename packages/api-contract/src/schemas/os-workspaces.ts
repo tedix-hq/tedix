@@ -24,6 +24,10 @@ import {
 	DecisionDeckConfigSchema,
 } from "./os-decision-deck";
 import {
+	ACTIVITY_FEED_ENTRY,
+	ActivityFeedConfigSchema,
+} from "./os-activity-feed";
+import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
 } from "./os-outbound-review";
@@ -561,7 +565,9 @@ export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 								? AgentsConfigSchema
 								: value.entry.trim() === DECISION_DECK_ENTRY
 									? DecisionDeckConfigSchema
-									: null;
+									: value.entry.trim() === ACTIVITY_FEED_ENTRY
+										? ActivityFeedConfigSchema
+										: null;
 		if (!schema) return;
 		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;

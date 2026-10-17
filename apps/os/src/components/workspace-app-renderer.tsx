@@ -18,6 +18,11 @@ import {
 } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionDeckApp } from "@/components/decision-deck-app";
 import {
+	ACTIVITY_FEED_ENTRY,
+	ActivityFeedConfigSchema,
+} from "@tedix/api-contract/schemas/os-activity-feed";
+import { ActivityFeedApp } from "@/components/activity-feed-app";
+import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
 } from "@tedix/api-contract/schemas/os-outbound-review";
@@ -77,6 +82,10 @@ export function WorkspaceAppRenderer({
 	if (entry === DECISION_DECK_ENTRY) {
 		const config = DecisionDeckConfigSchema.safeParse(manifest.config);
 		if (config.success) return <DecisionDeckApp config={config.data} />;
+	}
+	if (entry === ACTIVITY_FEED_ENTRY) {
+		const config = ActivityFeedConfigSchema.safeParse(manifest.config);
+		if (config.success) return <ActivityFeedApp config={config.data} />;
 	}
 	if (entry === "tedix:app/attention")
 		return <AttentionApp workspaceId={workspaceId} />;

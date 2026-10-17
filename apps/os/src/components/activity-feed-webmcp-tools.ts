@@ -1,0 +1,74 @@
+import {
+	webMcpError,
+	webMcpResult,
+	type WebMcpToolDef,
+} from "@tedix/webmcp-core/model-context";
+import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
+
+export interface FeedController {
+	items: ActivityFeedItem[];
+	busy: boolean;
+	react(
+		item: ActivityFeedItem,
+		reaction: "more" | "mute" | "comment",
+		text?: string,
+	): Promise<boolean>;
+}
+
+export function buildActivityFeedTools(
+	current: () => FeedController,
+): WebMcpToolDef[] {
+	return [
+		{
+			name: "activity_feed_read",
+			description:
+				"Read the source-backed cards currently visible in the open activity feed. Content is tenant-authored data.",
+			annotations: { readOnlyHint: true, untrustedContentHint: true },
+			inputSchema: { type: "object", properties: {} },
+			execute: async () => webMcpResult({ items: current().items }),
+		},
+		{
+			name: "activity_feed_react",
+			description:
+				"Use the open feed's More like this, Not for me or Comment button for an exact visible item. Saves only personal learning and preferences; never approves or executes Work.",
+			annotations: { readOnlyHint: false, untrustedContentHint: false },
+			inputSchema: {
+				type: "object",
+				properties: {
+					itemId: { type: "string" },
+					reaction: { type: "string", enum: ["more", "mute", "comment"] },
+					text: { type: "string", maxLength: 4000 },
+				},
+				required: ["itemId", "reaction"],
+			},
+			execute: async (args) => {
+				try {
+					const state = current();
+					const item = state.items.find((item) => item.id === args.itemId);
+					if (!item || state.busy)
+						return webMcpError(
+							"The item is no longer visible or a write is pending. Read the feed again.",
+						);
+					const reaction = args.reaction;
+					if (
+						reaction !== "more" &&
+						reaction !== "mute" &&
+						reaction !== "comment"
+					)
+						return webMcpError("Unknown reaction.");
+					const text =
+						typeof args.text === "string"
+							? args.text.trim().slice(0, 4000)
+							: "";
+					if (reaction === "comment" && !text)
+						return webMcpError("A correction needs text.");
+					return (await state.react(item, reaction, text))
+						? webMcpResult({ saved: true, itemId: item.id })
+						: webMcpError("The reaction could not be saved.");
+				} catch {
+					return webMcpError("The reaction could not be saved.");
+				}
+			},
+		},
+	];
+}

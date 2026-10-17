@@ -2161,6 +2161,7 @@ export type WorkActivityEvent = z.infer<typeof WorkActivityEventSchema>;
 
 export const ListWorkActivityInputSchema = z
 	.object({
+		cursor: WorkFactoryProjectionCursorSchema.optional(),
 		// Scope to one Work Item's own history. Callers building a per-item
 		// audit trail passed this long before it existed, and a non-strict
 		// object silently dropped it — the caller then reasonably believed an
@@ -2191,6 +2192,7 @@ export type ListWorkActivityInput = z.infer<typeof ListWorkActivityInputSchema>;
 export const ListWorkActivityResultSchema = z.object({
 	events: z.array(WorkActivityEventSchema),
 	truncated: z.boolean(),
+	nextCursor: WorkFactoryProjectionCursorSchema.nullable().optional(),
 });
 
 /** Exact bounded CLI read shapes; full Work records remain separate. */

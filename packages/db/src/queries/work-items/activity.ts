@@ -3,7 +3,7 @@
  * items, newest first.
  */
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type WorkItemDisposition,
@@ -60,6 +60,7 @@ function settlementFromMetadata(
 
 export interface ListWorkActivityParams {
 	orgId: string;
+	cursor?: { at: string; id: string };
 	workItemId?: string;
 	projectId?: string;
 	objectiveId?: string;
@@ -78,12 +79,26 @@ const ACTIVITY_MAX_LIMIT = 300;
 export async function listWorkActivity(
 	db: DbClient,
 	params: ListWorkActivityParams,
-): Promise<{ events: WorkActivityRow[]; truncated: boolean }> {
+): Promise<{
+	events: WorkActivityRow[];
+	truncated: boolean;
+	nextCursor: { at: string; id: string } | null;
+}> {
 	const cap = Math.min(
 		Math.max(1, params.limit ?? ACTIVITY_DEFAULT_LIMIT),
 		ACTIVITY_MAX_LIMIT,
 	);
 	const conditions = [eq(workEvents.orgId, params.orgId)];
+	if (params.cursor)
+		conditions.push(
+			or(
+				lt(workEvents.occurredAt, params.cursor.at),
+				and(
+					eq(workEvents.occurredAt, params.cursor.at),
+					lt(workEvents.id, params.cursor.id),
+				),
+			)!,
+		);
 	if (params.workItemId) {
 		conditions.push(eq(workEvents.workItemId, params.workItemId));
 	}
@@ -112,7 +127,7 @@ export async function listWorkActivity(
 		.from(workEvents)
 		.innerJoin(workItems, eq(workItems.id, workEvents.workItemId))
 		.where(and(...conditions))
-		.orderBy(desc(workEvents.occurredAt))
+		.orderBy(desc(workEvents.occurredAt), desc(workEvents.id))
 		.limit(cap + 1);
 	const events: WorkActivityRow[] = rows.slice(0, cap).map((r) => {
 		const md = (r.metadata ?? {}) as Record<string, unknown>;
@@ -133,5 +148,11 @@ export async function listWorkActivity(
 			createdAt: r.createdAt,
 		};
 	});
-	return { events, truncated: rows.length > cap };
+	const last = events.at(-1);
+	return {
+		events,
+		truncated: rows.length > cap,
+		nextCursor:
+			rows.length > cap && last ? { at: last.createdAt, id: last.id } : null,
+	};
 }
