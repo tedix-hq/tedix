@@ -1,3 +1,4 @@
+import { officeAsk } from "@/lib/work-interaction-display";
 import { describe, expect, it } from "vite-plus/test";
 import { answerDeliveryLine } from "./work-operations-pages";
 import {
@@ -6,7 +7,6 @@ import {
 	knocksPerHour,
 	learnedFromLine,
 	lessonSubject,
-	officeAsk,
 	sessionActivity,
 	sessionsFromKnocks,
 } from "./work-office-page";

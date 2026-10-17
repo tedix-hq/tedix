@@ -1,4 +1,3 @@
-import { getCurrentTenant } from "@descope/react-sdk/flows";
 import {
 	CaretRight,
 	GearSix,
@@ -9,7 +8,7 @@ import {
 	UserCircle,
 } from "@phosphor-icons/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -44,7 +43,6 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/kumo/sidebar";
-import { OsCommandPalette } from "@/components/os-command-palette";
 import { ApprovalNotifications } from "@/components/approval-notifications";
 import { OsQuickChat } from "@/components/os-quick-chat";
 import { OsSidebarWorkspaces } from "@/components/os-sidebar-workspaces";
@@ -61,6 +59,12 @@ import {
 	useOsDurableTheme,
 	useOsOrganizationTheme,
 } from "@/lib/use-os-preferences";
+
+const OsCommandPalette = lazy(() =>
+	import("@/components/os-command-palette").then((module) => ({
+		default: module.OsCommandPalette,
+	})),
+);
 
 const SIDEBAR_COLLAPSED_KEY = "tedix-os-sidebar-collapsed";
 
@@ -311,13 +315,11 @@ export function OsShell() {
 	useOsDurableTheme();
 	useOsOrganizationTheme();
 	const tenant = resolveOsTenant(window.location.hostname);
-	// getCurrentTenant is Descope-backed; the zero-account local lane mounts
-	// no Descope, so it must not be consulted there.
 	const tenantLabel =
 		tenant.kind === "local"
 			? tenant.slug || "Local workspace"
 			: tenant.kind === "tenant"
-				? tenant.slug || getCurrentTenant() || "Workspace"
+				? tenant.slug
 				: "Tedix";
 	const routeContext = resolveOsShellRouteContext(pathname);
 	const workspaceWorkbench = shouldUseWorkspaceWorkbench(pathname);
@@ -369,7 +371,11 @@ export function OsShell() {
 					<Outlet />
 				</main>
 			</div>
-			<OsCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+			{paletteOpen ? (
+				<Suspense fallback={null}>
+					<OsCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+				</Suspense>
+			) : null}
 			<OsQuickChat />
 			<Dialog
 				open={setupPromptOpen}

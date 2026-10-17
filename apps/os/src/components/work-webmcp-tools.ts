@@ -411,9 +411,10 @@ export function buildWorkWebMcpTools(deps: WorkWebMcpDeps): WebMcpToolDef[] {
 }
 
 /** Register the Work-scope WebMCP tools for the lifetime of the Work shell. */
-export function useWorkWebMcpTools(): void {
+export function WorkWebMcpTools() {
 	const queryClient = useQueryClient();
 	useWebMcpTools("work", () => buildWorkWebMcpTools({ queryClient }), [
 		queryClient,
 	]);
+	return null;
 }

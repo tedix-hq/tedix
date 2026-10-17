@@ -110,6 +110,38 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 			...(viteApiProxy ? { proxy: { "/api": viteApiProxy } } : {}),
 		},
 		build: { target: "es2022" },
+		environments: {
+			client: {
+				build: {
+					rolldownOptions: {
+						output: {
+							strictExecutionOrder: true,
+							codeSplitting: {
+								groups: [
+									{
+										name: "bootstrap",
+										tags: ["$initial"],
+										includeDependenciesRecursively: false,
+									},
+									{
+										name: "shared-ui",
+										test: /@cloudflare[\\/]kumo[\\/]/,
+										minShareCount: 10,
+										includeDependenciesRecursively: false,
+									},
+									{
+										name: "shared-icons",
+										test: /@phosphor-icons[\\/]react[\\/]/,
+										minShareCount: 10,
+										includeDependenciesRecursively: false,
+									},
+								],
+							},
+						},
+					},
+				},
+			},
+		},
 		test: {
 			// A package-local config replaces the root `test` block rather than merging
 			// with it, so the root's deliberate timeouts have to be spread back in —

@@ -1,7 +1,13 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { BrokerLoginPage } from "@/account/account-login";
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/kumo/toast";
 import { SessionBoundary } from "@/components/session-boundary";
+
+const BrokerLoginPage = lazy(() =>
+	import("@/account/account-login").then((module) => ({
+		default: module.BrokerLoginPage,
+	})),
+);
 
 export const Route = createFileRoute("/_session")({
 	component: ProductSessionLayout,
@@ -11,7 +17,9 @@ function ProductSessionLayout() {
 	return (
 		<SessionBoundary
 			renderLogin={(brokerPrefix) => (
-				<BrokerLoginPage brokerPrefix={brokerPrefix} />
+				<Suspense fallback={null}>
+					<BrokerLoginPage brokerPrefix={brokerPrefix} />
+				</Suspense>
 			)}
 		>
 			<Outlet />
