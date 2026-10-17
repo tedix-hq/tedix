@@ -55,6 +55,32 @@ async function allWork(api, projectId) {
 	}
 	throw new Error("Night backlog exceeds bounded read; no partial dispatch");
 }
+async function registeredLanes(api, projectId) {
+	const latest = new Map();
+	let cursor;
+	for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
+		const page = checked(
+			await api.list_attempt_projection({
+				projectId,
+				executorType: "external_agent",
+				limit: 100,
+				...(cursor ? { cursor } : {}),
+			}),
+		);
+		for (const row of page.data) {
+			const prior = latest.get(row.workItem.id);
+			if (!prior || row.attempt.attemptNumber > prior.attemptNumber)
+				latest.set(row.workItem.id, row.attempt);
+		}
+		if (!page.hasMore)
+			return [...latest]
+				.filter(([, attempt]) => attempt.metadata?.lane === true)
+				.map(([id]) => id);
+		if (!page.nextCursor) throw new Error("Lane projection cannot advance");
+		cursor = page.nextCursor;
+	}
+	throw new Error("Lane projection truncated; no partial recovery");
+}
 async function appendLog(api, workspaceId, title, key, lines) {
 	const page = checked(
 		await api.list_os_outputs({
@@ -212,28 +238,18 @@ export default {
 			const items = await step.do("backlog-" + projectId, async () =>
 				allWork(api, projectId),
 			);
+			const registered = new Set(
+				await step.do("registered-" + projectId, async () =>
+					registeredLanes(api, projectId),
+				),
+			);
 			for (const item of items.filter(
 				(x) =>
 					["codex", "claude-code"].includes(x.metadata?.executor) ||
-					(x.metadata?.executor === undefined &&
-						["codex", "claude-code"].includes(x.metadata?.agentHarness)),
+					(x.metadata?.executor === undefined && registered.has(x.id)),
 			)) {
 				if (item.activeAttempt) {
-					if (["codex", "claude-code"].includes(item.metadata?.executor))
-						active++;
-					else {
-						const live = await step.do("live-" + item.id, async () =>
-							checked(
-								await api.list_attempt_projection({
-									workItemId: item.id,
-									runtimeStates: ["queued", "running", "waiting", "retrying"],
-									limit: 1,
-								}),
-							),
-						);
-						if (live.data.some((row) => row.attempt.metadata?.lane === true))
-							active++;
-					}
+					active++;
 					continue;
 				}
 				if (
