@@ -63,13 +63,21 @@ export function SupportAttention() {
 					<p role="alert">{queue.error?.message ?? publish.error?.message}</p>
 				) : null}
 				{items.map((row) => {
-					const draft = staff
+					const staffTicket = staff
 						? queue.data?.find((x) => x.receipt.ticketId === row.ticketId)
-								?.draft
 						: null;
+					const draft = staffTicket?.draft;
 					return (
 						<article key={row.ticketId} className="grid gap-1">
-							<Link href={row.statusUrl}>{row.title}</Link>
+							<Link
+								href={
+									staffTicket
+										? `/work/items/${staffTicket.mirrorWorkItemId}`
+										: row.statusUrl
+								}
+							>
+								{row.title}
+							</Link>
 							<Text tone="secondary">
 								{row.owner} · {row.status} · waiting on {row.waitingOn} · next
 								update {absoluteTime(row.nextUpdateDue)} ·{" "}
