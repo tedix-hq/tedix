@@ -36,6 +36,68 @@ const tediRecord = {
 };
 
 describe("execution evidence", () => {
+	const interaction = {
+		id: "33333333-3333-4333-8333-333333333333",
+		orgId: "22222222-2222-4222-8222-222222222222",
+		requestedFromType: "user",
+		requestedFromId: "fixture-recipient",
+		version: 1,
+	};
+
+	it.each([
+		["create_work_interaction", "open"],
+		["cancel_work_interaction", "cancelled"],
+		["review_work_interaction", "resolved"],
+	])(
+		"separates %s resource state %s from operation completion",
+		(operation, state) => {
+			const result = { ...interaction, state };
+			const evidence = buildCompletionEvidence({
+				operation,
+				result,
+				retryKey: "interaction",
+			});
+			expect(evidence.status).toBe("succeeded");
+			expect(evidence.retry.retryable).toBe(false);
+			expect(evidence.providerConfirmation).toBe("unknown");
+			expect(result.state).toBe(state);
+			expect(
+				withCompletionEvidence(operation, result).completionEvidence,
+			).toMatchObject({ status: "succeeded" });
+		},
+	);
+
+	it.each([
+		[{ ok: false }, "failed"],
+		[{ error: "denied" }, "failed"],
+		[{ partial: true }, "partial"],
+		[{ canceled: true }, "canceled"],
+		[{ status: "failed" }, "failed"],
+		[{ state: "waiting_for_vendor" }, "partial"],
+		[{ id: "invalid" }, "canceled"],
+	])(
+		"retains Interaction failure and malformed-result signals %j",
+		(flags, status) => {
+			expect(
+				buildCompletionEvidence({
+					operation: "cancel_work_interaction",
+					result: { ...interaction, state: "cancelled", ...flags },
+					retryKey: "interaction",
+				}).status,
+			).toBe(status);
+		},
+	);
+
+	it("does not treat another operation's cancelled state as successful cancellation", () => {
+		expect(
+			buildCompletionEvidence({
+				operation: "provider_operation",
+				result: { ...interaction, state: "cancelled" },
+				retryKey: "provider",
+			}).status,
+		).toBe("canceled");
+	});
+
 	it.each(["active", "paused", "error", "provisioning", null] as const)(
 		"separates a typed getter's entity lifecycle %s from lookup completion",
 		(status) => {

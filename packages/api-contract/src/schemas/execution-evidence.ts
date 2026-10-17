@@ -175,7 +175,28 @@ function inferStatus(
 	const status = entityLookup
 		? null
 		: stringValue(record, "status")?.toLowerCase();
-	const state = stringValue(record, "state")?.toLowerCase();
+	// Interaction mutations return the request's lifecycle in `state`. A
+	// cancelled request is the successful result of cancellation, not a
+	// cancelled tool call. Explicit operation failure flags still apply below.
+	const interactionLifecycle =
+		[
+			"create_work_interaction",
+			"cancel_work_interaction",
+			"review_work_interaction",
+		].includes(operation) &&
+		z.uuid().safeParse(record.id).success &&
+		z.uuid().safeParse(record.orgId).success &&
+		["user", "tedi", "external_agent"].includes(
+			String(record.requestedFromType),
+		) &&
+		stringValue(record, "requestedFromId") !== null &&
+		typeof record.version === "number" &&
+		Number.isInteger(record.version) &&
+		record.version > 0 &&
+		["open", "resolved", "cancelled", "expired"].includes(String(record.state));
+	const state = interactionLifecycle
+		? null
+		: stringValue(record, "state")?.toLowerCase();
 	if (
 		record.canceled === true ||
 		status === "canceled" ||
