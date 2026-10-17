@@ -54,6 +54,7 @@ const RESOURCE_BOUND_DURABLE_CODE_TOOLS: Record<
 // endpoints are the retained tenant/operator tools; internal credential and
 // service-only procedures are excluded from the admin MCP projection instead.
 const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
+	"workItems/fileAgentReview": "mcp:work.write",
 	"workItems/listCliProjection": "mcp:work.read",
 	"workItems/getCheckpointProjection": "mcp:work.read",
 	"workItems/listAttemptCliProjection": "mcp:work.read",
