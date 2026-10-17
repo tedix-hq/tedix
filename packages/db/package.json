@@ -89,6 +89,8 @@
 		"./queries/cognitive/skill-validation": "./src/queries/cognitive/skill-validation.ts",
 		"./queries/kernel-approval-mirrors": "./src/queries/kernel-approval-mirrors.ts",
 		"./queries/kernel-runtime-events": "./src/queries/kernel-runtime-events.ts",
+		"./schema/kernel-requests": "./src/schema/kernel-requests.ts",
+		"./queries/kernel-requests": "./src/queries/kernel-requests.ts",
 		"./queries/kernel-home-run-trace": "./src/queries/kernel-home-run-trace.ts",
 		"./queries/kernel-conversations": "./src/queries/kernel-conversations.ts",
 		"./queries/kernel-tool-results": "./src/queries/kernel-tool-results.ts",
