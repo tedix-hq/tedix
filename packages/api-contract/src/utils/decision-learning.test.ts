@@ -162,6 +162,13 @@ describe("decision learning replay", () => {
 		expect(
 			scoreLearning(c, model, new Date("2026-06-11T09:00:00Z")).score,
 		).toBeGreaterThan(scoreLearning(c, model, now).score);
+		expect(
+			scoreLearning(c, model, new Date("2026-06-12T10:00:00Z")).factors,
+		).toContainEqual(
+			expect.objectContaining({
+				reason: "Overdue since 2026-06-11T10:00:00Z; waiting has a cost",
+			}),
+		);
 		const audited = learn(
 			Array.from({ length: 5 }, (_, i) => event(i)),
 			{ config: { ...config, auditSampleRate: 1 } },
