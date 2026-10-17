@@ -1,13 +1,6 @@
-/**
- * Read-time derivation for the local agent session status board.
- *
- * Stored state is whatever the plugin last reported. A report can go stale
- * (the machine slept, the host crashed), so the board ages it into `idle`
- * instead of letting a forgotten "working" or "done" sit at the top forever,
- * and a session silent for 12 hours reads as `ended`: it stopped without a
- * final status.
- */
+/** Read-time state uses reports and heartbeat age; silence has no known cause. */
 
+import { localSessionInactive } from "@tedix/api-contract/utils/attention-copy";
 import type {
 	WorkAgentSessionEffectiveStateSchema,
 	WorkAgentSessionStateSchema,
@@ -18,20 +11,6 @@ type StoredState = z.infer<typeof WorkAgentSessionStateSchema>;
 export type WorkAgentSessionEffectiveState = z.infer<
 	typeof WorkAgentSessionEffectiveStateSchema
 >;
-
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
-
-/** How long a reported state stays meaningful before it reads as `idle`. */
-const STALE_AFTER_MS: Partial<Record<StoredState, number>> = {
-	working: 30 * MINUTE_MS,
-	done: 2 * HOUR_MS,
-	needs_you: 24 * HOUR_MS,
-	error: 24 * HOUR_MS,
-};
-
-/** A session with no update for this long has ended. */
-const ENDED_AFTER_MS = 12 * HOUR_MS;
 
 /** Board order, most urgent first. */
 export const WORK_AGENT_SESSION_BOARD_ORDER = [
@@ -47,11 +26,10 @@ export function deriveWorkAgentSessionEffectiveState(
 	session: { state: StoredState; lastEventAt: string },
 	now: string,
 ): WorkAgentSessionEffectiveState {
-	const staleAfter = STALE_AFTER_MS[session.state];
-	if (staleAfter === undefined) return session.state;
-	const age = Date.parse(now) - Date.parse(session.lastEventAt);
-	if (age > ENDED_AFTER_MS) return "ended";
-	return age > staleAfter ? "idle" : session.state;
+	if (session.state === "ended") return "ended";
+	return localSessionInactive(session.lastEventAt, new Date(now))
+		? "idle"
+		: session.state;
 }
 
 export interface WorkAgentSessionBoardEntry {
@@ -148,31 +126,22 @@ interface ContributorAttempt {
 	heartbeatAt: string;
 }
 
-/** A contributor silent this long has ended, whatever it last reported. */
-const CONTRIBUTOR_ENDED_AFTER_MS = 24 * HOUR_MS;
-
 const latest = (a: string, b: string) => (a.localeCompare(b) >= 0 ? a : b);
 
-/**
- * One row per session that worked on a project, keyed `<harness>:<id>` like
- * Work Attempts. A session report supplies name, state and current item; a
- * session known only from Attempts reads `unknown` with its latest Attempt's
- * item. A live Attempt keeps heartbeating, so a session with no report or
- * heartbeat for 24 hours reads `ended` even if it last said `idle` or was
- * only ever seen through Attempts. Sessions that may still be active come
- * first, then newest activity.
- */
+/** Merge registered reports and observed project heartbeats by session. */
 export function buildWorkProjectContributors(
 	reports: readonly ContributorReport[],
 	attempts: readonly ContributorAttempt[],
 	now: string,
 ): WorkProjectContributor[] {
 	const contributors = new Map<string, WorkProjectContributor>();
+	const reportedStates = new Map<string, StoredState>();
 	for (const report of reports) {
 		const sessionKey = `${report.harness}:${report.sessionKey}`;
 		const current = contributors.get(sessionKey);
 		// Two people cannot share a host session id; keep the newest report.
 		if (current && current.lastActivityAt >= report.lastEventAt) continue;
+		reportedStates.set(sessionKey, report.state);
 		contributors.set(sessionKey, {
 			sessionKey,
 			harness: report.harness,
@@ -214,12 +183,13 @@ export function buildWorkProjectContributors(
 		});
 	}
 	for (const contributor of contributors.values()) {
-		if (
-			Date.parse(now) - Date.parse(contributor.lastActivityAt) >
-			CONTRIBUTOR_ENDED_AFTER_MS
-		) {
-			contributor.state = "ended";
-		}
+		if (contributor.state === "ended") continue;
+		contributor.state = localSessionInactive(
+			contributor.lastActivityAt,
+			new Date(now),
+		)
+			? "idle"
+			: (reportedStates.get(contributor.sessionKey) ?? "unknown");
 	}
 	const settled = new Set(["ended", "unknown"]);
 	return [...contributors.values()].sort((a, b) => {

@@ -59,8 +59,8 @@ describe("Project contributors", () => {
 		expect(
 			rows.map((row) => row.getAttribute("data-contributor-state")),
 		).toEqual(["working", "ended"]);
-		expect(rows[0]?.textContent).toContain("Claude Code");
-		expect(rows[0]?.textContent).toContain("Working");
+		expect(rows[0]?.textContent).toContain("Local session (Claude)");
+		expect(rows[0]?.textContent).toContain("Running");
 		expect(rows[0]?.textContent).toContain("2 attempts");
 		expect(rows[0]?.textContent).toContain("5m ago");
 		expect(

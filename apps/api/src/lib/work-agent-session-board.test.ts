@@ -12,17 +12,16 @@ const ago = (minutes: number) =>
 
 describe("deriveWorkAgentSessionEffectiveState", () => {
 	it.each([
-		["working", 29, "working"],
-		["working", 31, "idle"],
-		["done", 119, "done"],
+		["working", 4, "working"],
+		["working", 5, "idle"],
+		["working", 12, "idle"],
+		["done", 4, "done"],
 		["done", 121, "idle"],
-		["done", 11 * 60, "idle"],
-		["working", 13 * 60, "ended"],
-		["done", 13 * 60, "ended"],
-		["needs_you", 11 * 60, "needs_you"],
-		["needs_you", 13 * 60, "ended"],
-		["error", 11 * 60, "error"],
-		["error", 13 * 60, "ended"],
+		["working", 13 * 60, "idle"],
+		["needs_you", 4, "needs_you"],
+		["needs_you", 13 * 60, "idle"],
+		["error", 4, "error"],
+		["error", 13 * 60, "idle"],
 		["ended", 48 * 60, "ended"],
 	] as const)("%s after %i minutes reads as %s", (state, minutes, expected) => {
 		expect(
@@ -53,10 +52,10 @@ describe("buildWorkAgentSessionBoard", () => {
 				session("working-new", "working", 2, 1),
 				session("stale-working", "working", 90, 90),
 				session("needs-new", "needs_you", 1, 1),
-				session("done", "done", 10, 10),
+				session("done", "done", 10, 2),
 				session("error", "error", 3, 3),
 				session("needs-old", "needs_you", 20, 0),
-				session("working-old", "working", 9, 9),
+				session("working-old", "working", 9, 4),
 			],
 			NOW,
 		);
@@ -114,7 +113,7 @@ describe("buildWorkProjectContributors", () => {
 		summary: "Editing",
 		workItemId: null,
 		workItemTitle: null,
-		lastEventAt: "2026-10-06T11:55:00.000Z",
+		lastEventAt: "2026-10-06T11:56:00.000Z",
 	};
 	const attempt = {
 		externalSessionKey: "claude-code:abc",
@@ -123,7 +122,7 @@ describe("buildWorkProjectContributors", () => {
 		heartbeatAt: "2026-10-06T11:50:00.000Z",
 	};
 
-	it("reads a contributor silent for over 24 hours as ended", () => {
+	it("reads a contributor silent for over 24 hours as inactive", () => {
 		const old = "2026-10-05T11:00:00.000Z";
 		const rows = buildWorkProjectContributors(
 			[{ ...report, state: "idle" as const, lastEventAt: old }],
@@ -136,7 +135,7 @@ describe("buildWorkProjectContributors", () => {
 			],
 			NOW,
 		);
-		expect(rows.map((row) => row.state)).toEqual(["ended", "ended"]);
+		expect(rows.map((row) => row.state)).toEqual(["idle", "idle"]);
 	});
 
 	it("merges a session's report and Attempts into one row", () => {
@@ -152,11 +151,20 @@ describe("buildWorkProjectContributors", () => {
 			name: "ALPHA",
 			state: "working",
 			summary: "Editing",
-			lastActivityAt: "2026-10-06T11:55:00.000Z",
+			lastActivityAt: "2026-10-06T11:56:00.000Z",
 			workItemId: "item-1",
 			workItemTitle: "Ship alpha",
 			attempts: 2,
 		});
+	});
+
+	it("uses a newer registered heartbeat instead of an old session report", () => {
+		const [row] = buildWorkProjectContributors(
+			[{ ...report, lastEventAt: ago(12) }],
+			[{ ...attempt, heartbeatAt: ago(1) }],
+			NOW,
+		);
+		expect(row).toMatchObject({ state: "working", lastActivityAt: ago(1) });
 	});
 
 	it("lists Attempt-only and ended sessions after active ones", () => {

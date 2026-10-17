@@ -1,3 +1,4 @@
+import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import { useQuery } from "@tanstack/react-query";
 import type { ListWorkProjectContributorsResultSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type * as z from "zod";
@@ -43,9 +44,15 @@ function ContributorRow({
 			className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"
 		>
 			<Badge variant="outline" className="shrink-0">
-				{AGENT_HARNESS_LABEL[contributor.harness] ?? contributor.harness}
+				{AGENT_HARNESS_LABEL[contributor.harness] ??
+					ATTENTION_COPY.unknownSource}
 			</Badge>
-			<AgentStateBadge state={contributor.state} />
+			<AgentStateBadge
+				state={contributor.state}
+				lastSeenAt={contributor.lastActivityAt}
+				reason={contributor.summary}
+				now={now}
+			/>
 			<Text
 				as="span"
 				role="body"

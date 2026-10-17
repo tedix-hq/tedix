@@ -3,6 +3,8 @@ import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-
 import {
 	rankAttention,
 	attentionStatus,
+	attentionSource,
+	attentionUpdatesSince,
 	activityDuration,
 	duration,
 	attentionTimestamp,
@@ -55,14 +57,19 @@ describe("Attention", () => {
 		).toEqual(["example"]);
 	});
 	it("ages heartbeats without counting silence as work or inventing offline evidence", () => {
-		expect(attentionStatus(card, now)).toBe("no heartbeat for 6m");
+		expect(attentionStatus(card, now)).toBe("Inactive · last seen 6 min ago");
 		expect(activityDuration(card, now + 60_000)).toBe(
 			activityDuration(card, now),
 		);
 		expect(attentionStatus({ ...card, heartbeatAt: null }, now)).toBe(
-			"heartbeat not reported",
+			"Heartbeat not reported",
 		);
-		expect(attentionStatus({ ...card, column: "done" }, now)).toBe("finished");
+		expect(
+			attentionStatus(
+				{ ...card, activitySource: "cloud_tedi", column: "done" },
+				now,
+			),
+		).toBe("Done");
 		expect(duration(14 * 60_000 + 1000)).toBe("14m 1s");
 	});
 	it("clips contributions to today and freezes completed durations", () => {
@@ -73,5 +80,18 @@ describe("Attention", () => {
 		};
 		expect(activityDuration(done, now + 1000)).toBe(30 * 60_000);
 		expect(activityDuration({ ...card, source: "backlog" }, now)).toBe(0);
+	});
+	it("uses registered sources rather than display names", () => {
+		expect(attentionSource({ ...card, who: "Claude" })).toBe("local_codex");
+		expect(attentionSource({ ...card, activitySource: undefined })).toBe(
+			"unknown",
+		);
+	});
+	it("summarizes changes since each viewer's last visit", () => {
+		expect(attentionUpdatesSince([card], "2026-10-17T11:50:00Z")).toEqual([
+			card,
+		]);
+		expect(attentionUpdatesSince([card], "2026-10-17T11:55:00Z")).toEqual([]);
+		expect(attentionUpdatesSince([card], null)).toEqual([]);
 	});
 });

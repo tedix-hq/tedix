@@ -1,3 +1,4 @@
+import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { buildAttentionWebMcpTools } from "@/components/attention-webmcp-tools";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -79,7 +80,7 @@ export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 					utcOffsetMinutes: new Date().getTimezoneOffset(),
 					workspaceId,
 				});
-			if (!lease) throw new Error("Attention connection is starting");
+			if (!lease) throw new Error(ATTENTION_COPY.connectionStarting);
 			const { root } = await lease.session();
 			return root.readAttention(new Date().getTimezoneOffset(), workspaceId);
 		},
@@ -128,28 +129,24 @@ export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 	return (
 		<div className="min-w-0 space-y-4">
 			<div className="flex flex-wrap items-center justify-between gap-2">
-				<Text tone="secondary">
-					Local sessions and cloud workers, together.
-				</Text>
+				<Text tone="secondary">{ATTENTION_COPY.together}</Text>
 				<Badge variant={query.isError ? "warning" : "info"}>
 					{query.isError
-						? "Live updates paused"
+						? ATTENTION_COPY.updatesPaused
 						: !query.data
-							? "Connecting…"
-							: "Live · every 2 seconds"}
+							? ATTENTION_COPY.connecting
+							: ATTENTION_COPY.live}
 				</Badge>
 			</div>
 			{query.isError && (
 				<Alert variant="destructive">
-					<AlertTitle>Live updates paused</AlertTitle>
-					<AlertDescription>
-						Last received state stays visible. Reconnecting to Tedix…
-					</AlertDescription>
+					<AlertTitle>{ATTENTION_COPY.updatesPaused}</AlertTitle>
+					<AlertDescription>{ATTENTION_COPY.reconnecting}</AlertDescription>
 				</Alert>
 			)}
 			{(filing.isError || save.isError || layout.isError) && (
 				<Alert variant="destructive">
-					<AlertTitle>Changes could not be saved</AlertTitle>
+					<AlertTitle>{ATTENTION_COPY.saveFailed}</AlertTitle>
 					<AlertDescription>
 						{filing.error?.message ||
 							save.error?.message ||
@@ -168,23 +165,21 @@ export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 					file={(id, projectId) => filing.mutate({ id, projectId })}
 				/>
 			) : (
-				<Text>Loading attention…</Text>
+				<Text>{ATTENTION_COPY.loading}</Text>
 			)}
 		</div>
 	);
 }
 export function WorkAttentionPage() {
-	useDocumentTitle("Attention · Work");
+	useDocumentTitle(ATTENTION_COPY.documentTitle);
 	return (
 		<Page width="xl">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Attention</PageTitle>
-					<PageDescription>
-						What needs you. What's moving. What needs a little attention.
-					</PageDescription>
+					<PageTitle>{ATTENTION_COPY.pageTitle}</PageTitle>
+					<PageDescription>{ATTENTION_COPY.description}</PageDescription>
 				</PageHeading>
-				<Link href="#attention-unfiled">Review unfiled requests</Link>
+				<Link href="#attention-unfiled">{ATTENTION_COPY.reviewUnfiled}</Link>
 			</PageHeader>
 			<AttentionApp />
 			<SupportAttention />

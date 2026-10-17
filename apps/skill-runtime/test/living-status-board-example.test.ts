@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import board from "../examples/living-status-board/scripts/workflow";
+import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
+import board, {
+	BOARD_COPY,
+} from "../examples/living-status-board/scripts/workflow";
 
 function fixture(
 	options: {
 		grant?: boolean;
+		running?: boolean;
 		omitGoal?: boolean;
 		badProse?: boolean;
 		firstUse?: boolean;
@@ -74,7 +78,18 @@ function fixture(
 					pagination: { hasMore: false },
 				}),
 				list_activity: async () => ({ events: [] }),
-				run_workflow_history: async () => ({ runs: [] }),
+				run_workflow_history: async () => ({
+					runs: options.running
+						? [
+								{
+									id: "run",
+									skillId: "other",
+									skillTitle: "Review inbox",
+									startedAt: now,
+								},
+							]
+						: [],
+				}),
 				list_work_interactions: async () => ({ data: [], hasMore: false }),
 				get_os_output: async () => ({
 					output: { workspaceId: "private", kind: "document" },
@@ -92,7 +107,9 @@ function fixture(
 		REASON: {
 			ask: async () => ({
 				text: JSON.stringify({
-					now: [],
+					now: options.running
+						? [{ index: 0, name: "Review inbox", does: "laptop offline" }]
+						: [],
 					done: [
 						{
 							index: 0,
@@ -119,6 +136,20 @@ function fixture(
 }
 
 describe("living status board", () => {
+	it("embeds the shared copy catalog without device or personal labels", () => {
+		for (const [key, value] of Object.entries(BOARD_COPY)) {
+			expect(value).toBe(ATTENTION_COPY[key]);
+			expect(value).not.toMatch(/\b(laptop|offline|asleep|Lead|Aaron)\b/i);
+		}
+	});
+	it("renders observed status even when the summary guesses a device cause", async () => {
+		const f = fixture({ running: true });
+		await f.run();
+		const saved = JSON.stringify(f.saved);
+		expect(saved).toContain("Running");
+		expect(saved).toContain("Factory");
+		expect(saved).not.toMatch(/\b(laptop|offline|asleep)\b/i);
+	});
 	it("creates a private board on first use and reuses it", async () => {
 		const f = fixture({ firstUse: true });
 		await f.run();

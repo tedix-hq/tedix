@@ -47,7 +47,11 @@ try {
 		paint !== undefined && paint <= 1500,
 		`warm first paint ${paint}ms exceeds 1500ms`,
 	);
-	const moving = page.getByRole("region", { name: "Moving now", exact: true });
+	const moving = page.getByRole("region", { name: "Running", exact: true });
+	assert.doesNotMatch(
+		await page.locator("[data-attention-live]").innerText(),
+		/\b(laptop|offline|asleep|Lead|Aaron)\b/i,
+	);
 	const before = await moving.locator("time").first().innerText();
 	await page.waitForTimeout(1100);
 	assert.notEqual(

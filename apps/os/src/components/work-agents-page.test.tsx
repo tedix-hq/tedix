@@ -5,7 +5,7 @@ import {
 	projectListQueryOptions,
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
-import { WorkAgentsPage } from "./work-agents-page";
+import { WorkAgentsPage, AgentStateBadge } from "./work-agents-page";
 
 const NOW = Date.now();
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -72,6 +72,13 @@ function render(sessions: ReturnType<typeof session>[]) {
 }
 
 describe("Agents board", () => {
+	it("shows the last observed time for inactive sessions without a device explanation", () => {
+		const html = renderToStaticMarkup(
+			<AgentStateBadge state="idle" lastSeenAt={ago(12)} now={new Date(NOW)} />,
+		);
+		expect(html).toContain("Inactive · last seen 12 min ago");
+		expect(html).not.toMatch(/\b(laptop|offline|asleep|Lead|Aaron)\b/i);
+	});
 	it("polls every 10 seconds and on window focus", () => {
 		const options = workAgentSessionsQueryOptions() as {
 			refetchInterval?: unknown;
@@ -101,11 +108,11 @@ describe("Agents board", () => {
 			"No project",
 		]);
 		expect(doc.body.textContent).not.toContain("Closed");
-		expect(doc.body.textContent).toContain("Claude Code");
+		expect(doc.body.textContent).toContain("Local session (Claude)");
 		expect(doc.body.textContent).toContain("Codex");
 		const strip = doc.querySelector('[aria-label="Agent session counts"]');
-		expect(strip?.textContent).toContain("Needs you2");
-		expect(strip?.textContent).toContain("Errors1");
+		expect(strip?.textContent).toContain("Waiting on you2");
+		expect(strip?.textContent).toContain("Blocked1");
 	});
 
 	it("keeps urgency order and a state badge inside a project group", () => {
@@ -120,7 +127,7 @@ describe("Agents board", () => {
 		);
 		expect(states).toEqual(["needs_you", "done", "working"]);
 		expect(group?.textContent).toContain("Billing revamp (3)");
-		expect(group?.querySelector("li")?.textContent).toContain("Needs you");
+		expect(group?.querySelector("li")?.textContent).toContain("Waiting on you");
 	});
 
 	it("tints only needs_you and done rows and keeps the full summary on hover", () => {
@@ -146,7 +153,7 @@ describe("Agents board", () => {
 	it("collapses idle sessions inside their group by default", () => {
 		const doc = render([session(4, "idle", "Quiet session summary")]);
 		const group = doc.querySelector('section[aria-label="No project"]');
-		expect(group?.textContent).toContain("Idle (1)");
+		expect(group?.textContent).toContain("Inactive (1)");
 		expect(group?.querySelector("li")).toBeNull();
 	});
 

@@ -1,3 +1,8 @@
+import {
+	ATTENTION_COPY,
+	attentionCopy,
+	inactiveSessionLabel,
+} from "@tedix/api-contract/utils/attention-copy";
 import { useQuery } from "@tanstack/react-query";
 import type {
 	ListWorkAgentSessionsResultSchema,
@@ -54,16 +59,32 @@ export const AGENT_BOARD_SECTIONS: readonly {
 	title: string;
 	count: string;
 }[] = [
-	{ state: "needs_you", title: "Needs you", count: "Needs you" },
-	{ state: "error", title: "Errors", count: "Errors" },
-	{ state: "done", title: "Done", count: "Done" },
-	{ state: "working", title: "Working", count: "Working" },
-	{ state: "idle", title: "Idle", count: "Idle" },
+	{
+		state: "needs_you",
+		title: ATTENTION_COPY.waiting,
+		count: ATTENTION_COPY.waiting,
+	},
+	{
+		state: "error",
+		title: ATTENTION_COPY.blocked,
+		count: ATTENTION_COPY.blocked,
+	},
+	{ state: "done", title: ATTENTION_COPY.done, count: ATTENTION_COPY.done },
+	{
+		state: "working",
+		title: ATTENTION_COPY.running,
+		count: ATTENTION_COPY.running,
+	},
+	{
+		state: "idle",
+		title: ATTENTION_COPY.inactive,
+		count: ATTENTION_COPY.inactive,
+	},
 ];
 
 export const AGENT_HARNESS_LABEL: Record<string, string> = {
-	"claude-code": "Claude Code",
-	codex: "Codex",
+	"claude-code": ATTENTION_COPY.local_claude,
+	codex: ATTENTION_COPY.local_codex,
 };
 
 type AgentStateBadgeState = z.output<typeof WorkProjectContributorStateSchema>;
@@ -75,21 +96,35 @@ const STATE_BADGE: Record<
 		variant: "warning" | "error" | "success" | "info" | "secondary";
 	}
 > = {
-	needs_you: { label: "Needs you", variant: "warning" },
-	error: { label: "Error", variant: "error" },
-	done: { label: "Done", variant: "success" },
-	working: { label: "Working", variant: "info" },
-	idle: { label: "Idle", variant: "secondary" },
-	ended: { label: "Ended", variant: "secondary" },
-	unknown: { label: "Unknown", variant: "secondary" },
+	needs_you: { label: ATTENTION_COPY.waiting, variant: "warning" },
+	error: { label: ATTENTION_COPY.blocked, variant: "error" },
+	done: { label: ATTENTION_COPY.done, variant: "success" },
+	working: { label: ATTENTION_COPY.running, variant: "info" },
+	idle: { label: ATTENTION_COPY.inactive, variant: "secondary" },
+	ended: { label: ATTENTION_COPY.ended, variant: "secondary" },
+	unknown: { label: ATTENTION_COPY.unknown, variant: "secondary" },
 };
 
 /** One state badge for agent sessions, shared by the board and project contributors. */
-export function AgentStateBadge({ state }: { state: AgentStateBadgeState }) {
+export function AgentStateBadge({
+	state,
+	lastSeenAt,
+	reason,
+	now = new Date(),
+}: {
+	state: AgentStateBadgeState;
+	lastSeenAt?: string;
+	reason?: string;
+	now?: Date;
+}) {
 	const badge = STATE_BADGE[state];
 	return (
 		<Badge variant={badge.variant} className="shrink-0">
-			{badge.label}
+			{state === "idle" && lastSeenAt
+				? inactiveSessionLabel(lastSeenAt, now)
+				: state === "error" && reason
+					? attentionCopy("blockedReason", { reason })
+					: badge.label}
 		</Badge>
 	);
 }
@@ -174,9 +209,14 @@ function AgentSessionRow({
 			)}
 		>
 			<Badge variant="outline" className="shrink-0">
-				{AGENT_HARNESS_LABEL[session.harness] ?? session.harness}
+				{AGENT_HARNESS_LABEL[session.harness] ?? ATTENTION_COPY.local}
 			</Badge>
-			<AgentStateBadge state={state} />
+			<AgentStateBadge
+				state={state}
+				lastSeenAt={session.lastEventAt}
+				reason={session.summary}
+				now={now}
+			/>
 			<Text
 				as="span"
 				role="body"
@@ -277,7 +317,7 @@ export function WorkAgentsBoard({
 					{group.idle.length ? (
 						<Collapsible>
 							<CollapsibleTrigger>
-								Idle ({group.idle.length})
+								{ATTENTION_COPY.inactive} ({group.idle.length})
 							</CollapsibleTrigger>
 							<CollapsibleContent>
 								<Collection aria-label={`${group.title} idle sessions`}>
