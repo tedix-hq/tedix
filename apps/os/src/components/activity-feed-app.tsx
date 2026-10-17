@@ -310,7 +310,12 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 					aria-label={copy.project}
 					disabled={busy || !preferences.data}
 				>
-					<SelectValue />
+					<SelectValue>
+						{prefs.projectIds.length === 1
+							? (config.projects.find((p) => p.id === prefs.projectIds[0])
+									?.label ?? copy.allProjects)
+							: copy.allProjects}
+					</SelectValue>
 				</SelectTrigger>
 				<SelectContent>
 					<SelectItem value="all">{copy.allProjects}</SelectItem>
