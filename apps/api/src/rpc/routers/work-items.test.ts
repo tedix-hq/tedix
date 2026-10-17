@@ -2,6 +2,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import { WorkItemRelationEdgeSchema } from "@tedix/api-contract/schemas/work-items";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workItemsContractRouter } from "./work-items";
@@ -953,7 +954,12 @@ describe("Work Item router collaboration ledgers", () => {
 			toWorkItemId: to.id,
 			relationType: "blocks",
 		});
-		expect((await client().listRelations({})).relations).toHaveLength(1);
+		const listed = await client().listRelations({});
+		expect(listed.relations).toHaveLength(1);
+		expect(() =>
+			WorkItemRelationEdgeSchema.strict().parse(listed.relations[0]),
+		).not.toThrow();
+		expect(listed.truncated).toBe(false);
 	});
 	it("deduplicates organization corroboration across API key rotations", async () => {
 		const created = await client().create({

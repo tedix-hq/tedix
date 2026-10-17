@@ -285,7 +285,18 @@ export const listRelationsProcedure = authOs.listRelations.handler(
 			projectId: input.projectId,
 			limit,
 		});
-		return { relations, truncated: relations.length === limit };
+		return {
+			relations: relations.map(
+				({ id, fromWorkItemId, toWorkItemId, relationType, createdAt }) => ({
+					id,
+					fromWorkItemId,
+					toWorkItemId,
+					relationType,
+					createdAt,
+				}),
+			),
+			truncated: relations.length === limit,
+		};
 	},
 );
 
