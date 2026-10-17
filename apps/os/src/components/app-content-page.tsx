@@ -38,6 +38,7 @@ import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 	DialogTrigger,
@@ -613,7 +614,7 @@ function AddSourceDialog({
 							{addMutation.error.message || "Failed to add source"}
 						</p>
 					) : null}
-					<div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+					<DialogFooter>
 						<Button
 							type="button"
 							variant="outline"
@@ -631,7 +632,7 @@ function AddSourceDialog({
 								</Button>
 							)}
 						</form.Subscribe>
-					</div>
+					</DialogFooter>
 				</form>
 			</DialogContent>
 		</Dialog>

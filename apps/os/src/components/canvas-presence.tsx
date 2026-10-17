@@ -103,12 +103,12 @@ export function CanvasPresence({
 				sideOffset={6}
 				/* The adapter layers the positioner above the editor toolbar. Keep
 				 * this popup on PopoverContent rather than Kumo's compound Content. */
-				className="!w-[280px] !min-w-0 max-h-[min(60vh,420px)] overflow-hidden rounded-2xl bg-kumo-base p-1 shadow-tedix-floating"
+				className="!w-[280px] !min-w-0 max-h-[min(60dvh,420px,var(--available-height))] overflow-hidden rounded-2xl bg-kumo-base p-1 shadow-tedix-floating"
 			>
 				<Popover.Title className="px-2.5 pt-1.5 pb-1 text-kumo-subtle text-xs">
 					{label}
 				</Popover.Title>
-				<div className="max-h-[350px] overflow-y-auto">
+				<div className="min-h-0 max-h-[350px] overflow-y-auto overscroll-contain">
 					{participants.map((participant) => (
 						<div
 							key={participant.key}
