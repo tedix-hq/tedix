@@ -105,7 +105,7 @@ function LiveCard({
 			<CardHeader>
 				<div className="flex items-center gap-2">
 					<SourceIcon source={source} />
-					<Text role="label" tone="secondary">
+					<Text role="label" tone="secondary" className="min-w-0 break-words">
 						{card.column === "backlog" ? "Ready for someone" : card.who} ·{" "}
 						{ATTENTION_SOURCES[source].label}
 					</Text>
@@ -395,6 +395,7 @@ export function AttentionBoard({
 						].map((name) => (
 							<Button
 								key={name}
+								className="h-auto max-w-full whitespace-normal [overflow-wrap:anywhere]"
 								variant={contributor === name ? "secondary" : "outline"}
 								size="sm"
 								aria-pressed={contributor === name}
@@ -501,7 +502,7 @@ export function AttentionBoard({
 								)
 							: null;
 						return (
-							<div key={p.id} className="space-y-1">
+							<div key={p.id} className="min-w-0 space-y-1 break-words">
 								<Link href={p.href}>
 									Nobody has touched {p.title}
 									{days === null
@@ -670,6 +671,7 @@ export function AttentionBoard({
 											? "secondary"
 											: "outline"
 									}
+									className="h-auto max-w-full whitespace-normal [overflow-wrap:anywhere]"
 									aria-pressed={layout.pinnedProjects.includes(p.id)}
 									disabled={saving}
 									onClick={() =>
