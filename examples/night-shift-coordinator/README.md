@@ -7,6 +7,7 @@ to the organization's native tools. Set the schedule parameters in Tedix OS:
 {
 	"workspaceId": "00000000-0000-4000-8000-000000000001",
 	"projectIds": ["00000000-0000-4000-8000-000000000002"],
+	"coordinatorId": "00000000-0000-4000-8000-000000000003",
 	"maxLanes": 2,
 	"maxRetries": 3,
 	"people": [

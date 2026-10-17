@@ -56,9 +56,12 @@ function fixture() {
 			data: [{ id: "labelled-project", metadata: { labels: ["night-shift"] } }],
 			pagination: { hasMore: false },
 		}),
-		list_work_items: async ({ projectId }) => ({
+		list_work_items: async ({ projectId, accountableOwnerId }) => ({
 			data: [...items.values()].filter(
-				(i) => i.projectId === projectId && i.disposition === "accepted",
+				(i) =>
+					i.projectId === projectId &&
+					i.disposition === "accepted" &&
+					(!accountableOwnerId || i.accountableOwnerId === accountableOwnerId),
 			),
 			pagination: { hasMore: false },
 		}),
@@ -137,13 +140,15 @@ function fixture() {
 				},
 	);
 	const step = { do: async (_name, ...args) => args.at(-1)() };
+	const nudge = mock(async () => ({ pending: true }));
 	const run = (overrides = {}) =>
 		workflow.run({ payload: { ...config, ...overrides } }, step, {
-			MCP: { tedix: api },
+			MCP: { tedix: api, tedi: { run_tedi_turn: nudge } },
 			REASON: { ask: reason },
 			__RUN_CONTEXT__: { runId: "example-run" },
 		});
 	return {
+		nudge,
 		items,
 		comments,
 		histories,
@@ -273,6 +278,59 @@ describe("native night coordination", () => {
 		const f = fixture();
 		setSystemTime(new Date("2026-10-25T07:15:00.000Z"));
 		expect((await f.run({ probe: true })).slots[0].brief).toBe(true);
+	});
+	test("recovers a registered legacy lane without overriding an explicit human executor", async () => {
+		const f = fixture();
+		f.item("legacy", { metadata: { agentHarness: "codex" } });
+		f.item("human", { metadata: { executor: "human", agentHarness: "codex" } });
+		f.histories.set("legacy", [
+			{
+				id: "lost",
+				outcome: "expired",
+				externalSessionKey: "codex:example",
+				metadata: { lane: true },
+			},
+		]);
+		f.setOrder(["legacy", "human"]);
+		expect((await f.run()).selected).toEqual(["legacy"]);
+		expect(f.items.get("legacy").metadata.executor).toBe("codex");
+		expect(f.items.get("human").metadata.executor).toBe("human");
+	});
+	test("nudges only accepted owned Work without a live Attempt", async () => {
+		const f = fixture();
+		const config = {
+			tediTurns: [{ namespace: "tedi", ownerId: "example-tedi" }],
+		};
+		await f.run(config);
+		expect(f.nudge).not.toHaveBeenCalled();
+		f.item("owned", {
+			accountableOwnerId: "example-tedi",
+			metadata: { executor: "tedi" },
+		});
+		await f.run(config);
+		expect(f.nudge).toHaveBeenCalledTimes(1);
+		f.items.get("owned").activeAttempt = { attemptId: "running" };
+		await f.run(config);
+		expect(f.nudge).toHaveBeenCalledTimes(1);
+	});
+	test("does not spend lane capacity on an ordinary external Work Attempt", async () => {
+		const f = fixture();
+		f.item("session", {
+			metadata: { agentHarness: "codex" },
+			activeAttempt: { attemptId: "ordinary" },
+		});
+		f.item("lane");
+		f.setOrder(["lane"]);
+		expect((await f.run()).selected).toEqual(["lane"]);
+	});
+	test("holds Work whose coordinator lacks stewardship without changing ownership", async () => {
+		const f = fixture();
+		f.item("peer");
+		f.setOrder(["peer"]);
+		expect((await f.run({ coordinatorId: "example-tedi" })).selected).toEqual(
+			[],
+		);
+		expect(f.writes).toHaveLength(0);
 	});
 	test("off-slot and probes make no model calls or writes", async () => {
 		const f = fixture();
