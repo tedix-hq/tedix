@@ -20,7 +20,7 @@ import {
 	type ServeOptions,
 } from "./lane-serve";
 import { laneServicePlist } from "./lane-service";
-import { laneChildEnv } from "./codex-lane-thread";
+import { laneChildEnv } from "./lane-child-env";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
@@ -45,6 +45,7 @@ const item = (n = 1): DispatchItem => ({
 	accountableOwnerId: "fictional-owner",
 });
 const options: ServeOptions = {
+	executor: "codex",
 	max: 2,
 	project: projectId,
 	rules: projectId,
@@ -53,10 +54,18 @@ const options: ServeOptions = {
 	once: true,
 	install: false,
 };
-function fixture({ refuse = false, dark = false, failSettle = false } = {}) {
+function fixture({
+	refuse = false,
+	dark = false,
+	failSettle = false,
+	executor = "codex" as ServeOptions["executor"],
+} = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-dispatch-test-"));
 	dirs.push(dir);
-	const items = [item(1), item(2), item(3)];
+	const items = [item(1), item(2), item(3)].map((row) => ({
+		...row,
+		metadata: { executor },
+	}));
 	const events: Array<{
 		verb: string;
 		env: NodeJS.ProcessEnv;
@@ -64,7 +73,7 @@ function fixture({ refuse = false, dark = false, failSettle = false } = {}) {
 	}> = [];
 	const releases: Array<() => void> = [];
 	let threadNumber = 0;
-	const dispatcher = new LaneDispatcher(options, dir, {
+	const dispatcher = new LaneDispatcher({ ...options, executor }, dir, {
 		darkWake: () => dark,
 		provision: () => {},
 		cleanup: () => true,
@@ -118,25 +127,38 @@ function fixture({ refuse = false, dark = false, failSettle = false } = {}) {
 		},
 		launch: async (args, deps) => {
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
-			expect(args.slice(args.indexOf("codex", args.indexOf("--") + 1))).toEqual(
-				[
-					"codex",
-					"exec",
-					"-C",
-					join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
-					"resume",
-					expect.any(String),
-					"-o",
-					expect.any(String),
-					"-",
-				],
+			expect(deps?.cwd).toBe(
+				join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+			);
+			expect(args.slice(args.indexOf("--") + 1)).toEqual(
+				executor === "claude-code"
+					? [
+							"claude",
+							"-p",
+							"--session-id",
+							expect.any(String),
+							"--output-format",
+							"stream-json",
+							"--verbose",
+						]
+					: [
+							"codex",
+							"exec",
+							"-C",
+							join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+							"resume",
+							expect.any(String),
+							"-o",
+							expect.any(String),
+							"-",
+						],
 			);
 			expect(brief).toContain("revision 7");
 			expect(brief).toContain("Keep all evidence in OS.");
 			expect(brief).toContain("already holds Attempt");
 			await new Promise<void>((done) => releases.push(done));
 			deps?.onTelemetry?.({
-				executor: "codex",
+				executor,
 				model: "test-model",
 				provider: "test-provider",
 				reasoningEffort: null,
@@ -165,6 +187,23 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher admission", () => {
+	it("admits the native Claude identity before launch and settles through the same dispatcher", async () => {
+		const { dispatcher, events, releases } = fixture({
+			executor: "claude-code",
+		});
+		await dispatcher.tick();
+		await until(() => releases.length === 2);
+		const bootstrap = events.filter((e) => e.verb === "start" && !e.input);
+		expect(bootstrap[0]?.env.TEDIX_AGENT_SESSION).toMatch(
+			/^claude-code:33333333/,
+		);
+		expect(
+			events.find((e) => e.verb === "dispatch-list")?.input?.executor,
+		).toBe("claude-code");
+		for (const release of releases) release();
+		await dispatcher.drain();
+		expect(events.filter((e) => e.verb === "settle")).toHaveLength(2);
+	});
 	it("counts a retained live process group against capacity after restart", async () => {
 		const child = spawn(
 			process.execPath,
