@@ -75,6 +75,20 @@ async function run(
 }
 
 describe("session event upload", () => {
+	test("scheduled ticks and notifications never enter the outbox", async () => {
+		for (const prompt of [
+			"Lead NIGHT SHIFT v3 tick. Count lanes and follow guardrails.",
+			"[SYSTEM NOTIFICATION: cron wakeup] Prepare morning brief",
+			"<task-notification>Finished</task-notification> Follow guardrails",
+			"CronCreate: Run health check",
+			"wakeup: Check the lanes",
+		]) {
+			expect(await run("prompt", { prompt })).toEqual([]);
+			expect(ledgerText("prompt", { prompt })).toBeUndefined();
+		}
+		expect(readdirSync(config)).toEqual([]);
+	});
+
 	test("uploads the typed message, redacted, and empties the outbox", async () => {
 		const uploads = await run("prompt", {
 			prompt: "Fix the login page and rotate token=supersecretvalue123 please",

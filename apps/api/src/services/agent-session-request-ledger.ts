@@ -11,6 +11,7 @@
  */
 
 import {
+	isScheduledLedgerPrompt,
 	type LedgerRowRef,
 	type LedgerLesson,
 	parseObservedRequests,
@@ -244,6 +245,15 @@ export async function observeAgentSessionRequests(
 			cancelled: number;
 	  }
 > {
+	if (isScheduledLedgerPrompt(input.message))
+		return { status: "recorded", recorded: [], cancelled: 0 };
+	const previousPrompt = await getPreviousAgentSessionTurn(db, {
+		...input,
+		before: input.sourceAt,
+		kind: "prompt",
+	});
+	if (previousPrompt === input.message)
+		return { status: "recorded", recorded: [], cancelled: 0 };
 	const open = await activeRows(db, input);
 	const { prompt, byRef } = refs(open);
 	const [raw, replyRaw] = await Promise.all([

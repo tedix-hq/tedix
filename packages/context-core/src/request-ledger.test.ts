@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	acceptedDoneEvidence,
+	isScheduledLedgerPrompt,
 	parseObservedRequests,
 	parseReflectedMerges,
 	parseLedgerMentions,
@@ -13,6 +14,30 @@ import {
 
 const TURN =
 	"Pushed the fix as 4f2a9c1e on main. The dashboard now loads in **under two seconds**. See https://example.com/run/42.";
+
+describe("scheduled ledger prompts", () => {
+	it.each([
+		"Lead NIGHT SHIFT v3 tick. Follow guardrails and prepare morning brief.",
+		"[SYSTEM NOTIFICATION: scheduled job] Check the lanes",
+		"<task-notification>Manage lanes</task-notification>",
+		"<task-notification>unfinished block",
+		"[Scheduled task] Prepare morning brief",
+		"[cron] Check health",
+		"wakeup: Check health",
+		"CronCreate: Run health check",
+	])("rejects host/job text: %s", (text) => {
+		expect(isScheduledLedgerPrompt(text)).toBe(true);
+	});
+
+	it.each([
+		"Fix the CronCreate capture hook",
+		"Explain wakeup notifications",
+		"Skip prompts containing [SYSTEM NOTIFICATION text",
+		"Prepare a morning brief and follow guardrails",
+	])("preserves ordinary requests: %s", (text) => {
+		expect(isScheduledLedgerPrompt(text)).toBe(false);
+	});
+});
 
 describe("parseObservedRequests", () => {
 	it("keeps distinct requests and known cancelled refs", () => {

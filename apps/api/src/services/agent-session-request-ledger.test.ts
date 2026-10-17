@@ -67,6 +67,27 @@ const rows = (db: ReturnType<typeof fixture>) =>
 	});
 
 describe("request ledger observer", () => {
+	it("ignores scheduled prompts before calling either model or touching rows", async () => {
+		const db = fixture();
+		const { model, prompts } = scripted(null);
+		model.reflectReplies = vi.fn();
+		for (const message of [
+			"Lead NIGHT SHIFT v3 tick. Follow guardrails; prepare morning brief.",
+			"[SYSTEM NOTIFICATION: wakeup] Start lanes",
+			"<task-notification>Done</task-notification> Check health",
+			"CronCreate: Run health check",
+		]) {
+			expect(await observe(db, model, message)).toEqual({
+				status: "recorded",
+				recorded: [],
+				cancelled: 0,
+			});
+		}
+		expect(prompts).toEqual([]);
+		expect(model.reflectReplies).not.toHaveBeenCalled();
+		expect(await rows(db)).toEqual([]);
+	});
+
 	it("records each extracted request as an open row, once", async () => {
 		const db = fixture();
 		const reply = JSON.stringify({
@@ -251,6 +272,35 @@ describe("session event pipeline", () => {
 		sessionKey: SCOPE.sessionKey,
 		sourceAt,
 		text,
+	});
+
+	it("skips identical prompts at later ticks without skipping changed messages or other sessions", async () => {
+		const db = fixture();
+		await acceptAgentSessionEvents(db, {
+			...owner,
+			events: [event("prompt", "Check the lanes", T0)],
+			now: T0,
+		});
+		const { model, prompts } = scripted('{"requests":[]}', '{"requests":[]}');
+		expect(
+			await observe(db, model, "Check the lanes", "2026-10-06T10:15:00Z"),
+		).toEqual({ status: "recorded", recorded: [], cancelled: 0 });
+		expect(prompts).toEqual([]);
+		await observe(
+			db,
+			model,
+			"Check the lanes and fix failures",
+			"2026-10-06T10:16:00Z",
+		);
+		await observeAgentSessionRequests(db, model, {
+			...SCOPE,
+			sessionKey: "another-session",
+			message: "Check the lanes",
+			sourceAt: "2026-10-06T10:15:00Z",
+			now: T0,
+			repository: null,
+		});
+		expect(prompts).toHaveLength(2);
 	});
 
 	it("stores events once and processes them in session order", async () => {

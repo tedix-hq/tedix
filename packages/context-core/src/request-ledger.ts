@@ -35,6 +35,13 @@ export const LEDGER_REQUEST_TEXT_LIMIT = 300;
 /** Longest evidence kept, in characters. */
 export const LEDGER_EVIDENCE_LIMIT = 300;
 
+/** Host-delivered jobs and notifications are not messages from the person. */
+export function isScheduledLedgerPrompt(text: string): boolean {
+	return /^\s*(?:<\/?(?:task-notification|system-notification|wakeup)\b|\[(?:SYSTEM NOTIFICATION|scheduled(?: job| task)?|cron|wakeup)\b|(?:CronCreate|wakeup)\s*[:(]|[^\n]{0,80}\bv\d+\s+tick[.:])/im.test(
+		text,
+	);
+}
+
 /** A ledger row as the models see it: a short reference and its words. */
 export interface LedgerRowRef {
 	ref: string;
