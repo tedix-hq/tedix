@@ -1,3 +1,5 @@
+export const KERNEL_RUNTIME_BACKEND = "custom";
+
 import type {
 	DirectKernelWriteInput,
 	executeDirectKernelWrite,
