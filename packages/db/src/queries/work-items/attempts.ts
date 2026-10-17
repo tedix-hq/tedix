@@ -6,6 +6,7 @@ import {
 } from "@tedix/api-contract/schemas/work-items";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { workAttemptFailureReason } from "./attempt-failure";
 import {
 	type WorkAttempt,
 	type WorkAttemptOutcome,
@@ -836,6 +837,16 @@ export async function settleWorkItemAttempt(
 	},
 ): Promise<{ workItem: WorkItem; attempt: WorkAttempt }> {
 	const settledAt = params.settledAt ?? new Date().toISOString();
+	const failureReason =
+		params.outcome === "failed"
+			? workAttemptFailureReason(params.summary, params.metadata)
+			: undefined;
+	const summary = failureReason
+		? `Failed: ${failureReason}${params.summary?.trim() ? `\n\n${params.summary}` : ""}`.slice(
+				0,
+				10_000,
+			)
+		: params.summary;
 	// A heartbeat from this same Attempt bumps its version without changing who
 	// owns it. If one lands between the read and the write, re-check ownership
 	// and retry instead of refusing a valid settle; anything that really changed
@@ -855,7 +866,9 @@ export async function settleWorkItemAttempt(
 			params.outcome === "succeeded" ? "finished" : params.outcome;
 		const settlementMetadata = buildWorkAttemptSettlementMetadata({
 			priorMetadata: prior.metadata,
-			metadata: params.metadata,
+			metadata: failureReason
+				? { ...params.metadata, failureReason }
+				: params.metadata,
 			repositoryLifecycle: params.repositoryLifecycle,
 			attemptId: params.attemptId,
 			workItemId: params.workItemId,
@@ -865,7 +878,7 @@ export async function settleWorkItemAttempt(
 			.set({
 				runtimeState,
 				outcome: params.outcome,
-				summary: params.summary,
+				summary,
 				finishedAt: settledAt,
 				metadata: settlementMetadata,
 				version: sql`${workAttempts.version} + 1`,
@@ -902,7 +915,7 @@ export async function settleWorkItemAttempt(
 					actorSessionId: workAttempts.executorSessionId,
 					payload: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify({ outcome: params.outcome, summary: params.summary ?? null })}`.as(
+					>`${JSON.stringify({ outcome: params.outcome, summary: summary ?? null })}`.as(
 						"payload",
 					),
 					occurredAt: sql<string>`${settledAt}`.as("occurred_at"),

@@ -151,6 +151,42 @@ function seed(sqlite: DatabaseSync, id: string, disposition = "accepted") {
 }
 
 describe("artifact-neutral work factory", () => {
+	it("persists a one-line failure reason in the attempt and settlement event", async () => {
+		const { sqlite, db } = fixture();
+		seed(sqlite, "failure-detail");
+		const started = await startWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "failure-detail",
+			admissionId: "admission-failure-detail-worker",
+			executor: { type: "tedi", id: "worker" },
+			startedAt: NOW,
+			expiresAt: "2026-08-20T13:00:00.000Z",
+		});
+		const settled = await settleWorkItemAttempt(db, {
+			orgId: "org",
+			workItemId: "failure-detail",
+			attemptId: started.attempt.id,
+			executor: { type: "tedi", id: "worker" },
+			outcome: "failed",
+			summary:
+				"Prepared the editorial packet.\nRemaining blocker: owner authorization is missing.",
+			settledAt: "2026-08-20T12:01:00.000Z",
+		});
+		expect(settled.attempt.summary?.split("\n")[0]).toBe(
+			"Failed: Remaining blocker: owner authorization is missing.",
+		);
+		expect(settled.attempt.metadata.failureReason).toBe(
+			"Remaining blocker: owner authorization is missing.",
+		);
+		const event = sqlite
+			.prepare(
+				"SELECT payload FROM work_events WHERE attempt_id=? AND event_type='attempt.settled'",
+			)
+			.get(started.attempt.id);
+		expect(JSON.parse(event!.payload as string).summary).toBe(
+			settled.attempt.summary,
+		);
+	});
 	it("admits only one concurrent factory retry and cannot exceed the last retry slot", async () => {
 		const { sqlite, db } = fixture();
 		seed(sqlite, "factory");

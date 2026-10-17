@@ -10,6 +10,7 @@ import {
 } from "./computer-body";
 import { startCheckoutOperation } from "./checkout-lock";
 import { WORKSTATION_REPOS_DIR } from "./paths";
+import { repoSyncFailure } from "./repo-sync-failure";
 
 const DEFAULT_REPO_MARKER_FILE = ".git/tedix-workstation-repo.json";
 const DEFAULT_REPO_STRATEGY = "clone" satisfies WorkstationRepoStrategy;
@@ -837,7 +838,10 @@ export async function syncRepoIfConfigured(
 					: "failed",
 				executionId: observed.processId,
 				executionState: "terminal",
-				error: observed.stderr || observed.stdout || "Native clone failed",
+				error: repoSyncFailure(
+					repo.repoUrl,
+					observed.stderr || observed.stdout || "Native clone failed",
+				),
 			};
 		const processId = `repo-clone-${crypto.randomUUID()}`;
 		const input = {
@@ -882,7 +886,13 @@ export async function syncRepoIfConfigured(
 				orphanedPath: result.orphanedPath,
 			};
 		}
-		return { ...base, ...result };
+		return {
+			...base,
+			...result,
+			...(result.error
+				? { error: repoSyncFailure(repo.repoUrl, result.error) }
+				: {}),
+		};
 	} catch (error) {
 		return {
 			configured: true,
@@ -902,7 +912,10 @@ export async function syncRepoIfConfigured(
 						executionState: "admitting" as const,
 					}
 				: {}),
-			error: error instanceof Error ? error.message : String(error),
+			error: repoSyncFailure(
+				repo.repoUrl,
+				error instanceof Error ? error.message : String(error),
+			),
 		};
 	}
 }
@@ -961,9 +974,10 @@ export async function readRepoSyncStatus(
 			return {
 				branch,
 				configured: true,
-				error: marker.at
-					? `${marker.error} (recorded ${marker.at})`
-					: marker.error,
+				error: repoSyncFailure(
+					repo.repoUrl,
+					marker.at ? `${marker.error} (recorded ${marker.at})` : marker.error,
+				),
 				...(execution
 					? {
 							executionId: execution.processId,
@@ -986,7 +1000,10 @@ export async function readRepoSyncStatus(
 			return {
 				branch,
 				configured: true,
-				error: `Cloudflare Sandbox clone failed with exitCode=${execution.exitCode}: ${repo.repoUrl}\n${detail}`,
+				error: repoSyncFailure(
+					repo.repoUrl,
+					`Cloudflare Sandbox clone failed with exitCode=${execution.exitCode}: ${repo.repoUrl}\n${detail}`,
+				),
 				executionId: execution.processId,
 				executionState: "terminal",
 				repoUrl: repo.repoUrl,
