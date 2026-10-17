@@ -678,6 +678,7 @@ a:focus-visible {
 .canvas-workspace-identity {
 	display: flex;
 	min-width: 0;
+	flex: 1;
 	align-items: center;
 	gap: 8px;
 }
@@ -703,6 +704,16 @@ a:focus-visible {
 	min-width: 0;
 }
 
+.canvas-workspace-breadcrumb {
+	overflow: hidden;
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	line-height: 14px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .canvas-workspace-title h1 {
 	overflow: hidden;
 	margin: 0;
@@ -715,6 +726,8 @@ a:focus-visible {
 }
 
 .canvas-workspace-actions {
+	width: auto;
+	flex: none;
 	margin-left: auto;
 }
 

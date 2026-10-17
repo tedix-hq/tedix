@@ -100,6 +100,7 @@ import {
 import { outputIdFromHref } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
+import { OS_COPY } from "@/shared/os-copy";
 
 // ---------------------------------------------------------------------------
 // Stage panels: deferred out of the route's first-paint chunk graph
@@ -606,6 +607,13 @@ export function CanvasPage({
 	});
 	const documentsLoaded =
 		gadgets.data !== undefined && outputs.data !== undefined;
+	const selectedAppId =
+		selectedDoc?.type === "gadget"
+			? selectedDoc.id
+			: selectedDoc?.linkedGadgetId;
+	const selectedApp = gadgets.data?.items.find(
+		(gadget) => gadget.id === selectedAppId,
+	);
 	const documentCount =
 		(gadgets.data?.items.length ?? 0) + (outputs.data?.items.length ?? 0);
 	const hasAnyDocuments = documentCount > 0;
@@ -1013,7 +1021,7 @@ export function CanvasPage({
 			<PageHeader className="canvas-workspace-header">
 				<div className="canvas-workspace-identity">
 					<Button
-						aria-label="All workspaces"
+						aria-label={OS_COPY.workspace.allWorkspaces}
 						className="canvas-workspace-back"
 						onClick={() => void navigate({ to: "/workspaces" })}
 						size="icon-sm"
@@ -1030,7 +1038,14 @@ export function CanvasPage({
 						/
 					</span>
 					<div className="canvas-workspace-title">
-						<h1>{selectedWorkspace?.name ?? surface.label}</h1>
+						{selectedApp && selectedWorkspace ? (
+							<p className="canvas-workspace-breadcrumb">
+								{selectedWorkspace.name}
+							</p>
+						) : null}
+						<h1>
+							{selectedApp?.name ?? selectedWorkspace?.name ?? surface.label}
+						</h1>
 						<p className="sr-only">
 							{selectedWorkspace?.description || surface.description}
 						</p>

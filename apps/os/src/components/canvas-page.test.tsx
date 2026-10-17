@@ -1149,6 +1149,46 @@ describe("canvasArtifactPaneLabel", () => {
 // ---------------------------------------------------------------------------
 
 describe("CanvasPage listing", () => {
+	it.each(["Dispatch", "Studio", "People", "Choices", "Updates"])(
+		"uses the configured app name %s above a quiet workspace breadcrumb",
+		async (name) => {
+			mockLists();
+			osWorkspacesApi.gadgets.list.mockResolvedValue({
+				items: [gadgetFixture({ name })],
+				truncated: false,
+			});
+			osWorkspacesApi.gadgets.get.mockResolvedValue({
+				gadget: gadgetFixture({ name }),
+				currentRevision: gadgetRevisionFixture(),
+			});
+			routing.search = { workpiece: `gadget:${GADGET_ID}`, pane: "workpiece" };
+			const { container, rerender } = createPageHarness();
+			await flush();
+
+			expect(
+				container.querySelector(".canvas-workspace-title h1")?.textContent,
+			).toBe(name);
+			expect(
+				container.querySelector(".canvas-workspace-breadcrumb")?.textContent,
+			).toBe("Ops room");
+
+			osWorkspacesApi.outputs.get.mockResolvedValue({
+				output: outputFixture(),
+				currentRevision: outputRevisionFixture(),
+			});
+			mockCollab({ initial: docJson(baseContent) });
+			routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
+			rerender();
+			await flush();
+			expect(
+				container.querySelector(".canvas-workspace-title h1")?.textContent,
+			).toBe("Ops room");
+			expect(
+				container.querySelector(".canvas-workspace-breadcrumb"),
+			).toBeNull();
+		},
+	);
+
 	it("uses the organization logo in the breadcrumb and falls back on image failure", async () => {
 		mockLists();
 		const container = renderPage();
@@ -2015,6 +2055,9 @@ describe("CanvasPage listing", () => {
 		const container = await openDoc("Report gadget");
 
 		expect(container.textContent).toContain("App editor");
+		expect(
+			container.querySelector(".canvas-workspace-title h1")?.textContent,
+		).toBe("Report gadget");
 		expect(container.querySelector("[data-output-editor]")).not.toBeNull();
 		expect(osWorkspacesApi.outputs.get).toHaveBeenCalledWith(
 			{ outputId: OUTPUT_ID },
