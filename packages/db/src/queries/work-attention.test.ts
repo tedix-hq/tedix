@@ -1,3 +1,4 @@
+import { osWorkspaces, osGadgetExecutions } from "../schema/os-workspaces";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
@@ -8,11 +9,13 @@ import { workItems, workAttempts } from "../schema/work-items";
 import { skillRuns } from "../schema/cognitive";
 import {
 	kernelRuntimeRuns,
+	kernelConversations,
 	kernelConversationGrants,
 } from "../schema/cognitive-runtime";
 import { tedis } from "../schema/tedis";
 import { tediObjectives } from "../schema/tedi-objectives";
 import {
+	readAttentionFactoryLinks,
 	readAttentionSources,
 	attentionProjectBriefs,
 	attentionProjectExists,
@@ -26,6 +29,7 @@ it("scopes Attention reads and project matches to the organization through the D
 		workAttempts,
 		skillRuns,
 		kernelRuntimeRuns,
+		kernelConversations,
 		kernelConversationGrants,
 		tedis,
 		tediObjectives,
@@ -115,4 +119,55 @@ it("scopes Attention reads and project matches to the organization through the D
 		(await readAttentionSources(db, "other-org", "2026-10-16T00:00:00Z"))
 			.projects,
 	).toEqual([]);
+});
+
+it("keeps factory links tenant-scoped and private-workspace names owner-only", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(schemaDdl(osWorkspaces));
+	sqlite.exec(schemaDdl(osGadgetExecutions));
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	for (const [id, organizationId, visibility, ownerUserId] of [
+		["shared", "org-example", "org", null],
+		["private", "org-example", "private", "owner-sub"],
+		["foreign", "other-org", "org", null],
+	] as const) {
+		await db
+			.insert(osWorkspaces)
+			.values({
+				id,
+				organizationId,
+				name: id,
+				visibility,
+				ownerUserId,
+				createdByKind: "user",
+				createdById: "owner-sub",
+			});
+		await db
+			.insert(osGadgetExecutions)
+			.values({
+				id: `execution-${id}`,
+				organizationId,
+				workspaceId: id,
+				gadgetId: "app-example",
+				runId: `run-${id}`,
+				status: "running",
+				grantedCapabilities: "[]",
+				policyDecision: "{}",
+				createdByKind: "user",
+				createdById: "owner-sub",
+				createdAt: "2026-10-17T11:00:00Z",
+			});
+	}
+	const since = "2026-10-17T00:00:00Z";
+	expect(
+		(
+			await readAttentionFactoryLinks(db, "org-example", "visitor-sub", since)
+		).map((r) => r.factoryName),
+	).toEqual(["shared"]);
+	expect(
+		(await readAttentionFactoryLinks(db, "org-example", "owner-sub", since))
+			.map((r) => r.factoryName)
+			.sort(),
+	).toEqual(["private", "shared"]);
 });

@@ -10,6 +10,7 @@
 		"./contracts/support": "./src/contracts/support.ts",
 		"./utils/support-report": "./src/utils/support-report.ts",
 		"./schemas/agent-review": "./src/schemas/agent-review.ts",
+		"./schemas/attention-layout": "./src/schemas/attention-layout.ts",
 		"./schemas/work-attention": "./src/schemas/work-attention.ts",
 		"./contracts/tedi-console": "./src/contracts/tedi-console.ts",
 		"./schemas/outbound": "./src/schemas/outbound.ts",

@@ -1,5 +1,11 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
+import {
+	AttentionLayoutResultSchema,
+	UpdateAttentionLayoutInputSchema,
+	AttentionVisitResultSchema,
+} from "../schemas/attention-layout";
+import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
 	AttentionInputSchema,
@@ -29,6 +35,33 @@ export const workAgentSessionsContract = oc
 	.route({ tags: ["work-agent-sessions"], prefix: "/work-agent-sessions" })
 	.errors(baseErrors)
 	.router({
+		getAttentionLayout: oc
+			.route({
+				method: "GET",
+				path: "/attention/layout",
+				summary: "Read your Attention composition",
+			})
+			.input(z.strictObject({}))
+			.output(AttentionLayoutResultSchema),
+		updateAttentionLayout: oc
+			.route({
+				method: "POST",
+				path: "/attention/layout",
+				summary: "Update your Attention composition",
+				description:
+					"Replace your versioned Attention layout: pin projects, focus today, hide columns, filter sources, set density and arrange fixed widgets. Read get_attention_layout first; expectedRevision prevents overwriting concurrent edits. The authenticated user is the owner; no caller-supplied owner.",
+			})
+			.input(UpdateAttentionLayoutInputSchema)
+			.output(AttentionLayoutResultSchema),
+		visitAttention: oc
+			.route({
+				method: "POST",
+				path: "/attention/visit",
+				summary:
+					"Record your visit and return the previous visit across devices",
+			})
+			.input(z.strictObject({}))
+			.output(AttentionVisitResultSchema),
 		attention: oc
 			.route({
 				method: "GET",

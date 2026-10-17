@@ -87,6 +87,7 @@ it("retains Backlog when completed runs fill the overview", () => {
 	const input = sources();
 	input.skills = Array.from({ length: 100 }, (_, i) => ({
 		id: `skill-${i}`,
+		createdBy: null,
 		title: "Inspect",
 		who: "Ada",
 		workItemId: null,
@@ -99,6 +100,7 @@ it("retains Backlog when completed runs fill the overview", () => {
 	}));
 	input.runs = Array.from({ length: 100 }, (_, i) => ({
 		id: `run-${i}`,
+		workspaceId: null,
 		who: "Ada",
 		status: "completed",
 		startedAt: "2026-10-17T10:00:00Z",

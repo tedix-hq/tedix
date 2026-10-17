@@ -1,3 +1,4 @@
+import { userConfigs } from "@tedix/db/schema/user-configs";
 import { DatabaseSync } from "node:sqlite";
 import { listAgentSessionRequests } from "@tedix/db/queries/agent-session-requests";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -120,6 +121,7 @@ function fixture() {
 	sqlite.exec(schemaDdl(agentSessionEvents));
 	sqlite.exec(schemaDdl(workInteractions));
 	sqlite.exec(schemaDdl(projects));
+	sqlite.exec(schemaDdl(userConfigs));
 	sqlite.exec(schemaDdl(tediObjectives));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
