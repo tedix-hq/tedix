@@ -253,6 +253,8 @@ branch and pushed SHA. No stored API key is needed. A private release repository
 can be separately configured to report Ship outcomes from its own workflow.
 Events wake the owner through the existing tedi dispatcher; repeated delivery
 reuses the observation and comment.
+Pausing the factory rejects new observer events. Resume it before testing a
+real push through the signed webhook.
 
 Red Ships have a 30-minute diagnosis deadline on Attention. The platform tick
 escalates an overdue unresolved incident to the configured human, including a
