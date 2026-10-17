@@ -1,3 +1,4 @@
+import { SESSION_ACTIVITY_RESOURCE } from "@tedix/api-contract/schemas/agent-session-requests";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
@@ -29,6 +30,7 @@ import {
 	revokePersonalResourceDelegation,
 } from "@tedix/db/queries/personal-resource-delegations";
 import { getLatestReportedSkillRun } from "@tedix/db/queries/skill-runs";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { getToolByAppAndToolIdForOrganization } from "@tedix/db/queries/tools";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -134,6 +136,18 @@ export async function personalAccessNeed(
 			skill.content ??
 			"",
 	);
+	if (
+		Object.values(manifest.mcp)
+			.flat()
+			.includes(SESSION_ACTIVITY_RESOURCE.toolId)
+	)
+		return {
+			providerId: SESSION_ACTIVITY_RESOURCE.providerId,
+			providerName: "session activity",
+			resourceType: SESSION_ACTIVITY_RESOURCE.resourceType,
+			tools: [{ toolId: SESSION_ACTIVITY_RESOURCE.toolId, operation: "read" }],
+			requiredScopes: [],
+		};
 	for (const [namespace, toolIds] of Object.entries(manifest.mcp)) {
 		const app = await getAppBySlugForOrg(
 			context.db,
@@ -271,6 +285,15 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 				? scheduleRunTimes(active.cron, readRunsAt(metadata), now)
 				: { dailyTimes: [], nextRunAt: null };
 			const need = await personalAccessNeed(context, organizationId, skill);
+			const worker =
+				need?.providerId === SESSION_ACTIVITY_RESOURCE.providerId &&
+				skill.tediId
+					? await getTediByIdForOrganization(
+							context.db,
+							skill.tediId,
+							organizationId,
+						)
+					: undefined;
 			const grant =
 				need && owner
 					? (
@@ -296,6 +319,7 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 					? {
 							providerId: need.providerId,
 							providerName: need.providerName,
+							workerName: worker?.displayName ?? worker?.name,
 							toolIds: need.tools.map((tool) => tool.toolId),
 							grantId: grant?.id ?? null,
 							level: grant ? personalAccessLevel(grant.operations) : "none",
@@ -349,12 +373,22 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				ErrorCodes.BAD_REQUEST,
 				"This skill does not declare a read of a personal account",
 			);
-		const account = (await listConnectionInstances(db, { userId: owner })).find(
-			(row) =>
-				row.providerId === need.providerId &&
-				row.tokenIds.length > 0 &&
-				row.tokenSub,
-		);
+		const localActivity =
+			need.providerId === SESSION_ACTIVITY_RESOURCE.providerId;
+		if (localActivity && !context.userId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Session activity requires the owner's canonical user identity",
+			);
+		const localResourceId = crypto.randomUUID();
+		const account = localActivity
+			? { id: localResourceId, label: context.userId! }
+			: (await listConnectionInstances(db, { userId: owner })).find(
+					(row) =>
+						row.providerId === need.providerId &&
+						row.tokenIds.length > 0 &&
+						row.tokenSub,
+				);
 		if (!account)
 			return { status: "not_connected" as const, providerId: need.providerId };
 		const attached = (
@@ -368,7 +402,7 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 			(row) =>
 				row.connectionScope === "user" &&
 				row.personalOwnerUserId === owner &&
-				row.connectionInstanceId === account.id &&
+				(localActivity || row.connectionInstanceId === account.id) &&
 				row.providerId === need.providerId &&
 				row.resourceType === need.resourceType,
 		);
@@ -377,7 +411,7 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 		const resource =
 			attached ??
 			(await createOsWorkspaceResource(db, {
-				id: crypto.randomUUID(),
+				id: localActivity ? localResourceId : crypto.randomUUID(),
 				organizationId,
 				workspaceId: workspace.id,
 				slot: null,
@@ -406,7 +440,7 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				skillRevision: skill.revision,
 				workspaceId: workspace.id,
 				resourceId: resource.id,
-				connectionInstanceId: account.id,
+				connectionInstanceId: resource.connectionInstanceId!,
 				operations: ["read"],
 				toolIds: readTools,
 				expiresAt: new Date(Date.now() + GRANT_DAYS * 86_400_000).toISOString(),

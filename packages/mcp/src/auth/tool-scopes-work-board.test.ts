@@ -112,6 +112,7 @@ describe("Local agent session board authority", () => {
 		["report", "report_work_agent_session_status", "mcp:work.write"],
 		["list", "list_work_agent_sessions", "mcp:work.read"],
 		["contributors", "list_work_project_contributors", "mcp:work.read"],
+		["listActivity", "list_agent_session_activity", "mcp:work.read"],
 	] as const) {
 		it(`requires ${scope} for ${toolName} by endpoint and by name`, () => {
 			const rpcTool = {

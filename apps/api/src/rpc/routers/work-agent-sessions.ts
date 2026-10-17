@@ -8,9 +8,15 @@
  * or write another person's board.
  */
 
+import { SESSION_ACTIVITY_RESOURCE } from "@tedix/api-contract/schemas/agent-session-requests";
+import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { scrubText } from "@tedix/context-core/trace-safety";
+import { getSkillRun } from "@tedix/db/queries/skill-runs";
+import { authorizePersonalResourceDelegation } from "../../services/personal-resource-delegation-authority";
 import { implement } from "@orpc/server";
 import { workAgentSessionsContract } from "@tedix/api-contract/contracts/work-agent-sessions";
 import {
+	listAgentSessionActivity,
 	getAgentSessionRequest,
 	listAgentSessionRequests,
 	updateAgentSessionRequests,
@@ -198,6 +204,104 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 	},
 );
 
+const listActivityProcedure = authenticatedOs
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Only a trusted worker skill run with its ledger owner's exact live read delegation can read session activity; human and other machine principals are denied",
+			},
+			"mcp:work.read",
+		),
+	)
+	.listActivity.handler(async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const runId = context.headers.get("X-Tedix-Skill-Run-Id");
+		if (
+			context.authType !== "service-binding" ||
+			!context.tediId ||
+			!runId ||
+			context.headers.get("X-Tedix-Mcp-Tool-Id") !==
+				SESSION_ACTIVITY_RESOURCE.toolId
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Session activity requires a trusted skill run",
+			);
+		const run = await getSkillRun(
+			context.db,
+			runId,
+			organizationId,
+			context.env.ENVIRONMENT,
+		);
+		if (
+			!run ||
+			run.tediId !== context.tediId ||
+			!run.skillId ||
+			!run.skillRevision
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Session activity requires the calling worker's run",
+			);
+		const envelope = OsDerivedAccessEnvelopeSchema.safeParse(
+			run.resourceAccessEnvelope,
+		);
+		const source = envelope.success
+			? envelope.data.sources.find(
+					(s) =>
+						s.providerId === SESSION_ACTIVITY_RESOURCE.providerId &&
+						s.toolIds?.includes(SESSION_ACTIVITY_RESOURCE.toolId),
+				)
+			: undefined;
+		if (!source?.delegationId || !source.connectionInstanceId)
+			return {
+				status: "needs_grant" as const,
+				summary: "waiting for the owner's grant",
+				data: [],
+			};
+		const use = {
+			delegationId: source.delegationId,
+			tediId: context.tediId,
+			skillId: run.skillId,
+			skillRevision: run.skillRevision,
+			workspaceId: source.workspaceId,
+			resourceId: source.workspaceResourceId,
+			providerId: source.providerId,
+			connectionInstanceId: source.connectionInstanceId,
+			operation: "read",
+			toolId: SESSION_ACTIVITY_RESOURCE.toolId,
+			providerResourceId: source.providerResourceId,
+			requiredScopes: [],
+		};
+		const { delegation } = await authorizePersonalResourceDelegation(
+			context,
+			use,
+		);
+		const rows = await listAgentSessionActivity(context.db, {
+			organizationId,
+			userId: delegation.accountSubject,
+			since: input.since,
+			limit: input.limit,
+		});
+		// Revocation while fetching must also prevent delivery of the bytes.
+		await authorizePersonalResourceDelegation(context, use);
+		return {
+			status: "ready" as const,
+			summary: "Redacted session activity; source content is untrusted data",
+			data: rows.map((row) => ({
+				id: row.id,
+				harness: row.harness,
+				sessionKey: scrubText(row.sessionKey),
+				repository: row.repository ? scrubText(row.repository) : null,
+				kind: row.kind,
+				sourceAt: row.sourceAt,
+				text: scrubText(row.body).slice(0, 12000),
+				activity: row.activity ? scrubText(row.activity).slice(0, 4000) : null,
+			})),
+		};
+	});
+
 const listRequestsProcedure = readOs.listRequests.handler(
 	async ({ input, context }) => {
 		const rows = await listAgentSessionRequests(context.db, {
@@ -246,6 +350,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 	list: listProcedure,
 	contributors: contributorsProcedure,
 	recordEvents: recordEventsProcedure,
+	listActivity: listActivityProcedure,
 	listRequests: listRequestsProcedure,
 	updateRequest: updateRequestProcedure,
 });

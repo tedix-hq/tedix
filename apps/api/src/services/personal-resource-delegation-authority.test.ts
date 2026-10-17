@@ -636,3 +636,127 @@ describe("standing personal subscription authority", () => {
 		expect(vault.fetchNamedConnection).not.toHaveBeenCalled();
 	});
 });
+
+describe("owner-delegated local session activity", () => {
+	const toolId = "list_agent_session_activity";
+	async function local() {
+		const skillDoc =
+			"---\ncapabilities:\n  mcp:\n    tedix: [list_agent_session_activity]\n---\nSession analysis";
+		Object.assign(resource, {
+			providerId: "tedix-session-activity",
+			resourceType: "session_activity",
+			providerResourceId: "canonical-alice",
+			requiredScopes: "[]",
+		});
+		Object.assign(consent, {
+			providerId: resource.providerId,
+			resourceType: resource.resourceType,
+			providerResourceId: "canonical-alice",
+			accountSubject: "canonical-alice",
+			grantFingerprint: id,
+			toolIds: [toolId],
+			requiredScopes: [],
+		});
+		vi.mocked(members.getMemberByUserId).mockResolvedValue({
+			status: "active",
+			userId: "canonical-alice",
+		} as never);
+		vi.mocked(workspaces.getOsWorkspace).mockResolvedValue({
+			status: "active",
+			visibility: "private",
+			ownerUserId: "alice",
+		} as never);
+		vi.mocked(skills.getSkillEntry).mockResolvedValue({
+			id,
+			revision: 1,
+			content: skillDoc,
+			lifecycleState: "active",
+		} as never);
+		run.skillDoc = skillDoc;
+		run.resourceAccessEnvelope = {
+			version: 1,
+			sources: [personalDelegationSource(consent as never)],
+		};
+		const ctx = context(true);
+		ctx.tediScopes = ["mcp:work.read"];
+		ctx.headers.set("X-Tedix-Mcp-Tool-Id", toolId);
+		const operation = {
+			...use,
+			providerId: "tedix-session-activity",
+			providerResourceId: "canonical-alice",
+			toolId,
+			requiredScopes: [],
+		};
+		return { ctx, operation };
+	}
+	it("the signed-in owner grants just the internal read, without OAuth", async () => {
+		await local();
+		const ctx = context();
+		ctx.userId = "canonical-alice";
+		const grant = await preparePersonalResourceDelegation(ctx, {
+			...input,
+			toolIds: [toolId],
+		});
+		expect(grant).toMatchObject({
+			accountSubject: "canonical-alice",
+			ownerUserId: "alice",
+			operations: ["read"],
+			requiredScopes: [],
+		});
+		expect(accounts.getConnectionInstance).not.toHaveBeenCalled();
+		expect(vault.fetchNamedConnection).not.toHaveBeenCalled();
+		await expect(
+			preparePersonalResourceDelegation(ctx, {
+				...input,
+				toolIds: [toolId],
+				operations: ["modify"],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			preparePersonalResourceDelegation(context(true), {
+				...input,
+				toolIds: [toolId],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("admits the exact active run and never resolves credentials", async () => {
+		const { ctx, operation } = await local();
+		await expect(
+			authorizePersonalResourceDelegation(ctx, operation),
+		).resolves.toMatchObject({ ownerUserId: "alice" });
+		expect(accounts.getConnectionInstance).not.toHaveBeenCalled();
+		expect(vault.fetchNamedConnection).not.toHaveBeenCalled();
+	});
+	for (const failure of [
+		"revoked",
+		"expired",
+		"other-tedi",
+		"other-owner",
+		"inactive-member",
+		"old-epoch",
+		"finished",
+		"missing-source",
+		"changed-resource",
+	]) {
+		it(`rejects ${failure} on every read`, async () => {
+			const { ctx, operation } = await local();
+			if (failure === "revoked") consent.revokedAt = new Date().toISOString();
+			if (failure === "expired") consent.expiresAt = "2000-01-01T00:00:00Z";
+			if (failure === "other-tedi") ctx.tediId = "other";
+			if (failure === "other-owner") consent.ownerUserId = "other";
+			if (failure === "inactive-member")
+				vi.mocked(members.getMemberByUserId).mockResolvedValue({
+					status: "deactivated",
+				} as never);
+			if (failure === "old-epoch")
+				ctx.headers.set("X-Tedix-Workflow-Execution-Epoch", "1");
+			if (failure === "finished") run.status = "completed";
+			if (failure === "missing-source")
+				run.resourceAccessEnvelope = { version: 1, sources: [] };
+			if (failure === "changed-resource") resource.providerResourceId = "other";
+			await expect(
+				authorizePersonalResourceDelegation(ctx, operation),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		});
+	}
+});

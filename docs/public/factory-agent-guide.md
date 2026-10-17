@@ -144,6 +144,17 @@ Workspace and clicks **Let this read my Gmail (read-only)** on the skill's
 **Runs on a schedule** row; no CLI step or Gmail resource setup is needed,
 and **Stop** revokes it.
 
+For a factory that analyses uploaded local sessions, declare
+`work: [list_agent_session_activity]`. The schedule row offers its owner
+**Let the CTO tedi read my session activity (read-only)** (using the worker's
+name). The click grants only that worker skill a read of the owner's stored,
+redacted events and activity digests for one year, unless **Stop** revokes it.
+No external account is needed. Each read checks the live run and consent;
+other members cannot read the source. The human request ledger stays private.
+Until consent, the reader returns `needs_grant` without session data. Keep
+source-derived outputs owner-restricted and publish only aggregate findings
+through an explicitly approved publication path.
+
 A factory's cards can be carried out, not only recorded. Add a second skill
 owned by the same tedi, without a schedule, that takes params `{cardSheetId,
 row, kind, action, reason, columns, actions, workProjectId}` (the server adds

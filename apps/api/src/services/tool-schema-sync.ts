@@ -685,6 +685,7 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workAgentSessions/list": "list_work_agent_sessions",
 	"workAgentSessions/contributors": "list_work_project_contributors",
 	"workAgentSessions/recordEvents": "record_agent_session_events",
+	"workAgentSessions/listActivity": "list_agent_session_activity",
 	"workAgentSessions/listRequests": "list_agent_session_requests",
 	"workAgentSessions/updateRequest": "update_agent_session_request",
 	"workScheduler/listReady": "list_ready_work",
@@ -1166,6 +1167,14 @@ function annotationsForEndpoint(
 	kind?: "read" | "write" | "destructive",
 ): NonNullable<AppTool["annotations"]> {
 	const endpointPath = `${endpoint.router}/${endpoint.procPath}`;
+	if (endpointPath === "workAgentSessions/listActivity")
+		return {
+			readOnlyHint: true,
+			destructiveHint: false,
+			idempotentHint: true,
+			openWorldHint: false,
+			untrustedContentHint: true,
+		};
 	if (kind) {
 		// Single source of truth — see operatorKindToAnnotations in
 		// packages/api-contract/src/schemas/tools.ts. Same mapping is used by
