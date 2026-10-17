@@ -496,12 +496,42 @@ result and inbox readers have independent cursors; personal ranking applies
 to loaded records. Low-importance updates form an expandable digest. Pending
 decisions and critical events remain visible during quiet hours.
 
-Reactions record personal learning events. More like this and Not for me also
-save personal preferences in the existing OS preference store. Comment records
-a correction for the existing reflection process; it is not already a mined
-lesson. Turn into Work creates proposed Work with its source link. The feed
-does not approve decisions, send messages or change admission. Its WebMCP tools
-read visible cards and use the same personal reaction callbacks.
+Reactions record personal learning events. With decision learning enabled,
+More like this and Not for me adjust the next ranking from those events;
+otherwise they save personal preferences in the existing OS preference store.
+Comment records a correction for the existing reflection process. Turn into
+Work creates proposed Work with its source link. The feed does not approve
+decisions, send messages or change admission. Its WebMCP tools read visible
+cards and use the same personal reaction callbacks.
+
+### Learn from decisions
+
+An administrator can enable `decisionLearning` in organization settings with
+`configure_decision_learning`. Deck and Feed then use the same learning score.
+A person's choices stay personal; shared signals and approved lessons provide
+team context. Deadlines and waiting costs change the score as time passes.
+Repeated deferrals and negative reactions reduce a class, source or proposer's
+weight; quick responses raise the weight of a project.
+
+Open **Why this?** to see the signals and applicable lessons behind the rank.
+After a decision, the learning line says what changed. **Undo learning** records
+a correction and recalculates the model; reversing the original action uses
+that action's own controls.
+
+`unchangedThreshold` defaults to five; `autoApproveClasses` explicitly selects
+eligible reply classes. A rejection resets the counter. `auditSampleRate`
+keeps a stable sample for review. Automatic replies still require the existing
+reply policy, reversibility checks, delivery checks and session budget. A
+learned preference never grants permission to send an email or perform another
+protected action. The stored reply receipt names the supporting signals.
+
+`halfLifeDays`, `fastDecisionMs`, `minimumPreferenceExamples`, `shorteningRatio`,
+`deadlineWindowHours`, `timezone`, `quietHours` and `weights` tune the model.
+`classifyEdits`, `classifierConfidence`, `classifierTimeoutMs` and
+`preferenceModel` control bounded edit interpretation. A failed classifier
+leaves the measured edit intact. Outbound review, reply drafting and Home
+writing read learned preferences before generating text. The Outbound style
+profile includes the learned writing preferences.
 
 ## Add another built-in app
 

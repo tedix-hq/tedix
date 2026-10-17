@@ -201,6 +201,7 @@ describe("outbound decisions through the shared card", () => {
 			expectedVersion: 3,
 			action: "approve_send",
 			connectionInstanceId: connectionId,
+			elapsedMs: expect.any(Number),
 		});
 	});
 	it("saves edited wording for review without sending it", async () => {
@@ -234,6 +235,7 @@ describe("outbound decisions through the shared card", () => {
 			expectedVersion: 3,
 			action: "reject",
 			feedback: "wrong tone",
+			elapsedMs: expect.any(Number),
 		});
 	});
 	it("sends free-text feedback as feedback, never as approval", async () => {

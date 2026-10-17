@@ -1541,6 +1541,7 @@ describe("oRPC tool projection sync", () => {
 				"workInteractions/outbound/submit",
 				"workInteractions/outbound/review",
 				"workInteractions/outbound/act",
+				"workInteractions/outbound/checkOutcome",
 				"workInteractions/outbound/profile",
 				"workInteractions/outbound/importSentStyle",
 				"workInteractions/outbound/accounts",

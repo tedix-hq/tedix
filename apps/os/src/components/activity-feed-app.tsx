@@ -1,3 +1,4 @@
+import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -42,6 +43,10 @@ type Filter = keyof typeof copy.filters;
 
 export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 	const cache = useQueryClient();
+	const learningModel = useQuery({
+		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
+		refetchInterval: 60000,
+	});
 	const preferences = useQuery(userPreferencesQueryOptions());
 	const prefs =
 		preferences.data?.preferences.activityFeed ?? EMPTY_FEED_PREFERENCES;
@@ -92,6 +97,7 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 		config,
 		{ ...prefs, lastSeenAt: seenAt.current ?? null },
 		now,
+		learningModel.data,
 	);
 	const selected = ranked.filter(
 		(item) =>
@@ -184,7 +190,7 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 	}
 	async function react(
 		item: ActivityFeedItem,
-		reaction: "more" | "mute" | "comment",
+		reaction: "more" | "mute" | "comment" | "why" | "ignore",
 		text = "",
 	) {
 		setBusy(true);
@@ -193,7 +199,10 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 			await osApi.learningFeedback.recordInteraction(
 				feedLearningInput(item, reaction, text, crypto.randomUUID()),
 			);
-			if (reaction !== "comment")
+			if (
+				!learningModel.data?.config.enabled &&
+				(reaction === "more" || reaction === "mute")
+			)
 				await savePreferences((p) => ({
 					...p,
 					mutedClasses:
@@ -206,7 +215,7 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 							: p.preferredClasses.filter((c) => c !== item.classId),
 				}));
 			await cache.invalidateQueries({
-				queryKey: osQuery.learningFeedback.listInteractions.key(),
+				queryKey: osQuery.learningFeedback.key(),
 			});
 			setStatus(reaction === "comment" ? copy.correctionSaved : copy.saved);
 			return true;
@@ -226,6 +235,16 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 				description: `${item.sentence}\n\nSource: ${item.source}\nFeed record: ${item.id}`,
 				projectId: item.projectId,
 				workKind: "other",
+			});
+			const signal = feedLearningInput(item, "work", "", crypto.randomUUID());
+			await osApi.learningFeedback
+				.recordInteraction({
+					...signal,
+					metadata: { ...signal.metadata, createdWorkItemId: work.id },
+				})
+				.catch(() => undefined);
+			await cache.invalidateQueries({
+				queryKey: osQuery.learningFeedback.key(),
 			});
 			setStatus(`${copy.workCreated}: ${work.title}`);
 			await cache.invalidateQueries({ queryKey: osQuery.workItems.key() });
@@ -248,6 +267,11 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 			project={config.projects.find((p) => p.id === item.projectId)?.label}
 			config={config}
 			busy={busy}
+			ignoredAfterMs={
+				learningModel.data?.config.enabled
+					? learningModel.data.config.ignoredAfterMs
+					: undefined
+			}
 			onReact={react}
 			onWork={turnIntoWork}
 		/>
@@ -257,6 +281,7 @@ export function ActivityFeedApp({ config }: { config: ActivityFeedConfig }) {
 			className="mx-auto grid w-full max-w-2xl min-w-0 gap-4 pb-8"
 			data-workspace-app-entry="activity-feed"
 		>
+			<DecisionLearningFeedback />
 			{visibleProjects.map((p) => (
 				<ActivityFeedSources
 					key={p.id}
@@ -422,23 +447,68 @@ function FeedCard({
 	busy,
 	onReact,
 	onWork,
+	ignoredAfterMs,
 }: {
 	item: ReturnType<typeof rankFeed>[number];
 	project?: string;
 	config: ActivityFeedConfig;
 	busy: boolean;
+	ignoredAfterMs?: number;
 	onReact: (
 		item: ActivityFeedItem,
-		reaction: "more" | "mute" | "comment",
+		reaction: "more" | "mute" | "comment" | "why" | "ignore",
 		text?: string,
 	) => Promise<boolean>;
 	onWork: (item: ActivityFeedItem) => Promise<void>;
 }) {
+	const article = useRef<HTMLElement>(null);
+	const engaged = useRef(false);
+	const currentReact = useRef(onReact);
+	currentReact.current = onReact;
+	useEffect(() => {
+		if (
+			!ignoredAfterMs ||
+			!article.current ||
+			typeof IntersectionObserver === "undefined"
+		)
+			return;
+		let entered = 0;
+		let recorded = false;
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (entry?.isIntersecting) entered = Date.now();
+				else if (
+					entered &&
+					Date.now() - entered >= ignoredAfterMs &&
+					!engaged.current &&
+					!recorded
+				) {
+					recorded = true;
+					void currentReact.current(item, "ignore");
+				}
+			},
+			{ threshold: 0.5 },
+		);
+		observer.observe(article.current);
+		return () => observer.disconnect();
+	}, [item.id, ignoredAfterMs]);
+	const react = (
+		reaction: "more" | "mute" | "comment" | "why",
+		text?: string,
+	) => {
+		engaged.current = true;
+		return onReact(item, reaction, text);
+	};
 	const [why, setWhy] = useState(false);
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");
 	return (
-		<article tabIndex={0} aria-label={item.sentence} className="min-w-0">
+		<article
+			ref={article}
+			tabIndex={0}
+			aria-label={item.sentence}
+			className="min-w-0"
+		>
 			<Card>
 				<CardContent className="grid gap-3 p-4 sm:p-5">
 					<div className="flex flex-wrap items-center gap-2">
@@ -479,7 +549,7 @@ function FeedCard({
 							size="sm"
 							variant="ghost"
 							disabled={busy}
-							onClick={() => void onReact(item, "more")}
+							onClick={() => void react("more")}
 						>
 							{copy.more}
 						</Button>
@@ -487,7 +557,10 @@ function FeedCard({
 							size="sm"
 							variant="ghost"
 							aria-expanded={why}
-							onClick={() => setWhy((v) => !v)}
+							onClick={() => {
+								setWhy((v) => !v);
+								if (!why) void react("why");
+							}}
 						>
 							{copy.why}
 						</Button>
@@ -495,7 +568,7 @@ function FeedCard({
 							size="sm"
 							variant="ghost"
 							disabled={busy}
-							onClick={() => void onReact(item, "mute")}
+							onClick={() => void react("mute")}
 						>
 							{copy.mute}
 						</Button>
@@ -512,7 +585,10 @@ function FeedCard({
 								size="sm"
 								variant="ghost"
 								disabled={busy}
-								onClick={() => void onWork(item)}
+								onClick={() => {
+									engaged.current = true;
+									void onWork(item);
+								}}
 							>
 								{copy.work}
 							</Button>
@@ -557,7 +633,7 @@ function FeedCard({
 								<Button
 									disabled={busy || !text.trim()}
 									onClick={() =>
-										void onReact(item, "comment", text.trim()).then((ok) => {
+										void react("comment", text.trim()).then((ok) => {
 											if (ok) {
 												setText("");
 												setComment(false);

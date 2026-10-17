@@ -1,3 +1,5 @@
+import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
+import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,6 +24,8 @@ vi.mock("@/lib/api", async (original) => {
 					? {
 							recordInteraction: vi.fn(async () => ({})),
 							listInteractions: vi.fn(async () => ({ events: [] })),
+							model: vi.fn(),
+							correct: vi.fn(),
 						}
 					: Reflect.get(target, key),
 		}),
@@ -53,6 +57,16 @@ async function mount() {
 			input: { scopeKind: "personal", limit: 200 },
 		}).queryKey,
 		{ events: [] },
+	);
+	client.setQueryData(
+		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+		learnDecisions({
+			organizationId: "fictional-acme",
+			personId: "fictional-acme-user",
+			events: [],
+			config: DecisionLearningConfigSchema.parse({}),
+			now: new Date(),
+		}),
 	);
 	for (const state of ["open", "resolved"] as const)
 		client.setQueryData(

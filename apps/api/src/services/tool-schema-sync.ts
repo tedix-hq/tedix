@@ -850,6 +850,9 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
  * (a queued drafting turn, an immutable draft) and project as `write`.
  */
 export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
+	"learningFeedback/model": "get_decision_learning",
+	"learningFeedback/configure": "configure_decision_learning",
+	"learningFeedback/correct": "correct_decision_learning",
 	"agentTurnTriage/triage": "triage_agent_turn",
 	"agentTurnTriage/labelReply": "label_agent_reply",
 	"agentTurnTriage/getPolicy": "get_agent_turn_triage_policy",
@@ -875,6 +878,9 @@ export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
 	string,
 	"read" | "write" | "destructive"
 > = {
+	"learningFeedback/model": "read",
+	"learningFeedback/configure": "write",
+	"learningFeedback/correct": "write",
 	"agentTurnTriage/triage": "read",
 	"agentTurnTriage/labelReply": "read",
 	"agentTurnTriage/getPolicy": "read",
@@ -1602,6 +1608,7 @@ const UNPROJECTABLE_ROUTERS = new Set([
 const UNPROJECTABLE_ENDPOINTS = new Set([
 	"workInteractions/outbound/act",
 	"workInteractions/outbound/accounts",
+	"workInteractions/outbound/checkOutcome",
 	"workInteractions/outbound/profile",
 	"workInteractions/outbound/importSentStyle",
 	"cognitiveRuntime/createRedactedArtifactRevision",

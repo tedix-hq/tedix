@@ -94,6 +94,7 @@ export const OutboundStateSchema = z.strictObject({
 		reviewedAt: z.string(),
 	}).nullable(),
 	providerReceipt: text.optional(),
+	connectionInstanceId: z.uuid().optional(),
 	styleBefore: z.string().optional(),
 });
 export type OutboundState = z.infer<typeof OutboundStateSchema>;

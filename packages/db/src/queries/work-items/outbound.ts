@@ -195,7 +195,7 @@ export async function saveOutbound(
 						targetId: sql<string>`${p.state.ownerUserId}`.as("target_id"),
 						createdAt: sql<string>`${p.now}`.as("created_at"),
 						metadata:
-							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, outboundWorkItemId: p.workItemId })})`.as(
+							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, outboundWorkItemId: p.workItemId, decisionClass: p.state.draft.topic, channel: p.state.draft.channel, personId: p.state.draft.recipient, proposerTediId: p.state.reviewerTediId })})`.as(
 								"metadata",
 							),
 					})

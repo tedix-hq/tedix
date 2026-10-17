@@ -8,6 +8,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import type { DecisionLearningConfig } from "@tedix/api-contract/schemas/decision-learning";
 import type { OutboundPolicy } from "@tedix/api-contract/schemas/outbound";
 import type { McpNetworkControlConfig } from "@tedix/api-contract/schemas/mcp-network-security";
 import type { OrganizationOsTheme } from "@tedix/api-contract/schemas/os-theme";
@@ -107,6 +108,7 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	decisionLearning?: DecisionLearningConfig;
 	portfolioBuckets?: OrganizationContractMetadata["portfolioBuckets"];
 	providerCustomerKey?: string;
 	providerOnboarding?: OrganizationContractMetadata["providerOnboarding"];

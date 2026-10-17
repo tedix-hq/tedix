@@ -21,6 +21,15 @@ export const outboundContract = oc.errors(baseErrors).router({
 		.input(z.strictObject({}))
 		.output(z.array(z.strictObject({ id: z.uuid(), label: z.string() }))),
 	get: oc.input(identity).output(OutboundRecordSchema),
+	checkOutcome: oc
+		.route({ tags: ["internal"] })
+		.input(identity)
+		.output(
+			z.object({
+				status: z.enum(["unknown", "waiting", "replied"]),
+				receipt: z.string().nullable(),
+			}),
+		),
 	list: oc
 		.input(
 			z.strictObject({
@@ -49,6 +58,7 @@ export const outboundContract = oc.errors(baseErrors).router({
 		.input(
 			revision.extend({
 				action: OutboundActionSchema,
+				elapsedMs: z.number().int().min(0).max(86400000).optional(),
 				draft: OutboundDraftSchema.optional(),
 				body: z.string().trim().min(1).max(40_000).optional(),
 				feedback: z.string().trim().min(1).max(8_000).optional(),

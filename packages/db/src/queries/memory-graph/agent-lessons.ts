@@ -274,3 +274,26 @@ export async function setAgentLessonTriggers(
 		.returning({ id: memoryFacts.id });
 	return changed.length === 1;
 }
+
+/** Undo can retire only the caller's automatically mined lesson, never a person-authored rule. */
+export async function archiveCorrectedAgentLessons(
+	db: DbQueryClient,
+	orgId: string,
+	ownerUserId: string,
+	eventId: string,
+	now: string,
+) {
+	return db
+		.update(memoryFacts)
+		.set({ archivedAt: now, validTo: now, updatedAt: now })
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				isNull(memoryFacts.archivedAt),
+				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId') = ${ownerUserId}`,
+				sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.autoConfirmed') = 1`,
+				sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata}, '$.learningFeed.evidenceEventIds')) AS evidence WHERE evidence.value = ${eventId})`,
+			),
+		)
+		.returning({ id: memoryFacts.id });
+}

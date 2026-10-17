@@ -90,14 +90,17 @@ export function WorkInteractionDecisionCard({
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
-	const shownAt = useRef(performance.now());
 	const client = useQueryClient();
+	const shown = useRef({ requestId, at: Date.now() });
+	if (shown.current.requestId !== requestId)
+		shown.current = { requestId, at: Date.now() };
 	const query = useQuery(workInteractionDetailQueryOptions(requestId));
 	const refresh = () =>
 		Promise.all([
 			client.invalidateQueries({
 				queryKey: osQuery.workInteractions.key({ type: "query" }),
 			}),
+			client.invalidateQueries({ queryKey: osQuery.learningFeedback.key() }),
 			client.invalidateQueries({
 				queryKey: workSchedulerQueryOptions().queryKey,
 			}),
@@ -150,9 +153,13 @@ export function WorkInteractionDecisionCard({
 				body,
 				resolvesRequest: !deferred && !(lane && feedback.action === "snooze"),
 				metadata: {
+					elapsedMs: Date.now() - shown.current.at,
 					cardAction: feedback.action,
 					decisionClass:
-						decisionEnvelope(request.metadata)?.classId ?? request.kind,
+						decisionEnvelope(request.metadata)?.classId ??
+						(typeof request.metadata?.decisionClass === "string"
+							? request.metadata.decisionClass
+							: request.kind),
 					decisionChoice:
 						deferred || feedback.action === "snooze"
 							? "later"
@@ -161,10 +168,7 @@ export function WorkInteractionDecisionCard({
 								: feedback.signal === "edited"
 									? "change"
 									: "approve",
-					elapsedMs: Math.max(
-						0,
-						Math.round(performance.now() - shownAt.current),
-					),
+					...(feedback.signal === "edited" ? { editedBody: body } : {}),
 					...(lane ? { laneAction: feedback.action } : {}),
 					feedbackSignal: draft
 						? body === draft.body

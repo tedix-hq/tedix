@@ -1,3 +1,5 @@
+const writing = vi.hoisted(() => ({ read: vi.fn(async () => "") }));
+vi.mock("./decision-learning", () => ({ readDraftPreferences: writing.read }));
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
 	work: vi.fn(),
@@ -38,6 +40,7 @@ const workId = "11111111-1111-4111-8111-111111111111";
 const approvalId = "22222222-2222-4222-8222-222222222222";
 beforeEach(() => {
 	vi.resetAllMocks();
+	writing.read.mockResolvedValue("");
 	mocks.work.mockResolvedValue(null);
 	mocks.owned.mockResolvedValue({ data: [], total: 0 });
 	mocks.approvals.mockResolvedValue({ data: [], hasMore: false });
@@ -154,4 +157,38 @@ it("corrects old transient state from live work while preserving durable prefere
 			metadata: expect.objectContaining({ verifyBeforeUse: true }),
 		}),
 	);
+});
+
+it("reads fresh writing preferences only for a canonically assigned person's work", async () => {
+	writing.read.mockResolvedValue("Prefer shorter introductions.");
+	mocks.work.mockResolvedValue({
+		id: workId,
+		orgId: "org-fiction",
+		title: "Draft support response",
+		disposition: "accepted",
+		metadata: {},
+		accountableOwnerType: "user",
+		accountableOwnerId: "mira",
+		stewardType: "tedi",
+		stewardId: "tedi-fiction",
+	});
+	const result = await readTurnMemory(db, "org-fiction", "tedi-fiction", [
+		workId,
+	]);
+	expect(writing.read).toHaveBeenCalledWith(db, "org-fiction", "mira");
+	expect(result.preferences).toContainEqual({
+		id: "decision-learning:mira",
+		content: "Prefer shorter introductions.",
+	});
+	mocks.work.mockResolvedValue({
+		id: workId,
+		metadata: {},
+		accountableOwnerType: "user",
+		accountableOwnerId: "mira",
+		stewardType: "tedi",
+		stewardId: "other-tedi",
+	});
+	writing.read.mockClear();
+	await readTurnMemory(db, "org-fiction", "tedi-fiction", [workId]);
+	expect(writing.read).not.toHaveBeenCalledWith(db, "org-fiction", "mira");
 });

@@ -4,6 +4,7 @@
  */
 
 import * as z from "zod";
+import { DecisionLearningConfigSchema } from "./decision-learning";
 import { JevSettingsSchema } from "./jev";
 import {
 	EmbeddedTediSelectionPolicySchema,
@@ -405,6 +406,7 @@ export const PortfolioBucketsSchema = z
 	);
 
 export const OrganizationMetadataSchema = z.object({
+	decisionLearning: DecisionLearningConfigSchema.optional(),
 	portfolioBuckets: PortfolioBucketsSchema.optional(),
 	githubWorkstationCredentials: z
 		.object({

@@ -165,7 +165,7 @@ export function decisionCaptureLearningSignal(input: {
 		signalClass: "quality",
 		eventKind,
 		surface: DECISION_CAPTURE_LEARNING_SURFACE,
-		tediId: draft?.drafterId ?? null,
+		tediId: draft?.drafterId ?? str(requestMeta.proposerTediId, 200) ?? null,
 		issueKey: `decision:${repo}:${harness}:${topic}`,
 		targetType: "work_interaction",
 		targetId: request.id,
@@ -194,7 +194,22 @@ export function decisionCaptureLearningSignal(input: {
 			decisionClass: decision.success
 				? decision.data.classId
 				: str(responseMeta.decisionClass, 100),
+			channel: str(requestMeta.channel, 100),
+			personId: str(requestMeta.personId, 200),
+			entityId: str(requestMeta.entityId, 200),
+			source: str(requestMeta.source, 200) ?? "decision_capture",
 			decisionChoice: str(responseMeta.decisionChoice, 40),
+			urgency:
+				str((requestMeta.triage as JsonRecord | undefined)?.urgency, 40) ??
+				str(responseMeta.urgency, 40),
+			originalLength:
+				typeof responseMeta.originalBody === "string"
+					? responseMeta.originalBody.length
+					: (draft?.body.length ?? null),
+			editedLength:
+				typeof responseMeta.editedBody === "string"
+					? responseMeta.editedBody.length
+					: response.body.length,
 			elapsedMs:
 				typeof responseMeta.elapsedMs === "number" &&
 				Number.isFinite(responseMeta.elapsedMs)
@@ -211,8 +226,14 @@ export function decisionCaptureLearningSignal(input: {
 			feedbackSignal: str(responseMeta.feedbackSignal, 40),
 			feedbackReason: str(responseMeta.feedbackReason, 100),
 			feedbackText: str(responseMeta.feedbackText, ANSWER_CHARS),
-			originalBody: str(responseMeta.originalBody, DRAFT_CHARS),
-			editedBody: str(responseMeta.editedBody, DRAFT_CHARS),
+			originalBody:
+				str(responseMeta.originalBody, DRAFT_CHARS) ??
+				(draft ? draft.body.slice(0, DRAFT_CHARS) : null),
+			editedBody:
+				str(responseMeta.editedBody, DRAFT_CHARS) ??
+				(["edited", "manually_replaced"].includes(eventKind)
+					? response.body.slice(0, DRAFT_CHARS)
+					: null),
 			editRatio:
 				typeof responseMeta.editRatio === "number" &&
 				Number.isFinite(responseMeta.editRatio)
