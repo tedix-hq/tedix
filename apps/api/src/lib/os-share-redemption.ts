@@ -1,5 +1,6 @@
 /** Public redemption and session reads for governed Tedix OS share links. */
 
+import { getOrganizationProfile } from "@tedix/db/queries/organizations";
 import type { OsShareRole } from "@tedix/api-contract/contracts/os-shares";
 import {
 	type OsDerivedAccessEnvelope,
@@ -375,7 +376,11 @@ async function sessionResponse(
 ): Promise<Response> {
 	const resource = await readOsSharedResource(db, link);
 	if (!resource) return notFound();
+	const organization = await getOrganizationProfile(db, link.organizationId);
 	return noStoreJson({
+		organization: organization
+			? { name: organization.name, logoUrl: organization.logoUrl }
+			: null,
 		share: shareEnvelope(link),
 		resource,
 		...(sessionToken ? { sessionToken } : {}),

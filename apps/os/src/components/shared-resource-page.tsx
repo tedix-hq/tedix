@@ -1,3 +1,4 @@
+import { OrganizationMark } from "@/shared/organization-mark";
 import { ArrowRight, ShieldCheck } from "@phosphor-icons/react";
 import type { OsShareRole } from "@tedix/api-contract/contracts/os-shares";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
@@ -29,6 +30,7 @@ type SharedGadget = {
 };
 
 type SharePayload = {
+	organization?: { name: string; logoUrl: string | null } | null;
 	share: {
 		id: string;
 		resourceType: "gadget" | "workspace" | "output";
@@ -310,12 +312,10 @@ export function SharedResourcePage() {
 		// screens the page scrolls normally.
 		<main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-3 py-3 sm:px-6 sm:py-4 lg:h-dvh lg:overflow-hidden">
 			<header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
-				<span
-					aria-hidden
-					className="grid size-8 shrink-0 place-items-center rounded-lg bg-kumo-brand font-semibold text-white"
-				>
-					T
-				</span>
+				<OrganizationMark
+					name={payload.organization?.name ?? "Tedix"}
+					logoUrl={payload.organization?.logoUrl}
+				/>
 				<section className="min-w-[12rem] flex-1">
 					<Text as="h1" role="title" className="m-0 truncate">
 						{title}

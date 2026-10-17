@@ -1,4 +1,4 @@
-import { OrganizationMark } from "@/components/organization-mark";
+import { OrganizationMark } from "@/shared/organization-mark";
 import { osApi } from "@/lib/api";
 import { myWorkspacesDirectoryQueryOptions } from "@/lib/os-query-options";
 import { useWorkspaceDirectory } from "@/lib/workspace-switcher";
