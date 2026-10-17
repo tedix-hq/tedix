@@ -7,6 +7,7 @@
  */
 
 import { kernelSpanContext } from "./gateway-attribution";
+import { kernelRequestReportMessageId } from "../../../kernel/request-coordinator";
 import { createRouterClient } from "@orpc/server";
 import type {
 	TediRunStatus,
@@ -1213,12 +1214,13 @@ export async function reconcileHomeRunRowsFromChildStatus(
 			const nextProgressDetail = run.progress?.detail ?? null;
 			const nextCompletedAt = run.completedAt ?? null;
 			const nextUpdatedAt = run.updatedAt ?? row.updatedAt ?? row.createdAt;
-			// T1.3: on terminal reconcile, point outputMessageId at the async-completion
-			// assistant message that recordHomeDelegationCompletionMessage will write.
-			// Guard on delegatedTediId + childRunId — same precondition as that fn.
+			// The terminal execution points to its source report; request acceptance
+			// can still be pending after the child finishes.
 			const nextOutputMessageId =
 				terminal && row.delegatedTediId && row.childRunId
-					? asyncCompletionAssistantMessageId(row.id)
+					? typeof row.metadata?.kernelRequestId === "string"
+						? kernelRequestReportMessageId(row.id)
+						: asyncCompletionAssistantMessageId(row.id)
 					: (row.outputMessageId ?? null);
 			const nextRow = {
 				...row,
@@ -1861,6 +1863,24 @@ async function recordHomeDelegationCompletionMessage(
 	},
 ): Promise<void> {
 	if (!input.row.delegatedTediId || !input.row.childRunId) return;
+	if (typeof input.row.metadata?.kernelRequestId === "string") {
+		const { getHomeKernelRequest } =
+			await import("@tedix/db/queries/kernel-requests");
+		const request = await getHomeKernelRequest(
+			context.db,
+			input.row.organizationId,
+			input.row.id,
+		);
+		if (!request) throw new Error("Durable request ownership unavailable");
+		const { readKernelRequestPolicy, reconcileHomeKernelRequest } =
+			await import("../../../kernel/request-home-source");
+		const policy = await readKernelRequestPolicy(
+			context,
+			input.row.organizationId,
+		);
+		if (policy) await reconcileHomeKernelRequest(context, request, policy);
+		return;
+	}
 	const messageId = asyncCompletionAssistantMessageId(input.row.id);
 	// Relay-first (harness contract): the child's final assistant message IS
 	// the return value — deliver it verbatim, exactly like a subagent tool

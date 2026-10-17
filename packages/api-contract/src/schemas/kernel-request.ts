@@ -58,6 +58,7 @@ export const KernelRequestSnapshotSchema = z
 		briefRevision: z.number().int().nonnegative(),
 		checks: z.array(KernelAcceptanceCheckSchema).max(20),
 		acceptanceKey: z.string().nullable(),
+		probeAttempts: z.number().int().nonnegative().optional(),
 		observations: z.array(KernelAcceptanceObservationSchema).max(20),
 		outcome: z.enum(["verified", "failed", "unknown"]).nullable(),
 		delivery: z
@@ -72,3 +73,37 @@ export const KernelRequestSnapshotSchema = z
 	})
 	.strict();
 export type KernelRequestSnapshot = z.infer<typeof KernelRequestSnapshotSchema>;
+
+/** Operator-owned registry; requests select target IDs, never probe URLs or credentials. */
+export const KernelRequestPolicySchema = z
+	.object({
+		version: z.literal(1),
+		enabled: z.boolean(),
+		homeConversationIds: z.array(identity).max(100).optional(),
+		localSessionKeys: z.array(identity).max(100).optional(),
+		nextOwner: identity,
+		retryMs: z.number().int().min(1000).max(3_600_000),
+		probeTimeoutMs: z.number().int().min(100).max(30_000),
+		maxProbeAttempts: z.number().int().min(1).max(20),
+		runBudgetMs: z.number().int().min(100).max(30_000),
+		repositoryTargets: z
+			.array(
+				z
+					.object({
+						id: identity,
+						repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+						shipRepository: z
+							.string()
+							.regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+						workflowId: z.string().regex(/^[A-Za-z0-9_.-]+$/),
+						connectionInstanceId: identity.optional(),
+						surface: identity,
+						liveManifestUrl: z.url({ protocol: /^https$/ }),
+						maxAgeMs: z.number().int().min(1000).max(86_400_000),
+					})
+					.strict(),
+			)
+			.max(20),
+	})
+	.strict();
+export type KernelRequestPolicy = z.infer<typeof KernelRequestPolicySchema>;

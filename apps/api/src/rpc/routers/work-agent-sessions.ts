@@ -389,7 +389,13 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 			);
 		};
 		context.waitUntil?.(
-			processAgentSessionEvents(context.db, model, owner).catch(() => 0),
+			processAgentSessionEvents(context.db, model, owner, {
+				onRecorded: async (scope) => {
+					const { captureLocalKernelRequests } =
+						await import("../../kernel/request-local-source");
+					await captureLocalKernelRequests(context, scope);
+				},
+			}).catch(() => 0),
 		);
 		return result;
 	},
@@ -743,6 +749,25 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 	}),
 	fileRequest: writeOs.fileRequest.handler(async ({ input, context }) => {
 		const owner = requireBoardOwner(context);
+		if (input.acceptanceChecks && !input.workItemId)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Acceptance checks require canonical Work",
+			);
+		if (input.workItemId) {
+			const { getWorkItemById } =
+				await import("@tedix/db/queries/work-items/crud");
+			const work = await getWorkItemById(
+				context.db,
+				input.workItemId,
+				owner.organizationId,
+			);
+			if (!work || work.projectId !== input.projectId)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Work not found in the filed project",
+				);
+		}
 		if (input.projectId) {
 			const { attentionProjectExists } =
 				await import("@tedix/db/queries/work-attention");
@@ -761,6 +786,16 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			now: new Date().toISOString(),
 		});
 		if (!row) throw createError(ErrorCodes.NOT_FOUND, "Request not found");
+		if (input.workItemId) {
+			const { bindLocalKernelRequest } =
+				await import("../../kernel/request-local-source");
+			await bindLocalKernelRequest(
+				context,
+				row,
+				input.workItemId,
+				input.acceptanceChecks ?? [],
+			);
+		}
 		return { request: requestOutput(row) };
 	}),
 	report: reportProcedure,

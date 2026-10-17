@@ -1158,6 +1158,18 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		}
 	}
 
+	/** Existing maintenance invokes this independently of turn and execution settlement. */
+	async reconcileRequests(payload: {
+		organizationId: string;
+	}): Promise<number> {
+		const { reconcileDueHomeKernelRequests } =
+			await import("./request-home-source");
+		return reconcileDueHomeKernelRequests(
+			await this.turnContext(),
+			payload.organizationId,
+		);
+	}
+
 	/**
 	 * Scheduled progress-ledger sweep (see progress-ledger.ts for the decision
 	 * table). Public because the agents-SDK schedule callback is looked up by

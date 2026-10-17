@@ -1,4 +1,5 @@
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
+import { captureHomeKernelRequest } from "../../../kernel/request-home-source";
 import {
 	workstationDispatchIdentity,
 	inspectWorkstationDispatchAdmission,
@@ -240,6 +241,12 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			);
 		}
 		const runId = input.idempotencyKey ?? crypto.randomUUID();
+		const kernelRequestId = await captureHomeKernelRequest(context, {
+			organizationId,
+			runId,
+			conversationId,
+			checks: input.requestAcceptanceChecks,
+		});
 		// A `/skill <slug>` reference that resolves to nothing would produce an
 		// ordinary turn with a visible affordance that silently did nothing, and
 		// bill an LLM call for it. Refuse HERE, after authorization, naming the
@@ -753,6 +760,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		const rankingBudgetMs = metadata.rankingBudgetMs;
 		const runRowMetadata = {
 			source: "kernelRuntime.enqueueMessage",
+			...(kernelRequestId ? { kernelRequestId } : {}),
 			...(typeof promptTokenBudget === "number" &&
 			Number.isFinite(promptTokenBudget)
 				? { promptTokenBudget }

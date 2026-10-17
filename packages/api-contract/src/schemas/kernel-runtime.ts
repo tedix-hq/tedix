@@ -15,6 +15,10 @@ import {
 import { ModelRefSchema } from "./model-catalog";
 import { ExecutionRequirementSchema } from "./execution-evidence";
 import { JsonValueSchema } from "./common";
+import {
+	KernelAcceptanceCheckSchema,
+	KernelRequestSnapshotSchema,
+} from "./kernel-request";
 
 const RuntimeMetadataSchema = z.record(z.string(), z.unknown());
 
@@ -675,6 +679,10 @@ export const EnqueueHomeMessageInputSchema = z.object({
 	content: z.string(),
 	idempotencyKey: z.string().min(1).optional(),
 	delegateToTediId: z.string().optional(),
+	requestAcceptanceChecks: z
+		.array(KernelAcceptanceCheckSchema)
+		.max(20)
+		.optional(),
 	executionPolicy: KernelExecutionPolicySchema.default("normal").describe(
 		"Server-enforced authority ceiling. observe_only preserves the Kernel route decision but forbids attachments, delegation, approvals, writes, and workflow execution.",
 	),
@@ -971,6 +979,25 @@ export type HomeRunConvergenceHealth = z.infer<
  */
 export const HomeRunTraceSchema = z.object({
 	version: z.literal("home-run-trace.v1"),
+	request: z
+		.object({
+			id: z.string(),
+			version: z.number().int(),
+			nextOwner: z.string(),
+			nextAction: z.string(),
+			nextDueAt: z.string().nullable(),
+			snapshot: KernelRequestSnapshotSchema,
+			events: z.array(
+				z.object({
+					id: z.string(),
+					version: z.number().int(),
+					createdAt: z.string(),
+					snapshot: KernelRequestSnapshotSchema,
+				}),
+			),
+		})
+		.nullable()
+		.optional(),
 	organizationId: z.string(),
 	conversationId: z.string(),
 	homeRunId: z.string(),
