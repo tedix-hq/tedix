@@ -25,8 +25,8 @@ function clock(at, person) {
 						.slice(0, 10)
 				: date,
 		stamp: `${date} ${get("hour")}:${get("minute")} ${person.timeZone}`,
-		cycle: (minute >= start || minute < end) && minute % 15 <= 2,
-		brief: minute >= end && minute <= end + 2,
+		cycle: minute >= start || minute < end,
+		brief: minute >= end && minute < end + (person.briefGraceMinutes ?? 15),
 	};
 }
 function checked(result) {
@@ -164,7 +164,12 @@ export default {
 			!config.people.length
 		)
 			throw new Error("Configure workspaceId, projectIds and people");
-		const now = new Date();
+		const now =
+			config.probe === true
+				? new Date()
+				: new Date(
+						await step.do("clock", async () => new Date().toISOString()),
+					);
 		const slots = config.people.map((person) => ({
 			person,
 			...clock(now, person),
