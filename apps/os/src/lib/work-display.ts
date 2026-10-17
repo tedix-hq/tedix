@@ -1,3 +1,5 @@
+import type { FactoryScoreboardEntry } from "@tedix/api-contract/contracts/projects";
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
 
 /**
@@ -14,4 +16,10 @@ export function workPrincipalLabel(
 			: value
 		: "Unassigned";
 	return type ? `${type}:${identity}` : identity;
+}
+
+export function factoryHref(
+	row: Pick<FactoryScoreboardEntry, "kind" | "id">,
+): string {
+	return row.kind === "blueprint" ? "/blueprints" : `/skills/${row.id}/runs`;
 }

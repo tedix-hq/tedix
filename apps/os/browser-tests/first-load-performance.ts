@@ -2,7 +2,8 @@
  * Cold first-load measurements, using a fresh unauthenticated browser per sample.
  * Run the fixture dev server first. PERF_ASSETS_ROOT optionally serves a built
  * SPA while proxying its API calls to PERF_FIXTURES_ORIGIN (loopback only).
- * --live measures only the public sign-in journey; it never imports a profile.
+ * PERF_COMPRESS=1 mirrors gzip asset delivery; omit it for the legacy raw server.
+ * PERF_TARGET selects one route. --live never imports a browser profile.
  */
 import path from "node:path";
 import { gzipSync } from "node:zlib";
@@ -32,12 +33,23 @@ if (assets) {
 						request.method === "GET" ? undefined : await request.arrayBuffer(),
 				});
 			}
-			const file = Bun.file(path.join(assets, url.pathname));
-			return new Response(
-				(await file.exists())
-					? file
-					: Bun.file(path.join(assets, "index.html")),
-			);
+			const requested = Bun.file(path.join(assets, url.pathname));
+			const file = (await requested.exists())
+				? requested
+				: Bun.file(path.join(assets, "index.html"));
+			if (
+				process.env.PERF_COMPRESS === "1" &&
+				/\.(?:js|css|html)$/.test(file.name ?? "")
+			) {
+				return new Response(gzipSync(await file.arrayBuffer()), {
+					headers: {
+						"Content-Type": file.type,
+						"Content-Encoding": "gzip",
+						Vary: "Accept-Encoding",
+					},
+				});
+			}
+			return new Response(file);
 		},
 	});
 }
@@ -46,7 +58,7 @@ const targets = process.argv.includes("--live")
 	? [
 			{
 				name: "Live sign-in",
-				url: "https://tedix.os.tedix.dev",
+				url: process.env.PERF_LIVE_URL ?? "https://tedix.os.tedix.dev",
 				text: "Continue with Google",
 			},
 		]
@@ -72,13 +84,34 @@ const targets = process.argv.includes("--live")
 const browser = await chromium.launch({ headless: true });
 const results = [];
 try {
-	for (const target of targets) {
+	for (const target of targets.filter(
+		(target) =>
+			!process.env.PERF_TARGET || target.name === process.env.PERF_TARGET,
+	)) {
 		for (let run = 0; run < samples; run++) {
 			const context = await browser.newContext({
 				viewport: { width: 1440, height: 1000 },
 			});
 			try {
 				const page = await context.newPage();
+				await page.addInitScript(
+					({ text }) => {
+						const observer = new MutationObserver(() => {
+							const row = [
+								...document.querySelectorAll("[data-needs-you]"),
+							].find((node) => node.textContent?.includes(text));
+							if (!row || row.getBoundingClientRect().height === 0) return;
+							observer.disconnect();
+							requestAnimationFrame(() =>
+								requestAnimationFrame(() =>
+									performance.mark("needs-you-useful"),
+								),
+							);
+						});
+						observer.observe(document, { childList: true, subtree: true });
+					},
+					{ text: target.text },
+				);
 				const cdp = await context.newCDPSession(page);
 				await cdp.send("Network.enable");
 				await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
@@ -143,7 +176,17 @@ try {
 						.getEntriesByType("paint")
 						.map(({ name, startTime }) => ({ name, startTime })),
 				);
+				const resources = await page.evaluate(() =>
+					performance
+						.getEntriesByType("resource")
+						.map((entry) => entry.toJSON()),
+				);
+				const observedUsefulMs = await page.evaluate(
+					() => performance.getEntriesByName("needs-you-useful")[0]?.startTime,
+				);
 				const row = {
+					observedUsefulMs,
+					resources,
 					target: target.name,
 					run,
 					usefulMs,
@@ -166,6 +209,8 @@ try {
 				console.log(
 					JSON.stringify({
 						target: row.target,
+						observedUsefulMs,
+						scriptRequests: chunks.size,
 						run,
 						usefulMs,
 						jsBytes: row.jsBytes,

@@ -31,8 +31,8 @@ import {
 	SessionRequestsSection,
 	sessionRequestSource,
 } from "@/components/work-session-requests";
-import { officeAsk } from "@/components/work-office-page";
-import { factoryHref } from "@/components/work-portfolio-page";
+import { officeAsk } from "@/lib/work-interaction-display";
+import { factoryHref } from "@/lib/work-display";
 import { osApi } from "@/lib/api";
 import { osQueryKeys, workFleetQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
@@ -590,6 +590,8 @@ export function WorkNeedsYouPage() {
 			? "approvals"
 			: null,
 		sources.factories.isError ? "factories" : null,
+		sources.sessionRequests.isError ? "your requests" : null,
+		fleet.isError ? "organization attention" : null,
 		sources.readiness.isError || sources.profile.isError
 			? "blocked work"
 			: null,
@@ -597,7 +599,12 @@ export function WorkNeedsYouPage() {
 	const loading =
 		sources.interactions.isPending ||
 		sources.workApprovals.isPending ||
-		sources.runtimeApprovals.isPending;
+		sources.runtimeApprovals.isPending ||
+		sources.sessionRequests.isPending ||
+		sources.factories.isPending ||
+		sources.readiness.isPending ||
+		sources.profile.isPending ||
+		fleet.isPending;
 	const truncated = [
 		sources.interactions.data?.hasMore
 			? { label: "All open requests", href: "/work/interactions?state=open" }
@@ -617,9 +624,11 @@ export function WorkNeedsYouPage() {
 					<PageDescription>
 						{loading
 							? "Approvals, requests, failing factories and blocked Work that wait for you."
-							: count === 0
-								? "Nothing waits for you right now."
-								: `${count} ${count === 1 ? "thing waits" : "things wait"} for you: approvals, requests, failing factories and blocked Work.`}
+							: count === 0 && failed.length
+								? "Some sources could not be checked."
+								: count === 0
+									? "Nothing waits for you right now."
+									: `${count} ${count === 1 ? "thing waits" : "things wait"} for you: approvals, requests, failing factories and blocked Work.`}
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
@@ -637,9 +646,7 @@ export function WorkNeedsYouPage() {
 					{error instanceof Error ? error.message : "Unknown error"}
 				</Text>
 			) : null}
-			{loading ? (
-				<Skeleton className="h-40 w-full" aria-label="Loading Needs you" />
-			) : items.length ? (
+			{items.length ? (
 				<NeedsYouList
 					items={items}
 					busy={approve.isPending || handoff.isPending}
@@ -648,12 +655,19 @@ export function WorkNeedsYouPage() {
 						handoff.mutate({ requestId, version, accepted })
 					}
 				/>
-			) : (
+			) : loading ? null : (
 				<Text as="p" role="body" tone="secondary">
-					No approvals, requests, failing factories or blocked Work wait for
-					you.
+					{failed.length
+						? "No items in the sources that loaded."
+						: "No approvals, requests, failing factories or blocked Work wait for you."}
 				</Text>
 			)}
+			{loading ? (
+				<Skeleton
+					className="h-16 w-full"
+					aria-label="Loading remaining Needs you sources"
+				/>
+			) : null}
 			{truncated.length ? (
 				<Text as="p" role="label" tone="secondary">
 					More than shown here:{" "}

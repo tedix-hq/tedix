@@ -1,0 +1,2332 @@
+{
+	"baselineSha": "f011e9616e4b9ad4134e1698eac2e9566df624b6",
+	"observedAt": "2026-10-17T04:18:12.202822+00:00",
+	"conditions": {
+		"viewport": [1440, 1000],
+		"cpuSlowdown": 4,
+		"latencyMs": 40,
+		"downloadBytesPerSecond": 1250000,
+		"uploadBytesPerSecond": 625000,
+		"freshBrowserContextPerSample": true,
+		"cacheDisabled": true,
+		"observationWindowMs": 8000
+	},
+	"liveDeployedSha": "f011e9616e4b9ad4134e1698eac2e9566df624b6",
+	"liveRequestedUrl": "https://tedix.os.tedix.dev/work/needs-you",
+	"liveJourney": "redirect to public sign-in; authenticated inbox not observed",
+	"beforeGzip": [
+		{
+			"target": "Needs you",
+			"run": 0,
+			"harnessElapsedMs": 2024,
+			"browserUsefulPaintMs": 1991.9,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 542.3,
+					"endMs": 1744.9,
+					"durationMs": 1202.6
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 543.2,
+					"endMs": 1754.4,
+					"durationMs": 1211.2
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 543.2,
+					"endMs": 1780.7,
+					"durationMs": 1237.5
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 543.2,
+					"endMs": 1790.5,
+					"durationMs": 1247.3
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1973.5,
+					"endMs": 2028.2,
+					"durationMs": 54.7
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1973.6,
+					"endMs": 2028.8,
+					"durationMs": 55.2
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1974.1,
+					"endMs": 2030.3,
+					"durationMs": 56.2
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 1974.1,
+					"endMs": 2031.5,
+					"durationMs": 57.4
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1974.2,
+					"endMs": 2032.7,
+					"durationMs": 58.5
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1974.7,
+					"endMs": 2034.1,
+					"durationMs": 59.4
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1974.8,
+					"endMs": 2078.5,
+					"durationMs": 103.7
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1975.2,
+					"endMs": 2079.4,
+					"durationMs": 104.2
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2748.9,
+					"endMs": 2803.5,
+					"durationMs": 54.6
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 3035.8,
+					"endMs": 3090,
+					"durationMs": 54.2
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 3036.9,
+					"endMs": 3091.3,
+					"durationMs": 54.4
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4806,
+					"endMs": 4856.2,
+					"durationMs": 50.2
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 5092.2,
+					"endMs": 5144.2,
+					"durationMs": 52
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 5093.2,
+					"endMs": 5145.7,
+					"durationMs": 52.5
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 1,
+			"harnessElapsedMs": 2025,
+			"browserUsefulPaintMs": 1990.5,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 552.1,
+					"endMs": 1751,
+					"durationMs": 1198.9
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 552.6,
+					"endMs": 1759.6,
+					"durationMs": 1207
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 552.7,
+					"endMs": 1783.8,
+					"durationMs": 1231.1
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 552.8,
+					"endMs": 1790.9,
+					"durationMs": 1238.1
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1961.8,
+					"endMs": 2016.2,
+					"durationMs": 54.4
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1961.9,
+					"endMs": 2017.2,
+					"durationMs": 55.3
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1962.7,
+					"endMs": 2018.6,
+					"durationMs": 55.9
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 1962.7,
+					"endMs": 2020.2,
+					"durationMs": 57.5
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1962.7,
+					"endMs": 2021,
+					"durationMs": 58.3
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1963.4,
+					"endMs": 2022.2,
+					"durationMs": 58.8
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1963.4,
+					"endMs": 2065.4,
+					"durationMs": 102
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1963.7,
+					"endMs": 2066.6,
+					"durationMs": 102.9
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2755.7,
+					"endMs": 2807.2,
+					"durationMs": 51.5
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 3025.1,
+					"endMs": 3078.6,
+					"durationMs": 53.5
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 3027.6,
+					"endMs": 3079.5,
+					"durationMs": 51.9
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4810.2,
+					"endMs": 4861.5,
+					"durationMs": 51.3
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 5081,
+					"endMs": 5132.6,
+					"durationMs": 51.6
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 5082,
+					"endMs": 5134,
+					"durationMs": 52
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 2,
+			"harnessElapsedMs": 2068,
+			"browserUsefulPaintMs": 2023.2,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 550.4,
+					"endMs": 1755.8,
+					"durationMs": 1205.4
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 550.5,
+					"endMs": 1768.2,
+					"durationMs": 1217.7
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 550.9,
+					"endMs": 1793.4,
+					"durationMs": 1242.5
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 551,
+					"endMs": 1803,
+					"durationMs": 1252
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1993,
+					"endMs": 2046.2,
+					"durationMs": 53.2
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1993.1,
+					"endMs": 2047.7,
+					"durationMs": 54.6
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1993.2,
+					"endMs": 2048.6,
+					"durationMs": 55.4
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 1993.9,
+					"endMs": 2050,
+					"durationMs": 56.1
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1994,
+					"endMs": 2051.1,
+					"durationMs": 57.1
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1994,
+					"endMs": 2052.3,
+					"durationMs": 58.3
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1994,
+					"endMs": 2096.9,
+					"durationMs": 102.9
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1994.8,
+					"endMs": 2097.7,
+					"durationMs": 102.9
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2762.8,
+					"endMs": 2813.1,
+					"durationMs": 50.3
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 3056.8,
+					"endMs": 3108.3,
+					"durationMs": 51.5
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 3057.6,
+					"endMs": 3109.8,
+					"durationMs": 52.2
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4815.3,
+					"endMs": 4862.6,
+					"durationMs": 47.3
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 5110.8,
+					"endMs": 5162.5,
+					"durationMs": 51.7
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 5111.5,
+					"endMs": 5164.3,
+					"durationMs": 52.8
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 3,
+			"harnessElapsedMs": 1991,
+			"browserUsefulPaintMs": 1960.2,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 532.7,
+					"endMs": 1723.5,
+					"durationMs": 1190.8
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 533.7,
+					"endMs": 1733.1,
+					"durationMs": 1199.4
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 533.8,
+					"endMs": 1759.8,
+					"durationMs": 1226
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 533.8,
+					"endMs": 1769.3,
+					"durationMs": 1235.5
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1932.7,
+					"endMs": 1982.6,
+					"durationMs": 49.9
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1932.9,
+					"endMs": 1983.8,
+					"durationMs": 50.9
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1933.5,
+					"endMs": 1985.1,
+					"durationMs": 51.6
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 1933.6,
+					"endMs": 1986.5,
+					"durationMs": 52.9
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1933.7,
+					"endMs": 1987.5,
+					"durationMs": 53.8
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1933.7,
+					"endMs": 1988.7,
+					"durationMs": 55
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1933.8,
+					"endMs": 2033.4,
+					"durationMs": 99.6
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1933.8,
+					"endMs": 2034.2,
+					"durationMs": 100.4
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2729.1,
+					"endMs": 2778.6,
+					"durationMs": 49.5
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 2992.9,
+					"endMs": 3044.8,
+					"durationMs": 51.9
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 2994.2,
+					"endMs": 3045.7,
+					"durationMs": 51.5
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4782,
+					"endMs": 4836.4,
+					"durationMs": 54.4
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 5047.4,
+					"endMs": 5099.1,
+					"durationMs": 51.7
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 5048,
+					"endMs": 5100.4,
+					"durationMs": 52.4
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 4,
+			"harnessElapsedMs": 1990,
+			"browserUsefulPaintMs": 1966.3,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 536.8,
+					"endMs": 1728.5,
+					"durationMs": 1191.7
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 536.8,
+					"endMs": 1736.5,
+					"durationMs": 1199.7
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 536.8,
+					"endMs": 1762.3,
+					"durationMs": 1225.5
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 537.4,
+					"endMs": 1772.7,
+					"durationMs": 1235.3
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1948.3,
+					"endMs": 1998.3,
+					"durationMs": 50
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1949.1,
+					"endMs": 1999.7,
+					"durationMs": 50.6
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1949.2,
+					"endMs": 2000.5,
+					"durationMs": 51.3
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 1949.3,
+					"endMs": 2001.9,
+					"durationMs": 52.6
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1949.9,
+					"endMs": 2003.3,
+					"durationMs": 53.4
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1950,
+					"endMs": 2004.3,
+					"durationMs": 54.3
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1950.1,
+					"endMs": 2047.3,
+					"durationMs": 97.2
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1950.1,
+					"endMs": 2048.9,
+					"durationMs": 98.8
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2732.7,
+					"endMs": 2785.3,
+					"durationMs": 52.6
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 3006.9,
+					"endMs": 3057,
+					"durationMs": 50.1
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 3008.4,
+					"endMs": 3058,
+					"durationMs": 49.6
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4787.6,
+					"endMs": 4839.8,
+					"durationMs": 52.2
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 5059.7,
+					"endMs": 5111,
+					"durationMs": 51.3
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 5059.9,
+					"endMs": 5112.4,
+					"durationMs": 52.5
+				}
+			]
+		}
+	],
+	"afterGzip": [
+		{
+			"target": "Needs you",
+			"run": 0,
+			"harnessElapsedMs": 1516,
+			"browserUsefulPaintMs": 1267.8,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 512.8,
+					"endMs": 1025.8,
+					"durationMs": 513
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 513.2,
+					"endMs": 1032.9,
+					"durationMs": 519.7
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 513.2,
+					"endMs": 1028.7,
+					"durationMs": 515.5
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 513.3,
+					"endMs": 1030.7,
+					"durationMs": 517.4
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 513.3,
+					"endMs": 1074.4,
+					"durationMs": 561.1
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1168.7,
+					"endMs": 1210.6,
+					"durationMs": 41.9
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1169.6,
+					"endMs": 1214.2,
+					"durationMs": 44.6
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1169.8,
+					"endMs": 1227.4,
+					"durationMs": 57.6
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1169.9,
+					"endMs": 1229.1,
+					"durationMs": 59.2
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1170.3,
+					"endMs": 1229.9,
+					"durationMs": 59.6
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1170.3,
+					"endMs": 1247.9,
+					"durationMs": 77.6
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1170.4,
+					"endMs": 1256.3,
+					"durationMs": 85.9
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2033,
+					"endMs": 2087.2,
+					"durationMs": 54.2
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 2278,
+					"endMs": 2327.9,
+					"durationMs": 49.9
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 2279,
+					"endMs": 2329.5,
+					"durationMs": 50.5
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4090,
+					"endMs": 4140.1,
+					"durationMs": 50.1
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 4330.5,
+					"endMs": 4383.6,
+					"durationMs": 53.1
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 4332.7,
+					"endMs": 4384.9,
+					"durationMs": 52.2
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 1,
+			"harnessElapsedMs": 1490,
+			"browserUsefulPaintMs": 1186.3,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 483.8,
+					"endMs": 992.7,
+					"durationMs": 508.9
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 483.9,
+					"endMs": 995.1,
+					"durationMs": 511.2
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 483.9,
+					"endMs": 1000.1,
+					"durationMs": 516.2
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 484,
+					"endMs": 997.7,
+					"durationMs": 513.7
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 484.1,
+					"endMs": 1041.8,
+					"durationMs": 557.7
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1112.8,
+					"endMs": 1159.8,
+					"durationMs": 47
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1113.4,
+					"endMs": 1162,
+					"durationMs": 48.6
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1113.8,
+					"endMs": 1194.3,
+					"durationMs": 80.5
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1113.9,
+					"endMs": 1195.9,
+					"durationMs": 82
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1113.9,
+					"endMs": 1196.8,
+					"durationMs": 82.9
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1114.5,
+					"endMs": 1199.1,
+					"durationMs": 84.6
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1114.6,
+					"endMs": 1202.9,
+					"durationMs": 88.3
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 1997.2,
+					"endMs": 2048.6,
+					"durationMs": 51.4
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 2241.7,
+					"endMs": 2291.3,
+					"durationMs": 49.6
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 2250.2,
+					"endMs": 2294.9,
+					"durationMs": 44.7
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4050.1,
+					"endMs": 4103,
+					"durationMs": 52.9
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 4294,
+					"endMs": 4345.8,
+					"durationMs": 51.8
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 4296.6,
+					"endMs": 4346.9,
+					"durationMs": 50.3
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 2,
+			"harnessElapsedMs": 1510,
+			"browserUsefulPaintMs": 1219.3,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 499.1,
+					"endMs": 1016.6,
+					"durationMs": 517.5
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 499.1,
+					"endMs": 1024.1,
+					"durationMs": 525
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 500.1,
+					"endMs": 1019.4,
+					"durationMs": 519.3
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 500.1,
+					"endMs": 1020.3,
+					"durationMs": 520.2
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 500.5,
+					"endMs": 1068.2,
+					"durationMs": 567.7
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1144.9,
+					"endMs": 1187,
+					"durationMs": 42.1
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1145.4,
+					"endMs": 1190.5,
+					"durationMs": 45.1
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1145.4,
+					"endMs": 1217.1,
+					"durationMs": 71.7
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1145.4,
+					"endMs": 1218.7,
+					"durationMs": 73.3
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1146.1,
+					"endMs": 1219.7,
+					"durationMs": 73.6
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1146.4,
+					"endMs": 1227.9,
+					"durationMs": 81.5
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1146.4,
+					"endMs": 1233,
+					"durationMs": 86.6
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2020.3,
+					"endMs": 2071.6,
+					"durationMs": 51.3
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 2284.4,
+					"endMs": 2336.6,
+					"durationMs": 52.2
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 2292.7,
+					"endMs": 2338.3,
+					"durationMs": 45.6
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4073.1,
+					"endMs": 4124.5,
+					"durationMs": 51.4
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 4339.5,
+					"endMs": 4390.1,
+					"durationMs": 50.6
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 4340.5,
+					"endMs": 4391.2,
+					"durationMs": 50.7
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 3,
+			"harnessElapsedMs": 1508,
+			"browserUsefulPaintMs": 1180.5,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 484.2,
+					"endMs": 983.1,
+					"durationMs": 498.9
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 484.3,
+					"endMs": 990.5,
+					"durationMs": 506.2
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 484.7,
+					"endMs": 985.8,
+					"durationMs": 501.1
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 484.8,
+					"endMs": 986.6,
+					"durationMs": 501.8
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 484.8,
+					"endMs": 1031.2,
+					"durationMs": 546.4
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1102.2,
+					"endMs": 1143.9,
+					"durationMs": 41.7
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1102.6,
+					"endMs": 1147.6,
+					"durationMs": 45
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1102.7,
+					"endMs": 1176.4,
+					"durationMs": 73.7
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1102.7,
+					"endMs": 1177.6,
+					"durationMs": 74.9
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1102.8,
+					"endMs": 1178.9,
+					"durationMs": 76.1
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1102.8,
+					"endMs": 1186.2,
+					"durationMs": 83.4
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1103.8,
+					"endMs": 1187,
+					"durationMs": 83.2
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 1987.4,
+					"endMs": 2039.3,
+					"durationMs": 51.9
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 2242.6,
+					"endMs": 2297.4,
+					"durationMs": 54.8
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 2249.7,
+					"endMs": 2298.6,
+					"durationMs": 48.9
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4042.5,
+					"endMs": 4097.5,
+					"durationMs": 55
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 4299.9,
+					"endMs": 4352,
+					"durationMs": 52.1
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 4300.6,
+					"endMs": 4352.9,
+					"durationMs": 52.3
+				}
+			]
+		},
+		{
+			"target": "Needs you",
+			"run": 4,
+			"harnessElapsedMs": 1490,
+			"browserUsefulPaintMs": 1187.8,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": [],
+			"apiTimings": [
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 482.8,
+					"endMs": 996.4,
+					"durationMs": 513.6
+				},
+				{
+					"path": "rpc/workInteractions/listInbox",
+					"startMs": 482.8,
+					"endMs": 1003.8,
+					"durationMs": 521
+				},
+				{
+					"path": "rpc/workAgentSessions/listRequests",
+					"startMs": 482.9,
+					"endMs": 998.8,
+					"durationMs": 515.9
+				},
+				{
+					"path": "rpc/workApprovals/listInbox",
+					"startMs": 482.9,
+					"endMs": 1001.3,
+					"durationMs": 518.4
+				},
+				{
+					"path": "rpc/tediApprovals/list",
+					"startMs": 483.6,
+					"endMs": 1044.6,
+					"durationMs": 561
+				},
+				{
+					"path": "rpc/projects/getFactoryScoreboard",
+					"startMs": 1116.4,
+					"endMs": 1158.4,
+					"durationMs": 42
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 1116.5,
+					"endMs": 1162.2,
+					"durationMs": 45.7
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 1117,
+					"endMs": 1191.1,
+					"durationMs": 74.1
+				},
+				{
+					"path": "rpc/osWorkspaces/workspaces/list",
+					"startMs": 1117,
+					"endMs": 1192.2,
+					"durationMs": 75.2
+				},
+				{
+					"path": "rpc/osWorkspaces/workspacePreferences/list",
+					"startMs": 1117.1,
+					"endMs": 1193.3,
+					"durationMs": 76.2
+				},
+				{
+					"path": "rpc/userSettings/getContext",
+					"startMs": 1117.1,
+					"endMs": 1201.6,
+					"durationMs": 84.5
+				},
+				{
+					"path": "rpc/userSettings/getPreferences",
+					"startMs": 1117.2,
+					"endMs": 1203.1,
+					"durationMs": 85.9
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 2000.5,
+					"endMs": 2052.3,
+					"durationMs": 51.8
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 2242.5,
+					"endMs": 2289.9,
+					"durationMs": 47.4
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 2250.7,
+					"endMs": 2295.9,
+					"durationMs": 45.2
+				},
+				{
+					"path": "rpc/workFleet/getControlTower",
+					"startMs": 4054.4,
+					"endMs": 4106.7,
+					"durationMs": 52.3
+				},
+				{
+					"path": "rpc/workItems/listReadinessProjection",
+					"startMs": 4292.1,
+					"endMs": 4341,
+					"durationMs": 48.9
+				},
+				{
+					"path": "rpc/userProfile/getMine",
+					"startMs": 4297.2,
+					"endMs": 4342.2,
+					"durationMs": 45
+				}
+			]
+		}
+	],
+	"afterRaw": [
+		{
+			"target": "Needs you",
+			"run": 0,
+			"harnessElapsedMs": 2074,
+			"browserUsefulPaintMs": 1984.8,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": []
+		},
+		{
+			"target": "Needs you",
+			"run": 1,
+			"harnessElapsedMs": 2067,
+			"browserUsefulPaintMs": 1983.2,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": []
+		},
+		{
+			"target": "Needs you",
+			"run": 2,
+			"harnessElapsedMs": 2030,
+			"browserUsefulPaintMs": 1950.6,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": []
+		}
+	],
+	"live": [
+		{
+			"target": "Live sign-in",
+			"run": 0,
+			"harnessElapsedMs": 2635,
+			"browserUsefulPaintMs": null,
+			"scriptRequests": 64,
+			"jsBytes": 1207170,
+			"normalizedGzipBytes": 396012,
+			"apiAttempts": {},
+			"apiFailures": [],
+			"pageErrors": []
+		},
+		{
+			"target": "Live sign-in",
+			"run": 1,
+			"harnessElapsedMs": 2090,
+			"browserUsefulPaintMs": null,
+			"scriptRequests": 64,
+			"jsBytes": 1207170,
+			"normalizedGzipBytes": 396012,
+			"apiAttempts": {},
+			"apiFailures": [],
+			"pageErrors": []
+		},
+		{
+			"target": "Live sign-in",
+			"run": 2,
+			"harnessElapsedMs": 1926,
+			"browserUsefulPaintMs": null,
+			"scriptRequests": 64,
+			"jsBytes": 1207170,
+			"normalizedGzipBytes": 396012,
+			"apiAttempts": {},
+			"apiFailures": [],
+			"pageErrors": []
+		}
+	],
+	"routeSmoke": [
+		{
+			"target": "Workspaces",
+			"run": 0,
+			"harnessElapsedMs": 1509,
+			"browserUsefulPaintMs": null,
+			"scriptRequests": 80,
+			"jsBytes": 1686169,
+			"normalizedGzipBytes": 537753,
+			"apiAttempts": {
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": []
+		},
+		{
+			"target": "Needs you",
+			"run": 0,
+			"harnessElapsedMs": 1507,
+			"browserUsefulPaintMs": 1166.9,
+			"scriptRequests": 71,
+			"jsBytes": 1577955,
+			"normalizedGzipBytes": 506664,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workAgentSessions/listRequests",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workApprovals/listInbox",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workFleet/getControlTower",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/workItems/listReadinessProjection",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/userProfile/getMine",
+					"status": 404
+				}
+			],
+			"pageErrors": []
+		},
+		{
+			"target": "Card review",
+			"run": 0,
+			"harnessElapsedMs": 2108,
+			"browserUsefulPaintMs": null,
+			"scriptRequests": 120,
+			"jsBytes": 2748770,
+			"normalizedGzipBytes": 870329,
+			"apiAttempts": {
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/gadgets/list": 1,
+				"POST /api/rpc/osWorkspaces/outputs/list": 1,
+				"POST /api/rpc/kernelRuntime/readRunSet": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/osCompute/posture": 1,
+				"POST /api/rpc/osWorkspaces/schedules/list": 1,
+				"POST /api/rpc/kernelRuntime/listConversations": 1,
+				"POST /api/rpc/tedis/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/modelCatalog/list": 3,
+				"POST /api/rpc/osWorkspaces/outputs/library": 1,
+				"POST /api/rpc/osWorkspaces/resources/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/touch": 1,
+				"POST /api/rpc/osWorkspaces/gadgets/get": 2,
+				"POST /api/rpc/osWorkspaces/outputs/get": 2,
+				"POST /api/rpc/osWorkspaces/collaboration/list": 1
+			},
+			"apiFailures": [
+				{
+					"path": "/api/rpc/modelCatalog/list",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/modelCatalog/list",
+					"status": 404
+				},
+				{
+					"path": "/api/rpc/modelCatalog/list",
+					"status": 404
+				}
+			],
+			"pageErrors": []
+		}
+	],
+	"beforeRaw": [
+		{
+			"harnessElapsedMs": 2968,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"pageErrors": []
+		},
+		{
+			"harnessElapsedMs": 2926,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"pageErrors": []
+		},
+		{
+			"harnessElapsedMs": 2915,
+			"scriptRequests": 179,
+			"jsBytes": 2064623,
+			"normalizedGzipBytes": 680440,
+			"apiAttempts": {
+				"POST /api/rpc/workFleet/getControlTower": 3,
+				"POST /api/rpc/workInteractions/listInbox": 1,
+				"POST /api/rpc/workApprovals/listInbox": 1,
+				"POST /api/rpc/tediApprovals/list": 1,
+				"POST /api/rpc/projects/getFactoryScoreboard": 1,
+				"POST /api/rpc/workItems/listReadinessProjection": 3,
+				"POST /api/rpc/userProfile/getMine": 3,
+				"POST /api/rpc/workAgentSessions/listRequests": 1,
+				"POST /api/rpc/osWorkspaces/workspaces/list": 1,
+				"POST /api/rpc/osWorkspaces/workspacePreferences/list": 1,
+				"POST /api/rpc/userSettings/getContext": 1,
+				"POST /api/rpc/userSettings/getPreferences": 1
+			},
+			"pageErrors": []
+		}
+	],
+	"uiSmoke": [
+		{
+			"kind": "palette",
+			"paletteInitiallyLoaded": false,
+			"loadedOnOpen": true,
+			"errors": []
+		},
+		{
+			"kind": "sheet",
+			"editorScripts": [
+				"/assets/output-editor-sheet-Dc_mSBWj.js",
+				"/assets/output-editor-toolbar-Do8dfWJB.js"
+			],
+			"errors": []
+		},
+		{
+			"kind": "slides",
+			"editorScripts": [
+				"/assets/output-editor-slides-55TgjbK2.js",
+				"/assets/output-editor-toolbar-Do8dfWJB.js"
+			],
+			"errors": []
+		}
+	]
+}

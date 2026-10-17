@@ -1,3 +1,4 @@
+import { factoryHref } from "@/lib/work-display";
 import type {
 	FactoryScoreboardEntry,
 	Project,
@@ -241,12 +242,6 @@ export function isIdleTemplate(row: FactoryScoreboardEntry): boolean {
 
 function counted(count: number, noun: string): string {
 	return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
-export function factoryHref(
-	row: Pick<FactoryScoreboardEntry, "kind" | "id">,
-): string {
-	return row.kind === "blueprint" ? "/blueprints" : `/skills/${row.id}/runs`;
 }
 
 function resultHref(result: NonNullable<FactoryScoreboardEntry["lastResult"]>) {

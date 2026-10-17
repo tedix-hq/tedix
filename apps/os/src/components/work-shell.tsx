@@ -20,8 +20,14 @@ import {
 	SelectValue,
 } from "@/components/kumo/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
-import { useWorkWebMcpTools } from "@/components/work-webmcp-tools";
+import { lazy, Suspense } from "react";
 import { cn } from "@/lib/utils";
+
+const WorkWebMcpTools = lazy(() =>
+	import("@/components/work-webmcp-tools").then((module) => ({
+		default: module.WorkWebMcpTools,
+	})),
+);
 
 export type WorkSection = {
 	/** Unique id; also the mobile picker's value. */
@@ -166,7 +172,6 @@ function SectionLink({
 }
 
 export function WorkShell() {
-	useWorkWebMcpTools();
 	const navigate = useNavigate();
 	const location = useRouterState({
 		select: (state) => ({
@@ -187,6 +192,9 @@ export function WorkShell() {
 		);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
+			<Suspense fallback={null}>
+				<WorkWebMcpTools />
+			</Suspense>
 			<div className="border-kumo-line border-b px-4 py-2 sm:hidden">
 				<Select
 					value={activeSection.id}

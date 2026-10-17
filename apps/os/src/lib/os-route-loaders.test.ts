@@ -30,6 +30,7 @@ const api = vi.hoisted(() => ({
 	listApprovals: vi.fn(),
 	listInteractions: vi.fn(),
 	listWorkApprovals: vi.fn(),
+	listSessionRequests: vi.fn(),
 	listWorkItems: vi.fn(),
 	listReadinessProjection: vi.fn(),
 	getControlTower: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock("@/lib/api", () => ({
 		tediApprovals: { list: api.listApprovals },
 		workInteractions: { listInbox: api.listInteractions },
 		workApprovals: { listInbox: api.listWorkApprovals },
+		workAgentSessions: { listRequests: api.listSessionRequests },
 		workItems: {
 			list: api.listWorkItems,
 			listReadinessProjection: api.listReadinessProjection,
@@ -158,6 +160,8 @@ import {
 	workflowRunInspectQueryOptions,
 	workFleetQueryOptions,
 	workNeedsYouInteractionsQueryOptions,
+	workPendingApprovalsQueryOptions,
+	agentSessionRequestsQueryOptions,
 	projectPortfolioQueryOptions,
 	workReadinessProjectionQueryOptions,
 	workAttemptProjectionQueryOptions,
@@ -176,6 +180,7 @@ function client() {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	api.listSessionRequests.mockResolvedValue({ data: [] });
 	api.listWorkspaces.mockResolvedValue({ items: [], truncated: false });
 	api.listGadgets.mockResolvedValue({ items: [], truncated: false });
 	api.listOutputs.mockResolvedValue({ items: [], truncated: false });
@@ -744,24 +749,45 @@ describe("list-route prefetchers", () => {
 });
 
 describe("Needs you first paint", () => {
-	it("renders personal requests while the shared organization read is pending", async () => {
+	it("shares pending approval, ledger and fleet reads without blocking ready questions", async () => {
 		const queryClient = client();
 		let resolveFleet!: (value: unknown) => void;
+		let resolveApprovals!: (value: unknown) => void;
+		let resolveLedger!: (value: unknown) => void;
 		api.getControlTower.mockImplementationOnce(
 			() =>
 				new Promise((resolve) => {
 					resolveFleet = resolve;
 				}),
 		);
-		await prefetchWorkNeedsYouRoute(queryClient);
-		expect(
-			queryClient.getQueryData(workNeedsYouInteractionsQueryOptions().queryKey),
-		).toEqual({ data: [] });
+		api.listWorkApprovals.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveApprovals = resolve;
+				}),
+		);
+		api.listSessionRequests.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveLedger = resolve;
+				}),
+		);
+		expect(prefetchWorkNeedsYouRoute(queryClient)).toBeUndefined();
+		await expect(
+			queryClient.ensureQueryData(workNeedsYouInteractionsQueryOptions()),
+		).resolves.toEqual({ data: [] });
+		const fleet = queryClient.fetchQuery(workFleetQueryOptions());
+		const approvals = queryClient.fetchQuery(
+			workPendingApprovalsQueryOptions(),
+		);
+		const ledger = queryClient.fetchQuery(agentSessionRequestsQueryOptions());
 		expect(api.getControlTower).toHaveBeenCalledTimes(1);
-		const pageRead = queryClient.fetchQuery(workFleetQueryOptions());
-		expect(api.getControlTower).toHaveBeenCalledTimes(1);
+		expect(api.listWorkApprovals).toHaveBeenCalledTimes(1);
+		expect(api.listSessionRequests).toHaveBeenCalledTimes(1);
 		resolveFleet({ attention: { actions: [] } });
-		await expect(pageRead).resolves.toEqual({ attention: { actions: [] } });
+		resolveApprovals({ data: [] });
+		resolveLedger({ data: [] });
+		await Promise.all([fleet, approvals, ledger]);
 		queryClient.clear();
 	});
 });

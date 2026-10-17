@@ -96,10 +96,7 @@ export function useNeedsYouSources() {
 	const factories = useQuery(factoryScoreboardQueryOptions());
 	const readiness = useQuery(workReadinessProjectionQueryOptions());
 	const profile = useQuery(userProfileQueryOptions());
-	const sessionRequests = useQuery({
-		...agentSessionRequestsQueryOptions(),
-		retry: false,
-	});
+	const sessionRequests = useQuery(agentSessionRequestsQueryOptions());
 	return {
 		interactions,
 		workApprovals,

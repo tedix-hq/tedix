@@ -1,3 +1,7 @@
+import {
+	interactionSubject,
+	decisionCaptureSummary,
+} from "@/lib/work-interaction-display";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -43,8 +47,6 @@ import {
 	SchedulerTruncationWarnings,
 	useCursorPaging,
 	urgentInteractionSummary,
-	decisionCaptureSummary,
-	interactionSubject,
 	groupSessionQuestions,
 } from "./work-operations-pages";
 import {

@@ -15,6 +15,7 @@ import {
 	paymentsSummaryInput,
 } from "@/lib/admin-payments-search";
 import {
+	agentSessionRequestsQueryOptions,
 	activeOutputLibraryQueryOptions,
 	appListQueryOptions,
 	activeWorkspacesQueryOptions,
@@ -772,17 +773,13 @@ export async function prefetchWorkInteractionsRoute(queryClient: QueryClient) {
 		.catch(() => undefined);
 }
 
-/** Needs you reads the same sources as the sidebar count, plus organization pressure. */
-export async function prefetchWorkNeedsYouRoute(queryClient: QueryClient) {
-	// Organization pressure is supplementary. Keep its read in flight for the
-	// page to share rather than blocking personal requests on it (and retrying
-	// a failed read again on mount).
+/** Start independent sources together; the page renders each as it arrives. */
+export function prefetchWorkNeedsYouRoute(queryClient: QueryClient) {
 	void queryClient.prefetchQuery(workFleetQueryOptions());
-	await Promise.allSettled([
-		queryClient.ensureQueryData(workNeedsYouInteractionsQueryOptions()),
-		queryClient.ensureQueryData(workPendingApprovalsQueryOptions()),
-		queryClient.ensureQueryData(pendingApprovalsQueryOptions()),
-	]);
+	void queryClient.prefetchQuery(workNeedsYouInteractionsQueryOptions());
+	void queryClient.prefetchQuery(agentSessionRequestsQueryOptions());
+	void queryClient.prefetchQuery(workPendingApprovalsQueryOptions());
+	void queryClient.prefetchQuery(pendingApprovalsQueryOptions());
 }
 
 export async function prefetchWorkCapacityRoute(queryClient: QueryClient) {

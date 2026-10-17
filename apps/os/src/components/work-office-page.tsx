@@ -1,3 +1,7 @@
+import {
+	officeAsk,
+	decisionCaptureSummary,
+} from "@/lib/work-interaction-display";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
@@ -32,11 +36,7 @@ import {
 import { OfficeLeaderboard } from "@/components/office-leaderboard";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
-import {
-	answerDeliveryLine,
-	decisionCaptureSummary,
-	interactionSubject,
-} from "@/components/work-operations-pages";
+import { answerDeliveryLine } from "@/components/work-operations-pages";
 import { latestDraftOf } from "@/components/work-interaction-draft";
 import {
 	captureHealthQueryOptions,
@@ -109,26 +109,6 @@ function attentionOf(metadata: unknown): unknown {
 	const attention = (metadata as { attention?: { kind?: unknown } } | null)
 		?.attention;
 	return attention?.kind;
-}
-
-/**
- * The one line a person needs: the interaction's "What's needed from you"
- * when it carries one, else its subject without the "repo · host waiting:"
- * prefix every decision-capture subject starts with.
- */
-export function officeAsk(request: {
-	subject: string;
-	metadata?: unknown;
-	neededFromYou?: unknown;
-}): string {
-	const meta =
-		typeof request.metadata === "object" && request.metadata !== null
-			? (request.metadata as Record<string, unknown>)
-			: {};
-	const needed = request.neededFromYou ?? meta.neededFromYou;
-	if (typeof needed === "string" && needed.trim()) return needed.trim();
-	const subject = interactionSubject(request);
-	return subject.replace(/^[^:]{0,80}\bwaiting:\s*/i, "") || subject;
 }
 
 export const NOTEBOOK_SUBJECTS = [

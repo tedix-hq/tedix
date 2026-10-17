@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	agentSessionRequestsQueryOptions,
 	factoryScoreboardQueryOptions,
 	pendingApprovalsQueryOptions,
 	userProfileQueryOptions,
@@ -267,8 +268,43 @@ describe("WorkNeedsYouPage", () => {
 			observedAt: "2026-10-16T00:00:00.000Z",
 			attention: { actions: [] },
 		} as never);
+		client.setQueryData(agentSessionRequestsQueryOptions().queryKey, {
+			data: [],
+		});
 		return client;
 	}
+
+	it("keeps ready questions visible while approvals and the request ledger load", () => {
+		const client = seeded();
+		client.removeQueries({ queryKey: pendingApprovalsQueryOptions().queryKey });
+		client.removeQueries({
+			queryKey: agentSessionRequestsQueryOptions().queryKey,
+		});
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<WorkNeedsYouPage />
+			</QueryClientProvider>,
+		);
+		expect(html).toContain("Which fare table applies in winter?");
+		expect(html).toContain("Loading remaining Needs you sources");
+		expect(html).not.toContain("Nothing waits for you right now.");
+	});
+
+	it("does not report an empty inbox before any source has answered", () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<WorkNeedsYouPage />
+			</QueryClientProvider>,
+		);
+		expect(html).toContain("Loading remaining Needs you sources");
+		expect(html).not.toContain("Nothing waits for you right now.");
+		expect(html).not.toContain(
+			"No approvals, requests, failing factories or blocked Work wait for you.",
+		);
+	});
 
 	it("shows a pending onboarding proposal and an approval in one list with their actions", () => {
 		const doc = new DOMParser().parseFromString(

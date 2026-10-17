@@ -697,6 +697,8 @@ export const workAgentSessionsQueryOptions = () =>
 export const agentSessionRequestsQueryOptions = () =>
 	osQuery.workAgentSessions.listRequests.queryOptions({
 		input: { limit: 200 },
+		retry: false,
+		retryOnMount: false,
 		refetchInterval: WORK_AGENT_SESSIONS_REFETCH_MS,
 		refetchOnWindowFocus: true,
 	});
