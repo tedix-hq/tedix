@@ -44,6 +44,7 @@ export function DecisionEnvelopeCard({
 			askedBy={askedBy}
 			body={decision.preview?.body ?? decision.recommendation}
 			disabled={disabled}
+			allowEdits={!decision.options.some((option) => option.effect)}
 			content={
 				<div className="grid min-w-0 gap-3 break-words">
 					{decision.preview && (

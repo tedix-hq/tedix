@@ -224,6 +224,16 @@ export async function executeDecisionCardEffect(
 	const metadata = input.metadata ?? {};
 	if (!option.effect) return { ...input, metadata };
 	if (
+		metadata.feedbackSignal === "edited" ||
+		(typeof metadata.editedBody === "string" &&
+			metadata.editedBody !==
+				(parsed.data.preview?.body ?? parsed.data.recommendation))
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"An edited proposal needs a new reviewed decision before execution",
+		);
+	if (
 		!input.resolvesRequest ||
 		(option.intent !== "approve" &&
 			!(option.intent === "reject" && option.effect.kind === "file_request")) ||

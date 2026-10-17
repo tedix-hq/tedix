@@ -63,6 +63,23 @@ async function type(selector: string, value: string) {
 }
 
 describe("fast decision cards", () => {
+	it("keeps search focus when a filtered card mounts", async () => {
+		const search = document.createElement("input");
+		document.body.append(search);
+		search.focus();
+		try {
+			const decide = await mount({ autoFocus: true });
+			expect(document.activeElement).toBe(search);
+			await act(async () => {
+				search.dispatchEvent(
+					new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+				);
+			});
+			expect(decide).not.toHaveBeenCalled();
+		} finally {
+			search.remove();
+		}
+	});
 	it("keeps fields hidden and records approval as-is with one click", async () => {
 		const decide = await mount();
 		expect(host.querySelector("input,textarea")).toBeNull();

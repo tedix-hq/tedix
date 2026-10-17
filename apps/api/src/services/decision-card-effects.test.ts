@@ -302,6 +302,38 @@ describe("decision card effects", () => {
 		).toBe("resolved");
 		f.sqlite.close();
 	});
+	it.each([
+		{ feedbackSignal: "edited" },
+		{ editedBody: "A different proposal" },
+	])(
+		"refuses edited approval metadata before claiming or executing: %j",
+		async (metadata) => {
+			const f = await fixture();
+			try {
+				await expect(
+					executeDecisionCardEffect(f.context, {
+						...f.input,
+						metadata: { ...f.input.metadata, ...metadata },
+					}),
+				).rejects.toMatchObject({ code: "CONFLICT" });
+				expect(
+					f.sqlite.prepare("select count(*) as n from work_item_comments").get()
+						?.n,
+				).toBe(0);
+				expect(
+					f.sqlite
+						.prepare("select count(*) as n from work_interaction_responses")
+						.get()?.n,
+				).toBe(0);
+				expect(
+					f.sqlite.prepare("select version from work_interactions").get()
+						?.version,
+				).toBe(1);
+			} finally {
+				f.sqlite.close();
+			}
+		},
+	);
 	it("Later saves no effect and an invented action cannot dispatch", async () => {
 		const f = await fixture();
 		const later = await executeDecisionCardEffect(f.context, {

@@ -77,6 +77,7 @@ export function WorkDecisionCard({
 	actions = [],
 	feedbackAction,
 	editAction,
+	allowEdits = true,
 	editContent,
 	hasEdits = false,
 	suggestedAnswers = [],
@@ -98,6 +99,7 @@ export function WorkDecisionCard({
 	actions?: readonly DecisionCardAction[];
 	feedbackAction?: DecisionCardAction;
 	editAction?: DecisionCardAction;
+	allowEdits?: boolean;
 	editContent?: ReactNode;
 	hasEdits?: boolean;
 	suggestedAnswers?: readonly string[];
@@ -120,7 +122,13 @@ export function WorkDecisionCard({
 	}, [attention]);
 	const section = useRef<HTMLElement>(null);
 	useEffect(() => {
-		if (autoFocus) section.current?.focus({ preventScroll: true });
+		if (
+			autoFocus &&
+			!document.activeElement?.closest(
+				"input, textarea, [contenteditable=true]",
+			)
+		)
+			section.current?.focus({ preventScroll: true });
 	}, [autoFocus]);
 	const [editing, setEditing] = useState(false);
 	const [whyOpen, setWhyOpen] = useState(false);
@@ -246,7 +254,12 @@ export function WorkDecisionCard({
 					confirmation
 				)
 					return;
-				if (event.key.toLowerCase() === "e" && editAction && !busy) {
+				if (
+					event.key.toLowerCase() === "e" &&
+					allowEdits &&
+					editAction &&
+					!busy
+				) {
 					event.preventDefault();
 					setEditing((value) => !value);
 				}
@@ -444,7 +457,9 @@ export function WorkDecisionCard({
 										{editAction.label}
 									</Button>
 								) : null}
-								{(kind === "outbound" || editAction) && !disabled ? (
+								{allowEdits &&
+								(kind === "outbound" || editAction) &&
+								!disabled ? (
 									<Button
 										variant="outline"
 										className="min-h-11"
