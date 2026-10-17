@@ -705,6 +705,7 @@ export const TOOL_ID_LEADING_VERBS: ReadonlySet<string> = new Set([
 	"execute",
 	"export",
 	"fetch",
+	"file",
 	"find",
 	"generate",
 	"get",

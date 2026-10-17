@@ -27,6 +27,7 @@
 	"vars": {
 		"ENVIRONMENT": "development",
 		"GIT_SHA": "configured-via-private-overlay",
+		"AGENT_REVIEW_PROJECT_ID": "configured-via-private-overlay",
 		"TEDIX_FLEET_AUTHORITY_MODE": "configured-via-private-overlay",
 		"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
 		"WORK_ATTEMPT_ARTIFACTS_ENABLED": "configured-via-private-overlay",
@@ -234,6 +235,11 @@
 		},
 	],
 	"ratelimits": [
+		{
+			"name": "AGENT_REVIEW_RATE_LIMITER",
+			"namespace_id": "1002",
+			"simple": { "limit": 5, "period": 60 },
+		},
 		{
 			"name": "API_RATE_LIMITER",
 			"namespace_id": "1001",
@@ -458,6 +464,7 @@
 			"vars": {
 				"ENVIRONMENT": "production",
 				"GIT_SHA": "configured-via-private-overlay",
+				"AGENT_REVIEW_PROJECT_ID": "configured-via-private-overlay",
 				"CF_CMS_SAAS_ZONE_ID": "configured-via-private-overlay",
 				"CF_CMS_SAAS_TARGET_DOMAIN": "configured-via-private-overlay",
 				"TEDIX_FLEET_AUTHORITY_MODE": "configured-via-private-overlay",
@@ -588,6 +595,11 @@
 				],
 			},
 			"ratelimits": [
+				{
+					"name": "AGENT_REVIEW_RATE_LIMITER",
+					"namespace_id": "1002",
+					"simple": { "limit": 5, "period": 60 },
+				},
 				{
 					"name": "API_RATE_LIMITER",
 					"namespace_id": "1001",

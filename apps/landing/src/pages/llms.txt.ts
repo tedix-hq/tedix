@@ -33,6 +33,9 @@ export const GET: APIRoute = () => {
 	lines.push("");
 
 	lines.push("## For agents");
+	lines.push(
+		"- [Review Tedix for your project](https://github.com/tedix-hq/tedix/blob/main/AGENT-REVIEW.md): 15-minute agent review and feedback intake; no login or CLI",
+	);
 	lines.push("");
 	lines.push(
 		"- [Start here as an agent](https://docs.tedix.dev/agent-start-here/): Connect, bind a project, work a Work Item, deliver an Output",

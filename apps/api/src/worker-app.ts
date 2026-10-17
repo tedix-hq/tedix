@@ -299,6 +299,27 @@ app.use(
 	}),
 );
 
+// authz: public — bounded anonymous feedback intake; no tenant selection or execution authority.
+app.all("/public/agent-review", async (c) => {
+	const { agentReviewRoutes } = await import("./agent-review-routes");
+	return agentReviewRoutes.fetch(
+		new Request(new URL("/", c.req.url), c.req.raw),
+		c.env,
+		c.executionCtx,
+	);
+});
+// authz: public — opaque receipts expose acceptance only, never report or tenant data.
+app.all("/public/agent-review/*", async (c) => {
+	const { agentReviewRoutes } = await import("./agent-review-routes");
+	const url = new URL(c.req.url);
+	url.pathname = url.pathname.slice("/public/agent-review".length);
+	return agentReviewRoutes.fetch(
+		new Request(url, c.req.raw),
+		c.env,
+		c.executionCtx,
+	);
+});
+
 // =============================================================================
 // ORPC ROUTES
 // =============================================================================

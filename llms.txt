@@ -1,0 +1,9 @@
+# Tedix
+
+> AI coworkers that show their work. Public source; local preview without login.
+
+- [Review Tedix for your project](https://github.com/tedix-hq/tedix/blob/main/AGENT-REVIEW.md): A 15-minute coding-agent prompt, report format and feedback submission without CLI setup.
+- [Documentation index](https://docs.tedix.dev/llms.txt): Select current product documentation.
+- [Getting started](https://docs.tedix.dev/getting-started/): Local setup with Git, Bun and Node.js 22+.
+- [Agent guide](https://docs.tedix.dev/agent-guide/): Discovery, authority and evidence boundaries.
+- [Release status](https://docs.tedix.dev/release-status/): Availability and experimental hosting limits.
