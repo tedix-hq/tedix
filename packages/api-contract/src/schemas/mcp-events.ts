@@ -142,6 +142,7 @@ export const WorkInteractionRequestedEventSchema = z.object({
 	}),
 });
 export const PollWorkInteractionRequestsInputSchema = z.object({
+	laneRequestsOnly: z.boolean().optional(),
 	/** Omit (or null) to start from the ledger head without replay. */
 	after: McpEventKeysetCursorSchema.nullable().optional(),
 	workItemId: z.string().uuid().optional(),

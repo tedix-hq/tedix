@@ -1015,6 +1015,7 @@ export function buildWorkAttemptSettlementMetadata(params: {
 	return {
 		...params.priorMetadata,
 		...callerMetadata,
+		...(params.priorMetadata.lane === true ? { lane: true } : {}),
 		...(params.repositoryLifecycle
 			? { repositoryLifecycle: params.repositoryLifecycle }
 			: {}),

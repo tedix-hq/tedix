@@ -21,6 +21,7 @@ export const WORK_STATE_CHANGED_EVENT = "work.item.state_changed";
 export const WORK_APPROVAL_REQUESTED_EVENT = "work.approval.requested";
 export const WORK_ITEM_COMMENTED_EVENT = "work.item.commented";
 export const WORK_INTERACTION_REQUESTED_EVENT = "work.interaction.requested";
+export const LANE_REQUESTED_EVENT = "lane.requested";
 export const SKILL_RUN_FAILED_EVENT = "skill.run.failed";
 export const HOME_RUN_FINISHED_EVENT = "home.run.finished";
 
@@ -244,6 +245,15 @@ export const workInteractionRequestedEventDefinition = {
 
 export const pollableEventDefinitions = [
 	{
+		...workInteractionRequestedEventDefinition,
+		name: LANE_REQUESTED_EVENT,
+		inputSchema: objectSchema(
+			{ organization_id: organizationProperty, work_item_id: idProperty },
+			["organization_id"],
+		),
+		description: `Tedix requested a Codex or Claude lane from the authenticated recipient. Read the Interaction, check its requested harness and Work readiness, and obtain your own Attempt before executing. ${NOTICE}`,
+	},
+	{
 		name: HOME_RUN_FINISHED_EVENT,
 		description: `A visible Home run or delegated child completed, failed or needs input. ${NOTICE}`,
 		delivery: ["poll"],
@@ -289,6 +299,7 @@ export type PollableEventName =
 	| typeof WORK_APPROVAL_REQUESTED_EVENT
 	| typeof WORK_ITEM_COMMENTED_EVENT
 	| typeof WORK_INTERACTION_REQUESTED_EVENT
+	| typeof LANE_REQUESTED_EVENT
 	| typeof SKILL_RUN_FAILED_EVENT;
 
 export function isPollableEvent(name: unknown): name is PollableEventName {
@@ -296,6 +307,7 @@ export function isPollableEvent(name: unknown): name is PollableEventName {
 }
 
 const ARGUMENT_KEYS = {
+	[LANE_REQUESTED_EVENT]: ["organization_id", "work_item_id"],
 	[HOME_RUN_FINISHED_EVENT]: ["organization_id", "conversation_id"],
 	[INTERACTION_REPLY_EVENT]: [
 		"organization_id",
@@ -499,7 +511,9 @@ export function assertEventCursor(name: PollableEventName, cursor: string) {
 							? "wcm1"
 							: name === WORK_INTERACTION_REQUESTED_EVENT
 								? "wir1"
-								: "srf1",
+								: name === LANE_REQUESTED_EVENT
+									? "lnr1"
+									: "srf1",
 			cursor,
 		);
 }
@@ -601,9 +615,19 @@ export async function readEventFeed(
 				hasMore: result.hasMore,
 			};
 		}
-		if (name === WORK_INTERACTION_REQUESTED_EVENT) {
+		if (
+			name === WORK_INTERACTION_REQUESTED_EVENT ||
+			name === LANE_REQUESTED_EVENT
+		) {
+			const prefix = name === LANE_REQUESTED_EVENT ? "lnr1" : "wir1";
 			const result = await client.mcpEvents.pollWorkInteractionRequests({
-				after: cursor === null ? null : decodeKeyset("wir1", cursor),
+				...(name === LANE_REQUESTED_EVENT ? { laneRequestsOnly: true } : {}),
+				after:
+					cursor === null
+						? name === LANE_REQUESTED_EVENT
+							? { at: "", id: "" }
+							: null
+						: decodeKeyset(prefix, cursor),
 				workItemId: args.work_item_id,
 				targetId: args.target_id,
 				kind: args.kind as
@@ -615,8 +639,15 @@ export async function readEventFeed(
 				limit,
 			});
 			return {
-				events: named(result.events),
-				cursor: encodeKeyset("wir1", result.after),
+				events: named(
+					name === LANE_REQUESTED_EVENT
+						? result.events.map((event) => ({
+								...event,
+								eventId: `evt_lane_${event.data.request_id}`,
+							}))
+						: result.events,
+				),
+				cursor: encodeKeyset(prefix, result.after),
 				hasMore: result.hasMore,
 			};
 		}

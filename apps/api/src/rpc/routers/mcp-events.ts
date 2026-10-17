@@ -40,6 +40,7 @@ import {
 	listWorkCommentEvents,
 } from "@tedix/db/queries/work-items/comments";
 import { requireOrgId } from "../org-scope";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -200,6 +201,21 @@ const pollWorkCommentsProcedure = workReadOs.pollWorkComments.handler(
 const pollWorkInteractionRequestsProcedure =
 	workReadOs.pollWorkInteractionRequests.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context, "MCP events");
+		const recipient = input.laneRequestsOnly
+			? await getMemberByUserId(
+					context.db,
+					orgId,
+					context.descopeUserId ?? context.user?.sub ?? "",
+				)
+			: undefined;
+		if (
+			input.laneRequestsOnly &&
+			(recipient?.status !== "active" || !recipient.userId)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Lane delivery requires an active member",
+			);
 		if (input.after == null)
 			return {
 				events: [],
@@ -212,7 +228,8 @@ const pollWorkInteractionRequestsProcedure =
 			orgId,
 			after: input.after,
 			workItemId: input.workItemId,
-			targetId: input.targetId,
+			targetId: recipient?.userId ?? input.targetId,
+			laneRequestsOnly: input.laneRequestsOnly,
 			kind: input.kind,
 			limit: input.limit + 1,
 		});

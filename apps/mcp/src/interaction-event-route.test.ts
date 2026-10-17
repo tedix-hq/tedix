@@ -48,6 +48,11 @@ it("lists the reply webhook event and the org-scoped poll events", async () => {
 		result: {
 			events: [
 				{
+					name: "lane.requested",
+					delivery: ["poll"],
+					inputSchema: { required: ["organization_id"] },
+				},
+				{
 					name: "home.run.finished",
 					delivery: ["poll"],
 					inputSchema: { required: ["organization_id"] },
@@ -83,6 +88,7 @@ it("advertises webhook delivery for ledger events only when the app opts in", as
 	expect(
 		Object.fromEntries(result.events.map((e) => [e.name, e.delivery])),
 	).toEqual({
+		"lane.requested": ["poll"],
 		"home.run.finished": ["poll", "webhook"],
 		"work.interaction.responded": ["webhook", "poll"],
 		"work.item.state_changed": ["poll", "webhook"],

@@ -181,11 +181,15 @@ function sortedArguments(args: Record<string, string>): [string, string][] {
 
 type LedgerWebhookEventName = Exclude<
 	PollableEventName,
-	typeof INTERACTION_REPLY_EVENT
+	typeof INTERACTION_REPLY_EVENT | "lane.requested"
 >;
 
 function eventName(params: Record<string, unknown>): LedgerWebhookEventName {
-	if (!isPollableEvent(params.name) || params.name === INTERACTION_REPLY_EVENT)
+	if (
+		!isPollableEvent(params.name) ||
+		params.name === INTERACTION_REPLY_EVENT ||
+		params.name === "lane.requested"
+	)
 		throw new InteractionEventError(-32023, "Unknown event", { kind: "event" });
 	return params.name;
 }

@@ -733,6 +733,10 @@ export const WorkAttemptProjectionSchema = z
 	.object({
 		attempt: WorkAttemptSchema,
 		workItem: WorkFactoryItemSummarySchema,
+		laneState: z
+			.enum(["ready", "needs-human", "blocked", "stale", "failed", "done"])
+			.nullable()
+			.optional(),
 	})
 	.strict();
 

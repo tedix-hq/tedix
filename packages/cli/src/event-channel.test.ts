@@ -422,3 +422,15 @@ describe("deliverToCodex", () => {
 		expect(resumed).toBe(1);
 	});
 });
+
+test("lane dispatch names the server request and requires fresh admission", () => {
+	const notice = channelNotice({
+		eventId: "lane-1",
+		name: "lane.requested",
+		timestamp: "2026-10-17T12:00:00Z",
+		data: { request_id: "request", work_item_id: ITEM },
+	});
+	expect(notice.content).toContain("Tedix dispatched a coding lane");
+	expect(notice.content).toContain("server readiness");
+	expect(notice.content).toContain("own lane Attempt");
+});

@@ -73,6 +73,9 @@ export function parseWorkOption(
 		case "--worktree":
 			options.workWorktree = true;
 			break;
+		case "--lane":
+			options.workLane = true;
+			break;
 		case "--operator-override":
 			options.workOperatorOverride = true;
 			break;

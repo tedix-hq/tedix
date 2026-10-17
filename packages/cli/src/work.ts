@@ -98,6 +98,7 @@ export interface WorkOptions {
 	paths?: string[];
 	/** `heartbeat`: renew the original Attempt for a bounded number of seconds. */
 	watch?: number;
+	lane?: boolean;
 	/** Structured factory procedure input: inline JSON or @path. */
 	input?: string;
 	as?: string;
@@ -1520,7 +1521,10 @@ async function workStart(ctx: WorkContext, id: string): Promise<number> {
 	const call = await boardCall(
 		ctx,
 		mutationCallable(as, "work.start_work_item_attempt"),
-		withSession(ctx, { id }),
+		withSession(ctx, {
+			id,
+			...(ctx.work.lane ? { metadata: { lane: true } } : {}),
+		}),
 	);
 
 	if (call.error) {
@@ -2948,7 +2952,7 @@ Lifecycle:
               [--project <id>]
   accept <id> --done-when "<what done looks like>"
   readiness <id>
-  start <id> [--worktree [--worktree-root <path>]]
+  start <id> [--lane] [--worktree [--worktree-root <path>]]
   handoff <id> --host codex|claude [--to codex:<chat-id>] [--launch]
   heartbeat <id> [--watch [seconds]]
   settle <id> --outcome succeeded|failed|cancelled|expired [--note <summary>]
@@ -3780,6 +3784,8 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 			"--repo-key and --path are only valid with work claim-files",
 		);
 	}
+	if (ctx.work.lane && verb !== "start")
+		throw new Error("--lane is only valid with work start");
 	if (ctx.work.watch !== undefined) {
 		if (verb !== "heartbeat")
 			throw new Error("--watch is only valid with work heartbeat");

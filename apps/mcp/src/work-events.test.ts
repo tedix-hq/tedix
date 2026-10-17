@@ -449,3 +449,26 @@ it.each([
 	).rejects.toMatchObject({ code: -32602 });
 	expect(authorize).not.toHaveBeenCalled();
 });
+
+it("replays pending lane requests on binding and keeps its cursor separate from other asks", async () => {
+	const first = await poll({
+		name: "lane.requested",
+		arguments: { organization_id: ORG_A },
+	});
+	expect(first.cursor).toMatch(/^lnr1\./);
+	expect(api.mcpEvents.pollWorkInteractionRequests).toHaveBeenCalledWith(
+		expect.objectContaining({
+			laneRequestsOnly: true,
+			after: { at: "", id: "" },
+		}),
+	);
+	expect(() =>
+		assertEventCursor("work.interaction.requested", first.cursor),
+	).toThrow();
+	expect(() =>
+		eventArguments("lane.requested", {
+			organization_id: ORG_A,
+			target_id: "someone-else",
+		}),
+	).toThrow();
+});

@@ -4,6 +4,10 @@ import {
 	flushWorkInteractionDigests,
 } from "@tedix/db/queries/work-items/interactions";
 import { sweepElapsedWorkAttempts } from "@tedix/db/queries/work-items/attempts";
+import {
+	recordStaleLanes,
+	notifyStoppedLanes,
+} from "@tedix/db/queries/work-items/lane-lifecycle";
 import { sweepStaleFailedDelegationWorkItems } from "@tedix/db/queries/work-items/stale-delegation-sweep";
 import { dispatchInteractionReviews } from "./interaction-follow-through";
 
@@ -44,6 +48,10 @@ export async function runWorkAttemptLeaseSweeperTick(
 	env: CloudflareEnv,
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
+	const lanesStale = await recordStaleLanes(
+		createDbQueryClient(env.DB),
+		new Date(scheduledTime).toISOString(),
+	);
 	const result = await sweepElapsedWorkAttempts(createDbQueryClient(env.DB), {
 		now: new Date(scheduledTime).toISOString(),
 		limit: MAX_ATTEMPTS_PER_TICK,
@@ -76,6 +84,11 @@ export async function runWorkAttemptLeaseSweeperTick(
 	);
 	return {
 		...result,
+		lanesStale,
+		lanesNotified: await notifyStoppedLanes(
+			createDbQueryClient(env.DB),
+			new Date(scheduledTime).toISOString(),
+		),
 		...(await dispatchInteractionReviews(env, scheduledTime)),
 		...(await flushWorkInteractionDigests(
 			createDbQueryClient(env.DB),

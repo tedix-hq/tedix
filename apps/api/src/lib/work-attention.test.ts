@@ -31,9 +31,24 @@ describe("Attention projection", () => {
 			finishedAt: null,
 			note: null,
 			runId: null,
+			registeredLane: false,
 		};
 		input.attempts = [
 			base,
+			{
+				...base,
+				id: "stale-lane",
+				registeredLane: true,
+				heartbeatAt: "2026-10-17T11:56:00Z",
+				expiresAt: "2026-10-17T12:01:00Z",
+			},
+			{
+				...base,
+				id: "failed-lane",
+				workItemId: "retry",
+				outcome: "expired",
+				finishedAt: "2026-10-17T11:59:00Z",
+			},
 			{
 				...base,
 				id: "done",
@@ -47,11 +62,22 @@ describe("Attention projection", () => {
 				finishedAt: "2026-10-16T11:00:00Z",
 			},
 		];
+		input.backlog = [
+			{
+				id: "retry",
+				title: "Retry lane",
+				projectId: "project",
+				createdAt: "2026-10-17T09:00:00Z",
+			},
+		];
 		expect(
 			buildAttention(input, [], [], now).cards.map((c) => [c.id, c.column]),
 		).toEqual([
 			["attempt", "blocked"],
+			["stale-lane", "blocked"],
+			["failed-lane", "blocked"],
 			["done", "done"],
+			["retry", "backlog"],
 		]);
 	});
 });

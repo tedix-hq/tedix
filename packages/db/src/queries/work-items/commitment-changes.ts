@@ -31,12 +31,18 @@ export async function listCommitmentChanges(
 			JOIN tedis t ON t.organization_id = w.org_id AND t.status = 'active'
 				AND ((w.accountable_owner_type = 'tedi' AND w.accountable_owner_id = t.id)
 				OR (w.steward_type = 'tedi' AND w.steward_id = t.id)
+				OR EXISTS (SELECT 1 FROM projects p WHERE p.org_id = w.org_id AND p.id = w.project_id AND p.lead_tedi_id = t.id)
 				OR EXISTS (SELECT 1 FROM work_attempts a WHERE a.org_id = w.org_id AND a.work_item_id = w.id AND a.executor_type = 'tedi' AND a.executor_id = t.id))
 			WHERE e.occurred_at > ${after} AND e.occurred_at <= ${through}
-				AND w.disposition NOT IN ('completed', 'cancelled')
+				AND w.disposition != 'cancelled'
+				AND (w.disposition != 'completed' OR (
+					e.event_type = 'attempt.settled' AND e.actor_type = 'external_agent'
+					AND json_extract(e.payload, '$.outcome') = 'succeeded'))
 				AND NOT (e.actor_type = 'tedi' AND e.actor_id = t.id)
-				AND (e.event_type IN ('work.accepted', 'work.specification_updated', 'attempt.expired')
-					OR (e.event_type = 'attempt.settled' AND json_extract(e.payload, '$.outcome') = 'failed'))
+				AND (e.event_type IN ('work.accepted', 'work.specification_updated', 'attempt.expired', 'lane.stale')
+					OR (e.event_type = 'attempt.settled' AND (
+						json_extract(e.payload, '$.outcome') = 'failed'
+						OR (e.actor_type = 'external_agent' AND json_extract(e.payload, '$.outcome') = 'succeeded'))))
 			UNION ALL
 			SELECT 'overdue:' || w.id || ':' || coalesce(w.deadline, w.due_date), w.org_id, t.id, t.slug,
 				'work', w.id, 'overdue', coalesce(w.deadline, w.due_date)

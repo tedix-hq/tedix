@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
 	mkdirSync,
 	readdirSync,
@@ -17,8 +17,9 @@ tedix lane done|fail "<note>" [--commit <sha> ...]
 
 Run inside the lane's own Codex/Claude session after tedix agent start.
 Uses normal Work admission and a session-scoped pointer; never inherits a launcher's
-Attempt. --work-item attaches an existing accepted item. A detached heartbeat
-renews the same Attempt for at most one hour; capture-stop also heartbeats it.
+Attempt. --work-item attaches an existing accepted item. Report liveness with
+lane heartbeat while working; capture-stop also reports it. Tedix detects stale
+and expired lanes on its server tick, independently of this local session.
 Workspace and organization must stay the same on start and settlement.`;
 
 export function laneSession(env: NodeJS.ProcessEnv): string {
@@ -165,29 +166,9 @@ export async function runLane(args: string[]): Promise<number> {
 			lane.phase = "accepted";
 			writeFileSync(path, JSON.stringify(lane), { mode: 0o600 });
 		}
-		work(["start", lane.id], lane);
+		work(["start", lane.id, "--lane"], lane);
 		lane.phase = "running";
 		writeFileSync(path, JSON.stringify(lane), { mode: 0o600 });
-		const [executable, prefix] = selfCommand();
-		const child = spawn(
-			executable,
-			[
-				...prefix,
-				...scope,
-				"work",
-				"heartbeat",
-				lane.id,
-				"--watch",
-				"3600",
-				"--json",
-			],
-			{
-				env: { ...process.env, TEDIX_AGENT_SESSION: session },
-				detached: true,
-				stdio: "ignore",
-			},
-		);
-		child.unref();
 		console.log(JSON.stringify(lane));
 	} else if (verb === "done" || verb === "fail") {
 		if (!lane?.id || !note)
@@ -208,7 +189,6 @@ export async function runLane(args: string[]): Promise<number> {
 			lane.phase = "settled";
 			writeFileSync(path, JSON.stringify(lane), { mode: 0o600 });
 		}
-		if (verb === "done") work(["complete", lane.id], lane);
 		unlinkSync(path);
 		console.log(JSON.stringify({ id: lane.id, outcome: verb }));
 	} else if (verb === "heartbeat") {
