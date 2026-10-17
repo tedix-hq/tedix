@@ -13,7 +13,7 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit" },
+	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
 );
 let browser: Browser | undefined;
 try {
@@ -125,6 +125,7 @@ try {
 	}
 } finally {
 	await browser?.close();
-	server.kill();
+	// vp launches Vite in a child; close the group so test gates receive EOF.
+	process.kill(-server.pid, "SIGTERM");
 	await server.exited;
 }
