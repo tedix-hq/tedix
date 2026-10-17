@@ -26,6 +26,7 @@ import {
 	AUTO_REPLY_NEUTRAL_CLASSES,
 } from "@tedix/db/queries/work-items/reply-drafts";
 import type { ObservedLearningInteractionInput } from "./learning-interaction-recorder";
+import { decisionEditContext } from "./decision-edit-context";
 
 export const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
 /** `learning_interaction_events.surface` of a decision-capture answer. */
@@ -202,6 +203,18 @@ export function decisionCaptureLearningSignal(input: {
 			urgency:
 				str((requestMeta.triage as JsonRecord | undefined)?.urgency, 40) ??
 				str(responseMeta.urgency, 40),
+			...(["edited", "manually_replaced"].includes(eventKind)
+				? {
+						editContext: decisionEditContext(
+							typeof responseMeta.originalBody === "string"
+								? responseMeta.originalBody
+								: (draft?.body ?? ""),
+							typeof responseMeta.editedBody === "string"
+								? responseMeta.editedBody
+								: response.body,
+						),
+					}
+				: {}),
 			originalLength:
 				typeof responseMeta.originalBody === "string"
 					? responseMeta.originalBody.length

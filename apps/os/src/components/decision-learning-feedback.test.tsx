@@ -8,6 +8,8 @@ import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
 import { OS_COPY } from "@/shared/os-copy";
 import { DecisionLearningFeedback } from "./decision-learning-feedback";
+import { toast } from "@/components/kumo/toast";
+vi.mock("@/components/kumo/toast", () => ({ toast: { success: vi.fn() } }));
 
 vi.mock("@/lib/api", () => ({
 	osApi: { learningFeedback: { correct: vi.fn(), model: vi.fn() } },
@@ -78,6 +80,9 @@ it("explains an edit and corrects only its learning evidence", async () => {
 		queryKey: osQuery.learningFeedback.key(),
 	});
 	expect(host.textContent).toContain(OS_COPY.learning.undone);
+	expect(toast.success).toHaveBeenCalledExactlyOnceWith(
+		OS_COPY.learning.undone,
+	);
 });
 
 it("keeps failed corrections retryable and hides feedback when disabled", async () => {
@@ -87,6 +92,7 @@ it("keeps failed corrections retryable and hides feedback when disabled", async 
 	await mount();
 	await act(async () => host.querySelector("button")!.click());
 	expect(host.textContent).toContain(OS_COPY.learning.failed);
+	expect(toast.success).not.toHaveBeenCalled();
 	expect(host.querySelector("button")!.disabled).toBe(false);
 	await act(async () => root.unmount());
 	client.clear();
