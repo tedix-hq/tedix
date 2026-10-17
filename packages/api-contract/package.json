@@ -12,6 +12,8 @@
 		"./schemas/agent-review": "./src/schemas/agent-review.ts",
 		"./schemas/work-attention": "./src/schemas/work-attention.ts",
 		"./contracts/tedi-console": "./src/contracts/tedi-console.ts",
+		"./schemas/outbound": "./src/schemas/outbound.ts",
+		"./contracts/outbound": "./src/contracts/outbound.ts",
 		"./schemas/credit-billing-activation": "./src/schemas/credit-billing-activation.ts",
 		"./contracts/credit-billing-activation": "./src/contracts/credit-billing-activation.ts",
 		"./schemas/provider-cost-evidence": "./src/schemas/provider-cost-evidence.ts",

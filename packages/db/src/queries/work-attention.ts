@@ -215,8 +215,14 @@ export async function readAttentionSources(
 			? await db
 					.select({
 						id: workInteractions.id,
-						subject: workInteractions.subject,
-						prompt: workInteractions.prompt,
+						subject:
+							sql<string>`coalesce((SELECT 'Outbound · ' || coalesce(json_extract(w.metadata,'$.outbound.draft.subject'), w.title) FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND json_extract(w.metadata,'$.outbound.interactionId')=${workInteractions.id}), ${workInteractions.subject})`.as(
+								"outbound_subject",
+							),
+						prompt:
+							sql<string>`coalesce((SELECT coalesce(json_extract(w.metadata,'$.outbound.review.notes'), json_extract(w.metadata,'$.outbound.draft.reasoning')) FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND json_extract(w.metadata,'$.outbound.interactionId')=${workInteractions.id}), ${workInteractions.prompt})`.as(
+								"outbound_note",
+							),
 						createdAt: workInteractions.createdAt,
 						workItemId: workInteractions.workItemId,
 						creatorSession: workInteractions.creatorExternalSessionKey,
@@ -233,7 +239,7 @@ export async function readAttentionSources(
 							eq(workInteractions.targetType, "user"),
 							eq(workInteractions.targetId, userId),
 							eq(workInteractions.status, "open"),
-							sql`(json_type(${workInteractions.metadata},'$.laneHandoff')='object' OR json_type(${workInteractions.metadata},'$.followThrough.laneHandoff')='object')`,
+							sql`(json_type(${workInteractions.metadata},'$.laneHandoff')='object' OR json_type(${workInteractions.metadata},'$.followThrough.laneHandoff')='object' OR EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.work_kind='outbound' AND json_extract(w.metadata,'$.outbound.interactionId')=${workInteractions.id} AND json_extract(w.metadata,'$.outbound.status') IN ('waiting_on_you','send_unknown')))`,
 							sql`coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${new Date().toISOString()}`,
 							sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${new Date().toISOString()})`,
 							sql`NOT EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.disposition IN ('completed','cancelled'))`,

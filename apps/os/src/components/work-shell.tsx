@@ -42,6 +42,7 @@ type WorkSectionPath =
 	| "/work/needs-you"
 	| "/work/portfolio"
 	| "/work/queue"
+	| "/work/outbound"
 	| "/work/agents"
 	| "/work/office"
 	| "/work/attempts"
@@ -78,6 +79,7 @@ export const WORK_TABS: readonly WorkTab[] = [
 		sections: [
 			{ id: "projects", label: "Projects", to: "/work/portfolio" },
 			{ id: "queue", label: "Queue", to: "/work/queue" },
+			{ id: "outbound", label: "Outbound", to: "/work/outbound" },
 			{ id: "agents", label: "Agents", to: "/work/agents" },
 			{ id: "office", label: "Office", to: "/work/office" },
 		],

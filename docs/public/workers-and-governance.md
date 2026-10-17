@@ -172,3 +172,38 @@ not require any special Git service or key.
 
 A commit reference names a change; it does not show that tests passed or that a
 deployment worked.
+
+## Review outbound work
+
+An outbound Work item keeps a draft with the project that requested it. It can
+represent an email, social reply, post, proposal or invoice. The draft carries
+the recipient, channel, author, reasoning, source facts and risks. A factory or
+local session can submit it through `submit_outbound_draft`; it does not send
+anything.
+
+Organization administrators configure reviewer tedis by channel and topic in
+D1 through `configure_outbound_review`. There is no built-in organization or
+department roster. The selected tedi checks voice, source grounding and
+commitments, then submits its verdict through `review_outbound_draft`. Sources
+that cannot be checked should block approval or require changes.
+
+After review, the addressed person sees an Outbound card in Work → Needs you
+and Attention → Waiting on you. Work → Outbound lists the same Work items.
+The card shows the draft, reviewer notes and grounding. Edits invalidate the
+review and return to the reviewer. An existing open input request or question
+can become the card without changing its original prompt or history.
+
+“Approve & send” is available for email through the person's own verified Gmail
+connection with compose consent. It creates and sends the reviewed text only
+after the person clicks. “Approve (I'll send)” records approval while leaving
+delivery unconfirmed; other channels offer copying and a supplied draft link.
+A timeout after sending locks the card for reconciliation rather than retrying
+and risking a duplicate. Approval never completes the broader Work outcome.
+
+Approvals, edits, feedback and rejection are recorded with their draft revision.
+Approval is a positive style example; an edited approval retains the original
+and final wording. These signals enter the existing personal/team lesson
+pipeline and the reviewer receives the feedback. The person's profile shows
+their last ten approvals. They can also import up to ten sent emails through
+their own read-consented Gmail connection. Raw imported mail stays in their
+personal style store; only aggregate style measurements reach the reviewer.

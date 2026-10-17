@@ -8,6 +8,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import type { OutboundPolicy } from "@tedix/api-contract/schemas/outbound";
 import type { McpNetworkControlConfig } from "@tedix/api-contract/schemas/mcp-network-security";
 import type { OrganizationOsTheme } from "@tedix/api-contract/schemas/os-theme";
 import type { OrganizationMetadata as OrganizationContractMetadata } from "@tedix/api-contract/schemas/organization";
@@ -111,6 +112,7 @@ export interface OrganizationMetadata {
 	tediWidget?: OrganizationContractMetadata["tediWidget"];
 	/** Published, validated Tedix OS semantic appearance inputs. */
 	osTheme?: OrganizationOsTheme | null;
+	outboundReview?: OutboundPolicy;
 	/** Optional Cloudflare One network overlay; never a Tedix authorization source. */
 	mcpNetworkControl?: McpNetworkControlConfig;
 	/** Organization-wide browser boundary; per-tedi policy may narrow it further. */
