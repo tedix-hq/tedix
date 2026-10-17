@@ -116,6 +116,73 @@ describe("Work interaction inbox", () => {
 		});
 	});
 
+	it("includes Work-parented asks in their project without crossing recipients or organizations", async () => {
+		const { sqlite, db } = fixture();
+		sqlite.exec(schemaDdl(tedis));
+		sqlite
+			.prepare(
+				"INSERT INTO organizations (id,name,slug) VALUES ('foreign','Foreign','foreign')",
+			)
+			.run();
+		const project = sqlite.prepare(
+			"INSERT INTO projects (id,org_id,key,name,created_at) VALUES (?,?,?,?,?)",
+		);
+		project.run("project", "org", "ONE", "First", NOW);
+		project.run("other-project", "org", "TWO", "Second", NOW);
+		project.run("foreign-project", "foreign", "THREE", "Third", NOW);
+		const work = sqlite.prepare(
+			"INSERT INTO work_items (id,org_id,project_id,title,created_at) VALUES (?,?,?,?,?)",
+		);
+		work.run("project-work", "org", "project", "First Work", NOW);
+		work.run("other-work", "org", "other-project", "Second Work", NOW);
+		work.run("foreign-work", "foreign", "foreign-project", "Third Work", NOW);
+		const interaction = sqlite.prepare(`INSERT INTO work_interactions
+			(id,org_id,work_item_id,project_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at)
+			VALUES (?,?,?,?,'question','Review','?','system','tedix','user',?,?)`);
+		interaction.run("work-parent", "org", "project-work", null, "reader", NOW);
+		interaction.run("project-parent", "org", null, "project", "reader", NOW);
+		interaction.run(
+			"other-project-ask",
+			"org",
+			"other-work",
+			null,
+			"reader",
+			NOW,
+		);
+		interaction.run(
+			"other-recipient",
+			"org",
+			"project-work",
+			null,
+			"someone-else",
+			NOW,
+		);
+		interaction.run(
+			"foreign-ask",
+			"foreign",
+			"foreign-work",
+			null,
+			"reader",
+			NOW,
+		);
+		const ids = async (projectId: string) =>
+			(
+				await listWorkInteractionInbox(db, {
+					orgId: "org",
+					projectId,
+					targetType: "user",
+					targetId: "reader",
+					observedAt: NOW,
+				})
+			).data
+				.map((row) => row.request.id)
+				.sort();
+		expect(await ids("project")).toEqual(["project-parent", "work-parent"]);
+		expect(await ids("other-project")).toEqual(["other-project-ask"]);
+		expect(await ids("foreign-project")).toEqual([]);
+		sqlite.close();
+	});
+
 	it("scopes an outbox to the exact creator and keeps omitted actor filters audit-wide", async () => {
 		const { db } = fixture();
 		const outbox = await listWorkInteractionInbox(db, {

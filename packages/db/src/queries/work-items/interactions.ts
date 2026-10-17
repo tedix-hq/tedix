@@ -1,5 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import { agentSessionRequests } from "../../schema/agent-session-requests";
@@ -963,7 +963,12 @@ export async function listWorkInteractionInbox(
 				p.workItemId
 					? eq(workInteractions.workItemId, p.workItemId)
 					: undefined,
-				p.projectId ? eq(workInteractions.projectId, p.projectId) : undefined,
+				p.projectId
+					? or(
+							eq(workInteractions.projectId, p.projectId),
+							eq(workItems.projectId, p.projectId),
+						)
+					: undefined,
 				p.creatorType
 					? eq(workInteractions.creatorType, p.creatorType)
 					: undefined,
