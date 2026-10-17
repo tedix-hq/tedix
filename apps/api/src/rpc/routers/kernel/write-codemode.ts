@@ -11,6 +11,7 @@ import {
 	stripCodeModeExecutionEnvelope,
 	unwrapCallToolResult,
 } from "@tedix/mcp-shared/tool-result";
+import { McpNativeDescriptorSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
 
 export const CODE_MODE_TOOL_NAME = "code";
 
@@ -21,6 +22,7 @@ export interface CodeModeCatalogTool {
 	description?: string;
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
 	inputSchema?: { properties?: Record<string, unknown>; required?: string[] };
+	native?: { name: string };
 }
 
 interface CodeModeDiscoveryEntry {
@@ -28,6 +30,7 @@ interface CodeModeDiscoveryEntry {
 	description?: unknown;
 	annotations?: unknown;
 	parameters?: unknown;
+	native?: unknown;
 }
 
 type ToolCallResult = {
@@ -174,6 +177,7 @@ export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 		if (!CALLABLE_RE.test(entry.callable)) return [];
 		const annotations = recordFrom(entry.annotations);
 		const parameters = recordFrom(entry.parameters);
+		const native = McpNativeDescriptorSchema.safeParse(entry.native);
 		return [
 			{
 				name: entry.callable,
@@ -193,6 +197,9 @@ export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 						}
 					: {}),
 				...(parameters ? { inputSchema: parameters } : {}),
+				...(native.success && native.data.eligible && native.data.authorized
+					? { native: { name: native.data.name } }
+					: {}),
 			},
 		];
 	});
