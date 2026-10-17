@@ -7,7 +7,7 @@ vi.mock("@/lib/os-query-options", () => ({
 	osQueryKeys: {},
 }));
 import { AttentionBoard } from "./attention-live-view";
-it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
+it("shows recovery evidence and bounded-data notice", () => {
 	const html = renderToStaticMarkup(
 		<AttentionBoard
 			file={() => {}}
@@ -53,7 +53,6 @@ it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
 		"Backlog",
 		"Stalled",
 		"waiting for your decision: choose publishing scope",
-		"Needs attention",
 		"Docs",
 		"bounded overview",
 		"Unfiled",
@@ -63,6 +62,7 @@ it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
 	expect(html).toContain('href="/work/items/item"');
 	expect(html).toContain("Heartbeat not reported");
 	expect(html).not.toContain("Nobody is on");
+	expect(html).not.toContain("Nobody has touched");
 	expect(html).toContain('href="/work/interactions/decision"');
 });
 
@@ -201,4 +201,42 @@ it("applies project focus to contributions and attention gaps as well as cards",
 	expect(html).not.toContain("Search helper");
 	expect(html).not.toContain("Unrelated search work");
 	expect(html).not.toContain("Nobody has touched Search");
+});
+
+it("keeps raw inactivity out of human attention until the system reports recovery", () => {
+	const data = {
+		cards: [],
+		projects: [
+			{
+				id: "growth",
+				name: "Growth",
+				status: "active",
+				active: 0,
+				recent: 0,
+				lastAttentionAt: "2026-10-14T10:00:00Z",
+			},
+		],
+		unattendedObjectives: [
+			{
+				id: "mission",
+				title: "Example mission",
+				lastAttentionAt: "2026-10-14T10:00:00Z",
+			},
+		],
+		unfiled: [],
+		truncated: false,
+	};
+	const pending = renderToStaticMarkup(
+		<AttentionBoard file={() => {}} data={data} />,
+	);
+	expect(pending).toContain("Waiting for recovery updates");
+	expect(pending).not.toContain("No stalls need your attention");
+	expect(pending).not.toContain("Nobody has touched");
+	const checked = renderToStaticMarkup(
+		<AttentionBoard file={() => {}} data={{ ...data, stalls: [] }} />,
+	);
+	expect(checked).toContain("Stalled");
+	expect(checked).toContain("Tedix handles recovery first");
+	expect(checked).not.toContain("Nobody has touched");
+	expect(checked).not.toContain("Every tracked goal has recent attention");
 });

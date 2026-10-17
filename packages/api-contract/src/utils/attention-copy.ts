@@ -111,6 +111,7 @@ export const ATTENTION_COPY = {
 	schedulePromises: "Scheduled follow-ups: {{kept}} kept · {{missed}} missed",
 	resumeRequested: "{{cause}} · resume requested {{duration}} ago",
 	noStalls: "No stalls need your attention. Tedix handles recovery first.",
+	recoveryPending: "Waiting for recovery updates.",
 	waitingDecision: "Waiting on your decision",
 	heartbeatOverdue: "Heartbeat overdue; activity is unconfirmed",
 	leaseElapsed: "Work lease elapsed; activity is unconfirmed",
