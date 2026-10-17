@@ -58,6 +58,7 @@ export const OS_COPY = {
 			"Approve this exact Work proposal with the reason you entered?",
 	},
 	feedDeckVisual: {
+		agentSession: "Agent session",
 		context: "What to know",
 		choices: "What each choice does",
 		learning: "Learning your preferences",

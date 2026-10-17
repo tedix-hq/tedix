@@ -15,6 +15,7 @@ import {
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { cn } from "@/lib/utils";
+import { OS_COPY } from "@/shared/os-copy";
 import "./feed-deck.css";
 
 export function FeedDeckDisclosure({
@@ -52,7 +53,11 @@ export function ProposerChip({
 	image?: string;
 	detail?: ReactNode;
 }) {
-	const initials = name
+	const displayName =
+		/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\s+session$/i.test(name.trim())
+			? OS_COPY.feedDeckVisual.agentSession
+			: name;
+	const initials = displayName
 		.trim()
 		.split(/\s+/)
 		.slice(0, 2)
@@ -65,7 +70,9 @@ export function ProposerChip({
 				<AvatarFallback>{initials}</AvatarFallback>
 			</Avatar>
 			<div>
-				<Text weight="medium">{name}</Text>
+				<Text weight="medium" title={displayName === name ? undefined : name}>
+					{displayName}
+				</Text>
 				{detail && (
 					<Text role="label" tone="secondary">
 						{detail}
