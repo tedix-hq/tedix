@@ -11,9 +11,12 @@
  */
 
 import {
+	acceptedDoneEvidence,
 	type LedgerRowRef,
+	type LedgerLesson,
 	parseObservedRequests,
 	parseReflectedNewRows,
+	parseReflectedLessons,
 	parseReflectedUpdates,
 	REQUEST_OBSERVER_SYSTEM_PROMPT,
 	REQUEST_REFLECTOR_SYSTEM_PROMPT,
@@ -22,11 +25,11 @@ import {
 } from "@tedix/context-core/request-ledger";
 import {
 	AGENT_SESSION_REQUEST_ACTIVE_STATUSES,
+	AGENT_SESSION_REQUEST_LIST_LIMIT,
 	type AgentSessionRequestUpdate,
 	claimAgentSessionEvent,
 	listAgentSessionRequests,
 	listPendingAgentSessionEvents,
-	markAgentSessionRequestsUnaddressed,
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
 	settleAgentSessionEvent,
@@ -40,26 +43,52 @@ import type {
 import type { WorkAgentSessionHarness } from "@tedix/db/schema/work-agent-sessions";
 import { type DistillEnv, runDistillModel } from "./lesson-distiller";
 
-/** Active rows one model call sees. */
-const ROWS_IN_PROMPT = 30;
-/** Agent turns an open row may go untouched before it is at risk. */
-export const UNADDRESSED_TURNS_AT_RISK = 5;
+const LEDGER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MODEL_TIMEOUT_MS = 15_000;
 
-export type LedgerModel = (
-	system: string,
-	prompt: string,
-	surface: string,
-) => Promise<string | null>;
+export interface LedgerCheck {
+	ref: string;
+	request: string;
+	status: "done" | "dropped_risk";
+	evidence: string;
+	userReply?: boolean;
+}
+
+export interface LedgerModel {
+	(system: string, prompt: string, surface: string): Promise<string | null>;
+	findCompletions?: (
+		rows: LedgerRowRef[],
+		source: string,
+	) => Promise<Array<{ ref: string; evidence: string }>>;
+	verify?: (
+		checks: LedgerCheck[],
+		source: string,
+	) => Promise<ReadonlySet<string>>;
+	learn?: (
+		lessons: LedgerLesson[],
+		scope: SessionScope & { sourceAt: string; repository: string | null },
+	) => Promise<void>;
+}
 
 export function workersAiLedgerModel(env: DistillEnv): LedgerModel {
-	return (system, prompt, surface) =>
+	const model: LedgerModel = (system, prompt, surface) =>
 		runDistillModel(env, prompt, {
+			model: LEDGER_MODEL,
 			system,
 			surface,
-			maxTokens: 1500,
+			maxTokens: 2500,
 			timeoutMs: MODEL_TIMEOUT_MS,
 		});
+	model.verify = async (checks, source) => {
+		if (!checks.length) return new Set();
+		const { verifyLedgerEvidence } = await import("./request-ledger-verifier");
+		return verifyLedgerEvidence(env, checks, source);
+	};
+	model.findCompletions = async (rows, source) => {
+		const { findLedgerCompletions } = await import("./request-ledger-verifier");
+		return findLedgerCompletions(env, rows, source);
+	};
+	return model;
 }
 
 interface SessionScope {
@@ -77,7 +106,7 @@ function refs(rows: readonly AgentSessionRequestRow[]): {
 	const prompt = rows.map((row, index) => {
 		const ref = `r${index + 1}`;
 		byRef.set(ref, row);
-		return { ref, text: row.text, status: row.status };
+		return { ref, text: row.text, status: row.status, kind: row.kind };
 	});
 	return { prompt, byRef };
 }
@@ -87,7 +116,7 @@ async function activeRows(db: DbQueryClient, scope: SessionScope) {
 	const rows = await listAgentSessionRequests(db, {
 		...scope,
 		statuses: AGENT_SESSION_REQUEST_ACTIVE_STATUSES,
-		limit: ROWS_IN_PROMPT,
+		limit: AGENT_SESSION_REQUEST_LIST_LIMIT,
 		newestFirst: true,
 	});
 	return rows.reverse();
@@ -160,7 +189,7 @@ export async function observeAgentSessionRequests(
 	});
 	const cancelled = observed.cancelled.flatMap((ref) => {
 		const row = byRef.get(ref);
-		return row
+		return row && row.kind !== "ask"
 			? [
 					{
 						id: row.id,
@@ -170,10 +199,37 @@ export async function observeAgentSessionRequests(
 				]
 			: [];
 	});
+	const answers = observed.answered.filter(
+		({ ref, evidence }) =>
+			byRef.get(ref)?.kind === "ask" &&
+			Date.parse(byRef.get(ref)!.sourceAt) < Date.parse(input.sourceAt) &&
+			evidence.trim().length > 0 &&
+			input.message.toLowerCase().includes(evidence.toLowerCase()),
+	);
+	const supported =
+		(await model.verify?.(
+			answers.map(({ ref, evidence }) => ({
+				ref,
+				request: byRef.get(ref)!.text,
+				status: "done",
+				evidence,
+				userReply: true,
+			})),
+			`USER REPLY:\n${input.message}`,
+		)) ?? new Set<string>();
 	await updateAgentSessionRequests(db, {
 		organizationId: input.organizationId,
 		userId: input.userId,
-		updates: cancelled,
+		updates: [
+			...cancelled,
+			...answers
+				.filter(({ ref }) => supported.has(ref))
+				.map(({ ref, evidence }) => ({
+					id: byRef.get(ref)!.id,
+					status: "done" as const,
+					evidence,
+				})),
+		],
 		now: input.now,
 	});
 	return { status: "recorded", recorded, cancelled: cancelled.length };
@@ -200,11 +256,15 @@ export async function reflectAgentSessionRequests(
 > {
 	const active = await activeRows(db, input);
 	const { prompt, byRef } = refs(active);
-	const raw = await model(
-		REQUEST_REFLECTOR_SYSTEM_PROMPT,
-		requestReflectorInput(input.turn, prompt, input.activity ?? ""),
-		"agent-session-request-reflector",
-	);
+	const source = `AGENT TURN:\n${input.turn}\nACTIVITY:\n${input.activity ?? ""}`;
+	const [raw, completions] = await Promise.all([
+		model(
+			REQUEST_REFLECTOR_SYSTEM_PROMPT,
+			requestReflectorInput(input.turn, prompt, input.activity ?? ""),
+			"agent-session-request-reflector",
+		),
+		model.findCompletions?.(prompt, source) ?? Promise.resolve([]),
+	]);
 	// Evidence may come from the turn or from its activity (a tool result).
 	const reflected = parseReflectedUpdates(
 		raw,
@@ -212,8 +272,42 @@ export async function reflectAgentSessionRequests(
 		`${input.turn}\n${input.activity ?? ""}`,
 	);
 	if (!reflected) return { status: "unavailable" };
-	const updated = reflected.flatMap((update) => {
+	const candidates = reflected.filter(
+		(update) =>
+			byRef.get(update.ref)!.kind !== "ask" &&
+			(update.status === "done" || update.status === "dropped_risk"),
+	);
+	const supported = new Set(
+		(await model.verify?.(
+			candidates.map((update) => ({
+				ref: update.ref,
+				request: byRef.get(update.ref)!.text,
+				status: update.status as "done" | "dropped_risk",
+				evidence: update.evidence ?? "",
+			})),
+			source,
+		)) ?? [],
+	);
+	const proposed = new Map(reflected.map((update) => [update.ref, update]));
+	for (const completion of completions) {
+		const row = byRef.get(completion.ref);
+		const evidence = acceptedDoneEvidence(completion.evidence, source);
+		if (!row || row.kind === "ask" || !evidence) continue;
+		proposed.set(completion.ref, {
+			ref: completion.ref,
+			status: "done",
+			evidence,
+		});
+		supported.add(completion.ref);
+	}
+	const updated = [...proposed.values()].flatMap((update) => {
 		const row = byRef.get(update.ref)!;
+		if (row.kind === "ask") return [];
+		if (
+			(update.status === "done" || update.status === "dropped_risk") &&
+			!supported.has(update.ref)
+		)
+			return [];
 		return row.status === update.status && !update.evidence
 			? []
 			: [{ id: row.id, status: update.status, evidence: update.evidence }];
@@ -222,17 +316,6 @@ export async function reflectAgentSessionRequests(
 		organizationId: input.organizationId,
 		userId: input.userId,
 		updates: updated,
-		now: input.now,
-	});
-	const touched = new Set(reflected.map((update) => byRef.get(update.ref)!.id));
-	const untouched = active.filter(
-		(row) => row.status === "open" && !touched.has(row.id),
-	);
-	await markAgentSessionRequestsUnaddressed(db, {
-		organizationId: input.organizationId,
-		userId: input.userId,
-		ids: untouched.map((row) => row.id),
-		threshold: UNADDRESSED_TURNS_AT_RISK,
 		now: input.now,
 	});
 	const known = new Set(active.map((row) => normalized(row.text)));
@@ -255,9 +338,11 @@ export async function reflectAgentSessionRequests(
 		),
 		now: input.now,
 	});
-	const atRisk = untouched.filter(
-		(row) => row.turnsUnaddressed + 1 >= UNADDRESSED_TURNS_AT_RISK,
-	).length;
+	const atRisk = updated.filter((row) => row.status === "dropped_risk").length;
+	await model.learn?.(
+		parseReflectedLessons(raw, input.turn, input.activity ?? ""),
+		input,
+	);
 	return { status: "reflected", updated, recorded, atRisk };
 }
 
@@ -306,7 +391,7 @@ export async function acceptAgentSessionEvents(
 	return { accepted, duplicates: events.length - accepted };
 }
 
-/** Events one background pass processes; each costs one model call. */
+/** Maximum events per background pass. */
 export const EVENTS_PER_PASS = 4;
 
 /**
@@ -322,19 +407,23 @@ export async function processAgentSessionEvents(
 	options: { limit?: number; now?: () => string } = {},
 ): Promise<number> {
 	const now = options.now ?? (() => new Date().toISOString());
-	const pending = await listPendingAgentSessionEvents(db, {
-		...owner,
-		limit: options.limit ?? EVENTS_PER_PASS,
-		now: now(),
-	});
+	const startedAt = Date.now();
 	let processed = 0;
-	for (const event of pending) {
+	for (let index = 0; index < (options.limit ?? EVENTS_PER_PASS); index++) {
+		// Leave room for a 15s extraction, 5s verification and D1 writes within waitUntil's 30s.
+		if (index > 0 && Date.now() - startedAt >= 5000) break;
+		const [event] = await listPendingAgentSessionEvents(db, {
+			...owner,
+			limit: 1,
+			now: now(),
+		});
+		if (!event) break;
 		const claimed = await claimAgentSessionEvent(db, {
 			...owner,
 			id: event.id,
 			now: now(),
 		});
-		if (!claimed) continue;
+		if (!claimed) break;
 		const scope = {
 			...owner,
 			harness: event.harness,
@@ -370,6 +459,7 @@ export async function processAgentSessionEvents(
 			now: now(),
 		});
 		if (ok) processed++;
+		else break;
 	}
 	return processed;
 }

@@ -304,7 +304,7 @@ export function gatewayCode(
  });
  if (t.requests) pending.requests = each(async () => {
   const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],limit:REQUEST_READ_LIMIT,order:'newest'});
-  return {data:r.data.map(q => ({harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt}))};
+  return {data:r.data.map(q => ({harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,kind:q.kind,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt}))};
  });
  if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
  const keys = Object.keys(pending);
@@ -440,10 +440,10 @@ export function openRequestLines(
 		...ordered(earlier).map((row) => ({ row, earlier: true })),
 	].slice(0, REQUEST_LIMIT);
 	const lines = [
-		`Open requests (${total}): what the user asked and is not done yet (Tedix request ledger, from the user's own messages). Finish each, or say plainly why not; when one is done, cite its commit SHA, link or exact result in your reply so the ledger can close it.`,
+		`Open requests (${total}): unfinished user requests and agent asks (Tedix request ledger). Finish each request, or say plainly why not; cite the exact result. An ask is waiting for the user's reply; do not answer or approve it for them.`,
 		...shown.map(
 			({ row, earlier }) =>
-				`- ${String(row.status).replace(/_/g, " ")} · ${age(String(row.sourceAt), now)}${earlier ? " · earlier chat" : ""} · ${JSON.stringify(String(row.text).slice(0, 200))}`,
+				`- ${String(row.status).replace(/_/g, " ")}${row.kind === "ask" ? " · ask" : ""} · ${age(String(row.sourceAt), now)}${earlier ? " · earlier chat" : ""} · ${JSON.stringify(String(row.text).slice(0, 200))}`,
 		),
 	];
 	if (total > shown.length)

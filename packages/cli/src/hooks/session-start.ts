@@ -1,5 +1,7 @@
 /** Read-only, opt-in Tedix preflight for local Codex and Claude sessions. */
 import { clearDelivery } from "./context-delivery";
+import { repositoryName } from "./decision-capture";
+import { gatewayCode, openRequestLines } from "./prompt-context";
 import {
 	type HookDeps,
 	type JsonObject,
@@ -322,6 +324,36 @@ export async function runSessionStart(deps: HookDeps): Promise<void> {
 		}
 	}
 
+	if (
+		bound &&
+		binding.decisionCapture === true &&
+		session &&
+		source === "stored-login"
+	) {
+		try {
+			const data = await read(
+				[...command, "code", gatewayCode({}, undefined, [], true)],
+				6500,
+			);
+			lines.push(
+				...openRequestLines(
+					data,
+					{
+						session,
+						repository: repositoryName(binding.origin, binding.root).slice(
+							0,
+							200,
+						),
+					},
+					now(),
+				),
+			);
+		} catch {
+			lines.push(
+				"Open requests unavailable; read the current ledger before relying on earlier requests.",
+			);
+		}
+	}
 	send(lines.join("\n"));
 }
 

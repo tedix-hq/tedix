@@ -6,7 +6,6 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	listAgentSessionRequests,
-	markAgentSessionRequestsUnaddressed,
 	recordAgentSessionRequests,
 	updateAgentSessionRequests,
 } from "./agent-session-requests";
@@ -125,30 +124,11 @@ describe("agent session request ledger", () => {
 		expect(done).toMatchObject({ evidence: "abc1234", statusChangedAt: T1 });
 	});
 
-	it("marks a row at risk after enough unaddressed turns", async () => {
+	it("records agent asks as waiting on the user", async () => {
 		const db = fixture();
-		const [row] = await record(db);
-		const mark = () =>
-			markAgentSessionRequestsUnaddressed(db, {
-				organizationId: ORG,
-				userId: USER,
-				ids: [row!.id],
-				threshold: 2,
-				now: T1,
-			});
-		await mark();
-		const [after1] = await listAgentSessionRequests(db, {
-			organizationId: ORG,
-			userId: USER,
-			statuses: ["open"],
+		const [ask] = await record(db, {
+			requests: [{ kind: "ask", text: "Approve the README publication" }],
 		});
-		expect(after1).toMatchObject({ id: row!.id, turnsUnaddressed: 1 });
-		await mark();
-		const [after2] = await listAgentSessionRequests(db, {
-			organizationId: ORG,
-			userId: USER,
-			statuses: ["dropped_risk"],
-		});
-		expect(after2).toMatchObject({ id: row!.id, statusChangedAt: T1 });
+		expect(ask).toMatchObject({ kind: "ask", status: "waiting_on_user" });
 	});
 });

@@ -21,6 +21,7 @@ describe("parseObservedRequests", () => {
 				{ kind: "request", text: "Fix the login page" },
 			],
 			cancelled: ["r1"],
+			answered: [],
 		});
 	});
 
@@ -101,4 +102,25 @@ describe("parseReflectedUpdates", () => {
 			{ ref: "r3", status: "waiting_on_user", evidence: "needs a key" },
 		]);
 	});
+});
+
+it("extracts agent asks from summaries without treating them as promises", () => {
+	expect(
+		parseReflectedNewRows(
+			JSON.stringify({
+				new: [{ kind: "ask", text: "Approve the public README wording" }],
+			}),
+		),
+	).toEqual([{ kind: "ask", text: "Approve the public README wording" }]);
+});
+
+it("reads the first complete JSON object despite a trailing model brace", () => {
+	const answer =
+		JSON.stringify({
+			requests: [{ kind: "question", text: 'What does "{scope}" mean?' }],
+		}) + "}";
+	expect(parseObservedRequests(answer, new Set())?.requests).toEqual([
+		{ kind: "question", text: 'What does "{scope}" mean?' },
+	]);
+	expect(parseObservedRequests('{"requests":[', new Set())).toBeNull();
 });

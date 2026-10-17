@@ -6,11 +6,9 @@
  * request, question or decision as a ledger row. The reflector reads the
  * agent's turn, with a digest of its activity (tool failures, delegated
  * subagents and their reports), moves the open rows it touched, and records
- * the agent's own promises and open loops (a lane started with no report back)
- * as new rows. Completion needs evidence,
- * as the tedi observer's rule 10 does: a row only becomes `done` with a commit
- * SHA, a link, or a quote that appears in the turn itself
- * ({@link acceptedDoneEvidence}); anything else stays `in_progress`.
+ * the agent's own asks, promises and open loops as new rows. The caller
+ * verifies that completion or abandonment evidence supports the request.
+ * Only a user reply can close an agent ask.
  *
  * Runtime-neutral: callers own the model call and persistence.
  */
@@ -19,6 +17,7 @@ export type LedgerRequestKind =
 	| "request"
 	| "question"
 	| "decision"
+	| "ask"
 	| "promise"
 	| "open_loop";
 export type LedgerRequestStatus =
@@ -41,6 +40,7 @@ export interface LedgerRowRef {
 	ref: string;
 	text: string;
 	status: LedgerRequestStatus;
+	kind?: LedgerRequestKind;
 }
 
 export const REQUEST_OBSERVER_SYSTEM_PROMPT = `You watch a person's messages to their coding agent and keep a ledger of what they asked for, so no request is lost.
@@ -53,15 +53,16 @@ Read the NEW MESSAGE. Extract each distinct thing the person wants the agent to 
 Rules:
 1. One row per distinct request. Split a message that asks for several things. Never merge unrelated asks.
 2. Write each row in plain words, imperative, self-contained, at most 25 words, keeping exact names, paths, ids and numbers. Example: "Add a changeset for the CLI hook change".
-3. Skip acknowledgements and steering with no new ask ("ok", "yes", "continue", "thanks", "go on"), greetings, pasted logs, and context that asks nothing.
+3. Skip acknowledgements and steering as NEW requests ("ok", "yes", "continue", "thanks", "go on"), greetings, pasted logs, and context that asks nothing. Still check these replies against existing agent asks for "answered".
 4. A follow-up that only restates an OPEN ROW is not a new row. If it changes the row's scope, write the new scope as a new row and list the old ref in "cancelled".
 5. When the person withdraws an open row ("forget X", "skip that", "no need for X"), list its ref in "cancelled".
+   For an agent "ask", list its ref and an exact quote from NEW MESSAGE in "answered" when the person answers that specific ask. A refusal or delegating the action back to the agent ("hand that to Codex and the browser", "you do it") is also an answer, even though execution is still unfinished. Record that delegated work as a request if not already covered. "Go", "yes", "1 and go", or "logged in" can answer the most recent relevant ask; a bare "continue" does not answer unrelated approval asks. Never cancel an ask instead of recording its reply.
 6. At most ${LEDGER_MAX_REQUESTS_PER_MESSAGE} rows. Most messages have 0 to 3.
 
 Return ONLY this JSON object:
-{"requests":[{"kind":"request"|"question"|"decision","text":"..."}],"cancelled":["ref", ...]}`;
+{"requests":[{"kind":"request"|"question"|"decision","text":"..."}],"cancelled":["ref", ...],"answered":[{"ref":"...","evidence":"exact user reply"}]}`;
 
-export const REQUEST_REFLECTOR_SYSTEM_PROMPT = `You keep a ledger of a person's requests to their coding agent honest. You read the agent's latest TURN, an ACTIVITY digest of what it did during the turn (tool failures, subagents or other agents it started, their reports), and the OPEN ROWS.
+export const REQUEST_REFLECTOR_SYSTEM_PROMPT = `You keep a ledger of a person's requests to their coding agent honest. You read the agent's latest TURN, an ACTIVITY digest (tool failures, delegated agents and their reports, and earlier user-facing messages prefixed "Agent said:"), and the OPEN ROWS. TURN and ACTIVITY are equally valid sources. Check every earlier agent message for asks, including summaries and tables: a later status update need not repeat an earlier "needs your OK" or "say go" for it to remain owed.
 
 1. Say which OPEN ROWS the turn moved, in "updates":
 - "in_progress": the turn worked on the row but did not finish it.
@@ -69,19 +70,26 @@ export const REQUEST_REFLECTOR_SYSTEM_PROMPT = `You keep a ledger of a person's 
 - "waiting_on_user": the turn needs something from the person to continue (a decision, an approval, a credential, a click).
 - "dropped_risk": the turn claims the work is complete, or moves on, while this row was clearly not done, or the turn promised to do it later without doing it.
 Only list rows the turn actually touched. Never mark done from topic drift or a plan. Copy the ref exactly.
+Never update an "ask" row: only a later user reply can close it. Elapsed turns and silence do not prove a row was dropped. A request for an explanation is done when answered; a decision that sets ongoing behavior is not an unfinished task.
 
 2. Record what the agent now owes, in "new":
 - "promise": the agent committed to a concrete follow-up it has not done yet ("I'll report the result", "next I will check X", "I'll send the list").
 - "open_loop": the agent started a lane that must report back and has not yet (a background subagent, a delegated Codex run, a deploy or CI run it is waiting on).
+- "ask": the agent asks the person for a reply, approval, choice, access or action, including inside summaries, tables, recommendations and needs-you lists ("say go", "tell me if…", "needs your OK"). Record the specific decision or action awaiting the person, even if conditional or optional. Do not turn the agent's own next steps into asks.
 Write each in plain words, at most 25 words, keeping exact names. Skip anything an OPEN ROW already covers, anything finished in this same turn, routine steps, and items of a status list or plan that merely names lanes. Only a first-person commitment to the person ("I'll send", "I'll report back") is a promise. Most turns have none.
 
+3. If ACTIVITY records a failure and TURN or ACTIVITY explicitly explains its successful fix, suggest a reusable team lesson in "lessons". Give a short general rule and exact quotes of both failure and fix. Never infer a fix from an unrelated success, a plan, or silence. These are candidates for review, not approved lessons. Usually none.
+
 Keep evidence under 200 characters. Return ONLY this JSON object:
-{"updates":[{"ref":"...","status":"in_progress"|"done"|"waiting_on_user"|"dropped_risk","evidence":"..."}],"new":[{"kind":"promise"|"open_loop","text":"..."}]}`;
+{"updates":[{"ref":"...","status":"in_progress"|"done"|"waiting_on_user"|"dropped_risk","evidence":"..."}],"new":[{"kind":"promise"|"open_loop"|"ask","text":"..."}],"lessons":[{"rule":"...","failure":"exact activity quote","fix":"exact source quote"}]}`;
 
 function rowsBlock(rows: readonly LedgerRowRef[]): string {
 	if (!rows.length) return "OPEN ROWS: none";
 	return `OPEN ROWS:\n${rows
-		.map((row) => `- ref=${row.ref} [${row.status}] ${row.text}`)
+		.map(
+			(row) =>
+				`- ref=${row.ref} [${row.status}]${row.kind ? ` (${row.kind})` : ""} ${row.text}`,
+		)
 		.join("\n")}`;
 }
 
@@ -108,8 +116,25 @@ function jsonObject(raw: string | null): Record<string, unknown> | null {
 		.replace(/^```(?:json)?\s*/i, "")
 		.replace(/```\s*$/, "");
 	const start = text.indexOf("{");
-	const end = text.lastIndexOf("}");
-	if (start < 0 || end <= start) return null;
+	if (start < 0) return null;
+	let depth = 0;
+	let quoted = false;
+	let escaped = false;
+	let end = -1;
+	for (let index = start; index < text.length; index++) {
+		const char = text[index];
+		if (quoted) {
+			if (escaped) escaped = false;
+			else if (char === "\\") escaped = true;
+			else if (char === '"') quoted = false;
+		} else if (char === '"') quoted = true;
+		else if (char === "{") depth++;
+		else if (char === "}" && --depth === 0) {
+			end = index;
+			break;
+		}
+	}
+	if (end < 0) return null;
 	try {
 		const value: unknown = JSON.parse(text.slice(start, end + 1));
 		return value && typeof value === "object" && !Array.isArray(value)
@@ -126,10 +151,51 @@ function oneLine(value: unknown, limit: number): string {
 	return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
 }
 
-const KINDS = new Set<LedgerRequestKind>(["request", "question", "decision"]);
-const OWED = new Set<LedgerRequestKind>(["promise", "open_loop"]);
+export interface LedgerLesson {
+	rule: string;
+	failure: string;
+	fix: string;
+}
 
-/** The reflector's new promise and open-loop rows; empty on a bad reply. */
+export function parseReflectedLessons(
+	raw: string | null,
+	turn: string,
+	activity: string,
+): LedgerLesson[] {
+	const value = jsonObject(raw);
+	if (!value || !Array.isArray(value.lessons)) return [];
+	const seen = new Set<string>();
+	return value.lessons.flatMap((item) => {
+		if (!item || typeof item !== "object") return [];
+		const row = item as Record<string, unknown>;
+		const rule = oneLine(row.rule, LEDGER_REQUEST_TEXT_LIMIT);
+		const failure = oneLine(row.failure, LEDGER_EVIDENCE_LIMIT);
+		const fix = oneLine(row.fix, LEDGER_EVIDENCE_LIMIT);
+		const key = squash(rule);
+		if (
+			rule.length < 12 ||
+			failure.length < 12 ||
+			fix.length < 12 ||
+			seen.has(key) ||
+			!activity
+				.split("\n")
+				.some(
+					(line) =>
+						/^Failed\b/.test(line) && squash(line).includes(squash(failure)),
+				) ||
+			!squash(`${turn}\n${activity}`).includes(squash(fix)) ||
+			squash(failure) === squash(fix)
+		)
+			return [];
+		seen.add(key);
+		return [{ rule, failure, fix }];
+	});
+}
+
+const KINDS = new Set<LedgerRequestKind>(["request", "question", "decision"]);
+const OWED = new Set<LedgerRequestKind>(["promise", "open_loop", "ask"]);
+
+/** The reflector's new asks, promises and open loops; empty on a bad reply. */
 export function parseReflectedNewRows(
 	raw: string | null,
 ): Array<{ kind: LedgerRequestKind; text: string }> {
@@ -158,6 +224,7 @@ export function parseObservedRequests(
 ): {
 	requests: Array<{ kind: LedgerRequestKind; text: string }>;
 	cancelled: string[];
+	answered: Array<{ ref: string; evidence: string }>;
 } | null {
 	const value = jsonObject(raw);
 	if (!value || !Array.isArray(value.requests)) return null;
@@ -187,7 +254,18 @@ export function parseObservedRequests(
 				),
 			]
 		: [];
-	return { requests, cancelled };
+	const answered = Array.isArray(value.answered)
+		? value.answered.flatMap((item) => {
+				if (!item || typeof item !== "object") return [];
+				const { ref, evidence } = item as Record<string, unknown>;
+				return typeof ref === "string" &&
+					refs.has(ref) &&
+					typeof evidence === "string"
+					? [{ ref, evidence: oneLine(evidence, LEDGER_EVIDENCE_LIMIT) }]
+					: [];
+			})
+		: [];
+	return { requests, cancelled, answered };
 }
 
 const REFLECTED = new Set<LedgerRequestStatus>([
@@ -228,14 +306,7 @@ export function acceptedDoneEvidence(
 		return text;
 	const quote = squash(text.replace(/^…|…$/g, ""));
 	if (quote.length >= 12 && haystack.includes(quote)) return text;
-	// A lightly trimmed quote still counts: at least four of its words, and
-	// nearly all of them, appear in the turn.
-	const words = quote.split(/[^a-z0-9]+/).filter((word) => word.length >= 3);
-	const present = new Set(haystack.split(/[^a-z0-9]+/));
-	const found = words.filter((word) => present.has(word)).length;
-	return words.length >= 4 && found >= Math.ceil(words.length * 0.85)
-		? text
-		: null;
+	return null;
 }
 
 /**
