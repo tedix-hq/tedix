@@ -6,6 +6,7 @@ import {
 import { OsGadgetManifestWriteSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import {
+	workIsUnowned,
 	classReadiness,
 	decisionEnvelope,
 	decisionFeedbackMetadata,
@@ -116,4 +117,24 @@ describe("decision deck policy projection", () => {
 			).toBe(false);
 		expect(decisionEnvelope({ decisionDeck: { kind: "adr" } })).toBeNull();
 	});
+});
+
+it("distinguishes nobody carrying an outcome from a live Attempt or an unknown read", () => {
+	expect(workIsUnowned(undefined)).toBe(false);
+	expect(workIsUnowned({ accountableOwnerId: null })).toBe(false);
+	expect(
+		workIsUnowned({
+			accountableOwnerId: null,
+			activeAttempt: { executorId: "fictional-worker" },
+		}),
+	).toBe(false);
+	expect(
+		workIsUnowned({
+			accountableOwnerId: "fictional-owner",
+			activeAttempt: null,
+		}),
+	).toBe(false);
+	expect(workIsUnowned({ accountableOwnerId: null, activeAttempt: null })).toBe(
+		true,
+	);
 });

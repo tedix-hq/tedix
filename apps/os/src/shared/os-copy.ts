@@ -40,7 +40,7 @@ export const OS_COPY = {
 			time: "Time to decide",
 			delegation: "Decide for me",
 			cards: "Cards today",
-			visits: "Visits today",
+			visits: "Return visits today",
 			corrections: "Corrections",
 			unavailable: "Decision attention could not be loaded.",
 		},

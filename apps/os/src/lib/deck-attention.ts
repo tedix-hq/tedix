@@ -78,11 +78,14 @@ export function attentionMetrics(
 		decisionsToday: decisions.filter((event) =>
 			event.occurredAt.startsWith(today),
 		).length,
-		visitsToday: unique.filter(
-			(event) =>
-				event.surface === "decision_deck_visit" &&
-				event.occurredAt.startsWith(today),
-		).length,
+		returnVisitsToday: Math.max(
+			0,
+			unique.filter(
+				(event) =>
+					event.surface === "decision_deck_visit" &&
+					event.occurredAt.startsWith(today),
+			).length - 1,
+		),
 		streak,
 	};
 }

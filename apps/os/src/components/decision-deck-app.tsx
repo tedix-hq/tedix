@@ -32,8 +32,10 @@ import {
 	pendingApprovalsQueryOptions,
 	projectListQueryOptions,
 	userProfileQueryOptions,
+	workItemListQueryOptions,
 } from "@/lib/os-query-options";
 import {
+	workIsUnowned,
 	classReadiness,
 	decisionEnvelope,
 	decisionFeedbackMetadata,
@@ -241,7 +243,32 @@ export function DecisionDeckApp({
 					.sort((a, b) => batch!.ids.indexOf(a.id) - batch!.ids.indexOf(b.id))
 			: ranked;
 	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
-	const current = selected?.decision;
+	const linkedWorkId = selected?.row?.workItem?.id;
+	const selectedWork = useQuery({
+		...workItemListQueryOptions({ idPrefix: linkedWorkId ?? "", limit: 1 }),
+		enabled: Boolean(linkedWorkId) && mode === "decide",
+		staleTime: 0,
+		refetchInterval: 30_000,
+		retry: false,
+	});
+	const nobodyOn = workIsUnowned(
+		!selectedWork.isFetching && !selectedWork.isError
+			? selectedWork.data?.data.find((work) => work.id === linkedWorkId)
+			: undefined,
+	);
+	const expiresAt =
+		selected?.row?.request.expiresAt ?? selected?.decision?.expiresAt;
+	const current = selected?.decision
+		? {
+				...selected.decision,
+				expiresAt: expiresAt ?? undefined,
+				nobodyOn: practiceMode ? selected.decision.nobodyOn : nobodyOn,
+			}
+		: null;
+	const usesEnvelope = Boolean(
+		current &&
+		(practiceMode || current.kind === "adr" || current.kind === "decision"),
+	);
 	const classId = current?.classId ?? selected?.kind;
 	const learning = classId
 		? classReadiness(
@@ -310,6 +337,7 @@ export function DecisionDeckApp({
 					.then((clientEventId) =>
 						osApi.learningFeedback.recordInteraction({
 							clientEventId,
+							signalClass: choice.signal === "shown" ? "lifecycle" : "quality",
 							eventKind:
 								choice.signal === "shown"
 									? "delivered"
@@ -553,6 +581,16 @@ export function DecisionDeckApp({
 								: selected.kind}{" "}
 							· {(index % filtered.length) + 1} of {filtered.length}
 						</Text>
+						{!usesEnvelope && expiresAt && (
+							<Text>
+								{OS_COPY.decisionDeck.expires(
+									Math.ceil((Date.parse(expiresAt) - now.getTime()) / 60_000),
+								)}
+							</Text>
+						)}
+						{!usesEnvelope && nobodyOn && (
+							<Text>{OS_COPY.decisionDeck.nobodyOn}</Text>
+						)}
 						{mode === "history" ? (
 							<WorkDecisionCard
 								kind={current?.kind ?? "decision"}

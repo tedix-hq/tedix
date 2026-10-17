@@ -55,13 +55,14 @@ it("measures all five attention signals once, counting deferred cards as attenti
 			event("later", "decision_deck_action", "later"),
 			event("learning", "decision_capture", "approve"),
 			event("visit", "decision_deck_visit", ""),
+			event("return", "decision_deck_visit", ""),
 		],
 		new Date("2026-10-17T14:00:00Z"),
 	);
 	expect(result).toMatchObject({
 		cardsToday: 3,
 		decisionsToday: 2,
-		visitsToday: 1,
+		returnVisitsToday: 1,
 		averageMs: 2000,
 		delegationRate: 0.5,
 		correctionRate: 0.5,
