@@ -33,6 +33,7 @@ import {
 	type AgentSessionRequestUpdate,
 	claimAgentSessionEvent,
 	getPreviousAgentSessionTurn,
+	listRecentAgentSessionTurns,
 	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
 	listPendingAgentSessionEvents,
@@ -371,7 +372,7 @@ export async function reflectAgentSessionRequests(
 			atRisk: number;
 	  }
 > {
-	const [active, resolved, userMessage] = await Promise.all([
+	const [active, resolved, userMessage, recentTurns] = await Promise.all([
 		activeRows(db, input),
 		listAgentSessionRequests(db, {
 			...input,
@@ -384,6 +385,7 @@ export async function reflectAgentSessionRequests(
 			before: input.sourceAt,
 			kind: "prompt",
 		}),
+		listRecentAgentSessionTurns(db, { ...input, before: input.sourceAt }),
 	]);
 	const { prompt, byRef } = refs([...active, ...resolved]);
 	const origins = await getAgentSessionRequestPrompts(db, {
@@ -411,7 +413,13 @@ export async function reflectAgentSessionRequests(
 		prompt.slice(0, active.length).map((row) => row.ref),
 	);
 	const currentSource = `AGENT TURN:\n${input.turn}\nACTIVITY:\n${input.activity ?? ""}`;
-	const source = `USER MESSAGE:\n${userMessage ?? ""}\n${currentSource}\nSAVED ROW EVIDENCE:\n${[...active, ...resolved].map((row) => row.evidence ?? "").join("\n")}`;
+	const history = recentTurns
+		.map(
+			(event) =>
+				`${event.sourceAt}:\n${event.body}\nACTIVITY:\n${event.activity ?? ""}`,
+		)
+		.join("\n\n");
+	const source = `RECENT ASSISTANT EVIDENCE:\n${history}\nUSER MESSAGE:\n${userMessage ?? ""}\n${currentSource}\nSAVED ROW EVIDENCE:\n${[...active, ...resolved].map((row) => row.evidence ?? "").join("\n")}`;
 	const raw = await model(
 		REQUEST_REFLECTOR_SYSTEM_PROMPT,
 		requestReflectorInput(
@@ -423,6 +431,7 @@ export async function reflectAgentSessionRequests(
 			[...scopes]
 				.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
 				.join("\n\n"),
+			history,
 		),
 		"agent-session-request-reflector",
 	);
