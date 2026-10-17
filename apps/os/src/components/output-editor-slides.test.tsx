@@ -1009,6 +1009,65 @@ describe("SlidesEditor", () => {
 	});
 });
 
+describe("slide resize boundaries", () => {
+	it("previews scaled resizing, commits on release, and clamps to the canvas", () => {
+		const mounted = mountEditor();
+		const canvas = mounted.container.querySelector<HTMLElement>(
+			".slides-editor-canvas",
+		)!;
+		canvas.getBoundingClientRect = () => ({ width: 600 }) as DOMRect;
+		const title = canvas.querySelector<HTMLElement>('[data-element="title"]')!;
+		act(() => title.click());
+		const handle = title.querySelector<HTMLButtonElement>(
+			'[aria-label="Resize selected element"]',
+		)!;
+		const pointer = (type: string, clientX: number, clientY: number) => {
+			act(() =>
+				handle.dispatchEvent(
+					new PointerEvent(type, {
+						bubbles: true,
+						cancelable: true,
+						button: 0,
+						pointerId: 1,
+						clientX,
+						clientY,
+					}),
+				),
+			);
+		};
+		const original = {
+			width: Number.parseFloat(title.style.width),
+			height: Number.parseFloat(title.style.height),
+		};
+		pointer("pointerdown", 0, 0);
+		pointer("pointermove", 10, 10);
+		expect(mounted.emitted).toEqual([]);
+		pointer("pointerup", 10, 10);
+		expect(mounted.emitted).toHaveLength(2);
+		const resized = mounted.emitted.at(-1)!.deck!.slides[0]!.elements[0]!;
+		expect((resized.width / 1200) * 100).toBeCloseTo(
+			original.width + (20 / 1200) * 100,
+		);
+		expect((resized.height / 675) * 100).toBeCloseTo(
+			original.height + (20 / 675) * 100,
+		);
+		pointer("pointerdown", 0, 0);
+		pointer("pointermove", -2000, -2000);
+		pointer("pointerup", -2000, -2000);
+		expect(mounted.emitted.at(-1)!.deck!.slides[0]!.elements[0]).toMatchObject({
+			width: 24,
+			height: 24,
+		});
+		pointer("pointerdown", 0, 0);
+		pointer("pointermove", 2000, 2000);
+		pointer("pointerup", 2000, 2000);
+		const clamped = mounted.emitted.at(-1)!.deck!.slides[0]!.elements[0]!;
+		expect(clamped.width).toBe(1200 - clamped.x);
+		expect(clamped.height).toBe(675 - clamped.y);
+		mounted.cleanup();
+	});
+});
+
 describe("slide regression sweep", () => {
 	it("enters text editing on the first double-click without opening the inspector", () => {
 		const mounted = mountEditor();
