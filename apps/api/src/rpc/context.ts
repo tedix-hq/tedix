@@ -64,6 +64,8 @@ export interface BaseContext {
 	factoryOperatorApproval?: { requestId: string; userId: string };
 	/** Stable Tedix user id resolved from the external identity mapping. */
 	userId?: string;
+	/** Bounded external-provider API scopes; absent on the default Descope path. */
+	oidcScopes?: string[];
 	/** Organization ID (D1 UUID) resolved from Descope tenant id */
 	organizationId?: string;
 	/** User role within the organization */

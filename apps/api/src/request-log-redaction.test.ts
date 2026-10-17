@@ -10,6 +10,14 @@ describe("redactRequestLogMessage", () => {
 		).toBe("<-- GET /oauth/mcp/callback?[query-redacted]");
 	});
 
+	it("removes OIDC code and state from logs", () => {
+		expect(
+			redactRequestLogMessage(
+				"<-- GET /auth/oidc/callback?code=secret&state=secret",
+			),
+		).toBe("<-- GET /auth/oidc/callback?[query-redacted]");
+	});
+
 	it("does not change ordinary request logs", () => {
 		expect(redactRequestLogMessage("--> GET /health 200 3ms")).toBe(
 			"--> GET /health 200 3ms",

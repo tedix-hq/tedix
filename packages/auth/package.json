@@ -49,7 +49,9 @@
 			"import": "./src/web.ts",
 			"default": "./src/web.ts"
 		},
-		"./runtime-inference-origin": "./src/runtime-inference-origin.ts"
+		"./runtime-inference-origin": "./src/runtime-inference-origin.ts",
+		"./oidc": "./src/oidc.ts",
+		"./oidc-cookies": "./src/oidc-cookies.ts"
 	},
 	"scripts": {
 		"clean": "true",

@@ -110,6 +110,7 @@ export interface OrganizationFeatures {
 export interface OrganizationMetadata {
 	decisionLearning?: DecisionLearningConfig;
 	portfolioBuckets?: OrganizationContractMetadata["portfolioBuckets"];
+	identityProvider?: import("@tedix/api-contract/schemas/oidc-identity").OidcIdentityConfig;
 	providerCustomerKey?: string;
 	providerOnboarding?: OrganizationContractMetadata["providerOnboarding"];
 	tediWidget?: OrganizationContractMetadata["tediWidget"];
