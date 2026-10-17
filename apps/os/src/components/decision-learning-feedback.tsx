@@ -5,6 +5,7 @@ import { osQuery } from "@/lib/os-query-options";
 import { OS_COPY } from "@/shared/os-copy";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import { toast } from "@/components/kumo/toast";
 
 /** Learning corrections undo evidence only; canonical decisions keep their own controls. */
 export function DecisionLearningFeedback() {
@@ -20,7 +21,7 @@ export function DecisionLearningFeedback() {
 	useEffect(() => setMessage(""), [last?.eventId]);
 	if (!last) return null;
 	const copy = OS_COPY.learning;
-	const subject = last.classId.replaceAll(/[-_:]/g, " ");
+	const subject = last.classId.replaceAll(/[-_:.]/g, " ");
 	const preference = model?.preferences.find((p) => p.classId === last.classId);
 	const learned =
 		preference && last.eventKind === "edited"
@@ -51,6 +52,7 @@ export function DecisionLearningFeedback() {
 							clientEventId: crypto.randomUUID(),
 						});
 						setMessage(copy.undone);
+						toast.success(copy.undone);
 						await client.invalidateQueries({
 							queryKey: osQuery.learningFeedback.key(),
 						});

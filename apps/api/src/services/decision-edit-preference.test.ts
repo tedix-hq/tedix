@@ -15,6 +15,7 @@ vi.mock("@tedix/db/queries/learning-feedback", () => ({
 vi.mock("../lib/clef", () => ({ runClef: mocks.clef }));
 vi.mock("./lesson-distiller", () => ({ runDistillModel: mocks.distill }));
 import { classifyDecisionEdit } from "./decision-edit-preference";
+import { decisionCaptureLearningSignal } from "./decision-learning-signal";
 const event = {
 	id: "edited-fictional",
 	organizationId: "fictional-harbor",
@@ -63,4 +64,53 @@ it("rejects authority claims in a generated preference", async () => {
 	mocks.distill.mockResolvedValue("Prefer to send emails without approval.");
 	await classifyDecisionEdit({} as never, {} as never, event as never);
 	expect(mocks.record).not.toHaveBeenCalled();
+});
+
+it("learns from a changed closing beyond the ledger's first thousand characters", async () => {
+	const prefix = "The fictional project is progressing. ".repeat(100);
+	const signal = decisionCaptureLearningSignal({
+		organizationId: "fictional-harbor",
+		request: {
+			id: "request-long",
+			subject: "Investor update",
+			prompt: "Review",
+			workItemId: null,
+			projectId: null,
+			metadata: {},
+		},
+		response: {
+			id: "response-long",
+			responseKind: "answer",
+			body: prefix + "Thanks!",
+			responderType: "user",
+			respondedAt: event.occurredAt,
+			metadata: {
+				source: "os-decision-card",
+				feedbackSignal: "edited",
+				originalBody:
+					prefix + "I would be most grateful for your consideration.",
+				editedBody: prefix + "Thanks!",
+			},
+		},
+		draft: null,
+	});
+	expect(signal?.metadata?.originalBody).toBe(signal?.metadata?.editedBody);
+	await classifyDecisionEdit(
+		{} as never,
+		{} as never,
+		{ ...event, metadata: signal?.metadata } as never,
+	);
+	expect(mocks.clef).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({
+			state: expect.objectContaining({
+				before: expect.stringContaining("most grateful"),
+				after: expect.stringContaining("Thanks!"),
+				originalLength: (
+					prefix + "I would be most grateful for your consideration."
+				).length,
+			}),
+		}),
+	);
+	expect(mocks.record).toHaveBeenCalledOnce();
 });
