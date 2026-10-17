@@ -39,6 +39,7 @@ import {
 	WorkAdmissionSpecificationError,
 } from "@tedix/db/queries/work-items/admissions";
 import { ORPCError } from "@orpc/server";
+import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import {
 	createWorkResourcePool,
 	getWorkResourcePoolByKey,
@@ -334,11 +335,12 @@ export const updateSpecificationProcedure =
 				input.stewardId === undefined &&
 				workItem.projectId
 					? (
-							await assertValidWorkItemProject(context.db, {
-								orgId: workItem.orgId,
-								projectId: workItem.projectId,
-							})
-						).leadTediId
+							await getProjectByIdForOrganization(
+								context.db,
+								workItem.orgId,
+								workItem.projectId,
+							)
+						)?.leadTediId
 					: undefined;
 			return await updateWorkItemSpecification(context.db, {
 				orgId: workItem.orgId,
