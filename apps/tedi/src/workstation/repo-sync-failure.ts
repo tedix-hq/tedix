@@ -6,7 +6,7 @@ export function repoSyncFailure(repoUrl: string, detail: string): string {
 		.replace(/^\/+|\/+$/g, "")
 		.replace(/\.git$/, "");
 	if (
-		!/blocked host|egress blocked|github_app_|authentication failed|repository not found|could not read Username|(?:HTTP|error:)\s*40[134]/i.test(
+		!/blocked host|egress blocked|github_app_(?:upstream_(?:401|403|404|422)|scope_invalid|token_invalid|installation_invalid)|github_repository_scope_mismatch|authentication failed|repository not found|could not read Username|(?:HTTP|error:)\s*40[134]/i.test(
 			detail,
 		)
 	)

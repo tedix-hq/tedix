@@ -14,7 +14,9 @@ export function workAttemptFailureReason(
 			.filter(Boolean) ?? [];
 	return (
 		lines.find((line) =>
-			/\b(?:block(?:ed|er)|error|reason|failed)\b/i.test(line),
+			/\b(?:block(?:ed|er)|error|reason|failed|gated|timed out|timeout|denied|unavailable)\b/i.test(
+				line,
+			),
 		) ?? "Attempt failed without a reported reason; inspect its run history."
 	);
 }
