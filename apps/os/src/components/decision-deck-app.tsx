@@ -31,7 +31,6 @@ import {
 import { osApi } from "@/lib/api";
 import {
 	osQuery,
-	pendingApprovalsQueryOptions,
 	projectListQueryOptions,
 	userProfileQueryOptions,
 	workItemListQueryOptions,
@@ -50,6 +49,8 @@ import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { isOpenRequestForYou } from "@/components/work-needs-you-count";
 import { useDeckBatch } from "@/lib/use-deck-batch";
 import { deckBatchWindow, attentionMetrics } from "@/lib/deck-attention";
+import { useDecisionInbox } from "@/lib/use-decision-inbox";
+import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-card";
 import { OS_COPY } from "@/shared/os-copy";
 
 const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
@@ -75,15 +76,8 @@ export function DecisionDeckApp({
 	const [index, setIndex] = useState(0);
 	const [practice, setPractice] = useState<DecisionLearningReceipt[]>([]);
 	const [skipped, setSkipped] = useState<string[]>([]);
-	const inbox = useQuery(
-		osQuery.workInteractions.listInbox.queryOptions({
-			input: {
-				projectId: config.projectId,
-				limit: config.limit,
-				states: ["open"],
-			},
-		}),
-	);
+	const decisions = useDecisionInbox(config);
+	const { inbox, approvals } = decisions;
 	const history = useQuery(
 		osQuery.workInteractions.listInbox.queryOptions({
 			input: {
@@ -93,10 +87,6 @@ export function DecisionDeckApp({
 			},
 		}),
 	);
-	const approvals = useQuery({
-		...pendingApprovalsQueryOptions(),
-		enabled: !config.projectId,
-	});
 	const profile = useQuery(userProfileQueryOptions());
 	const projects = useQuery(projectListQueryOptions(100));
 	const projectNames = new Map(
@@ -197,6 +187,17 @@ export function DecisionDeckApp({
 							row,
 						};
 					}),
+				...(mode === "decide"
+					? decisions.work.map((row) => ({
+							id: `work-approval:${row.proposal.id}`,
+							kind: "approval",
+							label: row.workItem.title,
+							project: row.workItem.projectId ?? "Unfiled",
+							urgency: "now",
+							decision: null,
+							row: undefined,
+						}))
+					: []),
 				...(!config.projectId && mode === "decide"
 					? (approvals.data?.data ?? []).map((approval) => ({
 							id: `approval:${approval.id}`,
@@ -256,9 +257,8 @@ export function DecisionDeckApp({
 		Math.max(0, config.dailyAttentionBudget - todayCount),
 		mode === "decide" &&
 			!!profile.data?.id &&
-			!inbox.isPending &&
-			!inbox.isError &&
-			(!!config.projectId || (!approvals.isPending && !approvals.isError)) &&
+			!decisions.pending &&
+			!decisions.failed &&
 			!learningQuery.isPending &&
 			!learningQuery.isError,
 	);
@@ -592,7 +592,7 @@ export function DecisionDeckApp({
 					</Text>
 				)}
 				{!practiceMode &&
-					(inbox.isError || approvals.isError || learningQuery.isError) && (
+					(decisions.failed || learningQuery.isError) && (
 						<Text role="body">
 							Some decisions could not be loaded.{" "}
 							<Button
@@ -600,6 +600,7 @@ export function DecisionDeckApp({
 								onClick={() => {
 									void inbox.refetch();
 									void approvals.refetch();
+									void decisions.workApprovals.refetch();
 									void learningQuery.refetch();
 								}}
 							>
@@ -672,6 +673,14 @@ export function DecisionDeckApp({
 								}
 								disabled
 								onDecision={async () => {}}
+								onNext={next}
+								onPrevious={previous}
+							/>
+						) : selected.id.startsWith("work-approval:") ? (
+							<WorkApprovalDecisionCard
+								row={decisions.work.find(
+									(row) => `work-approval:${row.proposal.id}` === selected.id,
+								)!}
 								onNext={next}
 								onPrevious={previous}
 							/>
@@ -794,14 +803,13 @@ export function DecisionDeckApp({
 					!inbox.isPending &&
 					(practiceMode || batch) && (
 						<Text>
-							{inbox.isError || approvals.isError || learningQuery.isError
+							{decisions.failed || learningQuery.isError
 								? ""
 								: available.length > 0
 									? OS_COPY.decisionDeck.noMatches
 									: OS_COPY.decisionDeck.clear}
 							{!(
-								inbox.isError ||
-								approvals.isError ||
+								decisions.failed ||
 								learningQuery.isError
 							) && (
 								<>

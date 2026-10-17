@@ -467,29 +467,17 @@ describe("WorkPortfolioPage", () => {
 });
 
 describe("Work landing", () => {
-	const beforeLoad = WorkIndexRoute.options.beforeLoad as unknown as (input: {
-		search: Record<string, unknown>;
-	}) => void;
-
-	function thrown(search: Record<string, unknown>) {
-		try {
-			beforeLoad({ search });
-		} catch (error) {
-			return error;
-		}
-		throw new Error("beforeLoad did not redirect");
-	}
-
-	it("keeps /work on the configured app landing", () => {
-		expect(() => beforeLoad({ search: {} })).not.toThrow();
+	it("mounts the installed Work apps instead of redirecting to Attention", () => {
 		expect(WorkIndexRoute.options.component).toBeDefined();
+		expect(WorkIndexRoute.options.beforeLoad).toBeUndefined();
 	});
-
-	it("keeps old disposition links on the queue", () => {
-		const result = thrown({ disposition: "proposed" });
-		expect((result as { options: { to: string } }).options.to).toBe(
-			"/work/queue",
-		);
+	it("keeps old completed links as the Done feed filter", () => {
+		const validate = WorkIndexRoute.options.validateSearch as (
+			input: Record<string, unknown>,
+		) => Record<string, unknown>;
+		expect(validate({ disposition: "completed" })).toEqual({
+			filter: "history",
+		});
 	});
 });
 

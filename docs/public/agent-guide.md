@@ -261,7 +261,7 @@ turn or its activity; it is not independent verification.
 The ledger is private to its signed-in owner in the organization. It uses
 the decision-capture opt-in, not ordinary read-only preflight; see the
 [CLI hook controls](./cli.md#set-up-codex-and-claude-code).
-Open **Work → Needs you → Your requests** to inspect it. The prompt hook's
+Open **Work → Feed → Apps → Office → Your requests** to inspect it. The prompt hook's
 **Open requests** block brings unfinished rows back before each prompt.
 
 In workspace chat, ask "Show my open requests from my coding sessions" or

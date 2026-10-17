@@ -80,6 +80,17 @@ async function mount() {
 				observedAt: "2026-10-17T10:00:00.000Z",
 			},
 		);
+	client.setQueryData(
+		osQuery.workApprovals.listInbox.queryOptions({
+			input: { projectId: undefined, limit: 50, statuses: ["pending"] },
+		}).queryKey,
+		{
+			data: [],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: "2026-10-17T12:00:00Z",
+		},
+	);
 	client.setQueryData(pendingApprovalsQueryOptions().queryKey, {
 		data: [],
 		pagination: { limit: 50, offset: 0, total: 0, hasMore: false },

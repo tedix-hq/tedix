@@ -37,7 +37,7 @@ reply outcomes, leaderboard and notebook. Agents accepts optional `projectId`,
 `harnesses` (`codex`, `claude-code`, `tedi`, `skill`). Its screen filters narrow these
 settings; counts and delegation totals use the same filtered sessions.
 The organization and viewer access checks remain authoritative; app filters
-never grant access. Install and opt these apps into Board to make them visible.
+never grant access. Install and opt these apps into the Feed’s Apps list to make them visible.
 
 ## Install and configure an app
 
@@ -68,10 +68,10 @@ declared, reviewed read tools; an unconnected account links to Settings →
 Connections. Partial consent remains visible and can be retried. Revoke each
 account's access in Resources. Installing the app grants no access.
 
-Set `navigation: {"board": true}` in a manifest to show that active app on
-**Work → Board**. Its stored name becomes the link label; it opens the same
+Set `navigation: {"board": true}` in a manifest to show that active app in
+**Work → Feed → Apps**. Its stored name becomes the link label; it opens the same
 workspace resource. Only apps in workspaces the viewer can access appear.
-Omit the setting, set it false, or archive the app to remove the Board link.
+Omit the setting, set it false, or archive the app to remove the app link.
 
 `tedix:app/outbound-review` lists outbound Work drafts with status and search
 filters and the existing review, feedback and human approval/send controls.
@@ -559,3 +559,37 @@ as described above.
   the answer names neither, name the sheet in the request.
 - Never claim an action happened because the done column says `yes`. It
   records a decision; the provider's own record is the proof.
+
+## Work: Feed and Deck
+
+Work opens the installed Feed app. **Decide** opens the installed Deck and
+shows its current personal inbox count, including Work and runtime approvals.
+A `+` means another page may contain more choices. The phone bar has only
+**Feed** and **Deck**; there is no Work tab bar or More menu.
+
+Set `navigation: {"work": "feed"}` or `{"work": "deck"}` on the corresponding
+app manifest to choose its Work role. Existing Feed and Deck apps opted into
+`navigation.board` also work. Discovery uses the viewer's accessible workspaces;
+installing an app never grants access. If several apps declare the same role,
+the oldest active app is selected, with its id breaking creation-time ties.
+Other apps opted into `navigation.board` appear under **Apps** in the Feed.
+
+The Feed header summarizes choices due today, sessions currently reporting
+work in its projects, and the earliest known unresolved deadline. This is
+reported activity, not human online presence. Counts and deadlines describe
+loaded records; unread sources stay visibly unavailable.
+
+| Old collection URL                                                     | Destination                                       |
+| ---------------------------------------------------------------------- | ------------------------------------------------- |
+| `/work/attention`                                                      | `/work?view=feed&filter=attention` — Needs action |
+| `/work/needs-you`                                                      | `/work?view=deck`                                 |
+| `/work/queue`                                                          | `/work?view=feed&filter=queue` — In progress      |
+| `/work/queue?disposition=completed`, `/work/attempts`, `/work/history` | `/work?view=feed&filter=history` — Done           |
+| `/work/recovery`, `/work/stalled`                                      | `/work?view=feed&filter=stalled`                  |
+| `/work/portfolio`                                                      | `/work?app=portfolio` — installed Portfolio app   |
+| `/work/agents`, `/work/office`, `/work/outbound`                       | The matching installed app                        |
+
+Work item, project, request, run and receipt links remain direct. Office keeps
+the personal request ledger and Support section. The existing Attention app
+can use `config: {"scope": "personal"}` to show personal session activity and
+request filing controls; omission keeps it scoped to its containing workspace.

@@ -100,7 +100,7 @@ export function workFeedItems(
 				: /comment|created/.test(e.eventType)
 					? "low"
 					: "normal",
-			explanation: `${e.eventType} · ${e.settlement?.commitSha ?? e.id}`,
+			explanation: OS_COPY.feed.workExplanation,
 		}));
 }
 
@@ -124,7 +124,7 @@ export function resultFeedItems(
 			importance: a.outcome === "failed" ? "high" : "normal",
 			stalled: a.outcome !== "succeeded",
 			done: a.outcome === "succeeded",
-			explanation: `Attempt ${a.id} · ${a.outcome}`,
+			explanation: OS_COPY.feed.resultExplanation,
 		}));
 }
 
@@ -215,7 +215,7 @@ export function correctionFeedItems(
 				typeof e.metadata?.source === "string"
 					? e.metadata.source
 					: `/work/interactions/${e.targetId}`,
-			explanation: `Correction recorded in the learning ledger: ${e.id}. Reflection turns corrections into personal lessons.`,
+			explanation: OS_COPY.feed.correctionExplanation,
 		}));
 }
 

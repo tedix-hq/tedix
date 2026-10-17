@@ -1,94 +1,115 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
+import { Page } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
+import { useWorkApps } from "@/lib/use-work-apps";
+import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import {
-	activeWorkspacesQueryOptions,
-	canvasGadgetsQueryOptions,
-	canvasGadgetDetailQueryOptions,
-} from "@/lib/os-query-options";
+	WORK_APP_ENTRIES,
+	type WorkFeedFilter,
+	type WorkHomeSearch,
+} from "@/lib/work-home-search";
+import { useDocumentTitle } from "@/lib/use-document-title";
 import { OS_COPY } from "@/shared/os-copy";
 
-/** Work selects installed apps through the viewer's ordinary workspace permissions. */
-export function WorkHome({ view = "deck" }: { view?: "deck" | "feed" }) {
-	const workspaces = useQuery(activeWorkspacesQueryOptions());
-	const lists = useQueries({
-		queries: (workspaces.data?.items ?? []).map((workspace) =>
-			canvasGadgetsQueryOptions(workspace.id),
-		),
-	});
-	const gadgets = lists
-		.flatMap((list) => list.data?.items ?? [])
-		.filter((gadget) => gadget.status === "active");
-	const details = useQueries({
-		queries: gadgets.map((gadget) =>
-			canvasGadgetDetailQueryOptions(gadget.workspaceId, gadget.id),
-		),
-	});
-	const apps = details.flatMap((detail) => {
-		const manifest = detail.data?.currentRevision?.manifest;
-		return manifest?.navigation?.work && detail.data
-			? [{ manifest, gadget: detail.data.gadget }]
-			: [];
-	});
-	const selected = apps.find((app) => app.manifest.navigation?.work === view);
-	const pending =
-		workspaces.isPending ||
-		lists.some((list) => list.isPending) ||
-		details.some((detail) => detail.isPending);
-	const failed =
-		workspaces.isError ||
-		lists.some((list) => list.isError) ||
-		details.some((detail) => detail.isError);
+/** Work is an entry to installed apps, using the same renderer as their workspace. */
+export function WorkHome({
+	search = {},
+	onFilterChange,
+}: {
+	search?: WorkHomeSearch;
+	onFilterChange?: (filter: WorkFeedFilter) => void;
+}) {
+	const { apps, pending, failed, truncated, retry } = useWorkApps();
+	const view = search.view ?? "feed";
+	const selected = search.app
+		? apps.find((app) => app.manifest.entry === WORK_APP_ENTRIES[search.app!])
+		: apps.find((app) => app.role === view);
+	const deck = apps.find((app) => app.role === "deck");
+	const config = DecisionDeckConfigSchema.safeParse(deck?.manifest.config);
+	const decisions = useDecisionInbox(config.success ? config.data : undefined);
+	const copy = OS_COPY.workHome;
+	useDocumentTitle(
+		`${selected?.role === "feed" ? copy.feed : selected?.role === "deck" ? copy.deck : (selected?.gadget.name ?? copy.feed)} · Work`,
+	);
+	const decide = (
+		<Button
+			render={<a href="/work?view=deck" />}
+			title={decisions.more ? copy.loadedCount : undefined}
+		>
+			{copy.decide}
+			{!config.success || decisions.failed
+				? ` · ${copy.countUnavailable}`
+				: decisions.pending
+					? "…"
+					: ` · ${decisions.count}${decisions.more ? "+" : ""}`}
+		</Button>
+	);
+	const appLinks = (
+		<nav
+			aria-label={copy.apps}
+			className="flex flex-wrap items-center gap-x-4 gap-y-2"
+		>
+			<Text weight="semibold">{copy.apps}</Text>
+			{apps
+				.filter((app) => !app.role)
+				.map(({ gadget }) => (
+					<Link
+						key={gadget.id}
+						href={`/workspace/${gadget.workspaceId}?workpiece=gadget:${gadget.id}&pane=workpiece`}
+						variant="navigation"
+					>
+						{gadget.name}
+					</Link>
+				))}
+			{(failed || truncated) && <Link href="/workspaces">{copy.moreApps}</Link>}
+		</nav>
+	);
 	return (
-		<div className="grid min-w-0 gap-4 p-4 pb-24 sm:p-6">
-			<nav
-				aria-label={OS_COPY.decisionDeck.workViews}
-				className="fixed inset-x-0 bottom-0 z-10 flex justify-center gap-8 border-t border-kumo-line bg-kumo-base px-4 py-3 sm:static sm:justify-start sm:border-0"
-			>
-				<Link href="/work" aria-current={view === "deck" ? "page" : undefined}>
-					{OS_COPY.decisionDeck.deck}
+		<Page width="full">
+			{selected && selected.role !== "feed" && (
+				<Link href="/work?view=feed" className="w-fit">
+					{copy.back}
 				</Link>
-				<Link
-					href="/work?view=feed"
-					aria-current={view === "feed" ? "page" : undefined}
-				>
-					{OS_COPY.decisionDeck.feed}
-				</Link>
-			</nav>
+			)}
 			{selected ? (
 				<WorkspaceAppRenderer
+					key={selected.gadget.id}
 					manifest={selected.manifest}
 					workspaceId={selected.gadget.workspaceId}
+					activityFeed={{
+						filter: search.filter ?? "all",
+						onFilterChange,
+						decide,
+						apps: appLinks,
+					}}
 				/>
 			) : pending ? (
-				<Text>{OS_COPY.decisionDeck.loadingApp}</Text>
+				<Text>{copy.loading}</Text>
 			) : (
 				<div className="grid gap-3">
 					<Text>
 						{failed
-							? OS_COPY.decisionDeck.appUnavailable
-							: OS_COPY.decisionDeck.installApp}
+							? copy.unavailable
+							: search.app
+								? copy.missing
+								: copy.install}
 					</Text>
 					{failed && (
-						<Button
-							variant="outline"
-							onClick={() => {
-								void workspaces.refetch();
-								lists.forEach((list) => void list.refetch());
-								details.forEach((detail) => void detail.refetch());
-							}}
-						>
-							{OS_COPY.decisionDeck.retry}
+						<Button variant="outline" onClick={retry}>
+							{copy.retry}
 						</Button>
 					)}
-					<Link href="/workspaces">{OS_COPY.decisionDeck.openWorkspaces}</Link>
-					<Link href="/work/attention">
-						{OS_COPY.decisionDeck.workOverview}
-					</Link>
+					<Link href="/workspaces">{copy.workspaces}</Link>
 				</div>
 			)}
-		</div>
+			{selected && failed && (
+				<Text aria-live="polite" tone="secondary">
+					{copy.partial}
+				</Text>
+			)}
+		</Page>
 	);
 }

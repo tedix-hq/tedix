@@ -24,7 +24,10 @@ import {
 	ACTIVITY_FEED_ENTRY,
 	ActivityFeedConfigSchema,
 } from "@tedix/api-contract/schemas/os-activity-feed";
-import { ActivityFeedApp } from "@/components/activity-feed-app";
+import {
+	ActivityFeedApp,
+	type ActivityFeedNavigation,
+} from "@/components/activity-feed-app";
 import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
@@ -54,9 +57,11 @@ const PortfolioSettings = lazy(() =>
 export function WorkspaceAppRenderer({
 	manifest,
 	workspaceId,
+	activityFeed,
 }: {
 	manifest: OsGadgetManifest;
 	workspaceId?: string;
+	activityFeed?: ActivityFeedNavigation;
 }) {
 	const entry = manifest.entry.trim();
 	if (
@@ -89,7 +94,8 @@ export function WorkspaceAppRenderer({
 	}
 	if (entry === ACTIVITY_FEED_ENTRY) {
 		const config = ActivityFeedConfigSchema.safeParse(manifest.config);
-		if (config.success) return <ActivityFeedApp config={config.data} />;
+		if (config.success)
+			return <ActivityFeedApp config={config.data} navigation={activityFeed} />;
 	}
 	if (entry === WORK_DISPATCH_ENTRY) {
 		const config = WorkDispatchConfigSchema.safeParse(manifest.config);
@@ -97,7 +103,13 @@ export function WorkspaceAppRenderer({
 			return <WorkDispatchApp projectId={config.data.projectId} />;
 	}
 	if (entry === "tedix:app/attention")
-		return <AttentionApp workspaceId={workspaceId} />;
+		return (
+			<AttentionApp
+				workspaceId={
+					manifest.config?.scope === "personal" ? undefined : workspaceId
+				}
+			/>
+		);
 	if (entry === OUTBOUND_REVIEW_ENTRY) {
 		const config = OutboundReviewConfigSchema.safeParse(manifest.config);
 		if (config.success) return <OutboundReviewApp config={config.data} />;

@@ -36,11 +36,14 @@ import {
 } from "@/components/kumo/page";
 import { OfficeReadError } from "@/components/office-read-error";
 import { OfficeLeaderboard } from "@/components/office-leaderboard";
+import { SessionRequestsSection } from "@/components/work-session-requests";
+import { SupportAttention } from "@/components/support-attention";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { answerDeliveryLine } from "@/components/work-operations-pages";
 import { latestDraftOf } from "@/components/work-interaction-draft";
 import {
+	agentSessionRequestsQueryOptions,
 	captureHealthQueryOptions,
 	notebookLessonsQueryOptions,
 	replyDraftAcceptanceQueryOptions,
@@ -854,6 +857,7 @@ function Notebook({ since }: { since: string }) {
 
 export function OfficeApp() {
 	const since = startOfToday();
+	const requests = useQuery(agentSessionRequestsQueryOptions());
 	return (
 		<div className="grid min-w-0 gap-10" data-workspace-app-entry="office">
 			<DeckAttentionMetrics />
@@ -866,6 +870,11 @@ export function OfficeApp() {
 			<Knocks since={since} />
 			<OfficeLeaderboard />
 			<Notebook since={since} />
+			<SupportAttention />
+			{requests.data && <SessionRequestsSection rows={requests.data.data} />}
+			{requests.isError && (
+				<OfficeReadError resource="your requests" error={requests.error} />
+			)}
 		</div>
 	);
 }

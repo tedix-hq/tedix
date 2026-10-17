@@ -1,21 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { WorkAttemptsPage } from "@/components/work-factory-pages";
-import { workActivitySearch } from "@/lib/work-route-search";
-import { workAttemptProjectionQueryOptions } from "@/lib/os-query-options";
-import { ListPending } from "@/routes/-pending";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_session/_tenant/work/attempts")({
-	validateSearch: workActivitySearch,
-	loaderDeps: ({ search }) => ({ view: search.view }),
-	loader: ({ context, deps }) =>
-		context.queryClient
-			.ensureQueryData(workAttemptProjectionQueryOptions(undefined, deps.view))
-			.catch(() => undefined),
-	component: WorkActivityRoute,
-	pendingComponent: ListPending,
+	beforeLoad: () => {
+		throw redirect({
+			to: "/work",
+			search: { view: "feed", filter: "history" },
+			replace: true,
+		});
+	},
 });
-
-function WorkActivityRoute() {
-	const { view } = Route.useSearch();
-	return <WorkAttemptsPage key={view} view={view} />;
-}

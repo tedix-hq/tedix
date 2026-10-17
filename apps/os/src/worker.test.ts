@@ -2037,3 +2037,26 @@ describe("oRPC refusals are parseable by the oRPC client", () => {
 		expect(response.headers.get("Content-Type")).toContain("text/plain");
 	});
 });
+
+describe("legacy Work collection URLs", () => {
+	it.each([
+		["agents", "app=agents"],
+		["office", "app=office"],
+		["outbound", "app=outbound"],
+		["history", "view=feed&filter=history"],
+		["stalled", "view=feed&filter=stalled"],
+	])(
+		"redirects %s without serving another fixed view",
+		async (path, search) => {
+			const response = await handleOsRequest(
+				new Request(`http://localhost:3010/work/${path}`),
+				assetsReturning("must not mount"),
+			);
+			expect(response.status).toBe(307);
+			expect(response.headers.get("Location")).toBe(
+				`http://localhost:3010/work?${search}`,
+			);
+			expect(response.headers.get("Cache-Control")).toContain("no-store");
+		},
+	);
+});

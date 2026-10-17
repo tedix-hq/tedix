@@ -23,6 +23,9 @@ vi.mock("@/lib/api", () => ({
 			correct: vi.fn(),
 		},
 		userSettings: { getPreferences: vi.fn(), updatePreferences: vi.fn() },
+		workAgentSessions: {
+			list: vi.fn().mockResolvedValue({ sessions: [], truncated: false }),
+		},
 	},
 }));
 vi.mock("@/lib/webmcp/use-app-webmcp-tools", () => ({

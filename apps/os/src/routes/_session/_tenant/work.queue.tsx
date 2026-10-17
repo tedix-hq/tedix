@@ -1,37 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
-import {
-	WorkQueuePage,
-	WorkCompletedPage,
-} from "@/components/work-factory-pages";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { workQueueSearch } from "@/lib/work-route-search";
-import { prefetchWorkQueueRoute } from "@/lib/os-route-loaders";
-import { workItemListQueryOptions } from "@/lib/os-query-options";
-import { ListPending } from "@/routes/-pending";
 
 export const Route = createFileRoute("/_session/_tenant/work/queue")({
 	validateSearch: workQueueSearch,
-	loaderDeps: ({ search }) => ({ disposition: search.disposition }),
-	loader: ({ context, deps }) =>
-		deps.disposition === "completed"
-			? context.queryClient
-					.ensureQueryData(
-						workItemListQueryOptions({
-							disposition: "completed",
-							limit: 25,
-							offset: 0,
-						}),
-					)
-					.catch(() => undefined)
-			: prefetchWorkQueueRoute(context.queryClient),
-	component: WorkQueueRoute,
-	pendingComponent: ListPending,
+	beforeLoad: ({ search }) => {
+		throw redirect({
+			to: "/work",
+			search: {
+				view: "feed",
+				filter: search.disposition === "completed" ? "history" : "queue",
+			},
+			replace: true,
+		});
+	},
 });
-
-function WorkQueueRoute() {
-	const { disposition } = Route.useSearch();
-	return disposition === "completed" ? (
-		<WorkCompletedPage />
-	) : (
-		<WorkQueuePage />
-	);
-}
