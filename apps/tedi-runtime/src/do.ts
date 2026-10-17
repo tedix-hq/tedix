@@ -3799,6 +3799,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		assistantText: string;
 		turnError: string | null;
 		usage?: FacetTurnUsage;
+		modelIdentity?: TediSessionModelIdentity;
 	}> {
 		return runtimeFacetTurns.runSynthesisFacetTurn.call(
 			this.facetTurnsHost(),
@@ -3912,7 +3913,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		 * anything a tenant can set. Omitted → `"chat"` (interactive), which
 		 * resolves exactly as before the per-surface refs existed.
 		 */
-		modelSurface?: ModelPolicySurface;
+		modelSurface?: Exclude<ModelPolicySurface, "synthesis">;
 		/** Replaces the surface's model and generation for this turn only. */
 		turnModel?: ChatTurnParams["turnModel"];
 	}): Promise<{

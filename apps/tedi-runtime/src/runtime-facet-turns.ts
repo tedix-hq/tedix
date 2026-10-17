@@ -542,6 +542,7 @@ export const runtimeFacetTurns = {
 		assistantText: string;
 		turnError: string | null;
 		usage?: FacetTurnUsage;
+		modelIdentity?: TediSessionModelIdentity;
 	}> {
 		await this.acceptRuntimeTurn(input.runId, input.sessionKey, input, true);
 		// One facet per run keeps synthesis self-contained even if a producer
@@ -566,7 +567,7 @@ export const runtimeFacetTurns = {
 					runId: input.runId,
 					sessionKey: input.sessionKey,
 				}),
-				modelRef: this.modelOverrideForTurn()?.modelRef ?? null,
+				modelRef: this.modelOverrideForSurface("synthesis")?.modelRef ?? null,
 				system,
 			});
 			const result = await facet.runSynthesisTurn({
@@ -598,6 +599,7 @@ export const runtimeFacetTurns = {
 				assistantText: result.assistantText,
 				turnError: null,
 				...(result.usage ? { usage: result.usage } : {}),
+				modelIdentity: result.modelIdentity,
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -1076,7 +1078,7 @@ export const runtimeFacetTurns = {
 			 * anything a tenant can set. Omitted → `"chat"` (interactive), which
 			 * resolves exactly as before the per-surface refs existed.
 			 */
-			modelSurface?: ModelPolicySurface;
+			modelSurface?: Exclude<ModelPolicySurface, "synthesis">;
 			/** Replaces the surface's model and generation for this turn only. */
 			turnModel?: ChatTurnParams["turnModel"];
 		},
@@ -2196,7 +2198,12 @@ export const runtimeFacetTurns = {
 				learningMode: input.learningMode,
 				...(synthesis.usage ? { facetUsage: synthesis.usage } : {}),
 			});
-			return { text: assistantText, stopReason: "stop", toolCalls: [] };
+			return {
+				text: assistantText,
+				stopReason: "stop",
+				toolCalls: [],
+				modelIdentity: synthesis.modelIdentity,
+			};
 		}
 
 		const modelUserText = completionText

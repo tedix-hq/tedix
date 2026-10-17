@@ -1288,6 +1288,13 @@ export type TediSyncConfigResponse = z.infer<
  */
 export const TediModelPolicyResponseSchema = z.object({
 	chatModelRef: z.string().nullable(),
+	synthesisModelRef: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"Optional model for tool-free workflow reasoning; omission preserves the chat model.",
+		),
 	/** Scheduled/cron turns. Null only for a deliberate fixed-model fallback. */
 	cronModelRef: z.string().nullable(),
 	/** Post-turn observer/reflector. Null only for a deliberate fixed fallback. */

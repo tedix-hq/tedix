@@ -74,6 +74,8 @@ export interface ModelPolicy {
 	generation?: ModelGenerationPolicy;
 	/** Interactive/default chat ref for the role. */
 	chatModelRef: string;
+	/** Tool-free workflow reviews. Absent preserves the interactive model. */
+	synthesisModelRef?: string;
 	/** Scheduled (cron / trusted-scheduler) turns. Absent → `chatModelRef`. */
 	cronModelRef: string;
 	/**
