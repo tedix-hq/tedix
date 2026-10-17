@@ -138,6 +138,17 @@ export const OsUserPreferencesSchema = z.object({
 	),
 	accessibility: OsAccessibilityPreferencesSchema,
 	notifications: OsNotificationPreferencesSchema,
+	activityFeed: z
+		.object({
+			projectIds: z.array(z.uuid()).max(100),
+			mutedClasses: z.array(z.string().min(1).max(100)).max(100),
+			preferredClasses: z.array(z.string().min(1).max(100)).max(100),
+			lastSeenAt: z.iso.datetime().nullable(),
+		})
+		.optional()
+		.describe(
+			"Personal feed filters and reactions, scoped by the existing per-user, per-organization preference row; never authorization",
+		),
 	conversationModelRef: ModelRefSchema.nullable().describe(
 		"Preferred model for this operator's own conversations, as `<provider>/<model-id>`. A REQUEST, not a grant: the runtime's admission path still applies the organization and tedi model policy, so a stored ref can be refused at turn time. Null defers to the workspace default.",
 	),

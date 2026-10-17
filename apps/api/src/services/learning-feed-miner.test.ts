@@ -129,6 +129,31 @@ beforeEach(() => {
 });
 
 describe("buildDecisionLessons", () => {
+	it("learns a feed correction only in its personal scope and ignores likes", () => {
+		const correction = event("e1", {
+			...personal("user-pine"),
+			surface: "activity_feed",
+			eventKind: "edited",
+			meta: {
+				answer: "Keep supplier names out of public drafts.",
+				draft: { body: "Publish supplier names." },
+			},
+		});
+		const [lesson] = buildDecisionLessons([
+			correction,
+			event("e2", {
+				...personal("user-birch"),
+				surface: "activity_feed",
+				eventKind: "accepted",
+				meta: { answer: null },
+			}),
+		]);
+		expect(lesson?.metadata.ownerUserId).toBe("user-pine");
+		expect(lesson?.content).toContain(
+			"Keep supplier names out of public drafts.",
+		);
+		expect(lesson?.metadata.evidenceEventIds).toEqual(["e1"]);
+	});
 	it("puts draft corrections first as prefer/avoid lines", () => {
 		const [lesson] = buildDecisionLessons([
 			event("e1", personal("user-1")),

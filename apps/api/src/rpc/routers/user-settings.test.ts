@@ -163,6 +163,41 @@ describe("preferences", () => {
 		({ env, sqlite } = createEnv());
 	});
 
+	it("keeps feed mutes and followed projects private to the person and organization", async () => {
+		const owner = client(
+			userContext(env, { organizationId: ORG_1, userId: "pine" }),
+		);
+		await owner.updatePreferences({
+			expectedRevision: 0,
+			preferences: {
+				...CUSTOM,
+				activityFeed: {
+					projectIds: [CHARTER_1],
+					mutedClasses: ["supplier:result"],
+					preferredClasses: [],
+					lastSeenAt: "2026-10-17T12:00:00.000Z",
+				},
+			},
+		});
+		expect(
+			(await owner.getPreferences({})).preferences.activityFeed?.mutedClasses,
+		).toEqual(["supplier:result"]);
+		expect(
+			(
+				await client(
+					userContext(env, { organizationId: ORG_1, userId: "birch" }),
+				).getPreferences({})
+			).preferences.activityFeed,
+		).toBeUndefined();
+		expect(
+			(
+				await client(
+					userContext(env, { organizationId: ORG_2, userId: "pine" }),
+				).getPreferences({})
+			).preferences.activityFeed,
+		).toBeUndefined();
+	});
+
 	it("reports defaults as `default` at revision 0 before anything is stored", async () => {
 		const result = await client(
 			userContext(env, { organizationId: ORG_1 }),

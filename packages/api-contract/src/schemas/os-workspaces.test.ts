@@ -6,6 +6,34 @@ import {
 } from "./os-workspaces";
 
 describe("Built-in app manifest settings", () => {
+	it("requires configured projects for the activity feed without constraining stored reads", () => {
+		expect(
+			OsGadgetManifestWriteSchema.safeParse({
+				entry: "tedix:app/activity-feed",
+				config: { version: 1, projects: [] },
+			}).success,
+		).toBe(false);
+		expect(
+			OsGadgetManifestWriteSchema.safeParse({
+				entry: "tedix:app/activity-feed",
+				config: {
+					version: 1,
+					projects: [
+						{
+							id: "11111111-1111-4111-8111-111111111111",
+							label: "Pine Studio",
+						},
+					],
+				},
+			}).success,
+		).toBe(true);
+		expect(
+			OsGadgetManifestSchema.safeParse({
+				entry: "tedix:app/activity-feed",
+				config: { version: 99 },
+			}).success,
+		).toBe(true);
+	});
 	const source = {
 		label: "Inbox",
 		workspaceId: "11111111-1111-4111-8111-111111111111",

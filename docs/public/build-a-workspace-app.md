@@ -426,6 +426,28 @@ To give a new app tools:
 `window.__tedixWebMcp.status()` in the page lists the registered tools and
 whether the browser offers a WebMCP host.
 
+## Activity feed
+
+`tedix:app/activity-feed` reads Work changes, settled lane and tedi results,
+the viewer's decisions and approvals, and personal corrections. Configure
+`version: 1` and `projects: [{id, label}]`. Optional `factorySources` reuse
+Card review sources as `{projectId, source}` to read existing factory sheets.
+They read the latest configured runs, with their output revision and row as
+evidence. The feed never runs a sheet's action.
+
+`pageSize`, `attentionBudget`, `digestBelow`, `quietHours` (start/end hours in
+the viewer's timezone), `weights` and `deckUrl` control presentation. Work,
+result and inbox readers have independent cursors; personal ranking applies
+to loaded records. Low-importance updates form an expandable digest. Pending
+decisions and critical events remain visible during quiet hours.
+
+Reactions record personal learning events. More like this and Not for me also
+save personal preferences in the existing OS preference store. Comment records
+a correction for the existing reflection process; it is not already a mined
+lesson. Turn into Work creates proposed Work with its source link. The feed
+does not approve decisions, send messages or change admission. Its WebMCP tools
+read visible cards and use the same personal reaction callbacks.
+
 ## Add another built-in app
 
 Put the settings schema in `packages/api-contract/src/schemas/` and check it
