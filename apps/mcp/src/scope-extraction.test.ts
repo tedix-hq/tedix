@@ -9,7 +9,7 @@ import {
 	directToolCallNamespaces,
 	filterAggregateAppsForCodeNamespaces,
 	filterAggregateTedisForCodeNamespaces,
-} from "./index";
+} from "./codemode-targeting";
 import {
 	PLATFORM_OPERATOR_ADMIN_APP_SLUG,
 	PLATFORM_OPERATOR_CODE_MODE_NAMESPACES,
