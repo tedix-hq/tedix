@@ -405,6 +405,12 @@ const gates = [
 				? `bun run --cwd ${workspaceDir} snapshot:template`
 				: TYPE_ERROR_FIX,
 	})),
+	{
+		name: "type-check:workers apps/tedi-runtime",
+		when: runAll || typeCheckedWorkspaces.includes("apps/tedi-runtime"),
+		cmd: ["bun", "run", "--cwd", "apps/tedi-runtime", "type-check:workers"],
+		fix: TYPE_ERROR_FIX,
+	},
 	...[...relatedByWorkspace.entries()]
 		.filter(([workspace]) => workspaceTestRunner(workspace) === "bun")
 		.map(([workspace]) => ({

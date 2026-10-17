@@ -132,7 +132,7 @@ export class PiRuntimeFixture extends Agent<Cloudflare.Env, State> {
 		replay: "unsafe",
 		execute: async () => {
 			this.setState({ ...this.state, effects: this.state.effects + 1 });
-			return { content: [{ type: "text", text: "effect recorded" }] };
+			return { output: [{ type: "text", text: "effect recorded" }] };
 		},
 	});
 	private readonly toolExtension = defineExtension({
