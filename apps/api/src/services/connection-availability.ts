@@ -110,15 +110,25 @@ export async function resolveConnectionAvailability(input: {
 		const [tenant, user] = results.map((result) =>
 			result.status === "fulfilled" ? result.value : null,
 		);
-		if (tenant || user) {
+		if (
+			(tenant && !tenant.reconnectNeeded) ||
+			(user && !user.reconnectNeeded)
+		) {
 			return {
 				connected: true,
 				cause: "connected",
-				reason: tenant
-					? "tenant connection is active"
-					: "user connection is active",
+				reason:
+					tenant && !tenant.reconnectNeeded
+						? "tenant connection is active"
+						: "user connection is active",
 			};
 		}
+		if (tenant?.reconnectNeeded || user?.reconnectNeeded)
+			return {
+				connected: false,
+				cause: "no_token",
+				reason: `Reconnect ${input.providerId} in Settings → Connections`,
+			};
 		const failed = results.find((result) => result.status === "rejected");
 		if (failed?.status === "rejected") throw failed.reason;
 		return {

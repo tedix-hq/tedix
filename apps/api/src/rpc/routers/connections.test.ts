@@ -1155,6 +1155,19 @@ describe("issuer-pin drift gate (ADR tedi-client-oauth-cimd phase 1a)", () => {
 });
 
 describe("connection inventory verification", () => {
+	it("keeps failed refreshes visible without exposing the upstream error", () => {
+		expect(
+			summarizeCredential({
+				ok: true,
+				data: { accessToken: "", lastRefreshError: "secret invalid_grant" },
+			}),
+		).toEqual({
+			state: "expired",
+			reconnectNeeded: true,
+			expiresAt: null,
+			scopes: [],
+		});
+	});
 	it.each(["present", "expired", "missing", "unknown", "restricted"] as const)(
 		"keeps referenced personal setup targets visible when credentials are %s",
 		(state) => {
@@ -1228,6 +1241,46 @@ describe("connection inventory verification", () => {
 });
 
 describe("credential resolution provider failures", () => {
+	it.each([
+		{
+			lastRefreshError: "secret invalid_grant",
+			accessTokenExpiry: "4102444800",
+		},
+		{ lastRefreshError: "secret invalid_grant", accessToken: "" },
+		{ lastRefreshTime: "100", accessTokenExpiry: "200" },
+	])(
+		"refuses refresh-failed credentials with actionable guidance %j",
+		async (metadata) => {
+			vi.spyOn(globalThis, "fetch").mockImplementation(
+				async () =>
+					new Response(
+						JSON.stringify({
+							token: { accessToken: "opaque", scopes: ["read"], ...metadata },
+						}),
+						{ headers: { "Content-Type": "application/json" } },
+					),
+			);
+			await expect(
+				resolveCredentialChain(
+					{
+						db: makeTestDb(),
+						env: { DESCOPE_PROJECT_ID: "P1", DESCOPE_MANAGEMENT_KEY: "K1" },
+					} as never,
+					{
+						organizationId: "org-1",
+						descopeTenantId: "tenant-1",
+						providerId: "cloudflare",
+						scope: "tenant",
+						scopes: ["read"],
+					},
+				),
+			).rejects.toMatchObject({
+				code: "UNPROCESSABLE_CONTENT",
+				message: "Reconnect cloudflare in Settings → Connections",
+			});
+		},
+	);
+
 	it("allows an authorized default credential after a restricted labeled lookup", async () => {
 		let calls = 0;
 		const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {

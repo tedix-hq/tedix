@@ -137,12 +137,42 @@ export interface ConnectionToken {
 	accessToken: string;
 	/** Token expiration timestamp (unix seconds), if available */
 	expiresAt?: number;
+	/** The vault could not refresh this grant; never use it for a tool call. */
+	reconnectNeeded?: boolean;
 	/** OAuth scopes granted, if available */
 	scopes?: string[];
 	/** Native vault account selector, not a display label. */
 	externalIdentifier?: string;
 	/** Provider subject observed on this grant; not a Tedix authorization identity. */
 	tokenSub?: string;
+}
+
+/** Descope documents these fields even though the SDK token type omits them.
+ * https://docs.descope.com/api/management/outbound-apps/fetch-outbound-app-user-token
+ * Keep the provider's raw refresh error out of returned credentials and logs.
+ */
+export function connectionRefreshState(
+	token: {
+		accessTokenExpiry?: unknown;
+		lastRefreshTime?: unknown;
+		lastRefreshError?: unknown;
+	},
+	now = Math.floor(Date.now() / 1000),
+): { reconnectNeeded?: boolean } {
+	const expiresAt = Number(token.accessTokenExpiry);
+	const lastRefreshTime = Number(token.lastRefreshTime);
+	const refreshFailed =
+		typeof token.lastRefreshError === "string" &&
+		token.lastRefreshError.trim().length > 0;
+	// A fetched token still expired after its last refresh has exhausted that
+	// refreshed token's lifetime. No provider-specific lifetime is assumed.
+	const staleRefresh =
+		Number.isSafeInteger(lastRefreshTime) &&
+		lastRefreshTime > 0 &&
+		Number.isSafeInteger(expiresAt) &&
+		expiresAt > lastRefreshTime &&
+		expiresAt <= now;
+	return refreshFailed || staleRefresh ? { reconnectNeeded: true } : {};
 }
 
 /** Tedix-owned selectors are distinct from upstream BYOS metadata. */
@@ -278,7 +308,10 @@ async function fetchNamedConnectionToken(
 		) {
 			throw new ConnectionTokenLookupError(undefined, { lookupKind });
 		}
-		if (typeof token.accessToken !== "string" || !token.accessToken)
+		if (
+			(typeof token.accessToken !== "string" || !token.accessToken) &&
+			!connectionRefreshState(token).reconnectNeeded
+		)
 			return null;
 		if (
 			token.scopes !== undefined &&
@@ -289,7 +322,9 @@ async function fetchNamedConnectionToken(
 		}
 		return {
 			id: token.id,
-			accessToken: token.accessToken,
+			accessToken:
+				typeof token.accessToken === "string" ? token.accessToken : "",
+			...connectionRefreshState(token),
 			externalIdentifier: selection.externalIdentifier,
 			...(typeof token.tokenSub === "string" && token.tokenSub
 				? { tokenSub: token.tokenSub }
@@ -341,7 +376,7 @@ function tokenCoversScopes(
 	token: ConnectionToken | null,
 	requiredScopes: string[],
 ): token is ConnectionToken {
-	if (!token?.accessToken) return false;
+	if (!token || (!token.accessToken && !token.reconnectNeeded)) return false;
 	if (requiredScopes.length === 0) return true;
 	if (!token.scopes?.length) return false;
 	const granted = token.scopes;
@@ -1206,7 +1241,7 @@ export async function fetchConnectionToken(
 		// Descope may return ok=true with empty token data when the connection
 		// exists but has no live token (e.g., after disconnect). Treat that as
 		// "no token" so callers don't render stale "connected" status.
-		if (!accessToken) {
+		if (!accessToken && !connectionRefreshState(token).reconnectNeeded) {
 			return null;
 		}
 
@@ -1214,7 +1249,8 @@ export async function fetchConnectionToken(
 		return {
 			id: token.id,
 			accessToken,
-			expiresAt: token.accessTokenExpiry,
+			expiresAt: Number(token.accessTokenExpiry) || undefined,
+			...connectionRefreshState(token),
 			scopes: token.scopes,
 			...(typeof tokenSub === "string" && tokenSub ? { tokenSub } : {}),
 		};
@@ -1286,12 +1322,14 @@ export async function fetchConnectionTokenByScopes(
 			return fetchFallback();
 		const accessToken = extractAccessToken(token.accessToken ?? "");
 
-		if (!accessToken) return fetchFallback();
+		if (!accessToken && !connectionRefreshState(token).reconnectNeeded)
+			return fetchFallback();
 
 		return {
 			id: token.id,
 			accessToken,
-			expiresAt: token.accessTokenExpiry,
+			expiresAt: Number(token.accessTokenExpiry) || undefined,
+			...connectionRefreshState(token),
 			scopes: token.scopes,
 		};
 	} catch (error) {
@@ -1355,14 +1393,15 @@ export async function fetchTenantConnectionToken(
 		// Descope may return ok=true with empty token data when the connection
 		// exists but has no live token (e.g., after disconnect). Treat that as
 		// "no token" so callers don't render stale "connected" status.
-		if (!accessToken) {
+		if (!accessToken && !connectionRefreshState(token).reconnectNeeded) {
 			return null;
 		}
 
 		return {
 			id: token.id,
 			accessToken,
-			expiresAt: token.accessTokenExpiry,
+			expiresAt: Number(token.accessTokenExpiry) || undefined,
+			...connectionRefreshState(token),
 			scopes: token.scopes,
 		};
 	} catch (error) {
@@ -1425,14 +1464,15 @@ export async function fetchTenantConnectionTokenByScopes(
 			return null;
 		const accessToken = extractAccessToken(token.accessToken ?? "");
 
-		if (!accessToken) {
+		if (!accessToken && !connectionRefreshState(token).reconnectNeeded) {
 			return fetchFallback();
 		}
 
 		return {
 			id: token.id,
 			accessToken,
-			expiresAt: token.accessTokenExpiry,
+			expiresAt: Number(token.accessTokenExpiry) || undefined,
+			...connectionRefreshState(token),
 			scopes: token.scopes,
 		};
 	} catch (error) {

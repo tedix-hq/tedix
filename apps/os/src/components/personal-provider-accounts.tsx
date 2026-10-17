@@ -66,7 +66,11 @@ export interface PersonalProviderAccountsProps {
 function accountStatus(row: ConnectionInventoryRow): string {
 	if (row.accountState === "unknown") return "Could not verify";
 	if (row.accountState === "restricted") return "Verification unavailable";
-	if (row.accountState === "expired" || row.connection?.status === "expired")
+	if (
+		row.accountState === "expired" ||
+		row.connection?.status === "expired" ||
+		row.connection?.status === "reconnect_needed"
+	)
 		return "Reconnect needed";
 	if (row.connection?.status === "revoked") return "Disconnected";
 	return row.accountState === "present" && row.connection

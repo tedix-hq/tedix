@@ -1,5 +1,8 @@
 import { getDescopeManagement } from "../../../lib/descope-management";
-import { isNamedConnectionExternalIdentifier } from "@tedix/auth/connections";
+import {
+	connectionRefreshState,
+	isNamedConnectionExternalIdentifier,
+} from "@tedix/auth/connections";
 import { ConnectionProviderSchema } from "@tedix/api-contract/schemas/connections";
 import type {
 	ConnectionInventory,
@@ -31,6 +34,9 @@ type CredentialResponse = {
 		accessTokenExpiry?: number | string;
 		scopes?: string[];
 		externalIdentifier?: string;
+		lastRefreshTime?: string;
+		lastRefreshError?: string;
+		reconnectNeeded?: boolean;
 	};
 };
 /** Deliberately return metadata only. Provider outages are never evidence of absence. */
@@ -38,6 +44,7 @@ export function summarizeCredential(
 	response: CredentialResponse,
 	now = Date.now(),
 ): {
+	reconnectNeeded?: boolean;
 	state: ConnectionInventoryRow["accountState"];
 	expiresAt: number | null;
 	scopes: string[];
@@ -56,7 +63,11 @@ export function summarizeCredential(
 	if (!response.data) return { ...empty, state: "unknown" };
 	if (isNamedConnectionExternalIdentifier(response.data.externalIdentifier))
 		return { ...empty, state: "missing" };
-	if (!response.data.accessToken?.trim()) return { ...empty, state: "missing" };
+	const refresh = response.data.reconnectNeeded
+		? { reconnectNeeded: true }
+		: connectionRefreshState(response.data, now / 1000);
+	if (!response.data.accessToken?.trim() && !refresh.reconnectNeeded)
+		return { ...empty, state: "missing" };
 	// Descope's wire response encodes int64 timestamps as decimal strings,
 	// even though its SDK declares a number. Normalize before projecting metadata.
 	const rawExpiry = response.data.accessTokenExpiry;
@@ -72,8 +83,11 @@ export function summarizeCredential(
 			: null;
 
 	return {
+		...refresh,
 		state:
-			expiresAt !== null && expiresAt * 1000 <= now ? "expired" : "present",
+			refresh.reconnectNeeded || (expiresAt !== null && expiresAt * 1000 <= now)
+				? "expired"
+				: "present",
 		expiresAt,
 		scopes: response.data.scopes ?? [],
 	};
@@ -171,8 +185,11 @@ async function readConnectionsOverview(
 							? mapConnectionRecord({
 									appId: provider.appId,
 									providerName: provider.name,
-									status:
-										credential.state === "expired" ? "expired" : "connected",
+									status: credential.reconnectNeeded
+										? "reconnect_needed"
+										: credential.state === "expired"
+											? "expired"
+											: "connected",
 									connectedAt: null,
 									tokenExpiresAt: credential.expiresAt,
 									scopes: credential.scopes,
@@ -226,6 +243,7 @@ async function readConnectionsOverview(
 									data: {
 										accessToken: token.accessToken,
 										accessTokenExpiry: token.expiresAt,
+										reconnectNeeded: token.reconnectNeeded,
 										scopes: token.scopes,
 									},
 								})
@@ -266,8 +284,11 @@ async function readConnectionsOverview(
 								? mapConnectionRecord({
 										appId: provider.appId,
 										providerName: provider.name,
-										status:
-											credential.state === "expired" ? "expired" : "connected",
+										status: credential.reconnectNeeded
+											? "reconnect_needed"
+											: credential.state === "expired"
+												? "expired"
+												: "connected",
 										connectedAt: null,
 										tokenExpiresAt: credential.expiresAt,
 										scopes: credential.scopes,

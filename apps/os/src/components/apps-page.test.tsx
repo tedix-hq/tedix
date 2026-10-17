@@ -388,6 +388,7 @@ describe("ConnectionRow", () => {
 	it("marks expired and revoked connections with honest tones", () => {
 		expect(connectionTone("connected")).toBe("done");
 		expect(connectionTone("expired")).toBe("warn");
+		expect(connectionTone("reconnect_needed")).toBe("warn");
 		expect(connectionTone("revoked")).toBe("blocked");
 		const html = renderToStaticMarkup(
 			<ConnectionRow

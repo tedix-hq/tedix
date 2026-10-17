@@ -160,6 +160,25 @@ describe("connection availability during partial provider failure", () => {
 			});
 		},
 	);
+
+	it("requires reconnect for a failed refresh and accepts a healthy authorized fallback", async () => {
+		vi.mocked(fetchTenantConnectionToken).mockResolvedValue({
+			accessToken: "opaque",
+			reconnectNeeded: true,
+		});
+		vi.mocked(fetchConnectionToken).mockResolvedValue(null);
+		expect(await resolveConnectionAvailability(input)).toMatchObject({
+			connected: false,
+			cause: "no_token",
+			reason: expect.stringContaining("Settings → Connections"),
+		});
+		vi.mocked(fetchConnectionToken).mockResolvedValue({
+			accessToken: "healthy",
+		});
+		expect(await resolveConnectionAvailability(input)).toMatchObject({
+			connected: true,
+		});
+	});
 	it("does not label a failed lookup plus absent fallback as missing", async () => {
 		vi.mocked(fetchTenantConnectionToken).mockRejectedValue(
 			Error("lookup unavailable"),

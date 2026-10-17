@@ -135,7 +135,9 @@ export function ConnectionListItem({
 	const hasConnections = connections.length > 0;
 	const isApiKey = provider.connectionType === "api_key";
 	const logoUrl = usableLogoUrl(provider.logoUrl);
-	const hasExpired = connections.some((c) => c.status === "expired");
+	const hasExpired = connections.some(
+		(c) => c.status === "expired" || c.status === "reconnect_needed",
+	);
 	const accountUnknown = inventory?.accountState === "unknown";
 	const accountRestricted = inventory?.accountState === "restricted";
 	const primaryStatus =
@@ -259,7 +261,7 @@ export function ConnectionListItem({
 						}
 					>
 						{primaryStatus === "connected" && "Connected"}
-						{primaryStatus === "expired" && "Expired"}
+						{primaryStatus === "expired" && "Reconnect needed"}
 						{primaryStatus === "none" && "Not connected"}
 						{primaryStatus === "unknown" && "Could not verify"}
 					</Badge>
@@ -317,7 +319,9 @@ export function ConnectionListItem({
 				<div className="mx-3 rounded-lg bg-kumo-tint p-3 sm:ml-12">
 					<div className="space-y-2">
 						{connections.map((connection, idx) => {
-							const isExpired = connection.status === "expired";
+							const isExpired =
+								connection.status === "expired" ||
+								connection.status === "reconnect_needed";
 							const isThisDisconnecting =
 								isDisconnecting && disconnectingKey?.appId === provider.appId;
 
@@ -346,7 +350,9 @@ export function ConnectionListItem({
 												)}
 											/>
 										)}
-										{isExpired && <Badge variant="destructive">Expired</Badge>}
+										{isExpired && (
+											<Badge variant="destructive">Reconnect needed</Badge>
+										)}
 									</div>
 									<Button
 										size="xs"

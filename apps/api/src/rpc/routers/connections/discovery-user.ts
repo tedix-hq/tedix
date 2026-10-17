@@ -631,7 +631,11 @@ export const getUserConnections = authedOs.getUserConnections
 						mapConnectionRecord({
 							appId: app.id,
 							providerName: app.name,
-							status: isExpired ? "expired" : "connected",
+							status: tenantToken.reconnectNeeded
+								? "reconnect_needed"
+								: isExpired
+									? "expired"
+									: "connected",
 							connectedAt: null,
 							tokenExpiresAt: expiresAt,
 							scopes: Array.isArray(tenantToken.scopes)
@@ -651,7 +655,11 @@ export const getUserConnections = authedOs.getUserConnections
 						mapConnectionRecord({
 							appId: app.id,
 							providerName: app.name,
-							status: isExpired ? "expired" : "connected",
+							status: userToken.reconnectNeeded
+								? "reconnect_needed"
+								: isExpired
+									? "expired"
+									: "connected",
 							connectedAt: null,
 							tokenExpiresAt: expiresAt,
 							scopes: Array.isArray(userToken.scopes) ? userToken.scopes : [],
