@@ -1,5 +1,3 @@
-export const KERNEL_RUNTIME_BACKEND = "custom";
-
 import type {
 	DirectKernelWriteInput,
 	executeDirectKernelWrite,
@@ -38,6 +36,8 @@ import type {
 	KernelWriteProposal,
 	planKernelWriteProposal,
 } from "./write-proposal";
+
+export const KERNEL_RUNTIME_BACKEND = "custom";
 
 /**
  * Advisory mid-turn progress milestone. Emitted via the optional

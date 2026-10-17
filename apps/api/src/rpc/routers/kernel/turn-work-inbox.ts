@@ -2,6 +2,7 @@ import {
 	emitProgress,
 	type KernelTurnWorkDeps,
 	type KernelTurnWorkInput,
+	KERNEL_RUNTIME_BACKEND,
 } from "./turn-work-context";
 import { kernelSpanContext } from "./gateway-attribution";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
@@ -18,7 +19,6 @@ import {
 	DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
 	nonNullRecord,
 } from "./runtime-shared";
-import { KERNEL_RUNTIME_BACKEND } from "./turn-work-context";
 
 const SYNTHESIS_FALLBACK_BRANCH_CHARS = 800;
 
