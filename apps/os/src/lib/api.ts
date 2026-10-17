@@ -28,6 +28,7 @@ const useLocalFixtures =
 	tenant.kind === "local" &&
 	import.meta.env.DEV &&
 	import.meta.env.VITE_LIVE_API !== "1";
+export const OS_USES_FIXTURES = useLocalFixtures;
 const useLocalDemo = tenant.kind === "local" && __LOCAL_DEMO_ENABLED__;
 export const OS_API_URL =
 	tenant.kind !== "local"

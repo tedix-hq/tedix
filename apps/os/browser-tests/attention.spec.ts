@@ -1,0 +1,148 @@
+import { spawn } from "node:child_process";
+import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { chromium } from "playwright";
+
+// Run against the fixture lane; no live credentials or writes are involved.
+const origin = process.env.ATTENTION_ORIGIN ?? "http://127.0.0.1:3118";
+const output = process.env.ATTENTION_SHOTS ?? "/tmp/tedix-attention-shots";
+const server = process.env.ATTENTION_ORIGIN
+	? null
+	: spawn(
+			"../../node_modules/.bin/vp",
+			["dev", "--port", "3118", "--strictPort", "--host", "127.0.0.1"],
+			{
+				cwd: new URL("../", import.meta.url).pathname,
+				stdio: ["ignore", "ignore", "inherit"],
+				detached: true,
+			},
+		);
+await mkdir(output, { recursive: true });
+let browser;
+try {
+	for (let i = 0; i < 300; i++) {
+		try {
+			if ((await fetch(origin)).ok) break;
+		} catch {}
+		if (server?.exitCode != null) throw new Error("Fixture server exited");
+		await Bun.sleep(200);
+	}
+	browser = await chromium.launch({ headless: true });
+	const page = await browser.newPage({
+		viewport: { width: 1440, height: 1100 },
+	});
+	const errors: string[] = [];
+	page.on("pageerror", (e) => errors.push(e.message));
+	await page.goto(`${origin}/work/attention`);
+	await page.locator("[data-attention-live]").waitFor();
+	await page.reload();
+	await page.locator("[data-attention-live]").waitFor();
+	const paint = await page.evaluate(
+		() =>
+			performance
+				.getEntriesByType("paint")
+				.find((p) => p.name === "first-paint")?.startTime,
+	);
+	assert.ok(
+		paint !== undefined && paint <= 1500,
+		`warm first paint ${paint}ms exceeds 1500ms`,
+	);
+	const moving = page.getByRole("region", { name: "Moving now", exact: true });
+	const before = await moving.locator("time").first().innerText();
+	await page.waitForTimeout(1100);
+	assert.notEqual(
+		await moving.locator("time").first().innerText(),
+		before,
+		"elapsed timer did not tick",
+	);
+	await page
+		.getByRole("textbox", { name: "Focus today", exact: true })
+		.fill("Search quality");
+	await page.getByRole("button", { name: "Set focus", exact: true }).click();
+	await page.waitForResponse(
+		(r) => r.url().includes("getAttentionLayout") && r.ok(),
+	);
+	await page.reload();
+	await page
+		.getByRole("textbox", { name: "Focus today", exact: true })
+		.waitFor();
+	assert.equal(
+		await page
+			.getByRole("textbox", { name: "Focus today", exact: true })
+			.inputValue(),
+		"Search quality",
+	);
+	await page.getByRole("button", { name: "Arrange view", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Hide Done today", exact: true })
+		.click();
+	await page
+		.getByRole("region", { name: "Done today", exact: true })
+		.waitFor({ state: "hidden" });
+	await page.getByRole("button", { name: "Reset view", exact: true }).click();
+	await page.getByRole("region", { name: "Done today", exact: true }).waitFor();
+	await page.getByRole("button", { name: "Arrange view", exact: true }).click();
+	await page.screenshot({
+		path: `${output}/attention-desktop-light.png`,
+		fullPage: true,
+	});
+	await page.evaluate(() => document.documentElement.classList.add("dark"));
+	await page.screenshot({
+		path: `${output}/attention-desktop-dark.png`,
+		fullPage: true,
+	});
+	const phone = await browser.newPage({
+		viewport: { width: 390, height: 844 },
+		isMobile: true,
+		hasTouch: true,
+	});
+	await phone.goto(`${origin}/work/attention`);
+	await phone.locator("[data-attention-live]").waitFor();
+	await phone.keyboard.press("Escape");
+	await phone.waitForTimeout(300);
+	assert.equal(
+		await phone.evaluate(
+			() => document.documentElement.scrollWidth > innerWidth,
+		),
+		false,
+		"phone has horizontal overflow",
+	);
+	await phone.screenshot({
+		path: `${output}/attention-phone-light.png`,
+		fullPage: true,
+	});
+	await phone.evaluate(() => document.documentElement.classList.add("dark"));
+	await phone.screenshot({
+		path: `${output}/attention-phone-dark.png`,
+		fullPage: true,
+	});
+	assert.deepEqual(errors, []);
+	await writeFile(
+		`${output}/attention-browser-checks.json`,
+		JSON.stringify(
+			{
+				warmFirstPaintMs: paint,
+				phoneWidth: 390,
+				horizontalOverflow: false,
+				timerTicks: true,
+				layoutSurvivesReload: true,
+				hiddenColumns: true,
+				errors,
+			},
+			null,
+			2,
+		),
+	);
+	console.log(
+		`Attention browser checks passed; warm first paint ${paint}ms; screenshots: ${output}`,
+	);
+} finally {
+	await browser?.close();
+	if (server?.pid) {
+		try {
+			process.kill(-server.pid, "SIGTERM");
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+		}
+	}
+}

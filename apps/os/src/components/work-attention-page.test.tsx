@@ -5,8 +5,8 @@ vi.mock("@/lib/os-query-options", () => ({
 	workAttentionQueryOptions: () => ({}),
 	osQueryKeys: {},
 }));
-import { AttentionBoard } from "./work-attention-page";
-it("shows recovery evidence and bounded-data notice", () => {
+import { AttentionBoard } from "./attention-live-view";
+it("shows recovery evidence, coverage gaps and bounded-data notice", () => {
 	const html = renderToStaticMarkup(
 		<AttentionBoard
 			file={() => {}}
@@ -51,6 +51,7 @@ it("shows recovery evidence and bounded-data notice", () => {
 		"Backlog",
 		"Stalled",
 		"waiting for your decision: choose publishing scope",
+		"Needs attention",
 		"Docs",
 		"bounded overview",
 		"Unfiled",
@@ -58,7 +59,7 @@ it("shows recovery evidence and bounded-data notice", () => {
 	])
 		expect(html).toContain(label);
 	expect(html).toContain('href="/work/items/item"');
-	expect(html).toContain("Not reported");
+	expect(html).toContain("heartbeat not reported");
 	expect(html).not.toContain("Nobody is on");
 	expect(html).toContain('href="/work/interactions/decision"');
 });

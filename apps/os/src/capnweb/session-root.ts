@@ -809,6 +809,7 @@ export class CapnChatSession extends RpcTarget implements CapnSessionApi {
 	/** Fresh canonical snapshot, with the caller's authority rechecked on every read. */
 	async readAttention(
 		utcOffsetMinutes = 0,
+		workspaceId?: string,
 	): Promise<
 		import("@tedix/api-contract/schemas/work-attention").AttentionResult
 	> {
@@ -818,7 +819,7 @@ export class CapnChatSession extends RpcTarget implements CapnSessionApi {
 			await import("@tedix/api-contract/schemas/work-attention");
 		return this.#core.call(
 			"workAgentSessions/attention",
-			AttentionInputSchema.parse({ utcOffsetMinutes }),
+			AttentionInputSchema.parse({ utcOffsetMinutes, workspaceId }),
 		);
 	}
 
