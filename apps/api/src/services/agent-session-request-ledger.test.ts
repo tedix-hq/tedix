@@ -7,10 +7,12 @@ import {
 } from "@tedix/db/schema/agent-session-requests";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	acceptAgentSessionEvents,
 	type LedgerModel,
+	LEDGER_SILENCE_TURNS,
+	workersAiLedgerModel,
 	observeAgentSessionRequests,
 	processAgentSessionEvents,
 	reflectAgentSessionRequests,
@@ -169,7 +171,7 @@ describe("request ledger reflector", () => {
 			(await rows(db)).map((row) => [row.text, row.status, row.evidence]),
 		).toEqual([
 			["Fix the login page", "done", "4f2a9c1e"],
-			["Add a changeset", "in_progress", null],
+			["Add a changeset", "open", null],
 		]);
 	});
 
@@ -212,7 +214,13 @@ describe("request ledger reflector", () => {
 				db,
 				scripted(
 					JSON.stringify({
-						updates: [{ ref: "r1", status: "in_progress" }],
+						updates: [
+							{
+								ref: "r1",
+								status: "in_progress",
+								evidence: "Still on the login page",
+							},
+						],
 					}),
 				).model,
 				`Still on the login page (${turn}).`,
@@ -337,7 +345,7 @@ describe("agent asks and semantic support", () => {
 			evidence: "go",
 		});
 	});
-	it("preserves previous state when evidence is unrelated or the verifier is unavailable", async () => {
+	it("preserves previous state when evidence is absent from the source", async () => {
 		const db = fixture();
 		await observe(
 			db,
@@ -352,7 +360,11 @@ describe("agent asks and semantic support", () => {
 			const { model } = scripted(
 				JSON.stringify({
 					updates: [
-						{ ref: "r1", status, evidence: "The documentation is updated" },
+						{
+							ref: "r1",
+							status,
+							evidence: "The login deployment has been verified",
+						},
 					],
 				}),
 			);
@@ -535,7 +547,7 @@ it("treats delegation back to the agent as an answered ask while keeping executi
 	]);
 });
 
-it("recovers a supported answer that the extractor missed, without closing an agent ask", async () => {
+it("keeps an answer open when the reflector did not propose a supported closure", async () => {
 	const db = fixture();
 	await observe(
 		db,
@@ -554,9 +566,6 @@ it("recovers a supported answer that the extractor missed, without closing an ag
 			new: [{ kind: "ask", text: "Approve publishing the legal page" }],
 		}),
 	);
-	model.findCompletions = async () => [
-		{ ref: "r1", evidence: "The factory reads feedback and proposes rules." },
-	];
 	await reflectAgentSessionRequests(db, model, {
 		...SCOPE,
 		sourceAt: "2026-10-06T10:01:00Z",
@@ -566,12 +575,12 @@ it("recovers a supported answer that the extractor missed, without closing an ag
 		activity: null,
 	});
 	expect((await rows(db)).map((r) => [r.kind, r.status])).toEqual([
-		["question", "done"],
+		["question", "open"],
 		["ask", "waiting_on_user"],
 	]);
 });
 
-it("never closes an ask from an automatic completion suggestion", async () => {
+it("never closes an ask from an unproposed agent approval claim", async () => {
 	const db = fixture();
 	const input = {
 		...SCOPE,
@@ -591,12 +600,407 @@ it("never closes an ask from an automatic completion suggestion", async () => {
 		{ ...input, turn: "Publishing the legal page needs your OK." },
 	);
 	const { model } = scripted(JSON.stringify({ updates: [] }));
-	model.findCompletions = async () => [
-		{ ref: "r1", evidence: "I approved publishing the legal page" },
-	];
 	await reflectAgentSessionRequests(db, model, {
 		...input,
 		turn: "I approved publishing the legal page",
 	});
 	expect((await rows(db))[0]?.status).toBe("waiting_on_user");
+});
+
+it("uses Astra through the Gateway only for reflection and leaves the observer small", async () => {
+	const run = vi.fn().mockResolvedValue({ response: '{"requests":[]}' });
+	const fetch = vi.fn().mockResolvedValue(
+		Response.json({
+			status: "completed",
+			output: [
+				{
+					type: "message",
+					content: [{ type: "output_text", text: '{"updates":[]}' }],
+				},
+			],
+		}),
+	);
+	const model = workersAiLedgerModel({
+		AI: { run, fetch } as unknown as Ai,
+		AI_GATEWAY_LLM_ID: "example-gateway",
+		AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
+		AZURE_OPENAI_RESOURCE: "example-resource",
+	});
+	expect(
+		await model("system", "prompt", "agent-session-request-observer"),
+	).toBe('{"requests":[]}');
+	expect(run.mock.calls[0]?.[0]).toBe(
+		"@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+	);
+	expect(
+		await model("system", "full turn", "agent-session-request-reflector"),
+	).toBe('{"updates":[]}');
+	expect(run).toHaveBeenCalledTimes(1);
+	const [url, init] = fetch.mock.calls[0]!;
+	expect(String(url)).toContain(
+		"/azure-openai/example-resource/openai/v1/responses",
+	);
+	expect(JSON.parse(init.body)).toMatchObject({
+		model: "gpt-6-astra",
+		input: "full turn",
+	});
+	fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+	expect(
+		await model("system", "prompt", "agent-session-request-reflector"),
+	).toBeNull();
+	expect(run).toHaveBeenCalledTimes(1);
+});
+
+it("ages only after five distinct silent turns, resets on mention, and protects running lanes", async () => {
+	const db = fixture();
+	await observe(
+		db,
+		scripted(
+			JSON.stringify({
+				requests: [{ kind: "request", text: "Verify the deployed login fix" }],
+			}),
+		).model,
+		"Verify the deployed login fix",
+	);
+	let tick = 0;
+	const reflect = async (
+		body: unknown,
+		turn = "An unrelated status update.",
+	) => {
+		const sourceAt = new Date(Date.parse(T0) + ++tick * 60000).toISOString();
+		return reflectAgentSessionRequests(
+			db,
+			scripted(JSON.stringify(body)).model,
+			{
+				...SCOPE,
+				turn,
+				activity: null,
+				repository: "example/app",
+				sourceAt,
+				now: sourceAt,
+			},
+		);
+	};
+	for (let i = 0; i < LEDGER_SILENCE_TURNS - 1; i++)
+		await reflect({ updates: [] });
+	expect((await rows(db))[0]?.status).toBe("open");
+	await reflect(
+		{
+			updates: [],
+			mentioned: [
+				{
+					ref: "r1",
+					evidence: "The deployed login fix still needs verification",
+				},
+			],
+		},
+		"The deployed login fix still needs verification.",
+	);
+	expect((await rows(db))[0]?.turnsUnaddressed).toBe(0);
+	for (let i = 0; i < LEDGER_SILENCE_TURNS - 1; i++)
+		await reflect({ updates: [] });
+	expect((await rows(db))[0]?.status).toBe("open");
+	await reflect({ updates: [] });
+	expect((await rows(db))[0]?.status).toBe("dropped_risk");
+	await reflect(
+		{
+			updates: [
+				{
+					ref: "r1",
+					status: "in_progress",
+					evidence: "The login deployment is running",
+				},
+			],
+			lanes: [
+				{
+					ref: "r1",
+					running: true,
+					evidence: "The login deployment is running",
+				},
+			],
+		},
+		"The login deployment is running.",
+	);
+	for (let i = 0; i < LEDGER_SILENCE_TURNS + 2; i++)
+		await reflect({ updates: [] });
+	expect((await rows(db)).find((r) => r.kind === "request")?.status).toBe(
+		"in_progress",
+	);
+	const lastAt = new Date(Date.parse(T0) + tick * 60000).toISOString();
+	const before = (await rows(db)).find(
+		(r) => r.kind === "request",
+	)!.turnsUnaddressed;
+	await reflectAgentSessionRequests(db, scripted('{"updates":[]}').model, {
+		...SCOPE,
+		turn: "An unrelated status update.",
+		activity: null,
+		repository: "example/app",
+		sourceAt: lastAt,
+		now: lastAt,
+	});
+	expect(
+		(await rows(db)).find((r) => r.kind === "request")?.turnsUnaddressed,
+	).toBe(before);
+});
+
+it("retains the canonical row and merge provenance when a completed request is restated", async () => {
+	const db = fixture();
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Publish the README update"}]}',
+		).model,
+		"Publish the README update",
+	);
+	const reflect = (body: unknown, turn: string, at: string) =>
+		reflectAgentSessionRequests(db, scripted(JSON.stringify(body)).model, {
+			...SCOPE,
+			turn,
+			activity: null,
+			repository: "example/app",
+			sourceAt: at,
+			now: at,
+		});
+	await reflect(
+		{
+			updates: [
+				{
+					ref: "r1",
+					status: "done",
+					evidence: "Published README and read it back",
+				},
+			],
+		},
+		"Published README and read it back.",
+		"2026-10-06T10:01:00Z",
+	);
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Ship the updated README"}]}',
+		).model,
+		"Ship the updated README",
+		"2026-10-06T10:02:00Z",
+	);
+	await reflect(
+		{
+			updates: [],
+			merges: [{ ref: "r1", into: "r2", evidence: "Ship the updated README" }],
+		},
+		"The README was already published.",
+		"2026-10-06T10:03:00Z",
+	);
+	const all = await rows(db);
+	expect(all.map((r) => r.status)).toEqual(["done", "cancelled"]);
+	expect(all[1]?.evidence).toContain(all[0]!.id);
+});
+
+it("uses the reply reflector to recover an answered ask missed by the small observer", async () => {
+	const db = fixture();
+	await reflectAgentSessionRequests(
+		db,
+		scripted(
+			'{"updates":[],"new":[{"kind":"ask","text":"Click the checkbox and Submit"}]}',
+		).model,
+		{
+			...SCOPE,
+			turn: "Please click the checkbox and Submit.",
+			activity: null,
+			repository: "example/app",
+			sourceAt: T0,
+			now: T0,
+		},
+	);
+	const { model } = scripted('{"requests":[],"answered":[]}');
+	model.reflectReplies = async () =>
+		'{"requests":[],"answered":[{"ref":"r1","evidence":"you do it"}],"cancelled":[]}';
+	model.verify = async () => {
+		throw Error("Small verifier must not override the reply reflector");
+	};
+	await observe(db, model, "you do it", "2026-10-06T10:01:00Z");
+	expect((await rows(db))[0]).toMatchObject({
+		status: "done",
+		evidence: "you do it",
+	});
+});
+
+it("retires operational asks from saved outcome evidence while preserving reserved approvals", async () => {
+	const db = fixture();
+	const reflect = (body: unknown, turn: string, at: string) =>
+		reflectAgentSessionRequests(db, scripted(JSON.stringify(body)).model, {
+			...SCOPE,
+			turn,
+			activity: null,
+			repository: "example/app",
+			sourceAt: at,
+			now: at,
+		});
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Fix editor synchronization"}]}',
+		).model,
+		"Fix editor synchronization",
+	);
+	await reflect(
+		{
+			updates: [
+				{
+					ref: "r1",
+					status: "done",
+					evidence: "Editor synchronization verified on the live page",
+				},
+			],
+			new: [
+				{ kind: "ask", text: "Reload the deck editor tab" },
+				{ kind: "ask", text: "Approve the public README publication" },
+			],
+		},
+		"Editor synchronization verified on the live page. Reload the deck editor tab. Approve the public README publication.",
+		"2026-10-06T10:01:00Z",
+	);
+	await reflect(
+		{
+			updates: [
+				{
+					ref: "r1",
+					status: "done",
+					operational: true,
+					evidence: "Editor synchronization verified on the live page",
+				},
+				{
+					ref: "r2",
+					status: "done",
+					operational: true,
+					evidence: "Editor synchronization verified on the live page",
+				},
+			],
+		},
+		"Continuing with another task.",
+		"2026-10-06T10:02:00Z",
+	);
+	expect((await rows(db)).map((r) => [r.text, r.status])).toEqual([
+		["Fix editor synchronization", "done"],
+		["Reload the deck editor tab", "done"],
+		["Approve the public README publication", "waiting_on_user"],
+	]);
+});
+
+it("a running lane protects its own request while an unrelated silent request becomes at risk", async () => {
+	const db = fixture();
+	await observe(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Verify the login deployment"},{"kind":"request","text":"Write the unrelated release summary"}]}',
+		).model,
+		"Verify the login deployment; write the unrelated release summary",
+	);
+	for (let tick = 1; tick <= LEDGER_SILENCE_TURNS; tick++) {
+		const at = new Date(Date.parse(T0) + tick * 60000).toISOString();
+		await reflectAgentSessionRequests(
+			db,
+			scripted(
+				JSON.stringify({
+					updates: [],
+					lanes:
+						tick === 1
+							? [
+									{
+										ref: "r1",
+										running: true,
+										evidence: "The login deployment is running",
+									},
+								]
+							: [],
+				}),
+			).model,
+			{
+				...SCOPE,
+				sourceAt: at,
+				now: at,
+				repository: "example/app",
+				turn:
+					tick === 1
+						? "The login deployment is running."
+						: "An unrelated update.",
+				activity: null,
+			},
+		);
+	}
+	const all = await rows(db);
+	expect(all[0]).toMatchObject({ status: "open", laneRunning: true });
+	expect(all[1]).toMatchObject({
+		status: "dropped_risk",
+		laneRunning: false,
+		turnsUnaddressed: LEDGER_SILENCE_TURNS,
+	});
+});
+
+it("an approval closes the ask while retaining the exact unfinished execution criteria once", async () => {
+	const db = fixture();
+	const text = "Make doc creation <=5 seconds and questions <=3 seconds";
+	const proposal = `Say go to ${text}.`;
+	await acceptAgentSessionEvents(db, {
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+		events: [{ ...SCOPE, kind: "turn", text: proposal, sourceAt: T0 }],
+		now: T0,
+	});
+	await reflectAgentSessionRequests(
+		db,
+		scripted(JSON.stringify({ updates: [], new: [{ kind: "ask", text }] }))
+			.model,
+		{
+			...SCOPE,
+			sourceAt: T0,
+			now: T0,
+			turn: proposal,
+			activity: null,
+			repository: "example/app",
+		},
+	);
+	const { model } = scripted(
+		JSON.stringify({ requests: [{ kind: "request", text }] }),
+	);
+	model.reflectReplies = async (_rows, _message, previous) => {
+		expect(previous).toBe(proposal);
+		return JSON.stringify({
+			requests: [{ kind: "request", text }],
+			answered: [{ ref: "r1", evidence: "go" }],
+			cancelled: [],
+		});
+	};
+	await observe(db, model, "go", "2026-10-06T10:01:00Z");
+	expect((await rows(db)).map((r) => [r.kind, r.text, r.status])).toEqual([
+		["ask", text, "done"],
+		["request", text, "open"],
+	]);
+});
+
+it("can adopt a preceding proposal even when there are no open rows", async () => {
+	const db = fixture();
+	await acceptAgentSessionEvents(db, {
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+		events: [
+			{
+				...SCOPE,
+				kind: "turn",
+				text: "Shall I write the release summary?",
+				sourceAt: T0,
+			},
+		],
+		now: T0,
+	});
+	const { model } = scripted('{"requests":[]}');
+	model.reflectReplies = async (_rows, _message, previous) => {
+		expect(previous).toBe("Shall I write the release summary?");
+		return '{"requests":[{"kind":"request","text":"Write the release summary"}],"answered":[],"cancelled":[]}';
+	};
+	await observe(db, model, "yes, do that", "2026-10-06T10:01:00Z");
+	expect((await rows(db))[0]).toMatchObject({
+		kind: "request",
+		text: "Write the release summary",
+		status: "open",
+	});
 });

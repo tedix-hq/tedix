@@ -1,11 +1,16 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
-import { agentSessionRequests } from "../schema/agent-session-requests";
+import {
+	agentSessionRequests,
+	agentSessionEvents,
+} from "../schema/agent-session-requests";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
+	getPreviousAgentSessionTurn,
 	listAgentSessionRequests,
+	recordAgentSessionEvents,
 	recordAgentSessionRequests,
 	updateAgentSessionRequests,
 } from "./agent-session-requests";
@@ -20,6 +25,7 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(agentSessionRequests));
+	sqlite.exec(schemaDdl(agentSessionEvents));
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -131,4 +137,126 @@ describe("agent session request ledger", () => {
 		});
 		expect(ask).toMatchObject({ kind: "ask", status: "waiting_on_user" });
 	});
+});
+
+it("reads the preceding turn only from the same owner, harness and session, before the user reply", async () => {
+	const db = fixture();
+	const add = async (
+		org: string,
+		user: string,
+		session: string,
+		harness: "claude-code" | "codex",
+		kind: "prompt" | "turn",
+		at: string,
+		body: string,
+	) =>
+		recordAgentSessionEvents(db, {
+			organizationId: org,
+			userId: user,
+			events: [
+				{
+					harness,
+					sessionKey: session,
+					repository: null,
+					kind,
+					body,
+					activity: null,
+					sourceAt: at,
+					sourceKey: `${org}:${user}:${session}:${harness}:${kind}:${at}`,
+				},
+			],
+			now: at,
+		});
+	await add(ORG, USER, "chat-a", "claude-code", "turn", T0, "Older question.");
+	await add(
+		ORG,
+		USER,
+		"chat-a",
+		"claude-code",
+		"turn",
+		"2026-10-06T10:04:00.000Z",
+		"Choose option one or two.",
+	);
+	await add(
+		ORG,
+		USER,
+		"chat-a",
+		"claude-code",
+		"turn",
+		T1,
+		"Future result must not be read.",
+	);
+	await add(
+		ORG,
+		USER,
+		"chat-a",
+		"claude-code",
+		"prompt",
+		"2026-10-06T10:04:30.000Z",
+		"User prompt is not agent context.",
+	);
+	await add(
+		"org-other",
+		USER,
+		"chat-a",
+		"claude-code",
+		"turn",
+		"2026-10-06T10:04:40.000Z",
+		"Other organization.",
+	);
+	await add(
+		ORG,
+		OTHER_USER,
+		"chat-a",
+		"claude-code",
+		"turn",
+		"2026-10-06T10:04:40.000Z",
+		"Other person.",
+	);
+	await add(
+		ORG,
+		USER,
+		"chat-b",
+		"claude-code",
+		"turn",
+		"2026-10-06T10:04:40.000Z",
+		"Other chat.",
+	);
+	await add(
+		ORG,
+		USER,
+		"chat-a",
+		"codex",
+		"turn",
+		"2026-10-06T10:04:40.000Z",
+		"Other harness.",
+	);
+	expect(
+		await getPreviousAgentSessionTurn(db, {
+			organizationId: ORG,
+			userId: USER,
+			harness: "claude-code",
+			sessionKey: "chat-a",
+			before: T1,
+		}),
+	).toBe("Choose option one or two.");
+	expect(
+		await getPreviousAgentSessionTurn(db, {
+			organizationId: ORG,
+			userId: USER,
+			harness: "claude-code",
+			sessionKey: "chat-a",
+			before: T1,
+			kind: "prompt",
+		}),
+	).toBe("User prompt is not agent context.");
+	expect(
+		await getPreviousAgentSessionTurn(db, {
+			organizationId: ORG,
+			userId: USER,
+			harness: "claude-code",
+			sessionKey: "chat-a",
+			before: T0,
+		}),
+	).toBeNull();
 });

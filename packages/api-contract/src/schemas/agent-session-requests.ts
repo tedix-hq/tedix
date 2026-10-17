@@ -62,8 +62,9 @@ export const AgentSessionEventSchema = z.strictObject({
 		.string()
 		.trim()
 		.min(1)
-		.max(8000)
-		.describe("The message or final turn text, redacted before upload."),
+		.describe(
+			"The redacted message or full agent turn text, including earlier replies in the turn.",
+		),
 	activity: z
 		.string()
 		.trim()
