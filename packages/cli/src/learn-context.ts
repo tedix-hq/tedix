@@ -480,7 +480,7 @@ List the durable work these sessions show:
 - "goal": an outcome pursued across several sessions;
 - "project": a named product area, client or body of work; when three or more tasks belong to the same one, list it as well, citing all their sessions. Name the narrowest body of work that groups them (a feature or initiative such as "billing exports", not the whole product).
 Merge sessions only when they work on the same deliverable or outcome; related but different deliverables stay separate entries. Skip status checks, one-off questions, small talk, personal errands unrelated to their work, and tests or demos of the agent itself.
-Each summary ends with the last thing typed; mark "done" true when the sessions show the work finished (shipped, merged, closed, answered).
+Each summary ends with the last thing typed. Mark "done" true only when the person explicitly confirms completion in the cited sessions (shipped, merged, closed, answered). A request to build, write, review or finish something is not confirmation that it happened. Without explicit completion evidence, "done" is false.
 Return ONLY a JSON array, no prose: [{"kind":"task|goal|project","title":"<at most 12 words; a task starts with a verb>","sessions":[<numbers>],"confidence":<0 to 1>,"done":<true|false>}].
 Paraphrase. Keep product, client and project names; never include people's names, email addresses, secrets, tokens or URLs.
 End the array with one more entry, {"kind":"people","names":[...]}: every first or last name of a person that appears anywhere below (not companies, products, places or programs).
@@ -823,7 +823,6 @@ export async function projectCatalog(
 export function boardMatchSource(input: {
 	/** Key, title and the titles of the sessions behind it. */
 	candidates: Array<{ k: string; t: string; q?: string }>;
-	since: string;
 	dispositions: string[];
 	projects: boolean;
 }): string {
@@ -838,18 +837,34 @@ export function boardMatchSource(input: {
 	const scanned = {};
 	for (const disposition of input.dispositions) {
 		scanned[disposition] = 0;
-		const dated = disposition === "completed" || disposition === "cancelled";
+		if (disposition === "completed" || disposition === "cancelled") continue;
 		for (let offset = 0; offset < 30000; offset += 100) {
 			const r = await work.list_work_items({ limit: 100, offset, disposition });
 			if (r?.ok === false || !Array.isArray(r?.data)) return { ok: false, error: "listing Work Items failed: " + String(r?.error ?? "no data") };
-			let fresh = 0;
 			for (const w of r.data) {
-				if (dated && String(w.createdAt || "") < input.since) continue;
-				fresh++;
 				items.push({ id: w.id, t: w.title, p: w.projectId || null, d: w.disposition, par: w.parentWorkItemId || null, ws: new Set(words(w.title)) });
 			}
-			scanned[disposition] += fresh;
-			if (!r.pagination?.hasMore || (dated && fresh === 0)) break;
+			scanned[disposition] += r.data.length;
+			if (!r.pagination?.hasMore) break;
+		}
+	}
+	// Older finished work still prevents duplicates; search it by topic rather
+	// than scanning the organization's entire history in one gateway call.
+	if (input.dispositions.includes("completed")) {
+		const seen = new Set(items.map((w) => w.id));
+		const terms = new Set(input.candidates.flatMap((c) => String(c.t).toLowerCase().replace(/[^\\p{L}\\p{N}\\s]/gu, " ").split(/\\s+/).filter((w) => w.length > 3 && !STOP.has(w)).slice(0, 3)));
+		for (const titleContains of terms) {
+			for (let offset = 0; ; offset += 100) {
+				const r = await work.list_work_items({ titleContains, limit: 100, offset });
+				if (r?.ok === false || !Array.isArray(r?.data)) return { ok: false, error: "searching older Work Items failed: " + String(r?.error ?? "no data") };
+				for (const w of r.data) {
+					if (seen.has(w.id) || !input.dispositions.includes(w.disposition)) continue;
+					seen.add(w.id);
+					scanned[w.disposition]++;
+					items.push({ id: w.id, t: w.title, p: w.projectId || null, d: w.disposition, par: w.parentWorkItemId || null, ws: new Set(words(w.title)) });
+				}
+				if (!r.pagination?.hasMore || r.data.length === 0) break;
+			}
 		}
 	}
 	const plist = [];
@@ -896,6 +911,9 @@ export function boardMatchSource(input: {
  * six thousand tokens, and each candidate returns up to nine matches.
  */
 const MATCH_CHUNK = 8;
+// Topic searches make more inner calls; keep their gateway telemetry below
+// the Analytics Engine per-request write limit.
+const HISTORY_MATCH_CHUNK = 2;
 
 /**
  * Run the match as programs over open and over finished Work, each inside the
@@ -903,7 +921,6 @@ const MATCH_CHUNK = 8;
  */
 export async function matchBoard(
 	candidates: Candidate[],
-	since: string,
 	call: (source: string) => Promise<Json>,
 	/** Also read every open project (for a model to place work with). */
 	withCatalog = false,
@@ -918,27 +935,24 @@ export async function matchBoard(
 			t: c.title,
 			...(c.context ? { q: c.context } : {}),
 		}));
-		const results = await Promise.all(
-			(
-				[
-					[["proposed", "accepted"], true],
-					[["completed", "cancelled"], false],
-				] as const
-			).map(([dispositions, projects]) =>
-				call(
-					boardMatchSource({
-						candidates: list,
-						since,
-						dispositions: [...dispositions],
-						projects,
-					}),
-				),
-			),
-		);
-		results.forEach((result, side) => {
+		const jobs = [
+			{
+				candidates: list,
+				dispositions: ["proposed", "accepted"],
+				projects: true,
+			},
+		];
+		for (let j = 0; j < list.length; j += HISTORY_MATCH_CHUNK)
+			jobs.push({
+				candidates: list.slice(j, j + HISTORY_MATCH_CHUNK),
+				dispositions: ["completed", "cancelled"],
+				projects: false,
+			});
+		await inPool(jobs, 4, async (job) => {
+			const result = await call(boardMatchSource(job));
 			if (!result.matches || typeof result.matches !== "object")
 				throw new Error("the board match returned no matches");
-			Object.assign(side === 0 ? open : closed, result.matches);
+			Object.assign(job.projects ? open : closed, result.matches);
 			out.me ??= result.me ?? null;
 			Object.assign(out.scanned, result.scanned);
 		});
@@ -1010,7 +1024,7 @@ export const THRESHOLDS = {
 
 export const JUDGE_PROMPT = `Each numbered candidate below is work one person did in coding-agent sessions, with the titles of the sessions it came from. Under it are existing Work Items (W1..) on their team's board; the team's projects (P1..) are listed first.
 For each candidate decide:
-- "same": the W that already is this deliverable or outcome, even if worded differently or scoped a little differently (a completed item counts: the work is done). An item for a whole area, period or program that only includes this work is not the same; neither is an item for one part of a larger candidate. Empty if none is.
+- "same": the W that already is this deliverable or outcome, even if worded differently or scoped a little differently (a completed item counts: the work is done). It must cover the requested platform, client and output: a generic getting-started guide does not establish that a Windows install guide exists. An item for a whole area, period or program that only includes this work is not the same; neither is an item for one part of a larger candidate. Empty if none is.
 - "parent": when not "same", an OPEN W that is a broader effort this belongs under, else empty.
 - "project": the P this work most likely belongs to: its product, client, program or kind of work (outreach to leads belongs with go-to-market work). A word in common is not enough (a "catalog" screen in someone's own app is not an MCP catalog). Empty when no project is about this kind of work.
 When unsure about "same" or "parent", leave it empty.
@@ -1280,7 +1294,7 @@ async function secondLook(
 				(same ? same[5] < THRESHOLDS.same : best < THRESHOLDS.clear);
 			const open =
 				(p.action === "create" || mayJoinEpic(c, p)) &&
-				best >= THRESHOLDS.confirm;
+				(best >= THRESHOLDS.confirm || Boolean(picks.get(c.key)?.parent));
 			return { i, c, best, unsure, open };
 		})
 		.filter((d) => d.unsure || d.open)
@@ -1291,6 +1305,8 @@ async function secondLook(
 		const options = (board.matches[c.key]?.w ?? []).slice(0, 3);
 		if (pick.same && !options.some((w) => w[0] === pick.same![0]))
 			options.push(pick.same);
+		if (pick.parent && !options.some((w) => w[0] === pick.parent![0]))
+			options.push(pick.parent);
 		const prompt = `${CONFIRM_PROMPT}Work: ${c.title}${c.context ? `\nIts sessions: ${c.context.slice(0, 300)}` : ""}${c.ask ? `\nFirst ask: ${c.ask}` : ""}\n\nExisting items:\n${options
 			.map((w, j) => `${j + 1}. [${w[3]}] ${w[1]}`)
 			.join("\n")}`;
@@ -1816,12 +1832,8 @@ export async function runContext(
 			const call = caller(read, target);
 			const candidates = await extractCandidates(sessions, runModel);
 			entry.candidates = candidates.length;
-			const earliest = sessions.map((s) => s.from).sort()[0]!;
-			const since = new Date(
-				Date.parse(earliest) - 30 * 86_400_000,
-			).toISOString();
 			const board: BoardMatches = candidates.length
-				? await matchBoard(candidates, since, call, Boolean(runModel))
+				? await matchBoard(candidates, call, Boolean(runModel))
 				: { me: null, scanned: {}, matches: {} };
 			const digests = new Map(sessions.map((s) => [s.sessionId, s]));
 			const citations = new Map(
@@ -1951,7 +1963,7 @@ export async function runContext(
 	else if (options.dryRun) lines.push("Dry run: nothing was saved or sent.");
 	else if (pending)
 		lines.push(
-			"Next: accept or decline each proposal in your Tedix inbox (Work > Interactions), in chat, or here with tedix learn review.",
+			"Next: open Tedix > Work > Needs you and accept or decline your proposals.",
 		);
 	else if (
 		Object.values<Json>(report.targets).some((e) => e.alreadyDecided > 0)
@@ -2335,7 +2347,7 @@ export async function runOnboard(
 		write(
 			[
 				"Onboarding runs in the background; you can close this terminal.",
-				"Your proposals will arrive in your Tedix inbox (Work > Interactions); accept or decline each there, in chat, or with tedix learn review.",
+				"Next: open Tedix > Work > Needs you; your proposals will arrive in your Tedix inbox there to accept or decline.",
 				`Progress: ${log}`,
 			].join("\n"),
 		);
@@ -2455,7 +2467,9 @@ export async function runOnboard(
 	save();
 	write(
 		exitCode === 0
-			? "Onboarding finished."
+			? options.dryRun
+				? "Preview finished. Nothing was saved or sent."
+				: "Onboarding finished. Next: open Tedix > Work > Needs you and accept or decline your proposals."
 			: "Onboarding stopped with errors; run tedix learn onboard again to resume.",
 	);
 	return exitCode;
