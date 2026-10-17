@@ -63,41 +63,47 @@ describe("rateLimit service-binding trust boundary", () => {
 });
 
 describe("byCredentialOrIp", () => {
-	it("keeps repeated requests from one Descope session in one bucket", async () => {
-		const limit = vi.fn(() => Promise.resolve({ success: true }));
-		const app = createCredentialApp({ limit });
+	it.each(["DS", "__Host-tedix-oidc"])(
+		"keeps repeated requests from one %s session in one bucket",
+		async (cookie) => {
+			const limit = vi.fn(() => Promise.resolve({ success: true }));
+			const app = createCredentialApp({ limit });
 
-		await app.request("https://api.tedix.dev/", {
-			headers: { Cookie: "other=value; DS=session-one" },
-		});
-		await app.request("https://api.tedix.dev/", {
-			headers: { Cookie: "DS=session-one; other=changed" },
-		});
+			await app.request("https://api.tedix.dev/", {
+				headers: { Cookie: `other=value; ${cookie}=session-one` },
+			});
+			await app.request("https://api.tedix.dev/", {
+				headers: { Cookie: `${cookie}=session-one; other=changed` },
+			});
 
-		expect(limit).toHaveBeenCalledTimes(2);
-		const firstKey = limit.mock.calls[0]?.[0].key;
-		const secondKey = limit.mock.calls[1]?.[0].key;
-		expect(firstKey).toMatch(/^session:/);
-		expect(secondKey).toBe(firstKey);
-	});
+			expect(limit).toHaveBeenCalledTimes(2);
+			const firstKey = limit.mock.calls[0]?.[0].key;
+			const secondKey = limit.mock.calls[1]?.[0].key;
+			expect(firstKey).toMatch(/^session:/);
+			expect(secondKey).toBe(firstKey);
+		},
+	);
 
-	it("isolates distinct Descope sessions from each other", async () => {
-		const limit = vi.fn(() => Promise.resolve({ success: true }));
-		const app = createCredentialApp({ limit });
+	it.each(["DS", "__Host-tedix-oidc"])(
+		"isolates distinct %s sessions from each other",
+		async (cookie) => {
+			const limit = vi.fn(() => Promise.resolve({ success: true }));
+			const app = createCredentialApp({ limit });
 
-		await app.request("https://api.tedix.dev/", {
-			headers: { Cookie: "DS=session-one" },
-		});
-		await app.request("https://api.tedix.dev/", {
-			headers: { Cookie: "DS=session-two" },
-		});
+			await app.request("https://api.tedix.dev/", {
+				headers: { Cookie: `${cookie}=session-one` },
+			});
+			await app.request("https://api.tedix.dev/", {
+				headers: { Cookie: `${cookie}=session-two` },
+			});
 
-		const firstKey = limit.mock.calls[0]?.[0].key;
-		const secondKey = limit.mock.calls[1]?.[0].key;
-		expect(firstKey).toMatch(/^session:/);
-		expect(secondKey).toMatch(/^session:/);
-		expect(secondKey).not.toBe(firstKey);
-	});
+			const firstKey = limit.mock.calls[0]?.[0].key;
+			const secondKey = limit.mock.calls[1]?.[0].key;
+			expect(firstKey).toMatch(/^session:/);
+			expect(secondKey).toMatch(/^session:/);
+			expect(secondKey).not.toBe(firstKey);
+		},
+	);
 
 	it("preserves API-key and bearer credential precedence", async () => {
 		const limit = vi.fn(() => Promise.resolve({ success: true }));

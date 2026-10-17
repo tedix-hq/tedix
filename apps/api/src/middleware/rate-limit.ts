@@ -9,6 +9,7 @@
  */
 
 import { DESCOPE_SESSION_COOKIE, readCookieHeader } from "@tedix/auth/web";
+import { OIDC_SESSION_COOKIE } from "@tedix/auth/oidc-cookies";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import type { Context, Next } from "hono";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
@@ -63,10 +64,9 @@ export const byCredentialOrIp: RateLimitKeyFn = async (c) => {
 		return `auth:${await hashRateLimitKey(authorization.trim())}`;
 	}
 
-	const session = readCookieHeader(
-		c.req.header("Cookie"),
-		DESCOPE_SESSION_COOKIE,
-	);
+	const session =
+		readCookieHeader(c.req.header("Cookie"), DESCOPE_SESSION_COOKIE) ??
+		readCookieHeader(c.req.header("Cookie"), OIDC_SESSION_COOKIE);
 	if (session) return `session:${await hashRateLimitKey(session)}`;
 
 	return byIp(c);
