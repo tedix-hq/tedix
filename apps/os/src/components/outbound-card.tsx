@@ -299,6 +299,12 @@ export function OutboundReviewCard({
 					{copied ? "Copied" : "Copy text"}
 				</Button>
 			</div>
+			{state.draft.providerDraftUrl && state.draftRevision > 1 ? (
+				<Text as="p" role="body" tone="secondary">
+					The source draft opens the original wording. Copy the current reviewed
+					text and check the recipient and subject before sending there.
+				</Text>
+			) : null}
 		</div>
 	);
 }

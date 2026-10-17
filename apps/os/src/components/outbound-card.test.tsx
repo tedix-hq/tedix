@@ -54,6 +54,23 @@ describe("outbound human review card", () => {
 		});
 		expect(button(doc, "Approve, I'll send")?.disabled).toBe(true);
 	});
+	it("explains that an edited card does not replace the original provider draft", () => {
+		const doc = card({
+			...LOCAL_OUTBOUND,
+			outbound: {
+				...LOCAL_OUTBOUND.outbound,
+				draftRevision: 2,
+				draft: {
+					...LOCAL_OUTBOUND.outbound.draft,
+					providerDraftUrl: "https://mail.google.com/mail/u/0/#drafts",
+				},
+			},
+		});
+		expect(doc.body.textContent).toContain(
+			"source draft opens the original wording",
+		);
+		expect(doc.body.textContent).toContain("check the recipient and subject");
+	});
 	it("never offers another send after an uncertain provider result", () => {
 		const doc = card({
 			...LOCAL_OUTBOUND,
