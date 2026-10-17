@@ -22,12 +22,10 @@ import { Link } from "@/components/kumo/link";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
 	Collection,
-	Page,
 	PageDescription,
 	PageHeader,
 	PageHeading,
 	PageSection,
-	PageTitle,
 	SectionDescription,
 	SectionHeader,
 	SectionHeading,
@@ -56,7 +54,6 @@ import {
 	relativeTime,
 	startOfToday,
 } from "@/lib/time";
-import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn } from "@/lib/utils";
 
 /** Knocks whose answer is looked up (one detail read each). */
@@ -219,7 +216,6 @@ function OfficeHeader({ since }: { since: string }) {
 	return (
 		<PageHeader>
 			<PageHeading>
-				<PageTitle>Your office</PageTitle>
 				<PageDescription className="text-kumo-default type-tedix-dialog">
 					{knocks.isError ||
 					totals.acceptance.isError ||
@@ -859,11 +855,10 @@ function Notebook({ since }: { since: string }) {
 	);
 }
 
-export function WorkOfficePage() {
-	useDocumentTitle("Office · Work");
+export function OfficeApp() {
 	const since = startOfToday();
 	return (
-		<Page width="md" className="gap-10">
+		<div className="grid min-w-0 gap-10" data-workspace-app-entry="office">
 			<div className="grid gap-5">
 				<OfficeHeader since={since} />
 				<TodayTiles since={since} />
@@ -872,6 +867,6 @@ export function WorkOfficePage() {
 			<Knocks since={since} />
 			<OfficeLeaderboard />
 			<Notebook since={since} />
-		</Page>
+		</div>
 	);
 }

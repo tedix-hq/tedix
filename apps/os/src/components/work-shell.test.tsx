@@ -70,7 +70,7 @@ describe("Work shell navigation", () => {
 		).toEqual([
 			["Attention", ["Attention"]],
 			["Needs you", ["Needs you"]],
-			["Board", ["Projects", "Queue", "Agents", "Office"]],
+			["Board", ["Projects", "Queue"]],
 			["History", ["Activity", "Completed"]],
 		]);
 		expect(MORE_WORK_SECTIONS.map((section) => section.label)).toEqual([
@@ -93,9 +93,7 @@ describe("Work shell navigation", () => {
 		);
 		for (const path of [
 			"/work/portfolio",
-			"/work/office",
 			"/work/queue",
-			"/work/agents",
 			"/work/attempts",
 			"/work/approvals",
 			"/work/interactions",
@@ -128,7 +126,6 @@ describe("Work shell navigation", () => {
 			"Completed",
 		]);
 		expect(at("/work/attempts")).toEqual(["History", "Activity"]);
-		expect(at("/work/agents")).toEqual(["Board", "Agents"]);
 		expect(at("/work/approvals")).toEqual(["More", "Approvals"]);
 		expect(at("/work/interactions/req-1")).toEqual(["More", "Requests"]);
 		expect(at("/work/projects/5eed0041-0000-4000-8000-000000000041")).toEqual([

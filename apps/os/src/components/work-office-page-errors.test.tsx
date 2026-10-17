@@ -16,7 +16,7 @@ import {
 	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
 import { startOfWeek } from "./office-leaderboard";
-import { WorkOfficePage } from "./work-office-page";
+import { WorkspaceAppRenderer } from "./workspace-app-renderer";
 import { startOfToday } from "@/lib/time";
 
 function failure(client: QueryClient, queryKey: QueryKey) {
@@ -49,7 +49,14 @@ describe("Office failed reads", () => {
 			failure(client, queryKey);
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={client}>
-				<WorkOfficePage />
+				<WorkspaceAppRenderer
+					workspaceId="11111111-1111-4111-8111-111111111111"
+					manifest={{
+						entry: "tedix:app/office",
+						capabilities: [],
+						config: { version: 1 },
+					}}
+				/>
 			</QueryClientProvider>,
 		);
 		const text = new DOMParser().parseFromString(html, "text/html").body

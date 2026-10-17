@@ -20,7 +20,7 @@ const card: AttentionCard = {
 	startedAt: "2026-10-17T11:00:00Z",
 	heartbeatAt: "2026-10-17T11:54:00Z",
 	note: "Reviewing results",
-	href: "/work/agents",
+	href: "/work/portfolio",
 	source: "session",
 	activitySource: "local_codex",
 };

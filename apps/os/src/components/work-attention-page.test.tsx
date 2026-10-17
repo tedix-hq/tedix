@@ -81,7 +81,7 @@ it("uses factual labels and the viewer's last visit without device explanations"
 				startedAt: "2026-10-17T11:00:00Z",
 				heartbeatAt: "2026-10-17T11:48:00Z",
 				note: "Checking results",
-				href: "/work/agents",
+				href: "/work/portfolio",
 				source: "session" as const,
 				activitySource: "local_codex" as const,
 			},
@@ -153,7 +153,7 @@ it("applies project focus to contributions and attention gaps as well as cards",
 		startedAt: "2026-10-17T10:00:00Z",
 		heartbeatAt: at,
 		note: "Checking records",
-		href: "/work/agents",
+		href: "/work/portfolio",
 		source: "run" as const,
 	};
 	const html = renderToStaticMarkup(
