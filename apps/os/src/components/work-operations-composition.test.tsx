@@ -453,7 +453,11 @@ describe("Work interactions", () => {
 		expect(page.host.textContent).toContain("your Codex chat");
 		expect(page.host.textContent).toContain("What did you agree?");
 		expect(page.host.textContent).toContain("Answer");
-		expect(page.host.querySelector("details")?.open).toBe(false);
+		expect(
+			page.host
+				.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+				?.getAttribute("aria-expanded"),
+		).toBe("false");
 	});
 
 	it("keeps one action boundary and a quiet response collection on the detail page", async () => {
@@ -486,10 +490,15 @@ describe("Work interactions", () => {
 		expect(page.host.textContent).toContain("OS");
 		expect(page.host.textContent).not.toContain("Responses (0)");
 		expect(page.host.textContent).toContain("Can we refund within 30 days?");
-		expect(page.host.querySelector("details")?.open).toBe(false);
-		expect(page.host.querySelector("details summary")?.textContent).toBe(
-			"Why this?",
-		);
+		expect(
+			page.host
+				.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+				?.getAttribute("aria-expanded"),
+		).toBe("false");
+		expect(
+			page.host.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+				?.textContent,
+		).toBe("Why this?");
 		await page.submit("Answer");
 		expect(mutations("workInteractions.respond")).toEqual([]);
 		await page.type("Your answer", "  Keep access passwordless.  ");
