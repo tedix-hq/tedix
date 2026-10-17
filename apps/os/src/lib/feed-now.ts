@@ -1,13 +1,23 @@
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 
-export function feedNow(items: readonly ActivityFeedItem[], now: Date) {
+export function feedNow(
+	items: readonly ActivityFeedItem[],
+	now: Date,
+	timezone?: string,
+) {
 	const unique = [...new Map(items.map((item) => [item.id, item])).values()];
-	const end = new Date(now);
-	end.setHours(23, 59, 59, 999);
+	const calendar = new Intl.DateTimeFormat("en", {
+		dateStyle: "short",
+		timeZone: timezone,
+	});
+	const today = calendar.format(now);
 	const pending = unique.filter((item) => item.needsAction && !item.done);
 	return {
 		needsToday: pending.filter(
-			(item) => !item.dueAt || Date.parse(item.dueAt) <= end.getTime(),
+			(item) =>
+				!item.dueAt ||
+				Date.parse(item.dueAt) <= now.getTime() ||
+				calendar.format(new Date(item.dueAt)) === today,
 		).length,
 		next:
 			unique

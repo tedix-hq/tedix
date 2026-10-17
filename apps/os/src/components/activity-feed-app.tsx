@@ -334,6 +334,7 @@ export function ActivityFeedApp({
 					items={ranked}
 					projectIds={visibleProjects.map((p) => p.id)}
 					now={now}
+					timezone={preferences.data?.preferences.timezone ?? undefined}
 					pending={loading}
 					failed={failed}
 				/>

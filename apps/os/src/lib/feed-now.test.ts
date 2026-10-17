@@ -36,4 +36,8 @@ it("counts today's unresolved choices once and links the earliest unresolved dea
 	expect(result.needsToday).toBe(1);
 	expect(result.next?.source).toBe("/work/interactions/cedar");
 	expect(feedNow([done], new Date()).next).toBeNull();
+	const later = { ...item, dueAt: "2026-10-18T10:00:00Z" };
+	const evening = new Date("2026-10-17T22:30:00Z");
+	expect(feedNow([later], evening, "Asia/Tokyo").needsToday).toBe(1);
+	expect(feedNow([later], evening, "America/Los_Angeles").needsToday).toBe(0);
 });
