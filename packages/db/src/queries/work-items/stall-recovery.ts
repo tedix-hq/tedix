@@ -107,7 +107,7 @@ export async function getStallReceipt(
 	clientEventId: string,
 ) {
 	const [row] = await db.all<{ occurredAt: string }>(
-		sql`SELECT occurred_at AS occurredAt FROM learning_interaction_events WHERE organization_id = ${orgId} AND client_event_id = ${clientEventId} AND surface = 'stall_recovery' LIMIT 1`,
+		sql`SELECT occurred_at AS occurredAt FROM learning_interaction_events WHERE organization_id = ${orgId} AND client_event_id = ${clientEventId} AND surface = 'stall_recovery' AND event_kind = 'delivered' AND actor_type = 'service' AND actor_id = 'stall-recovery' LIMIT 1`,
 	);
 	return row ?? null;
 }
@@ -138,7 +138,7 @@ export async function listStallReceipts(
     SELECT target_type || ':' || target_id AS key, client_event_id AS requestKey, tedi_id AS tediId, occurred_at AS occurredAt,
     row_number() OVER (PARTITION BY target_type, target_id ORDER BY occurred_at DESC, id DESC) AS position
     FROM learning_interaction_events
-    WHERE organization_id = ${orgId} AND surface = 'stall_recovery' AND event_kind = 'delivered' AND json_extract(metadata, '$.environment') = ${environment}
+    WHERE organization_id = ${orgId} AND surface = 'stall_recovery' AND event_kind = 'delivered' AND json_extract(metadata, '$.environment') = ${environment} AND actor_type = 'service' AND actor_id = 'stall-recovery'
     AND target_type || ':' || target_id IN (${sql.join(
 			chunk.map((key) => sql`${key}`),
 			sql`, `,
@@ -184,5 +184,20 @@ export async function listContinuityHumanAsks(
  AND i.creator_type = 'tedi' AND a.kind IS NOT 'fyi'
  AND (i.kind <> 'coordination' OR (a.kind = 'needs_you' AND length(trim(a.need)) > 0))
  ORDER BY i.created_at, i.id LIMIT 200
+ `);
+}
+
+/** Native detector incidents, independent of user/tedi feedback on the same issue. */
+export async function listStallIncidents(
+	db: DbClient,
+	orgId: string,
+	issueKey: string,
+) {
+	return db.all<{ id: string }>(sql`
+  SELECT id FROM learning_interaction_events
+  WHERE organization_id = ${orgId} AND issue_key = ${issueKey}
+   AND surface = 'stall_recovery' AND event_kind = 'retried'
+   AND actor_type = 'service' AND actor_id = 'stall-recovery'
+  ORDER BY occurred_at DESC, id DESC LIMIT 3
  `);
 }

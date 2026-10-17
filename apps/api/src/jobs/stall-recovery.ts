@@ -6,11 +6,11 @@ import {
 	getStallReceipt,
 	hasContinuityFix,
 	listContinuityScopes,
+	listStallIncidents,
 	type ContinuityScope,
 } from "@tedix/db/queries/work-items/stall-recovery";
 import {
 	recordLearningInteraction,
-	listLearningInteractionsForIssueKey,
 	proposeLearningImprovement,
 } from "@tedix/db/queries/learning-feedback";
 import { buildTediContextWakeRequest } from "./tedi-context-wake";
@@ -142,13 +142,7 @@ export async function recoverStall(
 		},
 		occurredAt: now,
 	});
-	const repeats = await listLearningInteractionsForIssueKey(db, {
-		organizationId: scope.orgId,
-		issueKey,
-		surfaces: ["stall_recovery"],
-		limit: 20,
-	});
-	const incidents = repeats.filter((event) => event.eventKind === "retried");
+	const incidents = await listStallIncidents(db, scope.orgId, issueKey);
 	if (
 		incidents.length >= 3 &&
 		!(await hasContinuityFix(db, scope.orgId, issueKey))
