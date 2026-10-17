@@ -117,10 +117,20 @@ async function appendLog(api, workspaceId, title, key, lines) {
 	if (!Array.isArray(blocks))
 		throw new Error("Night log must be an OS document");
 	if (!blocks.some((b) => b.type === "heading" && b.text === key)) {
+		const retained =
+			blocks.length + addition.length > 480
+				? [
+						{
+							type: "paragraph",
+							text: "Earlier entries are retained in this document's revision history.",
+						},
+						...blocks.slice(-(479 - addition.length)),
+					]
+				: blocks;
 		await api.revise_os_output({
 			outputId: found.id,
 			expectedRevision: revision.revision,
-			content: { kind: "document", blocks: [...blocks, ...addition] },
+			content: { kind: "document", blocks: [...retained, ...addition] },
 			note: key,
 		});
 	}
@@ -186,50 +196,6 @@ export default {
 			];
 		});
 		const notes = [];
-		if (
-			slots.some((s) => s.cycle) &&
-			Number(
-				new Intl.DateTimeFormat("en-GB", {
-					timeZone: config.people[0].timeZone,
-					minute: "2-digit",
-				}).format(now),
-			) %
-				30 <=
-				2
-		) {
-			for (const target of config.tediTurns ?? []) {
-				const nudged = await step.do("nudge-" + target.namespace, async () => {
-					let ready = false;
-					for (const projectId of scope) {
-						const page = checked(
-							await api.list_work_items({
-								projectId,
-								disposition: "accepted",
-								accountableOwnerId: target.ownerId,
-								limit: 5,
-							}),
-						);
-						if (page.data.some((item) => !item.activeAttempt)) ready = true;
-					}
-					if (!ready) return false;
-					checked(
-						await env.MCP[target.namespace].run_tedi_turn({
-							session_key: `night-shift:${cycle}:${target.namespace}`,
-							client_request_id: `night-shift:${cycle}:${target.namespace}`,
-							text:
-								"Native night coordination. Review your accepted Work in projects " +
-								scope.join(", ") +
-								". Advance one bounded step with evidence under your own admission. Preserve peer Attempts. Do not create duplicate blocker Work or approve human-reserved actions. Record a material result or blocker on its existing Work item. Your reply remains an attributed report, not deployment proof.",
-						}),
-					);
-					return true;
-				});
-				if (nudged)
-					notes.push(
-						`Nudged ${target.namespace}; read its Work receipts for the result.`,
-					);
-			}
-		}
 		let active = 0;
 		let reviews = 0;
 		const held = new Set();
@@ -466,6 +432,76 @@ export default {
 						],
 			),
 		);
+		const nudges = [];
+		if (
+			slots.some((s) => s.cycle) &&
+			Number(
+				new Intl.DateTimeFormat("en-GB", {
+					timeZone: config.people[0].timeZone,
+					minute: "2-digit",
+				}).format(now),
+			) %
+				30 <=
+				2
+		) {
+			for (const target of config.tediTurns ?? []) {
+				const result = await step.do(
+					"nudge-" + target.namespace,
+					{ timeout: "5 minutes" },
+					async () => {
+						try {
+							let ready = false;
+							for (const projectId of scope) {
+								const page = checked(
+									await api.list_work_items({
+										projectId,
+										disposition: "accepted",
+										accountableOwnerId: target.ownerId,
+										limit: 5,
+									}),
+								);
+								if (page.data.some((item) => !item.activeAttempt)) ready = true;
+							}
+							if (!ready) return { state: "idle" };
+							checked(
+								await env.MCP[target.namespace].run_tedi_turn({
+									session_key: `night-shift:${cycle}:${target.namespace}`,
+									client_request_id: `night-shift:${cycle}:${target.namespace}`,
+									text:
+										"Native night coordination. Review your accepted Work in projects " +
+										scope.join(", ") +
+										". Advance one bounded step with evidence under your own admission. Preserve peer Attempts. Do not contact people, change approvals or create duplicate blocker Work. Record material progress or a blocker on the existing Work item. Your reply remains a report, not deployment proof.",
+								}),
+							);
+							return { state: "requested" };
+						} catch (error) {
+							const detail = String(error.message ?? error).slice(0, 1200);
+							return {
+								state: detail.includes("MCP_TASK_TIMEOUT")
+									? "pending"
+									: "failed",
+								detail,
+							};
+						}
+					},
+				);
+				if (result.state !== "idle")
+					nudges.push({ namespace: target.namespace, ...result });
+			}
+		}
+		if (nudges.length)
+			await step.do("tedi-log", async () =>
+				appendLog(
+					api,
+					config.workspaceId,
+					"Night log " + slots[0].date,
+					cycle + ":tedis",
+					nudges.map(
+						(n) =>
+							`${n.namespace}: ${n.state}. ${n.detail ?? "Read its Work receipts for the result."}`,
+					),
+				),
+			);
 		const briefs = [];
 		for (const slot of slots.filter(
 			(s) => s.brief || config.writeBrief === true,
@@ -506,6 +542,7 @@ export default {
 			logId,
 			selected: ranked.slice(0, capacity).map((r) => r.item.id),
 			briefs,
+			nudges,
 		};
 	},
 };

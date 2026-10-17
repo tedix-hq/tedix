@@ -64,7 +64,9 @@ Review receipts retain the actual model identity. Chat keeps its own setting.
 
 Optional `tediTurns` entries (`namespace`, `ownerId`) retain half-hour nudges for
 existing tedis. A tedi is nudged only when it has accepted Work in scope without
-a live Attempt. Empty queues do not create blocker proposals.
+a live Attempt. Empty queues do not create blocker proposals. Lane planning
+and the core log finish before these optional turns. A still-running tedi turn
+is logged as pending without replaying it or failing lane coordination.
 
 `startAt` is the dispatch plan on canonical Work: selected work starts now;
 queued work is held until a later coordination cycle. Use this only for Work

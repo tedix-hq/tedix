@@ -369,6 +369,65 @@ describe("native night coordination", () => {
 		await expect(f.run()).rejects.toThrow("cannot advance");
 		expect(f.writes).toHaveLength(0);
 	});
+	test("plans lanes and writes the log before a tedi timeout, recording pending without replay", async () => {
+		const f = fixture();
+		f.item("lane");
+		f.setOrder(["lane"]);
+		f.item("owned", {
+			accountableOwnerId: "example-tedi",
+			metadata: { executor: "tedi" },
+		});
+		f.nudge.mockImplementation(async () => {
+			expect(f.outputs.size).toBe(1);
+			throw new Error("MCP_TASK_TIMEOUT: native turn still working");
+		});
+		const r = await f.run({
+			tediTurns: [{ namespace: "tedi", ownerId: "example-tedi" }],
+		});
+		expect(r.selected).toEqual(["lane"]);
+		expect(r.nudges[0].state).toBe("pending");
+		expect(f.nudge).toHaveBeenCalledTimes(1);
+	});
+	test("an optional tedi failure cannot fail completed lane coordination", async () => {
+		const f = fixture();
+		f.item("owned", {
+			accountableOwnerId: "example-tedi",
+			metadata: { executor: "tedi" },
+		});
+		f.nudge.mockRejectedValue(new Error("Native tedi unavailable"));
+		expect(
+			(
+				await f.run({
+					tediTurns: [{ namespace: "tedi", ownerId: "example-tedi" }],
+				})
+			).nudges[0].state,
+		).toBe("failed");
+	});
+	test("a full busy night stays within the document limit and still writes the morning brief", async () => {
+		const f = fixture();
+		const queue = Array.from({ length: 12 }, (_, i) => "lane-" + i);
+		for (const id of queue) f.item(id);
+		f.setOrder(queue);
+		f.item("owned", {
+			accountableOwnerId: "example-tedi",
+			metadata: { executor: "tedi" },
+		});
+		let r;
+		for (let i = 0; i <= 45; i++) {
+			setSystemTime(
+				new Date(Date.parse("2026-10-17T19:00:00.000Z") + i * 900000),
+			);
+			r = await f.run({
+				tediTurns: [{ namespace: "tedi", ownerId: "example-tedi" }],
+			});
+		}
+		expect(r.briefs).toHaveLength(1);
+		const log = [...f.outputs.values()].find(
+			(x) => x.title === "Night log 2026-10-18",
+		);
+		expect(log.currentRevision.content.blocks.length).toBeLessThanOrEqual(500);
+		expect(JSON.stringify(log)).toContain("revision history");
+	});
 	test("off-slot and probes make no model calls or writes", async () => {
 		const f = fixture();
 		setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
