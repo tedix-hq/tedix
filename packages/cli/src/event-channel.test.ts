@@ -431,6 +431,7 @@ test("lane dispatch names the server request and requires fresh admission", () =
 		data: { request_id: "request", work_item_id: ITEM },
 	});
 	expect(notice.content).toContain("Tedix dispatched a coding lane");
+	expect(notice.content).toContain("recalled lessons");
 	expect(notice.content).toContain("server readiness");
 	expect(notice.content).toContain("own lane Attempt");
 });

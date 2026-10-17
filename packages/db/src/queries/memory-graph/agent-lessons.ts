@@ -239,3 +239,38 @@ export async function listArchivedLearningFeedLessonsForOwner(
 		.orderBy(desc(memoryFacts.updatedAt))
 		.limit(limit);
 }
+
+/** Preserve peer edits and tenant ownership when replacing trigger metadata. */
+export async function setAgentLessonTriggers(
+	db: DbQueryClient,
+	orgId: string,
+	row: ApprovedAgentLessonRow,
+	triggers: import("@tedix/api-contract/schemas/agent-session-lessons").LessonTriggers,
+): Promise<boolean> {
+	const feed = row.metadata?.learningFeed;
+	const learningFeed =
+		feed && typeof feed === "object" && !Array.isArray(feed) ? feed : {};
+	const changed = await db
+		.update(memoryFacts)
+		.set({
+			metadata: {
+				...row.metadata,
+				learningFeed: { ...learningFeed, triggers },
+			},
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(memoryFacts.id, row.id),
+				eq(memoryFacts.organizationId, orgId),
+				eq(memoryFacts.content, row.content),
+				sql`coalesce(${memoryFacts.metadata}, 'null') = ${JSON.stringify(row.metadata)}`,
+				eq(memoryFacts.status, "active"),
+				eq(memoryFacts.reviewStatus, "confirmed"),
+				isNull(memoryFacts.archivedAt),
+				isNull(memoryFacts.validTo),
+			),
+		)
+		.returning({ id: memoryFacts.id });
+	return changed.length === 1;
+}

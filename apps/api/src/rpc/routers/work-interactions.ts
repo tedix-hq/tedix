@@ -290,6 +290,39 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			"Work interaction expiry cannot precede its due time",
 		);
 	}
+	let prompt = input.prompt;
+	let lessonRecall:
+		| import("@tedix/api-contract/schemas/common").JsonValue
+		| undefined;
+	const laneRequest = input.metadata?.laneRequest;
+	if (
+		input.kind === "handoff" &&
+		laneRequest &&
+		typeof laneRequest === "object" &&
+		!Array.isArray(laneRequest) &&
+		typeof laneRequest.harness === "string" &&
+		laneRequest.harness.trim().length > 0 &&
+		laneRequest.harness.length <= 40
+	) {
+		try {
+			const { recallDispatchBrief } =
+				await import("../../services/situational-recall");
+			const recalled = await recallDispatchBrief(context, orgId, {
+				brief: input.prompt,
+				harness: String(laneRequest.harness),
+				repo:
+					typeof laneRequest.repo === "string" ? laneRequest.repo : undefined,
+				targetUserId: target.type === "user" ? target.id : undefined,
+			});
+			prompt = recalled.prompt;
+			lessonRecall = recalled.lessonRecall;
+		} catch {
+			lessonRecall = {
+				status: "unavailable",
+				dispatchPath: "tedix_interaction",
+			};
+		}
+	}
 	try {
 		const created = await createWorkInteraction(context.db, {
 			id: crypto.randomUUID(),
@@ -299,7 +332,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			projectId: input.projectId,
 			kind: input.kind,
 			subject: input.subject,
-			prompt: input.prompt,
+			prompt,
 			notificationReason: input.notificationReason,
 			reviewAfterDays: input.reviewAfterDays,
 			creator: actor,
@@ -309,6 +342,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			expiresAt: input.expiresAt,
 			metadata: {
 				...input.metadata,
+				...(lessonRecall ? { lessonRecall } : {}),
 				...(actor.type === "external_agent"
 					? {
 							agentSession: actor.externalSessionKey,

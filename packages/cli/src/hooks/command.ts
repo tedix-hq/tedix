@@ -6,10 +6,12 @@ import { runDecisionCapture } from "./decision-capture";
 import { cliRead, type HookDeps, readBoundedStdin } from "./hook-io";
 import { runPromptContext } from "./prompt-context";
 import { runRequestLedger } from "./request-ledger";
+import { runSituationalRecall } from "./situational-recall";
 import { runSessionStart } from "./session-start";
 
 export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix plugin)
 
+  tedix hooks situational-recall PreToolUse: matching brain lessons, advisory only
   tedix hooks session-start   SessionStart: opt-in read-only Tedix preflight
   tedix hooks prompt-context  UserPromptSubmit: selected shared decisions, Work updates
                               and open requests
@@ -30,6 +32,7 @@ tedix setup agents context enable-decision-capture. Status reporting runs
 only with ~/.tedix/agent-status.json {"enabled": true} or TEDIX_AGENT_STATUS=1.`;
 
 const EVENT_LIMITS: Record<string, number> = {
+	"situational-recall": 1_048_576,
 	"session-start": 1_048_576,
 	"prompt-context": 1_048_576,
 	"capture-stop": 4_194_304,
@@ -104,7 +107,8 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 					deps.env,
 				);
 		}
-		if (name === "session-start") await runSessionStart(deps);
+		if (name === "situational-recall") await runSituationalRecall(deps);
+		else if (name === "session-start") await runSessionStart(deps);
 		else if (name === "prompt-context") await runPromptContext(deps);
 		else
 			// The request ledger rides on the same events and opt-in.

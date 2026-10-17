@@ -26,6 +26,7 @@ import {
 const decode = (files: Map<string, Uint8Array>, name: string) =>
 	JSON.parse(new TextDecoder().decode(files.get(name)!));
 const EVENTS = new Set([
+	"PreToolUse",
 	"SessionStart",
 	"UserPromptSubmit",
 	"Stop",
@@ -267,7 +268,15 @@ describe("plugin packager", () => {
 					if (event === "SessionStart") expect(name).toBe("session-start");
 					if (event === "Stop")
 						expect(["capture-stop", "await-reply", "status"]).toContain(name);
-					if (!["Stop", "UserPromptSubmit", "SessionStart"].includes(event))
+					if (event === "PreToolUse") expect(name).toBe("situational-recall");
+					if (
+						![
+							"Stop",
+							"UserPromptSubmit",
+							"SessionStart",
+							"PreToolUse",
+						].includes(event)
+					)
 						expect(name).toBe("status");
 				}
 		expect(

@@ -21,6 +21,7 @@
 
 import {
 	AGENT_LESSON_TOPIC_PREFIX,
+	LessonTriggersSchema,
 	type AgentLessonEntry,
 	type AgentSessionLesson,
 	type GetAgentSessionLessonsResult,
@@ -256,6 +257,7 @@ export async function getSessionLessons(
 		topics?: string[];
 		budgetBytes: number;
 		sessionId?: string;
+		catalog?: boolean;
 	},
 ): Promise<GetAgentSessionLessonsResult> {
 	// The same server-derived identity the learning ledger records answers
@@ -267,6 +269,43 @@ export async function getSessionLessons(
 		AGENT_LESSON_TOPIC_PREFIX,
 		{ viewerUserId: actor.actorType === "user" ? actor.actorId : null },
 	);
+	if (input.catalog) {
+		const lessons = rows.flatMap((row) => {
+			const scope = lessonScope(row.metadata);
+			if (
+				scope.repo !== ANY &&
+				!(input.repo && repoMatches(scope.repo, input.repo))
+			)
+				return [];
+			if (
+				scope.harness !== ANY &&
+				normalizeHarness(scope.harness) !== normalizeHarness(input.harness)
+			)
+				return [];
+			const feed = row.metadata?.learningFeed;
+			const parsed = LessonTriggersSchema.safeParse(
+				feed && typeof feed === "object" && !Array.isArray(feed)
+					? feed.triggers
+					: undefined,
+			);
+			return [
+				{
+					id: row.id,
+					shortId: row.id.slice(0, 8),
+					text: row.content,
+					scope,
+					updatedAt: row.updatedAt,
+					...(parsed.success ? { triggers: parsed.data } : {}),
+				},
+			];
+		});
+		return {
+			organizationId,
+			lessons,
+			matched: lessons.length,
+			truncated: rows.length >= 200,
+		};
+	}
 	const { ruleKeys, ...selected } = selectSessionLessons(rows, input);
 	const sessionId = input.sessionId?.toLowerCase();
 	if (!sessionId) return { organizationId, ...selected };

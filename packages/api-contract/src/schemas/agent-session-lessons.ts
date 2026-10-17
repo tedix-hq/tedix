@@ -19,7 +19,22 @@ import * as z from "zod";
 /** Topic-key prefix shared by learning-feed facts and seeded lessons. */
 export const AGENT_LESSON_TOPIC_PREFIX = "learning-feed:";
 
+export const LessonTriggersSchema = z.strictObject({
+	pathGlobs: z.array(z.string().min(1).max(300)).max(20).optional(),
+	commands: z.array(z.string().min(1).max(100)).max(20).optional(),
+	keywords: z.array(z.string().min(1).max(100)).max(20).optional(),
+	repos: z.array(z.string().min(1).max(300)).max(10).optional(),
+	organizations: z.array(z.string().min(1).max(100)).max(10).optional(),
+});
+export type LessonTriggers = z.infer<typeof LessonTriggersSchema>;
+
 export const GetAgentSessionLessonsInputSchema = z.strictObject({
+	catalog: z
+		.boolean()
+		.optional()
+		.describe(
+			"Return the complete approved trigger catalog for local matching, without a prompt budget or delivery receipt. Never a delivery claim.",
+		),
 	harness: z
 		.string()
 		.trim()
@@ -62,6 +77,7 @@ export type GetAgentSessionLessonsInput = z.input<
 >;
 
 export const AgentSessionLessonSchema = z.object({
+	triggers: LessonTriggersSchema.optional(),
 	id: z.string().describe("Fact id"),
 	shortId: z.string().describe("First 8 characters of the fact id"),
 	text: z.string(),
@@ -235,3 +251,36 @@ export const GetLessonEffectivenessResultSchema = z.object({
 export type GetLessonEffectivenessResult = z.infer<
 	typeof GetLessonEffectivenessResultSchema
 >;
+
+export const UpdateLessonTriggersInputSchema = z.strictObject({
+	lessonId: z.string().uuid(),
+	triggers: LessonTriggersSchema,
+});
+export const BackfillLessonTriggersInputSchema = z.strictObject({
+	limit: z.number().int().min(1).max(25).default(10),
+});
+export const BackfillLessonTriggersResultSchema = z.object({
+	updated: z.number(),
+	remaining: z.number(),
+});
+export const RecordLessonIncidentInputSchema = z.strictObject({
+	eventId: z.string().min(1).max(200),
+	reason: z.string().min(1).max(2000),
+	occurredAt: z.string().datetime(),
+	lessonIds: z.array(z.string().uuid()).max(20).default([]),
+	repo: z.string().max(300).optional(),
+	paths: z.array(z.string().max(300)).max(30).optional(),
+	projectId: z.string().uuid(),
+	actor: z.strictObject({
+		sessionId: z.string().max(200),
+		harness: z.string().max(40),
+		hookTrust: z.enum(["trusted", "untrusted", "unknown"]),
+		dispatchPath: z.string().max(100),
+		delivery: z.enum(["observed", "absent", "unknown"]),
+	}),
+});
+export const RecordLessonIncidentResultSchema = z.object({
+	fingerprint: z.string(),
+	lessonIds: z.array(z.string()),
+	workItemIds: z.array(z.string()),
+});

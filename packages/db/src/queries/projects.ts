@@ -470,3 +470,17 @@ export async function listProjectPortfolio(
 		}),
 	};
 }
+
+export async function getProjectByIdForOrganization(
+	db: DbQueryClient,
+	orgId: string,
+	id: string,
+): Promise<Project | undefined> {
+	return (
+		await db
+			.select()
+			.from(projects)
+			.where(and(eq(projects.id, id), eq(projects.orgId, orgId)))
+			.limit(1)
+	)[0];
+}

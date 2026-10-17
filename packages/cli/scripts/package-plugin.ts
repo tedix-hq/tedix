@@ -28,7 +28,7 @@ export const MIN_CLI = "0.8.17";
 /** SessionStart preflight names an older CLI and stops instead of running it. */
 export const CLI_GATE = `v=$(tedix --version 2>/dev/null); [ "$(printf '%s\\n' ${MIN_CLI} "$v" | sort -V | head -n 1)" = ${MIN_CLI} ] || { echo "Tedix preflight: CLI \${v:-unknown} is older than ${MIN_CLI}, which this plugin needs; run tedix update."; exit 0; }; `;
 const HOOK_NAME =
-	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|status)$/;
+	/^tedix hooks (session-start|prompt-context|capture-stop|capture-reply|await-reply|await-draft|situational-recall|status)$/;
 
 /** The hook a guarded command runs; only session-start carries the CLI gate. */
 export function hookName(command: string): string | undefined {
