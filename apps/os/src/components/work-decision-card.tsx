@@ -38,6 +38,10 @@ export interface DecisionCardAction {
 	label: string;
 	intent?: "approve" | "reject";
 	confirm?: string;
+	confirmContent?: ReactNode;
+	confirmDisabled?: boolean;
+	disabled?: boolean;
+	description?: string;
 }
 export interface DecisionCardFeedback {
 	action: string;
@@ -58,6 +62,8 @@ export function WorkDecisionCard({
 	body = "",
 	content,
 	actions = [],
+	feedbackAction,
+	editAction,
 	suggestedAnswers = [],
 	initialAnswer = "",
 	pending = false,
@@ -74,6 +80,8 @@ export function WorkDecisionCard({
 	body?: string;
 	content?: ReactNode;
 	actions?: readonly DecisionCardAction[];
+	feedbackAction?: DecisionCardAction;
+	editAction?: DecisionCardAction;
 	suggestedAnswers?: readonly string[];
 	initialAnswer?: string;
 	pending?: boolean;
@@ -88,9 +96,11 @@ export function WorkDecisionCard({
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
 	const [feedback, setFeedback] = useState("");
 	const [reasonsOpen, setReasonsOpen] = useState(false);
-	const [confirmation, setConfirmation] = useState<DecisionCardAction | null>(
-		null,
-	);
+	const [confirmationId, setConfirmationId] = useState<string | null>(null);
+	const confirmation =
+		actions.find((action) => action.id === confirmationId) ?? null;
+	const setConfirmation = (action: DecisionCardAction | null) =>
+		setConfirmationId(action?.id ?? null);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState("");
 	const [saved, setSaved] = useState(false);
@@ -102,30 +112,40 @@ export function WorkDecisionCard({
 		reason?: string,
 		confirmed = false,
 	) => {
-		if (busy || inFlight.current) return;
+		if (
+			busy ||
+			action.disabled ||
+			inFlight.current ||
+			(confirmed && action.confirmDisabled)
+		)
+			return;
 		if (action.confirm && !confirmed) {
 			setConfirmation(action);
 			return;
 		}
 		const finalBody = kind === "question" ? answer.trim() : draft.trim();
-		if (kind === "question" && !finalBody) return;
+		if (kind === "question" && !finalBody && action.id !== feedbackAction?.id)
+			return;
 		inFlight.current = true;
 		setSaving(true);
 		setError("");
 		try {
 			await onDecision({
 				action: action.id,
-				signal: reason
-					? "reason"
-					: action.intent === "reject"
-						? "rejected"
-						: draft !== body
-							? "edited"
-							: feedback.trim()
-								? "free-text"
-								: kind === "question"
-									? "answer"
-									: "approve-as-is",
+				signal:
+					action.id === feedbackAction?.id
+						? "free-text"
+						: reason
+							? "reason"
+							: action.intent === "reject"
+								? "rejected"
+								: draft !== body
+									? "edited"
+									: feedback.trim()
+										? "free-text"
+										: kind === "question"
+											? "answer"
+											: "approve-as-is",
 				body: finalBody || action.label,
 				...(draft !== body ? { originalBody: body } : {}),
 				...(reason ? { reason } : {}),
@@ -149,7 +169,7 @@ export function WorkDecisionCard({
 	const approve = actions.find((action) => action.intent === "approve");
 	const reject = actions.find((action) => action.intent === "reject");
 	const choose = (action: DecisionCardAction | undefined) => {
-		if (!action) return;
+		if (!action || action.disabled || busy) return;
 		if (kind === "outbound" && action.intent === "reject") setReasonsOpen(true);
 		else void submit(action);
 	};
@@ -296,14 +316,34 @@ export function WorkDecisionCard({
 										}
 										disabled={
 											busy ||
+											action.disabled ||
 											(kind === "question" && !answer.trim()) ||
 											(editing && !draft.trim())
 										}
 										onClick={() => choose(action)}
 									>
-										{saving ? "Saving…" : action.label}
+										{saving ? (
+											"Saving…"
+										) : (
+											<span className="grid gap-1">
+												<span>{action.label}</span>
+												{action.description ? (
+													<span className="font-normal text-kumo-subtle">
+														{action.description}
+													</span>
+												) : null}
+											</span>
+										)}
 									</Button>
 								))}
+								{editing && editAction ? (
+									<Button
+										disabled={busy || !draft.trim() || draft === body}
+										onClick={() => void submit(editAction)}
+									>
+										{editAction.label}
+									</Button>
+								) : null}
 								{kind === "outbound" && !disabled ? (
 									<Button
 										variant="outline"
@@ -345,6 +385,7 @@ export function WorkDecisionCard({
 									<AlertDialogDescription>
 										{confirmation?.confirm}
 									</AlertDialogDescription>
+									{confirmation?.confirmContent}
 									<AlertDialogFooter>
 										<Button
 											variant="ghost"
@@ -354,7 +395,7 @@ export function WorkDecisionCard({
 											Go back
 										</Button>
 										<Button
-											disabled={busy}
+											disabled={busy || confirmation?.confirmDisabled}
 											onClick={() => {
 												if (confirmation)
 													void submit(confirmation, undefined, true);
@@ -382,6 +423,15 @@ export function WorkDecisionCard({
 											value={feedback}
 											onChange={(event) => setFeedback(event.target.value)}
 										/>
+									) : null}
+									{feedbackOpen && feedbackAction ? (
+										<Button
+											className="mt-2"
+											disabled={busy || !feedback.trim()}
+											onClick={() => void submit(feedbackAction)}
+										>
+											{feedbackAction.label}
+										</Button>
 									) : null}
 								</div>
 							) : null}

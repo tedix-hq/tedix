@@ -211,3 +211,77 @@ describe("fast decision cards", () => {
 		expect(decide).toHaveBeenCalledTimes(1);
 	});
 });
+
+it("can send feedback without approving an outbound draft", async () => {
+	const decide = await mount({
+		feedbackAction: { id: "feedback", label: "Send feedback" },
+	});
+	await click("Give feedback");
+	await type(
+		'textarea[aria-label="Optional feedback"]',
+		"Use a warmer greeting.",
+	);
+	await click("Send feedback");
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({
+			action: "feedback",
+			signal: "free-text",
+			feedback: "Use a warmer greeting.",
+		}),
+	);
+});
+
+it("keeps consent confirmation current as the connection selection changes", async () => {
+	const decide = await mount({
+		actions: [
+			{
+				id: "send",
+				label: "Send",
+				intent: "approve",
+				confirm: "Send with your connection?",
+				confirmDisabled: true,
+			},
+		],
+	});
+	await click("Send");
+	const confirm = [...document.querySelectorAll("button")].find(
+		(button) => button.textContent === "Confirm",
+	)!;
+	expect(confirm.disabled).toBe(true);
+	await act(async () =>
+		root.render(
+			<WorkDecisionCard
+				kind="outbound"
+				title="Reply to Morgan"
+				askedBy="Robin"
+				body="Thanks, Morgan."
+				actions={[
+					{
+						id: "send",
+						label: "Send",
+						intent: "approve",
+						confirm: "Send with your connection?",
+						confirmDisabled: false,
+					},
+				]}
+				onDecision={decide}
+			/>,
+		),
+	);
+	await click("Confirm");
+	expect(decide).toHaveBeenCalledTimes(1);
+});
+
+it("does not let keyboard shortcuts activate a disabled action", async () => {
+	const decide = await mount({
+		actions: [{ id: "send", label: "Send", intent: "approve", disabled: true }],
+	});
+	await act(async () =>
+		host
+			.querySelector("section")!
+			.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+			),
+	);
+	expect(decide).not.toHaveBeenCalled();
+});
