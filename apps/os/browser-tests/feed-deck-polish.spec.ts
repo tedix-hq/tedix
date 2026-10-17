@@ -100,6 +100,15 @@ try {
 				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
 			);
 			await page.locator("article").first().waitFor();
+			if (
+				width === 390 &&
+				(await page.locator(".fd-feed-filters").evaluate((el) => {
+					const first = el.firstElementChild!.getBoundingClientRect();
+					const last = el.lastElementChild!.getBoundingClientRect();
+					return Math.abs(first.top - last.top) > 1;
+				}))
+			)
+				throw new Error("Phone Feed filters wrapped above the stories");
 			const contrast = await page
 				.locator('.fd-feed-filters button[aria-pressed="true"]')
 				.evaluate((el) => {
@@ -234,10 +243,27 @@ try {
 		throw new Error("Explicit reduced motion still moves the card");
 	await explicitReduced.mouse.up();
 	await explicitReduced.close();
-	const failed = await browser.newPage();
+	const failed = await browser.newPage({
+		viewport: { width: 390, height: 844 },
+	});
 	await failed.goto(
 		`${origin}/browser-tests/feed-deck-polish.html?surface=motion-failure`,
 	);
+	const proposer = failed.locator(".fd-proposer p[title]");
+	if (
+		(await proposer.textContent()) !== "Agent session" ||
+		(await proposer.getAttribute("title")) !==
+			"11111111-1111-4111-8111-111111111111 session"
+	)
+		throw new Error(
+			"Session proposer should have a readable label and full hover ID",
+		);
+	if (
+		await failed.evaluate(
+			() => document.documentElement.scrollWidth > window.innerWidth,
+		)
+	)
+		throw new Error("Session proposer overflowed the phone viewport");
 	await failed.getByRole("button", { name: "Approve", exact: true }).click();
 	await failed.getByRole("alert").waitFor();
 	await failed.waitForTimeout(300);

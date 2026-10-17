@@ -406,6 +406,23 @@
 	line-height: 1.7;
 }
 @media (max-width: 40rem) {
+	.fd-feed-heading {
+		padding-bottom: 0.25rem;
+	}
+	.fd-feed-heading .fd-now-strip,
+	.fd-feed-heading nav,
+	.fd-feed-filters {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		min-width: 0;
+	}
+	.fd-feed-heading .fd-now-strip > *,
+	.fd-feed-heading nav > *,
+	.fd-feed-filters > * {
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
 	.fd-deck {
 		border-radius: 1.25rem;
 	}
@@ -421,10 +438,15 @@
 	display: flex;
 	align-items: center;
 	gap: 0.75rem;
+	min-width: 0;
+}
+.fd-proposer > div {
+	min-width: 0;
 }
 .fd-proposer p {
 	margin: 0;
 	color: inherit;
+	overflow-wrap: anywhere;
 }
 .fd-proposer .type-tedix-label {
 	color: var(--fd-muted);

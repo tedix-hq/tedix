@@ -178,7 +178,7 @@ createRoot(document.getElementById("root")!).render(
 					<WorkDecisionCard
 						kind="decision"
 						title="Keep the card when saving fails"
-						askedBy="Cedar"
+						askedBy="11111111-1111-4111-8111-111111111111 session"
 						actions={[{ id: "approve", label: "Approve", intent: "approve" }]}
 						onDecision={async () => {
 							throw new Error("Could not save this choice");
