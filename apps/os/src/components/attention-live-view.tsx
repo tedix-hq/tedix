@@ -61,7 +61,7 @@ const WIDGET_LABELS = {
 	now: ATTENTION_COPY.now,
 	contributions: ATTENTION_COPY.contributions,
 	cards: ATTENTION_COPY.work,
-	gaps: ATTENTION_COPY.gaps,
+	gaps: ATTENTION_COPY.stalled,
 	unfiled: ATTENTION_COPY.unfiled,
 };
 function SourceIcon({ source }: { source: keyof typeof ATTENTION_SOURCES }) {
@@ -331,19 +331,6 @@ export function AttentionBoard({
 		0,
 	);
 	const away = attentionUpdatesSince(data.cards, previousVisitAt);
-	const gaps = [
-		...data.projects
-			.filter((p) => p.status === "active" && !p.active && !p.recent)
-			.map((p) => ({ ...p, title: p.name, href: `/work/projects/${p.id}` })),
-		...(data.unattendedObjectives ?? []).map((o) => ({
-			...o,
-			href: "/work/portfolio",
-		})),
-	].sort(
-		(a, b) =>
-			(attentionTimestamp(a.lastAttentionAt || "") || 0) -
-			(attentionTimestamp(b.lastAttentionAt || "") || 0),
-	);
 	const widgets = {
 		now: <NowStrip cards={cards} now={now} />,
 		contributions: (
@@ -487,12 +474,9 @@ export function AttentionBoard({
 		gaps: (
 			<Card>
 				<CardHeader>
-					<CardTitle>{ATTENTION_COPY.gaps}</CardTitle>
+					<CardTitle>{ATTENTION_COPY.stalled}</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-3">
-					<Text as="h3" role="section">
-						{ATTENTION_COPY.stalled}
-					</Text>
 					{(data.stalls ?? []).slice(0, 10).map((stall) => (
 						<div key={stall.scopeId} className="min-w-0 space-y-1 break-words">
 							<Link href={stall.href}>
@@ -508,9 +492,11 @@ export function AttentionBoard({
 							</Text>
 						</div>
 					))}
-					{!data.stalls?.length && (
+					{data.stalls === undefined ? (
+						<Text tone="secondary">{ATTENTION_COPY.recoveryPending}</Text>
+					) : !data.stalls.length ? (
 						<Text tone="secondary">{ATTENTION_COPY.noStalls}</Text>
-					)}
+					) : null}
 					{!!data.cadencePromises?.length && (
 						<Text role="label" tone="secondary">
 							{attentionCopy("schedulePromises", {
@@ -521,42 +507,6 @@ export function AttentionBoard({
 								).length,
 							})}
 						</Text>
-					)}
-
-					{gaps.slice(0, 10).map((p) => {
-						const days = p.lastAttentionAt
-							? Math.max(
-									1,
-									Math.floor(
-										(now - attentionTimestamp(p.lastAttentionAt)) / 86_400_000,
-									),
-								)
-							: null;
-						return (
-							<div key={p.id} className="min-w-0 space-y-1 break-words">
-								<Link href={p.href}>
-									{attentionCopy(
-										days === null
-											? "gapUnknown"
-											: days === 1
-												? "gapDay"
-												: "gapDays",
-										{ name: p.title, days: days ?? 0 },
-									)}
-								</Link>
-								<div className="h-1 rounded bg-kumo-control">
-									<div
-										className="h-1 rounded bg-kumo-warning"
-										style={{
-											width: `${Math.min(100, ((days ?? 14) / 14) * 100)}%`,
-										}}
-									/>
-								</div>
-							</div>
-						);
-					})}
-					{!gaps.length && (
-						<Text tone="secondary">{ATTENTION_COPY.allGoalsRecent}</Text>
 					)}
 				</CardContent>
 			</Card>

@@ -123,12 +123,6 @@ as part of a change; releases are batched, at most daily (`CONTRIBUTING.md`, Rel
 
 ## Deployment boundary
 
-A commit changing a deployable `wrangler.jsonc` or `cloudflare.config.ts`
-requires one `Ops-Overlay: <full ops commit SHA> <config path>` trailer per
-changed config before pushing to this repository. Validate the corresponding
-private overlay against the exact product config and land it in ops first.
-The pre-push gate checks the reference offline; Ship checks compatibility.
-
 This repository owns product source and example configuration, not the live
 Tedix Cloud installation. Managed releases run from `tedix-hq/tedix-cloud-ops`,
 which owns the guarded deployment workflow, live configuration and credentials.
