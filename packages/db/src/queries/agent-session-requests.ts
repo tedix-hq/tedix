@@ -443,9 +443,12 @@ export async function listRecentAgentSessionTurns(
 		sessionKey: string;
 		before: string;
 	},
-): Promise<Array<{ body: string; activity: string | null; sourceAt: string }>> {
+): Promise<
+	Array<{ id: string; body: string; activity: string | null; sourceAt: string }>
+> {
 	const rows = await db
 		.select({
+			id: agentSessionEvents.id,
 			body: agentSessionEvents.body,
 			activity: agentSessionEvents.activity,
 			sourceAt: agentSessionEvents.sourceAt,

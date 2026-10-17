@@ -5,6 +5,7 @@ import {
 	ledgerEvidenceContext,
 	parseObservedRequests,
 	parseReflectedMerges,
+	parseReflectedLessons,
 	parseLedgerMentions,
 	parseLedgerLanes,
 	requestReflectorInput,
@@ -15,6 +16,57 @@ import {
 
 const TURN =
 	"Pushed the fix as 4f2a9c1e on main. The dashboard now loads in **under two seconds**. See https://example.com/run/42.";
+
+describe("failure/fix lessons", () => {
+	const lesson = {
+		rule: "Inline uploads fail → use the native uploader. Why: the inline content limit.",
+		failure: "Failed upload: content exceeds inline limit",
+		fix: "Native uploader saved the document successfully",
+	};
+	const raw = JSON.stringify({ lessons: [lesson, lesson] });
+	const failure = {
+		id: "failure-event",
+		body: "Inline content limit",
+		activity: lesson.failure,
+	};
+	const fix = { id: "fix-event", body: lesson.fix, activity: null };
+	it("cites distinct ordered events and deduplicates within a pass", () => {
+		expect(parseReflectedLessons(raw, fix.body, "", [failure, fix])).toEqual([
+			{ ...lesson, failureEventId: failure.id, fixEventId: fix.id },
+		]);
+	});
+	it("rejects reversed, missing, speculative or uncited evidence and malformed rules", () => {
+		expect(parseReflectedLessons(raw, "", "", [fix, failure])).toEqual([]);
+		expect(parseReflectedLessons(raw, "", "", [fix])).toEqual([]);
+		for (const change of [
+			{ fix: "I will commit a fix tomorrow" },
+			{ fix: "A fabricated saved document" },
+			{ rule: "Use the native uploader" },
+		])
+			expect(
+				parseReflectedLessons(
+					JSON.stringify({ lessons: [{ ...lesson, ...change }] }),
+					"",
+					"",
+					[failure, fix],
+				),
+			).toEqual([]);
+	});
+	it("recognizes a denial followed by a commit for the same operation", () => {
+		const denied = {
+			...lesson,
+			failure: "Denied uploader: wrong scope",
+			fix: "Committed uploader scope repair as 4f2a9c1e",
+		};
+		expect(
+			parseReflectedLessons(
+				JSON.stringify({ lessons: [denied] }),
+				denied.fix,
+				denied.failure,
+			),
+		).toEqual([denied]);
+	});
+});
 
 describe("scheduled ledger prompts", () => {
 	it.each([

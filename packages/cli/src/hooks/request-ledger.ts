@@ -162,8 +162,29 @@ function claudeActivity(
 }
 
 /** Activity lines of one Codex rollout entry. */
-function codexActivity(entry: JsonObject, failed: Set<string>): string[] {
+function codexActivity(
+	entry: JsonObject,
+	failed: Set<string>,
+	tools: Map<string, string>,
+): string[] {
 	const payload = isObject(entry.payload) ? entry.payload : {};
+	if (
+		(payload.type === "function_call" || payload.type === "custom_tool_call") &&
+		typeof payload.call_id === "string"
+	) {
+		let detail = "";
+		try {
+			const args = JSON.parse(String(payload.arguments ?? "{}"));
+			detail =
+				typeof args.cmd === "string"
+					? ` (${line(args.cmd).slice(0, 120)})`
+					: "";
+		} catch {
+			/* Some tools take raw source rather than JSON. */
+		}
+		tools.set(payload.call_id, `${String(payload.name ?? "command")}${detail}`);
+		return [];
+	}
 	if (
 		entry.type === "response_item" &&
 		payload.type === "message" &&
@@ -181,16 +202,55 @@ function codexActivity(entry: JsonObject, failed: Set<string>): string[] {
 				: [],
 		);
 	}
-	if (payload.type !== "function_call_output") return [];
-	const output = String(payload.output ?? "");
-	const code = /"exit_code"\s*:\s*(-?\d+)|Exit code:\s*(-?\d+)/.exec(output);
-	const exit = code ? Number(code[1] ?? code[2]) : 0;
-	if (exit !== 0) {
+	if (
+		payload.type !== "function_call_output" &&
+		payload.type !== "custom_tool_call_output"
+	)
+		return [];
+	const rawOutput = Array.isArray(payload.output)
+		? blockText(payload.output)
+		: String(payload.output ?? "");
+	const output = rawOutput
+		.split("\n")
+		.map((text) => {
+			try {
+				const receipt = JSON.parse(text);
+				if (
+					typeof receipt.output === "string" &&
+					typeof receipt.exit_code === "number"
+				)
+					return `Exit code: ${receipt.exit_code}\n${receipt.output}`;
+			} catch {
+				/* Plain text is already the tool result. */
+			}
+			return text;
+		})
+		.join("\n");
+	const name = tools.get(String(payload.call_id)) ?? "command";
+	const codes = [
+		...output.matchAll(
+			/"exit_code"\s*:\s*(-?\d+)|(?:Exit code:|Process exited with code)\s*(-?\d+)/g,
+		),
+	].map((match) => Number(match[1] ?? match[2]));
+	const exit = codes.find((code) => code !== 0) ?? 0;
+	const toolError =
+		/"isError"\s*:\s*true|MCP tool error:|Error executing tool|^\s*\{"error"\s*:/i.test(
+			output,
+		);
+	if (exit !== 0 || toolError) {
 		failed.add("command");
-		return [`Failed command (exit ${exit}): ${line(output)}`];
+		const detail =
+			output
+				.split("\n")
+				.find((text) =>
+					/\b(error|denied|forbidden|bad_request|failed|exception|traceback)\b/i.test(
+						text,
+					),
+				) ?? output;
+		return [`Failed ${name}${exit ? ` (exit ${exit})` : ""}: ${line(detail)}`];
 	}
-	return code && failed.delete("command")
-		? [`Succeeded command after failure: ${line(output)}`]
+	return codes.length && failed.delete("command")
+		? [`Succeeded ${name} after failure: ${line(output)}`]
 		: [];
 }
 
@@ -278,7 +338,7 @@ export function readTurnTranscript(transcript: unknown): {
 				);
 			if (notice) lines.push(`Background task: ${line(notice[1] ?? "")}`);
 			lines.push(...claudeActivity(entry, tools, failed));
-		} else lines.push(...codexActivity(entry, failed));
+		} else lines.push(...codexActivity(entry, failed, tools));
 	}
 	const fullText = messages.join("\n\n");
 	return {

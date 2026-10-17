@@ -29,6 +29,81 @@ const AUTH = {
 	storedLogin: { loginId: "U-fixture-user" },
 };
 
+test("Codex activity preserves tool identity, native denials and process exit failures", () => {
+	const dir = mkdtempSync(join(tmpdir(), "lesson-activity-"));
+	const transcript = join(dir, "session.jsonl");
+	const item = (payload: JsonObject) => ({ type: "response_item", payload });
+	const events = [
+		item({
+			type: "function_call",
+			call_id: "denied",
+			name: "mcp_upload",
+			arguments: "{}",
+		}),
+		item({
+			type: "function_call_output",
+			call_id: "denied",
+			output: '{"isError":true,"message":"FORBIDDEN: missing upload scope"}',
+		}),
+		item({
+			type: "function_call",
+			call_id: "check",
+			name: "exec_command",
+			arguments: JSON.stringify({ cmd: "bun run check-upload" }),
+		}),
+		item({
+			type: "function_call_output",
+			call_id: "check",
+			output: "Process exited with code 1\nmissing scope",
+		}),
+		item({
+			type: "function_call",
+			call_id: "fixed",
+			name: "exec_command",
+			arguments: JSON.stringify({ cmd: "bun run check-upload" }),
+		}),
+		item({
+			type: "function_call_output",
+			call_id: "fixed",
+			output: "Process exited with code 0\nupload succeeded",
+		}),
+		item({
+			type: "custom_tool_call",
+			call_id: "wrapped",
+			name: "functions.exec",
+			input: "await tools.exec_command(...)",
+		}),
+		item({
+			type: "custom_tool_call_output",
+			call_id: "wrapped",
+			output: [
+				{
+					type: "text",
+					text: '{"exit_code":0,"output":"first check passed"}\n{"exit_code":2,"output":"upload denied"}',
+				},
+			],
+		}),
+	];
+	try {
+		writeFileSync(
+			transcript,
+			events.map((event) => JSON.stringify(event)).join("\n"),
+		);
+		const { activity } = readTurnTranscript(transcript);
+		expect(activity).toContain("Failed mcp_upload");
+		expect(activity).toContain("FORBIDDEN");
+		expect(activity).toContain(
+			"Failed exec_command (bun run check-upload) (exit 1)",
+		);
+		expect(activity).toContain(
+			"Succeeded exec_command (bun run check-upload) after failure",
+		);
+		expect(activity).toContain("Failed functions.exec (exit 2)");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 let config: string;
 beforeEach(() => {
 	config = mkdtempSync(join(tmpdir(), "tedix-ledger-"));

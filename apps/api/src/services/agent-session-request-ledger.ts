@@ -25,6 +25,8 @@ import {
 	REQUEST_OBSERVER_SYSTEM_PROMPT,
 	REQUEST_REFLECTOR_SYSTEM_PROMPT,
 	REQUEST_REPLY_REFLECTOR_SYSTEM_PROMPT,
+	SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+	type LedgerLessonSource,
 	requestObserverInput,
 	requestReplyReflectorInput,
 	requestReflectorInput,
@@ -144,6 +146,9 @@ export interface LedgerModel {
 		checks: LedgerCheck[],
 		source: string,
 	) => Promise<ReadonlySet<string>>;
+	reflectLessons?: (
+		sources: readonly LedgerLessonSource[],
+	) => Promise<string | null>;
 	learn?: (
 		lessons: LedgerLesson[],
 		scope: SessionScope & { sourceAt: string; repository: string | null },
@@ -172,6 +177,13 @@ export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 			requestReplyReflectorInput(message, rows, previousTurn ?? ""),
 			"agent-session-request-reflector",
 		);
+	model.reflectLessons = (sources) =>
+		runDistillModel(env, JSON.stringify(sources), {
+			system: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+			surface: "agent-session-lesson-reflector",
+			maxTokens: 1500,
+			timeoutMs: 15_000,
+		});
 	return model;
 }
 
@@ -371,6 +383,7 @@ export async function reflectAgentSessionRequests(
 	model: LedgerModel,
 	input: SessionScope & {
 		turn: string;
+		sourceEventId?: string;
 		activity: string | null;
 		repository: string | null;
 		sourceAt: string;
@@ -433,21 +446,39 @@ export async function reflectAgentSessionRequests(
 		)
 		.join("\n\n");
 	const source = `RECENT ASSISTANT EVIDENCE:\n${history}\nUSER MESSAGE:\n${userMessage ?? ""}\n${currentSource}\nSAVED ROW EVIDENCE:\n${[...active, ...resolved].map((row) => row.evidence ?? "").join("\n")}`;
-	const raw = await model(
-		REQUEST_REFLECTOR_SYSTEM_PROMPT,
-		requestReflectorInput(
-			input.turn,
-			prompt.slice(0, active.length),
-			input.activity ?? "",
-			prompt.slice(active.length),
-			userMessage ?? "",
-			[...scopes]
-				.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
-				.join("\n\n"),
-			history,
+	const lessonSources = [
+		...recentTurns,
+		{
+			id: input.sourceEventId ?? "",
+			body: input.turn,
+			activity: input.activity,
+		},
+	];
+	const lessonsPending =
+		model.reflectLessons &&
+		lessonSources.some((event) =>
+			/^(?:Failed|Error|Denied)\b/im.test(event.activity ?? ""),
+		)
+			? model.reflectLessons(lessonSources)
+			: Promise.resolve(undefined);
+	const [raw, lessonRaw] = await Promise.all([
+		model(
+			REQUEST_REFLECTOR_SYSTEM_PROMPT,
+			requestReflectorInput(
+				input.turn,
+				prompt.slice(0, active.length),
+				input.activity ?? "",
+				prompt.slice(active.length),
+				userMessage ?? "",
+				[...scopes]
+					.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
+					.join("\n\n"),
+				history,
+			),
+			"agent-session-request-reflector",
 		),
-		"agent-session-request-reflector",
-	);
+		lessonsPending,
+	]);
 	// Evidence may come from the turn or from its activity (a tool result).
 	const reflected = parseReflectedUpdates(raw, openRefs, source);
 	if (!reflected) return { status: "unavailable" };
@@ -585,8 +616,17 @@ export async function reflectAgentSessionRequests(
 			change.status === "dropped_risk" &&
 			active.find((row) => row.id === change.id)?.status !== "dropped_risk",
 	).length;
+	if (lessonRaw === null)
+		throw new Error("Session lesson reflection unavailable");
+	if (lessonRaw !== undefined && !Array.isArray(JSON.parse(lessonRaw).lessons))
+		throw new Error("Session lesson reflection malformed");
 	await model.learn?.(
-		parseReflectedLessons(raw, input.turn, input.activity ?? ""),
+		parseReflectedLessons(
+			lessonRaw ?? raw,
+			input.turn,
+			input.activity ?? "",
+			lessonSources,
+		),
 		input,
 	);
 	return { status: "reflected", updated: changes, recorded, atRisk };
@@ -701,6 +741,7 @@ export async function processAgentSessionEvents(
 					: await reflectAgentSessionRequests(db, model, {
 							...scope,
 							turn: event.body,
+							sourceEventId: event.id,
 							activity: event.activity,
 							repository: event.repository,
 							sourceAt: event.sourceAt,
