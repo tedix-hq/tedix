@@ -127,6 +127,7 @@ const STALE_CHUNK_PATTERNS = [
 	/failed to fetch dynamically imported module/i,
 	/error loading dynamically imported module/i,
 	/importing a module script failed/i,
+	/['"]text\/html['"] is not a valid javascript mime type/i,
 	/unable to preload css/i,
 ];
 
