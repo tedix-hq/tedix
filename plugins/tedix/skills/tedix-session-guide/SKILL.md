@@ -74,6 +74,18 @@ server admission and Attempt fences establish actual access and state.
 
 ## Continue an authorized repository task
 
+When a registered local lane has a result that needs its requesting person
+(an answer, a decision, or a draft to send), hand it off with
+`tedix lane done "<what was done; document/Work link>" --needs-user "<exact next click>"`.
+Pass `--request-id <ledger-id>` when the original private request is known.
+Use this for every human-dependent lane result; a report file alone is not a
+handoff. Settlement creates one Needs-you Interaction, marks the ledger waiting
+on the person, and leaves Work open. Never send the draft or make the decision
+for them. The person can choose Done or Snooze 1 day. Bound Claude/Codex event
+channels show the ask at the next prompt; read its current record before acting.
+After 24 hours the morning digest reminds once per day; after seven days the
+original owner reviews relevance through the existing Interaction review flow.
+
 Agents must create worktrees under `.worktrees/` (or harness-managed locations), never sibling clones.
 
 An explicit request to implement, fix or ship a repository task authorizes its

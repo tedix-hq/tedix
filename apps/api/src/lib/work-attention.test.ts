@@ -5,6 +5,7 @@ const now = new Date("2026-10-17T12:00:00Z");
 function sources(): Awaited<ReturnType<typeof readAttentionSources>> {
 	return {
 		projects: [],
+		waiting: [],
 		attempts: [],
 		backlog: [],
 		skills: [],
@@ -120,4 +121,29 @@ it("retains Backlog when completed runs fill the overview", () => {
 		60,
 	);
 	expect(result.truncated).toBe(true);
+});
+
+it("keeps one persistent Waiting on you card for a human handoff", () => {
+	const input = sources();
+	input.waiting = [
+		{
+			id: "ask",
+			subject: "Confirm the address",
+			prompt: "Draft ready: /docs/example",
+			workItemId: "item",
+			projectId: "project",
+			createdAt: "2026-10-15T12:00:00Z",
+			creatorSession: null,
+		},
+	];
+	const result = buildAttention(input, [], [], now);
+	expect(result.cards).toMatchObject([
+		{
+			id: "ask",
+			column: "waiting",
+			href: "/work/interactions/ask",
+			projectId: "project",
+		},
+	]);
+	expect(result.cards.filter((c) => c.column === "waiting")).toHaveLength(1);
 });

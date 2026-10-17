@@ -6,6 +6,7 @@ import { skillRuns } from "../schema/cognitive";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { tedis } from "../schema/tedis";
 import { tediObjectives } from "../schema/tedi-objectives";
+import { workInteractions } from "../schema/work-factory";
 
 export async function attentionProjectBriefs(db: DbQueryClient, orgId: string) {
 	return db
@@ -49,6 +50,7 @@ export async function readAttentionSources(
 	orgId: string,
 	since: string,
 	descopeUserId?: string,
+	userId?: string,
 ) {
 	const [projectRows, attempts, backlog, skills, runs] = await Promise.all([
 		db
@@ -209,6 +211,36 @@ export async function readAttentionSources(
 	]);
 	return {
 		projects: projectRows.slice(0, 200),
+		waiting: userId
+			? await db
+					.select({
+						id: workInteractions.id,
+						subject: workInteractions.subject,
+						prompt: workInteractions.prompt,
+						createdAt: workInteractions.createdAt,
+						workItemId: workInteractions.workItemId,
+						creatorSession: workInteractions.creatorExternalSessionKey,
+						projectId: sql<
+							string | null
+						>`(SELECT w.project_id FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId})`.as(
+							"handoff_project_id",
+						),
+					})
+					.from(workInteractions)
+					.where(
+						and(
+							eq(workInteractions.orgId, orgId),
+							eq(workInteractions.targetType, "user"),
+							eq(workInteractions.targetId, userId),
+							eq(workInteractions.status, "open"),
+							sql`(json_type(${workInteractions.metadata},'$.laneHandoff')='object' OR json_type(${workInteractions.metadata},'$.followThrough.laneHandoff')='object')`,
+							sql`coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${new Date().toISOString()}`,
+							sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${new Date().toISOString()})`,
+							sql`NOT EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.disposition IN ('completed','cancelled'))`,
+						),
+					)
+					.limit(100)
+			: [],
 		attempts: attempts.slice(0, 200),
 		backlog: backlog.slice(0, 100),
 		skills: skills.slice(0, 100),

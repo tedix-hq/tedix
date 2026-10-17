@@ -1054,6 +1054,21 @@ export const workItemsContract = oc
 					id: z.uuid(),
 					attemptId: z.uuid(),
 					outcome: z.enum(["succeeded", "failed", "cancelled", "expired"]),
+					needsUser: z
+						.string()
+						.trim()
+						.min(1)
+						.max(2_000)
+						.optional()
+						.describe(
+							"Exact next click the requesting person must take. Creates one Needs-you ask atomically with settlement; does not complete the Work.",
+						),
+					requestId: z
+						.uuid()
+						.optional()
+						.describe(
+							"Original private request-ledger row, when known. Must belong to the requesting user and this Work's project.",
+						),
 					summary: z.string().max(10_000).optional(),
 					metadata: JsonRecordSchema.optional(),
 					repositoryLifecycle:
@@ -1071,7 +1086,11 @@ export const workItemsContract = oc
 				}),
 			)
 			.output(
-				z.object({ workItem: WorkItemSchema, attempt: WorkAttemptSchema }),
+				z.object({
+					workItem: WorkItemSchema,
+					attempt: WorkAttemptSchema,
+					interactionId: z.uuid().optional(),
+				}),
 			),
 
 		listAttempts: oc

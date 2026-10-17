@@ -756,6 +756,8 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				externalSessionKey: external?.externalSessionKey,
 				outcome: input.outcome,
 				summary: input.summary,
+				needsUser: input.needsUser,
+				requestId: input.requestId,
 				metadata: external
 					? toJsonRecord(stampExternalAgentMetadata(external, input.metadata))
 					: input.metadata

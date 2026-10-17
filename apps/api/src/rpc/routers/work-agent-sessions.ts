@@ -395,6 +395,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 					owner.organizationId,
 					new Date(now.getTime() - 86_400_000).toISOString(),
 					context.user!.sub,
+					owner.userId,
 				),
 				listWorkAgentSessions(context.db, {
 					...owner,

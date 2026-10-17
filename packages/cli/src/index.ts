@@ -1311,6 +1311,12 @@ async function main() {
 					...(options.workDoneWhen ? { doneWhen: options.workDoneWhen } : {}),
 					...(options.workInput ? { input: options.workInput } : {}),
 					...(options.workOutcome ? { outcome: options.workOutcome } : {}),
+					...(options.workNeedsUser
+						? { needsUser: options.workNeedsUser }
+						: {}),
+					...(options.workRequestId
+						? { requestId: options.workRequestId }
+						: {}),
 					...(options.workCommits?.length
 						? { commit: options.workCommits }
 						: {}),

@@ -34,7 +34,11 @@ import {
 import { officeAsk } from "@/lib/work-interaction-display";
 import { factoryHref } from "@/lib/work-display";
 import { osApi } from "@/lib/api";
-import { osQueryKeys, workFleetQueryOptions } from "@/lib/os-query-options";
+import {
+	osQueryKeys,
+	workFleetQueryOptions,
+	workAttentionQueryOptions,
+} from "@/lib/os-query-options";
 import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 
@@ -91,7 +95,8 @@ type FleetAttention = Pick<WorkFleetControlTower, "attention">["attention"];
 export type NeedsYouAction =
 	| { type: "link"; label: string; href: string }
 	| { type: "approve"; approvalId: string }
-	| { type: "handoff"; requestId: string; version: number };
+	| { type: "handoff"; requestId: string; version: number }
+	| { type: "lane"; requestId: string; version: number };
 
 export type NeedsYouKind =
 	| "Approval"
@@ -164,6 +169,19 @@ function metadataOf(request: { metadata?: unknown }): Record<string, unknown> {
 		: {};
 }
 
+function laneHandoffOf(request: { metadata?: unknown }) {
+	const metadata = metadataOf(request);
+	const follow = metadata.followThrough;
+	const lane =
+		metadata.laneHandoff ??
+		(follow && typeof follow === "object" && "laneHandoff" in follow
+			? follow.laneHandoff
+			: undefined);
+	return lane && typeof lane === "object"
+		? (lane as Record<string, unknown>)
+		: null;
+}
+
 /** Shows quoted Work Item short ids as their titles. */
 function withTitles(text: string, row: InboxRow): string {
 	const titles = new Map(
@@ -180,6 +198,8 @@ function withTitles(text: string, row: InboxRow): string {
 
 /** Why the request needs you: its stated reason, else its Work Item. */
 function interactionWhy(row: InboxRow, label: string): string | undefined {
+	const lane = laneHandoffOf(row.request);
+	if (typeof lane?.summary === "string") return lane.summary;
 	const metadata = metadataOf(row.request);
 	if (typeof metadata.reason === "string" && metadata.reason.trim())
 		return metadata.reason.trim();
@@ -242,14 +262,17 @@ function interactionItem(row: InboxRow): NeedsYouItem | null {
 			: request.kind === "coordination"
 				? "Request"
 				: "Question";
+	const lane = laneHandoffOf(request);
 	const action: NeedsYouAction =
-		request.kind === "handoff" && row.canRespond
-			? { type: "handoff", requestId: request.id, version: request.version }
-			: {
-					type: "link",
-					label: row.canRespond && kind === "Question" ? "Answer" : "Open",
-					href,
-				};
+		lane && row.canRespond
+			? { type: "lane", requestId: request.id, version: request.version }
+			: request.kind === "handoff" && row.canRespond
+				? { type: "handoff", requestId: request.id, version: request.version }
+				: {
+						type: "link",
+						label: row.canRespond && kind === "Question" ? "Answer" : "Open",
+						href,
+					};
 	const label = withTitles(officeAsk(request), row);
 	const why = interactionWhy(row, label);
 	return {
@@ -259,7 +282,10 @@ function interactionItem(row: InboxRow): NeedsYouItem | null {
 		href,
 		askedBy: row.askedBy,
 		detail: why ? withTitles(why, row) : undefined,
-		hint: interactionHint(row, kind),
+		hint:
+			typeof lane?.nextClick === "string"
+				? `Next click: ${lane.nextClick}`
+				: interactionHint(row, kind),
 		at: request.requestedAt,
 		action,
 	};
@@ -404,6 +430,55 @@ const KIND_BADGE: Record<NeedsYouKind, BadgeVariant> = {
 	Organization: "outline",
 };
 
+function LaneHandoffActions({
+	requestId,
+	version,
+}: {
+	requestId: string;
+	version: number;
+}) {
+	const client = useQueryClient();
+	const respond = useMutation({
+		mutationFn: (action: "done" | "snooze") =>
+			osApi.workInteractions.respond({
+				requestId,
+				expectedRequestVersion: version,
+				responseKind: "answer",
+				body: action === "done" ? "Done." : "Snoozed for one day.",
+				resolvesRequest: action === "done",
+				metadata: { laneAction: action },
+			}),
+		onSuccess: () =>
+			Promise.all([
+				client.invalidateQueries({ queryKey: osQueryKeys.workInteractions() }),
+				client.invalidateQueries({
+					queryKey: osQueryKeys.agentSessionRequests(),
+				}),
+				client.invalidateQueries(workAttentionQueryOptions()),
+			]),
+	});
+	return (
+		<span className="flex flex-wrap gap-2">
+			<Button
+				size="sm"
+				disabled={respond.isPending}
+				onClick={() => respond.mutate("done")}
+			>
+				Done
+			</Button>
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={respond.isPending}
+				onClick={() => respond.mutate("snooze")}
+			>
+				Snooze 1 day
+			</Button>
+			{respond.error && <Text role="body">{respond.error.message}</Text>}
+		</span>
+	);
+}
+
 function RowAction({
 	action,
 	onApprove,
@@ -415,6 +490,13 @@ function RowAction({
 	onHandoff: (requestId: string, version: number, accepted: boolean) => void;
 	busy: boolean;
 }) {
+	if (action.type === "lane")
+		return (
+			<LaneHandoffActions
+				requestId={action.requestId}
+				version={action.version}
+			/>
+		);
 	if (action.type === "link")
 		return (
 			<Button

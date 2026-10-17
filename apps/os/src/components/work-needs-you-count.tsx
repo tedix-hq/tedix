@@ -47,8 +47,14 @@ export function isOpenRequestForYou(row: {
 }
 
 /** A request from your own agent session that waits on you. */
-export function isRequestWaitingOnYou(row: { status: string }): boolean {
-	return row.status === "waiting_on_user";
+export function isRequestWaitingOnYou(row: {
+	status: string;
+	evidence?: string | null;
+}): boolean {
+	return (
+		row.status === "waiting_on_user" &&
+		!row.evidence?.startsWith("/work/interactions/")
+	);
 }
 
 export function isPendingRuntimeApproval(row: { status: string }): boolean {

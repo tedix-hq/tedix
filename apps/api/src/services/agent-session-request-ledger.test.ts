@@ -3,6 +3,7 @@ import { listAgentSessionRequests } from "@tedix/db/queries/agent-session-reques
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { projects } from "@tedix/db/schema/projects";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
+import { workInteractions } from "@tedix/db/schema/work-factory";
 import {
 	agentSessionEvents,
 	agentSessionRequests,
@@ -117,6 +118,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(agentSessionRequests));
 	sqlite.exec(schemaDdl(agentSessionEvents));
+	sqlite.exec(schemaDdl(workInteractions));
 	sqlite.exec(schemaDdl(projects));
 	sqlite.exec(schemaDdl(tediObjectives));
 	return createDbQueryClient(createD1Facade(sqlite));

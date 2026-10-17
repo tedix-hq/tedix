@@ -21,6 +21,7 @@ export const AttentionCardSchema = z.strictObject({
 		"attempt",
 		"session",
 		"reported_lane",
+		"interaction",
 		"skill",
 		"run",
 		"backlog",

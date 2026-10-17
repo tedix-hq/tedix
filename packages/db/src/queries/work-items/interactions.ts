@@ -2,6 +2,8 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
+import { agentSessionRequests } from "../../schema/agent-session-requests";
+import { nudgeLaneHandoffs } from "./lane-handoffs";
 import {
 	workItems,
 	workItemComments,
@@ -290,6 +292,25 @@ export async function respondToWorkInteraction(
 			`A ${request.kind} request takes responseKind ${acceptedKinds.join(" or ")}, not ${p.responseKind}`,
 		);
 	const resolvesRequest = corrects ? false : p.resolvesRequest;
+	const laneAction = p.metadata?.laneAction;
+	const follow = request.metadata.followThrough;
+	const lane =
+		request.metadata.laneHandoff ??
+		(follow && typeof follow === "object" && !Array.isArray(follow)
+			? follow.laneHandoff
+			: undefined);
+	const isLane = lane && typeof lane === "object" && !Array.isArray(lane);
+	if (
+		laneAction !== undefined &&
+		(!isLane ||
+			!["done", "snooze"].includes(String(laneAction)) ||
+			p.responder.type !== "user" ||
+			(laneAction === "snooze" ? resolvesRequest : !resolvesRequest))
+	)
+		throw new WorkControlError(
+			"INVALID_TRANSITION",
+			"Done resolves a lane ask; Snooze keeps it open for one day",
+		);
 	const metadata = corrects
 		? { ...p.metadata, corrects: corrects.id }
 		: (p.metadata ?? {});
@@ -366,6 +387,40 @@ export async function respondToWorkInteraction(
 	try {
 		const [responses] = await db.batch([
 			responseInsert,
+			...(isLane
+				? [
+						db
+							.update(workInteractions)
+							.set({
+								metadata: sql`json_set(${workInteractions.metadata},'$.followThrough.snoozedUntil',${laneAction === "snooze" ? new Date(Date.parse(p.now) + 86_400_000).toISOString() : p.now})`,
+							})
+							.where(
+								and(
+									eq(workInteractions.orgId, p.orgId),
+									eq(workInteractions.id, p.interactionId),
+									sql`EXISTS (SELECT 1 FROM work_interaction_responses r WHERE r.org_id=${p.orgId} AND r.id=${p.id})`,
+								),
+							),
+						db
+							.update(agentSessionRequests)
+							.set({
+								status: resolvesRequest ? "done" : "waiting_on_user",
+								statusChangedAt: p.now,
+								updatedAt: p.now,
+							})
+							.where(
+								and(
+									eq(agentSessionRequests.organizationId, p.orgId),
+									eq(agentSessionRequests.userId, p.responder.id),
+									eq(
+										agentSessionRequests.evidence,
+										`/work/interactions/${p.interactionId}`,
+									),
+									sql`EXISTS (SELECT 1 FROM work_interaction_responses r WHERE r.org_id=${p.orgId} AND r.id=${p.id})`,
+								),
+							),
+					]
+				: []),
 			db
 				.update(workInteractions)
 				.set({
@@ -926,6 +981,9 @@ export async function listWorkInteractionInbox(
 				p.targetType === "user"
 					? sql`coalesce(json_extract(${workInteractions.metadata},'$.notification.state'),'immediate') NOT IN ('deferred','bundled','suppressed')`
 					: undefined,
+				p.targetType === "user"
+					? sql`coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${p.observedAt}`
+					: undefined,
 				p.urgency === "now"
 					? sql`${urgency}='now'`
 					: p.urgency === "later"
@@ -1114,6 +1172,7 @@ export async function flushWorkInteractionDigests(
 	db: DbQueryClient,
 	now: string,
 ) {
+	await nudgeLaneHandoffs(db, now);
 	const nearDeadline = new Date(Date.parse(now) + 86_400_000).toISOString();
 	const slotStart = new Date(
 		Math.floor(Date.parse(now) / 14_400_000) * 14_400_000,
@@ -1434,7 +1493,7 @@ export async function reviewWorkInteraction(
 				}
 			: {}),
 	};
-	const [updated] = await db
+	const mutation = db
 		.update(workInteractions)
 		.set({
 			metadata: { ...request.metadata, followThrough: nextFollow },
@@ -1455,6 +1514,35 @@ export async function reviewWorkInteraction(
 			),
 		)
 		.returning();
+	const [rows] = await db.batch([
+		mutation,
+		...(p.action === "close" &&
+		request.targetType === "user" &&
+		request.targetId &&
+		(request.metadata.laneHandoff || follow?.laneHandoff)
+			? [
+					db
+						.update(agentSessionRequests)
+						.set({
+							status: "cancelled",
+							statusChangedAt: p.now,
+							updatedAt: p.now,
+						})
+						.where(
+							and(
+								eq(agentSessionRequests.organizationId, p.orgId),
+								eq(agentSessionRequests.userId, request.targetId),
+								eq(
+									agentSessionRequests.evidence,
+									`/work/interactions/${request.id}`,
+								),
+								sql`EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${p.orgId} AND i.id=${request.id} AND i.status='cancelled' AND i.version=${p.expectedVersion + 1})`,
+							),
+						),
+				]
+			: []),
+	]);
+	const updated = rows[0];
 	if (!updated)
 		throw new WorkControlError("CONFLICT", "Interaction changed during review");
 	return updated;
