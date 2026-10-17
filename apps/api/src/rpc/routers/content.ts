@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 /**
  * Content oRPC Router
  *
@@ -414,6 +415,11 @@ export const answerContentProcedure = authedContentOs.answer
 			}
 
 			// CF AI Search → return raw sources (no LLM answer generation)
+			await requireUnrestrictedModelEgress(
+				db,
+				app.organizationId,
+				"Content query embeddings",
+			);
 			const aiEnv = env as unknown as AiSearchEnv;
 			const result = await aiSearchContent(aiEnv, query, {
 				appId,

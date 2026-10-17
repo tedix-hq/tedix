@@ -38,6 +38,7 @@ export interface VoiceGatewayAiConfig {
 	gatewayId: () => string | undefined;
 	channel: VoiceChannel;
 	attribution: () => VoiceCallAttribution | null;
+	beforeRun?: (organizationId: string) => Promise<void>;
 	afterRun?: (event: {
 		channel: VoiceChannel;
 		model: string;
@@ -81,6 +82,7 @@ export function createVoiceGatewayAi(config: VoiceGatewayAiConfig): AiRunner {
 				? callerGateway.metadata
 				: {};
 			const active = config.attribution() ?? {};
+			await config.beforeRun?.(active.organizationId ?? "");
 			// Gateway custom metadata is capped at five entries; this envelope uses
 			// exactly channel/source/orgId/sessionId/usage. Caller-supplied metadata
 			// and gateway options win on key collisions — except the gateway id,

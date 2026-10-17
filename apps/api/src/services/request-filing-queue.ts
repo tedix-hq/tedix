@@ -1,3 +1,4 @@
+import { organizationModelEnv } from "./unrouted-model-egress";
 import * as z from "zod";
 import { hasPermission } from "@tedix/auth/rbac";
 import {
@@ -59,8 +60,14 @@ export async function processRequestFilingQueue(
 		)
 	)
 		return;
-	const model = workersAiLedgerModel(env);
-	model.scoreProjectFit = requestFilingFitModel(db, env, owner.organizationId);
+	const model = workersAiLedgerModel(
+		organizationModelEnv(env, db, owner.organizationId),
+	);
+	model.scoreProjectFit = requestFilingFitModel(
+		db,
+		organizationModelEnv(env, db, owner.organizationId),
+		owner.organizationId,
+	);
 	await autoFileRequests(
 		db,
 		model,

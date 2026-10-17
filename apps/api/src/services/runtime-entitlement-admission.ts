@@ -26,6 +26,9 @@ import {
 } from "@tedix/db/queries/provider-executions";
 import type { NewProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
 import { resolveBillingSettlementMode } from "../lib/billing-settlement-mode";
+import { authorizeDataResidency, DataResidencyError } from "./data-residency";
+import { RuntimeEntitlementDenialCodeSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
+import { recordResidencyExecution } from "@tedix/db/queries/data-residency";
 import { authorizeRuntimeBudget } from "./runtime-budget-admission";
 import {
 	safeErrorClassification,
@@ -74,7 +77,7 @@ export async function authorizeRuntimeInference(
 			...input,
 			request: structuredClone(input.request),
 		} as typeof input;
-		const identity = freezeProviderExecutionIdentity(input.request.execution);
+		let identity = freezeProviderExecutionIdentity(input.request.execution);
 		if (identity.requestModel === "cloudflare/auto") {
 			if (!identity.autoRouting)
 				throw Error("Auto inference requires routing evidence");
@@ -111,6 +114,22 @@ export async function authorizeRuntimeInference(
 			context.rootGeneration = origin.root.generation;
 			context.selectedGeneration = origin.selected.generation;
 		}
+		phase = "data_residency";
+		let residency = await authorizeDataResidency({
+			db: input.db,
+			organizationId: input.request.organizationId,
+			execution: identity,
+			masterKey: input.env.SECRETS_MASTER_KEY,
+			now,
+			modality:
+				input.request.metadata?.residencyModality === "image"
+					? "image"
+					: input.request.metadata?.residencyModality === "text"
+						? "text"
+						: "unknown",
+		});
+		if (residency)
+			identity = freezeProviderExecutionIdentity(residency.member.execution);
 		phase = "read_latest_decision";
 		const current = origin
 			? await latestHistoricalDecision(
@@ -241,13 +260,78 @@ export async function authorizeRuntimeInference(
 		if (!persisted) throw new Error("Execution admission was not persisted");
 		phase = "validate_persisted_identity";
 		assertProviderExecutionMatches(persisted, execution);
+		const currentResidency = await authorizeDataResidency({
+			db: input.db,
+			organizationId: candidate.organizationId,
+			execution: identity,
+			masterKey: input.env.SECRETS_MASTER_KEY,
+			now: input.nowMs ?? Date.now(),
+			modality:
+				input.request.metadata?.residencyModality === "image"
+					? "image"
+					: input.request.metadata?.residencyModality === "text"
+						? "text"
+						: "unknown",
+		});
+		if (
+			Boolean(currentResidency) !== Boolean(residency) ||
+			(residency &&
+				currentResidency &&
+				(currentResidency.policy.revision !== residency.policy.revision ||
+					currentResidency.member.memberKey !== residency.member.memberKey ||
+					currentResidency.member.revision !== residency.member.revision ||
+					Object.entries(identity).some(
+						([key, value]) =>
+							JSON.stringify(
+								currentResidency.member.execution[key as keyof typeof identity],
+							) !== JSON.stringify(value),
+					)))
+		)
+			throw new DataResidencyError(
+				"RESIDENCY_POLICY_UNAVAILABLE",
+				"Data residency changed while this request was queued. Retry the turn with the current setting.",
+			);
+		residency = currentResidency;
+		if (residency) {
+			await recordResidencyExecution(input.db, {
+				executionId: persisted.id,
+				organizationId: candidate.organizationId,
+				policyRevision: residency.policy.revision,
+				memberKey: residency.member.memberKey,
+				poolRevision: residency.member.revision,
+				providerOrigin: identity.providerOrigin!,
+				evidenceRef: residency.member.evidenceRef,
+				credentialRef: residency.member.credentialRef,
+				createdAt: new Date(now).toISOString(),
+			});
+		}
 		return {
+			...(residency
+				? { providerApiKey: residency.apiKey, providerExecution: identity }
+				: {}),
 			...decision,
 			attributionVersion: 3,
 			executionId: persisted.id,
-			sendBefore: persisted.sendBefore,
+			sendBefore: residency
+				? new Date(
+						Math.min(
+							Date.parse(persisted.sendBefore),
+							Date.parse(residency.member.expiresAt),
+							(input.nowMs ?? Date.now()) + 10_000,
+						),
+					).toISOString()
+				: persisted.sendBefore,
 		};
 	} catch (error) {
+		if (error instanceof DataResidencyError)
+			return {
+				allowed: false,
+				code: RuntimeEntitlementDenialCodeSchema.parse(
+					error.code.toLowerCase(),
+				),
+				message: error.message,
+				entitlement: null,
+			};
 		// Diagnostics must never replace the original financial/admission failure.
 		try {
 			console.error("[runtime-inference-admission] Failed", {

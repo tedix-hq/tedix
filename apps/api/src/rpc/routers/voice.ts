@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 import { implement } from "@orpc/server";
 import { voiceContract } from "@tedix/api-contract/contracts/voice";
 import { getTediById } from "@tedix/db/queries/tedis";
@@ -26,7 +27,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 async function authorizeSpokenReplySubject(
 	context: BaseContext,
 	subject: { type: "kernel" } | { type: "tedi"; tediId: string },
-): Promise<void> {
+): Promise<string> {
 	if (subject.type === "kernel") {
 		if (!context.organizationId) {
 			throw createError(
@@ -34,7 +35,7 @@ async function authorizeSpokenReplySubject(
 				"Organization context required",
 			);
 		}
-		return;
+		return context.organizationId;
 	}
 
 	const tedi = await getTediById(context.db, subject.tediId);
@@ -53,14 +54,23 @@ async function authorizeSpokenReplySubject(
 	if (!context.organizationId && !context.tediId) {
 		throw createError(ErrorCodes.UNAUTHORIZED, "Organization context required");
 	}
+	return tedi.organizationId;
 }
 
 export const voiceContractRouter = voiceOs.router({
 	synthesizeSpokenReply: authed.synthesizeSpokenReply
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			await authorizeSpokenReplySubject(context, input.subject);
+			const organizationId = await authorizeSpokenReplySubject(
+				context,
+				input.subject,
+			);
 			try {
+				await requireUnrestrictedModelEgress(
+					context.db,
+					organizationId,
+					"Speech synthesis",
+				);
 				const speech = await synthesizeSpeech(
 					context.env as unknown as VoiceTtsEnv,
 					{

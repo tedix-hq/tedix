@@ -1,4 +1,10 @@
 import { assertDescopeOk } from "@tedix/auth/descope";
+import {
+	getDataResidency,
+	setDataResidency,
+	listResidencyProviderCatalog,
+	publishResidencyProviderVersion,
+} from "./organization-residency";
 import { getDescopeManagement } from "../../lib/descope-management";
 import { validateEmbeddedTediSelection } from "../../services/embedded-tedi-selection";
 /**
@@ -2669,6 +2675,10 @@ export const generateSsoSetupLinkContract =
  * - syncFromDescope uses service auth
  */
 export const organizationsContractRouter = organizationsOs.router({
+	getDataResidency,
+	setDataResidency,
+	listResidencyProviderCatalog,
+	publishResidencyProviderVersion,
 	listMcpAuthorizations: listMcpAuthorizationsContract,
 	disableMcpAuthorization: disableMcpAuthorizationContract,
 	stageMultiOrgMcpConsent: stageHumanMcpConsentContract,

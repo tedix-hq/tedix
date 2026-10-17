@@ -40,6 +40,21 @@ export const runtimeEntitlementsContract = oc
 	.route({ tags: ["runtime-entitlements"], prefix: "/runtime-entitlements" })
 	.errors(baseErrors)
 	.router({
+		checkModelEgress: oc
+			.route({
+				summary:
+					"Check an auxiliary model route before sending organization data",
+				tags: ["internal"],
+			})
+			.input(
+				z.strictObject({
+					organizationId: z.string().min(1),
+					operation: z.string().min(1).max(200),
+				}),
+			)
+			.output(
+				z.object({ allowed: z.boolean(), message: z.string().optional() }),
+			),
 		get: oc
 			.route({
 				method: "GET",

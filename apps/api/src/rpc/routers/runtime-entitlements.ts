@@ -1,3 +1,5 @@
+import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
+import { DataResidencyError } from "../../services/data-residency";
 import { implement, ORPCError } from "@orpc/server";
 import { runtimeEntitlementsContract } from "@tedix/api-contract/contracts/runtime-entitlements";
 import { getEffectiveInferencePolicies } from "@tedix/db/queries/billing/inference-policies";
@@ -72,7 +74,25 @@ const authorizeInference = os.authorizeInference
 		}),
 	);
 
+const checkModelEgress = os.checkModelEgress
+	.use(withServiceAuth)
+	.handler(async ({ context, input }) => {
+		try {
+			await requireUnrestrictedModelEgress(
+				context.db,
+				input.organizationId,
+				input.operation,
+			);
+			return { allowed: true };
+		} catch (error) {
+			if (error instanceof DataResidencyError)
+				return { allowed: false, message: error.message };
+			throw error;
+		}
+	});
+
 export const runtimeEntitlementsContractRouter = os.router({
+	checkModelEgress,
 	get,
 	getEffective,
 	authorizeInference,

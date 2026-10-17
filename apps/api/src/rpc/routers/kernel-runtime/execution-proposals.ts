@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
 import { captureHomeKernelRequest } from "../../../kernel/request-home-source";
 import {
@@ -438,6 +439,12 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			...nonNullRecord(input.metadata),
 			...(workspaceContext ? { workspaceContext } : {}),
 		};
+		if (input.attachments?.some((a) => a.type === "audio"))
+			await requireUnrestrictedModelEgress(
+				context.db,
+				organizationId,
+				"Speech transcription",
+			);
 		const { content: turnContent, voiceTranscript } =
 			await resolveVoiceMessageContent({
 				env: context.env as unknown as VoiceSttEnv,

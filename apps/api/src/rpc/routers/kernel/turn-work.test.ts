@@ -3925,3 +3925,24 @@ describe("runKernelTurnWork settle critical path", () => {
 		await expect(held[1]).resolves.toBeUndefined();
 	});
 });
+
+it.each(["eu_provider_pool_required", "eu_provider_credential_required"])(
+	"shows the administrator action for %s instead of a billing notice",
+	async (code) => {
+		const detail =
+			"An administrator must add REGIONAL_MODEL_KEY for a verified EU provider. No model request was sent.";
+		const deps = stubDeps({
+			kernel: async () => {
+				throw new Error(
+					`Inference blocked by billing policy: ${code} — EU_PROVIDER_CREDENTIAL_REQUIRED: ${detail}`,
+				);
+			},
+		});
+		const result = await runKernelTurnWork(deps, turnInput());
+		expect(result.status).toBe("failed");
+		expect(result.assistantMessage.content).toBe(detail);
+		expect(result.assistantMessage.content).not.toContain(
+			"billing/entitlement",
+		);
+	},
+);

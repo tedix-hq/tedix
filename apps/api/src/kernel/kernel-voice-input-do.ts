@@ -35,6 +35,18 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 
 	transcriber = new WorkersAIFluxSTT(
 		createVoiceGatewayAi({
+			beforeRun: async (organizationId) => {
+				const [{ createDbQueryClient }, { requireUnrestrictedModelEgress }] =
+					await Promise.all([
+						import("@tedix/db/query-client"),
+						import("../services/unrouted-model-egress"),
+					]);
+				await requireUnrestrictedModelEgress(
+					createDbQueryClient(this.env.DB),
+					organizationId,
+					"Live voice",
+				);
+			},
 			ai: () => this.#rawAi(),
 			gatewayId: () =>
 				(this.env as { AI_GATEWAY_LLM_ID?: string }).AI_GATEWAY_LLM_ID,

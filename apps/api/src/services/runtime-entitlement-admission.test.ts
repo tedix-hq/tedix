@@ -20,6 +20,10 @@ vi.mock("@tedix/db/queries/provider-executions", async (original) => ({
 	findProviderExecutionAdmission: mocks.find,
 	buildProviderExecutionInsertStatement: mocks.insert,
 }));
+vi.mock("./data-residency", async (original) => ({
+	...(await original<typeof import("./data-residency")>()),
+	authorizeDataResidency: vi.fn().mockResolvedValue(null),
+}));
 import { authorizeRuntimeInference } from "./runtime-entitlement-admission";
 const now = Date.parse("2026-09-20T07:00:00.000Z");
 const execution = {

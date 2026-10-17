@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
 	ProvisioningHttpError,
@@ -79,6 +80,12 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		const dispatchMode =
 			typeof metadata.dispatchMode === "string" ? metadata.dispatchMode : null;
 		const isInboxWakeTurn = dispatchMode === "kernel-inbox-wake";
+		if (input.attachments?.some((a) => a.type === "audio"))
+			await requireUnrestrictedModelEgress(
+				context.db,
+				tedi.organizationId,
+				"Speech transcription",
+			);
 		const { content: dispatchContent, voiceTranscript } = isInboxWakeTurn
 			? {
 					content: input.content,

@@ -1,3 +1,4 @@
+import { organizationModelEnv } from "./unrouted-model-egress";
 /**
  * Map-reduce distillation of a person's whole decision history into lessons.
  *
@@ -1073,6 +1074,7 @@ export async function distillPersonalLessons(
 	env: DistillEnv,
 	orgId: string,
 ): Promise<DistillationResult> {
+	env = organizationModelEnv(env, db, orgId);
 	const result: DistillationResult = {
 		owners: 0,
 		ownersSkipped: 0,
@@ -1256,6 +1258,7 @@ export async function distillOwnerIncrementally(
 	orgId: string,
 	ownerUserId: string,
 ): Promise<IncrementalResult> {
+	env = organizationModelEnv(env, db, orgId);
 	const result: IncrementalResult = {
 		status: "unchanged",
 		replies: 0,

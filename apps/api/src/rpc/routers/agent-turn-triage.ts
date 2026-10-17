@@ -1,3 +1,4 @@
+import { organizationModelEnv } from "../../services/unrouted-model-egress";
 /**
  * Agent-turn urgency triage.
  *
@@ -493,7 +494,10 @@ export async function annotateAgentTurnAttention(
 					asks: recordedAskProbability(row.metadata),
 					decidedAt: new Date().toISOString(),
 				}
-			: await decideAgentTurnAttention(context.env, row);
+			: await decideAgentTurnAttention(
+					organizationModelEnv(context.env, context.db, row.orgId),
+					row,
+				);
 	if (attention)
 		await setWorkInteractionAttention(context.db, {
 			orgId: row.orgId,
@@ -534,12 +538,15 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 			type: "noul",
 			instructions: steering.instructions,
 		};
-	const result = await runClef(context.env, {
-		modelId: policy.model,
-		state: { agent_message: input.text },
-		questions,
-		surface: "agent-turn-triage",
-	});
+	const result = await runClef(
+		organizationModelEnv(context.env, context.db, organizationId),
+		{
+			modelId: policy.model,
+			state: { agent_message: input.text },
+			questions,
+			surface: "agent-turn-triage",
+		},
+	);
 	if (!result.ok) return unavailable(result.latencyMs);
 
 	const labels: Record<string, number> = {};
@@ -560,21 +567,24 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 const labelReply = readOs.labelReply.handler(async ({ input, context }) => {
 	const organizationId = requireOrgId(context);
 	const { policy } = await readPolicyState(context, organizationId);
-	const result = await runClef(context.env, {
-		modelId: policy.model,
-		state: {
-			agent_last_message: input.turnText,
-			operator_reply: input.replyText,
-		},
-		questions: {
-			reply_class: {
-				type: "choice",
-				instructions: DEFAULTS.replyLabel.instructions,
-				criteria: DEFAULTS.replyLabel.criteria,
+	const result = await runClef(
+		organizationModelEnv(context.env, context.db, organizationId),
+		{
+			modelId: policy.model,
+			state: {
+				agent_last_message: input.turnText,
+				operator_reply: input.replyText,
 			},
+			questions: {
+				reply_class: {
+					type: "choice",
+					instructions: DEFAULTS.replyLabel.instructions,
+					criteria: DEFAULTS.replyLabel.criteria,
+				},
+			},
+			surface: "agent-reply-label",
 		},
-		surface: "agent-reply-label",
-	});
+	);
 	const answer = result.ok ? result.answers.reply_class : undefined;
 	if (!answer || answer.type !== "choice") {
 		return {
@@ -1366,11 +1376,14 @@ export async function decideReplyDraftDelivery(
 	const questions = fullGate.questions.filter(
 		(question) => !skips.includes(question.id),
 	);
-	const gate = await evaluateReplyDraftGate(context.env, {
-		gate: questions.length > 0 ? { ...fullGate, questions } : fullGate,
-		agentMessage: params.request.prompt,
-		draftReply: params.body,
-	});
+	const gate = await evaluateReplyDraftGate(
+		organizationModelEnv(context.env, context.db, params.request.orgId),
+		{
+			gate: questions.length > 0 ? { ...fullGate, questions } : fullGate,
+			agentMessage: params.request.prompt,
+			draftReply: params.body,
+		},
+	);
 	return {
 		delivery: gate.status === "pass" ? "auto" : "review",
 		gate: learningReceipt ? { ...gate, learningReceipt } : gate,
@@ -1759,8 +1772,12 @@ const mineSessionLessonsProcedure = writeOs.mineSessionLessons.handler(
 			await import("../../services/lesson-distiller");
 		const run = mineLearningFeed(context.db, {
 			orgId: organizationId,
-			route: clefLessonRouter(context.env),
-			distill: modelLessonDistiller(context.env),
+			route: clefLessonRouter(
+				organizationModelEnv(context.env, context.db, organizationId),
+			),
+			distill: modelLessonDistiller(
+				organizationModelEnv(context.env, context.db, organizationId),
+			),
 		});
 		// Code Mode stops waiting after 15 s; a large run keeps going in the
 		// background and the caller is told so instead of seeing a timeout.
@@ -1869,7 +1886,7 @@ const retriageQuestions = retriageOs.retriageQuestions.handler(
 					batch.map(async (request) => {
 						// Re-judged with the current ask question, not the recorded one.
 						const attention = await decideAgentTurnAttention(
-							context.env,
+							organizationModelEnv(context.env, context.db, orgId),
 							request,
 							{ rejudge: true },
 						);

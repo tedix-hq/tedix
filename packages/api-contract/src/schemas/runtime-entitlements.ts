@@ -95,6 +95,10 @@ export type AuthorizeRuntimeInferenceInput = z.infer<
 >;
 
 export const RuntimeEntitlementDenialCodeSchema = z.enum([
+	"eu_provider_pool_required",
+	"eu_provider_route_required",
+	"eu_provider_credential_required",
+	"residency_policy_unavailable",
 	"entitlement_not_configured",
 	"entitlement_inactive",
 	"entitlement_period_inactive",
@@ -118,6 +122,9 @@ export const AuthorizeRuntimeInferenceResponseSchema = z
 			attributionVersion: z.literal(3),
 			executionId: z.uuid(),
 			sendBefore: z.iso.datetime(),
+			/** Service-only transport material. Never record in attribution or execution receipts. */
+			providerApiKey: z.string().optional(),
+			providerExecution: ProviderExecutionIdentitySchema.optional(),
 			reservationId: z.string().nullable(),
 			expiresAt: z.string().nullable(),
 			estimatedChargeMicros: z.number().int().nonnegative().nullable(),
@@ -125,11 +132,23 @@ export const AuthorizeRuntimeInferenceResponseSchema = z
 		z.object({
 			allowed: z.literal(false),
 			code: RuntimeEntitlementDenialCodeSchema,
+			message: z.string().optional(),
 			entitlement: RuntimeEntitlementSchema.nullable(),
 		}),
 	])
 	.superRefine((decision, ctx) => {
 		if (!decision.allowed) return;
+		if (
+			Boolean(decision.providerApiKey) !==
+				Boolean(decision.providerExecution) ||
+			(decision.providerExecution &&
+				decision.providerExecution.provider !== "azure-openai")
+		)
+			ctx.addIssue({
+				code: "custom",
+				message:
+					"A regional credential requires its exact supported provider execution identity",
+			});
 		const managed = decision.settlementMode === "managed";
 		const financial =
 			decision.reservationId !== null &&

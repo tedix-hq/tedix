@@ -1,3 +1,7 @@
+vi.mock("@tedix/db/queries/data-residency", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
+	getOrganizationResidencyPolicy: vi.fn().mockResolvedValue(null),
+}));
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { handleKernelVoiceTranscription } from "./voice-transcription-route";
 import { mintKernelWsToken } from "./ws-token";

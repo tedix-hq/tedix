@@ -1,3 +1,4 @@
+import { requireUnrestrictedModelEgress } from "../services/unrouted-model-egress";
 /**
  * McpToolTestWorkflow - Cloudflare Workflow for testing MCP tools
  *
@@ -369,6 +370,15 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 		if (testType === "ai_eval" && this.env.AI) {
 			// Use AI to generate smart test input
 			try {
+				if (!platformOrgId)
+					throw new Error(
+						"Tool model evaluation requires organization attribution",
+					);
+				await requireUnrestrictedModelEgress(
+					createDbClient(this.env.DB),
+					platformOrgId,
+					"Tool model evaluation",
+				);
 				const aiResult = await generateSmartTestInput(
 					this.env.AI as Parameters<typeof generateSmartTestInput>[0],
 					{

@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/data-residency": "./src/schemas/data-residency.ts",
 		"./schemas/kernel-request": "./src/schemas/kernel-request.ts",
 		"./utils/approval-decision": "./src/utils/approval-decision.ts",
 		"./utils/attention-copy": "./src/utils/attention-copy.ts",
