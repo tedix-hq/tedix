@@ -222,6 +222,24 @@ function fixture() {
 		"a continuation cannot restore a second repository tool workflow",
 	);
 	await assert.rejects(
+		f.fresh().prepare(
+			{
+				...resumed,
+				capabilityPlan: {
+					version: "delegation-capabilities.v1",
+					requiredCapabilities: ["page.read"],
+					allowedToolIds: ["browser_markdown"],
+					missingCapabilities: [],
+					urls: ["https://example.com"],
+					outputIds: [],
+				},
+			},
+			f.deps,
+		),
+		/identity changed/,
+		"a continuation cannot replace the original capability ceiling",
+	);
+	await assert.rejects(
 		f.fresh().prepare({ ...resumed, agentName: "other" }, f.deps),
 		/identity changed/,
 		"routing identity must remain immutable rather than being discarded",

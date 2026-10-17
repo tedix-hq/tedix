@@ -112,10 +112,13 @@ export type DelegatedTurnAuthority = {
  * A delegated turn WITHOUT an envelope was authorized by Home's dispatch
  * decision itself (operator-forced, approved, or autonomous dispatch) and runs
  * under its admitted Work Item Attempt; its tool ceiling is
- * `supervisedDelegationToolSet`. In enforce mode that run never starts: the
+ * `supervisedDelegationToolSet`, narrowed by a request capability plan when
+ * present. That separate ceiling is enforced in `delegation-capabilities.ts`;
+ * it cannot add executor entitlement. In earned enforce mode an envelope-less
+ * run never starts: the
  * dispatch policy holds it for approval and the runtime ingress rejects it
- * with 403 before any tool call. So there is nothing to evaluate per tool and
- * no verdict to record — a "would have denied" row there described an
+ * with 403 before any tool call. So there is no earned verdict to record —
+ * an envelope-less earned "would have denied" row there described an
  * enforcement that cannot happen on that run.
  */
 export function delegatedTurnAuthority(input: {
@@ -159,6 +162,12 @@ export function evaluateDelegatedFacetTool(input: {
 	if (IDENTITY_BOUND_AITL_TOOLS.has(input.tool)) {
 		return { allowed: true, wouldHaveDenied: false, requestedSurface };
 	}
+	if (
+		input.tool === "tedix_mcp_search_tools" &&
+		namespacedCallables(envelope).has(String(record(input.args)?.query))
+	) {
+		return { allowed: true, wouldHaveDenied: false, requestedSurface };
+	}
 	if (input.tool === BROAD_CODE_TOOL) {
 		return deny(
 			`${BROAD_CODE_TOOL} is unavailable under an earned delegation authority envelope`,
@@ -200,7 +209,7 @@ export function restrictDelegatedToolSet(
 			continue;
 		}
 		if (name === BROAD_CODE_TOOL) continue;
-		if (name === MCP_CALL_TOOL) {
+		if (name === MCP_CALL_TOOL || name === "tedix_mcp_search_tools") {
 			if (callableCount > 0) out[name] = definition;
 			continue;
 		}

@@ -81,6 +81,8 @@ import {
 	supervisedDelegationToolSet,
 } from "./delegation-authority";
 import { emitDelegationAuthorityRuntimeEvent } from "./delegation-authority-telemetry";
+import { capabilityToolSet } from "./delegation-capabilities";
+import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { ActiveTurnBinding, AgentTediDO } from "./do";
 import { type DurableCodePause } from "./durable-codemode-lifecycle";
 import {
@@ -847,6 +849,7 @@ export const runtimeFacetTurns = {
 			executionSurface?: ExecutionSurface;
 			repositoryMode?: RepositoryMode;
 			authorityEnvelope?: DelegationAuthorityEnvelope;
+			capabilityPlan?: DelegationCapabilityPlan;
 			authorityMode?: DelegationAuthorityMode;
 			operatorConsent?: OperatorConsentAttestation;
 			/** Omitted ⇒ trusted; `untrusted` keeps the MCP read-only allowlist. */
@@ -945,14 +948,44 @@ export const runtimeFacetTurns = {
 		const supervisedTools = supervisedDelegationToolSet(
 			selectRepositoryToolSurface(unrestrictedTools, input.repositoryMode),
 			supervised,
-			input.authorityMode === "enforce",
+			input.authorityMode === "enforce" || Boolean(input.capabilityPlan),
 		);
+		const capabilityTools = capabilityToolSet({
+			tools: input.capabilityPlan
+				? {
+						...supervisedTools,
+						tedix_mcp_search_tools: unrestrictedTools.tedix_mcp_search_tools!,
+					}
+				: supervisedTools,
+			plan: input.capabilityPlan,
+			onEvaluation: async (evaluation) => {
+				await this.eventOutbox.publish({
+					id: `${input.runId}:capability:${evaluation.toolCallId}`,
+					tediId: this.state.tediId!,
+					kind: "delegation.authority.evaluated",
+					runId: input.runId,
+					conversationId: input.conversationId,
+					sequence: 0,
+					payload: {
+						source: "delegation-capabilities",
+						mode: "enforce",
+						enforced: true,
+						...evaluation,
+						capabilityPlan: input.capabilityPlan,
+						workItemId: input.workItemId,
+						homeRunId: input.homeRunId,
+					},
+					runtime: { backend: "cloudflare-agents" },
+					createdAt: new Date().toISOString(),
+				});
+			},
+		});
 		const trust = input.trust ?? "trusted";
 		const tools = selectTrustedTurnTools({
 			trust,
 			allowlist: untrustedTurnToolAllowlist("mcp"),
 			full: restrictDelegatedToolSet(
-				supervisedTools,
+				capabilityTools,
 				input.authorityEnvelope,
 				input.authorityMode,
 			),
@@ -962,10 +995,14 @@ export const runtimeFacetTurns = {
 			input.userMessage,
 			turnBinding,
 		);
-		const toolsNote = workspaceToolGuidance({
-			supervised,
-			repositoryMode: input.repositoryMode,
-		});
+		const toolsNote =
+			workspaceToolGuidance({
+				supervised,
+				repositoryMode: input.repositoryMode,
+			}) +
+			(input.capabilityPlan
+				? ` This delegation is restricted to ${input.capabilityPlan.allowedToolIds.join(", ")}. For MCP tools, read each exact callable's current schema with tedix_mcp_search_tools({ query: callable }) before using tedix_mcp_call_tool; arbitrary Code Mode is unavailable. If retrieval or schema discovery fails, report the capability gap rather than inventing a result.`
+				: "");
 		// Per-turn addenda (memory recall, matched directives, retrieved skills)
 		// follow the turn-invariant runtime contract so the provider prefix cache
 		// can reuse everything before them.
@@ -2179,6 +2216,7 @@ export const runtimeFacetTurns = {
 			executionSurface: input.executionSurface,
 			repositoryMode: input.repositoryMode,
 			authorityEnvelope: input.authorityEnvelope,
+			capabilityPlan: input.capabilityPlan,
 			authorityMode: input.authorityMode,
 			operatorConsent: input.operatorConsent,
 		});

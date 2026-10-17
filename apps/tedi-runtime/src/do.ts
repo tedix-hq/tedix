@@ -137,7 +137,10 @@ import { RuntimeConfigCache } from "./runtime-config-cache";
 import type { TediRuntimeEvent } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { type ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
 import type { TraceBundleOutcome } from "@tedix/api-contract/schemas/harness-version";
-import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
+import type {
+	DelegationAuthorityEnvelope,
+	DelegationCapabilityPlan,
+} from "@tedix/api-contract/schemas/kernel-runtime";
 import { type FacetTurnAnalyticsDataPointEvent } from "@tedix/api-contract/schemas/mcp-analytics";
 import {
 	type BrowserHostnamePolicy,
@@ -3853,6 +3856,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		executionSurface?: ExecutionSurface;
 		repositoryMode?: RepositoryMode;
 		authorityEnvelope?: DelegationAuthorityEnvelope;
+		capabilityPlan?: DelegationCapabilityPlan;
 		authorityMode?: DelegationAuthorityMode;
 		operatorConsent?: OperatorConsentAttestation;
 		/** Omitted ⇒ trusted; `untrusted` keeps the MCP read-only allowlist. */
