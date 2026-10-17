@@ -10,7 +10,7 @@ export function kernelRequestReportMessageId(sourceId: string): string {
 }
 
 export type KernelRequestEvent =
-	| { kind: "file"; workItemId: string }
+	| { kind: "file"; workItemId: string | null }
 	| { kind: "brief"; revision: number; checks: KernelAcceptanceCheck[] }
 	| { kind: "start"; attemptId: string }
 	| { kind: "successor"; previousAttemptId: string; attemptId: string }
@@ -189,6 +189,8 @@ export function advanceKernelRequest(
 }
 
 export interface KernelAcceptanceReader {
+	/** Confirms source reply delivery only, never correctness or an outside action. */
+	readHomeResponse?(): Promise<{ attemptId: string; receiptRef: string }>;
 	/** Must enforce the source viewer's current workspace ACL. */
 	readOutputRevision(
 		check: Extract<KernelAcceptanceCheck, { kind: "os_output_revision" }>,
@@ -235,6 +237,19 @@ export async function runKernelAcceptanceChecks(
 					checkedAt: now(),
 					evidenceRefs: [result.evidenceRef],
 					limitations: null,
+				});
+			} else if (check.kind === "home_response") {
+				if (!reader.readHomeResponse)
+					throw new Error("Home reader unavailable");
+				const result = await reader.readHomeResponse();
+				observations.push({
+					...base,
+					status: "pass",
+					observedVersion: result.attemptId,
+					checkedAt: now(),
+					evidenceRefs: [result.receiptRef],
+					limitations:
+						"Confirms durable Home reply delivery only; not factual correctness or external target state",
 				});
 			} else {
 				const result = await reader.readRepositoryDelivery(check);
