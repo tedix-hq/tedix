@@ -19,6 +19,10 @@ import { OsLocaleSchema } from "./user-settings";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
 import { CARD_REVIEW_ENTRY, CardReviewConfigSchema } from "./os-card-review";
+import {
+	OUTBOUND_REVIEW_ENTRY,
+	OutboundReviewConfigSchema,
+} from "./os-outbound-review";
 import { ModelRefSchema } from "./model-catalog";
 import {
 	ExecutionPreflightPinSchema,
@@ -431,6 +435,7 @@ export const OsGadgetExportDescriptorSchema = z
 
 export const OsGadgetManifestSchema = z
 	.object({
+		navigation: z.strictObject({ board: z.boolean().optional() }).optional(),
 		capabilities: z.array(z.string().min(1).max(200)).max(100).default([]),
 		resourceGrants: z
 			.array(OsGadgetResourceGrantSchema)
@@ -516,8 +521,14 @@ export const OsGadgetManifestSchema = z
  */
 export const OsGadgetManifestWriteSchema = OsGadgetManifestSchema.superRefine(
 	(value, ctx) => {
-		if (value.entry.trim() !== CARD_REVIEW_ENTRY) return;
-		const parsed = CardReviewConfigSchema.safeParse(value.config);
+		const schema =
+			value.entry.trim() === CARD_REVIEW_ENTRY
+				? CardReviewConfigSchema
+				: value.entry.trim() === OUTBOUND_REVIEW_ENTRY
+					? OutboundReviewConfigSchema
+					: null;
+		if (!schema) return;
+		const parsed = schema.safeParse(value.config);
 		if (parsed.success) return;
 		for (const issue of parsed.error.issues)
 			ctx.addIssue({

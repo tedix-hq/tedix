@@ -51,3 +51,40 @@ describe("session genericity", () => {
 		).toEqual([]);
 	});
 });
+
+describe("configured Board apps", () => {
+	test("rejects a new fixed route and Board tab", () => {
+		expect(
+			sessionGenericityFindings(
+				"apps/os/src/routes/_session/_tenant/work.outbound.tsx",
+				'createFileRoute("/_session/_tenant/work/outbound")',
+			),
+		).toHaveLength(1);
+		expect(
+			sessionGenericityFindings(
+				"apps/os/src/components/work-shell.tsx",
+				'id: "board", sections: [{ id: "sales", to: "/work/queue" }]',
+			),
+		).toHaveLength(1);
+	});
+	test("preserves platform destinations and permits configured apps", () => {
+		expect(
+			sessionGenericityFindings(
+				"apps/os/src/routes/_session/_tenant/work.items.$workItemId.tsx",
+				'createFileRoute("/_session/_tenant/work/items/$workItemId")',
+			),
+		).toEqual([]);
+		expect(
+			sessionGenericityFindings(
+				"apps/os/src/components/work-shell.tsx",
+				'id: "board", sections: [{ id: "queue", to: "/work/queue" }]',
+			),
+		).toEqual([]);
+		expect(
+			sessionGenericityFindings(
+				"apps/os/src/components/board-app-links.tsx",
+				"links.map(link => <Link href={link.href}>{link.name}</Link>)",
+			),
+		).toEqual([]);
+	});
+});

@@ -49,6 +49,18 @@ From chat or MCP, use the OS app tools in the organization's namespace
 In the OS, the same settings are editable under the app's **Code** view
 (`manifest.json`).
 
+Set `navigation: {"board": true}` in a manifest to show that active app on
+**Work → Board**. Its stored name becomes the link label; it opens the same
+workspace resource. Only apps in workspaces the viewer can access appear.
+Omit the setting, set it false, or archive the app to remove the Board link.
+
+`tedix:app/outbound-review` lists outbound Work drafts with status and search
+filters and the existing review, feedback and human approval/send controls.
+Its `config` is `{"version": 1, "limit": 50}` with optional `projectId` and
+`initialStatus` (for example `waiting_on_you`). Omitting `projectId` shows the
+viewer's organization-wide list. Configuration never grants permission to
+send; the existing API checks and version fences still apply.
+
 ## How apps appear in a workspace
 
 Apps are what people open a workspace for, so the OS puts them first:
@@ -363,7 +375,7 @@ whether the browser offers a WebMCP host.
 
 Put the settings schema in `packages/api-contract/src/schemas/` and check it
 in `OsGadgetManifestWriteSchema`, put the engine in `apps/os/src/lib/` with
-unit tests, render it from `canvas-doc-panel.tsx` for its entry, and build the
+unit tests, register its entry in `workspace-app-renderer.tsx`, and build the
 screen from `@/components/kumo/*`. Read and write through the existing OS
 queries and the generated `osQuery` keys. Expose its actions as WebMCP tools
 as described above.

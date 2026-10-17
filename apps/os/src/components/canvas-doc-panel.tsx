@@ -1,4 +1,7 @@
-import { AttentionApp } from "@/components/work-attention-page";
+import {
+	WorkspaceAppRenderer,
+	WorkspaceAppRunsInfo,
+} from "@/components/workspace-app-renderer";
 import {
 	ArrowsIn,
 	ArrowsOut,
@@ -15,7 +18,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { isConflictError } from "@/components/blueprints-page";
 import { CanvasCodeEditor } from "@/components/canvas-editor";
-import { CardReviewApp } from "@/components/card-review-app";
 import {
 	CanvasGadgetExecutions,
 	gadgetExecutionToolResult,
@@ -54,7 +56,6 @@ import {
 	parseOutputDraft,
 } from "@/lib/canvas-draft";
 import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
-import { cardReviewConfigFromManifest } from "@/lib/card-review";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
 import { sameDraftText } from "@/collab/ot/draft-equivalence";
 import { sentenceCase } from "@/lib/format";
@@ -529,16 +530,11 @@ export function CanvasDocPanel({
 				gadgetDetail.data?.currentRevision?.manifest,
 			)
 		: null;
-	// A built-in app (entry `tedix:app/<id>`) renders first-party, with no iframe.
-	const attentionApp =
-		isGadget &&
-		gadgetDetail.data?.currentRevision?.manifest.entry ===
-			"tedix:app/attention";
-	const builtinApp = isGadget
-		? cardReviewConfigFromManifest(gadgetDetail.data?.currentRevision?.manifest)
-		: ({ kind: "none" } as const);
+	const builtinManifest = isGadget
+		? gadgetDetail.data?.currentRevision?.manifest
+		: undefined;
 	const builtinAppView =
-		(attentionApp || builtinApp.kind !== "none") &&
+		builtinManifest?.entry.trim().startsWith("tedix:app/") &&
 		effectiveGadgetView === "preview";
 	const executionGadgetId = isGadget ? doc.id : doc.linkedGadgetId;
 	useEffect(() => {
@@ -772,21 +768,11 @@ export function CanvasDocPanel({
 							value={gadgetView}
 						/>
 					)}
-					{attentionApp ? (
-						<AttentionApp workspaceId={workspaceId} />
-					) : builtinApp.kind === "ok" ? (
-						<CardReviewApp config={builtinApp.config} />
-					) : (
-						<Alert variant="warning">
-							<AlertTitle>This app's settings need a fix</AlertTitle>
-							<AlertDescription>
-								{builtinApp.kind === "invalid"
-									? builtinApp.message
-									: "Unknown built-in app"}
-								. Open Code to edit the settings in manifest.json.
-							</AlertDescription>
-						</Alert>
-					)}
+					<WorkspaceAppRenderer
+						key={gadgetDetail.data?.currentRevision?.id}
+						manifest={builtinManifest!}
+						workspaceId={workspaceId}
+					/>
 				</div>
 			) : session && isGadget ? (
 				<div
@@ -802,7 +788,8 @@ export function CanvasDocPanel({
 							: undefined
 					}
 				>
-					{(gadgetWidgetTarget || attentionApp || builtinApp.kind !== "none") &&
+					{(gadgetWidgetTarget ||
+						builtinManifest?.entry.trim().startsWith("tedix:app/")) &&
 						gadgetViewOverride === undefined && (
 							<SegmentedControl
 								ariaLabel="App view"
@@ -852,25 +839,12 @@ export function CanvasDocPanel({
 							</CardContent>
 						</Card>
 					) : effectiveGadgetView === "runs" &&
-					  (attentionApp || builtinApp.kind !== "none") &&
+					  builtinManifest?.entry.trim().startsWith("tedix:app/") &&
 					  !gadgetDetail.data?.currentRevision?.manifest.skillSlug ? (
-						<Card size="sm">
-							<CardContent className="grid gap-3">
-								<Text as="h3" weight="medium">
-									{attentionApp
-										? "Activity comes from your workspace"
-										: "Cards come from scheduled skills"}
-								</Text>
-								<Text>
-									{attentionApp
-										? "Open Preview to see local sessions and cloud work in this workspace, with their latest progress."
-										: "Card review opens saved card sheets. To check when new cards were produced, open Resources and choose See runs on a scheduled skill."}
-								</Text>
-								<Button variant="outline" onClick={onShowResources}>
-									Open Resources
-								</Button>
-							</CardContent>
-						</Card>
+						<WorkspaceAppRunsInfo
+							manifest={builtinManifest!}
+							onShowResources={onShowResources}
+						/>
 					) : effectiveGadgetView === "runs" && executionGadgetId ? (
 						<CanvasGadgetExecutions
 							key={`${workspaceId}:${executionGadgetId}`}
