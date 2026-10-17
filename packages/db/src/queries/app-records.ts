@@ -7,7 +7,17 @@
 
 import type { AppCapabilities } from "@tedix/api-contract/schemas/app";
 import type { WidgetConfig } from "@tedix/api-contract/schemas/widget";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	getColumns,
+	inArray,
+	isNull,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { AppMetadata, NewApp } from "../schema/apps";
 import { apps } from "../schema/apps";
@@ -317,19 +327,10 @@ export async function getAppByIdWithToolsForOrganization(
 		.where(and(eq(appTools.appId, id), eq(appTools.enabled, true)))
 		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
 
-	const toolIds = tools.map((t) => t.id);
-	const toolCsp: Array<typeof appToolCspDomains.$inferSelect> = [];
-	if (toolIds.length > 0) {
-		const BATCH_SIZE = 50;
-		for (let i = 0; i < toolIds.length; i += BATCH_SIZE) {
-			const batch = toolIds.slice(i, i + BATCH_SIZE);
-			const results = await db
-				.select()
-				.from(appToolCspDomains)
-				.where(inArray(appToolCspDomains.appToolId, batch));
-			toolCsp.push(...results);
-		}
-	}
+	const toolCsp = await getAppSurfaceCspDomains(
+		db,
+		tools.length ? [app.id] : [],
+	);
 	const toolCspByToolId = new Map<string, typeof toolCsp>();
 	for (const domain of toolCsp) {
 		const list = toolCspByToolId.get(domain.appToolId) ?? [];
@@ -442,19 +443,10 @@ function loadAppBySlugWithTools(
 		}
 		const tools = [...toolsById.values()].sort(compareAppToolOrder);
 
-		const toolIds = tools.map((t) => t.id);
-		const toolCsp: Array<typeof appToolCspDomains.$inferSelect> = [];
-		if (toolIds.length > 0) {
-			const BATCH_SIZE = 50;
-			for (let i = 0; i < toolIds.length; i += BATCH_SIZE) {
-				const batch = toolIds.slice(i, i + BATCH_SIZE);
-				const results = await db
-					.select()
-					.from(appToolCspDomains)
-					.where(inArray(appToolCspDomains.appToolId, batch));
-				toolCsp.push(...results);
-			}
-		}
+		const toolCsp = await getAppSurfaceCspDomains(
+			db,
+			tools.length ? [app.id] : [],
+		);
 		const toolCspByToolId = new Map<string, typeof toolCsp>();
 		for (const domain of toolCsp) {
 			const list = toolCspByToolId.get(domain.appToolId) ?? [];
@@ -553,6 +545,21 @@ function chunked<T>(items: T[], size: number): T[][] {
 	for (let i = 0; i < items.length; i += size)
 		out.push(items.slice(i, i + size));
 	return out;
+}
+
+/** Read CSP by resolved app, so tool count never adds serial D1 round trips. */
+async function getAppSurfaceCspDomains(db: DbClient, appIds: string[]) {
+	const domains: Array<typeof appToolCspDomains.$inferSelect> = [];
+	for (const chunk of chunked(appIds, APP_SURFACE_ID_CHUNK)) {
+		domains.push(
+			...(await db
+				.select(getColumns(appToolCspDomains))
+				.from(appToolCspDomains)
+				.innerJoin(appTools, eq(appTools.id, appToolCspDomains.appToolId))
+				.where(inArray(appTools.appId, chunk))),
+		);
+	}
+	return domains;
 }
 
 /**
@@ -743,17 +750,13 @@ export async function getAppsBySlugsWithTools(
 				string,
 				Array<typeof appToolCspDomains.$inferSelect>
 			>();
-			const toolRowIds = [...new Set(allToolRows.map((tool) => tool.id))];
-			for (const chunk of chunked(toolRowIds, APP_SURFACE_ID_CHUNK)) {
-				const rows = await db
-					.select()
-					.from(appToolCspDomains)
-					.where(inArray(appToolCspDomains.appToolId, chunk));
-				for (const row of rows) {
-					const list = toolCspByToolId.get(row.appToolId) ?? [];
-					list.push(row);
-					toolCspByToolId.set(row.appToolId, list);
-				}
+			const cspDomains = await getAppSurfaceCspDomains(db, [
+				...new Set(allToolRows.map((tool) => tool.appId)),
+			]);
+			for (const row of cspDomains) {
+				const list = toolCspByToolId.get(row.appToolId) ?? [];
+				list.push(row);
+				toolCspByToolId.set(row.appToolId, list);
 			}
 
 			// ── catalog surfaces, batched by catalog app id ───────────────────────
