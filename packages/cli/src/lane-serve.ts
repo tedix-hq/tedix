@@ -653,6 +653,8 @@ export class LaneDispatcher {
 					"--",
 					"codex",
 					"exec",
+					"-C",
+					repo,
 					"resume",
 					thread.thread.id,
 					"-o",
