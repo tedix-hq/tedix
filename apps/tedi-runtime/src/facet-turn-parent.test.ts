@@ -34,6 +34,48 @@ const facetInput = {
 	surface: "mcp",
 };
 
+for (const stream of [false, true]) {
+	for (const allowed of [undefined, [], ["probe"]]) {
+		const probe = facetRunnerProbe({
+			fields: {
+				state: {
+					tediId: "tedi-1",
+					slug: "acme",
+					systemPrompt: "SYSTEM",
+					toolPolicy: { runtimeTools: allowed },
+				},
+			},
+			stream: [JSON.stringify({ kind: "done", text: "answer" })],
+		});
+		const tools = {
+			...facetInput.tools,
+			tedix_mcp_call_tool: { execute: async () => "blocked" },
+		};
+		if (stream) {
+			await probe.agent.streamConversationFacetTurn({
+				...facetInput,
+				tools,
+				userText: "hello",
+				onDelta() {},
+			});
+		} else {
+			await probe.agent.runConversationFacetTurn({ ...facetInput, tools });
+		}
+		const advertised = probe.configs[0]?.toolDescriptors as Array<{
+			name: string;
+		}>;
+		const expected = allowed ?? Object.keys(tools);
+		assert.deepEqual(
+			advertised.map((entry) => entry.name).sort(),
+			[...expected].sort(),
+		);
+		assert.deepEqual(
+			Object.keys(probe.registryDuringTurn() as object).sort(),
+			[...expected].sort(),
+		);
+	}
+}
+
 {
 	const probe = facetRunnerProbe();
 	await probe.agent.actionReceiptJournal.record({
