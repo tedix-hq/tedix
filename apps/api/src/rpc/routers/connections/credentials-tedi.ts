@@ -5,6 +5,7 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	constrainPersonalResourceToolArguments,
 	reviewedPersonalResourceBinding,
+	reviewedPersonalResourceReadScopes,
 } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getToolByAppAndToolIdForOrganization } from "@tedix/db/queries/tools";
@@ -155,7 +156,13 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 					providerResourceId: source.providerResourceId,
 					operation: matched.operation,
 					toolId,
-					requiredScopes: input.scopes ?? source.requiredScopes,
+					requiredScopes:
+						reviewedPersonalResourceReadScopes(
+							input.providerId,
+							tool.config?.mcpToolName,
+						) ??
+						input.scopes ??
+						source.requiredScopes,
 				}));
 				if (
 					input.connectionInstanceId &&

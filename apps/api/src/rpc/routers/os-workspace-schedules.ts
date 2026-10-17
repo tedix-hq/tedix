@@ -11,6 +11,7 @@ import {
 	personalAccessOperations,
 	reviewedPersonalAccountName,
 	reviewedPersonalResourceBinding,
+	reviewedPersonalResourceReadScopes,
 } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import { PersonalResourceToolBindingSchema } from "@tedix/api-contract/schemas/tools";
@@ -178,7 +179,13 @@ export async function personalAccessNeed(
 			};
 			need.tools.push({ toolId, operation: binding.operation });
 			need.requiredScopes = [
-				...new Set([...need.requiredScopes, ...stringArray(auth?.scopes)]),
+				...new Set([
+					...need.requiredScopes,
+					...(reviewedPersonalResourceReadScopes(
+						providerId,
+						config.mcpToolName,
+					) ?? stringArray(auth?.scopes)),
+				]),
 			].sort();
 		}
 		if (need) return need;
