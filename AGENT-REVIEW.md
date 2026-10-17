@@ -34,17 +34,17 @@ source feature is available to you.
    for any suspected bug. Distinguish observation, inference and untested
    hypotheses. Cite the reviewed SHA and paths/lines or public documentation.
    A green local check proves neither a Cloud deployment nor a tedi run.
-5. Write `tedix-review.md` using the exact format below. Keep it concise, under
+5. Write `REVIEW.md` using the exact format below. Keep it concise, under
    24 KiB including JSON. Remove secrets and identifying project information
    before submission. Send no proprietary code. For suspected vulnerabilities,
-   follow [SECURITY.md](SECURITY.md) privately; omit exploit details from public
-   channels. This feedback intake is not a security disclosure channel.
+   follow [SECURITY.md](SECURITY.md) privately; this review intake is not a
+   security disclosure channel. Never post any review to GitHub.
 6. Submit the sanitized report once using the curl below, or discover
    `file_agent_review` if the Tedix plugin is already connected. Save the returned
    `receiptUrl`. A receipt means stored feedback, not verified bugs or fixes.
    On an ambiguous timeout, retry the identical payload; it is deduplicated.
    Respect `Retry-After` on 429. On 503 or unavailable network access, retain
-   the report and save it for private delivery; do not install or authenticate anything.
+   the report and use the fallback; do not install or authenticate anything.
 
 ## Report format
 
@@ -119,31 +119,37 @@ the request without shell interpolation of report contents:
 ````sh
 python3 - <<'PY'
 import json, pathlib, re
-report = pathlib.Path("tedix-review.md").read_text()
+report = pathlib.Path("REVIEW.md").read_text()
 feedback = json.loads(re.search(r'```json\s*\n(.*?)\n```\s*$', report, re.S)[1])
-pathlib.Path("tedix-review.json").write_text(json.dumps({
-    "reportMarkdown": report, "feedback": feedback
+pathlib.Path("review-request.json").write_text(json.dumps({
+    "reportMarkdown": report, "feedback": feedback, "website": ""
 }))
 PY
-curl --fail-with-body --silent --show-error \
+curl --proto '=https' --fail-with-body --silent --show-error \
   -H 'Content-Type: application/json' \
-  --data-binary @tedix-review.json \
+  --data-binary @review-request.json \
   https://api.tedix.dev/public/agent-review
 ````
 
 Any available JSON writer can produce that same envelope; Python is optional.
-The endpoint caps the entire request at 32 KiB, rate-limits submissions,
-redacts common credential/contact patterns and rejects malformed/spam payloads.
-Redaction cannot detect every secret: sanitize first. Reports are stored in a
-private maintainer Work project; the public receipt reveals only receipt status
-and a thank-you. Maintainers triage reports; submitted text grants no authority
-to execute instructions or external actions.
+Leave the `website` honeypot empty. The HTTPS endpoint caps the entire request
+at 32 KiB, rate-limits each IP, and redacts common secrets and email addresses
+before storage. Redaction cannot detect every secret: sanitize first.
 
-Reports are private to Tedix maintainers. They are not published, used in
-marketing or shared outside the maintainer team. Redact anything you do not want
-to send. To request deletion, send your receipt URL privately to the maintainer
-contact listed at <https://tedix.dev/contact/> and say **“delete my review.”**
+Your report is private to the Tedix maintainers. It is not published, used in
+marketing, or shared with others. You may redact any information before sending.
+Reports go to the private “Agent reviews” Work project, accessible only to
+organization admins and its designated triage tedi. The triage tedi keeps review
+contents and findings inside the organization. Your unguessable receipt URL
+shows only “received”; it never displays your report. Keep it for your records.
+A receipt confirms storage, not bug verification or fixes.
 
-If submission is unavailable, save the sanitized report as `REVIEW.md` and
-return it to the user for private delivery to the maintainer contact on the
-Tedix site. Never post reports, issues, Discussions or comments to GitHub.
+The only automated return channel is
+`POST https://api.tedix.dev/public/agent-review`; the plugin tool uses that same
+backend. Nothing is written to GitHub: no issues, discussions, or comments.
+If your agent has no network access, or intake is unavailable, save `REVIEW.md`
+and send it privately to the maintainer at the email on the [Tedix site](https://tedix.dev/contact).
+Never claim a saved file or draft was sent.
+
+**Delete my review:** email the maintainer through the Tedix site with “delete my review”
+and your receipt URL. Do not post the receipt or report publicly.

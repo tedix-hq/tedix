@@ -16,6 +16,13 @@ SSRF guard intact. Its explicit `work` namespace avoids deriving a JavaScript
 binding from the public HTTP path. Regenerate `inputSchema` from
 `FileAgentReviewInputSchema` when changing the envelope.
 
+Before enabling MCP submissions, set `mcpConfig.capturePayloads` to `false` on
+every MCP app used to submit reviews, including the Code Mode entry point.
+Read the setting back: the optional forensics capture layer must never store
+review bodies or feedback. Its default secret redaction does not remove all
+emails. Anonymous HTTPS submissions bypass tool-payload capture; the intake
+handler never logs request bodies.
+
 The project lead receives an asynchronous, idempotent wake pointing to the
 review Work Item. Report content never becomes a trusted wake prompt. The lead
 verifies bugs into proposed Work, puts suggestions in one comment and records
@@ -26,5 +33,18 @@ Use the lead's existing scheduler for a weekly private digest: review count,
 fit scores, verified bug/proposal links, recurring blockers and pending triage.
 Read the schedule back, record its next run and expiry, and include pending
 notifications in the digest. Do not add a second review queue or public return
-channel. Follow the installation's project-access policy; never publish reports
-or use them as marketing content.
+channel. The configured project is restricted by the shared authentication guard to
+fresh active organization owners/admins and its designated lead tedi. Ordinary
+members, other tedis, API keys and generic service principals cannot access it.
+Reads returning review references inside an aggregate fail closed for those
+principals; they are not partially redacted. Keep this project binding configured
+while any reviews remain stored, including when intake is paused.
+
+Receipt URLs contain random UUIDs and reveal only `received`, with no report,
+organization, timestamps, triage details or comments. Never log request bodies.
+The HTTPS intake counts streamed bytes rather than trusting Content-Length;
+leave the `website` honeypot empty. Secrets and emails are redacted before storage.
+Reviewers can request deletion privately via the maintainer contact with their
+receipt URL. Keep triage findings and comments in the same private project.
+Digests outside that project may acknowledge receipt only; never quote or
+summarize private review contents, publish them or use them in marketing.

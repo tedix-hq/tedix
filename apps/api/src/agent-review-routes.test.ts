@@ -132,7 +132,11 @@ describe("anonymous agent review intake", () => {
 			clientRequestId: `agent-review:${saved.id}`,
 		});
 		const receipt = await response.json();
-		expect(receipt.triage).toBe("queued");
+		expect(receipt.status).toBe("received");
+		expect(mocks.comment.mock.calls[0]![1]).toMatchObject({
+			workItemId: saved.id,
+			metadata: { agentReviewWake: true },
+		});
 		expect(receipt.receiptUrl).toContain(
 			"https://api.example.test/public/agent-review/",
 		);
@@ -165,7 +169,7 @@ describe("anonymous agent review intake", () => {
 		mocks.inject.mockRejectedValue(new Error("offline"));
 		const response = await post();
 		expect(response.status).toBe(201);
-		expect((await response.json()).triage).toBe("pending");
+		expect((await response.json()).status).toBe("received");
 		expect(mocks.comment).not.toHaveBeenCalled();
 	});
 	it.each([
@@ -247,5 +251,111 @@ describe("anonymous agent review intake", () => {
 		expect(result).not.toContain("user:pass");
 		expect(result).not.toContain("token=private");
 		expect(result).toContain("https://example.test/path");
+	});
+});
+
+describe("review privacy boundary", () => {
+	it("rejects HTTP without redirecting or reading the body", async () => {
+		const response = await agentReviewRoutes.request(
+			"http://api.example.test/",
+			{ method: "POST", body: JSON.stringify(payload()) },
+			env(),
+		);
+		expect(response.status).toBe(400);
+		expect(response.headers.get("Location")).toBeNull();
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(limiter).not.toHaveBeenCalled();
+	});
+	it("rejects an insecure receipt origin before storage", async () => {
+		const response = await agentReviewRoutes.request(
+			"https://api.example.test/",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload()),
+			},
+			{ ...env(), API_URL: "http://api.example.test" },
+		);
+		expect(response.status).toBe(503);
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
+	it("rejects a filled honeypot before storage or wake", async () => {
+		expect(
+			(await post({ ...payload(), website: "https://spam.example.test" }))
+				.status,
+		).toBe(400);
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(mocks.inject).not.toHaveBeenCalled();
+		expect((await post({ ...payload(), website: "" })).status).toBe(201);
+	});
+	it("enforces actual streamed bytes even with a dishonest Content-Length", async () => {
+		const body = `${JSON.stringify(payload())}${" ".repeat(32 * 1024)}`;
+		const response = await agentReviewRoutes.request(
+			"https://api.example.test/",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json", "Content-Length": "1" },
+				body,
+			},
+			env(),
+		);
+		expect(response.status).toBe(413);
+		expect(mocks.create).not.toHaveBeenCalled();
+	});
+	it("returns an unguessable receipt that shows only received", async () => {
+		const response = await post();
+		const receipt = await response.json();
+		expect(Object.keys(receipt).sort()).toEqual(["receiptUrl", "status"]);
+		const id = new URL(receipt.receiptUrl).pathname.split("/").at(-1);
+		expect(id).toMatch(
+			/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+		);
+		const read = await agentReviewRoutes.request(
+			`https://api.example.test/${id}`,
+			{},
+			env(),
+		);
+		expect(await read.text()).toBe("received");
+		expect(read.headers.get("Cache-Control")).toBe("no-store");
+		expect(read.headers.get("Referrer-Policy")).toBe("no-referrer");
+	});
+	it("redacts structured feedback and never logs a submitted body", async () => {
+		const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+		const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await post({
+				...payload(),
+				feedback: {
+					...feedback,
+					projectContext:
+						"email demo@example.test password=private-secret-value",
+				},
+			});
+			const saved = mocks.create.mock.calls[0]![1];
+			expect(saved.metadata.feedback.projectContext).not.toContain(
+				"demo@example.test",
+			);
+			expect(saved.metadata.feedback.projectContext).not.toContain(
+				"private-secret-value",
+			);
+			mocks.project.mockRejectedValueOnce(new Error(payload().reportMarkdown));
+			expect((await post()).status).toBe(503);
+			const logged = JSON.stringify([
+				logs.mock.calls,
+				warnings.mock.calls,
+				errors.mock.calls,
+			]);
+			expect(logged).not.toContain("demo@example.test");
+			expect(logged).not.toContain("sample-sensitive-value");
+			const wake = mocks.inject.mock.calls[0]![1].message;
+			expect(wake).toContain("Never publish");
+			expect(wake).toContain("same Agent reviews project");
+			expect(wake).not.toContain("sample-sensitive-value");
+		} finally {
+			logs.mockRestore();
+			warnings.mockRestore();
+			errors.mockRestore();
+		}
 	});
 });
