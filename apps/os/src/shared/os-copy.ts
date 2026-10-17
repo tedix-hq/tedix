@@ -1,9 +1,12 @@
+import type { WorkItemKind } from "@tedix/api-contract/schemas/work-items";
+import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
+
 /** Generic OS wording. Names and tenant-specific content come from records. */
 export const OS_COPY = {
 	work: {
 		status: "Status",
 		owner: "Owner",
-		unassigned: "Unassigned",
+		unassigned: ATTENTION_COPY.unassigned,
 		ownerUnavailable: "Owner name unavailable",
 		proposed: "Proposed — waiting for the owner to accept",
 		needsAcceptance: (name: string) =>
@@ -11,6 +14,8 @@ export const OS_COPY = {
 		accept: "Accept",
 		accepting: "Accepting…",
 		acceptError: "Could not accept this task. Please try again.",
+		ready: ATTENTION_COPY.readyToPickUp,
+		waitingNextStep: "Waiting for the next step",
 		atAGlance: "At a glance",
 		due: "Due",
 		noDue: "No due date",
@@ -36,6 +41,7 @@ export const OS_COPY = {
 			research: "Research task",
 			operations: "Operations task",
 			communication: "Conversation and follow-up",
+			outbound: "Outreach and follow-up",
 			browser: "Web task",
 			design: "Design task",
 			document: "Document to prepare",
@@ -44,6 +50,6 @@ export const OS_COPY = {
 			legal: "Legal task",
 			stewardship: "Care and maintenance",
 			other: "Task",
-		},
+		} satisfies Record<WorkItemKind, string>,
 	},
 } as const;

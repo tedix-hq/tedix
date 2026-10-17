@@ -590,7 +590,7 @@ export function WorkItemStatusSummary({
 				</div>
 			) : disposition === "accepted" ? (
 				<Text as="p" tone="secondary">
-					{readiness?.ready ? "Ready to start" : "Waiting for the next step"}
+					{readiness?.ready ? OS_COPY.work.ready : OS_COPY.work.waitingNextStep}
 				</Text>
 			) : null}
 		</div>
