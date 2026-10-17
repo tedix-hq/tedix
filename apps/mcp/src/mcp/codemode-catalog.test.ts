@@ -17,6 +17,7 @@ import { executeCatalogOperation } from "./codemode";
 import { describe, expect, it, vi } from "vite-plus/test";
 import * as z from "zod";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
+import { createNativeDescriptorLookup } from "./registration/bootstrap";
 
 import {
 	buildCatalogProvider,
@@ -2242,4 +2243,56 @@ it("retains policy-hidden identity for describe without registering or exposing 
 	await expect(describe.execute("provider.create_payment")).rejects.toThrow(
 		"exists but is hidden by this connection's no-funds payment policy (connect). Use a payment-enabled connection for provider with the required tool scopes. Additional OAuth grants on Connect cannot lift this connection policy.",
 	);
+});
+
+it("builds native catalog descriptors with linear registry reads", () => {
+	const ctx: ServerContext = {
+		...buildLargeServerCtx(1_500),
+		callerIdentity: { authType: "oauth", scopes: ["mcp:apps.read"] },
+	};
+	let reads = 0;
+	for (const [toolId, row] of ctx.loadedTools) {
+		Object.defineProperty(row, "toolId", {
+			get() {
+				reads++;
+				return toolId;
+			},
+		});
+	}
+	buildCatalogProvider(ctx, undefined);
+	// Count actual registry work, independent of machine speed or GC timing.
+	expect(reads).toBeLessThan(ctx.loadedTools.size * 30);
+});
+
+it("indexed native descriptors reject duplicate names and retain current caller scopes", () => {
+	const row = tool({
+		toolId: "work__list_items",
+		config: {
+			transport: "rpc",
+			endpoint: "workItems/list",
+			nativeDirect: true,
+			_aggregateNamespace: "work",
+		},
+	});
+	const ctx = {
+		appSlug: "gateway",
+		callerIdentity: { authType: "oauth", scopes: ["mcp:work.read"] },
+		appMetadata: {
+			mcpConfig: { toolScopes: { [row.toolId]: ["mcp:work.read"] } },
+		},
+	} as unknown as ServerContext;
+	const duplicate = { ...row, id: "duplicate-row" };
+	const describeDuplicate = createNativeDescriptorLookup(ctx, [row, duplicate]);
+	expect(describeDuplicate(row)).toMatchObject({ eligible: false });
+	expect(describeDuplicate(duplicate)).toMatchObject({ eligible: false });
+	const describeUnique = createNativeDescriptorLookup(ctx, [row]);
+	expect(describeUnique(row)).toMatchObject({
+		eligible: true,
+		authorized: true,
+	});
+	ctx.callerIdentity!.scopes = [];
+	expect(describeUnique(row)).toMatchObject({
+		eligible: true,
+		authorized: false,
+	});
 });
