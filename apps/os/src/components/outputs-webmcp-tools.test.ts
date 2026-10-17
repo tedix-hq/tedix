@@ -8,7 +8,7 @@ import {
 } from "@/components/outputs-webmcp-tools";
 import { osApi } from "@/lib/api";
 import { osQueryKeys, outputDetailQueryOptions } from "@/lib/os-query-options";
-import { richTextFromBlocks } from "@/lib/output-models";
+import { markdownDocument } from "@tedix/api-contract/utils/os-document";
 import type { ModelContextLike } from "@tedix/webmcp-core/model-context";
 import {
 	registerWebMcpScope,
@@ -252,7 +252,7 @@ describe("buildOutputsWebMcpTools", () => {
 			content: {
 				kind: "document",
 				blocks: expectedBlocks,
-				richText: richTextFromBlocks(expectedBlocks),
+				richText: markdownDocument(markdown),
 			},
 			expectedRevision: 3,
 			note: "agent edit",

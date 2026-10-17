@@ -1,3 +1,4 @@
+import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 /** A bounded, source-free document projection for an explicit Home selection. */
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
@@ -65,7 +66,7 @@ export function projectWorkspaceDocument(input: {
 				: [
 						block.type === "heading"
 							? `${"#".repeat(block.level)} ${block.text}`
-							: block.text,
+							: documentBlockText(block).join("\n"),
 					];
 		for (const line of lines) {
 			const next = `${text ? "\n\n" : ""}${line}`;

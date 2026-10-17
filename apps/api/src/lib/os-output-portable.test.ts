@@ -1,3 +1,5 @@
+import { normalizeOsOutputInput } from "@tedix/api-contract/utils/os-document";
+import { buildDocx } from "./ooxml/docx";
 import type {
 	OsOutputContent,
 	OsRichTextNode,
@@ -129,7 +131,7 @@ describe("portable document exports", () => {
 			"<br>",
 			'<ol start="4">',
 			"<blockquote>",
-			"<pre><code>",
+			'<pre><code data-language="ts">',
 			"<hr>",
 			'alt="Proof &quot;image&quot;"',
 			'height="80"',
@@ -393,4 +395,32 @@ describe("PPTX bullet parity", () => {
 			expect(xml).toContain(`<a:spcPct val="${compact ? 145000 : 150000}"/>`);
 		},
 	);
+});
+
+it("exports native document tables to Markdown, HTML and Word", async () => {
+	const content = normalizeOsOutputInput(
+		"| Name | Goal |\n| --- | ---: |\n| **Factory** | [Ship](https://example.test) |\n| A \\| B | <script> |",
+	);
+	if (content.kind !== "document") throw new Error("document expected");
+	const markdown = renderOsDocumentMarkdown(content);
+	expect(markdown).toContain("| Name | Goal |\n| --- | ---: |");
+	expect(markdown).toContain("**Factory**");
+	expect(markdown).toContain("A \\| B");
+	const html = renderOsOutputHtml(
+		{ kind: "document", title: "Plan" },
+		{ revision: 1, createdAt: "today", content },
+	);
+	expect(html).toContain("<table");
+	expect(html).toContain("<th ");
+	expect(html).toContain("<strong>Factory</strong>");
+	expect(html).not.toContain("<script>");
+	const files = unzipSync(await buildDocx(content, "Plan"));
+	const xml = strFromU8(files["word/document.xml"]!);
+	expect(xml).toContain("<w:tbl>");
+	expect(xml).toContain("<w:tblHeader/>");
+	expect(xml).toContain("<w:tr>");
+	expect(xml).toContain("<w:tc>");
+	expect(xml).toContain("Factory");
+	expect(xml).toContain('w:val="right"');
+	expect(xml).toContain("<w:b/>");
 });

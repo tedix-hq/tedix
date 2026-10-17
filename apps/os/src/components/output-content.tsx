@@ -21,11 +21,11 @@ import {
 	activeWorkbookSheet,
 	INDENT_STEP_PX,
 	MAX_INDENT,
-	normalizeDocumentContent,
 	normalizePresentationContent,
 	normalizeSheetContent,
 	safeImageSource,
 } from "@/lib/output-models";
+import { normalizeDocumentContent } from "@tedix/api-contract/utils/os-document";
 import { evaluateWorkbook, formatWorkbookValue } from "@/lib/workbook-formulas";
 
 export function OutputContentView({
@@ -103,7 +103,7 @@ function RichNode({
 				case "link": {
 					const href = mark.attrs?.href;
 					child =
-						typeof href === "string" && /^https?:\/\//i.test(href) ? (
+						typeof href === "string" && /^(https?:\/\/|mailto:)/i.test(href) ? (
 							<a key={key} href={href} target="_blank" rel="noreferrer">
 								{child}
 							</a>
@@ -185,12 +185,99 @@ function RichNode({
 				</Tag>
 			);
 		}
+		case "table": {
+			const first = node.content?.[0]?.content ?? [];
+			const header =
+				first.length > 0 && first.every((cell) => cell.type === "tableHeader");
+			const rows = node.content ?? [];
+			const renderRow = (row: OsRichTextNode, index: number) => (
+				<RichNode key={index} node={row} nodeKey={`${nodeKey}-${index}`} />
+			);
+			return (
+				<div
+					className="document-table-scroll"
+					role="region"
+					aria-label="Document table"
+					tabIndex={0}
+				>
+					<table>
+						<colgroup>
+							{first.map((cell, index) => {
+								const width = Array.isArray(cell.attrs?.colwidth)
+									? Number(cell.attrs.colwidth[0])
+									: 0;
+								return (
+									<col
+										key={index}
+										style={width >= 40 && width <= 2000 ? { width } : undefined}
+									/>
+								);
+							})}
+						</colgroup>
+						{header && <thead>{renderRow(rows[0]!, 0)}</thead>}
+						<tbody>{rows.slice(header ? 1 : 0).map(renderRow)}</tbody>
+					</table>
+				</div>
+			);
+		}
+		case "tableRow":
+			return <tr>{children}</tr>;
+		case "tableHeader":
+		case "tableCell": {
+			const Tag = node.type === "tableHeader" ? "th" : "td";
+			return (
+				<Tag
+					scope={Tag === "th" ? "col" : undefined}
+					colSpan={Math.max(1, Math.min(64, Number(node.attrs?.colspan) || 1))}
+					rowSpan={Math.max(
+						1,
+						Math.min(1000, Number(node.attrs?.rowspan) || 1),
+					)}
+				>
+					{children}
+				</Tag>
+			);
+		}
+		case "callout":
+			return <aside data-type="callout">{children}</aside>;
+		case "details":
+			return <details open={node.attrs?.open === true}>{children}</details>;
+		case "detailsSummary":
+			return <summary>{children}</summary>;
+		case "detailsContent":
+			return <div>{children}</div>;
+		case "taskList":
+			return <ul data-type="taskList">{children}</ul>;
+		case "taskItem":
+			return (
+				<li data-type="taskItem">
+					<label>
+						<input
+							type="checkbox"
+							checked={node.attrs?.checked === true}
+							readOnly
+							aria-label="Checklist item"
+						/>
+					</label>
+					<div>{children}</div>
+				</li>
+			);
+		case "hardBreak":
+			return <br />;
 		case "paragraph":
 			return <p style={style}>{children}</p>;
 		case "bulletList":
 			return <ul>{children}</ul>;
 		case "orderedList":
-			return <ol>{children}</ol>;
+			return (
+				<ol
+					start={
+						typeof node.attrs?.start === "number" ? node.attrs.start : undefined
+					}
+				>
+					{children}
+				</ol>
+			);
 		case "listItem":
 			return <li>{children}</li>;
 		case "blockquote":

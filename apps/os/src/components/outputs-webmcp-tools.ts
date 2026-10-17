@@ -1,3 +1,9 @@
+import * as z from "zod";
+import { OsDocumentBlockSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	blocksFromRichText,
+	markdownDocument,
+} from "@tedix/api-contract/utils/os-document";
 import type { QueryClient } from "@tanstack/react-query";
 // The contract module is pure zod/oRPC metadata — safe at module scope (the
 // import-inertness rule bans only the app-bootstrap modules).
@@ -6,8 +12,6 @@ import type {
 	OsDocumentBlock,
 	OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
-// Pure module: only type imports in its chain — safe at module scope.
-import { richTextFromBlocks } from "@/lib/output-models";
 import type {
 	WebMcpToolDef,
 	WebMcpToolExecuteOptions,
@@ -33,7 +37,7 @@ import { errorMessage } from "@tedix/worker-kit/error-message";
  * Prefer collaboration proposals discovered through Code Mode for workspace edits.
  *
  * Full-body revision writes stay document-only on purpose: the document block
- * vocabulary (heading/paragraph/list/code/quote) supports a markdown projection;
+ * vocabulary supports a markdown projection;
  * replacing it can discard richer formatting absent from that projection.
  * Sheets and presentations are edited through the finer-grained
  * patch verbs instead — patch_slides, patch_document, and set_sheet_range —
@@ -173,6 +177,26 @@ export function documentBlocksToMarkdown(
 						.join("\n");
 				case "code":
 					return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
+				case "table":
+					return [block.headers, ...block.rows]
+						.map(
+							(row, i) =>
+								`| ${row.map((cell) => cell.replace(/\|/g, "\\|").replace(/\n/g, "<br>")).join(" | ")} |` +
+								(i === 0
+									? `\n| ${block.headers.map(() => "---").join(" | ")} |`
+									: ""),
+						)
+						.join("\n");
+				case "checklist":
+					return block.items
+						.map((item) => `- [${item.checked ? "x" : " "}] ${item.text}`)
+						.join("\n");
+				case "divider":
+					return "---";
+				case "callout":
+					return `> ${block.text}`;
+				case "toggle":
+					return `### ${block.summary}\n\n${block.text}`;
 				case "quote":
 					return block.text
 						.split("\n")
@@ -183,88 +207,8 @@ export function documentBlocksToMarkdown(
 		.join("\n\n");
 }
 
-const STRUCTURAL_LINE = /^(#{1,4}\s|```|>\s?|[-*]\s+|\d+[.)]\s+)/;
-const BULLET_ITEM = /^[-*]\s+/;
-const ORDERED_ITEM = /^\d+[.)]\s+/;
-
-/**
- * Parse markdown back into the same block vocabulary
- * {@link documentBlocksToMarkdown} emits, mirroring the schema's bounds the
- * way `blocksFromRichText` does. Inline formatting stays literal text —
- * exactly how the editor's block projection stores it.
- */
 export function markdownToDocumentBlocks(markdown: string): OsDocumentBlock[] {
-	const blocks: OsDocumentBlock[] = [];
-	const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-	let index = 0;
-	while (index < lines.length && blocks.length < 500) {
-		const line = lines[index]!;
-		if (line.trim() === "") {
-			index += 1;
-			continue;
-		}
-		const fence = line.match(/^```(\S*)\s*$/);
-		if (fence) {
-			index += 1;
-			const code: string[] = [];
-			while (index < lines.length && !/^```\s*$/.test(lines[index]!)) {
-				code.push(lines[index]!);
-				index += 1;
-			}
-			index += 1; // closing fence (or end of input)
-			blocks.push({
-				type: "code",
-				...(fence[1] ? { language: fence[1].slice(0, 60) } : {}),
-				text: code.join("\n").slice(0, 40_000),
-			});
-			continue;
-		}
-		const heading = line.match(/^(#{1,4})\s+(.*)$/);
-		if (heading) {
-			blocks.push({
-				type: "heading",
-				level: heading[1]!.length,
-				text: heading[2]!.trim().slice(0, 2_000),
-			});
-			index += 1;
-			continue;
-		}
-		if (/^>\s?/.test(line)) {
-			const quote: string[] = [];
-			while (index < lines.length && /^>\s?/.test(lines[index]!)) {
-				quote.push(lines[index]!.replace(/^>\s?/, ""));
-				index += 1;
-			}
-			blocks.push({ type: "quote", text: quote.join("\n").slice(0, 20_000) });
-			continue;
-		}
-		if (BULLET_ITEM.test(line) || ORDERED_ITEM.test(line)) {
-			const ordered = ORDERED_ITEM.test(line);
-			const marker = ordered ? ORDERED_ITEM : BULLET_ITEM;
-			const items: string[] = [];
-			while (index < lines.length && marker.test(lines[index]!)) {
-				items.push(lines[index]!.replace(marker, "").trim().slice(0, 2_000));
-				index += 1;
-			}
-			blocks.push({ type: "list", ordered, items: items.slice(0, 200) });
-			continue;
-		}
-		const paragraph: string[] = [line];
-		index += 1;
-		while (
-			index < lines.length &&
-			lines[index]!.trim() !== "" &&
-			!STRUCTURAL_LINE.test(lines[index]!)
-		) {
-			paragraph.push(lines[index]!);
-			index += 1;
-		}
-		blocks.push({
-			type: "paragraph",
-			text: paragraph.join("\n").slice(0, 20_000),
-		});
-	}
-	return blocks;
+	return blocksFromRichText(markdownDocument(markdown));
 }
 
 /**
@@ -272,7 +216,7 @@ export function markdownToDocumentBlocks(markdown: string): OsDocumentBlock[] {
  * into a real OsDocumentBlock, applying the exact truncation bounds
  * {@link markdownToDocumentBlocks} applies — the module's one
  * block-construction path, just fed structured fields instead of markdown
- * lines. Returns null for a shape that is not one of the five block kinds.
+ * lines. New structural blocks use the canonical schema.
  */
 function simplifiedBlockToDocumentBlock(
 	value: unknown,
@@ -318,8 +262,13 @@ function simplifiedBlockToDocumentBlock(
 		case "quote":
 			if (text === "") return null;
 			return { type: "quote", text: text.slice(0, 20_000) };
-		default:
-			return null;
+		default: {
+			const parsed = OsDocumentBlockSchema.safeParse({
+				...block,
+				type: block["kind"],
+			});
+			return parsed.success ? parsed.data : null;
+		}
 	}
 }
 
@@ -467,57 +416,19 @@ const SLIDE_OUTLINE_SCHEMA = {
 
 /** The simplified block vocabulary patch_document accepts (kind + text/items). */
 const DOCUMENT_BLOCK_SCHEMA = {
-	oneOf: [
-		{
-			type: "object",
-			properties: {
-				kind: { const: "heading" },
-				level: { type: "integer", minimum: 1, maximum: 4 },
-				text: { type: "string", maxLength: 2000 },
-			},
-			required: ["kind", "text"],
-		},
-		{
-			type: "object",
-			properties: {
-				kind: { const: "paragraph" },
-				text: { type: "string", maxLength: 20_000 },
-			},
-			required: ["kind", "text"],
-		},
-		{
-			type: "object",
-			properties: {
-				kind: { const: "list" },
-				ordered: { type: "boolean" },
-				items: {
-					type: "array",
-					minItems: 1,
-					maxItems: 200,
-					items: { type: "string", maxLength: 2000 },
-				},
-			},
-			required: ["kind", "items"],
-		},
-		{
-			type: "object",
-			properties: {
-				kind: { const: "code" },
-				language: { type: "string", maxLength: 60 },
-				text: { type: "string", maxLength: 40_000 },
-			},
-			required: ["kind", "text"],
-		},
-		{
-			type: "object",
-			properties: {
-				kind: { const: "quote" },
-				text: { type: "string", maxLength: 20_000 },
-			},
-			required: ["kind", "text"],
-		},
-	],
-} as const;
+	oneOf: OsDocumentBlockSchema.options.map((option) => {
+		const schema = z.toJSONSchema(option, { io: "input" });
+		const { type, ...properties } = schema.properties ?? {};
+		delete schema.$schema;
+		return {
+			...schema,
+			properties: { kind: type, ...properties },
+			required: (schema.required ?? []).map((key) =>
+				key === "type" ? "kind" : key,
+			),
+		};
+	}),
+};
 
 // ── Derived CAS write schemas ────────────────────────────────────────────────
 // Each derives its shared fields (outputId, expectedRevision, note — and
@@ -548,7 +459,7 @@ const REVISE_OUTPUT_SCHEMA = deriveToolSchema(
 				type: "string",
 				maxLength: 200_000,
 				description:
-					"Full replacement body as markdown (headings #–####, paragraphs, -/1. lists, ``` code fences, > quotes). This replaces the whole document, so include unchanged sections.",
+					"Full replacement body as Markdown (headings, GFM tables, checklists, nested lists, code fences, quotes and links). This replaces the whole document, so include unchanged sections.",
 			},
 		},
 	},
@@ -831,13 +742,13 @@ export function buildOutputsWebMcpTools(
 				if (expectedRevision === null) {
 					return webMcpError(MISSING_EXPECTED_REVISION);
 				}
-				const blocks = markdownToDocumentBlocks(args["content"]);
-				// Same shape the visible editor saves: blocks stay the semantic
-				// projection and richText is derived from them (normalizeDocumentContent).
+				const richText = markdownDocument(args["content"]);
+				const blocks = blocksFromRichText(richText);
+				// Keep the parsed tree so nested lists and inline cell formatting survive.
 				const content: OsOutputContent = {
 					kind: "document",
 					blocks,
-					richText: richTextFromBlocks(blocks),
+					richText,
 				};
 				const note = optionalString(args["note"])?.trim();
 				const runtime = await loadRuntime();

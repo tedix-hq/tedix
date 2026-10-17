@@ -1,3 +1,4 @@
+import { richTextFromBlocks } from "@tedix/api-contract/utils/os-document";
 import type {
 	OsOutputContent,
 	OsRichTextNode,
@@ -63,6 +64,51 @@ function markdownNode(node: OsRichTextNode): string {
 	switch (node.type) {
 		case "doc":
 			return children;
+		case "table": {
+			const rows = node.content ?? [];
+			if (!rows.length) return "";
+			const rowText = (row: OsRichTextNode) =>
+				`| ${(row.content ?? [])
+					.map((cell) =>
+						markdownNode(cell)
+							.trim()
+							.replace(/(?<!\\)\|/g, "\\|")
+							.replace(/\r?\n/g, "<br>"),
+					)
+					.join(" | ")} |`;
+			const header = rows[0]!;
+			const separator = `| ${(header.content ?? [])
+				.map((cell) => {
+					const align = cell.content?.[0]?.attrs?.textAlign;
+					return align === "center"
+						? ":---:"
+						: align === "right"
+							? "---:"
+							: "---";
+				})
+				.join(" | ")} |`;
+			return (
+				[rowText(header), separator, ...rows.slice(1).map(rowText)].join("\n") +
+				"\n\n"
+			);
+		}
+		case "callout":
+			return `> [!NOTE]\n${children
+				.trimEnd()
+				.split("\n")
+				.map((line) => `> ${line}`)
+				.join("\n")}\n\n`;
+		case "details":
+			return `${renderRichTextNode(node)}\n\n`;
+		case "taskList":
+			return (
+				(node.content ?? [])
+					.map(
+						(item) =>
+							`- [${item.attrs?.checked === true ? "x" : " "}] ${markdownNode(item).trim()}`,
+					)
+					.join("\n") + "\n\n"
+			);
 		case "heading":
 			return `${"#".repeat(Math.min(6, Math.max(1, Math.trunc(Number(node.attrs?.level) || 2))))} ${children}\n\n`;
 		case "paragraph":
@@ -117,31 +163,9 @@ function markdownNode(node: OsRichTextNode): string {
 export function renderOsDocumentMarkdown(
 	content: Extract<OsOutputContent, { kind: "document" }>,
 ): string {
-	if (content.richText) return markdownNode(content.richText).trimEnd() + "\n";
 	return (
-		content.blocks
-			.map((block) => {
-				switch (block.type) {
-					case "heading":
-						return `${"#".repeat(block.level)} ${escapeMarkdown(block.text)}\n\n`;
-					case "paragraph":
-						return `${escapeMarkdown(block.text)}\n\n`;
-					case "quote":
-						return `${escapeMarkdown(block.text)
-							.split("\n")
-							.map((line) => `> ${line}`)
-							.join("\n")}\n\n`;
-					case "list":
-						return `${block.items.map((item, index) => `${block.ordered ? `${index + 1}.` : "-"} ${escapeMarkdown(item)}`).join("\n")}\n\n`;
-					case "code":
-						return markdownNode({
-							type: "codeBlock",
-							attrs: { language: block.language ?? "" },
-							content: [{ type: "text", text: block.text }],
-						});
-				}
-			})
-			.join("")
-			.trimEnd() + "\n"
+		markdownNode(
+			content.richText ?? richTextFromBlocks(content.blocks),
+		).trimEnd() + "\n"
 	);
 }

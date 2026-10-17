@@ -1,3 +1,4 @@
+import { normalizeOsOutputInput } from "@tedix/api-contract/utils/os-document";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import {
 	getOrganizationProfile,
@@ -254,10 +255,22 @@ function emptyOutputContent(kind: OsOutputKind): OsOutputContent {
 	}
 }
 
+function normalizeOutputBody(input: OsOutputContent | string): OsOutputContent {
+	const parsed = OsOutputContentSchema.safeParse(normalizeOsOutputInput(input));
+	if (!parsed.success)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			`Document content exceeds the output schema: ${parsed.error.issues[0]?.message ?? "invalid"}`,
+		);
+	return parsed.data;
+}
+
 const outputsCreate = authorOs.outputs.create.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
-		const content = input.content ?? emptyOutputContent(input.kind);
+		const content = normalizeOutputBody(
+			input.content ?? emptyOutputContent(input.kind),
+		);
 		if (content.kind !== input.kind) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -361,11 +374,18 @@ const outputsRename = authorOs.outputs.rename.handler(
 const outputsRevise = authorOs.outputs.revise.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
-		await requireCurrentOutputRevision(context, output);
-		if (input.content.kind !== output.kind) {
+		const base = await requireCurrentOutputRevision(context, output);
+		if (input.expectedRevisionId && input.expectedRevisionId !== base.id)
+			throw revisionConflict(
+				"Output",
+				input.expectedRevision ?? 0,
+				base.revision,
+			);
+		const content = normalizeOutputBody(input.content);
+		if (content.kind !== output.kind) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				`Content body is ${input.content.kind} but the output is ${output.kind}`,
+				`Content body is ${content.kind} but the output is ${output.kind}`,
 			);
 		}
 		const creator = resolveCreator(context);
@@ -375,13 +395,15 @@ const outputsRevise = authorOs.outputs.revise.handler(
 			id: crypto.randomUUID(),
 			organizationId: output.organizationId,
 			outputId: output.id,
-			content: JSON.stringify(input.content),
+			content: JSON.stringify(content),
 			note: input.note ?? null,
 			createdByKind: creator.kind,
 			createdById: creator.id,
 			...resolveProducer(context),
 			accessEnvelope,
-			expectedRevision: input.expectedRevision,
+			expectedRevision:
+				input.expectedRevision ??
+				(input.expectedRevisionId ? base.revision : undefined),
 		});
 		if (!result.ok) {
 			if (result.reason === "output_not_found") {

@@ -426,3 +426,35 @@ describe("deck read view keys", () => {
 		mounted.cleanup();
 	});
 });
+
+it("renders structured tables, task lists, callouts and toggles", () => {
+	const html = renderToStaticMarkup(
+		<OutputContentView
+			content={{
+				kind: "document",
+				blocks: [
+					{
+						type: "table",
+						headers: ["Name", "Goal"],
+						rows: [["**Factory**", "[Ship](https://example.test)"]],
+						widths: [160, 240],
+						align: ["left", "right"],
+					},
+					{ type: "checklist", items: [{ text: "Review", checked: true }] },
+					{ type: "callout", text: "Note" },
+					{ type: "toggle", summary: "More", text: "Details" },
+				],
+			}}
+		/>,
+	);
+	expect(html).toContain("<thead>");
+	expect(html).toContain('<th scope="col"');
+	expect(html).toContain("<strong>Factory</strong>");
+	expect(html).toContain("width:160px");
+	expect(html).toContain("text-align:right");
+	expect(html).toContain('class="document-table-scroll"');
+	expect(html).toContain("<details>");
+	expect(html).toContain("<summary>More</summary>");
+	expect(html).toContain('type="checkbox"');
+	expect(html).toContain('data-type="callout"');
+});

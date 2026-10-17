@@ -1,3 +1,4 @@
+import { richTextFromBlocks } from "@tedix/api-contract/utils/os-document";
 /**
  * `.docx` (WordprocessingML) written straight from a document output's content
  * model.
@@ -10,7 +11,6 @@
  */
 
 import type {
-	OsDocumentBlock,
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
@@ -98,32 +98,6 @@ function paragraphXml(runs: string, options: ParagraphOptions = {}): string {
 
 function headingStyle(level: number): string {
 	return `Heading${Math.min(Math.max(Math.trunc(level), 1), 4)}`;
-}
-
-function blockParagraphs(block: OsDocumentBlock): string[] {
-	switch (block.type) {
-		case "heading":
-			return [
-				paragraphXml(runXml(block.text), { style: headingStyle(block.level) }),
-			];
-		case "paragraph":
-			return [paragraphXml(runXml(block.text))];
-		case "quote":
-			return [paragraphXml(runXml(block.text), { style: "Quote" })];
-		case "code":
-			return block.text
-				.split("\n")
-				.map((line) =>
-					paragraphXml(runXml(line, { code: true }), { style: "CodeBlock" }),
-				);
-		case "list":
-			return block.items.map((item) =>
-				paragraphXml(runXml(item), {
-					style: "ListParagraph",
-					numId: block.ordered ? ORDERED_NUM_ID : BULLET_NUM_ID,
-				}),
-			);
-	}
 }
 
 /** Collect the inline runs of a Tiptap node's children. */
@@ -259,6 +233,47 @@ function richTextParagraphs(
 	const indent = Number(node.attrs?.indent);
 	if (indent > 0) inherited = { ...inherited, indent };
 	switch (node.type) {
+		case "table": {
+			const rows = (node.content ?? [])
+				.map(
+					(row) =>
+						`<w:tr>${(row.content ?? []).some((cell) => cell.type === "tableHeader") ? "<w:trPr><w:tblHeader/></w:trPr>" : ""}${(
+							row.content ?? []
+						)
+							.map((cell) => {
+								const width = Array.isArray(cell.attrs?.colwidth)
+									? Number(cell.attrs.colwidth[0])
+									: 0;
+								const span = Math.max(
+									1,
+									Math.min(64, Number(cell.attrs?.colspan) || 1),
+								);
+								const body = (cell.content ?? []).flatMap((child) =>
+									richTextParagraphs(child, assets),
+								);
+								return `<w:tc><w:tcPr>${width >= 40 && width <= 2000 ? `<w:tcW w:w="${Math.round(width * 15)}" w:type="dxa"/>` : ""}${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ""}${cell.type === "tableHeader" ? '<w:shd w:fill="EEEEEE"/>' : ""}</w:tcPr>${body.join("") || "<w:p/>"}</w:tc>`;
+							})
+							.join("")}</w:tr>`,
+				)
+				.join("");
+			return [
+				`<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>${["top", "left", "bottom", "right", "insideH", "insideV"].map((edge) => `<w:${edge} w:val="single" w:sz="4" w:color="888888"/>`).join("")}</w:tblBorders></w:tblPr>${rows}</w:tbl>`,
+			];
+		}
+		case "taskList":
+			return (node.content ?? []).flatMap((item) =>
+				(item.content ?? []).flatMap((child, index) =>
+					child.type === "paragraph" && index === 0
+						? [
+								paragraphXml(
+									runXml(item.attrs?.checked === true ? "☑ " : "☐ ") +
+										inlineRuns(child.content, assets),
+									inherited,
+								),
+							]
+						: richTextParagraphs(child, assets, inherited),
+				),
+			);
 		case "heading": {
 			const level = Number(node.attrs?.level ?? 1);
 			return [
@@ -437,11 +452,8 @@ export async function buildDocx(
 	title: string,
 ): Promise<Uint8Array> {
 	const assets: DocumentAssets = { links: [], images: [] };
-	const rich = content.richText?.content ?? [];
-	const body =
-		rich.length > 0
-			? rich.flatMap((node) => richTextParagraphs(node, assets))
-			: content.blocks.flatMap(blockParagraphs);
+	const rich = (content.richText ?? richTextFromBlocks(content.blocks)).content;
+	const body = rich.flatMap((node) => richTextParagraphs(node, assets));
 	const heading = paragraphXml(runXml(title), { style: "Heading1" });
 	const document =
 		`<w:document xmlns:w="${WORD_NS}" xmlns:r="${REL_NS}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>` +

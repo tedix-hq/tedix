@@ -1,3 +1,4 @@
+import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 import type {
 	OsCreatedByKind,
 	OsOutputContent,
@@ -56,7 +57,7 @@ export function outputLibraryPreview(
 	if (content.kind === "document") {
 		const lines: string[] = [];
 		for (const block of content.blocks) {
-			const values = block.type === "list" ? block.items : [block.text];
+			const values = documentBlockText(block);
 			for (const value of values) {
 				const line = compactPreviewText(value);
 				if (line) lines.push(line);

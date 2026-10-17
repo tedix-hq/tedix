@@ -1,3 +1,4 @@
+import { richTextFromBlocks } from "@tedix/api-contract/utils/os-document";
 /**
  * Print-friendly HTML rendering for Tedix OS output exports.
  *
@@ -17,7 +18,6 @@ import {
 	slideElementStyle,
 } from "@tedix/api-contract/utils/presentation-style";
 import type {
-	OsDocumentBlock,
 	OsOutput,
 	OsOutputContent,
 	OsOutputRevision,
@@ -86,30 +86,6 @@ export function escapeHtml(text: string): string {
 		/[&<>"']/g,
 		(character) => HTML_ESCAPES[character] ?? character,
 	);
-}
-
-function renderDocumentBlock(block: OsDocumentBlock): string {
-	switch (block.type) {
-		case "heading":
-			return `<h${block.level}>${escapeHtml(block.text)}</h${block.level}>`;
-		case "paragraph":
-			return `<p>${escapeHtml(block.text)}</p>`;
-		case "list": {
-			const tag = block.ordered ? "ol" : "ul";
-			const items = block.items
-				.map((item) => `<li>${escapeHtml(item)}</li>`)
-				.join("");
-			return `<${tag}>${items}</${tag}>`;
-		}
-		case "code": {
-			const language = block.language
-				? ` data-language="${escapeHtml(block.language)}"`
-				: "";
-			return `<pre><code${language}>${escapeHtml(block.text)}</code></pre>`;
-		}
-		case "quote":
-			return `<blockquote><p>${escapeHtml(block.text)}</p></blockquote>`;
-	}
 }
 
 function safeCssColor(value: string | undefined): string | undefined {
@@ -202,6 +178,38 @@ export function renderRichTextNode(node: OsRichTextNode): string {
 					: "";
 			return `<h${level}${title}${alignment}>${children}</h${level}>`;
 		}
+		case "table":
+			return `<table style="border-collapse:collapse;width:100%"><tbody>${children}</tbody></table>`;
+		case "tableRow":
+			return `<tr>${children}</tr>`;
+		case "tableHeader":
+		case "tableCell": {
+			const tag = node.type === "tableHeader" ? "th" : "td";
+			const width = Array.isArray(node.attrs?.colwidth)
+				? Number(node.attrs.colwidth[0])
+				: 0;
+			const colspan = Math.max(
+				1,
+				Math.min(64, Number(node.attrs?.colspan) || 1),
+			);
+			const rowspan = Math.max(
+				1,
+				Math.min(1000, Number(node.attrs?.rowspan) || 1),
+			);
+			return `<${tag} colspan="${colspan}" rowspan="${rowspan}" style="border:1px solid #888;padding:8px;vertical-align:top;${width >= 40 && width <= 2000 ? `width:${width}px;` : ""}${tag === "th" ? "background:#eee;" : ""}">${children}</${tag}>`;
+		}
+		case "callout":
+			return `<aside style="border-left:4px solid #888;padding:12px">${children}</aside>`;
+		case "details":
+			return `<details open>${children}</details>`;
+		case "detailsSummary":
+			return `<summary>${children}</summary>`;
+		case "detailsContent":
+			return `<div>${children}</div>`;
+		case "taskList":
+			return `<ul style="list-style:none">${children}</ul>`;
+		case "taskItem":
+			return `<li>${node.attrs?.checked === true ? "☑" : "☐"} ${children}</li>`;
 		case "paragraph":
 			return `<p${alignment}>${children}</p>`;
 		case "bulletList":
@@ -215,7 +223,7 @@ export function renderRichTextNode(node: OsRichTextNode): string {
 		case "blockquote":
 			return `<blockquote>${children}</blockquote>`;
 		case "codeBlock":
-			return `<pre${alignment}><code>${children}</code></pre>`;
+			return `<pre${alignment}><code${typeof node.attrs?.language === "string" && node.attrs.language ? ` data-language="${escapeHtml(node.attrs.language)}"` : ""}>${children}</code></pre>`;
 		case "horizontalRule":
 			return "<hr>";
 		case "hardBreak":
@@ -357,7 +365,7 @@ function renderBody(
 ): string {
 	switch (content.kind) {
 		case "document":
-			return `<article>${content.richText ? content.richText.content.map(renderRichTextNode).join("") : content.blocks.map(renderDocumentBlock).join("")}</article>`;
+			return `<article>${(content.richText ?? richTextFromBlocks(content.blocks)).content.map(renderRichTextNode).join("")}</article>`;
 		case "sheet":
 			return renderWorkbook(content);
 		case "presentation":

@@ -889,6 +889,56 @@ describe("gadgets", () => {
 });
 
 describe("outputs", () => {
+	it("rejects Markdown tables beyond the supported column bound as BAD_REQUEST", async () => {
+		const row = "|" + Array.from({ length: 65 }, () => "cell").join("|") + "|";
+		const separator =
+			"|" + Array.from({ length: 65 }, () => "---").join("|") + "|";
+		await expect(
+			c.org1.outputs.create({
+				kind: "document",
+				title: "Too wide",
+				content: [row, separator, row].join("\n"),
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("normalizes Markdown create and paragraph revise with exact revision CAS", async () => {
+		const made = await c.org1.outputs.create({
+			kind: "document",
+			title: "Structured",
+			content: "## Plan\n\n| Name | Goal |\n| --- | --- |\n| Factory | Ship |",
+		});
+		expect(made.revision.content).toMatchObject({
+			kind: "document",
+			blocks: [{ type: "heading" }, { type: "table" }],
+		});
+		const updated = await c.org1.outputs.revise({
+			outputId: made.output.id,
+			expectedRevisionId: made.revision.id,
+			content: {
+				kind: "document",
+				blocks: [
+					{
+						type: "paragraph",
+						text: "## Next\n\n| A | B |\n| --- | --- |\n| one | two |",
+					},
+				],
+			},
+		});
+		const read = await c.org1.outputs.get({ outputId: made.output.id });
+		expect(read.currentRevision.id).toBe(updated.revision.id);
+		expect(read.currentRevision.content).toMatchObject({
+			blocks: [{ type: "heading" }, { type: "table" }],
+		});
+		await expect(
+			c.org1.outputs.revise({
+				outputId: made.output.id,
+				expectedRevisionId: made.revision.id,
+				content: "Stale",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+	});
+
 	let c: ReturnType<typeof clients>;
 	beforeEach(() => {
 		mocks.authorizeDerivedOutputSources.mockReset().mockResolvedValue(true);
@@ -1039,10 +1089,7 @@ describe("outputs", () => {
 			.where(eq(osOutputRevisions.id, closed.revision.id));
 
 		const read = await c.org1.outputs.get({ outputId: readable.output.id });
-		expect(read.currentRevision.content).toEqual({
-			kind: "document",
-			blocks: [{ type: "paragraph", text: "internal only" }],
-		});
+		expect(read.currentRevision.content).toEqual(readable.revision.content);
 		await expect(
 			c.org1.outputs.get({ outputId: closed.output.id }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
