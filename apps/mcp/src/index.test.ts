@@ -1,15 +1,15 @@
-import type { CachedAppData } from "./mcp/server-factory";
 import {
-	CatalogueSearchInputJsonSchema,
 	CatalogueDescribeInputJsonSchema,
+	CatalogueSearchInputJsonSchema,
 } from "@tedix/api-contract/schemas/tools";
 import { describe, expect, it, vi } from "vite-plus/test";
+import type { CachedAppData } from "./mcp/server-factory";
 
-import worker, {
-	handleMcpRequest,
+import {
 	readAggregateActivationEpoch,
 	writeAggregateActivationEpoch,
-} from "./index";
+} from "./aggregate-surface";
+import worker, { handleMcpRequest } from "./index";
 
 const { resolveGateway } = vi.hoisted(() => ({ resolveGateway: vi.fn() }));
 vi.mock("./resolution", async (importOriginal) => ({

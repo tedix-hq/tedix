@@ -7,8 +7,8 @@
  * probe.
  */
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import type { AggregatedMcpSurface } from "./index";
-import { joinAggregateLoad } from "./index";
+import type { AggregatedMcpSurface } from "./aggregate-surface";
+import { joinAggregateLoad } from "./aggregate-surface";
 import { CACHE_TIER_BUDGET_MS } from "./lib/step-budget";
 
 function surface(toolCount: number): AggregatedMcpSurface {
