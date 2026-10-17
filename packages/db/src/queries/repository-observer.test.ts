@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
@@ -17,6 +18,22 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	for (const table of [workItems, workItemComments])
 		sqlite.exec(schemaDdl(table));
+	const migration = readFileSync(
+		new URL(
+			"../../drizzle/20260821020828_work_factory_external_session_fences/migration.sql",
+			import.meta.url,
+		),
+		"utf8",
+	);
+	const guard = migration
+		.split("--> statement-breakpoint")
+		.find((statement) =>
+			statement.includes(
+				"CREATE TRIGGER `work_items_admission_revision_insert_guard`",
+			),
+		);
+	if (!guard) throw new Error("Work admission revision insert guard missing");
+	sqlite.exec(guard);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 const event = {
