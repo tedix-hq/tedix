@@ -463,6 +463,9 @@ describe("ApprovalCard", () => {
 		expect(html).toContain("type-tedix-body");
 		expect(html).toContain("Approve");
 		expect(html).toContain("Reject");
+		expect(html).toContain("Decide for me");
+		expect(html).toContain("If you approve:");
+		expect(html).toContain("Recommended:");
 		expect(html).not.toContain('disabled=""');
 	});
 
@@ -471,7 +474,7 @@ describe("ApprovalCard", () => {
 			<ApprovalCard approval={approval()} resolving />,
 		);
 		const disabledCount = html.split('disabled=""').length - 1;
-		expect(disabledCount).toBe(2);
+		expect(disabledCount).toBe(3);
 	});
 
 	it("stays visibly pending — never flipped locally — until the kernel confirms", () => {

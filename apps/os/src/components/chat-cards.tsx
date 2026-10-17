@@ -1,3 +1,4 @@
+import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import {
 	ArrowCounterClockwise,
 	CaretRight,
@@ -885,7 +886,11 @@ export function ApprovalCard({
 }: {
 	approval: ApprovalCardData;
 	resolving?: boolean;
-	onResolve?: (approvalId: string, decision: "approve" | "reject") => void;
+	onResolve?: (
+		approvalId: string,
+		decision: "approve" | "reject",
+		delegateRecommendation?: boolean,
+	) => void;
 	onAlwaysApprove?: (approvalId: string, scopeKey: string) => void;
 }) {
 	const expired = approval.expired === true;
@@ -910,15 +915,26 @@ export function ApprovalCard({
 				<span className="mt-0.5 shrink-0 text-kumo-warning">
 					<ShieldWarning size={18} aria-hidden />
 				</span>
-				<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-					<Text
-						as="strong"
-						tone="strong"
-						weight="medium"
-						className="tracking-[-0.2px]"
-					>
-						{sanitizeUntrustedText(approval.summary)}
-					</Text>
+				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+					<details>
+						<summary>Technical details</summary>
+						<Text
+							as="strong"
+							tone="strong"
+							weight="medium"
+							className="tracking-[-0.2px]"
+						>
+							{sanitizeUntrustedText(approval.summary)}
+						</Text>
+					</details>
+					{actionable ? (
+						<ApprovalDecisionCopy
+							approval={{
+								actionType: "home_request",
+								review: { intent: "home_request" },
+							}}
+						/>
+					) : null}
 					<Text as="span" role="label" tone="secondary">
 						{approval.tediName
 							? sanitizeUntrustedText(approval.tediName)
@@ -936,21 +952,13 @@ export function ApprovalCard({
 							</>
 						) : null}
 					</Text>
-					{approval.detail && approval.detailDisclosure ? (
+					{approval.detail ? (
 						<details>
 							<summary className="cursor-pointer text-sm">Details</summary>
 							<pre className="whitespace-pre-wrap break-words text-sm">
 								{sanitizeUntrustedText(approval.detail)}
 							</pre>
 						</details>
-					) : approval.detail ? (
-						<Text
-							as="span"
-							role="label"
-							className="break-words [overflow-wrap:anywhere]"
-						>
-							{sanitizeUntrustedText(approval.detail)}
-						</Text>
 					) : null}
 					{expired ? (
 						<Text as="span" role="label" tone="error">
@@ -973,9 +981,16 @@ export function ApprovalCard({
 							Waiting for the kernel to confirm the decision…
 						</span>
 					) : null}
-				</span>
+				</div>
 				{actionable ? (
 					<span className="col-span-2 flex min-w-0 flex-wrap items-center justify-start gap-2 pl-[30px]">
+						<Button
+							size="sm"
+							disabled={resolving}
+							onClick={() => onResolve?.(approval.approvalId, "reject", true)}
+						>
+							Decide for me
+						</Button>
 						<Button
 							size="sm"
 							icon={<Check size={14} />}

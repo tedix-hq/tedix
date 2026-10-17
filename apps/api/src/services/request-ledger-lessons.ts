@@ -137,3 +137,33 @@ export async function recordLedgerLessonCandidates(
 		});
 	}
 }
+
+/** The corrected example is usable immediately; durable memory remains proposed. */
+export async function recordFilingCorrectionLesson(
+	db: DbClient,
+	event: import("@tedix/db/schema/learning-feedback").LearningInteractionEventRow,
+) {
+	const metadata = event.metadata;
+	if (
+		event.surface !== "request_filing" ||
+		event.eventKind !== "edited" ||
+		!metadata
+	)
+		return;
+	const projectId =
+		typeof metadata.projectId === "string" ? metadata.projectId : null;
+	await proposeLearningImprovement(db, {
+		organizationId: event.organizationId,
+		clientProposalId: `filing:${event.id}`,
+		tediId: null,
+		scopeKind: event.scopeKind === "project" ? "project" : "personal",
+		scopeId: event.scopeId,
+		issueKey: event.issueKey!,
+		subjectKind: "memory_fact",
+		subjectId: projectId ?? event.targetId!,
+		recommendation: `File requests like "${String(metadata.text)}" under ${projectId ?? "a new container"}, instead of ${String(metadata.previousProjectId ?? "Unfiled")}.`,
+		evidenceEventIds: [event.id],
+		proposedByType: "service",
+		proposedById: "request-auto-filer",
+	});
+}

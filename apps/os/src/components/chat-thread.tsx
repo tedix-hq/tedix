@@ -2615,8 +2615,11 @@ export function ChatThread({
 
 	const [approvalError, setApprovalError] = useState<string | null>(null);
 	const respondApproval = useMutation({
-		mutationFn: (input: { runId: string; decision: "approve" | "reject" }) =>
-			transportActions.respondApproval(input),
+		mutationFn: (input: {
+			runId: string;
+			decision: "approve" | "reject";
+			delegateRecommendation?: boolean;
+		}) => transportActions.respondApproval(input),
 		onMutate: () => setApprovalError(null),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
@@ -3630,8 +3633,12 @@ export function ChatThread({
 												respondApproval.isPending &&
 												respondApproval.variables?.runId === card.runId
 											}
-											onResolve={(_, decision) =>
-												respondApproval.mutate({ runId: card.runId, decision })
+											onResolve={(_, decision, delegateRecommendation) =>
+												respondApproval.mutate({
+													runId: card.runId,
+													decision,
+													delegateRecommendation,
+												})
 											}
 											onAlwaysApprove={alwaysApprove}
 										/>

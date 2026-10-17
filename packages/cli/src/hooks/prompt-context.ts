@@ -440,7 +440,7 @@ export function openRequestLines(
 		...ordered(earlier).map((row) => ({ row, earlier: true })),
 	].slice(0, REQUEST_LIMIT);
 	const lines = [
-		`Unfiled: ${[...mine, ...earlier].filter((row) => !row.projectId).length}. File matching requests with file_agent_session_request; leave uncertain matches for the user in /work/attention.`,
+		`Unfiled: ${[...mine, ...earlier].filter((row) => !row.projectId).length}. When enabled, automatic filing classifies captured rows; review low-confidence filings and correct destinations in /work/attention with file_agent_session_request.`,
 		`Open requests (${total}): unfinished user requests and agent asks (Tedix request ledger). Finish each request, or say plainly why not; cite the exact result. An ask is waiting for the user's reply; do not answer or approve it for them.`,
 		...shown.map(
 			({ row, earlier }) =>

@@ -9,7 +9,10 @@ import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { expect, it } from "vite-plus/test";
 import { parseReflectedLessons } from "@tedix/context-core/request-ledger";
-import { recordLedgerLessonCandidates } from "./request-ledger-lessons";
+import {
+	recordFilingCorrectionLesson,
+	recordLedgerLessonCandidates,
+} from "./request-ledger-lessons";
 
 it("compares paraphrases against approved lessons, memory and earlier personal proposals without leaking private sources", async () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -196,4 +199,46 @@ it("accepts the exact error text inside a failure receipt without requiring its 
 			`Agent said: ${lesson.failure}`,
 		),
 	).toEqual([]);
+});
+
+it("reuses the lesson proposal pipeline with the correction's personal or project visibility", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(
+		schemaDdl(learningInteractionEvents, learningImprovementProposals),
+	);
+	const db = createDbClient(createD1Facade(sqlite));
+	const [event] = await db
+		.insert(learningInteractionEvents)
+		.values({
+			id: "filing-correction",
+			organizationId: "org-example",
+			actorType: "user",
+			actorId: "identity-ada",
+			clientEventId: "correction",
+			eventKind: "edited",
+			scopeKind: "project",
+			scopeId: "project-docs",
+			issueKey: "request-filing:request-example",
+			surface: "request_filing",
+			targetType: "request",
+			targetId: "request-example",
+			metadata: {
+				text: "Improve guides",
+				projectId: "project-docs",
+				previousProjectId: "project-tools",
+			},
+			occurredAt: "2026-10-10T10:00:00.000Z",
+		})
+		.returning();
+	await recordFilingCorrectionLesson(db, event!);
+	await recordFilingCorrectionLesson(db, event!);
+	const proposals = await db.select().from(learningImprovementProposals);
+	expect(proposals).toHaveLength(1);
+	expect(proposals[0]).toMatchObject({
+		scopeKind: "project",
+		scopeId: "project-docs",
+		status: "proposed",
+		evidenceEventIds: [event!.id],
+	});
 });

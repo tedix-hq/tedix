@@ -38,6 +38,7 @@ export interface CreateApprovalRequestParams {
 	createdAt: string;
 	expiresAt: string;
 	workflowId?: string;
+	automaticApproval?: { tediId: string; reason: string };
 }
 
 export interface ListApprovalRequestsOptions {
@@ -227,7 +228,10 @@ export function buildCreateApprovalRequestStatement(
 			actionType: data.actionType,
 			description: data.description,
 			payload: data.payload,
-			status: "pending",
+			status: data.automaticApproval ? "approved" : "pending",
+			resolvedBy: data.automaticApproval?.tediId ?? null,
+			resolution: data.automaticApproval?.reason ?? null,
+			resolvedAt: data.automaticApproval ? data.createdAt : null,
 			createdAt: data.createdAt,
 			expiresAt: data.expiresAt,
 			workflowId: data.workflowId ?? null,

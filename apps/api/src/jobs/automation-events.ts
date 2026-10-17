@@ -33,6 +33,11 @@ import { buildInternalServiceBindingContext } from "../rpc/routers/kernel/runtim
 export type AutomationMessageOutcome = "ack" | "retry";
 
 export interface AutomationEventDeps {
+	fileRequests?: (owner: {
+		organizationId: string;
+		userId: string;
+		ownerSubject: string;
+	}) => Promise<void>;
 	/** Injectable dispatchers for unit tests. Defaults hit the real routers. */
 	runSkillWorkflow?: (
 		event: Extract<AutomationEvent, { kind: "skill_workflow" }>,
@@ -92,6 +97,25 @@ export async function handleAutomationEventMessage(
 	opts: { waitUntil?: (p: Promise<unknown>) => void } = {},
 	deps: AutomationEventDeps = {},
 ): Promise<AutomationMessageOutcome> {
+	if (
+		body &&
+		typeof body === "object" &&
+		"kind" in body &&
+		body.kind === "request_filing"
+	) {
+		const { RequestFilingQueueSchema, processRequestFilingQueue } =
+			await import("../services/request-filing-queue");
+		const filing = RequestFilingQueueSchema.safeParse(body);
+		if (!filing.success) return "ack";
+		try {
+			await (
+				deps.fileRequests ?? ((owner) => processRequestFilingQueue(env, owner))
+			)(filing.data);
+			return "ack";
+		} catch {
+			return "retry";
+		}
+	}
 	const parsed = AutomationEventSchema.safeParse(body);
 	if (!parsed.success) {
 		console.warn(

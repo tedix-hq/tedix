@@ -1,4 +1,5 @@
 import { AUTHZ, type BaseContext, ErrorCodes, createError } from "../../orpc";
+import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { cancelWorkItem } from "@tedix/db/queries/work-items/crud";
 import { deriveApprovalAuthority } from "../kernel/context-assembly";
@@ -429,6 +430,26 @@ export const respondApprovalRoute = authed.respondApproval
 			organizationId,
 			required: "edit",
 		});
+		const recommendation = approvalDecision({
+			actionType: "home_request",
+			review: { intent: "home_request" },
+		});
+		if (
+			input.delegateRecommendation &&
+			input.decision !==
+				(recommendation.recommendation === "approved" ? "approve" : "reject")
+		) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"The delegated decision must match the current recommendation.",
+			);
+		}
+		if (input.delegateRecommendation)
+			input.note =
+				`Decide for me: ${recommendation.reason}${input.note ? ` ${input.note}` : ""}`.slice(
+					0,
+					2000,
+				);
 		const recordDecision = async (target: string) => {
 			await recordObservedLearningInteraction(context, {
 				organizationId,
@@ -450,6 +471,10 @@ export const respondApprovalRoute = authed.respondApproval
 				metadata: {
 					decision: input.decision,
 					hadNote: Boolean(input.note),
+					delegatedRecommendation: input.delegateRecommendation === true,
+					...(input.delegateRecommendation
+						? { recommendationReason: recommendation.reason }
+						: {}),
 				},
 			});
 		};

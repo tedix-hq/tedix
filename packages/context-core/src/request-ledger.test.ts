@@ -461,3 +461,17 @@ it("requires quoted lead evidence for new obligations while retaining report evi
 		{ ref: "r1", status: "done", evidence: "The deploy was verified live" },
 	]);
 });
+it("preserves ideas and issues as distinct ledger kinds", () => {
+	const parsed = parseObservedRequests(
+		JSON.stringify({
+			requests: [
+				{ kind: "idea", text: "Explore clearer installation steps" },
+				{ kind: "issue", text: "Installation hangs on first launch" },
+			],
+			cancelled: [],
+			answered: [],
+		}),
+		new Set(),
+	);
+	expect(parsed?.requests.map((row) => row.kind)).toEqual(["idea", "issue"]);
+});

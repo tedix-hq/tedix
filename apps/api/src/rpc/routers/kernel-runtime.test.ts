@@ -9415,6 +9415,14 @@ describe("home approved-write layer (v1)", () => {
 				>[0],
 			);
 
+			await expect(
+				client.respondApproval({
+					runId: "home-write-respond-1",
+					decision: "approve",
+					delegateRecommendation: true,
+				}),
+			).rejects.toThrow("must match the current recommendation");
+			expect(executor).not.toHaveBeenCalled();
 			const result = await client.respondApproval({
 				runId: "home-write-respond-1",
 				decision: "approve",
@@ -9526,6 +9534,7 @@ describe("home approved-write layer (v1)", () => {
 			const result = await client.respondApproval({
 				runId: "home-plan-respond-reject-1",
 				decision: "reject",
+				delegateRecommendation: true,
 				note: "wrong owners",
 			});
 
@@ -9538,7 +9547,7 @@ describe("home approved-write layer (v1)", () => {
 				),
 			).toBe(true);
 			expect(db.runs[0]?.metadata).toMatchObject({
-				homePlanRejectionNote: "wrong owners",
+				homePlanRejectionNote: expect.stringContaining("Decide for me:"),
 			});
 		});
 

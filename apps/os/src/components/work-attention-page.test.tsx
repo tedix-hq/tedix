@@ -55,7 +55,7 @@ it("shows recovery evidence and bounded-data notice", () => {
 		"waiting for your decision: choose publishing scope",
 		"Docs",
 		"bounded overview",
-		"Unfiled",
+		"Automatic filing",
 		"Checking results",
 	])
 		expect(html).toContain(label);
@@ -239,4 +239,49 @@ it("keeps raw inactivity out of human attention until the system reports recover
 	expect(checked).toContain("Tedix handles recovery first");
 	expect(checked).not.toContain("Nobody has touched");
 	expect(checked).not.toContain("Every tracked goal has recent attention");
+});
+
+it("shows automatic destinations, reasons and reversible moves without a filing chore", () => {
+	const html = renderToStaticMarkup(
+		<AttentionBoard
+			file={() => {}}
+			data={{
+				cards: [],
+				projects: [
+					{
+						id: "docs",
+						name: "Documentation",
+						status: "active",
+						active: 0,
+						recent: 0,
+					},
+				],
+				unfiled: [],
+				truncated: false,
+				automaticFilingEnabled: true,
+				pendingFilingCount: 0,
+				filings: [
+					{
+						id: "request",
+						text: "Improve guides",
+						projectId: "docs",
+						previousProjectId: null,
+						by: "auto",
+						confidence: 0.4,
+						reason: "Guides belong with documentation",
+						at: "2026-10-17T00:00:00Z",
+						review: true,
+					},
+				],
+			}}
+		/>,
+	);
+	for (const label of [
+		"Filed to Documentation",
+		"auto-filed, low confidence",
+		"Guides belong with documentation",
+		"Move:",
+	])
+		expect(html).toContain(label);
+	expect(html).not.toContain("File to project");
 });

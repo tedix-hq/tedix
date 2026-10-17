@@ -117,6 +117,35 @@ workspace keeps the derived document private too. Merely being an org admin
 does not supply that grant. Opt-in capture also creates questions addressed to
 you in Interactions; unrelated members cannot read their bodies.
 
+## Automatic request filing
+
+Enable automatic filing from **Work → Attention** for your ledger in the
+selected organization. Capture alone does not enable sharing. Enabling filing
+allows concise container briefs and proposed Work to be visible to the
+organization, along with corrected filing examples that teach project routing.
+Uploaded source events remain private to you.
+Turn it off from the same page to stop further automatic filing.
+
+Each new request, ask, idea or issue is compared with project and objective
+briefs, factory bindings, visible workspaces and recent Work. A small Workers AI
+model picks a candidate and Clef-flash scores whether it fits. A score of at
+least 0.8 files to the existing project. A lower score creates a plainly named
+project with a one-line brief, or a private workspace linked to that project.
+A recurring-work suggestion becomes a factory proposal; it does not start a
+schedule. Actionable rows create proposed Work or reuse a matching item.
+Filing grants no execution authority and never answers a pending human ask.
+
+Attention shows **filed to X by auto**, the fit score and the reason. Unfiled
+becomes a review queue for low-confidence filings. Move or undo a filing there;
+the correction is saved as an example for that project's future routing
+and a lesson proposal in the existing learning pipeline. The page also shows
+the past week's auto-filings and the fraction subsequently corrected.
+
+Generated containers carry an **auto-created** marker. Attention lists projects
+and private workspaces that are empty after 14 days for cleanup; it does not
+silently delete them. Classification runs through the existing queue, in
+bounded batches with retries. Pending rows remain visible during an outage.
+
 A project's bucket on the Portfolio comes from the project's metadata field
 `portfolioBucket`; archived and done projects, and projects with no recognised
 bucket, fall under "Other". Placeholder briefs read as empty.
