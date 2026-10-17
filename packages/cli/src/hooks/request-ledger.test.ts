@@ -426,6 +426,49 @@ test("keeps the host final response when the transcript write lags", async () =>
 	).toEqual([]);
 });
 
+test("keeps full delegated reports as agent evidence without treating them as a human boundary", async () => {
+	const transcript = join(config, "delegated-report.jsonl");
+	const report =
+		"[Subagent hand-back] " +
+		"Checked result. ".repeat(700) +
+		"Live version verified. token=supersecretvalue123";
+	writeFileSync(
+		transcript,
+		[
+			{ type: "user", message: { content: "Fix the import" } },
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "text", text: "The import lane is running." }],
+				},
+			},
+			{
+				type: "user",
+				isMeta: true,
+				message: { content: `<agent-message>${report}</agent-message>` },
+			},
+			{
+				type: "user",
+				isMeta: true,
+				message: { content: "Unrelated hook injection" },
+			},
+		]
+			.map((row) => JSON.stringify(row))
+			.join("\n"),
+	);
+	const [batch] = await run("turn", {
+		transcript_path: transcript,
+		last_assistant_message: "The import lane is running.",
+	});
+	const text = batch![0]!.text;
+	expect(text).toStartWith("The import lane is running.");
+	expect(text).toContain("DELEGATED AGENT REPORT (not a user reply):");
+	expect(text).toContain("Live version verified.");
+	expect(text).not.toContain("supersecretvalue123");
+	expect(text).not.toContain("Unrelated hook injection");
+	expect(text.match(/The import lane is running\./g)).toHaveLength(1);
+});
+
 test("Codex capture keeps visible commentary and final text only", () => {
 	const transcript = join(config, "visible-codex.jsonl");
 	const message = (channel: string, text: string) => ({

@@ -208,8 +208,8 @@ function isHumanTurn(entry: JsonObject): boolean {
 }
 
 /**
- * Full redacted assistant text and the tool/lane activity since the person's
- * last message. Empty when the transcript is unreadable.
+ * Full redacted assistant text, delegated reports and tool/lane activity since
+ * the person's last message. Empty when the transcript is unreadable.
  */
 export function readTurnTranscript(transcript: unknown): {
 	text: string;
@@ -246,6 +246,11 @@ export function readTurnTranscript(transcript: unknown): {
 	const messages: string[] = [];
 	for (const entry of entries) {
 		if (entry.isSidechain) continue;
+		if (entry.type === "user" && entry.isMeta === true) {
+			const report = blockText(entry.message?.content);
+			if (report.includes("[Subagent hand-back]"))
+				messages.push(`DELEGATED AGENT REPORT (not a user reply):\n${report}`);
+		}
 		const payload = isObject(entry.payload) ? entry.payload : {};
 		const message =
 			entry.type === "assistant"
@@ -357,7 +362,7 @@ export async function runRequestLedger(
 			mode === "turn" ? readTurnTranscript(event.transcript_path) : null;
 		const lastText = ledgerText(mode, event);
 		const text = turn?.text
-			? `${turn.text}${lastText && !turn.text.endsWith(lastText) ? `\n\n${lastText}` : ""}`
+			? `${turn.text}${lastText && !turn.text.includes(lastText) ? `\n\n${lastText}` : ""}`
 			: lastText;
 		if (!text) return;
 		// Child reads inherit this process's environment, as in decision capture.
