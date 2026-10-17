@@ -300,20 +300,24 @@ a private receipt for idempotent replay under the same lane identity.
 ### Local Work dispatcher
 
 `tedix lane serve --executor codex --max 5 --rules <skill-uuid> --project <project-uuid> --repo <checkout>`
-finds accepted Work with `metadata.executor: "codex"`. `--project` is optional;
+finds accepted Work with `metadata.executor: "codex"`. Use `--executor claude-code`
+for Work assigned to `claude-code`. `--project` is optional;
 workspace and organization are pinned explicitly. Rules default to the organization's
 `lane-rules` skill; `--rules` selects another skill by UUID or slug. Set the executor on a Work
 item or post it through the Work workspace app (`tedix:app/work`, config
 `{"version":1,"projectId":"<project-uuid>"}`). Posting and acceptance remain
 separate actions.
 
-The dispatcher creates an isolated worktree and persistent native Codex thread,
-obtains that thread's verified identity and Work Attempt, fetches the current
-revision of the selected OS rules skill, then runs `codex exec resume`. It
-preserves the configured model and permissions. The existing lane wrapper
+The dispatcher creates an isolated worktree and native executor session,
+obtains its verified identity and Work Attempt, fetches the current
+revision of the selected OS rules skill, then runs the admitted session. Codex
+uses `codex exec resume`; Claude Code uses `claude -p --session-id`. Claude must
+expose its PID/session record, version and model through metadata-only control
+requests before admission. Unsupported CLI versions fail before a model turn.
+Both preserve the configured model and permissions. The existing lane wrapper
 reports telemetry; the dispatcher heartbeats and settles the exact Attempt with
-its result and parsed usage. The server watcher owns lane lifecycle and Work
-completion.
+its result and parsed usage. The server watcher detects stale lanes; the native
+coordinator reviews results and decides Work completion or retry.
 
 `--max` defaults to 5. One dispatcher per organization and executor runs on a
 machine; retained live process groups consume slots after restart. Each Work
@@ -323,6 +327,7 @@ settlement recovery checks the exact server Attempt before writing again.
 
 Possible money or personal messaging requests are skipped and logged unless an
 actual owner comment says `Delegation: codex work-version=<version> <bounded note>`.
+Use the assigned executor name in that comment for Claude Code.
 Consent, MFA and authentication remain human-only. The lexical screen is
 conservative; provider permissions and atomic Work admission still apply.
 

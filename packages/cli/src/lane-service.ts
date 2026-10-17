@@ -18,8 +18,8 @@ export function laneServicePlist(
 	home = homedir(),
 ) {
 	const variables = Object.fromEntries(
-		["PATH", "TEDIX_CONFIG_DIR", "CODEX_HOME"].flatMap((key) =>
-			env[key] ? [[key, env[key]!]] : [],
+		["PATH", "TEDIX_CONFIG_DIR", "CODEX_HOME", "CLAUDE_CONFIG_DIR"].flatMap(
+			(key) => (env[key] ? [[key, env[key]!]] : []),
 		),
 	);
 	const log = join(
@@ -54,7 +54,7 @@ export function installLaneService(options: ServeOptions): number {
 			"--install requires macOS; elsewhere run lane serve under your service manager",
 		);
 	const org = options.scope[options.scope.indexOf("--organization") + 1]!;
-	const label = `dev.tedix.lane-serve.${createHash("sha256").update(`${org}:codex`).digest("hex").slice(0, 16)}`;
+	const label = `dev.tedix.lane-serve.${createHash("sha256").update(`${org}:${options.executor}`).digest("hex").slice(0, 16)}`;
 	const folder = join(homedir(), "Library", "LaunchAgents");
 	mkdirSync(folder, { recursive: true });
 	mkdirSync(process.env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"), {
@@ -70,7 +70,7 @@ export function installLaneService(options: ServeOptions): number {
 		"lane",
 		"serve",
 		"--executor",
-		"codex",
+		options.executor,
 		"--max",
 		String(options.max),
 		"--rules",

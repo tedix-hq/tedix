@@ -1,18 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { AGENT_IDENTITY_ENV, UUID } from "./hooks/hook-io";
-
-export function laneChildEnv(env = process.env): NodeJS.ProcessEnv {
-	const child = { ...env };
-	for (const key of [
-		...AGENT_IDENTITY_ENV,
-		"CODEX_THREAD_ID",
-		"CODEX_SESSION_ID",
-		"CLAUDE_CODE_SESSION_ID",
-	])
-		delete child[key];
-	return child;
-}
+import { UUID } from "./hooks/hook-io";
+import { laneChildEnv } from "./lane-child-env";
 
 /** Allocate a native thread without running a model turn, before Work admission. */
 export async function createCodexLaneThread(cwd: string, executable = "codex") {

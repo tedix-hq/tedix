@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	rmSync,
 	existsSync,
+	chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -152,4 +153,74 @@ it("pins the child's organization and workspace without inheriting a launcher At
 	expect(child.workspace).toBe("acme");
 	expect(child.organization).toBe("org_acme");
 	expect(child.parent).toBeUndefined();
+});
+
+it("reconciles Claude output only against the admitted native identity and transcript", async () => {
+	const id = "11111111-1111-4111-8111-111111111111";
+	const foreign = "22222222-2222-4222-8222-222222222222";
+	for (const mode of [
+		"ok",
+		"foreign-init",
+		"foreign-transcript",
+		"missing-transcript",
+	]) {
+		const dir = mkdtempSync(join(tmpdir(), "claude-wrapper-test-"));
+		dirs.push(dir);
+		const brief = join(dir, "brief.txt");
+		writeFileSync(brief, "Read the fictional widget");
+		const transcript = join(dir, "session.jsonl");
+		if (mode !== "missing-transcript")
+			writeFileSync(
+				transcript,
+				JSON.stringify({
+					type: "assistant",
+					timestamp: "2026-10-17T10:00:00.000Z",
+					sessionId: mode === "foreign-transcript" ? foreign : id,
+					message: {
+						id: "m1",
+						model: "fictional-model",
+						content: [{ type: "text", text: "Widget verified" }],
+						usage: { input_tokens: 5, output_tokens: 2 },
+					},
+				}),
+			);
+		const executable = join(dir, "claude");
+		writeFileSync(
+			executable,
+			`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>{console.log(JSON.stringify({type:'system',subtype:'init',session_id:${JSON.stringify(mode === "foreign-init" ? foreign : id)}}));setTimeout(()=>process.exit(0),20)});`,
+		);
+		chmodSync(executable, 0o700);
+		const reports: Record<string, unknown>[] = [];
+		const result = await runLaneProcess(
+			[
+				"run",
+				"--executor",
+				"claude-code",
+				"--project",
+				"00000000-0000-4000-8000-000000000001",
+				"--brief",
+				brief,
+				"--transcript",
+				transcript,
+				"--",
+				executable,
+				"-p",
+				"--output-format",
+				"stream-json",
+			],
+			{
+				cwd: dir,
+				sessionKey: id,
+				report: async (input) => {
+					reports.push(input);
+					return {};
+				},
+			},
+		);
+		expect(result).toBe(mode === "ok" ? 0 : 1);
+		expect(reports.at(-1)?.sessionKey).toBe(id);
+		expect((reports.at(-1)?.telemetry as { outcome: string }).outcome).toBe(
+			mode === "ok" ? "succeeded" : "failed",
+		);
+	}
 });

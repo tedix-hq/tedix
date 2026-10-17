@@ -15,6 +15,8 @@ import {
 } from "@tedix/api-contract/schemas/work-agent-sessions";
 import { selfCommand } from "./shared";
 import { AGENT_IDENTITY_ENV } from "./hooks/hook-io";
+import { laneChildEnv } from "./lane-child-env";
+import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
 import { parseLaneTranscript, type LaneObservation } from "./lane-telemetry";
 
 export const laneRunUsage = `tedix lane run --executor codex|claude-code|tedi|skill --brief <file> --project <id>
@@ -25,7 +27,7 @@ tedix lane import --executor codex|claude-code --transcript <file> --project <id
 Registers observations using the owner's selected organization. A report grants no
 Work execution authority: the child still obtains its own Attempt with lane start.
 Codex exec uses its JSON thread receipt to select its exact rollout, even with concurrent lanes.
-Claude hooks report to the wrapper's lane id. Other executors write the common telemetry
+Claude JSON output selects its native transcript. Other executors write the common telemetry
 JSON to TEDIX_LANE_TELEMETRY_PATH. Missing facts remain unknown. Import previews by default. Retry a saved observation with lane report --input-file <receipt>.`;
 
 export async function reportLaneObservation(
@@ -100,6 +102,7 @@ export async function runLaneProcess(
 		report?: typeof reportLaneObservation;
 		heartbeatMs?: number;
 		sessionKey?: string;
+		cwd?: string;
 		childScope?: { workspace: string; organization: string };
 		detachedChild?: boolean;
 		onSpawn?: (pid: number) => void;
@@ -263,7 +266,7 @@ export async function runLaneProcess(
 	const dir = mkdtempSync(join(tmpdir(), "tedix-lane-"));
 	const receipt = join(dir, "telemetry.json");
 	const env = {
-		...process.env,
+		...laneChildEnv(),
 		TEDIX_WORKSPACE: deps.childScope?.workspace ?? process.env.TEDIX_WORKSPACE,
 		TEDIX_ORGANIZATION:
 			deps.childScope?.organization ?? process.env.TEDIX_ORGANIZATION,
@@ -271,14 +274,6 @@ export async function runLaneProcess(
 		TEDIX_LANE_TELEMETRY_PATH: receipt,
 		TEDIX_LANE_RATE_SCOPE: telemetry.rateScope ?? "",
 	};
-	// A child must never act under its launcher's session identity or Attempt cache.
-	for (const key of [
-		"CODEX_THREAD_ID",
-		"CODEX_SESSION_ID",
-		"CLAUDE_CODE_SESSION_ID",
-		...AGENT_IDENTITY_ENV,
-	])
-		delete env[key as keyof typeof env];
 	let nativeId: string | undefined,
 		identityMismatch = false,
 		buffer = "";
@@ -287,10 +282,15 @@ export async function runLaneProcess(
 		basename(command[0]!) === "codex" &&
 		command[1] === "exec";
 	if (codexJson && !command.includes("--json")) command.splice(2, 0, "--json");
+	const claudeJson =
+		executor === "claude-code" &&
+		basename(command[0]!) === "claude" &&
+		command[command.indexOf("--output-format") + 1] === "stream-json";
 	const child = spawn(command[0]!, command.slice(1), {
 		env,
+		cwd: deps.cwd,
 		detached: deps.detachedChild,
-		stdio: ["pipe", codexJson ? "pipe" : "inherit", "inherit"],
+		stdio: ["pipe", codexJson || claudeJson ? "pipe" : "inherit", "inherit"],
 	});
 	if (child.pid) deps.onSpawn?.(child.pid);
 	child.stdin?.end(readFileSync(options.get("--brief")!));
@@ -302,8 +302,11 @@ export async function runLaneProcess(
 		for (const line of lines) {
 			try {
 				const event = JSON.parse(line);
-				if (event.type === "thread.started") {
-					nativeId = event.thread_id;
+				if (
+					(codexJson && event.type === "thread.started") ||
+					(claudeJson && event.type === "system" && event.subtype === "init")
+				) {
+					nativeId = codexJson ? event.thread_id : event.session_id;
 					if (deps.sessionKey && nativeId !== deps.sessionKey) {
 						identityMismatch = true;
 						child.kill("SIGTERM");
@@ -357,18 +360,35 @@ export async function runLaneProcess(
 	}
 	if (
 		identityMismatch ||
-		(deps.sessionKey && codexJson && nativeId !== deps.sessionKey)
+		(deps.sessionKey &&
+			(codexJson || claudeJson) &&
+			nativeId !== deps.sessionKey)
 	)
 		exitCode = 1;
 	try {
 		const path =
 			options.get("--transcript") ??
-			(nativeId ? codexTranscript(nativeId) : undefined);
+			(nativeId
+				? executor === "claude-code"
+					? claudeTranscript(nativeId, claudeConfigDirectory(env, deps.cwd))
+					: codexTranscript(nativeId)
+				: undefined);
+		if (deps.sessionKey && claudeJson && !path) {
+			exitCode = 1;
+			telemetry.finalMessage =
+				"Native Claude transcript is unavailable; result needs reconciliation";
+		}
 		if (path && ["codex", "claude-code"].includes(executor!)) {
 			const parsed = await parseLaneTranscript(
 				path,
 				executor as "codex" | "claude-code",
 			);
+			if (deps.sessionKey && parsed.sessionKey !== deps.sessionKey) {
+				exitCode = 1;
+				throw new Error(
+					"Native transcript identity differs from the admitted session",
+				);
+			}
 			telemetry = {
 				...parsed.telemetry,
 				brief: telemetry.brief,
@@ -390,6 +410,7 @@ export async function runLaneProcess(
 			} catch {}
 		}
 	} catch (error) {
+		if (deps.sessionKey) exitCode = 1;
 		process.stderr.write(`Lane transcript: ${String(error)}\n`);
 	}
 	await heartbeat;
@@ -397,7 +418,13 @@ export async function runLaneProcess(
 		...telemetry,
 		finishedAt: new Date().toISOString(),
 		heartbeatAt: new Date().toISOString(),
-		outcome: signal ? "stopped" : exitCode === 0 ? "succeeded" : "failed",
+		outcome: identityMismatch
+			? "failed"
+			: signal
+				? "stopped"
+				: exitCode === 0
+					? "succeeded"
+					: "failed",
 	};
 	deps.onTelemetry?.(telemetry);
 	writeFileSync(
