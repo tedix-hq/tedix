@@ -5003,10 +5003,14 @@ describe("kernel runtime router", () => {
 				"delegationProof",
 			);
 
+			db.runs[0]!.outputMessageId = "home-run-terminal-1:acceptance:assistant";
 			await client.readRunSet({
 				conversationId: "home:test",
 				limit: 10,
 			});
+			expect(db.runs[0]?.outputMessageId).toBe(
+				"home-run-terminal-1:async-completion:assistant",
+			);
 			expect(
 				db.events.filter(
 					(event) =>
