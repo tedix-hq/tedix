@@ -10,6 +10,30 @@ describe("bounded D1 read recovery", () => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
 	});
+	it("retries D1 overload once and keeps persistent overload bounded", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const error = new Error("query redacted", {
+			cause: new Error(
+				"D1_ERROR: D1 DB is overloaded. Please try again later.",
+			),
+		});
+		expect(isTransientD1ReadError(error)).toBe(true);
+		expect(isTransientD1ReadError(new Error("provider overloaded"))).toBe(
+			false,
+		);
+		const read = vi
+			.fn()
+			.mockRejectedValueOnce(error)
+			.mockResolvedValueOnce("fresh");
+		expect(await withTransientD1ReadRetry("grant", read, { delayMs: 0 })).toBe(
+			"fresh",
+		);
+		const persistent = vi.fn().mockRejectedValue(error);
+		await expect(
+			withTransientD1ReadRetry("grant", persistent, { delayMs: 0 }),
+		).rejects.toBe(error);
+		expect(persistent).toHaveBeenCalledTimes(2);
+	});
 	it("retries a completed transient failure once without logging SQL or secrets", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const read = vi

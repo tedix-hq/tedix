@@ -205,6 +205,72 @@ describe("verifyHumanMcpGrant", () => {
 		});
 	});
 
+	it("shares overlapping exact grant checks but rechecks after revocation", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		const results = await Promise.all(
+			Array.from({ length: 24 }, () =>
+				verifyHumanMcpGrant({} as never, env, input),
+			),
+		);
+		expect(results.every((result) => result.allowed)).toBe(true);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(1);
+		expect(mocks.getMcpConsentGrant).toHaveBeenCalledTimes(2);
+		mocks.searchConsents.mockResolvedValue({ ok: true, data: [] });
+		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
+			allowed: false,
+			reason: "consent_missing",
+		});
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not share a decision across signed revisions or scopes", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		const results = await Promise.all([
+			verifyHumanMcpGrant({} as never, env, input),
+			verifyHumanMcpGrant({} as never, env, {
+				...input,
+				consentRevision: "other",
+			}),
+			verifyHumanMcpGrant({} as never, env, {
+				...input,
+				tokenScopes: ["mcp:work.read"],
+			}),
+		]);
+		expect(results.map((result) => result.allowed)).toEqual([
+			true,
+			false,
+			false,
+		]);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(3);
+	});
+
+	it("recovers a transient D1 overload before provider reads", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		mocks.getMcpConsentResource.mockRejectedValueOnce(
+			new Error("query redacted", {
+				cause: new Error("D1_ERROR: D1 DB is overloaded"),
+			}),
+		);
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+		expect(mocks.getMcpConsentResource).toHaveBeenCalledTimes(3);
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not retain a failed verification for the next request", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		mocks.getMcpConsentResource.mockRejectedValueOnce(
+			new Error("schema failure"),
+		);
+		await expect(verifyHumanMcpGrant({} as never, env, input)).rejects.toThrow(
+			"schema failure",
+		);
+		expect((await verifyHumanMcpGrant({} as never, env, input)).allowed).toBe(
+			true,
+		);
+	});
+
 	it("reads the grant ledger and memberships while the provider is asked", async () => {
 		const { verifyHumanMcpGrant } = await import("./mcp-grant");
 		const server = await mocks.loadDescopeMcpServer();

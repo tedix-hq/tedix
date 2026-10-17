@@ -27,7 +27,8 @@ export function isTransientD1ReadError(value: unknown): boolean {
 		message.includes("D1_ERROR") &&
 		(message.includes("Network connection lost") ||
 			message.includes("Failed to parse body as JSON") ||
-			message.includes("Temporarily unavailable"))
+			message.includes("Temporarily unavailable") ||
+			message.includes("overloaded"))
 	);
 }
 
