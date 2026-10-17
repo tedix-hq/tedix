@@ -282,7 +282,11 @@ const list = readOs.schedules.list.handler(async ({ input, context }) => {
 					? schedule
 					: null;
 			const times = active
-				? scheduleRunTimes(active.cron, readRunsAt(metadata), now)
+				? scheduleRunTimes(
+						active.cron,
+						readRunsAt(metadata, skill.content),
+						now,
+					)
 				: { dailyTimes: [], nextRunAt: null };
 			const need = await personalAccessNeed(context, organizationId, skill);
 			const worker =

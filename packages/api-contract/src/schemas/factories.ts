@@ -7,6 +7,7 @@
  */
 
 import * as z from "zod";
+import { WorkspaceSkillRunsAtSchema } from "./os-workspace-schedules";
 
 export const FactorySlugSchema = z
 	.string()
@@ -66,6 +67,9 @@ export const CreateFactoryInputSchema = z
 			),
 		cadence: FactoryCadenceSchema.default("daily").describe(
 			"daily, twice_daily or hourly. With hourly, everyHours sets the step.",
+		),
+		runsAt: WorkspaceSkillRunsAtSchema.optional().describe(
+			"Daily local run slots, e.g. {timeZone: Europe/Berlin, times: [08:30]}. Overrides the staggered cadence; the workflow skips UTC fires outside these slots.",
 		),
 		everyHours: z
 			.number()

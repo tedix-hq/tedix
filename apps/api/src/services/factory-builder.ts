@@ -13,6 +13,7 @@ import type {
 	FactoryCadence,
 	FactoryOutputKind,
 } from "@tedix/api-contract/schemas/factories";
+import type { WorkspaceSkillRunsAt } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	type FactoryBinding,
@@ -26,6 +27,7 @@ import {
 	type RenderedFactoryLane,
 	renderFactoryLane,
 } from "./factory-lane-template";
+import { readRunsAt } from "./workspace-schedules";
 
 export class FactoryBuildError extends Error {
 	constructor(
@@ -59,7 +61,8 @@ export interface FactoryStore {
 		workspaceId: string;
 		skillId: string;
 		name: string;
-	}): Promise<{ created: boolean }>;
+		runsAt?: WorkspaceSkillRunsAt;
+	}): Promise<{ created: boolean; updated?: boolean }>;
 	/** An active Output of this organization, by id. */
 	findOutputById(outputId: string): Promise<FactoryOutputRef | null>;
 	/** The newest active Output of this kind and title in the Workspace. */
@@ -275,6 +278,46 @@ export function factoryGoalLimits(
 	return notes;
 }
 
+export function localFactoryCron(runsAt: WorkspaceSkillRunsAt): string {
+	let formatter: Intl.DateTimeFormat;
+	try {
+		formatter = new Intl.DateTimeFormat("en-GB", {
+			timeZone: runsAt.timeZone,
+			hour: "2-digit",
+			minute: "2-digit",
+			hourCycle: "h23",
+		});
+	} catch {
+		throw new FactoryBuildError(
+			"BAD_REQUEST",
+			"runsAt.timeZone must be an IANA time zone",
+		);
+	}
+	const offsets = new Set<number>();
+	const year = new Date().getUTCFullYear();
+	for (let month = 0; month < 24; month++) {
+		const at = new Date(Date.UTC(year, month, 15, 12));
+		const parts = formatter.formatToParts(at);
+		const part = (type: string) =>
+			Number(parts.find((p) => p.type === type)?.value);
+		offsets.add(part("hour") * 60 + part("minute") - 12 * 60);
+	}
+	const minutes = new Set<number>();
+	const hours = new Set<number>();
+	for (const time of runsAt.times) {
+		const hour = Number(time.slice(0, 2));
+		const minute = Number(time.slice(3));
+		for (const offset of offsets) {
+			const utc = (((hour * 60 + minute - offset) % 1440) + 1440) % 1440;
+			minutes.add(utc % 60);
+			hours.add(Math.floor(utc / 60));
+		}
+	}
+	const field = (values: Set<number>) =>
+		[...values].sort((a, b) => a - b).join(",");
+	return `${field(minutes)} ${field(hours)} * * *`;
+}
+
 function fnv1a(text: string): number {
 	let hash = 0x811c9dc5;
 	for (let i = 0; i < text.length; i++) {
@@ -478,7 +521,9 @@ export async function buildFactory(
 	}
 	const cron =
 		state.schedule?.cron ??
-		staggeredFactoryCron(slug, input.cadence, everyHours ?? 1);
+		(input.runsAt
+			? localFactoryCron(input.runsAt)
+			: staggeredFactoryCron(slug, input.cadence, everyHours ?? 1));
 	const steps: CreateFactoryResult["steps"] = [];
 	const dryRun = input.dryRun;
 	let wrote = false;
@@ -618,6 +663,7 @@ export async function buildFactory(
 			workspaceId,
 			maxProposals: input.maxProposals,
 			cadence: input.cadence,
+			runsAt: input.runsAt,
 			output,
 		});
 		const created = await store.createLaneSkill({
@@ -639,11 +685,14 @@ export async function buildFactory(
 			workspaceId: linkedWorkspaceId,
 			skillId,
 			name: factoryTitle(name),
+			runsAt: state.skill
+				? (readRunsAt({}, state.skill.content) ?? undefined)
+				: input.runsAt,
 		});
-		if (link.created) wrote = true;
+		if (link.created || link.updated) wrote = true;
 		steps.push({
 			resource: "workspace",
-			action: link.created ? "linked" : "reused",
+			action: link.created || link.updated ? "linked" : "reused",
 			id: linkedWorkspaceId,
 			note: "lane skill listed under Runs on a schedule",
 		});

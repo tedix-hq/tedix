@@ -1,3 +1,5 @@
+import { OrganizationMark } from "@/components/organization-mark";
+import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 import { ArrowLeft, FileX, SidebarSimple } from "@phosphor-icons/react";
 import type {
 	OsGadget,
@@ -360,6 +362,7 @@ export function CanvasPage({
 	workspaceId: string;
 }) {
 	const surface = getOsSurface("workspaces");
+	const { current: organizationWorkspace } = useOsWorkspaceDirectory();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate({ from: "/workspace/$workspaceId" });
 	const canvasSearch: CanvasSearch = useSearch({
@@ -1018,9 +1021,11 @@ export function CanvasPage({
 					>
 						<ArrowLeft size={15} />
 					</Button>
-					<span className="brand-mark canvas-workspace-mark" aria-hidden="true">
-						T
-					</span>
+					<OrganizationMark
+						className="canvas-workspace-mark"
+						logoUrl={organizationWorkspace?.org.logoUrl}
+						name={organizationWorkspace?.org.name ?? "Tedix"}
+					/>
 					<span className="canvas-workspace-separator" aria-hidden="true">
 						/
 					</span>
