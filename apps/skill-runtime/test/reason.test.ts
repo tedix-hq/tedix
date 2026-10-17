@@ -4,6 +4,7 @@ import {
 	awaitReasonTurn,
 	buildReasonSessionKey,
 	callIdentity,
+	extractReasonModelIdentity,
 	PLATFORM_REASON_MANIFEST,
 	REASON_DEFAULT_MAX_CALLS,
 	REASON_MAX_CALLS_CEILING,
@@ -11,6 +12,24 @@ import {
 	REASON_NAMESPACE,
 	resolveReasonBudget,
 } from "../src/reason-core";
+
+{
+	const identity = { provider: "example-provider", model: "small-review" };
+	assert.deepEqual(
+		extractReasonModelIdentity({ model_identity: identity }),
+		identity,
+	);
+	assert.deepEqual(
+		extractReasonModelIdentity({ result: { model_identity: identity } }),
+		identity,
+	);
+	for (const reply of [
+		{},
+		{ model_identity: { provider: "", model: "small-review" } },
+		{ model_identity: { provider: "example", model: 17 } },
+	])
+		assert.equal(extractReasonModelIdentity(reply), null);
+}
 
 // ---------------------------------------------------------------------------
 // env.REASON is a cost-and-blindness contract as much as an API. What is worth

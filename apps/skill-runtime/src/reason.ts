@@ -42,6 +42,7 @@ import {
 	awaitReasonTurn,
 	buildReasonSessionKey,
 	callIdentity,
+	extractReasonModelIdentity,
 	REASON_DEFAULT_MAX_CALLS,
 	REASON_MAX_CALLS_CEILING,
 	REASON_METHOD,
@@ -67,21 +68,6 @@ function extractAssistantText(result: unknown): string {
 		if (typeof candidate === "string" && candidate.trim()) return candidate;
 	}
 	return "";
-}
-
-function extractModelIdentity(
-	result: unknown,
-): { provider: string; model: string } | null {
-	const payload = (result ?? {}) as Record<string, unknown>;
-	const inner = (payload.result ?? payload) as Record<string, unknown>;
-	const identity = (inner.modelIdentity ?? payload.modelIdentity) as
-		| Record<string, unknown>
-		| undefined;
-	if (!identity) return null;
-	const provider = identity.provider;
-	const model = identity.model;
-	if (typeof provider !== "string" || typeof model !== "string") return null;
-	return { provider, model };
 }
 
 export class ReasonBridge extends WorkerEntrypoint<
@@ -159,7 +145,7 @@ export class ReasonBridge extends WorkerEntrypoint<
 				callMcpTool(this.env, this.ctx.props.mcp, request),
 			);
 			raw = extractAssistantText(result);
-			modelIdentity = extractModelIdentity(result);
+			modelIdentity = extractReasonModelIdentity(result);
 			if (!raw.trim()) {
 				const payload = (result ?? {}) as Record<string, unknown>;
 				const nested = payload.result;
