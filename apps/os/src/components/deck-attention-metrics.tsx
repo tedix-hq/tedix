@@ -35,7 +35,7 @@ export function DeckAttentionMetrics() {
 					value={percent(metrics.delegationRate)}
 				/>
 				<MetricItem label={copy.cards} value={metrics.cardsToday} />
-				<MetricItem label={copy.visits} value={metrics.visitsToday} />
+				<MetricItem label={copy.visits} value={metrics.returnVisitsToday} />
 				<MetricItem
 					label={copy.corrections}
 					value={percent(metrics.correctionRate)}

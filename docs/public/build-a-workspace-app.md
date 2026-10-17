@@ -400,10 +400,14 @@ automatic approval of money, messages, production or consent.
 The Deck's `classPolicies` settings control its readiness display; changing
 that display alone cannot enable delivery. The weekly learning digest in
 Office and decision history links back to the choices. Agents and Office
-show time to decide, Decide-for-me rate, cards today, visits today and
+show time to decide, Decide-for-me rate, cards today, return visits today and
 correction rate from recent personal activity. Loaded history is bounded
-and is labeled as such. Cost of waiting, optional `expiresAt` and
-`nobodyOn` come from the decision's source; the app does not invent them.
+and is labeled as such. Cost of waiting comes from the decision's source;
+expiry uses the request's deadline, or its decision envelope's `expiresAt`.
+The live "nobody is carrying this" signal requires a current Work read:
+no accountable owner and no holding Attempt. A failed, pending or older
+read does not imply missing ownership. This is separate from whether a
+person is online.
 
 From chat, discover the Interaction inbox/detail tools and read the exact
 request and version. Explain the offered responses and consequences; do

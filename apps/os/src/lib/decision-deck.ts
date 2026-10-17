@@ -83,3 +83,13 @@ export function decisionFeedbackMetadata(
 			: {}),
 	};
 }
+
+/** An absent holder field on an older server is unknown, not an idle outcome. */
+export function workIsUnowned(
+	work:
+		| { accountableOwnerId: string | null; activeAttempt?: unknown }
+		| null
+		| undefined,
+) {
+	return work?.activeAttempt === null && work.accountableOwnerId === null;
+}
