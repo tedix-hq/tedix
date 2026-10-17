@@ -243,3 +243,29 @@ and older external worktrees are found through Git's worktree registry.
 Cleanup failures leave the checkout available and are reported separately
 from the successful Work operation. When invoked inside a removed worktree,
 return your shell to the primary repository afterwards.
+
+### Local lanes
+
+Inside each independent Codex or Claude session, bootstrap its own identity
+with `tedix agent start`, then register its work before starting the brief:
+
+```sh
+tedix lane start "Improve search results" --project <project-id>
+# Use --work-item <id> when the brief already names accepted Work.
+tedix lane done "Validated and shipped" --commit <sha>
+# Or: tedix lane fail "The provider refused the request"
+```
+
+The helper uses ordinary Work admission, records the session identity, and
+starts a detached heartbeat for up to one hour. `capture-stop` heartbeats
+registered lanes as well. For a longer unattended run, keep
+`tedix work heartbeat <id> --watch 3600` running and renew it before its horizon.
+An expired lease requires fresh admission, never a stale heartbeat.
+
+Lead launchers must run registration **inside the child session**, preserve its
+own native session id, and pass the same workspace and organization selectors
+on settlement. Do not export the launcher's `TEDIX_AGENT_SESSION` into a child.
+Claude subagents sharing a host session stay under that host's admitted Attempt;
+independently launched sessions get their own Attempt and worktree. The Attention
+page shows unregistered ledger lanes as unconfirmed activity, since a transcript
+report cannot grant the missing child identity execution authority.

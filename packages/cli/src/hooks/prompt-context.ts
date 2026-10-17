@@ -304,7 +304,7 @@ export function gatewayCode(
  });
  if (t.requests) pending.requests = each(async () => {
   const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],limit:REQUEST_READ_LIMIT,order:'newest'});
-  return {data:r.data.map(q => ({harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,kind:q.kind,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt}))};
+  return {data:r.data.map(q => ({id:q.id,projectId:q.projectId,harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,kind:q.kind,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt}))};
  });
  if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
  const keys = Object.keys(pending);
@@ -440,6 +440,7 @@ export function openRequestLines(
 		...ordered(earlier).map((row) => ({ row, earlier: true })),
 	].slice(0, REQUEST_LIMIT);
 	const lines = [
+		`Unfiled: ${[...mine, ...earlier].filter((row) => !row.projectId).length}. File matching requests with file_agent_session_request; leave uncertain matches for the user in /work/attention.`,
 		`Open requests (${total}): unfinished user requests and agent asks (Tedix request ledger). Finish each request, or say plainly why not; cite the exact result. An ask is waiting for the user's reply; do not answer or approve it for them.`,
 		...shown.map(
 			({ row, earlier }) =>
