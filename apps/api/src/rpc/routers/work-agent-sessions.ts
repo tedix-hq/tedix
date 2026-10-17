@@ -586,14 +586,26 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 		}
 		if (workspaceProjects) {
 			const ids = workspaceProjects;
-			result.cards = result.cards.filter(
-				(c) =>
-					c.workspaceId === input.workspaceId ||
-					(!!c.projectId && ids.has(c.projectId)),
+			result.cards = result.cards.filter((c) =>
+				c.workspaceId
+					? c.workspaceId === input.workspaceId
+					: !!c.projectId && ids.has(c.projectId),
 			);
 			result.projects = result.projects.filter((p) => ids.has(p.id));
 			result.unfiled = [];
-			result.unattendedObjectives = [];
+			const scopeIds = new Set([
+				...ids,
+				...result.projects.flatMap((p) =>
+					p.objectiveId ? [p.objectiveId] : [],
+				),
+			]);
+			result.unattendedObjectives = result.unattendedObjectives.filter((o) =>
+				scopeIds.has(o.id),
+			);
+			result.stalls = result.stalls.filter((s) => scopeIds.has(s.scopeId));
+			result.cadencePromises = result.cadencePromises.filter((p) =>
+				scopeIds.has(p.scopeId),
+			);
 		}
 		return result;
 	}),
