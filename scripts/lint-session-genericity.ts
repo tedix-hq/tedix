@@ -4,6 +4,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	type AstNode,
+	parseModule,
+	walk,
+	stringValue,
+	lineAt,
+} from "./oxc-ast";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FIXTURE =
@@ -74,23 +81,46 @@ export function sessionGenericityFindings(
 	if (FIXTURE.test(path)) return [];
 	if (path.startsWith("packages/db/drizzle/")) return [];
 	if (!/^(?:apps|packages|plugins)\//.test(path)) return [];
-	const board = boardGenericityFindings(path, source);
+	const findings = boardGenericityFindings(path, source);
+	if (path.startsWith("apps/os/src/components/") && /\.[jt]sx?$/.test(path)) {
+		walk(parseModule(path, source), (node) => {
+			if (node.type !== "ArrayExpression") return;
+			const elements = node.elements as Array<AstNode | null>;
+			if (
+				elements.length < 2 ||
+				elements.some(
+					(element) => !element || stringValue(element) === undefined,
+				)
+			)
+				return;
+			const values = elements.map((element) => stringValue(element!)!);
+			if (
+				!values.every((value) =>
+					/^\p{Lu}[\p{L}\p{N}\p{Zs}'’.,!?&()–—:-]*$/u.test(value),
+				) ||
+				!values.some((value) => /\p{Lu}\p{Ll}|\s/u.test(value))
+			)
+				return;
+			findings.push(
+				`${path}:${lineAt(source, node.start)}: hardcoded display-label array; use the OS copy catalog or organization configuration`,
+			);
+		});
+	}
 	// Public founder/legal pages and unrelated product concepts have their own vocabulary.
 	if (
 		!SESSION_PATH.test(path) &&
 		!(path.startsWith("plugins/tedix/") && path.endsWith(".md"))
 	)
-		return board;
-	return [
-		...board,
-		...source.split("\n").flatMap((line, index) => {
+		return findings;
+	return findings.concat(
+		source.split("\n").flatMap((line, index) => {
 			const match = IDENTITY.exec(line);
 			if (!match) return [];
 			return [
 				`${path}:${index + 1}: installation-specific identifier ${match[0]}`,
 			];
 		}),
-	];
+	);
 }
 
 if (import.meta.main) {

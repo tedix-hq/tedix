@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import {
 	officeAsk,
 	decisionCaptureSummary,
@@ -109,13 +110,7 @@ function attentionOf(metadata: unknown): unknown {
 	return attention?.kind;
 }
 
-export const NOTEBOOK_SUBJECTS = [
-	"Answers",
-	"Git",
-	"Deploys",
-	"Work",
-	"Agents",
-] as const;
+export const NOTEBOOK_SUBJECTS = OS_COPY.notebookSubjects;
 type NotebookSubject = (typeof NOTEBOOK_SUBJECTS)[number];
 
 const SUBJECT_PATTERNS: Array<[NotebookSubject, RegExp]> = [

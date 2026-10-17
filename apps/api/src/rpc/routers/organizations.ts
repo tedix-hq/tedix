@@ -805,6 +805,15 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 
 		requireOrganizationAccess(context, organizationId);
 		requireAdminOrOwner(context);
+		if (
+			updates.metadata?.portfolioBuckets !== undefined &&
+			context.userRole !== "owner"
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the organization owner can change portfolio sections",
+			);
+		}
 
 		const existing = await getOrganizationById(db, organizationId);
 		if (!existing) {

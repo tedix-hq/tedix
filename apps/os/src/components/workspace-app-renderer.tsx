@@ -19,15 +19,41 @@ import { Card, CardContent } from "@/components/kumo/card";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { cardReviewConfigFromManifest } from "@/lib/card-review";
+import { lazy, Suspense } from "react";
+import { Skeleton } from "@/components/kumo/skeleton";
+
+const Portfolio = lazy(() =>
+	import("./organization-portfolio-app").then((m) => ({
+		default: m.OrganizationPortfolioApp,
+	})),
+);
+const PortfolioSettings = lazy(() =>
+	import("./organization-portfolio-app").then((m) => ({
+		default: m.PortfolioSettingsApp,
+	})),
+);
 
 export function WorkspaceAppRenderer({
 	manifest,
 	workspaceId,
 }: {
 	manifest: OsGadgetManifest;
-	workspaceId: string;
+	workspaceId?: string;
 }) {
 	const entry = manifest.entry.trim();
+	if (
+		entry === "tedix:app/portfolio" ||
+		entry === "tedix:app/portfolio-settings"
+	)
+		return (
+			<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				{entry === "tedix:app/portfolio" ? (
+					<Portfolio />
+				) : (
+					<PortfolioSettings />
+				)}
+			</Suspense>
+		);
 	if (entry === "tedix:app/attention")
 		return <AttentionApp workspaceId={workspaceId} />;
 	if (entry === OUTBOUND_REVIEW_ENTRY) {

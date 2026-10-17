@@ -16,8 +16,7 @@ import {
 } from "@/lib/os-query-options";
 import { Route as WorkIndexRoute } from "@/routes/_session/_tenant/work.index";
 import {
-	PORTFOLIO_BUCKETS,
-	WorkPortfolioPage,
+	PortfolioApp,
 	crossOrgPortfolioUrl,
 	groupFactories,
 	groupPortfolio,
@@ -25,6 +24,9 @@ import {
 	projectBriefLine,
 } from "./work-portfolio-page";
 
+const BUCKETS = ["Projects", "Active", "Leads", "Side", "Empty"].map(
+	(label) => ({ key: label.toLowerCase(), label }),
+);
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
 const TEDI_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -196,23 +198,25 @@ function seededClient({
 function render(queryClient: QueryClient) {
 	return renderToStaticMarkup(
 		<QueryClientProvider client={queryClient}>
-			<WorkPortfolioPage />
+			<PortfolioApp buckets={BUCKETS} />
 		</QueryClientProvider>,
 	);
 }
 
 describe("Portfolio grouping", () => {
 	it("orders buckets canonically, matches names loosely, and sorts by title", () => {
-		const { buckets, other } = groupPortfolio(PORTFOLIO);
+		const { buckets, other } = groupPortfolio(PORTFOLIO, BUCKETS);
 		expect(buckets.map((bucket) => bucket.name)).toEqual([
-			...PORTFOLIO_BUCKETS,
+			"Projects",
+			"Leads",
+			"Side",
 		]);
 		expect(buckets[0]!.entries.map((entry) => entry.title)).toEqual([
 			"Alpha",
 			"Harbor tours",
 		]);
-		expect(buckets[3]!.entries.map((entry) => entry.title)).toEqual(["Zeta"]);
-		expect(buckets[2]!.entries[0]!.org).toBe("acme-demo");
+		expect(buckets[2]!.entries.map((entry) => entry.title)).toEqual(["Zeta"]);
+		expect(buckets[1]!.entries[0]!.org).toBe("acme-demo");
 		expect(other.map((entry) => entry.title)).toEqual([
 			"Loose notes",
 			"Old shop",
@@ -234,7 +238,7 @@ describe("Portfolio grouping", () => {
 });
 
 describe("WorkPortfolioPage", () => {
-	it("renders every bucket in order with empty buckets marked", () => {
+	it("renders only populated configured sections", () => {
 		const doc = new DOMParser().parseFromString(
 			render(seededClient()),
 			"text/html",
@@ -243,11 +247,13 @@ describe("WorkPortfolioPage", () => {
 			...doc.querySelectorAll<HTMLElement>("[data-portfolio-bucket]"),
 		];
 		expect(sections.map((section) => section.dataset.portfolioBucket)).toEqual([
-			...PORTFOLIO_BUCKETS,
+			"projects",
+			"leads",
+			"side",
 		]);
-		const active = sections[1]!;
-		expect(active.textContent).toContain("No records yet");
-		expect(active.querySelector("[data-portfolio-card]")).toBeNull();
+		expect(
+			sections.some((section) => section.dataset.portfolioBucket === "Active"),
+		).toBe(false);
 		const projects = sections[0]!;
 		const titles = [...projects.querySelectorAll("[data-portfolio-card] a")]
 			.map((link) => link.textContent)
@@ -270,7 +276,7 @@ describe("WorkPortfolioPage", () => {
 	it("keeps archived and unbucketed projects in a collapsed Other disclosure", async () => {
 		const queryClient = seededClient();
 		const html = render(queryClient);
-		expect(html).toContain("Other (2)");
+		expect(html).toContain("Unsorted (2)");
 		expect(html).not.toContain(`data-portfolio-card="${PROJECTS[3]!.id}"`);
 		expect(html).not.toContain(`data-portfolio-card="${PROJECTS[4]!.id}"`);
 		const host = document.createElement("div");
@@ -280,16 +286,16 @@ describe("WorkPortfolioPage", () => {
 			await act(async () =>
 				root.render(
 					<QueryClientProvider client={queryClient}>
-						<WorkPortfolioPage />
+						<PortfolioApp buckets={BUCKETS} />
 					</QueryClientProvider>,
 				),
 			);
 			const trigger = [...host.querySelectorAll("button")].find((button) =>
-				button.textContent?.includes("Other (2)"),
+				button.textContent?.includes("Unsorted (2)"),
 			);
 			if (!trigger) throw new Error("Other disclosure missing");
 			await act(async () => trigger.click());
-			const other = host.querySelector('[aria-label="Other projects"]');
+			const other = host.querySelector('[aria-label="Unsorted projects"]');
 			expect(other?.textContent).toContain("Loose notes");
 			expect(other?.textContent).toContain("Old shop");
 			expect(other?.textContent).toContain("Archived");
@@ -503,4 +509,20 @@ describe("isPlaceholderBrief", () => {
 			false,
 		);
 	});
+});
+
+it("uses configured keys after renaming and isolates unknown values in Unsorted", () => {
+	const rows = PORTFOLIO.slice(0, 3);
+	const grouped = groupPortfolio(rows, [
+		{ key: "side", label: "Experiments" },
+		{ key: "unused", label: "Unused" },
+	]);
+	expect(grouped.buckets.map((bucket) => bucket.name)).toEqual(["Experiments"]);
+	expect(grouped.buckets[0]?.entries[0]?.title).toBe("Zeta");
+	expect(grouped.other.map((entry) => entry.title)).toEqual([
+		"Alpha",
+		"Harbor tours",
+	]);
+	expect([...grouped.unknown]).toEqual([["projects", 2]]);
+	expect(groupPortfolio(rows, []).buckets).toEqual([]);
 });

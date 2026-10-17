@@ -107,6 +107,7 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	portfolioBuckets?: OrganizationContractMetadata["portfolioBuckets"];
 	providerCustomerKey?: string;
 	providerOnboarding?: OrganizationContractMetadata["providerOnboarding"];
 	tediWidget?: OrganizationContractMetadata["tediWidget"];

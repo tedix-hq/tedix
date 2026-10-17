@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import {
 	isLocalAiUnavailable,
 	isLocalWorkersAi,
@@ -220,11 +221,7 @@ export const RUN_SET_RECONCILE_INTERVAL_MS = ACTIVE_PROJECTION_RECONCILE_MS;
 
 export const MESSAGES_PAGE_LIMIT = 50;
 
-export const CHAT_STARTER_PROMPTS = [
-	"Create a doc titled Weekly update with three short sections.",
-	"Make a sheet that tracks open tasks, owners and due dates.",
-	"Summarize what changed this week and what I should decide next.",
-] as const;
+export const CHAT_STARTER_PROMPTS = OS_COPY.chatStarterPrompts;
 
 export type ChatContext = {
 	kind: "workspace" | "gadget" | "output";
@@ -234,7 +231,7 @@ export type ChatContext = {
 
 type ComposerAttachment = TediMessageAttachment & { previewUrl: string | null };
 
-const CHAT_FORMATS = ["Document", "Spreadsheet", "Presentation"] as const;
+const CHAT_FORMATS = OS_COPY.chatFormats;
 
 export type ChatResponseAction =
 	| "visualize"
