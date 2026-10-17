@@ -358,6 +358,17 @@ export async function recheckSaved(directory) {
 	return saved;
 }
 
+export async function readScratchWithBackoff(read, sleep = Bun.sleep) {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await read();
+		} catch (error) {
+			if (attempt === 7) throw error;
+			await sleep(Math.min(1000 * 2 ** attempt, 30000));
+		}
+	}
+}
+
 export async function archiveWithReadback(
 	write,
 	read,
@@ -366,7 +377,7 @@ export async function archiveWithReadback(
 ) {
 	for (let attempt = 0; attempt < 8; attempt++) {
 		await write();
-		const state = await read();
+		const state = await readScratchWithBackoff(read, sleep);
 		if (isArchived(state)) return state;
 		if (attempt < 7) await sleep(Math.min(1000 * 2 ** attempt, 30000));
 	}
@@ -455,8 +466,10 @@ async function main() {
 						),
 				);
 			}
-			const listed = await code(
-				`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+			const listed = await readScratchWithBackoff(() =>
+				code(
+					`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+				),
 			);
 			if (!listed?.items || listed.truncated)
 				throw new Error("Scratch cleanup inventory missing or truncated");
@@ -484,8 +497,10 @@ async function main() {
 					),
 				(state) => state?.workspace?.status === "archived",
 			);
-			const remaining = await code(
-				`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+			const remaining = await readScratchWithBackoff(() =>
+				code(
+					`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+				),
 			);
 			if (!remaining?.items || remaining.items.length || remaining.truncated)
 				failures.push(
