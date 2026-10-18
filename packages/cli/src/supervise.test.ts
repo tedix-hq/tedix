@@ -926,6 +926,96 @@ describe("Codex transcript acknowledgment", () => {
 
 describe("explicit exact-chat Work pickup", () => {
 	const WORK = "77777777-7777-4777-8777-777777777777";
+	test("commit pickup waits for readiness and confirms one delivery across restart", async () => {
+		const env = { TEDIX_CONFIG_DIR: config };
+		const route = {
+			workspace: "fixture",
+			organization: "org_fixture",
+			receiverId: "44444444-4444-4444-8444-444444444444",
+			projectId: PROJECT,
+			repository: "https://example.invalid/repo.git",
+			session: SESSION,
+			cwd: config,
+		};
+		writeFileSync(
+			join(config, "commit-handoffs.json"),
+			JSON.stringify([route]),
+		);
+		writeFileSync(
+			join(config, "decision-capture", `${SESSION}.session.json`),
+			JSON.stringify({ host: "codex", cwd: config }),
+		);
+		const manifest = {
+			version: 1,
+			workItemId: WORK,
+			projectId: PROJECT,
+			repository: route.repository,
+			sourceCommit: "a".repeat(40),
+			sha256: "b".repeat(64),
+			size: 1,
+			parts: 1,
+			checks: "reported fixture validation",
+		};
+		const path = REQUEST;
+		const request = {
+			id: path,
+			version: 1,
+			state: "open",
+			workItemId: WORK,
+			requestedFromType: "external_agent",
+			requestedFromId: route.receiverId,
+			kind: "handoff",
+			metadata: { schema: "commit-handoff-v1", manifest, partIds: [PROJECT] },
+		};
+		let ready = false;
+		let clock = Date.now();
+		const queued: string[] = [];
+		const deps = {
+			env,
+			now: () => clock,
+			log: () => {},
+			codex: {
+				resolveTranscript: async () => true,
+				queue: async (_thread: string, message: string) => {
+					queued.push(message);
+					return { id: "commit-queue", offset: 0 };
+				},
+				received: () => true,
+				withdraw: () => false,
+				resume: async () => false,
+			},
+			read: async (args: string[], _timeout: number, input?: string) => {
+				if (args.includes("show"))
+					return { ...BINDING, organization: route.organization };
+				if (args.includes("auth"))
+					return {
+						...AUTH,
+						storedLogin: {
+							...AUTH.storedLogin,
+							accessToken: { selectedOrganizations: [route.organization] },
+						},
+					};
+				if (args.includes("context"))
+					return { id: WORK, projectId: PROJECT, disposition: "accepted" };
+				if (args.includes("readiness")) return { workItemId: WORK, ready };
+				if (args.includes("interaction-audit-list"))
+					return { data: [{ request }], hasMore: false };
+				if (args.includes("interaction-get")) return { request };
+				throw new Error("Unexpected commit pickup read");
+			},
+		};
+		const runner = new Supervisor(deps);
+		expect(await runner.pickupCommitHandoffs()).toBe(0);
+		expect(queued).toHaveLength(0);
+		ready = true;
+		clock += 11 * 60_000;
+		expect(await runner.pickupCommitHandoffs()).toBe(1);
+		expect(queued[0]).toContain("commit-handoff");
+		expect(queued[0]).toContain("own fresh Work Attempt");
+		expect(await new Supervisor(deps).pickupCommitHandoffs()).toBe(0);
+		expect(queued).toHaveLength(1);
+	});
+
 	test("retains offline Work, delivers on reconnect, and suppresses repeats across restart", async () => {
 		const { recordDelegation, readDelegations } =
 			await import("./delegation-ledger");

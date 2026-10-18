@@ -357,3 +357,43 @@ reinstalling. No credentials or launcher identity are written into the plist.
 provide full native records for this dispatcher. `work start` and `work settle`
 accept `--input '{"metadata":{...}}'` for bounded execution receipts, while their
 normal identity and Attempt fences remain mandatory.
+
+### Commit handoff (experimental)
+
+A cloud session transfers one validated commit with one CLI invocation:
+
+```sh
+tedix commit-handoff submit <work-id> --to <receiver-principal-uuid> \
+  --checks "validation commands and results" --commit HEAD \
+  --workspace <profile> --organization <org>
+```
+
+The command exports a binary Git mail patch, records bounded base64 parts as
+machine coordination interactions on Work, and publishes its SHA-256 manifest
+as a handoff interaction last. Payloads target an external agent, never a user.
+The maximum patch size is 3 MB. Reported validation remains a source claim;
+the receiver runs the repository gates. No tedi run or public share link is
+needed. Private temporary input files are removed after each native CLI call.
+
+The Mac operator configures `~/.tedix/commit-handoffs.json` as an array of routes.
+Each requires `workspace`, `organization`, `receiverId` (the external agent
+principal UUID), `projectId`, `repository` (the exact origin URL), `session`
+(an existing Codex chat UUID), and `cwd` (that chat's directory). The chat must
+already have decision capture enabled and be bound to the same workspace,
+organization and project. The supervisor reads the explicitly configured
+project's handoff audit and delivers only interactions addressed to that receiver,
+once the Work is accepted and ready. Its owner login needs audit access.
+Delivery receipts prove the chat received the request, not that Git pushed it.
+
+The receiver obtains its own Work admission and isolated worktree, keeps its
+Attempt alive, then runs `tedix commit-handoff apply <work-id> --to
+<receiver-principal-uuid> --request <handoff-interaction-uuid> --repo <worktree>
+--workspace <profile> --organization <org>`. It checks every byte and its
+credential's exact Attempt before `git am -3`, preserves the author, adds a
+digest trailer for retry detection, runs `bun run push`, and verifies the SHA
+is on remote main. Gate failures and success receipts are Work comments.
+The commands never start or settle an Attempt. Source Work stays accepted
+until the receiver lands the commit; uploading alone does not satisfy its outcome.
+
+Cloud startup hooks recognize `CLAUDE_CODE_REMOTE=true` or the explicit
+`TEDIX_CLOUD_SESSION=1` marker and explain this boundary once at startup.

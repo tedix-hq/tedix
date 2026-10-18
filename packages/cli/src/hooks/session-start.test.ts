@@ -86,6 +86,19 @@ async function automaticBrief(
 }
 
 describe("tedix hooks session-start", () => {
+	test("cloud startup warns once even without a binding, but resume does not repeat it", async () => {
+		const env = { CLAUDE_CODE_REMOTE: "true" };
+		const startup = await run([{ status: "unbound" }], env, {
+			source: "startup",
+		});
+		expect(context(startup.output)).toContain("tedix commit-handoff submit");
+		expect(startup.output.split("\n")).toHaveLength(1);
+		const resumed = await run([{ status: "unbound" }], env, {
+			source: "resume",
+		});
+		expect(resumed.output).toBe("");
+	});
+
 	test("connect routes the selected org and rejects cross-org Work", async () => {
 		const binding = {
 			status: "bound",
