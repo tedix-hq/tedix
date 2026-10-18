@@ -1,4 +1,5 @@
 import { assertDescopeOk } from "@tedix/auth/descope";
+import { installDefaultWorkApps } from "../../services/default-work-apps";
 import {
 	getDataResidency,
 	setDataResidency,
@@ -786,6 +787,7 @@ async function createOrganizationResources(
 		);
 	}
 
+	await installDefaultWorkApps(db, org.id, { kind: "user", id: userId });
 	return mapOrgToContract(org);
 }
 
@@ -1975,6 +1977,10 @@ export const completeOsOnboardingContract =
 				);
 			}
 
+			await installDefaultWorkApps(db, input.organizationId, {
+				kind: "user",
+				id: user.sub,
+			});
 			const updated = await updateOrganization(db, input.organizationId, {
 				name: input.name,
 				slug: input.slug,

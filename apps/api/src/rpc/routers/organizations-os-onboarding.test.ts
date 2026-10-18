@@ -5,6 +5,7 @@ import type { BaseContext } from "../orpc";
 const ORGANIZATION_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
 
 const mocks = vi.hoisted(() => ({
+	installDefaultWorkApps: vi.fn(),
 	checkSlugAvailable: vi.fn(),
 	emitAuditEvent: vi.fn(),
 	getMemberByUserId: vi.fn(),
@@ -16,6 +17,10 @@ const mocks = vi.hoisted(() => ({
 	patchTenant: vi.fn(),
 	deleteTenant: vi.fn(),
 	retireOrganization: vi.fn(),
+}));
+
+vi.mock("../../services/default-work-apps", () => ({
+	installDefaultWorkApps: mocks.installDefaultWorkApps,
 }));
 
 vi.mock("@tedix/auth/client", async (load) => ({
@@ -102,6 +107,9 @@ function machineContext(): BaseContext {
 describe("organizations.completeOsOnboarding", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.installDefaultWorkApps.mockResolvedValue({
+			workspaceId: "11111111-1111-4111-8111-111111111111",
+		});
 		mocks.patchTenant.mockResolvedValue({ ok: true });
 		mocks.deleteTenant.mockResolvedValue({ ok: true });
 		mocks.retireOrganization.mockResolvedValue({ id: ORGANIZATION_ID });
@@ -244,6 +252,14 @@ describe("organizations.completeOsOnboarding", () => {
 			undefined,
 			"user-1",
 		);
+		expect(mocks.installDefaultWorkApps).toHaveBeenCalledWith(
+			expect.anything(),
+			ORGANIZATION_ID,
+			{ kind: "user", id: "user-1" },
+		);
+		expect(
+			mocks.installDefaultWorkApps.mock.invocationCallOrder[0],
+		).toBeLessThan(mocks.updateOrganization.mock.invocationCallOrder[0]!);
 		expect(
 			mocks.autoProvisionFirstTedi.mock.invocationCallOrder[0],
 		).toBeLessThan(
@@ -256,6 +272,28 @@ describe("organizations.completeOsOnboarding", () => {
 				organizationId: ORGANIZATION_ID,
 			}),
 		);
+	});
+
+	it("keeps the OS origin disabled until Work apps are installed and retries safely", async () => {
+		mocks.installDefaultWorkApps.mockRejectedValueOnce(
+			new Error("installation unavailable"),
+		);
+		const { organizationsContractRouter } = await import("./organizations");
+		const client = createRouterClient(organizationsContractRouter, {
+			context: userContext(),
+		});
+		const input = {
+			organizationId: ORGANIZATION_ID,
+			name: "Pine Studio",
+			slug: "pine-studio",
+		};
+		await expect(client.completeOsOnboarding(input)).rejects.toThrow(
+			"installation unavailable",
+		);
+		expect(mocks.updateOrganization).not.toHaveBeenCalled();
+		await expect(client.completeOsOnboarding(input)).resolves.toMatchObject({
+			features: { os: true },
+		});
 	});
 
 	it("keeps the OS origin disabled until gateway provisioning succeeds", async () => {

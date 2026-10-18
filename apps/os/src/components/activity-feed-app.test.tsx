@@ -68,9 +68,9 @@ const row = ActivityFeedItemSchema.parse({
 vi.mock("./activity-feed-sources", () => ({
 	ActivityFeedSources: ({
 		onUpdate,
-		projectId: id,
+		projectId: id = "organization",
 	}: {
-		projectId: string;
+		projectId?: string;
 		onUpdate: (id: string, state: FeedSourceState) => void;
 	}) => {
 		useEffect(
@@ -91,126 +91,132 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
-it("shows receipt-backed activity, explains it and persists a personal mute", async () => {
-	const client = new QueryClient({
-		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
-	});
-	client.setQueryData(
-		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
-		learnDecisions({
-			organizationId: "fictional-acme",
-			personId: "fictional-acme-user",
+it.each(["projects", "organization"] as const)(
+	"shows receipt-backed %s activity, explains it and persists a personal mute",
+	async (scope) => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+		});
+		client.setQueryData(
+			osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+			learnDecisions({
+				organizationId: "fictional-acme",
+				personId: "fictional-acme-user",
+				events: [],
+				config: DecisionLearningConfigSchema.parse({}),
+				now: new Date(),
+			}),
+		);
+		const initial = {
+			preferences: DEFAULT_OS_USER_PREFERENCES,
+			revision: 0,
+			source: "default" as const,
+			updatedAt: null,
+		};
+		client.setQueryData(userPreferencesQueryOptions().queryKey, initial);
+		client.setQueryData(
+			osQuery.learningFeedback.listInteractions.queryOptions({
+				input: { scopeKind: "personal", eventKind: "edited", limit: 100 },
+			}).queryKey,
+			{ events: [] },
+		);
+		const record = vi
+			.mocked(osApi.learningFeedback.recordInteraction)
+			.mockResolvedValue({} as never);
+		vi.mocked(osApi.learningFeedback.listInteractions).mockResolvedValue({
 			events: [],
-			config: DecisionLearningConfigSchema.parse({}),
-			now: new Date(),
-		}),
-	);
-	const initial = {
-		preferences: DEFAULT_OS_USER_PREFERENCES,
-		revision: 0,
-		source: "default" as const,
-		updatedAt: null,
-	};
-	client.setQueryData(userPreferencesQueryOptions().queryKey, initial);
-	client.setQueryData(
-		osQuery.learningFeedback.listInteractions.queryOptions({
-			input: { scopeKind: "personal", eventKind: "edited", limit: 100 },
-		}).queryKey,
-		{ events: [] },
-	);
-	const record = vi
-		.mocked(osApi.learningFeedback.recordInteraction)
-		.mockResolvedValue({} as never);
-	vi.mocked(osApi.learningFeedback.listInteractions).mockResolvedValue({
-		events: [],
-	});
-	vi.mocked(osApi.userSettings.getPreferences).mockResolvedValue(initial);
-	const save = vi
-		.mocked(osApi.userSettings.updatePreferences)
-		.mockImplementation(async (input) => ({
-			...initial,
-			revision: 1,
-			source: "stored",
-			preferences: input.preferences,
-		}));
-	const host = document.createElement("div");
-	document.body.append(host);
-	const root = createRoot(host);
-	try {
-		await act(async () =>
-			root.render(
-				<QueryClientProvider client={client}>
-					<ActivityFeedApp
-						config={ActivityFeedConfigSchema.parse({
-							version: 1,
-							projects: [{ id: projectId, label: "Pine Studio" }],
-						})}
-					/>
-				</QueryClientProvider>,
-			),
-		);
-		expect(host.querySelectorAll(".fd-preview")).toHaveLength(0);
-		expect(host.textContent).not.toContain("Loading your activity");
-		expect(host.textContent).toContain(row.sentence);
-		expect(host.querySelector(".ft-post-link")?.getAttribute("href")).toBe(
-			row.source,
-		);
-		expect(host.querySelector(".ft-byline")?.textContent).toMatch(
-			/^Pine Studio· /,
-		);
-		expect(host.querySelector(".ft-byline")?.textContent).not.toContain(
-			"Cedar",
-		);
-		expect(host.querySelector(".ft-details")).toBeNull();
-		const button = (label: string) =>
-			[...host.querySelectorAll("button")].find(
-				(b) =>
-					b.getAttribute("aria-label") === label || b.textContent === label,
-			)!;
-		const post = host.querySelector(".ft-post-link")!;
-		vi.useFakeTimers();
-		await act(async () => {
-			post.dispatchEvent(
-				new PointerEvent("pointerdown", {
-					bubbles: true,
-					pointerType: "touch",
+		});
+		vi.mocked(osApi.userSettings.getPreferences).mockResolvedValue(initial);
+		const save = vi
+			.mocked(osApi.userSettings.updatePreferences)
+			.mockImplementation(async (input) => ({
+				...initial,
+				revision: 1,
+				source: "stored",
+				preferences: input.preferences,
+			}));
+		const host = document.createElement("div");
+		document.body.append(host);
+		const root = createRoot(host);
+		try {
+			await act(async () =>
+				root.render(
+					<QueryClientProvider client={client}>
+						<ActivityFeedApp
+							config={ActivityFeedConfigSchema.parse({
+								version: 1,
+								scope,
+								projects:
+									scope === "organization"
+										? []
+										: [{ id: projectId, label: "Pine Studio" }],
+							})}
+						/>
+					</QueryClientProvider>,
+				),
+			);
+			expect(host.querySelectorAll(".fd-preview")).toHaveLength(0);
+			expect(host.textContent).not.toContain("Loading your activity");
+			expect(host.textContent).toContain(row.sentence);
+			expect(host.querySelector(".ft-post-link")?.getAttribute("href")).toBe(
+				row.source,
+			);
+			expect(host.querySelector(".ft-byline")?.textContent).toMatch(
+				scope === "organization" ? /^Cedar· / : /^Pine Studio· /,
+			);
+			expect(host.querySelector(".ft-details")).toBeNull();
+			const button = (label: string) =>
+				[...host.querySelectorAll("button")].find(
+					(b) =>
+						b.getAttribute("aria-label") === label || b.textContent === label,
+				)!;
+			const post = host.querySelector(".ft-post-link")!;
+			vi.useFakeTimers();
+			await act(async () => {
+				post.dispatchEvent(
+					new PointerEvent("pointerdown", {
+						bubbles: true,
+						pointerType: "touch",
+					}),
+				);
+				vi.advanceTimersByTime(460);
+			});
+			const heldClick = new MouseEvent("click", {
+				bubbles: true,
+				cancelable: true,
+			});
+			post.dispatchEvent(heldClick);
+			expect(heldClick.defaultPrevented).toBe(true);
+			expect(
+				host.querySelector("article")?.getAttribute("data-reactions-open"),
+			).toBe("true");
+			vi.useRealTimers();
+			await act(async () => button("Why?").click());
+			expect(host.textContent).toContain(
+				"The attempt settled with its receipt.",
+			);
+			await act(async () => button("Not for me").click());
+			expect(record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					eventKind: "rejected",
+					scope: { kind: "personal" },
+					metadata: expect.objectContaining({ source: row.source }),
 				}),
 			);
-			vi.advanceTimersByTime(460);
-		});
-		const heldClick = new MouseEvent("click", {
-			bubbles: true,
-			cancelable: true,
-		});
-		post.dispatchEvent(heldClick);
-		expect(heldClick.defaultPrevented).toBe(true);
-		expect(
-			host.querySelector("article")?.getAttribute("data-reactions-open"),
-		).toBe("true");
-		vi.useRealTimers();
-		await act(async () => button("Why?").click());
-		expect(host.textContent).toContain("The attempt settled with its receipt.");
-		await act(async () => button("Not for me").click());
-		expect(record).toHaveBeenCalledWith(
-			expect.objectContaining({
-				eventKind: "rejected",
-				scope: { kind: "personal" },
-				metadata: expect.objectContaining({ source: row.source }),
-			}),
-		);
-		expect(save).toHaveBeenCalledWith(
-			expect.objectContaining({
-				expectedRevision: 0,
-				preferences: expect.objectContaining({
-					activityFeed: expect.objectContaining({
-						mutedClasses: [row.classId],
+			expect(save).toHaveBeenCalledWith(
+				expect.objectContaining({
+					expectedRevision: 0,
+					preferences: expect.objectContaining({
+						activityFeed: expect.objectContaining({
+							mutedClasses: [row.classId],
+						}),
 					}),
 				}),
-			}),
-		);
-		expect(host.querySelector("article")).toBeNull();
-	} finally {
-		await act(async () => root.unmount());
-		client.clear();
-	}
-});
+			);
+			expect(host.querySelector("article")).toBeNull();
+		} finally {
+			await act(async () => root.unmount());
+			client.clear();
+		}
+	},
+);

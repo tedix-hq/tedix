@@ -1,4 +1,5 @@
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
+import { installDefaultWorkApps } from "../../services/default-work-apps";
 import { getPersonalResourceDelegation } from "@tedix/db/queries/personal-resource-delegations";
 import {
 	personalDelegationSource,
@@ -140,6 +141,15 @@ const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
 const runOs = authed.use(AUTHZ.osRun);
 const publishOs = authed.use(AUTHZ.osPublish);
+
+const installWorkDefaults = publishOs.gadgets.installWorkDefaults.handler(
+	async ({ context }) =>
+		installDefaultWorkApps(
+			queryDb(context),
+			requireOrgId(context),
+			resolveCreator(context),
+		),
+);
 
 const workApps = readOs.gadgets.workApps.handler(async ({ input, context }) => {
 	const { resolveOsWorkspaceViewer } =
@@ -2151,6 +2161,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 	schedules: workspaceSchedules.osWorkspaceScheduleProcedures,
 	work: workspaceWork.osWorkspaceWorkProcedures,
 	gadgets: {
+		installWorkDefaults,
 		workApps,
 		list: gadgetsList,
 		create: gadgetsCreate,

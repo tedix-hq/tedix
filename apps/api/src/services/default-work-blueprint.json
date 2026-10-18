@@ -1,0 +1,33 @@
+{
+	"gadgets": [
+		{
+			"name": "Feed",
+			"manifest": {
+				"entry": "tedix:app/activity-feed",
+				"navigation": { "board": true, "work": "feed" },
+				"capabilities": [],
+				"config": { "version": 1, "scope": "organization", "projects": [] }
+			}
+		},
+		{
+			"name": "Deck",
+			"manifest": {
+				"entry": "tedix:app/decision-deck",
+				"navigation": { "board": true, "work": "deck", "workDefault": true },
+				"capabilities": [],
+				"config": {
+					"version": 1,
+					"limit": 50,
+					"unchangedThreshold": 5,
+					"dailyAttentionBudget": 20,
+					"auditSampleRate": 0.1,
+					"examples": [],
+					"gamification": true,
+					"dailyGoal": 7,
+					"batchTimesUtc": ["04:00", "09:00", "16:00"]
+				}
+			}
+		}
+	],
+	"requirements": null
+}

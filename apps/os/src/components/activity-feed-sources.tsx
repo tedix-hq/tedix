@@ -24,7 +24,7 @@ export function ActivityFeedSources({
 	request,
 	onUpdate,
 }: {
-	projectId: string;
+	projectId?: string;
 	pageSize: number;
 	request: number;
 	onUpdate: (projectId: string, state: FeedSourceState) => void;
@@ -55,7 +55,7 @@ export function ActivityFeedSources({
 		() => [
 			...workFeedItems(
 				work.data?.pages.flatMap((p) => p.events) ?? [],
-				projectId,
+				projectId ?? null,
 				names,
 			),
 			...resultFeedItems(results.data?.pages.flatMap((p) => p.data) ?? []),
@@ -67,7 +67,8 @@ export function ActivityFeedSources({
 	const failed = queries.some((q) => q.isError);
 	const more = queries.some((q) => q.hasNextPage);
 	useEffect(
-		() => onUpdate(projectId, { items, loading, failed, more }),
+		() =>
+			onUpdate(projectId ?? "organization", { items, loading, failed, more }),
 		[projectId, items, loading, failed, more, onUpdate],
 	);
 	const lastRequest = useRef(0);

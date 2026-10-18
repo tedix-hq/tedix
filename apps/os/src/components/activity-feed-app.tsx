@@ -133,7 +133,8 @@ export function ActivityFeedApp({
 	const factories = visibleFactories.sources.filter((f) =>
 		visibleProjects.some((p) => p.id === f.projectId),
 	);
-	const sourceKeys = [
+	const sourceIds = [
+		...(config.scope === "organization" ? ["organization"] : []),
 		...visibleProjects.map((p) => p.id),
 		...factories.map(
 			(f) => `factory-${f.source.workspaceId}-${f.source.label}`,
@@ -141,7 +142,7 @@ export function ActivityFeedApp({
 	];
 	const allItems = [
 		...Object.entries(sources)
-			.filter(([id]) => sourceKeys.includes(id))
+			.filter(([id]) => sourceIds.includes(id))
 			.flatMap(([, s]) => s.items),
 		...correctionFeedItems(corrections.data?.events ?? []),
 	];
@@ -193,7 +194,7 @@ export function ActivityFeedApp({
 	);
 	const mainIds = new Set(main.map((i) => i.id));
 	const digest = selected.filter((i) => !mainIds.has(i.id));
-	const states = sourceKeys.map((key) => sources[key]);
+	const states = sourceIds.map((id) => sources[id]);
 	const loading =
 		visibleFactories.pending ||
 		preferences.isPending ||
@@ -361,6 +362,13 @@ export function ActivityFeedApp({
 			data-workspace-app-entry="activity-feed"
 		>
 			<DecisionLearningFeedback eventId={sessionLearningId} />
+			{config.scope === "organization" && (
+				<ActivityFeedSources
+					pageSize={config.pageSize}
+					request={request}
+					onUpdate={onUpdate}
+				/>
+			)}
 			{visibleProjects.map((p) => (
 				<ActivityFeedSources
 					key={p.id}

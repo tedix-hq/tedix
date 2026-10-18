@@ -219,7 +219,10 @@ it("does not recover apps from another fictional organization's cached details",
 	const pine = render({}, false);
 	expect(pine.querySelector("article")).toBeNull();
 	expect(pine.body.textContent).not.toContain("Cedar");
-	expect(pine.body.textContent).toContain("Choose a Feed and Deck app");
+	expect(pine.body.textContent).toContain("Set up Feed and Deck");
+	expect(pine.querySelector("button")?.textContent).toBe(
+		"Set up Feed and Deck",
+	);
 });
 
 it("opens the configured Work start app while explicit views and apps still win", () => {
