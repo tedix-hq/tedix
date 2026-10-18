@@ -44,7 +44,7 @@ export function WorkHome({
 	const decisions = useDecisionInbox(config.success ? config.data : undefined);
 	const client = useQueryClient();
 	const prefetchIds = decisions.requests
-		.slice(0, 3)
+		.slice(0, 1)
 		.map((row) => row.request.id)
 		.join(",");
 	useEffect(() => {

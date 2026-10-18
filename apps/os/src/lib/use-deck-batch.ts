@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import * as z from "zod";
 
 const BatchSchema = z.object({
@@ -17,16 +17,32 @@ export function useDeckBatch(
 ) {
 	const [batch, setBatch] = useState<Batch | null>(null);
 	const candidateKey = JSON.stringify(candidates);
-	useEffect(() => {
-		if (!ready) return;
+	useLayoutEffect(() => {
 		setBatch((current) => {
-			if (current?.key === key) return current;
-			try {
-				const saved = BatchSchema.safeParse(
-					JSON.parse(sessionStorage.getItem(`decision-deck:${key}`) ?? "null"),
-				);
-				if (saved.success && saved.data.key === key) return saved.data;
-			} catch {}
+			let savedBatch = current?.key === key ? current : null;
+			if (!savedBatch) {
+				try {
+					const saved = BatchSchema.safeParse(
+						JSON.parse(
+							sessionStorage.getItem(`decision-deck:${key}`) ?? "null",
+						),
+					);
+					if (saved.success && saved.data.key === key) savedBatch = saved.data;
+				} catch {}
+			}
+			if (savedBatch) {
+				if (!ready || savedBatch.ids.length >= capacity) return savedBatch;
+				const ids = [
+					...new Set([
+						...savedBatch.ids,
+						...(JSON.parse(candidateKey) as string[]),
+					]),
+				].slice(0, capacity);
+				return ids.length === savedBatch.ids.length
+					? savedBatch
+					: { ...savedBatch, ids };
+			}
+			if (!ready) return null;
 			return {
 				key,
 				ids: (JSON.parse(candidateKey) as string[]).slice(0, capacity),
