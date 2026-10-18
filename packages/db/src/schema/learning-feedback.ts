@@ -281,3 +281,85 @@ export type LearningImprovementProposalRow =
 	typeof learningImprovementProposals.$inferSelect;
 export type NewLearningImprovementProposal =
 	typeof learningImprovementProposals.$inferInsert;
+
+/** Browser exposure reports are immutable; outcome truth comes from canonical receipts. */
+export const decisionExposures = sqliteTable(
+	"decision_exposures",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		actorId: text("actor_id").notNull(),
+		cardId: text("card_id").notNull(),
+		sessionId: text("session_id").notNull(),
+		classId: text("class_id").notNull(),
+		snapshot: text("snapshot", { mode: "json" })
+			.$type<
+				import("@tedix/api-contract/schemas/decision-learning").DecisionSnapshot
+			>()
+			.notNull(),
+		context: text("context", { mode: "json" })
+			.$type<
+				import("@tedix/api-contract/schemas/decision-learning").DecisionExposureInput
+			>()
+			.notNull(),
+		occurredAt: text("occurred_at").notNull(),
+		expiresAt: text("expires_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("uniq_decision_exposure_org_actor_event").on(
+			t.organizationId,
+			t.actorId,
+			t.id,
+		),
+		index("idx_decision_exposure_org_actor_card").on(
+			t.organizationId,
+			t.actorId,
+			t.cardId,
+		),
+		index("idx_decision_exposure_expiry").on(t.expiresAt),
+	],
+);
+
+export const decisionOutcomeLabels = sqliteTable(
+	"decision_outcome_labels",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		actorId: text("actor_id").notNull(),
+		cardId: text("card_id").notNull(),
+		classId: text("class_id").notNull(),
+		window: text("window", { enum: ["immediate", "day_1", "day_7"] }).notNull(),
+		outcome: text("outcome", { mode: "json" })
+			.$type<
+				import("@tedix/api-contract/schemas/decision-learning").DecisionOutcome
+			>()
+			.notNull(),
+		delayed: text("delayed", { mode: "json" }).$type<
+			import("@tedix/api-contract/schemas/decision-learning").DecisionDelayedOutcome
+		>(),
+		observedAt: text("observed_at").notNull(),
+		dueAt: text("due_at").notNull(),
+		expiresAt: text("expires_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("uniq_decision_label_org_actor_receipt_window").on(
+			t.organizationId,
+			t.actorId,
+			t.cardId,
+			t.window,
+			t.id,
+		),
+		index("idx_decision_label_org_class").on(
+			t.organizationId,
+			t.actorId,
+			t.classId,
+			t.window,
+		),
+		index("idx_decision_label_due").on(t.window, t.dueAt),
+		index("idx_decision_label_expiry").on(t.expiresAt),
+	],
+);

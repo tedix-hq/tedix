@@ -3,6 +3,9 @@ import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import * as z from "zod";
 import {
+	DecisionExposureInputSchema,
+	DecisionCalibrationSchema,
+	DecisionInstrumentationProofSchema,
 	DecisionLearningConfigSchema,
 	DecisionLearningModelSchema,
 	LearningCorrectionInputSchema,
@@ -35,6 +38,34 @@ export const learningFeedbackContract = oc
 	.errors(baseErrors)
 	.router({
 		model: oc.input(z.object({})).output(DecisionLearningModelSchema),
+		recordExposure: oc
+			.route({
+				operationId: "record_decision_exposure",
+				summary: "Record your bounded Deck exposure context",
+			})
+			.input(DecisionExposureInputSchema)
+			.output(z.object({ id: z.string() })),
+		getCalibration: oc
+			.route({
+				operationId: "get_decision_calibration",
+				summary:
+					"Read approval calibration for one card class in your organization",
+			})
+			.input(z.object({ classId: z.string().min(1).max(100) }))
+			.output(DecisionCalibrationSchema),
+		getInstrumentation: oc
+			.route({
+				operationId: "get_decision_instrumentation",
+				summary:
+					"Read your decision exposure snapshots, alternatives and receipt-linked labels",
+			})
+			.input(
+				z.object({
+					cardId: z.string().min(1).max(200),
+					limit: z.number().int().min(1).max(100).default(20),
+				}),
+			)
+			.output(DecisionInstrumentationProofSchema),
 		configure: oc
 			.input(DecisionLearningConfigSchema)
 			.output(DecisionLearningConfigSchema),

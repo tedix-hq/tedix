@@ -944,6 +944,14 @@
 		{
 			"name": "20261018172259_memory-fact-hybrid-recall-projection/migration.sql",
 			"sha256": "dcad74d697e463c1c17c686148a65c6adacce52293b26c6d5b23fe0fb4a5c52c"
+		},
+		{
+			"name": "20261018175034_decision_instrumentation/migration.sql",
+			"sha256": "9175d8f163ac66ba20c47026c856d632fb5ae066a5d84944256bf7c3afdffa02"
+		},
+		{
+			"name": "20261018175624_decision_instrumentation_immutable/migration.sql",
+			"sha256": "f623559e6890b25fba1569ba7dc24138e665070249239577732d7bdb72c41026"
 		}
 	]
 }
