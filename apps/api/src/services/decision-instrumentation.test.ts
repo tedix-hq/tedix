@@ -9,6 +9,7 @@ import {
 	workInteractionResponses,
 	workApprovalProposals,
 	workApprovalDecisions,
+	workInteractionCardPresentations,
 } from "@tedix/db/schema/work-factory";
 import { workItems } from "@tedix/db/schema/work-items";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
@@ -37,6 +38,7 @@ function fixture() {
 			workInteractionResponses,
 			workApprovalProposals,
 			workApprovalDecisions,
+			workInteractionCardPresentations,
 			tediApprovalRequests,
 			memoryFacts,
 			learningInteractionEvents,
@@ -180,6 +182,54 @@ describe("decision instrumentation", () => {
 			"already used",
 		);
 	});
+	it.each([
+		{ personId: "person-lighthouse", requestVersion: 1, displayed: true },
+		{ personId: "person-other", requestVersion: 1, displayed: false },
+		{ personId: "person-lighthouse", requestVersion: 2, displayed: false },
+	])(
+		"snapshots only the displayed person's current copy: $personId/$requestVersion",
+		async ({ personId, requestVersion, displayed }) => {
+			const { db } = fixture();
+			await request(db);
+			const original = {
+				version: 2 as const,
+				title: "Approve the original draft?",
+				body: "Send the original fictional draft",
+				recommendation: "Uses the original draft",
+			};
+			const revised = {
+				version: 2 as const,
+				title: "Approve the revised draft?",
+				body: "Send the revised fictional draft",
+				recommendation: "Uses the reviewed draft",
+			};
+			await db.update(workInteractions).set({
+				metadata: { decisionClass: "draft", cardPresentation: original },
+			});
+			await db.insert(workInteractionCardPresentations).values({
+				orgId: "org-lighthouse",
+				interactionId: "decision-a",
+				personId,
+				requestVersion,
+				presentation: revised,
+				updatedAt: now.toISOString(),
+			});
+			await expose(db);
+			const proof = await listDecisionInstrumentation(db, {
+				organizationId: "org-lighthouse",
+				actorId: "person-lighthouse",
+				cardId: "decision-a",
+				now: now.toISOString(),
+				limit: 1,
+			});
+			const expected = displayed ? revised : original;
+			expect(proof.exposures[0]?.snapshot).toMatchObject({
+				title: expected.title,
+				body: expected.body,
+				recommendation: expected.recommendation,
+			});
+		},
+	);
 	it.each([
 		[
 			{ decisionChoice: "approve", feedbackSignal: "approve-as-is" },
