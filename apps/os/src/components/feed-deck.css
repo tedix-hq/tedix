@@ -777,7 +777,8 @@
 .fd-deck-current .fd-decision {
 	display: flex;
 	flex-direction: column;
-	height: 100%;
+	height: auto;
+	max-height: 100%;
 	min-height: 0;
 }
 .fd-deck-current .fd-card {
@@ -865,7 +866,7 @@
 	flex-direction: column;
 }
 .fd-deck-current .fd-decision-stack > :has(> .fd-decision) > .fd-decision {
-	flex: 1 1 0;
+	flex: 0 1 auto;
 }
 
 @media (max-width: 640px) {
