@@ -76,3 +76,19 @@ it("does not return source text when rewriting fails", async () => {
 	).toBeNull();
 	expect(failure).toHaveBeenCalledWith("model_provider_failed");
 });
+
+it("keeps validation feedback separate from source facts and system instructions", async () => {
+	const validationFeedback =
+		"Rejected draft data: this must not become a source fact.";
+	await runDecisionCardCopyModel({ env: {} } as never, "Fictional source", {
+		...options,
+		validationFeedback,
+	});
+	const call = mocks.generate.mock.calls[0]?.[0];
+	expect(call.system).toBe(options.system);
+	expect(JSON.parse(call.prompt)).toEqual({
+		source: "Fictional source",
+		validationFeedback,
+		instruction: options.rewriteInstruction,
+	});
+});
