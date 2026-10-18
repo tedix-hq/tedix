@@ -29,6 +29,7 @@ import {
 	workAttempts,
 	workEvents,
 	workItemProjections,
+	workItemComments,
 	workItems,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
@@ -105,6 +106,38 @@ function lifecycleEventInsert(
 					eq(workItems.id, params.workItemId),
 					eq(workItems.disposition, params.disposition),
 					eq(workItems.version, params.expectedVersion),
+				),
+			),
+	);
+}
+
+function dispatchReceiptInsert(
+	db: DbQueryClient,
+	item: WorkItem,
+	executor: string,
+	at: string,
+	receiptId: string,
+) {
+	return db.insert(workItemComments).select(
+		db
+			.select({
+				id: sql<string>`${receiptId}`.as("id"),
+				workItemId: workItems.id,
+				orgId: workItems.orgId,
+				authorType: sql<string>`'system'`.as("author_type"),
+				authorId: sql<string>`'lane-dispatch'`.as("author_id"),
+				body: sql<string>`${`Dispatched to ${executor} at ${at}`}`.as("body"),
+				metadata: sql<Record<string, JsonValue>>`'{}'`.as("metadata"),
+				createdAt: sql<string>`${at}`.as("created_at"),
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, item.orgId),
+					eq(workItems.id, item.id),
+					eq(workItems.version, item.version + 1),
+					eq(workItems.updatedAt, at),
+					sql`json_extract(${workItems.metadata}, '$.laneDispatchReceiptId') = ${receiptId}`,
 				),
 			),
 	);
@@ -625,10 +658,24 @@ export async function acceptWorkItem(
 			"ACCEPTANCE_REQUIRED",
 			"An acceptance contract must state what done looks like",
 		);
+	const executor = prior.metadata?.executor;
+	const dispatch = ["codex", "claude-code", "tedi", "human"].includes(
+		String(executor),
+	);
+	const receiptId = crypto.randomUUID();
 	const acceptMutation = db
 		.update(workItems)
 		.set({
 			disposition: "accepted",
+			...(dispatch
+				? {
+						metadata: {
+							...prior.metadata,
+							laneDispatch: { state: "ready" as const },
+							laneDispatchReceiptId: receiptId,
+						},
+					}
+				: {}),
 			acceptanceContract: params.acceptanceContract,
 			acceptedAt,
 			updatedAt: acceptedAt,
@@ -652,7 +699,21 @@ export async function acceptWorkItem(
 		actor: params.actor,
 		occurredAt: acceptedAt,
 	});
-	const [acceptedRows] = await db.batch([acceptMutation, acceptEvent]);
+	const [acceptedRows] = await db.batch([
+		acceptMutation,
+		acceptEvent,
+		...(dispatch
+			? [
+					dispatchReceiptInsert(
+						db,
+						prior,
+						String(executor),
+						acceptedAt,
+						receiptId,
+					),
+				]
+			: []),
+	]);
 	const item = acceptedRows[0];
 	if (!item)
 		throw new WorkFactoryError(
@@ -804,20 +865,30 @@ export async function updateWorkItemSpecification(
 ): Promise<WorkItem> {
 	const updatedAt = params.updatedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const laneDispatch =
+		params.laneDispatch ??
+		(params.executor !== undefined &&
+		["codex", "claude-code", "tedi", "human"].includes(params.executor)
+			? { state: "ready" as const }
+			: undefined);
+	const dispatch =
+		prior.disposition === "accepted" && laneDispatch?.state === "ready";
+	const receiptId = crypto.randomUUID();
 	const updateMutation = db
 		.update(workItems)
 		.set({
 			metadata:
-				params.executor === undefined && params.laneDispatch === undefined
+				params.executor === undefined && laneDispatch === undefined
 					? undefined
 					: {
 							...prior.metadata,
+							...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),
 							...(params.executor === undefined
 								? {}
 								: { executor: params.executor }),
-							...(params.laneDispatch === undefined
+							...(laneDispatch === undefined
 								? {}
-								: { laneDispatch: params.laneDispatch }),
+								: { laneDispatch: laneDispatch }),
 						},
 			title: params.title,
 			description: params.description,
@@ -844,7 +915,7 @@ export async function updateWorkItemSpecification(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
-				params.laneDispatch === undefined
+				laneDispatch === undefined
 					? undefined
 					: sql`NOT EXISTS (
 					SELECT 1 FROM ${workAttempts}
@@ -867,7 +938,21 @@ export async function updateWorkItemSpecification(
 		actor: params.actor,
 		occurredAt: updatedAt,
 	});
-	const [updatedRows] = await db.batch([updateMutation, updateEvent]);
+	const [updatedRows] = await db.batch([
+		updateMutation,
+		updateEvent,
+		...(dispatch
+			? [
+					dispatchReceiptInsert(
+						db,
+						prior,
+						String(params.executor ?? prior.metadata?.executor),
+						updatedAt,
+						receiptId,
+					),
+				]
+			: []),
+	]);
 	const item = updatedRows[0];
 	if (!item)
 		throw new WorkFactoryError(

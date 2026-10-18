@@ -1,7 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
-import { workItems, workEvents, workAttempts } from "../../schema/work-items";
+import {
+	workItems,
+	workEvents,
+	workAttempts,
+	workItemComments,
+} from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { updateWorkItemSpecification } from "./crud";
@@ -9,7 +14,7 @@ import { updateWorkItemSpecification } from "./crud";
 it("fences date updates, preserves omitted dates and audits clearing without lifecycle changes", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
-	sqlite.exec(schemaDdl(workItems, workEvents));
+	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
 	sqlite.exec(
 		"INSERT INTO work_items(id,org_id,title,disposition,created_at) VALUES('work','org','Plan','proposed','2026-10-01T00:00:00.000Z')",
 	);
@@ -60,7 +65,7 @@ it("fences date updates, preserves omitted dates and audits clearing without lif
 it("stores executor selection without losing other metadata and rejects another tenant", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
-	sqlite.exec(schemaDdl(workItems, workEvents));
+	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
 	sqlite
 		.prepare(
 			"INSERT INTO work_items(id,org_id,title,disposition,created_at,metadata) VALUES(?,?,?,?,?,?)",
@@ -84,7 +89,12 @@ it("stores executor selection without losing other metadata and rejects another 
 		...input,
 		expectedWorkItemVersion: 1,
 	});
-	expect(updated.metadata).toEqual({ retained: true, executor: "codex" });
+	expect(updated.metadata).toEqual({
+		retained: true,
+		executor: "codex",
+		laneDispatch: { state: "ready" },
+		laneDispatchReceiptId: expect.any(String),
+	});
 	expect(updated.version).toBe(2);
 	await expect(
 		updateWorkItemSpecification(db, { ...input, orgId: "org-other" }),
@@ -98,7 +108,7 @@ it("stores executor selection without losing other metadata and rejects another 
 it("fences dispatch plans against live Attempts and preserves calendar and metadata", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
-	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts));
+	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
 	sqlite
 		.prepare(
 			"INSERT INTO work_items(id,org_id,title,disposition,created_at,start_at,metadata) VALUES(?,?,?,?,?,?,?)",
@@ -156,6 +166,7 @@ it("fences dispatch plans against live Attempts and preserves calendar and metad
 		executor: "codex",
 		retained: true,
 		laneDispatch: { state: "ready", score: 42 },
+		laneDispatchReceiptId: expect.any(String),
 	});
 	expect(updated.startAt).toBe("2026-10-20");
 	await expect(

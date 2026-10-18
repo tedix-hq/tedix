@@ -1,7 +1,10 @@
 import { implement } from "@orpc/server";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
 import type { WorkItem } from "@tedix/db/schema/work-items";
-import { getProjectById } from "@tedix/db/queries/projects";
+import {
+	getProjectById,
+	getProjectByIdForOrganization,
+} from "@tedix/db/queries/projects";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { requireOrgId } from "../../org-scope";
 import {
@@ -80,6 +83,18 @@ export async function workItemStewardActor(
 			(item.accountableOwnerType === "tedi" &&
 				item.accountableOwnerId === actor.id) ||
 			(item.stewardType === "tedi" && item.stewardId === actor.id)
+		)
+			return actor;
+		else if (
+			action === "specification" &&
+			item.projectId &&
+			(
+				await getProjectByIdForOrganization(
+					context.db,
+					item.orgId,
+					item.projectId,
+				)
+			)?.leadTediId === actor.id
 		)
 			return actor;
 	}

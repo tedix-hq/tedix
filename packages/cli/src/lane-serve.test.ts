@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
+	mergeDispatcherReceipts,
 	retainedLaneWorktree,
 	dispatchSkip,
 	parseServeOptions,
@@ -67,7 +68,12 @@ function fixture({
 	const items = [item(1), item(2), item(3)].map((row) => ({
 		...row,
 		metadata: {
-			executor,
+			executor:
+				executor === "any-local"
+					? row.id === item(1).id
+						? "claude-code"
+						: "codex"
+					: executor,
 			...(coordinated && row.id === item(1).id
 				? { laneDispatch: { state: "ready" } }
 				: {}),
@@ -134,12 +140,16 @@ function fixture({
 			return response as T;
 		},
 		launch: async (args, deps) => {
+			const nativeExecutor =
+				args[args.indexOf("--executor") + 1] === "claude-code"
+					? "claude-code"
+					: "codex";
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
 			expect(deps?.cwd).toBe(
 				join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
 			);
 			expect(args.slice(args.indexOf("--") + 1)).toEqual(
-				executor === "claude-code"
+				nativeExecutor === "claude-code"
 					? [
 							"claude",
 							"-p",
@@ -166,7 +176,7 @@ function fixture({
 			expect(brief).toContain("already holds Attempt");
 			await new Promise<void>((done) => releases.push(done));
 			deps?.onTelemetry?.({
-				executor,
+				executor: nativeExecutor,
 				model: "test-model",
 				provider: "test-provider",
 				reasoningEffort: null,
@@ -449,4 +459,68 @@ it("defers a future planned start and reuses only a canonically failed Work's re
 	expect(readFileSync(join(repo, "unfinished.txt"), "utf8")).toBe(
 		"Preserve this work",
 	);
+});
+
+it("any-local accepts either native executor but never human or tedi Work", () => {
+	const parsed = parseServeOptions([
+		"--executor",
+		"any-local",
+		"--max",
+		"2",
+		"--workspace",
+		"acme",
+		"--organization",
+		"org-acme",
+	]);
+	expect(parsed.executor).toBe("any-local");
+	for (const executor of ["codex", "claude-code"])
+		expect(
+			dispatchSkip({ ...item(), metadata: { executor } }, [], "any-local"),
+		).toBeUndefined();
+	for (const executor of ["human", "tedi"])
+		expect(
+			dispatchSkip({ ...item(), metadata: { executor } }, [], "any-local"),
+		).toContain("not assigned");
+});
+
+it("any-local retains sibling process, settlement and worktree receipts on migration", () => {
+	const root = mkdtempSync(join(tmpdir(), "lane-migration-"));
+	dirs.push(root);
+	const target = join(root, "any"),
+		source = join(root, "claude");
+	mkdirSync(target);
+	mkdirSync(source);
+	const name = `${item().id}-2.json`;
+	const receipt = {
+		itemId: item().id,
+		version: 2,
+		pid: process.pid,
+		phase: "settling",
+		repo: "/retained/repo",
+		session: "claude-code:fictional",
+		pendingObservation: { source: "wrapper" },
+	};
+	writeFileSync(join(source, name), JSON.stringify(receipt));
+	mergeDispatcherReceipts(target, [source]);
+	expect(JSON.parse(readFileSync(join(target, name), "utf8"))).toEqual(receipt);
+	mergeDispatcherReceipts(target, [source]);
+	writeFileSync(join(source, name), JSON.stringify({ ...receipt, version: 3 }));
+	expect(() => mergeDispatcherReceipts(target, [source])).toThrow(
+		"Conflicting",
+	);
+});
+
+it("any-local shares two slots across native Claude and Codex Attempts", async () => {
+	const { dispatcher, events, releases } = fixture({ executor: "any-local" });
+	await dispatcher.tick();
+	await until(() => releases.length === 2);
+	const starts = events.filter((e) => e.verb === "start" && !e.input);
+	expect(
+		starts.map((e) => e.env.TEDIX_AGENT_SESSION?.split(":")[0]).sort(),
+	).toEqual(["claude-code", "codex"]);
+	await dispatcher.tick();
+	expect(releases).toHaveLength(2);
+	for (const done of releases) done();
+	await dispatcher.drain();
+	expect(events.filter((e) => e.verb === "settle")).toHaveLength(2);
 });
