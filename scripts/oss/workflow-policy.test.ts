@@ -52,6 +52,21 @@ describe("public CI policy", () => {
 		}
 	});
 
+	test("installs the OS browser before either lane can run its tests", () => {
+		const workflow = read(".github/workflows/oss-public-ci.yml");
+		for (const [name, command] of [
+			["verify", "run: bun run verify"],
+			["tests", "run: bun run test:ci"],
+		] as const) {
+			const lane = job(workflow, name);
+			const install = lane.indexOf(
+				"run: bun run --cwd apps/os test:browser:install",
+			);
+			expect(install).toBeGreaterThan(-1);
+			expect(install).toBeLessThan(lane.indexOf(command));
+		}
+	});
+
 	test("skips automatic runs in a private repository", () => {
 		const workflow = read(".github/workflows/oss-public-ci.yml");
 		expect(job(workflow, "verify")).toContain(

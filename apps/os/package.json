@@ -21,6 +21,7 @@
 		"test": "bun run test:run",
 		"test:run": "vp test run && bun run test:workerd && bun run test:browser:dialogs && bun run test:browser:deck && bun run test:browser:feed-deck",
 		"test:workerd": "vp test run --config vitest.workers.config.ts",
+		"test:browser:install": "playwright install --with-deps chromium",
 		"test:browser:dialogs": "bun browser-tests/dialogs.spec.ts",
 		"test:browser:feed-deck": "bun browser-tests/feed-deck-polish.spec.ts",
 		"test:browser:apps": "bun browser-tests/widget-apps.spec.ts",
