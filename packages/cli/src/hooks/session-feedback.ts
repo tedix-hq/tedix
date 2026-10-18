@@ -24,6 +24,8 @@ import {
 
 const SIGNAL =
 	/\b(?:don['’]t|do not|never|always|i prefer|i want you to|from now on|instead of|rename\b.+\bto|this looks like\b.+\bfix|no mouse swipe|cards as user stories|panel docked|use .+ for (?:claude|codex)|names?\s*(?:≤|<=)\s*\d+)\b/i;
+const TURN_ONLY =
+	/\b(?:this turn|this time|for this task|right now|just this once|today only|for now|yet)\b|^(?:do not|don['’]t)\s+(?:call|invoke)\s+(?:any\s+)?tools?[.!]?$/i;
 
 /** Select short clauses locally; tasks, quoted examples and questions never leave here. */
 export function feedbackClauses(prompt: string): string[] {
@@ -38,6 +40,7 @@ export function feedbackClauses(prompt: string): string[] {
 				s.length >= 6 &&
 				s.length <= 280 &&
 				!s.endsWith("?") &&
+				!TURN_ONLY.test(s) &&
 				!/^[>"“]/.test(s) &&
 				SIGNAL.test(s),
 		)

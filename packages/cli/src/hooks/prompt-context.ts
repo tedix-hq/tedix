@@ -745,6 +745,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 	)
 		return;
 	const trace = hookTrace(env, "prompt-context");
+	const startedAt = Date.now();
 	const now = (deps.now ?? (() => new Date()))();
 	try {
 		// Prompt text is used only for local ranking; gateway inputs contain identifiers.
@@ -911,7 +912,6 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		const liveSources = [
 			binding.contextOutputId ? "shared" : undefined,
 			binding.preferencesOutputId ? "preferences" : undefined,
-			"lessons",
 			binding.workItemId ? "work" : undefined,
 			delegations.length ? "delegations" : undefined,
 			ledger ? "requests" : undefined,
@@ -927,7 +927,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 							"code",
 							gatewayCode(
 								{ ...binding, nextWork: undefined },
-								lessons,
+								undefined,
 								delegations.map((d) => d.id),
 								ledger,
 							),
@@ -961,8 +961,21 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				return undefined;
 			}
 		};
-		// A slow shared source must not suppress independently readable priorities.
-		const [, captured, data, nextWork] = await Promise.all([
+		const catalog = async (): Promise<JsonObject> => {
+			try {
+				const result = await trace(
+					"lesson-catalog",
+					read([...command, "code", gatewayCode({}, lessons)], 9000),
+				);
+				return isObject(result.lessons)
+					? result.lessons
+					: { unavailable: true };
+			} catch {
+				return { unavailable: true, readFailed: true };
+			}
+		};
+		// Slow documents or request history must not suppress lessons or priorities.
+		const [, captured, data, nextWork, lessonCatalog] = await Promise.all([
 			probe(),
 			capture && source === "stored-login" && typeof login === "string" && login
 				? trace(
@@ -976,12 +989,18 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				: Promise.resolve([] as string[]),
 			gateway(),
 			priorities(),
+			catalog(),
 		]);
+		data.lessons = lessonCatalog;
 		if (nextWork) data.nextWork = nextWork;
 		if (cached.nextWork?.fresh) data.nextWork = cached.nextWork.value;
 		else if (isObject(data.nextWork) && Array.isArray(data.nextWork.data))
 			writeCache(env, "next-work", nextWorkKey, data.nextWork, now);
-		if (isObject(data.lessons) && data.lessons.unavailable === true) {
+		if (
+			isObject(data.lessons) &&
+			data.lessons.unavailable === true &&
+			data.lessons.readFailed !== true
+		) {
 			await new Promise((resolve) => setTimeout(resolve, 150));
 			try {
 				const retry = await trace(
@@ -1028,13 +1047,12 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 								{},
 								{
 									...lessons,
-									catalog: !session,
-									sessionId: session,
+									catalog: true,
 									selectedLessonIds: selection.selectedLessonIds,
 								},
 							),
 						],
-						6000,
+						Math.max(1, Math.min(9000, 14_000 - (Date.now() - startedAt))),
 					),
 				);
 				if (
@@ -1050,7 +1068,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				);
 				data.lessons = {
 					...data.lessons,
-					holdout: validated.lessons.holdout === true,
+					holdout: selection.holdout,
 					lessons: selection.lessons.flatMap((l) =>
 						approved.has(l.id) ? [approved.get(l.id)] : [],
 					),
@@ -1107,6 +1125,28 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				for (const name of ["preferences", "lessons", "staleRequests"] as const)
 					if (delivered[name] && hashes[name]) receipt[name] = hashes[name];
 				writeDelivery(env, session, scope, receipt);
+				if (
+					(delivered.lessons || selection?.holdout) &&
+					!unchanged.lessons &&
+					selection?.selectedLessonIds.length
+				) {
+					try {
+						deps.deferRead?.(
+							[...command, "code"],
+							gatewayCode(
+								{},
+								{
+									...lessons,
+									catalog: false,
+									sessionId: session,
+									selectedLessonIds: selection.selectedLessonIds,
+								},
+							),
+						);
+					} catch {
+						// Measurement cannot invalidate context already emitted to the host.
+					}
+				}
 			}
 		}
 	} catch {

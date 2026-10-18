@@ -99,6 +99,7 @@ async function run(
 	interactions: unknown[] = [],
 	/** Undelivered-answer pages; absent: an older server without the ledger. */
 	undelivered: unknown[] = [],
+	deferFailure = false,
 ): Promise<{
 	out: string;
 	calls: string[][];
@@ -124,6 +125,10 @@ async function run(
 		stdin: JSON.stringify(event),
 		cwd: process.cwd(),
 		write: (line) => lines.push(line),
+		deferRead: (args, input) => {
+			calls.push([...args, input]);
+			if (deferFailure) throw new Error("Measurement unavailable");
+		},
 		read: async (args, timeout, input) => {
 			// Priority delivery has its own fixtures in prompt-next-work.test.ts.
 			if (args.some((arg) => arg.includes('"nextWork":')))
@@ -153,6 +158,8 @@ async function run(
 				if (!catalog) throw new Error("missing catalog fixture");
 				return { lessons: copy(catalog) };
 			}
+			if (args.some((a) => a.includes('"catalog":true')))
+				return { lessons: copy(catalog ?? NO_LESSONS.lessons) };
 			if (!reads.length) throw new Error("unexpected read");
 			const next = reads.shift();
 			if (next instanceof Error) throw next;
@@ -165,6 +172,26 @@ async function run(
 }
 
 describe("tedix hooks prompt-context", () => {
+	test("measurement failure cannot replace freshly validated model context", async () => {
+		const { out } = await run(
+			[
+				BINDING,
+				AUTH,
+				{
+					...DATA,
+					...lessonsData([{ shortId: "abcd1234", text: "Use short names." }]),
+				},
+			],
+			{},
+			{ session_id: "77777777-7777-4777-8777-777777777777", prompt: "Names" },
+			[],
+			[],
+			true,
+		);
+		expect(out.split("\n")).toHaveLength(1);
+		expect(out).toContain("Use short names.");
+	});
+
 	test("preferences and the task document are separate and tenant fenced", async () => {
 		const preferenceOutput = "88888888-8888-4888-8888-888888888888";
 		const binding = {
@@ -494,8 +521,8 @@ describe("tedix hooks prompt-context", () => {
 		expect(calls).toHaveLength(2);
 		({ out, calls } = await run([binding, auth, { organizationId: null }]));
 		expect(out).toContain("unavailable");
-		// The probe and the gateway read run together; a failed probe still hides everything.
-		expect(calls).toHaveLength(4);
+		// Probe, shared sources and catalog run together; a failed probe still hides everything.
+		expect(calls).toHaveLength(5);
 	});
 
 	test("host session metadata reaches the resolver without prompt text", async () => {
@@ -555,9 +582,9 @@ describe("tedix hooks prompt-context", () => {
 			JSON.parse(out).hookSpecificOutput.additionalContext.split("\n").length,
 			calls.length,
 		]).toEqual([1, 3]);
-		// The gateway read is bounded so the hook stays well inside the host timeout.
+		// The independent catalog gets 9s; validation uses only remaining host time.
 		const fast = await run([BINDING, AUTH, DATA]);
-		expect(fast.timeouts.at(-1)).toBe(6500);
+		expect(fast.timeouts.at(-1)).toBe(9000);
 		// Beside a document, an empty lessons read is named rather than silent.
 		({ out } = await run([BINDING, AUTH, { ...DATA, ...NO_LESSONS }]));
 		expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain(
@@ -1130,8 +1157,8 @@ describe("tedix hooks prompt-context", () => {
 					[new Error("Unknown tool")],
 				);
 				expect(context(out).split("\n")).toHaveLength(1);
-				// Context, auth, the ledger list (missing), the question read, lessons.
-				expect(calls).toHaveLength(5);
+				// Context, auth, the missing answer ledger, question, shared sources and catalog.
+				expect(calls).toHaveLength(6);
 				({ out, calls } = await run(
 					[{ ...CAPTURE, decisionCapture: false }, LOGIN, NO_LESSONS],
 					{ TEDIX_CONFIG_DIR: config },
@@ -1142,7 +1169,7 @@ describe("tedix hooks prompt-context", () => {
 					JSON.parse(out).hookSpecificOutput.additionalContext.split("\n")
 						.length,
 					calls.length,
-				]).toEqual([1, 3]);
+				]).toEqual([1, 4]);
 				({ out } = await run(
 					[CAPTURE, { ...LOGIN, mcpUrl: "https://other.example/mcp" }],
 					{ TEDIX_CONFIG_DIR: config },
@@ -1159,7 +1186,7 @@ describe("tedix hooks prompt-context", () => {
 					JSON.parse(out).hookSpecificOutput.additionalContext.split("\n")
 						.length,
 					calls.length,
-				]).toEqual([1, 3]);
+				]).toEqual([1, 4]);
 			}));
 
 		test("an OS answer follows the selected shared context", () =>
@@ -1412,7 +1439,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		const steps: string[] = [];
 		const timeouts: number[] = [];
 		const lines: string[] = [];
-		let gatewayResponse: JsonObject | undefined;
+		let catalogResponse: JsonObject | undefined;
 		const env = {
 			TEDIX_CONFIG_DIR: options.config,
 			TEDIX_HOOK_CONTEXT_BYTES: options.contextBytes ?? "10000",
@@ -1475,15 +1502,17 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				if (code.includes('"selectedLessonIds"')) {
 					steps.push("validation");
 					return {
-						lessons: gatewayResponse?.lessons ?? lessonsData([lesson]).lessons,
+						lessons: catalogResponse?.lessons ?? lessonsData([lesson]).lessons,
 					};
 				}
-				steps.push("gateway");
-				gatewayResponse = await (
+				const isCatalog = code.includes('"catalog":true');
+				steps.push(isCatalog ? "catalog" : "gateway");
+				const response = await (
 					options.gateway ??
 					(() => ({ preferences: preferences(), ...lessonsData([lesson]) }))
 				)(code);
-				return copy(gatewayResponse);
+				if (isCatalog) catalogResponse = response;
+				return copy(response);
 			},
 		});
 		return { text: additional(lines), steps, timeouts };
@@ -1501,6 +1530,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		const elapsed = Date.now() - started;
 		expect(steps.sort()).toEqual([
 			"answers",
+			"catalog",
 			"gateway",
 			"organization",
 			"validation",
@@ -1521,7 +1551,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			expect(first.text).toContain("Handle authorized routine choices");
 			expect(first.text).toContain("Pushes race on main");
 			const second = await turn({ config, now });
-			expect(second.steps).toEqual(["gateway", "validation"]);
+			expect(second.steps).toEqual(["gateway", "catalog", "validation"]);
 			expect(second.text).not.toContain("unchanged");
 			expect(second.text).not.toContain("Handle authorized routine choices");
 			expect(second.text).not.toContain("Pushes race on main");
@@ -1614,6 +1644,8 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				config,
 				now,
 				gateway: (code) => {
+					if (!code.includes('"catalog":true'))
+						return { preferences: preferences() };
 					attempts++;
 					if (attempts === 1)
 						return {
@@ -1626,7 +1658,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			});
 			expect(attempts).toBe(2);
 			expect(Date.now() - started).toBeGreaterThanOrEqual(140);
-			expect(recovered.timeouts.at(-1)).toBe(6000);
+			expect(recovered.timeouts.at(-1)).toBe(9000);
 			expect(recovered.text).toContain("Handle authorized routine choices");
 			expect(recovered.text).toContain(lesson.text);
 			expect(recovered.text).not.toContain("lessons unavailable");
@@ -1646,7 +1678,9 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			const failed = await turn({
 				config,
 				now,
-				gateway: () => {
+				gateway: (code) => {
+					if (!code.includes('"catalog":true'))
+						return { preferences: preferences() };
 					attempts++;
 					return { preferences: preferences(), lessons: { unavailable: true } };
 				},
@@ -1657,6 +1691,25 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			const recovered = await turn({ config, now });
 			expect(recovered.text).toContain(lesson.text);
 			expect(recovered.text).not.toContain("Handle authorized routine choices");
+		} finally {
+			rmSync(config, { recursive: true, force: true });
+		}
+	});
+
+	test("a slow shared-source read does not suppress independently validated lessons", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-independent-lessons-"));
+		try {
+			const result = await turn({
+				config,
+				now: new Date(),
+				gateway: (code) => {
+					if (code.includes('"catalog":true')) return lessonsData([lesson]);
+					throw new Error("Tedix CLI read deadline elapsed");
+				},
+			});
+			expect(result.text).toContain(lesson.text);
+			expect(result.text).not.toContain("Handle authorized routine choices");
+			expect(result.steps).toContain("validation");
 		} finally {
 			rmSync(config, { recursive: true, force: true });
 		}
@@ -1678,7 +1731,9 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			gateway: timedOut,
 		});
 		expect(dead.text).not.toContain("Tedix context unchanged");
-		expect(dead.steps.filter((step) => step === "gateway")).toHaveLength(2);
+		expect(
+			dead.steps.filter((step) => ["gateway", "catalog"].includes(step)).sort(),
+		).toEqual(["catalog", "gateway"]);
 		expect(dead.text).not.toContain("Tedix shared context unavailable");
 		expect(dead.text).not.toContain("Handle authorized routine choices");
 		expect(dead.text).not.toContain(lesson.text);
@@ -1741,10 +1796,10 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			now: new Date(),
 			question: true,
 		});
-		// Context, auth, probe, undelivered answers, ack, gateway: none over 6.5s.
-		expect(Math.max(...timeouts)).toBeLessThanOrEqual(6500);
+		// Validation can use remaining host time, capped at 9s; other reads stay bounded.
+		expect(Math.max(...timeouts)).toBeLessThanOrEqual(9000);
 		expect(timeouts).toContain(3000);
-		expect(timeouts).toContain(6000);
+		expect(timeouts).toContain(9000);
 		rmSync(config, { recursive: true, force: true });
 	});
 });
