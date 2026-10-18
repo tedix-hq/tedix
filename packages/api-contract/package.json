@@ -32,6 +32,7 @@
 		"./contracts/os-gadget-state": "./src/contracts/os-gadget-state.ts",
 		"./schemas/os-gadget-state": "./src/schemas/os-gadget-state.ts",
 		"./schemas/os-decision-deck": "./src/schemas/os-decision-deck.ts",
+		"./schemas/decision-card-presentation": "./src/schemas/decision-card-presentation.ts",
 		"./schemas/os-card-review": "./src/schemas/os-card-review.ts",
 		"./schemas/os-activity-feed": "./src/schemas/os-activity-feed.ts",
 		"./schemas/os-outbound-review": "./src/schemas/os-outbound-review.ts",

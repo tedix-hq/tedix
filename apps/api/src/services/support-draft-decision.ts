@@ -12,6 +12,7 @@ import {
 } from "@tedix/db/queries/work-items/interactions";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import type { BaseContext } from "../rpc/orpc";
+import { generateDecisionCard } from "./decision-card-generator";
 
 export async function ensureSupportDraftDecision(
 	context: BaseContext,
@@ -73,6 +74,14 @@ export async function ensureSupportDraftDecision(
 			},
 		],
 	});
+	const presentation = await generateDecisionCard(context, {
+		orgId: config.platformOrgId,
+		targetId: config.adminUserId,
+		subject: decision.proposal,
+		prompt: row.draft.body,
+		kind: "question",
+		metadata: { decisionDeck: decision },
+	}).catch(() => null);
 	try {
 		await createWorkInteraction(context.db, {
 			id,
@@ -90,6 +99,7 @@ export async function ensureSupportDraftDecision(
 				source: "support-draft",
 				reason: ATTENTION_COPY.supportDraftReason,
 				decisionDeck: decision,
+				...(presentation ? { cardPresentation: presentation } : {}),
 				supportTicketId: row.id,
 				supportVersion: row.version,
 			}),

@@ -7,6 +7,7 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import { outboundContract } from "./outbound";
+import { RegenerateDecisionCardInputSchema } from "../schemas/decision-card-presentation";
 import {
 	AckWorkInteractionDeliveryInputSchema,
 	AckWorkInteractionDeliveryResultSchema,
@@ -32,6 +33,14 @@ export const workInteractionsContract = oc
 	.errors(baseErrors)
 	.router({
 		outbound: outboundContract,
+		regenerateCard: oc
+			.route({
+				method: "POST",
+				path: "/{requestId}/card",
+				summary: "Regenerate decision card copy without deciding it",
+			})
+			.input(RegenerateDecisionCardInputSchema)
+			.output(WorkInteractionRequestSchema),
 		listCliInboxProjection: oc
 			.route({
 				method: "GET",

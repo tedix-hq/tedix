@@ -95,6 +95,13 @@ describe("outbound work on migrated D1", () => {
 				workItemId: WORK,
 				subject: "Review email: Our conversation",
 				status: "reviewing",
+				record: {
+					workItemId: WORK,
+					projectId: null,
+					title: "Reply to Lina",
+					version: 2,
+					outbound: params.state,
+				},
 			},
 		]);
 		expect(

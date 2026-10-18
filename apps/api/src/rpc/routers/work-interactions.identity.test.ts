@@ -708,3 +708,76 @@ describe("Work interaction canonical actor projections", () => {
 		});
 	});
 });
+
+it("ships the latest authorized draft with the inbox and never exposes it to another person", async () => {
+	const { sqlite, owner, target, other } = fixture();
+	const request = await createTargetedInteraction(owner);
+	sqlite
+		.prepare(
+			"INSERT INTO work_interaction_reply_drafts (id,org_id,interaction_id,drafter_type,drafter_id,body,rationale,turn_type,created_at) VALUES (?,?,?,'tedi','drafter',?,'Fits the plan','reply',?)",
+		)
+		.run(
+			"00000000-0000-4000-8000-0000000000d1",
+			ORG_ID,
+			request.id,
+			"Tuesday works.",
+			"2026-08-21T01:00:00.000Z",
+		);
+	const row = (await target.listInbox({ states: ["open"] })).data.find(
+		(row) => row.request.id === request.id,
+	);
+	expect(row).toMatchObject({
+		canRespond: true,
+		request: { version: request.version },
+		latestDraft: { body: "Tuesday works." },
+	});
+	expect((await other.listInbox({ states: ["open"] })).data).toEqual([]);
+});
+
+it("regenerates display copy only for the addressed person, preserving decisions and rejecting stale versions", async () => {
+	const { owner, target, other, sqlite } = fixture();
+	const request = await createTargetedInteraction(owner);
+	await expect(
+		other.regenerateCard({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+		}),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	const generator = await import("../../services/decision-card-generator");
+	const spy = vi.spyOn(generator, "generateDecisionCard").mockResolvedValue({
+		version: 1,
+		title: "Keep the reviewed boundary?",
+		body: "The reviewed boundary is ready for a decision.",
+		recommendation:
+			"Review the boundary because the source asks for an exact answer.",
+		model: "fictional-small-model",
+		generatedAt: "2026-10-18T11:00:00.000Z",
+	});
+	try {
+		const saved = await target.regenerateCard({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+		});
+		expect(saved).toMatchObject({
+			state: "open",
+			kind: request.kind,
+			prompt: request.prompt,
+			subject: request.subject,
+			version: request.version + 1,
+			metadata: { cardPresentation: { title: "Keep the reviewed boundary?" } },
+		});
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_responses")
+				.get(),
+		).toEqual({ n: 0 });
+		await expect(
+			target.regenerateCard({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+	} finally {
+		spy.mockRestore();
+	}
+});

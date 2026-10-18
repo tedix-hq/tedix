@@ -130,3 +130,43 @@ it("shows the authorized inbox proposal before details, without caching invented
 	expect(host.textContent).not.toContain(preview.request.prompt);
 	expect(host.querySelector('[aria-label="Loading request"]')).not.toBeNull();
 });
+
+it("renders usable actions and the draft from the same authorized inbox payload while detail is stalled", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const withDraft = {
+		...preview,
+		latestDraft: {
+			id: "33333333-3333-4333-8333-333333333333",
+			body: "Tuesday works for us.",
+			rationale: "The date fits.",
+			drafterId: "fictional-tedi",
+			drafterName: "Supply",
+			createdAt: "2026-10-18T08:01:00Z",
+			turnType: "reply",
+			delivery: "review" as const,
+			gate: null,
+		},
+	};
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkInteractionDecisionCard
+					requestId={preview.request.id}
+					preview={withDraft}
+				/>
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.querySelector("input")?.value).toBe("Tuesday works for us.");
+	expect(host.querySelector("input")?.disabled).toBe(false);
+	expect(
+		host.querySelectorAll("[data-decision-actions] button").length,
+	).toBeGreaterThan(0);
+	expect(host.textContent).not.toContain("Loading request");
+	expect(respond).not.toHaveBeenCalled();
+});

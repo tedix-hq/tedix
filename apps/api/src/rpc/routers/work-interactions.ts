@@ -37,6 +37,7 @@ import { listTediDisplayNamesByIds } from "@tedix/db/queries/tedis";
 import { CAPTURE_HEALTH_SCHEMA } from "@tedix/db/queries/work-items/capture-health";
 import {
 	getLatestReplyDraft,
+	listLatestReplyDrafts,
 	recordAutoReplyDelivery,
 } from "@tedix/db/queries/work-items/reply-drafts";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
@@ -373,6 +374,29 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 							error: error instanceof Error ? error.message : String(error),
 						}),
 					),
+			);
+		if (context.waitUntil && created.targetType === "user" && created.targetId)
+			context.waitUntil(
+				(async () => {
+					const { generateDecisionCard } =
+						await import("../../services/decision-card-generator");
+					const { saveDecisionCardPresentation } =
+						await import("@tedix/db/queries/work-items/card-presentation");
+					const presentation = await generateDecisionCard(context, created);
+					if (presentation)
+						await saveDecisionCardPresentation(context.db, {
+							orgId,
+							requestId: created.id,
+							personId: created.targetId!,
+							expectedVersion: created.version,
+							presentation,
+						});
+				})().catch((error) =>
+					console.warn("decision card generation failed", {
+						requestId: created.id,
+						error: String(error),
+					}),
+				),
 			);
 		return requestOutput(created);
 	} catch (error) {
@@ -897,7 +921,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 				rowResolution(row),
 			);
 		});
-		const [tedis, references, sessions] = await Promise.all([
+		const [tedis, references, sessions, drafts] = await Promise.all([
 			listTediDisplayNamesByIds(context.db, {
 				organizationId: orgId,
 				ids: requests
@@ -918,6 +942,11 @@ const listInboxProcedure = readOs.listInbox.handler(
 					)
 					.map((request) => request.creatorSessionId!),
 			}),
+			listLatestReplyDrafts(
+				context.db,
+				orgId,
+				requests.map((request) => request.id),
+			),
 		]);
 		const tediNames = new Map(
 			tedis.map((tedi) => [tedi.id, tedi.displayName ?? tedi.name]),
@@ -929,11 +958,28 @@ const listInboxProcedure = readOs.listInbox.handler(
 			data: page.data.map((row, index) => {
 				const request = requests[index] as (typeof requests)[number];
 				const quoted = new Set(quotedShortIds(request));
+				const draft = drafts.find(
+					(draft) => draft.interactionId === request.id,
+				);
 				return {
 					request,
 					effectiveState: row.effectiveState,
 					canRespond: row.effectiveState === "open",
 					canCancel: false,
+					outbound: outbound.get(request.id)?.record,
+					latestDraft: draft
+						? {
+								id: draft.id,
+								body: draft.body,
+								rationale: draft.rationale,
+								drafterId: draft.drafterId,
+								drafterName: tediNames.get(draft.drafterId) ?? null,
+								createdAt: draft.createdAt,
+								turnType: draft.turnType,
+								delivery: draft.delivery,
+								gate: storedGate(draft.gate),
+							}
+						: null,
 					workItem: row.workItem?.id ? row.workItem : null,
 					responseCount: row.responseCount,
 					askedBy: askedBy(request, caller.id, tediNames, sessionHarnesses),
@@ -1185,6 +1231,55 @@ const recordDraftDeliveryProcedure = writeOs.recordDraftDelivery.handler(
 
 export const workInteractionsContractRouter = interactionsOs.router({
 	outbound: outboundRouter,
+	regenerateCard: writeOs.regenerateCard.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const actor = await verifiedActiveWorkActor(context, orgId);
+		const request = await getWorkInteraction(context.db, {
+			orgId,
+			interactionId: input.requestId,
+		});
+		if (
+			!request ||
+			actor.type !== "user" ||
+			request.targetType !== "user" ||
+			request.targetId !== actor.id
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only the addressed person can regenerate this card",
+			);
+		if (
+			request.version !== input.expectedRequestVersion ||
+			effectiveState(request, new Date().toISOString()) !== "open"
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"The request changed; read it again",
+			);
+		const { generateDecisionCard } =
+			await import("../../services/decision-card-generator");
+		const presentation = await generateDecisionCard(context, request);
+		if (!presentation)
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"The card generator could not produce valid copy",
+			);
+		const { saveDecisionCardPresentation } =
+			await import("@tedix/db/queries/work-items/card-presentation");
+		const saved = await saveDecisionCardPresentation(context.db, {
+			orgId,
+			requestId: request.id,
+			personId: actor.id,
+			expectedVersion: input.expectedRequestVersion,
+			presentation,
+		});
+		if (!saved)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"The request changed during generation",
+			);
+		return requestOutput(saved);
+	}),
 	create: createProcedure,
 	review: writeOs.review.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);

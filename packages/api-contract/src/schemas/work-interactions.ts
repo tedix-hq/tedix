@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { AgentReplyDeliveryGateResultSchema } from "./agent-turn-triage";
 import { BoundedJsonObjectSchema } from "./bounded-json";
+import { OutboundRecordSchema } from "./outbound";
 import {
 	CredentialWorkActorTypeSchema,
 	WorkFactoryProjectionCursorSchema,
@@ -488,6 +489,8 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 	effectiveState: WorkInteractionStateSchema,
 	canRespond: z.boolean(),
 	canCancel: z.boolean(),
+	latestDraft: WorkInteractionReplyDraftSchema.nullable().optional(),
+	outbound: OutboundRecordSchema.optional(),
 	workItem: z
 		.strictObject({
 			id: z.uuid(),

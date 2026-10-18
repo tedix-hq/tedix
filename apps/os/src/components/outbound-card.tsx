@@ -1,4 +1,5 @@
 import { OS_COPY } from "@/shared/os-copy";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import {
 	WorkDecisionCard,
 	type DecisionCardAction,
@@ -46,19 +47,27 @@ type OutboundCardNavigation = {
 
 export function OutboundCard({
 	workItemId,
+	preview,
+	presentation,
 	...navigation
-}: { workItemId: string } & OutboundCardNavigation) {
-	const query = useQuery(
-		osQuery.workInteractions.outbound.get.queryOptions({
+}: {
+	workItemId: string;
+	preview?: OutboundRecord;
+	presentation?: DecisionCardPresentation;
+} & OutboundCardNavigation) {
+	const query = useQuery({
+		...osQuery.workInteractions.outbound.get.queryOptions({
 			input: { workItemId },
 		}),
-	);
+		placeholderData: preview?.workItemId === workItemId ? preview : undefined,
+	});
 	if (query.isError) return <p role="alert">{errorMessage(query.error)}</p>;
 	if (!query.data) return <Text role="body">Loading outbound draft…</Text>;
 	return (
 		<OutboundReviewCard
 			key={`${query.data.workItemId}:${query.data.version}`}
 			record={query.data}
+			presentation={presentation}
 			{...navigation}
 		/>
 	);
@@ -66,8 +75,12 @@ export function OutboundCard({
 
 export function OutboundReviewCard({
 	record,
+	presentation,
 	...navigation
-}: { record: OutboundRecord } & OutboundCardNavigation) {
+}: {
+	record: OutboundRecord;
+	presentation?: DecisionCardPresentation;
+} & OutboundCardNavigation) {
 	const client = useQueryClient();
 	const shownAt = useRef(Date.now());
 	const state = record.outbound;
@@ -202,7 +215,7 @@ export function OutboundReviewCard({
 		<div className="grid gap-3">
 			<WorkDecisionCard
 				kind="outbound"
-				title={state.draft.subject || record.title}
+				title={presentation?.title ?? (state.draft.subject || record.title)}
 				askedBy={reviewerName}
 				at={state.review?.reviewedAt}
 				body={state.draft.body}
@@ -211,7 +224,13 @@ export function OutboundReviewCard({
 						<p className="text-kumo-subtle">
 							{state.draft.channel} · To {state.draft.recipient}
 						</p>
-						<ChatMarkdown content={state.draft.body} preserveLineBreaks />
+						<ChatMarkdown
+							content={presentation?.body ?? state.draft.body}
+							preserveLineBreaks
+						/>
+						{presentation && (
+							<p className="fd-recommendation">{presentation.recommendation}</p>
+						)}
 						{ready ? (
 							<p className="text-kumo-subtle">Ready for your review</p>
 						) : open ? (
@@ -238,6 +257,9 @@ export function OutboundReviewCard({
 				}
 				why={
 					<div className="grid gap-3">
+						{presentation && (
+							<ChatMarkdown content={state.draft.body} preserveLineBreaks />
+						)}
 						<p>Reasoning and sources</p>
 						<ChatMarkdown content={state.draft.reasoning} />
 						{state.review ? (

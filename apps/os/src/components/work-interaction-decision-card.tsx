@@ -9,6 +9,7 @@ import {
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
+import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { useRef } from "react";
@@ -109,7 +110,24 @@ export function WorkInteractionDecisionCard({
 	const shown = useRef({ requestId, at: Date.now() });
 	if (shown.current.requestId !== requestId)
 		shown.current = { requestId, at: Date.now() };
-	const query = useQuery(workInteractionDetailQueryOptions(requestId));
+	const query = useQuery({
+		...workInteractionDetailQueryOptions(requestId),
+		placeholderData:
+			preview?.request.id === requestId && preview.latestDraft !== undefined
+				? {
+						request: preview.request,
+						effectiveState: preview.effectiveState,
+						canRespond: preview.canRespond,
+						canCancel: preview.canCancel,
+						latestDraft: preview.latestDraft,
+						responses: {
+							data: [],
+							nextCursor: null,
+							hasMore: preview.responseCount > 0,
+						},
+					}
+				: undefined,
+	});
 	const refresh = () =>
 		Promise.all([
 			client.invalidateQueries({
@@ -269,12 +287,21 @@ export function WorkInteractionDecisionCard({
 		return (
 			<OutboundCard
 				workItemId={request.workItemId}
+				preview={preview?.outbound}
+				presentation={
+					DecisionCardPresentationSchema.safeParse(
+						request.metadata.cardPresentation,
+					).data
+				}
 				autoFocus={autoFocus}
 				onNext={onNext}
 				onPrevious={onPrevious}
 			/>
 		);
 	const choices = offeredChoices.parse(request.metadata ?? {});
+	const presentation = DecisionCardPresentationSchema.safeParse(
+		request.metadata?.cardPresentation,
+	).data;
 	const capture = decisionCaptureSummary(request.metadata);
 	const source =
 		(capture?.source?.includes("Codex")
@@ -366,7 +393,7 @@ export function WorkInteractionDecisionCard({
 								? "decision"
 								: "question"
 				}
-				title={interactionSubject(request)}
+				title={presentation?.title ?? interactionSubject(request)}
 				askedBy={source}
 				at={request.requestedAt}
 				content={
@@ -390,7 +417,10 @@ export function WorkInteractionDecisionCard({
 						)}
 						{approval ? (
 							<>
-								<p>{connectorApprovalSummary(request, source)}</p>
+								<p>
+									{presentation?.body ??
+										connectorApprovalSummary(request, source)}
+								</p>
 								<Collapsible>
 									<CollapsibleTrigger>
 										{OS_COPY.feed.details}
@@ -403,7 +433,13 @@ export function WorkInteractionDecisionCard({
 								</Collapsible>
 							</>
 						) : (
-							<DecisionProposalBody key={request.id} body={request.prompt} />
+							<DecisionProposalBody
+								key={request.id}
+								body={presentation?.body ?? request.prompt}
+							/>
+						)}
+						{presentation && (
+							<p className="fd-recommendation">{presentation.recommendation}</p>
 						)}
 						{draft ? (
 							<div className="grid gap-1 rounded-lg border border-kumo-line p-3">
@@ -421,6 +457,8 @@ export function WorkInteractionDecisionCard({
 				why={
 					<div className="grid gap-3">
 						{approval && <p>{OS_COPY.decisionDeck.explicitApproval}</p>}
+						{presentation && <DecisionProposalBody body={request.prompt} />}
+
 						{draft?.rationale ? <p>{draft.rationale}</p> : null}
 						<p>
 							{capture?.need ??
