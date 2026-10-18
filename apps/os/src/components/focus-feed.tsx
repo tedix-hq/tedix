@@ -606,10 +606,10 @@ export function FocusFeed({
 					<Button
 						variant="ghost"
 						onClick={() => {
-							setRequest((r) => r + 1);
-							void history.refetch();
-							void model.refetch();
-							void preferences.refetch();
+							void cache.refetchQueries({
+								type: "active",
+								predicate: (query) => query.state.status === "error",
+							});
 						}}
 					>
 						Try again
@@ -861,7 +861,7 @@ function FocusRow({
 								: `/work?view=deck#card=${encodeURIComponent(item.id.replace(/^decision:/, ""))}`
 						}
 					>
-						{actor} asks: {item.sentence}
+						{actor === "You" ? "You ask" : `${actor} asks`}: {item.sentence}
 					</Link>
 				</article>
 			) : (
