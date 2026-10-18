@@ -151,12 +151,10 @@ const workApps = readOs.gadgets.workApps.handler(async ({ input, context }) => {
 		input.limit + 1,
 	);
 	return {
-		items: rows
-			.slice(0, input.limit)
-			.map((row) => ({
-				gadget: mapGadget(row.gadget),
-				currentRevision: mapGadgetRevision(row.revision),
-			})),
+		items: rows.slice(0, input.limit).map((row) => ({
+			gadget: mapGadget(row.gadget),
+			currentRevision: mapGadgetRevision(row.revision),
+		})),
 		truncated: rows.length > input.limit,
 	};
 });

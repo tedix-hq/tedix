@@ -54,7 +54,13 @@ export function ApprovalDecisionCard({
 				.filter(Boolean)
 				.join(". "),
 		});
-		await client.invalidateQueries({ queryKey: osQueryKeys.approvals() });
+		await Promise.all([
+			client.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
+			client.invalidateQueries({ queryKey: osQuery.learningFeedback.key() }),
+		]);
+		return {
+			learningClientEventId: `approval:${id}:${feedback.action === "reject" ? "rejected" : "approved"}`,
+		};
 	};
 	return (
 		<WorkDecisionCard

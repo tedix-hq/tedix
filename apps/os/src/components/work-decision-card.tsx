@@ -15,6 +15,7 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 } from "@/components/kumo/alert-dialog";
+import { decisionLearningKey } from "@/lib/decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -189,7 +190,7 @@ export function WorkDecisionCard({
 			? motion.exit(action.intent)
 			: undefined;
 		try {
-			await onDecision({
+			const result = await onDecision({
 				action: action.id,
 				signal:
 					action.id === editAction?.id
@@ -213,6 +214,7 @@ export function WorkDecisionCard({
 				...(feedback.trim() ? { feedback: feedback.trim() } : {}),
 			});
 			attention?.({
+				learningClientEventId: decisionLearningKey(result),
 				action: action.id,
 				intent: action.id === editAction?.id ? "change" : action.intent,
 				signal:

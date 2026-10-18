@@ -29,7 +29,10 @@ export function DecisionLearningFeedback({
 	}, [eventId]);
 	const last =
 		model?.config.enabled && eventId !== expiredId
-			? model.receipts.find((receipt) => receipt.eventId === eventId)
+			? model.receipts.find(
+					(receipt) =>
+						receipt.eventId === eventId || receipt.clientEventId === eventId,
+				)
 			: undefined;
 	useEffect(() => setMessage(""), [last?.eventId]);
 	if (!last) return null;

@@ -6,6 +6,7 @@ import {
 import { OsGadgetManifestWriteSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import {
+	decisionLearningKey,
 	workIsUnowned,
 	compareDecisionFreshness,
 	classReadiness,
@@ -169,4 +170,20 @@ it("uses deadline then recency without learning and preserves learned ranking fo
 			now,
 		),
 	).toBeLessThan(0);
+});
+
+it("correlates only canonical effect receipts, including Outbound's pre-send revision", () => {
+	expect(decisionLearningKey({ response: { id: "saved-answer" } })).toBe(
+		"decision-capture:saved-answer",
+	);
+	expect(
+		decisionLearningKey({
+			version: 4,
+			learningClientEventId: "outbound:copied-work:3",
+		}),
+	).toBe("outbound:copied-work:3");
+	expect(
+		decisionLearningKey({ event: { id: "secondary-telemetry" } }),
+	).toBeUndefined();
+	expect(decisionLearningKey(undefined)).toBeUndefined();
 });

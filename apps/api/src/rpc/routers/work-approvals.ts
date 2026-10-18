@@ -10,6 +10,7 @@ import {
 	proposeWorkApproval,
 } from "@tedix/db/queries/work-items/approvals";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
+import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
 import { requireFactoryAcceptance } from "../../services/factory-cycle";
 import { requireOrgId } from "../org-scope";
 import {
@@ -261,6 +262,21 @@ const decideProcedure = writeOs.decide.handler(async ({ input, context }) => {
 				deciderTediId: actor.id,
 			});
 		}
+		await recordObservedLearningInteraction(context, {
+			organizationId: orgId,
+			clientEventId: `work-approval:${decision.id}`,
+			signalClass: "governance",
+			eventKind: input.decision === "approved" ? "accepted" : "rejected",
+			surface: "work-approvals",
+			targetType: "work_item",
+			targetId: proposal.workItemId,
+			metadata: {
+				decisionClass: proposal.authorityKey,
+				decisionChoice: input.decision === "approved" ? "approve" : "reject",
+				feedbackText: input.rationale,
+			},
+		});
+
 		return {
 			proposal: proposalOutput(proposal),
 			decision: decisionOutput(decision),

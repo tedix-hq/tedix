@@ -74,7 +74,7 @@ export function WorkApprovalDecisionCard({
 			onPrevious={onPrevious}
 			onDecision={async (feedback) => {
 				if (!rationale.trim()) throw new Error(copy.reasonRequired);
-				await osApi.workApprovals.decide({
+				const result = await osApi.workApprovals.decide({
 					proposalId: row.proposal.id,
 					expectedProposalVersion: row.proposal.version,
 					decision: feedback.action === "approve" ? "approved" : "rejected",
@@ -82,12 +82,16 @@ export function WorkApprovalDecisionCard({
 				});
 				await Promise.all([
 					client.invalidateQueries({ queryKey: osQuery.workApprovals.key() }),
+					client.invalidateQueries({
+						queryKey: osQuery.learningFeedback.key(),
+					}),
 					client.invalidateQueries(
 						workItemReadinessQueryOptions(row.workItem.id),
 					),
 					client.invalidateQueries(workSchedulerQueryOptions()),
 					client.invalidateQueries(workFleetQueryOptions()),
 				]);
+				return { learningClientEventId: `work-approval:${result.decision.id}` };
 			}}
 		/>
 	);
