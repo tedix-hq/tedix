@@ -178,13 +178,23 @@ export async function temporalRecall(
 	const time = sql`coalesce(${memoryFacts.validFrom}, ${memoryFacts.createdAt})`;
 	const decay = sql<number>`1.0 / (1.0 + max(0, julianday(${scope.now ?? new Date().toISOString()}) - julianday(${time})))`;
 	return db
-		.select({ factId: memoryFacts.id, score: decay })
-		.from(memoryFacts)
+		.select({
+			factId: sql<string>`${memoryFacts.id}`.as("temporal_fact_id"),
+			score: decay.as("temporal_score"),
+		})
+		.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
 		.where(
 			and(
 				eligible(scope),
-				sql`((datetime(${time}) >= datetime(${window.from}) AND datetime(${time}) < datetime(${window.to}))
-				OR (datetime(${memoryFacts.validTo}) >= datetime(${window.from}) AND datetime(${memoryFacts.validTo}) < datetime(${window.to})))`,
+				// Separate time ranges let SQLite use each tenant/time index before
+				// evaluating lifecycle predicates on just the matching fact IDs.
+				sql`${memoryFacts.id} IN (
+				SELECT id FROM memory_facts WHERE organization_id = ${scope.orgId}
+				AND datetime(coalesce(valid_from, created_at)) >= datetime(${window.from})
+				AND datetime(coalesce(valid_from, created_at)) < datetime(${window.to})
+				UNION SELECT id FROM memory_facts WHERE organization_id = ${scope.orgId}
+				AND datetime(valid_to) >= datetime(${window.from}) AND datetime(valid_to) < datetime(${window.to})
+				)`,
 			),
 		)
 		.orderBy(desc(decay), memoryFacts.id)

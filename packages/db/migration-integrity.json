@@ -936,6 +936,10 @@
 		{
 			"name": "20261018155133_memory-fact-hybrid-recall/migration.sql",
 			"sha256": "c5bbf67a5760e98d1a498b9ae5eb0445db77a33964acc2f45ac9dfb1805acb17"
+		},
+		{
+			"name": "20261018170409_memory-recall-time-ranges/migration.sql",
+			"sha256": "09cdd16c118489e2b67cae718e827849a2ce47b6c145e4268e655f70ec8b7d37"
 		}
 	]
 }
