@@ -202,3 +202,25 @@ describe("runDistillModel", () => {
 		});
 	});
 });
+
+it.each([false, true])(
+	"uses the Qwen non-thinking switch only when requested (%s)",
+	async (nonThinking) => {
+		const run = vi
+			.fn()
+			.mockResolvedValue({ response: { title: "A fictional choice" } });
+		expect(
+			await runDistillModel({ AI: { run } } as never, "summarize", {
+				model: "@cf/qwen/qwen3-30b-a3b-fp8",
+				jsonObject: true,
+				nonThinking,
+			}),
+		).toBe('{"title":"A fictional choice"}');
+		expect(run.mock.calls[0]?.[1].messages).toEqual([
+			{
+				role: "user",
+				content: nonThinking ? "summarize\n/no_think" : "summarize",
+			},
+		]);
+	},
+);

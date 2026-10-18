@@ -144,6 +144,8 @@ it("repairs a filing title that substitutes another task", async () => {
 			JSON.stringify({
 				...copy,
 				title: "File the scheduled follow-up request here?",
+				recommendation:
+					"Keep this filing because the project owns scheduled cards.",
 			}),
 		);
 	const result = await generateDecisionCard({ db: {}, env: {} } as never, {
@@ -206,4 +208,27 @@ it("does not accept a generic filing verb as a topic match", async () => {
 			metadata: { decisionDeck: { classId: "filing.project" } },
 		}),
 	).toBeNull();
+});
+
+it("requires a filing recommendation to name an available choice", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			title: "File the profile panel request here?",
+			recommendation: "Check this filing because the fit is uncertain.",
+		}),
+	);
+	const failure = vi.fn();
+	expect(
+		await generateDecisionCard(
+			{ db: {}, env: {} } as never,
+			{
+				...request,
+				prompt: "Fix the profile panel.",
+				metadata: { decisionDeck: { classId: "filing.project" } },
+			},
+			failure,
+		),
+	).toBeNull();
+	expect(failure).toHaveBeenCalledWith("invalid_copy:recommendation_choice");
 });

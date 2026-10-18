@@ -245,6 +245,7 @@ export async function runDistillModel(
 		system,
 		onFailure,
 		jsonObject,
+		nonThinking,
 	}: {
 		maxTokens?: number;
 		timeoutMs?: number;
@@ -253,6 +254,7 @@ export async function runDistillModel(
 		system?: string;
 		onFailure?: (reason: string) => void;
 		jsonObject?: boolean;
+		nonThinking?: boolean;
 	} = {},
 ): Promise<string | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -266,7 +268,13 @@ export async function runDistillModel(
 			{
 				messages: [
 					...(system ? [{ role: "system", content: system }] : []),
-					{ role: "user", content: prompt },
+					{
+						role: "user",
+						content:
+							nonThinking && model.startsWith("@cf/qwen/qwen3-")
+								? `${prompt}\n/no_think`
+								: prompt,
+					},
 				],
 				max_tokens: maxTokens,
 				temperature: 0,
