@@ -72,7 +72,7 @@ it("constrains model output and tells the retry which field failed", async () =>
 		additionalProperties: false,
 		required: ["version", "title", "body", "recommendation"],
 		properties: {
-			recommendation: { type: "string", pattern: "\\bbecause\\b" },
+			recommendation: { type: "string", minLength: 10, maxLength: 400 },
 		},
 	});
 	expect(mocks.model.mock.calls[1]?.[1]).toContain(

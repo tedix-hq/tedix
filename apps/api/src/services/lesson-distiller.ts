@@ -300,6 +300,7 @@ export async function runDistillModel(
 		return text;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : "";
+		const providerCode = message.match(/\b\d{4}\b/)?.[0];
 		onFailure?.(
 			/residency|regional adapter/i.test(message)
 				? "model_residency_blocked"
@@ -309,7 +310,9 @@ export async function runDistillModel(
 								message,
 						  )
 						? "model_unavailable"
-						: "model_provider_failed",
+						: /json mode|schema|grammar|response_format/i.test(message)
+							? "model_schema_rejected"
+							: `model_provider_failed${providerCode ? `:${providerCode}` : ""}`,
 		);
 		return null;
 	} finally {
