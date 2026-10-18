@@ -251,6 +251,14 @@ async function main() {
 		]);
 		return;
 	}
+	if (process.argv[commandIndex] === "commit-handoff") {
+		const { runCommitHandoff } = await import("./commit-handoff");
+		process.exitCode = await runCommitHandoff([
+			...process.argv.slice(commandIndex + 1),
+			...process.argv.slice(2, commandIndex),
+		]);
+		return;
+	}
 	// Installation lifecycle commands are local and never resolve gateway auth.
 	const argv = localCommandArgs(process.argv.slice(2));
 	const localCommand = argv[0];

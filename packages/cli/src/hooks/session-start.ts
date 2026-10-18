@@ -23,6 +23,41 @@ const AUTH_SOURCES = new Set([
 ]);
 
 export async function runSessionStart(deps: HookDeps): Promise<void> {
+	const cloud =
+		deps.env.CLAUDE_CODE_REMOTE === "true" ||
+		deps.env.TEDIX_CLOUD_SESSION === "1";
+	if (!cloud) return sessionStart(deps);
+	let startup = false;
+	try {
+		startup = JSON.parse(deps.stdin || "{}").source === "startup";
+	} catch {
+		/* The normal preflight reports malformed input. */
+	}
+	if (!startup) return sessionStart(deps);
+	let emitted = false;
+	const notice =
+		"Cloud session: direct pushes to the managed source repository require the Mac supervisor's private pre-push rules. Validate locally, then use tedix commit-handoff submit for the Work-linked, checksummed commit transfer. Do not bypass gates or ask the owner to relay the commit.";
+	await sessionStart({
+		...deps,
+		write: (line) => {
+			const output = JSON.parse(line);
+			output.hookSpecificOutput.additionalContext = `${notice}\n${output.hookSpecificOutput.additionalContext}`;
+			emitted = true;
+			deps.write(JSON.stringify(output));
+		},
+	});
+	if (!emitted)
+		deps.write(
+			JSON.stringify({
+				hookSpecificOutput: {
+					hookEventName: "SessionStart",
+					additionalContext: notice,
+				},
+			}),
+		);
+}
+
+async function sessionStart(deps: HookDeps): Promise<void> {
 	const { env, read } = deps;
 	const now = deps.now ?? (() => new Date());
 	const send = (message: string) =>
