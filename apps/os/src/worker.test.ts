@@ -1672,6 +1672,58 @@ describe("Tedix OS origin router", () => {
 		);
 	});
 
+	it("privately caches only successful hashed static code", async () => {
+		for (const [path, mime] of [
+			["/assets/os-AbCd1234.js", "text/javascript; charset=utf-8"],
+			["/assets/work-AbCd1234.css", "text/css"],
+		] as const) {
+			const response = await handleOsRequest(
+				new Request(`https://tedix.os.tedix.dev${path}`),
+				{
+					ASSETS: {
+						fetch: async () =>
+							new Response("static", { headers: { "Content-Type": mime } }),
+					},
+				},
+			);
+			expect(response.headers.get("Cache-Control")).toBe(
+				"private, max-age=31536000, immutable",
+			);
+			expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+			expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+		}
+	});
+
+	it("keeps documents, unhashed files, asset errors and cookie responses no-store", async () => {
+		for (const [path, mime, status, cookie] of [
+			["/assets/missing-AbCd1234.js", "text/html", 200, false],
+			["/assets/os.js", "text/javascript", 200, false],
+			["/assets/os-AbCd1234.js", "text/javascript", 404, false],
+			["/assets/os-AbCd1234.js", "text/javascript", 200, true],
+			["/assets/os-AbCd1234.js?private=1", "text/javascript", 200, false],
+			["/work", "text/html", 200, false],
+		] as const) {
+			const response = await handleOsRequest(
+				new Request(`https://tedix.os.tedix.dev${path}`),
+				{
+					ASSETS: {
+						fetch: async () =>
+							new Response("body", {
+								status,
+								headers: {
+									"Content-Type": mime,
+									...(cookie ? { "Set-Cookie": "session=value" } : {}),
+								},
+							}),
+					},
+				},
+			);
+			expect(response.headers.get("Cache-Control"), path).toBe(
+				"private, no-store",
+			);
+		}
+	});
+
 	it("allows only the sandbox proxy asset to frame on the same OS origin", async () => {
 		for (const path of ["/sandbox_proxy", "/sandbox_proxy.html?csp=%7B%7D"]) {
 			const response = await handleOsRequest(

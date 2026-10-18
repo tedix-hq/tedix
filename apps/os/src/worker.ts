@@ -1300,6 +1300,24 @@ export async function handleOsRequest(
 		asset,
 		isSandboxProxy ? "SAMEORIGIN" : "DENY",
 	);
+	// Build hashes change with the bytes. Cache only static code in this browser;
+	// shell documents, API responses, missing assets and cookies stay no-store.
+	const assetType = stamped.headers.get("Content-Type")?.split(";")[0]?.trim();
+	if (
+		(request.method === "GET" || request.method === "HEAD") &&
+		stamped.status === 200 &&
+		!stamped.headers.has("Set-Cookie") &&
+		!url.search &&
+		/^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(url.pathname) &&
+		(assetType === "text/javascript" ||
+			assetType === "application/javascript" ||
+			assetType === "text/css")
+	) {
+		stamped.headers.set(
+			"Cache-Control",
+			"private, max-age=31536000, immutable",
+		);
+	}
 	return isSandboxProxy ? stamped : injectWebMcpBridge(stamped, tenant.kind);
 }
 

@@ -193,10 +193,11 @@ gate, the `/collab` WebSocket 101 into `CollabRoom`, the Cap'n Web mount, an
 SSE-streaming API proxy, two session brokers, and the widget MCP bridge. It is
 tested in workerd (`bun run test:workerd`).
 
-Every response carries `X-Robots-Tag: noindex, nofollow, noarchive` and
-`Cache-Control: private, no-store`. That is what makes SSR worthless here: if a
-route ever needs to render for an unauthenticated third-party fetcher, that
-header block is the thing that changes first.
+Every response carries `X-Robots-Tag: noindex, nofollow, noarchive`. Documents,
+API responses and errors carry `Cache-Control: private, no-store`. Successful
+content-hashed JavaScript/CSS build assets allow immutable private browser
+caching; the static WebMCP bridge also has a bounded private cache. None of
+these exceptions caches tenant data or makes a document publicly cacheable.
 
 `cloudflare.config.ts` owns bindings, routes, assets and the `CollabRoom`
 export. `src/worker.ts` hand-declares `OsRouterEnv`, so the app generates no
