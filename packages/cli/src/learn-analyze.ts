@@ -826,7 +826,7 @@ export function decisionLog(
  */
 export const claudeModel: RunModel = (prompt) => localClaudeModel(prompt);
 
-export function localClaudeModel(
+function localClaudeModel(
 	prompt: string,
 	timeoutMs = 180_000,
 ): Promise<string> {
