@@ -89,14 +89,11 @@ try {
 					const bodyRect = body.getBoundingClientRect();
 					const failures: string[] = [];
 					const frame = card.closest(".fd-decision")!.getBoundingClientRect();
-					const why = card
-						.closest(".fd-decision")!
-						.querySelector(".fd-card-why");
-					const contentBottom =
-						why?.getBoundingClientRect().bottom ??
-						card.getBoundingClientRect().bottom;
-					if (frame.bottom > contentBottom + 1)
-						failures.push("focus frame leaves empty space below Why this");
+					const why = card.querySelector(".fd-card-why");
+					if (!why || !footer.contains(why))
+						failures.push("Why this is outside the card action row");
+					if (Math.abs(frame.bottom - card.getBoundingClientRect().bottom) > 1)
+						failures.push("focus frame does not match the card surface");
 					const stack = card
 						.closest(".fd-decision-stack")!
 						.getBoundingClientRect();
@@ -182,7 +179,11 @@ try {
 						).backgroundColor,
 					};
 				});
-				assert(result.actions.length === 3);
+				assert.equal(
+					result.actions.length,
+					4,
+					"Approve, Not this, Later and Why this share the footer",
+				);
 				assert(
 					result.bodyHeight >= 44,
 					`Proposal body collapsed: ${JSON.stringify(result)}`,

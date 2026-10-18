@@ -316,7 +316,8 @@
 .fd-decision-stack {
 	position: relative;
 	isolation: isolate;
-	padding-bottom: 1rem;
+	padding-bottom: 0;
+	margin-bottom: 1rem;
 }
 .fd-decision-stack[data-has-next="true"]::before {
 	content: "";
@@ -327,6 +328,7 @@
 	background: var(--fd-surface);
 	z-index: -1;
 	pointer-events: none;
+	transform-origin: bottom center;
 	transform: translateY(10px) scale(0.96);
 	opacity: 0.6;
 	transition: transform var(--fd-enter-duration) var(--fd-ease);
@@ -813,6 +815,7 @@
 	flex: 1 1 0;
 }
 .fd-deck-current {
+	justify-content: center;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
@@ -825,7 +828,7 @@
 	flex: 0 1 auto;
 	min-height: 0;
 	max-height: 100%;
-	padding-bottom: 0.5rem;
+	padding-bottom: 0;
 }
 .fd-deck-current .fd-decision {
 	display: flex;
@@ -869,8 +872,8 @@
 .fd-deck-current [data-slot="card-footer"] {
 	position: relative;
 	flex: none;
-	background: var(--fd-surface);
-	padding: 1.5rem var(--fd-space) 0;
+	background: transparent;
+	padding: 0.5rem var(--fd-space) 0;
 	border-top: 0;
 }
 .fd-deck-current [data-decision-actions] {
@@ -979,7 +982,7 @@
 	max-height: calc(100dvh - 10rem);
 	overflow-y: auto;
 	border-left: 1px solid var(--color-kumo-line);
-	padding: 1rem;
+	padding: 1.5rem;
 }
 .fd-context-rail[hidden] {
 	display: block;
@@ -989,9 +992,10 @@
 	overflow: hidden;
 }
 .fd-context-sections {
-	display: grid;
-	gap: 1.5rem;
-	padding: 1rem;
+	display: flex;
+	flex-direction: column;
+	gap: 2rem;
+	padding: 0;
 	min-width: 0;
 	overflow-wrap: anywhere;
 }
@@ -1015,7 +1019,8 @@
 	}
 }
 
-.feed-deck :is(button, a, input, textarea, select):focus-visible {
+.feed-deck :is(button, a, input, textarea, select, .fd-decision):focus-visible {
+	box-shadow: none;
 	outline: 2px solid var(--color-kumo-focus);
 	outline-offset: 2px;
 }
@@ -1050,6 +1055,7 @@
 	color: var(--fd-muted);
 }
 .fd-card-why {
+	margin-left: auto;
 	display: flex;
 	justify-content: flex-end;
 }
@@ -1057,17 +1063,25 @@
 	color: var(--fd-muted);
 }
 .fd-action-key {
-	display: none;
+	display: inline-block;
+	visibility: hidden;
+	min-width: 1.25rem;
+	margin-left: 0.5rem;
+	border: 1px solid var(--fd-line);
+	border-radius: 4px;
+	line-height: 1.4;
+	font-weight: 500;
 	font-family: var(--font-mono);
 	font-size: 0.75rem;
 }
 button:is(:hover, :focus-visible) .fd-action-key {
-	display: inline;
+	visibility: visible;
 }
 .fd-context-section :is(h2, h3),
 .fd-context-rail h2 {
 	font-family: var(--font-sans);
 	font-size: 1.125rem;
+	line-height: 1.35;
 	font-weight: 600;
 	letter-spacing: -0.015em;
 }
@@ -1127,10 +1141,64 @@ button:is(:hover, :focus-visible) .fd-action-key {
 }
 
 .fd-action-key::after {
-	margin-left: 0.25rem;
 	content: attr(data-key);
 }
 .fd-details-chevron {
 	display: inline;
 	margin-right: 0.25rem;
+}
+
+.fd-position p,
+.fd-deck-navigation button {
+	font-size: 0.8125rem !important;
+	line-height: 1.4 !important;
+	font-weight: 400;
+	color: var(--fd-muted);
+}
+.fd-position {
+	position: absolute;
+	top: 1rem;
+}
+.fd-decision:focus:not(:focus-visible) {
+	outline: none;
+	box-shadow: none;
+}
+.fd-card-body .fd-recommendation {
+	margin-top: 0.75rem;
+}
+.fd-context-sections > [data-rail-slot] {
+	display: contents;
+}
+.fd-context-section [data-kumo-component="SegmentedControl"] {
+	flex-wrap: wrap;
+	background: transparent;
+	box-shadow: none;
+}
+.fd-identifiers {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+.fd-identifier {
+	display: block;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	padding: 0.25rem 0.5rem;
+	border: 1px solid var(--fd-line);
+	border-radius: 4px;
+}
+.fd-shortcut-grid kbd {
+	width: fit-content;
+	min-width: 1.5rem;
+	padding: 0.25rem;
+	border: 1px solid var(--fd-line);
+	border-radius: 4px;
+	text-align: center;
+}
+
+.fd-context-section[data-context-section="seen"] > h3,
+.fd-context-section[data-context-section="seen"] button + button {
+	display: none;
 }

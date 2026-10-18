@@ -39,6 +39,7 @@ export function FeedDeckDisclosure({
 	if (rail)
 		return (
 			<DecisionContextSection
+				sectionId={className === "fd-action-details" ? "choices" : undefined}
 				title={
 					className === "fd-action-details" ? (
 						(label ?? title)

@@ -186,7 +186,8 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	).toContain("Any urgency");
 	for (const example of DECISION_DECK_EXAMPLES) {
 		expect(host.textContent).toContain(example.proposal);
-		expect(host.textContent).toContain("0/5 unchanged approvals");
+		expect(host.textContent).not.toContain("unchanged approvals");
+		expect(host.textContent).not.toContain("Target:");
 		await click("Why this");
 		expect(host.textContent).toContain(
 			"Prefer a bounded next step with evidence",
@@ -194,7 +195,7 @@ it("browses all six practice kinds, explains the choice and never submits a real
 		await key("j");
 	}
 	expect(host.textContent).toContain("All clear");
-	expect(host.textContent).toContain("0 left");
+	expect(host.textContent).toContain("0 decided today");
 	expect(host.querySelector(".fd-decision")).toBeNull();
 	expect(host.querySelector(".fd-closure")).not.toBeNull();
 	expect(respond).not.toHaveBeenCalled();
@@ -267,4 +268,29 @@ it("starts collapsed, opens Why in context, and remembers closure for this perso
 	});
 	await act(async () => document.dispatchEvent(escape));
 	expect(escape.defaultPrevented).toBe(false);
+});
+
+it("does not announce All clear while decision history is loading", async () => {
+	vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => {}));
+	await mount();
+	await act(async () =>
+		host
+			.querySelector<HTMLButtonElement>('[aria-label="Decision context"]')!
+			.click(),
+	);
+	client.removeQueries({
+		queryKey: osQuery.workInteractions.listInbox.queryOptions({
+			input: { projectId: undefined, limit: 50, states: ["resolved"] },
+		}).queryKey,
+		exact: true,
+	});
+	await click("What you decided");
+	expect(host.querySelector(".fd-closure")).toBeNull();
+	expect(
+		client.getQueryState(
+			osQuery.workInteractions.listInbox.queryOptions({
+				input: { projectId: undefined, limit: 50, states: ["resolved"] },
+			}).queryKey,
+		)?.status,
+	).toBe("pending");
 });
