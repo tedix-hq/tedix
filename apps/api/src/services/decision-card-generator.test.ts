@@ -270,3 +270,28 @@ it("accepts a faithful status-report filing title", async () => {
 		)?.title,
 	).toBe("File: Work status report");
 });
+
+it("allows normal word-form changes in a filing title", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			title: "File: Explanation of the profile problem",
+			recommendation:
+				"Keep this filing because the project owns the account surface.",
+		}),
+	);
+	expect(
+		(
+			await generateDecisionCard({ db: {}, env: {} } as never, {
+				...request,
+				prompt: "Explain this issue",
+				metadata: {
+					decisionDeck: {
+						classId: "filing.project",
+						reasoning: "The project owns the account surface.",
+					},
+				},
+			})
+		)?.title,
+	).toBe("File: Explanation of the profile problem");
+});

@@ -141,7 +141,7 @@ export async function generateDecisionCard(
 				(!/\bfil(?:e|ing)\b/i.test(parsed.data.title) ||
 					(filingWords.length > 0 &&
 						!filingWords.some((word) =>
-							parsed.data.title.toLowerCase().includes(word),
+							parsed.data.title.toLowerCase().includes(word.slice(0, 5)),
 						)))
 			) {
 				onFailure?.("invalid_copy:title_source");
