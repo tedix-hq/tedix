@@ -524,3 +524,23 @@ it("any-local shares two slots across native Claude and Codex Attempts", async (
 	await dispatcher.drain();
 	expect(events.filter((e) => e.verb === "settle")).toHaveLength(2);
 });
+
+it("any-local requests delegation for the assigned native executor", () => {
+	const reserved = { ...item(), title: "Summarize email fixtures" };
+	expect(dispatchSkip(reserved, [], "any-local")).toContain(
+		"Delegation: codex work-version=2",
+	);
+	const comment = {
+		authorType: "user" as const,
+		authorId: "fictional-owner",
+		body: "Delegation: codex work-version=2 Summarize fictional fixtures only.",
+	};
+	expect(dispatchSkip(reserved, [comment], "any-local")).toBeUndefined();
+	expect(
+		dispatchSkip(
+			reserved,
+			[{ ...comment, body: comment.body.replace("codex", "any-local") }],
+			"any-local",
+		),
+	).toContain("needs an owner comment");
+});
