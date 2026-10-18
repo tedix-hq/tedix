@@ -131,6 +131,8 @@ export interface RpcCallOptions {
 	/** Opt in only when the procedure is read-only or carries an idempotency key. */
 	retry?: number;
 	retryDelayMs?: number;
+	/** When set, only HTTP failures with one of these statuses can retry. */
+	retryStatusCodes?: readonly number[];
 }
 
 export class RpcCallError extends Error {
@@ -235,6 +237,14 @@ export async function callRpc<TOutput = unknown>(
 				...(options.retryDelayMs === undefined
 					? {}
 					: { retryDelay: options.retryDelayMs }),
+				...(options.retryStatusCodes === undefined
+					? {}
+					: {
+							shouldRetry: () =>
+								options.retryStatusCodes?.includes(
+									failedResponse?.status ?? 0,
+								) === true,
+						}),
 			},
 			signal,
 		})) as TOutput;

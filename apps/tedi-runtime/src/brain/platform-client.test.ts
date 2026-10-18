@@ -455,3 +455,71 @@ it("forwards a bounded discovery shortlist through the tenant service binding", 
 		"cognitiveRuntime/rankDiscovery",
 	);
 });
+
+it("retries a transient Work authority read and returns the fresh response", async () => {
+	const requests: string[] = [];
+	const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+		requests.push(String(init?.body));
+		return requests.length === 1
+			? Response.json(
+					{
+						json: {
+							defined: false,
+							code: "SERVICE_UNAVAILABLE",
+							message: "Database temporarily unavailable",
+						},
+					},
+					{ status: 503 },
+				)
+			: Response.json({
+					json: {
+						data: [
+							{ id: "fictional-current-attempt", runtimeState: "running" },
+						],
+						nextCursor: null,
+					},
+				});
+	});
+	const client = new HttpPlatformClient({
+		apiBaseUrl: "https://api.example.test",
+		apiAuthMode: "service-binding",
+		tediId: "fictional-tedi",
+		organizationId: "fictional-org",
+		fetch: fetcher as typeof fetch,
+	});
+	const result = await client.listWorkAttempts({
+		workItemId: "fictional-work",
+	});
+	expect(result.data[0]?.id).toBe("fictional-current-attempt");
+	expect(requests).toHaveLength(2);
+	expect(requests[0]).toBe(requests[1]);
+});
+
+it.each([
+	["read", 503, "SERVICE_UNAVAILABLE", 2],
+	["read", 403, "FORBIDDEN", 1],
+	["write", 503, "SERVICE_UNAVAILABLE", 1],
+] as const)(
+	"keeps %s failures closed at status %s",
+	async (operation, status, code, calls) => {
+		const fetcher = vi.fn(async () =>
+			Response.json(
+				{ json: { defined: false, code, message: "fictional failure" } },
+				{ status },
+			),
+		);
+		const client = new HttpPlatformClient({
+			apiBaseUrl: "https://api.example.test",
+			apiAuthMode: "service-binding",
+			tediId: "fictional-tedi",
+			organizationId: "fictional-org",
+			fetch: fetcher as typeof fetch,
+		});
+		await expect(
+			operation === "read"
+				? client.listWorkAttempts({ workItemId: "fictional-work" })
+				: client.startWorkAttempt({ workItemId: "fictional-work" }),
+		).rejects.toMatchObject({ status });
+		expect(fetcher).toHaveBeenCalledTimes(calls);
+	},
+);
