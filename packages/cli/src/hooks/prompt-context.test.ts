@@ -1626,7 +1626,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			});
 			expect(attempts).toBe(2);
 			expect(Date.now() - started).toBeGreaterThanOrEqual(140);
-			expect(recovered.timeouts.at(-1)).toBe(3000);
+			expect(recovered.timeouts.at(-1)).toBe(6000);
 			expect(recovered.text).toContain("Handle authorized routine choices");
 			expect(recovered.text).toContain(lesson.text);
 			expect(recovered.text).not.toContain("lessons unavailable");
@@ -1743,7 +1743,8 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		});
 		// Context, auth, probe, undelivered answers, ack, gateway: none over 6.5s.
 		expect(Math.max(...timeouts)).toBeLessThanOrEqual(6500);
-		expect(timeouts.filter((t) => t === 3000).length).toBeGreaterThanOrEqual(2);
+		expect(timeouts).toContain(3000);
+		expect(timeouts).toContain(6000);
 		rmSync(config, { recursive: true, force: true });
 	});
 });
