@@ -81,6 +81,9 @@ try {
 					const boundary = footer.getBoundingClientRect();
 					const bodyRect = body.getBoundingClientRect();
 					const failures: string[] = [];
+					const frame = card.closest(".fd-decision")!.getBoundingClientRect();
+					if (frame.bottom > card.getBoundingClientRect().bottom + 1)
+						failures.push("focus frame leaves empty space below card");
 					if (boundary.bottom > card.getBoundingClientRect().bottom + 1)
 						failures.push("footer outside card");
 					if (bodyRect.bottom > boundary.top + 1)
