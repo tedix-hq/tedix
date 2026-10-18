@@ -68,14 +68,16 @@ it("constrains model output and tells the retry which field failed", async () =>
 		request,
 	);
 	expect(result).toMatchObject(copy);
-	expect(mocks.model.mock.calls[0]?.[2].jsonSchema).toMatchObject({
-		additionalProperties: false,
-		required: ["version", "title", "body", "recommendation"],
-		properties: {
-			recommendation: { type: "string", minLength: 10, maxLength: 400 },
-		},
-	});
+	expect(mocks.model.mock.calls[0]?.[2].jsonObject).toBe(true);
 	expect(mocks.model.mock.calls[1]?.[1]).toContain(
 		"failed validation in recommendation",
 	);
+});
+
+it("does not repeat an unchanged provider failure", async () => {
+	mocks.model.mockResolvedValue(null);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toBeNull();
+	expect(mocks.model).toHaveBeenCalledTimes(1);
 });

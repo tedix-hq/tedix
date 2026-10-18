@@ -161,14 +161,13 @@ describe("modelLessonDistiller", () => {
 describe("runDistillModel", () => {
 	it("requests structured JSON and reads the provider's object response", async () => {
 		const run = vi.fn().mockResolvedValue({ response: { version: 1 } });
-		const jsonSchema = { type: "object" };
 		expect(
 			await runDistillModel({ AI: { run } } as never, "summarize", {
-				jsonSchema,
+				jsonObject: true,
 			}),
 		).toBe('{"version":1}');
 		expect(run.mock.calls[0]?.[1]).toMatchObject({
-			response_format: { type: "json_schema", json_schema: jsonSchema },
+			response_format: { type: "json_object" },
 		});
 	});
 	it("reports bounded failure reasons without returning provider messages", async () => {
