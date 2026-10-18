@@ -192,10 +192,12 @@ describe("automatic filing", () => {
 		});
 		const next: LedgerModel = async (_system, prompt) => {
 			const input = JSON.parse(prompt);
-			expect(input.corrections[0]).toMatchObject({
-				previousProjectId: "project-docs",
-				projectId: null,
-			});
+			expect(input.columns.corrections).toEqual([
+				"text",
+				"projectId",
+				"previousProjectId",
+			]);
+			expect(input.corrections[0]).toEqual([row.text, null, "project-docs"]);
 			return JSON.stringify({ ...pick, projectId: null });
 		};
 		await autoFileRequests(db, next, {
@@ -333,4 +335,34 @@ it("creates proposed Work for an actionable question without marking it answered
 		)?.disposition,
 	).toBe("proposed");
 	expect((await listAgentSessionRequests(db, owner))[0]?.status).toBe("open");
+});
+
+it("fits a large multilingual portfolio into the classifier window while retaining all 85 project choices", async () => {
+	const { db, model } = await fixture();
+	const ids = ["project-docs"];
+	for (let index = 0; index < 84; index++) {
+		const id = `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+		ids.push(id);
+		await db.insert(projects).values({
+			id,
+			orgId: owner.organizationId,
+			key: `PROJECT-${index}`,
+			name: `Fictional project ${index}`,
+			description: "Mehrsprachige Beschreibung 🐇 ".repeat(200),
+			createdAt: now,
+		});
+	}
+	let input = "";
+	const bounded: LedgerModel = async (_system, prompt) => {
+		input = prompt;
+		return JSON.stringify(pick);
+	};
+	bounded.scoreProjectFit = model.scoreProjectFit;
+	await autoFileRequests(db, bounded, { ...owner, now });
+	expect(new TextEncoder().encode(input).byteLength).toBeLessThanOrEqual(
+		18_000,
+	);
+	const context = JSON.parse(input) as { projects: [string, string, string][] };
+	expect(context.projects.map(([id]) => id).sort()).toEqual(ids.sort());
+	expect(await listRequestFilings(db, owner)).toHaveLength(1);
 });
