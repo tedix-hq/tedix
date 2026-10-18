@@ -1,5 +1,10 @@
 import { archiveCorrectedAgentLessons } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { implement } from "@orpc/server";
+import {
+	recordDecisionExposure,
+	readDecisionInstrumentation,
+	readDecisionCalibration,
+} from "../../services/decision-instrumentation";
 import { readDecisionLearning } from "../../services/decision-learning";
 import { setDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { learningFeedbackContract } from "@tedix/api-contract/contracts/learning-feedback";
@@ -763,6 +768,73 @@ const reviewImprovement = authed.reviewImprovement
 		};
 	});
 
+function requireLearningPerson(context: BaseContext) {
+	const actor = resolveLearningActor(context);
+	if (actor.actorType !== "user" || !actor.actorId)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"A person is required for their decision instrumentation",
+		);
+	return actor.actorId;
+}
+const recordExposure = authed.recordExposure
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The person may report only their own recipient-fenced Deck exposures",
+			},
+			"tedis:write",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		try {
+			return await recordDecisionExposure(context.db, {
+				organizationId: requireOrgId(context),
+				actorId: requireLearningPerson(context),
+				mayReadApprovals: userHoldsPermission(context, "tedis:read"),
+				input,
+			});
+		} catch (error) {
+			if (
+				error instanceof Error &&
+				[
+					"Invalid candidate inventory",
+					"Decision source is unavailable to this person",
+				].includes(error.message)
+			)
+				throw createError(ErrorCodes.BAD_REQUEST, error.message);
+			if (
+				error instanceof Error &&
+				[
+					"Card changed before exposure was recorded",
+					"Exposure id was already used for different context",
+				].includes(error.message)
+			)
+				throw createError(ErrorCodes.CONFLICT, error.message);
+			throw error;
+		}
+	});
+const getCalibration = authed.getCalibration
+	.use(AUTHZ.tedisRead)
+	.handler(({ input, context }) =>
+		readDecisionCalibration(context.db, {
+			organizationId: requireOrgId(context),
+			actorId: requireLearningPerson(context),
+			classId: input.classId,
+		}),
+	);
+const getInstrumentation = authed.getInstrumentation
+	.use(AUTHZ.tedisRead)
+	.handler(({ input, context }) =>
+		readDecisionInstrumentation(context.db, {
+			organizationId: requireOrgId(context),
+			actorId: requireLearningPerson(context),
+			cardId: input.cardId,
+			limit: input.limit,
+		}),
+	);
+
 const model = authed.model
 	.use(AUTHZ.tedisRead)
 	.handler(({ context }) =>
@@ -834,6 +906,9 @@ const correct = authed.correct
 	});
 
 export const learningFeedbackContractRouter = learningFeedbackOs.router({
+	recordExposure,
+	getCalibration,
+	getInstrumentation,
 	model,
 	configure,
 	correct,

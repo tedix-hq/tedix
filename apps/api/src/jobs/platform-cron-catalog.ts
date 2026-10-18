@@ -10,6 +10,7 @@ export type PlatformCronFreshnessState =
 	| "disabled";
 
 export const PLATFORM_CRON_IDS = [
+	"decision-outcome-labeller",
 	"provider-event-maintenance",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
@@ -56,6 +57,7 @@ interface PlatformCronDefinition {
 }
 
 const everyTwoMinuteIds = [
+	"decision-outcome-labeller",
 	"provider-event-maintenance",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",

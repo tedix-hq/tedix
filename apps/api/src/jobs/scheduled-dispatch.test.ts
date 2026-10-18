@@ -33,6 +33,11 @@ const catchup = vi.hoisted(() => ({
 	paths: [] as string[],
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
 }));
+vi.mock("./decision-outcome-labeller", () => ({
+	runDecisionOutcomeLabeller: vi
+		.fn()
+		.mockResolvedValue({ immediate: 0, delayed: 0 }),
+}));
 vi.mock("./provider-events", () => ({
 	maintainProviderEvents: catchup.providerEvents,
 }));
