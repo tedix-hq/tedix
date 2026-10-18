@@ -58,6 +58,29 @@ const learn = (events: LearningInteractionEvent[], overrides = {}) =>
 	});
 
 describe("decision learning replay", () => {
+	it("correlates the completed decision receipt when another card has the same class", () => {
+		const completed = event(1, { clientEventId: "decision-capture:reply-one" });
+		const newer = event(2, { clientEventId: "decision-capture:reply-two" });
+		const otherPerson = event(3, {
+			clientEventId: "decision-capture:private-reply",
+			actorId: "person-sky",
+			scopeId: "person-sky",
+		});
+		const model = learn([completed, newer, otherPerson]);
+		expect(model.receipts[0]?.eventId).toBe(newer.id);
+		expect(
+			model.receipts.find(
+				(receipt) => receipt.clientEventId === completed.clientEventId,
+			)?.eventId,
+		).toBe(completed.id);
+		expect(
+			model.receipts.some(
+				(receipt) => receipt.clientEventId === otherPerson.clientEventId,
+			),
+		).toBe(false);
+		expect(model.eventCount).toBe(2);
+	});
+
 	it("30 decisions change both ordering and the writing context used to regenerate a draft", () => {
 		const events = Array.from({ length: 30 }, (_, i) =>
 			i < 10

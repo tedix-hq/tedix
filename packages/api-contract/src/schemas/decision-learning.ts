@@ -102,6 +102,7 @@ export const DecisionLearningModelSchema = z.object({
 	receipts: z.array(
 		z.object({
 			eventId: z.string(),
+			clientEventId: z.string().optional(),
 			classId: z.string(),
 			eventKind: z.string(),
 			choice: z.string(),
