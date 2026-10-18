@@ -484,6 +484,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/blueprints/get": "mcp:apps.read",
 	"osWorkspaces/blueprints/import": "mcp:apps.write",
 	"osWorkspaces/blueprints/instantiate": "mcp:apps.write",
+	"osWorkspaces/blueprints/apply": "mcp:apps.write",
+	"osWorkspaces/blueprints/previewApply": "mcp:apps.read",
 	"osWorkspaces/blueprints/instantiateFromGallery": "mcp:apps.write",
 	"osWorkspaces/blueprints/list": "mcp:apps.read",
 	"osWorkspaces/blueprints/preflight": "mcp:apps.read",

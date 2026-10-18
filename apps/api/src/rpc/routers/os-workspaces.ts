@@ -1,3 +1,4 @@
+import { osBlueprintApplyProcedures } from "./os-blueprint-apply";
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { installDefaultWorkApps } from "../../services/default-work-apps";
 import { getPersonalResourceDelegation } from "@tedix/db/queries/personal-resource-delegations";
@@ -1280,6 +1281,11 @@ async function materializeBlueprintWorkspace(
 		revision: OsBlueprintRevisionRow;
 	},
 ) {
+	if (definition.provisioning)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"This blueprint declares project/Work provisioning; import it into your organization, then use blueprints.previewApply and blueprints.apply with an instance key and parameters",
+		);
 	const declaredNames = new Set<string>();
 	for (const declared of definition.gadgets) {
 		if (declaredNames.has(declared.name)) {
@@ -1449,6 +1455,7 @@ const blueprintsInstantiate = publishOs.blueprints.instantiate.handler(
 			);
 		}
 		const definition = parseStoredOsBlueprintDefinition(revisionRow.definition);
+
 		const preflight = await resolveBlueprintPreflight(
 			context,
 			blueprint.organizationId,
@@ -2188,6 +2195,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		...resourceLifecycle.osOutputLifecycleProcedures,
 	},
 	blueprints: {
+		...osBlueprintApplyProcedures,
 		list: blueprintsList,
 		create: blueprintsCreate,
 		get: blueprintsGet,

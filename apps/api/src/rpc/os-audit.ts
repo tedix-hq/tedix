@@ -519,6 +519,19 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 	// Two rows: the materialized workspace answers "where did this come from",
 	// the source blueprint answers "who instantiated it". Both lookups matter
 	// and the reader cannot bridge them from one row.
+	"blueprints.apply": {
+		action: "os.blueprint.applied",
+		resourceType: "os_workspace",
+		resourceId: ({ output }) =>
+			typeof fields(output.receipt).workspaceId === "string"
+				? (fields(output.receipt).workspaceId as string)
+				: undefined,
+		metadata: ({ input, output }) => ({
+			blueprintId: input.blueprintId,
+			planSha256: fields(output.receipt).planSha256,
+			replayed: fields(output.receipt).replayed,
+		}),
+	},
 	"blueprints.instantiate": [
 		{
 			action: "os.blueprint.instantiated",
@@ -708,6 +721,8 @@ export const OS_APPROVAL_RULES_AUDIT: OsAuditRegistry = {
  * @internal
  */
 export const OS_AUDIT_NON_EMITTING: Readonly<Record<string, string>> = {
+	"osWorkspaces.blueprints.previewApply":
+		"read-only provisioning plan; creates no resources",
 	// Presentation-only, per-user, and not org state: favorites and recency live
 	// in user_configs and govern nothing.
 	"osWorkspaces.workspacePreferences.setFavorite":

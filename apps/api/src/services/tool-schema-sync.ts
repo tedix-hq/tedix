@@ -244,6 +244,8 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/blueprints/publish": "publish_os_blueprint",
 	"osWorkspaces/blueprints/preflight": "preflight_os_blueprint",
 	"osWorkspaces/blueprints/instantiate": "instantiate_os_blueprint",
+	"osWorkspaces/blueprints/apply": "apply_os_blueprint",
+	"osWorkspaces/blueprints/previewApply": "preview_os_blueprint_apply",
 	"osWorkspaces/blueprints/export": "export_os_blueprint",
 	"osWorkspaces/blueprints/import": "import_os_blueprint",
 	"osWorkspaces/blueprints/archive": "archive_os_blueprint",
@@ -352,6 +354,8 @@ export const OS_KIND_OVERRIDES: Record<
 	// Read-only dependency resolution: it never mints authority or provisions.
 	"osWorkspaces/blueprints/preflight": "read",
 	"osWorkspaces/blueprints/instantiate": "write",
+	"osWorkspaces/blueprints/apply": "write",
+	"osWorkspaces/blueprints/previewApply": "read",
 	// export is a pure projection of a blueprint the caller can already read:
 	// no write, no budget, no durable artifact — unlike `outputs/export`, which
 	// spends Browser Rendering and persists to R2.

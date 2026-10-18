@@ -1,3 +1,7 @@
+import {
+	buildBlueprintProvisioningStatements,
+	type BlueprintProvisioningRows,
+} from "./provisioning";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -44,6 +48,7 @@ export interface InstantiateOsBlueprintParams {
 	/** Revision-1 rows, one per gadget, ids matching the preset pointers. */
 	revisions: NewOsGadgetRevisionRow[];
 	resources?: NewOsWorkspaceResourceRow[];
+	provisioning?: BlueprintProvisioningRows;
 }
 
 export interface InstantiateOsBlueprintResult {
@@ -115,6 +120,9 @@ export async function instantiateOsBlueprint(
 		...revisionChunks.map((rows) =>
 			db.insert(osGadgetRevisions).values(rows).returning(),
 		),
+		...(params.provisioning
+			? buildBlueprintProvisioningStatements(db, params.provisioning)
+			: []),
 	] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 	const results = (await db.batch(statements)) as unknown[][];
 
@@ -131,7 +139,10 @@ export async function instantiateOsBlueprint(
 		.slice(gadgetStart, gadgetStart + gadgetChunks.length)
 		.flat() as OsGadgetRow[];
 	const revisions = results
-		.slice(gadgetStart + gadgetChunks.length)
+		.slice(
+			gadgetStart + gadgetChunks.length,
+			gadgetStart + gadgetChunks.length + revisionChunks.length,
+		)
 		.flat() as OsGadgetRevisionRow[];
 	let blueprintCopy: InstantiateOsBlueprintResult["blueprintCopy"];
 	if (copy) {
