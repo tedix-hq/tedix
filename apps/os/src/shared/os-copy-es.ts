@@ -63,6 +63,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		more: "Más",
 		less: "Menos",
 		source: "Abrir fuente",
+		linkedPage: "página enlazada",
 		workspaceDocument: "Abrir documento del espacio",
 		document: "Abrir documento",
 		workRecord: "Abrir tarea",

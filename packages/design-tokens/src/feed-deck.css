@@ -5,12 +5,14 @@
 	--fd-ink: var(--foreground);
 	--fd-muted: var(--muted-foreground);
 	--fd-line: var(--border);
-	--fd-glow: var(--primary);
-	--fd-glow-soft: color-mix(in srgb, var(--primary) 16%, transparent);
-	--fd-control: var(--primary);
-	--fd-on-control: var(--primary-foreground);
+	--fd-glow: #f8df6b;
+	--fd-glow-soft: color-mix(in srgb, var(--fd-glow) 16%, transparent);
+	--fd-control: var(--foreground);
+	--fd-on-control: var(--background);
 	--fd-radius: 1.75rem;
 	--fd-space: clamp(1.25rem, 4vw, 3rem);
+	--fd-deck-space: clamp(1rem, 2vw, 1.5rem);
+	--fd-card-header-gap: 1rem;
 	--fd-proposal: clamp(1.75rem, 3.6vw, 2.75rem);
 	--fd-headline: clamp(1.25rem, 2.3vw, 1.65rem);
 	--fd-shadow: var(--shadow-tedix-raised);

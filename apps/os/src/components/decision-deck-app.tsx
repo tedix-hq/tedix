@@ -292,8 +292,8 @@ export function DecisionDeckApp({
 		Math.max(0, config.dailyAttentionBudget - todayCount),
 		mode === "decide" &&
 			!!profile.data?.id &&
-			!decisions.pending &&
-			!decisions.failed &&
+			!decisions.queuePending &&
+			!decisions.queueFailed &&
 			!learningQuery.isPending &&
 			!learningQuery.isError,
 	);
@@ -857,6 +857,8 @@ export function DecisionDeckApp({
 					!(decisions.failed || learningQuery.isError) &&
 					(available.length > 0 ? (
 						<Text>{OS_COPY.decisionDeck.noMatches}</Text>
+					) : !practiceMode && factories.pending ? (
+						<Text>{OS_COPY.feed.loading}</Text>
 					) : !practiceMode && factories.sources.length > 0 ? (
 						<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
 							<FactoryCards

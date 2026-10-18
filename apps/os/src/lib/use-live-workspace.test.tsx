@@ -68,7 +68,7 @@ describe("useLiveWorkspace lifecycle", () => {
 			createdAt: "2026-08-18T12:00:01.000Z",
 			payload: { workspaceId: WORKSPACE_B },
 		});
-		expect(invalidations).toHaveBeenCalledTimes(3);
+		expect(invalidations).toHaveBeenCalledTimes(4);
 
 		rendered.unmount();
 		expect(liveWorkspaceSubscriberCount()).toBe(0);

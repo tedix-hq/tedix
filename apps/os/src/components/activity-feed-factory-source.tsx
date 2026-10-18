@@ -9,7 +9,7 @@ import {
 	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,
 } from "@/lib/os-query-options";
-import { cardSheetsForSource, cardsFromSheet } from "@/lib/card-review";
+import { cardSheetsForSource, cardsFromSheet, isOpen } from "@/lib/card-review";
 import { sentence } from "@/lib/activity-feed";
 
 /** Read existing factory sheets; decisions and provider actions remain with their owners. */
@@ -83,9 +83,9 @@ export function ActivityFeedFactorySource({
 					importance: "normal",
 					at: sheet.createdAt,
 					dueAt: null,
-					needsAction: false,
+					needsAction: isOpen(card),
 					stalled: /^failed/i.test(card.result),
-					done: !!card.result || card.done === "yes",
+					done: !isOpen(card),
 					explanation: `${card.why}\n${card.sourceText}\nOutput ${sheet.id}, revision ${revision.revision}, row ${card.rowIndex + 1}`,
 					reactions: ["more", "why", "mute", "comment", "work"],
 				});
