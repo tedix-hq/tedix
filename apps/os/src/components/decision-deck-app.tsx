@@ -12,6 +12,8 @@ import {
 import { interactionCardKind } from "@/lib/interaction-card-kind";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { useDeckViewport } from "@/lib/use-deck-viewport";
+import { useDecisionInstrumentation } from "@/lib/use-decision-instrumentation";
+import { DecisionClassCalibration } from "@/components/decision-class-calibration";
 import { DecisionLearningContext } from "@/components/decision-learning-context";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
@@ -416,6 +418,58 @@ function DecisionDeckContent({
 			current.options.some((option) => option.effect)),
 	);
 	const classId = current?.classId ?? selected?.kind;
+	const instrumentationClassId =
+		current?.classId ??
+		(typeof selected?.row?.request.metadata.decisionClass === "string"
+			? selected.row.request.metadata.decisionClass
+			: (selected?.row?.request.kind ?? selected?.kind));
+	useDecisionInstrumentation({
+		enabled:
+			mode === "decide" &&
+			Boolean(batch && profile.data?.id) &&
+			!decisions.failed,
+		scopeKey: `${globalThis.location.host}:${workspaceId}:${profile.data?.id}`,
+		root: deckRoot,
+		cardId: selected?.id,
+		sourceVersion:
+			selected?.row?.request.version ??
+			decisions.work.find(
+				(row) => `work-approval:${row.proposal.id}` === selected?.id,
+			)?.proposal.version ??
+			null,
+		position: selected ? rows.findIndex((row) => row.id === selected.id) : 0,
+		railOpened: railOpenedBeforeDecision,
+		timezone: learningModel.data?.config.timezone ?? "UTC",
+		ranking: {
+			version: "decision-learning-v1",
+			score:
+				selected && learningModel.data?.config.enabled
+					? rank(selected).score
+					: null,
+			features: selected ? rank(selected).factors : [],
+		},
+		candidates: rows.map((row, position) => ({
+			id: row.id,
+			score: learningModel.data?.config.enabled ? rank(row).score : null,
+			position,
+			reason:
+				row.id === selected?.id
+					? "shown"
+					: !ranked.some((candidate) => candidate.id === row.id)
+						? "filtered"
+						: !available.some((candidate) => candidate.id === row.id)
+							? "batched"
+							: position >
+								  rows.findIndex((candidate) => candidate.id === selected?.id)
+								? "shown_later"
+								: "ranked_lower",
+		})),
+		candidateSetComplete:
+			!inbox.data?.nextCursor &&
+			!decisions.queuePending &&
+			!decisions.queueFailed &&
+			factories.sources.length === 0,
+	});
 	const historicalLearning = classId
 		? classReadiness(
 				practiceMode ? practice : receipts,
@@ -941,8 +995,13 @@ function DecisionDeckContent({
 						</Button>
 					</p>
 				</DecisionContextSection>
-				{receipts.length >= 5 && (
+				{((mode === "decide" && classId) || receipts.length >= 5) && (
 					<DecisionContextSection sectionId="style" title="Your style">
+						{mode === "decide" && classId && (
+							<DecisionClassCalibration
+								classId={instrumentationClassId ?? classId}
+							/>
+						)}
 						<p>
 							{learning?.ready
 								? "Your recent choices favour this kind of recommendation."
