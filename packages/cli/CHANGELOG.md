@@ -3,6 +3,19 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.12.0 — 2026-10-18
+
+### Minor Changes
+
+- Send cloud commits to a local agent through Work, preserving authorship and checking admission before import and push. Configured supervisors can pick up these handoffs.
+- Run Codex and Claude assignments from one shared local dispatcher with `tedix lane serve --executor any-local`.
+
+### Patch Changes
+
+- Keep the organization selected through `TEDIX_ORGANIZATION` when external agents record Work activity, so later hooks resolve the same context.
+- Each prompt can show up to three accepted Work priorities for this coding harness and project. Cached priorities expire after 30 seconds.
+- Delegation instructions name the assigned Codex or Claude executor when an owner's note is required.
+
 ## 0.11.2 — 2026-10-18
 
 ### Patch Changes
