@@ -57,14 +57,14 @@
 	display: none;
 }
 .focus-today-row {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
 	gap: 4px 12px;
 	align-items: baseline;
 	font-size: 0.875rem;
 }
-.focus-today-row > a:first-child {
-	max-width: 16rem;
+.focus-today-row > * {
+	min-width: 0;
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
