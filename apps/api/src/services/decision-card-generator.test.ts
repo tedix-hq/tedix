@@ -1,16 +1,14 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
-	config: vi.fn(),
 	preferences: vi.fn(),
 	model: vi.fn(),
-}));
-vi.mock("@tedix/db/queries/decision-learning", () => ({
-	getDecisionLearningConfig: mocks.config,
 }));
 vi.mock("./decision-learning", () => ({
 	readDraftPreferences: mocks.preferences,
 }));
-vi.mock("./lesson-distiller", () => ({ runDistillModel: mocks.model }));
+vi.mock("./decision-card-copy-model", () => ({
+	runDecisionCardCopyModel: mocks.model,
+}));
 import { generateDecisionCard } from "./decision-card-generator";
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 const request = {
@@ -29,18 +27,17 @@ const copy = {
 };
 beforeEach(() => {
 	vi.clearAllMocks();
-	mocks.config.mockResolvedValue({ preferenceModel: "small-configured-model" });
 	mocks.preferences.mockResolvedValue("Prefer shorter proposals.");
 	mocks.model.mockResolvedValue(JSON.stringify(copy));
 });
 it("uses the recipient's style and configured model without generating authority", async () => {
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
-	).toMatchObject({ ...copy, model: "small-configured-model" });
+	).toMatchObject({ ...copy, model: copySpec.modelRef });
 	expect(mocks.preferences).toHaveBeenCalledWith({}, "fictional", "robin");
 	expect(mocks.model.mock.calls[0]?.[2]).toMatchObject({
-		model: "small-configured-model",
-		jsonObject: true,
+		model: copySpec.modelRef,
+		orgId: "fictional",
 	});
 	expect(mocks.model.mock.calls[0]?.[1]).toContain("Prefer shorter proposals.");
 });
@@ -348,4 +345,20 @@ it("removes repeated field labels before checking the three displayed texts", as
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
 	).toMatchObject(copy);
+});
+it("allows Keep when the question still names the actual filing topic", async () => {
+	const candidate = {
+		...copy,
+		title: "Keep the profile-picture request here?",
+		body: "Files it under the Account project.",
+		recommendation: "That team owns profile display.",
+	};
+	mocks.model.mockResolvedValue(JSON.stringify(candidate));
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Add profile pictures.",
+			metadata: { decisionDeck: { classId: "filing.project" } },
+		}),
+	).toMatchObject(candidate);
 });

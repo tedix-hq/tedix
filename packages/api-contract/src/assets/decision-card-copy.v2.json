@@ -89,5 +89,27 @@
 		"revision": "version",
 		"specification": "plan",
 		"admission": "permission to start"
-	}
+	},
+	"modelRef": "azure-openai/gpt-6-luna",
+	"rewritePass": "Rewrite the draft as a separate plain-English pass using only source facts. Apply the Adriana test explicitly: ASK must identify the specific decision, IF YES must explain the concrete next consequence and what it touches, WHY must give a different source-supported reason. A filing choice only places a request in a project; never describe executing its underlying task. Remove vague language, repeated arguments, jargon, identifiers and unsupported stakes. Use the examples only for style; never borrow their facts. Return only the final JSON object, without commentary or evaluation fields.",
+	"examples": [
+		{
+			"facts": "The company asks to replace its purpose text, which appears in Today and onboarding. Its rule is plain language; the current text uses two forbidden technical terms.",
+			"title": "Use the simpler purpose statement?",
+			"body": "Replaces the company purpose text in Today and onboarding.",
+			"recommendation": "Your rule is plain language; the current text uses two banned terms."
+		},
+		{
+			"facts": "A profile-picture request needs filing. The Account project brief covers profile display; filing does not change the app.",
+			"title": "File the profile-picture request here?",
+			"body": "Keeps the request under the Account project.",
+			"recommendation": "The project brief covers profile display."
+		},
+		{
+			"facts": "The owner asks for proof of sign-in using a test account in a separate browser, pending approval.",
+			"title": "Let Codex sign in with a test account?",
+			"body": "Checks the sample profile page in a separate browser.",
+			"recommendation": "The owner asked for proof that sign-in works."
+		}
+	]
 }
