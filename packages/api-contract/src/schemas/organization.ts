@@ -335,6 +335,8 @@ export const OrganizationFeaturesSchema = z.object({
 	maxApps: z.number().optional(),
 	maxCmsSites: z.number().int().min(-1).optional(),
 	maxTeamMembers: z.number().optional(),
+	maxTokensPerMonth: z.number().int().min(-1).optional(),
+	maxTedis: z.number().int().min(-1).optional(),
 	customDomain: z.boolean().optional(),
 	sso: z.boolean().optional(),
 	apiAccess: z.boolean().optional(),

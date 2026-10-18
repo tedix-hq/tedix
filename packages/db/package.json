@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/billing/internal-plan": "./src/queries/billing/internal-plan.ts",
 		"./schema/data-residency": "./src/schema/data-residency.ts",
 		"./queries/data-residency": "./src/queries/data-residency.ts",
 		"./queries/repository-observer": "./src/queries/repository-observer.ts",

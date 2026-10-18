@@ -56,6 +56,7 @@ describe("reviewed RPC endpoint scopes", () => {
 			"organizations/listWidgetQuotaStatus",
 			"tediEmail/listAddressRequests",
 			"billing/grantCredit",
+			"billing/assignInternalPlan",
 			// Decrypted secret reads.
 			"secrets/get",
 			"appSecrets/get",
