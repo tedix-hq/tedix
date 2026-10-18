@@ -9,6 +9,7 @@ import {
 	canvasGadgetDetailQueryOptions,
 	osQuery,
 	pendingApprovalsQueryOptions,
+	userProfileQueryOptions,
 } from "@/lib/os-query-options";
 import type { WorkHomeSearch } from "@/lib/work-home-search";
 
@@ -36,6 +37,20 @@ function render(
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
+	client.setQueryData(userProfileQueryOptions().queryKey, {
+		id: "morgan",
+		email: "morgan@example.com",
+		name: "Morgan",
+		avatarUrl: null,
+		revision: 0,
+		updatedAt: null,
+	});
+	client.setQueryData(
+		osQuery.learningFeedback.listInteractions.queryOptions({
+			input: { scopeKind: "personal", limit: 200 },
+		}).queryKey,
+		{ events: [] },
+	);
 	const workspaceId = "11111111-1111-4111-8111-111111111111";
 	const creator = {
 		organizationId: "44444444-4444-4444-8444-444444444444",

@@ -1,4 +1,9 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import {
+	useEffect,
+	useLayoutEffect,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import * as z from "zod";
 
 const BatchSchema = z.object({
@@ -7,6 +12,44 @@ const BatchSchema = z.object({
 	dismissed: z.array(z.string()).max(100),
 });
 type Batch = z.infer<typeof BatchSchema>;
+const BATCH_CHANGED = "tedix:deck-batch-changed";
+
+export function deckBatchKey(
+	workspaceId: string | undefined,
+	personId: string | undefined,
+	projectId: string | undefined,
+	windowKey: string,
+) {
+	return `${workspaceId ?? "preview"}:${personId}:${projectId ?? "all"}:${windowKey}`;
+}
+
+/** Badges observe the Deck's existing saved list without creating or deciding cards. */
+export function useSavedDeckBatch(key: string) {
+	const encoded = useSyncExternalStore(
+		(listener) => {
+			window.addEventListener(BATCH_CHANGED, listener);
+			window.addEventListener("storage", listener);
+			return () => {
+				window.removeEventListener(BATCH_CHANGED, listener);
+				window.removeEventListener("storage", listener);
+			};
+		},
+		() => {
+			try {
+				return sessionStorage.getItem(`decision-deck:${key}`);
+			} catch {
+				return null;
+			}
+		},
+		() => null,
+	);
+	try {
+		const parsed = BatchSchema.safeParse(JSON.parse(encoded ?? "null"));
+		return parsed.success && parsed.data.key === key ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
 
 /** Storage remembers the visit's finite list, never permission to perform an action. */
 export function useDeckBatch(
@@ -54,6 +97,7 @@ export function useDeckBatch(
 		if (batch?.key !== key) return;
 		try {
 			sessionStorage.setItem(`decision-deck:${key}`, JSON.stringify(batch));
+			window.dispatchEvent(new Event(BATCH_CHANGED));
 		} catch {}
 	}, [batch, key]);
 	return {

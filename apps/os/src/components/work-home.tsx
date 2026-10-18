@@ -9,7 +9,7 @@ import { Link } from "@/components/kumo/link";
 import { Page } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { useWorkApps } from "@/lib/use-work-apps";
-import { useDecisionInbox } from "@/lib/use-decision-inbox";
+import { useDeckCount } from "@/lib/use-deck-count";
 import {
 	WORK_APP_ENTRIES,
 	type WorkFeedFilter,
@@ -41,7 +41,10 @@ export function WorkHome({
 			: defaultApp;
 	const deck = apps.find((app) => app.role === "deck");
 	const config = DecisionDeckConfigSchema.safeParse(deck?.manifest.config);
-	const decisions = useDecisionInbox(config.success ? config.data : undefined);
+	const decisions = useDeckCount(
+		config.success ? config.data : undefined,
+		deck?.gadget.workspaceId,
+	);
 	const client = useQueryClient();
 	const prefetchIds = decisions.requests
 		.slice(0, 1)

@@ -60,6 +60,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		workApprovals,
 		requests,
 		work,
+		factoryCount: factories.count,
 		count: requests.length + work.length + runtime.length + factories.count,
 		queuePending:
 			inbox.isPending ||
