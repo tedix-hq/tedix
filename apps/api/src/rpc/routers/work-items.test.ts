@@ -22,6 +22,7 @@ const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const OBJECTIVE_ID = "44444444-4444-4444-8444-444444444444";
 const PURPOSE = { objectiveId: OBJECTIVE_ID } as const;
 const DDL = `
+CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 CREATE TABLE organization_members (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT, descope_user_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, avatar_url TEXT, role TEXT NOT NULL, custom_permissions TEXT, status TEXT NOT NULL DEFAULT 'active', invited_at TEXT, invite_accepted_at TEXT, invited_by TEXT, last_active_at TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE tedi_objectives (id TEXT PRIMARY KEY, org_id TEXT NOT NULL);
 CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, objective_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, name TEXT, description TEXT, lead_tedi_id TEXT, owner_user_id TEXT, target_date TEXT, metadata TEXT DEFAULT '{}', updated_at TEXT, archived_at TEXT);

@@ -36,6 +36,7 @@ import {
  */
 
 const REAL_DDL = `
+CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 CREATE TABLE work_items (
 	id TEXT PRIMARY KEY NOT NULL,
 	org_id TEXT NOT NULL,

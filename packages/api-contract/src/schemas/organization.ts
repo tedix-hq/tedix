@@ -5,6 +5,7 @@
 
 import * as z from "zod";
 import { DecisionLearningConfigSchema } from "./decision-learning";
+import { WorkStewardshipPolicySchema } from "./work-stewardship";
 import { JevSettingsSchema } from "./jev";
 import {
 	EmbeddedTediSelectionPolicySchema,
@@ -406,6 +407,9 @@ export const PortfolioBucketsSchema = z
 	);
 
 export const OrganizationMetadataSchema = z.object({
+	workStewardship: WorkStewardshipPolicySchema.optional().describe(
+		"Creation-time stewardship defaults; explicit ownership and human execution are preserved.",
+	),
 	decisionLearning: DecisionLearningConfigSchema.optional(),
 	portfolioBuckets: PortfolioBucketsSchema.optional(),
 	githubWorkstationCredentials: z

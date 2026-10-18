@@ -9,6 +9,7 @@ import { projects } from "../schema/projects";
 import { workItems, workEvents, workItemComments } from "../schema/work-items";
 import type { SupportConfiguration } from "@tedix/api-contract/schemas/support";
 import { workItemPurposeFor } from "./work-items/purpose";
+import { resolveWorkItemSteward } from "./work-items/stewardship";
 
 export class SupportStateError extends Error {}
 
@@ -270,6 +271,11 @@ export async function createSupportTicket(
 	db: DbQueryClient,
 	ticket: typeof supportTickets.$inferInsert,
 ) {
+	const stewardship = await resolveWorkItemSteward(db, {
+		orgId: ticket.orgId,
+		projectId: ticket.projectId,
+		workKind: "operations",
+	});
 	const purpose = await supportWorkPurpose(
 		db,
 		ticket.orgId,
@@ -290,6 +296,7 @@ export async function createSupportTicket(
 				riskLevel: "low",
 				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
 				...purpose,
+				...stewardship,
 				acceptanceContract: {
 					version: 1,
 					doneLooksLike:

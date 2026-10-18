@@ -6,6 +6,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import { supportConfiguration, supportTickets } from "../schema/support";
 import { projects } from "../schema/projects";
+import { organizations } from "../schema/organizations";
 import { workItems, workEvents, workItemComments } from "../schema/work-items";
 import * as support from "./support";
 import { hasActivePurposeContext } from "./work-items/purpose";
@@ -16,6 +17,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
 		schemaDdl(
+			organizations,
 			supportConfiguration,
 			supportTickets,
 			projects,

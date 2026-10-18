@@ -6,6 +6,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { supportConfiguration, supportTickets } from "@tedix/db/schema/support";
 import { projects } from "@tedix/db/schema/projects";
+import { organizations } from "@tedix/db/schema/organizations";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -33,6 +34,7 @@ async function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
 		schemaDdl(
+			organizations,
 			supportConfiguration,
 			supportTickets,
 			projects,

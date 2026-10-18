@@ -13,6 +13,7 @@ import { createObjective } from "./tedi-objectives";
 import { createWorkItem } from "./work-items/crud";
 
 const DDL = `
+CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 CREATE TABLE organization_purpose_charters (
  id TEXT PRIMARY KEY NOT NULL, org_id TEXT NOT NULL, version INTEGER NOT NULL,
  status TEXT NOT NULL DEFAULT 'active', purpose TEXT NOT NULL,

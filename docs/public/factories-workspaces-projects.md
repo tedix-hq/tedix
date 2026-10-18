@@ -55,6 +55,21 @@ The factory records sit around it and are deliberately separate:
 Receipt tables in this layer are immutable. A record there is evidence of what
 happened, not a place to edit history.
 
+### Give new Work a steward
+
+An organization owner or admin can set `metadata.workStewardship` through
+`organizations.update`. Set `enabled: true`, then supply project IDs and tedi
+IDs in `projectStewards`, Work kinds and tedi IDs in `workKindStewards`, and
+an optional `defaultTediId`. All IDs must belong to that organization.
+
+For Work without an explicit owner or steward, creation chooses the configured
+project steward, then the project's tedi lead, then the Work kind's steward,
+then the organization default. Set `useProjectLead: false` to skip the project
+lead. The chosen tedi must be active and not retired. An invalid choice leaves
+the item unassigned. Human-owned Work and Work marked for human execution keep
+their existing assignment. This rule applies to new Work, including support
+intake; it does not reassign existing items, accept Work, or complete it.
+
 ## A factory in practice
 
 Most teams do not need every record above. A working factory is the pattern:
