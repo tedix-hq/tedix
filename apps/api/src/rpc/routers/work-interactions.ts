@@ -576,6 +576,38 @@ async function recordDecisionLearning(
 			draft,
 		});
 		if (!signal) return;
+		if (!request.projectId && request.workItemId) {
+			const { getWorkItemById } =
+				await import("@tedix/db/queries/work-items/crud");
+			const work = await getWorkItemById(
+				context.db,
+				request.workItemId,
+				orgId,
+			).catch((error: unknown) => {
+				console.warn("[learning-feed] Work project enrichment unavailable", {
+					workItemId: request.workItemId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return null;
+			});
+			if (work?.projectId) {
+				const decisionContext = signal.metadata?.decisionContext;
+				signal.metadata = {
+					...signal.metadata,
+					projectId: work.projectId,
+					...(decisionContext &&
+					typeof decisionContext === "object" &&
+					!Array.isArray(decisionContext)
+						? {
+								decisionContext: {
+									...decisionContext,
+									projectId: work.projectId,
+								},
+							}
+						: {}),
+				};
+			}
+		}
 		await recordObservedLearningInteraction(context, signal);
 		// The person's lessons learn the decision now, not at night.
 		const actor = observedLearningActor(context);

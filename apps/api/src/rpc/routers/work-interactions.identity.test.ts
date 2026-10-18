@@ -1,8 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import * as workCrud from "@tedix/db/queries/work-items/crud";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import {
 	workInteractionAttention,
 	workInteractionDeliveries,
@@ -13,7 +15,7 @@ import {
 import { workEvents, workItems } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workInteractionsContractRouter } from "./work-interactions";
 
@@ -131,6 +133,129 @@ async function createTargetedInteraction(
 }
 
 describe("Work interaction canonical actor projections", () => {
+	it("learns the canonical Work project while keeping the decision personal", async () => {
+		const { sqlite, owner, target } = fixture();
+		sqlite.exec(schemaDdl(learningInteractionEvents));
+		const projectId = "00000000-0000-4000-8000-000000000004";
+		sqlite
+			.prepare("UPDATE work_items SET project_id=? WHERE id=? AND org_id=?")
+			.run(projectId, WORK_ITEM_ID, ORG_ID);
+		const request = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Keep the pilot priority?",
+			prompt: "Review the canonical project context.",
+			reason: "Only the pilot owner can set its priority.",
+			requestedFrom: { type: "user", id: "target-id" },
+			metadata: {
+				decisionDeck: {
+					version: 1,
+					kind: "decision",
+					classId: "pilot.priority",
+					proposal: "Keep the pilot priority?",
+					whyNow: "The pilot is due soon",
+					recommendation: "Keep its agreed scope",
+					reversibility: "two_way",
+					tasteOrStrategy: true,
+					protectedEffects: [],
+					blastRadius: "The pilot team",
+					confidence: 0.9,
+					costOfWaiting: "The team cannot plan",
+					reasoning: "The scope is already documented",
+					lessons: [],
+					options: [
+						{
+							id: "keep",
+							label: "Keep",
+							intent: "approve",
+							consequence: "Keep the priority",
+							cost: "None",
+						},
+						{
+							id: "reconsider",
+							label: "Reconsider",
+							intent: "reject",
+							consequence: "Review the priority",
+							cost: "Another review",
+						},
+					],
+				},
+			},
+		});
+		expect(request.projectId).toBeNull();
+		await target.respond({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			responseKind: "answer",
+			body: "Keep it",
+			resolvesRequest: true,
+			metadata: {
+				source: "os-decision-card",
+				decisionChoice: "approve",
+				feedbackSignal: "approve-as-is",
+				projectId: "forged-project",
+				decisionContext: { projectId: "forged-project" },
+			},
+		});
+		const row = sqlite
+			.prepare(
+				"SELECT actor_id,scope_kind,scope_id,metadata FROM learning_interaction_events WHERE target_id=?",
+			)
+			.get(request.id);
+		expect(row).toMatchObject({
+			actor_id: "target-sub",
+			scope_kind: "personal",
+			scope_id: "target-sub",
+		});
+		expect(JSON.parse(String(row?.metadata))).toMatchObject({
+			projectId,
+			decisionContext: { projectId, workItemId: WORK_ITEM_ID },
+		});
+		sqlite.close();
+	});
+
+	it("keeps the learning signal when optional Work context is unavailable", async () => {
+		const { sqlite, owner, target } = fixture();
+		sqlite.exec(schemaDdl(learningInteractionEvents));
+		const request = await createTargetedInteraction(owner);
+		const lookup = vi
+			.spyOn(workCrud, "getWorkItemById")
+			.mockRejectedValueOnce(new Error("context temporarily unavailable"));
+		try {
+			const result = await target.respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "answer",
+				body: "Keep it",
+				resolvesRequest: true,
+				metadata: {
+					source: "os-decision-card",
+					decisionClass: "pilot.priority",
+					feedbackSignal: "approve-as-is",
+					decisionChoice: "approve",
+				},
+			});
+			expect(result.response.resolvesRequest).toBe(true);
+			expect(lookup).toHaveBeenCalledExactlyOnceWith(
+				expect.anything(),
+				WORK_ITEM_ID,
+				ORG_ID,
+			);
+			const row = sqlite
+				.prepare(
+					"SELECT metadata FROM learning_interaction_events WHERE target_id=?",
+				)
+				.get(request.id);
+			expect(JSON.parse(String(row?.metadata))).toMatchObject({
+				projectId: null,
+				workItemId: WORK_ITEM_ID,
+			});
+		} finally {
+			lookup.mockRestore();
+			sqlite.close();
+		}
+	});
+
 	it("keeps captured messages out of other admins' detail and organization audit", async () => {
 		const { owner, target } = fixture();
 		const request = await owner.create({
