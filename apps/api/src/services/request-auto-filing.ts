@@ -143,7 +143,10 @@ export async function autoFileRequests(
 		);
 		let pick: z.infer<typeof PickSchema>;
 		try {
-			pick = PickSchema.parse(JSON.parse(raw ?? ""));
+			const json = raw
+				?.trim()
+				.replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, "$1");
+			pick = PickSchema.parse(JSON.parse(json ?? ""));
 		} catch (error) {
 			const reason = !raw
 				? "model returned no response"
