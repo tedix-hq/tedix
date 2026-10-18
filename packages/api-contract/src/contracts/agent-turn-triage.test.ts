@@ -31,6 +31,7 @@ describe("agentTurnTriageContract", () => {
 			"mineSessionLessons",
 			"proposeReplyDraft",
 			"recordLessonIncident",
+			"recordSessionFeedback",
 			"requestReplyDraft",
 			"retriageQuestions",
 			"triage",

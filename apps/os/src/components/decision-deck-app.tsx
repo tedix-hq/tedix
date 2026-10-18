@@ -6,6 +6,7 @@ import {
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
 import { workActorReference } from "@/lib/work-actor";
+import { LearnedToday } from "@/components/learned-today";
 import {
 	DeckRemainingContext,
 	DeckFooterContext,
@@ -1000,6 +1001,7 @@ function DecisionDeckContent({
 					sectionId="style"
 					title="Learning your preferences"
 				>
+					<LearnedToday />
 					{mode === "decide" && classId && (
 						<DecisionClassCalibration
 							classId={instrumentationClassId ?? classId}
