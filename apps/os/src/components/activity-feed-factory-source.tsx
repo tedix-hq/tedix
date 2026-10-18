@@ -59,7 +59,9 @@ export function ActivityFeedFactorySource({
 				failed = true;
 				continue;
 			}
-			for (const card of result.cards)
+			for (const card of result.cards.filter(
+				(card) => !!card.result || card.done === "yes",
+			))
 				items.push({
 					id: `factory:${sheet.id}:${card.rowIndex}`,
 					actor: binding.source.label,
@@ -72,6 +74,7 @@ export function ActivityFeedFactorySource({
 					workItemId: null,
 					tediId: null,
 					kind: "result",
+					attachment: { title: sheet.title },
 					classId:
 						`factory:${binding.source.label}:${card.type || "card"}`.slice(
 							0,

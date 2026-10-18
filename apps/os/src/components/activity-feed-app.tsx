@@ -1,4 +1,27 @@
-import { DecisionProposalHeading } from "@/components/decision-proposal-body";
+import {
+	ThumbsUpIcon,
+	QuestionIcon,
+	ProhibitIcon,
+	ChatCircleIcon,
+	PlusIcon,
+	DotsThreeIcon,
+} from "@phosphor-icons/react";
+import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
+import { Skeleton } from "@/components/kumo/skeleton";
+import {
+	PopoverRoot,
+	PopoverTrigger,
+	PopoverContent,
+} from "@/components/kumo/popover";
+import { useOsIdentity } from "@/lib/use-os-identity";
+import { useTediNames } from "@/lib/use-tedi-names";
+import { feedStoryActor, timelineItems } from "@/lib/feed-story";
+import "./feed-timeline.css";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
 	Fragment,
@@ -18,7 +41,6 @@ import {
 	type FeedSourceState,
 } from "@/components/activity-feed-sources";
 import {
-	ProposerChip,
 	FeedMomentHeader,
 	RichPreview,
 } from "@/components/feed-deck-primitives";
@@ -68,6 +90,8 @@ export function ActivityFeedApp({
 	navigation?: ActivityFeedNavigation;
 }) {
 	const cache = useQueryClient();
+	const identity = useOsIdentity();
+	const tediNames = useTediNames();
 	const [sessionLearningId, setSessionLearningId] = useState<string | null>(
 		null,
 	);
@@ -128,11 +152,11 @@ export function ActivityFeedApp({
 		now,
 		learningModel.data,
 	);
-	const selected = ranked.filter(
+	const selected = timelineItems(ranked).filter(
 		(item) =>
 			filter === "all" ||
 			(filter === "attention"
-				? item.needsAction
+				? item.needsAction || item.stalled
 				: filter === "office"
 					? item.kind === "decision"
 					: filter === "history"
@@ -151,12 +175,18 @@ export function ActivityFeedApp({
 			}).format(now),
 		),
 	);
+	const featured = new Set(
+		[...selected]
+			.sort((a, b) => b.score - a.score)
+			.slice(0, config.attentionBudget)
+			.map((item) => item.id),
+	);
 	const main = selected.filter(
-		(item, i) =>
+		(item) =>
 			item.needsAction ||
 			item.importance === "critical" ||
 			(!quiet &&
-				i < config.attentionBudget &&
+				featured.has(item.id) &&
 				(config.digestBelow === "low"
 					? item.importance !== "low"
 					: item.importance === "high")),
@@ -307,8 +337,12 @@ export function ActivityFeedApp({
 		<FeedCard
 			key={item.id}
 			item={item}
+			actor={feedStoryActor(
+				item,
+				config.projects.find((p) => p.id === item.projectId)?.label,
+				tediNames,
+			)}
 			project={config.projects.find((p) => p.id === item.projectId)?.label}
-			config={navigation ? { ...config, deckUrl: "/work?view=deck" } : config}
 			busy={busy}
 			ignoredAfterMs={
 				learningModel.data?.config.enabled
@@ -342,76 +376,105 @@ export function ActivityFeedApp({
 					onUpdate={onUpdate}
 				/>
 			))}
-			<header className="fd-feed-heading grid gap-2">
-				<Text as="h2" role="section" weight="semibold">
-					{OS_COPY.workHome.feed}
-				</Text>
-				<Text tone="secondary">{copy.subtitle}</Text>
-				{navigation?.decide ??
-					(config.deckUrl && (
-						<Link href={config.deckUrl}>{OS_COPY.workHome.decide}</Link>
-					))}
-				<FeedNowStrip
-					items={ranked}
-					projectIds={visibleProjects.map((p) => p.id)}
-					now={now}
-					timezone={preferences.data?.preferences.timezone ?? undefined}
-					pending={loading}
-					failed={failed}
-				/>
-				{navigation?.apps}
-			</header>
-			<nav
-				className="fd-feed-filters flex flex-wrap gap-1"
-				aria-label={copy.title}
-			>
-				{(Object.keys(copy.filters) as Filter[]).map((id) => (
-					<Button
-						key={id}
-						size="sm"
-						variant={filter === id ? "secondary" : "ghost"}
-						aria-pressed={filter === id}
-						onClick={() => {
-							setFilter(id);
-							navigation?.onFilterChange?.(id);
+			<header className="ft-header">
+				<div className="ft-greeting">
+					<Text as="h2" weight="medium">
+						{copy.greeting(
+							Number(
+								new Intl.DateTimeFormat("en", {
+									hour: "numeric",
+									hourCycle: "h23",
+									timeZone: preferences.data?.preferences.timezone ?? undefined,
+								}).format(now),
+							),
+							identity.name.split(" ")[0]!,
+						)}
+					</Text>
+					<span className="ft-deck-banner">
+						{navigation?.decide ??
+							(config.deckUrl && (
+								<Link href={config.deckUrl}>{copy.deck}</Link>
+							))}
+					</span>
+				</div>
+				<div className="ft-tools">
+					<Select
+						value={filter}
+						onValueChange={(id) => {
+							if (id) {
+								setFilter(id as Filter);
+								navigation?.onFilterChange?.(id as Filter);
+							}
 						}}
 					>
-						{copy.filters[id]}
-					</Button>
-				))}
-			</nav>
-			<Select
-				value={prefs.projectIds.length === 1 ? prefs.projectIds[0] : "all"}
-				onValueChange={(id) => {
-					setBusy(true);
-					void savePreferences((p) => ({
-						...p,
-						projectIds: id && id !== "all" ? [id] : [],
-					}))
-						.catch(() => setStatus(copy.failed))
-						.finally(() => setBusy(false));
-				}}
-			>
-				<SelectTrigger
-					aria-label={copy.project}
-					disabled={busy || !preferences.data}
-				>
-					<SelectValue>
-						{prefs.projectIds.length === 1
-							? (config.projects.find((p) => p.id === prefs.projectIds[0])
-									?.label ?? copy.allProjects)
-							: copy.allProjects}
-					</SelectValue>
-				</SelectTrigger>
-				<SelectContent>
-					<SelectItem value="all">{copy.allProjects}</SelectItem>
-					{config.projects.map((p) => (
-						<SelectItem key={p.id} value={p.id}>
-							{p.label}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
+						<SelectTrigger aria-label={copy.title}>
+							<SelectValue>{copy.filters[filter]}</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							{(["all", "attention", "history"] as const).map((id) => (
+								<SelectItem key={id} value={id}>
+									{copy.filters[id]}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<PopoverRoot>
+						<PopoverTrigger
+							aria-label={copy.options}
+							render={
+								<Button variant="ghost" size="icon" aria-label={copy.options} />
+							}
+						>
+							<DotsThreeIcon size={22} />
+						</PopoverTrigger>
+						<PopoverContent align="end">
+							<div className="ft-options-body">
+								<Select
+									value={
+										prefs.projectIds.length === 1 ? prefs.projectIds[0] : "all"
+									}
+									onValueChange={(id) => {
+										setBusy(true);
+										void savePreferences((p) => ({
+											...p,
+											projectIds: id && id !== "all" ? [id] : [],
+										}))
+											.catch(() => setStatus(copy.failed))
+											.finally(() => setBusy(false));
+									}}
+								>
+									<SelectTrigger
+										aria-label={copy.project}
+										disabled={busy || !preferences.data}
+									>
+										<SelectValue>
+											{prefs.projectIds.length === 1
+												? (config.projects.find(
+														(p) => p.id === prefs.projectIds[0],
+													)?.label ?? copy.allProjects)
+												: copy.allProjects}
+										</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">{copy.allProjects}</SelectItem>
+										{config.projects.map((p) => (
+											<SelectItem key={p.id} value={p.id}>
+												{p.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								{navigation?.apps}
+								<FeedNowStrip
+									items={ranked}
+									now={now}
+									timezone={preferences.data?.preferences.timezone ?? undefined}
+								/>
+							</div>
+						</PopoverContent>
+					</PopoverRoot>
+				</div>
+			</header>
 			{quiet && <Text tone="secondary">{copy.quiet}</Text>}
 			{failed && (
 				<div role="alert">
@@ -463,12 +526,20 @@ export function ActivityFeedApp({
 						>
 							{copy.digest(digest.length)}
 						</Button>
-						<Text tone="secondary">{copy.digestHint}</Text>
 					</div>
 				)}
 				{expandedDigest && digest.map(renderItem)}
 			</div>
-			{loading && <Text>{copy.loading}</Text>}
+			{loading && selected.length === 0 && (
+				<div role="status" aria-label={copy.loading} className="ft-loading">
+					<Skeleton className="h-10 w-10 rounded-full" />
+					<div className="grid flex-1 gap-3">
+						<Skeleton className="h-3 w-40" />
+						<Skeleton className="h-4 w-full" />
+						<Skeleton className="h-4 w-2/3" />
+					</div>
+				</div>
+			)}
 			{!loading && selected.length === 0 && !failed && (
 				<Text>{copy.empty}</Text>
 			)}
@@ -519,16 +590,16 @@ export function ActivityFeedApp({
 
 function FeedCard({
 	item,
+	actor,
 	project,
-	config,
 	busy,
 	onReact,
 	onWork,
 	ignoredAfterMs,
 }: {
 	item: ReturnType<typeof rankFeed>[number];
+	actor: string;
 	project?: string;
-	config: ActivityFeedConfig;
 	busy: boolean;
 	ignoredAfterMs?: number;
 	onReact: (
@@ -539,6 +610,10 @@ function FeedCard({
 	onWork: (item: ActivityFeedItem) => Promise<void>;
 }) {
 	const article = useRef<HTMLElement>(null);
+	const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const [reactionsOpen, setReactionsOpen] = useState(false);
+	const cancelHold = () => clearTimeout(hold.current);
+	useEffect(() => cancelHold, []);
 	const engaged = useRef(false);
 	const currentReact = useRef(onReact);
 	currentReact.current = onReact;
@@ -586,56 +661,67 @@ function FeedCard({
 			tabIndex={0}
 			aria-label={item.sentence}
 			className="fd-story min-w-0"
+			data-reactions-open={reactionsOpen}
+			onPointerDown={(event) => {
+				if (event.pointerType === "mouse") return;
+				cancelHold();
+				hold.current = setTimeout(() => {
+					setReactionsOpen(true);
+					engaged.current = true;
+				}, 450);
+			}}
+			onPointerUp={cancelHold}
+			onPointerCancel={cancelHold}
+			onPointerMove={cancelHold}
 		>
-			<div className="fd-story-body grid gap-4">
-				<div className="flex flex-wrap items-center gap-2">
-					<ProposerChip
-						name={item.actor}
-						detail={[project, copy.kinds[item.kind]]
-							.filter(Boolean)
-							.join(" · ")}
-					/>
-					<time
-						dateTime={item.at}
-						title={absoluteTime(item.at)}
-						className="ml-auto"
-					>
-						<Text role="caption" tone="secondary">
-							{relativeTime(item.at)}
+			<Avatar className="ft-avatar" aria-hidden="true">
+				<AvatarFallback>
+					{actor
+						.split(/\s+/)
+						.slice(0, 2)
+						.map((part) => part[0])
+						.join("")}
+				</AvatarFallback>
+			</Avatar>
+			<div className="fd-story-body grid gap-3">
+				<div className="ft-byline">
+					<Text weight="semibold">{actor}</Text>
+					{project && (
+						<Text tone="secondary" className="ft-project">
+							{project}
 						</Text>
+					)}
+					<time dateTime={item.at} title={absoluteTime(item.at)}>
+						{relativeTime(item.at)}
 					</time>
 				</div>
-				<Text as="h3" weight="medium" className="fd-story-title break-words">
-					<DecisionProposalHeading title={item.sentence} />
-				</Text>
-				<div className="flex flex-wrap gap-2">
-					{item.unseen && (
-						<Text as="span" role="caption" className="fd-unseen">
-							{copy.new}
-						</Text>
-					)}
-					{item.deadline && (
-						<Text as="span" role="caption">
-							{copy.due}
-						</Text>
-					)}
-				</div>
-				<div className="grid gap-3">
+				<Text className="ft-sentence">{item.sentence}</Text>
+				{item.attachment && (
 					<RichPreview
 						href={item.source}
-						title={project ?? copy.kinds[item.kind]}
-						summary={item.decision?.recommendation ?? copy.source}
+						title={item.attachment.title}
+						summary={item.attachment.summary}
 					/>
-					{item.needsAction && (
-						<Link href={config.deckUrl ?? item.source}>{copy.deck}</Link>
-					)}
-				</div>
-				<div className="fd-reactions flex flex-wrap gap-1">
+				)}
+				<Collapsible className="ft-details">
+					<CollapsibleTrigger>{copy.details}</CollapsibleTrigger>
+					<CollapsibleContent>
+						<div className="grid gap-2">
+							<Text className="whitespace-pre-wrap break-words">
+								{item.explanation}
+							</Text>
+							<Link href={item.source}>{copy.source}</Link>
+						</div>
+					</CollapsibleContent>
+				</Collapsible>
+				<div className="fd-reactions ft-reactions flex flex-wrap gap-1">
 					<Button
 						size="sm"
 						variant="ghost"
 						disabled={busy}
 						className="fd-reaction"
+						aria-label={copy.more}
+						title={copy.more}
 						data-reacted={reacted}
 						onClick={() =>
 							void react("more").then((ok) => {
@@ -643,46 +729,54 @@ function FeedCard({
 							})
 						}
 					>
-						{copy.more}
+						<ThumbsUpIcon size={18} aria-hidden="true" />
 					</Button>
 					<Button
 						size="sm"
 						variant="ghost"
+						aria-label={copy.why}
+						title={copy.why}
 						aria-expanded={why}
 						onClick={() => {
 							setWhy((v) => !v);
 							if (!why) void react("why");
 						}}
 					>
-						{copy.why}
+						<QuestionIcon size={18} aria-hidden="true" />
 					</Button>
 					<Button
 						size="sm"
 						variant="ghost"
 						disabled={busy}
+						aria-label={copy.mute}
+						title={copy.mute}
 						onClick={() => void react("mute")}
 					>
-						{copy.mute}
+						<ProhibitIcon size={18} aria-hidden="true" />
 					</Button>
 					<Button
 						size="sm"
 						variant="ghost"
+						aria-label={copy.comment}
+						title={copy.comment}
 						aria-expanded={comment}
 						onClick={() => setComment((v) => !v)}
 					>
-						{copy.comment}
+						<ChatCircleIcon size={18} aria-hidden="true" />
 					</Button>
 					{item.projectId && (
 						<Button
 							size="sm"
 							variant="ghost"
 							disabled={busy}
+							aria-label={copy.work}
+							title={copy.work}
 							onClick={() => {
 								engaged.current = true;
 								void onWork(item);
 							}}
 						>
-							{copy.work}
+							<PlusIcon size={18} aria-hidden="true" />
 						</Button>
 					)}
 				</div>

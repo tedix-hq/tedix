@@ -2,12 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import { osQuery } from "@/lib/os-query-options";
-import {
-	approvalFeedItems,
-	decisionFeedItems,
-	resultFeedItems,
-	workFeedItems,
-} from "@/lib/activity-feed";
+import { resultFeedItems, workFeedItems } from "@/lib/activity-feed";
 
 type Cursor = { at: string; id: string } | undefined;
 export interface FeedSourceState {
@@ -48,20 +43,6 @@ export function ActivityFeedSources({
 			getNextPageParam: (page) => page.nextCursor ?? undefined,
 		}),
 	);
-	const decisions = useInfiniteQuery(
-		osQuery.workInteractions.listInbox.infiniteOptions({
-			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
-			initialPageParam: undefined as Cursor,
-			getNextPageParam: (page) => page.nextCursor ?? undefined,
-		}),
-	);
-	const approvals = useInfiniteQuery(
-		osQuery.workApprovals.listInbox.infiniteOptions({
-			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
-			initialPageParam: undefined as Cursor,
-			getNextPageParam: (page) => page.nextCursor ?? undefined,
-		}),
-	);
 	const items = useMemo(
 		() => [
 			...workFeedItems(
@@ -69,12 +50,10 @@ export function ActivityFeedSources({
 				projectId,
 			),
 			...resultFeedItems(results.data?.pages.flatMap((p) => p.data) ?? []),
-			...decisionFeedItems(decisions.data?.pages.flatMap((p) => p.data) ?? []),
-			...approvalFeedItems(approvals.data?.pages.flatMap((p) => p.data) ?? []),
 		],
-		[work.data, results.data, decisions.data, approvals.data, projectId],
+		[work.data, results.data, projectId],
 	);
-	const queries = [work, results, decisions, approvals];
+	const queries = [work, results];
 	const loading = queries.some((q) => q.isFetching);
 	const failed = queries.some((q) => q.isError);
 	const more = queries.some((q) => q.hasNextPage);

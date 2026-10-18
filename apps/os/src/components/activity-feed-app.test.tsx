@@ -14,6 +14,10 @@ import { osQuery, userPreferencesQueryOptions } from "@/lib/os-query-options";
 import { ActivityFeedApp } from "./activity-feed-app";
 import type { FeedSourceState } from "./activity-feed-sources";
 
+vi.mock("@/lib/use-tedi-names", () => ({ useTediNames: () => ({}) }));
+vi.mock("@/lib/use-os-identity", () => ({
+	useOsIdentity: () => ({ name: "Morgan" }),
+}));
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		learningFeedback: {
@@ -136,13 +140,13 @@ it("shows receipt-backed activity, explains it and persists a personal mute", as
 				</QueryClientProvider>,
 			),
 		);
-		expect(
-			host.querySelector('a[href="/work/items/' + projectId + '"]'),
-		).not.toBeNull();
+		expect(host.querySelectorAll(".fd-preview")).toHaveLength(0);
+		expect(host.textContent).not.toContain("Loading your activity");
 		expect(host.textContent).toContain(row.sentence);
 		const button = (label: string) =>
 			[...host.querySelectorAll("button")].find(
-				(b) => b.textContent === label,
+				(b) =>
+					b.getAttribute("aria-label") === label || b.textContent === label,
 			)!;
 		await act(async () => button("Why?").click());
 		expect(host.textContent).toContain("The attempt settled with its receipt.");

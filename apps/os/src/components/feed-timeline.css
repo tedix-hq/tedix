@@ -1,0 +1,204 @@
+/* Feed uses the same appearance tokens as the shell and the Deck. */
+.feed-deck.fd-feed {
+	background: var(--color-kumo-base);
+	background-image: none;
+	border-radius: 0;
+	gap: 0;
+	padding: clamp(0.75rem, 2vw, 1.5rem);
+}
+.ft-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	padding-block: 0.5rem 1.75rem;
+}
+.ft-greeting {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.25rem 0.5rem;
+	min-width: 0;
+}
+.ft-greeting h2 {
+	font-family: var(--font-mono);
+	font-size: 0.875rem;
+	letter-spacing: -0.025em;
+}
+.ft-deck-banner {
+	font-size: 0.75rem;
+}
+.ft-deck-banner:not(:empty)::before {
+	content: "· ";
+	color: var(--text-color-kumo-subtle);
+}
+.ft-deck-banner button {
+	padding: 0;
+	min-height: 0;
+	height: auto;
+	background: transparent;
+	color: var(--color-kumo-brand);
+	font-size: inherit;
+	box-shadow: none;
+}
+.ft-tools {
+	display: flex;
+	gap: 0.25rem;
+	align-items: center;
+	flex-shrink: 0;
+}
+.ft-tools > [data-kumo-component="Select"][data-kumo-part="trigger"] {
+	width: auto;
+	min-width: 5rem;
+	border: 0;
+	box-shadow: none;
+	background: transparent;
+	font-size: 0.75rem;
+}
+.ft-options-body {
+	width: min(18rem, 76vw);
+	display: grid;
+	gap: 1rem;
+}
+.ft-options-body nav {
+	display: grid;
+	gap: 0.75rem;
+}
+.fd-feed .fd-story {
+	display: grid;
+	grid-template-columns: 2.25rem minmax(0, 1fr);
+	gap: 0.85rem;
+	padding-block: 1.5rem;
+}
+.fd-feed .fd-story + .fd-story {
+	border: 0;
+}
+.ft-avatar {
+	width: 2.25rem;
+	height: 2.25rem;
+}
+.ft-avatar [data-slot="avatar-fallback"] {
+	background: var(--color-kumo-tint);
+	color: var(--text-color-kumo-brand);
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+}
+.ft-byline {
+	display: flex;
+	align-items: baseline;
+	gap: 0.4rem;
+	min-width: 0;
+}
+.ft-byline p {
+	font-size: 0.75rem;
+}
+.ft-byline p:first-child {
+	flex-shrink: 0;
+	max-width: 55%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.ft-project {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.ft-project::before {
+	content: "· ";
+}
+.ft-byline time {
+	margin-left: auto;
+	flex-shrink: 0;
+	color: var(--text-color-kumo-subtle);
+	font-size: 0.6875rem;
+}
+.fd-feed .ft-sentence {
+	font-size: 1.0625rem;
+	line-height: 1.6;
+	font-weight: 400;
+	letter-spacing: -0.015em;
+	overflow-wrap: anywhere;
+}
+.ft-details > button {
+	padding: 0;
+	min-height: 0;
+	font-size: 0.6875rem;
+}
+.ft-details [data-kumo-component="CollapsibleTrigger"] {
+	color: var(--text-color-kumo-subtle);
+}
+.ft-details p {
+	font-size: 0.8125rem;
+}
+.ft-details a {
+	font-size: 0.75rem;
+}
+.ft-reactions {
+	opacity: 0;
+	transition: opacity 120ms;
+}
+.fd-story:hover .ft-reactions,
+.fd-story:focus-within .ft-reactions,
+.fd-story[data-reactions-open="true"] .ft-reactions {
+	opacity: 1;
+}
+.ft-reactions button {
+	width: 2rem;
+	height: 2rem;
+	padding: 0;
+}
+.ft-loading {
+	display: flex;
+	gap: 1rem;
+	padding-block: 2rem;
+}
+.fd-feed .fd-moment {
+	padding-block: 1.25rem 0.25rem;
+}
+.fd-feed .fd-moment h3 {
+	font-size: 0.6875rem;
+	letter-spacing: 0.04em;
+}
+@media (hover: none) {
+	.ft-reactions button {
+		width: 2.75rem;
+		height: 2.75rem;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.ft-reactions {
+		transition: none;
+	}
+}
+@media (max-width: 480px) {
+	.ft-header {
+		align-items: flex-start;
+		padding-bottom: 1rem;
+	}
+	.ft-greeting {
+		display: grid;
+		gap: 0.3rem;
+	}
+	.ft-greeting h2 {
+		font-size: 0.8125rem;
+	}
+	.fd-feed .fd-story {
+		gap: 0.65rem;
+		padding-block: 1.25rem;
+	}
+	.ft-byline {
+		flex-wrap: wrap;
+		gap: 0.15rem 0.4rem;
+	}
+	.ft-byline p:first-child {
+		max-width: calc(100% - 3rem);
+	}
+	.ft-project {
+		order: 3;
+		width: 100%;
+	}
+	.ft-project::before {
+		content: none;
+	}
+}

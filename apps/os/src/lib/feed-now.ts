@@ -23,7 +23,7 @@ export function feedNow(
 			unique
 				.filter(
 					(item) =>
-						!item.done && item.dueAt && Number.isFinite(Date.parse(item.dueAt)),
+						!item.done && item.dueAt && Date.parse(item.dueAt) > now.getTime(),
 				)
 				.sort((a, b) => Date.parse(a.dueAt!) - Date.parse(b.dueAt!))[0] ?? null,
 	};

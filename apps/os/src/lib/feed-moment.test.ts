@@ -7,7 +7,7 @@ it("labels moments in the person's timezone, including a different calendar day"
 		"This morning",
 	);
 	expect(feedMoment("2026-10-17T23:30:00Z", now, "Europe/Berlin")).toBe(
-		"This morning",
+		"While you slept",
 	);
 	expect(feedMoment("2026-10-17T18:00:00Z", now, "Europe/Berlin")).toBe(
 		"Earlier",

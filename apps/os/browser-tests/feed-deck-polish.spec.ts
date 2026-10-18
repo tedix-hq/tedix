@@ -104,37 +104,26 @@ try {
 				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
 			);
 			await page.locator("article").first().waitFor();
+			if (await page.locator(".fd-feed-filters").count())
+				throw new Error("Feed brought back the filter row");
+			await page.getByRole("combobox", { name: "Your activity" }).click();
+			await page.getByRole("option", { name: "Done", exact: true }).click();
+			await page
+				.getByRole("combobox", { name: "Your activity" })
+				.filter({ hasText: "Done" })
+				.waitFor();
 			if (
-				width === 390 &&
-				(await page.locator(".fd-feed-filters").evaluate((el) => {
-					const first = el.firstElementChild!.getBoundingClientRect();
-					const last = el.lastElementChild!.getBoundingClientRect();
-					return Math.abs(first.top - last.top) > 1;
-				}))
+				await page.getByText("Loading your activity…", { exact: true }).count()
 			)
-				throw new Error("Phone Feed filters wrapped above the stories");
-			const contrast = await page
-				.locator('.fd-feed-filters button[aria-pressed="true"]')
-				.evaluate((el) => {
-					const style = getComputedStyle(el);
-					const luminance = (color: string) => {
-						const [r, g, b] = color
-							.match(/[\d.]+/g)!
-							.slice(0, 3)
-							.map(Number)
-							.map((v) => {
-								const c = v / 255;
-								return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-							});
-						return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-					};
-					const fg = luminance(style.color),
-						bg = luminance(style.backgroundColor);
-					return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
-				});
-			if (contrast < 4.5)
+				throw new Error("Loaded stories still show a loading label");
+			const story = page.locator("article").first();
+			await story.hover();
+			await story
+				.getByRole("button", { name: "More like this", exact: true })
+				.waitFor();
+			if (await story.locator(".fd-preview").count())
 				throw new Error(
-					`Selected Feed filter contrast is ${contrast} at ${width}/${theme}`,
+					"A generic receipt box was added to a story without an attachment",
 				);
 			if ((await page.locator(".fd-moment").count()) < 1)
 				throw new Error("Missing moment headers");
