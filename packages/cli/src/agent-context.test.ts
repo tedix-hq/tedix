@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { recordSessionScope } from "./session-scope";
+import { resolveOrganizationTarget } from "./organization-target";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import {
 	changeAgentContext,
@@ -773,6 +774,52 @@ describe("shared Connect context targets", () => {
 			opts,
 		);
 	}
+	test("external-agent Work keeps the environment organization in held session context", () => {
+		const { opts } = fixture();
+		connectProfile(opts);
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", projectId: PROJECT, organization: "org_tedix" },
+			opts,
+		);
+		const sessionId = "11111111-1111-4111-8111-111111111111";
+		const environmentOrganization = "org_tedix";
+		const target = resolveOrganizationTarget({
+			url: "https://tedix-unified.mcp.tedix.dev/mcp",
+			command: "work",
+			workspace: "connect",
+			environmentOrganization,
+			externalAgent: true,
+		});
+		expect(target.headers).toEqual({});
+		recordSessionScope(
+			{
+				workspace: "connect",
+				organization: target.organization,
+				projectId: PROJECT,
+				workItemId: WORK,
+				heldUntil: Date.now() + 60_000,
+			},
+			{ TEDIX_AGENT_SESSION: `codex:${sessionId}` },
+			opts,
+		);
+		expect(resolveAgentContext({ ...opts, sessionId })).toMatchObject({
+			status: "bound",
+			organization: "org_tedix",
+			projectId: PROJECT,
+			workItemId: WORK,
+		});
+		expect(
+			resolveOrganizationTarget({
+				url: "https://tedix-unified.mcp.tedix.dev/mcp",
+				command: "work",
+				workspace: "connect",
+				environmentOrganization,
+				organization: "org_customer",
+				externalAgent: true,
+			}).organization,
+		).toBe("org_customer");
+	});
 	test("requires an explicit selected target, never the session tenant", () => {
 		const { opts } = fixture();
 		connectProfile(opts);
