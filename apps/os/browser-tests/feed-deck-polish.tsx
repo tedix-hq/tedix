@@ -20,6 +20,8 @@ import { DECISION_DECK_EXAMPLES } from "../dev/decision-deck-fixture";
 import "../src/styles.css";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
+import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
+import { focusDay, FOCUS_HISTORY_SURFACES } from "../src/lib/focus-feed";
 
 const client = new QueryClient({
 	defaultOptions: {
@@ -81,9 +83,28 @@ client.setQueryData(
 	}).queryKey,
 	{ events: [] },
 );
+client.setQueryData(
+	osQuery.learningFeedback.listInteractions.queryOptions({
+		input: {
+			scopeKind: "personal",
+			limit: 200,
+			surfaces: FOCUS_HISTORY_SURFACES,
+		},
+	}).queryKey,
+	{ events: [] },
+);
 const projectId = "11111111-1111-4111-8111-111111111111";
 const input = { projectId, limit: 20, cursor: undefined };
 const today = new Date();
+client.setQueryData(
+	osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+	learnDecisions({
+		organizationId: "fictional-pine",
+		personId: "fictional-person",
+		events: [],
+		now: today,
+	}),
+);
 const event = (id: number, title: string, body: string, small = false) => ({
 	id: `event-${id}`,
 	workItemId: projectId,
@@ -149,7 +170,7 @@ client.setQueryData(
 					["Release notes", "The release notes are ready to read."],
 				].map(([title, summary], index) => ({
 					attempt: {
-						id: crypto.randomUUID(),
+						id: `fictional-receipt-${index}`,
 						orgId: projectId,
 						workItemId: projectId,
 						executorType: "external_agent",
@@ -208,7 +229,21 @@ client.setQueryData(
 	{ pages: [{ data: [], nextCursor: null }], pageParams: [undefined] },
 );
 client.setQueryData(userPreferencesQueryOptions().queryKey, {
-	preferences: DEFAULT_OS_USER_PREFERENCES,
+	preferences: {
+		...DEFAULT_OS_USER_PREFERENCES,
+		activityFeed: {
+			projectIds: [],
+			mutedClasses: [],
+			preferredClasses: [],
+			lastSeenAt: null,
+			budgetDay: focusDay(today.toISOString(), "UTC"),
+			shownIds: [
+				"attempt:fictional-receipt-0",
+				"attempt:fictional-receipt-1",
+				"work:event-1",
+			],
+		},
+	},
 	revision: 0,
 });
 client.setQueryData(

@@ -48,6 +48,10 @@ function strength(
 	config: DecisionLearningConfig,
 ) {
 	const m = event.metadata ?? {};
+	if (event.surface === "focus_feed") {
+		const signal = str(m.reaction);
+		return config.focusFeed.signals[signal] ?? 0;
+	}
 	if (m.outcome === "completed_late" || m.outcome === "reverted") return -1;
 	if (m.decisionChoice === "later" || m.reaction === "skip") return -0.35;
 	if (event.eventKind === "ignored") return -config.ignoredPenalty;
@@ -125,11 +129,17 @@ export function learnDecisions(input: {
 			(e) =>
 				!corrected.has(e.id) &&
 				!corrected.has(str(e.metadata?.preferenceEvidenceEventId)) &&
-				e.metadata?.learningCorrection !== true,
+				e.metadata?.learningCorrection !== true &&
+				e.surface !== "focus_feed_counterfactual",
 		)
 		.slice(-config.historyLimit);
 	const events = replayEvents.filter(
-		(event) => event.surface !== "decision_deck_action",
+		(event) =>
+			event.surface !== "decision_deck_action" &&
+			!(
+				event.surface === "focus_feed" &&
+				event.metadata?.reaction === "impression"
+			),
 	);
 	const maps = {
 		personal: new Map<string, LearnedWeight>(),

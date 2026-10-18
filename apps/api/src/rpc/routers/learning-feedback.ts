@@ -288,6 +288,7 @@ const listInteractions = authed.listInteractions
 			scopeKind: input.scopeKind,
 			scopeId: input.scopeId,
 			issueKey: input.issueKey,
+			surfaces: input.surfaces,
 			since: input.since,
 			until: input.until,
 			limit: input.limit,

@@ -19,9 +19,13 @@ import type { FeedSourceState } from "@/components/activity-feed-sources";
 export function TodayPost({
 	config,
 	onUpdate,
+	compact = false,
+	changesSinceLook,
 }: {
 	config: NonNullable<ActivityFeedConfig["today"]>;
 	onUpdate: (id: string, state: FeedSourceState) => void;
+	compact?: boolean;
+	changesSinceLook?: Map<string, string>;
 }) {
 	const cache = useQueryClient();
 	const options = osQuery.osWorkspaces.outputs.get.queryOptions({
@@ -43,12 +47,13 @@ export function TodayPost({
 	const heading = useRef<HTMLHeadingElement>(null);
 	const [refreshing, setRefreshing] = useState(false);
 	const [message, setMessage] = useState("");
+	const [expanded, setExpanded] = useState(false);
 	useEffect(() => {
 		const jump = (event: KeyboardEvent) => {
 			if (!todayShortcut(event)) return;
 			event.preventDefault();
 			heading.current?.focus();
-			heading.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+			heading.current?.scrollIntoView({ block: "start", behavior: "instant" });
 		};
 		if (window.location.hash === "#today-heading") {
 			heading.current?.focus();
@@ -101,7 +106,7 @@ export function TodayPost({
 				</div>
 			</CardHeader>
 			<CardContent className="grid gap-4">
-				<LearnedToday timeZone={config.timeZone} />
+				{(!compact || expanded) && <LearnedToday timeZone={config.timeZone} />}
 				{output.isPending ? (
 					<Text>Opening Today…</Text>
 				) : !digest ? (
@@ -110,7 +115,7 @@ export function TodayPost({
 					<>
 						<Text>{digest.purpose}</Text>
 						<Text tone="secondary">{digest.updated}</Text>
-						{digest.rows.map(
+						{(compact && !expanded ? digest.rows.slice(0, 1) : digest.rows).map(
 							([
 								name,
 								goal,
@@ -123,17 +128,46 @@ export function TodayPost({
 							]) => (
 								<article
 									key={project}
-									className="grid gap-1 border-t border-kumo-line pt-3"
+									className={
+										compact
+											? "focus-today-row"
+											: "grid gap-1 border-t border-kumo-line pt-3"
+									}
 								>
 									<Link href={project!}>{name}</Link>
-									<Text tone="secondary">{goal}</Text>
-									<Link href={receipts!}>{progress}</Link>
-									<Text>{running}</Text>
+									{!compact && <Text tone="secondary">{goal}</Text>}
+									{compact && (
+										<Text tone="secondary">
+											{Number(needs) > 0
+												? "Needs you"
+												: running !== "Nothing running now."
+													? "Moving"
+													: "Updated"}
+										</Text>
+									)}
+									<Link href={receipts!}>
+										{compact
+											? (changesSinceLook?.get(project!.split("/").at(-1)!) ??
+												progress)
+											: progress}
+									</Link>
+									{!compact && <Text>{running}</Text>}
 									<Link href={deck!}>
 										{needs} need{needs === "1" ? "s" : ""} you
 									</Link>
 								</article>
 							),
+						)}
+						{compact && digest.rows.length > 1 && (
+							<Button
+								variant="ghost"
+								aria-expanded={expanded}
+								onClick={() => setExpanded((value) => !value)}
+							>
+								{expanded
+									? "Fewer projects"
+									: `${digest.rows.length - 1} more projects`}
+							</Button>
 						)}
 						{digest.quiet && <Text tone="secondary">{digest.quiet}</Text>}
 					</>

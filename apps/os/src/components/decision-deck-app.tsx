@@ -361,7 +361,12 @@ function DecisionDeckContent({
 		)
 			reportRemaining?.(filtered.length);
 	}, [mode, filtered.length, factories.sources.length, reportRemaining]);
-	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
+	const focusCard = new URLSearchParams(globalThis.location.hash.slice(1)).get(
+		"card",
+	);
+	const selected =
+		filtered.find((row) => row.id === focusCard) ??
+		filtered[Math.min(index, Math.max(0, filtered.length - 1))];
 	const railOpenedBeforeDecision = selected
 		? (rail?.openedBefore(selected.id) ?? false)
 		: false;

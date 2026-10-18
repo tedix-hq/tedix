@@ -150,6 +150,7 @@ export const RecordLearningInteractionOutputSchema = z.object({
 
 export const ListLearningInteractionsInputSchema = z.object({
 	tediId: z.string().optional(),
+	surfaces: z.array(z.string().min(1).max(100)).min(1).max(16).optional(),
 	eventKind: LearningInteractionKindSchema.optional(),
 	scopeKind: LearningScopeKindSchema.optional(),
 	scopeId: z.string().optional(),

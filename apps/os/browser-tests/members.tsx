@@ -5,6 +5,7 @@ import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activit
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
+import { FOCUS_HISTORY_SURFACES } from "../src/lib/focus-feed";
 import { WorkHome } from "../src/components/work-home";
 import { setOsFormattingPreferences } from "../src/lib/format";
 import {
@@ -198,6 +199,11 @@ client.setQueryData(
 	}),
 );
 for (const input of [
+	{
+		scopeKind: "personal" as const,
+		limit: 200,
+		surfaces: FOCUS_HISTORY_SURFACES,
+	},
 	{ scopeKind: "personal" as const, limit: 200 },
 	{ scopeKind: "personal" as const, eventKind: "edited" as const, limit: 100 },
 ])

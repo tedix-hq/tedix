@@ -566,3 +566,38 @@ it("replays the original exposure receipt after the card changes and rejects a n
 		expose(db, { ...value, clientEventId: crypto.randomUUID() }),
 	).rejects.toThrow("Card changed");
 });
+
+it("learns jump-then-decide only from the linked canonical response, once", async () => {
+	const { db, sqlite } = fixture();
+	await request(db);
+	const value = input();
+	value.feedOrigin = {
+		sessionId: crypto.randomUUID(),
+		openedAt: Date.parse("2030-01-01T11:59:50Z"),
+		itemId: "decision:decision-a",
+	};
+	await expose(db, value);
+	expect(
+		sqlite
+			.prepare("SELECT count(*) AS n FROM learning_interaction_events")
+			.get()?.n,
+	).toBe(0);
+	await respond(db, {
+		decisionChoice: "approve",
+		feedbackSignal: "approve-as-is",
+	});
+	await labelDecisionOutcomes(db, new Date("2030-01-01T12:02:00Z"));
+	await labelDecisionOutcomes(db, new Date("2030-01-01T12:03:00Z"));
+	const rows = sqlite
+		.prepare(
+			"SELECT metadata FROM learning_interaction_events WHERE surface='focus_feed'",
+		)
+		.all();
+	expect(rows).toHaveLength(1);
+	expect(JSON.parse(String(rows[0]!.metadata))).toMatchObject({
+		reaction: "jump_then_decide",
+		elapsedMs: 70000,
+		evidenceSource: "canonical_receipt",
+		serverObserved: true,
+	});
+});
