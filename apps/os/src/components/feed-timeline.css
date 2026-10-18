@@ -78,6 +78,7 @@
 	border: 0;
 }
 .ft-avatar {
+	z-index: 1;
 	width: 2.25rem;
 	height: 2.25rem;
 }
