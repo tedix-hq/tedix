@@ -27,6 +27,11 @@ vi.mock("@/lib/api", () => ({
 			correct: vi.fn(),
 		},
 		userSettings: { getPreferences: vi.fn(), updatePreferences: vi.fn() },
+		osWorkspaces: {
+			workspaces: {
+				list: vi.fn().mockResolvedValue({ items: [], truncated: false }),
+			},
+		},
 		workAgentSessions: {
 			list: vi.fn().mockResolvedValue({ sessions: [], truncated: false }),
 		},

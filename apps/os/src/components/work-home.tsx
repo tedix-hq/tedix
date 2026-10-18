@@ -16,6 +16,7 @@ import {
 } from "@/lib/work-home-search";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { OS_COPY } from "@/shared/os-copy";
+import { useOsLocale } from "@/lib/use-os-locale";
 import "./feed-deck.css";
 
 /** Work is an entry to installed apps, using the same renderer as their workspace. */
@@ -26,6 +27,7 @@ export function WorkHome({
 	search?: WorkHomeSearch;
 	onFilterChange?: (filter: WorkFeedFilter) => void;
 }) {
+	useOsLocale();
 	const { apps, pending, failed, truncated, retry } = useWorkApps();
 	const defaultApp =
 		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??

@@ -6,7 +6,14 @@ import {
 	FeedDeckDisclosure,
 	ProposerProjectContext,
 } from "@/components/feed-deck-primitives";
-import { createElement, useEffect, useRef, useState } from "react";
+import {
+	createElement,
+	lazy,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	DecisionKindSchema,
@@ -53,10 +60,15 @@ import { useDeckBatch } from "@/lib/use-deck-batch";
 import { deckBatchWindow, attentionMetrics } from "@/lib/deck-attention";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-card";
-import { OS_COPY } from "@/shared/os-copy";
+import { OS_COPY, decisionText } from "@/shared/os-copy";
+import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
+import { useOsLocale } from "@/lib/use-os-locale";
 
-const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
-const PROJECT_LABELS: Record<string, string> = OS_COPY.decisionDeck.projects;
+const FactoryCards = lazy(() =>
+	import("@/components/card-review-app").then((module) => ({
+		default: module.CardReviewApp,
+	})),
+);
 
 export function DecisionDeckApp({
 	config,
@@ -66,7 +78,14 @@ export function DecisionDeckApp({
 	workspaceId?: string;
 }) {
 	const deckRoot = useDeckViewport();
+	useOsLocale();
+	const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
+	const PROJECT_LABELS: Record<string, string> = OS_COPY.decisionDeck.projects;
 	const client = useQueryClient();
+	const factories = useVisibleCardSources(
+		config.factorySources,
+		(source) => source.workspaceId,
+	);
 	const learningModel = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
 		refetchInterval: 60000,
@@ -478,10 +497,14 @@ export function DecisionDeckApp({
 				{mode !== "history" && (
 					<div className="fd-deck-progress" role="status">
 						<Text weight="semibold">
-							{OS_COPY.decisionDeck.left(available.length)}
+							{!practiceMode &&
+							available.length === 0 &&
+							factories.sources.length > 0
+								? decisionText("From your factories")
+								: OS_COPY.decisionDeck.left(available.length)}
 						</Text>
 						<progress
-							aria-label="Deck progress"
+							aria-label={decisionText("Deck progress")}
 							max={Math.max(
 								1,
 								mode === "practice"
@@ -507,7 +530,7 @@ export function DecisionDeckApp({
 						)}
 					</div>
 				)}
-				<div className="fd-deck-toolbar" aria-label="Deck view">
+				<div className="fd-deck-toolbar" aria-label={decisionText("Deck view")}>
 					{[
 						"decide",
 						"history",
@@ -523,10 +546,10 @@ export function DecisionDeckApp({
 							}}
 						>
 							{value === "decide"
-								? "For you"
+								? decisionText("For you")
 								: value === "history"
-									? "What you decided"
-									: "Try examples"}
+									? decisionText("What you decided")
+									: decisionText("Try examples")}
 						</Button>
 					))}
 				</div>
@@ -542,11 +565,11 @@ export function DecisionDeckApp({
 								setIndex(0);
 							}}
 						>
-							<SelectTrigger aria-label="Decision kind">
+							<SelectTrigger aria-label={decisionText("Decision kind")}>
 								<SelectValue>{KIND_LABELS[kind]}</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="all">All kinds</SelectItem>
+								<SelectItem value="all">{decisionText("All kinds")}</SelectItem>
 								{DecisionKindSchema.options.map((value) => (
 									<SelectItem key={value} value={value}>
 										{KIND_LABELS[value]}
@@ -561,13 +584,17 @@ export function DecisionDeckApp({
 								setIndex(0);
 							}}
 						>
-							<SelectTrigger aria-label="Decision project">
+							<SelectTrigger aria-label={decisionText("Decision project")}>
 								<SelectValue>
-									{project === "all" ? "All projects" : projectLabel(project)}
+									{project === "all"
+										? decisionText("All projects")
+										: projectLabel(project)}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="all">All projects</SelectItem>
+								<SelectItem value="all">
+									{decisionText("All projects")}
+								</SelectItem>
 								{[...new Set(rows.map((row) => row.project))].map((value) => (
 									<SelectItem key={value} value={value}>
 										{projectLabel(value)}
@@ -582,24 +609,30 @@ export function DecisionDeckApp({
 								setIndex(0);
 							}}
 						>
-							<SelectTrigger aria-label="Decision urgency">
+							<SelectTrigger aria-label={decisionText("Decision urgency")}>
 								<SelectValue>
 									{urgency === "all"
-										? "Any urgency"
+										? decisionText("Any urgency")
 										: urgency === "now"
-											? "Needs you now"
-											: "Can wait"}
+											? decisionText("Needs you now")
+											: decisionText("Can wait")}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="all">Any urgency</SelectItem>
-								<SelectItem value="now">Needs you now</SelectItem>
-								<SelectItem value="later">Can wait</SelectItem>
+								<SelectItem value="all">
+									{decisionText("Any urgency")}
+								</SelectItem>
+								<SelectItem value="now">
+									{decisionText("Needs you now")}
+								</SelectItem>
+								<SelectItem value="later">
+									{decisionText("Can wait")}
+								</SelectItem>
 							</SelectContent>
 						</Select>
 						<Input
-							aria-label="Find decisions"
-							placeholder="Find a decision"
+							aria-label={decisionText("Find decisions")}
+							placeholder={decisionText("Find a decision")}
 							value={search}
 							onChange={(event) => {
 								setSearch(event.target.value);
@@ -626,11 +659,13 @@ export function DecisionDeckApp({
 								void learningQuery.refetch();
 							}}
 						>
-							Try again
+							{decisionText("Try again")}
 						</Button>
 					</Text>
 				)}
-				{!practiceMode && inbox.isPending && <Text>Loading decisions…</Text>}
+				{!practiceMode && inbox.isPending && (
+					<Text>{decisionText("Loading decisions…")}</Text>
+				)}
 				{budgetReached ? (
 					<Text>
 						You’ve reached your attention budget.{" "}
@@ -668,11 +703,11 @@ export function DecisionDeckApp({
 									<WorkDecisionCard
 										kind={current?.kind ?? "decision"}
 										title={selected.label}
-										askedBy={selected.row?.askedBy ?? "Your tedi"}
+										askedBy={selected.row?.askedBy ?? decisionText("Your tedi")}
 										body={selected.row?.request.prompt}
 										why={
 											<Link href={`/work/interactions/${selected.id}`}>
-												Read the saved answer and history
+												{decisionText("Read the saved answer and history")}
 											</Link>
 										}
 										disabled
@@ -707,8 +742,8 @@ export function DecisionDeckApp({
 										}
 										askedBy={
 											practiceMode
-												? "Example"
-												: (selected.row?.askedBy ?? "Your tedi")
+												? decisionText("Example")
+												: (selected.row?.askedBy ?? decisionText("Your tedi"))
 										}
 										disabled={
 											mode === "history" ||
@@ -773,10 +808,10 @@ export function DecisionDeckApp({
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
 								<Button variant="outline" onClick={previous}>
-									Previous
+									{decisionText("Previous")}
 								</Button>
 								<Button variant="outline" onClick={next}>
-									Next
+									{decisionText("Next")}
 								</Button>
 							</div>
 						) : (
@@ -811,7 +846,7 @@ export function DecisionDeckApp({
 										next();
 									}}
 								>
-									Later
+									{decisionText("Later")}
 								</Button>
 							)
 						)}
@@ -822,6 +857,13 @@ export function DecisionDeckApp({
 					!(decisions.failed || learningQuery.isError) &&
 					(available.length > 0 ? (
 						<Text>{OS_COPY.decisionDeck.noMatches}</Text>
+					) : !practiceMode && factories.sources.length > 0 ? (
+						<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
+							<FactoryCards
+								inDeck
+								config={{ version: 1, sources: factories.sources }}
+							/>
+						</Suspense>
 					) : (
 						<DeckClosure
 							title={OS_COPY.feedDeckVisual.clear}
@@ -889,7 +931,7 @@ export function DecisionDeckApp({
 					)}
 				<p className="fd-deck-shortcuts">{OS_COPY.decisionDeck.shortcuts}</p>
 				<Link href="/account/profile">
-					Your style profile and last 10 approvals
+					{decisionText("Your style profile and last 10 approvals")}
 				</Link>
 			</div>
 		</DecisionAttentionContext.Provider>,

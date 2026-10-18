@@ -16,9 +16,6 @@ import type * as z from "zod";
 import { OS_COPY } from "@/shared/os-copy";
 import { decisionEnvelope } from "@/lib/decision-deck";
 
-const actors: Record<string, string> = OS_COPY.feed.actors;
-const workEvents: Record<string, string> = OS_COPY.feed.workEvents;
-
 export type FeedPreferences = NonNullable<OsUserPreferences["activityFeed"]>;
 export const EMPTY_FEED_PREFERENCES: FeedPreferences = {
 	projectIds: [],
@@ -79,6 +76,8 @@ export function workFeedItems(
 	events: WorkActivityEvent[],
 	projectId: string,
 ): ActivityFeedItem[] {
+	const actors: Record<string, string> = OS_COPY.feed.actors;
+	const workEvents: Record<string, string> = OS_COPY.feed.workEvents;
 	return events
 		.filter(
 			(e) =>
@@ -135,7 +134,7 @@ export function resultFeedItems(
 			classId: `${a.executorType}:result`,
 			actor:
 				a.executorType === "tedi"
-					? "Tedi"
+					? OS_COPY.feed.actors.tedi
 					: a.externalSessionKey?.startsWith("claude")
 						? "Claude"
 						: a.externalSessionKey?.startsWith("codex")

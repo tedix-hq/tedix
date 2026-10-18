@@ -5,6 +5,7 @@
 
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { personalWorkFeedPredicate } from "./personal-feed";
 import {
 	type WorkItemDisposition,
 	workEvents,
@@ -60,6 +61,7 @@ function settlementFromMetadata(
 
 export interface ListWorkActivityParams {
 	orgId: string;
+	viewerUserId?: string;
 	cursor?: { at: string; id: string };
 	workItemId?: string;
 	projectId?: string;
@@ -89,6 +91,8 @@ export async function listWorkActivity(
 		ACTIVITY_MAX_LIMIT,
 	);
 	const conditions = [eq(workEvents.orgId, params.orgId)];
+	if (params.viewerUserId)
+		conditions.push(personalWorkFeedPredicate(params.viewerUserId)!);
 	if (params.cursor)
 		conditions.push(
 			or(

@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, lt, or, sql, type SQL } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { personalWorkFeedPredicate } from "./personal-feed";
 import { prefixedColumns } from "../../utils/select";
 import {
 	type WorkAttempt,
@@ -102,6 +103,7 @@ export async function listOrgWorkAttempts(
 	db: DbQueryClient,
 	params: {
 		orgId: string;
+		viewerUserId?: string;
 		projectId?: string;
 		workItemId?: string;
 		runtimeStates?: WorkAttemptRuntimeState[];
@@ -128,6 +130,9 @@ export async function listOrgWorkAttempts(
 		.where(
 			and(
 				eq(workAttempts.orgId, params.orgId),
+				params.viewerUserId
+					? personalWorkFeedPredicate(params.viewerUserId)
+					: undefined,
 				params.projectId
 					? eq(workItems.projectId, params.projectId)
 					: undefined,

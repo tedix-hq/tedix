@@ -1,8 +1,20 @@
 import type { WorkItemKind } from "@tedix/api-contract/schemas/work-items";
 import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
+import { readOsLocale as osLocale } from "@/shared/os-locale";
+import {
+	SPANISH_FEED_DECK_COPY,
+	SPANISH_DECISION_CONTROLS,
+} from "@/shared/os-copy-es";
+
+/** Only call for interface labels, never for source text or exact action payloads. */
+export function decisionText(english: string): string {
+	return osLocale().startsWith("es")
+		? (SPANISH_DECISION_CONTROLS[english] ?? english)
+		: english;
+}
 
 /** Generic OS wording. Names and tenant-specific content come from records. */
-export const OS_COPY = {
+const ENGLISH_COPY = {
 	routePending: {
 		loading: "Loading Tedix OS…",
 	},
@@ -373,3 +385,33 @@ export const OS_COPY = {
 		},
 	},
 } as const;
+
+/** Resolve at render time so loading or changing personal preferences updates copy. */
+export const OS_COPY = {
+	...ENGLISH_COPY,
+	get workHome() {
+		return osLocale().startsWith("es")
+			? SPANISH_FEED_DECK_COPY.workHome
+			: ENGLISH_COPY.workHome;
+	},
+	get feedDeckVisual() {
+		return osLocale().startsWith("es")
+			? SPANISH_FEED_DECK_COPY.feedDeckVisual
+			: ENGLISH_COPY.feedDeckVisual;
+	},
+	get decisionDeck() {
+		return osLocale().startsWith("es")
+			? SPANISH_FEED_DECK_COPY.decisionDeck
+			: ENGLISH_COPY.decisionDeck;
+	},
+	get learning() {
+		return osLocale().startsWith("es")
+			? SPANISH_FEED_DECK_COPY.learning
+			: ENGLISH_COPY.learning;
+	},
+	get feed() {
+		return osLocale().startsWith("es")
+			? SPANISH_FEED_DECK_COPY.feed
+			: ENGLISH_COPY.feed;
+	},
+};

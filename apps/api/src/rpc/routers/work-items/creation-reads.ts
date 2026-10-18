@@ -462,6 +462,7 @@ export const listActivityProcedure = authOs.listActivity.handler(
 		const orgId = requireOrgId(context);
 		const result = await listWorkActivity(context.db, {
 			orgId,
+			viewerUserId: context.authType === "user" ? context.user?.sub : undefined,
 			cursor: input.cursor,
 			workItemId: input.workItemId,
 			projectId: input.projectId,

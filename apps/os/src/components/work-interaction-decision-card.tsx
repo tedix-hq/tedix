@@ -1,5 +1,5 @@
 import { decisionEnvelope } from "@/lib/decision-deck";
-import { OS_COPY } from "@/shared/os-copy";
+import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -200,13 +200,18 @@ export function WorkInteractionDecisionCard({
 		},
 	});
 	if (query.isPending)
-		return <Skeleton className="h-60 w-full" aria-label="Loading request" />;
+		return (
+			<Skeleton
+				className="h-60 w-full"
+				aria-label={decisionText("Loading request")}
+			/>
+		);
 	if (!query.data || query.isError)
 		return (
 			<p role="alert">
 				This request could not be loaded.{" "}
 				<Button variant="outline" onClick={() => void query.refetch()}>
-					Try again
+					{decisionText("Try again")}
 				</Button>
 			</p>
 		);
@@ -253,14 +258,14 @@ export function WorkInteractionDecisionCard({
 			(request.kind === "question" && effectiveState === "resolved"));
 	const actions: DecisionCardAction[] = lane
 		? [
-				{ id: "done", label: "Done", intent: "approve" },
-				{ id: "snooze", label: "Snooze 1 day", intent: "reject" },
+				{ id: "done", label: decisionText("Done"), intent: "approve" },
+				{ id: "snooze", label: decisionText("Snooze 1 day"), intent: "reject" },
 			]
 		: proposal
 			? [
-					{ id: "start", label: "Yes, start", intent: "approve" },
-					{ id: "not-now", label: "Not now", intent: "reject" },
-					{ id: "never", label: "Never", intent: "reject" },
+					{ id: "start", label: decisionText("Yes, start"), intent: "approve" },
+					{ id: "not-now", label: decisionText("Not now"), intent: "reject" },
+					{ id: "never", label: decisionText("Never"), intent: "reject" },
 				]
 			: choices.decisionCard
 				? choices.decisionCard.options.map((option) => ({
@@ -271,7 +276,10 @@ export function WorkInteractionDecisionCard({
 				: [
 						{
 							id: "answer",
-							label: draft?.delivery === "auto" ? "Override" : "Answer",
+							label:
+								draft?.delivery === "auto"
+									? decisionText("Override")
+									: decisionText("Answer"),
 							intent: "approve",
 						},
 					];
@@ -301,11 +309,11 @@ export function WorkInteractionDecisionCard({
 							</p>
 						) : null}
 						{capture?.attention === "fyi" ? (
-							<p>Update: nothing needed from you</p>
+							<p>{decisionText("Update: nothing needed from you")}</p>
 						) : capture?.urgency === "now" ? (
 							<p className="text-kumo-danger">{capture.reasons.join(" · ")}</p>
 						) : capture?.urgency === "later" ? (
-							<p className="text-kumo-subtle">Can wait</p>
+							<p className="text-kumo-subtle">{decisionText("Can wait")}</p>
 						) : null}
 						{pastDeadline && (
 							<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
@@ -333,10 +341,14 @@ export function WorkInteractionDecisionCard({
 						</p>
 						{request.metadata?.host === "codex" ||
 						request.metadata?.agentHarness === "codex" ? (
-							<p>Codex receives your answer with its next prompt.</p>
+							<p>
+								{decisionText(
+									"Codex receives your answer with its next prompt.",
+								)}
+							</p>
 						) : null}
 						<Link href={`/work/interactions/${request.id}`}>
-							Open request history
+							{decisionText("Open request history")}
 						</Link>
 
 						{canCancel && effectiveState === "open" ? (
@@ -346,7 +358,7 @@ export function WorkInteractionDecisionCard({
 								disabled={cancel.isPending}
 								onClick={() => cancel.mutate()}
 							>
-								Cancel request
+								{decisionText("Cancel request")}
 							</Button>
 						) : null}
 						{cancel.error ? <p role="alert">{cancel.error.message}</p> : null}

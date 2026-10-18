@@ -409,7 +409,9 @@ export const computePostureQueryOptions = (
 ) => osQuery.osCompute.posture.queryOptions({ input: { window } });
 
 export const pendingApprovalsQueryOptions = () =>
-	osQuery.tediApprovals.list.queryOptions({ input: { status: "pending" } });
+	osQuery.tediApprovals.list.queryOptions({
+		input: { status: "pending", decidableOnly: true },
+	});
 
 export const workItemListQueryOptions = (
 	input: ClientInput<typeof osApi.workItems.list>,

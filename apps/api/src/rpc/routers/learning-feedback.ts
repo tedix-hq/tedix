@@ -38,6 +38,7 @@ import {
 	ErrorCodes,
 	withAuth,
 	withAuthorization,
+	userHoldsPermission,
 } from "../orpc";
 
 const learningFeedbackOs = implement(
@@ -207,10 +208,27 @@ export function learningScopeCanNominateSubject(input: {
 }
 
 const recordInteraction = authed.recordInteraction
-	.use(AUTHZ.tedisWrite)
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"A person may record their own personal signals; other scopes retain tedi update permission",
+			},
+			"tedis:write",
+		),
+	)
 	.handler(async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const actor = resolveLearningActor(context);
+		if (
+			context.authType === "user" &&
+			input.scope.kind !== "personal" &&
+			!userHoldsPermission(context, "tedis:update")
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Shared learning requires tedi update permission",
+			);
 		const tediId = await resolveAccessibleTediId(context, input.tediId);
 		const scopeId = resolveLearningScope({
 			kind: input.scope.kind,
@@ -760,7 +778,15 @@ const configure = authed.configure
 		setDecisionLearningConfig(context.db, requireOrgId(context), input),
 	);
 const correct = authed.correct
-	.use(AUTHZ.tedisWrite)
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Only the authenticated person may correct a personal signal they authored in this organization",
+			},
+			"tedis:write",
+		),
+	)
 	.handler(async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const actor = resolveLearningActor(context);

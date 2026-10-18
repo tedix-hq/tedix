@@ -1,4 +1,5 @@
 /** Shared text/number formatting for the Tedix OS surfaces. */
+import { setOsLocale } from "@/shared/os-locale";
 
 /**
  * The operator's stored locale/timezone, or the platform fallback.
@@ -24,6 +25,7 @@ export function setOsFormattingPreferences(preferences: {
 	resolvedLocale = preferences.locale ?? "en-US";
 	preferredLocale = preferences.locale ?? undefined;
 	resolvedTimeZone = preferences.timezone ?? undefined;
+	setOsLocale(resolvedLocale);
 }
 
 export function osSpreadsheetLocale(): string | undefined {
