@@ -15,11 +15,9 @@ visibility: public
 
 # Worker permissions, approvals, and governance
 
-A digital worker in Tedix is called a **tedi**. A tedi is a long-lived member
-of an organization, not a single model call. It is the unit that answers for
-work done by an agent instead of a person.
+If you need to know what a Tedix tedi may do, start with Permissions. This guide explains how access is limited and what records help you review its work. A tedi stays part of an organization over time. It is not a one-time task. It is accountable for work done by an agent instead of a person.
 
-## What a worker has
+## What a tedi has
 
 - its own identity and role in the organization;
 - skills and connected tools it has been granted;
@@ -28,10 +26,7 @@ work done by an agent instead of a person.
 - runs, rationale, and artifacts from past work;
 - a runtime that can restart or change without changing who the worker is.
 
-Tedix keeps the worker separate from the compute it uses. Routine work runs on
-Cloudflare Workers. A job that needs a browser, a repository, or operating
-system processes gets a workstation for that job only, not permanent machine
-access.
+Tedix keeps each tedi's identity separate from the computing resources it uses. Routine tasks run on a managed service. A job that needs a browser, a repository, or computer programs gets a temporary workstation, not permanent access to a machine.
 
 ## Four rules
 
