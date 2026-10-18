@@ -3,9 +3,7 @@ import "@orpc/openapi/extensions/route";
  * Members Contract for oRPC
  * Type-safe API contract for organization member management endpoints
  *
- * Implements dual-write pattern with Descope synchronization:
- * 1. Update Descope (source of truth for auth)
- * 2. Sync to D1 (for quick access and denormalized data)
+ * D1 owns membership; Descope holds the corresponding auth associations.
  */
 
 import { oc } from "@orpc/contract";
@@ -17,6 +15,8 @@ import {
 } from "../schemas/common";
 import { OrganizationPermissionSchema } from "../schemas/user-settings";
 import {
+	MembershipReconciliationSchema,
+	RepairMembershipInputSchema,
 	MemberRoleSchema,
 	MemberSchema,
 	MemberStatusSchema,
@@ -30,6 +30,28 @@ import {
 export const membersContract = oc
 	.route({ tags: ["members"], prefix: "/organizations" })
 	.router({
+		getMembershipReconciliation: oc
+			.route({
+				method: "GET",
+				path: "/{organizationId}/members/reconciliation",
+				summary: "Compare D1 and Descope membership",
+			})
+			.input(OrgIdParamSchema.strict())
+			.output(MembershipReconciliationSchema),
+
+		repairMembership: oc
+			.route({
+				method: "POST",
+				path: "/{organizationId}/members/reconciliation/repair",
+				summary: "Repair one membership divergence with an audit record",
+				description:
+					"D1 remains authoritative. Explicitly restore a Descope association and its D1 role, or remove a Descope-only association. Rechecks current membership before repair; never creates or activates a D1 member, sends mail, or changes provider credentials.",
+			})
+			.input(
+				OrgIdParamSchema.extend(RepairMembershipInputSchema.shape).strict(),
+			)
+			.output(z.object({ repairId: z.uuid(), verified: z.literal(true) })),
+
 		/**
 		 * List all members for an organization
 		 * GET /organizations/{organizationId}/members
