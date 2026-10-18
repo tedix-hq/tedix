@@ -134,3 +134,42 @@ it("separates the captured filing request from generic legacy copy", async () =>
 	expect(source).not.toHaveProperty("decision");
 	expect(JSON.stringify(source)).not.toContain("Keep it if it fits");
 });
+
+it("repairs a filing title that substitutes another task", async () => {
+	mocks.model
+		.mockResolvedValueOnce(
+			JSON.stringify({ ...copy, title: "File the Feed cleanup request here?" }),
+		)
+		.mockResolvedValueOnce(
+			JSON.stringify({
+				...copy,
+				title: "File the scheduled follow-up request here?",
+			}),
+		);
+	const result = await generateDecisionCard({ db: {}, env: {} } as never, {
+		...request,
+		prompt: "Show the scheduled follow-up only on its due date.",
+		metadata: { decisionDeck: { classId: "filing.project" } },
+	});
+	expect(result?.title).toBe("File the scheduled follow-up request here?");
+	expect(mocks.model.mock.calls[1]?.[1]).toContain(
+		"title changed the request topic",
+	);
+});
+
+it("does not pass unrelated operational lessons to the writing model", async () => {
+	mocks.preferences.mockResolvedValue(
+		JSON.stringify({
+			preferences: [],
+			lessons: [
+				{ text: "Keep answers short." },
+				{ text: "Retry provider outages after checking deployments." },
+			],
+		}),
+	);
+	await generateDecisionCard({ db: {}, env: {} } as never, request);
+	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
+	expect(JSON.parse(source.preferences).lessons).toEqual([
+		{ text: "Keep answers short." },
+	]);
+});
