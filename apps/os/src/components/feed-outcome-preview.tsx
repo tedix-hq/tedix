@@ -39,7 +39,9 @@ export function FeedOutcomePreview({ item }: { item: ActivityFeedItem }) {
 		<RichPreview
 			href={item.source}
 			title={title}
-			summary={attachment?.summary}
+			summary={
+				attachment?.summary === item.sentence ? undefined : attachment?.summary
+			}
 			image={
 				preview.data?.status === "available"
 					? preview.data.imageDataUrl

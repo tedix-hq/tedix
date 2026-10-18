@@ -28,3 +28,22 @@ it("uses the typed approval operation and target instead of a question fallback"
 	);
 	expect(interactionCardKind({ kind: "handoff" })).toBe("proposal");
 });
+
+it("keeps raw operation and target arguments out of the loading summary", async () => {
+	const { connectorApprovalSummary } = await import("./interaction-card-kind");
+	expect(
+		connectorApprovalSummary(
+			{
+				metadata: {
+					approvalOperation: "tests_write.GenerateMagicLinkForTestUser",
+					approvalTarget: "viewer@example.com",
+				},
+				prompt:
+					"Prepared args: viewer@example.com. This returns a non-delivered test-only link.",
+			},
+			"Codex session",
+		),
+	).toBe(
+		"Let Codex sign in a made-up test user to check the reported fix. The test link stays with the agent; no email is sent.",
+	);
+});

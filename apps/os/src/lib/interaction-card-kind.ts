@@ -1,4 +1,5 @@
 import type { DecisionCardKind } from "@/components/work-decision-card";
+import { OS_COPY } from "@/shared/os-copy";
 import { decisionEnvelope } from "@/lib/decision-deck";
 
 export function connectorApproval(metadata?: Record<string, unknown> | null) {
@@ -28,4 +29,16 @@ export function interactionCardKind(request: {
 					? "decision"
 					: "question")
 	);
+}
+
+export function connectorApprovalSummary(
+	request: { metadata?: Record<string, unknown> | null; prompt: string },
+	source: string,
+) {
+	const name = source.replace(/\s+session$/i, "");
+	return connectorApproval(request.metadata)?.operation ===
+		"tests_write.GenerateMagicLinkForTestUser" &&
+		/non-delivered test-only link|not emailed/i.test(request.prompt)
+		? OS_COPY.decisionDeck.testLoginSummary(name)
+		: OS_COPY.decisionDeck.approvalSummary(name);
 }

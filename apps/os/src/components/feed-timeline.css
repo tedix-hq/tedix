@@ -87,6 +87,7 @@
 	font-size: 0.75rem;
 }
 .fd-feed .fd-story-body {
+	position: relative;
 	gap: 0.5rem;
 }
 .ft-byline {
@@ -141,6 +142,10 @@
 	font-size: 0.75rem;
 }
 .ft-reactions {
+	position: absolute;
+	inset-inline-end: 0;
+	bottom: -0.5rem;
+	pointer-events: none;
 	opacity: 0;
 	transition: opacity 120ms;
 }
@@ -148,6 +153,7 @@
 .fd-story:focus-within .ft-reactions,
 .fd-story[data-reactions-open="true"] .ft-reactions {
 	opacity: 1;
+	pointer-events: auto;
 }
 .ft-reactions button {
 	width: 2rem;

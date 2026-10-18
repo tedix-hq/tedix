@@ -84,6 +84,7 @@ export const SPANISH_FEED_DECK_COPY = {
 			`${count} ${count === 1 ? "decisión tomada" : "decisiones tomadas"} hoy. Un poco más de espacio para pensar.`,
 	},
 	decisionDeck: {
+		approvalActor: "tu agente",
 		approvalSummary: (source: string) =>
 			`Permitir que ${source} ejecute la acción solicitada. Revisa la operación y el destino exactos en Detalles antes de aprobar.`,
 		testLoginSummary: (source: string) =>
@@ -161,6 +162,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		projectUnavailable: "Proyecto no disponible",
 	},
 	feed: {
+		evidencePreview: "Vista previa de la evidencia",
 		actors: {
 			user: "Persona",
 			tedi: "Tedi",

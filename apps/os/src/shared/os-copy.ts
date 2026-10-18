@@ -113,6 +113,7 @@ const ENGLISH_COPY = {
 			`${count} decision${count === 1 ? "" : "s"} made today. A little more room to think.`,
 	},
 	decisionDeck: {
+		approvalActor: "your agent",
 		approvalSummary: (source: string) =>
 			`Let ${source} run the requested action. Review the exact operation and target in Details before approving.`,
 		testLoginSummary: (source: string) =>
@@ -298,6 +299,7 @@ const ENGLISH_COPY = {
 		} satisfies Record<WorkItemKind, string>,
 	},
 	feed: {
+		evidencePreview: "Work evidence preview",
 		actors: {
 			user: "Person",
 			tedi: "Tedi",
