@@ -78,7 +78,7 @@ export async function generateDecisionCard(
 			.match(/[\p{L}\p{N}]{4,}/gu)
 			?.filter(
 				(word) =>
-					!/^(?:this|that|with|from|your|have|been|will|only|please|request|whether|should|would|could|here|file|into|them|their|they)$/.test(
+					!/^(?:this|that|with|from|your|have|been|will|only|please|requests?|check|review|make|show|fix|improve|report|work|whether|should|would|could|here|file|into|them|their|they)$/.test(
 						word,
 					),
 			) ?? [];
@@ -102,14 +102,20 @@ export async function generateDecisionCard(
 				}),
 	});
 	let repair = "";
+	const deadline = Date.now() + 12000;
 	for (let attempt = 0; attempt < 2; attempt++) {
+		const timeoutMs = Math.min(10000, deadline - Date.now());
+		if (timeoutMs <= 0) {
+			onFailure?.("model_timeout:budget");
+			return null;
+		}
 		const answer = await runDistillModel(
 			env,
 			repair ? `${source}\n${repair}` : source,
 			{
 				model: config.preferenceModel,
 				maxTokens: 450,
-				timeoutMs: 10000,
+				timeoutMs,
 				onFailure: (reason) =>
 					onFailure?.(
 						reason === "model_timeout"
@@ -151,7 +157,7 @@ export async function generateDecisionCard(
 				.map((issue) => issue.path.join("."))
 				.join(",");
 			onFailure?.(`invalid_copy:${fields}`);
-			repair = `The previous copy failed validation in ${fields}. Rewrite the whole card to satisfy the schema and all sentence, length and because requirements.`;
+			repair = `The previous copy failed validation in ${fields}. Rewrite the whole card. Use exactly one complete sentence in body, ending with a period. Keep title within 90 characters, body within 600 and recommendation within 400. Include because and a source-supported reason in recommendation.`;
 		} catch {
 			onFailure?.("invalid_copy:json");
 			repair =
