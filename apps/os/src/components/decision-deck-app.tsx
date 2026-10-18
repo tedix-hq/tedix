@@ -3,6 +3,7 @@ import {
 	DeckFooterContext,
 } from "@/components/deck-presentation-context";
 import { interactionCardKind } from "@/lib/interaction-card-kind";
+import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { useDeckViewport } from "@/lib/use-deck-viewport";
 import { DecisionLearningContext } from "@/components/decision-learning-context";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
@@ -199,6 +200,9 @@ export function DecisionDeckApp({
 					: decisions.requests
 				).map((row) => {
 					const decision = decisionEnvelope(row.request.metadata);
+					const presentation = DecisionCardPresentationSchema.safeParse(
+						row.request.metadata.cardPresentation,
+					).data;
 					const metadata = row.request.metadata;
 					const cardKind = interactionCardKind(row.request);
 					return {
@@ -208,7 +212,15 @@ export function DecisionDeckApp({
 						project:
 							row.workItem?.projectId ?? row.request.projectId ?? "Unfiled",
 						urgency: decisionCaptureSummary(metadata)?.urgency ?? "later",
-						decision,
+						decision:
+							decision && presentation
+								? {
+										...decision,
+										proposal: presentation.title,
+										preview: { body: presentation.body },
+										recommendation: presentation.recommendation,
+									}
+								: decision,
 						row,
 					};
 				}),

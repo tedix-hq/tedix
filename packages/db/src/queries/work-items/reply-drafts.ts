@@ -20,7 +20,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkInteractionDeliveryVia,
@@ -138,6 +138,33 @@ export async function insertReplyDraft(
 export interface GetLatestReplyDraftParams {
 	orgId: string;
 	interactionId: string;
+}
+
+/** One bounded read per inbox page, rather than a detail round trip per card. */
+export async function listLatestReplyDrafts(
+	db: DbQueryClient,
+	orgId: string,
+	interactionIds: string[],
+) {
+	const rows: WorkInteractionReplyDraft[] = [];
+	for (let offset = 0; offset < interactionIds.length; offset += 50) {
+		rows.push(
+			...(await db
+				.select()
+				.from(workInteractionReplyDrafts)
+				.where(
+					and(
+						eq(workInteractionReplyDrafts.orgId, orgId),
+						inArray(
+							workInteractionReplyDrafts.interactionId,
+							interactionIds.slice(offset, offset + 50),
+						),
+						sql`${workInteractionReplyDrafts.id} = (SELECT latest.id FROM work_interaction_reply_drafts latest WHERE latest.org_id = ${orgId} AND latest.interaction_id = ${workInteractionReplyDrafts.interactionId} ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)`,
+					),
+				)),
+		);
+	}
+	return rows;
 }
 
 export async function getLatestReplyDraft(

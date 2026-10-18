@@ -4,6 +4,7 @@ import {
 	OutboundStateSchema,
 	type OutboundState,
 	type OutboundPolicy,
+	type OutboundRecord,
 } from "@tedix/api-contract/schemas/outbound";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -297,6 +298,7 @@ export async function outboundInteractionOverlays(
 		workItemId: string;
 		subject: string;
 		status: OutboundState["status"];
+		record: OutboundRecord;
 	}[] = [];
 	for (const ids of chunkForBoundParams(interactionIds, 50)) {
 		const rows = await db
@@ -304,6 +306,9 @@ export async function outboundInteractionOverlays(
 				interactionId: sql<string>`${workInteractions.id}`.as("interaction_id"),
 				workItemId: sql<string>`${workItems.id}`.as("work_item_id"),
 				metadata: workItems.metadata,
+				title: workItems.title,
+				projectId: workItems.projectId,
+				version: workItems.version,
 			})
 			.from(workInteractions)
 			.innerJoin(
@@ -332,6 +337,13 @@ export async function outboundInteractionOverlays(
 							300,
 						),
 					status: parsed.data.status,
+					record: {
+						workItemId: row.workItemId,
+						title: row.title,
+						projectId: row.projectId,
+						version: row.version,
+						outbound: parsed.data,
+					},
 				});
 		}
 	}

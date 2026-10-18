@@ -1,4 +1,6 @@
 import * as z from "zod";
+import { createDbClient } from "@tedix/db/client";
+import { generateDecisionCard } from "./decision-card-generator";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type { AgentSessionRequestOwner } from "@tedix/db/queries/agent-session-requests";
 import { listRequestFilings } from "@tedix/db/queries/request-filings";
@@ -25,6 +27,7 @@ const ConfigSchema = z.strictObject({
 export async function materializeFilingReviews(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner,
+	env?: CloudflareEnv,
 ) {
 	const saved = await getUserConfig(db, {
 		userId: owner.userId,
@@ -103,6 +106,23 @@ export async function materializeFilingReviews(
 				},
 			],
 		});
+		const prompt = attentionCopy("filingReviewPrompt", {
+			request: String(meta.text ?? "").slice(0, 16000),
+			reason: decision.reasoning,
+		});
+		const presentation = env
+			? await generateDecisionCard(
+					{ db: createDbClient(env.DB), env },
+					{
+						orgId: owner.organizationId,
+						targetId: owner.userId,
+						subject: decision.proposal,
+						prompt,
+						kind: "question",
+						metadata: { decisionDeck: decision },
+					},
+				).catch(() => null)
+			: null;
 		try {
 			await createWorkInteraction(db, {
 				id: event.id,
@@ -110,10 +130,7 @@ export async function materializeFilingReviews(
 				projectId: project.id,
 				kind: "question",
 				subject: decision.proposal,
-				prompt: attentionCopy("filingReviewPrompt", {
-					request: String(meta.text ?? "").slice(0, 16000),
-					reason: decision.reasoning,
-				}),
+				prompt,
 				creator: { type: "user", id: owner.userId },
 				targetType: "user",
 				targetId: owner.userId,
@@ -122,6 +139,7 @@ export async function materializeFilingReviews(
 					reason: ATTENTION_COPY.filingReviewReason,
 					filingEventId: event.id,
 					decisionDeck: decision,
+					...(presentation ? { cardPresentation: presentation } : {}),
 				}),
 				now: new Date().toISOString(),
 			});

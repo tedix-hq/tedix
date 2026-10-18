@@ -363,6 +363,7 @@
 		"./queries/work-items/interaction-deliveries": "./src/queries/work-items/interaction-deliveries.ts",
 		"./queries/work-items/interactions": "./src/queries/work-items/interactions.ts",
 		"./queries/work-items/reply-drafts": "./src/queries/work-items/reply-drafts.ts",
+		"./queries/work-items/card-presentation": "./src/queries/work-items/card-presentation.ts",
 		"./queries/work-items/reply-examples": "./src/queries/work-items/reply-examples.ts",
 		"./queries/work-items/resources": "./src/queries/work-items/resources.ts",
 		"./queries/work-items/budgets": "./src/queries/work-items/budgets.ts",

@@ -84,7 +84,7 @@ export async function processRequestFilingQueue(
 	);
 	const { materializeFilingReviews } =
 		await import("./decision-filing-reviews");
-	await materializeFilingReviews(db, owner);
+	await materializeFilingReviews(db, owner, env);
 	if (
 		(await listUnfiledRequests(db, owner)).length ||
 		(await pendingFilingLessons(db, owner)).length

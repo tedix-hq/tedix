@@ -661,3 +661,64 @@ describe("private workspace viewer", () => {
 		).resolves.toEqual({ userIds: [] });
 	});
 });
+
+it("keeps a fictional member's private Inbox and Social sources out of every other viewer's deck inputs", async () => {
+	const env = createEnv();
+	const owner = member(env, OWNER);
+	const other = member(env, OTHER);
+	const admin = member(env, ADMIN, {
+		permissions: ["os:read", "os:author", "os:admin", "settings:manage"],
+		userRole: "owner",
+	});
+	const spaces: string[] = [];
+	const outputs: string[] = [];
+	for (const name of ["Inbox", "Social"]) {
+		const { workspace } = await owner.workspaces.create({
+			name,
+			visibility: "private",
+		});
+		spaces.push(workspace.id);
+		const { output } = await owner.outputs.create({
+			kind: "sheet",
+			workspaceId: workspace.id,
+			title: `Cards ${name}`,
+			content: {
+				kind: "sheet",
+				columns: ["Source", "Why", "Useful", "Reason", "Done", "Result"],
+				rows: [
+					[
+						`${name} private proposal`,
+						`Only Robin decides this`,
+						true,
+						"",
+						false,
+						"",
+					],
+				],
+			},
+		});
+		outputs.push(output.id);
+	}
+	const owned = (await owner.workspaces.list({ limit: 50 })).items.map(
+		(w) => w.id,
+	);
+	for (const id of spaces) expect(owned).toContain(id);
+	for (const viewer of [other, admin]) {
+		const visible = (await viewer.workspaces.list({ limit: 50 })).items.map(
+			(w) => w.id,
+		);
+		expect(spaces.filter((id) => visible.includes(id))).toEqual([]);
+		for (const workspaceId of spaces) {
+			await expect(
+				viewer.workspaces.get({ workspaceId }),
+			).rejects.toMatchObject(notFound);
+			await expect(
+				viewer.outputs.list({ workspaceId, limit: 50 }),
+			).rejects.toMatchObject(notFound);
+		}
+		for (const outputId of outputs)
+			await expect(viewer.outputs.get({ outputId })).rejects.toMatchObject(
+				notFound,
+			);
+	}
+});
