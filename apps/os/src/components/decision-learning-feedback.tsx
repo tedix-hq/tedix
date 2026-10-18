@@ -50,7 +50,7 @@ export function DecisionLearningFeedback({
 					: copy.noted(subject);
 	return (
 		<div
-			className="flex flex-wrap items-center gap-x-3 gap-y-1 text-kumo-secondary"
+			className="fd-learning-feedback flex flex-wrap items-center gap-x-3 gap-y-1 text-kumo-secondary"
 			role="status"
 			aria-live="polite"
 		>
