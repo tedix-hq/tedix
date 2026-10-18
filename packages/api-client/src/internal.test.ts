@@ -129,6 +129,37 @@ describe("callRpc", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
+	it.each([
+		[401, "UNAUTHORIZED"],
+		[403, "FORBIDDEN"],
+		[500, "INTERNAL_SERVER_ERROR"],
+		[503, "SERVICE_UNAVAILABLE"],
+	] as const)(
+		"limits an opted-in retry to selected statuses: %s",
+		async (status, code) => {
+			const fetchMock = vi.fn(async () =>
+				Response.json(
+					{ json: { defined: false, code, message: "fictional failure" } },
+					{ status },
+				),
+			);
+			await expect(
+				callRpc(
+					"health/check",
+					{},
+					{
+						apiUrl: "https://api.example.test",
+						fetch: fetchMock as typeof fetch,
+						retry: 1,
+						retryDelayMs: 0,
+						retryStatusCodes: [503],
+					},
+				),
+			).rejects.toMatchObject({ status });
+			expect(fetchMock).toHaveBeenCalledTimes(status === 503 ? 2 : 1);
+		},
+	);
+
 	it("honors an already-aborted caller signal when a timeout is configured", async () => {
 		const caller = new AbortController();
 		caller.abort(new Error("caller stopped"));

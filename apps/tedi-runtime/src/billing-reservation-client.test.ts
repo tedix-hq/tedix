@@ -447,3 +447,90 @@ console.log("PASS unselected turns bill against their own run id");
 console.log(
 	"PASS EU credential isolation, approved regional route and actionable terminal denial",
 );
+
+// A lost admission reply must reuse the signed request, not reserve another inference.
+{
+	const requests: Record<string, unknown>[] = [];
+	const authorized = await authorizeInferenceEntitlement(
+		{
+			SECRETS_MASTER_KEY: "fixture-signing-secret",
+			TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					const envelope = (await request.json()) as {
+						json: Record<string, unknown>;
+					};
+					requests.push(envelope.json);
+					return requests.length === 1
+						? Response.json(
+								{
+									json: {
+										defined: false,
+										code: "SERVICE_UNAVAILABLE",
+										message: "Database temporarily unavailable",
+									},
+								},
+								{ status: 503 },
+							)
+						: Response.json({
+								json: {
+									...admission,
+									settlementMode: "managed",
+									reservationId: "fictional-reservation",
+									expiresAt: admission.sendBefore,
+									estimatedChargeMicros: 0,
+								},
+							});
+				},
+			} as Fetcher,
+		},
+		{
+			metadata: { orgId: "fictional-org", tediId: "fixture-tedi" },
+			beforeDispatch: fixtureOriginGuard("fictional-org"),
+			execution,
+			body: "{}",
+		},
+	);
+	assert.equal(requests.length, 2);
+	assert.deepEqual(requests[0], requests[1]);
+	assert.equal(typeof requests[0]?.idempotencyKey, "string");
+	assert.equal(authorized.receipt.reservationId, "fictional-reservation");
+}
+for (const [status, code, expectedCalls, cancel] of [
+	[503, "SERVICE_UNAVAILABLE", 2, false],
+	[403, "FORBIDDEN", 1, false],
+	[503, "SERVICE_UNAVAILABLE", 1, true],
+] as const) {
+	let calls = 0;
+	const controller = new AbortController();
+	await assert.rejects(
+		authorizeInferenceEntitlement(
+			{
+				SECRETS_MASTER_KEY: "fixture-signing-secret",
+				TEDIX_BILLING_SETTLEMENT_MODE: "managed",
+				API_SERVICE: {
+					fetch: async () => {
+						calls++;
+						if (cancel) controller.abort(new Error("fictional turn canceled"));
+						return Response.json(
+							{ json: { defined: false, code, message: "fictional failure" } },
+							{ status },
+						);
+					},
+				} as unknown as Fetcher,
+			},
+			{
+				metadata: { orgId: "fictional-org", tediId: "fixture-tedi" },
+				beforeDispatch: fixtureOriginGuard("fictional-org"),
+				execution,
+				body: "{}",
+				signal: controller.signal,
+			},
+		),
+		BillingAdmissionError,
+	);
+	assert.equal(calls, expectedCalls);
+}
+console.log(
+	"PASS: transient admission retry preserves its signed idempotency key, bounds failures and honors cancellation/denial",
+);

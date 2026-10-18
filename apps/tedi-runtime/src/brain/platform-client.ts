@@ -1039,11 +1039,14 @@ export class HttpPlatformClient implements PlatformClient {
 		data: WorkAttempt[];
 		nextCursor: { at: string; id: string } | null;
 	}> {
-		return this.rpc("workItems", "listAttempts", {
-			id: params.workItemId,
-			cursor: params.cursor,
-			limit: 100,
-		});
+		// Retry a transient read, never substitute cached execution authority.
+		return this.rpc(
+			"workItems",
+			"listAttempts",
+			{ id: params.workItemId, cursor: params.cursor, limit: 100 },
+			RPC_TIMEOUT_MS,
+			[503],
+		);
 	}
 
 	async heartbeatWorkAttempt(params: {
@@ -1252,6 +1255,7 @@ export class HttpPlatformClient implements PlatformClient {
 		procedure: string,
 		input: Record<string, unknown>,
 		timeoutMs = RPC_TIMEOUT_MS,
+		retryStatusCodes?: readonly number[],
 	): Promise<T> {
 		this.requestSignal?.throwIfAborted();
 		const headers = await this.getHeaders();
@@ -1276,6 +1280,7 @@ export class HttpPlatformClient implements PlatformClient {
 			headers,
 			timeoutMs,
 			signal: this.requestSignal,
+			...(retryStatusCodes ? { retry: 1, retryStatusCodes } : {}),
 		});
 	}
 
