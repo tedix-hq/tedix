@@ -45,7 +45,9 @@ export function FeedDeckDisclosure({
 		return (
 			<DecisionContextSection
 				title={label ?? title}
-				trigger={className !== "fd-action-details"}
+				trigger={
+					className !== "fd-action-details" && className !== "fd-deck-learning"
+				}
 			>
 				{children}
 			</DecisionContextSection>
