@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.12.1 — 2026-10-18
+
+### Patch Changes
+
+- Hooks read local authentication status directly, so a busy host can check board priorities without waiting for another CLI process to start.
+
 ## 0.12.0 — 2026-10-18
 
 ### Minor Changes
