@@ -44,7 +44,10 @@ import {
 	type BaseContext,
 } from "../orpc";
 import { verifiedActiveWorkActor } from "./work-items-principal";
-import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
+import {
+	observedLearningActor,
+	recordObservedLearningInteraction,
+} from "../../services/learning-interaction-recorder";
 import { startIncrementalLessons } from "../../services/lesson-incremental-dispatch";
 import {
 	outboundGmailCredential,
@@ -199,9 +202,39 @@ export const outboundRouter = os.router({
 		const accounts = await listConnectionInstances(context.db, {
 			userId: context.user!.sub!,
 		});
-		return accounts
-			.filter((account) => account.providerId === policy.gmailProviderId)
-			.map((account) => ({ id: account.id, label: account.label }));
+		return Promise.all(
+			accounts
+				.filter((account) => account.providerId === policy.gmailProviderId)
+				.map(async (account) => {
+					let label = account.label.includes("@")
+						? account.label
+						: "Gmail account";
+					try {
+						const token = await outboundGmailCredential(
+							context,
+							account.providerId,
+							account.id,
+							"read",
+						);
+						const response = await fetch(
+							"https://gmail.googleapis.com/gmail/v1/users/me/profile?fields=emailAddress",
+							{
+								headers: { Authorization: `Bearer ${token}` },
+								signal: AbortSignal.timeout(5000),
+							},
+						);
+						if (response.ok) {
+							const profile = (await response.json()) as {
+								emailAddress?: string;
+							};
+							if (profile.emailAddress) label = profile.emailAddress;
+						}
+					} catch {
+						// Keep the account selectable so import can show its actual failure.
+					}
+					return { id: account.id, label };
+				}),
+		);
 	}),
 	get: read.get.handler(({ input, context }) =>
 		record(context, input.workItemId),
@@ -702,20 +735,20 @@ export const outboundRouter = os.router({
 				})
 			)?.value,
 		);
+		const learning = await readDecisionLearning(
+			context.db,
+			requireOrgId(context),
+			observedLearningActor(context).actorId,
+		);
 		return {
 			approvals,
+			decisionCount: learning.receipts.length,
+			preferences: learning.preferences.map((p) => p.sentence),
 			sentExamples: sent.success ? sent.data.samples.length : 0,
 			sentStyleHints: sent.success
 				? summarizeOutboundStyle(sent.data.samples)
 				: [],
 			lessons: [
-				...(
-					await readDecisionLearning(
-						context.db,
-						requireOrgId(context),
-						actor.id,
-					)
-				).preferences.map((p) => p.sentence),
 				...approvals.map(
 					(approval) =>
 						approval.feedback ??

@@ -112,7 +112,13 @@ export function OutboundReviewCard({
 									<div className="grid gap-3">
 										<Select value={account} onValueChange={setAccount}>
 											<SelectTrigger aria-label="Your Gmail account">
-												<SelectValue placeholder="Choose your Gmail account" />
+												<SelectValue placeholder="Choose your Gmail account">
+													{
+														accounts.find(
+															(connection) => connection.id === account,
+														)?.label
+													}
+												</SelectValue>
 											</SelectTrigger>
 											<SelectContent>
 												{accounts.map((connection) => (
@@ -337,36 +343,47 @@ export function OutboundStyleProfile() {
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>What we learned from your last 10 approvals</CardTitle>
-				<CardDescription>
-					Your own choices are the style examples used by your reviewer.
-				</CardDescription>
+				<CardTitle>{OS_COPY.outboundProfile.title}</CardTitle>
+				<CardDescription>{OS_COPY.outboundProfile.description}</CardDescription>
 			</CardHeader>
 			<CardContent className="grid gap-3">
 				{query.isError ? (
 					<Text role="body">{errorMessage(query.error)}</Text>
-				) : query.data?.approvals.length ? (
-					query.data.approvals.map((approval, index) => (
-						<details key={approval.id}>
-							<summary>{query.data.lessons[index]}</summary>
-							<Text as="p" role="body">
-								{approval.after}
-							</Text>
-							{approval.before !== approval.after ? (
-								<Text as="p" role="body" tone="secondary">
-									Before: {approval.before}
-								</Text>
-							) : null}
-						</details>
-					))
+				) : query.isPending ? (
+					<Text role="body">{OS_COPY.outboundProfile.loading}</Text>
 				) : (
-					<Text role="body">
-						No approvals yet. Your first approval or edit starts your profile.
-					</Text>
+					<>
+						{query.data?.decisionCount ? (
+							<Text role="body">
+								{OS_COPY.outboundProfile.decisions(query.data.decisionCount)}
+							</Text>
+						) : null}
+						{query.data?.preferences.map((sentence) => (
+							<Text key={sentence} role="body">
+								{sentence}
+							</Text>
+						))}
+						{query.data?.approvals.length ? (
+							query.data.approvals.map((approval, index) => (
+								<details key={approval.id}>
+									<summary>{query.data.lessons[index]}</summary>
+									<Text as="p" role="body">
+										{approval.after}
+									</Text>
+									{approval.before !== approval.after ? (
+										<Text as="p" role="body" tone="secondary">
+											Before: {approval.before}
+										</Text>
+									) : null}
+								</details>
+							))
+						) : !query.data?.decisionCount ? (
+							<Text role="body">{OS_COPY.outboundProfile.empty}</Text>
+						) : null}
+					</>
 				)}
 				<Text role="body" tone="secondary">
-					{query.data?.sentExamples ?? 0} sent-mail examples. You can import the
-					plain text of your last 10 sent emails to teach your voice.
+					{OS_COPY.outboundProfile.examples(query.data?.sentExamples ?? 0)}
 				</Text>
 				{query.data?.sentStyleHints.map((hint) => (
 					<Text key={hint} role="body" tone="secondary">
@@ -375,7 +392,12 @@ export function OutboundStyleProfile() {
 				))}
 				<Select value={account} onValueChange={setAccount}>
 					<SelectTrigger aria-label="Gmail account for style examples">
-						<SelectValue placeholder="Choose your Gmail account" />
+						<SelectValue placeholder="Choose your Gmail account">
+							{
+								accounts.data?.find((connection) => connection.id === account)
+									?.label
+							}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						{accounts.data?.map((connection) => (
@@ -390,13 +412,15 @@ export function OutboundStyleProfile() {
 					disabled={!account || learn.isPending}
 					onClick={() => learn.mutate(account!)}
 				>
-					Learn from my last 10 sent emails
+					{learn.isPending
+						? OS_COPY.outboundProfile.learning
+						: OS_COPY.outboundProfile.learn}
 				</Button>
 				{learn.isError ? (
 					<Text role="body">{errorMessage(learn.error)}</Text>
 				) : null}
 				<Link href="/account/connections">
-					Manage read consent in Connections
+					{OS_COPY.outboundProfile.connections}
 				</Link>
 			</CardContent>
 		</Card>

@@ -85,6 +85,8 @@ export const outboundContract = oc.errors(baseErrors).router({
 						at: z.string(),
 					}),
 				),
+				decisionCount: z.number().int().nonnegative(),
+				preferences: z.array(z.string()),
 				lessons: z.array(z.string()),
 				sentExamples: z.number(),
 				sentStyleHints: z.array(z.string()),

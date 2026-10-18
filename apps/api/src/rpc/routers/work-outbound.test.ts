@@ -4,6 +4,7 @@ import { createDbClient } from "@tedix/db/client";
 import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
+import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import {
@@ -75,6 +76,7 @@ function fixture(overrides: Partial<OutboundState> = {}) {
 			organizationMembers,
 			tedis,
 			userConfigs,
+			memoryFacts,
 			learningInteractionEvents,
 			workItems,
 			workEvents,
@@ -440,4 +442,107 @@ describe("outbound authorization and delivery", () => {
 		});
 		expect(reviewed.outbound.status).toBe("waiting_on_you");
 	});
+});
+
+it("shows only the current person's Deck learning without requiring Outbound approvals", async () => {
+	const { sqlite, client } = fixture();
+	sqlite
+		.prepare(
+			"UPDATE organizations SET metadata=json_set(metadata, '$.decisionLearning', json(?)) WHERE id=?",
+		)
+		.run(JSON.stringify({ enabled: true }), ORG);
+	for (const person of ["rosa", "lina"])
+		sqlite
+			.prepare(
+				"INSERT INTO learning_interaction_events(id,organization_id,actor_type,actor_id,client_event_id,event_kind,scope_kind,scope_id,surface,occurred_at,metadata,created_at) VALUES(?,?,'user',?,?,'accepted','personal',?,'decision_deck',?,?,CURRENT_TIMESTAMP)",
+			)
+			.run(
+				`deck-${person}`,
+				ORG,
+				`${person}-sub`,
+				`deck-${person}`,
+				`${person}-sub`,
+				new Date().toISOString(),
+				JSON.stringify({
+					decisionChoice: "approve",
+					decisionClass: "outbound",
+				}),
+			);
+	const profile = await client().profile({});
+	expect(profile.approvals).toEqual([]);
+	expect(profile.decisionCount).toBe(1);
+	expect((await client("lina").profile({})).decisionCount).toBe(1);
+});
+
+it("imports sent mail into only the requesting person's private profile", async () => {
+	const { client } = fixture();
+	const request = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(async () => Response.json({ messages: [] }));
+	request
+		.mockResolvedValueOnce(
+			Response.json({ messages: [{ id: "fictional-mail" }] }),
+		)
+		.mockResolvedValueOnce(
+			Response.json({
+				payload: {
+					mimeType: "text/plain",
+					body: { data: btoa("Hi Lina, thanks!\n\nRosa") },
+				},
+			}),
+		);
+	try {
+		expect(
+			await client().importSentStyle({ connectionInstanceId: ACCOUNT }),
+		).toEqual({ imported: 1 });
+		expect(gmail.credential).toHaveBeenLastCalledWith(
+			expect.anything(),
+			"fictional-gmail",
+			ACCOUNT,
+			"read",
+		);
+		const profile = await client().profile({});
+		expect(profile.sentExamples).toBe(1);
+		expect(profile.sentStyleHints).toHaveLength(2);
+		expect(profile.sentStyleHints.join(" ")).not.toContain("Hi Lina");
+		expect((await client("lina").profile({})).sentExamples).toBe(0);
+	} finally {
+		request.mockRestore();
+	}
+});
+
+it("labels the owner's selected Gmail account with its verified address", async () => {
+	const { sqlite, client } = fixture();
+	sqlite.exec(
+		"CREATE TABLE connection_instances (id TEXT PRIMARY KEY, owner_user_id TEXT, organization_id TEXT, provider_id TEXT, label TEXT, token_ids TEXT, token_sub TEXT, created_at TEXT, updated_at TEXT)",
+	);
+	for (const user of ["rosa", "lina"])
+		sqlite
+			.prepare(
+				"INSERT INTO connection_instances(id,owner_user_id,provider_id,label,token_ids,created_at,updated_at) VALUES(?,?,'fictional-gmail',?,'[]',?,?)",
+			)
+			.run(
+				user === "rosa" ? ACCOUNT : "other-account",
+				`${user}-sub`,
+				"Gmail (default)",
+				new Date().toISOString(),
+				new Date().toISOString(),
+			);
+	const request = vi
+		.spyOn(globalThis, "fetch")
+		.mockResolvedValue(Response.json({ emailAddress: "rosa@example.test" }));
+	try {
+		expect(await client().accounts({})).toEqual([
+			{ id: ACCOUNT, label: "rosa@example.test" },
+		]);
+		expect(request).toHaveBeenCalledTimes(1);
+		expect(gmail.credential).toHaveBeenLastCalledWith(
+			expect.anything(),
+			"fictional-gmail",
+			ACCOUNT,
+			"read",
+		);
+	} finally {
+		request.mockRestore();
+	}
 });

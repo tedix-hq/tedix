@@ -1,6 +1,8 @@
 import { readOutboundReply } from "./outbound-gmail";
 import { describe, expect, it, vi, afterEach } from "vite-plus/test";
 import {
+	outboundGmailCredential,
+	readSentStyleExamples,
 	outboundMime,
 	sendOutboundGmail,
 	sentStyleText,
@@ -100,4 +102,82 @@ it("learns from an actual incoming reply, excluding the owner's follow-ups and d
 	vi.stubGlobal("fetch", fetcher);
 	expect(await readOutboundReply("fictional-token", "sent-one")).toBe("reply");
 	expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+const connections = vi.hoisted(() => ({ resolve: vi.fn() }));
+vi.mock("../rpc/routers/connections/policy-resolution", () => ({
+	fetchNamedConnection: connections.resolve,
+}));
+vi.mock("@tedix/db/queries/connection-providers", () => ({
+	getConnectionProviderByDescopeAppId: async () => ({ id: "google-gmail" }),
+}));
+
+it("uses the shared owner account resolver and probes read access without compose consent", async () => {
+	connections.resolve.mockResolvedValue({
+		accessToken: "fictional-read-token",
+		scopes: [],
+	});
+	const context = {
+		authType: "user",
+		user: { sub: "rosa-sub" },
+	} as unknown as import("../rpc/orpc").BaseContext;
+	expect(
+		await outboundGmailCredential(context, "gmail", "rosa-account", "read"),
+	).toBe("fictional-read-token");
+	expect(connections.resolve).toHaveBeenCalledWith(
+		context,
+		{ userId: "rosa-sub" },
+		"gmail",
+		"rosa-account",
+	);
+	await expect(
+		outboundGmailCredential(context, "gmail", "rosa-account"),
+	).rejects.toThrow("compose consent");
+	await expect(
+		outboundGmailCredential(
+			{ ...context, authType: "tedi" },
+			"gmail",
+			"rosa-account",
+			"read",
+		),
+	).rejects.toThrow("signed-in account owner");
+});
+
+it("reads at most ten plain-text sent messages with GET requests only", async () => {
+	const request = vi.fn(async (url: string) =>
+		Response.json(
+			url.includes("maxResults")
+				? {
+						messages: Array.from({ length: 11 }, (_, n) => ({
+							id: `mail-${n}`,
+						})),
+					}
+				: {
+						payload: {
+							mimeType: "text/plain",
+							body: { data: btoa("Hi Lina, thanks! Rosa") },
+						},
+					},
+		),
+	);
+	vi.stubGlobal("fetch", request);
+	expect(await readSentStyleExamples("fictional-read-token")).toHaveLength(10);
+	expect(request).toHaveBeenCalledTimes(11);
+	for (const call of request.mock.calls)
+		expect(call[0]).toContain("/users/me/messages");
+});
+
+it.each([
+	[401, "expired or revoked"],
+	[403, "Google denied"],
+	[429, "Try again later"],
+	[500, "Try again later"],
+])("explains a failed Gmail read probe (%i)", async (status, reason) => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => new Response(null, { status })),
+	);
+	await expect(readSentStyleExamples("fictional-read-token")).rejects.toThrow(
+		reason,
+	);
 });

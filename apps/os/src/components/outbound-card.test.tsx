@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { OutboundRecord } from "@tedix/api-contract/schemas/outbound";
 import { LOCAL_OUTBOUND } from "../../dev/outbound-fixture";
 import { osQuery, tediRosterQueryOptions } from "@/lib/os-query-options";
-import { OutboundReviewCard } from "./outbound-card";
+import { OutboundStyleProfile, OutboundReviewCard } from "./outbound-card";
 
 function card(record = LOCAL_OUTBOUND) {
 	const client = new QueryClient({
@@ -98,13 +98,20 @@ describe("outbound human review card", () => {
 	});
 });
 
-const { actOutbound } = vi.hoisted(() => ({ actOutbound: vi.fn() }));
+const { actOutbound, importSentStyle } = vi.hoisted(() => ({
+	actOutbound: vi.fn(),
+	importSentStyle: vi.fn(),
+}));
 vi.mock("@/components/kumo/toast", () => ({ toast: { success: vi.fn() } }));
 vi.mock("@/lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/api")>();
 	const outbound = new Proxy(actual.osApi.workInteractions.outbound, {
 		get: (target, key) =>
-			key === "act" ? actOutbound : Reflect.get(target, key),
+			key === "act"
+				? actOutbound
+				: key === "importSentStyle"
+					? importSentStyle
+					: Reflect.get(target, key),
 	});
 	const interactions = new Proxy(actual.osApi.workInteractions, {
 		get: (target, key) =>
@@ -249,5 +256,74 @@ describe("outbound decisions through the shared card", () => {
 				feedback: "Keep this to two short paragraphs.",
 			}),
 		);
+	});
+});
+
+it("shows Deck learning, private style hints and the selected Gmail address instead of its id", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	client.setQueryData(
+		osQuery.workInteractions.outbound.accounts.queryOptions({ input: {} })
+			.queryKey,
+		[{ id: connectionId, label: "rosa@example.test" }],
+	);
+	client.setQueryData(
+		osQuery.workInteractions.outbound.profile.queryOptions({ input: {} })
+			.queryKey,
+		{
+			approvals: [],
+			lessons: [],
+			preferences: ["Use short replies."],
+			decisionCount: 1,
+			sentExamples: 10,
+			sentStyleHints: [
+				"Observed across 10 sent emails: about 40 words and 2 paragraphs per email.",
+			],
+		},
+	);
+	vi.spyOn(client, "invalidateQueries").mockResolvedValue(undefined);
+	importSentStyle.mockResolvedValue({ imported: 10 });
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root!.render(
+			<QueryClientProvider client={client}>
+				<OutboundStyleProfile />
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.textContent).toContain(
+		"Your profile includes 1 recent decision.",
+	);
+	expect(host.textContent).toContain("Use short replies.");
+	expect(host.textContent).toContain(
+		"10 sent-mail examples are saved privately for you.",
+	);
+	expect(host.textContent).not.toContain("No approvals yet");
+	await act(async () =>
+		document
+			.querySelector<HTMLButtonElement>(
+				'[aria-label="Gmail account for style examples"]',
+			)!
+			.click(),
+	);
+	const option = [
+		...document.querySelectorAll<HTMLElement>('[role="option"]'),
+	].find((el) => el.textContent?.includes("rosa@example.test"));
+	expect(option).toBeDefined();
+	await act(async () => option!.click());
+	const trigger = document.querySelector(
+		'[aria-label="Gmail account for style examples"]',
+	)!;
+	expect(trigger.textContent).toContain("rosa@example.test");
+	expect(trigger.textContent).not.toContain(connectionId);
+	await pressButton("Learn from my last 10 sent emails");
+	expect(importSentStyle).toHaveBeenCalledWith({
+		connectionInstanceId: connectionId,
+	});
+	expect(client.invalidateQueries).toHaveBeenCalledWith({
+		queryKey: osQuery.workInteractions.outbound.key({ type: "query" }),
 	});
 });
