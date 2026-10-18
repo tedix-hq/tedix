@@ -202,6 +202,9 @@ const INTERNAL_TIMEOUT_FLOORS_MS: Record<string, number> = {
 	// bounded at 60s) before it returns the workflow receipt. Under 15s the
 	// caller gave up mid-capture and its retries started duplicate captures.
 	"catalog/importSnapshot": 150_000,
+	// A synchronous filing pass allows 24s for classification, then fit scoring
+	// and persistence. The generic deadline can lose its mutation receipt.
+	"workAgentSessions/classifyRequests": 45_000,
 	"tedis/getLogs": 45_000,
 	"tedis/syncStorage": 125_000,
 	"tedis/wake": 120_000,
