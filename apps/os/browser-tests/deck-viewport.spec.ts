@@ -40,6 +40,7 @@ try {
 			[1512, 794],
 			[1920, 1080],
 			[390, 844],
+			[312, 675], // 390 × 844 in a browser at 125% zoom.
 		]) {
 			await page.setViewportSize({ width: width!, height: height! });
 			await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
@@ -80,10 +81,15 @@ try {
 					const boundary = footer.getBoundingClientRect();
 					const bodyRect = body.getBoundingClientRect();
 					const failures: string[] = [];
+					if (boundary.bottom > card.getBoundingClientRect().bottom + 1)
+						failures.push("footer outside card");
 					if (bodyRect.bottom > boundary.top + 1)
 						failures.push("body overlaps footer");
 					if (
-						parseFloat(getComputedStyle(body).paddingBottom) < boundary.height
+						parseFloat(
+							getComputedStyle(card.querySelector(".fd-card-body")!)
+								.paddingBottom,
+						) < boundary.height
 					)
 						failures.push("missing footer clearance");
 					if (
@@ -155,7 +161,7 @@ try {
 				});
 				assert(result.actions.length === 3);
 				assert(
-					result.bodyHeight >= 80,
+					result.bodyHeight >= (height! < 700 ? 32 : 80),
 					`Proposal body collapsed: ${JSON.stringify(result)}`,
 				);
 				for (const rect of result.actions)

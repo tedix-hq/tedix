@@ -323,22 +323,19 @@
 	text-wrap: pretty;
 	overflow-wrap: anywhere;
 }
-.feed-deck .fd-decision [data-slot="card-content"] {
+.feed-deck .fd-decision .fd-card-body {
 	gap: 0.65rem;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.feed-deck .fd-decision [data-slot="card-content"] > * {
+.feed-deck .fd-decision .fd-card-body > * {
 	grid-column: 1 / -1;
 }
-.feed-deck .fd-decision [data-slot="card-content"] > .fd-feedback,
-.feed-deck .fd-decision [data-slot="card-content"] > .fd-why {
+.feed-deck .fd-decision .fd-card-body > .fd-feedback,
+.feed-deck .fd-decision .fd-card-body > .fd-why {
 	grid-column: auto;
 }
-.feed-deck .fd-decision [data-slot="card-content"] > .fd-feedback:has(textarea),
-.feed-deck
-	.fd-decision
-	[data-slot="card-content"]
-	> .fd-why:has([aria-expanded="true"]) {
+.feed-deck .fd-decision .fd-card-body > .fd-feedback:has(textarea),
+.feed-deck .fd-decision .fd-card-body > .fd-why:has([aria-expanded="true"]) {
 	grid-column: 1 / -1;
 }
 .fd-why > button {
@@ -771,10 +768,12 @@
 	min-height: 0;
 	overflow: auto;
 	overscroll-behavior: contain;
-	padding-bottom: calc(var(--fd-footer-height, 4rem) + 1rem);
 	scroll-padding-bottom: calc(var(--fd-footer-height, 4rem) + 1rem);
 	align-content: start;
 	scrollbar-width: thin;
+}
+.fd-deck-current .fd-card-body {
+	padding-bottom: calc(var(--fd-footer-height, 4rem) + 1rem);
 }
 .fd-deck-current [data-slot="card-footer"] {
 	position: relative;
@@ -837,5 +836,34 @@
 		[data-decision-actions]
 		> button[data-decision-intent="approve"] {
 		flex-basis: 100%;
+	}
+}
+
+@media (max-width: 640px) and (max-height: 700px) {
+	.fd-deck-current [data-slot="card-description"] time {
+		display: none;
+	}
+	.fd-deck {
+		--fd-space: 0.5rem;
+		--fd-card-header-gap: 0.25rem;
+	}
+	.fd-deck-current .fd-card {
+		gap: 0.25rem;
+	}
+	.fd-deck-current .fd-avatar[data-slot="avatar"] {
+		width: 1.5rem;
+		height: 1.5rem;
+	}
+	.fd-deck-current [data-decision-actions] {
+		gap: 0.25rem;
+	}
+	.fd-deck-current [data-decision-actions] > button {
+		padding-inline: 0.4rem;
+		font-size: 0.8125rem;
+	}
+	.fd-deck-current
+		[data-decision-actions]
+		> button[data-decision-intent="approve"] {
+		flex-basis: auto;
 	}
 }
