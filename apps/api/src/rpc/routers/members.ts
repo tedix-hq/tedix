@@ -304,6 +304,7 @@ function formatMemberResponse(m: {
 	id: string;
 	organizationId: string;
 	descopeUserId: string;
+	userId?: string | null;
 	email: string;
 	name: string | null;
 	avatarUrl: string | null;
@@ -321,6 +322,7 @@ function formatMemberResponse(m: {
 		id: m.id,
 		organizationId: m.organizationId,
 		descopeUserId: m.descopeUserId,
+		userId: m.userId ?? null,
 		email: m.email,
 		name: m.name,
 		avatarUrl: m.avatarUrl,

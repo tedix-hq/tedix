@@ -292,3 +292,37 @@ it("keeps opaque failure diagnostics out of previews and uses structured harness
 	expect(updated.sentence).toBe("The supplier report is ready.");
 	expect(updated.source).toBe(`/work/items/${other}`);
 });
+
+it("keeps a personal correction's recorded author for their photo lookup", async () => {
+	const { correctionFeedItems } = await import("./activity-feed");
+	const { LearningInteractionEventSchema } =
+		await import("@tedix/api-contract/schemas/learning-feedback");
+	const event = LearningInteractionEventSchema.parse({
+		id: "pine-edit",
+		organizationId: "fictional-pine",
+		actorType: "user",
+		actorId: "maple-owner",
+		tediId: null,
+		clientEventId: "pine-correction",
+		signalClass: "quality",
+		eventKind: "edited",
+		scopeKind: "personal",
+		scopeId: "maple-owner",
+		issueKey: null,
+		surface: "activity_feed",
+		targetType: "work_interaction",
+		targetId: project,
+		threadId: null,
+		runId: null,
+		metadata: {
+			answer: "Use the shorter subject.",
+			source: `/work/items/${project}`,
+		},
+		occurredAt: now.toISOString(),
+		createdAt: now.toISOString(),
+	});
+	expect(correctionFeedItems([event])[0]?.actorIdentity).toEqual({
+		type: "user",
+		id: "maple-owner",
+	});
+});

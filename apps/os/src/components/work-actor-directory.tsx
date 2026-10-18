@@ -43,11 +43,14 @@ export function WorkActorDirectory({ children }: { children: ReactNode }) {
 				name: tedi.displayName || tedi.name,
 				image: tedi.avatar,
 			});
-		for (const member of members.data?.data ?? [])
-			rows.set(`user:${member.descopeUserId}`, {
+		for (const member of members.data?.data ?? []) {
+			const memberProfile = {
 				name: member.name || member.email,
 				image: member.avatarUrl,
-			});
+			};
+			rows.set(`user:${member.descopeUserId}`, memberProfile);
+			if (member.userId) rows.set(`user:${member.userId}`, memberProfile);
+		}
 		if (profile.data)
 			rows.set(`user:${profile.data.id}`, {
 				name: profile.data.name || profile.data.email,
