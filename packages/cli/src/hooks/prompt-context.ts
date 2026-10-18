@@ -291,6 +291,12 @@ export function gatewayCode(
 				? { sessionId: lessons.sessionId }
 				: {}),
 		};
+	if (
+		isObject(binding.nextWork) &&
+		UUID.test(String(binding.nextWork.projectId)) &&
+		["codex", "claude-code"].includes(binding.nextWork.harness)
+	)
+		target.nextWork = binding.nextWork;
 	// Every source reads concurrently: the call lasts as long as its slowest read.
 	return String.raw`async () => {
  const t = TARGET;
@@ -332,6 +338,15 @@ export function gatewayCode(
    return {id:q.id,projectId:q.projectId,harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,kind:q.kind,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt,verifiedCompletion,verificationUnavailable};
   }));
   return {complete:r.data.length < REQUEST_READ_LIMIT,data:data};
+ });
+ if (t.nextWork) pending.nextWork = each(async () => {
+  const r = await work.list_work_items({projectId:t.nextWork.projectId,disposition:'accepted',limit:50});
+  const candidates = r.data.filter(w => w.disposition === 'accepted' && w.projectId === t.nextWork.projectId && w.id !== t.nextWork.selected && (!w.metadata?.executor || w.metadata.executor === t.nextWork.harness)).slice(0,8);
+  const checked = await Promise.all(candidates.map(async w => {
+   const ready = await each(() => work.get_work_item_readiness({id:w.id}));
+   return ready.workItemId === w.id && ready.ready === true ? {id:w.id,title:w.title.slice(0,160),projectId:w.projectId,organizationId:w.orgId} : null;
+  }));
+  return {data:checked.filter(Boolean).slice(0,3)};
  });
  if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
  const keys = Object.keys(pending);
@@ -681,6 +696,24 @@ function compose(
 				`- ${task.id.slice(0, 8)} · ${age(task.createdAt, now)} · via ${task.via}${task.to ? ` → ${JSON.stringify(task.to.slice(0, 40))}` : ""} · ${JSON.stringify(task.title.slice(0, 80))}`,
 			);
 	}
+	if (isObject(data.nextWork) && Array.isArray(data.nextWork.data)) {
+		for (const item of data.nextWork.data.slice(0, 3)) {
+			if (
+				!isObject(item) ||
+				!UUID.test(String(item.id)) ||
+				item.projectId !== binding.projectId ||
+				item.id === binding.workItemId ||
+				typeof item.title !== "string" ||
+				(binding.credentialOrganizationId &&
+					item.organizationId !== binding.credentialOrganizationId) ||
+				(documentOrg && item.organizationId !== documentOrg)
+			)
+				continue;
+			lines.push(
+				`Next for you: ${JSON.stringify(item.title.replace(/[\r\n]/g, " ").slice(0, 160))} (${item.id.slice(0, 8)}) — \`tedix work start ${item.id}\``,
+			);
+		}
+	}
 
 	// Beside other context, an empty lessons read is named so it cannot pass for a
 	// hook that never asked; alone it stays silent like any empty turn.
@@ -857,7 +890,17 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		};
 		// Cache only the approved scope catalog; selected ids are revalidated live.
 		const lessonCacheKey = `${principal}|approved-v2|${lessons.harness}|${lessons.repo ?? "outside"}`;
-		const cached = { lessons: readCache(env, "lessons", lessonCacheKey, now) };
+		const nextWorkKey = `${principal}|${binding.mcpUrl}|${binding.projectId}|${harness}|${session ?? ""}|${binding.workItemId ?? ""}`;
+		const cached = {
+			lessons: readCache(env, "lessons", lessonCacheKey, now),
+			nextWork: readCache(env, "next-work", nextWorkKey, now),
+		};
+		if (!outside && session && !cached.nextWork?.fresh)
+			binding.nextWork = {
+				projectId: binding.projectId,
+				harness,
+				selected: binding.workItemId,
+			};
 		// Reading this chat's existing rows does not opt the organization into recording.
 		const ledger = Boolean(session) && source === "stored-login";
 		if (ledger)
@@ -876,6 +919,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			binding.workItemId ? "work" : undefined,
 			delegations.length ? "delegations" : undefined,
 			ledger ? "requests" : undefined,
+			binding.nextWork ? "nextWork" : undefined,
 		].filter((name): name is string => name !== undefined);
 		const gateway = async (): Promise<JsonObject> => {
 			if (!liveSources.length) return {};
@@ -922,6 +966,9 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			gateway(),
 		]);
 		if (cached.lessons?.fresh) data.lessons = cached.lessons.value;
+		if (cached.nextWork?.fresh) data.nextWork = cached.nextWork.value;
+		else if (isObject(data.nextWork) && Array.isArray(data.nextWork.data))
+			writeCache(env, "next-work", nextWorkKey, data.nextWork, now);
 		if (isObject(data.lessons) && data.lessons.unavailable === true) {
 			await new Promise((resolve) => setTimeout(resolve, 150));
 			try {

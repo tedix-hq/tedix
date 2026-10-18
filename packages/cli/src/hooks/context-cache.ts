@@ -7,7 +7,7 @@ import { isObject, type JsonObject } from "./hook-io";
 
 /** How long a cached read stands in for the live one. */
 export const CACHE_TTL_MS = 10 * 60_000;
-export type CacheKind = "organization" | "lessons";
+export type CacheKind = "organization" | "lessons" | "next-work";
 
 export interface CacheEntry {
 	value: JsonObject;
@@ -44,7 +44,8 @@ export function readCache(
 			return undefined;
 		// Clock skew counts as age zero.
 		const ageMs = Math.max(0, now.getTime() - Date.parse(parsed.writtenAt));
-		if (!Number.isFinite(ageMs) || ageMs > CACHE_TTL_MS) return undefined;
+		const ttl = kind === "next-work" ? 30_000 : CACHE_TTL_MS;
+		if (!Number.isFinite(ageMs) || ageMs > ttl) return undefined;
 		return { value: parsed.value, ageMs, fresh: true };
 	} catch {
 		return undefined;

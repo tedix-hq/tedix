@@ -33,7 +33,11 @@ and durable answer settlement.
   plugin ships no scripts. `scripts/package-plugin.ts` builds its review ZIPs.
   `prompt-context` runs its gateway, organization and answer reads together
   and checks preferences and lessons each turn, injecting their text once per
-  session and again only on change. Unchanged sources stay silent. Local
+  session and again only on change. Unchanged sources stay silent.
+  Each turn also shows up to three ready Work items assigned to this harness
+  or without an executor in the bound project, with `tedix work start` commands.
+  These suggestions use a 30-second cache; unavailable or expired reads are
+  omitted. A suggestion still needs fresh admission before execution. Local
   session receipts contain only hashes; clear/compact resets delivery. Updated
   plugin hooks opt into a 10 KB allowance for initial context; older hook
   definitions retain 6.4 KB. A source trimmed to fit is retried on the next turn.
