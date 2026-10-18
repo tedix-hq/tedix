@@ -20,6 +20,9 @@ vi.mock("@/lib/use-os-identity", () => ({
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: {
+		agentTurnTriage: {
+			listLessons: vi.fn().mockResolvedValue({ lessons: [] }),
+		},
 		userProfile: {
 			getMine: vi.fn().mockResolvedValue({ id: "fictional-acme-user" }),
 		},

@@ -55,6 +55,19 @@ and durable answer settlement.
   Requests are read for this session and project in one snapshot. Completed
   Work explicitly linked in saved request evidence is checked before injection;
   turn reflection settles it. Human approval asks remain open for the user.
+  With decision capture enabled, `capture-reply` extracts short corrections and
+  standing preferences from the user's own text, then classifies the extracted
+  clauses through the local Claude or Codex CLI with no tools or project context. Only
+  a candidate (at most 300 characters), quote and source metadata go to
+  `record_session_feedback`. The private outbox retries classification and
+  upload failures at the next capture boundary. Owner feedback auto-confirms;
+  project notes await review. Each prompt refreshes the approved lesson catalog
+  so feedback can reach another harness on its next turn. Host hook dispatch
+  must be enabled; installation alone is not delivery proof.
+  `tedix learn import-memory --directory <path>` previews feedback/project notes;
+  `--date YYYY-MM-DD --type feedback --apply` imports only that selection,
+  extracting from the full note locally and retaining the file path and hash.
+  Reference and stale notes are excluded. Full import is always explicit.
   With decision capture enabled, `capture-stop` triages the redacted turn
   into `metadata.triage`. Unavailable triage keeps the capture on bound Work
   or in the originating chat and creates no human request. The hook

@@ -253,6 +253,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	backfill_lesson_triggers: "mcp:memory",
 	record_lesson_incident: "mcp:work",
 	// The same lessons as one notebook, newest first, with their sources.
+	record_session_feedback: "mcp:messaging",
 	list_agent_session_lessons: "mcp:messaging",
 	// Whether those lessons reduce repeated corrections (delivered vs holdout).
 	get_lesson_effectiveness: "mcp:messaging",

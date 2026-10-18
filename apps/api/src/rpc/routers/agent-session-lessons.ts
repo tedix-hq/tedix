@@ -439,6 +439,12 @@ export async function listNotebookLessons(
 				addedAt: row.createdAt ?? row.updatedAt,
 				learnedFrom: lessonLearnedFrom(row.metadata, viewerUserId),
 				evidence: evidenceOfLesson(row.metadata),
+				fromCallerFeedback:
+					row.metadata?.learningFeed != null &&
+					typeof row.metadata.learningFeed === "object" &&
+					!Array.isArray(row.metadata.learningFeed) &&
+					row.metadata.learningFeed.ownerUserId === viewerUserId &&
+					row.metadata.learningFeed.producer === "session-feedback",
 			})),
 	};
 }

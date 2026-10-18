@@ -494,6 +494,7 @@ export async function getAgentSessionRequest(
 }
 
 export interface AgentSessionRequestUpdate {
+	text?: string;
 	id: string;
 	status: AgentSessionRequestStatus;
 	evidence: string | null;
@@ -635,6 +636,7 @@ export async function updateAgentSessionRequests(
 		db
 			.update(agentSessionRequests)
 			.set({
+				...(update.text !== undefined ? { text: update.text } : {}),
 				statusChangedAt: sql`CASE WHEN ${agentSessionRequests.status} = ${update.status} THEN ${agentSessionRequests.statusChangedAt} ELSE ${params.now} END`,
 				status: update.status,
 				evidence: update.evidence

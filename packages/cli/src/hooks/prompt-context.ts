@@ -886,11 +886,9 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			topics: [],
 			catalog: true,
 		};
-		// Cache only the approved scope catalog; selected ids are revalidated live.
-		const lessonCacheKey = `${principal}|approved-v2|${lessons.harness}|${lessons.repo ?? "outside"}`;
+		// Refresh the catalog each turn so feedback from another harness arrives next turn.
 		const nextWorkKey = `${principal}|${binding.mcpUrl}|${binding.projectId}|${harness}|${session ?? ""}|${binding.workItemId ?? ""}`;
 		const cached = {
-			lessons: readCache(env, "lessons", lessonCacheKey, now),
 			nextWork: readCache(env, "next-work", nextWorkKey, now),
 		};
 		if (!outside && session && !cached.nextWork?.fresh)
@@ -913,7 +911,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		const liveSources = [
 			binding.contextOutputId ? "shared" : undefined,
 			binding.preferencesOutputId ? "preferences" : undefined,
-			cached.lessons?.fresh ? undefined : "lessons",
+			"lessons",
 			binding.workItemId ? "work" : undefined,
 			delegations.length ? "delegations" : undefined,
 			ledger ? "requests" : undefined,
@@ -929,7 +927,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 							"code",
 							gatewayCode(
 								{ ...binding, nextWork: undefined },
-								cached.lessons?.fresh ? undefined : lessons,
+								lessons,
 								delegations.map((d) => d.id),
 								ledger,
 							),
@@ -979,7 +977,6 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			gateway(),
 			priorities(),
 		]);
-		if (cached.lessons?.fresh) data.lessons = cached.lessons.value;
 		if (nextWork) data.nextWork = nextWork;
 		if (cached.nextWork?.fresh) data.nextWork = cached.nextWork.value;
 		else if (isObject(data.nextWork) && Array.isArray(data.nextWork.data))
@@ -996,12 +993,6 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				/* Keep the original unavailable result; never attempt a third read. */
 			}
 		}
-		if (
-			!cached.lessons?.fresh &&
-			isObject(data.lessons) &&
-			data.lessons.unavailable !== true
-		)
-			writeCache(env, "lessons", lessonCacheKey, data.lessons, now);
 		let selection: LessonSelection | undefined;
 		if (isObject(data.lessons) && Array.isArray(data.lessons.lessons)) {
 			selection = await selectPromptLessons(

@@ -1,3 +1,4 @@
+import { FeedbackNotebook } from "./learned-today";
 import { MemoryObservations } from "./memory-observations";
 import { BookOpen, Brain, CaretRight } from "@phosphor-icons/react";
 import type { RationaleOutcomeStatus } from "@tedix/api-contract/constants/enums";
@@ -514,6 +515,7 @@ export function BrainPage() {
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
+				<FeedbackNotebook />
 				<MemoryObservations />
 			</PageSection>
 

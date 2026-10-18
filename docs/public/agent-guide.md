@@ -271,6 +271,23 @@ and cite the source session. A tedi's own identity does not inherit your
 private ledger access. Updating a row to done needs an evidence note, link
 or commit; it does not settle a related Work Item.
 
+### Corrections and preferences
+
+On hosts that dispatch the opt-in capture hooks, a short correction such as
+"I prefer short progress updates" is classified locally and sent through
+`record_session_feedback` as a bounded personal lesson candidate with a quote,
+source session, time and harness. Text and semantic duplicates are skipped.
+Owner feedback becomes active immediately; project notes need review. Approved
+lessons are refreshed on every prompt across harnesses. Neither installation
+nor a saved lesson proves that a host dispatched the hook or read the result.
+
+Today and the context rail show **Learned today**, with links to active rules
+from your feedback. Open Brain to inspect their supporting quotes. Historical
+notes can be previewed with `tedix learn import-memory --directory <path>`;
+`--date YYYY-MM-DD --type feedback --apply` imports only the selected files.
+Raw notes are processed locally; only extracted rules, quotes and file evidence
+are uploaded. Reference and stale notes are skipped.
+
 ### Tedi follow-through
 
 - **Action receipts:** after a write, read the changed record. The final

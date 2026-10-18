@@ -61,6 +61,53 @@ function record(
 }
 
 describe("agent session request ledger", () => {
+	it("amends only the signed-in owner's request without answering it", async () => {
+		const db = fixture();
+		const [row] = await record(db);
+		await updateAgentSessionRequests(db, {
+			organizationId: ORG,
+			userId: OTHER_USER,
+			updates: [
+				{
+					id: row!.id,
+					status: "waiting_on_user",
+					text: "Import the remaining fictional notes?",
+					evidence: null,
+				},
+			],
+			now: T1,
+		});
+		const before = await listAgentSessionRequests(db, {
+			organizationId: ORG,
+			userId: USER,
+		});
+		expect(before.find((item) => item.id === row!.id)?.text).toBe(
+			"Add a dark mode toggle",
+		);
+		await updateAgentSessionRequests(db, {
+			organizationId: ORG,
+			userId: USER,
+			updates: [
+				{
+					id: row!.id,
+					status: "waiting_on_user",
+					text: "Import the remaining fictional notes?",
+					evidence: "9 already imported",
+				},
+			],
+			now: T1,
+		});
+		const after = await listAgentSessionRequests(db, {
+			organizationId: ORG,
+			userId: USER,
+		});
+		expect(after.find((item) => item.id === row!.id)).toMatchObject({
+			text: "Import the remaining fictional notes?",
+			status: "waiting_on_user",
+			evidence: "9 already imported",
+		});
+	});
+
 	it("files only the owner's request without changing its status or evidence", async () => {
 		const db = fixture();
 		const [row] = await record(db);

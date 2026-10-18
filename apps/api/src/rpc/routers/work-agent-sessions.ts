@@ -566,6 +566,7 @@ const updateRequestProcedure = writeOs.updateRequest.handler(
 			updates: [
 				{
 					id: input.id,
+					text: input.text,
 					status: input.status,
 					evidence: input.evidence ?? null,
 				},

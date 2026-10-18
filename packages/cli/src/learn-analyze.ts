@@ -824,8 +824,13 @@ export function decisionLog(
  * with no tools, outside any repository and without user settings, so no
  * memory, project context or hook (decision capture included) joins the call.
  */
-export const claudeModel: RunModel = (prompt) =>
-	new Promise((resolve, reject) => {
+export const claudeModel: RunModel = (prompt) => localClaudeModel(prompt);
+
+export function localClaudeModel(
+	prompt: string,
+	timeoutMs = 180_000,
+): Promise<string> {
+	return new Promise((resolve, reject) => {
 		const child = spawn(
 			"claude",
 			[
@@ -840,10 +845,14 @@ export const claudeModel: RunModel = (prompt) =>
 				"--setting-sources",
 				"project",
 			],
-			{ cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] },
+			{
+				cwd: tmpdir(),
+				stdio: ["pipe", "pipe", "ignore"],
+				env: { ...process.env, CLAUDECODE: "", TEDIX_LEARNING_CLASSIFIER: "1" },
+			},
 		);
 		let out = "";
-		const timer = setTimeout(() => child.kill(), 180_000);
+		const timer = setTimeout(() => child.kill(), timeoutMs);
 		child.stdout.on("data", (chunk) => {
 			out += chunk;
 		});
@@ -858,6 +867,7 @@ export const claudeModel: RunModel = (prompt) =>
 		});
 		child.stdin.end(prompt);
 	});
+}
 
 export function codexArgs(directory: string, output: string): string[] {
 	return [
@@ -905,7 +915,9 @@ export function codexArgs(directory: string, output: string): string[] {
  * Codex has no switch to skip the user's own `~/.codex/AGENTS.md`; those
  * instructions stay on the machine like the prompt does.
  */
-export const codexModel: RunModel = async (prompt) => {
+export const codexModel: RunModel = (prompt) => localCodexModel(prompt);
+
+async function localCodexModel(prompt: string, timeoutMs = 180_000) {
 	const dir = mkdtempSync(join(tmpdir(), "tedix-learn-"));
 	const output = join(dir, "answer.md");
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -915,7 +927,7 @@ export const codexModel: RunModel = async (prompt) => {
 				cwd: dir,
 				stdio: ["pipe", "ignore", "ignore"],
 			});
-			timer = setTimeout(() => child.kill(), 180_000);
+			timer = setTimeout(() => child.kill(), timeoutMs);
 			child.on("error", reject);
 			child.on("close", (code) => {
 				if (code === 0) resolve();
@@ -931,7 +943,18 @@ export const codexModel: RunModel = async (prompt) => {
 		clearTimeout(timer);
 		rmSync(dir, { recursive: true, force: true });
 	}
-};
+}
+
+export function localFeedbackModel(
+	prompt: string,
+	timeoutMs: number,
+): Promise<string> {
+	if (onPath("claude")) return localClaudeModel(prompt, timeoutMs);
+	if (onPath("codex")) return localCodexModel(prompt, timeoutMs);
+	return Promise.reject(
+		new Error("Feedback needs a local Claude or Codex CLI"),
+	);
+}
 
 export function onPath(
 	command: string,

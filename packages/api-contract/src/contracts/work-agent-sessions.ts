@@ -132,7 +132,7 @@ export const workAgentSessionsContract = oc
 				path: "/requests/update",
 				summary: "Set the status of one of the caller's ledger rows",
 				description:
-					"The person closes, reopens or withdraws one of their own rows. `done` requires `evidence` (a commit SHA, link or note).",
+					"The person amends, closes, reopens or withdraws one of their own rows. `done` requires `evidence` (a commit SHA, link or note).",
 			})
 			.input(UpdateAgentSessionRequestInputSchema)
 			.output(UpdateAgentSessionRequestResultSchema),
