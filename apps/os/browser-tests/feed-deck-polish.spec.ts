@@ -1,4 +1,15 @@
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
+
+async function settleAnimations(page: Page) {
+	await page.evaluate(async () => {
+		await document.fonts.ready;
+		await Promise.all(
+			document
+				.getAnimations()
+				.map((animation) => animation.finished.catch(() => {})),
+		);
+	});
+}
 
 const cwd = new URL("../", import.meta.url).pathname;
 const probe = Bun.serve({
@@ -44,10 +55,17 @@ try {
 				`${origin}/browser-tests/feed-deck-polish.html?cards=one&theme=${theme}`,
 			);
 			await page
+				.getByRole("button", { name: "Find a decision", exact: true })
+				.click();
+			await page
 				.getByRole("button", { name: "Try examples", exact: true })
+				.click();
+			await page
+				.getByRole("button", { name: "Find a decision", exact: true })
 				.click();
 			const title = page.locator('[data-slot="card-title"]');
 			await title.waitFor();
+			await settleAnimations(page);
 			if (
 				(await title.evaluate((el) =>
 					Number.parseFloat(getComputedStyle(el).fontSize),
@@ -92,13 +110,24 @@ try {
 				throw new Error(
 					"Card drag selected text instead of owning the gesture",
 				);
-			await page.mouse.move(x, y);
+			await settleAnimations(page);
+			const settledBox = (await title.boundingBox())!;
+			const swipeX = settledBox.x + 30;
+			const swipeY = settledBox.y + 20;
+			await page.mouse.move(swipeX, swipeY);
 			await page.mouse.down();
-			await page.mouse.move(x + 110, y, { steps: 12 });
+			await page.mouse.move(swipeX + 110, swipeY, { steps: 12 });
 			await page.mouse.up();
-			await page.waitForFunction(() =>
-				document.body.textContent?.includes("1 practice choice"),
-			);
+			await page
+				.waitForFunction(() =>
+					document.body.textContent?.includes("1 practice choice"),
+				)
+				.catch((error) => {
+					throw new Error(
+						`Mouse swipe did not finish at ${width}px in ${theme} mode`,
+						{ cause: error },
+					);
+				});
 			await page.locator(".fd-closure").waitFor();
 			await page.goto(
 				`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
@@ -118,6 +147,7 @@ try {
 			await page.getByRole("button", { name: "Details", exact: true }).click();
 			await page.getByText("Prepared args:", { exact: false }).waitFor();
 			await page.getByRole("button", { name: "Details", exact: true }).click();
+			await settleAnimations(page);
 			const footer = await page
 				.locator('[data-slot="card-footer"]')
 				.boundingBox();
@@ -191,7 +221,13 @@ try {
 			`${origin}/browser-tests/feed-deck-polish.html?theme=${theme}`,
 		);
 		await preferred
+			.getByRole("button", { name: "Find a decision", exact: true })
+			.click();
+		await preferred
 			.getByRole("button", { name: "Try examples", exact: true })
+			.click();
+		await preferred
+			.getByRole("button", { name: "Find a decision", exact: true })
 			.click();
 		await preferred.locator(".fd-decision").focus();
 		await preferred.keyboard.press("j");
@@ -217,10 +253,17 @@ try {
 	});
 	await touch.goto(`${origin}/browser-tests/feed-deck-polish.html?cards=one`);
 	await touch
+		.getByRole("button", { name: "Find a decision", exact: true })
+		.click();
+	await touch
 		.getByRole("button", { name: "Try examples", exact: true })
+		.click();
+	await touch
+		.getByRole("button", { name: "Find a decision", exact: true })
 		.click();
 	const touchTitle = touch.locator('[data-slot="card-title"]');
 	await touchTitle.scrollIntoViewIfNeeded();
+	await settleAnimations(touch);
 	const touchBox = (await touchTitle.boundingBox())!;
 	const cdp = await touch.context().newCDPSession(touch);
 	const point = { x: touchBox.x + 25, y: touchBox.y + 20 };
@@ -242,9 +285,13 @@ try {
 		type: "touchEnd",
 		touchPoints: [],
 	});
-	await touch.waitForFunction(() =>
-		document.body.textContent?.includes("1 practice choice"),
-	);
+	await touch
+		.waitForFunction(() =>
+			document.body.textContent?.includes("1 practice choice"),
+		)
+		.catch((error) => {
+			throw new Error("Touch swipe did not finish", { cause: error });
+		});
 	await touch.locator(".fd-closure").waitFor();
 	await touch.close();
 	const reduced = await browser.newPage({ reducedMotion: "reduce" });
@@ -265,7 +312,13 @@ try {
 		`${origin}/browser-tests/feed-deck-polish.html?motion=reduced&cards=one`,
 	);
 	await explicitReduced
+		.getByRole("button", { name: "Find a decision", exact: true })
+		.click();
+	await explicitReduced
 		.getByRole("button", { name: "Try examples", exact: true })
+		.click();
+	await explicitReduced
+		.getByRole("button", { name: "Find a decision", exact: true })
 		.click();
 	const explicitBox = (await explicitReduced
 		.locator('[data-slot="card-title"]')

@@ -417,7 +417,7 @@ export function WorkInteractionDecisionCard({
 						)}
 						{approval ? (
 							<>
-								<p>
+								<p className="fd-card-summary">
 									{presentation?.body ??
 										connectorApprovalSummary(request, source)}
 								</p>

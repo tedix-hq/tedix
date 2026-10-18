@@ -14,9 +14,14 @@ vi.mock("@/lib/use-work-apps", () => ({
 	useWorkApps: () => ({
 		apps: ["deck", "feed"].map((role) => ({
 			role,
+			gadget: { workspaceId: "cedar-workspace" },
 			manifest: { navigation: { workDefault: role === route.defaultView } },
 		})),
 	}),
+}));
+
+vi.mock("@/lib/use-deck-count", () => ({
+	useDeckCount: () => ({ count: 0, pending: false, failed: false }),
 }));
 
 vi.mock("@tanstack/react-router", () => ({

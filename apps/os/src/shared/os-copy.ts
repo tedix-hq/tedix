@@ -145,6 +145,8 @@ const ENGLISH_COPY = {
 		shortcuts:
 			"← Not this · → Approve · E Change · L Later · D Decide for me · ? Why this",
 		left: (count: number) => `${count} left`,
+		position: (current: number, total: number) => `${current} of ${total}`,
+		today: (done: number, goal: number) => `${done}/${goal} today`,
 		clear: "Deck clear",
 		nextBatch: (time: string) => `Next cards at ${time}`,
 		dailyGoal: (done: number, goal: number) => `${done}/${goal} daily goal`,

@@ -715,7 +715,7 @@
 	overflow-wrap: anywhere;
 }
 
-/* Keep the decision in the remaining viewport; only its content scrolls. */
+/* Keep actions visible; expanded details scroll inside the card. */
 .fd-deck {
 	height: var(--fd-available-height, calc(100dvh - 10rem));
 	min-height: 0;
@@ -728,6 +728,31 @@
 .fd-deck:has(.fd-deck-current) {
 	display: flex;
 	flex-direction: column;
+}
+.fd-deck-controls {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	position: relative;
+}
+.fd-deck-controls .fd-deck-filters {
+	justify-self: end;
+}
+.fd-deck-controls .fd-deck-filters > button {
+	min-width: 2.75rem;
+	min-height: 2.75rem;
+	justify-content: center;
+}
+.fd-deck-controls .fd-disclosure-chevron {
+	display: none;
+}
+.fd-deck-controls .fd-deck-filters:has([aria-expanded="true"]) {
+	grid-column: 1 / -1;
+	justify-self: stretch;
+}
+.fd-deck-heading,
+.fd-work-home .ft-deck-banner {
+	display: none;
 }
 .fd-deck > * {
 	flex: none;
@@ -749,12 +774,16 @@
 	min-height: 0;
 	padding-bottom: 0.5rem;
 }
-.fd-deck-current .fd-decision,
-.fd-deck-current .fd-card {
+.fd-deck-current .fd-decision {
+	display: flex;
+	flex-direction: column;
 	height: 100%;
 	min-height: 0;
 }
 .fd-deck-current .fd-card {
+	height: auto;
+	max-height: 100%;
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
 	gap: 0.65rem;
@@ -764,19 +793,24 @@
 	flex: none;
 }
 .fd-deck-current [data-slot="card-content"] {
-	flex: 1 1 0;
+	flex: 0 1 auto;
 	min-height: 0;
 	overflow: auto;
 	overscroll-behavior: contain;
-	scroll-padding-bottom: min(
-		calc(var(--fd-footer-height, 4rem) + 1rem),
-		max(0px, calc(100% - 3rem))
-	);
+	scroll-padding-block: 0.5rem;
 	align-content: start;
 	scrollbar-width: thin;
 }
 .fd-deck-current .fd-card-body {
-	padding-bottom: calc(var(--fd-footer-height, 4rem) + 1rem);
+	padding-bottom: 0;
+	grid-auto-rows: min-content;
+	align-content: start;
+}
+.fd-deck-current .fd-card-summary {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow: hidden;
 }
 .fd-deck-current [data-slot="card-footer"] {
 	position: relative;
