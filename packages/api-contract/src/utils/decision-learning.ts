@@ -306,6 +306,7 @@ export function learnDecisions(input: {
 				const after = str(m.editedBody) || str(m.after);
 				return {
 					eventId: e.id,
+					clientEventId: e.clientEventId,
 					classId: learningClass(e),
 					eventKind: e.eventKind,
 					choice: str(m.decisionChoice) || str(m.reaction),
