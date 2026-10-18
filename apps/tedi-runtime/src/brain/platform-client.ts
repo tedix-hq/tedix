@@ -4,6 +4,7 @@ import type {
 } from "@tedix/api-contract/schemas/jev";
 import type { TurnMemory } from "@tedix/api-contract/schemas/turn-memory";
 import type { MemorySourceEvidence } from "@tedix/api-contract/schemas/memory-graph";
+import type { SearchResult } from "@tedix/api-contract/schemas/memory-graph";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
 import type { ListWorkApprovalInboxResultSchema } from "@tedix/api-contract/schemas/work-approvals";
 /**
@@ -157,6 +158,7 @@ export interface MemorySearchResult {
 	results: Array<{
 		factId: string;
 		score: number;
+		provenance?: SearchResult["provenance"];
 		fact?: {
 			id?: string;
 			summary?: string;
