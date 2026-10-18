@@ -2,6 +2,7 @@ vi.mock("./lesson-evidence", () => ({ holdLessonsForCorrection: vi.fn() }));
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 vi.mock("@tedix/db/queries/learning-feedback", () => ({
 	recordLearningInteraction: vi.fn(),
+	getLearningInteractionsByIds: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
 	listCurrentLearningFeedLessons: vi.fn(),
@@ -10,7 +11,10 @@ vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
 vi.mock("@tedix/db/queries/memory-graph/session-feedback", () => ({
 	insertSessionFeedbackLesson: vi.fn(),
 }));
-import { recordLearningInteraction } from "@tedix/db/queries/learning-feedback";
+import {
+	getLearningInteractionsByIds,
+	recordLearningInteraction,
+} from "@tedix/db/queries/learning-feedback";
 import {
 	listCurrentLearningFeedLessons,
 	listApprovedAgentLessons,
@@ -31,6 +35,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listApprovedAgentLessons).mockResolvedValue([]);
+	vi.mocked(getLearningInteractionsByIds).mockResolvedValue([]);
 	vi.mocked(recordLearningInteraction).mockResolvedValue({
 		event: { id: "fixture-evidence" },
 		duplicate: false,
@@ -157,4 +162,96 @@ it("deduplicates legacy repo slugs against an origin URL", async () => {
 	);
 	expect(result.lessons[0]?.id).toBe("legacy");
 	expect(insertSessionFeedbackLesson).not.toHaveBeenCalled();
+});
+
+it("reuses a file's recorded lesson when a retry extracts a paraphrase", async () => {
+	const evidence = {
+		version: 1,
+		state: "live",
+		supportCount: 1,
+		sources: [
+			{ kind: "correction", id: "file-evidence", quote: candidate.quote },
+		],
+	};
+	vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([
+		{
+			id: "imported",
+			content: "The first extraction of the note.",
+			topicKey: "learning-feed:fixture",
+			reviewStatus: "confirmed",
+			metadata: { learningFeed: { evidence } },
+		},
+	]);
+	vi.mocked(getLearningInteractionsByIds).mockResolvedValue([
+		{
+			id: "file-evidence",
+			actorType: "user",
+			actorId: scope.ownerUserId,
+			surface: "agent_session_feedback",
+			targetId: "imported",
+			metadata: {
+				sourceFile: "/fixture/feedback.md",
+				sourceHash: "a".repeat(64),
+			},
+		} as never,
+	]);
+	const model = vi.fn(async () => '{"novel":[0]}');
+	const result = await recordSessionFeedback(
+		{} as never,
+		scope,
+		[
+			{
+				...candidate,
+				text: "A differently worded retry of the same note.",
+				sourceFile: "/fixture/feedback.md",
+				sourceHash: "a".repeat(64),
+			},
+		],
+		model,
+	);
+	expect(result.lessons).toEqual([
+		{
+			id: "imported",
+			text: "The first extraction of the note.",
+			status: "duplicate",
+		},
+	]);
+	expect(model).not.toHaveBeenCalled();
+	expect(recordLearningInteraction).not.toHaveBeenCalled();
+});
+
+it("fences concurrent file imports by source hash while retaining the first evidence quote", async () => {
+	vi.mocked(recordLearningInteraction).mockResolvedValue({
+		event: {
+			id: "fixture-evidence",
+			metadata: { candidate: candidate.text, answer: candidate.quote },
+		},
+		duplicate: true,
+	} as never);
+	for (const text of [candidate.text, "A paraphrased extraction."])
+		await recordSessionFeedback(
+			{} as never,
+			scope,
+			[
+				{
+					...candidate,
+					text,
+					sourceFile: "/fixture/feedback.md",
+					sourceHash: "b".repeat(64),
+				},
+			],
+			async () => '{"novel":[0]}',
+		);
+	const facts = vi
+		.mocked(insertSessionFeedbackLesson)
+		.mock.calls.map((call) => call[1]);
+	expect(facts[0]!.id).toBe(facts[1]!.id);
+	expect(facts[1]!.content).toBe(candidate.text);
+	expect(facts[1]!.metadata?.learningFeed).toMatchObject({
+		evidence: {
+			sources: [
+				{ id: "fixture-evidence", kind: "correction", quote: candidate.quote },
+			],
+		},
+	});
 });
