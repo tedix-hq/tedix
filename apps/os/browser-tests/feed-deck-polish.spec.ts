@@ -209,12 +209,60 @@ try {
 				}));
 			if (previewTitle.height > previewTitle.lineHeight * 2 + 1)
 				throw new Error("Long evidence title overwhelms the story preview");
+			const actions = await story.locator(".ft-reactions").evaluate((el) => {
+				const preview = el.previousElementSibling!.getBoundingClientRect();
+				const row = el.getBoundingClientRect();
+				const style = getComputedStyle(el);
+				return {
+					clearance: row.top - preview.bottom,
+					padding: [
+						parseFloat(style.paddingTop),
+						parseFloat(style.paddingBottom),
+					],
+					gap: parseFloat(style.gap),
+					buttons: [...el.querySelectorAll("button")].map((button) => {
+						const rect = button.getBoundingClientRect();
+						return { width: rect.width, height: rect.height };
+					}),
+				};
+			});
+			if (actions.clearance < 0 || actions.padding.some((value) => value < 8))
+				throw new Error(
+					"Feed actions overlap preview content or lack breathing room",
+				);
 			if (
-				(await story
-					.locator(".ft-reactions")
-					.evaluate((el) => getComputedStyle(el).position)) !== "absolute"
+				actions.gap !== 8 ||
+				actions.buttons.some((box) => box.width < 36 || box.height < 36)
 			)
-				throw new Error("Hidden reactions reserve an empty row");
+				throw new Error("Feed actions lost their hit areas or consistent gaps");
+			const digest = page.locator(".fd-quiet-updates button").first();
+			const checkDigest = async () => {
+				const box = await digest.evaluate((el) => {
+					const range = document.createRange();
+					range.selectNodeContents(el);
+					const text = range.getBoundingClientRect();
+					const button = el.getBoundingClientRect();
+					return {
+						left: text.left - button.left,
+						right: button.right - text.right,
+						height: button.height,
+					};
+				});
+				if (
+					box.left < 12 ||
+					box.right < 12 ||
+					(width === 390 && box.height < 44)
+				)
+					throw new Error(
+						`Quiet update control is cramped: ${JSON.stringify(box)}`,
+					);
+			};
+			await checkDigest();
+			await digest.click();
+			await page
+				.getByRole("button", { name: "Show less", exact: true })
+				.waitFor();
+			await checkDigest();
 			const rhythm = await story.evaluate((el) => {
 				const style = getComputedStyle(el);
 				return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);

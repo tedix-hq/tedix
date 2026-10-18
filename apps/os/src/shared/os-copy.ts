@@ -370,6 +370,7 @@ const ENGLISH_COPY = {
 		new: "New since you looked",
 		due: "Time matters",
 		digest: (n: number) => `${n} smaller ${n === 1 ? "update" : "updates"}`,
+		showLess: "Show less",
 		digestHint: "Grouped to protect your attention. Open when you have time.",
 		workExplanation: "Recorded in the linked Work history.",
 		resultExplanation: "The linked attempt records this outcome.",

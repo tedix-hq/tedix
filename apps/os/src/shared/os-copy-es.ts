@@ -236,6 +236,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		due: "El tiempo importa",
 		digest: (n: number) =>
 			`${n} ${n === 1 ? "actualización menor" : "actualizaciones menores"}`,
+		showLess: "Mostrar menos",
 		digestHint:
 			"Agrupadas para cuidar tu atención. Ábrelas cuando tengas tiempo.",
 		workExplanation: "Registrado en el historial de la tarea.",

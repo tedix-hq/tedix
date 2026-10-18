@@ -560,7 +560,7 @@ function ActivityFeedContent({
 											)
 										}
 									>
-										{copy.digest(smaller.length)}
+										{expanded ? copy.showLess : copy.digest(smaller.length)}
 									</Button>
 								</div>
 							)}
