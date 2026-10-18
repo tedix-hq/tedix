@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { defaultOrganizationTarget } from "./agent-context";
+import { defaultOrganizationTarget, normalizeGitOrigin } from "./agent-context";
 import { caller } from "./learn-context";
 import { localFeedbackModel } from "./learn-analyze";
 import { cliRead } from "./hooks/hook-io";
@@ -59,7 +59,13 @@ export function memoryCandidates(
 			occurredAt: created.toISOString(),
 			sourceFile: path,
 			sourceHash: createHash("sha256").update(raw).digest("hex"),
-			...(options.repository ? { repository: options.repository } : {}),
+			...(options.repository
+				? {
+						repository: normalizeGitOrigin(
+							options.repository.replace(/[?#].*$/, ""),
+						),
+					}
+				: {}),
 		});
 	}
 	return candidates;

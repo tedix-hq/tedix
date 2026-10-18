@@ -70,8 +70,9 @@ export function scrub(text: string, home = homedir()): string {
 	return (
 		text
 			.replace(/pass:\/\/\S+/g, "[secret ref]")
+			.replace(/([a-z][\w+.-]*:\/\/)[^/\s]+@/gi, "$1[redacted]@")
 			.replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "[email]")
-			.replace(/(https?:\/\/[^\s?#)\]]+)[?#][^\s)\]]*/g, "$1")
+			.replace(/(https?:\/\/[^\s?#)]+)[?#][^\s)]*/g, "$1")
 			.replace(/\b[A-Za-z0-9+/_-]{40,}={0,2}/g, "[redacted]")
 			.replace(/\b[a-f0-9]{32,}\b/gi, "[redacted]")
 			// Random-looking mixed-case-and-digit runs are treated as credentials.
