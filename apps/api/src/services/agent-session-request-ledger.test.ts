@@ -943,6 +943,18 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 	expect(
 		await model("system", "prompt", "agent-session-request-reflector"),
 	).toBeNull();
+	fetch.mockResolvedValueOnce(
+		new Response("private upstream detail", { status: 429 }),
+	);
+	await expect(
+		model("system", "portfolio", "agent-session-project-routing"),
+	).rejects.toThrow("Request filing model HTTP 429");
+	fetch.mockRejectedValueOnce(
+		new DOMException("private upstream detail", "TimeoutError"),
+	);
+	await expect(
+		model("system", "portfolio", "agent-session-project-routing"),
+	).rejects.toThrow("Request filing model exceeded its 24-second deadline");
 	expect(run).toHaveBeenCalledTimes(1);
 });
 

@@ -87,7 +87,11 @@ async function reflectWithGateway(
 		"azure-openai",
 	);
 	const resource = env.AZURE_OPENAI_RESOURCE?.trim();
-	if (!transport || !resource || !/^[a-zA-Z0-9-]+$/.test(resource)) return null;
+	const filing = surface === "agent-session-project-routing";
+	if (!transport || !resource || !/^[a-zA-Z0-9-]+$/.test(resource)) {
+		if (filing) throw new Error("Request filing model transport unavailable");
+		return null;
+	}
 	try {
 		const response = await transport.fetch(
 			`${transport.providerRoot}/${resource}/openai/v1/responses`,
@@ -109,7 +113,11 @@ async function reflectWithGateway(
 				signal: AbortSignal.timeout(24_000),
 			},
 		);
-		if (!response.ok) return null;
+		if (!response.ok) {
+			if (filing)
+				throw new Error(`Request filing model HTTP ${response.status}`);
+			return null;
+		}
 		const result = (await response.json()) as {
 			status?: string;
 			output?: Array<{
@@ -117,7 +125,10 @@ async function reflectWithGateway(
 				content?: Array<{ type: string; text?: string }>;
 			}>;
 		};
-		if (result.status !== "completed") return null;
+		if (result.status !== "completed") {
+			if (filing) throw new Error("Request filing model did not complete");
+			return null;
+		}
 		return (
 			result.output
 				?.filter((item) => item.type === "message")
@@ -126,7 +137,20 @@ async function reflectWithGateway(
 				.map((item) => item.text ?? "")
 				.join("\n") || null
 		);
-	} catch {
+	} catch (error) {
+		if (filing) {
+			if (
+				error instanceof Error &&
+				error.message.startsWith("Request filing model ")
+			)
+				throw error;
+			throw new Error(
+				error instanceof Error &&
+					["TimeoutError", "AbortError"].includes(error.name)
+					? "Request filing model exceeded its 24-second deadline"
+					: "Request filing model transport failed",
+			);
+		}
 		return null;
 	}
 }

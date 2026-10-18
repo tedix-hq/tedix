@@ -99,6 +99,48 @@ describe("catalog snapshot import timeout", () => {
 	});
 });
 
+it("returns a slow filing receipt rather than timing out after enabling filing", async () => {
+	vi.useFakeTimers();
+	try {
+		const apiFetch = vi.fn(
+			() =>
+				new Promise<Response>((resolve) => {
+					setTimeout(
+						() =>
+							resolve(
+								Response.json({
+									json: {
+										queued: true,
+										pass: { state: "processed", pending: 2 },
+									},
+								}),
+							),
+						20_000,
+					);
+				}),
+		);
+		const result = new ToolHandler().execute(
+			{ enabled: true, runNow: true },
+			{
+				...ctx({
+					transport: "rpc",
+					endpoint: "workAgentSessions/classifyRequests",
+				}),
+				env: {
+					ENVIRONMENT: "test",
+					API_URL: "https://api.example.test",
+					API_SERVICE: { fetch: apiFetch },
+				} as unknown as CloudflareEnv,
+			},
+		);
+		await vi.advanceTimersByTimeAsync(20_000);
+		expect((await result).status).toBe(200);
+		expect(apiFetch).toHaveBeenCalledOnce();
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 describe("approved Work responder delegation", () => {
 	it.each([
 		{
