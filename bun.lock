@@ -29,7 +29,7 @@
     },
     "apps/api": {
       "name": "@tedix/api",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@ai-sdk/azure": "catalog:",
         "@cloudflare/ai-chat": "catalog:",
@@ -90,7 +90,7 @@
     },
     "apps/cms": {
       "name": "@tedix/cms",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/sandbox": "catalog:",
         "@modelcontextprotocol/client": "catalog:",
@@ -128,7 +128,7 @@
     },
     "apps/cms-runtime": {
       "name": "@tedix/cms-runtime",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@emdash-cms/cloudflare": "catalog:",
         "@orpc/client": "catalog:",
@@ -157,7 +157,7 @@
     },
     "apps/docs": {
       "name": "@tedix/docs",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/sandbox": "catalog:",
         "@tedix/api-contract": "workspace:*",
@@ -183,7 +183,7 @@
     },
     "apps/docs-runtime": {
       "name": "@tedix/docs-runtime",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@tedix/auth": "workspace:*",
         "@tedix/db": "workspace:*",
@@ -203,7 +203,7 @@
     },
     "apps/landing": {
       "name": "@tedix/landing",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@astrojs/cloudflare": "^14.4.0",
         "@astrojs/react": "^7.1.0",
@@ -237,7 +237,7 @@
     },
     "apps/mcp": {
       "name": "@tedix/mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/codemode": "catalog:",
         "@json-render/core": "catalog:",
@@ -274,7 +274,7 @@
     },
     "apps/mcp-ui": {
       "name": "@tedix/mcp-ui",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@astrojs/cloudflare": "^14.4.0",
         "@astrojs/react": "^7.1.0",
@@ -308,7 +308,7 @@
     },
     "apps/os": {
       "name": "@tedix/os",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/kumo": "2.14.0",
         "@codemirror/commands": "^6.11.1",
@@ -383,7 +383,7 @@
     },
     "apps/session-broker": {
       "name": "@tedix/session-broker",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@tedix/api-client": "workspace:*",
         "@tedix/auth": "workspace:*",
@@ -402,7 +402,7 @@
     },
     "apps/skill-runtime": {
       "name": "@tedix/skill-runtime",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/dynamic-workflows": "^0.1.1",
         "@noble/hashes": "2.4.0",
@@ -429,7 +429,7 @@
     },
     "apps/tedi": {
       "name": "@tedix/tedi",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/sandbox": "catalog:",
         "@tedix/api-client": "workspace:*",
@@ -454,7 +454,7 @@
     },
     "apps/tedi-runtime": {
       "name": "@tedix/tedi-runtime",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@ai-sdk/azure": "catalog:",
         "@ai-sdk/provider": "catalog:",
@@ -503,7 +503,7 @@
     },
     "apps/tedi-workstation-egress-broker": {
       "name": "@tedix/tedi-workstation-egress-broker",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@tedix/api-client": "workspace:*",
         "@tedix/ssrf-guard": "workspace:*",
@@ -522,7 +522,7 @@
     },
     "apps/tedi-workstation-runtime": {
       "name": "@tedix/tedi-workstation-runtime",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/sandbox": "catalog:",
         "@tedix/api-client": "workspace:*",
@@ -542,7 +542,7 @@
     },
     "apps/widget": {
       "name": "@tedix/widget",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@tedix/chat-transport": "workspace:*",
         "@tedix/design-tokens": "workspace:*",
@@ -564,7 +564,7 @@
     },
     "packages/api-client": {
       "name": "@tedix/api-client",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@orpc/client": "catalog:",
         "@orpc/contract": "catalog:",
@@ -581,7 +581,7 @@
     },
     "packages/api-contract": {
       "name": "@tedix/api-contract",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@orpc/contract": "catalog:",
         "@orpc/openapi": "catalog:",
@@ -602,7 +602,7 @@
     },
     "packages/auth": {
       "name": "@tedix/auth",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@descope/node-sdk": "^2.19.0",
         "@tedix/api-contract": "workspace:*",
@@ -638,7 +638,7 @@
     },
     "packages/cli": {
       "name": "@tedix/cli",
-      "version": "0.11.0",
+      "version": "0.11.1",
       "bin": {
         "tedix": "./src/index.ts",
       },
@@ -692,7 +692,7 @@
     },
     "packages/db": {
       "name": "@tedix/db",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
         "@tedix/context-core": "workspace:*",
@@ -738,7 +738,7 @@
     },
     "packages/mcp": {
       "name": "@tedix/mcp-shared",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@modelcontextprotocol/core": "catalog:",
         "@modelcontextprotocol/server": "catalog:",
@@ -764,7 +764,7 @@
     },
     "packages/mcp-client-core": {
       "name": "@tedix/mcp-client-core",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@modelcontextprotocol/client": "catalog:",
         "@tedix/api-contract": "workspace:*",
@@ -783,7 +783,7 @@
     },
     "packages/provisioning": {
       "name": "@tedix/provisioning",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@tedix/mcp-shared": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
@@ -805,7 +805,7 @@
     },
     "packages/tedi-codemode-core": {
       "name": "@tedix/tedi-codemode-core",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
@@ -858,7 +858,7 @@
     },
     "packages/voice": {
       "name": "@tedix/voice",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cloudflare/voice": "catalog:",
         "@tedix/workers-ai": "workspace:*",
@@ -893,7 +893,7 @@
     },
     "packages/widget-ui": {
       "name": "@tedix/widget-ui",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@base-ui/react": "^1.9.0",
         "@tedix/api-contract": "workspace:*",
@@ -944,7 +944,7 @@
     },
     "packages/workers-ai": {
       "name": "@tedix/workers-ai",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
       },

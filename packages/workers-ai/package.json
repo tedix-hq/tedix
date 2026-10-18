@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/workers-ai",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "The one Workers AI provider: AI Gateway transport, language-model adapter, and circuit breaker.",
 	"license": "AGPL-3.0-only",

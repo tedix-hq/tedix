@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/tedi",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Edge Worker for tedi traffic: routing, authentication, MCP, admin APIs, and proxying to the Agent runtime.",
 	"license": "AGPL-3.0-only",

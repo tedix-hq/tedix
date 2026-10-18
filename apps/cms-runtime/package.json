@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/cms-runtime",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Cloudflare Worker that serves multi-tenant CMS sites and marketing domains with Dynamic Workers.",
 	"license": "AGPL-3.0-only",

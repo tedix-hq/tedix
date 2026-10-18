@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/os",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Tedix OS, the product web application: conversations, workers, apps, skills, work management, and administration.",
 	"license": "AGPL-3.0-only",

@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/mcp-ui",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "Astro and React renderer for MCP Apps widgets and resources.",
 	"license": "AGPL-3.0-only",

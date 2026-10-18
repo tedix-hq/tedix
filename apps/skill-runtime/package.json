@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/skill-runtime",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Runs executable skills, automations, and one-off flows in per-run sandboxed Workers on a durable engine.",
 	"license": "AGPL-3.0-only",
