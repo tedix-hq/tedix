@@ -360,4 +360,15 @@ describe("generic blueprint apply", () => {
 		d.provisioning!.documents.push({ ...d.provisioning!.documents[0]! });
 		expect(() => OsBlueprintDefinitionSchema.parse(d)).toThrow();
 	});
+	it("keeps Work acceptance limits and forwards the selected runtime target", async () => {
+		const d = definition();
+		d.provisioning!.workItems[0]!.doneWhen = "x".repeat(2001);
+		expect(() => OsBlueprintDefinitionSchema.parse(d)).toThrow();
+		const target = "10000000-0000-4000-8000-000000000099";
+		const f = fixture();
+		const preview = await f.client.previewApply({ ...input, tediId: target });
+		expect(preview.preflight.targetTediId).toBe(target);
+		const applied = await f.client.apply({ ...input, tediId: target });
+		expect(applied.preflight.targetTediId).toBe(target);
+	});
 });

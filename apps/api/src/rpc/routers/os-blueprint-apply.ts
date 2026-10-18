@@ -110,6 +110,7 @@ async function prepare(
 		instanceKey: string;
 		workspaceName: string;
 		parameters: Record<string, JsonValue>;
+		tediId?: string;
 	},
 ) {
 	const blueprint = await requireBlueprint(context, input.blueprintId);
@@ -147,7 +148,7 @@ async function prepare(
 			revisionId: revision.id,
 			revision: revision.revision,
 			definition: plan.definition,
-			tediId: null,
+			tediId: input.tediId ?? null,
 			ownerUserId:
 				context.authType === "user" ? (context.user?.sub ?? null) : null,
 			resourceBindings: [],

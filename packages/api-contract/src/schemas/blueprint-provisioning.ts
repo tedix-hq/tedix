@@ -1,6 +1,10 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
-import { WorkItemKindSchema, WorkItemRiskLevelSchema } from "./work-items";
+import {
+	WorkItemKindSchema,
+	WorkItemRiskLevelSchema,
+	WorkItemAcceptanceContractSchema,
+} from "./work-items";
 
 const key = z.string().regex(/^[a-z][a-z0-9_-]{0,79}$/);
 const text = z.string().min(1).max(20_000);
@@ -66,7 +70,9 @@ export const BlueprintProvisioningSchema = z
 						key,
 						title: z.string().min(1).max(500),
 						description: text,
-						doneWhen: text,
+						doneWhen: WorkItemAcceptanceContractSchema.shape.doneLooksLike
+							.unwrap()
+							.min(1),
 						workKind: WorkItemKindSchema.default("operations"),
 						riskLevel: WorkItemRiskLevelSchema.default("medium"),
 						dependsOn: z.array(key).max(100).default([]),
@@ -175,6 +181,7 @@ export type BlueprintProvisioning = z.infer<typeof BlueprintProvisioningSchema>;
 export const BlueprintApplyInputSchema = z.object({
 	blueprintId: z.uuid(),
 	instanceKey: z.string().min(1).max(120),
+	tediId: z.uuid().optional(),
 	workspaceName: z.string().trim().min(1).max(120),
 	parameters: z.record(z.string(), JsonValueSchema).default({}),
 	expectedPlanSha256: z
