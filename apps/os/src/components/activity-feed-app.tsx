@@ -1,4 +1,9 @@
 import {
+	DecisionContextRail,
+	DecisionContextSection,
+	DecisionRailContext,
+} from "@/components/decision-context-rail";
+import {
 	ThumbsUpIcon,
 	QuestionIcon,
 	ProhibitIcon,
@@ -21,6 +26,7 @@ import "./feed-timeline.css";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
 	Fragment,
+	useContext,
 	useCallback,
 	useEffect,
 	useRef,
@@ -76,7 +82,18 @@ export interface ActivityFeedNavigation {
 	apps?: ReactNode;
 }
 
-export function ActivityFeedApp({
+export function ActivityFeedApp(props: {
+	config: ActivityFeedConfig;
+	navigation?: ActivityFeedNavigation;
+}) {
+	return (
+		<DecisionContextRail>
+			<ActivityFeedContent {...props} />
+		</DecisionContextRail>
+	);
+}
+
+function ActivityFeedContent({
 	config,
 	navigation,
 }: {
@@ -386,105 +403,111 @@ export function ActivityFeedApp({
 					onUpdate={onUpdate}
 				/>
 			))}
-			<header className="ft-header">
-				<div className="ft-greeting">
-					<Text as="h2" weight="medium">
-						{copy.greeting(
-							Number(
-								new Intl.DateTimeFormat("en", {
-									hour: "numeric",
-									hourCycle: "h23",
-									timeZone: preferences.data?.preferences.timezone ?? undefined,
-								}).format(now),
-							),
-							identity.name.split(" ")[0]!,
-						)}
-					</Text>
-					<span className="ft-deck-banner">
-						{navigation?.decide ??
-							(config.deckUrl && (
-								<Link href={config.deckUrl}>{copy.deck}</Link>
-							))}
-					</span>
-				</div>
-				<div className="ft-tools">
-					<Select
-						value={filter}
-						onValueChange={(id) => {
-							if (id) {
-								setFilter(id as Filter);
-								navigation?.onFilterChange?.(id as Filter);
-							}
-						}}
-					>
-						<SelectTrigger aria-label={copy.title}>
-							<SelectValue>{copy.filters[filter]}</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							{(["all", "attention", "history"] as const).map((id) => (
-								<SelectItem key={id} value={id}>
-									{copy.filters[id]}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					<PopoverRoot>
-						<PopoverTrigger
-							aria-label={copy.options}
-							render={
-								<Button variant="ghost" size="icon" aria-label={copy.options} />
-							}
+			<DecisionContextSection title="Feed filters and context">
+				{" "}
+				<header className="ft-header">
+					<div className="ft-greeting">
+						<Text as="h2" weight="medium">
+							{copy.greeting(
+								Number(
+									new Intl.DateTimeFormat("en", {
+										hour: "numeric",
+										hourCycle: "h23",
+										timeZone:
+											preferences.data?.preferences.timezone ?? undefined,
+									}).format(now),
+								),
+								identity.name.split(" ")[0]!,
+							)}
+						</Text>
+					</div>
+					<div className="ft-tools">
+						<Select
+							value={filter}
+							onValueChange={(id) => {
+								if (id) {
+									setFilter(id as Filter);
+									navigation?.onFilterChange?.(id as Filter);
+								}
+							}}
 						>
-							<DotsThreeIcon size={22} />
-						</PopoverTrigger>
-						<PopoverContent align="end">
-							<div className="ft-options-body">
-								<Select
-									value={
-										prefs.projectIds.length === 1 ? prefs.projectIds[0] : "all"
-									}
-									onValueChange={(id) => {
-										setBusy(true);
-										void savePreferences((p) => ({
-											...p,
-											projectIds: id && id !== "all" ? [id] : [],
-										}))
-											.catch(() => setStatus(copy.failed))
-											.finally(() => setBusy(false));
-									}}
-								>
-									<SelectTrigger
-										aria-label={copy.project}
-										disabled={busy || !preferences.data}
+							<SelectTrigger aria-label={copy.title}>
+								<SelectValue>{copy.filters[filter]}</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{(["all", "attention", "history"] as const).map((id) => (
+									<SelectItem key={id} value={id}>
+										{copy.filters[id]}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<PopoverRoot>
+							<PopoverTrigger
+								aria-label={copy.options}
+								render={
+									<Button
+										variant="ghost"
+										size="icon"
+										aria-label={copy.options}
+									/>
+								}
+							>
+								<DotsThreeIcon size={22} />
+							</PopoverTrigger>
+							<PopoverContent align="end">
+								<div className="ft-options-body">
+									<Select
+										value={
+											prefs.projectIds.length === 1
+												? prefs.projectIds[0]
+												: "all"
+										}
+										onValueChange={(id) => {
+											setBusy(true);
+											void savePreferences((p) => ({
+												...p,
+												projectIds: id && id !== "all" ? [id] : [],
+											}))
+												.catch(() => setStatus(copy.failed))
+												.finally(() => setBusy(false));
+										}}
 									>
-										<SelectValue>
-											{prefs.projectIds.length === 1
-												? (config.projects.find(
-														(p) => p.id === prefs.projectIds[0],
-													)?.label ?? copy.allProjects)
-												: copy.allProjects}
-										</SelectValue>
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="all">{copy.allProjects}</SelectItem>
-										{config.projects.map((p) => (
-											<SelectItem key={p.id} value={p.id}>
-												{p.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								{navigation?.apps}
-								<FeedNowStrip
-									items={ranked}
-									now={now}
-									timezone={preferences.data?.preferences.timezone ?? undefined}
-								/>
-							</div>
-						</PopoverContent>
-					</PopoverRoot>
-				</div>
-			</header>
+										<SelectTrigger
+											aria-label={copy.project}
+											disabled={busy || !preferences.data}
+										>
+											<SelectValue>
+												{prefs.projectIds.length === 1
+													? (config.projects.find(
+															(p) => p.id === prefs.projectIds[0],
+														)?.label ?? copy.allProjects)
+													: copy.allProjects}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="all">{copy.allProjects}</SelectItem>
+											{config.projects.map((p) => (
+												<SelectItem key={p.id} value={p.id}>
+													{p.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									{navigation?.apps}
+									<FeedNowStrip
+										items={ranked}
+										now={now}
+										timezone={
+											preferences.data?.preferences.timezone ?? undefined
+										}
+									/>
+								</div>
+							</PopoverContent>
+						</PopoverRoot>
+					</div>
+				</header>
+			</DecisionContextSection>
 			{quiet && <Text tone="secondary">{copy.quiet}</Text>}
 			{failed && (
 				<div role="alert">
@@ -563,37 +586,40 @@ export function ActivityFeedApp({
 			{!more && !loading && !failed && selected.length > 0 && (
 				<Text tone="secondary">{copy.end}</Text>
 			)}
-			<div className="flex flex-wrap gap-2">
-				<Button
-					variant="ghost"
-					disabled={busy || !preferences.data}
-					onClick={() => {
-						setBusy(true);
-						const at = now.toISOString();
-						void savePreferences((p) => ({ ...p, lastSeenAt: at }))
-							.then(() => {
-								seenAt.current = at;
-								setNow(new Date());
-							})
-							.catch(() => setStatus(copy.failed))
-							.finally(() => setBusy(false));
-					}}
-				>
-					{copy.markSeen}
-				</Button>
-				<Button
-					variant="ghost"
-					disabled={busy || !preferences.data}
-					onClick={() => {
-						setBusy(true);
-						void savePreferences(() => EMPTY_FEED_PREFERENCES)
-							.catch(() => setStatus(copy.failed))
-							.finally(() => setBusy(false));
-					}}
-				>
-					{copy.reset}
-				</Button>
-			</div>
+			<DecisionContextSection title="Feed preferences">
+				{" "}
+				<div className="flex flex-wrap gap-2">
+					<Button
+						variant="ghost"
+						disabled={busy || !preferences.data}
+						onClick={() => {
+							setBusy(true);
+							const at = now.toISOString();
+							void savePreferences((p) => ({ ...p, lastSeenAt: at }))
+								.then(() => {
+									seenAt.current = at;
+									setNow(new Date());
+								})
+								.catch(() => setStatus(copy.failed))
+								.finally(() => setBusy(false));
+						}}
+					>
+						{copy.markSeen}
+					</Button>
+					<Button
+						variant="ghost"
+						disabled={busy || !preferences.data}
+						onClick={() => {
+							setBusy(true);
+							void savePreferences(() => EMPTY_FEED_PREFERENCES)
+								.catch(() => setStatus(copy.failed))
+								.finally(() => setBusy(false));
+						}}
+					>
+						{copy.reset}
+					</Button>
+				</div>
+			</DecisionContextSection>
 		</div>
 	);
 }
@@ -621,6 +647,8 @@ function FeedCard({
 }) {
 	const copy = OS_COPY.feed;
 	const article = useRef<HTMLElement>(null);
+	const rail = useContext(DecisionRailContext);
+	const whySection = `feed-${item.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 	const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const held = useRef(false);
 	const [reactionsOpen, setReactionsOpen] = useState(false);
@@ -667,6 +695,30 @@ function FeedCard({
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");
 	const [reacted, setReacted] = useState(false);
+	const explanation = (
+		<div className="grid gap-2 border-t pt-3">
+			<Text>{item.explanation}</Text>
+			{item.decision && (
+				<>
+					<Text>{item.decision.whyNow}</Text>
+					<Text weight="medium">{copy.recommendation}</Text>
+					<Text>{item.decision.recommendation}</Text>
+					<Text weight="medium">{copy.waiting}</Text>
+					<Text>{item.decision.costOfWaiting}</Text>
+					{item.decision.lessons.length > 0 && (
+						<Text weight="medium">{copy.lessons}</Text>
+					)}
+					{item.decision.lessons.map((lesson) => (
+						<Text key={lesson.id} title={lesson.id}>
+							{lesson.text}
+						</Text>
+					))}
+				</>
+			)}
+			<Text tone="secondary">{copy.whyRank}</Text>
+		</div>
+	);
+
 	return (
 		<article
 			ref={article}
@@ -748,7 +800,8 @@ function FeedCard({
 						title={copy.why}
 						aria-expanded={why}
 						onClick={() => {
-							setWhy((v) => !v);
+							if (rail) rail.openSection(whySection);
+							else setWhy((v) => !v);
 							if (!why) void react("why");
 						}}
 					>
@@ -790,29 +843,16 @@ function FeedCard({
 						</Button>
 					)}
 				</div>
-				{why && (
-					<div className="grid gap-2 border-t pt-3">
-						<Text>{item.explanation}</Text>
-						{item.decision && (
-							<>
-								<Text>{item.decision.whyNow}</Text>
-								<Text weight="medium">{copy.recommendation}</Text>
-								<Text>{item.decision.recommendation}</Text>
-								<Text weight="medium">{copy.waiting}</Text>
-								<Text>{item.decision.costOfWaiting}</Text>
-								{item.decision.lessons.length > 0 && (
-									<Text weight="medium">{copy.lessons}</Text>
-								)}
-								{item.decision.lessons.map((lesson) => (
-									<Text key={lesson.id} title={lesson.id}>
-										{lesson.text}
-									</Text>
-								))}
-							</>
-						)}
-						<Text tone="secondary">{copy.whyRank}</Text>
-					</div>
-				)}
+				{rail
+					? rail.activeSection === whySection && (
+							<DecisionContextSection
+								title="Why this post?"
+								sectionId={whySection}
+							>
+								{explanation}
+							</DecisionContextSection>
+						)
+					: why && explanation}
 				{comment && (
 					<div className="grid gap-2">
 						<Textarea

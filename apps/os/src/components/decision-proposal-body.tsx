@@ -1,4 +1,8 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
+import {
+	DecisionRailContext,
+	DecisionContextSection,
+} from "@/components/decision-context-rail";
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
 import {
 	ChatMarkdown,
@@ -11,9 +15,21 @@ import { OS_COPY } from "@/shared/os-copy";
 /** Keep the proposal readable without losing the complete source text. */
 export function DecisionProposalBody({ body }: { body: string }) {
 	const [expanded, setExpanded] = useState(false);
+	const rail = useContext(DecisionRailContext);
 	const preview = markdownLineToPlainText(
 		body.replace(/https?:\/\/[^\s)<>]+/g, "").replace(/\n+/g, " "),
 	);
+	if (rail)
+		return (
+			<div className="fd-proposal-body">
+				<p className="fd-proposal-preview">{preview}</p>
+				{body.length > 600 && (
+					<DecisionContextSection title="Details" trigger>
+						<ChatMarkdown content={body} />
+					</DecisionContextSection>
+				)}
+			</div>
+		);
 	return (
 		<div className="fd-proposal-body">
 			{expanded ? (

@@ -49,14 +49,12 @@ try {
 		try {
 			await page.goto(`${origin}/browser-tests/deck.html`);
 			await page
-				.getByRole("button", { name: "Find a decision", exact: true })
+				.getByRole("button", { name: "Decision context", exact: true })
 				.click();
 			await page
 				.getByRole("button", { name: "Try examples", exact: true })
 				.click();
-			await page
-				.getByRole("button", { name: "Find a decision", exact: true })
-				.click();
+			await page.keyboard.press("Escape");
 			const card = page.getByRole("region", {
 				name: "Send Morgan the revised delivery date?",
 			});
@@ -83,6 +81,7 @@ try {
 			await page
 				.getByText("Prefer a bounded next step with evidence", { exact: false })
 				.waitFor();
+			await page.keyboard.press("Escape");
 			await card.evaluate((element) => {
 				element.dispatchEvent(
 					new TouchEvent("touchstart", {

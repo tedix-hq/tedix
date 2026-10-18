@@ -14,13 +14,19 @@ function writingContext(value: string): string {
 			purpose?: string;
 			preferences?: unknown[];
 			lessons?: unknown[];
+			summaryImprovements?: unknown[];
 		};
 		const selected = {
 			purpose: parsed.purpose,
 			preferences: [] as unknown[],
 			lessons: [] as unknown[],
+			summaryImprovements: [] as unknown[],
 		};
-		for (const key of ["preferences", "lessons"] as const)
+		for (const key of [
+			"summaryImprovements",
+			"preferences",
+			"lessons",
+		] as const)
 			for (const item of parsed[key] ?? []) {
 				if (
 					key === "lessons" &&

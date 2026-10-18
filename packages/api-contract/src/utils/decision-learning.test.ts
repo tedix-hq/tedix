@@ -288,3 +288,53 @@ it("a correction removes a writing preference and prevents derived classificatio
 	});
 	expect(learn([...edits, enriched, correction]).preferences).toHaveLength(0);
 });
+
+it("measures only personal rail observations and feeds weak summaries to generation", () => {
+	const observed = (i: number, railOpenedBeforeDecision: boolean) =>
+		event(i, {
+			surface: "decision_deck_action",
+			metadata: {
+				decisionClass: "supplier-review",
+				decisionChoice: "approve",
+				railOpenedBeforeDecision,
+			},
+		});
+	const model = learn([
+		observed(1, false),
+		observed(2, true),
+		observed(3, true),
+		event(4),
+		observed(5, false),
+		{ ...observed(6, false), actorId: "other-person", scopeId: "other-person" },
+		{
+			...observed(7, false),
+			metadata: {
+				decisionClass: "supplier-review",
+				decisionChoice: "later",
+				railOpenedBeforeDecision: false,
+			},
+		},
+	]);
+	expect(model.cardIntuitiveness).toMatchObject({
+		decisions: 4,
+		fromCard: 2,
+		percent: 50,
+		classes: [{ classId: "supplier-review", needsBetterSummary: true }],
+	});
+	expect(
+		JSON.parse(draftLearningContext(model)).summaryImprovements[0],
+	).toMatchObject({
+		classId: "supplier-review",
+		instruction: expect.stringContaining("80%"),
+	});
+	expect(learn([event(1)]).cardIntuitiveness?.percent).toBeNull();
+	const strong = learn([
+		observed(1, false),
+		observed(2, false),
+		observed(3, false),
+		observed(4, false),
+		observed(5, true),
+	]);
+	expect(strong.cardIntuitiveness?.percent).toBe(80);
+	expect(strong.cardIntuitiveness?.classes[0]?.needsBetterSummary).toBe(false);
+});

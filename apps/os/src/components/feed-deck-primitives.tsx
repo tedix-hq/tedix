@@ -1,3 +1,7 @@
+import {
+	DecisionContextSection,
+	DecisionRailContext,
+} from "@/components/decision-context-rail";
 import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
 import { createContext, useContext, type ReactNode } from "react";
 import {
@@ -28,12 +32,24 @@ export function FeedDeckDisclosure({
 	label,
 	children,
 	className,
+	keepMounted = true,
 }: {
 	title: ReactNode;
 	label?: string;
 	children: ReactNode;
 	className?: string;
+	keepMounted?: boolean;
 }) {
+	const rail = useContext(DecisionRailContext);
+	if (rail)
+		return (
+			<DecisionContextSection
+				title={label ?? title}
+				trigger={className !== "fd-action-details"}
+			>
+				{children}
+			</DecisionContextSection>
+		);
 	return (
 		<Collapsible className={cn("fd-disclosure", className)} aria-label={label}>
 			<CollapsibleTrigger>
@@ -44,7 +60,9 @@ export function FeedDeckDisclosure({
 				/>
 				{title}
 			</CollapsibleTrigger>
-			<CollapsibleContent keepMounted>{children}</CollapsibleContent>
+			<CollapsibleContent keepMounted={keepMounted}>
+				{children}
+			</CollapsibleContent>
 		</Collapsible>
 	);
 }

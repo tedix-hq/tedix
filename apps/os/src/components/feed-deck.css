@@ -906,3 +906,62 @@
 		flex-basis: auto;
 	}
 }
+
+.fd-context-layout {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	width: 100%;
+	min-width: 0;
+	padding: 2.5rem 0 0;
+	background: none;
+	border-radius: 0;
+}
+.fd-context-layout[data-context-open="true"] {
+	grid-template-columns: minmax(0, 1fr) 21rem;
+	gap: 1.5rem;
+}
+.fd-context-main {
+	min-width: 0;
+}
+.fd-context-toggle {
+	position: absolute;
+	top: 0;
+	right: 0;
+}
+.fd-context-rail {
+	min-width: 0;
+	max-height: calc(100dvh - 10rem);
+	overflow-y: auto;
+	border-left: 1px solid var(--color-kumo-line);
+	padding: 1rem;
+}
+.fd-context-rail[hidden] {
+	display: none;
+}
+.fd-context-sections {
+	display: grid;
+	gap: 1.5rem;
+	padding: 1rem;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.fd-context-section {
+	display: grid;
+	gap: 0.75rem;
+}
+.fd-context-section h3 {
+	font-weight: 500;
+}
+.fd-context-sheet {
+	max-height: 80dvh;
+	border-radius: 1rem 1rem 0 0;
+}
+.fd-context-main .fd-deck {
+	padding-top: 0;
+}
+@media (max-width: 639px) {
+	.fd-context-layout {
+		padding-top: 2rem;
+	}
+}

@@ -1,13 +1,9 @@
+import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import {
 	connectorApproval,
 	connectorApprovalSummary,
 	interactionCardKind,
 } from "@/lib/interaction-card-kind";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
 import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
@@ -421,16 +417,14 @@ export function WorkInteractionDecisionCard({
 									{presentation?.body ??
 										connectorApprovalSummary(request, source)}
 								</p>
-								<Collapsible>
-									<CollapsibleTrigger>
-										{OS_COPY.feed.details}
-									</CollapsibleTrigger>
-									<CollapsibleContent>
-										<p className="whitespace-pre-wrap break-words">
-											{request.prompt}
-										</p>
-									</CollapsibleContent>
-								</Collapsible>
+								<FeedDeckDisclosure
+									title={OS_COPY.feed.details}
+									keepMounted={false}
+								>
+									<p className="whitespace-pre-wrap break-words">
+										{request.prompt}
+									</p>
+								</FeedDeckDisclosure>
 							</>
 						) : (
 							<DecisionProposalBody

@@ -227,14 +227,12 @@ try {
 		await page.setViewportSize({ width: width!, height: height! });
 		await page.goto(`${origin}/browser-tests/deck.html?long-proposal=1`);
 		await page
-			.getByRole("button", { name: "Find a decision", exact: true })
+			.getByRole("button", { name: "Decision context", exact: true })
 			.click();
 		await page
 			.getByRole("button", { name: "Try examples", exact: true })
 			.click();
-		await page
-			.getByRole("button", { name: "Find a decision", exact: true })
-			.click();
+		await page.keyboard.press("Escape");
 		await page.locator("[data-decision-actions]").waitFor();
 		await page.evaluate(() => document.fonts.ready);
 		for (const mode of ["light", "dark"]) {

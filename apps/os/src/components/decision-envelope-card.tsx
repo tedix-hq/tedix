@@ -52,7 +52,16 @@ export function DecisionEnvelopeCard({
 					{decision.preview && (
 						<DecisionProposalBody body={decision.preview.body} />
 					)}
+					<Text className="fd-card-summary">
+						{
+							decision.options.find((option) => option.intent === "approve")
+								?.consequence
+						}
+					</Text>
 					<Text className="fd-recommendation">{decision.recommendation}</Text>
+					<Text>
+						{decision.whyNow} · {decision.costOfWaiting}
+					</Text>
 					<FeedDeckDisclosure title={OS_COPY.feedDeckVisual.context}>
 						<Text>
 							<strong>{decisionText("Why now:")}</strong> {decision.whyNow}
@@ -94,10 +103,7 @@ export function DecisionEnvelopeCard({
 					<Text>{decision.reasoning}</Text>
 					{decision.lessons.length ? (
 						decision.lessons.map((lesson) => (
-							<Text key={lesson.id}>
-								{lesson.text}{" "}
-								<span className="text-kumo-subtle">({lesson.id})</span>
-							</Text>
+							<Text key={lesson.id}>{lesson.text} </Text>
 						))
 					) : (
 						<Text>{decisionText("No cited lessons yet.")}</Text>

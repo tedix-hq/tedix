@@ -46,6 +46,26 @@ it("uses the recipient's learned preferences and configured small model without 
 		expect.objectContaining({ model: "small-configured-model" }),
 	);
 });
+it("preserves measured summary improvement feedback in the bounded generator context", async () => {
+	mocks.preferences.mockResolvedValue(
+		JSON.stringify({
+			summaryImprovements: [
+				{
+					classId: "supplier-review",
+					instruction:
+						"Improve the summary because only 50% decided from the card alone.",
+				},
+			],
+		}),
+	);
+	await generateDecisionCard({ db: {}, env: {} } as never, request);
+	expect(mocks.model).toHaveBeenCalledWith(
+		expect.anything(),
+		expect.stringContaining("50% decided from the card alone"),
+		expect.anything(),
+	);
+});
+
 it.each([
 	{ ...copy, title: "x".repeat(91) },
 	{ ...copy, version: 2 },

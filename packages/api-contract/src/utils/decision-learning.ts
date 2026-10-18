@@ -1,3 +1,4 @@
+import { decisionCardIntuitiveness } from "./decision-card-intuitiveness";
 import { lessonMatches } from "@tedix/context-core/situational-recall";
 import type { LearningInteractionEvent } from "../schemas/learning-feedback";
 import {
@@ -119,7 +120,7 @@ export function learnDecisions(input: {
 					: [];
 			}),
 	);
-	const events = visible
+	const replayEvents = visible
 		.filter(
 			(e) =>
 				!corrected.has(e.id) &&
@@ -127,6 +128,9 @@ export function learnDecisions(input: {
 				e.metadata?.learningCorrection !== true,
 		)
 		.slice(-config.historyLimit);
+	const events = replayEvents.filter(
+		(event) => event.surface !== "decision_deck_action",
+	);
 	const maps = {
 		personal: new Map<string, LearnedWeight>(),
 		organization: new Map<string, LearnedWeight>(),
@@ -291,6 +295,7 @@ export function learnDecisions(input: {
 		asOf: input.now.toISOString(),
 		weights,
 		eventCount: events.length,
+		cardIntuitiveness: decisionCardIntuitiveness(replayEvents, input.personId),
 		receipts: events
 			.filter(
 				(e) =>
@@ -512,11 +517,21 @@ export function draftLearningContext(
 	const lessons = model.lessons.filter(
 		(l) => !classId || l.classId === null || l.classId === classId,
 	);
-	if (!prefs.length && !lessons.length) return "";
+	const summaryImprovements =
+		model.cardIntuitiveness?.classes.filter(
+			(row) => row.needsBetterSummary && (!classId || row.classId === classId),
+		) ?? [];
+	if (!prefs.length && !lessons.length && !summaryImprovements.length)
+		return "";
 	return JSON.stringify({
 		purpose:
 			"Learned writing preferences; context only. Preserve facts, recipients, consent and authority.",
 		preferences: prefs,
+		summaryImprovements: summaryImprovements.map((row) => ({
+			...row,
+			instruction:
+				"Improve this card class summary: identify who asks, the exact approval consequence, recommendation and reason, stakes and deadline. Target at least 80% decisions without opening context. Preserve authority and facts.",
+		})),
 		lessons,
 	});
 }
