@@ -536,3 +536,43 @@ describe("run_skill Do it", () => {
 		});
 	});
 });
+
+it("keeps future factory cards out of the review queue until the viewer's date", () => {
+	const parsed = cardsFromSheet({
+		source: inbox,
+		sourceIndex: 0,
+		outputId: INBOX_WS,
+		sheetTitle: "Inbox cards 2026-10-18",
+		runCreatedAt: "2026-10-18T10:00:00Z",
+		body: {
+			columns: [
+				"Thread",
+				"Why",
+				"Useful?",
+				"Reason",
+				"Approve action?",
+				"Remind at",
+			],
+			rows: [["Morgan at Example", "Follow up", "", "", "", "2026-10-28"]],
+		},
+	});
+	if ("missing" in parsed) throw new Error("Fictional sheet columns missing");
+	const options = {
+		channel: null,
+		snoozes: {},
+		skipped: [],
+		timeZone: "Europe/Berlin",
+	};
+	expect(
+		reviewQueue(parsed.cards, {
+			...options,
+			now: new Date("2026-10-18T12:00:00Z"),
+		}),
+	).toHaveLength(0);
+	expect(
+		reviewQueue(parsed.cards, {
+			...options,
+			now: new Date("2026-10-27T23:00:00Z"),
+		}),
+	).toHaveLength(1);
+});

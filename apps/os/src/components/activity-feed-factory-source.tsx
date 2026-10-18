@@ -1,3 +1,5 @@
+import { cardIsDue } from "@/lib/card-schedule";
+import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import type {
@@ -22,6 +24,7 @@ export function ActivityFeedFactorySource({
 	sourceKey: string;
 	onUpdate: (key: string, state: FeedSourceState) => void;
 }) {
+	const { now, timeZone } = useCardSchedule();
 	const outputs = useQuery(
 		canvasOutputsQueryOptions(binding.source.workspaceId),
 	);
@@ -60,7 +63,9 @@ export function ActivityFeedFactorySource({
 				continue;
 			}
 			for (const card of result.cards.filter(
-				(card) => !!card.result || card.done === "yes",
+				(card) =>
+					(!!card.result || card.done === "yes") &&
+					cardIsDue(card, now, timeZone),
 			))
 				items.push({
 					id: `factory:${sheet.id}:${card.rowIndex}`,
@@ -96,7 +101,15 @@ export function ActivityFeedFactorySource({
 			loading: outputs.isPending || details.some((d) => d.isPending),
 			more: false,
 		};
-	}, [sheets, binding, outputs.isError, outputs.isPending, versionKey]);
+	}, [
+		sheets,
+		binding,
+		outputs.isError,
+		outputs.isPending,
+		versionKey,
+		now,
+		timeZone,
+	]);
 	useEffect(() => onUpdate(sourceKey, state), [sourceKey, state, onUpdate]);
 	return null;
 }

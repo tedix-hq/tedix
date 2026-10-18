@@ -1,3 +1,5 @@
+import { cardIsDue, cardScheduleDates } from "@/lib/card-schedule";
+import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQuery } from "@tanstack/react-query";
 import {
 	decisionNeedsPerson,
@@ -13,6 +15,7 @@ import { useFactoryCardCount } from "@/lib/use-factory-card-count";
 
 /** The header and Deck use the same recipient checks, project scope and bounded pages. */
 export function useDecisionInbox(config?: DecisionDeckConfig) {
+	const { now, timeZone } = useCardSchedule();
 	const factories = useFactoryCardCount(config?.factorySources ?? []);
 	const inbox = useQuery({
 		...osQuery.workInteractions.listInbox.queryOptions({
@@ -63,21 +66,34 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		const decision = decisionEnvelope(row.request.metadata);
 		return (
 			isOpenRequestForYou(row) &&
-			decisionIsDue(row.request, new Date()) &&
+			decisionIsDue(row.request, now, timeZone) &&
 			row.canRespond &&
 			(!decision || decisionNeedsPerson(decision))
 		);
 	});
-	const work = (workApprovals.data?.data ?? []).filter(isDecidableWorkApproval);
+	const work = (workApprovals.data?.data ?? []).filter(
+		(row) =>
+			isDecidableWorkApproval(row) && cardIsDue(row.proposal, now, timeZone),
+	);
 	const runtime = !config?.projectId
-		? (approvals.data?.data ?? []).filter((row) => row.status === "pending")
+		? (approvals.data?.data ?? []).filter(
+				(row) => row.status === "pending" && cardIsDue(row, now, timeZone),
+			)
 		: [];
 	return {
 		inbox,
 		approvalRequests,
-		approvals,
+		approvals: {
+			...approvals,
+			data: approvals.data ? { ...approvals.data, data: runtime } : undefined,
+		},
 		workApprovals,
 		requests,
+		scheduledIds: new Set(
+			requests
+				.filter((row) => cardScheduleDates(row.request).length > 0)
+				.map((row) => row.request.id),
+		),
 		work,
 		factoryCount: factories.count,
 		count: requests.length + work.length + runtime.length + factories.count,

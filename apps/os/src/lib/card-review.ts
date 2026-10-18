@@ -1,3 +1,4 @@
+import { cardIsDue, isCardScheduleField } from "@/lib/card-schedule";
 import {
 	type CardActionKind,
 	CARD_REVIEW_ENTRY,
@@ -121,6 +122,7 @@ export function sourceParts(text: string): { label: string; links: string[] } {
 }
 
 export type ReviewCard = {
+	scheduleDates?: string[];
 	key: string;
 	sourceIndex: number;
 	sourceLabel: string;
@@ -240,6 +242,9 @@ export function cardsFromSheet(input: {
 		const index = col(name);
 		return index < 0 ? "" : cellText(row[index]);
 	};
+	const scheduleColumns = body.columns.flatMap((name, index) =>
+		isCardScheduleField(name) ? [index] : [],
+	);
 	const cards: ReviewCard[] = [];
 	body.rows.forEach((row, rowIndex) => {
 		const sourceText = at(row, source.columns.source);
@@ -249,6 +254,7 @@ export function cardsFromSheet(input: {
 		const type = at(row, source.columns.type);
 		cards.push({
 			key: `${input.outputId}:${rowIndex}`,
+			scheduleDates: scheduleColumns.map((index) => cellText(row[index])),
 			sourceIndex: input.sourceIndex,
 			sourceLabel: source.label,
 			channel: channelFor(source, `${sourceText} ${who} ${type}`),
@@ -427,12 +433,14 @@ export function reviewQueue(
 		snoozes: Record<string, string>;
 		skipped: readonly string[];
 		now: Date;
+		timeZone?: string;
 	},
 ): ReviewCard[] {
 	const open = cards
 		.filter(
 			(card) =>
 				isOpen(card) &&
+				cardIsDue(card, options.now, options.timeZone) &&
 				(options.channel === null || card.channel === options.channel) &&
 				!isSnoozed(options.snoozes, card.key, options.now),
 		)

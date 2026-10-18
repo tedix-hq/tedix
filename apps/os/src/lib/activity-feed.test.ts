@@ -125,6 +125,21 @@ describe("activity feed", () => {
 		expect(card.classId).toBe(envelope.classId);
 		expect(card.sentence).toBe(envelope.proposal);
 		expect(card.reactions).not.toContain("approve");
+		row.request.metadata = { ...row.request.metadata, remind_at: "2026-10-28" };
+		expect(
+			decisionFeedItems(
+				[row],
+				new Date("2026-10-18T12:00:00Z"),
+				"Europe/Berlin",
+			),
+		).toHaveLength(0);
+		expect(
+			decisionFeedItems(
+				[row],
+				new Date("2026-10-27T23:00:00Z"),
+				"Europe/Berlin",
+			),
+		).toHaveLength(1);
 	});
 	it("ranks an old approaching deadline ahead of a recent routine update", () => {
 		const ranked = rankFeed(
