@@ -1,3 +1,4 @@
+import { DeckFooterContext } from "@/components/deck-presentation-context";
 import { createRoot } from "react-dom/client";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import {
@@ -56,26 +57,28 @@ function RegressionDeck() {
 						<ProposerProjectContext.Provider value="Example Website Publishing Platform">
 							<div className="fd-decision-stack" data-has-next="true">
 								<div className="grid min-w-0 gap-3">
-									<WorkDecisionCard
-										kind="proposal"
-										title={proposal}
-										askedBy="Codex session"
-										at="2026-10-18T00:39:00Z"
-										body={proposal.repeat(6)}
-										why={<p>{proposal.repeat(4)}</p>}
-										actions={[
-											{ id: "approve", label: "Approve", intent: "approve" },
-											{ id: "reject", label: "Not this", intent: "reject" },
-											{ id: "later", label: "Later", intent: "later" },
-										]}
-										onDecision={async () => {
-											throw new Error("Read-only regression");
-										}}
-									/>
+									<DeckFooterContext.Provider
+										value={<Button variant="outline">Later</Button>}
+									>
+										<WorkDecisionCard
+											kind="proposal"
+											title={proposal}
+											askedBy="Codex session"
+											at="2026-10-18T00:39:00Z"
+											body={proposal.repeat(6)}
+											why={<p>{proposal.repeat(4)}</p>}
+											actions={[
+												{ id: "approve", label: "Approve", intent: "approve" },
+												{ id: "reject", label: "Not this", intent: "reject" },
+											]}
+											onDecision={async () => {
+												throw new Error("Read-only regression");
+											}}
+										/>
+									</DeckFooterContext.Provider>
 								</div>
 							</div>
 						</ProposerProjectContext.Provider>
-						<Button variant="outline">Later</Button>
 					</div>
 					<FeedDeckDisclosure
 						className="fd-deck-learning"

@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { DeckRemainingContext } from "@/components/deck-presentation-context";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { workInteractionDetailQueryOptions } from "@/lib/os-query-options";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
@@ -29,6 +30,7 @@ export function WorkHome({
 }) {
 	useOsLocale();
 	const { apps, pending, failed, truncated, retry } = useWorkApps();
+	const [remaining, setRemaining] = useState<number | null>(null);
 	const defaultApp =
 		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
 		(pending ? undefined : apps.find((app) => app.role === "feed"));
@@ -110,23 +112,25 @@ export function WorkHome({
 								? "—"
 								: decisions.pending
 									? "…"
-									: `${decisions.count}${decisions.more ? "+" : ""}`}
+									: `${remaining ?? "…"}`}
 						</span>
 					</Link>
 				</nav>
 			)}
 			{selected ? (
-				<WorkspaceAppRenderer
-					key={selected.gadget.id}
-					manifest={selected.manifest}
-					workspaceId={selected.gadget.workspaceId}
-					activityFeed={{
-						filter: search.filter ?? "all",
-						onFilterChange,
-						decide,
-						apps: appLinks,
-					}}
-				/>
+				<DeckRemainingContext.Provider value={setRemaining}>
+					<WorkspaceAppRenderer
+						key={selected.gadget.id}
+						manifest={selected.manifest}
+						workspaceId={selected.gadget.workspaceId}
+						activityFeed={{
+							filter: search.filter ?? "all",
+							onFilterChange,
+							decide,
+							apps: appLinks,
+						}}
+					/>
+				</DeckRemainingContext.Provider>
 			) : pending ? (
 				<Text>{copy.loading}</Text>
 			) : (

@@ -7,6 +7,7 @@ import { OsGadgetManifestWriteSchema } from "@tedix/api-contract/schemas/os-work
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import {
 	decisionLearningKey,
+	decisionIsDue,
 	workIsUnowned,
 	compareDecisionFreshness,
 	classReadiness,
@@ -186,4 +187,18 @@ it("correlates only canonical effect receipts, including Outbound's pre-send rev
 		decisionLearningKey({ event: { id: "secondary-telemetry" } }),
 	).toBeUndefined();
 	expect(decisionLearningKey(undefined)).toBeUndefined();
+});
+
+it("holds future coordination reminders until due without delaying question deadlines", () => {
+	const request = { kind: "coordination", dueAt: "2026-10-28T08:00:00Z" };
+	expect(decisionIsDue(request, new Date("2026-10-18T10:09:00Z"))).toBe(false);
+	expect(decisionIsDue(request, new Date(request.dueAt))).toBe(true);
+	expect(decisionIsDue(request, new Date("2026-10-29T10:09:00Z"))).toBe(true);
+	expect(
+		decisionIsDue(
+			{ ...request, kind: "question" },
+			new Date("2026-10-18T10:09:00Z"),
+		),
+	).toBe(true);
+	expect(decisionIsDue({ kind: "coordination" }, new Date())).toBe(true);
 });

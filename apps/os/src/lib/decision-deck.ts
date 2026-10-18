@@ -170,3 +170,15 @@ export function decisionLearningKey(result: unknown): string | undefined {
 	)
 		return `decision-capture:${result.response.id}`;
 }
+
+/** Coordination due dates schedule a follow-up; question deadlines do not delay review. */
+export function decisionIsDue(
+	request: { kind: string; dueAt?: string | null },
+	now: Date,
+) {
+	return (
+		request.kind !== "coordination" ||
+		!request.dueAt ||
+		Date.parse(request.dueAt) <= now.getTime()
+	);
+}

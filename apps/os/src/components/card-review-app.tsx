@@ -1,3 +1,4 @@
+import { DeckRemainingContext } from "@/components/deck-presentation-context";
 import {
 	ArrowArcLeft,
 	ArrowSquareOut,
@@ -19,6 +20,7 @@ import {
 	type PointerEvent,
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useMemo,
 	useRef,
@@ -399,6 +401,10 @@ export function CardReviewApp({
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
 	const [departingCard, setDepartingCard] = useState<ReviewCard | null>(null);
+	const reportRemaining = useContext(DeckRemainingContext);
+	useEffect(() => {
+		if (inDeck) reportRemaining?.(queue.length);
+	}, [inDeck, queue.length, reportRemaining]);
 	const card = departingCard ?? queue[0] ?? null;
 	const source = card ? sources[card.sourceIndex] : undefined;
 	const actionLabel = card && source ? doItLabel(source, card) : null;

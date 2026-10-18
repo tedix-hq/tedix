@@ -1,3 +1,4 @@
+import { DeckFooterContext } from "@/components/deck-presentation-context";
 import {
 	DecisionLearningContext,
 	DecisionLearningWhy,
@@ -127,6 +128,21 @@ export function WorkDecisionCard({
 	onPrevious?: () => void;
 }) {
 	const heading = decisionProposalTitle(title);
+	const deckFooter = useContext(DeckFooterContext);
+	const footer = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const node = footer.current;
+		if (!node) return;
+		const update = () =>
+			section.current?.style.setProperty(
+				"--fd-footer-height",
+				`${node.getBoundingClientRect().height}px`,
+			);
+		const observer = new ResizeObserver(update);
+		observer.observe(node);
+		update();
+		return () => observer.disconnect();
+	}, []);
 	const attention = useContext(DecisionAttentionContext);
 	const learnedWhy = useContext(DecisionLearningContext);
 	const shownAt = useRef(performance.now());
@@ -558,7 +574,7 @@ export function WorkDecisionCard({
 					) : null}
 				</CardContent>
 				{!saved && (
-					<CardFooter>
+					<CardFooter ref={footer}>
 						{" "}
 						<div
 							data-decision-actions
@@ -644,6 +660,8 @@ export function WorkDecisionCard({
 									{editing ? decisionText("Preview") : decisionText("Change")}
 								</Button>
 							) : null}
+							{!actions.some((action) => action.intent === "later") &&
+								deckFooter}
 						</div>
 					</CardFooter>
 				)}
