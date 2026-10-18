@@ -38,7 +38,6 @@ test("board priorities exclude other harnesses, projects, selected and running W
 		disposition: "accepted",
 		...row,
 	}));
-	const checked: string[] = [];
 	const code = gatewayCode({
 		nextWork: { projectId, harness: "claude-code", selected: id(6) },
 	});
@@ -48,12 +47,22 @@ test("board priorities exclude other harnesses, projects, selected and running W
 			expect(query).toEqual({ projectId, disposition: "accepted", limit: 50 });
 			return { data: rows };
 		},
-		get_work_item_readiness: async ({ id: workItemId }: { id: string }) => {
-			checked.push(workItemId);
-			return { workItemId, ready: workItemId !== id(2) };
+		list_work_item_cli_rows: async (query: unknown) => {
+			expect(query).toEqual({
+				projectId,
+				disposition: "accepted",
+				limit: 50,
+				view: "board",
+			});
+			return {
+				data: rows.map((row) => ({
+					...row,
+					activeAttempt:
+						row.id === id(2) ? { agentSession: "another-chat" } : null,
+				})),
+			};
 		},
 	});
-	expect(checked).toEqual([id(1), id(2), id(7), id(8)]);
 	expect(data.nextWork.data.map((row: { id: string }) => row.id)).toEqual([
 		id(1),
 		id(7),
