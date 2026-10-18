@@ -88,9 +88,13 @@ export function workFeedItems(
 			actor:
 				actors[e.agentHarness ?? e.authorType] ?? OS_COPY.feed.actors.system,
 			sentence: sentence(
-				e.body === e.eventType
-					? `${e.workItemTitle} ${workEvents[e.eventType] ?? OS_COPY.feed.workUpdated}.`
-					: `${e.workItemTitle}: ${e.body}`,
+				e.body !== e.eventType &&
+					e.body.length <= 180 &&
+					!/[`\n]|https?:|[a-f\d]{8,}|(?:session|codex|claude-code)\s*(?:·|waiting:)|\b(?:SHA|D1|Attempt)\b/i.test(
+						e.body,
+					)
+					? e.body
+					: `${e.workItemTitle} ${workEvents[e.eventType] ?? OS_COPY.feed.workUpdated}.`,
 			),
 			classId: `work:${e.eventType}`.slice(0, 100),
 			done: ["completed", "cancelled"].includes(e.workItemDisposition),
@@ -100,7 +104,12 @@ export function workFeedItems(
 				: /comment|created/.test(e.eventType)
 					? "low"
 					: "normal",
-			explanation: OS_COPY.feed.workExplanation,
+			explanation: [
+				e.body === e.eventType ? null : e.body,
+				OS_COPY.feed.workExplanation,
+			]
+				.filter(Boolean)
+				.join("\n\n"),
 		}));
 }
 
@@ -118,13 +127,27 @@ export function resultFeedItems(
 			),
 			kind: "result",
 			classId: `${a.executorType}:result`,
-			actor: a.executorType === "tedi" ? "Tedi" : "Coding session",
+			actor:
+				a.executorType === "tedi"
+					? "Tedi"
+					: a.externalSessionKey?.startsWith("claude")
+						? "Claude"
+						: a.externalSessionKey?.startsWith("codex")
+							? "Codex"
+							: OS_COPY.feed.actors.external_agent,
 			tediId: a.executorType === "tedi" ? a.executorId : null,
-			sentence: sentence(a.summary || `${w.title}: ${a.outcome}`),
+			sentence: sentence(
+				typeof a.metadata.feedSentence === "string" &&
+					a.metadata.feedSentence.trim()
+					? a.metadata.feedSentence
+					: `${w.title} — ${OS_COPY.feed.outcomes[a.outcome as keyof typeof OS_COPY.feed.outcomes] ?? OS_COPY.feed.workUpdated}.`,
+			),
 			importance: a.outcome === "failed" ? "high" : "normal",
 			stalled: a.outcome !== "succeeded",
 			done: a.outcome === "succeeded",
-			explanation: OS_COPY.feed.resultExplanation,
+			explanation: [a.summary, OS_COPY.feed.resultExplanation]
+				.filter(Boolean)
+				.join("\n\n"),
 		}));
 }
 

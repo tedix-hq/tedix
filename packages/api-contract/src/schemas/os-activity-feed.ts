@@ -38,6 +38,12 @@ export const ActivityFeedItemSchema = z.strictObject({
 	done: z.boolean(),
 	explanation: z.string(),
 	reactions: z.array(ActivityFeedReactionSchema).max(5),
+	attachment: z
+		.strictObject({
+			title: z.string().min(1).max(200),
+			summary: z.string().max(300).optional(),
+		})
+		.optional(),
 	decision: DecisionEnvelopeSchema.optional(),
 });
 export type ActivityFeedItem = z.infer<typeof ActivityFeedItemSchema>;

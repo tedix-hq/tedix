@@ -70,7 +70,7 @@ it("projects an existing fictional factory sheet with its revision and the same 
 						"The delivery date changed.",
 						"",
 						"",
-						"",
+						"yes",
 					],
 				],
 			},

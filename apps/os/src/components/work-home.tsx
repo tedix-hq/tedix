@@ -54,15 +54,19 @@ export function WorkHome({
 	);
 	const decide = (
 		<Button
+			variant="ghost"
 			render={<a href="/work?view=deck" />}
 			title={decisions.more ? copy.loadedCount : undefined}
 		>
-			{copy.decide}
 			{!config.success || decisions.failed
-				? ` · ${copy.countUnavailable}`
+				? OS_COPY.feed.deck
 				: decisions.pending
-					? "…"
-					: ` · ${decisions.count}${decisions.more ? "+" : ""}`}
+					? copy.deck
+					: decisions.count === 0
+						? OS_COPY.feed.deckClear
+						: OS_COPY.feed.decisionsWaiting(
+								`${decisions.count}${decisions.more ? "+" : ""}`,
+							)}
 		</Button>
 	);
 	const appLinks = (
@@ -87,30 +91,28 @@ export function WorkHome({
 	);
 	return (
 		<Page width="full" className="fd-work-home">
-			<nav aria-label={copy.views} className="fd-work-nav">
-				<Link
-					href="/work?view=feed"
-					variant="navigation"
-					aria-current={selected?.role === "feed" ? "page" : undefined}
-				>
-					{copy.feed}
-				</Link>
-				<Link
-					href="/work?view=deck"
-					variant="navigation"
-					aria-current={selected?.role === "deck" ? "page" : undefined}
-					title={decisions.more ? copy.loadedCount : undefined}
-				>
-					{copy.deck}{" "}
-					<span>
-						{!config.success || decisions.failed
-							? "—"
-							: decisions.pending
-								? "…"
-								: `${decisions.count}${decisions.more ? "+" : ""}`}
-					</span>
-				</Link>
-			</nav>
+			{selected?.role !== "feed" && (
+				<nav aria-label={copy.views} className="fd-work-nav">
+					<Link href="/work?view=feed" variant="navigation">
+						{copy.feed}
+					</Link>
+					<Link
+						href="/work?view=deck"
+						variant="navigation"
+						aria-current={selected?.role === "deck" ? "page" : undefined}
+						title={decisions.more ? copy.loadedCount : undefined}
+					>
+						{copy.deck}{" "}
+						<span>
+							{!config.success || decisions.failed
+								? "—"
+								: decisions.pending
+									? "…"
+									: `${decisions.count}${decisions.more ? "+" : ""}`}
+						</span>
+					</Link>
+				</nav>
+			)}
 			{selected ? (
 				<WorkspaceAppRenderer
 					key={selected.gadget.id}

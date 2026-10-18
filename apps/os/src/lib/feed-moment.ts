@@ -17,9 +17,11 @@ export function feedMoment(at: string, now: Date, timeZone?: string | null) {
 			hourCycle: "h23",
 		}).format(date),
 	);
-	return hour < 12
-		? copy.thisMorning
-		: hour < 18
-			? copy.thisAfternoon
-			: copy.thisEvening;
+	return hour < 6
+		? OS_COPY.feed.whileYouSlept
+		: hour < 12
+			? copy.thisMorning
+			: hour < 18
+				? copy.thisAfternoon
+				: copy.thisEvening;
 }

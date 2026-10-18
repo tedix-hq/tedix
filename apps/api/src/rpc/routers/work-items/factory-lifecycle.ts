@@ -13,6 +13,7 @@ import {
 	ListWorkEventCliProjectionResultSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import {
+	getAuthoritativeWorkItemAttempt,
 	heartbeatWorkItemAttempt,
 	listWorkItemAttempts,
 	recordWorkAttemptRepository,
@@ -777,6 +778,24 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 			workItem.orgId,
 		);
 		try {
+			await getAuthoritativeWorkItemAttempt(context.db, {
+				orgId: workItem.orgId,
+				workItemId: workItem.id,
+				attemptId: input.attemptId,
+				executor,
+				sessionId:
+					executor.type === "external_agent" ? executor.sessionId : undefined,
+				externalSessionKey: external?.externalSessionKey,
+			});
+			const { summarizeFeedOutcome } =
+				await import("../../../services/feed-outcome-summary");
+			const feedSentence = await summarizeFeedOutcome(context, {
+				organizationId: workItem.orgId,
+				title: workItem.title,
+				outcome: input.outcome,
+				summary: input.summary,
+			});
+			const metadata = { ...input.metadata, feedSentence };
 			return await settleWorkItemAttempt(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
@@ -790,10 +809,8 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 				needsUser: input.needsUser,
 				requestId: input.requestId,
 				metadata: external
-					? toJsonRecord(stampExternalAgentMetadata(external, input.metadata))
-					: input.metadata
-						? toJsonRecord(input.metadata)
-						: undefined,
+					? toJsonRecord(stampExternalAgentMetadata(external, metadata))
+					: toJsonRecord(metadata),
 				repositoryLifecycle: input.repositoryLifecycle,
 				costMicros: input.costMicros,
 				settledAt: new Date().toISOString(),
