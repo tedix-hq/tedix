@@ -1,3 +1,4 @@
+import { listExternalAgentSessionHarnessesByIds } from "./external-agent-identity/session-state";
 import { DatabaseSync } from "node:sqlite";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
@@ -1322,4 +1323,44 @@ describe("external-agent identity", () => {
 				.blockedByCriticalNegative,
 		).toBe(false);
 	});
+});
+
+it("reads legacy proposer harnesses in bounded tenant-scoped batches", async () => {
+	const statements: string[] = [];
+	const db = fixture((sql) => statements.push(sql));
+	const owner = await principal(db);
+	const ids: string[] = [];
+	for (let i = 0; i < 51; i++) {
+		const id = `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+		ids.push(id);
+		await openExternalAgentSession(db, {
+			...sessionInput(owner.id),
+			id,
+			externalSessionKey: `codex:proposer-${i}`,
+		});
+	}
+	statements.length = 0;
+	const rows = await listExternalAgentSessionHarnessesByIds(db, {
+		organizationId: ORG,
+		sessionIds: [...ids, ...ids],
+	});
+	expect(rows).toHaveLength(51);
+	expect(
+		rows.every(
+			(row) => row.harness === "codex" && row.principalId === owner.id,
+		),
+	).toBe(true);
+	expect(statements).toHaveLength(2);
+	expect(
+		await listExternalAgentSessionHarnessesByIds(db, {
+			organizationId: "fictional-other-org",
+			sessionIds: ids,
+		}),
+	).toEqual([]);
+	expect(
+		await listExternalAgentSessionHarnessesByIds(db, {
+			organizationId: ORG,
+			sessionIds: [],
+		}),
+	).toEqual([]);
 });

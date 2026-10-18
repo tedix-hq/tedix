@@ -1,3 +1,4 @@
+import { DecisionProposalHeading } from "@/components/decision-proposal-body";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
 	Fragment,
@@ -601,7 +602,7 @@ function FeedCard({
 					</time>
 				</div>
 				<Text as="h3" weight="medium" className="fd-story-title break-words">
-					{item.sentence}
+					<DecisionProposalHeading title={item.sentence} />
 				</Text>
 				<div className="flex flex-wrap gap-2">
 					{item.unseen && (

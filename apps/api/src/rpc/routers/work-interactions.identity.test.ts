@@ -1,3 +1,4 @@
+import { externalAgentSessions } from "@tedix/db/schema/external-agent-identity";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -36,6 +37,7 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workInteractionReplyDrafts,
 			organizationMembers,
 			tedis,
+			externalAgentSessions,
 		),
 	);
 	sqlite
@@ -300,6 +302,51 @@ describe("Work interaction canonical actor projections", () => {
 		expect(inbox.data.find((r) => r.request.id === created.id)?.askedBy).toBe(
 			"Codex session",
 		);
+	});
+	it("resolves a legacy proposer UUID only from its own tenant and principal", async () => {
+		const { sqlite, owner, target } = fixture();
+		const request = await createTargetedInteraction(owner);
+		const sessionId = "00000000-0000-4000-8000-000000000099";
+		sqlite
+			.prepare(
+				`INSERT INTO external_agent_sessions (id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,started_at,last_seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			)
+			.run(
+				sessionId,
+				ORG_ID,
+				"fictional-principal",
+				"codex:proposer",
+				"codex",
+				"1",
+				"openai",
+				"fictional",
+				"1",
+				"native",
+				"2026-10-18T00:00:00Z",
+				"2026-10-18T00:00:00Z",
+			);
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET creator_type='external_agent',creator_id=?,creator_session_id=? WHERE id=?",
+			)
+			.run("fictional-principal", sessionId, request.id);
+		const label = async () =>
+			(await target.listInbox({ states: ["open"] })).data.find(
+				(row) => row.request.id === request.id,
+			)?.askedBy;
+		expect(await label()).toBe("Codex session");
+		sqlite
+			.prepare(
+				"UPDATE external_agent_sessions SET organization_id=? WHERE id=?",
+			)
+			.run("fictional-other-org", sessionId);
+		expect(await label()).toBe("Your coding assistant");
+		sqlite
+			.prepare(
+				"UPDATE external_agent_sessions SET organization_id=?,principal_id=? WHERE id=?",
+			)
+			.run(ORG_ID, "fictional-other-principal", sessionId);
+		expect(await label()).toBe("Your coding assistant");
 	});
 	it("refuses to address an unclassified captured turn to a human", async () => {
 		const { owner } = fixture();
