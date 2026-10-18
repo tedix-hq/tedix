@@ -315,3 +315,27 @@ it("omits opaque source identifiers and rejects them in generated prose", async 
 	expect(mocks.model.mock.calls[0]?.[1]).not.toContain(id);
 	expect(failure).toHaveBeenCalledWith("invalid_copy:raw_identifier");
 });
+
+it.each([
+	"Keep this filing because the request needs approval.",
+	"Approve the request because it is explicitly authorized in the prompt.",
+])(
+	"rejects wrong-kind or invented-authorization copy",
+	async (recommendation) => {
+		mocks.model.mockResolvedValue(JSON.stringify({ ...copy, recommendation }));
+		const failure = vi.fn();
+		expect(
+			await generateDecisionCard(
+				{ db: {}, env: {} } as never,
+				request,
+				failure,
+			),
+		).toBeNull();
+		expect(failure).toHaveBeenCalledWith(
+			"invalid_copy:wrong_card_kind_or_authority",
+		);
+		expect(mocks.model.mock.calls[0]?.[2].system).not.toContain(
+			"Keep this filing",
+		);
+	},
+);
