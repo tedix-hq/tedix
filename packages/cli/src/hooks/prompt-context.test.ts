@@ -125,6 +125,9 @@ async function run(
 		cwd: process.cwd(),
 		write: (line) => lines.push(line),
 		read: async (args, timeout, input) => {
+			// Priority delivery has its own fixtures in prompt-next-work.test.ts.
+			if (args.some((arg) => arg.includes('"nextWork":')))
+				return { nextWork: { data: [] } };
 			calls.push(args);
 			timeouts.push(timeout);
 			if (
@@ -1433,6 +1436,8 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			now: () => options.now,
 			write: (line) => lines.push(line),
 			read: async (args, timeout) => {
+				if (args.some((arg) => arg.includes('"nextWork":')))
+					return { nextWork: { data: [] } };
 				timeouts.push(timeout);
 				if (args[0] === "setup") return copy(options.binding ?? binding);
 				if (args.includes("auth")) return copy(auth);
