@@ -1,6 +1,10 @@
 import type { SessionFeedbackCandidate } from "@tedix/api-contract/schemas/agent-session-feedback";
+import { LessonEvidenceSchema } from "@tedix/api-contract/schemas/agent-session-lessons";
 import type { DbClient } from "@tedix/db/client";
-import { recordLearningInteraction } from "@tedix/db/queries/learning-feedback";
+import {
+	getLearningInteractionsByIds,
+	recordLearningInteraction,
+} from "@tedix/db/queries/learning-feedback";
 import {
 	listCurrentLearningFeedLessons,
 	listApprovedAgentLessons,
@@ -73,8 +77,43 @@ export async function recordSessionFeedback(
 		text: string;
 		status: "confirmed" | "pending" | "duplicate";
 	}> = [];
+	const sourceEvents = candidates.some((c) => c.sourceFile && c.sourceHash)
+		? await getLearningInteractionsByIds(
+				db,
+				scope.organizationId,
+				comparison.flatMap((row) => {
+					const feed = row.metadata?.learningFeed;
+					const evidence = LessonEvidenceSchema.safeParse(
+						feed && typeof feed === "object" && !Array.isArray(feed)
+							? feed.evidence
+							: undefined,
+					);
+					return evidence.success
+						? evidence.data.sources
+								.filter((source) => source.kind === "correction")
+								.map((source) => source.id)
+						: [];
+				}),
+			)
+		: [];
+	const sourceMatch = (candidate: SessionFeedbackCandidate) => {
+		if (!candidate.sourceFile || !candidate.sourceHash) return undefined;
+		const event = sourceEvents.find(
+			(event) =>
+				event.actorType === "user" &&
+				event.actorId === scope.ownerUserId &&
+				event.surface === "agent_session_feedback" &&
+				event.metadata?.sourceFile === candidate.sourceFile &&
+				event.metadata?.sourceHash === candidate.sourceHash &&
+				comparison.some((row) => row.id === event.targetId),
+		);
+		return event
+			? comparison.find((row) => row.id === event.targetId)
+			: undefined;
+	};
 	const pending = candidates.filter(
 		(candidate) =>
+			!sourceMatch(candidate) &&
 			!comparison.some(
 				(row) => feedbackKey(row.content) === feedbackKey(candidate.text),
 			),
@@ -106,9 +145,11 @@ export async function recordSessionFeedback(
 	for (const candidate of candidates) {
 		const quote = candidate.quote.replace(/\s+/g, " ").trim();
 		const repo = normalizeRepo(candidate.repository ?? "general");
-		const exact = comparison.find(
-			(row) => feedbackKey(row.content) === feedbackKey(candidate.text),
-		);
+		const exact =
+			sourceMatch(candidate) ??
+			comparison.find(
+				(row) => feedbackKey(row.content) === feedbackKey(candidate.text),
+			);
 		if (exact) {
 			lessons.push({ id: exact.id, text: exact.content, status: "duplicate" });
 			continue;
@@ -119,7 +160,9 @@ export async function recordSessionFeedback(
 			scope.organizationId,
 			scope.ownerUserId,
 			repo,
-			feedbackKey(candidate.text),
+			candidate.sourceFile && candidate.sourceHash
+				? `${candidate.sourceFile}:${candidate.sourceHash}`
+				: feedbackKey(candidate.text),
 		);
 		const hex = identity.split(":")[1]!;
 		// A deterministic primary key fences concurrent hooks and retries atomically.
@@ -153,11 +196,20 @@ export async function recordSessionFeedback(
 			await holdLessonsForCorrection(db, event);
 		// The owner's feedback auto-confirms; project notes remain candidates.
 		const confirmed = candidate.kind !== "project";
+		// A concurrent import may already have recorded the first extraction.
+		const savedText =
+			typeof event.metadata?.candidate === "string"
+				? event.metadata.candidate
+				: candidate.text;
+		const savedQuote =
+			typeof event.metadata?.answer === "string"
+				? event.metadata.answer
+				: quote;
 		const now = new Date().toISOString();
 		const row = await insertSessionFeedbackLesson(db, {
 			id,
 			organizationId: scope.organizationId,
-			content: candidate.text,
+			content: savedText,
 			factType: candidate.kind === "project" ? "technical" : "preference",
 			confidence: confirmed ? 1 : 0.8,
 			status: "active",
@@ -185,7 +237,7 @@ export async function recordSessionFeedback(
 					lastEventAt: candidate.occurredAt,
 					evidence: {
 						version: 1,
-						sources: [{ kind: "correction", id: event.id, quote }],
+						sources: [{ kind: "correction", id: event.id, quote: savedQuote }],
 						supportCount: 1,
 						state: "live",
 					},
@@ -199,6 +251,7 @@ export async function recordSessionFeedback(
 			metadata: row.metadata,
 			reviewStatus: row.reviewStatus,
 		});
+		if (candidate.sourceFile && candidate.sourceHash) sourceEvents.push(event);
 		lessons.push({
 			id: row.id,
 			text: row.content,
