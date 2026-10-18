@@ -1425,3 +1425,134 @@ it("rejects classified provider dispatch from Connect before any upstream call",
 	);
 	expect(plugin.toolHandler.execute).not.toHaveBeenCalled();
 });
+
+describe("canonical cross-router action read-back", () => {
+	function setup() {
+		const writer: AppTool = {
+			...makeTool(),
+			toolId: "record_support_review",
+			annotations: { readOnlyHint: false },
+			config: { transport: "rpc", endpoint: "support/review" },
+		};
+		const reader: AppTool = {
+			...makeTool(),
+			id: "reader",
+			toolId: "get_work_interaction",
+			annotations: { readOnlyHint: true },
+			config: { transport: "rpc", endpoint: "workInteractions/get" },
+		};
+		const base = makeAgent({
+			status: 200,
+			data: { workItemId: "review-work", interactionId: "review-1" },
+		});
+		const agent = {
+			...base,
+			loadedTools: new Map([
+				[writer.toolId, writer],
+				[reader.toolId, reader],
+			]),
+			callerIdentity: {
+				...base.callerIdentity!,
+				scopes: ["mcp:work.write", "mcp:messaging.read"],
+			},
+			appMetadata: {
+				mcpConfig: { codeModeNamespaces: { workInteractions: "inbox" } },
+			} as unknown as ServerContext["appMetadata"],
+		};
+		(agent.toolHandler.execute as unknown as MockInstance)
+			.mockResolvedValueOnce({
+				status: 200,
+				data: { workItemId: "review-work", interactionId: "review-1" },
+			})
+			.mockResolvedValueOnce({
+				status: 200,
+				data: {
+					request: {
+						id: "review-1",
+						workItemId: "review-work",
+						kind: "coordination",
+						requestedFromType: "user",
+						prompt: "Saved review",
+						state: "open",
+					},
+				},
+			});
+		return { agent, writer, reader };
+	}
+	const options = {
+		adapterScope: "primary" as const,
+		resultStrategy: "merge" as const,
+	};
+	it("reads the canonical first-party endpoint in its own aliased namespace", async () => {
+		const { agent, writer } = setup();
+		const result = await executeTool(
+			agent,
+			writer,
+			{ summary: "Daily review" },
+			options,
+		);
+		expect(result.structuredContent).toMatchObject({
+			actionReceipt: {
+				verified: true,
+				state: "internal review present, open; delivery unverified",
+			},
+		});
+		expect(agent.toolHandler.execute).toHaveBeenCalledTimes(2);
+	});
+	it("keeps the reader's messaging scope instead of borrowing the writer's work scope", async () => {
+		const { agent, writer } = setup();
+		agent.callerIdentity!.scopes = ["mcp:work.write"];
+		const result = await executeTool(
+			agent,
+			writer,
+			{ summary: "Daily review" },
+			options,
+		);
+		expect(result.structuredContent).toMatchObject({
+			actionReceipt: { verified: false },
+		});
+		expect(agent.toolHandler.execute).toHaveBeenCalledTimes(1);
+	});
+	it("keeps the caller's endpoint ceiling on the canonical reader", async () => {
+		const { agent, writer } = setup();
+		agent.callerIdentity!.mcpEndpoints = ["support/review"];
+		const result = await executeTool(
+			agent,
+			writer,
+			{ summary: "Daily review" },
+			options,
+		);
+		expect(result.structuredContent).toMatchObject({
+			actionReceipt: { verified: false },
+		});
+		expect(agent.toolHandler.execute).toHaveBeenCalledTimes(1);
+	});
+	it.each(["mutating", "external", "foreign-mount"])(
+		"rejects a %s read-back candidate",
+		async (kind) => {
+			const { agent, writer, reader } = setup();
+			if (kind === "mutating") reader.annotations = { readOnlyHint: false };
+			if (kind === "external")
+				reader.config = {
+					...reader.config,
+					transport: "external",
+					_aggregateNamespace: "support",
+				};
+			if (kind === "foreign-mount")
+				reader.config = {
+					...reader.config,
+					_multiOrgOrganizationId: "other-org",
+				};
+			const result = await executeTool(
+				agent,
+				writer,
+				{ summary: "Daily review" },
+				options,
+			);
+			expect(result.structuredContent).toMatchObject({
+				actionReceipt: { verified: false },
+			});
+			expect(agent.toolHandler.execute).toHaveBeenCalledTimes(1);
+		},
+	);
+});

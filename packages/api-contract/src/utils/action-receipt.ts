@@ -25,6 +25,49 @@ export function actionReadbackPlan(
 	const name = operation.split(/\.|__/).at(-1) ?? operation;
 	const output = asRecord(data?.output);
 	if (
+		endpoint === "support/draft" ||
+		(!endpoint && name === "draft_support_answer")
+	) {
+		const ticket = asRecord(data?.receipt);
+		const draft = asRecord(data?.draft);
+		if (
+			typeof ticket?.ticketId === "string" &&
+			ticket.ticketId === args.ticketId &&
+			typeof ticket.workItemId === "string" &&
+			typeof data?.mirrorWorkItemId === "string" &&
+			typeof ticket.version === "number" &&
+			draft
+		)
+			return {
+				tool: "get_support_ticket",
+				readEndpoint: "support/get",
+				args: { ticketId: ticket.ticketId },
+				id: ticket.ticketId,
+				kind: "supportDraft" as const,
+				workItemId: ticket.workItemId,
+				mirrorWorkItemId: data.mirrorWorkItemId,
+				version: ticket.version,
+				draft,
+			};
+	}
+	if (
+		endpoint === "support/review" ||
+		(!endpoint && name === "record_support_review")
+	) {
+		if (
+			typeof data?.interactionId === "string" &&
+			typeof data.workItemId === "string"
+		)
+			return {
+				tool: "get_work_interaction",
+				readEndpoint: "workInteractions/get",
+				args: { requestId: data.interactionId },
+				id: data.interactionId,
+				kind: "supportReview" as const,
+				workItemId: data.workItemId,
+			};
+	}
+	if (
 		/^(create|patch|revise|rename|archive|restore|set)_os_(output|document|slides|sheet_range)$/.test(
 			name,
 		)
@@ -108,6 +151,51 @@ export async function verifyAction(input: {
 		const read = asRecord(
 			await input.read(plan.tool, plan.args, plan.readEndpoint),
 		);
+		if (read?.ok === false || read?.isError === true) return receipt;
+		if (plan.kind === "supportDraft") {
+			const ticket = asRecord(read?.receipt);
+			const draft = asRecord(read?.draft);
+			if (
+				ticket?.ticketId !== plan.id ||
+				ticket.workItemId !== plan.workItemId ||
+				read?.mirrorWorkItemId !== plan.mirrorWorkItemId ||
+				typeof ticket.version !== "number" ||
+				ticket.version < plan.version ||
+				typeof ticket.status !== "string" ||
+				!draft ||
+				draft.body !== plan.draft.body ||
+				draft.nextStep !== plan.draft.nextStep ||
+				JSON.stringify(draft.evidence) !== JSON.stringify(plan.draft.evidence)
+			)
+				return receipt;
+			receipt.verified = true;
+			receipt.url = new URL(
+				`/work/items/${plan.mirrorWorkItemId}`,
+				input.origin,
+			).href;
+			receipt.state = `draft present, version ${ticket.version}, ${ticket.status}; publication unverified`;
+			return receipt;
+		}
+		if (plan.kind === "supportReview") {
+			const request = asRecord(read?.request);
+			if (
+				request?.id !== plan.id ||
+				request.workItemId !== plan.workItemId ||
+				request.kind !== "coordination" ||
+				request.requestedFromType !== "user" ||
+				typeof request.prompt !== "string" ||
+				!request.prompt.trim() ||
+				typeof request.state !== "string"
+			)
+				return receipt;
+			receipt.verified = true;
+			receipt.url = new URL(
+				`/work/items/${plan.workItemId}`,
+				input.origin,
+			).href;
+			receipt.state = `internal review present, ${request.state}; delivery unverified`;
+			return receipt;
+		}
 		const object =
 			asRecord(read?.[plan.kind === "work" ? "workItem" : plan.kind]) ?? read;
 		if (object?.id !== plan.id || read?.ok === false || read?.isError === true)
