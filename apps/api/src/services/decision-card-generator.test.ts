@@ -305,6 +305,22 @@ it("accepts an asset translation as the filing topic without restoring jargon", 
 		}),
 	).toMatchObject(candidate);
 });
+it("keeps an ordinary topic word when only a compound technical phrase is banned", async () => {
+	const candidate = {
+		...copy,
+		title: "File the memory question here?",
+		body: "Keeps it under the Account project.",
+		recommendation: "That team owns profile display.",
+	};
+	mocks.model.mockResolvedValue(JSON.stringify(candidate));
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Recall account memory.",
+			metadata: { decisionDeck: { classId: "filing.project" } },
+		}),
+	).toMatchObject(candidate);
+});
 it("rejects opaque mixed-case account identifiers as well as UUIDs", async () => {
 	mocks.model.mockResolvedValue(
 		JSON.stringify({

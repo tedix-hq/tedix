@@ -94,9 +94,7 @@ export async function generateDecisionCard(
 			.match(/[\p{L}\p{N}]{4,}/gu)
 			?.filter(
 				(word) =>
-					!copySpec.bannedWords.some((term) =>
-						term.toLowerCase().split(" ").includes(word),
-					) &&
+					!copySpec.bannedWords.some((term) => term.toLowerCase() === word) &&
 					!/^(?:this|that|with|from|your|have|been|will|only|please|requests?|check|review|make|show|fix|improve|whether|should|would|could|here|file|into|them|their|they)$/.test(
 						word,
 					),
