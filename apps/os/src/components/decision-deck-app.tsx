@@ -63,7 +63,7 @@ import {
 import { decisionCaptureSummary } from "@/lib/work-interaction-display";
 import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
-import { useDeckBatch } from "@/lib/use-deck-batch";
+import { deckBatchKey, useDeckBatch } from "@/lib/use-deck-batch";
 import { deckBatchWindow, attentionMetrics } from "@/lib/deck-attention";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-card";
@@ -285,7 +285,12 @@ export function DecisionDeckApp({
 				row.label.toLowerCase().includes(search.toLowerCase()) &&
 				(mode !== "practice" || !skipped.includes(row.id)),
 		);
-	const batchKey = `${workspaceId ?? "preview"}:${profile.data?.id}:${config.projectId ?? "all"}:${window.key}`;
+	const batchKey = deckBatchKey(
+		workspaceId,
+		profile.data?.id,
+		config.projectId,
+		window.key,
+	);
 	const { batch, dismiss } = useDeckBatch(
 		batchKey,
 		rows.map((row) => row.id),

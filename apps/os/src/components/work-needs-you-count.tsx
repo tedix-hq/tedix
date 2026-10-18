@@ -1,3 +1,6 @@
+import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { useWorkApps } from "@/lib/use-work-apps";
+import { useDeckCount } from "@/lib/use-deck-count";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/kumo/badge";
 import {
@@ -150,16 +153,15 @@ export function needsYouSourceCount(sources: {
 
 /** The sidebar badge next to Work. */
 export function WorkNeedsYouCount() {
-	const sources = useNeedsYouSources();
-	const count = needsYouSourceCount({
-		interactions: sources.interactions.data?.data,
-		workApprovals: sources.workApprovals.data?.data,
-		runtimeApprovals: sources.runtimeApprovals.data?.data,
-		factories: sources.factories.data?.data,
-		readiness: sources.readiness.data?.data,
-		viewerId: sources.profile.data?.id,
-		sessionRequests: sources.sessionRequests.data?.data,
-	});
+	const { apps } = useWorkApps();
+	const deck = apps.find((app) => app.role === "deck");
+	const config = DecisionDeckConfigSchema.safeParse(deck?.manifest.config);
+	const queue = useDeckCount(
+		config.success ? config.data : undefined,
+		deck?.gadget.workspaceId,
+	);
+	const count = queue.count;
+	if (!config.success || queue.pending || queue.failed) return null;
 	if (count === 0) return null;
 	return (
 		<Badge

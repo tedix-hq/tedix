@@ -1,0 +1,52 @@
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
+import { useDecisionInbox } from "@/lib/use-decision-inbox";
+import { osQuery, userProfileQueryOptions } from "@/lib/os-query-options";
+import { deckBatchKey, useSavedDeckBatch } from "@/lib/use-deck-batch";
+import { attentionMetrics, deckBatchWindow } from "@/lib/deck-attention";
+
+export function useDeckCount(
+	config?: DecisionDeckConfig,
+	workspaceId?: string,
+) {
+	const inbox = useDecisionInbox(config);
+	const profile = useQuery(userProfileQueryOptions());
+	const learning = useQuery({
+		...osQuery.learningFeedback.listInteractions.queryOptions({
+			input: { scopeKind: "personal", limit: 200 },
+		}),
+		enabled: Boolean(config),
+	});
+	const [now, setNow] = useState(() => new Date());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(new Date()), 30_000);
+		return () => clearInterval(timer);
+	}, []);
+	const window = deckBatchWindow(config?.batchTimesUtc ?? ["00:00"], now);
+	const batch = useSavedDeckBatch(
+		deckBatchKey(workspaceId, profile.data?.id, config?.projectId, window.key),
+	);
+	const ids = new Set([
+		...inbox.requests.map((row) => row.request.id),
+		...inbox.work.map((row) => `work-approval:${row.proposal.id}`),
+		...(!config?.projectId ? (inbox.approvals.data?.data ?? []) : [])
+			.filter((row) => row.status === "pending")
+			.map((row) => `approval:${row.id}`),
+	]);
+	const capacity = Math.max(
+		0,
+		(config?.dailyAttentionBudget ?? 0) -
+			attentionMetrics(learning.data?.events ?? [], now).cardsToday,
+	);
+	const nativeCount = batch
+		? batch.ids.filter((id) => !batch.dismissed.includes(id) && ids.has(id))
+				.length
+		: Math.min(ids.size, capacity);
+	return {
+		...inbox,
+		count: nativeCount || inbox.factoryCount,
+		pending: inbox.pending || profile.isPending || learning.isPending,
+		failed: inbox.failed || profile.isError || learning.isError,
+	};
+}
