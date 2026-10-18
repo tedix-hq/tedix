@@ -127,8 +127,9 @@ try {
 				);
 				assert(result.title.length <= 90 && result.font <= 36);
 				assert(
-					result.proposer.includes("Codex (for Website)") &&
-						!result.proposer.includes("session"),
+					result.proposer.includes(
+						"Codex (for Example Website Publishing Platform)",
+					) && !result.proposer.includes("session"),
 				);
 				assert.equal(result.accent, "rgb(36, 99, 235)");
 				assert.equal(
