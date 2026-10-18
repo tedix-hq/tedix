@@ -1,3 +1,4 @@
+vi.mock("./lesson-evidence", () => ({ holdLessonsForCorrection: vi.fn() }));
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 vi.mock("@tedix/db/queries/learning-feedback", () => ({
 	recordLearningInteraction: vi.fn(),
@@ -127,4 +128,33 @@ it("normalizes quote whitespace exactly as live evidence validation does", async
 	expect(
 		vi.mocked(recordLearningInteraction).mock.calls[0]![1].metadata?.answer,
 	).toBe("Never mention Meadow.");
+});
+
+it("deduplicates legacy repo slugs against an origin URL", async () => {
+	vi.mocked(listApprovedAgentLessons).mockResolvedValue([
+		{
+			id: "legacy",
+			topicKey: "learning-feed:fixture",
+			content: candidate.text,
+			priority: "active",
+			confidence: 1,
+			createdAt: null,
+			updatedAt: null,
+			metadata: {
+				learningFeed: {
+					scope: { repo: "meadow", harness: "general", topic: "general" },
+				},
+			},
+		},
+	]);
+	const result = await recordSessionFeedback(
+		{} as never,
+		scope,
+		[{ ...candidate, repository: "https://github.com/fixture/meadow.git" }],
+		async () => {
+			throw new Error("Exact duplicate needs no model");
+		},
+	);
+	expect(result.lessons[0]?.id).toBe("legacy");
+	expect(insertSessionFeedbackLesson).not.toHaveBeenCalled();
 });

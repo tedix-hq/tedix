@@ -7,6 +7,7 @@ import {
 } from "@tedix/db/queries/memory-graph/agent-lessons";
 import { insertSessionFeedbackLesson } from "@tedix/db/queries/memory-graph/session-feedback";
 import { observedLearningEventId } from "./learning-interaction-recorder";
+import { holdLessonsForCorrection } from "./lesson-evidence";
 import type { LessonNoveltyModel } from "./request-ledger-lessons";
 
 function feedbackKey(text: string): string {
@@ -62,7 +63,9 @@ export async function recordSessionFeedback(
 		return (
 			typeof repo !== "string" ||
 			repo === "general" ||
-			normalizeRepo(repo) === normalizeRepo(repository)
+			normalizeRepo(repo) === normalizeRepo(repository) ||
+			normalizeRepo(repository).endsWith(`/${normalizeRepo(repo)}`) ||
+			normalizeRepo(repo).endsWith(`/${normalizeRepo(repository)}`)
 		);
 	});
 	const lessons: Array<{
@@ -102,7 +105,7 @@ export async function recordSessionFeedback(
 	}
 	for (const candidate of candidates) {
 		const quote = candidate.quote.replace(/\s+/g, " ").trim();
-		const repo = candidate.repository ?? "general";
+		const repo = normalizeRepo(candidate.repository ?? "general");
 		const exact = comparison.find(
 			(row) => feedbackKey(row.content) === feedbackKey(candidate.text),
 		);
@@ -136,6 +139,7 @@ export async function recordSessionFeedback(
 			occurredAt: candidate.occurredAt,
 			metadata: {
 				answer: quote,
+				scope: { repo },
 				candidate: candidate.text,
 				sessionKey: candidate.sessionKey,
 				harness: candidate.harness,
@@ -145,6 +149,8 @@ export async function recordSessionFeedback(
 				sourceHash: candidate.sourceHash ?? null,
 			},
 		});
+		if (!candidate.sourceFile && candidate.kind !== "project")
+			await holdLessonsForCorrection(db, event);
 		// The owner's feedback auto-confirms; project notes remain candidates.
 		const confirmed = candidate.kind !== "project";
 		const now = new Date().toISOString();
