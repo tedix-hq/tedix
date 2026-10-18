@@ -4,6 +4,8 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "../../../../packages/db/src/test/d1-facade";
 import { schemaDdl } from "../../../../packages/db/src/test/schema-ddl";
 import { organizations } from "@tedix/db/schema/organizations";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { respondToWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
 	workInteractions,
 	workInteractionResponses,
@@ -33,6 +35,7 @@ function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			organizations,
+			organizationMembers,
 			workItems,
 			workInteractions,
 			workInteractionResponses,
@@ -63,7 +66,7 @@ async function request(
 	await db.insert(workInteractions).values({
 		id,
 		orgId,
-		kind: "decision",
+		kind: "question",
 		subject: "Approve the fictional draft",
 		prompt: "Draft on card",
 		creatorType: "tedi",
@@ -90,7 +93,11 @@ function input(cardId = "decision-a") {
 		candidateSetComplete: true,
 	});
 }
-async function expose(db: ReturnType<typeof fixture>["db"], value = input()) {
+async function expose(
+	db: ReturnType<typeof fixture>["db"],
+	value = input(),
+	at = now,
+) {
 	return recordDecisionExposure(
 		db,
 		{
@@ -99,7 +106,7 @@ async function expose(db: ReturnType<typeof fixture>["db"], value = input()) {
 			mayReadApprovals: false,
 			input: value,
 		},
-		now,
+		at,
 	);
 }
 async function respond(
@@ -107,12 +114,13 @@ async function respond(
 	metadata: Record<string, string>,
 	id = "response-a",
 	at = "2030-01-01T12:01:00Z",
+	resolvedRequestVersion = 2,
 ) {
 	await db.insert(workInteractionResponses).values({
 		id,
 		orgId: "org-lighthouse",
 		interactionId: "decision-a",
-		resolvedRequestVersion: 1,
+		resolvedRequestVersion,
 		resolutionFence: id,
 		responderType: "user",
 		responderId: "person-lighthouse",
@@ -182,6 +190,85 @@ describe("decision instrumentation", () => {
 			"already used",
 		);
 	});
+	it("snapshots the linked Work project shown by the Deck", async () => {
+		const { db } = fixture();
+		await request(db);
+		await db.insert(workItems).values({
+			id: "work-lighthouse",
+			orgId: "org-lighthouse",
+			title: "Fictional draft review",
+			projectId: "project-current",
+			createdAt: now.toISOString(),
+		});
+		await db.update(workInteractions).set({
+			workItemId: "work-lighthouse",
+			projectId: "project-earlier",
+		});
+		await expose(db);
+		const proof = await listDecisionInstrumentation(db, {
+			organizationId: "org-lighthouse",
+			actorId: "person-lighthouse",
+			cardId: "decision-a",
+			now: now.toISOString(),
+			limit: 1,
+		});
+		expect(proof.exposures[0]?.snapshot).toMatchObject({
+			workItemId: "work-lighthouse",
+			projectId: "project-current",
+		});
+	});
+	it.each([
+		{ exposureVersion: 1, requestVersion: 1, labels: 1 },
+		{ exposureVersion: 1, requestVersion: 2, labels: 0 },
+		{ exposureVersion: 2, requestVersion: 2, labels: 1 },
+	])(
+		"links canonical response versions $exposureVersion → $requestVersion",
+		async ({ exposureVersion, requestVersion, labels }) => {
+			const { db } = fixture();
+			await request(db);
+			await db.insert(organizationMembers).values({
+				id: "member-lighthouse",
+				organizationId: "org-lighthouse",
+				userId: "person-lighthouse",
+				descopeUserId: "idp-lighthouse",
+				email: "person@lighthouse.example",
+			});
+			await db.update(workInteractions).set({ version: exposureVersion });
+			const exposure = await expose(db, {
+				...input(),
+				sourceVersion: exposureVersion,
+			});
+			await db.update(workInteractions).set({ version: requestVersion });
+			const response = await respondToWorkInteraction(db, {
+				id: "canonical-response",
+				orgId: "org-lighthouse",
+				interactionId: "decision-a",
+				expectedVersion: requestVersion,
+				responder: { type: "user", id: "person-lighthouse" },
+				responseKind: "answer",
+				body: "Later.",
+				resolvesRequest: false,
+				metadata: { decisionChoice: "later" },
+				now: "2030-01-01T12:01:00Z",
+			});
+			expect(response.resolvedRequestVersion).toBe(requestVersion + 1);
+			await labelDecisionOutcomes(db, new Date("2030-01-01T12:02:00Z"));
+			const proof = await listDecisionInstrumentation(db, {
+				organizationId: "org-lighthouse",
+				actorId: "person-lighthouse",
+				cardId: "decision-a",
+				now: "2030-01-01T12:02:00Z",
+				limit: 1,
+			});
+			expect(proof.labels).toHaveLength(labels);
+			if (labels)
+				expect(proof.labels[0]?.outcome).toMatchObject({
+					label: "later",
+					receiptId: response.id,
+					exposureId: exposure.id,
+				});
+		},
+	);
 	it.each([
 		{ personId: "person-lighthouse", requestVersion: 1, displayed: true },
 		{ personId: "person-other", requestVersion: 1, displayed: false },
@@ -332,11 +419,18 @@ it("links a later choice to the eventual decision without counting later as an a
 		"response-later",
 		"2030-01-01T12:01:00Z",
 	);
+	await db.update(workInteractions).set({ version: 2 });
+	await expose(
+		db,
+		{ ...input(), sourceVersion: 2 },
+		new Date("2030-01-01T13:00:00Z"),
+	);
 	await respond(
 		db,
 		{ decisionChoice: "approve", feedbackSignal: "approve-as-is" },
 		"response-final",
 		"2030-01-01T13:01:00Z",
+		3,
 	);
 	await labelDecisionOutcomes(db, new Date("2030-01-01T13:02:00Z"));
 	const labels = sqlite

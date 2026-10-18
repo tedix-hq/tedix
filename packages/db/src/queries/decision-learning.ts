@@ -115,7 +115,12 @@ export async function listDecisionInstrumentationSources(
 	}
 	const items: (typeof workItems.$inferSelect)[] = [];
 	for (const ids of chunkForBoundParams(
-		proposals.map((r) => r.workItemId),
+		[
+			...new Set([
+				...interactions.flatMap((r) => (r.workItemId ? [r.workItemId] : [])),
+				...proposals.map((r) => r.workItemId),
+			]),
+		],
 		50,
 	)) {
 		items.push(
@@ -223,7 +228,8 @@ export async function listUnlabelledDecisionResponses(
 				eq(workInteractionResponses.responderId, decisionExposures.actorId),
 				eq(workInteractionResponses.responderType, "user"),
 				sql`${workInteractionResponses.respondedAt} >= ${decisionExposures.occurredAt}`,
-				sql`json_extract(${decisionExposures.context},'$.sourceVersion')=${workInteractionResponses.resolvedRequestVersion}`,
+				// The response stores the post-save version; the exposure saw the prior request.
+				sql`json_extract(${decisionExposures.context},'$.sourceVersion') + 1 = ${workInteractionResponses.resolvedRequestVersion}`,
 			),
 		)
 		.where(
