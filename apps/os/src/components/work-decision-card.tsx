@@ -36,6 +36,7 @@ import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { relativeTime, absoluteTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
+import { DecisionProposalBody } from "@/components/decision-proposal-body";
 
 export type DecisionCardKind =
 	| "outbound"
@@ -364,12 +365,7 @@ export function WorkDecisionCard({
 							/>
 						</div>
 					) : (
-						(content ??
-						(body ? (
-							<p className="m-0 whitespace-pre-wrap break-words leading-relaxed">
-								{body}
-							</p>
-						) : null))
+						(content ?? (body ? <DecisionProposalBody body={body} /> : null))
 					)}
 					{kind === "question" && !disabled && !saved ? (
 						<div className="grid gap-3">

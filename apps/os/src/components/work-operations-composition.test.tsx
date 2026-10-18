@@ -450,7 +450,9 @@ describe("Work interactions", () => {
 		const page = await mount(
 			<pages.WorkInteractionPage requestId="request-1" />,
 		);
-		expect(page.host.textContent).toContain("your Codex chat");
+		expect(page.host.querySelector(".fd-proposer")?.textContent).toContain(
+			"Codex",
+		);
 		expect(page.host.textContent).toContain("What did you agree?");
 		expect(page.host.textContent).toContain("Answer");
 		expect(

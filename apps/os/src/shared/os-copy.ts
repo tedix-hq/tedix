@@ -58,7 +58,14 @@ export const OS_COPY = {
 			"Approve this exact Work proposal with the reason you entered?",
 	},
 	feedDeckVisual: {
-		agentSession: "Agent session",
+		agentSession: "Your coding assistant",
+		more: "More",
+		less: "Less",
+		source: "Open source",
+		workspaceDocument: "Open workspace document",
+		document: "Open document",
+		workRecord: "Open Work record",
+		openSite: (site: string) => `Open ${site}`,
 		context: "What to know",
 		choices: "What each choice does",
 		learning: "Learning your preferences",
@@ -97,6 +104,8 @@ export const OS_COPY = {
 		dailyGoal: (done: number, goal: number) => `${done}/${goal} daily goal`,
 		streak: (days: number) => `${days} day streak`,
 		nobodyOn: "Nobody is carrying this yet — choose who takes the next step.",
+		revalidate:
+			"This deadline has passed. Check the source before asking for a fresh decision.",
 		expires: (minutes: number) =>
 			minutes <= 0
 				? "Expired — check the source before deciding"
@@ -111,6 +120,14 @@ export const OS_COPY = {
 			corrections: "Corrections",
 			unavailable: "Decision attention could not be loaded.",
 		},
+		cardKinds: {
+			outbound: "Approve email",
+			proposal: "Next step",
+			question: "Your call",
+			approval: "Your approval",
+			decision: "Your call",
+			adr: "Architecture decision",
+		} as Record<string, string>,
 		kinds: {
 			all: "All kinds",
 			outbound: "Messages",

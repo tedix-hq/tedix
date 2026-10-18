@@ -151,9 +151,10 @@ it("opens Feed with the Decide count and configured apps, then opens the same De
 	expect(feed.querySelector("article")?.getAttribute("data-entry")).toBe(
 		"tedix:app/activity-feed",
 	);
-	expect(feed.querySelector('a[href="/work?view=deck"]')?.textContent).toBe(
-		"Decide · 0",
-	);
+	expect(
+		feed.querySelector('nav[aria-label="Work"] a[href="/work?view=deck"]')
+			?.textContent,
+	).toBe("Deck 0");
 	expect(feed.querySelector('nav[aria-label="Apps"]')?.textContent).toContain(
 		"Cedar portfolio",
 	);

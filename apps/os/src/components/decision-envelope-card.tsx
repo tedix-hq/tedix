@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { DecisionProposalBody } from "@/components/decision-proposal-body";
 import type { DecisionEnvelope } from "@tedix/api-contract/schemas/os-decision-deck";
 import {
 	WorkDecisionCard,
@@ -49,9 +50,7 @@ export function DecisionEnvelopeCard({
 			content={
 				<div className="grid min-w-0 gap-3 break-words">
 					{decision.preview && (
-						<div className="whitespace-pre-wrap">
-							<Text>{decision.preview.body}</Text>
-						</div>
+						<DecisionProposalBody body={decision.preview.body} />
 					)}
 					<Text className="fd-recommendation">{decision.recommendation}</Text>
 					<FeedDeckDisclosure title={OS_COPY.feedDeckVisual.context}>

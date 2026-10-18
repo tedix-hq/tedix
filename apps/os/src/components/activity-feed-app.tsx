@@ -67,6 +67,9 @@ export function ActivityFeedApp({
 	navigation?: ActivityFeedNavigation;
 }) {
 	const cache = useQueryClient();
+	const [sessionLearningId, setSessionLearningId] = useState<string | null>(
+		null,
+	);
 	const learningModel = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
 		refetchInterval: 60000,
@@ -223,9 +226,11 @@ export function ActivityFeedApp({
 		setBusy(true);
 		setStatus("");
 		try {
-			await osApi.learningFeedback.recordInteraction(
+			const result = await osApi.learningFeedback.recordInteraction(
 				feedLearningInput(item, reaction, text, crypto.randomUUID()),
 			);
+			if (!result.duplicate && result.event?.id)
+				setSessionLearningId(result.event.id);
 			if (
 				!learningModel.data?.config.enabled &&
 				(reaction === "more" || reaction === "mute")
@@ -308,7 +313,7 @@ export function ActivityFeedApp({
 			className="feed-deck fd-feed mx-auto grid w-full max-w-3xl min-w-0 gap-4 pb-8"
 			data-workspace-app-entry="activity-feed"
 		>
-			<DecisionLearningFeedback />
+			<DecisionLearningFeedback eventId={sessionLearningId} />
 			{visibleProjects.map((p) => (
 				<ActivityFeedSources
 					key={p.id}

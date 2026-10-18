@@ -25,7 +25,10 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 	vi.clearAllMocks();
 });
-async function mount(enabled = true) {
+async function mount(
+	enabled = true,
+	eventId: string | undefined = "fictional-edited-signal",
+) {
 	client = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
@@ -55,7 +58,7 @@ async function mount(enabled = true) {
 	await act(async () =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<DecisionLearningFeedback />
+				<DecisionLearningFeedback eventId={eventId} />
 			</QueryClientProvider>,
 		),
 	);
@@ -100,4 +103,22 @@ it("keeps failed corrections retryable and hides feedback when disabled", async 
 	await mount(false);
 	expect(host.textContent).toBe("");
 	expect(correct).toHaveBeenCalledTimes(1);
+});
+
+it("does not announce historical receipts on arrival", async () => {
+	await mount(true, "");
+	expect(host.textContent).toBe("");
+});
+it("expires a local decision receipt without replaying it on refresh", async () => {
+	vi.useFakeTimers();
+	try {
+		await mount();
+		expect(host.textContent).toContain("Got it");
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(12_000);
+		});
+		expect(host.textContent).toBe("");
+	} finally {
+		vi.useRealTimers();
+	}
 });

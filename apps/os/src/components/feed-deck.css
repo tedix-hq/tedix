@@ -645,3 +645,41 @@
 .fd-disclosure [aria-expanded="true"] .fd-disclosure-chevron {
 	rotate: 90deg;
 }
+
+.fd-work-home {
+	max-width: 64rem;
+}
+.fd-work-nav {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	padding-block: 0.25rem;
+}
+.fd-work-nav a {
+	text-decoration: none;
+}
+.fd-work-nav span {
+	margin-left: 0.5rem;
+	font-variant-numeric: tabular-nums;
+	opacity: 0.65;
+}
+.fd-proposal-preview {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
+.fd-proposal-more {
+	color: var(--fd-muted);
+}
+.fd-link-chip {
+	display: inline-flex;
+	border-radius: 2rem;
+	padding: 0.1rem 0.6rem;
+	background: var(--fd-glow-soft);
+	font-size: 0.8125rem;
+	text-decoration: none;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}

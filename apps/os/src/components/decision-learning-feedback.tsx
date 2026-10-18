@@ -8,7 +8,11 @@ import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 
 /** Learning corrections undo evidence only; canonical decisions keep their own controls. */
-export function DecisionLearningFeedback() {
+export function DecisionLearningFeedback({
+	eventId,
+}: {
+	eventId?: string | null;
+}) {
 	const query = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
 		refetchInterval: 60000,
@@ -17,7 +21,16 @@ export function DecisionLearningFeedback() {
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState("");
 	const model = query.data;
-	const last = model?.config.enabled ? model.receipts[0] : undefined;
+	const [expiredId, setExpiredId] = useState<string | null>(null);
+	useEffect(() => {
+		if (!eventId) return;
+		const timer = setTimeout(() => setExpiredId(eventId), 12_000);
+		return () => clearTimeout(timer);
+	}, [eventId]);
+	const last =
+		model?.config.enabled && eventId !== expiredId
+			? model.receipts.find((receipt) => receipt.eventId === eventId)
+			: undefined;
 	useEffect(() => setMessage(""), [last?.eventId]);
 	if (!last) return null;
 	const copy = OS_COPY.learning;

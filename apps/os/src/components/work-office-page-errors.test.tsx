@@ -3,7 +3,7 @@ import {
 	QueryClientProvider,
 	type QueryKey,
 } from "@tanstack/react-query";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToReadableStream } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	captureHealthQueryOptions,
@@ -31,7 +31,7 @@ function failure(client: QueryClient, queryKey: QueryKey) {
 }
 
 describe("Office failed reads", () => {
-	it("shows the failed resource and reason instead of invented zero activity", () => {
+	it("shows the failed resource and reason instead of invented zero activity", async () => {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false, retryOnMount: false } },
 		});
@@ -47,7 +47,7 @@ describe("Office failed reads", () => {
 			replyDraftLeaderboardQueryOptions(startOfWeek(), since).queryKey,
 		])
 			failure(client, queryKey);
-		const html = renderToStaticMarkup(
+		const stream = await renderToReadableStream(
 			<QueryClientProvider client={client}>
 				<WorkspaceAppRenderer
 					workspaceId="11111111-1111-4111-8111-111111111111"
@@ -59,6 +59,8 @@ describe("Office failed reads", () => {
 				/>
 			</QueryClientProvider>,
 		);
+		await stream.allReady;
+		const html = await new Response(stream).text();
 		const text = new DOMParser().parseFromString(html, "text/html").body
 			.textContent;
 		for (const resource of [
