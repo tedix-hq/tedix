@@ -945,15 +945,27 @@ async function localCodexModel(prompt: string, timeoutMs = 180_000) {
 	}
 }
 
-export function localFeedbackModel(
+export async function localFeedbackModel(
 	prompt: string,
 	timeoutMs: number,
+	models = {
+		available: onPath,
+		claude: localClaudeModel,
+		codex: localCodexModel,
+	},
 ): Promise<string> {
-	if (onPath("claude")) return localClaudeModel(prompt, timeoutMs);
-	if (onPath("codex")) return localCodexModel(prompt, timeoutMs);
-	return Promise.reject(
-		new Error("Feedback needs a local Claude or Codex CLI"),
-	);
+	if (models.available("claude")) {
+		try {
+			const answer = await models.claude(prompt, timeoutMs);
+			if (/usage limit|(?:hit|reached) your .*limit/i.test(answer))
+				throw new Error("Claude feedback model reached its usage limit");
+			return answer;
+		} catch (error) {
+			if (!models.available("codex")) throw error;
+		}
+	}
+	if (models.available("codex")) return models.codex(prompt, timeoutMs);
+	throw new Error("Feedback needs a local Claude or Codex CLI");
 }
 
 export function onPath(

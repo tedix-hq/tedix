@@ -17,6 +17,7 @@ import {
 	frictionHotspots,
 	categoryIntro,
 	localModel,
+	localFeedbackModel,
 	onPath,
 	projectFor,
 	renderDescription,
@@ -84,6 +85,29 @@ describe("local models", () => {
 
 	it("returns null when neither CLI exists", () => {
 		expect(localModel(() => false)).toBeNull();
+	});
+
+	it("uses Codex when an installed Claude rejects or reports its usage limit", async () => {
+		for (const unavailable of ["reject", "limit"]) {
+			const prompts: string[] = [];
+			const answer = await localFeedbackModel(
+				"A bounded fictional clause",
+				5000,
+				{
+					available: () => true,
+					claude: async () => {
+						if (unavailable === "reject") throw new Error("unavailable");
+						return "You've hit your weekly limit";
+					},
+					codex: async (prompt) => {
+						prompts.push(prompt);
+						return "[]";
+					},
+				},
+			);
+			expect(answer).toBe("[]");
+			expect(prompts).toEqual(["A bounded fictional clause"]);
+		}
 	});
 
 	it("finds an executable on the injected PATH", () => {
