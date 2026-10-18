@@ -884,6 +884,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 			orgId,
 			states: input.states,
 			kinds: input.kinds,
+			decisionKind: input.decisionKind,
 			urgency: input.urgency,
 			workItemId: input.workItemId,
 			projectId: input.projectId,

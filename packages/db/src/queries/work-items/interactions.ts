@@ -826,6 +826,7 @@ export async function listWorkInteractionInbox(
 		excludeSessionCapture?: boolean;
 		states?: Array<"open" | "resolved" | "cancelled" | "expired">;
 		kinds?: WorkInteractionKind[];
+		decisionKind?: "approval";
 		workItemId?: string;
 		projectId?: string;
 		creatorType?: InteractionActor["type"];
@@ -960,6 +961,15 @@ export async function listWorkInteractionInbox(
 				p.states?.length ? inArray(effective, p.states) : undefined,
 				// bound-params: kinds is a closed five-value interaction-kind enum
 				p.kinds?.length ? inArray(workInteractions.kind, p.kinds) : undefined,
+				p.decisionKind === "approval"
+					? sql`(
+					(json_type(${workInteractions.metadata},'$.approvalOperation')='text'
+					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalOperation')))>0
+					AND json_type(${workInteractions.metadata},'$.approvalTarget')='text'
+					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalTarget')))>0)
+					OR json_extract(${workInteractions.metadata},'$.decisionDeck.kind')='approval'
+				)`
+					: undefined,
 				p.workItemId
 					? eq(workInteractions.workItemId, p.workItemId)
 					: undefined,

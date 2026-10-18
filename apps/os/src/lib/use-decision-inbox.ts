@@ -25,6 +25,18 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		enabled: Boolean(config),
 		refetchInterval: 30_000,
 	});
+	const approvalRequests = useQuery({
+		...osQuery.workInteractions.listInbox.queryOptions({
+			input: {
+				projectId: config?.projectId,
+				limit: config?.limit ?? 50,
+				states: ["open"],
+				decisionKind: "approval",
+			},
+		}),
+		enabled: Boolean(config),
+		refetchInterval: 30_000,
+	});
 	const approvals = useQuery({
 		...pendingApprovalsQueryOptions(),
 		enabled: Boolean(config) && !config?.projectId,
@@ -41,7 +53,13 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		enabled: Boolean(config),
 		refetchInterval: 30_000,
 	});
-	const requests = (inbox.data?.data ?? []).filter((row) => {
+	const requests = [
+		...new Map(
+			[...(inbox.data?.data ?? []), ...(approvalRequests.data?.data ?? [])].map(
+				(row) => [row.request.id, row],
+			),
+		).values(),
+	].filter((row) => {
 		const decision = decisionEnvelope(row.request.metadata);
 		return (
 			isOpenRequestForYou(row) &&
@@ -56,6 +74,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		: [];
 	return {
 		inbox,
+		approvalRequests,
 		approvals,
 		workApprovals,
 		requests,
@@ -64,25 +83,30 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		count: requests.length + work.length + runtime.length + factories.count,
 		queuePending:
 			inbox.isPending ||
+			approvalRequests.isPending ||
 			workApprovals.isPending ||
 			(!config?.projectId && approvals.isPending),
 		queueFailed:
 			inbox.isError ||
+			approvalRequests.isError ||
 			workApprovals.isError ||
 			(!config?.projectId && approvals.isError),
 		pending:
 			factories.pending ||
 			inbox.isPending ||
+			approvalRequests.isPending ||
 			workApprovals.isPending ||
 			(!config?.projectId && approvals.isPending),
 		failed:
 			factories.failed ||
 			inbox.isError ||
+			approvalRequests.isError ||
 			workApprovals.isError ||
 			(!config?.projectId && approvals.isError),
 		more: Boolean(
 			factories.more ||
 			inbox.data?.hasMore ||
+			approvalRequests.data?.hasMore ||
 			workApprovals.data?.hasMore ||
 			(!config?.projectId && approvals.data?.pagination.hasMore),
 		),

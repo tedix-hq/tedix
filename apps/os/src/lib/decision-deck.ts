@@ -135,8 +135,18 @@ export function rankDecision<
 
 /** An elapsed request deadline needs revalidation before it competes with fresh decisions. */
 export function compareDecisionFreshness(
-	a: { dueAt?: string | null; requestedAt?: string; score?: number },
-	b: { dueAt?: string | null; requestedAt?: string; score?: number },
+	a: {
+		kind?: string;
+		dueAt?: string | null;
+		requestedAt?: string;
+		score?: number;
+	},
+	b: {
+		kind?: string;
+		dueAt?: string | null;
+		requestedAt?: string;
+		score?: number;
+	},
 	now: Date,
 ) {
 	const due = (value?: string | null) =>
@@ -146,6 +156,7 @@ export function compareDecisionFreshness(
 	const stale = Number(aDue < now.getTime()) - Number(bDue < now.getTime());
 	return (
 		stale ||
+		Number(b.kind === "approval") - Number(a.kind === "approval") ||
 		(b.score ?? 0) - (a.score ?? 0) ||
 		(aDue !== bDue ? aDue - bDue : 0) ||
 		(Date.parse(b.requestedAt ?? "") || 0) -

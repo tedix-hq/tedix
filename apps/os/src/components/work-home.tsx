@@ -71,9 +71,7 @@ export function WorkHome({
 					? copy.deck
 					: decisions.count === 0
 						? OS_COPY.feed.deckClear
-						: OS_COPY.feed.decisionsWaiting(
-								`${decisions.count}${decisions.more ? "+" : ""}`,
-							)}
+						: OS_COPY.feed.decisionsWaiting(String(decisions.count))}
 		</Button>
 	);
 	const appLinks = (

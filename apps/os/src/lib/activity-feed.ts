@@ -109,13 +109,7 @@ export function workFeedItems(
 			classId: `work:${e.eventType}`.slice(0, 100),
 			done: ["completed", "cancelled"].includes(e.workItemDisposition),
 			stalled: /blocked|expired|failed/.test(e.eventType),
-			importance: /blocked|failed/.test(e.eventType)
-				? "high"
-				: /comment|created|accepted|updated|cancelled|completed|^attempt\.(started|expired)$/.test(
-							e.eventType,
-					  )
-					? "low"
-					: "normal",
+			importance: /blocked|failed/.test(e.eventType) ? "high" : "low",
 			explanation: [
 				e.body === e.eventType ? null : e.body,
 				OS_COPY.feed.workExplanation,

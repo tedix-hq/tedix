@@ -216,3 +216,18 @@ it("keeps due follow-ups actionable while elapsed question deadlines require rev
 	).toBe(false);
 	expect(decisionDeadlinePassed({ kind: "question" }, now)).toBe(false);
 });
+
+it("keeps fresh approvals ahead of newer filing questions without reviving stale approvals", async () => {
+	const { compareDecisionFreshness } = await import("./decision-deck");
+	const now = new Date("2026-10-18T12:00:00Z");
+	const approval = { kind: "approval", requestedAt: "2026-10-17T10:00:00Z" };
+	const question = { kind: "question", requestedAt: "2026-10-18T11:59:00Z" };
+	expect(compareDecisionFreshness(approval, question, now)).toBeLessThan(0);
+	expect(
+		compareDecisionFreshness(
+			{ ...approval, dueAt: "2026-10-18T10:00:00Z" },
+			question,
+			now,
+		),
+	).toBeGreaterThan(0);
+});

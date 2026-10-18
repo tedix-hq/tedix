@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
+import { interactionCardKind } from "@/lib/interaction-card-kind";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { osQuery, userProfileQueryOptions } from "@/lib/os-query-options";
 import { deckBatchKey, useSavedDeckBatch } from "@/lib/use-deck-batch";
@@ -39,10 +40,22 @@ export function useDeckCount(
 		(config?.dailyAttentionBudget ?? 0) -
 			attentionMetrics(learning.data?.events ?? [], now).cardsToday,
 	);
+	const protectedIds = new Set([
+		...inbox.requests
+			.filter((row) => interactionCardKind(row.request) === "approval")
+			.map((row) => row.request.id),
+		...inbox.work.map((row) => `work-approval:${row.proposal.id}`),
+		...(!config?.projectId ? (inbox.approvals.data?.data ?? []) : [])
+			.filter((row) => row.status === "pending")
+			.map((row) => `approval:${row.id}`),
+	]);
 	const nativeCount = batch
-		? batch.ids.filter((id) => !batch.dismissed.includes(id) && ids.has(id))
-				.length
-		: Math.min(ids.size, capacity);
+		? [...ids].filter(
+				(id) =>
+					!batch.dismissed.includes(id) &&
+					(protectedIds.has(id) || batch.ids.includes(id)),
+			).length
+		: new Set([...ids].slice(0, capacity).concat([...protectedIds])).size;
 	return {
 		...inbox,
 		count: nativeCount || inbox.factoryCount,

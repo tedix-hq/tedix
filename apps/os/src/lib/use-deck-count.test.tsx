@@ -9,10 +9,19 @@ import { deckBatchWindow } from "./deck-attention";
 import { osQuery, userProfileQueryOptions } from "./os-query-options";
 vi.mock("./use-decision-inbox", () => ({
 	useDecisionInbox: () => ({
-		requests: ["a", "b", "c"].map((id) => ({ request: { id } })),
+		requests: [
+			...["a", "b", "c"].map((id) => ({ request: { id } })),
+			{
+				request: {
+					id: "approval",
+					kind: "question",
+					metadata: { approvalOperation: "write.Send", approvalTarget: "test" },
+				},
+			},
+		],
 		work: [],
 		approvals: { data: { data: [] } },
-		count: 3,
+		count: 4,
 		factoryCount: 0,
 		pending: false,
 		failed: false,
@@ -42,7 +51,12 @@ function Count() {
 }
 function Deck() {
 	const { dismiss } = useDeckBatch(key, ["a", "b", "c"], 2, true);
-	return <button onClick={() => dismiss("a")}>Later</button>;
+	return (
+		<>
+			<button onClick={() => dismiss("a")}>Later</button>
+			<button onClick={() => dismiss("approval")}>Later approval</button>
+		</>
+	);
 }
 it("Feed, sidebar and Deck observers share the saved batch and update together after Later", async () => {
 	const client = new QueryClient({
@@ -79,8 +93,12 @@ it("Feed, sidebar and Deck observers share the saved batch and update together a
 	);
 	expect(
 		[...host.querySelectorAll("output")].map((el) => el.textContent),
-	).toEqual(["2", "2", "2"]);
+	).toEqual(["3", "3", "3"]);
 	await act(async () => host.querySelector("button")!.click());
+	expect(
+		[...host.querySelectorAll("output")].map((el) => el.textContent),
+	).toEqual(["2", "2", "2"]);
+	await act(async () => host.querySelectorAll("button")[1]!.click());
 	expect(
 		[...host.querySelectorAll("output")].map((el) => el.textContent),
 	).toEqual(["1", "1", "1"]);

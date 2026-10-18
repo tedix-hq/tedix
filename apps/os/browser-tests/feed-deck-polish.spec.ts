@@ -153,6 +153,14 @@ try {
 				.waitFor();
 			if (!(await story.locator(".fd-preview").count()))
 				throw new Error("Outcome lost its source preview");
+			const previewTitle = await story
+				.locator(".fd-preview-title")
+				.evaluate((el) => ({
+					height: el.getBoundingClientRect().height,
+					lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+				}));
+			if (previewTitle.height > previewTitle.lineHeight * 2 + 1)
+				throw new Error("Long evidence title overwhelms the story preview");
 			if (
 				(await story
 					.locator(".ft-reactions")
