@@ -72,7 +72,7 @@ export async function generateDecisionCard(
 			{
 				model: config.preferenceModel,
 				maxTokens: 450,
-				timeoutMs: 6000,
+				timeoutMs: 10000,
 				onFailure: (reason) =>
 					onFailure?.(
 						reason === "model_timeout"
