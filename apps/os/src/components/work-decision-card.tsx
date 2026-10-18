@@ -36,7 +36,10 @@ import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { relativeTime, absoluteTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
-import { DecisionProposalBody } from "@/components/decision-proposal-body";
+import {
+	DecisionProposalBody,
+	DecisionProposalHeading,
+} from "@/components/decision-proposal-body";
 
 export type DecisionCardKind =
 	| "outbound"
@@ -350,7 +353,9 @@ export function WorkDecisionCard({
 							</time>
 						) : null}
 					</CardDescription>
-					<CardTitle className="text-xl leading-snug">{title}</CardTitle>
+					<CardTitle className="text-xl leading-snug">
+						<DecisionProposalHeading title={title} />
+					</CardTitle>
 				</CardHeader>
 				<CardContent className="grid grid-cols-1 gap-4">
 					{editing ? (

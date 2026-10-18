@@ -229,7 +229,13 @@ export function ActivityFeedApp({
 			const result = await osApi.learningFeedback.recordInteraction(
 				feedLearningInput(item, reaction, text, crypto.randomUUID()),
 			);
-			if (!result.duplicate && result.event?.id)
+			if (
+				(reaction === "more" ||
+					reaction === "mute" ||
+					reaction === "comment") &&
+				!result.duplicate &&
+				result.event?.id
+			)
 				setSessionLearningId(result.event.id);
 			if (
 				!learningModel.data?.config.enabled &&

@@ -72,3 +72,29 @@ function linkTitle(href: string) {
 		? OS_COPY.feedDeckVisual.source
 		: OS_COPY.feedDeckVisual.openSite(url.hostname.replace(/^www\./, ""));
 }
+
+export function DecisionProposalHeading({ title }: { title: string }) {
+	return (
+		<>
+			{title.split(/(https?:\/\/[^\s<>]+)/g).map((part, index) => {
+				if (!/^https?:\/\//.test(part)) return part;
+				const resolved = resolveChatMarkdownHref(part);
+				return resolved ? (
+					<Link
+						key={index}
+						href={resolved.href}
+						variant="plain"
+						className="fd-link-chip"
+						{...(resolved.external
+							? { target: "_blank", rel: "noopener noreferrer" }
+							: {})}
+					>
+						{OS_COPY.feedDeckVisual.linkedPage}
+					</Link>
+				) : (
+					OS_COPY.feedDeckVisual.linkedPage
+				);
+			})}
+		</>
+	);
+}
