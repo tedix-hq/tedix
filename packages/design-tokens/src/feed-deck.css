@@ -7,8 +7,8 @@
 	--fd-line: var(--border);
 	--fd-glow: #f8df6b;
 	--fd-glow-soft: color-mix(in srgb, var(--fd-glow) 16%, transparent);
-	--fd-control: var(--foreground);
-	--fd-on-control: var(--background);
+	--fd-control: var(--primary);
+	--fd-on-control: var(--primary-foreground);
 	--fd-radius: 1.75rem;
 	--fd-space: clamp(1.25rem, 4vw, 3rem);
 	--fd-deck-space: clamp(1rem, 2vw, 1.5rem);

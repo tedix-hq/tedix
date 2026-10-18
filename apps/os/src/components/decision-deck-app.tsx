@@ -860,12 +860,14 @@ export function DecisionDeckApp({
 					) : !practiceMode && factories.pending ? (
 						<Text>{OS_COPY.feed.loading}</Text>
 					) : !practiceMode && factories.sources.length > 0 ? (
-						<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
-							<FactoryCards
-								inDeck
-								config={{ version: 1, sources: factories.sources }}
-							/>
-						</Suspense>
+						<div className="fd-deck-current">
+							<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
+								<FactoryCards
+									inDeck
+									config={{ version: 1, sources: factories.sources }}
+								/>
+							</Suspense>
+						</div>
 					) : (
 						<DeckClosure
 							title={OS_COPY.feedDeckVisual.clear}

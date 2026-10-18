@@ -12,25 +12,35 @@ export function useDeckViewport() {
 				(viewport?.height ?? window.innerHeight) + (viewport?.offsetTop ?? 0);
 			const page = root.closest('[data-slot="page"]');
 			const scrolls =
-				page && ["auto", "scroll"].includes(getComputedStyle(page).overflowY);
+				page &&
+				page.parentElement &&
+				["flex", "inline-flex", "grid", "inline-grid"].includes(
+					getComputedStyle(page.parentElement).display,
+				) &&
+				["auto", "scroll"].includes(getComputedStyle(page).overflowY);
 			const bottom = scrolls
 				? Math.min(viewportBottom, page.getBoundingClientRect().bottom)
 				: viewportBottom;
 			const bottomPadding = page
 				? parseFloat(getComputedStyle(page).paddingBottom)
 				: 0;
-			root.style.setProperty(
-				"--fd-available-height",
-				`${Math.max(0, bottom - root.getBoundingClientRect().top - bottomPadding - 16)}px`,
-			);
+			const height = `${Math.max(0, bottom - root.getBoundingClientRect().top - bottomPadding - 16)}px`;
+			if (root.style.getPropertyValue("--fd-available-height") !== height)
+				root.style.setProperty("--fd-available-height", height);
 		};
 		fit();
-		const observer = new ResizeObserver(fit);
+		let frame = 0;
+		const scheduleFit = () => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(fit);
+		};
+		const observer = new ResizeObserver(scheduleFit);
 		if (root.parentElement) observer.observe(root.parentElement);
 		window.addEventListener("resize", fit);
 		window.visualViewport?.addEventListener("resize", fit);
 		return () => {
 			observer.disconnect();
+			cancelAnimationFrame(frame);
 			window.removeEventListener("resize", fit);
 			window.visualViewport?.removeEventListener("resize", fit);
 		};

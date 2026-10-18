@@ -37,13 +37,21 @@ try {
 	if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 	browser = await chromium.launch({ headless: true });
 	for (const locale of ["en", "es"])
-		for (const width of [390, 1440])
+		for (const [width, height] of [
+			[390, 844],
+			[1512, 794],
+		] as const)
 			for (const theme of ["light", "dark"]) {
 				const page = await browser.newPage({
-					viewport: { width, height: 844 },
+					viewport: { width, height },
 					colorScheme: theme as "light" | "dark",
 				});
 				const requests: string[] = [];
+				const resizeErrors: string[] = [];
+				page.on("pageerror", (error) => {
+					if (error.message.includes("ResizeObserver"))
+						resizeErrors.push(error.message);
+				});
 				page.on("request", (request) => {
 					if (request.url().includes("/api/")) requests.push(request.url());
 				});
@@ -53,7 +61,7 @@ try {
 				await page.locator(".fd-decision").waitFor();
 				const text = await page.locator("body").innerText();
 				if (
-					!text.includes(
+					!(await page.locator(".fd-deck-heading h2").textContent())?.includes(
 						locale === "es"
 							? "Una decisión a la vez"
 							: "One decision at a time",
@@ -72,6 +80,30 @@ try {
 					)
 				)
 					throw new Error(`Member Deck overflow at ${width}/${locale}`);
+				await page.locator("[data-decision-actions]").waitFor();
+				const layout = await page.locator(".fd-card").evaluate((card) => {
+					const bounds = card.getBoundingClientRect();
+					const actions = card
+						.querySelector("[data-decision-actions]")!
+						.getBoundingClientRect();
+					const body = card
+						.querySelector('[data-slot="card-content"]')!
+						.getBoundingClientRect();
+					return {
+						bottom: bounds.bottom,
+						actionsBottom: actions.bottom,
+						bodyHeight: body.height,
+						viewportHeight: innerHeight,
+					};
+				});
+				if (
+					layout.bodyHeight < 44 ||
+					layout.actionsBottom >
+						Math.min(layout.bottom, layout.viewportHeight) + 1
+				)
+					throw new Error(
+						`Member factory card is clipped: ${JSON.stringify(layout)}`,
+					);
 				if (evidenceDir)
 					await page.screenshot({
 						path: `${evidenceDir}/member-deck-${locale}-${width}-${theme}.png`,
@@ -119,6 +151,8 @@ try {
 						path: `${evidenceDir}/member-feed-${locale}-${width}-${theme}.png`,
 						fullPage: true,
 					});
+				if (resizeErrors.length)
+					throw new Error(`Deck resize loop: ${resizeErrors.join("; ")}`);
 				await page.close();
 			}
 	console.log(
