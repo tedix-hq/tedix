@@ -835,22 +835,15 @@ const AGENT_HOSTS: Record<string, string> = {
 	codex: "Codex session",
 };
 
-/** Who asked, in plain words, for the person deciding what to do with it. */
-function askedBy(
+function creatorHarness(
 	request: RequestOutput,
-	callerId: string,
-	tediNames: ReadonlyMap<string, string>,
 	sessionHarnesses: ReadonlyMap<
 		string,
 		{ principalId: string; harness: string }
 	>,
-): string {
+): string | null {
+	if (request.creatorType === "tedi") return null;
 	const metadata = request.metadata as Record<string, unknown>;
-	if (metadata.schema === WORK_PROPOSAL_SCHEMA)
-		return metadata.source === "tedix learn" ? "Onboarding" : "Tedix";
-	if (metadata.schema === CAPTURE_HEALTH_SCHEMA) return "Tedix";
-	if (request.creatorType === "tedi")
-		return tediNames.get(request.creatorId) ?? "A tedi";
 	const session =
 		typeof metadata.agentSession === "string"
 			? metadata.agentSession
@@ -870,7 +863,27 @@ function askedBy(
 					? metadata.agentHarness
 					: session.split(":")[0]
 				: null);
-	if (host && !/^[0-9a-f-]{36}$/i.test(host)) return AGENT_HOSTS[host] ?? host;
+	return host && !/^[0-9a-f-]{36}$/i.test(host) ? host : null;
+}
+
+/** Who asked, in plain words, for the person deciding what to do with it. */
+function askedBy(
+	request: RequestOutput,
+	callerId: string,
+	tediNames: ReadonlyMap<string, string>,
+	sessionHarnesses: ReadonlyMap<
+		string,
+		{ principalId: string; harness: string }
+	>,
+): string {
+	const metadata = request.metadata as Record<string, unknown>;
+	if (metadata.schema === WORK_PROPOSAL_SCHEMA)
+		return metadata.source === "tedix learn" ? "Onboarding" : "Tedix";
+	if (metadata.schema === CAPTURE_HEALTH_SCHEMA) return "Tedix";
+	if (request.creatorType === "tedi")
+		return tediNames.get(request.creatorId) ?? "A tedi";
+	const host = creatorHarness(request, sessionHarnesses);
+	if (host) return AGENT_HOSTS[host] ?? host;
 	if (request.creatorType === "external_agent") return "Your coding assistant";
 	return request.creatorId === callerId ? "You" : "A teammate";
 }
@@ -984,6 +997,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 					workItem: row.workItem?.id ? row.workItem : null,
 					responseCount: row.responseCount,
 					askedBy: askedBy(request, caller.id, tediNames, sessionHarnesses),
+					creatorHarness: creatorHarness(request, sessionHarnesses),
 					references: references.filter((ref) => quoted.has(ref.shortId)),
 				};
 			}),

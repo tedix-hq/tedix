@@ -126,16 +126,8 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.ft-project {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-.ft-project::before {
-	content: "· ";
-}
 .ft-byline time {
-	margin-left: auto;
+	margin-left: 0;
 	flex-shrink: 0;
 	color: var(--text-color-kumo-subtle);
 	font-size: 0.6875rem;
@@ -146,20 +138,6 @@
 	font-weight: 400;
 	letter-spacing: -0.015em;
 	overflow-wrap: anywhere;
-}
-.ft-details > button {
-	padding: 0;
-	min-height: 0;
-	font-size: 0.6875rem;
-}
-.ft-details [data-kumo-component="CollapsibleTrigger"] {
-	color: var(--text-color-kumo-subtle);
-}
-.ft-details p {
-	font-size: 0.8125rem;
-}
-.ft-details a {
-	font-size: 0.75rem;
 }
 .ft-reactions {
 	position: absolute;
@@ -226,11 +204,29 @@
 	.ft-byline p:first-child {
 		max-width: calc(100% - 3rem);
 	}
-	.ft-project {
-		order: 3;
-		width: 100%;
-	}
-	.ft-project::before {
-		content: none;
-	}
+}
+
+.ft-post-link {
+	color: inherit;
+	text-decoration: none;
+}
+.ft-post-link::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: var(--tedix-radius-md);
+}
+.ft-post-link:focus-visible {
+	outline: none;
+}
+.ft-post-link:focus-visible::after {
+	outline: 2px solid var(--color-kumo-brand);
+	outline-offset: 4px;
+}
+.ft-post-link:hover {
+	text-decoration: none;
+}
+.fd-story-body :is(a:not(.ft-post-link), button, textarea) {
+	position: relative;
+	z-index: 1;
 }

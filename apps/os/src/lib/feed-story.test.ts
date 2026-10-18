@@ -15,20 +15,21 @@ it("keeps pending and resolved deck cards out of posts and tells the story in ti
 	).toEqual(["new", "old"]);
 });
 
-it("names the actual tedi when known, otherwise attributes the coding lane to its project", () => {
+it("names the harness from provenance and the actual tedi when known", () => {
 	expect(
 		feedStoryActor(
-			{ actor: "Codex session", tediId: null } as ActivityFeedItem,
-			"Therion",
+			{
+				actor: "Unrelated display label",
+				tediId: null,
+				actorIdentity: { type: "external_agent", harness: "codex" },
+			} as ActivityFeedItem,
 			{},
 		),
-	).toBe("Codex for Therion");
+	).toBe("Codex");
 	expect(
-		feedStoryActor(
-			{ actor: "Tedi", tediId: "cedar" } as ActivityFeedItem,
-			"Therion",
-			{ cedar: "CTO tedi" },
-		),
+		feedStoryActor({ actor: "Tedi", tediId: "cedar" } as ActivityFeedItem, {
+			cedar: "CTO tedi",
+		}),
 	).toBe("CTO tedi");
 });
 
@@ -63,11 +64,4 @@ it("collapses retry outcomes per Work and identical sentences within thirty minu
 			row("yesterday", "one", "2026-10-17T10:00:00Z", "The fix is ready."),
 		]).map((item) => item.id),
 	).toEqual(["new", "failure", "yesterday"]);
-});
-
-it("uses the actor's name for initials, excluding the project's attribution", async () => {
-	const { feedStoryInitials } = await import("./feed-story");
-	expect(feedStoryInitials("Morgan Lee")).toBe("ML");
-	expect(feedStoryInitials("Codex for Pine Studio")).toBe("C");
-	expect(feedStoryInitials("Claude para Pine Studio")).toBe("C");
 });

@@ -1,3 +1,4 @@
+import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
 import { DeckFooterContext } from "@/components/deck-presentation-context";
 import {
 	DecisionLearningContext,
@@ -84,6 +85,7 @@ export function WorkDecisionCard({
 	kind,
 	title,
 	askedBy,
+	actor,
 	at,
 	why,
 	body = "",
@@ -107,6 +109,7 @@ export function WorkDecisionCard({
 	kind: DecisionCardKind;
 	title: string;
 	askedBy: string;
+	actor?: WorkActorReference;
 	at?: string;
 	why?: ReactNode;
 	body?: string;
@@ -370,7 +373,7 @@ export function WorkDecisionCard({
 			<FeedDeckCard>
 				<CardHeader>
 					<CardDescription className="flex flex-wrap items-center gap-2">
-						<ProposerChip name={askedBy} />
+						<ProposerChip name={askedBy} actor={actor} />
 						{at ? (
 							<time dateTime={at} title={absoluteTime(at)}>
 								· {relativeTime(at)}

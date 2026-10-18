@@ -152,11 +152,42 @@ it("shows receipt-backed activity, explains it and persists a personal mute", as
 		expect(host.querySelectorAll(".fd-preview")).toHaveLength(0);
 		expect(host.textContent).not.toContain("Loading your activity");
 		expect(host.textContent).toContain(row.sentence);
+		expect(host.querySelector(".ft-post-link")?.getAttribute("href")).toBe(
+			row.source,
+		);
+		expect(host.querySelector(".ft-byline")?.textContent).toMatch(
+			/^Pine Studio· /,
+		);
+		expect(host.querySelector(".ft-byline")?.textContent).not.toContain(
+			"Cedar",
+		);
+		expect(host.querySelector(".ft-details")).toBeNull();
 		const button = (label: string) =>
 			[...host.querySelectorAll("button")].find(
 				(b) =>
 					b.getAttribute("aria-label") === label || b.textContent === label,
 			)!;
+		const post = host.querySelector(".ft-post-link")!;
+		vi.useFakeTimers();
+		await act(async () => {
+			post.dispatchEvent(
+				new PointerEvent("pointerdown", {
+					bubbles: true,
+					pointerType: "touch",
+				}),
+			);
+			vi.advanceTimersByTime(460);
+		});
+		const heldClick = new MouseEvent("click", {
+			bubbles: true,
+			cancelable: true,
+		});
+		post.dispatchEvent(heldClick);
+		expect(heldClick.defaultPrevented).toBe(true);
+		expect(
+			host.querySelector("article")?.getAttribute("data-reactions-open"),
+		).toBe("true");
+		vi.useRealTimers();
 		await act(async () => button("Why?").click());
 		expect(host.textContent).toContain("The attempt settled with its receipt.");
 		await act(async () => button("Not for me").click());

@@ -291,12 +291,12 @@ try {
 	);
 	const proposer = failed.locator(".fd-proposer p[title]");
 	if (
-		(await proposer.textContent()) !== "Coding assistant (for this project)" ||
-		(await proposer.getAttribute("title")) !==
-			"11111111-1111-4111-8111-111111111111 session"
+		(await proposer.textContent()) !== "Codex" ||
+		(await proposer.getAttribute("title")) !== "Codex" ||
+		(await failed.locator('[data-harness-mark="codex"]').count()) !== 1
 	)
 		throw new Error(
-			"Session proposer should have a readable label and full hover ID",
+			"Session identity must use the structured harness and hide opaque IDs",
 		);
 	if (
 		await failed.evaluate(

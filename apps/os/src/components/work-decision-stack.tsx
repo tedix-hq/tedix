@@ -68,6 +68,7 @@ export function ApprovalDecisionCard({
 			kind="approval"
 			title={approval.review.operatorQuestion || approval.description}
 			askedBy="Your tedi"
+			actor={{ type: "tedi", id: approval.tediId }}
 			at={approval.createdAt}
 			body={approval.review.summary}
 			why={

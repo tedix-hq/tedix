@@ -505,6 +505,7 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 			"Null when the interaction is case- or project-scoped rather than Work Item-scoped.",
 		),
 	responseCount: z.number().int().nonnegative(),
+	creatorHarness: z.string().nullable().optional(),
 	askedBy: z
 		.string()
 		.max(200)

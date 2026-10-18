@@ -1,3 +1,4 @@
+import { WorkActorDirectoryContext } from "../src/components/work-actor-avatar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
@@ -146,7 +147,8 @@ client.setQueryData(
 						executorType: "external_agent",
 						executorId: "codex",
 						executorSessionId: null,
-						externalSessionKey: "codex:fictional",
+						externalSessionKey:
+							index === 0 ? "codex:fictional" : "claude-code:fictional",
 						runtimeState: "finished",
 						outcome: "succeeded",
 						runId: null,
@@ -159,7 +161,10 @@ client.setQueryData(
 							today.getTime() - index * 3600000,
 						).toISOString(),
 						summary,
-						metadata: { feedSentence: summary },
+						metadata: {
+							feedSentence: summary,
+							agentHarness: index === 0 ? "codex" : "claude-code",
+						},
 					},
 					workItem: {
 						id:
@@ -310,6 +315,11 @@ createRoot(document.getElementById("root")!).render(
 						kind="decision"
 						title="Keep the card when saving fails"
 						askedBy="11111111-1111-4111-8111-111111111111 session"
+						actor={{
+							type: "external_agent",
+							id: "fictional-laptop",
+							harness: "codex",
+						}}
 						actions={[{ id: "approve", label: "Approve", intent: "approve" }]}
 						onDecision={async () => {
 							throw new Error("Could not save this choice");
@@ -317,7 +327,18 @@ createRoot(document.getElementById("root")!).render(
 					/>
 				</div>
 			) : (
-				<WorkspaceAppRenderer manifest={manifest} />
+				<WorkActorDirectoryContext.Provider
+					value={
+						new Map([
+							[
+								"external_agent:codex",
+								{ name: "Pine laptop", for: { name: "Morgan Lee" } },
+							],
+						])
+					}
+				>
+					<WorkspaceAppRenderer manifest={manifest} />
+				</WorkActorDirectoryContext.Provider>
 			)}
 		</main>
 	</QueryClientProvider>,

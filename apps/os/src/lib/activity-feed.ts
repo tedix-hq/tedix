@@ -1,3 +1,4 @@
+import { sessionHarness, workActorReference } from "@/lib/work-actor";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
 import type {
@@ -95,6 +96,11 @@ export function workFeedItems(
 				names.get(`${e.authorType}:${e.authorId}`) ??
 				actors[e.authorType] ??
 				OS_COPY.feed.actors.system,
+			actorIdentity: {
+				type: e.authorType,
+				id: e.authorId,
+				harness: e.agentHarness,
+			},
 			tediId: e.authorType === "tedi" ? e.authorId : null,
 			sentence: sentence(
 				e.body !== e.eventType &&
@@ -119,6 +125,18 @@ export function workFeedItems(
 		}));
 }
 
+function outcomeSummary(value: unknown) {
+	if (
+		typeof value !== "string" ||
+		!value.trim() ||
+		/attempt failed without a reported reason|inspect its run history/i.test(
+			value,
+		)
+	)
+		return undefined;
+	return sentence(value.replace(/^failed:\s*/i, ""));
+}
+
 export function resultFeedItems(
 	rows: z.infer<typeof WorkAttemptProjectionSchema>[],
 ): ActivityFeedItem[] {
@@ -136,21 +154,28 @@ export function resultFeedItems(
 			actor:
 				a.executorType === "tedi"
 					? OS_COPY.feed.actors.tedi
-					: a.externalSessionKey?.startsWith("claude")
+					: sessionHarness(a.metadata.agentHarness, a.externalSessionKey) ===
+						  "claude-code"
 						? "Claude"
-						: a.externalSessionKey?.startsWith("codex")
+						: sessionHarness(a.metadata.agentHarness, a.externalSessionKey) ===
+							  "codex"
 							? "Codex"
 							: OS_COPY.feed.actors.external_agent,
+			actorIdentity: workActorReference(
+				a.executorType,
+				a.executorId,
+				a.metadata,
+				a.externalSessionKey,
+			),
 			tediId: a.executorType === "tedi" ? a.executorId : null,
 			sentence: sentence(
-				typeof a.metadata.feedSentence === "string" &&
-					/\p{L}/u.test(sentence(a.metadata.feedSentence))
-					? a.metadata.feedSentence
-					: `${w.title} — ${OS_COPY.feed.outcomes[a.outcome as keyof typeof OS_COPY.feed.outcomes] ?? OS_COPY.feed.workUpdated}.`,
+				outcomeSummary(a.metadata.feedSentence) ??
+					outcomeSummary(a.summary) ??
+					`${w.title} — ${a.outcome === "failed" || a.outcome === "expired" ? "Didn't finish" : (OS_COPY.feed.outcomes[a.outcome as keyof typeof OS_COPY.feed.outcomes] ?? OS_COPY.feed.workUpdated)}.`,
 			),
 			attachment: {
 				title: w.title.slice(0, 200),
-				summary: a.summary ? sentence(a.summary).slice(0, 300) : undefined,
+				summary: outcomeSummary(a.summary)?.slice(0, 300),
 			},
 			importance:
 				a.outcome === "failed"

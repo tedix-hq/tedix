@@ -141,6 +141,9 @@ try {
 						title: document.querySelector("[data-slot=card-title]")!
 							.textContent!,
 						proposer: document.querySelector(".fd-proposer")!.textContent!,
+						harness: document
+							.querySelector(".fd-proposer [data-harness-mark]")
+							?.getAttribute("data-harness-mark"),
 						font: parseFloat(
 							getComputedStyle(
 								document.querySelector("[data-slot=card-title]")!,
@@ -182,9 +185,8 @@ try {
 				);
 				assert(result.title.length <= 90 && result.font <= 36);
 				assert(
-					result.proposer.includes(
-						"Codex (for Example Website Publishing Platform)",
-					) && !result.proposer.includes("session"),
+					result.proposer.trim() === "Example Website Publishing Platform" &&
+						result.harness === "codex",
 				);
 				assert.equal(result.accent, "rgb(36, 99, 235)");
 				assert.equal(
