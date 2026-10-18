@@ -15,6 +15,7 @@ import {
 import { tedis } from "@tedix/db/schema/tedis";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import { agentSessionRequests } from "@tedix/db/schema/agent-session-requests";
+import { LaneTelemetryInputSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import {
 	osWorkspaces,
 	osWorkspaceProjects,
@@ -182,6 +183,41 @@ describe("workAgentSessions router", () => {
 				(session) => session.effectiveState,
 			),
 		).toEqual(["ended"]);
+	});
+
+	it("returns full stored Work briefs without breaking the session board", async () => {
+		const { ada, sqlite } = fixture();
+		const db = createDbClient(createD1Facade(sqlite));
+		const now = new Date().toISOString();
+		const workItemId = "11111111-1111-4111-8111-111111111111";
+		const brief = "Review the fictional supplier's delivery. ".repeat(2200);
+		await db.insert(workItems).values({
+			id: workItemId,
+			orgId: ORG_ID,
+			title: "Supplier review",
+			description: brief,
+			createdAt: now,
+		});
+		await db.insert(workAttempts).values({
+			id: "22222222-2222-4222-8222-222222222222",
+			orgId: ORG_ID,
+			workItemId,
+			executorType: "tedi",
+			executorId: "supplier-reviewer",
+			attemptNumber: 1,
+			startedAt: now,
+			heartbeatAt: now,
+		});
+		await ada.report(report);
+		const board = await ada.list({});
+		expect(board.sessions).toHaveLength(2);
+		const telemetry = board.sessions.find(
+			(session) => session.harness === "tedi",
+		)?.telemetry;
+		expect(telemetry?.brief).toBe(brief);
+		expect(board.counts.working).toBe(1);
+		expect(board.counts.needs_you).toBe(1);
+		expect(LaneTelemetryInputSchema.safeParse(telemetry).success).toBe(false);
 	});
 
 	it("rejects non-human principals", async () => {
