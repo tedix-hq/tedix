@@ -32,6 +32,7 @@ import {
 	workItems,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
+import { resolveWorkItemSteward } from "./stewardship";
 
 export interface CreateWorkItemParams {
 	id: string;
@@ -113,11 +114,13 @@ export async function createWorkItem(
 	db: DbQueryClient,
 	params: CreateWorkItemParams,
 ): Promise<WorkItem> {
+	const stewardship = await resolveWorkItemSteward(db, params);
 	const row = (
 		await db
 			.insert(workItems)
 			.values({
 				...params,
+				...stewardship,
 				disposition: "proposed",
 				workKind: params.workKind ?? "other",
 				riskLevel: params.riskLevel ?? "medium",

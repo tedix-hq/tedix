@@ -108,6 +108,7 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	workStewardship?: OrganizationContractMetadata["workStewardship"];
 	decisionLearning?: DecisionLearningConfig;
 	portfolioBuckets?: OrganizationContractMetadata["portfolioBuckets"];
 	identityProvider?: import("@tedix/api-contract/schemas/oidc-identity").OidcIdentityConfig;

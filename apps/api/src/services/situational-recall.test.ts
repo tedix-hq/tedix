@@ -5,6 +5,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { projects } from "@tedix/db/schema/projects";
+import { organizations } from "@tedix/db/schema/organizations";
 import { workItems } from "@tedix/db/schema/work-items";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import type { BaseContext } from "../rpc/orpc";
@@ -29,6 +30,7 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	for (const table of [
+		organizations,
 		memoryFacts,
 		projects,
 		workItems,

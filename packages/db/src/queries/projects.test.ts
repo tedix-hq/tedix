@@ -22,6 +22,7 @@ import { createWorkItem } from "./work-items/crud";
  */
 
 const DDL = `
+CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 CREATE TABLE projects (
 	id TEXT PRIMARY KEY NOT NULL,
 	org_id TEXT NOT NULL,

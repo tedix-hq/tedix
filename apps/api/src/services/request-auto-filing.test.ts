@@ -9,6 +9,7 @@ import {
 	agentSessionRequests,
 } from "@tedix/db/schema/agent-session-requests";
 import { projects } from "@tedix/db/schema/projects";
+import { organizations } from "@tedix/db/schema/organizations";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import { workEvents, workItems } from "@tedix/db/schema/work-items";
 import {
@@ -44,6 +45,7 @@ async function fixture(
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	for (const table of [
+		organizations,
 		agentSessionEvents,
 		agentSessionRequests,
 		projects,

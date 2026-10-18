@@ -1,5 +1,6 @@
 import { WORK_PROPOSAL_SCHEMA } from "@tedix/api-contract/schemas/work-interactions";
 import { projects } from "@tedix/db/schema/projects";
+import { organizations } from "@tedix/db/schema/organizations";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
@@ -37,6 +38,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
 		schemaDdl(
+			organizations,
 			projects,
 			workItems,
 			workEvents,
