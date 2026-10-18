@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { preferConsolidatedFacts } from "./observations";
+
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -62,5 +64,17 @@ export async function getTopPlatformFacts(
 		selectByPriority("active"),
 	]);
 
-	return [...core, ...active].slice(0, limit);
+	const rows = [...core, ...active].slice(0, limit);
+	const facts = await preferConsolidatedFacts(
+		db,
+		orgId,
+		rows.map((row) => row.fact),
+		options?.tediId,
+	);
+	const domains = new Map(
+		rows.map((row) => [row.fact.domainId, row.domainName]),
+	);
+	return facts
+		.slice(0, limit)
+		.map((fact) => ({ fact, domainName: domains.get(fact.domainId) ?? null }));
 }

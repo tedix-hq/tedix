@@ -1,3 +1,4 @@
+import { consolidateMemory } from "@tedix/db/queries/memory-graph/observations";
 import { organizationModelEnv } from "../services/unrouted-model-egress";
 /**
  * Memory Reflection Workflow
@@ -485,6 +486,12 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			async () => {
 				return expireProbation(db, organizationId, 7);
 			},
+		);
+
+		await step.do(
+			"consolidate-observations",
+			{ retries: { limit: 2, delay: "5 seconds" }, timeout: "2 minutes" },
+			() => consolidateMemory(db, organizationId, { tediId }),
 		);
 
 		// Step 6c: checkpoint each fact independently so one failed projection

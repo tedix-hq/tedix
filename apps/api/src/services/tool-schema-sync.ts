@@ -567,6 +567,8 @@ export const SEO_RESEARCH_KIND_OVERRIDES: Record<
  * names from camelCase procedures.
  */
 export const GRAPH_GOVERNANCE_TOOL_ID_OVERRIDES: Record<string, string> = {
+	"memoryGraph/listObservations": "list_memory_observations",
+	"memoryGraph/consolidateObservations": "consolidate_memory_observations",
 	"memoryGraph/graph/maintenanceTaskStatus": "get_graph_gds_refresh_task",
 	"memoryGraph/graph/maintenanceTaskCancel": "cancel_graph_gds_refresh_task",
 	"memoryEntities/createEntity": "create_memory_entity",
@@ -599,6 +601,8 @@ export const GRAPH_GOVERNANCE_KIND_OVERRIDES: Record<
 	string,
 	"read" | "write" | "destructive"
 > = {
+	"memoryGraph/listObservations": "read",
+	"memoryGraph/consolidateObservations": "write",
 	"memoryGraph/graph/visualization": "read",
 	"memoryGraph/graph/similar": "read",
 	"memoryGraph/graph/path": "read",

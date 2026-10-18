@@ -391,6 +391,24 @@ const MemoryGraphAuditOutputSchema = z.object({
 });
 
 export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
+	listObservations: oc
+		.input(
+			z.strictObject({
+				topicKey: z.string().min(1).optional(),
+				tediId: z.string().optional(),
+				includeHistory: z.boolean().optional(),
+				limit: z.number().int().min(1).max(100).optional(),
+			}),
+		)
+		.output(z.strictObject({ facts: z.array(FactSchema) })),
+	consolidateObservations: oc
+		.input(
+			z.strictObject({
+				topicKey: z.string().min(1).optional(),
+				tediId: z.string().optional(),
+			}),
+		)
+		.output(z.strictObject({ observations: z.number(), overflow: z.number() })),
 	// ---- Search (the main entry point) ----
 	search: oc
 		.route({ method: "POST", path: "/memory/search", tags: ["memory-graph"] })

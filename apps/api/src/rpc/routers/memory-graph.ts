@@ -1,3 +1,7 @@
+import {
+	listObservations,
+	consolidateObservations,
+} from "./memory-graph/observations";
 /**
  * memory-graph router composition.
  * Capability handlers and shared policy live in ./memory-graph/.
@@ -31,6 +35,8 @@ import { memoryGraphOs } from "./memory-graph/policy-operations";
 // =============================================================================
 
 export const memoryGraphContractRouter = memoryGraphOs.router({
+	listObservations,
+	consolidateObservations,
 	search: searchRoute,
 	audit: auditRoute,
 	learn,

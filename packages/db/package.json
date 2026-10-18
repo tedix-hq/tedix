@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/memory-graph/observations": "./src/queries/memory-graph/observations.ts",
 		"./queries/os-workspaces/provisioning": "./src/queries/os-workspaces/provisioning.ts",
 		"./queries/billing/internal-plan": "./src/queries/billing/internal-plan.ts",
 		"./schema/data-residency": "./src/schema/data-residency.ts",

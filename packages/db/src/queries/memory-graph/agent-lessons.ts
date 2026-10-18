@@ -15,6 +15,8 @@
  * it an org-wide lesson, provided no tedi owns it.
  */
 
+import { filterConsolidatedEvidence } from "./observations";
+
 import {
 	and,
 	desc,
@@ -552,5 +554,5 @@ export async function filterEvidenceBackedLessons<
 			),
 		);
 	}
-	return live;
+	return filterConsolidatedEvidence(db, orgId, live);
 }

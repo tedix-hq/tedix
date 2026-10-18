@@ -3,6 +3,11 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import {
+	refreshConsolidatedForFact,
+	filterConsolidatedEvidence,
+} from "./observations";
+
 import type {
 	MemoryFactType,
 	MemoryFeedbackSignal,
@@ -183,7 +188,18 @@ export async function getFactsByIds(
 			.where(inArray(memoryFacts.id, batch));
 		facts.push(...rows.filter(visible));
 	}
-	return facts;
+	if (options?.includeGraphAnchors) return facts;
+	const eligible: MemoryFact[] = [];
+	for (const orgId of new Set(facts.map((fact) => fact.organizationId)))
+		eligible.push(
+			...(await filterConsolidatedEvidence(
+				db,
+				orgId,
+				facts.filter((fact) => fact.organizationId === orgId),
+				false,
+			)),
+		);
+	return eligible;
 }
 
 export async function updateFact(
@@ -195,6 +211,21 @@ export async function updateFact(
 		.update(memoryFacts)
 		.set({ ...updates, updatedAt: new Date().toISOString() })
 		.where(eq(memoryFacts.id, factId));
+	if (
+		updates.content !== undefined ||
+		updates.validTo !== undefined ||
+		updates.archivedAt !== undefined ||
+		updates.reviewStatus !== undefined ||
+		updates.metadata !== undefined ||
+		updates.visibility !== undefined ||
+		updates.tediId !== undefined ||
+		updates.memoryScope !== undefined ||
+		updates.topicKey !== undefined ||
+		updates.status !== undefined
+	) {
+		const fact = await getFactById(db, factId);
+		if (fact) await refreshConsolidatedForFact(db, fact.organizationId, factId);
+	}
 }
 
 export async function recordFactAccess(
