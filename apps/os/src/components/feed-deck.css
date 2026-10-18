@@ -759,14 +759,18 @@
 	max-height: 20vh;
 	overflow: auto;
 }
-@media (max-height: 800px) {
+@media (max-height: 900px), (max-width: 640px) {
 	.fd-deck-heading > p,
+	.fd-deck:has(.fd-deck-current) > .fd-deck-heading,
 	.fd-deck-shortcuts,
-	.fd-deck > a:last-child {
+	.fd-deck:has(.fd-deck-current) > a {
 		display: none;
 	}
 	.fd-deck {
 		gap: 0.25rem;
+	}
+	.feed-deck .fd-deck-current [data-slot="card-title"] {
+		font-size: clamp(1.25rem, var(--fd-title-size, 3vw), 1.75rem) !important;
 	}
 }
 
