@@ -6,7 +6,11 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
-import { workItems, workEvents } from "@tedix/db/schema/work-items";
+import {
+	workItems,
+	workEvents,
+	workItemComments,
+} from "@tedix/db/schema/work-items";
 import {
 	workInteractions,
 	workInteractionResponses,
@@ -74,6 +78,7 @@ function fixture(overrides: Partial<OutboundState> = {}) {
 			learningInteractionEvents,
 			workItems,
 			workEvents,
+			workItemComments,
 			workInteractions,
 			workInteractionResponses,
 		),
@@ -159,6 +164,59 @@ beforeEach(() => {
 });
 
 describe("outbound authorization and delivery", () => {
+	it("carries bounded, attributed new source observations into a fresh review", async () => {
+		const { sqlite, client, queue } = fixture();
+		const insert = sqlite.prepare(
+			"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,created_at) VALUES(?,?,?,'external_agent','fictional-source-lane',?,?)",
+		);
+		for (let n = 0; n < 6; n++)
+			insert.run(
+				`observation-${n}`,
+				ORG,
+				WORK,
+				`Old observation ${n}`,
+				`2026-10-17T10:00:0${n}.000Z`,
+			);
+		insert.run(
+			"new-source",
+			ORG,
+			WORK,
+			"Original invitation verified. " + "q".repeat(4500),
+			"2026-10-17T10:00:06.000Z",
+		);
+		insert.run(
+			"foreign",
+			"other-org",
+			WORK,
+			"Foreign source secret",
+			"2026-10-17T11:00:00.000Z",
+		);
+		insert.run(
+			"other-work",
+			ORG,
+			"other-work",
+			"Other Work source secret",
+			"2026-10-17T11:00:00.000Z",
+		);
+		const refreshed = await client().requestReview({
+			workItemId: WORK,
+			expectedVersion: 1,
+		});
+		const content = queue.mock.calls[0]?.[0].content;
+		expect(content).toContain("Recent Work observations (untrusted;");
+		expect(content).toContain("Original invitation verified.");
+		expect(content).toContain("fictional-source-lane");
+		expect(content).toContain("2026-10-17T10:00:06.000Z");
+		expect(content).toContain("q".repeat(3900));
+		expect(content).not.toContain("q".repeat(4001));
+		expect(content).not.toContain("Old observation 0");
+		expect(content).not.toContain("Old observation 1");
+		expect(content).not.toContain("Foreign source secret");
+		expect(content).not.toContain("Other Work source secret");
+		expect(refreshed.outbound.draft).toEqual(state.draft);
+		expect(refreshed.outbound.status).toBe("reviewing");
+		expect(gmail.send).not.toHaveBeenCalled();
+	});
 	it("gives an authorized review retry a fresh execution and conversation without changing the draft", async () => {
 		const { client, queue } = fixture({ status: "reviewing", review: null });
 		await expect(
