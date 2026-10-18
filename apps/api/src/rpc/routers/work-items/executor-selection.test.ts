@@ -64,9 +64,9 @@ it("passes an owner selection through the current Work version fence", async () 
 	expect(mocks.update).toHaveBeenCalledTimes(1);
 });
 
-it("lets a verified tedi steward escalate to human without granting a code executor", async () => {
+it("lets a verified tedi steward assign an executor without changing reserved fields", async () => {
 	mocks.actor.mockResolvedValue({ type: "tedi", id: "example-steward" });
-	await expect(select()).rejects.toThrow("owner/admin controlled");
+	await select();
 	await select(2, "human");
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
@@ -123,7 +123,7 @@ it("preserves an owner's explicit removal of stewardship", async () => {
 	);
 });
 
-it("holds owner-assigned code in a coordinated project before the dispatcher can see it", async () => {
+it("readies owner-assigned code in a coordinated project", async () => {
 	mocks.actor.mockResolvedValue({ type: "user", id: "acme-owner" });
 	mocks.access.mockResolvedValue({
 		...item,
@@ -140,7 +140,7 @@ it("holds owner-assigned code in a coordinated project before the dispatcher can
 		{},
 		expect.objectContaining({
 			executor: "codex",
-			laneDispatch: { state: "held" },
+			laneDispatch: { state: "ready" },
 			stewardId: undefined,
 		}),
 	);

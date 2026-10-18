@@ -942,6 +942,38 @@ describe("Work Item router collaboration ledgers", () => {
 			1,
 		);
 	});
+	it("turns an authorized delegation mention into executor data and a dispatch receipt", async () => {
+		const created = await client().create({
+			...PURPOSE,
+			title: "Fictional guide",
+		});
+		await client("owner").accept({
+			id: created.id,
+			acceptanceContract: { version: 1, doneLooksLike: "A summary exists" },
+		});
+		await client("owner").addComment({
+			id: created.id,
+			body: "Delegated to the Mac Lead",
+		});
+		const current = await client().getById({ id: created.id });
+		expect(current.workItem.metadata).toMatchObject({
+			executor: "codex",
+			laneDispatch: { state: "ready" },
+		});
+		expect(
+			current.comments.some((c) =>
+				c.body.startsWith("Dispatched to codex at "),
+			),
+		).toBe(true);
+		const other = await client().create({
+			...PURPOSE,
+			title: "Other fictional guide",
+		});
+		await expect(
+			client().addComment({ id: other.id, body: "Delegated to Codex" }),
+		).rejects.toThrow();
+		expect((await client().getById({ id: other.id })).comments).toHaveLength(0);
+	});
 	it("adds and lists typed dependency relations", async () => {
 		const from = await client().create({ ...PURPOSE, title: "Dependent" });
 		const to = await client().create({ ...PURPOSE, title: "Blocker" });

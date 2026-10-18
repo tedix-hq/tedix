@@ -262,9 +262,7 @@ export const updateSpecificationProcedure =
 		if (
 			actor.type !== "user" &&
 			[
-				actor.type === "tedi" && input.executor === "human"
-					? undefined
-					: input.executor,
+				actor.type === "tedi" ? undefined : input.executor,
 				input.riskLevel,
 				input.workClass,
 				input.purposeExceptionExpiresAt,
@@ -350,13 +348,7 @@ export const updateSpecificationProcedure =
 				workItemId: workItem.id,
 				actor,
 				executor: input.executor,
-				laneDispatch:
-					input.laneDispatch ??
-					initialLaneDispatch(
-						input.executor,
-						laneProject?.metadata,
-						workItem.metadata?.laneDispatch,
-					),
+				laneDispatch: input.laneDispatch ?? initialLaneDispatch(input.executor),
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,

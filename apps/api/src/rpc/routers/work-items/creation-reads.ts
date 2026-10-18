@@ -114,7 +114,7 @@ export const createProcedure = authOs.create.handler(
 				!input.stewardType && !input.stewardId
 					? laneProject?.leadTediId
 					: undefined;
-			const laneDispatch = initialLaneDispatch(executor, laneProject?.metadata);
+			const laneDispatch = initialLaneDispatch(executor);
 			return await createWorkItem(context.db, {
 				id: crypto.randomUUID(),
 				orgId,

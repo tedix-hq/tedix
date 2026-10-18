@@ -315,7 +315,9 @@ a private receipt for idempotent replay under the same lane identity.
 
 `tedix lane serve --executor codex --max 5 --rules <skill-uuid> --project <project-uuid> --repo <checkout>`
 finds accepted Work with `metadata.executor: "codex"`. Use `--executor claude-code`
-for Work assigned to `claude-code`. `--project` is optional;
+for Work assigned to `claude-code`, or `--executor any-local` to serve both
+executors with one shared slot limit. Stop the individual services before switching;
+the combined service preserves their retained receipts and running process slots. `--project` is optional;
 workspace and organization are pinned explicitly. Rules default to the organization's
 `lane-rules` skill; `--rules` selects another skill by UUID or slug. Set the executor on a Work
 item or post it through the Work workspace app (`tedix:app/work`, config
@@ -324,7 +326,8 @@ separate actions.
 
 Use `--coordinated` without `--project` to execute ready coordinator selections
 across projects. This mode requires an explicit `metadata.laneDispatch.state`
-of `ready`; accepted Work without a plan stays queued. Existing service modes
+of `ready`. Assigning an executor readies accepted Work automatically and records
+a dispatch receipt. A coordinator can explicitly hold an item to keep it queued. Existing service modes
 retain their behavior when `--coordinated` is absent.
 
 The dispatcher creates an isolated worktree and native executor session,
