@@ -41,6 +41,7 @@ import { ApprovalDecisionCard } from "@/components/work-decision-stack";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
+import { Checkbox } from "@/components/kumo/checkbox";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import {
@@ -142,6 +143,17 @@ function DecisionDeckContent({
 		enabled: mode === "history",
 	});
 	const profile = useQuery(userProfileQueryOptions());
+	const goalKey = profile.data?.id
+		? `tedix:decision-goal:${profile.data.id}`
+		: null;
+	const [showGoal, setShowGoal] = useState(false);
+	useEffect(() => {
+		try {
+			setShowGoal(goalKey ? localStorage.getItem(goalKey) === "on" : false);
+		} catch {
+			setShowGoal(false);
+		}
+	}, [goalKey]);
 	const projects = useQuery(projectListQueryOptions(100));
 	const projectNames = new Map(
 		(projects.data?.data ?? []).map((row) => [row.id, row.name]),
@@ -543,7 +555,33 @@ function DecisionDeckContent({
 				data-workspace-app-entry="decision-deck"
 			>
 				<DecisionLearningFeedback eventId={sessionLearningId} />
+				{selected && (
+					<div className="fd-position" role="status">
+						<Text tone="secondary">
+							{OS_COPY.decisionDeck.position(
+								(index % filtered.length) + 1,
+								filtered.length,
+							)}
+						</Text>
+					</div>
+				)}
+
 				<DecisionContextSection title="Progress and filters">
+					{config.gamification && (
+						<Checkbox
+							label="Show daily goal"
+							checked={showGoal}
+							onCheckedChange={(checked) => {
+								setShowGoal(checked);
+								if (goalKey)
+									try {
+										localStorage.setItem(goalKey, checked ? "on" : "off");
+									} catch {
+										/* Browser storage may be disabled. */
+									}
+							}}
+						/>
+					)}
 					<div className="fd-deck-progress" role="status">
 						<Text weight="semibold">
 							{selected
@@ -552,13 +590,18 @@ function DecisionDeckContent({
 										filtered.length,
 									)
 								: OS_COPY.decisionDeck.left(filtered.length)}
-							{config.gamification &&
+							{selected &&
+								config.gamification &&
+								showGoal &&
 								` · ${OS_COPY.decisionDeck.today(metrics.decisionsToday, config.dailyGoal)}`}
 						</Text>
 					</div>
-					{config.gamification && metrics.streak > 0 && (
-						<Text>{OS_COPY.decisionDeck.streak(metrics.streak)}</Text>
-					)}
+					{selected &&
+						showGoal &&
+						config.gamification &&
+						metrics.streak > 0 && (
+							<Text>{OS_COPY.decisionDeck.streak(metrics.streak)}</Text>
+						)}
 					<div className="fd-deck-filters">
 						<div
 							className="fd-deck-toolbar"
@@ -572,7 +615,7 @@ function DecisionDeckContent({
 								<Button
 									key={value}
 									aria-pressed={mode === value}
-									variant={mode === value ? "default" : "ghost"}
+									variant="ghost"
 									onClick={() => {
 										setMode(value);
 										setIndex(0);
@@ -961,7 +1004,10 @@ function DecisionDeckContent({
 						/>
 					))
 				)}
-				<DecisionContextSection title="Learning and history">
+				<DecisionContextSection
+					sectionId="history"
+					title="Learning and history"
+				>
 					{learning && classId && (
 						<FeedDeckDisclosure
 							className="fd-deck-learning"

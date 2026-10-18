@@ -11,14 +11,13 @@ export function useDecisionMotion() {
 	const departure = useRef<Animation | null>(null);
 	useEffect(() => () => departure.current?.cancel(), []);
 	const start = useRef<{ x: number; y: number; id: number } | null>(null);
-	const pointer = useRef({ x: 0, y: 0 });
+	const [exiting, setExiting] = useState<string>();
 	const [drag, setDrag] = useState(0);
 	const reduced = () => {
 		const preference = document.documentElement.dataset.motion;
 		return (
 			preference === "reduced" ||
-			(preference !== "full" &&
-				window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+			window.matchMedia("(prefers-reduced-motion: reduce)").matches
 		);
 	};
 	const reset = () => {
@@ -29,11 +28,10 @@ export function useDecisionMotion() {
 		surface,
 		style: {
 			"--fd-drag": `${drag}px`,
-			"--fd-rotation": `${drag / 28}deg`,
-			"--fd-glow-strength": Math.min(Math.abs(drag) / 160, 0.8),
-			"--fd-glow-x": `${pointer.current.x}px`,
-			"--fd-glow-y": `${pointer.current.y}px`,
+			"--fd-rotation": `${drag === 0 || reduced() ? 0 : Math.max(-8, Math.min(8, drag / 40))}deg`,
+			"--fd-tint-strength": Math.min(Math.abs(drag) / 120, 1),
 		} as CSSProperties,
+		exiting,
 		dragging: drag !== 0,
 		direction: drag > 0 ? "approve" : drag < 0 ? "reject" : "idle",
 		start(event: PointerEvent<HTMLElement>) {
@@ -58,11 +56,6 @@ export function useDecisionMotion() {
 			const origin = start.current;
 			if (!origin || origin.id !== event.pointerId) return;
 			const dx = event.clientX - origin.x;
-			const bounds = event.currentTarget.getBoundingClientRect();
-			pointer.current = {
-				x: event.clientX - bounds.left,
-				y: event.clientY - bounds.top,
-			};
 			if (
 				Math.abs(event.clientY - origin.y) > Math.abs(dx) &&
 				Math.abs(dx) < 12
@@ -70,7 +63,7 @@ export function useDecisionMotion() {
 				reset();
 				return;
 			}
-			if (!reduced()) setDrag(Math.max(-220, Math.min(220, dx)));
+			if (!reduced()) setDrag(dx);
 		},
 		end(event: PointerEvent<HTMLElement>) {
 			const origin = start.current;
@@ -105,6 +98,9 @@ export function useDecisionMotion() {
 		},
 		cancelExit() {
 			departure.current?.cancel();
+			setExiting(undefined);
+			const stack = surface.current?.closest<HTMLElement>(".fd-decision-stack");
+			if (stack) delete stack.dataset.exiting;
 		},
 		async exit(direction?: string) {
 			const element = surface.current;
@@ -114,17 +110,20 @@ export function useDecisionMotion() {
 			);
 			if (!Number.isFinite(duration)) return;
 			const sign = direction === "reject" ? -1 : 1;
+			setExiting(direction === "reject" ? "reject" : "approve");
+			const stack = element.closest<HTMLElement>(".fd-decision-stack");
+			if (stack) stack.dataset.exiting = "true";
 			departure.current = element.animate(
 				[
-					{ transform: "translateX(0) rotate(0)", opacity: 1 },
+					{ transform: getComputedStyle(element).transform, opacity: 1 },
 					{
-						transform: `translateX(${sign * 90}px) rotate(${sign * 5}deg)`,
+						transform: `translateX(${sign * 320}px) rotate(${sign * 6}deg)`,
 						opacity: 0,
 					},
 				],
 				{
 					duration,
-					easing: getComputedStyle(element).getPropertyValue("--fd-ease"),
+					easing: "ease-in",
 					fill: "forwards",
 				},
 			);

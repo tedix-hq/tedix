@@ -83,6 +83,11 @@ try {
 			await card.focus();
 			await page.keyboard.press("?");
 			await page
+				.getByRole("heading", { name: "Shortcuts", exact: true })
+				.waitFor();
+			await page.keyboard.press("Escape");
+			await page.getByRole("button", { name: "Why this", exact: true }).click();
+			await page
 				.getByText("Prefer a bounded next step with evidence", { exact: false })
 				.waitFor();
 			await page.keyboard.press("Escape");
@@ -139,7 +144,7 @@ try {
 					.focus();
 				await page.keyboard.press("j");
 			}
-			await page.getByText("Deck clear", { exact: false }).waitFor();
+			await page.getByText("All clear", { exact: false }).waitFor();
 			assert.equal(
 				await page
 					.locator('[data-workspace-app-entry="decision-deck"] .fd-decision')

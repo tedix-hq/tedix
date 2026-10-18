@@ -442,7 +442,10 @@ describe("Decision-capture questions", () => {
 		);
 		const text = container.textContent ?? "";
 		expect(container.querySelector("h2")?.textContent).toBe(
-			"acme-app · claude-code waiting: It's deployed. The live API runs commit fc6b8f9",
+			"acme-app · claude-code waiting: It's deployed.",
+		);
+		expect(container.querySelector(".fd-identifier")?.textContent).toContain(
+			"fc6b8f9",
 		);
 		expect(container.querySelector(".fd-proposer")?.textContent).toContain(
 			"Claude Code",

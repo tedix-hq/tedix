@@ -5,6 +5,7 @@ import {
 } from "@/components/kumo/collapsible";
 import {
 	createContext,
+	Fragment,
 	useContext,
 	useEffect,
 	useId,
@@ -15,6 +16,7 @@ import {
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { SidebarSimpleIcon } from "@phosphor-icons/react";
+import { OS_COPY } from "@/shared/os-copy";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import {
@@ -40,6 +42,7 @@ export function DecisionContextRail({ children }: { children: ReactNode }) {
 		? `tedix:decision-context:${profile.data.id}`
 		: null;
 	const [open, setOpen] = useState(false);
+	const [shortcutsOpen, setShortcutsOpen] = useState(false);
 	const [phone, setPhone] = useState(false);
 	const [target, setTarget] = useState<HTMLDivElement | null>(null);
 	const [section, setSection] = useState<string>();
@@ -70,8 +73,11 @@ export function DecisionContextRail({ children }: { children: ReactNode }) {
 	};
 	useEffect(() => {
 		const shortcut = (event: KeyboardEvent) => {
+			if (shortcutsOpen) return;
 			if (
-				(event.key.toLowerCase() !== "i" && event.key !== "Escape") ||
+				(event.key.toLowerCase() !== "i" &&
+					event.key !== "?" &&
+					event.key !== "Escape") ||
 				(event.key === "Escape" && !open) ||
 				event.metaKey ||
 				event.ctrlKey ||
@@ -81,20 +87,42 @@ export function DecisionContextRail({ children }: { children: ReactNode }) {
 			)
 				return;
 			event.preventDefault();
-			changeOpen(event.key === "Escape" ? false : !open);
+			if (event.key === "?") {
+				setShortcutsOpen(true);
+			} else changeOpen(event.key === "Escape" ? false : !open);
 		};
 		document.addEventListener("keydown", shortcut);
 		return () => document.removeEventListener("keydown", shortcut);
-	}, [open, key]);
+	}, [open, key, shortcutsOpen]);
 	useEffect(() => {
 		if (open && section && target)
 			target
 				.querySelector<HTMLElement>(`[data-context-section="${section}"]`)
 				?.scrollIntoView({ block: "start" });
 	}, [open, section, target]);
+	const shortcutGrid = (
+		<div className="fd-shortcut-grid">
+			{OS_COPY.feedDeckVisual.shortcutList.map(([key, label]) => (
+				<Fragment key={key}>
+					<kbd>{key}</kbd>
+					<span>{label}</span>
+				</Fragment>
+			))}
+		</div>
+	);
 	const contents = (
 		<>
 			<div ref={setTarget} className="fd-context-sections" />
+			{open && (
+				<section
+					data-context-section="shortcuts"
+					className="fd-context-sections"
+				>
+					<h3>Shortcuts</h3>
+					{shortcutGrid}
+				</section>
+			)}
+
 			{open && <DecisionRailProfile />}
 		</>
 	);
@@ -105,6 +133,10 @@ export function DecisionContextRail({ children }: { children: ReactNode }) {
 				open,
 				activeSection: section,
 				openSection: (id) => {
+					if (id === "shortcuts") {
+						setShortcutsOpen(true);
+						return;
+					}
 					setSection(id);
 					changeOpen(true);
 				},
@@ -162,6 +194,17 @@ export function DecisionContextRail({ children }: { children: ReactNode }) {
 					</aside>
 				)}
 			</div>
+			<Sheet open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+				<SheetContent
+					side={phone ? "bottom" : "right"}
+					className="feed-deck fd-shortcut-sheet"
+				>
+					<SheetHeader>
+						<SheetTitle>Shortcuts</SheetTitle>
+					</SheetHeader>
+					{shortcutGrid}
+				</SheetContent>
+			</Sheet>
 		</DecisionRailContext.Provider>
 	);
 }
@@ -291,10 +334,6 @@ function DecisionRailProfile() {
 				</div>
 			)}
 			<Link href="/work/attention">History and decisions in Work</Link>
-			<p className="text-kumo-subtle">
-				I Context · Esc Close · ← Not this · → Approve · E Change · L Later · D
-				Decide for me · ? Why this
-			</p>
 		</section>
 	);
 }

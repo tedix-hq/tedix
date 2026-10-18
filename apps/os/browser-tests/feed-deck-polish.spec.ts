@@ -48,7 +48,7 @@ try {
 	for (const width of [390, 1440]) {
 		for (const theme of ["light", "dark"] as const) {
 			const page = await browser.newPage({
-				viewport: { width, height: 900 },
+				viewport: { width, height: width === 390 ? 844 : 900 },
 				colorScheme: theme,
 			});
 			await page.goto(
@@ -78,13 +78,29 @@ try {
 				throw new Error(`Deck overflows at ${width}/${theme}`);
 			const primary = page.locator('[data-decision-intent="approve"]');
 			const colors = await primary.evaluate((el) => ({
-				surface: getComputedStyle(el).backgroundColor,
-				overlay: getComputedStyle(el.firstElementChild!).backgroundImage,
+				fill: getComputedStyle(el).backgroundColor,
+				text: getComputedStyle(el).color,
+				honey: getComputedStyle(el).getPropertyValue("--accent-honey").trim(),
 			}));
-			if (!colors.overlay.includes(colors.surface))
+			if (
+				colors.text !== "rgb(23, 23, 23)" ||
+				colors.fill === "rgba(0, 0, 0, 0)"
+			)
 				throw new Error(
-					`Kumo overlay escaped the scoped accent: ${JSON.stringify(colors)}`,
+					`Approve lost its honey fill or dark text: ${JSON.stringify(colors)}`,
 				);
+			const type = await title.evaluate((el) => ({
+				family: getComputedStyle(el).fontFamily,
+				weight: getComputedStyle(el).fontWeight,
+			}));
+			if (/mono/i.test(type.family) || type.weight !== "600")
+				throw new Error(`Wrong display type: ${JSON.stringify(type)}`);
+			if (
+				(await page
+					.locator(".fd-deck")
+					.evaluate((el) => getComputedStyle(el).backgroundImage)) !== "none"
+			)
+				throw new Error("Deck background is decorated");
 			await title.scrollIntoViewIfNeeded();
 			const box = (await title.boundingBox())!;
 			const x = box.x + 30,
@@ -240,10 +256,8 @@ try {
 			fill('[data-decision-intent="delegate"]'),
 			fill('[data-decision-intent="approve"]'),
 		]);
-		if (delegate !== active || approve === active)
-			throw new Error(
-				`Configured delegation default lost its visual emphasis in ${theme}`,
-			);
+		if (delegate === approve || approve === active)
+			throw new Error(`Approve must be the only honey action in ${theme}`);
 		await preferred.close();
 	}
 	const touch = await browser.newPage({
@@ -297,8 +311,7 @@ try {
 	await reduced.locator(".fd-closure").waitFor();
 	if (
 		(await reduced
-			.locator(".fd-closure-orbit span")
-			.first()
+			.locator(".fd-closure-mark path")
 			.evaluate((el) => getComputedStyle(el).animationName)) !== "none"
 	)
 		throw new Error("Reduced motion closure still animates");

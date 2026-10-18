@@ -24,6 +24,7 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 } from "@/components/kumo/alert-dialog";
+import { createPortal } from "react-dom";
 import { decisionLearningKey } from "@/lib/decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -178,6 +179,7 @@ export function WorkDecisionCard({
 	}, [autoFocus, rail?.open]);
 	const [editing, setEditing] = useState(false);
 	const [whyOpen, setWhyOpen] = useState(false);
+	const [whyTarget, setWhyTarget] = useState<HTMLDivElement | null>(null);
 	const [draft, setDraft] = useState(body);
 	const [answer, setAnswer] = useState(initialAnswer);
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -261,7 +263,7 @@ export function WorkDecisionCard({
 				elapsedMs: Math.max(0, Math.round(performance.now() - shownAt.current)),
 			});
 			setConfirmation(null);
-			toast.success(decisionText("Got it — your feedback helps me learn."));
+			toast.success(decisionText("Decision saved"));
 			await departure;
 			setSaved(true);
 			onNext?.();
@@ -300,6 +302,7 @@ export function WorkDecisionCard({
 			style={motion.style}
 			data-dragging={motion.dragging}
 			data-direction={motion.direction}
+			data-exiting={motion.exiting}
 			onPointerDown={(event) => {
 				if (!busy && !confirmation && section.current?.closest(".fd-deck"))
 					motion.start(event);
@@ -334,7 +337,7 @@ export function WorkDecisionCard({
 				}
 				if (event.key === "?" && why) {
 					event.preventDefault();
-					if (rail) rail.openSection("why");
+					if (rail) rail.openSection("shortcuts");
 					else setWhyOpen((value) => !value);
 				}
 				if (["d", "l"].includes(event.key.toLowerCase())) {
@@ -419,8 +422,10 @@ export function WorkDecisionCard({
 						) : (
 							(content ?? (body ? <DecisionProposalBody body={body} /> : null))
 						)}
-						{heading !== title && title.length > 90 && body !== title && (
-							<DecisionProposalBody body={title} />
+						{heading !== title && (
+							<DecisionContextSection title="Identifiers and source">
+								<p className="fd-identifier">{title}</p>
+							</DecisionContextSection>
 						)}
 						{kind === "question" && !disabled && !saved ? (
 							<div className="grid gap-3">
@@ -536,35 +541,37 @@ export function WorkDecisionCard({
 									</AlertDialogContent>
 								</AlertDialog>
 								{!disabled ? (
-									<div className="fd-feedback">
-										<Button
-											variant="ghost"
-											disabled={busy}
-											onClick={() => setFeedbackOpen(!feedbackOpen)}
-										>
-											{decisionText("Give feedback")}
-										</Button>
-										{feedbackOpen ? (
-											<Textarea
-												aria-label={decisionText("Optional feedback")}
-												placeholder={decisionText(
-													"What should change? (optional)",
-												)}
-												rows={2}
-												value={feedback}
-												onChange={(event) => setFeedback(event.target.value)}
-											/>
-										) : null}
-										{feedbackOpen && feedbackAction ? (
+									<DecisionContextSection title="Feedback">
+										<div className="fd-feedback">
 											<Button
-												className="mt-2"
-												disabled={busy || !feedback.trim()}
-												onClick={() => void submit(feedbackAction)}
+												variant="ghost"
+												disabled={busy}
+												onClick={() => setFeedbackOpen(!feedbackOpen)}
 											>
-												{feedbackAction.label}
+												{decisionText("Give feedback")}
 											</Button>
-										) : null}
-									</div>
+											{feedbackOpen ? (
+												<Textarea
+													aria-label={decisionText("Optional feedback")}
+													placeholder={decisionText(
+														"What should change? (optional)",
+													)}
+													rows={2}
+													value={feedback}
+													onChange={(event) => setFeedback(event.target.value)}
+												/>
+											) : null}
+											{feedbackOpen && feedbackAction ? (
+												<Button
+													className="mt-2"
+													disabled={busy || !feedback.trim()}
+													onClick={() => void submit(feedbackAction)}
+												>
+													{feedbackAction.label}
+												</Button>
+											) : null}
+										</div>
+									</DecisionContextSection>
 								) : null}
 							</>
 						)}
@@ -573,36 +580,7 @@ export function WorkDecisionCard({
 								{error}
 							</p>
 						) : null}
-						{why || learnedWhy ? (
-							rail ? (
-								<DecisionContextSection
-									sectionId="why"
-									title={decisionText("Why this?")}
-									trigger
-								>
-									{why}
-									{learnedWhy && (
-										<DecisionLearningWhy explanation={learnedWhy} />
-									)}
-								</DecisionContextSection>
-							) : (
-								<Collapsible
-									className="fd-why"
-									open={whyOpen}
-									onOpenChange={setWhyOpen}
-								>
-									<CollapsibleTrigger>
-										{decisionText("Why this?")}
-									</CollapsibleTrigger>
-									<CollapsibleContent className="pt-3 text-kumo-subtle">
-										{why}
-										{learnedWhy && (
-											<DecisionLearningWhy explanation={learnedWhy} />
-										)}
-									</CollapsibleContent>
-								</Collapsible>
-							)
-						) : null}
+						{!rail && (why || learnedWhy) && <div ref={setWhyTarget} />}
 					</div>
 				</CardContent>
 				{!saved && (
@@ -624,50 +602,75 @@ export function WorkDecisionCard({
 										!(action.intent === "delegate" && action.disabled) &&
 										(!editing || !editAction || action.intent === "reject"),
 								)
-								.map((action) => (
-									<Button
-										key={action.id}
-										data-decision-intent={action.intent}
-										className={
-											kind === "decision" ||
-											kind === "adr" ||
-											action.description
-												? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
-												: "min-h-11 grow sm:grow-0"
-										}
-										variant={
-											(action.primary ?? action.intent === "approve")
-												? "default"
-												: "outline"
-										}
-										disabled={
-											busy ||
-											action.disabled ||
-											(kind === "question" && !answer.trim()) ||
-											(editing && !draft.trim())
-										}
-										onClick={() => choose(action)}
-									>
-										{saving ? (
-											decisionText("Saving…")
-										) : (
-											<span className="grid min-w-0 gap-1 whitespace-normal break-words">
-												<span>{action.label}</span>
-												{action.description ? (
-													<span
-														className={
-															action.intent === "approve"
-																? "fd-action-description font-normal opacity-90"
-																: "fd-action-description font-normal text-kumo-subtle"
-														}
-													>
-														{action.description}
+								.map((action) => {
+									const button = (
+										<Button
+											key={action.id}
+											data-decision-intent={action.intent}
+											className={
+												kind === "decision" ||
+												kind === "adr" ||
+												action.description
+													? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
+													: "min-h-11 grow sm:grow-0"
+											}
+											variant={
+												action.intent === "approve" ? "default" : "ghost"
+											}
+											disabled={
+												busy ||
+												action.disabled ||
+												(kind === "question" && !answer.trim()) ||
+												(editing && !draft.trim())
+											}
+											onClick={() => choose(action)}
+										>
+											{saving ? (
+												decisionText("Saving…")
+											) : (
+												<span className="grid min-w-0 gap-1 whitespace-normal break-words">
+													<span>
+														{action.label}
+														<kbd
+															className="fd-action-key"
+															aria-hidden="true"
+															data-key={
+																action.intent === "approve"
+																	? "→"
+																	: action.intent === "reject"
+																		? "←"
+																		: action.intent === "later"
+																			? "L"
+																			: "D"
+															}
+														/>
 													</span>
-												) : null}
-											</span>
-										)}
-									</Button>
-								))}
+													{action.description ? (
+														<span
+															className={
+																action.intent === "approve"
+																	? "fd-action-description font-normal opacity-90"
+																	: "fd-action-description font-normal text-kumo-subtle"
+															}
+														>
+															{action.description}
+														</span>
+													) : null}
+												</span>
+											)}
+										</Button>
+									);
+									return action.intent === "delegate" && rail ? (
+										<DecisionContextSection
+											key={action.id}
+											title="Delegate this choice"
+										>
+											{button}
+										</DecisionContextSection>
+									) : (
+										button
+									);
+								})}
 							{editing && editAction ? (
 								<Button
 									disabled={
@@ -684,14 +687,16 @@ export function WorkDecisionCard({
 							{allowEdits &&
 							(kind === "outbound" || editAction) &&
 							!disabled ? (
-								<Button
-									variant="outline"
-									className="min-h-11"
-									disabled={busy}
-									onClick={() => setEditing(!editing)}
-								>
-									{editing ? decisionText("Preview") : decisionText("Change")}
-								</Button>
+								<DecisionContextSection title="Edit proposal">
+									<Button
+										variant="outline"
+										className="min-h-11"
+										disabled={busy}
+										onClick={() => setEditing(!editing)}
+									>
+										{editing ? decisionText("Preview") : decisionText("Change")}
+									</Button>
+								</DecisionContextSection>
 							) : null}
 							{!actions.some((action) => action.intent === "later") &&
 								deckFooter}
@@ -699,6 +704,40 @@ export function WorkDecisionCard({
 					</CardFooter>
 				)}
 			</FeedDeckCard>
+			<div className="fd-card-why">
+				{why || learnedWhy ? (
+					rail ? (
+						<DecisionContextSection
+							sectionId="why"
+							title={decisionText("Why this")}
+							trigger
+						>
+							{why}
+							{learnedWhy && <DecisionLearningWhy explanation={learnedWhy} />}
+						</DecisionContextSection>
+					) : (
+						<Collapsible
+							className="fd-why"
+							open={whyOpen}
+							onOpenChange={setWhyOpen}
+						>
+							<CollapsibleTrigger>
+								{decisionText("Why this?")}
+							</CollapsibleTrigger>
+							{whyTarget &&
+								createPortal(
+									<CollapsibleContent className="pt-3 text-kumo-subtle">
+										{why}
+										{learnedWhy && (
+											<DecisionLearningWhy explanation={learnedWhy} />
+										)}
+									</CollapsibleContent>,
+									whyTarget,
+								)}
+						</Collapsible>
+					)
+				) : null}
+			</div>
 		</section>
 	);
 }

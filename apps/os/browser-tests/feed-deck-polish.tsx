@@ -238,6 +238,13 @@ if (params.get("surface") === "approval") {
 		metadata: {
 			approvalOperation: "tests_write.GenerateMagicLinkForTestUser",
 			approvalTarget: "viewer@example.com",
+			cardPresentation: {
+				version: 1,
+				title: "Approve fictional test login",
+				body: "Let Codex check the reported fix with a fictional test account. The test link stays with the agent; no email is sent.",
+				recommendation:
+					"Approve because the test account and operation are specified.",
+			},
 		},
 	};
 	client.setQueryData(
@@ -299,7 +306,12 @@ const manifest = OsGadgetManifestSchema.parse({
 					examples:
 						params.get("cards") === "one"
 							? [DECISION_DECK_EXAMPLES[4]]
-							: DECISION_DECK_EXAMPLES,
+							: params.get("cards") === "three"
+								? [0, 1, 2].map((index) => ({
+										...DECISION_DECK_EXAMPLES[4],
+										proposal: `Review fictional customer story ${index + 1}?`,
+									}))
+								: DECISION_DECK_EXAMPLES,
 					...(params.get("cards") === "one"
 						? { defaultLowStakesToDelegate: false }
 						: {}),
