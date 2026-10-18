@@ -33,7 +33,7 @@ const scope = {
 	tediId: "tedi-a",
 	now: "2026-10-18T12:00:00.000Z",
 };
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
@@ -47,7 +47,7 @@ function fixture() {
 		),
 	);
 	sqlite.exec(migration);
-	const db = createDbClient(createD1Facade(sqlite));
+	const db = createDbClient(createD1Facade(sqlite, { onPrepare }));
 	const add = (
 		id: string,
 		content: string,
@@ -187,8 +187,9 @@ describe("canonical hybrid recall D1 queries", () => {
 			(await temporalRecall(db, scope, "today")).map((x) => x.factId),
 		).toEqual(["new"]);
 	});
-	it("hydrates external ids with ownership predicates and chunks below D1's parameter ceiling", async () => {
-		const { db, add } = fixture();
+	it("hydrates external IDs through primary keys with tenant scope and bounded parameters", async () => {
+		const prepared: string[] = [];
+		const { db, add, sqlite } = fixture((query) => prepared.push(query));
 		add("a", "cobalt");
 		add("b", "cobalt", "fictional-b");
 		expect(
@@ -200,6 +201,24 @@ describe("canonical hybrid recall D1 queries", () => {
 				])
 			).map((f) => f.id),
 		).toEqual(["a"]);
+		const query = prepared.find((query) =>
+			query.includes("replaces_fact_ids"),
+		)!;
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array(query.match(/\?/g)?.length ?? 0).fill(null));
+		expect(
+			plan.some((row) =>
+				String(row.detail).includes(
+					"USING INDEX sqlite_autoindex_memory_facts_1 (id=?)",
+				),
+			),
+		).toBe(true);
+		expect(
+			plan.some((row) =>
+				String(row.detail).includes("idx_memory_facts_archived"),
+			),
+		).toBe(false);
 	});
 	it("uses accepted entity names for BM25 and one-hop graph recall, and syncs renames/revocations", async () => {
 		const { sqlite, db, add } = fixture();

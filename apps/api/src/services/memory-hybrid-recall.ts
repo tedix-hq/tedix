@@ -119,7 +119,7 @@ export async function recallMemoryFacts(
 	const left = () => Math.max(0, end - performance.now());
 	const topK = Math.min(100, Math.max(1, params.topK ?? 10));
 	let missingIndex = false;
-	const armBudget = Math.min(450, left());
+	const armBudget = Math.min(250, left());
 	const [lexical, semantic, graph, temporal] = await Promise.all([
 		boundRecall(
 			async () => {
@@ -161,7 +161,7 @@ export async function recallMemoryFacts(
 	if (missingIndex) {
 		const rows = await boundRecall(
 			() => fallbackRecall(db, params),
-			Math.min(150, left()),
+			Math.min(300, left()),
 			[],
 		);
 		return rows
@@ -184,7 +184,7 @@ export async function recallMemoryFacts(
 				params,
 				fused.map((item) => item.factId),
 			),
-		Math.min(150, left()),
+		Math.min(300, left()),
 		[],
 	);
 	const byId = new Map(facts.map((fact) => [fact.id, fact]));
@@ -224,7 +224,7 @@ export async function recallMemoryFacts(
 				const response = await ai.run("@cf/baai/bge-reranker-base", input);
 				return response.response;
 			},
-			Math.min(150, left()),
+			Math.min(100, left()),
 			undefined,
 		);
 		if (reranked) {

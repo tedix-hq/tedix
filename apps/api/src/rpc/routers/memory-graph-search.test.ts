@@ -79,6 +79,36 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("governed memory search", () => {
+	it("keeps computed recall projection fields outside the canonical fact contract", async () => {
+		const factId = "11111111-1111-4111-8111-111111111111";
+		const provenance = {
+			arms: [{ arm: "lexical", rank: 1, score: 2 }],
+			fusionScore: 1 / 61,
+			replacesFactIds: ["older-fact"],
+		};
+		mocks.recall.mockResolvedValue([
+			{
+				factId,
+				score: 1 / 61,
+				provenance,
+				fact: {
+					id: factId,
+					organizationId: context.organizationId,
+					content: "Fictional recall evidence",
+					factType: "technical",
+					confidence: 0.8,
+					visibility: "org",
+					accessCount: 0,
+					usageCount: 0,
+					replacesFactIds: ["older-fact"],
+				},
+			},
+		]);
+		const result = await search({ query: "recall evidence" });
+		expect(result.results).toHaveLength(1);
+		expect(result.results[0]!.fact).not.toHaveProperty("replacesFactIds");
+		expect(result.results[0]!.provenance).toEqual(provenance);
+	});
 	it("does not fill an empty recall with unrelated inventory and logs production timing", async () => {
 		const result = await search({ query: "private question text" });
 		expect(result.results).toEqual([]);
