@@ -1,11 +1,9 @@
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { checkDecisionCardCopy } from "./decision-card-copy-check";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
-import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import type { BaseContext } from "../rpc/orpc";
-import { organizationModelEnv } from "./unrouted-model-egress";
 import { readDraftPreferences } from "./decision-learning";
-import { runDistillModel } from "./lesson-distiller";
+import { runDecisionCardCopyModel } from "./decision-card-copy-model";
 
 const MAX_WRITING_CONTEXT_CHARS = 3000;
 const RAW_IDENTIFIER = new RegExp(copySpec.rawIdentifierPattern, "i");
@@ -59,18 +57,10 @@ export async function generateDecisionCard(
 	},
 	onFailure?: (reason: string) => void,
 ) {
-	const [config, preferences] = await Promise.all([
-		getDecisionLearningConfig(context.db, request.orgId),
-		readDraftPreferences(context.db, request.orgId, request.targetId),
-	]);
-	let dispatched = false;
-	const env = organizationModelEnv(
-		context.env,
+	const preferences = await readDraftPreferences(
 		context.db,
 		request.orgId,
-		() => {
-			dispatched = true;
-		},
+		request.targetId,
 	);
 	const decision = request.metadata.decisionDeck;
 	const filing =
@@ -132,27 +122,22 @@ export async function generateDecisionCard(
 			onFailure?.("model_timeout:budget");
 			return null;
 		}
-		const answer = await runDistillModel(
-			env,
+		const answer = await runDecisionCardCopyModel(
+			context,
 			repair ? `${source}\n${repair}` : source,
 			{
-				model: config.preferenceModel,
-				nonThinking: true,
-				maxTokens: 450,
+				orgId: request.orgId,
+				model: copySpec.modelRef,
+				maxTokens: 650,
 				timeoutMs,
-				onFailure: (reason) =>
-					onFailure?.(
-						reason === "model_timeout"
-							? `model_timeout:${dispatched ? "provider" : "residency_check"}`
-							: reason,
-					),
-				jsonObject: true,
-				surface: "decision-card-generator",
+				onFailure,
+				rewriteInstruction: copySpec.rewritePass,
 				system: [
 					copySpec.system,
 					copySpec.rewriter,
 					JSON.stringify({ plainLanguageExamples: copySpec.plainTerms }),
 					copySpec.bannedWords.join(", "),
+					JSON.stringify({ examples: copySpec.examples }),
 					filing ? copySpec.filing : "",
 				].join("\n"),
 			},
@@ -217,7 +202,7 @@ export async function generateDecisionCard(
 			if (
 				parsed.success &&
 				filing &&
-				(!/\bfil(?:e|ing)\b/i.test(parsed.data.title) ||
+				(!/\b(?:fil(?:e|ing)|keep)\b/i.test(parsed.data.title) ||
 					(filingWords.length > 0 &&
 						!filingWords.some((word) =>
 							parsed.data.title.toLowerCase().includes(word.slice(0, 5)),
@@ -241,7 +226,7 @@ export async function generateDecisionCard(
 			if (parsed.success)
 				return {
 					...parsed.data,
-					model: config.preferenceModel,
+					model: copySpec.modelRef,
 					generatedAt: new Date().toISOString(),
 				};
 			const fields = parsed.error.issues
