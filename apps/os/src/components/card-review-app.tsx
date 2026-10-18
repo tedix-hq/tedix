@@ -179,9 +179,13 @@ const RUN_FIRST_POLL_MS = 400;
 export function CardReviewApp({
 	config,
 	inDeck = false,
+	focusCardKey,
+	onFocusHandled,
 }: {
 	config: CardReviewConfig;
 	inDeck?: boolean;
+	focusCardKey?: string;
+	onFocusHandled?: () => void;
 }) {
 	useOsLocale();
 	const queryClient = useQueryClient();
@@ -413,7 +417,10 @@ export function CardReviewApp({
 	useEffect(() => {
 		if (inDeck) reportRemaining?.(queue.length);
 	}, [inDeck, queue.length, reportRemaining]);
-	const card = departingCard ?? queue[0] ?? null;
+	const card =
+		departingCard ??
+		(focusCardKey ? queue.find((row) => row.key === focusCardKey) : queue[0]) ??
+		null;
 	const source = card ? sources[card.sourceIndex] : undefined;
 	const actionLabel = card && source ? doItLabel(source, card) : null;
 
@@ -927,7 +934,10 @@ export function CardReviewApp({
 								: []),
 							{ id: "later", label: decisionText("Later"), intent: "later" },
 						]}
-						onDecisionSettled={() => setDepartingCard(null)}
+						onDecisionSettled={() => {
+							setDepartingCard(null);
+							if (focusCardKey) onFocusHandled?.();
+						}}
 						onDecision={async (feedback) => {
 							setDepartingCard(card);
 							const result =
@@ -942,6 +952,8 @@ export function CardReviewApp({
 					/>
 				) : loading ? (
 					<Text>{OS_COPY.feed.loading}</Text>
+				) : focusCardKey ? (
+					<Text>That decision is no longer available in this view.</Text>
 				) : (
 					<DeckClosure
 						title={

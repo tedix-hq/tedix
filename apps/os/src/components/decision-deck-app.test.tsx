@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import { DecisionDeckApp } from "./decision-deck-app";
 import {
@@ -27,7 +28,13 @@ vi.mock("@/lib/api", async (original) => {
 					: key === "learningFeedback"
 						? {
 								recordInteraction: vi.fn(async () => ({})),
+								recordExposure: vi.fn(async () => ({
+									id: "fictional-exposure",
+								})),
 								listInteractions: vi.fn(async () => ({ events: [] })),
+								getCalibration: actual.osApi.learningFeedback.getCalibration,
+								getInstrumentation:
+									actual.osApi.learningFeedback.getInstrumentation,
 								model: vi.fn(),
 								correct: vi.fn(),
 							}
@@ -40,7 +47,18 @@ vi.mock("./work-decision-stack", () => ({
 	ApprovalDecisionCard: () => <p>Live approval</p>,
 }));
 vi.mock("./work-interaction-decision-card", () => ({
-	WorkInteractionDecisionCard: () => <p>Live request</p>,
+	WorkInteractionDecisionCard: ({
+		requestId,
+		onNext,
+	}: {
+		requestId: string;
+		onNext: () => void;
+	}) => (
+		<>
+			<p>Live request {requestId}</p>
+			<button onClick={onNext}>Skip linked preview</button>
+		</>
+	),
 }));
 let root: ReturnType<typeof createRoot>;
 let client: QueryClient;
@@ -50,10 +68,16 @@ afterEach(async () => {
 	client?.clear();
 	sessionStorage.clear();
 	localStorage.clear();
+	globalThis.history.replaceState(null, "", globalThis.location.pathname);
 	host?.remove();
 	vi.restoreAllMocks();
 });
-async function mount() {
+async function mount(
+	input: {
+		rows?: ReturnType<typeof WorkInteractionInboxRowSchema.parse>[];
+		budget?: number;
+	} = {},
+) {
 	client = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 	});
@@ -101,7 +125,7 @@ async function mount() {
 				input: { projectId: undefined, limit: 50, states: [state] },
 			}).queryKey,
 			{
-				data: [],
+				data: state === "open" ? (input.rows ?? []) : [],
 				hasMore: false,
 				nextCursor: null,
 				observedAt: "2026-10-17T10:00:00.000Z",
@@ -144,6 +168,7 @@ async function mount() {
 					config={DecisionDeckConfigSchema.parse({
 						version: 1,
 						examples: DECISION_DECK_EXAMPLES,
+						dailyAttentionBudget: input.budget,
 					})}
 				/>
 			</QueryClientProvider>,
@@ -293,4 +318,89 @@ it("does not announce All clear while decision history is loading", async () => 
 			}).queryKey,
 		)?.status,
 	).toBe("pending");
+});
+
+const linkedRow = (id: string, subject: string, canRespond = true) =>
+	WorkInteractionInboxRowSchema.parse({
+		request: {
+			id,
+			orgId: "22222222-2222-4222-8222-222222222222",
+			workItemId: null,
+			caseId: null,
+			projectId: null,
+			creatorSessionId: null,
+			state: "open",
+			requestedAt: id.startsWith("1")
+				? "2026-10-17T10:00:00Z"
+				: "2026-10-17T09:00:00Z",
+			dueAt: null,
+			expiresAt: null,
+			resolvedAt: null,
+			metadata: {},
+			subject,
+			prompt: "Review this fictional supplier proposal.",
+			kind: "question",
+			version: 1,
+			creatorType: "user",
+			creatorId: "fictional-asker",
+			requestedFromType: "user",
+			requestedFromId: "fictional-acme-user",
+		},
+		effectiveState: "open",
+		canRespond,
+		canCancel: false,
+		workItem: null,
+		responseCount: 0,
+	});
+
+it("opens an authorized linked request outside the saved automatic batch and returns to that batch on next", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("No live requests in the fixture"),
+	);
+	const first = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"First fictional supplier",
+	);
+	const target = linkedRow(
+		"33333333-3333-4333-8333-333333333333",
+		"Linked fictional supplier",
+	);
+	globalThis.history.replaceState(null, "", `#card=${target.request.id}`);
+	await mount({ rows: [first, target], budget: 1 });
+	expect(host.textContent).toContain(`Live request ${target.request.id}`);
+	expect(host.textContent).not.toContain(`Live request ${first.request.id}`);
+	expect(host.textContent).toContain("2 of 2");
+	const saved = Object.keys(sessionStorage).find((key) =>
+		key.startsWith("decision-deck:"),
+	)!;
+	expect(JSON.parse(sessionStorage.getItem(saved)!).ids).toEqual([
+		first.request.id,
+	]);
+	await click("Skip linked preview");
+	expect(globalThis.location.hash).toBe("");
+	expect(host.textContent).toContain(`Live request ${first.request.id}`);
+	expect(JSON.parse(sessionStorage.getItem(saved)!).ids).toEqual([
+		first.request.id,
+	]);
+});
+
+it("does not substitute another card when the linked request is not actionable for this person", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("No live requests in the fixture"),
+	);
+	const first = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"First fictional supplier",
+	);
+	const target = linkedRow(
+		"33333333-3333-4333-8333-333333333333",
+		"Unavailable fictional supplier",
+		false,
+	);
+	globalThis.history.replaceState(null, "", `#card=${target.request.id}`);
+	await mount({ rows: [first, target], budget: 1 });
+	expect(host.textContent).toContain(
+		"That decision is no longer available in this view.",
+	);
+	expect(host.textContent).not.toContain("Live request");
 });

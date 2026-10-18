@@ -125,6 +125,20 @@ function DecisionDeckContent({
 	const [urgency, setUrgency] = useState("all");
 	const [search, setSearch] = useState("");
 	const [index, setIndex] = useState(0);
+	const [focusCard, setFocusCard] = useState(() =>
+		new URLSearchParams(globalThis.location.hash.slice(1)).get("card"),
+	);
+	const factoryFocusKey = focusCard?.startsWith("factory:")
+		? focusCard.slice("factory:".length)
+		: undefined;
+	useEffect(() => {
+		const sync = () =>
+			setFocusCard(
+				new URLSearchParams(globalThis.location.hash.slice(1)).get("card"),
+			);
+		globalThis.addEventListener("hashchange", sync);
+		return () => globalThis.removeEventListener("hashchange", sync);
+	}, []);
 	const [practice, setPractice] = useState<DecisionLearningReceipt[]>([]);
 	const [skipped, setSkipped] = useState<string[]>([]);
 	const decisions = useDecisionInbox(config);
@@ -339,11 +353,12 @@ function DecisionDeckContent({
 		mode === "decide"
 			? rows.filter(
 					(row) =>
-						batch &&
-						(row.kind === "approval" ||
-							decisions.scheduledIds.has(row.id) ||
-							batch.ids.includes(row.id)) &&
-						!batch.dismissed.includes(row.id),
+						row.id === focusCard ||
+						(batch &&
+							(row.kind === "approval" ||
+								decisions.scheduledIds.has(row.id) ||
+								batch.ids.includes(row.id)) &&
+							!batch.dismissed.includes(row.id)),
 				)
 			: mode === "practice"
 				? rows.filter((row) => !skipped.includes(row.id))
@@ -361,12 +376,10 @@ function DecisionDeckContent({
 		)
 			reportRemaining?.(filtered.length);
 	}, [mode, filtered.length, factories.sources.length, reportRemaining]);
-	const focusCard = new URLSearchParams(globalThis.location.hash.slice(1)).get(
-		"card",
-	);
 	const selected =
-		filtered.find((row) => row.id === focusCard) ??
-		filtered[Math.min(index, Math.max(0, filtered.length - 1))];
+		mode === "decide" && focusCard
+			? filtered.find((row) => row.id === focusCard)
+			: filtered[Math.min(index, Math.max(0, filtered.length - 1))];
 	const railOpenedBeforeDecision = selected
 		? (rail?.openedBefore(selected.id) ?? false)
 		: false;
@@ -491,7 +504,17 @@ function DecisionDeckContent({
 					ready: learnedReadiness?.ready ?? false,
 				}
 			: historicalLearning;
+	const clearFocusCard = () => {
+		if (!focusCard) return;
+		setFocusCard(null);
+		globalThis.history.replaceState(
+			globalThis.history.state,
+			"",
+			`${globalThis.location.pathname}${globalThis.location.search}`,
+		);
+	};
 	const next = () => {
+		clearFocusCard();
 		if (mode === "history")
 			setIndex((value) => Math.min(filtered.length - 1, value + 1));
 		else if (selected) {
@@ -500,9 +523,15 @@ function DecisionDeckContent({
 			setIndex(0);
 		}
 	};
-	const previous = () => setIndex((value) => Math.max(0, value - 1));
+	const previous = () => {
+		clearFocusCard();
+		setIndex(
+			Math.max(0, filtered.findIndex((row) => row.id === selected?.id) - 1),
+		);
+	};
 	const budgetReached =
 		mode === "decide" &&
+		!focusCard &&
 		todayCount >= config.dailyAttentionBudget &&
 		(!selected || !metrics.shownToday.includes(selected.id));
 	useAppWebMcpTools(
@@ -706,7 +735,7 @@ function DecisionDeckContent({
 						<div className="fd-position" role="status">
 							<Text tone="secondary">
 								{OS_COPY.decisionDeck.position(
-									(index % filtered.length) + 1,
+									filtered.findIndex((row) => row.id === selected.id) + 1,
 									filtered.length,
 								)}
 							</Text>
@@ -739,7 +768,26 @@ function DecisionDeckContent({
 				{!practiceMode && inbox.isPending && (
 					<Text>{decisionText("Loading decisions…")}</Text>
 				)}
-				{budgetReached ? (
+				{mode === "decide" && factoryFocusKey ? (
+					<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
+						{factories.pending ? (
+							<Text>{OS_COPY.feed.loading}</Text>
+						) : (
+							<FactoryCards
+								inDeck
+								config={{ version: 1, sources: factories.sources }}
+								focusCardKey={factoryFocusKey}
+								onFocusHandled={clearFocusCard}
+							/>
+						)}
+					</Suspense>
+				) : mode === "decide" && focusCard && !selected ? (
+					<Text>
+						{decisions.queuePending
+							? "Opening that decision…"
+							: "That decision is no longer available in this view."}
+					</Text>
+				) : budgetReached ? (
 					<Text>
 						You’ve reached your attention budget.{" "}
 						<Link href="/work/attention">Open Needs you</Link>

@@ -855,11 +855,7 @@ function FocusRow({
 				<article aria-label={item.sentence}>
 					<Link
 						className="focus-story"
-						href={
-							item.id.startsWith("factory:")
-								? item.source
-								: `/work?view=deck#card=${encodeURIComponent(item.id.replace(/^decision:/, ""))}`
-						}
+						href={`/work?view=deck#card=${encodeURIComponent(item.id.replace(/^decision:/, ""))}`}
 					>
 						{actor === "You" ? "You ask" : `${actor} asks`}: {item.sentence}
 					</Link>
