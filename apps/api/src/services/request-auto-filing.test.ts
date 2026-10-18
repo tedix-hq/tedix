@@ -141,10 +141,27 @@ describe("automatic filing", () => {
 			expect(model).not.toHaveBeenCalled();
 		}
 	});
-	it("distinguishes model absence, fenced output and invalid fields without disclosing content", async () => {
+	it("accepts an entire fenced JSON response and still validates its destination", async () => {
+		for (const projectId of ["project-docs", "foreign-project"]) {
+			const { db, model } = await fixture();
+			const fenced: LedgerModel = async () =>
+				`\`\`\`json\n${JSON.stringify({ ...pick, projectId })}\n\`\`\``;
+			fenced.scoreProjectFit = model.scoreProjectFit;
+			if (projectId === "foreign-project") {
+				await expect(
+					autoFileRequests(db, fenced, { ...owner, now }),
+				).rejects.toThrow("Unknown filing project");
+				expect(await listRequestFilings(db, owner)).toEqual([]);
+			} else {
+				await autoFileRequests(db, fenced, { ...owner, now });
+				expect(await listRequestFilings(db, owner)).toHaveLength(1);
+			}
+		}
+	});
+	it("distinguishes model absence and invalid fields without disclosing content", async () => {
 		for (const [raw, reason] of [
 			[null, "model returned no response"],
-			["```json\n{}\n```", "Markdown fence instead of JSON"],
+			["```json\n{}\n```", "invalid fields: projectId"],
 			["{}", "invalid fields: projectId"],
 			["private request text", "model returned invalid JSON"],
 		] as const) {
