@@ -44,8 +44,8 @@ fixture and harness hashes and clean source revisions:
 | Local p95, ms               |   2.78 |   3.44 |
 
 No new binding, variable or ops overlay is needed. The API uses its existing
-Agent Memory and AI bindings. Each arm waits at most 250 ms within a 750 ms
-retrieval deadline. Canonical hydration gets at most 300 ms and optional
+Agent Memory and AI bindings. D1 arms wait at most 350 ms and semantic recall
+at most 150 ms within a 750 ms retrieval deadline. Canonical hydration gets at most 300 ms and optional
 reranking at most 100 ms, each capped by the remaining time.
 The runtime's outer 800 ms budget includes transport. An absent FTS table uses
 the old ranker with the same canonical eligibility checks. An absent or slow AI

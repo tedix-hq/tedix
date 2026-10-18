@@ -67,6 +67,15 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("filters inactive BM25 matches before limiting candidates", async () => {
+		const { db, add } = fixture();
+		for (let i = 0; i < 520; i++)
+			add(`inactive-${i}`, "cobalt", undefined, { valid_to: "2026-10-17" });
+		add("usable", "cobalt launch instructions remain available after archival");
+		expect(
+			(await lexicalRecall(db, scope, "cobalt")).map((f) => f.factId),
+		).toEqual(["usable"]);
+	});
 	it("uses the evidence lane's validator for lessons recalled through the shared fact path", async () => {
 		const { db, sqlite, add } = fixture();
 		add("source", "cobalt deployment evidence", undefined, {
