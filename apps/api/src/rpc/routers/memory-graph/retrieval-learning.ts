@@ -12,24 +12,27 @@ import {
 	findCurrentFactsByTopicKey,
 	findFactBySourceHash,
 	getFactsByIds,
-	recordFactAccess,
 	recordFactVerification,
 	updateFact,
 } from "@tedix/db/queries/memory-graph/facts";
 import {
 	archiveLowConfidence,
-	boostConfidence,
 	decayConfidence,
 	invalidateFact,
 	resetCollapsedConfidence,
 } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import { assembleContext } from "../../../services/memory-graph-context-assembly";
 import {
+	boundRecall,
+	HYBRID_RECALL_BUDGET_MS,
 	recallMemoryFacts,
 	type HybridRecallResult,
 	type RecallProvenance,
 } from "../../../services/memory-hybrid-recall";
-import { hydrateRecall } from "@tedix/db/queries/memory-graph/hybrid-recall";
+import {
+	hydrateRecall,
+	recordRecallAccess,
+} from "@tedix/db/queries/memory-graph/hybrid-recall";
 import { auditMemoryGraph } from "@tedix/db/queries/memory-audit";
 import {
 	buildBrainWriteQualityEnvelope,
@@ -137,6 +140,8 @@ const search = authed.search
 		const timings: Record<string, number> = {};
 		const traceId = episodeTraceId(context.headers) ?? crypto.randomUUID();
 		const searchStartedAt = Date.now();
+		const deadline = performance.now() + HYBRID_RECALL_BUDGET_MS;
+		const remaining = () => Math.max(0, deadline - performance.now());
 		logMemorySearch(context, "start", {
 			traceId,
 			authType: context.authType,
@@ -173,10 +178,6 @@ const search = authed.search
 			domainId = d.id;
 		}
 
-		const totalPromise = measureSearchPhase(timings, "countFactsMs", () =>
-			recentFactCount(context.db, orgId),
-		);
-		void totalPromise.catch(() => undefined);
 		let results: Array<{
 			factId: string;
 			score: number;
@@ -205,6 +206,7 @@ const search = authed.search
 						includeGraphAnchors,
 						topK: requestedTopK,
 						env: context.env,
+						budgetMs: remaining(),
 					}),
 				);
 				results = hybridResults;
@@ -305,12 +307,27 @@ const search = authed.search
 					: {}),
 			};
 		});
-		void Promise.allSettled(
-			searchResults.flatMap((result) => [
-				recordFactAccess(context.db, result.factId),
-				boostConfidence(context.db, [result.factId], 1.05),
-			]),
+		// Informational counting must not queue ahead of critical D1 reads.
+		const countWork = measureSearchPhase(timings, "countFactsMs", () =>
+			recentFactCount(context.db, orgId),
+		).catch(() => undefined);
+		context.waitUntil?.(countWork);
+		const totalPromise = boundRecall(
+			() => countWork,
+			Math.min(50, remaining()),
+			undefined,
 		);
+		const accessWork = recordRecallAccess(
+			context.db,
+			orgId,
+			searchResults.map((result) => result.factId),
+		).catch((error) => {
+			console.warn("[memory.search] Access bookkeeping failed", {
+				orgId,
+				error: error instanceof Error ? error.name : "unknown",
+			});
+		});
+		context.waitUntil?.(accessWork);
 		const total = await totalPromise;
 		logMemorySearch(context, "complete", {
 			traceId,
@@ -370,7 +387,11 @@ const search = authed.search
 		}
 		return {
 			results: searchResults,
-			totalFacts: total,
+			totalFacts: Math.max(
+				total ?? factCounts.get(orgId)?.value ?? 0,
+				searchResults.length,
+			),
+			...(total === undefined ? { totalFactsApproximate: true } : {}),
 			query,
 			retrievalMs: Date.now() - searchStartedAt,
 		};

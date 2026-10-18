@@ -18,6 +18,7 @@ import {
 	hydrateRecall,
 	lexicalRecall,
 	recallWindow,
+	recordRecallAccess,
 	temporalRecall,
 } from "./memory-graph/hybrid-recall";
 
@@ -85,6 +86,35 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("records recall access in one tenant-fenced write with bounded parameters", async () => {
+		const prepared: string[] = [];
+		const { db, add, sqlite } = fixture((query) => prepared.push(query));
+		add("a", "cobalt");
+		add("b", "cobalt foreign", "fictional-b");
+		await recordRecallAccess(db, scope.orgId, [
+			"a",
+			"a",
+			"b",
+			...Array.from({ length: 180 }, (_, i) => `absent-${i}`),
+		]);
+		expect(prepared.filter((query) => /^update /i.test(query))).toHaveLength(1);
+		expect(
+			sqlite
+				.prepare("SELECT id,access_count FROM memory_facts ORDER BY id")
+				.all(),
+		).toEqual([
+			{ id: "a", access_count: 1 },
+			{ id: "b", access_count: 0 },
+		]);
+		expect(
+			sqlite.prepare("SELECT confidence FROM memory_facts WHERE id='a'").get()
+				?.confidence,
+		).toBeCloseTo(0.84);
+		expect(
+			sqlite.prepare("SELECT confidence FROM memory_facts WHERE id='b'").get()
+				?.confidence,
+		).toBeCloseTo(0.8);
+	});
 	it("keeps the recall projection synchronized while retaining full historical and graph search", async () => {
 		const { db, sqlite, add } = fixture();
 		const liveScope = { ...scope, now: undefined };

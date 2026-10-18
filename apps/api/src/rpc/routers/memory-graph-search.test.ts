@@ -16,11 +16,14 @@ const mocks = vi.hoisted(() => ({
 	hydrate: vi.fn(),
 	topic: vi.fn(),
 	count: vi.fn(),
+	access: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/memory-graph/hybrid-recall", () => ({
 	hydrateRecall: mocks.hydrate,
+	recordRecallAccess: mocks.access,
 }));
-vi.mock("../../services/memory-hybrid-recall", () => ({
+vi.mock("../../services/memory-hybrid-recall", async (original) => ({
+	...(await original<typeof import("../../services/memory-hybrid-recall")>()),
 	recallMemoryFacts: mocks.recall,
 }));
 vi.mock(
@@ -73,12 +76,27 @@ beforeEach(() => {
 	mocks.hydrate.mockResolvedValue([]);
 	mocks.topic.mockResolvedValue([]);
 	mocks.count.mockResolvedValue(20);
+	mocks.access.mockResolvedValue(undefined);
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.useRealTimers();
+});
 
 describe("governed memory search", () => {
+	it("does not let a hung informational count hold the recall response", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2090-01-01T00:00:00.000Z"));
+		mocks.count.mockImplementation(() => new Promise(() => {}));
+		const pending = search({ query: "cobalt" });
+		await vi.advanceTimersByTimeAsync(51);
+		const result = await pending;
+		expect(result.totalFactsApproximate).toBe(true);
+		expect(result.results).toEqual([]);
+		expect(result.retrievalMs).toBeLessThan(100);
+	});
 	it("keeps computed recall projection fields outside the canonical fact contract", async () => {
 		const factId = "11111111-1111-4111-8111-111111111111";
 		const provenance = {
@@ -106,6 +124,12 @@ describe("governed memory search", () => {
 		]);
 		const result = await search({ query: "recall evidence" });
 		expect(result.results).toHaveLength(1);
+		expect(mocks.access).toHaveBeenCalledTimes(1);
+		expect(mocks.access).toHaveBeenCalledWith(
+			context.db,
+			context.organizationId,
+			[factId],
+		);
 		expect(result.results[0]!.fact).not.toHaveProperty("replacesFactIds");
 		expect(result.results[0]!.provenance).toEqual(provenance);
 	});
