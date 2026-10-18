@@ -418,3 +418,58 @@ it("fits a large multilingual portfolio into the classifier window while retaini
 	expect(context.projects.map(([id]) => id).sort()).toEqual(ids.sort());
 	expect(await listRequestFilings(db, owner)).toHaveLength(1);
 });
+
+it("reuses older or unprojected Work without moving it, and rejects foreign or conflicting Work", async () => {
+	for (const scenario of ["older", "unprojected", "foreign", "other-project"]) {
+		const { db, row } = await fixture();
+		const projectId =
+			scenario === "unprojected"
+				? null
+				: scenario === "other-project"
+					? "project-tools"
+					: "project-docs";
+		await db.insert(workItems).values({
+			id: "existing-docs-work",
+			orgId: scenario === "foreign" ? "org-grace" : owner.organizationId,
+			title: "Installation work",
+			projectId,
+			disposition: "accepted",
+			createdAt: "2026-10-09T10:00:00.000Z",
+		});
+		if (scenario === "older" || scenario === "unprojected")
+			for (let index = 0; index < 100; index++)
+				await db.insert(workItems).values({
+					id: `newer-${index}`,
+					orgId: owner.organizationId,
+					title: `Other work ${index}`,
+					projectId: "project-docs",
+					createdAt: now,
+				});
+		const model: LedgerModel = async () =>
+			JSON.stringify({ ...pick, workItemId: "existing-docs-work" });
+		model.scoreProjectFit = async () => 0.9;
+		if (scenario === "foreign" || scenario === "other-project") {
+			await expect(
+				autoFileRequests(db, model, { ...owner, now }),
+			).rejects.toThrow("Unknown filing Work item");
+			expect(await listRequestFilings(db, owner)).toEqual([]);
+		} else {
+			await autoFileRequests(db, model, { ...owner, now });
+			const [event] = await listRequestFilings(db, owner);
+			expect(event?.metadata?.workItemId).toBe("existing-docs-work");
+			expect(
+				await getWorkItemBySourceIntentId(db, {
+					orgId: owner.organizationId,
+					sourceIntentId: `request-filing:${row.id}`,
+				}),
+			).toBeNull();
+			const [existing] = await db
+				.select()
+				.from(workItems)
+				.where(eq(workItems.id, "existing-docs-work"));
+			expect(existing?.projectId).toBe(projectId);
+			expect(existing?.disposition).toBe("accepted");
+			expect(existing?.version).toBe(1);
+		}
+	}
+});
