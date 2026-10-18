@@ -1,3 +1,7 @@
+import {
+	DecisionContextSection,
+	DecisionRailContext,
+} from "@/components/decision-context-rail";
 import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
 import { DeckFooterContext } from "@/components/deck-presentation-context";
 import {
@@ -146,6 +150,7 @@ export function WorkDecisionCard({
 		update();
 		return () => observer.disconnect();
 	}, []);
+	const rail = useContext(DecisionRailContext);
 	const attention = useContext(DecisionAttentionContext);
 	const learnedWhy = useContext(DecisionLearningContext);
 	const shownAt = useRef(performance.now());
@@ -160,12 +165,13 @@ export function WorkDecisionCard({
 	useEffect(() => {
 		if (
 			autoFocus &&
+			!rail?.open &&
 			!document.activeElement?.closest(
 				"input, textarea, [contenteditable=true]",
 			)
 		)
 			section.current?.focus({ preventScroll: true });
-	}, [autoFocus]);
+	}, [autoFocus, rail?.open]);
 	const [editing, setEditing] = useState(false);
 	const [whyOpen, setWhyOpen] = useState(false);
 	const [draft, setDraft] = useState(body);
@@ -324,7 +330,8 @@ export function WorkDecisionCard({
 				}
 				if (event.key === "?" && why) {
 					event.preventDefault();
-					setWhyOpen((value) => !value);
+					if (rail) rail.openSection("why");
+					else setWhyOpen((value) => !value);
 				}
 				if (["d", "l"].includes(event.key.toLowerCase())) {
 					event.preventDefault();
@@ -562,21 +569,34 @@ export function WorkDecisionCard({
 							</p>
 						) : null}
 						{why || learnedWhy ? (
-							<Collapsible
-								className="fd-why"
-								open={whyOpen}
-								onOpenChange={setWhyOpen}
-							>
-								<CollapsibleTrigger>
-									{decisionText("Why this?")}
-								</CollapsibleTrigger>
-								<CollapsibleContent className="pt-3 text-kumo-subtle">
+							rail ? (
+								<DecisionContextSection
+									sectionId="why"
+									title={decisionText("Why this?")}
+									trigger
+								>
 									{why}
 									{learnedWhy && (
 										<DecisionLearningWhy explanation={learnedWhy} />
 									)}
-								</CollapsibleContent>
-							</Collapsible>
+								</DecisionContextSection>
+							) : (
+								<Collapsible
+									className="fd-why"
+									open={whyOpen}
+									onOpenChange={setWhyOpen}
+								>
+									<CollapsibleTrigger>
+										{decisionText("Why this?")}
+									</CollapsibleTrigger>
+									<CollapsibleContent className="pt-3 text-kumo-subtle">
+										{why}
+										{learnedWhy && (
+											<DecisionLearningWhy explanation={learnedWhy} />
+										)}
+									</CollapsibleContent>
+								</Collapsible>
+							)
 						) : null}
 					</div>
 				</CardContent>

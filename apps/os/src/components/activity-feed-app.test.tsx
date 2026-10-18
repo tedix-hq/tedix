@@ -20,6 +20,10 @@ vi.mock("@/lib/use-os-identity", () => ({
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: {
+		userProfile: {
+			getMine: vi.fn().mockResolvedValue({ id: "fictional-acme-user" }),
+		},
+		workInteractions: { outbound: { profile: vi.fn() } },
 		workItems: {
 			listEvidence: vi.fn().mockResolvedValue({ data: [] }),
 			previewEvidence: vi.fn(),

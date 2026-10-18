@@ -89,6 +89,21 @@ export const DecisionLearningModelSchema = z.object({
 		usefulness: z.array(LearnedWeightSchema),
 	}),
 	preferences: z.array(LearnedPreferenceSchema),
+	cardIntuitiveness: z
+		.object({
+			decisions: z.number().int(),
+			fromCard: z.number().int(),
+			percent: z.number().nullable(),
+			classes: z.array(
+				z.object({
+					classId: z.string(),
+					decisions: z.number().int(),
+					fromCard: z.number().int(),
+					needsBetterSummary: z.boolean(),
+				}),
+			),
+		})
+		.optional(),
 	readiness: z.array(
 		z.object({
 			classId: z.string(),

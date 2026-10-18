@@ -47,6 +47,7 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	client?.clear();
 	sessionStorage.clear();
+	localStorage.clear();
 	host?.remove();
 	vi.restoreAllMocks();
 });
@@ -169,7 +170,11 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	await mount();
 	await click("Try examples");
 	expect(host.textContent).toContain("Practice only");
-	await click("Find a decision");
+	await act(async () =>
+		host
+			.querySelector<HTMLButtonElement>('[aria-label="Decision context"]')!
+			.click(),
+	);
 	expect(
 		host.querySelector('[aria-label="Decision kind"]')?.textContent,
 	).toContain("All kinds");
@@ -181,7 +186,7 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	).toContain("Any urgency");
 	for (const example of DECISION_DECK_EXAMPLES) {
 		expect(host.textContent).toContain(example.proposal);
-		expect(host.textContent).toContain(`${example.classId}: 0/5`);
+		expect(host.textContent).toContain("0/5 unchanged approvals");
 		await key("?");
 		expect(host.textContent).toContain(
 			"Prefer a bounded next step with evidence",
@@ -205,4 +210,41 @@ it("requires confirmation after a consequential right swipe or keyboard approval
 	expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
 	expect(host.textContent).not.toContain("1 practice choices");
 	expect(respond).not.toHaveBeenCalled();
+});
+
+it("starts collapsed, opens Why in context, and remembers closure for this person", async () => {
+	await mount();
+	const toggle = () =>
+		host.querySelector<HTMLButtonElement>('[aria-label="Decision context"]')!;
+	expect(toggle().getAttribute("aria-expanded")).toBe("false");
+	await act(async () => toggle().click());
+	expect(toggle().getAttribute("aria-expanded")).toBe("true");
+	await click("Try examples");
+	await act(async () => toggle().click());
+	expect(toggle().getAttribute("aria-expanded")).toBe("false");
+	await click("Why this?");
+	expect(toggle().getAttribute("aria-expanded")).toBe("true");
+	expect(
+		host.querySelector('.fd-context-rail [data-context-section="why"]')
+			?.textContent,
+	).toContain("Prefer a bounded next step");
+	expect(
+		host.querySelector('.fd-context-main [data-context-section="why"]'),
+	).toBeNull();
+	await act(async () =>
+		document.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "i", bubbles: true }),
+		),
+	);
+	expect(toggle().getAttribute("aria-expanded")).toBe("false");
+	expect(
+		localStorage.getItem("tedix:decision-context:fictional-acme-user"),
+	).toBe("closed");
+	const escape = new KeyboardEvent("keydown", {
+		key: "Escape",
+		bubbles: true,
+		cancelable: true,
+	});
+	await act(async () => document.dispatchEvent(escape));
+	expect(escape.defaultPrevented).toBe(false);
 });

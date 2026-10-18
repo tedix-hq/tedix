@@ -1,3 +1,5 @@
+import { DecisionRailContext } from "@/components/decision-context-rail";
+import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { DeckRemainingContext } from "@/components/deck-presentation-context";
 import {
@@ -36,11 +38,6 @@ import {
 } from "@/components/card-review-webmcp-tools";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Kbd } from "@/components/kumo/kbd";
 import { Progress } from "@/components/kumo/progress";
@@ -188,6 +185,7 @@ export function CardReviewApp({
 }) {
 	useOsLocale();
 	const queryClient = useQueryClient();
+	const rail = useContext(DecisionRailContext);
 	const learningModel = useQuery(
 		osQuery.learningFeedback.model.queryOptions({ input: {} }),
 	);
@@ -222,6 +220,13 @@ export function CardReviewApp({
 							`factory:${source.label}:${card.type || "card"}`.slice(0, 100),
 						decisionChoice: choice,
 						rowIndex: card.rowIndex,
+						...(rail
+							? {
+									railOpenedBeforeDecision: rail.openedBefore(
+										`${card.outputId}:${card.rowIndex}`,
+									),
+								}
+							: {}),
 						reason,
 					},
 				});
@@ -235,7 +240,7 @@ export function CardReviewApp({
 				return undefined;
 			}
 		},
-		[queryClient],
+		[queryClient, rail],
 	);
 
 	const outputLists = useQueries({
@@ -841,6 +846,9 @@ export function CardReviewApp({
 		(current) => buildCardReviewWebMcpTools(current, channels),
 		[channels.join("\n")],
 	);
+
+	if (card && rail?.open)
+		rail.openedBefore(`${card.outputId}:${card.rowIndex}`);
 
 	const rootRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
@@ -1595,12 +1603,9 @@ function Details({
 	children: ReactNode;
 }) {
 	return (
-		<Collapsible>
-			<CollapsibleTrigger className="-ml-2">{summary}</CollapsibleTrigger>
-			<CollapsibleContent>
-				<div className="flex flex-col gap-1 pt-1">{children}</div>
-			</CollapsibleContent>
-		</Collapsible>
+		<FeedDeckDisclosure title={summary} keepMounted={false}>
+			<div className="flex flex-col gap-1 pt-1">{children}</div>
+		</FeedDeckDisclosure>
 	);
 }
 

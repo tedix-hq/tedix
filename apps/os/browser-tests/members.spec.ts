@@ -63,7 +63,7 @@ try {
 				if (
 					!(await page
 						.getByRole("button", {
-							name: locale === "es" ? "Buscar una decisión" : "Find a decision",
+							name: "Decision context",
 							exact: true,
 						})
 						.isVisible())

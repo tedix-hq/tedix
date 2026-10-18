@@ -1,4 +1,8 @@
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import {
+	DecisionContextRail,
+	DecisionContextSection,
+	DecisionRailContext,
+} from "@/components/decision-context-rail";
 import { workActorReference } from "@/lib/work-actor";
 import {
 	DeckRemainingContext,
@@ -80,7 +84,18 @@ const FactoryCards = lazy(() =>
 	})),
 );
 
-export function DecisionDeckApp({
+export function DecisionDeckApp(props: {
+	config: DecisionDeckConfig;
+	workspaceId?: string;
+}) {
+	return (
+		<DecisionContextRail>
+			<DecisionDeckContent {...props} />
+		</DecisionContextRail>
+	);
+}
+
+function DecisionDeckContent({
 	config,
 	workspaceId,
 }: {
@@ -88,6 +103,7 @@ export function DecisionDeckApp({
 	workspaceId?: string;
 }) {
 	const deckRoot = useDeckViewport();
+	const rail = useContext(DecisionRailContext);
 	const reportRemaining = useContext(DeckRemainingContext);
 	useOsLocale();
 	const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
@@ -347,6 +363,9 @@ export function DecisionDeckApp({
 			reportRemaining?.(filtered.length);
 	}, [mode, filtered.length, factories.sources.length, reportRemaining]);
 	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
+	const railOpenedBeforeDecision = selected
+		? (rail?.openedBefore(selected.id) ?? false)
+		: false;
 	const prefetchIds = ranked
 		.slice(0, 1)
 		.filter((row) => row.row)
@@ -505,6 +524,7 @@ export function DecisionDeckApp({
 								decisionClass: classId ?? selected.kind,
 								decisionChoice: intent,
 								elapsedMs: choice.elapsedMs,
+								railOpenedBeforeDecision,
 							},
 						}),
 					)
@@ -522,7 +542,7 @@ export function DecisionDeckApp({
 				data-workspace-app-entry="decision-deck"
 			>
 				<DecisionLearningFeedback eventId={sessionLearningId} />
-				<div className="fd-deck-controls">
+				<DecisionContextSection title="Progress and filters">
 					<div className="fd-deck-progress" role="status">
 						<Text weight="semibold">
 							{selected
@@ -535,16 +555,7 @@ export function DecisionDeckApp({
 								` · ${OS_COPY.decisionDeck.today(metrics.decisionsToday, config.dailyGoal)}`}
 						</Text>
 					</div>
-					<FeedDeckDisclosure
-						className="fd-deck-filters"
-						label={OS_COPY.decisionDeck.filters}
-						title={
-							<>
-								<MagnifyingGlassIcon size={18} aria-hidden="true" />
-								<span className="sr-only">{OS_COPY.decisionDeck.filters}</span>
-							</>
-						}
-					>
+					<div className="fd-deck-filters">
 						<div
 							className="fd-deck-toolbar"
 							aria-label={decisionText("Deck view")}
@@ -656,8 +667,8 @@ export function DecisionDeckApp({
 								}}
 							/>
 						</div>
-					</FeedDeckDisclosure>
-				</div>
+					</div>
+				</DecisionContextSection>
 				{practiceMode && (
 					<Text role="label">
 						Practice only. Choices below stay in this preview and never approve
@@ -725,6 +736,7 @@ export function DecisionDeckApp({
 														metadata: {
 															decisionClass: classId ?? selected.kind,
 															decisionChoice: "later",
+															railOpenedBeforeDecision,
 															reaction: "skip",
 															projectId: selected.project,
 														},
@@ -935,51 +947,50 @@ export function DecisionDeckApp({
 						/>
 					))
 				)}
-				{learning && classId && (
-					<FeedDeckDisclosure
-						className="fd-deck-learning"
-						label="Class readiness"
-						title={
-							<span className="text-xs">{OS_COPY.feedDeckVisual.learning}</span>
-						}
-					>
-						<Text weight="medium">
-							{classId}: {learning.unchanged}/{threshold} unchanged approvals
-						</Text>
-						<Text tone="secondary">
-							{learning.ready
-								? "Ready for a delegation review"
-								: "Learning your preferences"}{" "}
-							· {learning.delegated}/{learning.total} delegated ·{" "}
-							{Math.round(
-								(config.classPolicies[classId]?.auditSampleRate ??
-									config.auditSampleRate) * 100,
-							)}
-							% proposed audits
-						</Text>
-						<Text role="label">
-							Recent loaded history only. Readiness does not grant permission or
-							turn on automation.
-						</Text>
-					</FeedDeckDisclosure>
-				)}
-
-				{mode === "history" && <WeeklyDecisionDigest />}
-				{selected && practiceMode && practice.length > 0 && (
-					<Text>{practice.length} practice choices in this preview.</Text>
-				)}
-				{!practiceMode &&
-					(inbox.data?.hasMore ||
-						history.data?.hasMore ||
-						learningQuery.data?.events.length === 200) && (
-						<Link href="/work/attention">
-							More history and decisions in Work
-						</Link>
+				<DecisionContextSection title="Learning and history">
+					{learning && classId && (
+						<FeedDeckDisclosure
+							className="fd-deck-learning"
+							label="Class readiness"
+							title={
+								<span className="text-xs">
+									{OS_COPY.feedDeckVisual.learning}
+								</span>
+							}
+						>
+							<Text weight="medium">
+								{learning.unchanged}/{threshold} unchanged approvals
+							</Text>
+							<Text tone="secondary">
+								{learning.ready
+									? "Ready for a delegation review"
+									: "Learning your preferences"}{" "}
+								· {learning.delegated}/{learning.total} delegated ·{" "}
+								{Math.round(
+									(config.classPolicies[classId]?.auditSampleRate ??
+										config.auditSampleRate) * 100,
+								)}
+								% proposed audits
+							</Text>
+							<Text role="label">
+								Recent loaded history only. Readiness does not grant permission
+								or turn on automation.
+							</Text>
+						</FeedDeckDisclosure>
 					)}
-				<p className="fd-deck-shortcuts">{OS_COPY.decisionDeck.shortcuts}</p>
-				<Link href="/account/profile">
-					{decisionText("Your style profile and last 10 approvals")}
-				</Link>
+					{mode === "history" && <WeeklyDecisionDigest />}
+					{selected && practiceMode && practice.length > 0 && (
+						<Text>{practice.length} practice choices in this preview.</Text>
+					)}
+					{!practiceMode &&
+						(inbox.data?.hasMore ||
+							history.data?.hasMore ||
+							learningQuery.data?.events.length === 200) && (
+							<Link href="/work/attention">
+								More history and decisions in Work
+							</Link>
+						)}
+				</DecisionContextSection>
 			</div>
 		</DecisionAttentionContext.Provider>,
 	);

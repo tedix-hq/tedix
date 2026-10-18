@@ -55,14 +55,12 @@ try {
 				`${origin}/browser-tests/feed-deck-polish.html?cards=one&theme=${theme}`,
 			);
 			await page
-				.getByRole("button", { name: "Find a decision", exact: true })
+				.getByRole("button", { name: "Decision context", exact: true })
 				.click();
 			await page
 				.getByRole("button", { name: "Try examples", exact: true })
 				.click();
-			await page
-				.getByRole("button", { name: "Find a decision", exact: true })
-				.click();
+			await page.keyboard.press("Escape");
 			const title = page.locator('[data-slot="card-title"]');
 			await title.waitFor();
 			await settleAnimations(page);
@@ -146,7 +144,7 @@ try {
 				throw new Error("Raw approval arguments leaked outside Details");
 			await page.getByRole("button", { name: "Details", exact: true }).click();
 			await page.getByText("Prepared args:", { exact: false }).waitFor();
-			await page.getByRole("button", { name: "Details", exact: true }).click();
+			await page.keyboard.press("Escape");
 			await settleAnimations(page);
 			const footer = await page
 				.locator('[data-slot="card-footer"]')
@@ -166,12 +164,16 @@ try {
 			await page.locator("article").first().waitFor();
 			if (await page.locator(".fd-feed-filters").count())
 				throw new Error("Feed brought back the filter row");
+			await page
+				.getByRole("button", { name: "Decision context", exact: true })
+				.click();
 			await page.getByRole("combobox", { name: "Your activity" }).click();
 			await page.getByRole("option", { name: "Done", exact: true }).click();
 			await page
 				.getByRole("combobox", { name: "Your activity" })
 				.filter({ hasText: "Done" })
 				.waitFor();
+			await page.keyboard.press("Escape");
 			if (
 				await page.getByText("Loading your activity…", { exact: true }).count()
 			)
@@ -221,14 +223,12 @@ try {
 			`${origin}/browser-tests/feed-deck-polish.html?theme=${theme}`,
 		);
 		await preferred
-			.getByRole("button", { name: "Find a decision", exact: true })
+			.getByRole("button", { name: "Decision context", exact: true })
 			.click();
 		await preferred
 			.getByRole("button", { name: "Try examples", exact: true })
 			.click();
-		await preferred
-			.getByRole("button", { name: "Find a decision", exact: true })
-			.click();
+		await preferred.keyboard.press("Escape");
 		await preferred.locator(".fd-decision").focus();
 		await preferred.keyboard.press("j");
 		const fill = (selector: string) =>
@@ -253,14 +253,12 @@ try {
 	});
 	await touch.goto(`${origin}/browser-tests/feed-deck-polish.html?cards=one`);
 	await touch
-		.getByRole("button", { name: "Find a decision", exact: true })
+		.getByRole("button", { name: "Decision context", exact: true })
 		.click();
 	await touch
 		.getByRole("button", { name: "Try examples", exact: true })
 		.click();
-	await touch
-		.getByRole("button", { name: "Find a decision", exact: true })
-		.click();
+	await touch.keyboard.press("Escape");
 	const touchTitle = touch.locator('[data-slot="card-title"]');
 	await touchTitle.scrollIntoViewIfNeeded();
 	await settleAnimations(touch);
@@ -312,14 +310,12 @@ try {
 		`${origin}/browser-tests/feed-deck-polish.html?motion=reduced&cards=one`,
 	);
 	await explicitReduced
-		.getByRole("button", { name: "Find a decision", exact: true })
+		.getByRole("button", { name: "Decision context", exact: true })
 		.click();
 	await explicitReduced
 		.getByRole("button", { name: "Try examples", exact: true })
 		.click();
-	await explicitReduced
-		.getByRole("button", { name: "Find a decision", exact: true })
-		.click();
+	await explicitReduced.keyboard.press("Escape");
 	const explicitBox = (await explicitReduced
 		.locator('[data-slot="card-title"]')
 		.boundingBox())!;

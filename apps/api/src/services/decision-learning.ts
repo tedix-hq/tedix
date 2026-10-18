@@ -24,7 +24,14 @@ export async function readDecisionLearning(
 			organizationId,
 			personId,
 			config,
-			events: [],
+			events: personId
+				? await listLearningInteractions(db, {
+						organizationId,
+						personalScopeId: personId,
+						surfaces: ["decision_deck_action", "decision_deck"],
+						limit: config.historyLimit,
+					})
+				: [],
 			now,
 		});
 	const [events, facts] = await Promise.all([
@@ -36,6 +43,7 @@ export async function readDecisionLearning(
 				"agent_session_import",
 				"activity_feed",
 				"decision_deck",
+				"decision_deck_action",
 				"work_outcome",
 				"outbound_outcome",
 				"work_fix",
