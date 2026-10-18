@@ -41,6 +41,11 @@ const mocks = vi.hoisted(() => ({
 	getMemberByUserId: vi.fn(),
 	upsertUserForExternalIdentity: vi.fn(),
 	autoProvisionFirstTedi: vi.fn(),
+	installDefaultWorkApps: vi.fn(),
+}));
+
+vi.mock("../../services/default-work-apps", () => ({
+	installDefaultWorkApps: mocks.installDefaultWorkApps,
 }));
 
 vi.mock("../../lib/tedi-provisioning", () => ({
@@ -194,6 +199,11 @@ describe("provider organization recovery", () => {
 		await expect(
 			createOrganizationForProvider(adminContext(), input),
 		).resolves.toHaveProperty("id", ORGANIZATION_ID);
+		expect(mocks.installDefaultWorkApps).toHaveBeenCalledWith(
+			expect.anything(),
+			ORGANIZATION_ID,
+			{ kind: "user", id: "configured-owner" },
+		);
 		expect(mocks.autoProvisionFirstTedi).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.anything(),

@@ -1,7 +1,11 @@
 import { DeckRemainingContext } from "@/components/deck-presentation-context";
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { workInteractionDetailQueryOptions } from "@/lib/os-query-options";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+	osQuery,
+	workInteractionDetailQueryOptions,
+} from "@/lib/os-query-options";
+import { osApi } from "@/lib/api";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { Button } from "@/components/kumo/button";
@@ -46,6 +50,12 @@ export function WorkHome({
 		deck?.gadget.workspaceId,
 	);
 	const client = useQueryClient();
+	const install = useMutation({
+		mutationFn: () => osApi.osWorkspaces.gadgets.installWorkDefaults({}),
+		onSuccess: async () => {
+			await client.invalidateQueries({ queryKey: osQuery.osWorkspaces.key() });
+		},
+	});
 	const prefetchIds = decisions.requests
 		.slice(0, 1)
 		.map((row) => row.request.id)
@@ -148,7 +158,20 @@ export function WorkHome({
 							{copy.retry}
 						</Button>
 					)}
-					<Link href="/workspaces">{copy.workspaces}</Link>
+					{!failed && !search.app && (
+						<Button
+							onClick={() => install.mutate()}
+							disabled={install.isPending}
+						>
+							{install.isPending ? copy.installing : copy.installDefaults}
+						</Button>
+					)}
+					{install.isError && (
+						<div role="alert">
+							<Text>{copy.installFailed}</Text>
+						</div>
+					)}
+					{failed && <Link href="/workspaces">{copy.workspaces}</Link>}
 				</div>
 			)}
 			{selected && failed && (

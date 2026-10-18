@@ -75,7 +75,7 @@ function base(
 
 export function workFeedItems(
 	events: WorkActivityEvent[],
-	projectId: string,
+	projectId: string | null,
 	names: ReadonlyMap<string, string> = new Map(),
 ): ActivityFeedItem[] {
 	const actors: Record<string, string> = OS_COPY.feed.actors;
@@ -306,7 +306,7 @@ export function rankFeed(
 			seen.add(item.id);
 			if (
 				item.projectId &&
-				(!allowed.has(item.projectId) ||
+				((config.scope !== "organization" && !allowed.has(item.projectId)) ||
 					(prefs.projectIds.length > 0 &&
 						!prefs.projectIds.includes(item.projectId)))
 			)

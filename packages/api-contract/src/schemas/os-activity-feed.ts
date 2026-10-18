@@ -50,45 +50,55 @@ export const ActivityFeedItemSchema = z.strictObject({
 });
 export type ActivityFeedItem = z.infer<typeof ActivityFeedItemSchema>;
 
-export const ActivityFeedConfigSchema = z.strictObject({
-	version: z.literal(1),
-	factorySources: z
-		.array(
-			z.strictObject({ projectId: z.uuid(), source: CardReviewSourceSchema }),
-		)
-		.max(10)
-		.default([]),
-	projects: z
-		.array(z.strictObject({ id: z.uuid(), label: z.string().min(1).max(100) }))
-		.min(1)
-		.max(20),
-	pageSize: z.number().int().min(5).max(50).default(20),
-	attentionBudget: z.number().int().min(1).max(100).default(10),
-	digestBelow: z.enum(["low", "normal"]).default("low"),
-	quietHours: z
-		.strictObject({
-			start: z.number().int().min(0).max(23),
-			end: z.number().int().min(0).max(23),
-		})
-		.optional(),
-	deckUrl: z
-		.string()
-		.regex(/^\/workspace\//)
-		.optional(),
-	weights: z
-		.strictObject({
-			importance: z.number().min(0).max(100),
-			action: z.number().min(0).max(100),
-			deadline: z.number().min(0).max(100),
-			unseen: z.number().min(0).max(100),
-			preference: z.number().min(0).max(100),
-		})
-		.default({
-			importance: 10,
-			action: 25,
-			deadline: 30,
-			unseen: 8,
-			preference: 5,
-		}),
-});
+export const ActivityFeedConfigSchema = z
+	.strictObject({
+		version: z.literal(1),
+		scope: z.enum(["projects", "organization"]).optional(),
+		factorySources: z
+			.array(
+				z.strictObject({ projectId: z.uuid(), source: CardReviewSourceSchema }),
+			)
+			.max(10)
+			.default([]),
+		projects: z
+			.array(
+				z.strictObject({ id: z.uuid(), label: z.string().min(1).max(100) }),
+			)
+			.max(20),
+		pageSize: z.number().int().min(5).max(50).default(20),
+		attentionBudget: z.number().int().min(1).max(100).default(10),
+		digestBelow: z.enum(["low", "normal"]).default("low"),
+		quietHours: z
+			.strictObject({
+				start: z.number().int().min(0).max(23),
+				end: z.number().int().min(0).max(23),
+			})
+			.optional(),
+		deckUrl: z
+			.string()
+			.regex(/^\/workspace\//)
+			.optional(),
+		weights: z
+			.strictObject({
+				importance: z.number().min(0).max(100),
+				action: z.number().min(0).max(100),
+				deadline: z.number().min(0).max(100),
+				unseen: z.number().min(0).max(100),
+				preference: z.number().min(0).max(100),
+			})
+			.default({
+				importance: 10,
+				action: 25,
+				deadline: 30,
+				unseen: 8,
+				preference: 5,
+			}),
+	})
+	.refine(
+		(config) => config.scope === "organization" || config.projects.length > 0,
+		{
+			message: "Choose at least one project or use organization scope",
+			path: ["projects"],
+		},
+	);
 export type ActivityFeedConfig = z.infer<typeof ActivityFeedConfigSchema>;

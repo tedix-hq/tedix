@@ -315,6 +315,11 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			projectId: input.projectId,
 		}),
 	},
+	"gadgets.installWorkDefaults": {
+		action: "os.work_defaults.installed",
+		resourceType: "os_workspace",
+		resourceId: ({ output }) => text(output.workspaceId),
+	},
 	"gadgets.create": {
 		action: "os.gadget.created",
 		resourceType: "os_gadget",

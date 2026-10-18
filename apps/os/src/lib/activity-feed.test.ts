@@ -49,6 +49,30 @@ function item(
 	});
 }
 describe("activity feed", () => {
+	it("an organization feed includes new projects without copying project IDs into its manifest", () => {
+		const organization = ActivityFeedConfigSchema.parse({
+			version: 1,
+			scope: "organization",
+			projects: [],
+		});
+		const rows = [item("pine"), item("cedar", { projectId: other })];
+		expect(
+			rankFeed(rows, organization, EMPTY_FEED_PREFERENCES, now),
+		).toHaveLength(2);
+		expect(rankFeed(rows, config, EMPTY_FEED_PREFERENCES, now)).toHaveLength(1);
+		expect(
+			rankFeed(
+				rows,
+				organization,
+				{ ...EMPTY_FEED_PREFERENCES, projectIds: [other] },
+				now,
+			),
+		).toHaveLength(1);
+		expect(
+			ActivityFeedConfigSchema.safeParse({ version: 1, projects: [] }).success,
+		).toBe(false);
+	});
+
 	it("keeps a multi-sentence receipt to one sentence on the card", () => {
 		expect(
 			sentence("The review finished.\n\nThe receipt includes more detail."),

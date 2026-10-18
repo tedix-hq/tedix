@@ -727,6 +727,13 @@ export const osWorkspacesContract = oc
 				.output(z.object({ link: OsWorkspaceProjectSchema })),
 		}),
 		gadgets: oc.router({
+			installWorkDefaults: oc
+				.route({
+					method: "POST",
+					summary: "Install the default Feed and Deck apps",
+				})
+				.input(z.strictObject({}))
+				.output(z.object({ workspaceId: z.string().uuid() })),
 			workApps: oc.input(z.strictObject({ limit: listLimitSchema })).output(
 				z.object({
 					items: z.array(

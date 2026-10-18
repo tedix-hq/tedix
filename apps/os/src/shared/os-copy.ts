@@ -62,7 +62,11 @@ const ENGLISH_COPY = {
 		back: "Back to Feed",
 		loading: "Loading your Work apps…",
 		unavailable: "Your Work apps could not be loaded.",
-		install: "Choose a Feed and Deck app in your workspace to get started.",
+		install: "Set up Feed and Deck to see your work and decisions here.",
+		installDefaults: "Set up Feed and Deck",
+		installing: "Setting up Feed and Deck…",
+		installFailed:
+			"Feed and Deck could not be set up. Try again or ask your workspace admin.",
 		missing: "This app is not available in your workspaces.",
 		workspaces: "Open workspaces",
 		retry: "Retry",
