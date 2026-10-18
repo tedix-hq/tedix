@@ -35,6 +35,7 @@ export async function adapter(root: string) {
 	for (const name of [
 		"memoryEntities",
 		"memoryEntityMentions",
+		"memoryEntityAliases",
 		"memoryEntityResolutions",
 	])
 		sqlite.exec(schemaDdl(entities[name]));
@@ -49,8 +50,17 @@ export async function adapter(root: string) {
 		);
 	}
 	const db = createDbClient(createD1Facade(sqlite));
+	const hybridPath = "packages/db/src/queries/memory-graph/hybrid-recall.ts";
+	if (existsSync(resolve(root, hybridPath))) {
+		const arms = await load(hybridPath),
+			scope = { orgId: "org_fable_unseeded" };
+		// The orchestrator intentionally fails soft; schema failures must fail this benchmark.
+		await arms.lexicalRecall(db, scope, "fixture");
+		await arms.graphRecall(db, scope, "fixture");
+		await arms.temporalRecall(db, scope, "2026-04-01");
+	}
 	const insert = sqlite.prepare(
-		`INSERT INTO memory_facts (id,organization_id,content,fact_type,confidence,visibility,status,review_status,use_policy,valid_to,topic_key,metadata,created_at) VALUES (?,?,?,'preference',?,'org','active','confirmed',?,?,?,?,?)`,
+		`INSERT INTO memory_facts (id,organization_id,content,fact_type,confidence,visibility,status,review_status,use_policy,valid_to,topic_key,metadata,created_at,valid_from) VALUES (?,?,?,'preference',?,'org','active','confirmed',?,?,?,?,?,?)`,
 	);
 	function seed(facts: Fact[]) {
 		for (const f of facts) {
@@ -64,6 +74,7 @@ export async function adapter(root: string) {
 				f.topicKey ?? null,
 				JSON.stringify(f.metadata ?? {}),
 				"2026-01-01T00:00:00Z",
+				f.date ?? "2026-01-01T00:00:00Z",
 			);
 			for (const name of [
 				...new Set(
@@ -132,6 +143,12 @@ export async function adapter(root: string) {
 				ids: result.sources.map((s: { factId: string }) => s.factId),
 				ms: performance.now() - start,
 				block: result.context,
+				provenance: result.sources.map(
+					(s: { factId: string; provenance?: unknown }) => ({
+						factId: s.factId,
+						provenance: s.provenance,
+					}),
+				),
 			};
 		},
 		close() {
