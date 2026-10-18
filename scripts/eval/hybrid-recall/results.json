@@ -8,8 +8,8 @@
 	"before": {
 		"recallAt5": 0.8,
 		"mrrAt5": 0.49133333333333334,
-		"p50Ms": 0.2299589999999938,
-		"p95Ms": 0.4590419999999966,
+		"p50Ms": 0.23199999999999932,
+		"p95Ms": 0.38220799999999144,
 		"details": [
 			{
 				"query": "Which database stores Cobalt audit events?",
@@ -140,14 +140,14 @@
 	},
 	"after": {
 		"recallAt5": 1,
-		"mrrAt5": 0.5466666666666664,
-		"p50Ms": 0.9049590000000194,
-		"p95Ms": 1.3323330000000055,
+		"mrrAt5": 0.6666666666666669,
+		"p50Ms": 0.9082080000000019,
+		"p95Ms": 1.439374999999984,
 		"details": [
 			{
 				"query": "Which database stores Cobalt audit events?",
 				"expected": ["p0-0"],
-				"ids": ["p0-9", "p0-0", "p0-3", "p1-0", "p2-0"]
+				"ids": ["p0-9", "p0-0", "p1-0", "p2-0", "p3-0"]
 			},
 			{
 				"query": "Where is Cobalt data residency?",
@@ -157,7 +157,7 @@
 			{
 				"query": "Who owns Cobalt incident response?",
 				"expected": ["p0-2"],
-				"ids": ["p0-9", "p0-2", "p0-3", "p1-2", "p2-2"]
+				"ids": ["p0-9", "p0-2", "p1-2", "p2-2", "p3-2"]
 			},
 			{
 				"query": "Cobalt delivery deadline",
@@ -167,12 +167,12 @@
 			{
 				"query": "What changed for Cobalt yesterday?",
 				"expected": ["p0-4"],
-				"ids": ["p0-9", "p0-4", "d0", "p0-3", "p1-4"]
+				"ids": ["p0-4", "p0-9", "d0", "p1-4", "p0-1"]
 			},
 			{
 				"query": "Which database stores Amber audit events?",
 				"expected": ["p1-0"],
-				"ids": ["p1-9", "p1-0", "p0-0", "p1-3", "p2-0"]
+				"ids": ["p1-9", "p1-0", "p0-0", "p2-0", "p3-0"]
 			},
 			{
 				"query": "Where is Amber data residency?",
@@ -182,7 +182,7 @@
 			{
 				"query": "Who owns Amber incident response?",
 				"expected": ["p1-2"],
-				"ids": ["p1-9", "p1-2", "p0-2", "p1-3", "p2-2"]
+				"ids": ["p1-9", "p1-2", "p0-2", "p2-2", "p3-2"]
 			},
 			{
 				"query": "Amber delivery deadline",
@@ -192,12 +192,12 @@
 			{
 				"query": "What changed for Amber yesterday?",
 				"expected": ["p1-4"],
-				"ids": ["p1-9", "p1-4", "d0", "p0-4", "p1-3"]
+				"ids": ["p1-4", "p1-9", "d0", "p0-4", "p1-1"]
 			},
 			{
 				"query": "Which database stores Juniper audit events?",
 				"expected": ["p2-0"],
-				"ids": ["p2-9", "p2-0", "p0-0", "p2-3", "p1-0"]
+				"ids": ["p2-9", "p2-0", "p0-0", "p1-0", "p3-0"]
 			},
 			{
 				"query": "Where is Juniper data residency?",
@@ -207,7 +207,7 @@
 			{
 				"query": "Who owns Juniper incident response?",
 				"expected": ["p2-2"],
-				"ids": ["p2-9", "p2-2", "p0-2", "p2-3", "p1-2"]
+				"ids": ["p2-9", "p2-2", "p0-2", "p1-2", "p3-2"]
 			},
 			{
 				"query": "Juniper delivery deadline",
@@ -217,12 +217,12 @@
 			{
 				"query": "What changed for Juniper yesterday?",
 				"expected": ["p2-4"],
-				"ids": ["p2-9", "p2-4", "d0", "p0-4", "p1-4"]
+				"ids": ["p2-4", "p2-9", "d0", "p0-4", "p1-4"]
 			},
 			{
 				"query": "Which database stores Kestrel audit events?",
 				"expected": ["p3-0"],
-				"ids": ["p3-9", "p3-0", "p0-0", "p3-3", "p1-0"]
+				"ids": ["p3-9", "p3-0", "p0-0", "p1-0", "p2-0"]
 			},
 			{
 				"query": "Where is Kestrel data residency?",
@@ -232,7 +232,7 @@
 			{
 				"query": "Who owns Kestrel incident response?",
 				"expected": ["p3-2"],
-				"ids": ["p3-9", "p3-2", "p0-2", "p3-3", "p1-2"]
+				"ids": ["p3-9", "p3-2", "p0-2", "p1-2", "p2-2"]
 			},
 			{
 				"query": "Kestrel delivery deadline",
@@ -242,12 +242,12 @@
 			{
 				"query": "What changed for Kestrel yesterday?",
 				"expected": ["p3-4"],
-				"ids": ["p3-9", "p3-4", "d0", "p0-4", "p1-4"]
+				"ids": ["p3-4", "p3-9", "d0", "p0-4", "p1-4"]
 			},
 			{
 				"query": "Which database stores Orchid audit events?",
 				"expected": ["p4-0"],
-				"ids": ["p4-9", "p4-0", "p0-0", "p4-3", "p1-0"]
+				"ids": ["p4-9", "p4-0", "p0-0", "p1-0", "p2-0"]
 			},
 			{
 				"query": "Where is Orchid data residency?",
@@ -257,17 +257,17 @@
 			{
 				"query": "Who owns Orchid incident response?",
 				"expected": ["p4-2"],
-				"ids": ["p4-9", "p4-2", "p0-2", "p4-3", "p1-2"]
+				"ids": ["p4-9", "p4-2", "p0-2", "p1-2", "p2-2"]
 			},
 			{
 				"query": "Orchid delivery deadline",
 				"expected": ["p4-3"],
-				"ids": ["p4-9", "p4-3", "p0-3", "p1-3", "p2-3"]
+				"ids": ["p4-3", "p4-9", "p0-3", "p1-3", "p2-3"]
 			},
 			{
 				"query": "What changed for Orchid yesterday?",
 				"expected": ["p4-4"],
-				"ids": ["p4-9", "p4-4", "d0", "p0-4", "p1-4"]
+				"ids": ["p4-4", "p4-9", "d0", "p0-4", "p1-4"]
 			}
 		]
 	}

@@ -30,3 +30,23 @@ contradiction suppressing an active replacement. Both have regression tests.
 Fusion gives confidence-ordered graph expansion half weight; query-ranked
 lexical, semantic and temporal arms retain full weight. This prevents graph
 inventory order from overruling a stronger lexical match.
+
+The shared 120-fact, 40-query comparison in `shared-results.json` uses identical
+fixture and harness hashes and clean source revisions:
+
+| Metric                      | Before | Hybrid |
+| --------------------------- | -----: | -----: |
+| Recall@5                    |  0.825 |  1.000 |
+| MRR@5                       |  0.775 |  0.875 |
+| Invalid facts surfaced      |      0 |      0 |
+| Cross-tenant facts surfaced |      0 |      0 |
+| Local p50, ms               |   1.16 |   2.22 |
+| Local p95, ms               |   2.78 |   3.44 |
+
+No new binding, variable or ops overlay is needed. The API uses its existing
+Agent Memory and AI bindings. Each arm waits at most 450 ms within a 750 ms
+retrieval deadline; hydration and optional reranking share the remaining time.
+The runtime's outer 800 ms budget includes transport. An absent FTS table uses
+the old ranker with the same canonical eligibility checks. An absent or slow AI
+binding keeps fused ranks; semantic outages leave the other arms available.
+These bounds are fallback behavior, not measured live latency or model quality.
