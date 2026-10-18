@@ -43,6 +43,12 @@ fixture and harness hashes and clean source revisions:
 | Local p50, ms               |   1.16 |   2.22 |
 | Local p95, ms               |   2.78 |   3.44 |
 
+Ordinary recall uses a second FTS projection that omits archived, blocked and
+already-ended rows before BM25 ranking. Write triggers synchronize both indexes;
+the bounded backfill also prunes naturally expired projection rows. Canonical
+eligibility still runs on every candidate. Explicit historical clocks and graph
+anchor searches use the full index so the projection cannot hide those facts.
+
 No new binding, variable or ops overlay is needed. The API uses its existing
 Agent Memory and AI bindings. D1 arms wait at most 450 ms and semantic recall
 at most 150 ms within a 750 ms retrieval deadline. Canonical hydration gets at most 300 ms and optional

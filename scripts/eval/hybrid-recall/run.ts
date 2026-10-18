@@ -83,6 +83,15 @@ sqlite.exec(
 		"utf8",
 	),
 );
+sqlite.exec(
+	readFileSync(
+		new URL(
+			"../../../packages/db/drizzle/20261018172259_memory-fact-hybrid-recall-projection/migration.sql",
+			import.meta.url,
+		),
+		"utf8",
+	),
+);
 const rounds = Number(process.argv[2] ?? 10);
 if (!Number.isInteger(rounds) || rounds < 1 || rounds > 100)
 	throw new Error("rounds must be 1..100");

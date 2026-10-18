@@ -77,27 +77,34 @@ export async function lexicalRecall(
 	const terms = recallTerms(query);
 	if (!terms.length) return [];
 	const match = terms.map((term) => `"${term}"`).join(" OR ");
+	// Explicit historical clocks need the full index: recall projection expiry
+	// follows wall time. Graph-anchor searches also keep their complete corpus.
+	const index = sql.identifier(
+		scope.includeGraphAnchors || scope.now
+			? "memory_fact_fts"
+			: "memory_fact_fts_recall",
+	);
 	return (
 		db
 			.select({
 				factId: memoryFacts.id,
-				score: sql<number>`-memory_fact_fts.rank`.as("lexical_score"),
+				score: sql<number>`-${index}.rank`.as("lexical_score"),
 			})
 			// Native rank streams BM25 matches; CROSS JOIN forces rowid lookups
 			// instead of scanning all active facts. Filter before LIMIT so invalid
 			// high-ranking matches cannot crowd out usable facts.
-			.from(sql`memory_fact_fts`)
+			.from(sql`${index}`)
 			.crossJoin(memoryFacts)
 			.where(
 				and(
 					eligible(scope),
-					sql`${memoryFacts}.rowid = memory_fact_fts.rowid`,
-					sql`memory_fact_fts MATCH ${match}`,
-					sql`memory_fact_fts.organization_id = ${scope.orgId}`,
-					sql`memory_fact_fts.rank MATCH 'bm25(0,0,1,2)'`,
+					sql`${memoryFacts}.rowid = ${index}.rowid`,
+					sql`${index} MATCH ${match}`,
+					sql`${index}.organization_id = ${scope.orgId}`,
+					sql`${index}.rank MATCH 'bm25(0,0,1,2)'`,
 				),
 			)
-			.orderBy(sql`memory_fact_fts.rank`)
+			.orderBy(sql`${index}.rank`)
 			.limit(40)
 	);
 }
@@ -252,10 +259,26 @@ export async function backfillFactSearch(
 	orgId: string,
 	limit = 500,
 ): Promise<number> {
-	const result =
-		await db.run(sql`INSERT OR REPLACE INTO memory_fact_fts(rowid, fact_id, organization_id, text, entity_names)
+	const results = await db.batch([
+		db.run(sql`INSERT OR REPLACE INTO memory_fact_fts(rowid, fact_id, organization_id, text, entity_names)
 		SELECT rowid, fact_id, organization_id, text, entity_names FROM memory_fact_search_documents d
 		WHERE d.organization_id = ${orgId} AND NOT EXISTS (SELECT 1 FROM memory_fact_fts x WHERE x.rowid = d.rowid)
-		ORDER BY d.rowid LIMIT ${Math.min(500, Math.max(1, limit))}`);
-	return result.meta.changes;
+		ORDER BY d.rowid LIMIT ${Math.min(500, Math.max(1, limit))}`),
+		db.get<{ changed: number }>(sql`SELECT changes() AS changed`),
+		db.run(sql`DELETE FROM memory_fact_fts_recall WHERE rowid IN (
+		SELECT rowid FROM memory_fact_fts_recall x WHERE x.organization_id = ${orgId}
+		AND NOT EXISTS (SELECT 1 FROM memory_fact_recall_documents d WHERE d.rowid = x.rowid)
+		ORDER BY rowid LIMIT ${Math.min(500, Math.max(1, limit))})`),
+		db.get<{ changed: number }>(sql`SELECT changes() AS changed`),
+		db.run(sql`INSERT OR REPLACE INTO memory_fact_fts_recall(rowid, fact_id, organization_id, text, entity_names)
+		SELECT rowid, fact_id, organization_id, text, entity_names FROM memory_fact_recall_documents d
+		WHERE d.organization_id = ${orgId} AND NOT EXISTS (SELECT 1 FROM memory_fact_fts_recall x WHERE x.rowid = d.rowid)
+		ORDER BY d.rowid LIMIT ${Math.min(500, Math.max(1, limit))}`),
+		db.get<{ changed: number }>(sql`SELECT changes() AS changed`),
+	]);
+	return (
+		(results[1]?.changed ?? 0) +
+		(results[3]?.changed ?? 0) +
+		(results[5]?.changed ?? 0)
+	);
 }
