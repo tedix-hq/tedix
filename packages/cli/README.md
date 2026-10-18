@@ -68,6 +68,8 @@ and durable answer settlement.
   `--date YYYY-MM-DD --type feedback --apply` imports only that selection,
   extracting from the full note locally and retaining the file path and hash.
   Reference and stale notes are excluded. Full import is always explicit.
+  `--manifest <file>` pins a JSON array of `{sourceFile, sourceHash}` entries;
+  changed, missing or ineligible notes refuse the import instead of widening it.
   With decision capture enabled, `capture-stop` triages the redacted turn
   into `metadata.triage`. Unavailable triage keeps the capture on bound Work
   or in the originating chat and creates no human request. The hook

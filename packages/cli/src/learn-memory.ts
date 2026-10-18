@@ -74,6 +74,7 @@ export async function runMemoryImport(
 		"--date",
 		"--type",
 		"--repository",
+		"--manifest",
 	]);
 	for (let i = 0; i < args.length; i++) {
 		const flag = args[i]!;
@@ -99,13 +100,39 @@ export async function runMemoryImport(
 		throw new Error(
 			"import-memory requires --directory; preview is the default, --apply writes only the selected files",
 		);
-	const candidates = memoryCandidates(resolve(directory), {
+	let candidates = memoryCandidates(resolve(directory), {
 		date: args.includes("--date") ? value("--date") : undefined,
 		type: args.includes("--type") ? value("--type") : undefined,
 		repository: args.includes("--repository")
 			? value("--repository")
 			: undefined,
 	});
+
+	if (args.includes("--manifest")) {
+		const manifest: unknown = JSON.parse(
+			readFileSync(value("--manifest")!, "utf8"),
+		);
+		if (
+			!Array.isArray(manifest) ||
+			manifest.some(
+				(item) =>
+					typeof item?.sourceFile !== "string" ||
+					!/^[a-f0-9]{64}$/.test(item?.sourceHash ?? ""),
+			)
+		)
+			throw new Error("Invalid memory import manifest");
+		const selected = new Map(
+			manifest.map((item) => [item.sourceFile, item.sourceHash]),
+		);
+		candidates = candidates.filter(
+			(candidate) =>
+				selected.get(candidate.sourceFile) === candidate.sourceHash,
+		);
+		if (candidates.length !== selected.size)
+			throw new Error(
+				"Selected notes changed or became ineligible; preview again before importing",
+			);
+	}
 	const write = deps.write ?? console.log;
 	if (!args.includes("--apply")) {
 		write(

@@ -542,7 +542,7 @@ export function planImport(input: {
 
 export const learnUsage = `Teach Tedix from your past local agent sessions
 
-  tedix learn import-memory --directory <path> [--date YYYY-MM-DD] [--type feedback|project] [--repository <origin>] [--apply]
+  tedix learn import-memory --directory <path> [--date YYYY-MM-DD] [--type feedback|project] [--repository <origin>] [--manifest <file>] [--apply]
 
 Previews eligible feedback and project notes. Reference and stale notes are skipped.
 --apply uploads bounded candidates with file evidence; project notes await review.

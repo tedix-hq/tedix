@@ -75,3 +75,44 @@ test("an import extracts from the note body locally and uploads only the bounded
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("a saved manifest cannot silently include new or changed notes", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "memory-selection-fixture-"));
+	try {
+		const source = join(dir, "first.md");
+		writeFileSync(
+			source,
+			"---\nname: fixture\ndescription: Always use concise status\ntype: feedback\n---\nWhy: clarity.",
+		);
+		const manifest = join(dir, "selection.json");
+		writeFileSync(
+			manifest,
+			JSON.stringify(
+				memoryCandidates(dir).map(({ sourceFile, sourceHash }) => ({
+					sourceFile,
+					sourceHash,
+				})),
+			),
+		);
+		writeFileSync(
+			join(dir, "second.md"),
+			"---\nname: other\ndescription: Always include status\ntype: feedback\n---\nNew note.",
+		);
+		const reports: string[] = [];
+		await runMemoryImport(["--directory", dir, "--manifest", manifest], {
+			write: (text) => reports.push(text),
+		});
+		expect(JSON.parse(reports[0]!).count).toBe(1);
+		writeFileSync(
+			source,
+			"---\nname: fixture\ndescription: Changed status guidance\ntype: feedback\n---\nWhy: edited.",
+		);
+		await expect(
+			runMemoryImport(["--directory", dir, "--manifest", manifest], {
+				write: () => {},
+			}),
+		).rejects.toThrow("Selected notes changed");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
