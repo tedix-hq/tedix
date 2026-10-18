@@ -78,6 +78,7 @@ const sources = [
 		useful: "Useful",
 		reason: "Reason",
 		done: "Done",
+		result: "Result",
 	},
 	doIt: "approve" as const,
 }));
@@ -163,8 +164,8 @@ for (const [index, source] of sources.entries()) {
 			revision: 1,
 			content: {
 				kind: "sheet",
-				columns: ["Source", "Why", "Useful", "Reason", "Done"],
-				rows: [[source.title, source.why, "", "", ""]],
+				columns: ["Source", "Why", "Useful", "Reason", "Done", "Result"],
+				rows: [[source.title, source.why, "", "", "", source.why]],
 			},
 		},
 	});
