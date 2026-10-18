@@ -75,6 +75,7 @@ function base(
 export function workFeedItems(
 	events: WorkActivityEvent[],
 	projectId: string,
+	names: ReadonlyMap<string, string> = new Map(),
 ): ActivityFeedItem[] {
 	const actors: Record<string, string> = OS_COPY.feed.actors;
 	const workEvents: Record<string, string> = OS_COPY.feed.workEvents;
@@ -88,7 +89,13 @@ export function workFeedItems(
 		.map((e) => ({
 			...base(`work:${e.id}`, e.createdAt, projectId, e.workItemId),
 			actor:
-				actors[e.agentHarness ?? e.authorType] ?? OS_COPY.feed.actors.system,
+				(e.authorType === "external_agent"
+					? actors[e.agentHarness ?? ""]
+					: undefined) ??
+				names.get(`${e.authorType}:${e.authorId}`) ??
+				actors[e.authorType] ??
+				OS_COPY.feed.actors.system,
+			tediId: e.authorType === "tedi" ? e.authorId : null,
 			sentence: sentence(
 				e.body !== e.eventType &&
 					e.body.length <= 180 &&
@@ -104,7 +111,7 @@ export function workFeedItems(
 			stalled: /blocked|expired|failed/.test(e.eventType),
 			importance: /blocked|failed/.test(e.eventType)
 				? "high"
-				: /comment|created|specification_updated|^attempt\.(started|expired)$/.test(
+				: /comment|created|accepted|updated|cancelled|completed|^attempt\.(started|expired)$/.test(
 							e.eventType,
 					  )
 					? "low"
@@ -131,7 +138,7 @@ export function resultFeedItems(
 				w.id,
 			),
 			kind: "result",
-			classId: `${a.executorType}:result`,
+			classId: `${a.executorType}:result:${a.outcome}`,
 			actor:
 				a.executorType === "tedi"
 					? OS_COPY.feed.actors.tedi
@@ -147,6 +154,10 @@ export function resultFeedItems(
 					? a.metadata.feedSentence
 					: `${w.title} — ${OS_COPY.feed.outcomes[a.outcome as keyof typeof OS_COPY.feed.outcomes] ?? OS_COPY.feed.workUpdated}.`,
 			),
+			attachment: {
+				title: w.title.slice(0, 200),
+				summary: a.summary ? sentence(a.summary).slice(0, 300) : undefined,
+			},
 			importance:
 				a.outcome === "failed"
 					? "high"

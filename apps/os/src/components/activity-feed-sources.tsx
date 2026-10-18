@@ -1,7 +1,11 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
-import { osQuery } from "@/lib/os-query-options";
+import {
+	osQuery,
+	operationalContextQueryOptions,
+} from "@/lib/os-query-options";
+import { useWorkPrincipalNames } from "@/components/work-operations-pages";
 import { useOsLocale } from "@/lib/use-os-locale";
 import { resultFeedItems, workFeedItems } from "@/lib/activity-feed";
 
@@ -26,6 +30,8 @@ export function ActivityFeedSources({
 	onUpdate: (projectId: string, state: FeedSourceState) => void;
 }) {
 	const locale = useOsLocale();
+	const context = useQuery(operationalContextQueryOptions());
+	const names = useWorkPrincipalNames(context.data?.organization.id);
 	const work = useInfiniteQuery(
 		osQuery.workItems.listActivity.infiniteOptions({
 			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
@@ -50,10 +56,11 @@ export function ActivityFeedSources({
 			...workFeedItems(
 				work.data?.pages.flatMap((p) => p.events) ?? [],
 				projectId,
+				names,
 			),
 			...resultFeedItems(results.data?.pages.flatMap((p) => p.data) ?? []),
 		],
-		[work.data, results.data, projectId, locale],
+		[work.data, results.data, projectId, locale, names],
 	);
 	const queries = [work, results];
 	const loading = queries.some((q) => q.isFetching);

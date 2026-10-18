@@ -101,6 +101,36 @@ try {
 			);
 			await page.locator(".fd-closure").waitFor();
 			await page.goto(
+				`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
+			);
+			await page
+				.getByRole("heading", { name: "Approve fictional test login" })
+				.waitFor();
+			if (
+				!(await page
+					.getByRole("button", { name: "Approve", exact: true })
+					.isEnabled()) ||
+				(await page.getByRole("textbox", { name: "Your answer" }).count())
+			)
+				throw new Error("Typed approval regressed to a free-text question");
+			if (await page.getByText("Prepared args:", { exact: false }).isVisible())
+				throw new Error("Raw approval arguments leaked outside Details");
+			await page.getByRole("button", { name: "Details", exact: true }).click();
+			await page.getByText("Prepared args:", { exact: false }).waitFor();
+			await page.getByRole("button", { name: "Details", exact: true }).click();
+			const footer = await page
+				.locator('[data-slot="card-footer"]')
+				.boundingBox();
+			const primaryBox = await page
+				.getByRole("button", { name: "Approve", exact: true })
+				.boundingBox();
+			if (
+				!footer ||
+				!primaryBox ||
+				primaryBox.y + primaryBox.height > footer.y + footer.height + 1
+			)
+				throw new Error("Approval actions escaped the footer");
+			await page.goto(
 				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
 			);
 			await page.locator("article").first().waitFor();
@@ -121,10 +151,13 @@ try {
 			await story
 				.getByRole("button", { name: "More like this", exact: true })
 				.waitFor();
-			if (await story.locator(".fd-preview").count())
-				throw new Error(
-					"A generic receipt box was added to a story without an attachment",
-				);
+			if (!(await story.locator(".fd-preview").count()))
+				throw new Error("Outcome lost its source preview");
+			const rhythm = await story.evaluate((el) => {
+				const style = getComputedStyle(el);
+				return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+			});
+			if (rhythm > 24) throw new Error("Feed post spacing exceeded 24px");
 			if ((await page.locator(".fd-moment").count()) < 1)
 				throw new Error("Missing moment headers");
 			if (await page.locator('article [data-slot="card"]').count())

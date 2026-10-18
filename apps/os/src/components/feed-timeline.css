@@ -71,7 +71,7 @@
 	display: grid;
 	grid-template-columns: 2.25rem minmax(0, 1fr);
 	gap: 0.85rem;
-	padding-block: 1.5rem;
+	padding-block: 0.75rem;
 }
 .fd-feed .fd-story + .fd-story {
 	border: 0;
@@ -85,6 +85,9 @@
 	color: var(--text-color-kumo-brand);
 	font-family: var(--font-mono);
 	font-size: 0.75rem;
+}
+.fd-feed .fd-story-body {
+	gap: 0.5rem;
 }
 .ft-byline {
 	display: flex;
@@ -188,7 +191,7 @@
 	}
 	.fd-feed .fd-story {
 		gap: 0.65rem;
-		padding-block: 1.25rem;
+		padding-block: 0.75rem;
 	}
 	.ft-byline {
 		flex-wrap: wrap;

@@ -113,6 +113,12 @@ const ENGLISH_COPY = {
 			`${count} decision${count === 1 ? "" : "s"} made today. A little more room to think.`,
 	},
 	decisionDeck: {
+		approvalSummary: (source: string) =>
+			`Let ${source} run the requested action. Review the exact operation and target in Details before approving.`,
+		testLoginSummary: (source: string) =>
+			`Let ${source} sign in a made-up test user to check the reported fix. The test link stays with the agent; no email is sent.`,
+		explicitApproval:
+			"This action needs your explicit approval. It cannot be delegated.",
 		filters: "Find a decision",
 		noMatches: "No decisions match these filters",
 		workOverview: "Open Work overview",
