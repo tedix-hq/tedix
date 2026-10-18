@@ -88,6 +88,8 @@ export const LaneTelemetryInputSchema = z
 
 export const LaneTelemetrySchema = z.object({
 	...LaneTelemetryInputSchema.shape,
+	// Stored Work briefs can exceed the host-report input limit.
+	brief: z.string(),
 	estimatedCostUsd: z.number().nonnegative().nullable(),
 	rateVersionId: z.string().nullable(),
 	rateVersionIds: z.array(z.string()).optional(),
