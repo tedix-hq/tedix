@@ -361,7 +361,8 @@ export function jwtSummary(
 	};
 }
 
-export async function printAuthStatus(options: CliOptions): Promise<void> {
+/** A fresh local snapshot, with the same credential precedence as the CLI. */
+export function readAuthStatus(options: CliOptions) {
 	const direct = readMcpAuthHeaders();
 	const workspace = resolveWorkspaceName(options);
 	const stored = readWorkspaceCredentials(workspace);
@@ -385,7 +386,7 @@ export async function printAuthStatus(options: CliOptions): Promise<void> {
 			: !options.urlExplicit && wouldUse === "stored-login" && stored?.mcpUrl
 				? stored.mcpUrl
 				: options.url;
-	const status = {
+	return {
 		mcpUrl: effectiveUrl,
 		workspace,
 		workspaces: listWorkspaces(),
@@ -409,6 +410,10 @@ export async function printAuthStatus(options: CliOptions): Promise<void> {
 			: null,
 		externalAgent: external,
 	};
+}
+
+export async function printAuthStatus(options: CliOptions): Promise<void> {
+	const status = readAuthStatus(options);
 	if (options.json) {
 		console.log(JSON.stringify(status, null, 2));
 		return;

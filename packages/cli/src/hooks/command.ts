@@ -1,10 +1,18 @@
 /** `tedix hooks <name>`: agent-host lifecycle hooks that read the host event on stdin. */
 import { isAbsolute } from "node:path";
+import { readAuthStatus } from "../auth-resolve";
+import { parseOptions } from "../options";
 import { runAgentStatus, STATUS_EVENT_LIMIT, statusLog } from "./agent-status";
 import { runAwaitDraft } from "./await-draft";
 import { runAwaitReply } from "./await-reply";
 import { runDecisionCapture } from "./decision-capture";
-import { cliRead, type HookDeps, readBoundedStdin } from "./hook-io";
+import {
+	cliRead,
+	type HookDeps,
+	type ReadJson,
+	PROFILE,
+	readBoundedStdin,
+} from "./hook-io";
 import { runPromptContext } from "./prompt-context";
 import { runRequestLedger } from "./request-ledger";
 import { runSituationalRecall } from "./situational-recall";
@@ -43,6 +51,28 @@ const EVENT_LIMITS: Record<string, number> = {
 	status: STATUS_EVENT_LIMIT,
 };
 
+/** Local auth inspection must not wait for another CLI process to start. */
+export const readHookCommand: ReadJson = async (
+	args,
+	timeout,
+	input,
+	options,
+) => {
+	if (
+		args.length === 5 &&
+		args[0] === "-w" &&
+		PROFILE.test(args[1] ?? "") &&
+		args.slice(2).join(" ") === "auth status --json" &&
+		input === undefined &&
+		(options?.cwd === undefined || options.cwd === process.cwd()) &&
+		(!options?.env || options.env === process.env)
+	)
+		return JSON.parse(
+			JSON.stringify(readAuthStatus(parseOptions(args).options)),
+		);
+	return cliRead(args, timeout, input, options);
+};
+
 export async function runHooksCommand(args: string[]): Promise<number> {
 	const name = args[0];
 	if (!name || name === "--help" || name === "-h") {
@@ -72,7 +102,7 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		stdin,
 		cwd,
 		read: (args, timeout, input, options) =>
-			cliRead(args, timeout, input, { cwd, ...options }),
+			readHookCommand(args, timeout, input, { cwd, ...options }),
 		write: (line) => console.log(line),
 	};
 	if (name === "status") {
