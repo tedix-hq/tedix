@@ -11,6 +11,7 @@ export async function runDecisionCardCopyModel(
 		timeoutMs: number;
 		system: string;
 		rewriteInstruction: string;
+		validationFeedback?: string;
 		onFailure?: (reason: string) => void;
 	},
 ): Promise<string | null> {
@@ -42,6 +43,7 @@ export async function runDecisionCardCopyModel(
 			model: selected.model,
 			prompt: JSON.stringify({
 				source: prompt,
+				validationFeedback: options.validationFeedback,
 				instruction: options.rewriteInstruction,
 			}),
 			abortSignal: AbortSignal.timeout(remaining),

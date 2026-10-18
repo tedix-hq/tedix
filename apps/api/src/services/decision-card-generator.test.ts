@@ -84,8 +84,14 @@ it("repairs rejected wording rather than truncating it", async () => {
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
 	).toMatchObject(copy);
-	expect(mocks.model.mock.calls[1]?.[1]).toContain("banned_words");
-	expect(mocks.model.mock.calls[1]?.[1]).toContain("Review this workflow.");
+	expect(mocks.model.mock.calls[1]?.[1]).toBe(mocks.model.mock.calls[0]?.[1]);
+	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
+		"banned_words",
+	);
+	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
+		"Review this workflow.",
+	);
+	expect(mocks.model.mock.calls[1]?.[2].system).toContain(copySpec.repair);
 });
 it.each(copySpec.bannedWords)(
 	"rejects banned card vocabulary: %s",
@@ -215,7 +221,7 @@ it("keeps filing facts separate from executing the task and repairs a wrong topi
 	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
 	expect(source.filingReview.requestText).toBe("Fix the profile panel.");
 	expect(source).not.toHaveProperty("decision");
-	expect(mocks.model.mock.calls[1]?.[1]).toContain(
+	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
 		"title changed the request topic",
 	);
 	expect(mocks.model.mock.calls[0]?.[2].system).toContain(
@@ -397,4 +403,70 @@ it("allows Keep when the question still names the actual filing topic", async ()
 			metadata: { decisionDeck: { classId: "filing.project" } },
 		}),
 	).toMatchObject(candidate);
+});
+
+it.each([
+	{
+		prompt: "Create a work board for the ABC challenge.",
+		title: "Keep the ABC setup request here?",
+		reason: "This project covers shared planning.",
+		recommendation: "This team handles shared planning.",
+	},
+	{
+		prompt: "Create a demo video.",
+		title: "Keep the video request here?",
+		reason:
+			"No supplied project brief fits video production; this is only a filing hint.",
+		recommendation: "This project does not cover video production.",
+	},
+])(
+	"accepts a short company name or a plain negative coverage statement",
+	async (facts) => {
+		const candidate = {
+			...copy,
+			title: facts.title,
+			body: "Files it under the Account project.",
+			recommendation: facts.recommendation,
+		};
+		mocks.model.mockResolvedValue(JSON.stringify(candidate));
+		expect(
+			await generateDecisionCard({ db: {}, env: {} } as never, {
+				...request,
+				prompt: facts.prompt,
+				metadata: {
+					decisionDeck: { classId: "filing.project", reasoning: facts.reason },
+				},
+			}),
+		).toMatchObject(candidate);
+	},
+);
+it("does not accept a grammar word as the filing topic", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({ ...copy, title: "File the request here?" }),
+	);
+	const failure = vi.fn();
+	expect(
+		await generateDecisionCard(
+			{ db: {}, env: {} } as never,
+			{
+				...request,
+				prompt: "Create THE ABC work board.",
+				metadata: { decisionDeck: { classId: "filing.project" } },
+			},
+			failure,
+		),
+	).toBeNull();
+	expect(failure).toHaveBeenCalledWith("invalid_copy:title_source");
+});
+it("reports actual field lengths separately from source facts when repairing", async () => {
+	mocks.model.mockResolvedValueOnce(
+		JSON.stringify({ ...copy, body: "x".repeat(121) }),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject(copy);
+	expect(mocks.model.mock.calls[1]?.[1]).toBe(mocks.model.mock.calls[0]?.[1]);
+	expect(
+		JSON.parse(mocks.model.mock.calls[1]?.[2].validationFeedback).lengths.body,
+	).toEqual({ actual: 121, limit: 120 });
 });

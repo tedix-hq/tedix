@@ -45,6 +45,27 @@ function writingContext(value: string): string {
 	}
 }
 
+function copyRepairFeedback(draft: unknown, failures: string[]) {
+	const record =
+		draft && typeof draft === "object"
+			? (draft as Record<string, unknown>)
+			: {};
+	return JSON.stringify({
+		failedChecks: failures,
+		lengths: Object.fromEntries(
+			Object.entries(copySpec.fields).map(([field, rule]) => [
+				field,
+				{
+					actual:
+						typeof record[field] === "string" ? record[field].length : null,
+					limit: rule.maxLength,
+				},
+			]),
+		),
+		rejectedDraft: draft,
+	});
+}
+
 export async function generateDecisionCard(
 	context: Pick<BaseContext, "db" | "env">,
 	request: {
@@ -88,17 +109,19 @@ export async function generateDecisionCard(
 		)
 		.map(([, meaning]) => meaning)
 		.join(" ");
-	const filingWords =
-		`${filingText} ${translatedTopics}`
-			.toLowerCase()
-			.match(/[\p{L}\p{N}]{4,}/gu)
-			?.filter(
-				(word) =>
-					!copySpec.bannedWords.some((term) => term.toLowerCase() === word) &&
-					!/^(?:this|that|with|from|your|have|been|will|only|please|requests?|check|review|make|show|fix|improve|whether|should|would|could|here|file|into|them|their|they)$/.test(
-						word,
-					),
-			) ?? [];
+	const filingWords = (
+		`${filingText} ${translatedTopics}`.match(/[\p{L}\p{N}]{3,}/gu) ?? []
+	)
+		.filter((word) => word.length >= 4 || /^\p{Lu}{3}$/u.test(word))
+		.map((word) => word.toLowerCase())
+		.filter(
+			(word) =>
+				!copySpec.stopWords.includes(word) &&
+				!copySpec.bannedWords.some((term) => term.toLowerCase() === word) &&
+				!/^(?:this|that|with|from|your|have|been|will|only|please|requests?|check|review|make|show|fix|improve|whether|should|would|could|here|file|into|them|their|they)$/.test(
+					word,
+				),
+		);
 	const source = JSON.stringify({
 		preferences: writingContext(preferences),
 		...(filing
@@ -129,26 +152,24 @@ export async function generateDecisionCard(
 			onFailure?.("model_timeout:budget");
 			return null;
 		}
-		const answer = await runDecisionCardCopyModel(
-			context,
-			repair ? `${source}\n${repair}` : source,
-			{
-				orgId: request.orgId,
-				model: copySpec.modelRef,
-				maxTokens: 650,
-				timeoutMs,
-				onFailure,
-				rewriteInstruction: copySpec.rewritePass,
-				system: [
-					copySpec.system,
-					copySpec.rewriter,
-					JSON.stringify({ plainLanguageExamples: copySpec.plainTerms }),
-					copySpec.bannedWords.join(", "),
-					JSON.stringify({ examples: copySpec.examples }),
-					filing ? copySpec.filing : "",
-				].join("\n"),
-			},
-		);
+		const answer = await runDecisionCardCopyModel(context, source, {
+			orgId: request.orgId,
+			model: copySpec.modelRef,
+			maxTokens: 650,
+			timeoutMs,
+			onFailure,
+			rewriteInstruction: copySpec.rewritePass,
+			validationFeedback: repair || undefined,
+			system: [
+				copySpec.system,
+				copySpec.rewriter,
+				JSON.stringify({ plainLanguageExamples: copySpec.plainTerms }),
+				copySpec.bannedWords.join(", "),
+				JSON.stringify({ examples: copySpec.examples }),
+				filing ? copySpec.filing : "",
+				repair ? copySpec.repair : "",
+			].join("\n"),
+		});
 		if (!answer) return null;
 		try {
 			const draft = JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/g, ""));
@@ -202,7 +223,7 @@ export async function generateDecisionCard(
 				if (issues.length || parsed.data.version !== copySpec.version) {
 					const failures = issues.length ? issues : ["version"];
 					onFailure?.(`invalid_copy:${failures.join(",")}`);
-					repair = `${copySpec.repair} Failed self-check: ${failures.join(", ")}. Previous draft (data): ${JSON.stringify(parsed.data)}`;
+					repair = copyRepairFeedback(parsed.data, failures);
 					continue;
 				}
 			}
@@ -240,7 +261,7 @@ export async function generateDecisionCard(
 				.map((issue) => issue.path.join("."))
 				.join(",");
 			onFailure?.(`invalid_copy:${fields}`);
-			repair = `The previous copy failed validation in ${fields}. ${copySpec.repair}`;
+			repair = copyRepairFeedback(draft, fields.split(","));
 		} catch {
 			onFailure?.("invalid_copy:json");
 			repair =
