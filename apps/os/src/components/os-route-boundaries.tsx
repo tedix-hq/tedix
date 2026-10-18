@@ -13,7 +13,9 @@ import {
 } from "@/components/kumo/empty";
 import { Loader } from "@/components/kumo/loader";
 import { Page } from "@/components/kumo/page";
+import { Skeleton } from "@/components/kumo/skeleton";
 import { reportOsIssue } from "@/lib/error-reporting/install";
+import { OS_COPY } from "@/shared/os-copy";
 
 /**
  * How long the global pending spinner may stand before it escalates to a
@@ -84,19 +86,30 @@ export function OsRoutePending({
 		);
 	}
 
-	// centered-state owns its own viewport height, so this stays centered
-	// whether the route renders inside tenant chrome or on a bare account page.
 	return (
 		<main
-			className="centered-state"
+			className="min-h-dvh w-full bg-kumo-base text-kumo-default"
 			aria-busy="true"
 			aria-live="polite"
 			role="status"
 		>
-			<div className="flex items-center gap-2 text-kumo-subtle type-tedix-body">
-				<Loader aria-hidden="true" />
-				<span>Loading Tedix OS…</span>
-			</div>
+			<Page width="lg" className="gap-8 sm:gap-12">
+				<strong className="font-mono type-tedix-body">Tedix</strong>
+				<div className="flex items-center gap-2 text-kumo-subtle type-tedix-body">
+					<Loader aria-hidden="true" />
+					<span>{OS_COPY.routePending.loading}</span>
+				</div>
+				<div aria-hidden="true" className="mx-auto grid w-full max-w-3xl gap-6">
+					<Skeleton className="h-6 w-36" />
+					<Skeleton className="h-2 w-full" />
+					<div className="grid gap-6 rounded-3xl bg-kumo-elevated p-6 sm:p-12">
+						<Skeleton className="size-11 rounded-full" />
+						<Skeleton className="h-12 w-4/5" />
+						<Skeleton className="h-12 w-full" />
+						<Skeleton className="h-10 w-full rounded-full" />
+					</div>
+				</div>
+			</Page>
 		</main>
 	);
 }

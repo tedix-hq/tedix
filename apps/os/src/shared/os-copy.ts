@@ -3,6 +3,9 @@ import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 
 /** Generic OS wording. Names and tenant-specific content come from records. */
 export const OS_COPY = {
+	routePending: {
+		loading: "Loading Tedix OS…",
+	},
 	learning: {
 		preference: (sentence: string) =>
 			`Got it — ${sentence.replace(/^(Prefer|Use) /, "I’ll use ")}`,
