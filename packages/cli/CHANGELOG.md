@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.13.0 — 2026-10-18
+
+### Minor Changes
+
+- Opt-in hooks capture reusable corrections and preferences as private lessons with supporting quotes. Other coding sessions check for new lessons on their next turn.
+- Preview Claude memory notes with `tedix learn import-memory`, then import a selected set of feedback or project notes.
+
 ## 0.12.1 — 2026-10-18
 
 ### Patch Changes
