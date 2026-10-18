@@ -200,6 +200,14 @@ export const ListAgentSessionActivityResultSchema = z.strictObject({
 });
 
 export const ClassifyAgentSessionRequestsInputSchema = z.strictObject({
+	intakeProjectId: z
+		.string()
+		.uuid()
+		.nullable()
+		.optional()
+		.describe(
+			"Existing intake project for unmatched requests without a source project. New scope stays a proposal until its project, workspace and factory are reviewed together.",
+		),
 	runNow: z
 		.boolean()
 		.optional()
@@ -215,6 +223,7 @@ export const ClassifyAgentSessionRequestsInputSchema = z.strictObject({
 });
 export const ClassifyAgentSessionRequestsResultSchema = z.strictObject({
 	queued: z.boolean(),
+	intakeProjectId: z.string().uuid().nullable().optional(),
 	pass: z
 		.strictObject({
 			state: z.enum([

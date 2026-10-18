@@ -5,7 +5,7 @@ import {
 	upsertUserConfig,
 } from "@tedix/db/queries/user-configs";
 
-export async function automaticFilingEnabled(
+export async function requestFilingSettings(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner,
 ) {
@@ -14,17 +14,37 @@ export async function automaticFilingEnabled(
 		namespace: `organization:${owner.organizationId}`,
 		key: "request-auto-filing",
 	});
-	return config?.value.enabled === true;
+	return {
+		enabled: config?.value.enabled === true,
+		intakeProjectId:
+			typeof config?.value.intakeProjectId === "string"
+				? config.value.intakeProjectId
+				: null,
+	};
+}
+export async function automaticFilingEnabled(
+	db: DbQueryClient,
+	owner: AgentSessionRequestOwner,
+) {
+	return (await requestFilingSettings(db, owner)).enabled;
 }
 export async function setAutomaticFiling(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner,
 	enabled: boolean,
+	intakeProjectId?: string | null,
 ) {
+	const current = await requestFilingSettings(db, owner);
 	await upsertUserConfig(db, {
 		userId: owner.userId,
 		namespace: `organization:${owner.organizationId}`,
 		key: "request-auto-filing",
-		value: { enabled },
+		value: {
+			enabled,
+			intakeProjectId:
+				intakeProjectId === undefined
+					? current.intakeProjectId
+					: intakeProjectId,
+		},
 	});
 }

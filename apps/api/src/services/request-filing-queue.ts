@@ -13,7 +13,7 @@ import {
 } from "@tedix/db/queries/request-filings";
 import { workersAiLedgerModel } from "./agent-session-request-ledger";
 import { requestFilingFitModel } from "./request-filing-fit";
-import { automaticFilingEnabled } from "./request-filing-settings";
+import { requestFilingSettings } from "./request-filing-settings";
 import { autoFileRequests } from "./request-auto-filing";
 
 // Kept outside AutomationEventSchema: public automation producers cannot choose a private ledger owner.
@@ -54,8 +54,8 @@ export async function processRequestFilingQueue(
 		await import("./request-ledger-lessons");
 	for (const event of await pendingFilingLessons(db, owner))
 		await recordFilingCorrectionLesson(db, event);
-	if (!(await automaticFilingEnabled(db, owner)))
-		return { state: "paused" as const };
+	const settings = await requestFilingSettings(db, owner);
+	if (!settings.enabled) return { state: "paused" as const };
 	if (
 		!hasPermission(
 			{ roles: [member.role], permissions: member.customPermissions ?? [] },
@@ -77,6 +77,7 @@ export async function processRequestFilingQueue(
 		{
 			...owner,
 			learningOwnerId: owner.ownerSubject,
+			intakeProjectId: settings.intakeProjectId,
 			now: new Date().toISOString(),
 		},
 		limit,

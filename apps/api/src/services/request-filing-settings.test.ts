@@ -6,6 +6,7 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import {
 	automaticFilingEnabled,
+	requestFilingSettings,
 	setAutomaticFiling,
 } from "./request-filing-settings";
 it("sharing requires an explicit choice scoped to both the owner and the organization", async () => {
@@ -14,7 +15,7 @@ it("sharing requires an explicit choice scoped to both the owner and the organiz
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	const owner = { organizationId: "org-example", userId: "user-ada" };
 	expect(await automaticFilingEnabled(db, owner)).toBe(false);
-	await setAutomaticFiling(db, owner, true);
+	await setAutomaticFiling(db, owner, true, "project-intake");
 	expect(await automaticFilingEnabled(db, owner)).toBe(true);
 	expect(
 		await automaticFilingEnabled(db, { ...owner, organizationId: "org-other" }),
@@ -24,4 +25,13 @@ it("sharing requires an explicit choice scoped to both the owner and the organiz
 	).toBe(false);
 	await setAutomaticFiling(db, owner, false);
 	expect(await automaticFilingEnabled(db, owner)).toBe(false);
+	expect((await requestFilingSettings(db, owner)).intakeProjectId).toBe(
+		"project-intake",
+	);
+	expect(
+		(await requestFilingSettings(db, { ...owner, userId: "user-grace" }))
+			.intakeProjectId,
+	).toBeNull();
+	await setAutomaticFiling(db, owner, true, null);
+	expect((await requestFilingSettings(db, owner)).intakeProjectId).toBeNull();
 });
