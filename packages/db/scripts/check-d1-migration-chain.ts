@@ -77,7 +77,9 @@ export function checkD1MigrationChain(): void {
 				"--config",
 				"wrangler.jsonc",
 			],
-			{ env: { CI: "1" } },
+			// Wrangler redraws the remaining migration table after every apply.
+			// Keep that progress output out of the bounded buffer; inspect all results below.
+			{ env: { CI: "1", WRANGLER_LOG: "error" } },
 		);
 		const inspection = runWrangler([
 			"d1",
