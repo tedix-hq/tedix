@@ -6,6 +6,22 @@ export const OS_COPY = {
 	routePending: {
 		loading: "Loading Tedix OS…",
 	},
+	outboundProfile: {
+		title: "What we learned from your choices",
+		description:
+			"Your Deck decisions, approvals and sent emails help Tedix learn your preferences.",
+		loading: "Loading your learning profile…",
+		empty: "Your first decision or edit starts your profile.",
+		decisions: (count: number) =>
+			`Your profile includes ${count} recent ${count === 1 ? "decision" : "decisions"}.`,
+		examples: (count: number) =>
+			count
+				? `${count} sent-mail examples are saved privately for you.`
+				: "Import the plain text of your last 10 sent emails to teach your voice.",
+		learn: "Learn from my last 10 sent emails",
+		learning: "Reading your sent emails…",
+		connections: "Manage Gmail accounts in Connections",
+	},
 	learning: {
 		preference: (sentence: string) =>
 			`Got it — ${sentence.replace(/^(Prefer|Use) /, "I’ll use ")}`,

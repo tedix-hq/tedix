@@ -13,8 +13,7 @@ export function summarizeOutboundStyle(samples: { body: string }[]): string[] {
 	const average = (counts: number[]) =>
 		Math.round(counts.reduce((sum, count) => sum + count, 0) / counts.length);
 	return [
-		`Observed across ${samples.length} sent emails: about ${average(samples.map((sample) => sample.body.trim().split(/\s+/).length))} words per email.`,
-		`About ${average(samples.map((sample) => sample.body.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).length))} paragraphs per email.`,
+		`Observed across ${samples.length} sent emails: about ${average(samples.map((sample) => sample.body.trim().split(/\s+/).length))} words and ${average(samples.map((sample) => sample.body.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).length))} paragraphs per email.`,
 		`${samples.filter((sample) => sample.body.includes("!")).length} of ${samples.length} examples use an exclamation mark.`,
 	];
 }

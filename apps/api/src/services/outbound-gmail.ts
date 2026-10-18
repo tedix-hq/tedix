@@ -1,5 +1,4 @@
-import { fetchPersonalConnectionToken } from "@tedix/auth/connections";
-import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
+import { fetchNamedConnection } from "../rpc/routers/connections/policy-resolution";
 import { getConnectionProviderByDescopeAppId } from "@tedix/db/queries/connection-providers";
 import type { OutboundDraft } from "@tedix/api-contract/schemas/outbound";
 import { createError, ErrorCodes, type BaseContext } from "../rpc/orpc";
@@ -25,50 +24,24 @@ export async function outboundGmailCredential(
 			ErrorCodes.CONFLICT,
 			"Configure a Gmail provider for this channel",
 		);
-	const instance = await getConnectionInstance(
-		context.db,
+	const token = await fetchNamedConnection(
+		context,
 		{ userId: context.user.sub },
-		instanceId,
 		providerId,
+		instanceId,
 	);
-	if (!instance?.tokenIds.length || !instance.tokenSub)
+	if (!token?.accessToken)
 		throw createError(
 			ErrorCodes.CONFLICT,
-			"Verify your Gmail account in Connections first",
+			"This Gmail account has no usable login. Verify it in Connections.",
 		);
-	if (!context.env.DESCOPE_PROJECT_ID || !context.env.DESCOPE_MANAGEMENT_KEY)
-		throw createError(
-			ErrorCodes.SERVICE_UNAVAILABLE,
-			"Connections are unavailable",
-		);
-	const token = await fetchPersonalConnectionToken(
-		{
-			DESCOPE_PROJECT_ID: context.env.DESCOPE_PROJECT_ID,
-			DESCOPE_MANAGEMENT_KEY: context.env.DESCOPE_MANAGEMENT_KEY,
-			DESCOPE_BASE_URL: context.env.DESCOPE_BASE_URL,
-		},
-		{
-			appId: providerId,
-			userId: context.user.sub,
-			externalIdentifier: `tedix_${instance.id}`,
-			scopes: [
-				`https://www.googleapis.com/auth/gmail.${purpose === "compose" ? "compose" : "readonly"}`,
-			],
-		},
-	);
+	// Read capability is established by Gmail's actual response, not a second
+	// scope-name check. The shared resolver pins the selected owner's identity.
 	if (
-		!token?.id ||
-		!instance.tokenIds.includes(token.id) ||
-		token.tokenSub !== instance.tokenSub
-	)
-		throw createError(
-			ErrorCodes.CONFLICT,
-			"Reconnect this Gmail account with compose consent",
-		);
-	if (
+		purpose === "compose" &&
 		!token.scopes?.some((scope) =>
 			[
-				`https://www.googleapis.com/auth/gmail.${purpose === "compose" ? "compose" : "readonly"}`,
+				"https://www.googleapis.com/auth/gmail.compose",
 				"https://www.googleapis.com/auth/gmail.modify",
 				"https://mail.google.com/",
 			].includes(scope),
@@ -76,7 +49,7 @@ export async function outboundGmailCredential(
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			`Gmail ${purpose} consent is required`,
+			"Gmail compose consent is required",
 		);
 	return token.accessToken;
 }
@@ -148,6 +121,14 @@ export function sentStyleText(part: GmailPart): string {
 		.slice(0, 5_000);
 }
 
+function gmailReadFailure(status: number): string {
+	if (status === 401)
+		return "Reconnect this Gmail account: Google rejected the expired or revoked login.";
+	if (status === 403)
+		return "Reconnect this Gmail account with read access: Google denied reading sent mail.";
+	return `Gmail could not read sent mail (HTTP ${status}). Try again later.`;
+}
+
 /** Bounded, owner-requested read. Attachments and HTML-only messages are excluded. */
 export async function readSentStyleExamples(token: string) {
 	const headers = { Authorization: `Bearer ${token}` };
@@ -156,10 +137,7 @@ export async function readSentStyleExamples(token: string) {
 		{ headers },
 	);
 	if (!response.ok)
-		throw createError(
-			ErrorCodes.CONFLICT,
-			"Gmail sent-mail read consent is required",
-		);
+		throw createError(ErrorCodes.CONFLICT, gmailReadFailure(response.status));
 	const result = (await response.json()) as { messages?: { id: string }[] };
 	const samples: { id: string; body: string }[] = [];
 	for (const message of (result.messages ?? []).slice(0, 10)) {
@@ -168,10 +146,7 @@ export async function readSentStyleExamples(token: string) {
 			{ headers },
 		);
 		if (!read.ok)
-			throw createError(
-				ErrorCodes.CONFLICT,
-				"A sent-mail example could not be read",
-			);
+			throw createError(ErrorCodes.CONFLICT, gmailReadFailure(read.status));
 		const mail = (await read.json()) as { payload?: GmailPart };
 		const body = mail.payload ? sentStyleText(mail.payload) : "";
 		if (body.trim()) samples.push({ id: message.id, body });
