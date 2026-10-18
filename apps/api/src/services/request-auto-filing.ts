@@ -223,12 +223,17 @@ export async function autoFileRequests(
 		if (pick.objectiveId && !objectives.some((o) => o.id === pick.objectiveId))
 			throw new Error("Unknown filing objective");
 		const requestedWork = pick.workItemId
-			? recentWork.find(
-					(w) => w.id === pick.workItemId && w.projectId === candidate?.id,
-				)
+			? (recentWork.find((w) => w.id === pick.workItemId) ??
+				(await getWorkItemById(db, pick.workItemId, owner.organizationId)))
 			: null;
-		if (pick.workItemId && !requestedWork)
-			throw new Error("Unknown filing Work item");
+		// Legacy/Home Work may be unprojected; this backlink never moves its Work.
+		if (
+			pick.workItemId &&
+			(!requestedWork ||
+				(requestedWork.projectId !== null &&
+					requestedWork.projectId !== candidate?.id))
+		)
+			throw new Error(`Unknown filing Work item for request ${row.id}`);
 		if (candidate && !model.scoreProjectFit)
 			throw new Error("Request filing fit scorer unavailable");
 		const confidence =
