@@ -60,6 +60,10 @@ export const SPANISH_FEED_DECK_COPY = {
 	},
 	feedDeckVisual: {
 		agentSession: "Tu asistente de programación",
+		projectProposer: (name: string, project?: string) =>
+			`${name} (para ${project ?? "este proyecto"})`,
+		publishHomeCta:
+			"¿Publicar la llamada a la acción actualizada de la página de inicio?",
 		more: "Más",
 		less: "Menos",
 		source: "Abrir fuente",
