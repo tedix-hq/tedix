@@ -951,7 +951,7 @@ function DecisionDeckContent({
 					{learning && classId && (
 						<FeedDeckDisclosure
 							className="fd-deck-learning"
-							label="Class readiness"
+							label={OS_COPY.feedDeckVisual.learning}
 							title={
 								<span className="text-xs">
 									{OS_COPY.feedDeckVisual.learning}

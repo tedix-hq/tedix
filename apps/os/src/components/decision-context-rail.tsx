@@ -179,7 +179,19 @@ export function DecisionContextSection({
 			)}
 			{rail.target &&
 				createPortal(
-					<section data-context-section={id} className="fd-context-section">
+					<section
+						data-context-section={id}
+						className="fd-context-section"
+						onPointerDown={(event) => event.stopPropagation()}
+						onPointerMove={(event) => event.stopPropagation()}
+						onPointerUp={(event) => event.stopPropagation()}
+						onTouchStart={(event) => event.stopPropagation()}
+						onTouchEnd={(event) => event.stopPropagation()}
+						onKeyDown={(event) => {
+							if (event.key.toLowerCase() !== "i" && event.key !== "Escape")
+								event.stopPropagation();
+						}}
+					>
 						<h3>{title}</h3>
 						{children}
 					</section>,
