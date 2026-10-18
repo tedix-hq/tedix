@@ -1,3 +1,4 @@
+import { openExamples } from "./deck-controls";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 
@@ -244,12 +245,7 @@ try {
 	]) {
 		await page.setViewportSize({ width: width!, height: height! });
 		await page.goto(`${origin}/browser-tests/deck.html?long-proposal=1`);
-		await page
-			.getByRole("button", { name: "Decision context", exact: true })
-			.click();
-		await page
-			.getByRole("button", { name: "Try examples", exact: true })
-			.click();
+		await openExamples(page);
 		await page.keyboard.press("Escape");
 		await page.locator("[data-decision-actions]").waitFor();
 		await page.evaluate(() => document.fonts.ready);

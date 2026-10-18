@@ -15,7 +15,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { SidebarSimpleIcon } from "@phosphor-icons/react";
+import {
+	SidebarSimpleIcon,
+	SlidersHorizontalIcon,
+	CaretDownIcon,
+} from "@phosphor-icons/react";
 import { OS_COPY } from "@/shared/os-copy";
 import { Button } from "@/components/kumo/button";
 import {
@@ -24,16 +28,20 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/kumo/sheet";
+import { WorkToolbarTargetContext } from "@/components/deck-presentation-context";
+import {
+	PopoverRoot,
+	PopoverTrigger,
+	PopoverContent,
+} from "@/components/kumo/popover";
 import { userProfileQueryOptions } from "@/lib/os-query-options";
 
 const RAIL_SECTIONS = [
 	"why",
-	"choices",
-	"shortcuts",
-	"history",
+	"source",
+	"feedback",
 	"style",
 	"details",
-	"filters",
 ] as const;
 
 export const DecisionRailContext = createContext<{
@@ -41,6 +49,8 @@ export const DecisionRailContext = createContext<{
 	openSection: (id?: string) => void;
 	openedBefore: (id: string) => boolean;
 	open: boolean;
+	phone: boolean;
+	toggle: () => void;
 	activeSection?: string;
 	surface: "deck" | "feed";
 } | null>(null);
@@ -140,17 +150,7 @@ export function DecisionContextRail({
 	const contents = (
 		<div ref={setTarget} className="fd-context-sections">
 			{RAIL_SECTIONS.map((id) => (
-				<div key={id} data-rail-slot={id}>
-					{id === "shortcuts" && open && surface === "deck" && (
-						<section
-							data-context-section="shortcuts"
-							className="fd-context-section"
-						>
-							<h3>Shortcuts</h3>
-							{shortcutGrid}
-						</section>
-					)}
-				</div>
+				<div key={id} data-rail-slot={id} />
 			))}
 		</div>
 	);
@@ -160,6 +160,8 @@ export function DecisionContextRail({
 				target,
 				surface,
 				open,
+				phone,
+				toggle: () => changeOpen(!open),
 				activeSection: section,
 				openSection: (id) => {
 					if (id === "shortcuts") {
@@ -179,17 +181,6 @@ export function DecisionContextRail({
 				className="feed-deck fd-context-layout"
 				data-context-open={open && !phone}
 			>
-				<Button
-					className="fd-context-toggle"
-					variant="ghost"
-					size="icon"
-					aria-label="Decision context"
-					aria-expanded={open}
-					aria-keyshortcuts="I"
-					onClick={() => changeOpen(!open)}
-				>
-					<SidebarSimpleIcon size={20} />
-				</Button>
 				<div className="fd-context-main">{children}</div>
 				{phone ? (
 					<Sheet open={open} onOpenChange={changeOpen}>
@@ -237,6 +228,73 @@ export function DecisionContextRail({
 	);
 }
 
+export function DecisionContextToolbar({
+	children,
+	filters,
+}: {
+	children?: ReactNode;
+	filters?: ReactNode;
+}) {
+	const rail = useContext(DecisionRailContext);
+	const target = useContext(WorkToolbarTargetContext);
+	const toolbar = (
+		<div className="feed-deck fd-app-toolbar">
+			{children}
+			{filters &&
+				(rail?.phone ? (
+					<PopoverRoot>
+						<PopoverTrigger
+							render={
+								<Button variant="ghost" size="icon" aria-label="Filters" />
+							}
+						>
+							<SlidersHorizontalIcon size={20} />
+						</PopoverTrigger>
+						<PopoverContent align="end" className="feed-deck fd-mobile-filters">
+							{filters}
+						</PopoverContent>
+					</PopoverRoot>
+				) : (
+					<div className="fd-toolbar-filters">{filters}</div>
+				))}
+			<Button
+				className="fd-context-toggle"
+				variant="ghost"
+				size="icon"
+				aria-label="Decision context"
+				aria-expanded={rail?.open}
+				aria-keyshortcuts="I"
+				onClick={rail?.toggle}
+			>
+				<SidebarSimpleIcon size={20} />
+			</Button>
+		</div>
+	);
+	return target ? createPortal(toolbar, target) : toolbar;
+}
+
+export function DecisionFilterChip({
+	label,
+	children,
+}: {
+	label: ReactNode;
+	children: ReactNode;
+}) {
+	return (
+		<PopoverRoot>
+			<PopoverTrigger
+				render={<Button variant="ghost" size="sm" className="fd-filter-chip" />}
+			>
+				{label}
+				<CaretDownIcon size={12} />
+			</PopoverTrigger>
+			<PopoverContent align="start" className="feed-deck fd-filter-options">
+				{children}
+			</PopoverContent>
+		</PopoverRoot>
+	);
+}
+
 export function DecisionContextSection({
 	title,
 	children,
@@ -252,7 +310,14 @@ export function DecisionContextSection({
 }) {
 	const rail = useContext(DecisionRailContext);
 	const generatedId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-	const id = sectionId ?? (title === "Feed preferences" ? "seen" : generatedId);
+	const id =
+		sectionId ??
+		(title === "Feedback"
+			? "feedback"
+			: title === "Feed preferences"
+				? "seen"
+				: generatedId);
+	const slot = RAIL_SECTIONS.some((section) => section === id) ? id : "details";
 	if (!rail)
 		return (
 			<section>
@@ -271,6 +336,12 @@ export function DecisionContextSection({
 				createPortal(
 					<section
 						data-context-section={id}
+						hidden={
+							rail.surface === "deck" &&
+							slot === "details" &&
+							rail.activeSection !== "details" &&
+							rail.activeSection !== id
+						}
 						className="fd-context-section"
 						onPointerDown={(event) => event.stopPropagation()}
 						onPointerMove={(event) => event.stopPropagation()}
@@ -299,9 +370,7 @@ export function DecisionContextSection({
 							</>
 						)}
 					</section>,
-					rail.target.querySelector(
-						`[data-rail-slot="${RAIL_SECTIONS.some((section) => section === id) ? id : "details"}"]`,
-					)!,
+					rail.target.querySelector(`[data-rail-slot="${slot}"]`)!,
 				)}
 		</>
 	);

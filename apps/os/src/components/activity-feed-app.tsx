@@ -1,5 +1,6 @@
 import {
 	DecisionContextRail,
+	DecisionContextToolbar,
 	DecisionContextSection,
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
@@ -460,96 +461,102 @@ function ActivityFeedContent({
 					onUpdate={onUpdate}
 				/>
 			))}
-			<DecisionContextSection title="Feed filters and context">
-				{" "}
-				<header className="ft-header">
-					<div className="ft-tools">
-						<Select
-							value={filter}
-							onValueChange={(id) => {
-								if (id) {
-									setFilter(id as Filter);
-									navigation?.onFilterChange?.(id as Filter);
-								}
-							}}
-						>
-							<SelectTrigger aria-label={copy.title}>
-								<SelectValue>{copy.filters[filter]}</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{(["all", "attention", "history"] as const).map((id) => (
-									<SelectItem key={id} value={id}>
-										{copy.filters[id]}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<PopoverRoot>
-							<PopoverTrigger
-								aria-label={copy.options}
-								render={
-									<Button
-										variant="ghost"
-										size="icon"
+			<DecisionContextToolbar
+				filters={
+					<>
+						{" "}
+						<header className="ft-header">
+							<div className="ft-tools">
+								<Select
+									value={filter}
+									onValueChange={(id) => {
+										if (id) {
+											setFilter(id as Filter);
+											navigation?.onFilterChange?.(id as Filter);
+										}
+									}}
+								>
+									<SelectTrigger aria-label={copy.title}>
+										<SelectValue>{copy.filters[filter]}</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										{(["all", "attention", "history"] as const).map((id) => (
+											<SelectItem key={id} value={id}>
+												{copy.filters[id]}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<PopoverRoot>
+									<PopoverTrigger
 										aria-label={copy.options}
-									/>
-								}
-							>
-								<DotsThreeIcon size={22} />
-							</PopoverTrigger>
-							<PopoverContent align="end">
-								<div className="ft-options-body">
-									<Select
-										value={
-											prefs.projectIds.length === 1
-												? prefs.projectIds[0]
-												: "all"
+										render={
+											<Button
+												variant="ghost"
+												size="icon"
+												aria-label={copy.options}
+											/>
 										}
-										onValueChange={(id) => {
-											setBusy(true);
-											void savePreferences((p) => ({
-												...p,
-												projectIds: id && id !== "all" ? [id] : [],
-											}))
-												.catch(() => setStatus(copy.failed))
-												.finally(() => setBusy(false));
-										}}
 									>
-										<SelectTrigger
-											aria-label={copy.project}
-											disabled={busy || !preferences.data}
-										>
-											<SelectValue>
-												{prefs.projectIds.length === 1
-													? (config.projects.find(
-															(p) => p.id === prefs.projectIds[0],
-														)?.label ?? copy.allProjects)
-													: copy.allProjects}
-											</SelectValue>
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="all">{copy.allProjects}</SelectItem>
-											{config.projects.map((p) => (
-												<SelectItem key={p.id} value={p.id}>
-													{p.label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-									{navigation?.apps}
-									<FeedNowStrip
-										items={ranked}
-										now={now}
-										timezone={
-											preferences.data?.preferences.timezone ?? undefined
-										}
-									/>
-								</div>
-							</PopoverContent>
-						</PopoverRoot>
-					</div>
-				</header>
-			</DecisionContextSection>
+										<DotsThreeIcon size={22} />
+									</PopoverTrigger>
+									<PopoverContent align="end">
+										<div className="ft-options-body">
+											<Select
+												value={
+													prefs.projectIds.length === 1
+														? prefs.projectIds[0]
+														: "all"
+												}
+												onValueChange={(id) => {
+													setBusy(true);
+													void savePreferences((p) => ({
+														...p,
+														projectIds: id && id !== "all" ? [id] : [],
+													}))
+														.catch(() => setStatus(copy.failed))
+														.finally(() => setBusy(false));
+												}}
+											>
+												<SelectTrigger
+													aria-label={copy.project}
+													disabled={busy || !preferences.data}
+												>
+													<SelectValue>
+														{prefs.projectIds.length === 1
+															? (config.projects.find(
+																	(p) => p.id === prefs.projectIds[0],
+																)?.label ?? copy.allProjects)
+															: copy.allProjects}
+													</SelectValue>
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="all">
+														{copy.allProjects}
+													</SelectItem>
+													{config.projects.map((p) => (
+														<SelectItem key={p.id} value={p.id}>
+															{p.label}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+											{navigation?.apps}
+											<FeedNowStrip
+												items={ranked}
+												now={now}
+												timezone={
+													preferences.data?.preferences.timezone ?? undefined
+												}
+											/>
+										</div>
+									</PopoverContent>
+								</PopoverRoot>
+							</div>
+						</header>
+					</>
+				}
+			/>
 			{quiet && <Text tone="secondary">{copy.quiet}</Text>}
 			{failed && (
 				<div role="alert">

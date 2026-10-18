@@ -1,3 +1,4 @@
+import { openExamples } from "./deck-controls";
 import { chromium, type Browser, type Page } from "playwright";
 
 async function settleAnimations(page: Page) {
@@ -54,12 +55,7 @@ try {
 			await page.goto(
 				`${origin}/browser-tests/feed-deck-polish.html?cards=one&theme=${theme}`,
 			);
-			await page
-				.getByRole("button", { name: "Decision context", exact: true })
-				.click();
-			await page
-				.getByRole("button", { name: "Try examples", exact: true })
-				.click();
+			await openExamples(page);
 			await page.keyboard.press("Escape");
 			const title = page.locator('[data-slot="card-title"]');
 			await title.waitFor();
@@ -132,41 +128,17 @@ try {
 				y = box.y + 20;
 			await page.mouse.move(x, y);
 			await page.mouse.down();
-			await page.mouse.move(x + 35, y, { steps: 5 });
-			if (
-				(await page.locator(".fd-decision").getAttribute("data-dragging")) !==
-				"true"
-			)
-				throw new Error("Card does not follow drag");
+			await page.mouse.move(x + 110, y, { steps: 12 });
 			await page.mouse.up();
-			await page.waitForTimeout(550);
 			if (
 				(await page.locator(".fd-decision").getAttribute("data-dragging")) !==
 				"false"
 			)
-				throw new Error("Short drag did not spring back");
-			if (await page.evaluate(() => Boolean(getSelection()?.toString())))
-				throw new Error(
-					"Card drag selected text instead of owning the gesture",
-				);
-			await settleAnimations(page);
-			const settledBox = (await title.boundingBox())!;
-			const swipeX = settledBox.x + 30;
-			const swipeY = settledBox.y + 20;
-			await page.mouse.move(swipeX, swipeY);
-			await page.mouse.down();
-			await page.mouse.move(swipeX + 110, swipeY, { steps: 12 });
-			await page.mouse.up();
-			await page
-				.waitForFunction(() =>
-					document.body.textContent?.includes("1 practice choice"),
-				)
-				.catch((error) => {
-					throw new Error(
-						`Mouse swipe did not finish at ${width}px in ${theme} mode`,
-						{ cause: error },
-					);
-				});
+				throw new Error("Mouse drag moved the card");
+			if (!(await page.evaluate(() => Boolean(getSelection()?.toString()))))
+				throw new Error("Mouse drag could not select title text");
+			await page.locator(".fd-decision").focus();
+			await page.keyboard.press("ArrowRight");
 			await page.locator(".fd-closure").waitFor();
 			await page.goto(
 				`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
@@ -205,9 +177,11 @@ try {
 			await page.locator("article").first().waitFor();
 			if (await page.locator(".fd-feed-filters").count())
 				throw new Error("Feed brought back the filter row");
-			await page
-				.getByRole("button", { name: "Decision context", exact: true })
-				.click();
+			const feedFilters = page.getByRole("button", {
+				name: "Filters",
+				exact: true,
+			});
+			if (await feedFilters.isVisible()) await feedFilters.click();
 			await page.getByRole("combobox", { name: "Your activity" }).click();
 			await page.getByRole("option", { name: "Done", exact: true }).click();
 			await page
@@ -343,17 +317,116 @@ try {
 			await page.close();
 		}
 	}
+
+	for (const width of [390, 1440])
+		for (const theme of ["light", "dark"]) {
+			const page = await browser.newPage({
+				viewport: { width, height: width === 390 ? 844 : 900 },
+			});
+			await page.goto(
+				`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,
+			);
+			const answer = page.getByRole("textbox", {
+				name: "Your answer",
+				exact: true,
+			});
+			await answer.waitFor();
+			await settleAnimations(page);
+			const layout = await page.evaluate(() => {
+				const card = document.querySelector(".fd-card")!;
+				const field = card.querySelector("textarea")!;
+				const style = getComputedStyle(field);
+				const why = card.querySelector(".fd-card-why")!.getBoundingClientRect();
+				return {
+					bar: document
+						.querySelector(".fd-app-toolbar")!
+						.getBoundingClientRect().height,
+					gap:
+						card.getBoundingClientRect().top -
+						document.querySelector("header")!.getBoundingClientRect().bottom,
+					field: field.getBoundingClientRect().height,
+					min: 3 * parseFloat(style.lineHeight) + 24,
+					inset: card.getBoundingClientRect().right - why.right,
+					details:
+						card.querySelector('[data-slot="card-header"] .fd-card-details') !==
+						null,
+					overflow: document.documentElement.scrollWidth > innerWidth,
+				};
+			});
+			if (
+				layout.bar > 50 ||
+				layout.gap > 96 ||
+				layout.field < layout.min ||
+				layout.inset < 16 ||
+				!layout.details ||
+				layout.overflow
+			)
+				throw new Error(
+					`Round 3 geometry ${width}/${theme}: ${JSON.stringify(layout)}`,
+				);
+			if (
+				await page
+					.getByRole("button", { name: "Answer", exact: true })
+					.isEnabled()
+			)
+				throw new Error("Empty answer enabled");
+			await answer.fill("Friday works for us.");
+			await answer.press("End");
+			await answer.press("Enter");
+			await answer.press("x");
+			if (!(await answer.inputValue()).includes("\n"))
+				throw new Error("Enter submitted instead of adding a newline");
+			if (
+				!(await page
+					.getByRole("button", { name: "Answer", exact: true })
+					.isEnabled())
+			)
+				throw new Error("Nonempty answer stayed disabled");
+			await answer.fill(
+				Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join("\n"),
+			);
+			const grown = await answer.evaluate((el) => ({
+				height: el.getBoundingClientRect().height,
+				max: 8 * parseFloat(getComputedStyle(el).lineHeight) + 26,
+				scroll: el.scrollHeight,
+				client: el.clientHeight,
+			}));
+			if (
+				grown.height <= layout.field ||
+				grown.height > grown.max + 1 ||
+				grown.scroll <= grown.client
+			)
+				throw new Error(`Answer growth: ${JSON.stringify(grown)}`);
+			await page.getByRole("button", { name: "Why this", exact: true }).click();
+			await page
+				.getByRole("heading", {
+					name: "Learning your preferences",
+					exact: true,
+				})
+				.waitFor();
+			for (const name of [
+				"Filters",
+				"Shortcuts",
+				"History",
+				"What each choice does",
+			])
+				if (await page.getByRole("heading", { name, exact: true }).isVisible())
+					throw new Error(`Unexpected context section: ${name}`);
+			await page.keyboard.press("Escape");
+			await page.getByRole("button", { name: "Details", exact: true }).click();
+			await page
+				.getByRole("heading", { name: "Details", exact: true })
+				.first()
+				.waitFor();
+			await page.close();
+		}
+
 	for (const theme of ["light", "dark"]) {
 		const preferred = await browser.newPage();
 		await preferred.goto(
 			`${origin}/browser-tests/feed-deck-polish.html?theme=${theme}`,
 		);
-		await preferred
-			.getByRole("button", { name: "Decision context", exact: true })
-			.click();
-		await preferred
-			.getByRole("button", { name: "Try examples", exact: true })
-			.click();
+		await openExamples(preferred);
 		await preferred.keyboard.press("Escape");
 		await preferred.locator(".fd-decision").focus();
 		await preferred.keyboard.press("j");
@@ -362,7 +435,7 @@ try {
 				.locator(selector)
 				.evaluate((el) => getComputedStyle(el).backgroundColor);
 		const [active, delegate, approve] = await Promise.all([
-			fill('.fd-deck-toolbar [aria-pressed="true"]'),
+			fill(".fd-filter-chip:first-child"),
 			fill('[data-decision-intent="delegate"]'),
 			fill('[data-decision-intent="approve"]'),
 		]);
@@ -376,12 +449,7 @@ try {
 		hasTouch: true,
 	});
 	await touch.goto(`${origin}/browser-tests/feed-deck-polish.html?cards=one`);
-	await touch
-		.getByRole("button", { name: "Decision context", exact: true })
-		.click();
-	await touch
-		.getByRole("button", { name: "Try examples", exact: true })
-		.click();
+	await openExamples(touch);
 	await touch.keyboard.press("Escape");
 	const touchTitle = touch.locator('[data-slot="card-title"]');
 	await touchTitle.scrollIntoViewIfNeeded();
@@ -432,12 +500,7 @@ try {
 	await explicitReduced.goto(
 		`${origin}/browser-tests/feed-deck-polish.html?motion=reduced&cards=one`,
 	);
-	await explicitReduced
-		.getByRole("button", { name: "Decision context", exact: true })
-		.click();
-	await explicitReduced
-		.getByRole("button", { name: "Try examples", exact: true })
-		.click();
+	await openExamples(explicitReduced);
 	await explicitReduced.keyboard.press("Escape");
 	const explicitBox = (await explicitReduced
 		.locator('[data-slot="card-title"]')

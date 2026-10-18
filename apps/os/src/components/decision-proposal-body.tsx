@@ -24,7 +24,11 @@ export function DecisionProposalBody({ body }: { body: string }) {
 			<div className="fd-proposal-body">
 				<p className="fd-proposal-preview">{preview}</p>
 				{body.length > 0 && (
-					<DecisionContextSection title="Details" trigger>
+					<DecisionContextSection
+						sectionId="details"
+						title="Details"
+						defaultOpen
+					>
 						<ChatMarkdown content={body} />
 					</DecisionContextSection>
 				)}

@@ -5,7 +5,10 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { DeckRemainingContext } from "@/components/deck-presentation-context";
+import {
+	DeckRemainingContext,
+	WorkToolbarTargetContext,
+} from "@/components/deck-presentation-context";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDeckCount } from "@/lib/use-deck-count";
 import { cn } from "@/lib/utils";
@@ -22,6 +25,9 @@ const WorkWebMcpTools = lazy(() =>
 export function WorkShell() {
 	const { apps } = useWorkApps();
 	const navigate = useNavigate();
+	const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
+		null,
+	);
 	const [remaining, setRemaining] = useState<number | null>(null);
 	const deckApp = apps.find((app) => app.role === "deck");
 	const config = DecisionDeckConfigSchema.safeParse(deckApp?.manifest.config);
@@ -65,50 +71,59 @@ export function WorkShell() {
 		return () => document.removeEventListener("keydown", jump);
 	}, [hasToday, feed, navigate]);
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<Suspense fallback={null}>
-				<WorkWebMcpTools />
-			</Suspense>
-			<DeckRemainingContext.Provider value={setRemaining}>
-				<Outlet />
-			</DeckRemainingContext.Provider>
-			<nav
-				data-slot="bottom-nav"
-				aria-label={OS_COPY.workHome.views}
-				className="sticky bottom-0 z-20 mt-auto flex shrink-0 border-kumo-line border-t bg-kumo-base pb-[env(safe-area-inset-bottom)] sm:order-first sm:static sm:mt-0 sm:justify-center sm:gap-4 sm:border-t-0 sm:py-2"
-			>
-				<Link
-					to="/work"
-					search={{ view: "feed" }}
-					aria-current={feed ? "page" : undefined}
-					className={cn(
-						"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
-						feed && "font-semibold border-b-2 border-current text-kumo-default",
+		<WorkToolbarTargetContext.Provider value={toolbarTarget}>
+			<div className="fd-work-shell flex min-h-0 flex-1 flex-col">
+				<Suspense fallback={null}>
+					<WorkWebMcpTools />
+				</Suspense>
+				<DeckRemainingContext.Provider value={setRemaining}>
+					<Outlet />
+				</DeckRemainingContext.Provider>
+				<div className="fd-work-bar">
+					<nav
+						data-slot="bottom-nav"
+						aria-label={OS_COPY.workHome.views}
+						className="fd-work-navigation sticky bottom-0"
+					>
+						<Link
+							to="/work"
+							search={{ view: "feed" }}
+							aria-current={feed ? "page" : undefined}
+							className={cn(
+								"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
+								feed &&
+									"font-semibold border-b-2 border-current text-kumo-default",
+							)}
+						>
+							{OS_COPY.workHome.feed}
+						</Link>
+						<Link
+							to="/work"
+							search={{ view: "deck" }}
+							aria-current={deck ? "page" : undefined}
+							className={cn(
+								"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
+								deck &&
+									"font-semibold border-b-2 border-current text-kumo-default",
+							)}
+						>
+							{OS_COPY.workHome.deck}
+							{config.success && (
+								<span className="text-xs tabular-nums text-kumo-subtle">
+									{decisions.failed
+										? "—"
+										: decisions.pending
+											? "…"
+											: ((deck ? remaining : null) ?? decisions.count)}
+								</span>
+							)}
+						</Link>
+					</nav>
+					{(feed || deck) && (
+						<div ref={setToolbarTarget} className="fd-work-toolbar-slot" />
 					)}
-				>
-					{OS_COPY.workHome.feed}
-				</Link>
-				<Link
-					to="/work"
-					search={{ view: "deck" }}
-					aria-current={deck ? "page" : undefined}
-					className={cn(
-						"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
-						deck && "font-semibold border-b-2 border-current text-kumo-default",
-					)}
-				>
-					{OS_COPY.workHome.deck}
-					{config.success && (
-						<span className="text-xs tabular-nums text-kumo-subtle">
-							{decisions.failed
-								? "—"
-								: decisions.pending
-									? "…"
-									: ((deck ? remaining : null) ?? decisions.count)}
-						</span>
-					)}
-				</Link>
-			</nav>
-		</div>
+				</div>
+			</div>
+		</WorkToolbarTargetContext.Provider>
 	);
 }

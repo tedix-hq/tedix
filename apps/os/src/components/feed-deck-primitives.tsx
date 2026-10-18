@@ -39,7 +39,7 @@ export function FeedDeckDisclosure({
 	if (rail)
 		return (
 			<DecisionContextSection
-				sectionId={className === "fd-action-details" ? "choices" : undefined}
+				sectionId={className === "fd-deck-learning" ? "style" : "details"}
 				title={
 					className === "fd-action-details" ? (
 						(label ?? title)
@@ -50,9 +50,7 @@ export function FeedDeckDisclosure({
 						</>
 					)
 				}
-				trigger={
-					className !== "fd-action-details" && className !== "fd-deck-learning"
-				}
+				defaultOpen
 			>
 				{children}
 			</DecisionContextSection>
@@ -188,11 +186,13 @@ export function RichPreview({
 export function DeckClosure({
 	summary,
 	detail,
+	onHistory,
 }: {
 	title?: string;
 	summary?: ReactNode;
 	detail?: ReactNode;
 	streak?: ReactNode;
+	onHistory?: () => void;
 }) {
 	const rail = useContext(DecisionRailContext);
 	return (
@@ -221,13 +221,14 @@ export function DeckClosure({
 					detail || OS_COPY.feedDeckVisual.nothingWaiting
 				)}
 			</Text>
-			{rail ? (
+			{rail || onHistory ? (
 				<Link
 					href="#decision-history"
 					variant="plain"
 					onClick={(event) => {
 						event.preventDefault();
-						rail.openSection("history");
+						if (onHistory) onHistory();
+						else rail?.openSection("history");
 					}}
 				>
 					{OS_COPY.feedDeckVisual.decisionHistory}

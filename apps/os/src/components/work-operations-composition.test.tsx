@@ -122,8 +122,8 @@ async function mount(element: ReactNode) {
 			candidate.textContent?.trim().startsWith(label),
 		);
 		if (!labelElement) {
-			const input = host.querySelector<HTMLInputElement>(
-				`input[aria-label="${label}"]`,
+			const input = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+				`input[aria-label="${label}"],textarea[aria-label="${label}"]`,
 			);
 			if (input) return input;
 			throw new Error(`no field labelled ${label}`);
@@ -577,7 +577,7 @@ describe("External action requests", () => {
 		);
 		expect(page.host.textContent).not.toContain("Open sign-in");
 		expect(
-			page.host.querySelector('input[aria-label="Your answer"]'),
+			page.host.querySelector('textarea[aria-label="Your answer"]'),
 		).not.toBeNull();
 	});
 	it.each([
@@ -596,7 +596,7 @@ describe("External action requests", () => {
 			if (state !== "open")
 				expect(page.host.textContent).toContain("Request closed");
 			expect(
-				page.host.querySelector('input[aria-label="Your answer"]'),
+				page.host.querySelector('textarea[aria-label="Your answer"]'),
 			).toBeNull();
 		},
 	);
