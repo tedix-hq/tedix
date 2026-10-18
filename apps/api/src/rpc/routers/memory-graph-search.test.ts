@@ -17,15 +17,12 @@ const mocks = vi.hoisted(() => ({
 	topic: vi.fn(),
 	count: vi.fn(),
 }));
-vi.mock(
-	"../../integrations/cloudflare/agent-memory",
-	async (importOriginal) => ({
-		...(await importOriginal<
-			typeof import("../../integrations/cloudflare/agent-memory")
-		>()),
-		recallCanonicalMemoryCandidates: mocks.recall,
-	}),
-);
+vi.mock("@tedix/db/queries/memory-graph/hybrid-recall", () => ({
+	hydrateRecall: mocks.hydrate,
+}));
+vi.mock("../../services/memory-hybrid-recall", () => ({
+	recallMemoryFacts: mocks.recall,
+}));
 vi.mock(
 	"@tedix/db/queries/memory-graph/fact-search",
 	async (importOriginal) => ({
@@ -87,8 +84,8 @@ describe("governed memory search", () => {
 		expect(result.results).toEqual([]);
 		expect(mocks.inventory).not.toHaveBeenCalled();
 		const logs = JSON.stringify(vi.mocked(console.log).mock.calls);
-		expect(logs).toContain("agent_memory");
-		expect(logs).toContain("agentMemoryMs");
+		expect(logs).toContain("hybrid");
+		expect(logs).toContain("hybridMs");
 		expect(logs).toContain("empty");
 		expect(logs).not.toContain("private question text");
 	});

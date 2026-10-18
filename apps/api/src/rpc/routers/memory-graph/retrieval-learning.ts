@@ -23,6 +23,12 @@ import {
 	resetCollapsedConfidence,
 } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import { assembleContext } from "../../../services/memory-graph-context-assembly";
+import {
+	recallMemoryFacts,
+	type HybridRecallResult,
+	type RecallProvenance,
+} from "../../../services/memory-hybrid-recall";
+import { hydrateRecall } from "@tedix/db/queries/memory-graph/hybrid-recall";
 import { auditMemoryGraph } from "@tedix/db/queries/memory-audit";
 import {
 	buildBrainWriteQualityEnvelope,
@@ -67,7 +73,6 @@ import {
 	authed,
 	cheapHash,
 	deriveTopicKey,
-	getContextAssemblyGraphClient,
 	getHeader,
 	logMemorySearch,
 	measureSearchPhase,
@@ -80,7 +85,6 @@ import {
 	agentMemoryProjectionProfileNames,
 	deleteCanonicalMemoryProjection,
 	reconcileCanonicalMemoryProjection,
-	recallCanonicalMemoryCandidates,
 } from "../../../integrations/cloudflare/agent-memory";
 
 // `totalFacts` on a search result is informational, but counting it reads every
@@ -168,9 +172,16 @@ const search = authed.search
 			domainId = d.id;
 		}
 
-		// Agent Memory supplies candidate IDs only. D1 remains authoritative for
-		// tenant ownership, lifecycle, visibility, confidence, and returned text.
-		let results: Array<{ factId: string; score: number }> = [];
+		const totalPromise = measureSearchPhase(timings, "countFactsMs", () =>
+			recentFactCount(context.db, orgId),
+		);
+		void totalPromise.catch(() => undefined);
+		let results: Array<{
+			factId: string;
+			score: number;
+			provenance?: RecallProvenance;
+		}> = [];
+		let hybridResults: HybridRecallResult[] | undefined;
 		let retrievalBackend = "d1_topic";
 		let recallOutcome = "matched";
 		if (topicKey) {
@@ -180,42 +191,51 @@ const search = authed.search
 			results = topicFacts.map((fact) => ({ factId: fact.id, score: 1 }));
 		}
 		if (results.length === 0 && query) {
-			retrievalBackend = "agent_memory";
+			retrievalBackend = "hybrid";
 			try {
-				results = await measureSearchPhase(timings, "agentMemoryMs", () =>
-					recallCanonicalMemoryCandidates(context.env.AGENT_MEMORY, {
+				hybridResults = await measureSearchPhase(timings, "hybridMs", () =>
+					recallMemoryFacts(context.db, {
 						orgId,
 						tediId,
 						query,
-						limit: Math.max(requestedTopK * 2, requestedTopK),
+						domainIds: domainId ? [domainId] : undefined,
+						factTypes: factType ? [factType] : undefined,
+						minConfidence,
+						includeGraphAnchors,
+						topK: requestedTopK,
+						env: context.env,
 					}),
 				);
+				results = hybridResults;
 				recallOutcome = results.length > 0 ? "matched" : "empty";
 			} catch (error) {
 				recallOutcome = "error";
-				console.error("[memory.search] Agent Memory recall failed", {
+				console.error("[memory.search] Hybrid recall failed", {
 					orgId,
 					tediId: tediId ?? null,
 					error: error instanceof Error ? error.message : String(error),
 				});
 			}
 		}
-		// Empty or failed semantic recall stays empty. A confidence-ranked D1
-		// inventory is not a query match and must not masquerade as relevant memory.
+		// Hybrid results have already been hydrated and canonically filtered.
 		const candidateLimit = Math.min(
 			results.length,
 			Math.max(requestedTopK * 2, requestedTopK),
 		);
 		const candidateResults = results.slice(0, candidateLimit);
-		const facts = await measureSearchPhase(timings, "hydrateFactsMs", () =>
-			getFactsByIds(
-				context.db,
-				candidateResults.map((r) => r.factId),
-				{
-					includeGraphAnchors,
-				},
-			),
-		);
+		const facts =
+			hybridResults?.map((result) => result.fact) ??
+			(await measureSearchPhase(timings, "hydrateFactsMs", () =>
+				hydrateRecall(
+					context.db,
+					{
+						orgId,
+						tediId,
+						includeGraphAnchors,
+					},
+					candidateResults.map((r) => r.factId),
+				),
+			));
 		const factById = new Map(facts.map((fact) => [fact.id, fact]));
 		const hydratedResults = candidateResults
 			.map((r) => {
@@ -236,6 +256,7 @@ const search = authed.search
 				return {
 					factId: r.factId,
 					score: r.score,
+					provenance: r.provenance,
 					fact,
 				};
 			})
@@ -249,6 +270,29 @@ const search = authed.search
 					),
 				)
 			: undefined;
+		if (relatedFactsByFactId) {
+			const relatedIds = [
+				...new Set(
+					[...relatedFactsByFactId.values()].flatMap((rows) =>
+						rows.map((fact) => fact.id),
+					),
+				),
+			];
+			const eligibleRelated = new Set(
+				(
+					await hydrateRecall(
+						context.db,
+						{ orgId, tediId, includeGraphAnchors },
+						relatedIds,
+					)
+				).map((fact) => fact.id),
+			);
+			for (const [factId, rows] of relatedFactsByFactId)
+				relatedFactsByFactId.set(
+					factId,
+					rows.filter((fact) => eligibleRelated.has(fact.id)),
+				);
+		}
 		const searchResults = hydratedResults.map((result) => {
 			const relatedFacts = relatedFactsByFactId?.get(result.factId);
 			return {
@@ -266,9 +310,7 @@ const search = authed.search
 				boostConfidence(context.db, [result.factId], 1.05),
 			]),
 		);
-		const total = await measureSearchPhase(timings, "countFactsMs", () =>
-			recentFactCount(context.db, orgId),
-		);
+		const total = await totalPromise;
 		logMemorySearch(context, "complete", {
 			traceId,
 			totalMs: Date.now() - searchStartedAt,
@@ -329,6 +371,7 @@ const search = authed.search
 			results: searchResults,
 			totalFacts: total,
 			query,
+			retrievalMs: Date.now() - searchStartedAt,
 		};
 	});
 
@@ -1072,19 +1115,15 @@ export const assemble = authed.assemble
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const graphClient = await getContextAssemblyGraphClient(context);
-		return assembleContext(
-			context.db,
-			{
-				query: input.query,
-				orgId,
-				tediId: input.tediId,
-				maxTokens: input.maxTokens,
-				domains: input.domains,
-				factTypes: input.factTypes,
-			},
-			graphClient,
-		);
+		return assembleContext(context.db, {
+			query: input.query,
+			orgId,
+			tediId: input.tediId,
+			maxTokens: input.maxTokens,
+			domains: input.domains,
+			factTypes: input.factTypes,
+			env: context.env,
+		});
 	});
 
 // =============================================================================

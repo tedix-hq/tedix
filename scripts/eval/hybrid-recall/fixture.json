@@ -1,0 +1,521 @@
+{
+	"now": "2026-10-18T12:00:00.000Z",
+	"facts": [
+		{
+			"id": "p0-0",
+			"content": "Cobalt stores audit events in SQLite.",
+			"confidence": 0.72,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p0-1",
+			"content": "Cobalt data residency is Dublin.",
+			"confidence": 0.74,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p0-2",
+			"content": "Mira owns Cobalt incident response.",
+			"confidence": 0.7,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p0-3",
+			"content": "The signed delivery deadline is 30 November.",
+			"confidence": 0.92,
+			"validFrom": "2026-09-02"
+		},
+		{
+			"id": "p0-4",
+			"content": "Cobalt rotated its signing certificate successfully.",
+			"confidence": 0.65,
+			"validFrom": "2026-10-17"
+		},
+		{
+			"id": "p0-5",
+			"content": "Cobalt project audit stores response incident residency information overview.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p0-6",
+			"content": "Cobalt audit events stores are discussed in the architecture handbook, but this page has no configuration.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p0-7",
+			"content": "Cobalt incident response ownership is pending a handbook review.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p0-8",
+			"content": "Cobalt data residency information must be verified before provisioning.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p0-9",
+			"content": "Cobalt release checklist and service inventory are reviewed monthly.",
+			"confidence": 0.95,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-0",
+			"content": "Amber stores audit events in Postgres.",
+			"confidence": 0.72,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-1",
+			"content": "Amber data residency is Oslo.",
+			"confidence": 0.74,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-2",
+			"content": "Jules owns Amber incident response.",
+			"confidence": 0.7,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-3",
+			"content": "The signed delivery deadline is 30 November.",
+			"confidence": 0.92,
+			"validFrom": "2026-09-02"
+		},
+		{
+			"id": "p1-4",
+			"content": "Amber rotated its signing certificate successfully.",
+			"confidence": 0.65,
+			"validFrom": "2026-10-17"
+		},
+		{
+			"id": "p1-5",
+			"content": "Amber project audit stores response incident residency information overview.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-6",
+			"content": "Amber audit events stores are discussed in the architecture handbook, but this page has no configuration.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-7",
+			"content": "Amber incident response ownership is pending a handbook review.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-8",
+			"content": "Amber data residency information must be verified before provisioning.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p1-9",
+			"content": "Amber release checklist and service inventory are reviewed monthly.",
+			"confidence": 0.95,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-0",
+			"content": "Juniper stores audit events in Redis.",
+			"confidence": 0.72,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-1",
+			"content": "Juniper data residency is Paris.",
+			"confidence": 0.74,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-2",
+			"content": "Nora owns Juniper incident response.",
+			"confidence": 0.7,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-3",
+			"content": "The signed delivery deadline is 30 November.",
+			"confidence": 0.92,
+			"validFrom": "2026-09-02"
+		},
+		{
+			"id": "p2-4",
+			"content": "Juniper rotated its signing certificate successfully.",
+			"confidence": 0.65,
+			"validFrom": "2026-10-17"
+		},
+		{
+			"id": "p2-5",
+			"content": "Juniper project audit stores response incident residency information overview.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-6",
+			"content": "Juniper audit events stores are discussed in the architecture handbook, but this page has no configuration.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-7",
+			"content": "Juniper incident response ownership is pending a handbook review.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-8",
+			"content": "Juniper data residency information must be verified before provisioning.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p2-9",
+			"content": "Juniper release checklist and service inventory are reviewed monthly.",
+			"confidence": 0.95,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-0",
+			"content": "Kestrel stores audit events in DynamoDB.",
+			"confidence": 0.72,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-1",
+			"content": "Kestrel data residency is Rome.",
+			"confidence": 0.74,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-2",
+			"content": "Ivo owns Kestrel incident response.",
+			"confidence": 0.7,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-3",
+			"content": "The signed delivery deadline is 30 November.",
+			"confidence": 0.92,
+			"validFrom": "2026-09-02"
+		},
+		{
+			"id": "p3-4",
+			"content": "Kestrel rotated its signing certificate successfully.",
+			"confidence": 0.65,
+			"validFrom": "2026-10-17"
+		},
+		{
+			"id": "p3-5",
+			"content": "Kestrel project audit stores response incident residency information overview.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-6",
+			"content": "Kestrel audit events stores are discussed in the architecture handbook, but this page has no configuration.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-7",
+			"content": "Kestrel incident response ownership is pending a handbook review.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-8",
+			"content": "Kestrel data residency information must be verified before provisioning.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p3-9",
+			"content": "Kestrel release checklist and service inventory are reviewed monthly.",
+			"confidence": 0.95,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-0",
+			"content": "Orchid stores audit events in DuckDB.",
+			"confidence": 0.72,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-1",
+			"content": "Orchid data residency is Vienna.",
+			"confidence": 0.74,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-2",
+			"content": "Lena owns Orchid incident response.",
+			"confidence": 0.7,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-3",
+			"content": "The signed delivery deadline is 30 November.",
+			"confidence": 0.92,
+			"validFrom": "2026-09-02"
+		},
+		{
+			"id": "p4-4",
+			"content": "Orchid rotated its signing certificate successfully.",
+			"confidence": 0.65,
+			"validFrom": "2026-10-17"
+		},
+		{
+			"id": "p4-5",
+			"content": "Orchid project audit stores response incident residency information overview.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-6",
+			"content": "Orchid audit events stores are discussed in the architecture handbook, but this page has no configuration.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-7",
+			"content": "Orchid incident response ownership is pending a handbook review.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-8",
+			"content": "Orchid data residency information must be verified before provisioning.",
+			"confidence": 0.99,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "p4-9",
+			"content": "Orchid release checklist and service inventory are reviewed monthly.",
+			"confidence": 0.95,
+			"validFrom": "2026-09-01"
+		},
+		{
+			"id": "d0",
+			"content": "General onboarding checklist for new employees.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d1",
+			"content": "The cafeteria opens at eight.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d2",
+			"content": "Travel reimbursements require a receipt.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d3",
+			"content": "Quarterly planning uses a shared calendar.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d4",
+			"content": "Security training is mandatory each year.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d5",
+			"content": "Design feedback belongs in the review document.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d6",
+			"content": "Support hours run from nine to five.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d7",
+			"content": "Hardware inventory is tracked by serial number.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d8",
+			"content": "The sandbox resets every weekend.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		},
+		{
+			"id": "d9",
+			"content": "Recruiting interviews need two reviewers.",
+			"confidence": 0.99,
+			"validFrom": "2026-08-01"
+		}
+	],
+	"queries": [
+		{
+			"query": "Which database stores Cobalt audit events?",
+			"expected": ["p0-0"]
+		},
+		{
+			"query": "Where is Cobalt data residency?",
+			"expected": ["p0-1"]
+		},
+		{
+			"query": "Who owns Cobalt incident response?",
+			"expected": ["p0-2"]
+		},
+		{
+			"query": "Cobalt delivery deadline",
+			"expected": ["p0-3"]
+		},
+		{
+			"query": "What changed for Cobalt yesterday?",
+			"expected": ["p0-4"]
+		},
+		{
+			"query": "Which database stores Amber audit events?",
+			"expected": ["p1-0"]
+		},
+		{
+			"query": "Where is Amber data residency?",
+			"expected": ["p1-1"]
+		},
+		{
+			"query": "Who owns Amber incident response?",
+			"expected": ["p1-2"]
+		},
+		{
+			"query": "Amber delivery deadline",
+			"expected": ["p1-3"]
+		},
+		{
+			"query": "What changed for Amber yesterday?",
+			"expected": ["p1-4"]
+		},
+		{
+			"query": "Which database stores Juniper audit events?",
+			"expected": ["p2-0"]
+		},
+		{
+			"query": "Where is Juniper data residency?",
+			"expected": ["p2-1"]
+		},
+		{
+			"query": "Who owns Juniper incident response?",
+			"expected": ["p2-2"]
+		},
+		{
+			"query": "Juniper delivery deadline",
+			"expected": ["p2-3"]
+		},
+		{
+			"query": "What changed for Juniper yesterday?",
+			"expected": ["p2-4"]
+		},
+		{
+			"query": "Which database stores Kestrel audit events?",
+			"expected": ["p3-0"]
+		},
+		{
+			"query": "Where is Kestrel data residency?",
+			"expected": ["p3-1"]
+		},
+		{
+			"query": "Who owns Kestrel incident response?",
+			"expected": ["p3-2"]
+		},
+		{
+			"query": "Kestrel delivery deadline",
+			"expected": ["p3-3"]
+		},
+		{
+			"query": "What changed for Kestrel yesterday?",
+			"expected": ["p3-4"]
+		},
+		{
+			"query": "Which database stores Orchid audit events?",
+			"expected": ["p4-0"]
+		},
+		{
+			"query": "Where is Orchid data residency?",
+			"expected": ["p4-1"]
+		},
+		{
+			"query": "Who owns Orchid incident response?",
+			"expected": ["p4-2"]
+		},
+		{
+			"query": "Orchid delivery deadline",
+			"expected": ["p4-3"]
+		},
+		{
+			"query": "What changed for Orchid yesterday?",
+			"expected": ["p4-4"]
+		}
+	],
+	"entities": [
+		{
+			"id": "e0",
+			"name": "Cobalt",
+			"factId": "p0-9"
+		},
+		{
+			"id": "e1",
+			"name": "Amber",
+			"factId": "p1-9"
+		},
+		{
+			"id": "e2",
+			"name": "Juniper",
+			"factId": "p2-9"
+		},
+		{
+			"id": "e3",
+			"name": "Kestrel",
+			"factId": "p3-9"
+		},
+		{
+			"id": "e4",
+			"name": "Orchid",
+			"factId": "p4-9"
+		}
+	],
+	"edges": [
+		{
+			"source": "p0-9",
+			"target": "p0-3",
+			"relation": "related_to"
+		},
+		{
+			"source": "p1-9",
+			"target": "p1-3",
+			"relation": "related_to"
+		},
+		{
+			"source": "p2-9",
+			"target": "p2-3",
+			"relation": "related_to"
+		},
+		{
+			"source": "p3-9",
+			"target": "p3-3",
+			"relation": "related_to"
+		},
+		{
+			"source": "p4-9",
+			"target": "p4-3",
+			"relation": "related_to"
+		}
+	]
+}

@@ -58,6 +58,7 @@
 		"./queries/memory-graph/expertise": "./src/queries/memory-graph/expertise.ts",
 		"./queries/memory-graph/fact-lifecycle": "./src/queries/memory-graph/fact-lifecycle.ts",
 		"./queries/memory-graph/fact-search": "./src/queries/memory-graph/fact-search.ts",
+		"./queries/memory-graph/hybrid-recall": "./src/queries/memory-graph/hybrid-recall.ts",
 		"./queries/memory-graph/facts": "./src/queries/memory-graph/facts.ts",
 		"./queries/memory-graph/gaps": "./src/queries/memory-graph/gaps.ts",
 		"./queries/memory-graph/health": "./src/queries/memory-graph/health.ts",

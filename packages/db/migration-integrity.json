@@ -932,6 +932,10 @@
 		{
 			"name": "20261018132421_decision_card_presentations/migration.sql",
 			"sha256": "4633b7de321843f0b0b0cfac9456b4c8870a8bb317183fe2d94c91c5c340ee9c"
+		},
+		{
+			"name": "20261018155133_memory-fact-hybrid-recall/migration.sql",
+			"sha256": "c5bbf67a5760e98d1a498b9ae5eb0445db77a33964acc2f45ac9dfb1805acb17"
 		}
 	]
 }
