@@ -78,3 +78,36 @@ test("the local holdout uses the server's exact stable assignment", async () => 
 	expect(selected.selectedLessonIds.length).toBeGreaterThan(0);
 	if (selected.holdout) expect(selected.lessons).toEqual([]);
 });
+
+test("numbered identifiers distinguish lessons within the same topic", async () => {
+	const lessons = [0, 1, 10, 19, 29].map((n) => ({
+		...fixtureLessons[0]!,
+		id: `lantern-${n}`,
+		text: `Lantern-${n} releases require violet-channel-${n} and a signed receipt.`,
+	}));
+	for (const n of [0, 1, 10, 19, 29]) {
+		const selected = await selectPromptLessons(lessons, {
+			prompt: `Prepare Lantern-${n} release with violet-channel-${n}.`,
+			limit: 1,
+		});
+		expect(selected.selectedLessonIds).toEqual([`lantern-${n}`]);
+	}
+});
+
+test("short alphanumeric terms survive without matching bare numeric suffixes", async () => {
+	const lessons = [
+		{ ...fixtureLessons[0]!, id: "other", text: "Lantern-7 release receipt" },
+		{ ...fixtureLessons[0]!, id: "target", text: "Beacon-7 release receipt" },
+		{ ...fixtureLessons[0]!, id: "d1", text: "D1 database writes" },
+		{ ...fixtureLessons[0]!, id: "d2", text: "D2 database writes" },
+	];
+	for (const [prompt, expected] of [
+		["Beacon-7 release", "target"],
+		["D2 database", "d2"],
+	]) {
+		expect(
+			(await selectPromptLessons(lessons, { prompt, limit: 1 }))
+				.selectedLessonIds,
+		).toEqual([expected!]);
+	}
+});

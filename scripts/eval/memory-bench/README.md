@@ -17,7 +17,9 @@ production modules and records the full source SHA and fixture hash.
   eligibility and selection run before and after ten sources are invalidated.
   Precision@3 divides relevant hits by three (one relevant lesson per prompt;
   maximum 1/3). Block size is UTF-8 bytes of the rendered hook with the selected
-  lessons.
+  lessons. JSON also reports top-1 accuracy and server-only P@3/top-1, and names
+  the selector used. Numbered prompts mean `Lantern-0` through `Lantern-19`,
+  with matching `violet-channel-N` identifiers; all lessons share one topic.
 - Freshness: eight simulated gateway reads across two organizations/repos,
   with deliberately over-returning tool doubles. The actual gateway program
   and renderer must exclude another session/project and fulfilled Work whose
@@ -33,9 +35,22 @@ The backend calls production `assembleContext` and the production lesson query
 through the shared D1 facade. Direct lexical/graph/temporal probes stop the run
 on schema errors that production retrieval deliberately handles softly.
 Optional local prompt selection is loaded when
-present in the measured revision, matching the hook's catalog/rank flow. There
+present in the measured revision, using the production API's full catalog
+before local ranking, as the hook does. Historical proof used the server's
+byte-trimmed selection as the catalog; all ten eligible lessons per org fit
+the budget in fixture B, so that mismatch did not cause its 15% result. There
 are no remote semantic/reranker calls; timings measure in-process local
 work only. Distillation output is seeded, so extraction quality is unmeasured.
+
+The four-topic `lesson-ranking-evaluation.test.ts` is a smoke test: each prompt
+repeats distinctive words from a different topic. Its 1/4 server to 4/4 local
+top-1 result does not establish within-topic identifier discrimination or real
+correction rates (its correction events are synthetic). Keep both fixtures.
+The smallest Cloud quality follow-up is a fixed set of 20 human-labelled,
+paraphrased queries against one authorized fictional corpus: run the same
+queries with local retrieval and with live semantic retrieval/reranking, record
+top-5 IDs, recall/MRR, provenance, fallback status and latency, and verify that
+the remote arms actually ran. Do not equate this offline result with that test.
 
 Hindsight's current checkout moved LongMemEval into
 [AMB](https://github.com/vectorize-io/agent-memory-benchmark); see its
