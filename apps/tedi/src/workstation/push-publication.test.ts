@@ -409,8 +409,52 @@ describe("receipt parsing", () => {
 	});
 	it("classifies submitted push text without parsing the shell program", () => {
 		expect(commandMayPush("printf done")).toBe(false);
+		expect(commandMayPush("bun run push")).toBe(true);
+		expect(commandMayPush("bun run push; printf done")).toBe(true);
+		expect(commandMayPush("bun run push:preview")).toBe(false);
+		expect(commandMayPush("bun run push-worker")).toBe(false);
+		expect(commandMayPush("bun run build")).toBe(false);
 		expect(commandMayPush("git -C repo push origin feature")).toBe(true);
 		expect(commandMayPush("g'it' p\"ush\" origin feature")).toBe(true);
+	});
+	it("observes publication through the declared Bun push script", async () => {
+		const f = fixture(),
+			sha = f.commit();
+		writeFileSync(
+			join(f.repo, "package.json"),
+			JSON.stringify({
+				scripts: { push: "git push origin HEAD:refs/heads/bun-script" },
+			}),
+		);
+		const result = await f.run("bun run push");
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.proof).toMatchObject({
+			status: "pushed",
+			observations: [
+				{
+					sourceSha: sha,
+					observedSha: sha,
+					ref: "refs/heads/bun-script",
+					status: "observed",
+				},
+			],
+		});
+	});
+	it("keeps forbidden push options guarded inside a Bun script", async () => {
+		const f = fixture();
+		f.commit();
+		writeFileSync(
+			join(f.repo, "package.json"),
+			JSON.stringify({
+				scripts: {
+					push: "git push --force origin HEAD:refs/heads/bun-forbidden",
+				},
+			}),
+		);
+		const result = await f.run("bun run push");
+		expect(result.status).not.toBe(0);
+		expect(result.stdout).toContain("TEDIX_PUSH_GUARD=forbidden_");
+		expect(f.git("ls-remote", "origin", "refs/heads/bun-forbidden")).toBe("");
 	});
 	it("reports visible push text that executes no push as not applicable", async () => {
 		const f = fixture();

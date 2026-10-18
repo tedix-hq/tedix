@@ -206,12 +206,15 @@ exit "$push_status"
  * A push must be visible in the submitted command before the workstation will
  * permit the real Git process to publish. This deliberately broad check can
  * classify quoted text as a push; the in-container wrapper then observes that
- * no Git push occurred. Runtime-expanded or generated push commands fail
- * closed instead of asking the edge Worker to interpret shell programs.
+ * no Git push occurred. The declared Bun push script is observed the same way;
+ * other runtime-expanded commands fail closed instead of interpreting scripts.
  */
 export function commandMayPush(command: string): boolean {
 	const literal = command.replace(/[\\'"`]/g, "");
-	return /\bgit\b[\s\S]*\bpush\b/i.test(literal);
+	return (
+		/\bgit\b[\s\S]*\bpush\b/i.test(literal) ||
+		/\bbun\s+run\s+push(?:\s|$|[;&|])/i.test(literal)
+	);
 }
 
 function gitWrapperScript(directory: string, allowPush: boolean): string {
