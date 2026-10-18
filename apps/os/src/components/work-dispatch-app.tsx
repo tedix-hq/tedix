@@ -59,6 +59,31 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 	const viewer = useQuery(userProfileQueryOptions());
 	const parsed = WorkExecutorSchema.safeParse(item.metadata?.executor);
 	const executor = parsed.success ? parsed.data : "human";
+	const localExecutor = executor === "codex" || executor === "claude-code";
+	const attempts = useQuery({
+		...osQuery.workItems.listAttempts.queryOptions({
+			input: { id: item.id, limit: 1 },
+		}),
+		enabled: localExecutor,
+		refetchInterval: localExecutor ? 10_000 : false,
+	});
+	const latest = attempts.data?.data[0];
+	const active =
+		latest &&
+		["queued", "running", "waiting", "retrying"].includes(latest.runtimeState);
+	const start = useMutation({
+		mutationFn: () =>
+			osApi.workItems.updateSpecification({
+				id: item.id,
+				expectedWorkItemVersion: item.version,
+				executor,
+				laneDispatch: { state: "ready" },
+			}),
+		onSuccess: () =>
+			client.invalidateQueries({
+				queryKey: osQuery.workItems.key({ type: "query" }),
+			}),
+	});
 	const update = useMutation({
 		mutationFn: (value: WorkExecutor) =>
 			osApi.workItems.updateSpecification({
@@ -83,6 +108,52 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 				onChange={(value) => update.mutate(value)}
 				disabled={!editable || update.isPending}
 			/>
+			{localExecutor ? (
+				<>
+					<Text tone="secondary">
+						The task description is the session brief. A connected Mac starts
+						the session when it has capacity.
+					</Text>
+					{item.disposition === "accepted" && editable ? (
+						<Button
+							disabled={
+								start.isPending ||
+								update.isPending ||
+								attempts.isPending ||
+								attempts.isError ||
+								Boolean(active)
+							}
+							onClick={() => start.mutate()}
+						>
+							Start session
+						</Button>
+					) : null}
+					{latest ? (
+						<Text tone="secondary">
+							Attempt {latest.id.slice(0, 8)} · {latest.runtimeState}
+							{latest.outcome ? ` · ${latest.outcome}` : ""}
+							{latest.heartbeatAt
+								? ` · Last update ${new Date(latest.heartbeatAt).toLocaleString()}`
+								: ""}
+						</Text>
+					) : item.metadata?.laneDispatch &&
+					  typeof item.metadata.laneDispatch === "object" &&
+					  "state" in item.metadata.laneDispatch &&
+					  item.metadata.laneDispatch.state === "ready" ? (
+						<Text tone="secondary">Waiting for a connected Mac.</Text>
+					) : null}
+					{attempts.isError ? (
+						<Text tone="error">
+							Session status is unavailable. Refresh to retry.
+						</Text>
+					) : null}
+					{start.isError ? (
+						<Text tone="error">
+							Could not start the session. Refresh and retry.
+						</Text>
+					) : null}
+				</>
+			) : null}
 			{update.isError ? (
 				<Text tone="error">
 					Could not save the executor. Refresh and retry.
@@ -173,8 +244,8 @@ export function WorkDispatchApp({ projectId }: { projectId: string }) {
 					Post task
 				</Button>
 				<Text tone="secondary">
-					Accept a posted task to make it available to its executor. Codex runs
-					when a connected dispatcher has capacity.
+					Accept a posted task to make it available to its executor. Codex and
+					Claude Code start when a connected Mac has capacity.
 				</Text>
 				{create.isError ? (
 					<Text tone="error">
