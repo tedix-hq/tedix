@@ -12,6 +12,7 @@ import {
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { describe, it, expect, vi, onTestFinished } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import { osOutputProcedures } from "./os-workspace-outputs";
 import {
 	requestFileUpload,
 	confirmFileUpload,
@@ -202,6 +203,17 @@ describe("workspace file uploads", () => {
 			.prepare("SELECT content FROM os_output_revisions")
 			.get()?.content;
 		expect(JSON.parse(String(content)).file.resourceId).toBe(ticket.resourceId);
+		const output = await createRouterClient(osOutputProcedures.get, {
+			context: f.context(),
+		})({ outputId: first.outputId });
+		expect(output.currentRevision.content).toMatchObject({
+			kind: "document",
+			file: { workspaceId: W, resourceId: ticket.resourceId },
+		});
+		expect(output.currentRevision.accessEnvelope).toEqual({
+			version: 1,
+			sources: [],
+		});
 		const file = await f.get({ workspaceId: W, resourceId: ticket.resourceId });
 		const url = new URL(file.url.replace(/^\/api/, ""), f.env.API_URL);
 		const params = {
