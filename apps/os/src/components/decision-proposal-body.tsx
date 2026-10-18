@@ -23,7 +23,7 @@ export function DecisionProposalBody({ body }: { body: string }) {
 		return (
 			<div className="fd-proposal-body">
 				<p className="fd-proposal-preview">{preview}</p>
-				{body.length > 600 && (
+				{body.length > 0 && (
 					<DecisionContextSection title="Details" trigger>
 						<ChatMarkdown content={body} />
 					</DecisionContextSection>
@@ -117,12 +117,16 @@ export function DecisionProposalHeading({ title }: { title: string }) {
 
 /** Derive a bounded heading when an older request uses its full brief as title. */
 export function decisionProposalTitle(title: string): string {
+	const readable = title
+		.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, "the requested address")
+		.replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, "the linked record")
+		.replace(/\b[0-9a-f]{7,40}\b/gi, "the referenced revision");
 	const plain = markdownLineToPlainText(
-		title.replace(/https?:\/\/[^\s)<>]+/g, ""),
+		readable.replace(/https?:\/\/[^\s)<>]+/g, ""),
 	)
 		.replace(/\s+/g, " ")
 		.trim();
-	if (plain.length <= 90) return title.length <= 90 ? title : plain;
+	if (plain.length <= 90) return readable.length <= 90 ? readable : plain;
 	if (
 		/\bpublish\b/i.test(plain) &&
 		/\bhome\b/i.test(plain) &&

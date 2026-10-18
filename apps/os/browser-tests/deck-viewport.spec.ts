@@ -61,6 +61,13 @@ try {
 				);
 			}, colorScheme);
 			async function check(stage: string) {
+				await page.evaluate(() =>
+					Promise.all(
+						document
+							.getAnimations()
+							.map((animation) => animation.finished.catch(() => {})),
+					),
+				);
 				await page.evaluate(
 					() =>
 						new Promise<void>((resolve) =>
@@ -82,8 +89,14 @@ try {
 					const bodyRect = body.getBoundingClientRect();
 					const failures: string[] = [];
 					const frame = card.closest(".fd-decision")!.getBoundingClientRect();
-					if (frame.bottom > card.getBoundingClientRect().bottom + 1)
-						failures.push("focus frame leaves empty space below card");
+					const why = card
+						.closest(".fd-decision")!
+						.querySelector(".fd-card-why");
+					const contentBottom =
+						why?.getBoundingClientRect().bottom ??
+						card.getBoundingClientRect().bottom;
+					if (frame.bottom > contentBottom + 1)
+						failures.push("focus frame leaves empty space below Why this");
 					const stack = card
 						.closest(".fd-decision-stack")!
 						.getBoundingClientRect();
@@ -171,7 +184,7 @@ try {
 				});
 				assert(result.actions.length === 3);
 				assert(
-					result.bodyHeight >= (height! < 700 ? 32 : 80),
+					result.bodyHeight >= 44,
 					`Proposal body collapsed: ${JSON.stringify(result)}`,
 				);
 				for (const rect of result.actions)
@@ -189,10 +202,14 @@ try {
 				);
 				assert(result.title.length <= 90 && result.font <= 36);
 				assert(
-					result.proposer.trim() === "Example Website Publishing Platform" &&
+					result.proposer.startsWith("Codex") &&
+						result.proposer.includes("Example Website Publishing Platform") &&
 						result.harness === "codex",
 				);
-				assert.equal(result.accent, "rgb(36, 99, 235)");
+				assert.equal(
+					result.accent,
+					colorScheme === "dark" ? "rgb(236, 183, 48)" : "rgb(154, 106, 5)",
+				);
 				assert.equal(
 					result.surface,
 					colorScheme === "dark" ? "rgb(30, 26, 47)" : "rgb(236, 236, 243)",

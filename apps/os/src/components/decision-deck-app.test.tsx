@@ -187,13 +187,13 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	for (const example of DECISION_DECK_EXAMPLES) {
 		expect(host.textContent).toContain(example.proposal);
 		expect(host.textContent).toContain("0/5 unchanged approvals");
-		await key("?");
+		await click("Why this");
 		expect(host.textContent).toContain(
 			"Prefer a bounded next step with evidence",
 		);
 		await key("j");
 	}
-	expect(host.textContent).toContain("Deck clear");
+	expect(host.textContent).toContain("All clear");
 	expect(host.textContent).toContain("0 left");
 	expect(host.querySelector(".fd-decision")).toBeNull();
 	expect(host.querySelector(".fd-closure")).not.toBeNull();
@@ -222,7 +222,7 @@ it("starts collapsed, opens Why in context, and remembers closure for this perso
 	await click("Try examples");
 	await act(async () => toggle().click());
 	expect(toggle().getAttribute("aria-expanded")).toBe("false");
-	await click("Why this?");
+	await click("Why this");
 	expect(toggle().getAttribute("aria-expanded")).toBe("true");
 	expect(
 		host.querySelector('.fd-context-rail [data-context-section="why"]')

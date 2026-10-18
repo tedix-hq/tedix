@@ -52,17 +52,14 @@ export function DecisionEnvelopeCard({
 					{decision.preview && (
 						<DecisionProposalBody body={decision.preview.body} />
 					)}
-					<Text className="fd-card-summary">
-						{
-							decision.options.find((option) => option.intent === "approve")
-								?.consequence
-						}
-					</Text>
+					{!decision.preview && (
+						<Text className="fd-card-summary">{decision.whyNow}</Text>
+					)}
 					<Text className="fd-recommendation">{decision.recommendation}</Text>
-					<Text>
-						{decision.whyNow} · {decision.costOfWaiting}
-					</Text>
-					<FeedDeckDisclosure title={OS_COPY.feedDeckVisual.context}>
+					{decision.blastRadius && (
+						<Text className="fd-stakes">If wrong: {decision.blastRadius}</Text>
+					)}
+					<FeedDeckDisclosure title={OS_COPY.feed.details}>
 						<Text>
 							<strong>{decisionText("Why now:")}</strong> {decision.whyNow}
 						</Text>

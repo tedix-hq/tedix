@@ -19,7 +19,6 @@ import {
 	PopoverTrigger,
 	PopoverContent,
 } from "@/components/kumo/popover";
-import { useOsIdentity } from "@/lib/use-os-identity";
 import { useTediNames } from "@/lib/use-tedi-names";
 import { feedStoryActor, timelineItems } from "@/lib/feed-story";
 import "./feed-timeline.css";
@@ -103,7 +102,6 @@ function ActivityFeedContent({
 	useOsLocale();
 	const copy = OS_COPY.feed;
 	const cache = useQueryClient();
-	const identity = useOsIdentity();
 	const tediNames = useTediNames();
 	const [sessionLearningId, setSessionLearningId] = useState<string | null>(
 		null,
@@ -129,7 +127,7 @@ function ActivityFeedContent({
 	const [request, setRequest] = useState(0);
 	const [localFilter, setFilter] = useState<Filter>("all");
 	const filter = navigation?.filter ?? localFilter;
-	const [expandedDigest, setExpandedDigest] = useState(false);
+	const [expandedDigest, setExpandedDigest] = useState<string[]>([]);
 	const [now, setNow] = useState(() => new Date());
 	const [status, setStatus] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -210,7 +208,15 @@ function ActivityFeedContent({
 					: item.importance === "high")),
 	);
 	const mainIds = new Set(main.map((i) => i.id));
-	const digest = selected.filter((i) => !mainIds.has(i.id));
+	const groups = new Map<string, typeof selected>();
+	for (const item of selected) {
+		const label = feedMoment(
+			item.at,
+			now,
+			preferences.data?.preferences.timezone,
+		);
+		groups.set(label, [...(groups.get(label) ?? []), item]);
+	}
 	const states = sourceIds.map((id) => sources[id]);
 	const loading =
 		visibleFactories.pending ||
@@ -353,7 +359,22 @@ function ActivityFeedContent({
 	}
 	useAppWebMcpTools(
 		"activity_feed",
-		{ items: expandedDigest ? selected : main, busy, react },
+		{
+			items: selected.filter(
+				(item) =>
+					mainIds.has(item.id) ||
+					(groups
+						.get(
+							feedMoment(item.at, now, preferences.data?.preferences.timezone),
+						)
+						?.filter((row) => !mainIds.has(row.id)).length ?? 0) < 4 ||
+					expandedDigest.includes(
+						feedMoment(item.at, now, preferences.data?.preferences.timezone),
+					),
+			),
+			busy,
+			react,
+		},
 		buildActivityFeedTools,
 		[],
 	);
@@ -406,21 +427,6 @@ function ActivityFeedContent({
 			<DecisionContextSection title="Feed filters and context">
 				{" "}
 				<header className="ft-header">
-					<div className="ft-greeting">
-						<Text as="h2" weight="medium">
-							{copy.greeting(
-								Number(
-									new Intl.DateTimeFormat("en", {
-										hour: "numeric",
-										hourCycle: "h23",
-										timeZone:
-											preferences.data?.preferences.timezone ?? undefined,
-									}).format(now),
-								),
-								identity.name.split(" ")[0]!,
-							)}
-						</Text>
-					</div>
 					<div className="ft-tools">
 						<Select
 							value={filter}
@@ -531,37 +537,37 @@ function ActivityFeedContent({
 				aria-busy={loading}
 				className="fd-timeline"
 			>
-				{main.map((item, i) => {
-					const label = feedMoment(
-						item.at,
-						now,
-						preferences.data?.preferences.timezone,
-					);
+				{[...groups].map(([label, items]) => {
+					const smaller = items.filter((item) => !mainIds.has(item.id));
+					const collapse = smaller.length >= 4;
+					const expanded = expandedDigest.includes(label);
 					return (
-						<Fragment key={item.id}>
-							{(i === 0 ||
-								label !==
-									feedMoment(
-										main[i - 1]!.at,
-										now,
-										preferences.data?.preferences.timezone,
-									)) && <FeedMomentHeader>{label}</FeedMomentHeader>}
-							{renderItem(item)}
+						<Fragment key={label}>
+							<FeedMomentHeader>{label}</FeedMomentHeader>
+							{items
+								.filter((item) => !collapse || mainIds.has(item.id))
+								.map(renderItem)}
+							{collapse && (
+								<div className="fd-quiet-updates">
+									<Button
+										variant="ghost"
+										aria-expanded={expanded}
+										onClick={() =>
+											setExpandedDigest((values) =>
+												expanded
+													? values.filter((value) => value !== label)
+													: [...values, label],
+											)
+										}
+									>
+										{copy.digest(smaller.length)}
+									</Button>
+								</div>
+							)}
+							{collapse && expanded && smaller.map(renderItem)}
 						</Fragment>
 					);
 				})}
-				{digest.length > 0 && (
-					<div className="fd-quiet-updates">
-						<Button
-							variant="ghost"
-							aria-expanded={expandedDigest}
-							onClick={() => setExpandedDigest((v) => !v)}
-						>
-							{copy.digest(digest.length)}
-						</Button>
-					</div>
-				)}
-				{expandedDigest && digest.map(renderItem)}
 			</div>
 			{loading && selected.length === 0 && (
 				<div role="status" aria-label={copy.loading} className="ft-loading">

@@ -82,6 +82,13 @@ try {
 				)
 					throw new Error(`Member Deck overflow at ${width}/${locale}`);
 				await page.locator("[data-decision-actions]").waitFor();
+				await page.evaluate(() =>
+					Promise.all(
+						document
+							.getAnimations()
+							.map((animation) => animation.finished.catch(() => {})),
+					),
+				);
 				const layout = await page.locator(".fd-card").evaluate((card) => {
 					const bounds = card.getBoundingClientRect();
 					const actions = card

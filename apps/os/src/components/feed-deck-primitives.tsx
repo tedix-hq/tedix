@@ -4,12 +4,7 @@ import {
 } from "@/components/decision-context-rail";
 import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
 import { createContext, useContext, type ReactNode } from "react";
-import {
-	CheckIcon,
-	FileTextIcon,
-	ArrowUpRightIcon,
-	CaretRightIcon,
-} from "@phosphor-icons/react";
+import { FileTextIcon, CaretRightIcon } from "@phosphor-icons/react";
 import {
 	WorkActorAvatar,
 	WorkActorDirectoryContext,
@@ -44,7 +39,16 @@ export function FeedDeckDisclosure({
 	if (rail)
 		return (
 			<DecisionContextSection
-				title={label ?? title}
+				title={
+					className === "fd-action-details" ? (
+						(label ?? title)
+					) : (
+						<>
+							<CaretRightIcon className="fd-details-chevron" size={12} />
+							{label ?? title}
+						</>
+					)
+				}
 				trigger={
 					className !== "fd-action-details" && className !== "fd-deck-learning"
 				}
@@ -88,7 +92,6 @@ export function ProposerChip({
 	const identity = actor ?? context.actor;
 	const directory = useContext(WorkActorDirectoryContext);
 	const resolved = resolveWorkActor(identity, name, directory);
-	const displayName = project ?? resolved.name;
 	return (
 		<div className="fd-proposer">
 			<WorkActorAvatar
@@ -99,10 +102,12 @@ export function ProposerChip({
 			/>
 			<div>
 				<Text weight="medium" title={resolved.label}>
-					{displayName}
+					{resolved.name}
 				</Text>
-				{detail && (
+				{(detail || project) && (
 					<Text role="label" tone="secondary">
+						{project}
+						{project && detail && " · "}
 						{detail}
 					</Text>
 				)}
@@ -134,9 +139,7 @@ export function FeedMomentHeader({
 }) {
 	return (
 		<header className="fd-moment">
-			<Text as="h3" tone="mono">
-				{children}
-			</Text>
+			<Text as="h3">{children}</Text>
 			{detail && (
 				<Text role="label" tone="secondary">
 					{detail}
@@ -177,40 +180,62 @@ export function RichPreview({
 				<span className="fd-preview-title">{title}</span>
 				{summary && <span className="fd-preview-summary">{summary}</span>}
 			</span>
-			<ArrowUpRightIcon size={18} aria-hidden="true" />
 		</Link>
 	);
 }
 
 export function DeckClosure({
-	title,
 	summary,
 	detail,
-	streak,
 }: {
-	title: string;
+	title?: string;
 	summary?: ReactNode;
 	detail?: ReactNode;
 	streak?: ReactNode;
 }) {
+	const rail = useContext(DecisionRailContext);
 	return (
 		<section className="fd-closure" role="status">
-			<div className="fd-closure-orbit" aria-hidden="true">
-				<span />
-				<span />
-				<span />
-				<CheckIcon size={38} weight="light" />
+			<div className="fd-closure-mark" aria-hidden="true">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+					<path
+						d="m5 12 4 4L19 6"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					/>
+				</svg>
 			</div>
-			<Text as="h2" className="fd-closure-title" tone="mono">
-				{title}
+			<Text as="h2" className="fd-closure-title">
+				{OS_COPY.feedDeckVisual.clear}
 			</Text>
-			{summary && <Text className="fd-closure-summary">{summary}</Text>}
-			{streak && (
-				<Text className="fd-streak" tone="mono">
-					{streak}
-				</Text>
+			<Text className="fd-closure-summary">
+				{summary ? (
+					<>
+						{summary}
+						{detail && <> · {detail}</>}
+					</>
+				) : (
+					detail || OS_COPY.feedDeckVisual.nothingWaiting
+				)}
+			</Text>
+			{rail ? (
+				<Link
+					href="#decision-history"
+					variant="plain"
+					onClick={(event) => {
+						event.preventDefault();
+						rail.openSection("history");
+					}}
+				>
+					{OS_COPY.feedDeckVisual.decisionHistory}
+				</Link>
+			) : (
+				<Link href="/work/attention" variant="plain">
+					{OS_COPY.feedDeckVisual.decisionHistory}
+				</Link>
 			)}
-			{detail && <Text tone="secondary">{detail}</Text>}
 		</section>
 	);
 }

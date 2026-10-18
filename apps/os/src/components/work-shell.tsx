@@ -58,8 +58,8 @@ export function WorkShell() {
 					search={{ view: "feed" }}
 					aria-current={feed ? "page" : undefined}
 					className={cn(
-						"flex min-h-12 flex-1 items-center justify-center gap-2 no-underline sm:flex-none",
-						feed && "font-semibold text-kumo-brand",
+						"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
+						feed && "font-semibold border-b-2 border-current text-kumo-default",
 					)}
 				>
 					{OS_COPY.workHome.feed}
@@ -69,8 +69,8 @@ export function WorkShell() {
 					search={{ view: "deck" }}
 					aria-current={deck ? "page" : undefined}
 					className={cn(
-						"flex min-h-12 flex-1 items-center justify-center gap-2 no-underline sm:flex-none",
-						deck && "font-semibold text-kumo-brand",
+						"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
+						deck && "font-semibold border-b-2 border-current text-kumo-default",
 					)}
 				>
 					{OS_COPY.workHome.deck}
