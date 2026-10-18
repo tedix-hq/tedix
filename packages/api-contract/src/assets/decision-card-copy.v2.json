@@ -82,7 +82,7 @@
 	"filingMismatchPattern": "no .{0,40}fit|does(?:n't| not) fit|mismatch|only .{0,20}hint|not .{0,30}(?:fit|prove|clear)|uncertain",
 	"stakesMaxLength": 120,
 	"stakesEvidencePatterns": [
-		"\\b(?:deadline|due|expires?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow)\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b",
+		"\\b(?:deadlines?|due|expir(?:e[sd]?|y|ing))\\b|\\b(?:by|before|on)\\s+(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b",
 		"[$€£]\\s*\\d|\\b(?:USD|EUR|GBP|cost|paid|budget|billing|charge|price)\\b",
 		"\\b(?:affects?|impacts?|notifies?|recipients?|customers?|employees?|members?|users?|people|staff)\\b"
 	],

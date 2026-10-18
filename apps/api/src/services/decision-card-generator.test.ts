@@ -307,6 +307,10 @@ it.each([
 	},
 	{ stakes: "The test account expires on Friday.", prompt: request.prompt },
 	{
+		stakes: "Today keeps showing the current purpose until it is published.",
+		prompt: "Today shows the company purpose. Approval does not publish it.",
+	},
+	{
 		stakes: "Costs $500 in paid credits.",
 		prompt: "This test costs $100 in paid credits.",
 	},
