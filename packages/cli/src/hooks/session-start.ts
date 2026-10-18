@@ -151,7 +151,7 @@ export async function runSessionStart(deps: HookDeps): Promise<void> {
 				source !== "stored-login" ||
 				binding.organization !== binding.org ||
 				!Array.isArray(selected) ||
-				!selected.includes(binding.organization)
+				(!selected.includes(binding.organization) && !binding.scopeRoutingHint)
 			) {
 				send(
 					"Tedix preflight: organization is no longer selected; no Work was read.",
@@ -332,14 +332,25 @@ export async function runSessionStart(deps: HookDeps): Promise<void> {
 	) {
 		try {
 			const data = await read(
-				[...command, "code", gatewayCode({}, undefined, [], true)],
+				[
+					...command,
+					"code",
+					gatewayCode(
+						{ ledger: { session, projectId: binding.projectId } },
+						undefined,
+						[],
+						true,
+					),
+				],
 				6500,
 			);
+			if (isObject(data.requests)) data.requests.hideStale = true;
 			lines.push(
 				...openRequestLines(
 					data,
 					{
 						session,
+						projectId: binding.projectId,
 						repository: repositoryName(binding.origin, binding.root).slice(
 							0,
 							200,
@@ -349,9 +360,7 @@ export async function runSessionStart(deps: HookDeps): Promise<void> {
 				),
 			);
 		} catch {
-			lines.push(
-				"Open requests unavailable; read the current ledger before relying on earlier requests.",
-			);
+			/* Omit unavailable context. */
 		}
 	}
 	send(lines.join("\n"));

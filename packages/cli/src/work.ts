@@ -181,6 +181,11 @@ export interface WorkOptions {
 }
 
 export interface WorkContext {
+	recordScope?: (scope: {
+		projectId: string;
+		workItemId: string;
+		heldUntil?: number;
+	}) => void;
 	/** Effective authenticated gateway/tenant, supplied by CLI routing. */
 	mcpUrl?: string;
 	organizationId?: string;
@@ -1599,6 +1604,19 @@ async function workStart(ctx: WorkContext, id: string): Promise<number> {
 			`Attempt ${attemptId} started for ${id}, but its fence could not be stored locally. Settle it explicitly before retrying.`,
 		);
 	}
+	const item =
+		isRecord(call.value) && isRecord(call.value.workItem)
+			? call.value.workItem
+			: undefined;
+	if (item && typeof item.projectId === "string")
+		ctx.recordScope?.({
+			projectId: item.projectId,
+			workItemId: id,
+			heldUntil:
+				isRecord(attempt) && typeof attempt.expiresAt === "string"
+					? Date.parse(attempt.expiresAt)
+					: undefined,
+		});
 	let worktree: { path: string; branch: string; reused: boolean } | undefined;
 	if (ctx.work.worktree) {
 		if (!serverAgentSession) {

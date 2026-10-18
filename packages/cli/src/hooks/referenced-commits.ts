@@ -17,7 +17,7 @@ export function referencedCommitEvidence(
 				(match) => match[1]!.toLowerCase(),
 			),
 		),
-	];
+	].slice(0, 8);
 	if (!refs.length) return "";
 	const asOf = Date.parse(sourceAt);
 	if (!Number.isFinite(asOf)) return "";
@@ -77,8 +77,17 @@ export function referencedCommitEvidence(
 					.filter((file) =>
 						/(?:^|[/.\-])(test|spec|eval)(?:[/.\-]|$)/i.test(file),
 					);
+				let onMain = false;
+				try {
+					git(
+						["merge-base", "--is-ancestor", sha, "refs/remotes/origin/main"],
+						"",
+					);
+					onMain = true;
+				} catch {}
 				return [
 					`Commit ${sha} (${date}): ${subject}`,
+					`Main status: ${onMain ? "reachable from local origin/main" : "not verified on origin/main"}; no live remote check.`,
 					...validation,
 					...tests.map((file) => `Changed test file: ${file}`),
 				];

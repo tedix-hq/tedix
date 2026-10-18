@@ -301,7 +301,7 @@ describe("tedix hooks prompt-context", () => {
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
 		expect(text).toContain("Working preferences: Output=");
 		expect(text).toContain("simple user stories");
-		expect(text).toContain("Team lessons unavailable:");
+		expect(text).not.toContain("Team lessons unavailable:");
 		expect(text).not.toContain("FORBIDDEN");
 		expect(text).not.toContain("Tedix shared context unavailable");
 		// A forbidden Work read is named the same way.
@@ -323,7 +323,7 @@ describe("tedix hooks prompt-context", () => {
 				work: { unavailable: true },
 			},
 		]);
-		expect(none.out).toContain("Tedix shared context unavailable");
+		expect(none.out).not.toContain("Tedix shared context unavailable");
 		expect(none.out).not.toContain("Working preferences");
 		// A gateway that returns lessons projects only id and text.
 		const projected = await project(
@@ -398,7 +398,10 @@ describe("tedix hooks prompt-context", () => {
 		expect(only).not.toContain("Working preferences");
 		// No approved lesson and nothing selected: nothing is injected.
 		const { out: quiet, calls } = await run([rest, AUTH, NO_LESSONS]);
-		expect([quiet, calls.length]).toEqual(["", 3]);
+		expect([
+			JSON.parse(quiet).hookSpecificOutput.additionalContext.split("\n").length,
+			calls.length,
+		]).toEqual([1, 3]);
 	});
 
 	test("repo slugs drop credentials and branch topics drop ids", () => {
@@ -520,7 +523,10 @@ describe("tedix hooks prompt-context", () => {
 		// A bound chat always asks for lessons; with none and nothing else, nothing is injected.
 		const { contextOutputId: _o, osWorkspaceId: _w, ...empty } = BINDING;
 		({ out, calls } = await run([empty, AUTH, NO_LESSONS]));
-		expect([out, calls.length]).toEqual(["", 3]);
+		expect([
+			JSON.parse(out).hookSpecificOutput.additionalContext.split("\n").length,
+			calls.length,
+		]).toEqual([1, 3]);
 		// The gateway read is bounded so the hook stays well inside the host timeout.
 		const fast = await run([BINDING, AUTH, DATA]);
 		expect(fast.timeouts.at(-1)).toBe(6500);
@@ -596,7 +602,7 @@ describe("tedix hooks prompt-context", () => {
 			{ shared: {} },
 		]) {
 			const { out } = await run([BINDING, AUTH, error]);
-			expect(out).toContain("no current shared decision");
+			expect(out).not.toContain("simple user stories");
 			expect(out).not.toContain("simple user stories");
 		}
 	});
@@ -935,7 +941,14 @@ describe("tedix hooks prompt-context", () => {
 						},
 					],
 				);
-				expect(context(out)).toBe(
+				expect(
+					context(out)
+						.split("\n")
+						.filter(
+							(line: string) => !line.startsWith("Tedix turn context checked"),
+						)
+						.join("\n"),
+				).toBe(
 					[
 						"The user replied in Tedix OS to 2 of your questions. These are the user's own answers, not tedi drafts; act on each, oldest first:",
 						'1. To "Retry?": "Retry"',
@@ -978,7 +991,7 @@ describe("tedix hooks prompt-context", () => {
 						{ session_id: SESSION, prompt },
 						[detail()],
 					);
-					expect(out).toBe("");
+					expect(context(out).split("\n")).toHaveLength(1);
 					expect(sources).toEqual([]);
 					expect(
 						calls.some(
@@ -1023,7 +1036,14 @@ describe("tedix hooks prompt-context", () => {
 					{ session_id: SESSION, prompt: "status?" },
 					[answered],
 				);
-				expect(context(out)).toBe(
+				expect(
+					context(out)
+						.split("\n")
+						.filter(
+							(line: string) => !line.startsWith("Tedix turn context checked"),
+						)
+						.join("\n"),
+				).toBe(
 					`The user replied in Tedix OS to Interaction ${REQUEST}: "Hold the deploy."`,
 				);
 				expect(existsSync(join(dir, `${SESSION}.question.json`))).toBe(false);
@@ -1034,7 +1054,7 @@ describe("tedix hooks prompt-context", () => {
 					[answered],
 				);
 				expect(again.out).not.toContain("Hold the deploy");
-				expect(again.out).toContain("Tedix context unchanged");
+				expect(again.out).not.toContain("Tedix context unchanged");
 				expect(again.sources).toEqual([]);
 			}));
 
@@ -1079,7 +1099,7 @@ describe("tedix hooks prompt-context", () => {
 					{ session_id: SESSION, prompt: "ok" },
 					[new Error("Unknown tool")],
 				);
-				expect(out).toBe("");
+				expect(context(out).split("\n")).toHaveLength(1);
 				// Context, auth, the ledger list (missing), the question read, lessons.
 				expect(calls).toHaveLength(5);
 				({ out, calls } = await run(
@@ -1088,7 +1108,11 @@ describe("tedix hooks prompt-context", () => {
 					{ session_id: SESSION, prompt: "ok" },
 				));
 				// Live lessons are checked even when the previous set was empty.
-				expect([out, calls.length]).toEqual(["", 3]);
+				expect([
+					JSON.parse(out).hookSpecificOutput.additionalContext.split("\n")
+						.length,
+					calls.length,
+				]).toEqual([1, 3]);
 				({ out } = await run(
 					[CAPTURE, { ...LOGIN, mcpUrl: "https://other.example/mcp" }],
 					{ TEDIX_CONFIG_DIR: config },
@@ -1101,7 +1125,11 @@ describe("tedix hooks prompt-context", () => {
 					{ TEDIX_CONFIG_DIR: config },
 					{ session_id: SESSION, prompt: "ok" },
 				));
-				expect([out, calls.length]).toEqual(["", 3]);
+				expect([
+					JSON.parse(out).hookSpecificOutput.additionalContext.split("\n")
+						.length,
+					calls.length,
+				]).toEqual([1, 3]);
 			}));
 
 		test("an OS answer follows the selected shared context", () =>
@@ -1168,7 +1196,11 @@ describe("prompt-context outside a bound repository", () => {
 	});
 
 	test("stays silent with no lesson, and when no single organization resolves", async () => {
-		expect((await run([DEFAULT, AUTH, NO_LESSONS])).out).toBe("");
+		expect(
+			JSON.parse(
+				(await run([DEFAULT, AUTH, NO_LESSONS])).out,
+			).hookSpecificOutput.additionalContext.split("\n"),
+		).toHaveLength(1);
 		const { out, calls } = await run([{ status: "unbound" }]);
 		expect(out).toBe("");
 		expect(calls).toHaveLength(1);
@@ -1445,12 +1477,10 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			expect(first.text).toContain("Pushes race on main");
 			const second = await turn({ config, now });
 			expect(second.steps).toEqual(["gateway"]);
-			expect(second.text).toMatch(
-				/Tedix context unchanged \(prefs rev 2, lessons hash [a-f0-9]{12}\)\./,
-			);
+			expect(second.text).not.toContain("unchanged");
 			expect(second.text).not.toContain("Handle authorized routine choices");
 			expect(second.text).not.toContain("Pushes race on main");
-			expect(second.text.split("\n")).toHaveLength(2);
+			expect(second.text.split("\n")).toHaveLength(1);
 			const changed = preferences();
 			changed.revision.revision = 3;
 			const revision = await turn({
@@ -1487,7 +1517,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				now,
 				binding: { ...binding, projectId: WORK },
 			});
-			expect(otherScope.text).toContain("Tedix context unchanged");
+			expect(otherScope.text).not.toContain("Tedix context unchanged");
 		} finally {
 			rmSync(config, { recursive: true, force: true });
 		}
@@ -1517,7 +1547,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			expect(next.text).toContain(document.text);
 			expect(next.text).toContain("complete=true");
 			const unchanged = await turn({ config, now, gateway });
-			expect(unchanged.text).toContain("Tedix context unchanged");
+			expect(unchanged.text).not.toContain("Tedix context unchanged");
 			expect(unchanged.text).not.toContain(document.text);
 			rmSync(join(config, "hook-cache"), { recursive: true, force: true });
 			const expanded = await turn({ config, now, gateway });
@@ -1555,7 +1585,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			expect(recovered.text).toContain("Handle authorized routine choices");
 			expect(recovered.text).toContain(lesson.text);
 			expect(recovered.text).not.toContain("lessons unavailable");
-			expect((await turn({ config, now })).text).toContain(
+			expect((await turn({ config, now })).text).not.toContain(
 				"Tedix context unchanged",
 			);
 		} finally {
@@ -1577,7 +1607,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				},
 			});
 			expect(attempts).toBe(2);
-			expect(failed.text).toContain("Team lessons unavailable");
+			expect(failed.text).not.toContain("Team lessons unavailable");
 			expect(failed.text).toContain("Handle authorized routine choices");
 			const recovered = await turn({ config, now });
 			expect(recovered.text).toContain(lesson.text);
@@ -1587,25 +1617,28 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		}
 	});
 
-	test("each read fails on its own: a dead gateway keeps cached sources and names the rest unavailable", async () => {
+	test("a dead gateway omits preferences and lessons at every cache age", async () => {
 		const config = mkdtempSync(join(tmpdir(), "tedix-prompt-failsoft-"));
 		const start = new Date("2026-10-11T09:00:00Z");
 		const timedOut = () => {
 			throw new Error("Tedix CLI read deadline elapsed");
 		};
-		// Seed the cache with a successful turn.
+		// First deliver content so a failed later read cannot replay it.
 		const seeded = await turn({ config, now: start });
 		expect(seeded.text).toContain("Handle authorized routine choices");
-		// A timed-out gateway read beyond the TTL: the stale copies cover it.
+		// A timed-out gateway never replays a previous source.
 		const dead = await turn({
 			config,
 			now: new Date(start.getTime() + 20 * 60_000),
 			gateway: timedOut,
 		});
-		expect(dead.text).toContain("Tedix context unchanged");
+		expect(dead.text).not.toContain("Tedix context unchanged");
 		expect(dead.steps.filter((step) => step === "gateway")).toHaveLength(2);
 		expect(dead.text).not.toContain("Tedix shared context unavailable");
-		// Per-turn sources are named unavailable rather than silently dropped.
+		expect(dead.text).not.toContain("Handle authorized routine choices");
+		expect(dead.text).not.toContain(lesson.text);
+		expect(dead.text).not.toContain("cached");
+		// Selected Work still reports an unavailable live read.
 		const partial = await turn({
 			config,
 			now: new Date(start.getTime() + 21 * 60_000),
@@ -1617,16 +1650,16 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			},
 			gateway: timedOut,
 		});
-		expect(partial.text).toContain("Tedix context unchanged");
+		expect(partial.text).not.toContain("Tedix context unchanged");
 		expect(partial.text).toContain(`Selected Work=${WORK} unavailable`);
-		expect(partial.text).toContain("Shared decisions unavailable");
-		// Older than an hour, a copy no longer covers a failed read.
+		expect(partial.text).not.toContain("Shared decisions unavailable");
+		// Old content also stays omitted after an hour.
 		const expired = await turn({
 			config,
 			now: new Date(start.getTime() + 90 * 60_000),
 			gateway: timedOut,
 		});
-		expect(expired.text).toContain("Tedix shared context unavailable");
+		expect(expired.text).not.toContain("Tedix shared context unavailable");
 		// A failed organization probe (its own copy past the TTL) still hides everything: a fence, not a source.
 		const unverified = await turn({
 			config,
@@ -1635,6 +1668,25 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		});
 		expect(unverified.text).toContain("Tedix shared context unavailable");
 		rmSync(config, { recursive: true, force: true });
+	});
+
+	test("an unchanged upstream-truncated preference is not replayed every turn", async () => {
+		const config = mkdtempSync(join(tmpdir(), "tedix-partial-preference-"));
+		try {
+			const gateway = () => ({
+				preferences: { ...preferences(), complete: false },
+				...lessonsData([lesson]),
+			});
+			const first = await turn({ config, now: new Date(), gateway });
+			expect(first.text).toContain("complete=false");
+			expect(first.text).toContain("Handle authorized routine choices");
+			const next = await turn({ config, now: new Date(), gateway });
+			expect(next.text).not.toContain("Handle authorized routine choices");
+			expect(next.text).not.toContain("unchanged");
+			expect(next.text.split("\n").length).toBeLessThanOrEqual(8);
+		} finally {
+			rmSync(config, { recursive: true, force: true });
+		}
 	});
 
 	test("per-turn reads keep tight timeouts", async () => {

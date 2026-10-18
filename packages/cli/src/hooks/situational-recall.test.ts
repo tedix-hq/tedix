@@ -6,10 +6,12 @@ import { runSituationalRecall } from "./situational-recall";
 import type { HookDeps } from "./hook-io";
 const org = "11111111-1111-4111-8111-111111111111";
 describe("pre-tool recall", () => {
-	it("injects locally matched lessons, uses its hourly cache, and uploads no command", async () => {
+	it("reads matched lessons live, omits failed reads and uploads no command", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "recall-test-"));
 		const calls: string[][] = [];
 		const output: string[] = [];
+		let offline = false;
+		let lessonText = "Apply the companion edit.";
 		const deps: HookDeps = {
 			cwd: dir,
 			env: { TEDIX_CONFIG_DIR: dir },
@@ -36,6 +38,7 @@ describe("pre-tool recall", () => {
 						mcpUrl: "https://example.invalid/mcp",
 						storedLogin: { org: "example", loginId: "user" },
 					};
+				if (offline) throw new Error("offline");
 				return {
 					organizationId: org,
 					matched: 2,
@@ -44,7 +47,7 @@ describe("pre-tool recall", () => {
 						{
 							id: "12345678-example",
 							shortId: "12345678",
-							text: "Apply the companion edit.",
+							text: lessonText,
 							scope: { repo: "general", harness: "general", topic: "general" },
 							updatedAt: null,
 							triggers: { pathGlobs: ["apps/*/worker.jsonc"] },
@@ -76,11 +79,18 @@ describe("pre-tool recall", () => {
 			expect(context.hookEventName).toBe("PreToolUse");
 			expect(context.additionalContext).toContain("Apply the companion edit");
 			expect(context.additionalContext).not.toContain("Other rule");
-			expect(calls.filter((a) => a.includes("code"))).toHaveLength(1);
+			expect(calls.filter((a) => a.includes("code"))).toHaveLength(3);
 			expect(JSON.stringify(calls)).not.toContain("apps/example");
-			deps.now = () => new Date(Date.now() + 3_600_001);
+			offline = true;
 			await runSituationalRecall(deps);
-			expect(calls.filter((a) => a.includes("code"))).toHaveLength(2);
+			expect(output).toHaveLength(3);
+			offline = false;
+			lessonText = "Updated companion edit.";
+			await runSituationalRecall(deps);
+			expect(calls.filter((a) => a.includes("code"))).toHaveLength(5);
+			expect(
+				JSON.parse(output.at(-1)!).hookSpecificOutput.additionalContext,
+			).toContain(lessonText);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

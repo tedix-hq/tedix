@@ -33,13 +33,23 @@ and durable answer settlement.
   plugin ships no scripts. `scripts/package-plugin.ts` builds its review ZIPs.
   `prompt-context` runs its gateway, organization and answer reads together
   and checks preferences and lessons each turn, injecting their text once per
-  session and again only on change. Other turns get a hash pointer. Local
+  session and again only on change. Unchanged sources stay silent. Local
   session receipts contain only hashes; clear/compact resets delivery. Updated
   plugin hooks opt into a 10 KB allowance for initial context; older hook
   definitions retain 6.4 KB. A source trimmed to fit is retried on the next turn.
-  Lessons retry once after 150 ms, with a 3-second retry deadline. Cached sources cover
-  failed reads for up to an hour; the organization id is cached for ten minutes
+  Lessons retry once after 150 ms, with a 3-second retry deadline. Unavailable
+  sources are omitted; the organization id is cached for ten minutes
   (`src/hooks/context-cache.ts`); `TEDIX_HOOK_TRACE=1` prints step timings.
+  Scope follows the nearest `.tedix/context.json` directory binding, then this
+  chat's selected or admitted Work, then successful recent CLI calls. Other
+  active organizations get one line. Hook reads never reinforce the selection.
+  A directory binding contains `{"version":1,"workspace":"acme","projectId":"11111111-1111-4111-8111-111111111111"}`;
+  Connect profiles also specify `"organization"` with the selected ID or slug.
+  Keep installation-specific bindings local. Bindings and recent calls grant no
+  execution authority. Private scope metadata expires after two hours.
+  Requests are read for this session and project in one snapshot. Completed
+  Work explicitly linked in saved request evidence is checked before injection;
+  turn reflection settles it. Human approval asks remain open for the user.
   With decision capture enabled, `capture-stop` triages the redacted turn
   into `metadata.triage`. Unavailable triage keeps the capture on bound Work
   or in the originating chat and creates no human request. The hook

@@ -1,3 +1,4 @@
+import { settleRequestsWithCompletedWork } from "./agent-session-request-completion";
 import { assertModelEgressAllowed } from "./unrouted-model-egress";
 /**
  * Request ledger for a person's own local agent sessions.
@@ -466,6 +467,12 @@ export async function reflectAgentSessionRequests(
 		}),
 		listRecentAgentSessionTurns(db, { ...input, before: input.sourceAt }),
 	]);
+	const completed = await settleRequestsWithCompletedWork(db, input, active);
+	active.splice(
+		0,
+		active.length,
+		...active.filter((row) => !completed.has(row.id)),
+	);
 	const { prompt, byRef } = refs([...active, ...resolved]);
 	const origins = await getAgentSessionRequestPrompts(db, {
 		...input,

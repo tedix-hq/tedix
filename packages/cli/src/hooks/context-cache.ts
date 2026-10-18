@@ -1,15 +1,4 @@
-/**
- * Local cache for the slow-changing reads of the prompt-context hook: the
- * working-preferences document, the approved team lessons and the credential's
- * live organization id. One small JSON file per entry under
- * `~/.tedix/hook-cache/`, named by a hash of its key (profile, organization,
- * signed-in user and the read's own identifiers; never a token or prompt text).
- *
- * A fresh organization entry (within CACHE_TTL_MS) replaces its live probe.
- * Preferences and lessons are checked live each turn so changes are visible;
- * a copy up to CACHE_MAX_AGE_MS covers a failed read. Anything older is ignored.
- * Age comes from the entry's own write time. Cache faults behave like misses.
- */
+/** Private organization metadata cache. Lesson and preference text always reads live. */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -18,10 +7,7 @@ import { isObject, type JsonObject } from "./hook-io";
 
 /** How long a cached read stands in for the live one. */
 export const CACHE_TTL_MS = 10 * 60_000;
-/** How long a stale copy still covers a failed live read. */
-export const CACHE_MAX_AGE_MS = 60 * 60_000;
-
-export type CacheKind = "preferences" | "lessons" | "organization" | "recall";
+export type CacheKind = "organization";
 
 export interface CacheEntry {
 	value: JsonObject;
@@ -43,7 +29,7 @@ function entryPath(
 	return join(cacheDir(env), `${kind}-${digest}.json`);
 }
 
-/** The cached value for `key`, with its age, or undefined past CACHE_MAX_AGE_MS. */
+/** The cached value for `key`, with its age, or undefined past CACHE_TTL_MS. */
 export function readCache(
 	env: NodeJS.ProcessEnv,
 	kind: CacheKind,
@@ -58,8 +44,8 @@ export function readCache(
 			return undefined;
 		// Clock skew counts as age zero.
 		const ageMs = Math.max(0, now.getTime() - Date.parse(parsed.writtenAt));
-		if (!Number.isFinite(ageMs) || ageMs > CACHE_MAX_AGE_MS) return undefined;
-		return { value: parsed.value, ageMs, fresh: ageMs <= CACHE_TTL_MS };
+		if (!Number.isFinite(ageMs) || ageMs > CACHE_TTL_MS) return undefined;
+		return { value: parsed.value, ageMs, fresh: true };
 	} catch {
 		return undefined;
 	}

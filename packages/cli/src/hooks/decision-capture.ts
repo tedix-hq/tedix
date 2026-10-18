@@ -272,7 +272,10 @@ export async function bindingFor(
 	const selected = login.accessToken?.selectedOrganizations ?? [];
 	if (
 		binding.organization &&
-		!(Array.isArray(selected) && selected.includes(binding.organization))
+		!(
+			Array.isArray(selected) &&
+			(selected.includes(binding.organization) || binding.scopeRoutingHint)
+		)
 	)
 		throw new Error("organization no longer selected");
 	const user = login.loginId;

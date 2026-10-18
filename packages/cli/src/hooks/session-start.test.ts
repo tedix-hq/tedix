@@ -140,6 +140,37 @@ describe("tedix hooks session-start", () => {
 		expect(calls).toHaveLength(2);
 	});
 
+	test("a directory slug is verified by the gateway before any Work is read", async () => {
+		const binding = {
+			status: "bound",
+			workspace: "connect",
+			org: "orchid",
+			organization: "orchid",
+			scopeRoutingHint: true,
+			mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+			projectId: WORK_ID,
+		};
+		const auth = {
+			wouldUse: "stored-login",
+			workspace: "connect",
+			mcpUrl: binding.mcpUrl,
+			storedLogin: {
+				accessToken: { selectedOrganizations: ["org_orchid"] },
+				grantedScopes: ["mcp:work.read"],
+			},
+		};
+		const success = await run([
+			binding,
+			auth,
+			{ organizationId: "11111111-1111-4111-8111-111111111111" },
+		]);
+		expect(success.output).not.toContain("no longer selected");
+		expect(success.calls[2]!.slice(2, 4)).toEqual(["--organization", "orchid"]);
+		const denied = await run([binding, auth, new Error("FORBIDDEN")]);
+		expect(denied.output).toContain("organization could not be verified");
+		expect(denied.calls).toHaveLength(3);
+	});
+
 	test("all lifecycle sources preserve the ordinary outcome", async () => {
 		const outcome =
 			"Verify the installed plugin in a fresh session and report its Work state. ".repeat(

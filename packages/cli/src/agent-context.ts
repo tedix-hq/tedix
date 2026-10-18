@@ -9,7 +9,8 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { readSessionScopes } from "./session-scope";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import {
 	credentialDirectory,
@@ -60,6 +61,7 @@ interface Binding extends ContextTarget {
 	selections: Selection[];
 	outputs?: OutputSelection[];
 	chats?: ChatSelection[];
+	scopeRoutingHint?: boolean;
 }
 interface PreferenceSelection {
 	workspace: string;
@@ -139,6 +141,8 @@ export interface AgentContextResult {
 	contextOutputId?: string;
 	decisionCapture?: boolean;
 	message?: string;
+	scopeRoutingHint?: boolean;
+	alsoActive?: string[];
 }
 
 const WORKSPACE = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -203,6 +207,7 @@ function checkedBinding(
 		binding.workspace,
 		binding.organization,
 		options,
+		binding.scopeRoutingHint,
 	);
 	if (target.org !== binding.org || target.mcpUrl !== binding.mcpUrl)
 		throw new Error(
@@ -213,6 +218,7 @@ function contextTarget(
 	workspace: string,
 	organization: string | undefined,
 	options?: AgentContextOptions,
+	routingHint = false,
 ): Pick<ContextTarget, "org" | "mcpUrl" | "organization"> {
 	const profile = readWorkspaceCredentials(workspace, options);
 	if (!profile?.mcpUrl)
@@ -237,7 +243,8 @@ function contextTarget(
 			selected.length > 10 ||
 			selected.some((id) => typeof id !== "string" || !id || id.length > 256) ||
 			new Set(selected).size !== selected.length ||
-			!selected.includes(organization)
+			(!selected.includes(organization) &&
+				!(routingHint && /^[a-z][a-z0-9-]{0,62}$/.test(organization)))
 		)
 			throw new Error(
 				"Connect context requires --organization <selected ID> from tedix auth status; renew login if the organization is unavailable",
@@ -270,7 +277,7 @@ function selectedWork(
 			"Selected Work branch changed; clear or select the intended Work explicitly",
 		);
 	const path = `${repo.root}.tedix.json`;
-	if (existsSync(path)) {
+	if (!binding.scopeRoutingHint && existsSync(path)) {
 		const marker = JSON.parse(readFileSync(path, "utf8")) as {
 			version?: number;
 			branch?: string;
@@ -643,18 +650,68 @@ export function repositoryTargetsByOrigin(
 	return targets;
 }
 
+/** Nearest explicit directory binding; malformed bindings fail closed. */
+function directoryBinding(
+	repo: Repo,
+	options?: AgentContextOptions,
+): Binding | undefined {
+	let directory = realpathSync(options?.cwd ?? process.cwd());
+	while (directory === repo.root || directory.startsWith(`${repo.root}/`)) {
+		const file = join(directory, ".tedix", "context.json");
+		if (existsSync(file)) {
+			const value = JSON.parse(readFileSync(file, "utf8"));
+			if (
+				value.version !== 1 ||
+				!WORKSPACE.test(value.workspace ?? "") ||
+				!looksLikeUuid(value.projectId ?? "")
+			)
+				throw new Error("Invalid .tedix/context.json binding");
+			return {
+				...repo,
+				...contextTarget(value.workspace, value.organization, options, true),
+				workspace: value.workspace,
+				projectId: value.projectId,
+				selections: [],
+				scopeRoutingHint: true,
+			};
+		}
+		if (directory === repo.root) break;
+		directory = dirname(directory);
+	}
+	return undefined;
+}
+
 /** Local correlation only. Does not read the gateway or restore an Attempt credential. */
 export function resolveAgentContext(
 	options?: AgentContextOptions,
 ): AgentContextResult {
 	try {
 		const store = readStore(options);
-		if (!options?.allowDefault && !store.repositories.length)
-			return { status: "unbound" };
+		const sessionId = chatIdentity(options);
+		const recent = readSessionScopes(sessionId, options);
+		const recentOrgs = recent.map(
+			(row) =>
+				row.organization ??
+				readWorkspaceCredentials(row.workspace, options)?.org ??
+				row.workspace,
+		);
 		let repo: Repo;
 		try {
 			repo = repoAt(options);
 		} catch {
+			if (options?.allowDefault && recent.length) {
+				const call = recent[0]!;
+				const target = {
+					workspace: call.workspace,
+					...contextTarget(call.workspace, call.organization, options, true),
+				};
+				return {
+					...defaultContext(store, options, target),
+					...(call.projectId ? { projectId: call.projectId } : {}),
+					scopeRoutingHint: true,
+					alsoActive: recentOrgs.slice(1),
+				};
+			}
 			// Outside any Git repository: the default organization, when asked.
 			return options?.allowDefault
 				? defaultContext(store, options, defaultTarget(store, options))
@@ -669,9 +726,55 @@ export function resolveAgentContext(
 		const binding = store.repositories.find(
 			(row) => row.commonDir === repo.commonDir,
 		);
-		if (!binding) return unbound();
-		const scoped = chatBinding(binding, repo, options);
-		const active = scoped.binding;
+		const directory = directoryBinding(repo, options);
+		const scoped =
+			!directory && binding ? chatBinding(binding, repo, options) : undefined;
+		const held =
+			scoped && selectedWork(scoped.binding, repo).workItemId
+				? scoped.binding
+				: undefined;
+		let active = directory ?? held;
+		if (!active && recent.length) {
+			const call =
+				recent.find(
+					(row) =>
+						row.workItemId && row.heldUntil && row.heldUntil > Date.now(),
+				) ?? recent[0]!;
+			const target = {
+				workspace: call.workspace,
+				...contextTarget(call.workspace, call.organization, options, true),
+			};
+			const candidates = store.repositories.filter(
+				(row) => row.workspace === target.workspace && row.org === target.org,
+			);
+			const projectId =
+				call.projectId ??
+				(candidates.length === 1 ? candidates[0]!.projectId : undefined);
+			if (!projectId)
+				return {
+					...defaultContext(store, options, target),
+					scopeRoutingHint: true,
+					alsoActive: recentOrgs.slice(1),
+				};
+			active = {
+				...repo,
+				...target,
+				projectId,
+				selections:
+					call.workItemId && call.heldUntil && call.heldUntil > Date.now()
+						? [
+								{
+									root: repo.root,
+									branch: repo.branch,
+									workItemId: call.workItemId,
+								},
+							]
+						: [],
+				scopeRoutingHint: true,
+			};
+		}
+		active ??= scoped?.binding;
+		if (!active) return unbound();
 		checkedBinding(active, repo, options);
 		const preference = organizationDocument(store.preferences, active);
 		const capture = (store.decisionCapture ?? []).some(
@@ -708,9 +811,11 @@ export function resolveAgentContext(
 				: {}),
 			...selectedWork(active, repo),
 			...(capture ? { decisionCapture: true } : {}),
-			...(scoped.sessionId
+			...(active.scopeRoutingHint ? { scopeRoutingHint: true } : {}),
+			alsoActive: [...new Set(recentOrgs.filter((org) => org !== active.org))],
+			...(scoped?.sessionId
 				? {
-						contextSessionId: scoped.sessionId,
+						contextSessionId: scoped!.sessionId,
 						...(active.selections.length
 							? { contextSource: "chat" as const }
 							: {}),

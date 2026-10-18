@@ -14,6 +14,7 @@ import { isObject, type JsonObject } from "./hook-io";
 export interface ContextDelivery {
 	preferences?: string;
 	lessons?: string;
+	staleRequests?: string;
 }
 
 export function contextHash(value: unknown): string {
@@ -36,7 +37,7 @@ export function readDelivery(
 		const saved: unknown = JSON.parse(readFileSync(path(env, session), "utf8"));
 		if (!isObject(saved) || saved.scope !== scope) return {};
 		return Object.fromEntries(
-			["preferences", "lessons"].flatMap((key) =>
+			["preferences", "lessons", "staleRequests"].flatMap((key) =>
 				typeof saved[key] === "string" && /^[a-f0-9]{64}$/.test(saved[key])
 					? [[key, saved[key]]]
 					: [],
@@ -76,6 +77,13 @@ export function deliveryHashes(data: JsonObject): ContextDelivery {
 	for (const key of ["preferences", "lessons"] as const) {
 		if (isObject(data[key]) && data[key].unavailable !== true)
 			hashes[key] = contextHash(data[key]);
+	}
+	if (isObject(data.requests) && Array.isArray(data.requests.data)) {
+		const stale = data.requests.data
+			.filter((row: JsonObject) => row.status === "dropped_risk")
+			.map((row: JsonObject) => row.id)
+			.sort();
+		if (stale.length) hashes.staleRequests = contextHash(stale);
 	}
 	return hashes;
 }
