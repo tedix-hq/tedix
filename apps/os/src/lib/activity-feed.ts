@@ -105,7 +105,9 @@ export function workFeedItems(
 			stalled: /blocked|expired|failed/.test(e.eventType),
 			importance: /blocked|failed/.test(e.eventType)
 				? "high"
-				: /comment|created/.test(e.eventType)
+				: /comment|created|specification_updated|^attempt\.(started|expired)$/.test(
+							e.eventType,
+					  )
 					? "low"
 					: "normal",
 			explanation: [
