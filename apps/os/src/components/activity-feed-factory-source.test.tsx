@@ -28,6 +28,7 @@ it("projects an existing fictional factory sheet with its revision and the same 
 						useful: "Useful",
 						reason: "Reason",
 						done: "Done",
+						result: "Result",
 					},
 					doIt: "approve",
 				},
@@ -63,7 +64,7 @@ it("projects an existing fictional factory sheet with its revision and the same 
 			revision: 3,
 			content: {
 				kind: "sheet",
-				columns: ["Source", "Why", "Useful", "Reason", "Done"],
+				columns: ["Source", "Why", "Useful", "Reason", "Done", "Result"],
 				rows: [
 					[
 						"https://supplier.example/receipt",
@@ -71,6 +72,15 @@ it("projects an existing fictional factory sheet with its revision and the same 
 						"",
 						"",
 						"yes",
+						"",
+					],
+					[
+						"https://supplier.example/draft",
+						"A reply is ready for review.",
+						"",
+						"",
+						"",
+						"Review the supplier reply.",
 					],
 				],
 			},
@@ -107,11 +117,16 @@ it("projects an existing fictional factory sheet with its revision and the same 
 				items: [
 					expect.objectContaining({
 						sentence: "The delivery date changed.",
-						needsAction: true,
-						done: false,
+						needsAction: false,
+						done: true,
 						reactions: ["more", "why", "mute", "comment", "work"],
 						explanation: expect.stringContaining("revision 3, row 1"),
 						source: expect.stringContaining(outputId),
+					}),
+					expect.objectContaining({
+						sentence: "Review the supplier reply.",
+						needsAction: true,
+						done: false,
 					}),
 				],
 			}),
