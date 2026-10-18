@@ -13,7 +13,7 @@ export const DecisionLearningConfigSchema = z.strictObject({
 		.string()
 		.min(1)
 		.max(200)
-		.default("@cf/meta/llama-3.1-8b-instruct-fast"),
+		.default("@cf/meta/llama-3.2-3b-instruct"),
 	historyLimit: z.number().int().min(30).max(2000).default(500),
 	halfLifeDays: z.number().min(1).max(365).default(30),
 	ignoredAfterMs: z.number().int().min(1000).max(60000).default(5000),

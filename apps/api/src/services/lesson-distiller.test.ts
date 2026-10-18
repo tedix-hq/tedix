@@ -159,6 +159,23 @@ describe("modelLessonDistiller", () => {
 });
 
 describe("runDistillModel", () => {
+	it("reports bounded failure reasons without returning provider messages", async () => {
+		const onFailure = vi.fn();
+		const run = vi
+			.fn()
+			.mockRejectedValue(new Error("Invalid gateway token: private-value"));
+		expect(
+			await runDistillModel({ AI: { run } } as never, "summarize", {
+				onFailure,
+			}),
+		).toBeNull();
+		expect(onFailure).toHaveBeenCalledWith("model_authorization_failed");
+		onFailure.mockClear();
+		expect(
+			await runDistillModel({} as never, "summarize", { onFailure }),
+		).toBeNull();
+		expect(onFailure).toHaveBeenCalledWith("model_binding_unavailable");
+	});
 	it("sends an optional system prompt on the platform AI binding", async () => {
 		const run = vi.fn().mockResolvedValue({ response: "ok" });
 		const text = await runDistillModel({ AI: { run } } as never, "summarize", {
