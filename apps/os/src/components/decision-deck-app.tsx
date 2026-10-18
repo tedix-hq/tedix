@@ -276,11 +276,13 @@ export function DecisionDeckApp({
 	const compare = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
 		compareDecisionFreshness(
 			{
+				kind: mode === "decide" ? a.kind : undefined,
 				dueAt: a.row?.request.dueAt,
 				requestedAt: a.row?.request.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
 			},
 			{
+				kind: mode === "decide" ? b.kind : undefined,
 				dueAt: b.row?.request.dueAt,
 				requestedAt: b.row?.request.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(b).score : undefined,
@@ -320,7 +322,9 @@ export function DecisionDeckApp({
 		mode === "decide"
 			? rows.filter(
 					(row) =>
-						batch?.ids.includes(row.id) && !batch.dismissed.includes(row.id),
+						batch &&
+						(row.kind === "approval" || batch.ids.includes(row.id)) &&
+						!batch.dismissed.includes(row.id),
 				)
 			: mode === "practice"
 				? rows.filter((row) => !skipped.includes(row.id))
@@ -377,6 +381,7 @@ export function DecisionDeckApp({
 	const usesEnvelope = Boolean(
 		current &&
 		(practiceMode ||
+			current.kind === "approval" ||
 			current.kind === "adr" ||
 			current.kind === "decision" ||
 			current.options.some((option) => option.effect)),
@@ -679,6 +684,7 @@ export function DecisionDeckApp({
 							variant="outline"
 							onClick={() => {
 								void inbox.refetch();
+								void decisions.approvalRequests.refetch();
 								void approvals.refetch();
 								void decisions.workApprovals.refetch();
 								void learningQuery.refetch();
@@ -801,6 +807,7 @@ export function DecisionDeckApp({
 										/>
 									) : current &&
 									  (practiceMode ||
+											current.kind === "approval" ||
 											current.kind === "adr" ||
 											current.kind === "decision" ||
 											current.options.some((option) => option.effect)) ? (

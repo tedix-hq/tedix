@@ -68,6 +68,22 @@ async function mount() {
 			now: new Date(),
 		}),
 	);
+	client.setQueryData(
+		osQuery.workInteractions.listInbox.queryOptions({
+			input: {
+				projectId: undefined,
+				limit: 50,
+				states: ["open"],
+				decisionKind: "approval",
+			},
+		}).queryKey,
+		{
+			data: [],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: new Date().toISOString(),
+		},
+	);
 	for (const state of ["open", "resolved"] as const)
 		client.setQueryData(
 			osQuery.workInteractions.listInbox.queryOptions({

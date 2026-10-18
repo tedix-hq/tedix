@@ -47,3 +47,17 @@ it("keeps raw operation and target arguments out of the loading summary", async 
 		"Let Codex sign in a made-up test user to check the reported fix. The test link stays with the agent; no email is sent.",
 	);
 });
+
+it("preserves an approval envelope's request type", async () => {
+	const { DECISION_DECK_EXAMPLES } =
+		await import("../../dev/decision-deck-fixture");
+	const approval = DECISION_DECK_EXAMPLES.find(
+		(card) => card.kind === "approval",
+	)!;
+	expect(
+		interactionCardKind({
+			kind: "question",
+			metadata: { decisionDeck: approval },
+		}),
+	).toBe("approval");
+});

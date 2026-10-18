@@ -195,6 +195,7 @@ it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding author
 		"work.specification_updated",
 		"work.cancelled",
 		"work.completed",
+		"evidence.submitted",
 	].map((eventType, i) => ({
 		id: String(i),
 		workItemId: project,

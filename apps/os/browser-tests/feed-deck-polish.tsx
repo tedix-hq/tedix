@@ -23,6 +23,22 @@ const client = new QueryClient({
 		queries: { enabled: false, staleTime: Infinity, retry: false },
 	},
 });
+client.setQueryData(
+	osQuery.workInteractions.listInbox.queryOptions({
+		input: {
+			projectId: undefined,
+			limit: 50,
+			states: ["open"],
+			decisionKind: "approval",
+		},
+	}).queryKey,
+	{
+		data: [],
+		hasMore: false,
+		nextCursor: null,
+		observedAt: new Date().toISOString(),
+	},
+);
 for (const state of ["open", "resolved"] as const)
 	client.setQueryData(
 		osQuery.workInteractions.listInbox.queryOptions({
@@ -117,7 +133,10 @@ client.setQueryData(
 		pages: [
 			{
 				data: [
-					["Office fix", "The Office fix is ready to verify."],
+					[
+						"Office fix: final desktop and phone verification, screenshots and release notes",
+						"The Office fix is ready to verify.",
+					],
 					["Release notes", "The release notes are ready to read."],
 				].map(([title, summary], index) => ({
 					attempt: {
@@ -218,7 +237,12 @@ if (params.get("surface") === "approval") {
 	};
 	client.setQueryData(
 		osQuery.workInteractions.listInbox.queryOptions({
-			input: { projectId: undefined, limit: 50, states: ["open"] },
+			input: {
+				projectId: undefined,
+				limit: 50,
+				states: ["open"],
+				decisionKind: "approval",
+			},
 		}).queryKey,
 		{
 			data: [

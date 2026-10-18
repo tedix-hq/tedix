@@ -213,6 +213,17 @@ for (const state of ["open", "resolved"] as const)
 		{ data: [], hasMore: false },
 	);
 client.setQueryData(
+	osQuery.workInteractions.listInbox.queryOptions({
+		input: {
+			projectId: undefined,
+			limit: 50,
+			states: ["open"],
+			decisionKind: "approval",
+		},
+	}).queryKey,
+	{ data: [], hasMore: false },
+);
+client.setQueryData(
 	osQuery.workApprovals.listInbox.queryOptions({
 		input: { projectId: undefined, limit: 50, statuses: ["pending"] },
 	}).queryKey,

@@ -90,6 +90,26 @@
 	position: relative;
 	gap: 0.5rem;
 }
+.fd-feed .fd-preview {
+	gap: 0.5rem;
+	padding: 0.5rem;
+}
+.fd-feed .fd-preview-mark {
+	width: 1.5rem;
+	height: 2rem;
+}
+.fd-feed .fd-preview-image {
+	width: 3rem;
+	height: 3rem;
+	flex-shrink: 0;
+}
+.fd-feed .fd-preview-title,
+.fd-feed .fd-preview-summary {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
 .ft-byline {
 	display: flex;
 	align-items: baseline;

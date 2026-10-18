@@ -595,3 +595,52 @@ describe("obsolete Work interactions", () => {
 		).toBe(0);
 	});
 });
+
+it("reads old typed approvals before LIMIT while preserving the recipient fence", async () => {
+	const { db, sqlite } = fixture();
+	const insert = sqlite.prepare(
+		`INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata) VALUES (?,'org','work','question','Review','?','system','tedix','tedi',?,?,?)`,
+	);
+	for (let i = 0; i < 60; i++) insert.run(`new-${i}`, "cto", NOW, "{}");
+	insert.run(
+		"approval",
+		"cto",
+		"2026-08-20T10:00:00.000Z",
+		JSON.stringify({
+			approvalOperation: "tests_write.CreateTestLink",
+			approvalTarget: "viewer@example.com",
+		}),
+	);
+	insert.run(
+		"wrong-recipient",
+		"cfo",
+		NOW,
+		JSON.stringify({
+			approvalOperation: "write.Send",
+			approvalTarget: "other",
+		}),
+	);
+	insert.run(
+		"incomplete",
+		"cto",
+		NOW,
+		JSON.stringify({ approvalOperation: "write.Send" }),
+	);
+	const input = {
+		orgId: "org",
+		targetType: "tedi" as const,
+		targetId: "cto",
+		states: ["open" as const],
+		limit: 1,
+		observedAt: NOW,
+	};
+	expect(
+		(await listWorkInteractionInbox(db, input)).data[0]?.request.id,
+	).not.toBe("approval");
+	const page = await listWorkInteractionInbox(db, {
+		...input,
+		decisionKind: "approval",
+	});
+	expect(page.data.map((row) => row.request.id)).toEqual(["approval"]);
+	expect(page.hasMore).toBe(false);
+});

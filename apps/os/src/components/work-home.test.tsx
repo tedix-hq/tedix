@@ -37,6 +37,22 @@ function render(
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
+	client.setQueryData(
+		osQuery.workInteractions.listInbox.queryOptions({
+			input: {
+				projectId: undefined,
+				limit: 50,
+				states: ["open"],
+				decisionKind: "approval",
+			},
+		}).queryKey,
+		{
+			data: [],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: new Date().toISOString(),
+		},
+	);
 	client.setQueryData(userProfileQueryOptions().queryKey, {
 		id: "morgan",
 		email: "morgan@example.com",

@@ -520,6 +520,12 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 });
 
 export const ListWorkInteractionInboxInputSchema = z.strictObject({
+	decisionKind: z
+		.literal("approval")
+		.optional()
+		.describe(
+			"Read typed approval requests independently of newer questions and status updates.",
+		),
 	states: z
 		.array(WorkInteractionStateSchema)
 		.min(1)
