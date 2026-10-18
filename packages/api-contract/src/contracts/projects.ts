@@ -738,6 +738,43 @@ export const projectsContract = oc
 			)
 			.output(ProjectHealthJudgmentSchema),
 
+		getTodayTotals: oc
+			.route({
+				method: "GET",
+				path: "/{id}/today-totals",
+				summary: "Read project totals for the saved Today post",
+				description:
+					"Counts for one configured person without private request text. Called by the scheduled Today skill, never on page load.",
+			})
+			.input(
+				z.strictObject({
+					id: z.uuid(),
+					personId: z.string().min(1).max(300),
+					excludeOutputId: z.uuid(),
+					since: z.iso.datetime(),
+					until: z.iso.datetime(),
+				}),
+			)
+			.output(
+				z.object({
+					needsYou: z.number().int().nonnegative(),
+					decisions: z.number().int().nonnegative(),
+					documents: z.number().int().nonnegative(),
+					lastTouched: z.string().nullable(),
+					receipts: z
+						.array(
+							z.object({
+								id: z.string(),
+								title: z.string(),
+								at: z.string(),
+								source: z.string(),
+							}),
+						)
+						.max(1000),
+					objective: z.string().nullable(),
+				}),
+			),
+
 		listHealthJudgments: oc
 			.route({
 				method: "GET",

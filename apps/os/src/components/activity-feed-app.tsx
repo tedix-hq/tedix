@@ -72,10 +72,13 @@ import { ActivityFeedFactorySource } from "@/components/activity-feed-factory-so
 import { FeedNowStrip } from "@/components/feed-now-strip";
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
 import { useOsLocale } from "@/lib/use-os-locale";
+import { TodayPost } from "@/components/today-post";
 
 type Filter = keyof typeof OS_COPY.feed.filters;
 export interface ActivityFeedNavigation {
 	filter?: Filter;
+	projectId?: string;
+	day?: string;
 	onFilterChange?: (filter: Filter) => void;
 	decide?: ReactNode;
 	apps?: ReactNode;
@@ -139,7 +142,9 @@ function ActivityFeedContent({
 		return () => clearInterval(id);
 	}, []);
 	const visibleProjects = config.projects.filter(
-		(p) => !prefs.projectIds.length || prefs.projectIds.includes(p.id),
+		(p) =>
+			(!navigation?.projectId || p.id === navigation.projectId) &&
+			(!prefs.projectIds.length || prefs.projectIds.includes(p.id)),
 	);
 	const visibleFactories = useVisibleCardSources(
 		config.factorySources,
@@ -149,7 +154,10 @@ function ActivityFeedContent({
 		visibleProjects.some((p) => p.id === f.projectId),
 	);
 	const sourceIds = [
-		...(config.scope === "organization" ? ["organization"] : []),
+		...(config.today ? ["today-receipts"] : []),
+		...(config.scope === "organization"
+			? [navigation?.projectId ?? "organization"]
+			: []),
 		...visibleProjects.map((p) => p.id),
 		...factories.map(
 			(f) => `factory-${f.source.workspaceId}-${f.source.label}`,
@@ -160,7 +168,9 @@ function ActivityFeedContent({
 			.filter(([id]) => sourceIds.includes(id))
 			.flatMap(([, s]) => s.items),
 		...correctionFeedItems(corrections.data?.events ?? []),
-	];
+	].filter(
+		(item) => !navigation?.projectId || item.projectId === navigation.projectId,
+	);
 	const ranked = rankFeed(
 		allItems,
 		config,
@@ -168,19 +178,33 @@ function ActivityFeedContent({
 		now,
 		learningModel.data,
 	);
-	const selected = timelineItems(ranked).filter(
-		(item) =>
-			filter === "all" ||
-			(filter === "attention"
-				? item.needsAction || item.stalled
-				: filter === "office"
-					? item.kind === "decision"
-					: filter === "history"
-						? item.done
-						: filter === "queue"
-							? item.kind === "work" && !item.done
-							: item.stalled),
-	);
+	const selected = timelineItems(ranked)
+		.filter(
+			(item) =>
+				!navigation?.day ||
+				new Intl.DateTimeFormat("en-CA", {
+					timeZone:
+						config.today?.timeZone ??
+						preferences.data?.preferences.timezone ??
+						"UTC",
+					year: "numeric",
+					month: "2-digit",
+					day: "2-digit",
+				}).format(new Date(item.at)) === navigation.day,
+		)
+		.filter(
+			(item) =>
+				filter === "all" ||
+				(filter === "attention"
+					? item.needsAction || item.stalled
+					: filter === "office"
+						? item.kind === "decision"
+						: filter === "history"
+							? item.done
+							: filter === "queue"
+								? item.kind === "work" && !item.done
+								: item.stalled),
+		);
 	const quiet = quietNow(
 		config,
 		Number(
@@ -199,6 +223,7 @@ function ActivityFeedContent({
 	);
 	const main = selected.filter(
 		(item) =>
+			Boolean(navigation?.day) ||
 			item.needsAction ||
 			item.importance === "critical" ||
 			(!quiet &&
@@ -228,6 +253,15 @@ function ActivityFeedContent({
 		corrections.isError ||
 		states.some((s) => s?.failed);
 	const more = states.some((s) => s?.more);
+	const receiptScope = useRef("");
+	useEffect(() => {
+		const scope = `${navigation?.projectId ?? ""}:${navigation?.day ?? ""}`;
+		if (!navigation?.day || loading || receiptScope.current === scope) return;
+		receiptScope.current = scope;
+		document
+			.getElementById("feed-receipts")
+			?.scrollIntoView?.({ block: "start" });
+	}, [navigation?.projectId, navigation?.day, loading]);
 	const load = useCallback(() => setRequest((r) => r + 1), []);
 	const sentinel = useRef<HTMLDivElement>(null);
 	useEffect(() => {
@@ -399,9 +433,11 @@ function ActivityFeedContent({
 			className="feed-deck fd-feed mx-auto grid w-full max-w-3xl min-w-0 gap-4 pb-8"
 			data-workspace-app-entry="activity-feed"
 		>
+			{config.today && <TodayPost config={config.today} onUpdate={onUpdate} />}
 			<DecisionLearningFeedback eventId={sessionLearningId} />
 			{config.scope === "organization" && (
 				<ActivityFeedSources
+					projectId={navigation?.projectId}
 					pageSize={config.pageSize}
 					request={request}
 					onUpdate={onUpdate}
@@ -532,6 +568,7 @@ function ActivityFeedContent({
 			)}
 			{status && <Text aria-live="polite">{status}</Text>}
 			<div
+				id="feed-receipts"
 				role="feed"
 				aria-label={copy.title}
 				aria-busy={loading}

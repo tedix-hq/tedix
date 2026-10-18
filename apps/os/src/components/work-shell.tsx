@@ -1,11 +1,17 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { lazy, Suspense, useState } from "react";
+import {
+	Link,
+	Outlet,
+	useNavigate,
+	useRouterState,
+} from "@tanstack/react-router";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { DeckRemainingContext } from "@/components/deck-presentation-context";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDeckCount } from "@/lib/use-deck-count";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
 import { useWorkApps } from "@/lib/use-work-apps";
+import { todayShortcut } from "@/lib/today-digest";
 
 const WorkWebMcpTools = lazy(() =>
 	import("@/components/work-webmcp-tools").then((module) => ({
@@ -15,6 +21,7 @@ const WorkWebMcpTools = lazy(() =>
 
 export function WorkShell() {
 	const { apps } = useWorkApps();
+	const navigate = useNavigate();
 	const [remaining, setRemaining] = useState<number | null>(null);
 	const deckApp = apps.find((app) => app.role === "deck");
 	const config = DecisionDeckConfigSchema.safeParse(deckApp?.manifest.config);
@@ -40,6 +47,23 @@ export function WorkShell() {
 	});
 	const deck = view === "deck";
 	const feed = view === "feed";
+	const hasToday = apps.some(
+		(app) => app.role === "feed" && app.manifest.config?.today,
+	);
+	useEffect(() => {
+		const jump = (event: KeyboardEvent) => {
+			if (!hasToday || feed || event.defaultPrevented || !todayShortcut(event))
+				return;
+			event.preventDefault();
+			void navigate({
+				to: "/work",
+				search: { view: "feed" },
+				hash: "today-heading",
+			});
+		};
+		document.addEventListener("keydown", jump);
+		return () => document.removeEventListener("keydown", jump);
+	}, [hasToday, feed, navigate]);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<Suspense fallback={null}>

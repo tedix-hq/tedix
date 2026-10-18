@@ -107,10 +107,22 @@ export function WorkHome({
 			{selected ? (
 				<WorkspaceAppRenderer
 					key={selected.gadget.id}
-					manifest={selected.manifest}
+					manifest={
+						search.project && selected.role === "deck"
+							? {
+									...selected.manifest,
+									config: {
+										...selected.manifest.config,
+										projectId: search.project,
+									},
+								}
+							: selected.manifest
+					}
 					workspaceId={selected.gadget.workspaceId}
 					activityFeed={{
 						filter: search.filter ?? "all",
+						projectId: search.project,
+						day: search.day,
 						onFilterChange,
 						decide,
 						apps: appLinks,

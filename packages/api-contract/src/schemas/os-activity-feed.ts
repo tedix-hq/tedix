@@ -54,6 +54,15 @@ export const ActivityFeedConfigSchema = z
 	.strictObject({
 		version: z.literal(1),
 		scope: z.enum(["projects", "organization"]).optional(),
+		today: z
+			.strictObject({
+				outputId: z.uuid(),
+				skillId: z.uuid(),
+				tediId: z.uuid(),
+				personId: z.string().min(1).max(300),
+				timeZone: z.string().min(1).default("UTC"),
+			})
+			.optional(),
 		factorySources: z
 			.array(
 				z.strictObject({ projectId: z.uuid(), source: CardReviewSourceSchema }),
