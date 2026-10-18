@@ -1,3 +1,4 @@
+import { cardIsDue } from "@/lib/card-schedule";
 import { sessionHarness, workActorReference } from "@/lib/work-actor";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
@@ -193,61 +194,76 @@ export function resultFeedItems(
 
 export function decisionFeedItems(
 	rows: z.infer<typeof WorkInteractionInboxRowSchema>[],
+	now = new Date(),
+	timeZone?: string,
 ): ActivityFeedItem[] {
-	return rows.map(({ request: r, effectiveState, workItem, askedBy }) => {
-		const decision = decisionEnvelope(r.metadata);
-		return {
-			...base(
-				`decision:${r.id}`,
-				r.resolvedAt ?? r.requestedAt,
-				r.projectId ?? workItem?.projectId ?? null,
-				r.workItemId,
-			),
-			kind: "decision",
-			classId:
-				decision?.classId ??
-				(typeof r.metadata?.decisionClass === "string"
-					? r.metadata.decisionClass
-					: r.kind),
-			actor: askedBy ?? "Tedi",
-			tediId:
-				typeof r.metadata?.proposerTediId === "string"
-					? r.metadata.proposerTediId
-					: null,
-			sentence: sentence(decision?.proposal ?? r.subject),
-			source: `/work/interactions/${r.id}`,
-			needsAction: effectiveState === "open",
-			done: effectiveState !== "open",
-			dueAt: r.dueAt,
-			importance: effectiveState === "open" ? "high" : "normal",
-			explanation: decision?.reasoning ?? r.prompt,
-			decision: decision ?? undefined,
-		};
-	});
+	return rows
+		.filter(
+			(row) =>
+				row.effectiveState !== "open" || cardIsDue(row.request, now, timeZone),
+		)
+		.map(({ request: r, effectiveState, workItem, askedBy }) => {
+			const decision = decisionEnvelope(r.metadata);
+			return {
+				...base(
+					`decision:${r.id}`,
+					r.resolvedAt ?? r.requestedAt,
+					r.projectId ?? workItem?.projectId ?? null,
+					r.workItemId,
+				),
+				kind: "decision",
+				classId:
+					decision?.classId ??
+					(typeof r.metadata?.decisionClass === "string"
+						? r.metadata.decisionClass
+						: r.kind),
+				actor: askedBy ?? "Tedi",
+				tediId:
+					typeof r.metadata?.proposerTediId === "string"
+						? r.metadata.proposerTediId
+						: null,
+				sentence: sentence(decision?.proposal ?? r.subject),
+				source: `/work/interactions/${r.id}`,
+				needsAction: effectiveState === "open",
+				done: effectiveState !== "open",
+				dueAt: r.dueAt,
+				importance: effectiveState === "open" ? "high" : "normal",
+				explanation: decision?.reasoning ?? r.prompt,
+				decision: decision ?? undefined,
+			};
+		});
 }
 
 export function approvalFeedItems(
 	rows: z.infer<typeof WorkApprovalInboxRowSchema>[],
+	now = new Date(),
+	timeZone?: string,
 ): ActivityFeedItem[] {
-	return rows.map(({ proposal: p, effectiveStatus, workItem: w }) => ({
-		...base(
-			`approval:${p.id}`,
-			p.resolvedAt ?? p.requestedAt,
-			w.projectId,
-			w.id,
-		),
-		kind: "approval",
-		classId: `approval:${p.action}`,
-		actor: "Approval",
-		sentence: sentence(
-			`${w.title}: ${effectiveStatus === "pending" ? p.requestRationale : effectiveStatus}`,
-		),
-		needsAction: effectiveStatus === "pending",
-		done: effectiveStatus !== "pending",
-		dueAt: p.expiresAt,
-		importance: effectiveStatus === "pending" ? "high" : "normal",
-		explanation: p.requestRationale,
-	}));
+	return rows
+		.filter(
+			(row) =>
+				row.effectiveStatus !== "pending" ||
+				cardIsDue(row.proposal, now, timeZone),
+		)
+		.map(({ proposal: p, effectiveStatus, workItem: w }) => ({
+			...base(
+				`approval:${p.id}`,
+				p.resolvedAt ?? p.requestedAt,
+				w.projectId,
+				w.id,
+			),
+			kind: "approval",
+			classId: `approval:${p.action}`,
+			actor: "Approval",
+			sentence: sentence(
+				`${w.title}: ${effectiveStatus === "pending" ? p.requestRationale : effectiveStatus}`,
+			),
+			needsAction: effectiveStatus === "pending",
+			done: effectiveStatus !== "pending",
+			dueAt: p.expiresAt,
+			importance: effectiveStatus === "pending" ? "high" : "normal",
+			explanation: p.requestRationale,
+		}));
 }
 
 export function correctionFeedItems(

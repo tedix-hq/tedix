@@ -190,7 +190,7 @@ it("correlates only canonical effect receipts, including Outbound's pre-send rev
 	expect(decisionLearningKey(undefined)).toBeUndefined();
 });
 
-it("holds future coordination reminders until due without delaying question deadlines", () => {
+it("holds every future decision until its scheduled calendar date", () => {
 	const request = { kind: "coordination", dueAt: "2026-10-28T08:00:00Z" };
 	expect(decisionIsDue(request, new Date("2026-10-18T10:09:00Z"))).toBe(false);
 	expect(decisionIsDue(request, new Date(request.dueAt))).toBe(true);
@@ -200,7 +200,7 @@ it("holds future coordination reminders until due without delaying question dead
 			{ ...request, kind: "question" },
 			new Date("2026-10-18T10:09:00Z"),
 		),
-	).toBe(true);
+	).toBe(false);
 	expect(decisionIsDue({ kind: "coordination" }, new Date())).toBe(true);
 });
 

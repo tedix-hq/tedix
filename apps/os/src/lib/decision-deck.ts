@@ -1,3 +1,4 @@
+import { cardIsDue } from "@/lib/card-schedule";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import {
 	scoreLearning,
@@ -182,16 +183,17 @@ export function decisionLearningKey(result: unknown): string | undefined {
 		return `decision-capture:${result.response.id}`;
 }
 
-/** Coordination due dates schedule a follow-up; question deadlines do not delay review. */
+/** Scheduled cards enter the decision queue on the viewer's calendar date. */
 export function decisionIsDue(
-	request: { kind: string; dueAt?: string | null },
+	request: {
+		kind: string;
+		dueAt?: string | null;
+		metadata?: Record<string, unknown> | null;
+	},
 	now: Date,
+	timeZone?: string,
 ) {
-	return (
-		request.kind !== "coordination" ||
-		!request.dueAt ||
-		Date.parse(request.dueAt) <= now.getTime()
-	);
+	return cardIsDue(request, now, timeZone);
 }
 
 export function decisionDeadlinePassed(

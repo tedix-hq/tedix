@@ -36,6 +36,11 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: api,
+		userSettings: {
+			getPreferences: vi
+				.fn()
+				.mockResolvedValue({ preferences: { timezone: "UTC" } }),
+		},
 		userProfile: {
 			getMine: vi.fn().mockResolvedValue({ id: "fictional-reviewer" }),
 		},

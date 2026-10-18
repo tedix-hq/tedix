@@ -7,6 +7,7 @@ import { useDeckCount } from "./use-deck-count";
 import { deckBatchKey, useDeckBatch } from "./use-deck-batch";
 import { deckBatchWindow } from "./deck-attention";
 import { osQuery, userProfileQueryOptions } from "./os-query-options";
+let scheduledIds = new Set<string>();
 vi.mock("./use-decision-inbox", () => ({
 	useDecisionInbox: () => ({
 		requests: [
@@ -20,6 +21,7 @@ vi.mock("./use-decision-inbox", () => ({
 			},
 		],
 		work: [],
+		scheduledIds,
 		approvals: { data: { data: [] } },
 		count: 4,
 		factoryCount: 0,
@@ -44,6 +46,7 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	host?.remove();
 	sessionStorage.clear();
+	scheduledIds = new Set();
 });
 function Count() {
 	const queue = useDeckCount(config, "workspace");
@@ -94,6 +97,32 @@ it("Feed, sidebar and Deck observers share the saved batch and update together a
 	expect(
 		[...host.querySelectorAll("output")].map((el) => el.textContent),
 	).toEqual(["3", "3", "3"]);
+	// A reminder released today enters even when the saved batch is already full.
+	scheduledIds = new Set(["c"]);
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<Count />
+				<Count />
+				<Count />
+				<Deck />
+			</QueryClientProvider>,
+		),
+	);
+	expect(
+		[...host.querySelectorAll("output")].map((el) => el.textContent),
+	).toEqual(["4", "4", "4"]);
+	scheduledIds = new Set();
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<Count />
+				<Count />
+				<Count />
+				<Deck />
+			</QueryClientProvider>,
+		),
+	);
 	await act(async () => host.querySelector("button")!.click());
 	expect(
 		[...host.querySelectorAll("output")].map((el) => el.textContent),

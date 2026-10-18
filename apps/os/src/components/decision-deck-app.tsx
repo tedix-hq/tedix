@@ -325,7 +325,9 @@ export function DecisionDeckApp({
 			? rows.filter(
 					(row) =>
 						batch &&
-						(row.kind === "approval" || batch.ids.includes(row.id)) &&
+						(row.kind === "approval" ||
+							decisions.scheduledIds.has(row.id) ||
+							batch.ids.includes(row.id)) &&
 						!batch.dismissed.includes(row.id),
 				)
 			: mode === "practice"

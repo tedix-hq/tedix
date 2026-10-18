@@ -1,3 +1,5 @@
+import { cardIsDue } from "@/lib/card-schedule";
+import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries } from "@tanstack/react-query";
 import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
 import { cardSheetsForSource, cardsFromSheet, isOpen } from "@/lib/card-review";
@@ -8,6 +10,7 @@ import {
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
 
 export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
+	const { now, timeZone } = useCardSchedule();
 	const visible = useVisibleCardSources(
 		sources,
 		(source) => source.workspaceId,
@@ -43,7 +46,10 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 			body,
 		});
 		if ("missing" in parsed) invalid = true;
-		else count += parsed.cards.filter(isOpen).length;
+		else
+			count += parsed.cards.filter(
+				(card) => isOpen(card) && cardIsDue(card, now, timeZone),
+			).length;
 	}
 	return {
 		count,

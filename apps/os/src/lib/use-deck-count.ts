@@ -41,6 +41,7 @@ export function useDeckCount(
 			attentionMetrics(learning.data?.events ?? [], now).cardsToday,
 	);
 	const protectedIds = new Set([
+		...inbox.scheduledIds,
 		...inbox.requests
 			.filter((row) => interactionCardKind(row.request) === "approval")
 			.map((row) => row.request.id),

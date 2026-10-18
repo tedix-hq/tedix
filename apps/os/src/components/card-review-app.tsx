@@ -1,3 +1,4 @@
+import { useCardSchedule } from "@/lib/use-card-schedule";
 import { DeckRemainingContext } from "@/components/deck-presentation-context";
 import {
 	ArrowArcLeft,
@@ -362,13 +363,14 @@ export function CardReviewApp({
 			: readSnoozes(snoozeKey);
 	const setSnoozes = (value: Record<string, string>) =>
 		setStoredSnoozes({ key: snoozeKey, value });
-	const [now] = useState(() => new Date());
+	const { now, timeZone } = useCardSchedule();
 	const queue = useMemo(() => {
 		const pending = reviewQueue(cards, {
 			channel: activeChannel,
 			snoozes,
 			skipped,
 			now,
+			timeZone,
 		});
 		const model = learningModel.data;
 		if (!model?.config.enabled) return pending;
@@ -394,6 +396,7 @@ export function CardReviewApp({
 		snoozes,
 		skipped,
 		now,
+		timeZone,
 		sources,
 		learningModel.data,
 	]);

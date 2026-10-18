@@ -1,3 +1,4 @@
+import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { act } from "react";
@@ -12,6 +13,7 @@ import {
 	pendingApprovalsQueryOptions,
 	projectListQueryOptions,
 	userProfileQueryOptions,
+	userPreferencesQueryOptions,
 } from "@/lib/os-query-options";
 
 vi.mock("@/lib/api", async (original) => {
@@ -51,6 +53,12 @@ afterEach(async () => {
 async function mount() {
 	client = new QueryClient({
 		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+	});
+	client.setQueryData(userPreferencesQueryOptions().queryKey, {
+		preferences: { ...DEFAULT_OS_USER_PREFERENCES, timezone: "Europe/Berlin" },
+		source: "stored",
+		revision: 1,
+		updatedAt: null,
 	});
 	client.setQueryData(
 		osQuery.learningFeedback.listInteractions.queryOptions({
