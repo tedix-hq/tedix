@@ -1,4 +1,4 @@
-import { decisionEnvelope } from "@/lib/decision-deck";
+import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
@@ -248,9 +248,7 @@ export function WorkInteractionDecisionCard({
 		request.kind === "question" &&
 		Boolean(choices.laneHandoff ?? choices.followThrough?.laneHandoff);
 	const pastDeadline =
-		effectiveState === "open" &&
-		!!request.dueAt &&
-		Date.parse(request.dueAt) < Date.now();
+		effectiveState === "open" && decisionDeadlinePassed(request, new Date());
 	const active =
 		!pastDeadline &&
 		canRespond &&

@@ -50,6 +50,7 @@ import {
 	workInteractionDetailQueryOptions,
 } from "@/lib/os-query-options";
 import {
+	decisionDeadlinePassed,
 	rankDecision,
 	compareDecisionFreshness,
 	workIsUnowned,
@@ -352,8 +353,7 @@ export function DecisionDeckApp({
 	const expiresAt =
 		selected?.row?.request.expiresAt ?? selected?.decision?.expiresAt;
 	const pastDeadline =
-		!!selected?.row?.request.dueAt &&
-		Date.parse(selected.row.request.dueAt) < now.getTime();
+		!!selected?.row && decisionDeadlinePassed(selected.row.request, now);
 	const expired = !!expiresAt && Date.parse(expiresAt) <= now.getTime();
 	const current = selected?.decision
 		? {

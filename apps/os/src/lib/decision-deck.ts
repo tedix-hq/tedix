@@ -182,3 +182,14 @@ export function decisionIsDue(
 		Date.parse(request.dueAt) <= now.getTime()
 	);
 }
+
+export function decisionDeadlinePassed(
+	request: { kind: string; dueAt?: string | null },
+	now: Date,
+) {
+	return (
+		request.kind !== "coordination" &&
+		!!request.dueAt &&
+		Date.parse(request.dueAt) < now.getTime()
+	);
+}
