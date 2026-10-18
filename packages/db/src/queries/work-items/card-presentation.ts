@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { chunkForBoundParams } from "../../utils/batch";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
@@ -6,6 +6,12 @@ import {
 	workInteractionCardPresentations,
 	workInteractions,
 } from "../../schema/work-factory";
+
+function displayCopy(presentation: DecisionCardPresentation) {
+	const { copyHistory: _, ...copy } =
+		presentation as DecisionCardPresentation & { copyHistory?: unknown[] };
+	return copy;
+}
 
 /** Display copy is a projection; the canonical request and its version stay immutable. */
 export async function saveDecisionCardPresentation(
@@ -29,7 +35,9 @@ export async function saveDecisionCardPresentation(
 					personId: sql<string>`${workInteractions.targetId}`.as("person_id"),
 					requestVersion: workInteractions.version,
 					presentation:
-						sql<DecisionCardPresentation>`json(${JSON.stringify(input.presentation)})`.as(
+						sql<DecisionCardPresentation>`json_set(json(${JSON.stringify(input.presentation)}), '$.copyHistory',
+ case when json_type(${workInteractions.metadata}, '$.cardPresentation') = 'object'
+ then json_array(json_extract(${workInteractions.metadata}, '$.cardPresentation')) else json('[]') end)`.as(
 							"presentation",
 						),
 					updatedAt: sql<string>`${updatedAt}`.as("updated_at"),
@@ -42,6 +50,10 @@ export async function saveDecisionCardPresentation(
 						eq(workInteractions.targetType, "user"),
 						eq(workInteractions.targetId, input.personId),
 						eq(workInteractions.status, "open"),
+						or(
+							isNull(workInteractions.expiresAt),
+							gt(workInteractions.expiresAt, updatedAt),
+						),
 						eq(workInteractions.version, input.expectedVersion),
 					),
 				),
@@ -54,12 +66,17 @@ export async function saveDecisionCardPresentation(
 			set: {
 				personId: input.personId,
 				requestVersion: input.expectedVersion,
-				presentation: input.presentation,
+				// Append the previous projection atomically with its replacement.
+				presentation: sql<DecisionCardPresentation>`json_set(json(${JSON.stringify(input.presentation)}), '$.copyHistory',
+ json_insert(coalesce(json_extract(${workInteractionCardPresentations.presentation}, '$.copyHistory'), json('[]')),
+ '$[#]', json_remove(${workInteractionCardPresentations.presentation}, '$.copyHistory')))`,
 				updatedAt,
 			},
 		})
 		.returning();
-	return saved ?? null;
+	return saved
+		? { ...saved, presentation: displayCopy(saved.presentation) }
+		: null;
 }
 
 export async function listDecisionCardPresentations(
@@ -94,9 +111,12 @@ export async function listDecisionCardPresentations(
 				),
 			);
 		result.push(
-			...rows.filter(
-				(row) => versions.get(row.interactionId) === row.requestVersion,
-			),
+			...rows
+				.filter((row) => versions.get(row.interactionId) === row.requestVersion)
+				.map((row) => ({
+					...row,
+					presentation: displayCopy(row.presentation),
+				})),
 		);
 	}
 	return result;

@@ -1,7 +1,8 @@
 import * as z from "zod";
+import copySpec from "../assets/decision-card-copy.v2.json";
 
 /** Generated display copy. It carries no options, effects or authority. */
-export const DecisionCardPresentationSchema = z.strictObject({
+const LegacyDecisionCardPresentationSchema = z.strictObject({
 	version: z.literal(1),
 	model: z.string().optional(),
 	generatedAt: z.iso.datetime().optional(),
@@ -30,6 +31,30 @@ export const DecisionCardPresentationSchema = z.strictObject({
 			"Give the recommendation and its reason",
 		),
 });
+
+const line = (limit: number) =>
+	z
+		.string()
+		.trim()
+		.min(1)
+		.max(limit)
+		.refine((text) => !/[\n\r]/.test(text));
+
+/** Existing field names retain their transport shape: ASK, IF YES, WHY. */
+export const DecisionCardPresentationSchema = z.union([
+	LegacyDecisionCardPresentationSchema,
+	z.strictObject({
+		version: z.literal(2),
+		model: z.string().optional(),
+		generatedAt: z.iso.datetime().optional(),
+		title: line(copySpec.fields.title.maxLength).refine((text) =>
+			text.endsWith("?"),
+		),
+		body: line(copySpec.fields.body.maxLength),
+		recommendation: line(copySpec.fields.recommendation.maxLength),
+		stakes: line(copySpec.stakesMaxLength).optional(),
+	}),
+]);
 
 export const RegenerateDecisionCardInputSchema = z.strictObject({
 	requestId: z.uuid(),
