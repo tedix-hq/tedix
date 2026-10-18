@@ -250,3 +250,23 @@ it("keeps filing a request distinct from executing it", async () => {
 		}),
 	).toBeNull();
 });
+
+it("accepts a faithful status-report filing title", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			title: "File: Work status report",
+			recommendation:
+				"Keep this filing because the project owns status reports.",
+		}),
+	);
+	expect(
+		(
+			await generateDecisionCard({ db: {}, env: {} } as never, {
+				...request,
+				prompt: "Report current work",
+				metadata: { decisionDeck: { classId: "filing.project" } },
+			})
+		)?.title,
+	).toBe("File: Work status report");
+});
