@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.13.3 — 2026-10-19
+
+### Patch Changes
+
+- Other sessions can recall new lessons without waiting for shared documents or delivery tracking. Explicit per-turn instructions are excluded from preference capture.
+- Strip credentials and URL queries from feedback repository metadata, and redact credentials in quoted URLs before extraction or upload.
+
 ## 0.13.2 — 2026-10-18
 
 ### Patch Changes
