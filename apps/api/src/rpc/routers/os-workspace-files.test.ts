@@ -25,10 +25,13 @@ import {
 import {
 	workspaceFileKey,
 	workspaceFileSignature,
+	workspaceFileMimeMatches,
+	workspaceFileInlineMime,
 } from "../../lib/workspace-files";
 import {
 	WORKSPACE_FILE_MAX_BYTES,
 	WORKSPACE_FILE_PART_BYTES,
+	WorkspaceFileMetadataSchema,
 } from "@tedix/api-contract/schemas/workspace-files";
 
 const W = "10000000-0000-4000-8000-000000000001";
@@ -62,6 +65,10 @@ function fixture() {
 		string,
 		{ key: string; parts: Map<number, { etag: string; bytes: Uint8Array }> }
 	>();
+	const reads: Array<{
+		key: string;
+		range?: { offset: number; length: number };
+	}> = [];
 	const bucket = {
 		put: async (key: string, value: string) => {
 			objects.set(key, new TextEncoder().encode(value));
@@ -70,6 +77,7 @@ function fixture() {
 			key: string,
 			options?: { range: { offset: number; length: number } },
 		) => {
+			reads.push({ key, range: options?.range });
 			const bytes = objects.get(key);
 			if (!bytes) return null;
 			const slice = options
@@ -81,6 +89,7 @@ function fixture() {
 			return {
 				size: bytes.length,
 				body: slice,
+				arrayBuffer: async () => slice.buffer,
 				json: async () => JSON.parse(new TextDecoder().decode(bytes)),
 			};
 		},
@@ -149,10 +158,15 @@ function fixture() {
 	const request = createRouterClient(requestFileUpload, { context: caller });
 	const confirm = createRouterClient(confirmFileUpload, { context: caller });
 	const get = createRouterClient(getFile, { context: caller });
-	async function upload(size = 6, mimeType = "video/mp4") {
+	async function upload(
+		size = 6,
+		mimeType = "video/mp4",
+		bytes = new Uint8Array(size),
+		filename = "demo.mp4",
+	) {
 		const ticket = await request({
 			workspaceId: W,
-			filename: "demo.mp4",
+			filename,
 			mimeType,
 			size,
 		});
@@ -160,7 +174,13 @@ function fixture() {
 		for (const part of ticket.parts) {
 			const u = new URL(part.url);
 			const response = await uploadWorkspaceFilePart(
-				new Request(u, { method: "PUT", body: new Uint8Array(part.size) }),
+				new Request(u, {
+					method: "PUT",
+					body: bytes.slice(
+						(part.partNumber - 1) * WORKSPACE_FILE_PART_BYTES,
+						part.partNumber * WORKSPACE_FILE_PART_BYTES,
+					),
+				}),
 				env,
 				{
 					organizationId: "fictional-a",
@@ -176,7 +196,17 @@ function fixture() {
 		}
 		return { ticket, receipts };
 	}
-	return { env, sqlite, context, request, confirm, get, upload, objects };
+	return {
+		env,
+		sqlite,
+		context,
+		request,
+		confirm,
+		get,
+		upload,
+		objects,
+		reads,
+	};
 }
 
 describe("workspace file uploads", () => {
@@ -191,7 +221,10 @@ describe("workspace file uploads", () => {
 		const first = await f.confirm(input);
 		const second = await f.confirm(input);
 		expect(second.outputId).toBe(first.outputId);
-		expect(first.resource.metadata).toEqual({ mimeType: "video/mp4", size: 6 });
+		expect(first.resource.metadata).toEqual({
+			mimeType: "application/octet-stream",
+			size: 6,
+		});
 		expect(
 			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_workspace_resources").get()
 				?.n,
@@ -419,5 +452,179 @@ describe("workspace file uploads", () => {
 		expect(
 			f.objects.has(workspaceFileKey("fictional-b", W, ticket.resourceId)),
 		).toBe(false);
+	});
+});
+
+const ascii = (value: string) => new TextEncoder().encode(value);
+const signatures = [
+	["application/pdf", ascii("%PDF-1.7")],
+	["image/png", new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])],
+	["image/jpeg", new Uint8Array([255, 216, 255, 224])],
+	["image/gif", ascii("GIF89a")],
+	["image/webp", ascii("RIFFxxxxWEBP")],
+	[
+		"video/webm",
+		new Uint8Array([26, 69, 223, 163, 135, 66, 130, 132, 119, 101, 98, 109]),
+	],
+	[
+		"video/mp4",
+		new Uint8Array([0, 0, 0, 16, ...ascii("ftypmp42"), 0, 0, 0, 0]),
+	],
+	[
+		"video/quicktime",
+		new Uint8Array([0, 0, 0, 16, ...ascii("ftypqt  "), 0, 0, 0, 0]),
+	],
+	[
+		"image/avif",
+		new Uint8Array([0, 0, 0, 16, ...ascii("ftypavif"), 0, 0, 0, 0]),
+	],
+] as const;
+
+describe("workspace file content validation", () => {
+	it.each(signatures)(
+		"previews verified %s using a bounded R2 range",
+		async (mime, signature) => {
+			const f = fixture();
+			const bytes = new Uint8Array(2048);
+			bytes.set(signature);
+			const { ticket, receipts } = await f.upload(bytes.length, mime, bytes);
+			const result = await f.confirm({
+				workspaceId: W,
+				resourceId: ticket.resourceId,
+				parts: receipts,
+			});
+			expect(result.resource.metadata).toEqual({
+				mimeType: mime,
+				size: bytes.length,
+			});
+			const key = workspaceFileKey("fictional-a", W, ticket.resourceId);
+			expect(f.reads.filter((read) => read.key === key)).toEqual([
+				{ key, range: { offset: 0, length: 512 } },
+			]);
+			const file = await f.get({
+				workspaceId: W,
+				resourceId: ticket.resourceId,
+			});
+			expect(file.mimeType).toBe(mime);
+			const response = await serveWorkspaceFile(
+				new Request(new URL(file.url.replace(/^\/api/, ""), f.env.API_URL)),
+				f.env,
+				{
+					organizationId: "fictional-a",
+					workspaceId: W,
+					resourceId: ticket.resourceId,
+				},
+			);
+			expect(response.headers.get("Content-Type")).toBe(mime);
+			expect(response.headers.get("Content-Disposition")).toMatch(/^inline/);
+		},
+	);
+	it.each(signatures)(
+		"downloads spoofed %s as octet-stream, including on retry",
+		async (mime, signature) => {
+			expect(workspaceFileMimeMatches(mime, signature.slice(0, 2))).toBe(false);
+			expect(workspaceFileMimeMatches(mime, ascii("%PDF-1.7"))).toBe(
+				mime === "application/pdf",
+			);
+			const f = fixture();
+			const bytes = ascii("<html><script>alert(1)</script></html>");
+			const { ticket, receipts } = await f.upload(bytes.length, mime, bytes);
+			const input = {
+				workspaceId: W,
+				resourceId: ticket.resourceId,
+				parts: receipts,
+			};
+			for (let retry = 0; retry < 2; retry++) {
+				const result = await f.confirm(input);
+				expect(result.resource.metadata?.mimeType).toBe(
+					"application/octet-stream",
+				);
+			}
+			const file = await f.get({
+				workspaceId: W,
+				resourceId: ticket.resourceId,
+			});
+			expect(file.mimeType).toBe("application/octet-stream");
+			const response = await serveWorkspaceFile(
+				new Request(new URL(file.url.replace(/^\/api/, ""), f.env.API_URL)),
+				f.env,
+				{
+					organizationId: "fictional-a",
+					workspaceId: W,
+					resourceId: ticket.resourceId,
+				},
+			);
+			expect(response.headers.get("Content-Type")).toBe(
+				"application/octet-stream",
+			);
+			expect(response.headers.get("Content-Disposition")).toMatch(
+				/^attachment/,
+			);
+		},
+	);
+	it("keeps SVG, HTML and unvalidated legacy manifests attachment-only", async () => {
+		for (const mime of ["image/svg+xml", "text/html"]) {
+			expect(workspaceFileInlineMime(mime)).toBeNull();
+			expect(workspaceFileMimeMatches(mime, ascii("%PDF-1.7"))).toBe(false);
+		}
+		const f = fixture();
+		const { ticket, receipts } = await f.upload();
+		await f.confirm({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+		});
+		const key = `${workspaceFileKey("fictional-a", W, ticket.resourceId)}.json`;
+		const manifest = JSON.parse(new TextDecoder().decode(f.objects.get(key)));
+		delete manifest.mimeValidated;
+		manifest.mimeType = "video/mp4";
+		f.objects.set(key, ascii(JSON.stringify(manifest)));
+		expect(
+			(await f.get({ workspaceId: W, resourceId: ticket.resourceId })).mimeType,
+		).toBe("application/octet-stream");
+	});
+	it("sanitizes names in the manifest, Resource, Output and download header", async () => {
+		const f = fixture();
+		const { ticket, receipts } = await f.upload(
+			6,
+			"text/html",
+			new Uint8Array(6),
+			" a/\\b\r\n\t\u007f\u0085.html ",
+		);
+		const result = await f.confirm({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+		});
+		expect(result.resource.name).toBe("ab.html");
+		expect(f.sqlite.prepare("SELECT title FROM os_outputs").get()?.title).toBe(
+			"ab.html",
+		);
+		const file = await f.get({ workspaceId: W, resourceId: ticket.resourceId });
+		expect(file.filename).toBe("ab.html");
+		const response = await serveWorkspaceFile(
+			new Request(new URL(file.url.replace(/^\/api/, ""), f.env.API_URL)),
+			f.env,
+			{
+				organizationId: "fictional-a",
+				workspaceId: W,
+				resourceId: ticket.resourceId,
+			},
+		);
+		expect(response.headers.get("Content-Disposition")).toBe(
+			"attachment; filename*=UTF-8''ab.html",
+		);
+		for (const [name, expected] of [
+			["x".repeat(300), "x".repeat(255)],
+			["/\\\r\n", "file"],
+		]) {
+			expect(
+				WorkspaceFileMetadataSchema.parse({
+					filename: name,
+					mimeType: "text/plain",
+					size: 1,
+				}).filename,
+			).toBe(expected);
+		}
 	});
 });
