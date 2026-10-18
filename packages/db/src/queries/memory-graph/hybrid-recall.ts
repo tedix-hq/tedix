@@ -77,19 +77,29 @@ export async function lexicalRecall(
 	const terms = recallTerms(query);
 	if (!terms.length) return [];
 	const match = terms.map((term) => `"${term}"`).join(" OR ");
-	return db
-		.select({
-			factId: memoryFacts.id,
-			score: sql<number>`-bm25(memory_fact_fts, 0, 0, 1, 2)`,
-		})
-		.from(memoryFacts)
-		.innerJoin(
-			sql`memory_fact_fts`,
-			sql`memory_fact_fts.rowid = ${memoryFacts}.rowid`,
-		)
-		.where(and(eligible(scope), sql`memory_fact_fts MATCH ${match}`))
-		.orderBy(sql`bm25(memory_fact_fts, 0, 0, 1, 2)`, memoryFacts.id)
-		.limit(40);
+	return (
+		db
+			.select({
+				factId: memoryFacts.id,
+				score: sql<number>`-memory_fact_fts.rank`.as("lexical_score"),
+			})
+			// Native rank streams BM25 matches; CROSS JOIN forces rowid lookups
+			// instead of scanning all active facts. Filter before LIMIT so invalid
+			// high-ranking matches cannot crowd out usable facts.
+			.from(sql`memory_fact_fts`)
+			.crossJoin(memoryFacts)
+			.where(
+				and(
+					eligible(scope),
+					sql`${memoryFacts}.rowid = memory_fact_fts.rowid`,
+					sql`memory_fact_fts MATCH ${match}`,
+					sql`memory_fact_fts.organization_id = ${scope.orgId}`,
+					sql`memory_fact_fts.rank MATCH 'bm25(0,0,1,2)'`,
+				),
+			)
+			.orderBy(sql`memory_fact_fts.rank`)
+			.limit(40)
+	);
 }
 
 export async function graphRecall(
@@ -113,8 +123,11 @@ export async function graphRecall(
 	) SELECT fact_id FROM seeds UNION SELECT CASE WHEN e.source_fact_id = seeds.fact_id THEN e.target_fact_id ELSE e.source_fact_id END AS fact_id
 	FROM seeds JOIN memory_edges e ON e.source_fact_id = seeds.fact_id OR e.target_fact_id = seeds.fact_id`;
 	return db
-		.select({ factId: memoryFacts.id, score: memoryFacts.confidence })
-		.from(memoryFacts)
+		.select({
+			factId: sql<string>`${memoryFacts.id}`.as("graph_fact_id"),
+			score: sql<number>`${memoryFacts.confidence}`.as("graph_score"),
+		})
+		.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
 		.where(and(eligible(scope), sql`${memoryFacts.id} IN (${matched})`))
 		.orderBy(desc(memoryFacts.confidence), memoryFacts.id)
 		.limit(40);
