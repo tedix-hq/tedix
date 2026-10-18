@@ -107,6 +107,8 @@ it("projects an existing fictional factory sheet with its revision and the same 
 				items: [
 					expect.objectContaining({
 						sentence: "The delivery date changed.",
+						needsAction: true,
+						done: false,
 						reactions: ["more", "why", "mute", "comment", "work"],
 						explanation: expect.stringContaining("revision 3, row 1"),
 						source: expect.stringContaining(outputId),

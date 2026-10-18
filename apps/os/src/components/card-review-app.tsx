@@ -398,7 +398,8 @@ export function CardReviewApp({
 	const inChannel = cards.filter(
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
-	const card = queue[0] ?? null;
+	const [departingCard, setDepartingCard] = useState<ReviewCard | null>(null);
+	const card = departingCard ?? queue[0] ?? null;
 	const source = card ? sources[card.sourceIndex] : undefined;
 	const actionLabel = card && source ? doItLabel(source, card) : null;
 
@@ -909,7 +910,9 @@ export function CardReviewApp({
 								: []),
 							{ id: "later", label: decisionText("Later"), intent: "later" },
 						]}
+						onDecisionSettled={() => setDepartingCard(null)}
 						onDecision={async (feedback) => {
+							setDepartingCard(card);
 							const result =
 								feedback.action === "later"
 									? snooze()

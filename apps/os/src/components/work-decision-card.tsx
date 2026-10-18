@@ -99,6 +99,7 @@ export function WorkDecisionCard({
 	disabled = false,
 	autoFocus = false,
 	onDecision,
+	onDecisionSettled,
 	onNext,
 	onPrevious,
 }: {
@@ -121,6 +122,7 @@ export function WorkDecisionCard({
 	disabled?: boolean;
 	autoFocus?: boolean;
 	onDecision: (feedback: DecisionCardFeedback) => Promise<unknown>;
+	onDecisionSettled?: () => void;
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
@@ -244,6 +246,7 @@ export function WorkDecisionCard({
 		} finally {
 			inFlight.current = false;
 			setSaving(false);
+			onDecisionSettled?.();
 		}
 	};
 	const approve =

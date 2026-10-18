@@ -8,6 +8,7 @@ import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-se
 import { WorkHome } from "../src/components/work-home";
 import { setOsFormattingPreferences } from "../src/lib/format";
 import {
+	workAppsQueryOptions,
 	activeWorkspacesQueryOptions,
 	canvasGadgetsQueryOptions,
 	canvasGadgetDetailQueryOptions,
@@ -136,6 +137,13 @@ for (const gadget of gadgets)
 		canvasGadgetDetailQueryOptions(appSpace, gadget.id).queryKey,
 		{ gadget, currentRevision: { manifest: gadget.manifest } },
 	);
+client.setQueryData(workAppsQueryOptions().queryKey, {
+	items: gadgets.map((gadget) => ({
+		gadget,
+		currentRevision: { manifest: gadget.manifest },
+	})),
+	truncated: false,
+});
 for (const [index, source] of sources.entries()) {
 	const output = {
 		id: id(index + 10),
