@@ -112,3 +112,19 @@ it("project notes stay pending and a replay uses the same fact identity", async 
 		first.id,
 	);
 });
+
+it("normalizes quote whitespace exactly as live evidence validation does", async () => {
+	await recordSessionFeedback(
+		{} as never,
+		scope,
+		[{ ...candidate, quote: "Never\nmention  Meadow." }],
+		async () => '{"novel":[0]}',
+	);
+	const fact = vi.mocked(insertSessionFeedbackLesson).mock.calls[0]![1];
+	expect(fact.metadata?.learningFeed).toMatchObject({
+		evidence: { sources: [{ quote: "Never mention Meadow." }] },
+	});
+	expect(
+		vi.mocked(recordLearningInteraction).mock.calls[0]![1].metadata?.answer,
+	).toBe("Never mention Meadow.");
+});
