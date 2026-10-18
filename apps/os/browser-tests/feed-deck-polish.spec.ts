@@ -88,6 +88,10 @@ try {
 				"false"
 			)
 				throw new Error("Short drag did not spring back");
+			if (await page.evaluate(() => Boolean(getSelection()?.toString())))
+				throw new Error(
+					"Card drag selected text instead of owning the gesture",
+				);
 			await page.mouse.move(x, y);
 			await page.mouse.down();
 			await page.mouse.move(x + 110, y, { steps: 12 });

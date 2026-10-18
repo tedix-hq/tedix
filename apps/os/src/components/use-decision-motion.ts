@@ -45,6 +45,9 @@ export function useDecisionMotion() {
 				)
 			)
 				return;
+			// Native text selection can turn the next swipe into a dragstart/pointercancel.
+			event.preventDefault();
+			event.currentTarget.focus({ preventScroll: true });
 			start.current = {
 				x: event.clientX,
 				y: event.clientY,
