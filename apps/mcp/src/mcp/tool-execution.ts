@@ -880,20 +880,37 @@ async function executeWithHandler(
 								? "https://os.tedix.dev"
 								: "https://os.tedix.tech",
 						read: async (name, input, endpoint) => {
-							const namespace = resolveMcpToolNamespace(tool);
+							const namespaces = agent.appMetadata?.mcpConfig
+								?.codeModeNamespaces as Record<string, string> | undefined;
+							const namespace = resolveMcpToolNamespace(tool, namespaces);
 							const reader = [...agent.loadedTools.values()].find(
-								(candidate) =>
-									resolveMcpToolNamespace(candidate) === namespace &&
-									(sanitizeToolName(candidate.toolId.split("__").at(-1)!) ===
-										name ||
-										candidate.config?.endpoint === endpoint),
+								(candidate) => {
+									if (
+										candidate.config?._multiOrgOrganizationId !==
+										tool.config?._multiOrgOrganizationId
+									)
+										return false;
+									// First-party resource plans bind the RPC endpoint, not its router namespace.
+									if (tool.config?.transport === "rpc")
+										return (
+											candidate.config?.transport === "rpc" &&
+											candidate.config.endpoint === endpoint
+										);
+									return (
+										resolveMcpToolNamespace(candidate, namespaces) ===
+											namespace &&
+										(sanitizeToolName(candidate.toolId.split("__").at(-1)!) ===
+											name ||
+											candidate.config?.endpoint === endpoint)
+									);
+								},
 							);
 							if (!reader || reader.annotations?.readOnlyHint !== true)
 								throw new Error("Read-back unavailable");
 							assertCodeModeInnerToolAuthorized(
 								agent,
 								reader,
-								namespace,
+								resolveMcpToolNamespace(reader, namespaces),
 								input,
 							);
 							const read = await executeTool(agent, reader, input, {
