@@ -22,14 +22,16 @@ vi.mock("@/lib/api", async (original) => {
 		...actual,
 		osApi: new Proxy(actual.osApi, {
 			get: (target, key) =>
-				key === "learningFeedback"
-					? {
-							recordInteraction: vi.fn(async () => ({})),
-							listInteractions: vi.fn(async () => ({ events: [] })),
-							model: vi.fn(),
-							correct: vi.fn(),
-						}
-					: Reflect.get(target, key),
+				key === "agentTurnTriage"
+					? { listLessons: vi.fn(async () => ({ lessons: [] })) }
+					: key === "learningFeedback"
+						? {
+								recordInteraction: vi.fn(async () => ({})),
+								listInteractions: vi.fn(async () => ({ events: [] })),
+								model: vi.fn(),
+								correct: vi.fn(),
+							}
+						: Reflect.get(target, key),
 		}),
 	};
 });

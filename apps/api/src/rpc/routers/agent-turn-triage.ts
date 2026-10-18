@@ -1717,7 +1717,30 @@ const getCaptureHealthProcedure = readOs.getCaptureHealth.handler(
 	},
 );
 
-/** Approved team lessons for a local agent session; org-wide facts only. */
+const recordSessionFeedbackProcedure = writeOs.recordSessionFeedback.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const actor = observedLearningActor(context);
+		if (actor.actorType !== "user" || !actor.actorId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Session feedback requires its signed-in owner",
+			);
+		const { recordSessionFeedback } =
+			await import("../../services/session-feedback");
+		const { ledgerLessonNoveltyModel } =
+			await import("../../services/request-ledger-lessons");
+		return recordSessionFeedback(
+			context.db,
+			{ organizationId, ownerUserId: actor.actorId },
+			input.candidates,
+			ledgerLessonNoveltyModel(
+				organizationModelEnv(context.env, context.db, organizationId),
+			),
+		);
+	},
+);
+
 const getSessionLessonsProcedure = readOs.getSessionLessons.handler(
 	async ({ input, context }) =>
 		getSessionLessons(context, requireOrgId(context), input),
@@ -1980,6 +2003,7 @@ export const agentTurnTriageContractRouter = os.router({
 	getCaptureHealth: getCaptureHealthProcedure,
 	getSessionLessons: getSessionLessonsProcedure,
 	listLessons: listLessonsProcedure,
+	recordSessionFeedback: recordSessionFeedbackProcedure,
 	getLessonEffectiveness: getLessonEffectivenessProcedure,
 	mineSessionLessons: mineSessionLessonsProcedure,
 });

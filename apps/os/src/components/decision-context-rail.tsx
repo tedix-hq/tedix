@@ -1,3 +1,4 @@
+import { LearnedToday } from "@/components/learned-today";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -149,6 +150,12 @@ export function DecisionContextRail({
 	);
 	const contents = (
 		<div ref={setTarget} className="fd-context-sections">
+			{open && (
+				<section className="grid gap-3" aria-label="Learning your preferences">
+					<h3>Learning your preferences</h3>
+					<LearnedToday />
+				</section>
+			)}
 			{RAIL_SECTIONS.map((id) => (
 				<div key={id} data-rail-slot={id} />
 			))}

@@ -9,6 +9,9 @@ import { TodayPost } from "./today-post";
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: { outputs: { get: vi.fn() } },
+		agentTurnTriage: {
+			listLessons: vi.fn().mockResolvedValue({ lessons: [] }),
+		},
 		skills: { runWorkflow: vi.fn() },
 	},
 }));

@@ -889,6 +889,7 @@ export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
 		"get_agent_reply_draft_leaderboard",
 	"agentTurnTriage/getCaptureHealth": "get_decision_capture_health",
 	"agentTurnTriage/getSessionLessons": "get_agent_session_lessons",
+	"agentTurnTriage/recordSessionFeedback": "record_session_feedback",
 	"agentTurnTriage/listLessons": "list_agent_session_lessons",
 	"agentTurnTriage/updateLessonTriggers": "update_lesson_triggers",
 	"agentTurnTriage/backfillLessonTriggers": "backfill_lesson_triggers",

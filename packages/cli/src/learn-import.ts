@@ -542,6 +542,11 @@ export function planImport(input: {
 
 export const learnUsage = `Teach Tedix from your past local agent sessions
 
+  tedix learn import-memory --directory <path> [--date YYYY-MM-DD] [--type feedback|project] [--repository <origin>] [--apply]
+
+Previews eligible feedback and project notes. Reference and stale notes are skipped.
+--apply uploads bounded candidates with file evidence; project notes await review.
+
   tedix learn onboard [--dry-run [--with-model]] [--since <YYYY-MM-DD>] [--no-model] [--wait]
 
 Runs import-sessions, profile, analyze-sessions and context below, in that
@@ -680,6 +685,10 @@ export async function runLearnCommand(
 	if (!action || action === "--help" || action === "-h" || action === "help") {
 		write(learnUsage);
 		return 0;
+	}
+	if (action === "import-memory") {
+		const { runMemoryImport } = await import("./learn-memory");
+		return runMemoryImport(args, deps);
 	}
 	if (action === "analyze-sessions") {
 		const { runAnalyzeSessions } = await import("./learn-analyze");

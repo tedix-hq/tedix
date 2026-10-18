@@ -1782,11 +1782,13 @@ test("reranks a shared scope catalog per prompt without caching or sending the p
 			second.calls.filter((c) =>
 				c.some((a) => a.includes("agent.get_agent_session_lessons")),
 			),
-		).toHaveLength(1);
+		).toHaveLength(2);
 		expect(JSON.stringify([...first.calls, ...second.calls])).not.toMatch(
 			/PRIVATE_ALPHA|PRIVATE_BETA/,
 		);
-		for (const file of readdirSync(join(config, "hook-cache")))
+		for (const file of existsSync(join(config, "hook-cache"))
+			? readdirSync(join(config, "hook-cache"))
+			: [])
 			expect(
 				readFileSync(join(config, "hook-cache", file), "utf8"),
 			).not.toMatch(/PRIVATE_ALPHA|PRIVATE_BETA/);

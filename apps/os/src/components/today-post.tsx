@@ -1,3 +1,4 @@
+import { LearnedToday } from "@/components/learned-today";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
@@ -100,6 +101,7 @@ export function TodayPost({
 				</div>
 			</CardHeader>
 			<CardContent className="grid gap-4">
+				<LearnedToday timeZone={config.timeZone} />
 				{output.isPending ? (
 					<Text>Opening Today…</Text>
 				) : !digest ? (

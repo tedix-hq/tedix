@@ -1,5 +1,9 @@
 import "@orpc/openapi/extensions/route";
 
+import {
+	RecordSessionFeedbackInputSchema,
+	RecordSessionFeedbackResultSchema,
+} from "../schemas/agent-session-feedback";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
@@ -213,6 +217,15 @@ export const agentTurnTriageContract = oc
 			})
 			.input(RecordLessonIncidentInputSchema)
 			.output(RecordLessonIncidentResultSchema),
+		recordSessionFeedback: oc
+			.route({
+				method: "POST",
+				path: "/session-feedback",
+				summary:
+					"Capture bounded user feedback as evidence-backed personal lessons",
+			})
+			.input(RecordSessionFeedbackInputSchema)
+			.output(RecordSessionFeedbackResultSchema),
 		getSessionLessons: oc
 			.route({
 				method: "POST",

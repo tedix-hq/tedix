@@ -14,6 +14,7 @@ import {
 	readBoundedStdin,
 } from "./hook-io";
 import { runPromptContext } from "./prompt-context";
+import { runSessionFeedback } from "./session-feedback";
 import { runRequestLedger } from "./request-ledger";
 import { runSituationalRecall } from "./situational-recall";
 import { runSessionStart } from "./session-start";
@@ -152,6 +153,7 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 			await Promise.all([
 				runDecisionCapture(name === "capture-stop" ? "stop" : "reply", deps),
 				runRequestLedger(name === "capture-stop" ? "turn" : "prompt", deps),
+				runSessionFeedback(name === "capture-stop" ? "turn" : "prompt", deps),
 			]);
 	} catch {
 		if (name === "session-start")

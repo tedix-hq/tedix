@@ -138,6 +138,7 @@ export const ListAgentLessonsInputSchema = z.strictObject({
 export type ListAgentLessonsInput = z.input<typeof ListAgentLessonsInputSchema>;
 
 export const AgentLessonEntrySchema = z.object({
+	fromCallerFeedback: z.boolean().optional(),
 	evidence: LessonEvidenceSchema.nullable().optional(),
 	id: z.string().describe("Fact id"),
 	text: z.string(),

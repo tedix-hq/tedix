@@ -147,6 +147,7 @@ export const ListAgentSessionRequestsResultSchema = z.strictObject({
 
 export const UpdateAgentSessionRequestInputSchema = z.strictObject({
 	id: z.uuid(),
+	text: z.string().trim().min(6).max(800).optional(),
 	status: AgentSessionRequestStatusSchema,
 	evidence: z
 		.string()
