@@ -65,6 +65,95 @@ export function managedBlock(content, boardKey) {
 	return content.slice(a, b + end.length);
 }
 
+export function managedContentUpdates(content, boardKey, replacement) {
+	const previous = managedBlock(content, boardKey);
+	if (!previous) throw new Error("Managed content is missing");
+	// Notion's native mention renderer may return a different URL for the same page.
+	const mentions = [...previous.matchAll(/<mention-page url="([^"]+)"\/>/g)];
+	const next = replacement.replace(
+		/<mention-page url="([^"]+)"\/>/g,
+		(tag, url) =>
+			mentions.find((m) => externalId(m[1]) === externalId(url))?.[0] || tag,
+	);
+	const headings = [
+		"## Purpose",
+		"## Goals",
+		"## Latest signals",
+		`TEDIX SYNC END ${boardKey}`,
+	];
+	const sections = (block) => {
+		const lines = block.split("\n");
+		const indexes = headings.map((heading) => {
+			if (lines.filter((line) => line === heading).length !== 1)
+				throw new Error("Managed headings are ambiguous; preserve the page");
+			return lines.indexOf(heading);
+		});
+		if (
+			lines[0] !== `TEDIX SYNC BEGIN ${boardKey}` ||
+			indexes[0] !== 1 ||
+			indexes.some(
+				(index, i) => index < 0 || (i > 0 && index <= indexes[i - 1]),
+			) ||
+			indexes[3] !== lines.length - 1
+		)
+			throw new Error("Managed content structure changed; preserve the page");
+		return indexes
+			.slice(0, -1)
+			.map((index, i) => lines.slice(index + 1, indexes[i + 1]));
+	};
+	const before = sections(previous),
+		after = sections(next),
+		updates = [];
+	let simulated = content;
+	for (let section = 0; section < before.length; section++) {
+		const oldLines = before[section],
+			newLines = after[section];
+		if (!oldLines.length) {
+			if (!newLines.length) continue;
+			oldLines.push(headings[section]);
+			newLines.unshift(headings[section]);
+		}
+		for (let i = oldLines.length - 1; i >= 0; i--) {
+			const oldLine = oldLines[i];
+			const newLine =
+				i === oldLines.length - 1
+					? newLines.slice(i).join("\n")
+					: newLines[i] || "";
+			if (oldLine === newLine) continue;
+			let start = 0,
+				end = 0;
+			while (
+				start < oldLine.length &&
+				start < newLine.length &&
+				oldLine[start] === newLine[start]
+			)
+				start++;
+			while (
+				end < oldLine.length - start &&
+				end < newLine.length - start &&
+				oldLine[oldLine.length - end - 1] === newLine[newLine.length - end - 1]
+			)
+				end++;
+			let old_str = newLine
+				? oldLine.slice(start, oldLine.length - end)
+				: `${oldLine}\n`;
+			let new_str = newLine.slice(start, newLine.length - end);
+			// Prefer plain text anchors: the provider cannot reliably match native mentions.
+			if (!old_str || simulated.split(old_str).length !== 2) {
+				old_str = oldLine;
+				new_str = newLine;
+			}
+			if (!old_str || simulated.split(old_str).length !== 2)
+				throw new Error("Managed edit is not unique; preserve the page");
+			updates.push({ old_str, new_str });
+			simulated = simulated.replace(old_str, new_str);
+		}
+	}
+	if (simulated !== content.replace(previous, next) || updates.length > 100)
+		throw new Error("Managed edit plan does not preserve the surrounding page");
+	return updates;
+}
+
 export function managedPurposeMatches(content, boardKey, purpose) {
 	const section = managedBlock(content, boardKey)?.match(
 		/\n## Purpose\n([\s\S]*?)\n## Goals(?:\n|$)/,
@@ -289,6 +378,10 @@ export function createPlanningSync(config) {
 				state.lock.until = new Date(Date.now() + 30 * 60_000).toISOString();
 				await save();
 				const result = checked(await invoke());
+				if (result.warnings?.length)
+					throw new Error(
+						`Write warnings require inspection: ${JSON.stringify(result.warnings)}`,
+					);
 				const target = await verify(result);
 				if (!target) throw new Error(`Write readback failed: ${key}`);
 				const receipt = { key, runId, at: slot.at, target, phase: "confirmed" };
@@ -780,12 +873,17 @@ export function createPlanningSync(config) {
 								(s) =>
 									s.workItemId && s.externalId.replaceAll("-", "") === taskId,
 							);
-							const matches = items.filter(
+							const identities = items.filter(
 								(w) =>
 									links.some((s) => s.workItemId === w.id) ||
-									w.sourceIntentId === `${config.boardKey}:task:${taskId}` ||
-									normalize(w.title) === normalize(title),
+									w.sourceIntentId === `${config.boardKey}:task:${taskId}`,
 							);
+							const matches =
+								links.length || identities.length
+									? identities
+									: items.filter(
+											(w) => normalize(w.title) === normalize(title),
+										);
 							if (matches.length > 1)
 								throw new Error(
 									`Ambiguous task ${task.url}; no duplicate created`,
@@ -1108,6 +1206,10 @@ export function createPlanningSync(config) {
 						`TEDIX SYNC END ${config.boardKey}`,
 					].join("\n");
 					if (old === block) return { unchanged: true };
+					const contentUpdates = old
+						? managedContentUpdates(page, config.boardKey, block)
+						: null;
+					if (contentUpdates?.length === 0) return { unchanged: true };
 					await effect(
 						`enrich:${id}`,
 						() =>
@@ -1115,7 +1217,7 @@ export function createPlanningSync(config) {
 								page_id: id,
 								command: old ? "update_content" : "insert_content",
 								...(old
-									? { content_updates: [{ old_str: old, new_str: block }] }
+									? { content_updates: contentUpdates }
 									: { content: block, position: { type: "end" } }),
 								allow_async: false,
 								confirmDestructive: true,
@@ -1398,6 +1500,12 @@ export function createPlanningSync(config) {
 				}
 			}
 			await checkpoint("report", async () => {
+				for (const [key, value] of Object.entries(state)) {
+					if (key.startsWith("effect:") && value.phase === "intent")
+						report.gaps.push(
+							`Uncertain write ${key.slice(7)}; inspect the target and reconcile its receipt before retrying.`,
+						);
+				}
 				const current = checked(
 					await os.get_os_output({ outputId: config.reportOutputId }),
 				);
