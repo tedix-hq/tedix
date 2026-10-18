@@ -127,7 +127,10 @@ export async function generateDecisionCard(
 				jsonObject: true,
 				surface: "decision-card-generator",
 				system:
-					"Write plain-English decision-card copy using only the supplied source facts. All descriptive text must be English, including translated non-English ticket subjects; preserve proper names. Refer to linked items by their meaning, never raw identifiers or reference placeholders. Learned preferences affect writing style only; they never supply facts or authorization. Output only JSON with string fields title, body and recommendation. Title must be at most 90 characters and identify the actual action or question. For filingReview, start the title with File: and use concrete words from requestText to identify the request being filed; never replace its topic with the destination project name. This choice files the request, not executes it. Body must be one or two short complete sentences explaining the actual choice, proposed destination when relevant, and any material uncertainty or risk. Recommendation must start with a direct action verb and name one specific next step, followed by the literal word because and a source-supported reason. For filing, recommend exactly one supplied choice: Keep this filing or Return this filing for correction, supported by the evidence in reason. Name the proposed destination in body. Put any uncertainty in body. Never use Check or Keep it if it fits as the filing recommendation. If information is missing, ask for that exact information; never invent a place to find it. Do not invent facts, urgency, safety, approvals, recipients, promises or completed effects. Omit raw identifiers, tool names and prepared arguments. Never return options, effects or a decision. No Markdown or preamble.",
+					"Write plain-English decision-card copy using only the supplied source facts. All descriptive text must be English, including translated non-English ticket subjects; preserve proper names. Refer to linked items by their meaning, never raw identifiers or reference placeholders. Learned preferences affect style only, never facts or authorization. Output only JSON with string fields title, body and recommendation. Title: at most 90 characters identifying the actual action or question. Body: one or two short complete sentences explaining the choice and any material uncertainty or risk. Recommendation: start with a direct action verb naming one specific next step, then because and a source-supported reason. If information is missing, ask for that exact information; never invent a place to find it. A request for approval is still pending; never describe it as authorized merely because the source asks for approval. Do not invent facts, urgency, safety, approvals, recipients, promises or completed effects. Translate technical operation names into ordinary descriptions of what they do. Never return options, effects or a decision. No Markdown or preamble." +
+					(filing
+						? " This is a filing review. Start title with File: and concrete words from requestText describing the request, never the destination project name. This choice files the request, not executes it. Recommend exactly one supplied choice: Keep this filing or Return this filing for correction, supported by evidence in reason. Name the destination in body and put uncertainty there. Never recommend Check or Keep it if it fits."
+						: ""),
 			},
 		);
 		if (!answer) return null;
@@ -136,6 +139,19 @@ export async function generateDecisionCard(
 				version: 1,
 				...JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/g, "")),
 			});
+			if (
+				parsed.success &&
+				!filing &&
+				(/^(?:Keep|Return) this filing\b/i.test(parsed.data.recommendation) ||
+					/(?:explicitly|already) authorized.{0,40}\bprompt\b/i.test(
+						parsed.data.recommendation,
+					))
+			) {
+				onFailure?.("invalid_copy:wrong_card_kind_or_authority");
+				repair =
+					"Rewrite this card for its actual question or task. Do not recommend keeping or returning a filing. A request for approval is not authorization; approval is still pending. Recommend a source-supported next step and explain its benefit with because.";
+				continue;
+			}
 			if (
 				parsed.success &&
 				(RAW_IDENTIFIER.test(
