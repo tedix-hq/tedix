@@ -174,12 +174,9 @@ export async function runSessionFeedback(
 	);
 	if (!ready.length) return;
 	const code = `async () => await agent.record_session_feedback(${JSON.stringify({ candidates: ready.map((row) => row.candidate) })})`;
-	const result = await deps.read(
-		[...binding.command, "code", "--json"],
-		10_000,
-		code,
-		{ env: userEnv },
-	);
+	const result = await deps.read([...binding.command, "code"], 10_000, code, {
+		env: userEnv,
+	});
 	if (!Array.isArray(result.lessons))
 		throw new Error("Feedback upload unconfirmed");
 	for (const row of ready) rmSync(join(outbox, row.file));
