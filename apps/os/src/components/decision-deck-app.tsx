@@ -788,11 +788,13 @@ export function DecisionDeckApp({
 														projectId: selected.project,
 													},
 												})
-												.then(() =>
-													client.invalidateQueries({
+												.then(async (result) => {
+													if (!result.duplicate && result.event?.id)
+														setSessionLearningId(result.event.id);
+													await client.invalidateQueries({
 														queryKey: osQuery.learningFeedback.key(),
-													}),
-												)
+													});
+												})
 												.catch(() => {});
 										next();
 									}}

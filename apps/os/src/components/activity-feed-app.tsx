@@ -281,6 +281,10 @@ export function ActivityFeedApp({
 					...signal,
 					metadata: { ...signal.metadata, createdWorkItemId: work.id },
 				})
+				.then((result) => {
+					if (!result.duplicate && result.event?.id)
+						setSessionLearningId(result.event.id);
+				})
 				.catch(() => undefined);
 			await cache.invalidateQueries({
 				queryKey: osQuery.learningFeedback.key(),
