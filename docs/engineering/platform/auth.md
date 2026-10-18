@@ -399,3 +399,50 @@ holds the provider signing key. Code:
 `apps/api/src/rpc/routers/tedis/embedded-host-delegation.ts`,
 `apps/mcp/src/mcp/embedded-host-delegation.ts`,
 `packages/mcp-client-core/src/client-manager.ts`.
+
+## Membership reconciliation
+
+D1 is authoritative for organization membership. An invitation or role update
+can persist in D1 before its Descope synchronization fails. Admins and owners
+can inspect this through the contract-backed RPC
+`members.getMembershipReconciliation({ organizationId })`. It reports missing
+Descope associations, Descope-only users, associations for inactive D1 members,
+role mismatches, and ambiguous invitation identities. Both inventories are
+paged; missing configuration, provider errors, incomplete results, or the
+10,000-row scan bound fail closed. Tedi identities are excluded.
+
+Repair one target with `members.repairMembership`:
+
+```typescript
+await client.members.repairMembership({
+	organizationId,
+	action: "restore_descope",
+	targetId: memberId,
+	reason: "Retry the failed invitation synchronization",
+	confirm: true,
+});
+```
+
+`restore_descope` uses a D1 member ID and restores the association and exact
+tenant roles. `remove_descope` uses a Descope user ID and removes only that
+tenant association when D1 has no enabled membership. Both require
+`team:manage`, the appropriate machine scope (`team:read` for comparison,
+`team:write` for repair), and admin/owner authority within the selected
+organization. Target role hierarchy still applies; unknown provider roles and
+ambiguous identities require operator review.
+
+Repairs reread both systems rather than trusting a client-supplied difference.
+They do not create or activate D1 members, create provider identities, send
+invitations, change waitlist approval, or alter other tenants. A missing provider
+identity must go through the invitation flow. Pending D1 invitations remain
+pending even when their existing provider identity is associated successfully.
+
+The audit trail records `member.reconciliation.requested` before the first
+external write, then `verified` after provider readback or `failed` if mutation
+or verification fails. Entries share a repair ID, actor, reason, tenant, target,
+and observed divergence. An intent audit failure prevents mutation. External
+writes and D1 audits are not one transaction: a failed verification or outcome
+audit can follow a successful provider change. Refresh before retrying; a
+partially restored association remains visible as a role mismatch. Concurrent
+membership changes are not locked across systems, and these checks do not
+claim to refresh already-issued sessions.

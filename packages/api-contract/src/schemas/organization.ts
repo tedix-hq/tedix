@@ -855,3 +855,33 @@ export const CreateApiKeyInputSchema = z
 	})
 	.strict();
 export type CreateApiKeyInput = z.infer<typeof CreateApiKeyInputSchema>;
+
+export const MembershipDivergenceSchema = z.object({
+	kind: z.enum([
+		"missing_descope",
+		"missing_d1",
+		"inactive_d1",
+		"identity_conflict",
+		"role_mismatch",
+	]),
+	memberId: z.string().nullable(),
+	descopeUserId: z.string().nullable(),
+	email: z.string().nullable(),
+	role: MemberRoleSchema.nullable(),
+	descopeRoles: z.array(z.string()),
+});
+export type MembershipDivergence = z.infer<typeof MembershipDivergenceSchema>;
+
+export const MembershipReconciliationSchema = z.object({
+	tenantId: z.string(),
+	checkedAt: z.iso.datetime(),
+	divergences: z.array(MembershipDivergenceSchema),
+});
+
+export const RepairMembershipInputSchema = z.object({
+	action: z.enum(["restore_descope", "remove_descope"]),
+	// D1 member ID for restore; provider user ID for removal.
+	targetId: z.string().min(1),
+	reason: z.string().trim().min(1).max(1000),
+	confirm: z.literal(true),
+});

@@ -49,17 +49,14 @@ import {
 } from "@tedix/mcp-shared/auth/scopes";
 import { auditActor } from "../audit-helpers";
 import { emitAuditEvent } from "../audit-helpers";
+import {
+	readMembershipReconciliation,
+	descopeTenantRolesForMemberRole,
+} from "../../services/membership-reconciliation";
 
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-type TedixMemberRole = "owner" | "admin" | "member" | "viewer";
-const DESCOPE_TENANT_ADMIN_ROLE = "admin";
-
-function descopeTenantRolesForMemberRole(role: TedixMemberRole): string[] {
-	return role === "owner" ? [role, DESCOPE_TENANT_ADMIN_ROLE] : [role];
-}
 
 // Role hierarchy for RBAC invariants. Higher rank = more authority.
 const MEMBER_ROLE_RANK = { owner: 3, admin: 2, member: 1, viewer: 0 } as const;
@@ -288,6 +285,196 @@ const membersOs = implement(membersContract).$context<BaseContext>();
  * This ensures all member endpoints require authentication
  */
 const authedMembersOs = membersOs.use(withAuth);
+
+const getMembershipReconciliationContract =
+	authedMembersOs.getMembershipReconciliation
+		.use(withAuthorization("team:manage", "team:read"))
+		.handler(async ({ input, context }) => {
+			const org = await requireOrganizationAccess(
+				context,
+				input.organizationId,
+			);
+			requireAdminOrOwner(context);
+			if (!org.descopeTenantId) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Organization has no Descope tenant configured",
+				);
+			}
+			const mgmt = getDescopeManagement(context.env, true);
+			return (
+				await readMembershipReconciliation(
+					context.db,
+					mgmt,
+					org.id,
+					org.descopeTenantId,
+				)
+			).report;
+		});
+
+const repairMembershipContract = authedMembersOs.repairMembership
+	.use(withAuthorization("team:manage", "team:write"))
+	.handler(async ({ input, context }) => {
+		const org = await requireOrganizationAccess(context, input.organizationId);
+		requireAdminOrOwner(context);
+		const tenantId = org.descopeTenantId;
+		if (!tenantId) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Organization has no Descope tenant configured",
+			);
+		}
+		const mgmt = getDescopeManagement(context.env, true);
+		const { members, report } = await readMembershipReconciliation(
+			context.db,
+			mgmt,
+			org.id,
+			tenantId,
+		);
+		const restoring = input.action === "restore_descope";
+		const divergence = report.divergences.find((item) =>
+			restoring
+				? (item.kind === "missing_descope" || item.kind === "role_mismatch") &&
+					item.memberId === input.targetId
+				: (item.kind === "missing_d1" || item.kind === "inactive_d1") &&
+					item.descopeUserId === input.targetId,
+		);
+		if (!divergence) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Divergence no longer exists; refresh reconciliation",
+			);
+		}
+		if (divergence.role) assertCanManageTarget(context, divergence.role);
+		for (const role of divergence.descopeRoles) {
+			// Unknown provider roles may carry authority outside the tenant role catalog.
+			if (memberRoleRank(role) < 0) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Provider has an unrecognized role; requires operator review",
+				);
+			}
+			assertCanManageTarget(context, role);
+		}
+		const member = members.find((item) => item.id === divergence.memberId);
+		const loaded = divergence.descopeUserId
+			? await mgmt.management.user.loadByUserId(divergence.descopeUserId)
+			: await mgmt.management.user.load(member!.email);
+		assertDescopeOk(loaded, "user.load");
+		const user = loaded.data;
+		if (!user?.userId || user.customAttributes?.entityType === "tedi") {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Human provider identity unavailable; use the invitation flow for new identities",
+			);
+		}
+		if (
+			!divergence.descopeUserId &&
+			user.email?.trim().toLowerCase() !== member!.email.trim().toLowerCase()
+		) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Provider identity does not match invitation email",
+			);
+		}
+		const association = user.userTenants?.find(
+			(tenant) => tenant.tenantId === tenantId,
+		);
+		if (
+			divergence.kind === "missing_descope"
+				? Boolean(association)
+				: !association
+		) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Provider membership changed; refresh reconciliation",
+			);
+		}
+		// Recheck roles from the direct provider read, not just the search inventory.
+		for (const role of association?.roleNames ?? []) {
+			if (memberRoleRank(role) < 0)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Provider has an unrecognized role; requires operator review",
+				);
+			assertCanManageTarget(context, role);
+		}
+		const repairId = crypto.randomUUID();
+		const actor = auditActor(context);
+		const audit = (outcome: "requested" | "verified" | "failed") =>
+			emitAuditEvent(context.db, {
+				organizationId: org.id,
+				actorId: actor.actorId,
+				actorType: actor.actorType,
+				action: `member.reconciliation.${outcome}`,
+				resourceType: "organization_member",
+				resourceId: divergence.memberId ?? user.userId,
+				metadata: {
+					...actor.actorMetadata,
+					repairId,
+					reason: input.reason,
+					repairAction: input.action,
+					tenantId,
+					descopeUserId: user.userId,
+					divergence,
+				},
+			});
+		// Persist intent before an external write; audit failure must prevent mutation.
+		await audit("requested");
+		try {
+			if (restoring) {
+				if (!association) {
+					assertDescopeOk(
+						await mgmt.management.user.addTenant(user.userId, tenantId),
+						"user.addTenant",
+					);
+				}
+				assertDescopeOk(
+					await mgmt.management.user.setTenantRoles(
+						user.userId,
+						tenantId,
+						descopeTenantRolesForMemberRole(member!.role),
+					),
+					"user.setTenantRoles",
+				);
+			} else {
+				assertDescopeOk(
+					await mgmt.management.user.removeTenant(user.userId, tenantId),
+					"user.removeTenant",
+				);
+			}
+			const verified = await mgmt.management.user.loadByUserId(user.userId);
+			assertDescopeOk(verified, "user.loadByUserId");
+			if (!verified.data)
+				throw createError(
+					ErrorCodes.INTERNAL_SERVER_ERROR,
+					"Repair could not be verified",
+				);
+			const after = verified.data.userTenants?.find(
+				(tenant) => tenant.tenantId === tenantId,
+			);
+			if (
+				restoring
+					? !after ||
+						after.roleNames?.length !==
+							descopeTenantRolesForMemberRole(member!.role).length ||
+						!descopeTenantRolesForMemberRole(member!.role).every((role) =>
+							after.roleNames?.includes(role),
+						)
+					: Boolean(after)
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Repair not confirmed by Descope; refresh reconciliation before retrying",
+				);
+			}
+		} catch (error) {
+			await audit("failed");
+			throw error;
+		}
+		await audit("verified");
+		return { repairId, verified: true as const };
+	});
 
 // =============================================================================
 // CONTRACT-BASED MIDDLEWARE
@@ -864,6 +1051,8 @@ export const acceptInvitationContract = authedMembersOs.acceptInvitation
  * This enforces that all procedures match the contract
  */
 export const membersContractRouter = authedMembersOs.router({
+	getMembershipReconciliation: getMembershipReconciliationContract,
+	repairMembership: repairMembershipContract,
 	listMembers: listMembersContract,
 	getMember: getMemberContract,
 	listRoles: listRolesContract,
