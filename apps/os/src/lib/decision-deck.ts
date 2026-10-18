@@ -152,3 +152,21 @@ export function compareDecisionFreshness(
 			(Date.parse(a.requestedAt ?? "") || 0)
 	);
 }
+
+/** Correlate feedback with the durable effect, never a later client telemetry event. */
+export function decisionLearningKey(result: unknown): string | undefined {
+	if (!result || typeof result !== "object") return;
+	if (
+		"learningClientEventId" in result &&
+		typeof result.learningClientEventId === "string"
+	)
+		return result.learningClientEventId;
+	if (
+		"response" in result &&
+		result.response &&
+		typeof result.response === "object" &&
+		"id" in result.response &&
+		typeof result.response.id === "string"
+	)
+		return `decision-capture:${result.response.id}`;
+}

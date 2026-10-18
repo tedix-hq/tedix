@@ -9,6 +9,7 @@ import type { WorkDecisionCard } from "./work-decision-card";
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		workApprovals: { decide: vi.fn() },
+		learningFeedback: { model: vi.fn() },
 		workItems: { getReadiness: vi.fn() },
 		workScheduler: { listReady: vi.fn() },
 		workFleet: { getControlTower: vi.fn() },
@@ -37,7 +38,7 @@ vi.mock("./work-decision-card", () => ({
 it("requires a reason and sends the exact proposal version through the existing approval API", async () => {
 	const decide = vi
 		.mocked(osApi.workApprovals.decide)
-		.mockResolvedValue({} as never);
+		.mockResolvedValue({ decision: { id: "saved-approval" } } as never);
 	const client = new QueryClient();
 	const invalidate = vi.spyOn(client, "invalidateQueries");
 	const host = document.createElement("div");
@@ -90,7 +91,7 @@ it("requires a reason and sends the exact proposal version through the existing 
 			decision: "approved",
 			rationale: "The evidence supports this scope.",
 		});
-		expect(invalidate).toHaveBeenCalledTimes(4);
+		expect(invalidate).toHaveBeenCalledTimes(5);
 	} finally {
 		await act(async () => root.unmount());
 		host.remove();

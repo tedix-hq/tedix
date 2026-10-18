@@ -406,6 +406,8 @@ export function DecisionDeckApp({
 		<DecisionAttentionContext.Provider
 			value={(choice) => {
 				if (mode !== "decide" || !selected) return;
+				if (choice.learningClientEventId)
+					setSessionLearningId(choice.learningClientEventId);
 				const intent =
 					choice.intent ??
 					current?.options.find((option) => option.id === choice.action)
@@ -453,13 +455,7 @@ export function DecisionDeckApp({
 							},
 						}),
 					)
-					.then(async (result) => {
-						if (
-							choice.signal !== "shown" &&
-							!result.duplicate &&
-							result.event?.id
-						)
-							setSessionLearningId(result.event.id);
+					.then(async () => {
 						await client.invalidateQueries({
 							queryKey: osQuery.learningFeedback.key(),
 						});
@@ -736,7 +732,7 @@ export function DecisionDeckApp({
 												return;
 											}
 											const request = selected.row!.request;
-											await osApi.workInteractions.respond({
+											const result = await osApi.workInteractions.respond({
 												requestId: request.id,
 												expectedRequestVersion: request.version,
 												responseKind: "answer",
@@ -760,6 +756,7 @@ export function DecisionDeckApp({
 											await client.invalidateQueries({
 												queryKey: osQuery.learningFeedback.key(),
 											});
+											return result;
 										}}
 									/>
 								) : (

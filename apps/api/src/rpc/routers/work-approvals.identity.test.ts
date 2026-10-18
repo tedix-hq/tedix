@@ -1,3 +1,4 @@
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import {
 	externalAgentPrincipals,
 	externalAgentSessions,
@@ -33,6 +34,7 @@ function fixture(userId = "canonical-user-id") {
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
 		schemaDdl(
+			learningInteractionEvents,
 			workResourceRequirements,
 			workBudgetEnvelopes,
 			externalAgentPrincipals,
@@ -282,7 +284,7 @@ describe("Work approval canonical principal identity", () => {
 	});
 
 	it("rejects a non-designated decision and lets the exact inbox actor decide", async () => {
-		const { client, clientFor } = fixture();
+		const { client, clientFor, sqlite } = fixture();
 		const proposal = await client.propose({
 			workItemId: WORK_ITEM_ID,
 			workItemVersion: 1,
@@ -317,6 +319,27 @@ describe("Work approval canonical principal identity", () => {
 			deciderType: "user",
 			deciderId: "canonical-approver-id",
 			decision: "approved",
+		});
+		const learned = sqlite
+			.prepare(
+				"SELECT client_event_id, actor_id, scope_kind, metadata FROM learning_interaction_events",
+			)
+			.all() as Array<{
+			client_event_id: string;
+			actor_id: string;
+			scope_kind: string;
+			metadata: string;
+		}>;
+		expect(learned).toHaveLength(1);
+		expect(learned[0]).toMatchObject({
+			client_event_id: `work-approval:${receipt.decision.id}`,
+			actor_id: "approver-provider-subject-id",
+			scope_kind: "personal",
+		});
+		expect(JSON.parse(learned[0].metadata)).toMatchObject({
+			serverObserved: true,
+			decisionClass: "deploy:production",
+			decisionChoice: "approve",
 		});
 	});
 

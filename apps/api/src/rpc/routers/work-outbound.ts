@@ -590,9 +590,10 @@ export const outboundRouter = os.router({
 			feedback: input.feedback,
 			resolves: input.action === "approve_manual" || input.action === "reject",
 		});
+		const learningClientEventId = `outbound:${current.workItemId}:${next.version}`;
 		await recordObservedLearningInteraction(context, {
 			organizationId: requireOrgId(context),
-			clientEventId: `outbound:${current.workItemId}:${next.version}`,
+			clientEventId: learningClientEventId,
 			eventKind:
 				input.action === "edit"
 					? "edited"
@@ -686,7 +687,7 @@ export const outboundRouter = os.router({
 				);
 			}
 		}
-		return next;
+		return { ...next, learningClientEventId };
 	}),
 	importSentStyle: write.importSentStyle.handler(async ({ input, context }) => {
 		const actor = await human(context);

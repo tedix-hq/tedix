@@ -42,6 +42,7 @@ async function mount(
 	model.receipts = [
 		{
 			eventId: "fictional-edited-signal",
+			clientEventId: "decision-capture:fictional-response",
 			classId: "investor-email",
 			eventKind: "edited",
 			choice: "change",
@@ -121,4 +122,15 @@ it("expires a local decision receipt without replaying it on refresh", async () 
 	} finally {
 		vi.useRealTimers();
 	}
+});
+
+it("shows the exact server receipt by canonical client key and undoes its event", async () => {
+	vi.mocked(osApi.learningFeedback.correct).mockResolvedValue({} as never);
+	await mount(true, "decision-capture:fictional-response");
+	expect(host.textContent).toContain("Got it");
+	await act(async () => host.querySelector("button")!.click());
+	expect(osApi.learningFeedback.correct).toHaveBeenCalledWith({
+		eventId: "fictional-edited-signal",
+		clientEventId: expect.any(String),
+	});
 });

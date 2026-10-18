@@ -353,6 +353,8 @@ describe("outbound authorization and delivery", () => {
 			action: "approve_send",
 			connectionInstanceId: ACCOUNT,
 		});
+		expect(result.learningClientEventId).toBe(`outbound:${WORK}:2`);
+		expect(result.version).toBe(3);
 		expect(result.outbound).toMatchObject({
 			status: "sent",
 			providerReceipt: "sent-fictional-message",
