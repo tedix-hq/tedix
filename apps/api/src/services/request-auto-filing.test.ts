@@ -84,6 +84,31 @@ async function fixture(
 }
 
 describe("automatic filing", () => {
+	it("uses configured intake for unbound scope without provisioning bare containers", async () => {
+		const { db, row } = await fixture();
+		await autoFileRequests(
+			db,
+			async () => JSON.stringify({ ...pick, projectId: null }),
+			{
+				...owner,
+				now,
+				intakeProjectId: "project-docs",
+			},
+		);
+		expect((await listAgentSessionRequests(db, owner))[0]?.projectId).toBe(
+			"project-docs",
+		);
+		expect(await db.select().from(projects)).toHaveLength(1);
+		expect(await db.select().from(osWorkspaces)).toHaveLength(0);
+		const work = await getWorkItemBySourceIntentId(db, {
+			orgId: owner.organizationId,
+			sourceIntentId: `request-filing:${row.id}`,
+		});
+		expect(work?.disposition).toBe("proposed");
+		expect((await listRequestFilings(db, owner))[0]?.metadata?.confidence).toBe(
+			0,
+		);
+	});
 	it("uses fit confidence, creates proposed Work once, and preserves open status", async () => {
 		const { db, row, model } = await fixture();
 		await autoFileRequests(db, model, { ...owner, now });
@@ -217,6 +242,17 @@ describe("automatic filing", () => {
 			expect(input.corrections[0]).toEqual([row.text, null, "project-docs"]);
 			return JSON.stringify({ ...pick, projectId: null });
 		};
+		await db.insert(workAgentSessions).values({
+			id: "intake-session",
+			organizationId: owner.organizationId,
+			userId: owner.userId,
+			harness: "codex",
+			sessionKey: "session-example",
+			projectId: "project-docs",
+			state: "working",
+			stateSince: now,
+			lastEventAt: now,
+		});
 		await autoFileRequests(db, next, {
 			...owner,
 			now: "2026-10-10T10:02:00.000Z",
@@ -446,7 +482,11 @@ it("reuses older or unprojected Work without moving it, and rejects foreign or c
 					createdAt: now,
 				});
 		const model: LedgerModel = async () =>
-			JSON.stringify({ ...pick, workItemId: "existing-docs-work" });
+			JSON.stringify({
+				...pick,
+				projectId: scenario === "older" ? null : pick.projectId,
+				workItemId: "existing-docs-work",
+			});
 		model.scoreProjectFit = async () => 0.9;
 		if (scenario === "foreign" || scenario === "other-project") {
 			await expect(
@@ -457,6 +497,7 @@ it("reuses older or unprojected Work without moving it, and rejects foreign or c
 			await autoFileRequests(db, model, { ...owner, now });
 			const [event] = await listRequestFilings(db, owner);
 			expect(event?.metadata?.workItemId).toBe("existing-docs-work");
+			expect(event?.metadata?.factoryProposal).toBe(false);
 			expect(
 				await getWorkItemBySourceIntentId(db, {
 					orgId: owner.organizationId,
@@ -472,4 +513,56 @@ it("reuses older or unprojected Work without moving it, and rejects foreign or c
 			expect(existing?.version).toBe(1);
 		}
 	}
+});
+
+it("proposes an unmatched scope within its existing intake, without creating standalone resources", async () => {
+	const { db, row } = await fixture();
+	await db.insert(workAgentSessions).values({
+		id: "intake-session",
+		organizationId: owner.organizationId,
+		userId: owner.userId,
+		harness: "codex",
+		sessionKey: "session-example",
+		projectId: "project-docs",
+		state: "working",
+		stateSince: now,
+		lastEventAt: now,
+	});
+	const model: LedgerModel = async () =>
+		JSON.stringify({
+			...pick,
+			projectId: null,
+			name: "New scope",
+			container: "workspace",
+		});
+	await autoFileRequests(db, model, { ...owner, now });
+	const [filed] = await listAgentSessionRequests(db, owner);
+	expect(filed?.projectId).toBe("project-docs");
+	const [event] = await listRequestFilings(db, owner);
+	expect(event?.metadata?.confidence).toBe(0);
+	expect(event?.metadata?.reason).toContain(
+		"Filed provisionally in Documentation",
+	);
+	const work = await getWorkItemBySourceIntentId(db, {
+		orgId: owner.organizationId,
+		sourceIntentId: `request-filing:${row.id}`,
+	});
+	expect(work?.disposition).toBe("proposed");
+	expect(work?.description).toContain("Factory proposal");
+	expect(await db.select().from(projects)).toHaveLength(1);
+	expect(await db.select().from(osWorkspaces)).toEqual([]);
+});
+
+it("leaves an unbound unmatched row open instead of creating an unowned project", async () => {
+	const { db } = await fixture();
+	await expect(
+		autoFileRequests(
+			db,
+			async () => JSON.stringify({ ...pick, projectId: null }),
+			{ ...owner, now },
+		),
+	).rejects.toThrow("existing source project");
+	expect(await listRequestFilings(db, owner)).toEqual([]);
+	expect(await db.select().from(projects)).toHaveLength(1);
+	expect(await db.select().from(workItems)).toEqual([]);
 });

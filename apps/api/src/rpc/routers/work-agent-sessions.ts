@@ -779,19 +779,41 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 		async ({ context, input }) => {
 			const owner = requireBoardOwner(context);
 			if (
-				input.enabled !== false &&
+				(input.enabled !== false || input.intakeProjectId !== undefined) &&
 				!userHoldsPermission(context, "tedis:update")
 			)
 				throw createError(
 					ErrorCodes.FORBIDDEN,
 					"Automatic filing requires project creation permission",
 				);
-			const { setAutomaticFiling, automaticFilingEnabled } =
+			const { setAutomaticFiling, requestFilingSettings } =
 				await import("../../services/request-filing-settings");
-			if (input.enabled !== undefined)
-				await setAutomaticFiling(context.db, owner, input.enabled);
-			if (!(await automaticFilingEnabled(context.db, owner)))
-				return { queued: false };
+			if (input.intakeProjectId) {
+				const { attentionProjectExists } =
+					await import("@tedix/db/queries/work-attention");
+				if (
+					!(await attentionProjectExists(
+						context.db,
+						owner.organizationId,
+						input.intakeProjectId,
+					))
+				)
+					throw createError(ErrorCodes.NOT_FOUND, "Intake project not found");
+			}
+			const current = await requestFilingSettings(context.db, owner);
+			if (input.enabled !== undefined || input.intakeProjectId !== undefined)
+				await setAutomaticFiling(
+					context.db,
+					owner,
+					input.enabled ?? current.enabled,
+					input.intakeProjectId,
+				);
+			const settings = await requestFilingSettings(context.db, owner);
+			const receipt =
+				input.intakeProjectId === undefined
+					? {}
+					: { intakeProjectId: settings.intakeProjectId };
+			if (!settings.enabled) return { queued: false, ...receipt };
 			const { enqueueRequestFiling, processRequestFilingQueue } =
 				await import("../../services/request-filing-queue");
 			if (input.runNow) {
@@ -806,6 +828,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 					);
 					return {
 						queued: pass.state === "processed" && (pass.pending ?? 0) > 0,
+						...receipt,
 						pass,
 					};
 				} catch (error) {
@@ -828,7 +851,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				...owner,
 				ownerSubject: context.user!.sub!,
 			});
-			return { queued: true };
+			return { queued: true, ...receipt };
 		},
 	),
 	fileRequest: writeOs.fileRequest.handler(async ({ input, context }) => {

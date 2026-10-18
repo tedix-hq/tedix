@@ -382,6 +382,32 @@ it("keeps automatic container creation behind existing project permission and ex
 	expect(queued).toHaveLength(1);
 });
 
+it("validates intake ownership and prevents viewers changing it while disabling", async () => {
+	const { owner, ada, sqlite } = fixture();
+	const id = "00000000-0000-4000-8000-000000000099";
+	await expect(
+		ada.classifyRequests({ enabled: false, intakeProjectId: id }),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	await expect(
+		owner.classifyRequests({ intakeProjectId: id }),
+	).rejects.toMatchObject({ code: "NOT_FOUND" });
+	const db = createDbClient(createD1Facade(sqlite));
+	await db.insert(projects).values({
+		id,
+		orgId: "other-org",
+		key: "INTAKE",
+		name: "Intake",
+		createdAt: "2026-10-10T10:00:00Z",
+	});
+	await expect(
+		owner.classifyRequests({ intakeProjectId: id }),
+	).rejects.toMatchObject({ code: "NOT_FOUND" });
+	await db.update(projects).set({ orgId: ORG_ID });
+	expect(
+		await owner.classifyRequests({ enabled: false, intakeProjectId: id }),
+	).toEqual({ queued: false, intakeProjectId: id });
+});
+
 it("reports fresh membership fences for an immediate filing pass without claiming it ran", async () => {
 	const { owner, ada, queued, sqlite } = fixture();
 	await expect(
