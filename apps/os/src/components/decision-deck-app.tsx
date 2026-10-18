@@ -291,7 +291,7 @@ export function DecisionDeckApp({
 				)
 			: ranked;
 	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
-	const prefetchIds = filtered
+	const prefetchIds = ranked
 		.slice(0, 3)
 		.filter((row) => row.row)
 		.map((row) => row.id)

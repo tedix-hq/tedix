@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { workInteractionDetailQueryOptions } from "@/lib/os-query-options";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { Button } from "@/components/kumo/button";
@@ -35,6 +38,16 @@ export function WorkHome({
 	const deck = apps.find((app) => app.role === "deck");
 	const config = DecisionDeckConfigSchema.safeParse(deck?.manifest.config);
 	const decisions = useDecisionInbox(config.success ? config.data : undefined);
+	const client = useQueryClient();
+	const prefetchIds = decisions.requests
+		.slice(0, 3)
+		.map((row) => row.request.id)
+		.join(",");
+	useEffect(() => {
+		if (selected?.role !== "deck" || !prefetchIds) return;
+		for (const id of prefetchIds.split(","))
+			void client.prefetchQuery(workInteractionDetailQueryOptions(id));
+	}, [client, selected?.role, prefetchIds]);
 	const copy = OS_COPY.workHome;
 	useDocumentTitle(
 		`${selected?.role === "feed" ? copy.feed : selected?.role === "deck" ? copy.deck : (selected?.gadget.name ?? copy.feed)} · Work`,

@@ -62,6 +62,7 @@ export const OS_COPY = {
 		more: "More",
 		less: "Less",
 		source: "Open source",
+		linkedPage: "linked page",
 		workspaceDocument: "Open workspace document",
 		document: "Open document",
 		workRecord: "Open Work record",

@@ -450,3 +450,21 @@ it("keeps ranking evidence inside the selected card's single explanation drawer"
 	expect(host.textContent).not.toContain("Your recent workshop decisions");
 	expect(host.textContent).toContain("The workshop is waiting on this answer.");
 });
+
+it("keeps raw URLs out of headings and shows the full source through titled links", async () => {
+	const url =
+		"https://example.invalid/workspace/fictional?workpiece=output:proposal";
+	await mount({
+		title: `Review ${url}`,
+		body: `One proposal. Read ${url} before choosing.`,
+	});
+	expect(host.querySelector("h2")?.textContent).toBe("Review linked page");
+	expect(host.querySelector("h2 a")?.getAttribute("href")).toBe(url);
+	expect(host.querySelector(".fd-proposal-body")?.textContent).not.toContain(
+		url,
+	);
+	await click("More");
+	const link = host.querySelector(".fd-proposal-body a");
+	expect(link?.getAttribute("href")).toBe(url);
+	expect(link?.textContent).toBe("Open workspace document");
+});
