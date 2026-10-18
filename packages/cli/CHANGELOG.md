@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.13.1 — 2026-10-18
+
+### Patch Changes
+
+- Feedback capture uses the local Codex model when an installed Claude CLI is unavailable or has reached its usage limit. Unsent candidates remain local for retry.
+
 ## 0.13.0 — 2026-10-18
 
 ### Minor Changes
