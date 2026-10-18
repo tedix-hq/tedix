@@ -74,17 +74,29 @@ function fixture() {
 			data: structuredClone(histories.get(id)),
 			nextCursor: null,
 		}),
-		list_attempt_projection: async ({ projectId }) => ({
-			data: projectId
-				? [...histories]
-						.filter(([id]) => items.get(id).projectId === projectId)
-						.flatMap(([id, rows]) =>
-							rows.map((attempt) => ({ workItem: { id }, attempt })),
-						)
-				: [],
-			hasMore: false,
-			nextCursor: null,
-		}),
+		list_attempt_projection: async ({
+			projectId,
+			workItemId,
+			limit = 100,
+			cursor,
+		}) => {
+			const rows = [...histories]
+				.filter(([id]) =>
+					workItemId
+						? id === workItemId
+						: items.get(id).projectId === projectId,
+				)
+				.flatMap(([id, history]) =>
+					history.map((attempt) => ({ workItem: { id }, attempt })),
+				);
+			const offset = Number(cursor?.at ?? 0);
+			const hasMore = rows.length > offset + limit;
+			return {
+				data: rows.slice(offset, offset + limit),
+				hasMore,
+				nextCursor: hasMore ? { at: String(offset + limit), id: "next" } : null,
+			};
+		},
 		list_ready_work: async ({ projectId }) => ({
 			items: order
 				.filter((id) => items.get(id)?.projectId === projectId)
@@ -450,14 +462,38 @@ describe("native night coordination", () => {
 		expect(JSON.stringify([...f.outputs.values()])).not.toContain("ordinary");
 		expect(f.reason).not.toHaveBeenCalled();
 	});
-	test("refuses truncated lane recovery projections before dispatch", async () => {
+	test("ignores more than 1000 historical Attempts outside the accepted backlog", async () => {
 		const f = fixture();
+		f.item("historical", { disposition: "completed" });
+		f.histories.set(
+			"historical",
+			Array.from({ length: 1001 }, (_, i) => ({
+				id: "historical-" + i,
+				attemptNumber: 1001 - i,
+				outcome: "succeeded",
+				metadata: { lane: true },
+			})),
+		);
+		f.item("legacy", { metadata: {} });
+		f.histories.set("legacy", [
+			{ id: "lost", outcome: "expired", metadata: { lane: true } },
+		]);
+		f.item("ready");
+		f.setOrder(["ready"]);
+		expect((await f.run()).selected).toEqual(["ready"]);
+		expect(f.items.get("legacy").description).toContain(
+			"Resume after Attempt lost",
+		);
+	});
+	test("refuses an incomplete latest-lane projection before dispatch", async () => {
+		const f = fixture();
+		f.item("legacy", { metadata: {} });
 		f.api.list_attempt_projection = async () => ({
 			data: [],
 			hasMore: true,
 			nextCursor: null,
 		});
-		await expect(f.run()).rejects.toThrow("cannot advance");
+		await expect(f.run()).rejects.toThrow("Incomplete latest lane projection");
 		expect(f.writes).toHaveLength(0);
 	});
 	test("plans lanes and writes the log before a tedi timeout, recording pending without replay", async () => {

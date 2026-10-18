@@ -55,31 +55,28 @@ async function allWork(api, projectId) {
 	}
 	throw new Error("Night backlog exceeds bounded read; no partial dispatch");
 }
-async function registeredLanes(api, projectId) {
-	const latest = new Map();
-	let cursor;
-	for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
+async function registeredLanes(api, items) {
+	const registered = [];
+	for (const item of items.filter((x) => x.metadata?.executor === undefined)) {
 		const page = checked(
 			await api.list_attempt_projection({
-				projectId,
+				workItemId: item.id,
 				executorType: "external_agent",
-				limit: 100,
-				...(cursor ? { cursor } : {}),
+				limit: 1,
 			}),
 		);
-		for (const row of page.data) {
-			const prior = latest.get(row.workItem.id);
-			if (!prior || row.attempt.attemptNumber > prior.attemptNumber)
-				latest.set(row.workItem.id, row.attempt);
-		}
-		if (!page.hasMore)
-			return [...latest]
-				.filter(([, attempt]) => attempt.metadata?.lane === true)
-				.map(([id]) => id);
-		if (!page.nextCursor) throw new Error("Lane projection cannot advance");
-		cursor = page.nextCursor;
+		if (
+			!Array.isArray(page.data) ||
+			typeof page.hasMore !== "boolean" ||
+			page.data.length > 1 ||
+			(page.hasMore && (!page.data.length || !page.nextCursor)) ||
+			page.data.some((row) => row.workItem?.id !== item.id || !row.attempt)
+		)
+			throw new Error("Incomplete latest lane projection");
+		// The projection is newest-first; older Attempts cannot register the current lane.
+		if (page.data[0]?.attempt.metadata?.lane === true) registered.push(item.id);
 	}
-	throw new Error("Lane projection truncated; no partial recovery");
+	return registered;
 }
 async function appendLog(api, workspaceId, title, key, lines) {
 	const page = checked(
@@ -216,7 +213,7 @@ export default {
 			);
 			const registered = new Set(
 				await step.do("registered-" + projectId, async () =>
-					registeredLanes(api, projectId),
+					registeredLanes(api, items),
 				),
 			);
 			for (const item of items.filter(
