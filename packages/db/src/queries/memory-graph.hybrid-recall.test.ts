@@ -13,6 +13,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	backfillFactSearch,
+	fallbackRecall,
 	graphRecall,
 	hydrateRecall,
 	lexicalRecall,
@@ -66,6 +67,41 @@ function fixture() {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("uses the evidence lane's validator for lessons recalled through the shared fact path", async () => {
+		const { db, sqlite, add } = fixture();
+		add("source", "cobalt deployment evidence", undefined, {
+			valid_to: "2026-10-17",
+		});
+		add("lesson", "cobalt deployment rule", undefined, {
+			metadata: JSON.stringify({
+				learningFeed: {
+					autoConfirmed: true,
+					evidence: {
+						version: 1,
+						state: "live",
+						supportCount: 1,
+						sources: [
+							{
+								kind: "fact",
+								id: "source",
+								quote: "cobalt deployment evidence",
+							},
+						],
+					},
+				},
+			}),
+		});
+		expect(await hydrateRecall(db, scope, ["lesson"])).toEqual([]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT json_extract(metadata, '$.learningFeed.evidence.state') AS state FROM memory_facts WHERE id='lesson'",
+				)
+				.get(),
+		).toEqual({ state: "held" });
+		expect(await lexicalRecall(db, scope, "cobalt")).toEqual([]);
+		expect(await fallbackRecall(db, scope)).toEqual([]);
+	});
 	it("does not let an invalidated contradiction suppress its active replacement with the same timestamp", async () => {
 		const { db, sqlite, add } = fixture();
 		add("alpha-current", "Vessel-3 launch uses Opal Dock");

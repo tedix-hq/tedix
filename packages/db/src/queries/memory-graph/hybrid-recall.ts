@@ -1,6 +1,7 @@
 import { and, desc, eq, getColumns, sql, type SQL } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFacts, type MemoryFact } from "../../schema/memory-graph";
+import { filterEvidenceBackedLessons } from "./agent-lessons";
 
 export interface RecallScope {
 	orgId: string;
@@ -35,6 +36,7 @@ function eligible(scope: RecallScope): SQL {
 	return and(
 		eq(f.organizationId, scope.orgId),
 		sql`${f.archivedAt} IS NULL`,
+		sql`coalesce(json_extract(${f.metadata}, '$.learningFeed.evidence.state'), '') != 'held'`,
 		sql`(${f.validTo} IS NULL OR datetime(${f.validTo}) > datetime(${now}))`,
 		sql`(${f.validFrom} IS NULL OR datetime(${f.validFrom}) <= datetime(${now}))`,
 		sql`coalesce(${f.reviewStatus}, '') NOT IN ('restricted','rejected','superseded','stale','disputed')`,
@@ -181,7 +183,7 @@ export async function hydrateRecall(
 	ids: string[],
 ): Promise<Array<MemoryFact & { replacesFactIds: string[] }>> {
 	if (!ids.length) return [];
-	return db
+	const rows = await db
 		.select({
 			...getColumns(memoryFacts),
 			replacesFactIds: sql<string>`(
@@ -203,17 +205,19 @@ export async function hydrateRecall(
 				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
 			),
 		);
+	return filterEvidenceBackedLessons(db, scope.orgId, rows);
 }
 export async function fallbackRecall(
 	db: DbQueryClient,
 	scope: RecallScope,
 ): Promise<MemoryFact[]> {
-	return db
+	const rows = await db
 		.select()
 		.from(memoryFacts)
 		.where(eligible(scope))
 		.orderBy(desc(memoryFacts.confidence), desc(memoryFacts.createdAt))
 		.limit(100);
+	return filterEvidenceBackedLessons(db, scope.orgId, rows);
 }
 
 /** Repair old rows in bounded, repeatable chunks; new writes are trigger-synced. */
