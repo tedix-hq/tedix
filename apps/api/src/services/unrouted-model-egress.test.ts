@@ -125,4 +125,20 @@ describe("auxiliary model egress under organization residency", () => {
 		expect(put).not.toHaveBeenCalled();
 		expect(get).not.toHaveBeenCalled();
 	});
+	it("reports dispatch only after the current residency policy permits it", async () => {
+		const onDispatch = vi.fn();
+		const send = vi.fn();
+		const scoped = organizationModelEnv(
+			{ AI: { run: send } },
+			{} as never,
+			"org_lark",
+			onDispatch,
+		);
+		await expect(scoped.AI.run()).rejects.toThrow("EU_PROVIDER_ROUTE_REQUIRED");
+		expect(onDispatch).not.toHaveBeenCalled();
+		policy.mockResolvedValue({ mode: "unrestricted", revision: 2 });
+		await scoped.AI.run();
+		expect(onDispatch).toHaveBeenCalledOnce();
+		expect(send).toHaveBeenCalledOnce();
+	});
 });
