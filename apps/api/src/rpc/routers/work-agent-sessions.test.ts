@@ -423,6 +423,9 @@ it("returns an immediate empty pass and surfaces storage failures instead of rep
 		{ queued: false, pass: { state: "processed", pending: 0 } },
 	);
 	sqlite.exec("DROP TABLE projects");
-	await expect(owner.classifyRequests({ runNow: true })).rejects.toThrow();
+	await expect(owner.classifyRequests({ runNow: true })).rejects.toMatchObject({
+		code: "SERVICE_UNAVAILABLE",
+		message: "no such table: projects",
+	});
 	expect(queued).toHaveLength(0);
 });
