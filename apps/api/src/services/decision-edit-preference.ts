@@ -71,6 +71,7 @@ export async function classifyDecisionEdit(
 			return;
 		const sentence = await runDistillModel(env, JSON.stringify(state), {
 			model: config.preferenceModel,
+			nonThinking: true,
 			maxTokens: 100,
 			timeoutMs: config.classifierTimeoutMs,
 			surface: "decision-edit-preference",
