@@ -16,7 +16,6 @@ import { DecisionLearningContext } from "@/components/decision-learning-context"
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
 	DeckClosure,
-	FeedDeckDisclosure,
 	ProposerContext,
 } from "@/components/feed-deck-primitives";
 import {
@@ -33,7 +32,6 @@ import {
 	DecisionKindSchema,
 	type DecisionDeckConfig,
 } from "@tedix/api-contract/schemas/os-decision-deck";
-import { WeeklyDecisionDigest } from "@/components/weekly-decision-digest";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { DecisionEnvelopeCard } from "@/components/decision-envelope-card";
 import { WorkInteractionDecisionCard } from "@/components/work-interaction-decision-card";
@@ -41,16 +39,11 @@ import { ApprovalDecisionCard } from "@/components/work-decision-stack";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
-import { Checkbox } from "@/components/kumo/checkbox";
+import { Switch } from "@/components/kumo/switch";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/kumo/select";
+
 import { osApi } from "@/lib/api";
 import {
 	osQuery,
@@ -91,7 +84,7 @@ export function DecisionDeckApp(props: {
 	workspaceId?: string;
 }) {
 	return (
-		<DecisionContextRail>
+		<DecisionContextRail surface="deck">
 			<DecisionDeckContent {...props} />
 		</DecisionContextRail>
 	);
@@ -442,12 +435,6 @@ function DecisionDeckContent({
 					ready: learnedReadiness?.ready ?? false,
 				}
 			: historicalLearning;
-	const threshold =
-		!practiceMode && learningModel.data?.config.enabled
-			? learningModel.data.config.unchangedThreshold
-			: ((classId
-					? config.classPolicies[classId]?.unchangedThreshold
-					: undefined) ?? config.unchangedThreshold);
 	const next = () => {
 		if (mode === "history")
 			setIndex((value) => Math.min(filtered.length - 1, value + 1));
@@ -566,42 +553,7 @@ function DecisionDeckContent({
 					</div>
 				)}
 
-				<DecisionContextSection title="Progress and filters">
-					{config.gamification && (
-						<Checkbox
-							label="Show daily goal"
-							checked={showGoal}
-							onCheckedChange={(checked) => {
-								setShowGoal(checked);
-								if (goalKey)
-									try {
-										localStorage.setItem(goalKey, checked ? "on" : "off");
-									} catch {
-										/* Browser storage may be disabled. */
-									}
-							}}
-						/>
-					)}
-					<div className="fd-deck-progress" role="status">
-						<Text weight="semibold">
-							{selected
-								? OS_COPY.decisionDeck.position(
-										(index % filtered.length) + 1,
-										filtered.length,
-									)
-								: OS_COPY.decisionDeck.left(filtered.length)}
-							{selected &&
-								config.gamification &&
-								showGoal &&
-								` · ${OS_COPY.decisionDeck.today(metrics.decisionsToday, config.dailyGoal)}`}
-						</Text>
-					</div>
-					{selected &&
-						showGoal &&
-						config.gamification &&
-						metrics.streak > 0 && (
-							<Text>{OS_COPY.decisionDeck.streak(metrics.streak)}</Text>
-						)}
+				<DecisionContextSection sectionId="filters" title="Filters">
 					<div className="fd-deck-filters">
 						<div
 							className="fd-deck-toolbar"
@@ -630,80 +582,48 @@ function DecisionDeckContent({
 							))}
 						</div>
 						<div className="flex flex-wrap gap-2">
-							<Select
+							<SegmentedControl
+								ariaLabel={decisionText("Decision kind")}
 								value={kind}
 								onValueChange={(value) => {
-									setKind(value ?? "all");
+									setKind(value);
 									setIndex(0);
 								}}
-							>
-								<SelectTrigger aria-label={decisionText("Decision kind")}>
-									<SelectValue>{KIND_LABELS[kind]}</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">
-										{decisionText("All kinds")}
-									</SelectItem>
-									{DecisionKindSchema.options.map((value) => (
-										<SelectItem key={value} value={value}>
-											{KIND_LABELS[value]}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-							<Select
+								options={["all", ...DecisionKindSchema.options].map(
+									(value) => ({ value, label: KIND_LABELS[value] }),
+								)}
+							/>
+							<SegmentedControl
+								ariaLabel={decisionText("Decision project")}
 								value={project}
 								onValueChange={(value) => {
-									setProject(value ?? "all");
+									setProject(value);
 									setIndex(0);
 								}}
-							>
-								<SelectTrigger aria-label={decisionText("Decision project")}>
-									<SelectValue>
-										{project === "all"
+								options={[
+									"all",
+									...new Set(rows.map((row) => row.project)),
+								].map((value) => ({
+									value,
+									label:
+										value === "all"
 											? decisionText("All projects")
-											: projectLabel(project)}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">
-										{decisionText("All projects")}
-									</SelectItem>
-									{[...new Set(rows.map((row) => row.project))].map((value) => (
-										<SelectItem key={value} value={value}>
-											{projectLabel(value)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-							<Select
+											: projectLabel(value),
+								}))}
+							/>
+							<SegmentedControl
+								ariaLabel={decisionText("Decision urgency")}
 								value={urgency}
 								onValueChange={(value) => {
-									setUrgency(value ?? "all");
+									setUrgency(value);
 									setIndex(0);
 								}}
-							>
-								<SelectTrigger aria-label={decisionText("Decision urgency")}>
-									<SelectValue>
-										{urgency === "all"
-											? decisionText("Any urgency")
-											: urgency === "now"
-												? decisionText("Needs you now")
-												: decisionText("Can wait")}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">
-										{decisionText("Any urgency")}
-									</SelectItem>
-									<SelectItem value="now">
-										{decisionText("Needs you now")}
-									</SelectItem>
-									<SelectItem value="later">
-										{decisionText("Can wait")}
-									</SelectItem>
-								</SelectContent>
-							</Select>
+								options={[
+									{ value: "all", label: decisionText("Any urgency") },
+									{ value: "now", label: decisionText("Needs you now") },
+									{ value: "later", label: decisionText("Can wait") },
+								]}
+							/>
 							<Input
 								aria-label={decisionText("Find decisions")}
 								placeholder={decisionText("Find a decision")}
@@ -952,18 +872,21 @@ function DecisionDeckContent({
 						</DeckNoticeContext.Provider>
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
-								<Button variant="outline" onClick={previous}>
+								<Button variant="ghost" onClick={previous}>
 									{decisionText("Previous")}
 								</Button>
-								<Button variant="outline" onClick={next}>
+								<Button variant="ghost" onClick={next}>
 									{decisionText("Next")}
 								</Button>
 							</div>
 						) : null}
 					</div>
 				) : (
-					!inbox.isPending &&
-					(practiceMode || batch) &&
+					(practiceMode ||
+						(mode === "history"
+							? !history.isPending && !history.isError
+							: !decisions.pending && !learningQuery.isPending)) &&
+					(practiceMode || mode === "history" || batch) &&
 					!(decisions.failed || learningQuery.isError) &&
 					(available.length > 0 ? (
 						<Text>{OS_COPY.decisionDeck.noMatches}</Text>
@@ -1004,45 +927,50 @@ function DecisionDeckContent({
 						/>
 					))
 				)}
-				<DecisionContextSection
-					sectionId="history"
-					title="Learning and history"
-				>
-					{learning && classId && (
-						<FeedDeckDisclosure
-							className="fd-deck-learning"
-							label={OS_COPY.feedDeckVisual.learning}
-							title={
-								<span className="text-xs">
-									{OS_COPY.feedDeckVisual.learning}
-								</span>
-							}
+				<DecisionContextSection sectionId="history" title="History">
+					<p>
+						{metrics.decisionsToday} decided today ·{" "}
+						<Button
+							variant="ghost"
+							onClick={() => {
+								setMode("history");
+								setIndex(0);
+							}}
 						>
-							<Text weight="medium">
-								{learning.unchanged}/{threshold} unchanged approvals
-							</Text>
-							<Text tone="secondary">
-								{learning.ready
-									? "Ready for a delegation review"
-									: "Learning your preferences"}{" "}
-								· {learning.delegated}/{learning.total} delegated ·{" "}
-								{Math.round(
-									(config.classPolicies[classId]?.auditSampleRate ??
-										config.auditSampleRate) * 100,
-								)}
-								% proposed audits
-							</Text>
-							<Text role="label">
-								Recent loaded history only. Readiness does not grant permission
-								or turn on automation.
-							</Text>
-						</FeedDeckDisclosure>
-					)}
-					{mode === "history" && <WeeklyDecisionDigest />}
-					{selected && practiceMode && practice.length > 0 && (
-						<Text>{practice.length} practice choices in this preview.</Text>
-					)}
+							See all
+						</Button>
+					</p>
 				</DecisionContextSection>
+				{receipts.length >= 5 && (
+					<DecisionContextSection sectionId="style" title="Your style">
+						<p>
+							{learning?.ready
+								? "Your recent choices favour this kind of recommendation."
+								: "Your recent choices help shape future recommendations."}
+						</p>
+						{config.gamification && (
+							<Switch
+								label="Show daily goal"
+								checked={showGoal}
+								onCheckedChange={(checked) => {
+									setShowGoal(checked);
+									if (goalKey)
+										try {
+											localStorage.setItem(goalKey, checked ? "on" : "off");
+										} catch {
+											/* Browser storage may be disabled. */
+										}
+								}}
+							/>
+						)}
+						{config.gamification && showGoal && (
+							<p>
+								{metrics.decisionsToday} decisions today · daily goal{" "}
+								{config.dailyGoal}
+							</p>
+						)}
+					</DecisionContextSection>
+				)}
 			</div>
 		</DecisionAttentionContext.Provider>,
 	);

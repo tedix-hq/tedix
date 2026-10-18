@@ -77,6 +77,31 @@ try {
 			)
 				throw new Error(`Deck overflows at ${width}/${theme}`);
 			const primary = page.locator('[data-decision-intent="approve"]');
+			if (
+				await page
+					.locator(".fd-decision")
+					.evaluate((el) => el === document.activeElement)
+			)
+				throw new Error("Card stole focus on load");
+			if (
+				!(await primary
+					.locator("xpath=ancestor::*[@data-slot='card-footer']")
+					.count()) ||
+				!(await page.locator('[data-slot="card-footer"] .fd-card-why').count())
+			)
+				throw new Error("Card actions and Why this must share one surface");
+			const rejectBefore = await page
+				.locator('[data-decision-intent="reject"]')
+				.boundingBox();
+			await primary.hover();
+			const rejectAfter = await page
+				.locator('[data-decision-intent="reject"]')
+				.boundingBox();
+			if (
+				rejectBefore?.x !== rejectAfter?.x ||
+				rejectBefore?.y !== rejectAfter?.y
+			)
+				throw new Error("Key cap hover moved the adjacent action");
 			const colors = await primary.evaluate((el) => ({
 				fill: getComputedStyle(el).backgroundColor,
 				text: getComputedStyle(el).color,
@@ -201,6 +226,20 @@ try {
 				.waitFor();
 			if (!(await story.locator(".fd-preview").count()))
 				throw new Error("Outcome lost its source preview");
+			const hierarchy = await story.evaluate((el) => ({
+				actor: getComputedStyle(el.querySelector(".ft-byline p")!).fontWeight,
+				outcome: getComputedStyle(el.querySelector(".ft-sentence")!).fontWeight,
+				preview: getComputedStyle(el.querySelector(".fd-preview-title")!)
+					.fontWeight,
+			}));
+			if (
+				hierarchy.actor !== "600" ||
+				hierarchy.outcome !== "400" ||
+				hierarchy.preview !== "500"
+			)
+				throw new Error(
+					`Feed hierarchy regressed: ${JSON.stringify(hierarchy)}`,
+				);
 			const previewTitle = await story
 				.locator(".fd-preview-title")
 				.evaluate((el) => ({

@@ -168,7 +168,11 @@ const ENGLISH_COPY = {
 		expires: (minutes: number) =>
 			minutes <= 0
 				? "Expired — check the source before deciding"
-				: `Expires in ${minutes} min`,
+				: minutes <= 90
+					? `Expires in ${minutes} min`
+					: minutes <= 48 * 60
+						? `Expires in ${Math.round(minutes / 60)} h`
+						: `Expires ${new Date(Date.now() + minutes * 60_000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`,
 		metrics: {
 			title: "Decision attention",
 			loaded: "Recent recorded activity for you. Totals may be incomplete.",

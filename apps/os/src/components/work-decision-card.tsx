@@ -52,6 +52,7 @@ import {
 	DecisionProposalBody,
 	DecisionProposalHeading,
 	decisionProposalTitle,
+	decisionIdentifiers,
 } from "@/components/decision-proposal-body";
 
 export type DecisionCardKind =
@@ -108,7 +109,6 @@ export function WorkDecisionCard({
 	initialAnswer = "",
 	pending = false,
 	disabled = false,
-	autoFocus = false,
 	onDecision,
 	onDecisionSettled,
 	onNext,
@@ -139,6 +139,7 @@ export function WorkDecisionCard({
 	onPrevious?: () => void;
 }) {
 	const heading = decisionProposalTitle(title);
+	const identifiers = decisionIdentifiers(`${title} ${body}`);
 	const deckFooter = useContext(DeckFooterContext);
 	const deckNotice = useContext(DeckNoticeContext);
 	const footer = useRef<HTMLDivElement>(null);
@@ -167,16 +168,6 @@ export function WorkDecisionCard({
 	}, [attention]);
 	const motion = useDecisionMotion();
 	const section = motion.surface;
-	useEffect(() => {
-		if (
-			autoFocus &&
-			!rail?.open &&
-			!document.activeElement?.closest(
-				"input, textarea, [contenteditable=true]",
-			)
-		)
-			section.current?.focus({ preventScroll: true });
-	}, [autoFocus, rail?.open]);
 	const [editing, setEditing] = useState(false);
 	const [whyOpen, setWhyOpen] = useState(false);
 	const [whyTarget, setWhyTarget] = useState<HTMLDivElement | null>(null);
@@ -298,7 +289,7 @@ export function WorkDecisionCard({
 			ref={section}
 			aria-label={title}
 			tabIndex={0}
-			className="fd-decision min-w-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring"
+			className="fd-decision min-w-0 rounded-xl"
 			style={motion.style}
 			data-dragging={motion.dragging}
 			data-direction={motion.direction}
@@ -394,14 +385,7 @@ export function WorkDecisionCard({
 							</time>
 						) : null}
 					</CardDescription>
-					<CardTitle
-						className="text-xl leading-snug"
-						style={
-							{
-								"--fd-title-size": heading.length > 55 ? "2.2vw" : "3vw",
-							} as React.CSSProperties
-						}
-					>
+					<CardTitle className="text-xl leading-snug">
 						<DecisionProposalHeading title={heading} />
 					</CardTitle>
 				</CardHeader>
@@ -422,9 +406,15 @@ export function WorkDecisionCard({
 						) : (
 							(content ?? (body ? <DecisionProposalBody body={body} /> : null))
 						)}
-						{heading !== title && (
+						{identifiers.length > 0 && (
 							<DecisionContextSection title="Identifiers and source">
-								<p className="fd-identifier">{title}</p>
+								<div className="fd-identifiers">
+									{identifiers.map((id) => (
+										<code key={id} className="fd-identifier" title={id}>
+											{id}
+										</code>
+									))}
+								</div>
 							</DecisionContextSection>
 						)}
 						{kind === "question" && !disabled && !saved ? (
@@ -700,44 +690,47 @@ export function WorkDecisionCard({
 							) : null}
 							{!actions.some((action) => action.intent === "later") &&
 								deckFooter}
+							<div className="fd-card-why">
+								{why || learnedWhy ? (
+									rail ? (
+										<DecisionContextSection
+											sectionId="why"
+											title={decisionText("Why this")}
+											trigger
+											defaultOpen
+										>
+											{why}
+											{learnedWhy && (
+												<DecisionLearningWhy explanation={learnedWhy} />
+											)}
+										</DecisionContextSection>
+									) : (
+										<Collapsible
+											className="fd-why"
+											open={whyOpen}
+											onOpenChange={setWhyOpen}
+										>
+											<CollapsibleTrigger>
+												{decisionText("Why this?")}
+											</CollapsibleTrigger>
+											{whyTarget &&
+												createPortal(
+													<CollapsibleContent className="pt-3 text-kumo-subtle">
+														{why}
+														{learnedWhy && (
+															<DecisionLearningWhy explanation={learnedWhy} />
+														)}
+													</CollapsibleContent>,
+													whyTarget,
+												)}
+										</Collapsible>
+									)
+								) : null}
+							</div>
 						</div>
 					</CardFooter>
 				)}
 			</FeedDeckCard>
-			<div className="fd-card-why">
-				{why || learnedWhy ? (
-					rail ? (
-						<DecisionContextSection
-							sectionId="why"
-							title={decisionText("Why this")}
-							trigger
-						>
-							{why}
-							{learnedWhy && <DecisionLearningWhy explanation={learnedWhy} />}
-						</DecisionContextSection>
-					) : (
-						<Collapsible
-							className="fd-why"
-							open={whyOpen}
-							onOpenChange={setWhyOpen}
-						>
-							<CollapsibleTrigger>
-								{decisionText("Why this?")}
-							</CollapsibleTrigger>
-							{whyTarget &&
-								createPortal(
-									<CollapsibleContent className="pt-3 text-kumo-subtle">
-										{why}
-										{learnedWhy && (
-											<DecisionLearningWhy explanation={learnedWhy} />
-										)}
-									</CollapsibleContent>,
-									whyTarget,
-								)}
-						</Collapsible>
-					)
-				) : null}
-			</div>
 		</section>
 	);
 }

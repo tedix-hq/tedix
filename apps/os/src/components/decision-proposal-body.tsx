@@ -143,3 +143,14 @@ export function decisionProposalTitle(title: string): string {
 		.replace(/[,:;\s]+$/, "");
 	return `${prefix}…`;
 }
+
+/** Keep source identifiers available without repeating a message in monospace. */
+export function decisionIdentifiers(source: string): string[] {
+	return [
+		...new Set(
+			source.match(
+				/[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{7,40}\b/gi,
+			) ?? [],
+		),
+	].slice(0, 3);
+}
