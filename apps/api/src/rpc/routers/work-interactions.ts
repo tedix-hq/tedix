@@ -1273,11 +1273,18 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			);
 		const { generateDecisionCard } =
 			await import("../../services/decision-card-generator");
-		const presentation = await generateDecisionCard(context, request);
+		let failure = "unknown";
+		const presentation = await generateDecisionCard(
+			context,
+			request,
+			(reason) => {
+				failure = reason;
+			},
+		);
 		if (!presentation)
 			throw createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,
-				"The card generator could not produce valid copy",
+				`The card generator could not produce valid copy (${failure})`,
 			);
 		const { saveDecisionCardPresentation } =
 			await import("@tedix/db/queries/work-items/card-presentation");

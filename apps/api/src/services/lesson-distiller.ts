@@ -243,16 +243,22 @@ export async function runDistillModel(
 		surface = "learning-feed-distill",
 		model = DISTILL_MODEL,
 		system,
+		onFailure,
 	}: {
 		maxTokens?: number;
 		timeoutMs?: number;
 		surface?: string;
 		model?: string;
 		system?: string;
+		onFailure?: (reason: string) => void;
 	} = {},
 ): Promise<string | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
+		if (!env.AI?.run) {
+			onFailure?.("model_binding_unavailable");
+			return null;
+		}
 		const call = env.AI.run(
 			model as keyof AiModels,
 			{
@@ -274,9 +280,26 @@ export async function runDistillModel(
 				timer = setTimeout(() => resolve("timeout"), timeoutMs);
 			}),
 		]);
-		if (outcome === "timeout") return null;
-		return responseText(outcome);
-	} catch {
+		if (outcome === "timeout") {
+			onFailure?.("model_timeout");
+			return null;
+		}
+		const text = responseText(outcome);
+		if (!text) onFailure?.("model_response_empty");
+		return text;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "";
+		onFailure?.(
+			/residency|regional adapter/i.test(message)
+				? "model_residency_blocked"
+				: /authoriz|authenticat|gateway|credential|token/i.test(message)
+					? "model_authorization_failed"
+					: /model.*(not found|unavailable|does not exist|deprecated)/i.test(
+								message,
+						  )
+						? "model_unavailable"
+						: "model_provider_failed",
+		);
 		return null;
 	} finally {
 		clearTimeout(timer);
