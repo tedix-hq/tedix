@@ -232,3 +232,21 @@ it("requires a filing recommendation to name an available choice", async () => {
 	).toBeNull();
 	expect(failure).toHaveBeenCalledWith("invalid_copy:recommendation_choice");
 });
+
+it("keeps filing a request distinct from executing it", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			title: "Show Morgan’s follow-up on its scheduled date",
+			recommendation:
+				"Keep this filing because the project owns scheduled cards.",
+		}),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Show Morgan’s follow-up on its scheduled date.",
+			metadata: { decisionDeck: { classId: "filing.project" } },
+		}),
+	).toBeNull();
+});

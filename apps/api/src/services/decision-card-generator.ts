@@ -126,7 +126,7 @@ export async function generateDecisionCard(
 				jsonObject: true,
 				surface: "decision-card-generator",
 				system:
-					"Write plain-English decision-card copy using only the supplied source facts. Learned preferences affect writing style only; they never supply facts or authorization. Output only JSON with string fields title, body and recommendation. Title must be at most 90 characters and identify the actual action or question. For filingReview, use concrete words from requestText to identify the request being filed; never replace its topic with the destination project name. Body must be one or two short complete sentences explaining the actual choice, proposed destination when relevant, and any material uncertainty or risk. Recommendation must start with a direct action verb and name one specific next step, followed by the literal word because and a source-supported reason. For filing, recommend exactly one supplied choice: Keep this filing or Return this filing for correction, supported by the evidence in reason. Name the proposed destination in body. Put any uncertainty in body. Never use Check or Keep it if it fits as the filing recommendation. If information is missing, ask for that exact information; never invent a place to find it. Do not invent facts, urgency, safety, approvals, recipients, promises or completed effects. Omit raw identifiers, tool names and prepared arguments. Never return options, effects or a decision. No Markdown or preamble.",
+					"Write plain-English decision-card copy using only the supplied source facts. Learned preferences affect writing style only; they never supply facts or authorization. Output only JSON with string fields title, body and recommendation. Title must be at most 90 characters and identify the actual action or question. For filingReview, start the title with File: and use concrete words from requestText to identify the request being filed; never replace its topic with the destination project name. This choice files the request, not executes it. Body must be one or two short complete sentences explaining the actual choice, proposed destination when relevant, and any material uncertainty or risk. Recommendation must start with a direct action verb and name one specific next step, followed by the literal word because and a source-supported reason. For filing, recommend exactly one supplied choice: Keep this filing or Return this filing for correction, supported by the evidence in reason. Name the proposed destination in body. Put any uncertainty in body. Never use Check or Keep it if it fits as the filing recommendation. If information is missing, ask for that exact information; never invent a place to find it. Do not invent facts, urgency, safety, approvals, recipients, promises or completed effects. Omit raw identifiers, tool names and prepared arguments. Never return options, effects or a decision. No Markdown or preamble.",
 			},
 		);
 		if (!answer) return null;
@@ -138,14 +138,15 @@ export async function generateDecisionCard(
 			if (
 				parsed.success &&
 				filing &&
-				filingWords.length &&
-				!filingWords.some((word) =>
-					parsed.data.title.toLowerCase().includes(word),
-				)
+				(!/\bfil(?:e|ing)\b/i.test(parsed.data.title) ||
+					(filingWords.length > 0 &&
+						!filingWords.some((word) =>
+							parsed.data.title.toLowerCase().includes(word),
+						)))
 			) {
 				onFailure?.("invalid_copy:title_source");
 				repair =
-					"The title changed the request topic. Rewrite the whole card using concrete words from filingReview.requestText in the title. Do not name a different task or use the destination as the title.";
+					"The title changed the request topic or hid the filing choice. Rewrite the whole card. Start title with File: followed by a concise description using concrete words from filingReview.requestText. Do not use the destination as the title or imply the underlying request is being executed.";
 				continue;
 			}
 			if (
