@@ -7,7 +7,7 @@ import {
 	memoryEntityMentions,
 	memoryEntityResolutions,
 } from "../schema/memory-entities";
-import { createD1Facade } from "../test/d1-facade";
+import { createD1Facade, type SyncSqliteDatabase } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	consolidateMemory,
@@ -23,7 +23,7 @@ import { filterEvidenceBackedLessons } from "./memory-graph/agent-lessons";
 
 const ORG = "fictional-orchard";
 const TOPIC = "orchard:repository";
-function setup() {
+function setup(onPrepare?: (query: string, db: SyncSqliteDatabase) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	for (const table of [
@@ -34,7 +34,9 @@ function setup() {
 		memoryEntityResolutions,
 	])
 		sqlite.exec(schemaDdl(table));
-	const db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
+	const db = createDbClient(
+		createD1Facade(sqlite, { maxBoundParams: 100, onPrepare }),
+	);
 	const fact = async (
 		id: string,
 		content: string,
@@ -510,5 +512,46 @@ describe("evidence-backed observations and standing summaries", () => {
 		await invalidateFact(db, "c");
 		expect(readConsolidation(await observation())?.state).toBe("live");
 		expect((await summary()).content).not.toContain("never builds");
+	});
+	it("uses primary-key evidence reads even with a large active corpus", async () => {
+		const plans: string[][] = [];
+		const { sqlite, db, fact, observation, summary } = setup(
+			(query, sqlite) => {
+				if (
+					!query.toLowerCase().startsWith("select") ||
+					!query.includes("INDEXED BY sqlite_autoindex_memory_facts_1")
+				)
+					return;
+				const rows = sqlite
+					.prepare(`EXPLAIN QUERY PLAN ${query}`)
+					.all(
+						...Array((query.match(/\?/g) ?? []).length).fill(null),
+					) as Array<{ detail: string }>;
+				plans.push(rows.map((row) => row.detail));
+			},
+		);
+		const insert = sqlite.prepare(
+			"INSERT INTO memory_facts (id,organization_id,content,fact_type,status,visibility,metadata) VALUES (?,?,'Unrelated active evidence','technical','active','org','{}')",
+		);
+		for (let i = 0; i < 2000; i++) insert.run(`unrelated-${i}`, ORG);
+		await fact("a", "Orchard uses batches.");
+		await fact("b", "Orchard tests batches.");
+		await consolidateMemory(db, ORG, { topicKey: TOPIC });
+		plans.length = 0;
+		expect(
+			await filterConsolidatedEvidence(db, ORG, [
+				await observation(),
+				await summary(),
+			]),
+		).toHaveLength(1);
+		expect(plans.length).toBeGreaterThanOrEqual(3);
+		for (const plan of plans)
+			expect(
+				plan.some((detail) =>
+					/SEARCH (?:memory_facts|f) USING INDEX sqlite_autoindex_memory_facts_1/.test(
+						detail,
+					),
+				),
+			).toBe(true);
 	});
 });
