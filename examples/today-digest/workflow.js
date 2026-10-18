@@ -136,7 +136,7 @@ export function projectRow(project, events, attempts, totals, now, config) {
 			progress ? progress + "." : "No finished work recorded today.",
 			running,
 			String(needs),
-			`/projects/${project.id}`,
+			`/work/projects/${project.id}`,
 			base,
 			`/work?view=deck&project=${project.id}`,
 		],

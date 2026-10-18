@@ -28,6 +28,10 @@ It finds the configured document through `list_work_apps`, then reads it with
 skill has no schedule and never writes. No live installation identifiers belong
 in these files.
 
+Home includes the saved edition in questions about today, progress, purpose or
+goals. It follows the installed Feed binding for the configured person and reads
+only organization-visible documents without derived resource restrictions.
+
 Refresh runs the configured skill with `manual: true` and the same document,
 person and time zone. It requests a run; the post changes only after the saved
 revision advances. Pages never assemble project summaries on load.

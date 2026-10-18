@@ -45,7 +45,7 @@ it("renders the stored purpose and project links and requests a refresh with the
 									"1 task finished.",
 									"Nothing running now.",
 									"2",
-									"/projects/example",
+									"/work/projects/example",
 									"/work?view=feed",
 									"/work?view=deck",
 								],

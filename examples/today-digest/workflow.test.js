@@ -1,4 +1,8 @@
 import { describe, expect, test, setSystemTime, afterEach } from "bun:test";
+import {
+	parseCapabilityManifest,
+	isMethodAllowed,
+} from "../../packages/api-contract/src/utils/skill-manifest.ts";
 import workflow, {
 	localClock,
 	localDayBounds,
@@ -63,6 +67,7 @@ describe("Today editions", () => {
 		);
 		expect(row.row[1]).toBe("Make the website useful.");
 		expect(row.row[2]).toBe("1 task finished, 1 commit recorded.");
+		expect(row.row[5]).toBe("/work/projects/project");
 		expect(row.row[6]).toContain("project=project&day=2026-10-18");
 		expect(row.row[2]).not.toContain("shipped");
 	});
@@ -169,10 +174,20 @@ describe("Today editions", () => {
 				return {};
 			},
 		};
+		const manifest = parseCapabilityManifest(
+			await Bun.file(new URL("./SKILL.md", import.meta.url)).text(),
+		);
+		const permitted = new Proxy(api, {
+			get(target, method) {
+				if (!isMethodAllowed(manifest, "tedix", String(method)))
+					throw new Error(`Undeclared tool: ${String(method)}`);
+				return target[method];
+			},
+		});
 		const result = await workflow.run(
 			{ payload: config },
 			{ do: async (_name, fn) => fn() },
-			{ MCP: { tedix: api } },
+			{ MCP: { tedix: permitted } },
 		);
 		expect(pages).toBe(2);
 		expect(result.projects).toBe(2);

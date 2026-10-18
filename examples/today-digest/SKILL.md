@@ -13,6 +13,7 @@ capabilities:
       [
         get_active_purpose_charter,
         list_projects,
+        list_tedis,
         list_activity,
         list_attempt_projection,
         get_today_project_totals,

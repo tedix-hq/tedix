@@ -19,7 +19,7 @@ it("reads one saved edition and its receipts while rejecting external links", ()
 						"1 task finished.",
 						"Nothing running now.",
 						"2",
-						"/projects/example",
+						"/work/projects/example",
 						"/work?view=feed",
 						"/work?view=deck",
 					],
