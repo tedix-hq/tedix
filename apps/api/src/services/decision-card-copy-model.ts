@@ -1,6 +1,6 @@
 import type { BaseContext } from "../rpc/orpc";
 
-/** Separate draft and rewrite calls retain the kernel's region, billing and usage checks. */
+/** One bounded rewrite retains the kernel's region, billing and usage checks. */
 export async function runDecisionCardCopyModel(
 	context: Pick<BaseContext, "env">,
 	prompt: string,
@@ -32,32 +32,19 @@ export async function runDecisionCardCopyModel(
 			options.onFailure?.("model_binding_unavailable");
 			return null;
 		}
-		const remaining = () => {
-			const ms = deadline - Date.now();
-			if (ms <= 0) throw new Error("Card copy budget exhausted");
-			return AbortSignal.timeout(ms);
-		};
-		const settings = {
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) throw new Error("Card copy budget exhausted");
+		const rewritten = await tracedAi.generateText({
 			maxOutputTokens: options.maxTokens,
 			maxRetries: 0,
 			system: options.system,
 			runtimeContext: { orgId: options.orgId, source: "decision_card_copy" },
-		};
-		const draft = await tracedAi.generateText({
-			...settings,
 			model: selected.model,
-			prompt,
-			abortSignal: remaining(),
-		});
-		const rewritten = await tracedAi.generateText({
-			...settings,
-			model: selected.forOperation().model,
 			prompt: JSON.stringify({
 				source: prompt,
-				draft: draft.text,
 				instruction: options.rewriteInstruction,
 			}),
-			abortSignal: remaining(),
+			abortSignal: AbortSignal.timeout(remaining),
 		});
 		return rewritten.text || null;
 	} catch {
