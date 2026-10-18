@@ -27,6 +27,7 @@ import {
 	MemoryUsePolicySchema,
 	PrioritySchema,
 	RelationTypeSchema,
+	RecallProvenanceSchema,
 	SearchResultSchema,
 	VisibilitySchema,
 } from "../schemas/memory-graph";
@@ -399,6 +400,7 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 				results: z.array(SearchResultSchema),
 				totalFacts: z.number(),
 				query: z.string(),
+				retrievalMs: z.number().optional(),
 			}),
 		),
 
@@ -568,6 +570,7 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 						factId: z.string(),
 						domain: z.string(),
 						confidence: z.number(),
+						provenance: RecallProvenanceSchema.optional(),
 					}),
 				),
 			}),

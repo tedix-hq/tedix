@@ -11,10 +11,21 @@ export async function runMemoryReflection(
 	console.log(`[Scheduled] Starting MemoryReflectionWorkflow (${runId})`);
 	const { createDbClient } = await import("@tedix/db/client");
 	const { listOrganizations } = await import("@tedix/db/queries/organizations");
+	const { backfillFactSearch } =
+		await import("@tedix/db/queries/memory-graph/hybrid-recall");
 	const db = createDbClient(env.DB);
 
 	const orgs = await listOrganizations(db);
+	let searchRowsBackfilled = 0;
 	for (const org of orgs) {
+		try {
+			searchRowsBackfilled += await backfillFactSearch(db, org.id);
+		} catch (error) {
+			console.warn("[Scheduled] Memory search backfill unavailable", {
+				orgId: org.id,
+				error: error instanceof Error ? error.name : "unknown",
+			});
+		}
 		const instance = await env.MEMORY_REFLECTION_WORKFLOW.create({
 			id: `reflection-${org.id}-${runId}`,
 			params: {
@@ -28,6 +39,7 @@ export async function runMemoryReflection(
 	}
 
 	return {
+		searchRowsBackfilled,
 		organizationsDispatched: orgs.length,
 		workflowsDispatched: orgs.length,
 	};

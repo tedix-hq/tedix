@@ -193,9 +193,24 @@ export const DomainSchema = z.object({
 });
 export type Domain = z.infer<typeof DomainSchema>;
 
+export const RecallProvenanceSchema = z.object({
+	arms: z.array(
+		z.object({
+			arm: z.enum(["lexical", "semantic", "graph", "temporal"]),
+			rank: z.number(),
+			score: z.number(),
+		}),
+	),
+	fusionScore: z.number(),
+	rerankScore: z.number().optional(),
+	fallback: z.boolean().optional(),
+	replacesFactIds: z.array(z.string()).optional(),
+});
+
 export const SearchResultSchema = z.object({
 	factId: z.string(),
 	score: z.number(),
+	provenance: RecallProvenanceSchema.optional(),
 	fact: FactSchema.optional(),
 	relatedFacts: z.array(FactSchema).optional(),
 });

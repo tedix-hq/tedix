@@ -16,7 +16,19 @@ export function isMemorySearchFactEligible(
 	options: MemorySearchFactEligibility,
 ): boolean {
 	if (fact.organizationId !== options.orgId) return false;
-	if (fact.archivedAt || fact.validTo) return false;
+	if (fact.archivedAt) return false;
+	if (
+		fact.validTo &&
+		(!Number.isFinite(Date.parse(fact.validTo)) ||
+			Date.parse(fact.validTo) <= Date.now())
+	)
+		return false;
+	if (
+		fact.validFrom &&
+		(!Number.isFinite(Date.parse(fact.validFrom)) ||
+			Date.parse(fact.validFrom) > Date.now())
+	)
+		return false;
 	const expiresAt = fact.metadata?.expiresAt;
 	if (
 		typeof expiresAt === "string" &&

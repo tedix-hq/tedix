@@ -1,10 +1,16 @@
-/** Canonical D1/graph context assembly. Semantic recall runs in Agent Memory. */
+/** Canonical memory context assembled from bounded hybrid recall. */
 import type { DbClient } from "@tedix/db/client";
 import { getDomainByName } from "@tedix/db/queries/memory-graph/domains";
-import { searchFactsWithVisibility } from "@tedix/db/queries/memory-graph/fact-search";
 import { recordFactAccess } from "@tedix/db/queries/memory-graph/facts";
 import type { MemoryFact } from "@tedix/db/schema/memory-graph";
 import type { GraphClient } from "../integrations/graph-db/neo4j";
+import {
+	boundRecall,
+	HYBRID_RECALL_BUDGET_MS,
+	recallMemoryFacts,
+	type RecallEnvironment,
+	type RecallProvenance,
+} from "./memory-hybrid-recall";
 export interface AssembleParams {
 	query: string;
 	orgId: string;
@@ -12,11 +18,17 @@ export interface AssembleParams {
 	domains?: string[];
 	factTypes?: string[];
 	maxTokens?: number;
+	env?: RecallEnvironment;
 }
 export interface AssembleResult {
 	context: string;
 	factCount: number;
-	sources: Array<{ factId: string; domain: string; confidence: number }>;
+	sources: Array<{
+		factId: string;
+		domain: string;
+		confidence: number;
+		provenance: RecallProvenance;
+	}>;
 }
 const influenceCache = new Map<
 	string,
@@ -25,29 +37,6 @@ const influenceCache = new Map<
 export function invalidateInfluenceCache(orgId?: string): void {
 	if (orgId) influenceCache.delete(orgId);
 	else influenceCache.clear();
-}
-function terms(query: string): string[] {
-	return [
-		...new Set(
-			query
-				.toLocaleLowerCase()
-				.normalize("NFKC")
-				.split(/[^\p{L}\p{N}_-]+/u)
-				.filter((term) => term.length >= 2),
-		),
-	].slice(0, 24);
-}
-function score(fact: MemoryFact, queryTerms: string[]): number {
-	const text = `${fact.summary ?? ""}\n${fact.content}`.toLocaleLowerCase();
-	const matches = queryTerms.reduce(
-		(n, term) => n + (text.includes(term) ? 1 : 0),
-		0,
-	);
-	return (
-		(queryTerms.length ? matches / queryTerms.length : 0) * 0.65 +
-		fact.confidence * 0.35 +
-		(fact.priority === "core" ? 0.2 : 0)
-	);
 }
 async function influences(
 	graph: GraphClient,
@@ -70,42 +59,50 @@ export async function assembleContext(
 	params: AssembleParams,
 	graphClient?: GraphClient,
 ): Promise<AssembleResult> {
-	const domainIds = new Set<string>();
-	for (const name of params.domains ?? []) {
-		const domain = await getDomainByName(db, params.orgId, name);
-		if (domain) domainIds.add(domain.id);
-	}
-	const requestedTypes = new Set(params.factTypes ?? []);
-	const queryTerms = terms(params.query);
-	const candidates = await searchFactsWithVisibility(db, {
+	const end = performance.now() + HYBRID_RECALL_BUDGET_MS;
+	const domains = await boundRecall(
+		() =>
+			Promise.all(
+				(params.domains ?? []).map((name) =>
+					getDomainByName(db, params.orgId, name),
+				),
+			),
+		100,
+		[],
+	);
+	const domainIds = new Set(
+		domains.flatMap((domain) => (domain ? [domain.id] : [])),
+	);
+	if (params.domains?.length && domainIds.size === 0)
+		return { context: "", factCount: 0, sources: [] };
+	const ranked = await recallMemoryFacts(db, {
 		orgId: params.orgId,
-		visibilityTediId: params.tediId,
+		tediId: params.tediId,
+		query: params.query,
+		domainIds: [...domainIds],
+		factTypes: params.factTypes,
+		env: params.env,
 		minConfidence: 0.3,
-		limit: 100,
+		topK: 25,
+		budgetMs: end - performance.now(),
 	});
-	const ranked = candidates
-		.filter(
-			(fact) =>
-				domainIds.size === 0 ||
-				Boolean(fact.domainId && domainIds.has(fact.domainId)),
-		)
-		.filter(
-			(fact) => requestedTypes.size === 0 || requestedTypes.has(fact.factType),
-		)
-		.map((fact) => ({ fact, score: score(fact, queryTerms) }));
-	if (graphClient)
-		try {
-			const map = await influences(graphClient, params.orgId);
-			for (const item of ranked) {
-				const rank = map.get(item.fact.id);
-				if (rank !== undefined)
-					item.score *= rank > 0.1 ? 1.2 : rank > 0.05 ? 1.1 : 1;
-			}
-		} catch {
-			/* optional projection */
+	if (graphClient && ranked.some((item) => item.provenance.fallback)) {
+		const map = await boundRecall(
+			() => influences(graphClient, params.orgId),
+			Math.min(50, end - performance.now()),
+			new Map<string, number>(),
+		);
+		for (const item of ranked) {
+			const rank = map.get(item.fact.id);
+			if (rank !== undefined)
+				item.score *= rank > 0.1 ? 1.2 : rank > 0.05 ? 1.1 : 1;
 		}
-	ranked.sort((a, b) => b.score - a.score);
+		ranked.sort((a, b) => b.score - a.score);
+	}
 	const selected = ranked.slice(0, 25);
+	const provenanceById = new Map(
+		selected.map((item) => [item.factId, item.provenance]),
+	);
 	const grouped = new Map<string, MemoryFact[]>();
 	for (const { fact } of selected) {
 		const title = section(fact, params.tediId);
@@ -131,6 +128,7 @@ export async function assembleContext(
 				factId: fact.id,
 				domain: fact.domainId ?? "unknown",
 				confidence: fact.confidence,
+				provenance: provenanceById.get(fact.id)!,
 			});
 			void recordFactAccess(db, fact.id).catch(() => undefined);
 		}
