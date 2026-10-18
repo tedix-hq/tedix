@@ -16,11 +16,7 @@ visibility: public
 
 > Self-hosting is experimental; see [Release status](./release-status.md).
 
-`@tedix/installation-manifest` defines the versioned handoff from installation
-planning to provisioning. It describes organization profile, Cloudflare account
-and domain topology, Workers, routes, bindings, resources, provider
-prerequisites, capabilities, lifecycle requirements, and sanitized bootstrap
-inputs.
+`@tedix/installation-manifest` helps you check an installation plan before creating Cloudflare resources. Start by listing the organization, its Cloudflare account and domains, the services it needs, and its setup requirements. The manifest also records lifecycle needs and safe setup inputs.
 
 The manifest contains secret names only. Credentials remain in the operator's
 secret provider and are injected after preflight. Runtime entitlements are
