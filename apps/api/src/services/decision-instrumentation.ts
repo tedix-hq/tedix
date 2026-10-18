@@ -14,6 +14,7 @@ import {
 	pruneDecisionInstrumentation,
 	getDecisionDeferralTime,
 } from "@tedix/db/queries/decision-learning";
+import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type {
@@ -87,8 +88,13 @@ export async function recordDecisionExposure(
 	const envelope = DecisionEnvelopeSchema.safeParse(
 		request?.metadata.decisionDeck,
 	).data;
+	const [displayCopy] = await listDecisionCardPresentations(db, {
+		orgId: p.organizationId,
+		personId: p.actorId,
+		requests: request ? [request] : [],
+	});
 	const presentation = DecisionCardPresentationSchema.safeParse(
-		request?.metadata.cardPresentation,
+		displayCopy?.presentation ?? request?.metadata.cardPresentation,
 	).data;
 	const linkedWork = sources.items.find((w) => w.id === proposal?.workItemId);
 	const snapshot: DecisionSnapshot = {
