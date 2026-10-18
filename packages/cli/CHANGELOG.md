@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.11.2 — 2026-10-18
+
+### Patch Changes
+
+- Lessons distinguish numbered project names and short alphanumeric terms, so prompts receive the matching lesson.
+
 ## 0.11.1 — 2026-10-18
 
 ### Patch Changes
