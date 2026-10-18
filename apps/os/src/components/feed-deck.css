@@ -769,3 +769,14 @@
 		gap: 0.25rem;
 	}
 }
+
+/* Interaction cards include a status wrapper above the shared card. */
+.fd-deck-current .fd-decision-stack > :has(> .fd-decision) {
+	display: flex;
+	height: 100%;
+	min-height: 0;
+	flex-direction: column;
+}
+.fd-deck-current .fd-decision-stack > :has(> .fd-decision) > .fd-decision {
+	flex: 1 1 0;
+}

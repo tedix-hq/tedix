@@ -91,6 +91,9 @@ try {
 								document.querySelector("[data-slot=card-title]")!,
 							).fontSize,
 						),
+						bodyHeight: card
+							.querySelector('[data-slot="card-content"]')!
+							.getBoundingClientRect().height,
 						scroll: document.documentElement.scrollHeight,
 						pageScroll:
 							document.querySelector('[data-slot="page"]')!.scrollHeight,
@@ -105,6 +108,10 @@ try {
 					};
 				});
 				assert(result.actions.length === 3);
+				assert(
+					result.bodyHeight >= 80,
+					`Proposal body collapsed: ${JSON.stringify(result)}`,
+				);
 				for (const rect of result.actions)
 					assert(
 						rect.top >= 0 &&
