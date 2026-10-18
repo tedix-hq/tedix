@@ -120,3 +120,6 @@ without rewriting completed project blocks.
 Unsupported optional action proposals are rejected and recorded without
 discarding valid project enrichment. They never create Work. Invalid signal
 citations still block enrichment.
+
+Full passes report tasks with no available named board project. Their pages
+stay unchanged until their project identity is resolved.

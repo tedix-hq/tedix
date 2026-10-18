@@ -689,6 +689,26 @@ describe("planning board synchronization", () => {
 		expect(h.calls.notionCreates).toBe(0);
 		expect(h.calls.creates).toBe(0);
 	});
+	it("reports tasks without an available project and preserves their pages", async () => {
+		for (const parent of [
+			[],
+			["https://www.notion.so/99999999999949998999999999999999"],
+		]) {
+			const h = harness();
+			const orphanId = "88888888888848888888888888888888";
+			const url = `https://www.notion.so/${orphanId}`;
+			h.tasks.push({ ...h.tasks[0], url, Project: JSON.stringify(parent) });
+			h.pages.set(orphanId, "Unassigned human notes");
+			const result = await h.run();
+			expect(result.status).toBe("partial");
+			expect(result.decisions).toBe(1);
+			expect(h.pages.get(orphanId)).toBe("Unassigned human notes");
+			expect(h.links.some((link) => link.externalId === orphanId)).toBe(false);
+			expect(
+				h.outputs.get("report")!.currentRevision.content.blocks[0].text,
+			).toContain(url);
+		}
+	});
 	it("confirms enrichment when Notion auto-links a domain in its purpose", async () => {
 		const h = harness();
 		const reason = h.env.REASON.ask;
