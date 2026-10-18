@@ -42,7 +42,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { Input } from "@/components/kumo/input";
 import { Textarea } from "@/components/kumo/textarea";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
@@ -384,6 +383,16 @@ export function WorkDecisionCard({
 								· {relativeTime(at)}
 							</time>
 						) : null}
+						{rail && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="fd-card-details"
+								onClick={() => rail.openSection("details")}
+							>
+								{OS_COPY.feed.details}
+							</Button>
+						)}
 					</CardDescription>
 					<CardTitle className="text-xl leading-snug">
 						<DecisionProposalHeading title={heading} />
@@ -407,7 +416,10 @@ export function WorkDecisionCard({
 							(content ?? (body ? <DecisionProposalBody body={body} /> : null))
 						)}
 						{identifiers.length > 0 && (
-							<DecisionContextSection title="Identifiers and source">
+							<DecisionContextSection
+								sectionId="source"
+								title="Identifiers and source"
+							>
 								<div className="fd-identifiers">
 									{identifiers.map((id) => (
 										<code key={id} className="fd-identifier" title={id}>
@@ -436,7 +448,9 @@ export function WorkDecisionCard({
 										))}
 									</div>
 								) : null}
-								<Input
+								<Textarea
+									className="fd-answer"
+									rows={3}
 									aria-label={decisionText("Your answer")}
 									placeholder={decisionText("Your answer…")}
 									value={answer}
@@ -445,6 +459,7 @@ export function WorkDecisionCard({
 									onKeyDown={(event) => {
 										if (
 											event.key === "Enter" &&
+											(event.metaKey || event.ctrlKey) &&
 											!event.nativeEvent.isComposing &&
 											approve
 										) {

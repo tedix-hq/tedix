@@ -1,5 +1,7 @@
 import {
 	DecisionContextRail,
+	DecisionContextToolbar,
+	DecisionFilterChip,
 	DecisionContextSection,
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
@@ -41,7 +43,6 @@ import { ApprovalDecisionCard } from "@/components/work-decision-stack";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
-import { Switch } from "@/components/kumo/switch";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
@@ -138,17 +139,6 @@ function DecisionDeckContent({
 		enabled: mode === "history",
 	});
 	const profile = useQuery(userProfileQueryOptions());
-	const goalKey = profile.data?.id
-		? `tedix:decision-goal:${profile.data.id}`
-		: null;
-	const [showGoal, setShowGoal] = useState(false);
-	useEffect(() => {
-		try {
-			setShowGoal(goalKey ? localStorage.getItem(goalKey) === "on" : false);
-		} catch {
-			setShowGoal(false);
-		}
-	}, [goalKey]);
 	const projects = useQuery(projectListQueryOptions(100));
 	const projectNames = new Map(
 		(projects.data?.data ?? []).map((row) => [row.id, row.name]),
@@ -596,100 +586,121 @@ function DecisionDeckContent({
 				data-workspace-app-entry="decision-deck"
 			>
 				<DecisionLearningFeedback eventId={sessionLearningId} />
-				{selected && (
-					<div className="fd-position" role="status">
-						<Text tone="secondary">
-							{OS_COPY.decisionDeck.position(
-								(index % filtered.length) + 1,
-								filtered.length,
-							)}
-						</Text>
-					</div>
-				)}
+				<DecisionContextToolbar
+					filters={
+						<div className="fd-deck-filters">
+							<div className="flex flex-wrap gap-2">
+								<DecisionFilterChip
+									label={kind === "all" ? "Kind" : KIND_LABELS[kind]}
+								>
+									<SegmentedControl
+										ariaLabel={decisionText("Decision kind")}
+										value={kind}
+										onValueChange={(value) => {
+											setKind(value);
+											setIndex(0);
+										}}
+										options={["all", ...DecisionKindSchema.options].map(
+											(value) => ({ value, label: KIND_LABELS[value] }),
+										)}
+									/>
+									<div
+										className="fd-deck-toolbar"
+										aria-label={decisionText("Deck view")}
+									>
+										{[
+											"decide",
+											"history",
+											...(config.examples.length ? ["practice"] : []),
+										].map((value) => (
+											<Button
+												key={value}
+												aria-pressed={mode === value}
+												variant="ghost"
+												onClick={() => {
+													setMode(value);
+													setIndex(0);
+												}}
+											>
+												{value === "decide"
+													? decisionText("For you")
+													: value === "history"
+														? decisionText("What you decided")
+														: decisionText("Try examples")}
+											</Button>
+										))}
+									</div>
+								</DecisionFilterChip>
+								<DecisionFilterChip
+									label={project === "all" ? "Project" : projectLabel(project)}
+								>
+									<SegmentedControl
+										ariaLabel={decisionText("Decision project")}
+										value={project}
+										onValueChange={(value) => {
+											setProject(value);
+											setIndex(0);
+										}}
+										options={[
+											"all",
+											...new Set(rows.map((row) => row.project)),
+										].map((value) => ({
+											value,
+											label:
+												value === "all"
+													? decisionText("All projects")
+													: projectLabel(value),
+										}))}
+									/>
+								</DecisionFilterChip>
+								<DecisionFilterChip
+									label={
+										urgency === "all"
+											? "Urgency"
+											: urgency === "now"
+												? "Needs you now"
+												: "Can wait"
+									}
+								>
+									<SegmentedControl
+										ariaLabel={decisionText("Decision urgency")}
+										value={urgency}
+										onValueChange={(value) => {
+											setUrgency(value);
+											setIndex(0);
+										}}
+										options={[
+											{ value: "all", label: decisionText("Any urgency") },
+											{ value: "now", label: decisionText("Needs you now") },
+											{ value: "later", label: decisionText("Can wait") },
+										]}
+									/>
+								</DecisionFilterChip>
 
-				<DecisionContextSection sectionId="filters" title="Filters">
-					<div className="fd-deck-filters">
-						<div
-							className="fd-deck-toolbar"
-							aria-label={decisionText("Deck view")}
-						>
-							{[
-								"decide",
-								"history",
-								...(config.examples.length ? ["practice"] : []),
-							].map((value) => (
-								<Button
-									key={value}
-									aria-pressed={mode === value}
-									variant="ghost"
-									onClick={() => {
-										setMode(value);
+								<Input
+									aria-label={decisionText("Find decisions")}
+									placeholder={decisionText("Find a decision")}
+									value={search}
+									onChange={(event) => {
+										setSearch(event.target.value);
 										setIndex(0);
 									}}
-								>
-									{value === "decide"
-										? decisionText("For you")
-										: value === "history"
-											? decisionText("What you decided")
-											: decisionText("Try examples")}
-								</Button>
-							))}
+								/>
+							</div>
 						</div>
-						<div className="flex flex-wrap gap-2">
-							<SegmentedControl
-								ariaLabel={decisionText("Decision kind")}
-								value={kind}
-								onValueChange={(value) => {
-									setKind(value);
-									setIndex(0);
-								}}
-								options={["all", ...DecisionKindSchema.options].map(
-									(value) => ({ value, label: KIND_LABELS[value] }),
+					}
+				>
+					{selected && (
+						<div className="fd-position" role="status">
+							<Text tone="secondary">
+								{OS_COPY.decisionDeck.position(
+									(index % filtered.length) + 1,
+									filtered.length,
 								)}
-							/>
-							<SegmentedControl
-								ariaLabel={decisionText("Decision project")}
-								value={project}
-								onValueChange={(value) => {
-									setProject(value);
-									setIndex(0);
-								}}
-								options={[
-									"all",
-									...new Set(rows.map((row) => row.project)),
-								].map((value) => ({
-									value,
-									label:
-										value === "all"
-											? decisionText("All projects")
-											: projectLabel(value),
-								}))}
-							/>
-							<SegmentedControl
-								ariaLabel={decisionText("Decision urgency")}
-								value={urgency}
-								onValueChange={(value) => {
-									setUrgency(value);
-									setIndex(0);
-								}}
-								options={[
-									{ value: "all", label: decisionText("Any urgency") },
-									{ value: "now", label: decisionText("Needs you now") },
-									{ value: "later", label: decisionText("Can wait") },
-								]}
-							/>
-							<Input
-								aria-label={decisionText("Find decisions")}
-								placeholder={decisionText("Find a decision")}
-								value={search}
-								onChange={(event) => {
-									setSearch(event.target.value);
-									setIndex(0);
-								}}
-							/>
+							</Text>
 						</div>
-					</div>
-				</DecisionContextSection>
+					)}
+				</DecisionContextToolbar>
 				{practiceMode && (
 					<Text role="label">
 						Practice only. Choices below stay in this preview and never approve
@@ -957,6 +968,10 @@ function DecisionDeckContent({
 						</div>
 					) : (
 						<DeckClosure
+							onHistory={() => {
+								setMode("history");
+								setIndex(0);
+							}}
 							title={OS_COPY.feedDeckVisual.clear}
 							summary={
 								practiceMode
@@ -981,55 +996,21 @@ function DecisionDeckContent({
 						/>
 					))
 				)}
-				<DecisionContextSection sectionId="history" title="History">
+				<DecisionContextSection
+					sectionId="style"
+					title="Learning your preferences"
+				>
+					{mode === "decide" && classId && (
+						<DecisionClassCalibration
+							classId={instrumentationClassId ?? classId}
+						/>
+					)}
 					<p>
-						{metrics.decisionsToday} decided today ·{" "}
-						<Button
-							variant="ghost"
-							onClick={() => {
-								setMode("history");
-								setIndex(0);
-							}}
-						>
-							See all
-						</Button>
+						{learning?.ready
+							? "Your recent choices favour this kind of recommendation."
+							: "Your choices help shape future recommendations."}
 					</p>
 				</DecisionContextSection>
-				{((mode === "decide" && classId) || receipts.length >= 5) && (
-					<DecisionContextSection sectionId="style" title="Your style">
-						{mode === "decide" && classId && (
-							<DecisionClassCalibration
-								classId={instrumentationClassId ?? classId}
-							/>
-						)}
-						<p>
-							{learning?.ready
-								? "Your recent choices favour this kind of recommendation."
-								: "Your recent choices help shape future recommendations."}
-						</p>
-						{config.gamification && (
-							<Switch
-								label="Show daily goal"
-								checked={showGoal}
-								onCheckedChange={(checked) => {
-									setShowGoal(checked);
-									if (goalKey)
-										try {
-											localStorage.setItem(goalKey, checked ? "on" : "off");
-										} catch {
-											/* Browser storage may be disabled. */
-										}
-								}}
-							/>
-						)}
-						{config.gamification && showGoal && (
-							<p>
-								{metrics.decisionsToday} decisions today · daily goal{" "}
-								{config.dailyGoal}
-							</p>
-						)}
-					</DecisionContextSection>
-				)}
 			</div>
 		</DecisionAttentionContext.Provider>,
 	);

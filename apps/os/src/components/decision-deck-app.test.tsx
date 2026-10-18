@@ -149,12 +149,19 @@ async function mount() {
 	);
 }
 async function click(text: string) {
-	const button = [...host.querySelectorAll("button")].find(
+	if (["Try examples", "What you decided"].includes(text)) {
+		const chip = [...host.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Kind",
+		);
+		await act(async () => chip!.click());
+	}
+	const button = [...document.querySelectorAll("button")].find(
 		(button) => button.textContent?.trim() === text,
 	);
 	expect(button).toBeDefined();
 	await act(async () => button!.click());
 }
+
 async function key(key: string) {
 	await act(async () =>
 		host
@@ -175,15 +182,6 @@ it("browses all six practice kinds, explains the choice and never submits a real
 			.querySelector<HTMLButtonElement>('[aria-label="Decision context"]')!
 			.click(),
 	);
-	expect(
-		host.querySelector('[aria-label="Decision kind"]')?.textContent,
-	).toContain("All kinds");
-	expect(
-		host.querySelector('[aria-label="Decision project"]')?.textContent,
-	).toContain("All projects");
-	expect(
-		host.querySelector('[aria-label="Decision urgency"]')?.textContent,
-	).toContain("Any urgency");
 	for (const example of DECISION_DECK_EXAMPLES) {
 		expect(host.textContent).toContain(example.proposal);
 		expect(host.textContent).not.toContain("unchanged approvals");
@@ -195,7 +193,7 @@ it("browses all six practice kinds, explains the choice and never submits a real
 		await key("j");
 	}
 	expect(host.textContent).toContain("All clear");
-	expect(host.textContent).toContain("0 decided today");
+	expect(host.textContent).not.toContain("0 decided today");
 	expect(host.querySelector(".fd-decision")).toBeNull();
 	expect(host.querySelector(".fd-closure")).not.toBeNull();
 	expect(respond).not.toHaveBeenCalled();

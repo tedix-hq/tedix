@@ -95,7 +95,7 @@ it("shows the authorized inbox proposal before details, without caching invented
 	await act(async () => render());
 	expect(host.textContent).toContain(preview.request.subject);
 	expect(host.textContent).toContain(preview.request.prompt);
-	expect(host.querySelector("input")).toBeNull();
+	expect(host.querySelector("textarea")).toBeNull();
 	expect(host.querySelectorAll("[data-decision-actions] button")).toHaveLength(
 		0,
 	);
@@ -123,8 +123,8 @@ it("shows the authorized inbox proposal before details, without caching invented
 		});
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
-	expect(host.querySelector("input")?.disabled).toBe(false);
-	expect(host.querySelector("input")?.value).toBe("Tuesday works for us.");
+	expect(host.querySelector("textarea")?.disabled).toBe(false);
+	expect(host.querySelector("textarea")?.value).toBe("Tuesday works for us.");
 	expect(attention).toHaveBeenCalledTimes(1);
 	await act(async () => render("44444444-4444-4444-8444-444444444444"));
 	expect(host.textContent).not.toContain(preview.request.prompt);
@@ -162,8 +162,8 @@ it("renders usable actions and the draft from the same authorized inbox payload 
 			</QueryClientProvider>,
 		),
 	);
-	expect(host.querySelector("input")?.value).toBe("Tuesday works for us.");
-	expect(host.querySelector("input")?.disabled).toBe(false);
+	expect(host.querySelector("textarea")?.value).toBe("Tuesday works for us.");
+	expect(host.querySelector("textarea")?.disabled).toBe(false);
 	expect(
 		host.querySelectorAll("[data-decision-actions] button").length,
 	).toBeGreaterThan(0);

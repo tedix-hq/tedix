@@ -1,3 +1,4 @@
+import { openExamples } from "./deck-controls";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { chromium, type Browser } from "playwright";
@@ -48,17 +49,7 @@ try {
 		const page = await browser.newPage({ viewport });
 		try {
 			await page.goto(`${origin}/browser-tests/deck.html`);
-			await page
-				.getByRole("button", { name: "Decision context", exact: true })
-				.click();
-			await page
-				.getByRole("button", { name: "Try examples", exact: true })
-				.click();
-			if (viewport.width < 640)
-				await page
-					.getByRole("button", { name: "Close decision context", exact: true })
-					.click();
-			else await page.keyboard.press("Escape");
+			await openExamples(page);
 			const card = page.getByRole("region", {
 				name: "Send Morgan the revised delivery date?",
 			});

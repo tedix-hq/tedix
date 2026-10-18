@@ -776,7 +776,7 @@
 	align-content: start;
 	grid-auto-rows: min-content;
 	overflow: hidden;
-	padding: 3rem 0 1rem;
+	padding: 0 0 1rem;
 	--fd-space: 2rem;
 }
 .fd-deck:has(.fd-deck-current) {
@@ -815,7 +815,7 @@
 	flex: 1 1 0;
 }
 .fd-deck-current {
-	justify-content: center;
+	justify-content: flex-start;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
@@ -973,9 +973,8 @@
 	min-width: 0;
 }
 .fd-context-toggle {
-	position: absolute;
-	top: 0;
-	right: 0;
+	flex: none;
+	margin-left: auto;
 }
 .fd-context-rail {
 	min-width: 0;
@@ -1011,12 +1010,7 @@
 	border-radius: 1rem 1rem 0 0;
 }
 .fd-context-main .fd-deck {
-	padding-top: 3rem;
-}
-@media (max-width: 639px) {
-	.fd-context-layout {
-		padding-top: 2rem;
-	}
+	padding-top: 0;
 }
 
 .feed-deck :is(button, a, input, textarea, select, .fd-decision):focus-visible {
@@ -1156,8 +1150,8 @@ button:is(:hover, :focus-visible) .fd-action-key {
 	color: var(--fd-muted);
 }
 .fd-position {
-	position: absolute;
-	top: 1rem;
+	flex: none;
+	white-space: nowrap;
 }
 .fd-decision:focus:not(:focus-visible) {
 	outline: none;
@@ -1201,4 +1195,162 @@ button:is(:hover, :focus-visible) .fd-action-key {
 .fd-context-section[data-context-section="seen"] > h3,
 .fd-context-section[data-context-section="seen"] button + button {
 	display: none;
+}
+
+.fd-work-bar {
+	display: flex;
+	order: -1;
+	align-items: center;
+	gap: 1.5rem;
+	min-height: 3rem;
+	padding-inline: 1.5rem;
+	border-bottom: 1px solid var(--color-kumo-line);
+}
+.fd-work-navigation {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 0.25rem;
+	position: static;
+}
+.fd-work-navigation a {
+	min-height: 2rem;
+	padding: 0.25rem 0.75rem;
+	border: 0;
+	border-radius: var(--radius);
+	font-size: 0.8125rem;
+}
+.fd-work-navigation a[aria-current="page"] {
+	background: var(--color-kumo-tint);
+}
+.fd-work-toolbar-slot {
+	min-width: 0;
+	flex: 1;
+}
+.fd-app-toolbar {
+	padding: 0;
+	border-radius: 0;
+	background: none;
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	min-height: 3rem;
+	width: 100%;
+}
+.fd-toolbar-filters {
+	min-width: 0;
+	flex: 1;
+}
+.fd-toolbar-filters .fd-deck-filters > div {
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 0.25rem;
+}
+.fd-toolbar-filters input {
+	min-width: 6rem;
+	max-width: 16rem;
+}
+.fd-filter-chip {
+	max-width: 12rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--fd-muted);
+}
+.fd-filter-options {
+	max-width: min(32rem, calc(100vw - 2rem));
+	gap: 1rem;
+}
+.fd-filter-options [data-kumo-component="SegmentedControl"] {
+	flex-wrap: wrap;
+	background: transparent;
+	box-shadow: none;
+}
+.fd-deck .fd-app-toolbar {
+	flex: none;
+}
+.fd-work-home[data-slot="page"] {
+	padding-top: 1rem;
+}
+.fd-card-details {
+	margin-left: auto;
+	flex: none;
+	color: var(--fd-muted);
+}
+.feed-deck .fd-decision [data-slot="card-description"] {
+	flex-wrap: nowrap;
+}
+.fd-deck-current .fd-card-why {
+	align-self: center;
+	grid-column: auto;
+}
+.feed-deck .fd-decision [data-decision-actions] {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+}
+.feed-deck .fd-decision .fd-answer {
+	field-sizing: content;
+	min-height: calc(3lh + 1.5rem + 2px);
+	max-height: calc(8lh + 1.5rem + 2px);
+	padding: 0.75rem;
+	border-radius: 0.75rem;
+	line-height: 1.55;
+	resize: none;
+	overflow-y: auto;
+}
+.fd-answer::placeholder {
+	color: var(--fd-muted);
+}
+.fd-context-section[hidden] {
+	display: none;
+}
+@media (max-width: 639px) {
+	.fd-work-bar {
+		display: contents;
+	}
+	.fd-work-toolbar-slot {
+		order: -1;
+		flex: none;
+		padding-inline: 1rem;
+	}
+	.fd-work-navigation {
+		position: sticky;
+		bottom: 0;
+		z-index: 20;
+		margin-top: auto;
+		background: var(--color-kumo-base);
+		border-top: 1px solid var(--color-kumo-line);
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+	.fd-work-navigation a {
+		min-height: 3rem;
+		flex: 1;
+		border-radius: 0;
+	}
+	.fd-app-toolbar {
+		gap: 0.5rem;
+	}
+	.fd-app-toolbar > button[aria-label="Filters"],
+	.fd-app-toolbar > [data-base-ui-popover-trigger] {
+		margin-left: auto;
+	}
+	.fd-context-toggle {
+		margin-left: 0;
+	}
+	.fd-mobile-filters .fd-deck-filters > div {
+		flex-direction: column;
+		align-items: stretch;
+	}
+	.fd-mobile-filters .fd-filter-chip {
+		max-width: 100%;
+		justify-content: space-between;
+	}
+	.fd-mobile-filters {
+		min-width: 16rem;
+	}
+	.fd-work-home[data-slot="page"] {
+		padding-top: 0.5rem;
+	}
 }

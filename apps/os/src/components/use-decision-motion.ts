@@ -36,6 +36,7 @@ export function useDecisionMotion() {
 		direction: drag > 0 ? "approve" : drag < 0 ? "reject" : "idle",
 		start(event: PointerEvent<HTMLElement>) {
 			if (
+				(event.pointerType !== "touch" && event.pointerType !== "pen") ||
 				!event.isPrimary ||
 				event.button !== 0 ||
 				(event.target as HTMLElement).closest(

@@ -1,3 +1,5 @@
+import { useState, type ReactNode } from "react";
+import { WorkToolbarTargetContext } from "../src/components/deck-presentation-context";
 import { WorkActorDirectoryContext } from "../src/components/work-actor-avatar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
@@ -21,7 +23,13 @@ import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-se
 
 const client = new QueryClient({
 	defaultOptions: {
-		queries: { enabled: false, staleTime: Infinity, retry: false },
+		queries: {
+			enabled: false,
+			staleTime: Infinity,
+			retry: false,
+			refetchOnWindowFocus: false,
+			refetchOnReconnect: false,
+		},
 	},
 });
 client.setQueryData(
@@ -210,7 +218,7 @@ client.setQueryData(
 	{ events: [] },
 );
 const params = new URLSearchParams(location.search);
-if (params.get("surface") === "approval") {
+if (["approval", "question"].includes(params.get("surface") ?? "")) {
 	client.setQueryData(userProfileQueryOptions().queryKey, {
 		id: "fictional-approval-reviewer",
 	});
@@ -221,9 +229,14 @@ if (params.get("surface") === "approval") {
 		caseId: null,
 		projectId: null,
 		kind: "question" as const,
-		subject: "Approve fictional test login",
+		subject:
+			params.get("surface") === "question"
+				? "Which delivery date should we offer?"
+				: "Approve fictional test login",
 		prompt:
-			"Approve tests_write.GenerateMagicLinkForTestUser for viewer@example.com? Prepared args: target=viewer@example.com. This returns a non-delivered test-only link.",
+			params.get("surface") === "question"
+				? "We will use your date in the draft reply. Friday leaves time to check the order before dispatch."
+				: "Approve tests_write.GenerateMagicLinkForTestUser for viewer@example.com? Prepared args: target=viewer@example.com. This returns a non-delivered test-only link.",
 		requestedFromType: "user" as const,
 		requestedFromId: "fictional-person",
 		creatorType: "external_agent" as const,
@@ -236,14 +249,24 @@ if (params.get("surface") === "approval") {
 		resolvedAt: null,
 		version: 1,
 		metadata: {
-			approvalOperation: "tests_write.GenerateMagicLinkForTestUser",
+			...(params.get("surface") === "question"
+				? {}
+				: { approvalOperation: "tests_write.GenerateMagicLinkForTestUser" }),
 			approvalTarget: "viewer@example.com",
 			cardPresentation: {
 				version: 1,
-				title: "Approve fictional test login",
-				body: "Let Codex check the reported fix with a fictional test account. The test link stays with the agent; no email is sent.",
+				title:
+					params.get("surface") === "question"
+						? "Which delivery date should we offer?"
+						: "Approve fictional test login",
+				body:
+					params.get("surface") === "question"
+						? "We will use your date in the draft reply to the supplier."
+						: "Let Codex check the reported fix with a fictional test account. The test link stays with the agent; no email is sent.",
 				recommendation:
-					"Approve because the test account and operation are specified.",
+					params.get("surface") === "question"
+						? "Friday leaves time to check the order before dispatch."
+						: "Approve because the test account and operation are specified.",
 			},
 		},
 	};
@@ -318,9 +341,52 @@ const manifest = OsGadgetManifestSchema.parse({
 				}),
 			}),
 });
+function ProofFrame({ children }: { children: ReactNode }) {
+	const [target, setTarget] = useState<HTMLDivElement | null>(null);
+	if (!params.has("shell"))
+		return <main className="mx-auto max-w-5xl p-3 md:p-8">{children}</main>;
+	return (
+		<WorkToolbarTargetContext.Provider value={target}>
+			<div className="flex h-dvh flex-col">
+				<header className="flex h-14 shrink-0 items-center border-b border-kumo-line px-6 font-semibold">
+					Work
+				</header>
+				<div className="fd-work-shell flex min-h-0 flex-1 flex-col">
+					<section
+						data-slot="page"
+						className="fd-work-home mx-auto min-h-0 w-full flex-1 overflow-y-auto px-4 sm:px-6"
+					>
+						{children}
+					</section>
+					<div className="fd-work-bar">
+						<nav className="fd-work-navigation">
+							<a
+								href="?shell&surface=feed"
+								aria-current={
+									params.get("surface") === "feed" ? "page" : undefined
+								}
+							>
+								Feed
+							</a>
+							<a
+								href="?shell&surface=question"
+								aria-current={
+									params.get("surface") !== "feed" ? "page" : undefined
+								}
+							>
+								Deck 12
+							</a>
+						</nav>
+						<div ref={setTarget} className="fd-work-toolbar-slot" />
+					</div>
+				</div>
+			</div>
+		</WorkToolbarTargetContext.Provider>
+	);
+}
 createRoot(document.getElementById("root")!).render(
 	<QueryClientProvider client={client}>
-		<main className="mx-auto max-w-5xl p-3 md:p-8">
+		<ProofFrame>
 			{params.get("surface") === "motion-failure" ? (
 				<div className="feed-deck fd-deck">
 					<WorkDecisionCard
@@ -352,6 +418,6 @@ createRoot(document.getElementById("root")!).render(
 					<WorkspaceAppRenderer manifest={manifest} />
 				</WorkActorDirectoryContext.Provider>
 			)}
-		</main>
+		</ProofFrame>
 	</QueryClientProvider>,
 );

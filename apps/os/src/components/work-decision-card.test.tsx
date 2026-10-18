@@ -146,16 +146,16 @@ describe("fast decision cards", () => {
 		await click("Confirm");
 		expect(decide).toHaveBeenCalledTimes(1);
 	});
-	it("does not approve when typing and accepts offered answers with Enter", async () => {
+	it("keeps Enter for newlines and submits offered answers with Ctrl+Enter", async () => {
 		const decide = await mount({
 			kind: "question",
 			suggestedAnswers: ["Tuesday", "Friday"],
 			actions: [{ id: "answer", label: "Answer", intent: "approve" }],
 		});
-		await type("input", "Thursday");
+		await type("textarea", "Thursday");
 		await act(async () =>
 			host
-				.querySelector("input")!
+				.querySelector("textarea")!
 				.dispatchEvent(
 					new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
 				),
@@ -163,11 +163,13 @@ describe("fast decision cards", () => {
 		expect(decide).not.toHaveBeenCalled();
 		await click("Friday");
 		await act(async () =>
-			host
-				.querySelector("input")!
-				.dispatchEvent(
-					new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-				),
+			host.querySelector("textarea")!.dispatchEvent(
+				new KeyboardEvent("keydown", {
+					key: "Enter",
+					ctrlKey: true,
+					bubbles: true,
+				}),
+			),
 		);
 		expect(decide).toHaveBeenCalledWith(
 			expect.objectContaining({
