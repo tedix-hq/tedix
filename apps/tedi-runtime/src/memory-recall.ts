@@ -1,21 +1,16 @@
 /**
  * Bounded per-turn long-term memory recall for the brain-digest addendum.
  *
- * `MemoryGraph.search` is model-backed and multi-second (p50 ~6 s, p90 ~13 s,
- * bounded only by the 15 s platform RPC timeout), and every ordinary tedi turn
- * awaited it before its first model call — again on every retry. Mirror the Home
- * kernel (`RELEVANCE_RECALL_BUDGET_MS` / `boundRelevanceRecall` in
- * `apps/api/src/rpc/routers/kernel/context-assembly.ts`): wait at most the
- * budget, then run the turn without the recalled block. Trivial acknowledgements
- * carry no query worth searching, so they skip recall entirely.
+ * The API uses bounded hybrid recall. This outer budget includes transport;
+ * a delayed request must not hold the first model call. Trivial acknowledgements
+ * carry no query worth searching and skip recall entirely.
  */
 
 import type { MemorySearchResult } from "./brain/platform-client";
 import { logTediSourceFailure } from "./context-failure-log";
 import { wrapUntrustedInput } from "./untrusted-input";
 
-/** Same budget as the Home kernel's relevance recall. */
-export const MEMORY_RECALL_BUDGET_MS = 2_000;
+export const MEMORY_RECALL_BUDGET_MS = 800;
 const MEMORY_RECALL_LIMIT = 6;
 
 export type MemoryRecallOutcome =
@@ -90,14 +85,19 @@ function formatRecallBlock(result: MemorySearchResult): {
 	block: string;
 	factCount: number;
 } {
-	const facts = result.results
-		.map((entry) => entry.fact)
-		.filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
-		.map(
-			(fact) =>
-				`${fact.metadata?.verifyBeforeUse ? "[Historical; verify current state before use] " : ""}${fact.content || fact.summary || ""}`,
-		)
-		.filter(Boolean);
+	const facts = result.results.flatMap(({ fact, provenance }) => {
+		const text = fact?.content || fact?.summary;
+		if (!text) return [];
+		const why = provenance?.arms.length
+			? ` [recalled: ${provenance.arms.map((arm) => arm.arm).join(", ")}]`
+			: "";
+		const replaced = provenance?.replacesFactIds?.length
+			? ` [replaces: ${provenance.replacesFactIds.join(", ")}]`
+			: "";
+		return [
+			`${fact.metadata?.verifyBeforeUse ? "[Historical; verify current state before use] " : ""}${text}${why}${replaced}`,
+		];
+	});
 	if (facts.length === 0) return { block: "", factCount: 0 };
 	return {
 		block: [

@@ -53,11 +53,19 @@ for (const meaningful of [
 	);
 }
 
-assert.equal(MEMORY_RECALL_BUDGET_MS, 2_000);
+assert.equal(MEMORY_RECALL_BUDGET_MS, 800);
 
 const result: MemorySearchResult = {
 	results: [
-		{ factId: "f1", score: 0.9, fact: { summary: "Acme pays net 30" } },
+		{
+			factId: "f1",
+			score: 0.9,
+			fact: { summary: "Acme pays net 30" },
+			provenance: {
+				arms: [{ arm: "lexical", rank: 1, score: 0.9 }],
+				fusionScore: 1 / 61,
+			},
+		},
 		{ factId: "f2", score: 0.8 },
 	],
 };
@@ -90,6 +98,7 @@ const result: MemorySearchResult = {
 	assert.equal(out.factCount, 1);
 	assert.match(out.block, /# Relevant Long-Term Memory/);
 	assert.match(out.block, /Acme pays net 30/);
+	assert.match(out.block, /recalled: lexical/);
 }
 
 // ── No platform, failure ─────────────────────────────────────────────────────
@@ -143,7 +152,7 @@ const result: MemorySearchResult = {
 	lateResolve?.(result); // settles later without affecting the turn
 }
 
-// ── Cap at the default 2 s budget with a 10 s fake search ────────────────────
+// ── Cap at the default 800 ms budget with a 10 s fake search ─────────────────
 {
 	const started = performance.now();
 	const out = await recallLongTermMemoryBlock({
@@ -157,7 +166,7 @@ const result: MemorySearchResult = {
 	const elapsed = performance.now() - started;
 	assert.equal(out.outcome, "timed_out");
 	assert.equal(out.block, "");
-	assert.ok(elapsed >= 1_900 && elapsed < 3_000, `resolved in ${elapsed}ms`);
+	assert.ok(elapsed >= 750 && elapsed < 1_500, `resolved in ${elapsed}ms`);
 }
 
 // ── A late rejection after the cap is swallowed, not unhandled ───────────────
