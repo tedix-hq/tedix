@@ -92,6 +92,10 @@ Inspect the run, state sheet and first-pass document separately. A partial run
 lists exact failed entities and missing signals; it is not proof of a full sync.
 Writes use journaled durable checkpoints and readback receipts. Keep the
 state sheet dedicated to this skill and do not edit it during an active lease.
+Managed enrichment uses small, unique content matches to preserve native
+mentions and surrounding human text. Provider warnings leave the write uncertain
+until its actual result is inspected. Established external task identities take
+precedence over title matching; distinct linked tasks may share a title.
 
 ## Render and install
 

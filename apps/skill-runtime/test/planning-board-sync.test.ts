@@ -4,6 +4,7 @@ import {
 	createPlanningSync,
 	externalId,
 	managedBlock,
+	managedContentUpdates,
 	managedPurposeMatches,
 	reasoningSources,
 	reconcileFields,
@@ -63,6 +64,7 @@ function harness(
 		uncertain?: boolean;
 		ambiguous?: boolean;
 		failPageReadback?: boolean;
+		writeWarning?: boolean;
 		badCitation?: boolean;
 		signalAction?: boolean;
 		deniedSignal?: "list" | "output";
@@ -340,13 +342,15 @@ function harness(
 							page_id,
 							command === "insert_content"
 								? pages.get(page_id) + "\n" + content
-								: pages
-										.get(page_id)!
-										.replace(
-											content_updates[0].old_str,
-											content_updates[0].new_str,
-										),
+								: content_updates.reduce(
+										(
+											text: string,
+											edit: { old_str: string; new_str: string },
+										) => text.replace(edit.old_str, edit.new_str),
+										pages.get(page_id)!,
+									),
 						);
+					if (options.writeWarning) return { warnings: [{ code: "no_match" }] };
 					return { success: true };
 				},
 			},
@@ -412,6 +416,81 @@ function harness(
 }
 
 describe("planning board synchronization", () => {
+	it("keeps a partially applied provider update uncertain across fresh runs", async () => {
+		const h = harness({ writeWarning: true });
+		expect((await h.run()).status).toBe("partial");
+		const writes = h.calls.notionWrites;
+		expect((await h.run("run-2")).status).toBe("partial");
+		expect(h.calls.notionWrites).toBe(writes);
+		expect(JSON.stringify(h.outputs.get("state"))).toContain(
+			'\\"phase\\":\\"intent\\"',
+		);
+	});
+	it("updates managed prose without matching native mentions or changing human text", () => {
+		const block = (
+			purpose: string,
+			goals: string[],
+			signal: string,
+			url: string,
+		) =>
+			[
+				"TEDIX SYNC BEGIN board",
+				"## Purpose",
+				purpose,
+				"## Goals",
+				...goals.map((g) => `- ${g}`),
+				"Next concrete step: Review evidence.",
+				"## Latest signals",
+				`- <mention-date start="2026-01-01"/> — ${signal} <mention-page url="${url}"/>`,
+				"[Open Work project](https://example.test/work/projects/project)",
+				"TEDIX SYNC END board",
+			].join("\n");
+		const source = block(
+			"Test the shared problem.",
+			["Interview users.", "Record findings."],
+			"Interview planned.",
+			`https://app.notion.com/p/${pageId}`,
+		);
+		const target = block(
+			"Validate the shared problem.",
+			["Score findings."],
+			"Interview reported.",
+			`https://app.notion.com/${pageId}`,
+		);
+		const page = `Human agenda.\n${source}\nHuman appendix.`;
+		const updates = managedContentUpdates(page, "board", target);
+		expect(updates.every((u) => !u.old_str.includes("<mention-"))).toBe(true);
+		let actual = page;
+		for (const update of updates)
+			actual = actual.replace(update.old_str, update.new_str);
+		expect(actual).toBe(
+			`Human agenda.\n${target.replace(`https://app.notion.com/${pageId}`, `https://app.notion.com/p/${pageId}`)}\nHuman appendix.`,
+		);
+		expect(managedContentUpdates(actual, "board", target)).toEqual([]);
+		const expanded = target.replace(
+			"- Score findings.",
+			"- Score findings.\n- Agree a decision.\n- Link evidence.",
+		);
+		let grown = actual;
+		for (const update of managedContentUpdates(actual, "board", expanded))
+			grown = grown.replace(update.old_str, update.new_str);
+		expect(grown).toContain(
+			"- Score findings.\n- Agree a decision.\n- Link evidence.",
+		);
+	});
+	it("prefers an established task identity over another item with the same title", async () => {
+		const h = harness();
+		await h.run();
+		h.items.push({
+			...h.items[0],
+			id: "same-title-other-item",
+			sourceIntentId: null,
+		});
+		const result = await h.run("run-2");
+		expect(result.status).toBe("synced");
+		expect(h.calls.creates).toBe(1);
+		expect(h.pages.get(taskId)).toContain("/work/items/work-1");
+	});
 	it("keeps current meetings and signals despite oversized older notes", () => {
 		const sources = reasoningSources(
 			[{ url: "https://example.test/project", text: "Human planning context" }],
