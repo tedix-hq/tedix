@@ -3,7 +3,10 @@ import {
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
 import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
-import { DeckFooterContext } from "@/components/deck-presentation-context";
+import {
+	DeckFooterContext,
+	DeckNoticeContext,
+} from "@/components/deck-presentation-context";
 import {
 	DecisionLearningContext,
 	DecisionLearningWhy,
@@ -136,6 +139,7 @@ export function WorkDecisionCard({
 }) {
 	const heading = decisionProposalTitle(title);
 	const deckFooter = useContext(DeckFooterContext);
+	const deckNotice = useContext(DeckNoticeContext);
 	const footer = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		const node = footer.current;
@@ -400,6 +404,7 @@ export function WorkDecisionCard({
 				</CardHeader>
 				<CardContent>
 					<div className="fd-card-body grid grid-cols-1 gap-4">
+						{deckNotice}
 						{editing ? (
 							<div className="grid gap-3">
 								{editContent}

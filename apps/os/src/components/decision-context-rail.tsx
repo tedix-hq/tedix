@@ -1,4 +1,9 @@
 import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import {
 	createContext,
 	useContext,
 	useEffect,
@@ -192,8 +197,22 @@ export function DecisionContextSection({
 								event.stopPropagation();
 						}}
 					>
-						<h3>{title}</h3>
-						{children}
+						{trigger ? (
+							<Collapsible
+								open={rail.activeSection === id}
+								onOpenChange={(open) => rail.openSection(open ? id : undefined)}
+							>
+								<h3>
+									<CollapsibleTrigger>{title}</CollapsibleTrigger>
+								</h3>
+								<CollapsibleContent>{children}</CollapsibleContent>
+							</Collapsible>
+						) : (
+							<>
+								<h3>{title}</h3>
+								{children}
+							</>
+						)}
 					</section>,
 					rail.target,
 				)}

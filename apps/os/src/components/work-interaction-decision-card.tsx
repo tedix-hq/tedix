@@ -451,7 +451,16 @@ export function WorkInteractionDecisionCard({
 				why={
 					<div className="grid gap-3">
 						{approval && <p>{OS_COPY.decisionDeck.explicitApproval}</p>}
-						{presentation && <DecisionProposalBody body={request.prompt} />}
+						{presentation && !approval && (
+							<FeedDeckDisclosure
+								title={OS_COPY.feed.details}
+								keepMounted={false}
+							>
+								<p className="whitespace-pre-wrap break-words">
+									{request.prompt}
+								</p>
+							</FeedDeckDisclosure>
+						)}
 
 						{draft?.rationale ? <p>{draft.rationale}</p> : null}
 						<p>
