@@ -85,6 +85,24 @@ function throwingModel(): MockLanguageModelV3 {
 	});
 }
 
+function fallbackAnswerStream() {
+	return simulateReadableStream({
+		initialDelayInMs: null,
+		chunkDelayInMs: null,
+		chunks: [
+			{ type: "stream-start", warnings: [] },
+			{ type: "text-start", id: "answer" },
+			{ type: "text-delta", id: "answer", delta: "Orion is moving today." },
+			{ type: "text-end", id: "answer" },
+			{
+				type: "finish",
+				finishReason: { unified: "stop", raw: "stop" },
+				usage: { inputTokens: { total: 3 }, outputTokens: { total: 5 } },
+			},
+		],
+	});
+}
+
 describe("planKernelRoute", () => {
 	it("replays historical images on both routing paths and refuses a text-only fallback", async () => {
 		const context: KernelContext = {
@@ -830,7 +848,7 @@ describe("planKernelRoute", () => {
 	});
 
 	it.each(["invalid schema", "unparsable JSON"])(
-		"recovers once from %s with the same input",
+		"recovers once from %s with a stricter schema and the same context",
 		async (failure) => {
 			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 			const good = objectModel({ ...FALLBACK_DECISION, answer: "Ready." });
@@ -861,9 +879,21 @@ describe("planKernelRoute", () => {
 				});
 				expect(result?.answer).toBe("Ready.");
 				expect(model.doGenerateCalls).toHaveLength(2);
-				expect(model.doGenerateCalls[1]?.prompt).toEqual(
-					model.doGenerateCalls[0]?.prompt,
+				expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain(
+					"Status for Orion",
 				);
+				expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain(
+					"Return every field",
+				);
+				expect(model.doGenerateCalls[1]?.responseFormat).toMatchObject({
+					type: "json",
+					schema: {
+						required: expect.arrayContaining([
+							"plannedToolIds",
+							"targetTediId",
+						]),
+					},
+				});
 				expect(warn).toHaveBeenCalledWith(
 					expect.objectContaining({
 						event: "route_decision_retry",
@@ -876,28 +906,99 @@ describe("planKernelRoute", () => {
 		},
 	);
 
-	it("stops after two invalid decisions and records failure", async () => {
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const model = objectModel({ routeKind: "invalid" });
-		try {
-			await expect(
-				planKernelRoute({ model, context: EMPTY_CONTEXT, content: "Status" }),
-			).rejects.toThrow();
-			expect(model.doGenerateCalls).toHaveLength(2);
-			expect(warn).toHaveBeenCalledWith(
-				expect.objectContaining({
-					event: "route_decision_retry",
-					outcome: "failed",
+	it.each([false, true])(
+		"answers without tools after invalid decisions (streaming=%s)",
+		async (streaming) => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const invalid = objectModel({
+				routeKind: "delegate_tedi",
+				targetTediId: "untrusted-target",
+			});
+			const model = new MockLanguageModelV3({
+				doGenerate: (options) => invalid.doGenerate(options),
+				doStream: async (options) => ({
+					stream:
+						options.responseFormat?.type === "json"
+							? simulateReadableStream({
+									chunks: [
+										{ type: "stream-start", warnings: [] },
+										{
+											type: "finish",
+											finishReason: { unified: "stop", raw: "stop" },
+											usage: {
+												inputTokens: { total: 1 },
+												outputTokens: { total: 1 },
+											},
+										},
+									],
+								})
+							: fallbackAnswerStream(),
 				}),
-			);
-		} finally {
-			warn.mockRestore();
-		}
+			});
+			const deltas: string[] = [];
+			try {
+				const result = await planKernelRoute({
+					model,
+					context: EMPTY_CONTEXT,
+					content: "Status",
+					...(streaming
+						? { onAnswerDelta: (delta: string) => deltas.push(delta) }
+						: {}),
+				});
+				expect(result).toMatchObject({
+					routeKind: "answer_in_home",
+					risk: "low",
+					plannedToolIds: [],
+					targetTediId: null,
+					toolIntent: null,
+					recovery: "invalid_route_decision",
+				});
+				expect(result?.answer).toBe(
+					"Routing had trouble; answering directly.\n\nOrion is moving today.",
+				);
+				expect(model.doGenerateCalls).toHaveLength(streaming ? 1 : 2);
+				const answerCall = model.doStreamCalls.at(-1)!;
+				expect(answerCall.tools?.length ?? 0).toBe(0);
+				expect(JSON.stringify(answerCall.prompt)).toContain(
+					"You have no tools and cannot execute or delegate",
+				);
+				if (streaming) expect(deltas).toEqual([result?.answer]);
+				expect(warn).toHaveBeenCalledWith(
+					expect.objectContaining({
+						event: "route_decision_fallback",
+						reason: "invalid_route_decision",
+					}),
+				);
+			} finally {
+				warn.mockRestore();
+			}
+		},
+	);
+
+	it.each([
+		"Inference blocked by billing policy: entitlement_inactive",
+		"Provider 503 unavailable",
+		"Context window exceeded",
+	])("preserves retry failure instead of answering: %s", async (message) => {
+		const invalid = objectModel({ routeKind: "invalid" });
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => {
+				if (model.doGenerateCalls.length === 1)
+					return invalid.doGenerate(options);
+				throw new Error(message);
+			},
+		});
+		await expect(
+			planKernelRoute({ model, context: EMPTY_CONTEXT, content: "Status" }),
+		).rejects.toThrow(message);
+		expect(model.doGenerateCalls).toHaveLength(2);
+		expect(model.doStreamCalls).toHaveLength(0);
 	});
 
 	it("bounds the retry by the remaining route deadline", async () => {
 		const invalid = objectModel({ routeKind: "invalid" });
 		const model = new MockLanguageModelV3({
+			doStream: async () => ({ stream: fallbackAnswerStream() }),
 			doGenerate: async (options) => {
 				if (model.doGenerateCalls.length === 1)
 					return invalid.doGenerate(options);
@@ -919,7 +1020,10 @@ describe("planKernelRoute", () => {
 				content: "Status",
 				generationTimeoutMs: 100,
 			}),
-		).resolves.toBeNull();
+		).resolves.toMatchObject({
+			routeKind: "answer_in_home",
+			recovery: "invalid_route_decision",
+		});
 		expect(model.doGenerateCalls).toHaveLength(2);
 		expect(Date.now() - started).toBeLessThan(1000);
 	});
