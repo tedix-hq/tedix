@@ -132,9 +132,21 @@ export function DecisionContextRail({ children }: { children: ReactNode }) {
 				<div className="fd-context-main">{children}</div>
 				{phone ? (
 					<Sheet open={open} onOpenChange={changeOpen}>
-						<SheetContent side="bottom" className="feed-deck fd-context-sheet">
-							<SheetHeader>
+						<SheetContent
+							side="bottom"
+							className="feed-deck fd-context-sheet"
+							showCloseButton={false}
+						>
+							<SheetHeader className="flex-row items-center justify-between">
 								<SheetTitle>Decision context</SheetTitle>
+								<Button
+									variant="ghost"
+									size="sm"
+									aria-label="Close decision context"
+									onClick={() => changeOpen(false)}
+								>
+									Done
+								</Button>
 							</SheetHeader>
 							{contents}
 						</SheetContent>
