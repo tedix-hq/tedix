@@ -173,3 +173,37 @@ it("does not pass unrelated operational lessons to the writing model", async () 
 		{ text: "Keep answers short." },
 	]);
 });
+
+it("keeps repair within the native-call budget", async () => {
+	const clock = vi
+		.spyOn(Date, "now")
+		.mockReturnValueOnce(0)
+		.mockReturnValueOnce(0)
+		.mockReturnValueOnce(8000);
+	mocks.model.mockResolvedValueOnce(
+		JSON.stringify({ ...copy, body: "One. Two. Three." }),
+	);
+	try {
+		await generateDecisionCard({ db: {}, env: {} } as never, request);
+		expect(mocks.model.mock.calls[0]?.[2].timeoutMs).toBe(10000);
+		expect(mocks.model.mock.calls[1]?.[2].timeoutMs).toBe(4000);
+		expect(mocks.model.mock.calls[1]?.[1]).toContain(
+			"exactly one complete sentence",
+		);
+	} finally {
+		clock.mockRestore();
+	}
+});
+
+it("does not accept a generic filing verb as a topic match", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({ ...copy, title: "Check Filing for Fictional Board" }),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Fix the profile panel consent check.",
+			metadata: { decisionDeck: { classId: "filing.project" } },
+		}),
+	).toBeNull();
+});
