@@ -8,6 +8,7 @@ import {
 	osWorkspaceProjects,
 } from "@tedix/db/schema/os-workspaces";
 import { workEvents, workItems } from "@tedix/db/schema/work-items";
+import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
 import { projects } from "@tedix/db/schema/projects";
 import { organizations } from "@tedix/db/schema/organizations";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
@@ -137,6 +138,7 @@ function fixture() {
 		osWorkspaceProjects,
 		workItems,
 		workEvents,
+		workAgentSessions,
 	])
 		sqlite.exec(schemaDdl(table));
 	return createDbQueryClient(createD1Facade(sqlite));
@@ -844,7 +846,7 @@ it("never closes an ask from an unproposed agent approval claim", async () => {
 	expect((await rows(db))[0]?.status).toBe("waiting_on_user");
 });
 
-it("uses the Gateway for reflection and intake while keeping the observer small", async () => {
+it("uses the Gateway for reflection, intake and filing while keeping the observer small", async () => {
 	const run = vi.fn().mockResolvedValue({ response: '{"requests":[]}' });
 	const fetch = vi.fn().mockResolvedValue(
 		Response.json({
@@ -919,6 +921,24 @@ it("uses the Gateway for reflection and intake while keeping the observer small"
 	expect(JSON.parse(fetch.mock.calls.at(-1)![1].body).input).toBe(
 		JSON.stringify(longSources),
 	);
+	fetch.mockResolvedValueOnce(
+		Response.json({
+			status: "completed",
+			output: [
+				{
+					type: "message",
+					content: [
+						{ type: "output_text", text: '{"projectId":"project-docs"}' },
+					],
+				},
+			],
+		}),
+	);
+	expect(
+		await model("system", "portfolio", "agent-session-project-routing"),
+	).toBe('{"projectId":"project-docs"}');
+	expect(run).toHaveBeenCalledTimes(1);
+	expect(JSON.parse(fetch.mock.calls.at(-1)![1].body).input).toBe("portfolio");
 	fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
 	expect(
 		await model("system", "prompt", "agent-session-request-reflector"),

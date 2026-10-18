@@ -178,6 +178,7 @@ export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 	const model: LedgerModel = (system, prompt, surface) =>
 		surface === "agent-session-request-reflector" ||
 		surface === "agent-session-request-intake" ||
+		surface === "agent-session-project-routing" ||
 		surface === "agent-session-lesson-reflector"
 			? reflectWithGateway(env, system, prompt, surface)
 			: runDistillModel(env, prompt, {

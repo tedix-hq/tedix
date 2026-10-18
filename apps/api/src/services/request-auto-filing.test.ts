@@ -12,6 +12,7 @@ import { projects } from "@tedix/db/schema/projects";
 import { organizations } from "@tedix/db/schema/organizations";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
 import { workEvents, workItems } from "@tedix/db/schema/work-items";
+import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
 import {
 	osWorkspaces,
 	osWorkspaceProjects,
@@ -52,6 +53,7 @@ async function fixture(
 		tediObjectives,
 		workItems,
 		workEvents,
+		workAgentSessions,
 		osWorkspaces,
 		osWorkspaceProjects,
 		learningInteractionEvents,
@@ -257,6 +259,41 @@ describe("automatic filing", () => {
 		});
 		expect(observer.enqueueFilings).toHaveBeenCalledWith(owner);
 		expect(model).not.toHaveBeenCalled();
+	});
+	it("uses only the ledger owner's session context to interpret a short substep", async () => {
+		for (const userId of [owner.userId, "user-grace"]) {
+			const { db } = await fixture();
+			await db.insert(workAgentSessions).values({
+				id: "session-report",
+				organizationId: owner.organizationId,
+				userId,
+				harness: "codex",
+				sessionKey: "session-example",
+				projectId: "project-docs",
+				label: "Installation work",
+				summary: "Verify the documentation changes",
+				state: "working",
+				stateSince: now,
+				lastEventAt: now,
+			});
+			const contextual: LedgerModel = async (_system, prompt) => {
+				const context = JSON.parse(prompt);
+				if (userId === owner.userId)
+					expect(context.sourceSession).toMatchObject({
+						projectId: "project-docs",
+						label: "Installation work",
+					});
+				else expect(context.sourceSession).toBeNull();
+				return JSON.stringify(pick);
+			};
+			contextual.scoreProjectFit = async ({ request }) => {
+				expect(JSON.parse(request).sourceSession?.projectId ?? null).toBe(
+					userId === owner.userId ? "project-docs" : null,
+				);
+				return 0.9;
+			};
+			await autoFileRequests(db, contextual, { ...owner, now });
+		}
 	});
 });
 
