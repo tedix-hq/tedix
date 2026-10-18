@@ -14,6 +14,9 @@ const SheetEditor = lazy(async () => ({
 const SlidesEditor = lazy(async () => ({
 	default: (await import("@/components/output-editor-slides")).SlidesEditor,
 }));
+const FileOutputView = lazy(async () => ({
+	default: (await import("@/components/output-content")).FileOutputView,
+}));
 const VideoOutputView = lazy(async () => ({
 	default: (await import("@/components/output-content")).VideoOutputView,
 }));
@@ -38,6 +41,10 @@ export function OutputEditor({
 	let editor: ReactNode;
 	switch (value.kind) {
 		case "document":
+			if (value.file) {
+				editor = <FileOutputView {...value.file} />;
+				break;
+			}
 			editor = (
 				<DocumentEditor
 					value={value}

@@ -146,6 +146,7 @@ import {
 	useChatTransport,
 } from "@/lib/use-capn-chat";
 import { prepareChatAttachment } from "@/lib/chat-attachment-upload";
+import { WorkspaceFileUpload } from "./workspace-file-upload";
 import { useActiveTedis, useTediNames } from "@/lib/use-tedi-names";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import { useRealtimeStatus, useRealtimeSurface } from "@/lib/use-realtime";
@@ -4003,6 +4004,16 @@ export function ChatThread({
 				{dictation.phase === "idle" ? (
 					<div className="chat-composer-actions flex items-center justify-between gap-3 px-4 pt-2 pb-3">
 						<div className="chat-composer-context flex min-w-0 items-center gap-2">
+							{workspaceId ? (
+								<WorkspaceFileUpload
+									workspaceId={workspaceId}
+									onUploaded={(file) =>
+										updateDraft(
+											`${draft}${draft ? "\n\n" : ""}Workspace file: ${file.name} (${new URL(file.url, window.location.origin).href})`,
+										)
+									}
+								/>
+							) : null}
 							<DropdownMenu>
 								<DropdownMenuTrigger
 									render={

@@ -33,6 +33,7 @@ import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { cn } from "@/lib/utils";
 import { WorkspaceAppCards } from "@/components/workspace-app-cards";
 import { WorkspaceSchedules } from "@/components/workspace-schedules";
+import { WorkspaceFileUpload } from "./workspace-file-upload";
 
 /**
  * The Canvas resource rail: workspace apps (gadgets) first, then the skills
@@ -285,6 +286,7 @@ export function CanvasResourceRail({
 								count={shownOutputs.length}
 								variant="console"
 							/>
+							<WorkspaceFileUpload workspaceId={workspaceId} />
 							{outputs.isPending && (
 								<ListSkeleton rows={2} rowClassName="h-9" />
 							)}

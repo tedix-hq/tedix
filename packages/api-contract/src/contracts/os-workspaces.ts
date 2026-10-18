@@ -2,6 +2,11 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import {
+	WorkspaceFileMetadataSchema,
+	WorkspaceFileReferenceSchema,
+	WorkspaceFilePartSchema,
+} from "../schemas/workspace-files";
 import { JsonValueSchema } from "../schemas/common";
 import { ExecutionRequirementSchema } from "../schemas/execution-evidence";
 import {
@@ -436,6 +441,60 @@ export const osWorkspacesContract = oc
 				.output(z.object({ preference: OsWorkspacePreferenceSchema })),
 		}),
 		resources: oc.router({
+			requestFileUpload: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/files/upload",
+					summary: "Request a workspace file upload",
+					description:
+						"Upload any file up to 200 MiB without base64. PUT each binary slice to its signed URL, in order, and pass the returned partNumber/etag receipts to confirmFileUpload. URLs expire after 15 minutes.",
+				})
+				.input(WorkspaceFileMetadataSchema.extend({ workspaceId: z.uuid() }))
+				.output(
+					z.object({
+						resourceId: z.uuid(),
+						expiresAt: z.iso.datetime(),
+						partSize: z.number(),
+						parts: z.array(
+							z.object({
+								partNumber: z.number(),
+								url: z.url(),
+								size: z.number(),
+							}),
+						),
+					}),
+				),
+			confirmFileUpload: oc
+				.route({
+					method: "POST",
+					path: "/workspaces/{workspaceId}/files/confirm",
+					summary: "Confirm a workspace file upload",
+					description:
+						"Checks uploaded size and creates the workspace Resource and previewable Output atomically. Safe to retry with the same resourceId and part receipts.",
+				})
+				.input(
+					WorkspaceFileReferenceSchema.extend({
+						parts: z.array(WorkspaceFilePartSchema).min(1).max(25),
+					}),
+				)
+				.output(
+					z.object({ resource: OsWorkspaceResourceSchema, outputId: z.uuid() }),
+				),
+			getFile: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/files/{resourceId}",
+					summary: "Get an authenticated workspace file preview",
+					description:
+						"Returns a five-minute URL. Every byte request also requires the caller's session or bearer credential and rechecks workspace access. Never a public share link.",
+				})
+				.input(WorkspaceFileReferenceSchema)
+				.output(
+					WorkspaceFileMetadataSchema.extend({
+						url: z.string(),
+						expiresAt: z.iso.datetime(),
+					}),
+				),
 			list: oc
 				.route({
 					method: "GET",

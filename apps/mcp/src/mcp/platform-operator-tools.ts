@@ -79,6 +79,21 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "request_os_workspace_file_upload",
+		endpoint: "osWorkspaces/resources/requestFileUpload",
+		kind: "write",
+	},
+	{
+		toolId: "confirm_os_workspace_file_upload",
+		endpoint: "osWorkspaces/resources/confirmFileUpload",
+		kind: "write",
+	},
+	{
+		toolId: "get_os_workspace_file",
+		endpoint: "osWorkspaces/resources/getFile",
+		kind: "read",
+	},
+	{
 		toolId: "list_os_workspace_resources",
 		endpoint: "osWorkspaces/resources/list",
 		kind: "read",

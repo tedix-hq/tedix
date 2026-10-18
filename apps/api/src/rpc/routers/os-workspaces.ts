@@ -98,6 +98,7 @@ import { resolveWorkspaceResourceAvailability } from "../../services/os-workspac
 import * as collaborationProcedures from "./os-workspace-collaboration";
 import * as workspaceLibrary from "./os-workspace-library";
 import * as workspaceResources from "./os-workspace-resources";
+import * as workspaceFiles from "./os-workspace-files";
 import * as workspaceSchedules from "./os-workspace-schedules";
 import * as workspaceWork from "./os-workspace-work";
 import * as outputProcedures from "./os-workspace-outputs";
@@ -2157,7 +2158,12 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		decideBlueprintUpgrade: workspacesDecideBlueprintUpgrade,
 	},
 	workspacePreferences: workspaceLibrary.osWorkspacePreferenceProcedures,
-	resources: workspaceResources.osWorkspaceResourceProcedures,
+	resources: {
+		...workspaceResources.osWorkspaceResourceProcedures,
+		requestFileUpload: workspaceFiles.requestFileUpload,
+		confirmFileUpload: workspaceFiles.confirmFileUpload,
+		getFile: workspaceFiles.getFile,
+	},
 	schedules: workspaceSchedules.osWorkspaceScheduleProcedures,
 	work: workspaceWork.osWorkspaceWorkProcedures,
 	gadgets: {

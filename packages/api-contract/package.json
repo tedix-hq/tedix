@@ -191,6 +191,7 @@
 		"./schemas/os-theme": "./src/schemas/os-theme.ts",
 		"./schemas/organization-purpose": "./src/schemas/organization-purpose.ts",
 		"./schemas/os-workspaces": "./src/schemas/os-workspaces.ts",
+		"./schemas/workspace-files": "./src/schemas/workspace-files.ts",
 		"./schemas/plugins": "./src/schemas/plugins.ts",
 		"./schemas/host-delegation": "./src/schemas/host-delegation.ts",
 		"./schemas/portable-webmcp": "./src/schemas/portable-webmcp.ts",

@@ -827,6 +827,24 @@ function signedByteRedirect(signedUrl: string): Response {
  * plain handler (no workflow/durable-step/bridge context), so the in-step
  * large-decode stall does not apply.
  */
+// authz: public signed tenant-bound upload capability; verifies HMAC, expiry and exact part size.
+app.put(
+	"/workspace-file-uploads/:organizationId/:workspaceId/:resourceId/:partNumber",
+	async (c) => {
+		const { uploadWorkspaceFilePart } =
+			await import("./lib/workspace-file-routes");
+		return uploadWorkspaceFilePart(c.req.raw, c.env, c.req.param());
+	},
+);
+app.on(
+	["GET", "HEAD"],
+	"/workspace-files/:organizationId/:workspaceId/:resourceId/media",
+	async (c) => {
+		const { serveWorkspaceFile } = await import("./lib/workspace-file-routes");
+		return serveWorkspaceFile(c.req.raw, c.env, c.req.param());
+	},
+);
+
 app.get("/skill-media/:runId/:path{.+}", async (c) => {
 	const bounce = untrustedContentRedirect(c.env, c.req.url);
 	if (bounce) return bounce;

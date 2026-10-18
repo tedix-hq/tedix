@@ -3,7 +3,7 @@ import type {
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { Play } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import {
@@ -28,6 +28,28 @@ import {
 import { normalizeDocumentContent } from "@tedix/api-contract/utils/os-document";
 import { evaluateWorkbook, formatWorkbookValue } from "@/lib/workbook-formulas";
 
+const FilePreview = lazy(() =>
+	import("./workspace-file-preview").then((module) => ({
+		default: module.WorkspaceFilePreview,
+	})),
+);
+export function FileOutputView(props: {
+	workspaceId: string;
+	resourceId: string;
+}) {
+	return (
+		<Suspense
+			fallback={
+				<Text as="p" role="body">
+					Loading file…
+				</Text>
+			}
+		>
+			<FilePreview {...props} />
+		</Suspense>
+	);
+}
+
 export function OutputContentView({
 	content,
 	onEdit,
@@ -38,7 +60,12 @@ export function OutputContentView({
 }) {
 	switch (content.kind) {
 		case "document":
-			return <RichDocumentView content={content} />;
+			return (
+				<>
+					{content.file ? <FileOutputView {...content.file} /> : null}
+					<RichDocumentView content={content} />
+				</>
+			);
 		case "sheet":
 			return <WorkbookView content={content} />;
 		case "presentation":
