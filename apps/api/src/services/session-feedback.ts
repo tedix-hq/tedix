@@ -101,6 +101,7 @@ export async function recordSessionFeedback(
 		novel = result.novel;
 	}
 	for (const candidate of candidates) {
+		const quote = candidate.quote.replace(/\s+/g, " ").trim();
 		const repo = candidate.repository ?? "general";
 		const exact = comparison.find(
 			(row) => feedbackKey(row.content) === feedbackKey(candidate.text),
@@ -134,7 +135,7 @@ export async function recordSessionFeedback(
 			threadId: candidate.sessionKey,
 			occurredAt: candidate.occurredAt,
 			metadata: {
-				answer: candidate.quote,
+				answer: quote,
 				candidate: candidate.text,
 				sessionKey: candidate.sessionKey,
 				harness: candidate.harness,
@@ -178,9 +179,7 @@ export async function recordSessionFeedback(
 					lastEventAt: candidate.occurredAt,
 					evidence: {
 						version: 1,
-						sources: [
-							{ kind: "correction", id: event.id, quote: candidate.quote },
-						],
+						sources: [{ kind: "correction", id: event.id, quote }],
 						supportCount: 1,
 						state: "live",
 					},
