@@ -26,13 +26,16 @@
 	letter-spacing: -0.025em;
 }
 .ft-deck-banner {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.5rem;
 	font-size: 0.75rem;
 }
 .ft-deck-banner:not(:empty)::before {
 	content: "· ";
 	color: var(--text-color-kumo-subtle);
 }
-.ft-deck-banner button {
+.ft-deck-banner :is(button, a) {
 	padding: 0;
 	min-height: 0;
 	height: auto;

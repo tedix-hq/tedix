@@ -59,6 +59,9 @@ describe("activity feed", () => {
 			),
 		).toBe("Open https://supplier.example/receipt for the result.");
 		expect(sentence("  A short\nupdate  ")).toBe("A short update");
+		expect(sentence("2. The Office fix is live. More details follow.")).toBe(
+			"The Office fix is live.",
+		);
 	});
 	it("retains the deck's exact ADR envelope and class without adding feed approval actions", () => {
 		const envelope = DECISION_DECK_EXAMPLES.find(

@@ -34,7 +34,10 @@ const reactions: ActivityFeedItem["reactions"] = [
 	"work",
 ];
 export function sentence(text: string) {
-	const plain = text.replace(/\s+/g, " ").trim();
+	const plain = text
+		.replace(/\s+/g, " ")
+		.trim()
+		.replace(/^\d+[.)]\s+/, "");
 	const first = new Intl.Segmenter(undefined, { granularity: "sentence" })
 		.segment(plain)
 		[Symbol.iterator]()
@@ -90,6 +93,7 @@ export function workFeedItems(
 			sentence: sentence(
 				e.body !== e.eventType &&
 					e.body.length <= 180 &&
+					/\p{L}/u.test(sentence(e.body)) &&
 					!/[`\n]|https?:|[a-f\d]{8,}|(?:session|codex|claude-code)\s*(?:·|waiting:)|\b(?:SHA|D1|Attempt)\b/i.test(
 						e.body,
 					)
@@ -138,11 +142,16 @@ export function resultFeedItems(
 			tediId: a.executorType === "tedi" ? a.executorId : null,
 			sentence: sentence(
 				typeof a.metadata.feedSentence === "string" &&
-					a.metadata.feedSentence.trim()
+					/\p{L}/u.test(sentence(a.metadata.feedSentence))
 					? a.metadata.feedSentence
 					: `${w.title} — ${OS_COPY.feed.outcomes[a.outcome as keyof typeof OS_COPY.feed.outcomes] ?? OS_COPY.feed.workUpdated}.`,
 			),
-			importance: a.outcome === "failed" ? "high" : "normal",
+			importance:
+				a.outcome === "failed"
+					? "high"
+					: a.outcome === "succeeded"
+						? "normal"
+						: "low",
 			stalled: a.outcome !== "succeeded",
 			done: a.outcome === "succeeded",
 			explanation: [a.summary, OS_COPY.feed.resultExplanation]
