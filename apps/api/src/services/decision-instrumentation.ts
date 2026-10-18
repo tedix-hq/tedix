@@ -96,14 +96,16 @@ export async function recordDecisionExposure(
 	const presentation = DecisionCardPresentationSchema.safeParse(
 		displayCopy?.presentation ?? request?.metadata.cardPresentation,
 	).data;
-	const linkedWork = sources.items.find((w) => w.id === proposal?.workItemId);
+	const linkedWork = sources.items.find(
+		(w) => w.id === (request?.workItemId ?? proposal?.workItemId),
+	);
 	const snapshot: DecisionSnapshot = {
 		classId:
 			envelope?.classId ??
 			(typeof request?.metadata.decisionClass === "string"
 				? request.metadata.decisionClass
 				: (request?.kind ?? "approval")),
-		projectId: request?.projectId ?? linkedWork?.projectId ?? null,
+		projectId: linkedWork?.projectId ?? request?.projectId ?? null,
 		workItemId: request?.workItemId ?? proposal?.workItemId ?? null,
 		kind: envelope?.kind ?? request?.kind ?? "approval",
 		title: (
