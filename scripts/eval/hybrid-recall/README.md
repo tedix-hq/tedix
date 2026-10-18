@@ -13,7 +13,7 @@ actual FTS migration, entity resolutions and edges. Both return five results.
 MRR@5 assigns zero to a hit absent from the returned five. All fixtures use
 fictional organizations; the evaluator makes no network calls or live writes.
 
-The local result is recall@5 0.80 → 1.00 and MRR@5 0.491 → 0.547. Consult the
+The local result is recall@5 0.80 → 1.00 and MRR@5 0.491 → 0.667. Consult the
 saved result for exact p50/p95 values. These are local query/orchestration
 latencies, excluding Cloudflare, authentication and transport. Semantic recall
 and AI reranking are unavailable in this offline run; it proves the lexical,
@@ -23,3 +23,10 @@ fallback, canonical hydration and the total deadline.
 
 No `scripts/eval/memory-bench/README.md` existed on the starting revision.
 This separate fixture avoids owning that lane's future runner or lesson files.
+The shared runner landed during rebase; it is also measured against an isolated
+checkout of the previous source revision. Its numbered entity names caught a
+tokenization regression and its tied timestamps caught an invalidated
+contradiction suppressing an active replacement. Both have regression tests.
+Fusion gives confidence-ordered graph expansion half weight; query-ranked
+lexical, semantic and temporal arms retain full weight. This prevents graph
+inventory order from overruling a stronger lexical match.

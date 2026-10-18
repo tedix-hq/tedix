@@ -71,7 +71,9 @@ export function fuseRecall(
 				score: 0,
 				provenance: { arms: [], fusionScore: 0 },
 			};
-			item.score += 1 / (60 + index + 1);
+			// Graph neighbors are ordered by confidence, not query relevance.
+			// Keep their expansion signal without overpowering query-ranked arms.
+			item.score += (arm === "graph" ? 0.5 : 1) / (60 + index + 1);
 			item.provenance.fusionScore = item.score;
 			item.provenance.arms.push({
 				arm,
