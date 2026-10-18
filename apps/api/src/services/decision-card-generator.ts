@@ -11,9 +11,8 @@ const jsonSchema = z.toJSONSchema(
 		model: true,
 		generatedAt: true,
 	}).extend({
-		recommendation: DecisionCardPresentationSchema.shape.recommendation
-			.regex(/\bbecause\b/)
-			.describe(
+		recommendation:
+			DecisionCardPresentationSchema.shape.recommendation.describe(
 				"One clear next step because a reason supported by the source.",
 			),
 	}),
