@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/blueprint-provisioning": "./src/schemas/blueprint-provisioning.ts",
 		"./schemas/data-residency": "./src/schemas/data-residency.ts",
 		"./utils/mcp-scope-catalog": "./src/utils/mcp-scope-catalog.ts",
 		"./schemas/mcp-grant": "./src/schemas/mcp-grant.ts",

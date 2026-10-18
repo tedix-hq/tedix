@@ -7,6 +7,10 @@ import {
 	WorkspaceFileReferenceSchema,
 	WorkspaceFilePartSchema,
 } from "../schemas/workspace-files";
+import {
+	BlueprintApplyInputSchema,
+	BlueprintApplyReceiptSchema,
+} from "../schemas/blueprint-provisioning";
 import { JsonValueSchema } from "../schemas/common";
 import { ExecutionRequirementSchema } from "../schemas/execution-evidence";
 import {
@@ -1472,6 +1476,35 @@ export const osWorkspacesContract = oc
 				),
 		}),
 		blueprints: oc.router({
+			previewApply: oc
+				.route({
+					method: "POST",
+					path: "/blueprints/{blueprintId}/preview-apply",
+					summary: "Preview a blueprint provisioning plan without writes",
+				})
+				.input(BlueprintApplyInputSchema)
+				.output(
+					z.object({
+						definition: OsBlueprintDefinitionSchema,
+						receipt: BlueprintApplyReceiptSchema,
+						preflight: OsBlueprintPreflightSchema,
+					}),
+				),
+			apply: oc
+				.errors(preflightBlockedErrors)
+				.route({
+					method: "POST",
+					path: "/blueprints/{blueprintId}/apply",
+					summary:
+						"Apply a blueprint with idempotent project, Work, document and schedule provisioning",
+				})
+				.input(BlueprintApplyInputSchema)
+				.output(
+					z.object({
+						receipt: BlueprintApplyReceiptSchema,
+						preflight: OsBlueprintPreflightSchema,
+					}),
+				),
 			list: oc
 				.route({
 					method: "GET",

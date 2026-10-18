@@ -15,6 +15,7 @@
  */
 
 import * as z from "zod";
+import { BlueprintProvisioningSchema } from "./blueprint-provisioning";
 import { OsLocaleSchema } from "./user-settings";
 import { FactoryBlueprintSchema } from "./factory-blueprints";
 import { type JsonValue, JsonValueSchema } from "./common";
@@ -2058,6 +2059,7 @@ export type OsBlueprintRequirements = z.infer<
  * than inventing satisfied dependencies for them.
  */
 export const OsBlueprintDefinitionSchema = z.object({
+	provisioning: BlueprintProvisioningSchema.optional(),
 	factory: FactoryBlueprintSchema.optional().describe(
 		"Optional portable factory operating contract; installation never accepts Work, enables schedules, or grants authority",
 	),
