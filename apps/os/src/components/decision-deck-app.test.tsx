@@ -231,6 +231,26 @@ it("starts collapsed, opens Why in context, and remembers closure for this perso
 	expect(
 		host.querySelector('.fd-context-main [data-context-section="why"]'),
 	).toBeNull();
+
+	const context = host.querySelector<HTMLElement>(
+		'.fd-context-rail [data-context-section="why"] h3',
+	)!;
+	await act(async () => {
+		context.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+		);
+		const start = new Event("touchstart", { bubbles: true });
+		Object.defineProperty(start, "touches", {
+			value: [{ clientX: 100, clientY: 100 }],
+		});
+		context.dispatchEvent(start);
+		const end = new Event("touchend", { bubbles: true });
+		Object.defineProperty(end, "changedTouches", {
+			value: [{ clientX: 300, clientY: 100 }],
+		});
+		context.dispatchEvent(end);
+	});
+	expect(document.querySelector('[role="alertdialog"]')).toBeNull();
 	await act(async () =>
 		document.dispatchEvent(
 			new KeyboardEvent("keydown", { key: "i", bubbles: true }),
