@@ -141,6 +141,20 @@ describe("automatic filing", () => {
 			expect(model).not.toHaveBeenCalled();
 		}
 	});
+	it("distinguishes model absence, fenced output and invalid fields without disclosing content", async () => {
+		for (const [raw, reason] of [
+			[null, "model returned no response"],
+			["```json\n{}\n```", "Markdown fence instead of JSON"],
+			["{}", "invalid fields: projectId"],
+			["private request text", "model returned invalid JSON"],
+		] as const) {
+			const { db } = await fixture();
+			await expect(
+				autoFileRequests(db, async () => raw, { ...owner, now }),
+			).rejects.toThrow(reason);
+			expect(await listRequestFilings(db, owner)).toEqual([]);
+		}
+	});
 	it("retries proposed Work from a committed filing after an interrupted invocation", async () => {
 		const { db, row, model } = await fixture("issue");
 		await recordRequestFiling(db, {

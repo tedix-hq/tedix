@@ -80,8 +80,15 @@ export async function autoFileRequests(
 		let pick: z.infer<typeof PickSchema>;
 		try {
 			pick = PickSchema.parse(JSON.parse(raw ?? ""));
-		} catch {
-			throw new Error("Request filing candidate unavailable");
+		} catch (error) {
+			const reason = !raw
+				? "model returned no response"
+				: error instanceof z.ZodError
+					? `invalid fields: ${error.issues.map((issue) => issue.path.join(".")).join(", ")}`
+					: raw.trim().startsWith("```")
+						? "model returned a Markdown fence instead of JSON"
+						: "model returned invalid JSON";
+			throw new Error(`Request filing candidate unavailable: ${reason}`);
 		}
 		const candidate = projects.find((p) => p.id === pick.projectId);
 		if (pick.projectId && !candidate) throw new Error("Unknown filing project");

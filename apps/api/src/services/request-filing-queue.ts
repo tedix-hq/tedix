@@ -9,6 +9,7 @@ import { createDbClient } from "@tedix/db/client";
 import {
 	pendingFilingLessons,
 	listUnfiledRequests,
+	countUnfiledRequests,
 } from "@tedix/db/queries/request-filings";
 import { workersAiLedgerModel } from "./agent-session-request-ledger";
 import { requestFilingFitModel } from "./request-filing-fit";
@@ -38,6 +39,7 @@ export async function enqueueRequestFiling(
 export async function processRequestFilingQueue(
 	env: CloudflareEnv,
 	owner: { organizationId: string; userId: string; ownerSubject: string },
+	limit = 10,
 ) {
 	const db = createDbClient(env.DB);
 	const member =
@@ -47,19 +49,20 @@ export async function processRequestFilingQueue(
 			owner.userId,
 		)) ??
 		(await getMemberByUserId(db, owner.organizationId, owner.ownerSubject));
-	if (member?.status !== "active") return;
+	if (member?.status !== "active") return { state: "inactive_owner" as const };
 	const { recordFilingCorrectionLesson } =
 		await import("./request-ledger-lessons");
 	for (const event of await pendingFilingLessons(db, owner))
 		await recordFilingCorrectionLesson(db, event);
+	if (!(await automaticFilingEnabled(db, owner)))
+		return { state: "paused" as const };
 	if (
-		!(await automaticFilingEnabled(db, owner)) ||
 		!hasPermission(
 			{ roles: [member.role], permissions: member.customPermissions ?? [] },
 			"tedis:update",
 		)
 	)
-		return;
+		return { state: "permission_denied" as const };
 	const model = workersAiLedgerModel(
 		organizationModelEnv(env, db, owner.organizationId),
 	);
@@ -76,7 +79,7 @@ export async function processRequestFilingQueue(
 			learningOwnerId: owner.ownerSubject,
 			now: new Date().toISOString(),
 		},
-		10,
+		limit,
 	);
 	const { materializeFilingReviews } =
 		await import("./decision-filing-reviews");
@@ -86,4 +89,8 @@ export async function processRequestFilingQueue(
 		(await pendingFilingLessons(db, owner)).length
 	)
 		await enqueueRequestFiling(env, owner);
+	return {
+		state: "processed" as const,
+		pending: await countUnfiledRequests(db, owner),
+	};
 }

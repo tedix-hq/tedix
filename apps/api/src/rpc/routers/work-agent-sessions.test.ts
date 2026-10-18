@@ -1,4 +1,7 @@
-import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
+import {
+	learningInteractionEvents,
+	learningImprovementProposals,
+} from "@tedix/db/schema/learning-feedback";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { workInteractions } from "@tedix/db/schema/work-factory";
 import { projects } from "@tedix/db/schema/projects";
@@ -51,6 +54,7 @@ function fixture() {
 	sqlite.exec(schemaDdl(learningInteractionEvents));
 	for (const table of [
 		projects,
+		learningImprovementProposals,
 		organizationMembers,
 		workItems,
 		workAttempts,
@@ -376,4 +380,49 @@ it("keeps automatic container creation behind existing project permission and ex
 		queued: false,
 	});
 	expect(queued).toHaveLength(1);
+});
+
+it("reports fresh membership fences for an immediate filing pass without claiming it ran", async () => {
+	const { owner, ada, queued, sqlite } = fixture();
+	await expect(
+		ada.classifyRequests({ enabled: true, runNow: true }),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	expect(await owner.classifyRequests({ enabled: true, runNow: true })).toEqual(
+		{ queued: false, pass: { state: "inactive_owner" } },
+	);
+	const db = createDbClient(createD1Facade(sqlite));
+	await db.insert(organizationMembers).values({
+		id: "member-owner",
+		organizationId: ORG_ID,
+		userId: "owner",
+		descopeUserId: "owner-sub",
+		email: "owner@example.test",
+		status: "active",
+		role: "viewer",
+	});
+	expect(await owner.classifyRequests({ runNow: true })).toEqual({
+		queued: false,
+		pass: { state: "permission_denied" },
+	});
+	expect(queued).toHaveLength(0);
+});
+
+it("returns an immediate empty pass and surfaces storage failures instead of reporting queue success", async () => {
+	const { owner, queued, sqlite } = fixture();
+	const db = createDbClient(createD1Facade(sqlite));
+	await db.insert(organizationMembers).values({
+		id: "member-owner",
+		organizationId: ORG_ID,
+		userId: "owner",
+		descopeUserId: "owner-sub",
+		email: "owner@example.test",
+		status: "active",
+		role: "owner",
+	});
+	expect(await owner.classifyRequests({ enabled: true, runNow: true })).toEqual(
+		{ queued: false, pass: { state: "processed", pending: 0 } },
+	);
+	sqlite.exec("DROP TABLE projects");
+	await expect(owner.classifyRequests({ runNow: true })).rejects.toThrow();
+	expect(queued).toHaveLength(0);
 });

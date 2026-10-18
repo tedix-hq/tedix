@@ -200,6 +200,12 @@ export const ListAgentSessionActivityResultSchema = z.strictObject({
 });
 
 export const ClassifyAgentSessionRequestsInputSchema = z.strictObject({
+	runNow: z
+		.boolean()
+		.optional()
+		.describe(
+			"Run one filing synchronously and report its outcome; queue remaining rows. Model or storage failures are returned to the caller.",
+		),
 	enabled: z
 		.boolean()
 		.optional()
@@ -209,4 +215,15 @@ export const ClassifyAgentSessionRequestsInputSchema = z.strictObject({
 });
 export const ClassifyAgentSessionRequestsResultSchema = z.strictObject({
 	queued: z.boolean(),
+	pass: z
+		.strictObject({
+			state: z.enum([
+				"processed",
+				"inactive_owner",
+				"paused",
+				"permission_denied",
+			]),
+			pending: z.number().int().nonnegative().optional(),
+		})
+		.optional(),
 });
