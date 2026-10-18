@@ -9,6 +9,7 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
 	workInteractionAttention,
+	workInteractionCardPresentations,
 	workInteractionDeliveries,
 	workInteractionReplyDrafts,
 	workInteractionResponses,
@@ -44,6 +45,7 @@ function fixture() {
 			workEvents,
 			workItemComments,
 			workInteractions,
+			workInteractionCardPresentations,
 			workInteractionResponses,
 			workInteractionAttention,
 			workInteractionReplyDrafts,

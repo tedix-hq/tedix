@@ -8,6 +8,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { sql } from "drizzle-orm";
 import {
 	check,
@@ -592,6 +593,35 @@ export const workInteractions = sqliteTable(
 		check(
 			"chk_work_interaction_context",
 			sql`${table.workItemId} IS NOT NULL OR ${table.caseId} IS NOT NULL OR ${table.projectId} IS NOT NULL`,
+		),
+	],
+);
+
+export const workInteractionCardPresentations = sqliteTable(
+	"work_interaction_card_presentations",
+	{
+		orgId: text("org_id").notNull(),
+		interactionId: text("interaction_id").notNull(),
+		personId: text("person_id").notNull(),
+		requestVersion: integer("request_version").notNull(),
+		presentation: text("presentation", { mode: "json" })
+			.$type<DecisionCardPresentation>()
+			.notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.orgId, table.interactionId] }),
+		foreignKey({
+			columns: [table.orgId, table.interactionId],
+			foreignColumns: [workInteractions.orgId, workInteractions.id],
+		}).onDelete("cascade"),
+		check(
+			"chk_card_presentation_request_version",
+			sql`${table.requestVersion} > 0`,
+		),
+		check(
+			"chk_card_presentation_json",
+			sql`json_valid(${table.presentation}) AND json_type(${table.presentation}) = 'object'`,
 		),
 	],
 );

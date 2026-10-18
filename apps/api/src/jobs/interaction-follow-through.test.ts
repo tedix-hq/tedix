@@ -14,6 +14,7 @@ import {
 } from "@tedix/db/schema/external-agent-identity";
 import {
 	workInteractions,
+	workInteractionCardPresentations,
 	workInteractionResponses,
 } from "@tedix/db/schema/work-factory";
 import {
@@ -47,6 +48,7 @@ async function fixture(fetchWake?: (request: Request) => Promise<Response>) {
 			externalAgentSessions,
 			externalAgentPrincipals,
 			workInteractions,
+			workInteractionCardPresentations,
 			workInteractionResponses,
 		),
 	);

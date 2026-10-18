@@ -4,6 +4,8 @@ import {
 	WorkProposalMetadataSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
 import { call, implement } from "@orpc/server";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
+import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import { outboundRouter } from "./work-outbound";
 import { outboundInteractionOverlays } from "@tedix/db/queries/work-items/outbound";
 import { listExternalAgentSessionHarnessesByIds } from "@tedix/db/queries/external-agent-identity/session-state";
@@ -158,6 +160,7 @@ function requestOutput(
 	row: InteractionRow,
 	attention?: AttentionOverlay,
 	resolution?: ResolutionDelivery | null,
+	presentation?: DecisionCardPresentation,
 ) {
 	if (!row.targetType || !row.targetId) {
 		throw createError(
@@ -165,6 +168,9 @@ function requestOutput(
 			"Stored Work interaction is missing its required target principal",
 		);
 	}
+	const metadata = presentation
+		? { ...row.metadata, cardPresentation: presentation }
+		: row.metadata;
 	const follow = row.metadata.followThrough;
 	const reaskNote =
 		follow &&
@@ -198,14 +204,14 @@ function requestOutput(
 		metadata: withDelivery(
 			attention?.kind
 				? {
-						...row.metadata,
+						...metadata,
 						attention: { kind: attention.kind, need: attention.need },
 						// The Office reads the one-line ask under this name.
 						...(attention.kind === "needs_you" && attention.need
 							? { neededFromYou: attention.need }
 							: {}),
 					}
-				: row.metadata,
+				: metadata,
 			resolution,
 		),
 	};
@@ -717,26 +723,32 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 				"Work interaction audit detail",
 			);
 		}
-		const [rows, latestDraft, attention, deliveries] = await Promise.all([
-			listWorkInteractionResponses(context.db, {
-				orgId,
-				interactionId: request.id,
-				limit: input.responseLimit + 1,
-				afterRespondedAt: input.responseCursor?.at,
-				afterId: input.responseCursor?.id,
-			}),
-			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
-			getWorkInteractionAttention(context.db, {
-				orgId,
-				interactionId: request.id,
-			}),
-			request.status === "resolved"
-				? listWorkInteractionDeliveries(context.db, {
-						orgId,
-						interactionId: request.id,
-					})
-				: Promise.resolve([]),
-		]);
+		const [rows, latestDraft, attention, deliveries, presentations] =
+			await Promise.all([
+				listWorkInteractionResponses(context.db, {
+					orgId,
+					interactionId: request.id,
+					limit: input.responseLimit + 1,
+					afterRespondedAt: input.responseCursor?.at,
+					afterId: input.responseCursor?.id,
+				}),
+				getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
+				getWorkInteractionAttention(context.db, {
+					orgId,
+					interactionId: request.id,
+				}),
+				request.status === "resolved"
+					? listWorkInteractionDeliveries(context.db, {
+							orgId,
+							interactionId: request.id,
+						})
+					: Promise.resolve([]),
+				listDecisionCardPresentations(context.db, {
+					orgId,
+					personId: actor.type === "user" ? actor.id : null,
+					requests: [request],
+				}),
+			]);
 		const resolving = rows.find((row) => row.resolvesRequest);
 		const delivery = resolving
 			? deliveries.find((row) => row.responseId === resolving.id)
@@ -788,6 +800,7 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 							handoffTo: delivery?.handoffTo ?? null,
 						}
 					: null,
+				presentations[0]?.presentation,
 			),
 			effectiveState: state,
 			canRespond: isTarget && (state === "open" || correctable),
@@ -907,14 +920,23 @@ const listInboxProcedure = readOs.listInbox.handler(
 			limit: input.limit,
 			observedAt,
 		});
+		const [outboundRows, presentations] = await Promise.all([
+			outboundInteractionOverlays(
+				context.db,
+				orgId,
+				page.data.map((row) => row.request.id),
+			),
+			listDecisionCardPresentations(context.db, {
+				orgId,
+				personId: caller.type === "user" ? caller.id : null,
+				requests: page.data.map((row) => row.request),
+			}),
+		]);
 		const outbound = new Map(
-			(
-				await outboundInteractionOverlays(
-					context.db,
-					orgId,
-					page.data.map((row) => row.request.id),
-				)
-			).map((overlay) => [overlay.interactionId, overlay]),
+			outboundRows.map((overlay) => [overlay.interactionId, overlay]),
+		);
+		const copy = new Map(
+			presentations.map((row) => [row.interactionId, row.presentation]),
 		);
 		const requests = page.data.map((row) => {
 			const overlay = outbound.get(row.request.id);
@@ -933,6 +955,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 					: row.request,
 				rowAttention(row),
 				rowResolution(row),
+				copy.get(row.request.id),
 			);
 		});
 		const [tedis, references, sessions, drafts] = await Promise.all([
@@ -1300,7 +1323,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 				ErrorCodes.CONFLICT,
 				"The request changed during generation",
 			);
-		return requestOutput(saved);
+		return requestOutput(request, undefined, undefined, saved.presentation);
 	}),
 	create: createProcedure,
 	review: writeOs.review.handler(async ({ input, context }) => {

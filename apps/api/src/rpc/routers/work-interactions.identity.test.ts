@@ -1,5 +1,6 @@
 import { externalAgentSessions } from "@tedix/db/schema/external-agent-identity";
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import * as workCrud from "@tedix/db/queries/work-items/crud";
@@ -8,6 +9,7 @@ import { tedis } from "@tedix/db/schema/tedis";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import {
 	workInteractionAttention,
+	workInteractionCardPresentations,
 	workInteractionDeliveries,
 	workInteractionReplyDrafts,
 	workInteractionResponses,
@@ -23,7 +25,10 @@ import { workInteractionsContractRouter } from "./work-interactions";
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const WORK_ITEM_ID = "00000000-0000-4000-8000-000000000002";
 
-function fixture(publish?: (request: Request) => Promise<Response>) {
+function fixture(
+	publish?: (request: Request) => Promise<Response>,
+	strictInteractions = false,
+) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
@@ -31,6 +36,7 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			workItems,
 			workEvents,
 			workInteractions,
+			workInteractionCardPresentations,
 			workInteractionResponses,
 			workInteractionAttention,
 			workInteractionDeliveries,
@@ -50,6 +56,27 @@ function fixture(publish?: (request: Request) => Promise<Response>) {
 			"Targeted interaction",
 			"2026-08-21T00:00:00.000Z",
 		);
+	if (strictInteractions) {
+		for (const migration of [
+			"20261010144722_auto_reply_resolves_question",
+			"20261016230947_interaction_follow_through",
+		]) {
+			const source = readFileSync(
+				new URL(
+					`../../../../../packages/db/drizzle/${migration}/migration.sql`,
+					import.meta.url,
+				),
+				"utf8",
+			);
+			for (const statement of source.split("--> statement-breakpoint"))
+				if (
+					/CREATE TRIGGER `work_interaction_(update_guard|delegation_guard|follow_through_guard|response_apply)`/.test(
+						statement,
+					)
+				)
+					sqlite.exec(statement);
+		}
+	}
 	const insertMember = sqlite.prepare(`INSERT INTO organization_members
 		(id,organization_id,user_id,descope_user_id,email,role,status)
 		VALUES (?,?,?,?,?,?,'active')`);
@@ -744,8 +771,18 @@ it("ships the latest authorized draft with the inbox and never exposes it to ano
 });
 
 it("regenerates display copy only for the addressed person, preserving decisions and rejecting stale versions", async () => {
-	const { owner, target, other, sqlite } = fixture();
+	const { owner, target, other, sqlite } = fixture(undefined, true);
 	const request = await createTargetedInteraction(owner);
+	const canonical = sqlite
+		.prepare("SELECT * FROM work_interactions WHERE id=?")
+		.get(request.id);
+	expect(() =>
+		sqlite
+			.prepare(
+				"UPDATE work_interactions SET metadata=json_set(metadata,'$.cardPresentation',json('{}')),version=version+1 WHERE id=?",
+			)
+			.run(request.id),
+	).toThrow("invalid interaction delegation");
 	await expect(
 		other.regenerateCard({
 			requestId: request.id,
@@ -772,7 +809,7 @@ it("regenerates display copy only for the addressed person, preserving decisions
 			kind: request.kind,
 			prompt: request.prompt,
 			subject: request.subject,
-			version: request.version + 1,
+			version: request.version,
 			metadata: { cardPresentation: { title: "Keep the reviewed boundary?" } },
 		});
 		expect(
@@ -780,6 +817,34 @@ it("regenerates display copy only for the addressed person, preserving decisions
 				.prepare("SELECT count(*) AS n FROM work_interaction_responses")
 				.get(),
 		).toEqual({ n: 0 });
+		expect(
+			sqlite
+				.prepare("SELECT * FROM work_interactions WHERE id=?")
+				.get(request.id),
+		).toEqual(canonical);
+		expect(
+			(await target.get({ requestId: request.id })).request.metadata
+				.cardPresentation,
+		).toMatchObject({ title: "Keep the reviewed boundary?" });
+		expect(
+			(await target.listInbox({ states: ["open"] })).data[0]?.request.metadata
+				.cardPresentation,
+		).toMatchObject({ title: "Keep the reviewed boundary?" });
+		expect(
+			(await owner.get({ requestId: request.id })).request.metadata
+				.cardPresentation,
+		).toBeUndefined();
+		await target.respond({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			responseKind: "answer",
+			body: "Keep the reviewed scope.",
+			resolvesRequest: true,
+		});
+		expect(
+			(await target.get({ requestId: request.id })).request.metadata
+				.cardPresentation,
+		).toBeUndefined();
 		await expect(
 			target.regenerateCard({
 				requestId: request.id,
