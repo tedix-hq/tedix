@@ -14,13 +14,13 @@ visibility: public
 
 # MCP app platform
 
-Tedix uses the Model Context Protocol (MCP) as a standard way to connect
-workers and compatible clients to tools, prompts, resources, and interactive
-application components.
+If your team needs to connect a tool to a Tedix assistant, this guide explains
+how applications provide that access while keeping each organization's data
+and permissions separate.
 
-To connect your own assistant to Tedix, see
+First, connect your assistant using
 [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md).
-This page is about connecting tools and applications to Tedix workers.
+This page explains how to connect tools and applications to Tedix.
 
 ## Tenant-scoped connections
 
@@ -30,9 +30,9 @@ same integration for two customers does not mix their data or authority.
 
 ## Configured at runtime
 
-Tedix applications are configured from durable metadata. Tool schemas,
-required scopes, identity rules, and UI resources can evolve without creating
-a separate Worker deployment for every tenant.
+Tedix applications use saved settings that persist over time. Tool descriptions,
+required permissions, identity rules, and interface components can change
+without releasing separate software for every organization.
 
 ## MCP and durable work
 
@@ -43,8 +43,8 @@ MCP calls can participate in durable Tedix work:
 - policies can require confirmation before sensitive mutations;
 - results can be attached to rationale and audit records.
 
-MCP provides the connection surface. Tedix adds tenant identity, governance,
-durability, and audit records around that surface.
+MCP provides the connection. Tedix adds organization-specific identity,
+access controls, long-running work, and audit records.
 
 ## Trace one tool
 
@@ -220,9 +220,9 @@ the next hour. A caller can hold 20 subscriptions per organization.
 An app can configure tools with `transport: "catalog"` and the closed
 `catalog/search` or `catalog/describe` endpoint. Search accepts query, namespace,
 bounded paging, and schema inclusion options; describe accepts an exact
-`namespace.tool` callable. These operations use the same request-local discovery
-projection as Code Mode without creating a Dynamic Worker. Discovery reports
-execution authorization; it does not grant it.
+`namespace.tool` callable. These operations use the same request-local tool discovery as Code Mode
+without creating a separate isolated tool runner. Discovery reports whether
+a tool is authorized to run; it does not grant permission.
 
 In Code Mode, `discover.describe("namespace.tool")` returns the full input
 schema, description and annotations. Output schemas are omitted by default to
@@ -242,7 +242,7 @@ hydration. The stateless lane still omits `ask`.
 
 Catalog operations execute synchronously in the original caller context;
 async-task replay and executable code inputs are refused. Arbitrary Code Mode
-programs still use a fresh anonymous isolated Dynamic Worker with no ambient
+programs still run in a fresh, anonymous, isolated environment with no ambient
 network access. Native catalog calls can still use the existing discovery API
 and ranking services.
 
