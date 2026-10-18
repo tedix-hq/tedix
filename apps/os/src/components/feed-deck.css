@@ -101,16 +101,91 @@
 	background: var(--fd-ink);
 }
 .fd-quiet-updates {
-	margin-block: 1rem;
-	padding-block: 1rem;
+	margin-block: 0.75rem;
+	padding-block: 0;
 	border-block: 1px solid var(--fd-line);
 	color: var(--fd-muted);
 }
 .fd-quiet-updates button {
 	justify-content: flex-start;
-	padding-inline: 0;
 	font-family: var(--font-sans);
 	color: var(--fd-ink);
+}
+.feed-deck
+	:is(
+		.fd-quiet-updates button,
+		.fd-why > button,
+		.fd-card-why > button,
+		.fd-proposal-more,
+		.fd-context-toggle,
+		.fd-context-section button.bg-inherit,
+		.fd-disclosure > button,
+		.ft-deck-banner :is(button, a),
+		[data-kumo-component="Button"].bg-inherit:not(
+				[data-icon-only],
+				[data-decision-intent]
+			)
+	) {
+	height: auto;
+	min-height: 2.25rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: var(--tedix-radius-md);
+	box-shadow: none;
+}
+.feed-deck
+	:is(
+		.fd-quiet-updates button,
+		.fd-why > button,
+		.fd-card-why > button,
+		.fd-proposal-more,
+		.fd-context-toggle,
+		.fd-context-section button.bg-inherit,
+		.fd-disclosure > button,
+		.ft-deck-banner :is(button, a),
+		[data-kumo-component="Button"].bg-inherit:not(
+				[data-icon-only],
+				[data-decision-intent]
+			)
+	):is(:hover, :focus-visible) {
+	background: var(--color-kumo-tint);
+	color: var(--foreground);
+}
+.feed-deck
+	:is(
+		.fd-quiet-updates button,
+		.fd-why > button,
+		.fd-card-why > button,
+		.fd-proposal-more,
+		.fd-context-toggle,
+		.fd-context-section button.bg-inherit,
+		.fd-disclosure > button,
+		.ft-deck-banner :is(button, a),
+		[data-kumo-component="Button"].bg-inherit:not(
+				[data-icon-only],
+				[data-decision-intent]
+			)
+	):focus-visible {
+	outline: 2px solid var(--color-kumo-brand);
+	outline-offset: 2px;
+}
+@media (max-width: 640px), (pointer: coarse) {
+	.feed-deck
+		:is(
+			.fd-quiet-updates button,
+			.fd-why > button,
+			.fd-card-why > button,
+			.fd-proposal-more,
+			.fd-context-toggle,
+			.fd-context-section button.bg-inherit,
+			.fd-disclosure > button,
+			.ft-deck-banner :is(button, a),
+			[data-kumo-component="Button"].bg-inherit:not(
+					[data-icon-only],
+					[data-decision-intent]
+				)
+		) {
+		min-height: 2.75rem;
+	}
 }
 .fd-quiet-updates p {
 	font-size: 0.75rem !important;

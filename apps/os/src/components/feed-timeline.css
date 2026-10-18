@@ -140,9 +140,10 @@
 	overflow-wrap: anywhere;
 }
 .ft-reactions {
-	position: absolute;
-	inset-inline-end: 0;
-	bottom: -0.5rem;
+	position: relative;
+	justify-content: flex-end;
+	gap: 0.5rem;
+	padding-block: 0.5rem;
 	pointer-events: none;
 	opacity: 0;
 	transition: opacity 120ms;
@@ -154,9 +155,14 @@
 	pointer-events: auto;
 }
 .ft-reactions button {
-	width: 2rem;
-	height: 2rem;
+	width: 2.25rem;
+	height: 2.25rem;
 	padding: 0;
+	color: var(--muted-foreground);
+}
+.ft-reactions button:is(:hover, :focus-visible) {
+	color: var(--foreground);
+	background: var(--color-kumo-tint);
 }
 .ft-loading {
 	display: flex;
