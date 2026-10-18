@@ -37,6 +37,7 @@
 		"worktree:gc": "bun scripts/dev/worktree-gc.ts",
 		"dev:os-stack": "./scripts/dev-with-logs.sh dev os",
 		"docs:public:check": "bun scripts/docs/check-public-docs.ts",
+		"eval:memory": "bun scripts/eval/memory-bench/run.ts",
 		"format": "vp fmt",
 		"format:check": "vp fmt --check",
 		"hooks:install": "git config core.hooksPath .githooks",

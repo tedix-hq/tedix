@@ -13,6 +13,7 @@
 		"ci/notify-repository-observer.mjs",
 		"ci/notify-repository-observer.test.ts",
 		"dev/**/*.ts",
+		"eval/memory-bench/**/*.ts",
 		"skills/install-calendar-coordinator.ts",
 		"skills/render-planning-board-sync.ts",
 		"../apps/skill-runtime/examples/calendar-coordinator/scripts/workflow.ts",
