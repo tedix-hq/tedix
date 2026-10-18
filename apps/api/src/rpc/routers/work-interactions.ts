@@ -6,6 +6,7 @@ import {
 import { call, implement } from "@orpc/server";
 import { outboundRouter } from "./work-outbound";
 import { outboundInteractionOverlays } from "@tedix/db/queries/work-items/outbound";
+import { listExternalAgentSessionHarnessesByIds } from "@tedix/db/queries/external-agent-identity/session-state";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getWorkItemBySourceIntentId,
@@ -815,6 +816,10 @@ function askedBy(
 	request: RequestOutput,
 	callerId: string,
 	tediNames: ReadonlyMap<string, string>,
+	sessionHarnesses: ReadonlyMap<
+		string,
+		{ principalId: string; harness: string }
+	>,
 ): string {
 	const metadata = request.metadata as Record<string, unknown>;
 	if (metadata.schema === WORK_PROPOSAL_SCHEMA)
@@ -826,16 +831,23 @@ function askedBy(
 		typeof metadata.agentSession === "string"
 			? metadata.agentSession
 			: request.creatorSessionId;
+	const storedSession = sessionHarnesses.get(request.creatorSessionId ?? "");
+	const verifiedHost =
+		request.creatorType === "external_agent" &&
+		storedSession?.principalId === request.creatorId
+			? storedSession.harness
+			: undefined;
 	const host =
-		typeof metadata.host === "string"
+		verifiedHost ??
+		(typeof metadata.host === "string"
 			? metadata.host
 			: session
 				? typeof metadata.agentHarness === "string"
 					? metadata.agentHarness
 					: session.split(":")[0]
-				: null;
-	if (host) return AGENT_HOSTS[host] ?? `${host} session`;
-	if (request.creatorType === "external_agent") return "An agent session";
+				: null);
+	if (host && !/^[0-9a-f-]{36}$/i.test(host)) return AGENT_HOSTS[host] ?? host;
+	if (request.creatorType === "external_agent") return "Your coding assistant";
 	return request.creatorId === callerId ? "You" : "A teammate";
 }
 
@@ -885,7 +897,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 				rowResolution(row),
 			);
 		});
-		const [tedis, references] = await Promise.all([
+		const [tedis, references, sessions] = await Promise.all([
 			listTediDisplayNamesByIds(context.db, {
 				organizationId: orgId,
 				ids: requests
@@ -896,9 +908,22 @@ const listInboxProcedure = readOs.listInbox.handler(
 				orgId,
 				shortIds: requests.flatMap(quotedShortIds),
 			}),
+			listExternalAgentSessionHarnessesByIds(context.db, {
+				organizationId: orgId,
+				sessionIds: requests
+					.filter(
+						(request) =>
+							request.creatorType === "external_agent" &&
+							/^[0-9a-f-]{36}$/i.test(request.creatorSessionId ?? ""),
+					)
+					.map((request) => request.creatorSessionId!),
+			}),
 		]);
 		const tediNames = new Map(
 			tedis.map((tedi) => [tedi.id, tedi.displayName ?? tedi.name]),
+		);
+		const sessionHarnesses = new Map(
+			sessions.map((session) => [session.id, session]),
 		);
 		return {
 			data: page.data.map((row, index) => {
@@ -911,7 +936,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 					canCancel: false,
 					workItem: row.workItem?.id ? row.workItem : null,
 					responseCount: row.responseCount,
-					askedBy: askedBy(request, caller.id, tediNames),
+					askedBy: askedBy(request, caller.id, tediNames, sessionHarnesses),
 					references: references.filter((ref) => quoted.has(ref.shortId)),
 				};
 			}),

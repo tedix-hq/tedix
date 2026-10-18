@@ -1,5 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import type { DbQueryClient } from "../../query-client";
 import {
 	type ExternalAgentSession,
 	externalAgentSessions,
@@ -59,4 +60,39 @@ export async function diagnoseMutableSession(
 		"session_ended",
 		"External Agent-Session has ended",
 	);
+}
+
+type ListExternalAgentSessionHarnessesParams = {
+	organizationId: string;
+	sessionIds: string[];
+};
+type ListExternalAgentSessionHarnessesResult = Pick<
+	ExternalAgentSession,
+	"id" | "principalId" | "harness"
+>;
+
+export async function listExternalAgentSessionHarnessesByIds(
+	db: DbQueryClient,
+	params: ListExternalAgentSessionHarnessesParams,
+): Promise<ListExternalAgentSessionHarnessesResult[]> {
+	const ids = [...new Set(params.sessionIds)];
+	const rows: ListExternalAgentSessionHarnessesResult[] = [];
+	for (let offset = 0; offset < ids.length; offset += 50) {
+		rows.push(
+			...(await db
+				.select({
+					id: externalAgentSessions.id,
+					principalId: externalAgentSessions.principalId,
+					harness: externalAgentSessions.harness,
+				})
+				.from(externalAgentSessions)
+				.where(
+					and(
+						eq(externalAgentSessions.organizationId, params.organizationId),
+						inArray(externalAgentSessions.id, ids.slice(offset, offset + 50)),
+					),
+				)),
+		);
+	}
+	return rows;
 }
