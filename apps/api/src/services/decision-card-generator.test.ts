@@ -48,6 +48,7 @@ it("uses the recipient's learned preferences and configured small model without 
 });
 it.each([
 	{ ...copy, title: "x".repeat(91) },
+	{ ...copy, version: 2 },
 	{ ...copy, body: "One. Two. Three." },
 	{ ...copy, recommendation: "Approve this." },
 	{ ...copy, options: [{ intent: "approve" }] },
@@ -80,4 +81,29 @@ it("does not repeat an unchanged provider failure", async () => {
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
 	).toBeNull();
 	expect(mocks.model).toHaveBeenCalledTimes(1);
+});
+
+it("supplies protocol metadata without asking the model to invent it", async () => {
+	const { version: _, ...prose } = copy;
+	mocks.model.mockResolvedValue(JSON.stringify(prose));
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject(copy);
+});
+
+it("bounds learning context while preserving personal preferences and fitting lessons", async () => {
+	mocks.preferences.mockResolvedValue(
+		JSON.stringify({
+			purpose: "Writing context only",
+			preferences: [{ text: "Keep my voice." }],
+			lessons: [{ text: "x".repeat(5000) }, { text: "Keep proposals short." }],
+		}),
+	);
+	await generateDecisionCard({ db: {}, env: {} } as never, request);
+	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
+	expect(source.preferences.length).toBeLessThanOrEqual(3000);
+	expect(JSON.parse(source.preferences)).toMatchObject({
+		preferences: [{ text: "Keep my voice." }],
+		lessons: [{ text: "Keep proposals short." }],
+	});
 });
