@@ -66,6 +66,14 @@ function fixture() {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("preserves numbered entity names in FTS queries", async () => {
+		const { db, add } = fixture();
+		add("v3", "Vessel-3 departs from Opal Dock");
+		add("v4", "Vessel-4 departs from Quartz Dock");
+		expect(
+			(await lexicalRecall(db, scope, "Vessel-3")).map((fact) => fact.factId),
+		).toEqual(["v3"]);
+	});
 	it("syncs insert, content update, delete and idempotent backfill with tenant isolation", async () => {
 		const { sqlite, db, add } = fixture();
 		add("a", "cobalt launch checklist");

@@ -169,11 +169,9 @@ describe("hybrid memory orchestration", () => {
 			...facts.map((fact, index) => ({ factId: fact.id, score: 99 - index })),
 		]);
 		mocks.hydrate.mockResolvedValue(facts);
-		const run = vi
-			.fn()
-			.mockResolvedValue({
-				response: Array.from({ length: 30 }, (_, id) => ({ id, score: id })),
-			});
+		const run = vi.fn().mockResolvedValue({
+			response: Array.from({ length: 30 }, (_, id) => ({ id, score: id })),
+		});
 		const results = await recallMemoryFacts(db, {
 			...scope,
 			topK: 40,
