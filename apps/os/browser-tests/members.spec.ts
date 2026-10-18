@@ -164,6 +164,34 @@ try {
 					throw new Error(`Deck resize loop: ${resizeErrors.join("; ")}`);
 				await page.close();
 			}
+	const linked = await browser.newPage();
+	const card = (suffix: string) =>
+		`factory:11111111-1111-4111-8111-${suffix}:0`;
+	await linked.goto(
+		`${origin}/browser-tests/members.html?locale=en#card=${encodeURIComponent(card("000000000011"))}`,
+	);
+	await linked.locator(".fd-decision").waitFor();
+	const linkedText = await linked.locator(".fd-decision").innerText();
+	if (
+		!linkedText.includes("Luz · Social introduction") ||
+		linkedText.includes("Luz · Inbox follow-up")
+	)
+		throw new Error("Factory link did not select its exact non-default card");
+	await linked.goto(
+		`${origin}/browser-tests/members.html?locale=en#card=${encodeURIComponent(card("000000000013"))}`,
+	);
+	await linked
+		.getByText("That decision is no longer available in this view.", {
+			exact: true,
+		})
+		.waitFor();
+	if (
+		(await linked.locator("body").innerText()).includes(
+			"PRIVATE_OWNER_SENTINEL",
+		)
+	)
+		throw new Error("Linked private factory card was exposed");
+	await linked.close();
 	console.log(
 		"PASS: fictional non-admin Work landing, own/shared sources, private-source exclusion, per-person snooze and English/Spanish; phone/desktop × light/dark",
 	);
