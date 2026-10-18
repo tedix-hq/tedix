@@ -5591,7 +5591,11 @@ describe("Work app entry", () => {
 		const result = await c.org1.gadgets.workApps({ limit: 1 });
 		expect(result.items).toHaveLength(1);
 		expect(result.truncated).toBe(true);
-		expect(result.items[0].gadget.id).toBe(visible.gadget.id);
+		const firstVisible = [visible.gadget, shared.gadget].sort(
+			(a, b) =>
+				a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+		)[0];
+		expect(result.items[0].gadget.id).toBe(firstVisible.id);
 		expect(result.items[0].currentRevision.manifest.navigation?.work).toBe(
 			"deck",
 		);

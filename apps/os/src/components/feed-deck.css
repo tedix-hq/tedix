@@ -436,6 +436,30 @@
 	.fd-deck {
 		border-radius: 1.25rem;
 	}
+	.fd-deck > .fd-learning-feedback {
+		position: absolute;
+		top: 0.5rem;
+		inset-inline: var(--fd-space);
+		z-index: 2;
+		padding: 0.5rem;
+		border-radius: 0.75rem;
+		background: var(--fd-surface);
+		box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 0.08);
+	}
+	.fd-deck-heading > p {
+		display: none;
+	}
+	.fd-deck-heading h2 {
+		white-space: nowrap;
+	}
+	.fd-deck-progress {
+		flex-wrap: nowrap;
+		gap: 0.25rem 0.4rem;
+	}
+	.fd-deck-progress progress {
+		min-width: 2rem;
+		max-width: 4rem;
+	}
 	.feed-deck .fd-decision [data-slot="card-header"] {
 		gap: var(--fd-card-header-gap);
 	}

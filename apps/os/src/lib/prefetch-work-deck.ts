@@ -11,6 +11,31 @@ import {
 
 /** Warm canonical per-viewer queries while the Work route chunk is loading. */
 export function prefetchWorkDeck(client: QueryClient) {
+	void import("@/components/decision-deck-app").catch(() => {});
+	void client.prefetchQuery(pendingApprovalsQueryOptions());
+	void client.prefetchQuery(
+		osQuery.workApprovals.listInbox.queryOptions({
+			input: { limit: 50, statuses: ["pending"] },
+		}),
+	);
+	void client
+		.fetchQuery(
+			osQuery.workInteractions.listInbox.queryOptions({
+				input: { limit: 50, states: ["open"] },
+			}),
+		)
+		.then((inbox) =>
+			Promise.all(
+				inbox.data
+					.slice(0, 3)
+					.map((row) =>
+						client.prefetchQuery(
+							workInteractionDetailQueryOptions(row.request.id),
+						),
+					),
+			),
+		)
+		.catch(() => {});
 	void client.prefetchQuery(userProfileQueryOptions());
 	void client.prefetchQuery(projectListQueryOptions(100));
 	void client.prefetchQuery(
