@@ -279,6 +279,28 @@ it("rejects a WHY that contradicts an explicit filing mismatch", async () => {
 	).toBe("No supplied project fits this request.");
 	expect(failure).toHaveBeenCalledWith("invalid_copy:filing_mismatch");
 });
+it("uses the source's unconfirmed fit when two drafts contradict it", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			title: "File the account project request here?",
+			body: "Keeps the request with the Account team.",
+			recommendation: "An existing task proves this is the right place.",
+		}),
+	);
+	const result = await generateDecisionCard({ db: {}, env: {} } as never, {
+		...request,
+		prompt: "Create an account project",
+		metadata: {
+			decisionDeck: {
+				classId: "filing.project",
+				reasoning: "No supplied project fits; reuse existing Work.",
+			},
+		},
+	});
+	expect(mocks.model).toHaveBeenCalledTimes(2);
+	expect(result?.recommendation).toBe(copySpec.unconfirmedFilingReason);
+});
 it("allows a plain-English replacement when the source topic is a banned technical word", async () => {
 	const candidate = {
 		...copy,

@@ -249,7 +249,15 @@ export async function generateDecisionCard(
 			) {
 				onFailure?.("invalid_copy:filing_mismatch");
 				repair = `${copySpec.repair} The source says the project does not fit. WHY must explain that mismatch, not claim that an existing task proves ownership. Keep ASK consistent with the existing choice.`;
-				continue;
+				if (attempt === 0) continue;
+				parsed.data.recommendation = copySpec.unconfirmedFilingReason;
+				if (
+					checkDecisionCardCopy(parsed.data).length ||
+					!new RegExp(copySpec.filingMismatchPattern, "i").test(
+						parsed.data.recommendation,
+					)
+				)
+					continue;
 			}
 			if (parsed.success)
 				return {
