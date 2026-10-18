@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { chunkForBoundParams } from "../../utils/batch";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import {
 	workInteractionCardPresentations,
@@ -78,7 +79,10 @@ export async function listDecisionCardPresentations(
 	if (!input.personId || !requests.length) return [];
 	const versions = new Map(requests.map((r) => [r.id, r.version]));
 	const result: (typeof workInteractionCardPresentations.$inferSelect)[] = [];
-	for (let i = 0; i < requests.length; i += 50) {
+	for (const ids of chunkForBoundParams(
+		requests.map((r) => r.id),
+		50,
+	)) {
 		const rows = await db
 			.select()
 			.from(workInteractionCardPresentations)
@@ -86,10 +90,7 @@ export async function listDecisionCardPresentations(
 				and(
 					eq(workInteractionCardPresentations.orgId, input.orgId),
 					eq(workInteractionCardPresentations.personId, input.personId),
-					inArray(
-						workInteractionCardPresentations.interactionId,
-						requests.slice(i, i + 50).map((r) => r.id),
-					),
+					inArray(workInteractionCardPresentations.interactionId, ids),
 				),
 			);
 		result.push(
