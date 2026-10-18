@@ -666,6 +666,40 @@ export async function previewWorkEvidence(
 			: artifact;
 		if (!streamable)
 			return { status: "unavailable" as const, reason: "body_unavailable" };
+		const imageType = streamable.mimeType?.split(";")[0];
+		if (
+			imageType &&
+			/^(?:image\/png|image\/jpeg|image\/webp)$/.test(imageType) &&
+			reference.bundleDigestKind === "bytes"
+		) {
+			const response = await streamArtifactObject(
+				context.env,
+				streamable,
+				"bytes=0-524288",
+			);
+			if (!response.ok)
+				return { status: "unavailable" as const, reason: "body_unavailable" };
+			const bytes = new Uint8Array(await response.arrayBuffer());
+			if (bytes.byteLength > 524288)
+				return { status: "unavailable" as const, reason: "body_too_large" };
+			const digest = Array.from(
+				new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+				(byte) => byte.toString(16).padStart(2, "0"),
+			).join("");
+			if (digest !== reference.digest)
+				return { status: "unavailable" as const, reason: "digest_mismatch" };
+			let binary = "";
+			for (const byte of bytes) binary += String.fromCharCode(byte);
+			return {
+				status: "available" as const,
+				canonicalUri: reference.canonicalUri!,
+				mediaType: imageType,
+				digest,
+				text: "",
+				truncated: false,
+				imageDataUrl: `data:${imageType};base64,${btoa(binary)}`,
+			};
+		}
 		const response = await streamArtifactObject(
 			context.env,
 			streamable,

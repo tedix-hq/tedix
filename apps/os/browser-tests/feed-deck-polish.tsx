@@ -11,6 +11,7 @@ import {
 	userProfileQueryOptions,
 	userPreferencesQueryOptions,
 	workAgentSessionsQueryOptions,
+	workInteractionDetailQueryOptions,
 } from "../src/lib/os-query-options";
 import { DECISION_DECK_EXAMPLES } from "../dev/decision-deck-fixture";
 import "../src/styles.css";
@@ -63,7 +64,7 @@ const event = (id: number, title: string, body: string, small = false) => ({
 	workItemId: projectId,
 	workItemTitle: title,
 	body,
-	eventType: small ? "created" : "completed",
+	eventType: small ? "work.created" : "work.completed",
 	workItemDisposition: "completed",
 	agentHarness: "codex",
 	authorType: "external_agent",
@@ -112,7 +113,53 @@ client.setQueryData(
 		}),
 		...options,
 	}).queryKey,
-	{ pages: [{ data: [], nextCursor: null }], pageParams: [undefined] },
+	{
+		pages: [
+			{
+				data: [
+					["Office fix", "The Office fix is ready to verify."],
+					["Release notes", "The release notes are ready to read."],
+				].map(([title, summary], index) => ({
+					attempt: {
+						id: crypto.randomUUID(),
+						orgId: projectId,
+						workItemId: projectId,
+						executorType: "external_agent",
+						executorId: "codex",
+						executorSessionId: null,
+						externalSessionKey: "codex:fictional",
+						runtimeState: "finished",
+						outcome: "succeeded",
+						runId: null,
+						admissionId: null,
+						attemptNumber: 1,
+						startedAt: today.toISOString(),
+						heartbeatAt: today.toISOString(),
+						expiresAt: null,
+						finishedAt: new Date(
+							today.getTime() - index * 3600000,
+						).toISOString(),
+						summary,
+						metadata: { feedSentence: summary },
+					},
+					workItem: {
+						id:
+							index === 0 ? projectId : "22222222-2222-4222-8222-222222222222",
+						title,
+						disposition: "completed",
+						workKind: "coding",
+						riskLevel: "low",
+						priority: "medium",
+						projectId,
+						accountableOwnerType: null,
+						accountableOwnerId: null,
+					},
+				})),
+				nextCursor: null,
+			},
+		],
+		pageParams: [undefined],
+	},
 );
 client.setQueryData(
 	osQuery.workInteractions.listInbox.infiniteOptions({
@@ -139,6 +186,66 @@ client.setQueryData(
 	{ events: [] },
 );
 const params = new URLSearchParams(location.search);
+if (params.get("surface") === "approval") {
+	client.setQueryData(userProfileQueryOptions().queryKey, {
+		id: "fictional-approval-reviewer",
+	});
+	const request = {
+		id: projectId,
+		orgId: projectId,
+		workItemId: null,
+		caseId: null,
+		projectId: null,
+		kind: "question" as const,
+		subject: "Approve fictional test login",
+		prompt:
+			"Approve tests_write.GenerateMagicLinkForTestUser for viewer@example.com? Prepared args: target=viewer@example.com. This returns a non-delivered test-only link.",
+		requestedFromType: "user" as const,
+		requestedFromId: "fictional-person",
+		creatorType: "external_agent" as const,
+		creatorId: "codex",
+		creatorSessionId: null,
+		state: "open" as const,
+		requestedAt: new Date().toISOString(),
+		dueAt: null,
+		expiresAt: null,
+		resolvedAt: null,
+		version: 1,
+		metadata: {
+			approvalOperation: "tests_write.GenerateMagicLinkForTestUser",
+			approvalTarget: "viewer@example.com",
+		},
+	};
+	client.setQueryData(
+		osQuery.workInteractions.listInbox.queryOptions({
+			input: { projectId: undefined, limit: 50, states: ["open"] },
+		}).queryKey,
+		{
+			data: [
+				{
+					request,
+					effectiveState: "open",
+					canRespond: true,
+					canCancel: false,
+					workItem: null,
+					responseCount: 0,
+					askedBy: "Codex session",
+				},
+			],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: new Date().toISOString(),
+		},
+	);
+	client.setQueryData(workInteractionDetailQueryOptions(projectId).queryKey, {
+		request,
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		responses: { data: [], hasMore: false, nextCursor: null },
+	});
+}
+
 if (params.get("motion") === "reduced")
 	document.documentElement.dataset.motion = "reduced";
 document.documentElement.classList.toggle(

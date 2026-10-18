@@ -15,11 +15,16 @@ const mocks = vi.hoisted(() => ({
 	head: vi.fn(),
 	active: vi.fn(),
 	body: vi.fn(),
+	stream: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/artifact-policy/releases", () => ({
 	getArtifactRedactionCandidate: mocks.candidate,
 	getArtifactReleaseReviewHead: mocks.head,
 	getActiveArtifactReleaseApproval: mocks.active,
+}));
+vi.mock("../lib/artifact-serve", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../lib/artifact-serve")>()),
+	streamArtifactObject: mocks.stream,
 }));
 vi.mock("./artifact-immutable-publication", () => ({
 	readVerifiedPrivateTextArtifact: mocks.body,
@@ -375,4 +380,46 @@ describe("Work evidence resolution", () => {
 			}),
 		).toEqual({ safe: "yes" });
 	});
+});
+
+it("embeds bounded raster evidence only after matching its immutable digest", async () => {
+	const digest = await hash("image bytes");
+	mocks.artifact.mockResolvedValue({
+		id: "shot",
+		organizationId: "org-1",
+		tediId: "tedi-1",
+		uri: "r2://tedix-tedi-production/tedi-1/artifacts/shot.png",
+		mimeType: "image/png",
+		metadata: {},
+		accessClassification: "explicit_shareable",
+		contentDigest: digest,
+		publicationState: "ready",
+	});
+	mocks.stream.mockResolvedValue(new Response("image bytes", { status: 206 }));
+	expect(
+		await previewWorkEvidence(context, {
+			uri: "artifact://shot",
+		} as WorkEvidence),
+	).toMatchObject({
+		status: "available",
+		imageDataUrl: `data:image/png;base64,${btoa("image bytes")}`,
+		digest,
+		truncated: false,
+	});
+	mocks.stream.mockResolvedValue(
+		new Response("changed bytes", { status: 206 }),
+	);
+	expect(
+		await previewWorkEvidence(context, {
+			uri: "artifact://shot",
+		} as WorkEvidence),
+	).toMatchObject({ status: "unavailable", reason: "digest_mismatch" });
+	mocks.stream.mockResolvedValue(
+		new Response(new Uint8Array(524289), { status: 206 }),
+	);
+	expect(
+		await previewWorkEvidence(context, {
+			uri: "artifact://shot",
+		} as WorkEvidence),
+	).toMatchObject({ status: "unavailable", reason: "body_too_large" });
 });

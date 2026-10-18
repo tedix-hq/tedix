@@ -31,3 +31,36 @@ it("names the actual tedi when known, otherwise attributes the coding lane to it
 		),
 	).toBe("CTO tedi");
 });
+
+it("collapses retry outcomes per Work and identical sentences within thirty minutes", () => {
+	const row = (
+		id: string,
+		workItemId: string,
+		at: string,
+		sentence: string,
+		outcome = "succeeded",
+	) =>
+		({
+			id,
+			workItemId,
+			at,
+			sentence,
+			kind: "result",
+			classId: `external_agent:result:${outcome}`,
+		}) as ActivityFeedItem;
+	expect(
+		timelineItems([
+			row("new", "one", "2026-10-18T10:10:00Z", "The fix is ready."),
+			row("retry", "one", "2026-10-18T10:05:00Z", "The same fix finished."),
+			row("duplicate", "two", "2026-10-18T10:04:00Z", "The fix is ready."),
+			row(
+				"failure",
+				"one",
+				"2026-10-18T10:03:00Z",
+				"The check failed.",
+				"failed",
+			),
+			row("yesterday", "one", "2026-10-17T10:00:00Z", "The fix is ready."),
+		]).map((item) => item.id),
+	).toEqual(["new", "failure", "yesterday"]);
+});

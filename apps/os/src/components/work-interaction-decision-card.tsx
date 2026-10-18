@@ -1,3 +1,9 @@
+import { connectorApproval } from "@/lib/interaction-card-kind";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
@@ -132,17 +138,20 @@ export function WorkInteractionDecisionCard({
 			const option = offered.decisionCard?.options.find(
 				(choice) => choice.id === feedback.action,
 			);
-			const body = lane
-				? feedback.action === "done"
-					? "Done."
-					: "Snoozed for one day."
-				: proposal
-					? feedback.action === "start"
-						? "Yes, start."
-						: deferred
-							? "Not now."
-							: "Never suggest this again."
-					: (option?.body ?? option?.label ?? feedback.body);
+			const approval = connectorApproval(request.metadata);
+			const body = approval
+				? `${feedback.action === "approve" ? "Approve" : "Do not approve"} ${approval.operation} for ${approval.target}.`
+				: lane
+					? feedback.action === "done"
+						? "Done."
+						: "Snoozed for one day."
+					: proposal
+						? feedback.action === "start"
+							? "Yes, start."
+							: deferred
+								? "Not now."
+								: "Never suggest this again."
+						: (option?.body ?? option?.label ?? feedback.body);
 			const result = await osApi.workInteractions.respond({
 				requestId,
 				expectedRequestVersion: request.version,
@@ -268,6 +277,7 @@ export function WorkInteractionDecisionCard({
 				(request.creatorType === "tedi" ? "Your tedi" : "Your agent")));
 	const draft = latestDraftOf(query.data);
 	const proposal = request.kind === "handoff";
+	const approval = connectorApproval(request.metadata);
 	const lane =
 		request.kind === "question" &&
 		Boolean(choices.laneHandoff ?? choices.followThrough?.laneHandoff);
@@ -277,34 +287,55 @@ export function WorkInteractionDecisionCard({
 		!pastDeadline &&
 		canRespond &&
 		(effectiveState === "open" ||
-			(request.kind === "question" && effectiveState === "resolved"));
-	const actions: DecisionCardAction[] = lane
+			(!approval &&
+				request.kind === "question" &&
+				effectiveState === "resolved"));
+	const actions: DecisionCardAction[] = approval
 		? [
-				{ id: "done", label: decisionText("Done"), intent: "approve" },
-				{ id: "snooze", label: decisionText("Snooze 1 day"), intent: "reject" },
+				{ id: "approve", label: decisionText("Approve"), intent: "approve" },
+				{ id: "reject", label: decisionText("Not this"), intent: "reject" },
+				{
+					id: "delegate",
+					label: decisionText("Decide for me"),
+					intent: "delegate",
+					disabled: true,
+				},
 			]
-		: proposal
+		: lane
 			? [
-					{ id: "start", label: decisionText("Yes, start"), intent: "approve" },
-					{ id: "not-now", label: decisionText("Not now"), intent: "reject" },
-					{ id: "never", label: decisionText("Never"), intent: "reject" },
+					{ id: "done", label: decisionText("Done"), intent: "approve" },
+					{
+						id: "snooze",
+						label: decisionText("Snooze 1 day"),
+						intent: "reject",
+					},
 				]
-			: choices.decisionCard
-				? choices.decisionCard.options.map((option) => ({
-						id: option.id,
-						label: option.label,
-						description: option.body,
-					}))
-				: [
+			: proposal
+				? [
 						{
-							id: "answer",
-							label:
-								draft?.delivery === "auto"
-									? decisionText("Override")
-									: decisionText("Answer"),
+							id: "start",
+							label: decisionText("Yes, start"),
 							intent: "approve",
 						},
-					];
+						{ id: "not-now", label: decisionText("Not now"), intent: "reject" },
+						{ id: "never", label: decisionText("Never"), intent: "reject" },
+					]
+				: choices.decisionCard
+					? choices.decisionCard.options.map((option) => ({
+							id: option.id,
+							label: option.label,
+							description: option.body,
+						}))
+					: [
+							{
+								id: "answer",
+								label:
+									draft?.delivery === "auto"
+										? decisionText("Override")
+										: decisionText("Answer"),
+								intent: "approve",
+							},
+						];
 	return (
 		<div className="grid min-w-0 gap-3">
 			{deliveryText ? <p className="text-kumo-subtle">{deliveryText}</p> : null}
@@ -312,11 +343,13 @@ export function WorkInteractionDecisionCard({
 				autoFocus={autoFocus}
 				key={`${request.id}:${effectiveState}`}
 				kind={
-					proposal
-						? "proposal"
-						: choices.decisionCard || lane
-							? "decision"
-							: "question"
+					approval
+						? "approval"
+						: proposal
+							? "proposal"
+							: choices.decisionCard || lane
+								? "decision"
+								: "question"
 				}
 				title={interactionSubject(request)}
 				askedBy={source}
@@ -340,7 +373,33 @@ export function WorkInteractionDecisionCard({
 						{pastDeadline && (
 							<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
 						)}
-						<DecisionProposalBody key={request.id} body={request.prompt} />
+						{approval ? (
+							<>
+								<p>
+									{request.metadata?.approvalOperation ===
+										"tests_write.GenerateMagicLinkForTestUser" &&
+									/non-delivered test-only link|not emailed/i.test(
+										request.prompt,
+									)
+										? OS_COPY.decisionDeck.testLoginSummary(
+												source.replace(/\s+session$/i, ""),
+											)
+										: OS_COPY.decisionDeck.approvalSummary(source)}
+								</p>
+								<Collapsible>
+									<CollapsibleTrigger>
+										{OS_COPY.feed.details}
+									</CollapsibleTrigger>
+									<CollapsibleContent>
+										<p className="whitespace-pre-wrap break-words">
+											{request.prompt}
+										</p>
+									</CollapsibleContent>
+								</Collapsible>
+							</>
+						) : (
+							<DecisionProposalBody key={request.id} body={request.prompt} />
+						)}
 						{draft ? (
 							<div className="grid gap-1 rounded-lg border border-kumo-line p-3">
 								<p className="text-kumo-subtle">
@@ -356,6 +415,7 @@ export function WorkInteractionDecisionCard({
 				}
 				why={
 					<div className="grid gap-3">
+						{approval && <p>{OS_COPY.decisionDeck.explicitApproval}</p>}
 						{draft?.rationale ? <p>{draft.rationale}</p> : null}
 						<p>
 							{capture?.need ??

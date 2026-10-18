@@ -187,3 +187,48 @@ describe("activity feed", () => {
 		expect(input).not.toHaveProperty("approverId");
 	});
 });
+
+it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding authors", async () => {
+	const { workFeedItems } = await import("./activity-feed");
+	const events = [
+		"work.accepted",
+		"work.specification_updated",
+		"work.cancelled",
+		"work.completed",
+	].map((eventType, i) => ({
+		id: String(i),
+		workItemId: project,
+		workItemTitle: "Deck spacing",
+		workItemDisposition: "completed" as const,
+		eventType,
+		authorType: "user",
+		authorId: "person",
+		agentSession: null,
+		agentHarness: null,
+		settlement: null,
+		body: eventType,
+		createdAt: now.toISOString(),
+	}));
+	const names = new Map([
+		["user:person", "Morgan Lee"],
+		["tedi:cedar", "Cedar"],
+	]);
+	const rows = workFeedItems(events, project, names);
+	expect(
+		rows.every((row) => row.importance === "low" && row.actor === "Morgan Lee"),
+	).toBe(true);
+	expect(
+		workFeedItems(
+			[{ ...events[0]!, authorType: "tedi", authorId: "cedar" }],
+			project,
+			names,
+		)[0],
+	).toMatchObject({ actor: "Cedar", tediId: "cedar" });
+	expect(
+		workFeedItems(
+			[{ ...events[0]!, authorType: "external_agent", agentHarness: "codex" }],
+			project,
+			names,
+		)[0]?.actor,
+	).toBe("Codex");
+});

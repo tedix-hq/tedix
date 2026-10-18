@@ -6,6 +6,7 @@ import {
 	PlusIcon,
 	DotsThreeIcon,
 } from "@phosphor-icons/react";
+import { FeedOutcomePreview } from "@/components/feed-outcome-preview";
 import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
 import {
 	Collapsible,
@@ -40,10 +41,7 @@ import {
 	ActivityFeedSources,
 	type FeedSourceState,
 } from "@/components/activity-feed-sources";
-import {
-	FeedMomentHeader,
-	RichPreview,
-} from "@/components/feed-deck-primitives";
+import { FeedMomentHeader } from "@/components/feed-deck-primitives";
 import { feedMoment } from "@/lib/feed-moment";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
@@ -710,13 +708,7 @@ function FeedCard({
 					</time>
 				</div>
 				<Text className="ft-sentence">{item.sentence}</Text>
-				{item.attachment && (
-					<RichPreview
-						href={item.source}
-						title={item.attachment.title}
-						summary={item.attachment.summary}
-					/>
-				)}
+				<FeedOutcomePreview item={item} />
 				<Collapsible className="ft-details">
 					<CollapsibleTrigger>{copy.details}</CollapsibleTrigger>
 					<CollapsibleContent>

@@ -2,6 +2,7 @@ import {
 	DeckRemainingContext,
 	DeckFooterContext,
 } from "@/components/deck-presentation-context";
+import { interactionCardKind } from "@/lib/interaction-card-kind";
 import { useDeckViewport } from "@/lib/use-deck-viewport";
 import { DecisionLearningContext } from "@/components/decision-learning-context";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
@@ -199,15 +200,7 @@ export function DecisionDeckApp({
 				).map((row) => {
 					const decision = decisionEnvelope(row.request.metadata);
 					const metadata = row.request.metadata;
-					const cardKind =
-						decision?.kind ??
-						(metadata?.schema === "tedix.outbound.v1"
-							? "outbound"
-							: row.request.kind === "handoff"
-								? "proposal"
-								: metadata?.decisionCard
-									? "decision"
-									: "question");
+					const cardKind = interactionCardKind(row.request);
 					return {
 						id: row.request.id,
 						kind: cardKind,

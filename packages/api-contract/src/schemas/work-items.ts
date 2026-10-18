@@ -654,6 +654,11 @@ export const WorkEvidencePreviewSchema = z.discriminatedUnion("status", [
 		mediaType: z.string(),
 		digest: z.string(),
 		text: z.string().max(51_200),
+		imageDataUrl: z
+			.string()
+			.max(700_000)
+			.regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/)
+			.optional(),
 		truncated: z.boolean(),
 	}),
 	z.object({

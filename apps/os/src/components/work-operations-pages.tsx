@@ -11,7 +11,7 @@ import { workInteractionsSearch } from "@/lib/work-route-search";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@tanstack/react-form";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import * as z from "zod";
 import { WorkInteractionDeliveryOverlaySchema } from "@tedix/api-contract/schemas/work-interactions";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
@@ -162,14 +162,16 @@ export function useWorkPrincipalNames(organizationId?: string) {
 		enabled: Boolean(organizationId),
 		retry: false,
 	});
-	const names = new Map<string, string>();
-	for (const tedi of tedis.data?.data ?? [])
-		names.set(`tedi:${tedi.id}`, tedi.displayName || tedi.name);
-	for (const member of members.data?.data ?? [])
-		names.set(`user:${member.descopeUserId}`, member.name || member.email);
-	for (const principal of external.data ?? [])
-		names.set(`external_agent:${principal.id}`, principal.displayName);
-	return names;
+	return useMemo(() => {
+		const names = new Map<string, string>();
+		for (const tedi of tedis.data?.data ?? [])
+			names.set(`tedi:${tedi.id}`, tedi.displayName || tedi.name);
+		for (const member of members.data?.data ?? [])
+			names.set(`user:${member.descopeUserId}`, member.name || member.email);
+		for (const principal of external.data ?? [])
+			names.set(`external_agent:${principal.id}`, principal.displayName);
+		return names;
+	}, [tedis.data, members.data, external.data]);
 }
 
 function Header({

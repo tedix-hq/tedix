@@ -84,6 +84,12 @@ export const SPANISH_FEED_DECK_COPY = {
 			`${count} ${count === 1 ? "decisión tomada" : "decisiones tomadas"} hoy. Un poco más de espacio para pensar.`,
 	},
 	decisionDeck: {
+		approvalSummary: (source: string) =>
+			`Permitir que ${source} ejecute la acción solicitada. Revisa la operación y el destino exactos en Detalles antes de aprobar.`,
+		testLoginSummary: (source: string) =>
+			`Permitir que ${source} inicie sesión con un usuario ficticio para comprobar la corrección. El enlace de prueba se queda con el agente; no se envía ningún correo.`,
+		explicitApproval:
+			"Esta acción necesita tu aprobación explícita. No se puede delegar.",
 		filters: "Buscar una decisión",
 		noMatches: "Ninguna decisión coincide con estos filtros",
 		workOverview: "Ver trabajo",

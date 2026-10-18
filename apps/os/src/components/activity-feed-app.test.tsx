@@ -20,6 +20,10 @@ vi.mock("@/lib/use-os-identity", () => ({
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: {
+		workItems: {
+			listEvidence: vi.fn().mockResolvedValue({ data: [] }),
+			previewEvidence: vi.fn(),
+		},
 		learningFeedback: {
 			recordInteraction: vi.fn(),
 			listInteractions: vi.fn(),
