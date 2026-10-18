@@ -3,6 +3,7 @@ import {
 	MemoryConsolidationSchema,
 	type MemoryConsolidation,
 } from "@tedix/api-contract/schemas/memory-observations";
+import { prefixedColumns } from "../../utils/select";
 import type { DbQueryClient } from "../../query-client";
 import {
 	memoryFacts,
@@ -12,6 +13,9 @@ import {
 
 const MAX_SOURCES = 50;
 const MAX_TARGETS = 10;
+// Lifecycle indexes can make D1 scan the active corpus even for two source IDs.
+const factsById = sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`;
+const derivedFacts = sql`${memoryFacts} INDEXED BY idx_memory_facts_source`;
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 export function readConsolidation(fact: { metadata: MemoryFact["metadata"] }) {
 	const result = MemoryConsolidationSchema.safeParse(
@@ -40,6 +44,11 @@ const entityKey = sql<string>`coalesce((SELECT 'entity:' || r.entity_id
 const clusterTopic = sql<string | null>`CASE WHEN ${entityKey} LIKE 'entity:%'
 	THEN ${observationTopic}
 	ELSE coalesce(${observationTopic}, ${memoryFacts.topicKey}) END`;
+function sourceTopic(topicKey: string | null | undefined) {
+	return topicKey
+		? sql`(${memoryFacts.topicKey} = ${topicKey} OR ${observationTopic} = ${topicKey})`
+		: undefined;
+}
 function scope(orgId: string, target: Target) {
 	return and(
 		eq(memoryFacts.organizationId, orgId),
@@ -271,8 +280,9 @@ async function refreshTarget(
 		.from(memoryFacts)
 		.where(
 			and(
-				rawSources(orgId),
 				scope(orgId, target),
+				sourceTopic(target.topicKey),
+				rawSources(orgId),
 				sql`${entityKey} = ${target.entityKey}`,
 				sql`${clusterTopic} IS ${target.topicKey}`,
 			),
@@ -284,15 +294,15 @@ async function refreshTarget(
 		// Explicit conflicts are evidence for this observation even when the
 		// new source has a different state/topic key. Keep the same read scope.
 		const opposing = await db
-			.select()
-			.from(memoryFacts)
+			.select(prefixedColumns(memoryFacts, "fact"))
+			.from(factsById)
 			.where(
 				and(
 					rawSources(orgId),
 					scope(orgId, target),
-					sql`EXISTS (SELECT 1 FROM memory_edges edge WHERE edge.relation_type = 'contradicts'
-			AND ((edge.source_fact_id = ${memoryFacts.id} AND edge.target_fact_id IN (SELECT value FROM json_each(${JSON.stringify(clusterIds)})))
-			OR (edge.target_fact_id = ${memoryFacts.id} AND edge.source_fact_id IN (SELECT value FROM json_each(${JSON.stringify(clusterIds)})))))`,
+					sql`${memoryFacts.id} IN (
+			SELECT edge.target_fact_id FROM memory_edges edge WHERE edge.relation_type = 'contradicts' AND edge.source_fact_id IN (SELECT value FROM json_each(${JSON.stringify(clusterIds)}))
+			UNION SELECT edge.source_fact_id FROM memory_edges edge WHERE edge.relation_type = 'contradicts' AND edge.target_fact_id IN (SELECT value FROM json_each(${JSON.stringify(clusterIds)})))`,
 				),
 			)
 			.orderBy(asc(memoryFacts.id))
@@ -346,11 +356,12 @@ async function refreshSummary(
 	changedSourceIds: string[],
 ) {
 	const observations = await db
-		.select()
-		.from(memoryFacts)
+		.select(prefixedColumns(memoryFacts, "fact"))
+		.from(derivedFacts)
 		.where(
 			and(
 				scope(orgId, target),
+				eq(memoryFacts.source, "consolidation://observation"),
 				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.kind') = 'observation'`,
 				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
 				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.entityKey') = ${target.entityKey}`,
@@ -374,8 +385,8 @@ async function refreshSummary(
 	if (sourceIds.length > MAX_SOURCES) return;
 	const sources = sourceIds.length
 		? await db
-				.select()
-				.from(memoryFacts)
+				.select(prefixedColumns(memoryFacts, "fact"))
+				.from(factsById)
 				.where(and(rawSources(orgId), inArray(memoryFacts.id, sourceIds)))
 				.orderBy(asc(memoryFacts.id))
 		: [];
@@ -403,11 +414,12 @@ export async function consolidateMemory(
 		Math.max(1, options.limit ?? MAX_TARGETS),
 	);
 	const heads = await db
-		.select()
-		.from(memoryFacts)
+		.select(prefixedColumns(memoryFacts, "fact"))
+		.from(derivedFacts)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
+				eq(memoryFacts.source, "consolidation://observation"),
 				options.tediId ? eq(memoryFacts.tediId, options.tediId) : undefined,
 				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.kind') = 'observation'`,
 				sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
@@ -429,6 +441,7 @@ export async function consolidateMemory(
 		.from(memoryFacts)
 		.where(
 			and(
+				sourceTopic(options.topicKey),
 				rawSources(orgId),
 				options.tediId ? eq(memoryFacts.tediId, options.tediId) : undefined,
 				options.topicKey
@@ -503,11 +516,12 @@ export async function refreshConsolidatedForFact(
 	let cursor = "";
 	while (true) {
 		const rows = await db
-			.select()
-			.from(memoryFacts)
+			.select(prefixedColumns(memoryFacts, "fact"))
+			.from(derivedFacts)
 			.where(
 				and(
 					eq(memoryFacts.organizationId, orgId),
+					eq(memoryFacts.source, "consolidation://observation"),
 					sql`${memoryFacts.id} > ${cursor}`,
 					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.kind') = 'observation'`,
 					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
@@ -551,8 +565,8 @@ export async function filterConsolidatedEvidence<
 	for (let i = 0; i < sourceIds.length; i += 50)
 		sources.push(
 			...(await db
-				.select()
-				.from(memoryFacts)
+				.select(prefixedColumns(memoryFacts, "fact"))
+				.from(factsById)
 				.where(
 					and(
 						rawSources(orgId),
@@ -576,8 +590,8 @@ export async function filterConsolidatedEvidence<
 	const liveObservations = new Set<string>();
 	for (let i = 0; i < observationIds.length; i += 50) {
 		const heads = await db
-			.select()
-			.from(memoryFacts)
+			.select(prefixedColumns(memoryFacts, "fact"))
+			.from(factsById)
 			.where(
 				and(
 					eq(memoryFacts.organizationId, orgId),
@@ -596,7 +610,7 @@ export async function filterConsolidatedEvidence<
 		const ids = sourceIds.slice(i, i + 50);
 		const conflicts = await db
 			.select({ id: sql<string>`f.id` })
-			.from(sql`memory_facts f`)
+			.from(sql`memory_facts f INDEXED BY sqlite_autoindex_memory_facts_1`)
 			.where(sql`f.organization_id = ${orgId} AND f.id IN (SELECT value FROM json_each(${JSON.stringify(ids)})) AND EXISTS (
 			SELECT 1 FROM memory_edges edge JOIN memory_facts other ON other.id = CASE WHEN edge.source_fact_id = f.id THEN edge.target_fact_id ELSE edge.source_fact_id END
 			WHERE edge.relation_type = 'contradicts' AND (edge.source_fact_id = f.id OR edge.target_fact_id = f.id)
@@ -666,11 +680,15 @@ export async function listMemoryObservations(
 	} = {},
 ) {
 	return db
-		.select()
-		.from(memoryFacts)
+		.select(prefixedColumns(memoryFacts, "fact"))
+		.from(derivedFacts)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
+				inArray(memoryFacts.source, [
+					"consolidation://observation",
+					"consolidation://standing_summary",
+				]),
 				options.tediId
 					? sql`(${memoryFacts.tediId} = ${options.tediId} OR ${memoryFacts.tediId} IS NULL)`
 					: isNull(memoryFacts.tediId),
