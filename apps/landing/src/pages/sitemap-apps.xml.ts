@@ -9,6 +9,7 @@
 import { env } from "cloudflare:workers";
 import type { APIRoute } from "astro";
 import { getCatalogClient } from "../lib/api";
+import { getCatalogSitemapSlugs } from "../lib/catalog-sitemap";
 
 /**
  * Never answer 200 with an empty catalog. `/apps/*` is the overwhelming
@@ -35,37 +36,13 @@ export const GET: APIRoute = async () => {
 		"",
 	);
 
-	const slugs: string[] = [];
+	let slugs: string[];
 
 	try {
-		let offset = 0;
-		const limit = 200;
-		let hasMore = true;
-
-		while (hasMore) {
-			const result = await client.catalog.list({
-				limit,
-				offset,
-			});
-
-			const newSlugs = (result.apps || [])
-				.filter(
-					(app) => app.slug && app.connectorType !== "FIRST_PARTY_ECOSYSTEM",
-				)
-				.map((app) => app.slug as string);
-
-			slugs.push(...newSlugs);
-			hasMore = result.pagination?.hasMore ?? false;
-			offset += limit;
-		}
+		slugs = await getCatalogSitemapSlugs(client.catalog.list);
 	} catch (error) {
 		console.error("[Sitemap] Failed to fetch apps:", error);
-
-		// Serve the pages collected before the failure; only give up entirely
-		// when the very first page failed and there is nothing to publish.
-		if (slugs.length === 0) {
-			return catalogUnavailable();
-		}
+		return catalogUnavailable();
 	}
 
 	if (slugs.length === 0) {
