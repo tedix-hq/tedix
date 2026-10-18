@@ -25,10 +25,12 @@ export const addCommentProcedure = authOs.addComment.handler(
 				!workItem.metadata?.executor &&
 				/\bdelegat(?:ed|ion)\b/i.test(input.body)
 			) {
-				const assignment = mentionedExecutor(
-					input.body,
-					await getTedisByOrganization(context.db, workItem.orgId),
-				);
+				const assignment =
+					mentionedExecutor(input.body, []) ??
+					mentionedExecutor(
+						input.body,
+						await getTedisByOrganization(context.db, workItem.orgId),
+					);
 				if (assignment) {
 					const actor = await workItemStewardActor(
 						context,
