@@ -182,6 +182,7 @@ describe("canonical hybrid recall D1 queries", () => {
 				.map((f) => f.factId)
 				.sort(),
 		).toEqual(["hop", "seed"]);
+		expect(await graphRecall(db, scope, "Cobalt Foundry2")).toEqual([]);
 		sqlite.exec(
 			"UPDATE memory_facts SET memory_scope='graph',use_policy='do_not_inject_automatically' WHERE id='seed'",
 		);

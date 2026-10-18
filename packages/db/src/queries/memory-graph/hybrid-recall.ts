@@ -105,7 +105,7 @@ export async function graphRecall(
 		JOIN memory_facts seed ON seed.id = m.source_fact_id AND seed.organization_id = ${scope.orgId}
 		WHERE ent.organization_id = ${scope.orgId} AND ent.status = 'active'
 		AND EXISTS (SELECT 1 FROM ${memoryFacts} WHERE ${memoryFacts.id} = seed.id AND ${eligible({ ...scope, domainIds: undefined, factTypes: undefined, includeGraphAnchors: true, minConfidence: 0 })})
-		AND instr(${terms.join(" ")}, ent.normalized_name) > 0
+		AND instr(${` ${terms.join(" ")} `}, ' ' || ent.normalized_name || ' ') > 0
 		LIMIT 40
 	) SELECT fact_id FROM seeds UNION SELECT CASE WHEN e.source_fact_id = seeds.fact_id THEN e.target_fact_id ELSE e.source_fact_id END AS fact_id
 	FROM seeds JOIN memory_edges e ON e.source_fact_id = seeds.fact_id OR e.target_fact_id = seeds.fact_id`;

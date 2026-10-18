@@ -59,6 +59,20 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe("hybrid memory orchestration", () => {
+	it("keeps confidence-ordered graph expansion from overruling query-ranked matches", () => {
+		const results = fuseRecall({
+			lexical: [
+				{ factId: "a", score: 4 },
+				{ factId: "b", score: 1 },
+			],
+			graph: [
+				{ factId: "b", score: 1 },
+				{ factId: "c", score: 0.9 },
+				{ factId: "a", score: 0.8 },
+			],
+		});
+		expect(results.map((item) => item.factId)).toEqual(["a", "b", "c"]);
+	});
 	it("fuses rank rather than incompatible scores and retains each arm's provenance", () => {
 		const results = fuseRecall({
 			lexical: [
