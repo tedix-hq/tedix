@@ -64,3 +64,10 @@ it("collapses retry outcomes per Work and identical sentences within thirty minu
 		]).map((item) => item.id),
 	).toEqual(["new", "failure", "yesterday"]);
 });
+
+it("uses the actor's name for initials, excluding the project's attribution", async () => {
+	const { feedStoryInitials } = await import("./feed-story");
+	expect(feedStoryInitials("Morgan Lee")).toBe("ML");
+	expect(feedStoryInitials("Codex for Pine Studio")).toBe("C");
+	expect(feedStoryInitials("Claude para Pine Studio")).toBe("C");
+});

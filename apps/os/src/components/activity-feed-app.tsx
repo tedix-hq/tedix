@@ -21,7 +21,11 @@ import {
 } from "@/components/kumo/popover";
 import { useOsIdentity } from "@/lib/use-os-identity";
 import { useTediNames } from "@/lib/use-tedi-names";
-import { feedStoryActor, timelineItems } from "@/lib/feed-story";
+import {
+	feedStoryActor,
+	feedStoryInitials,
+	timelineItems,
+} from "@/lib/feed-story";
 import "./feed-timeline.css";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
@@ -687,13 +691,7 @@ function FeedCard({
 			onPointerMove={cancelHold}
 		>
 			<Avatar className="ft-avatar" aria-hidden="true">
-				<AvatarFallback>
-					{actor
-						.split(/\s+/)
-						.slice(0, 2)
-						.map((part) => part[0])
-						.join("")}
-				</AvatarFallback>
+				<AvatarFallback>{feedStoryInitials(actor)}</AvatarFallback>
 			</Avatar>
 			<div className="fd-story-body grid gap-3">
 				<div className="ft-byline">

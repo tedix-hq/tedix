@@ -44,3 +44,14 @@ export function feedStoryActor(
 	}
 	return name || "Tedix";
 }
+
+export function feedStoryInitials(actor: string) {
+	return actor
+		.replace(/\s+(?:for|para)\s+.+$/i, "")
+		.trim()
+		.split(/\s+/)
+		.slice(0, 2)
+		.map((part) => part[0])
+		.join("")
+		.toUpperCase();
+}
