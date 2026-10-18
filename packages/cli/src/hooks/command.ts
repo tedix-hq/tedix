@@ -1,5 +1,7 @@
 /** `tedix hooks <name>`: agent-host lifecycle hooks that read the host event on stdin. */
 import { isAbsolute } from "node:path";
+import { spawn } from "node:child_process";
+import { selfCommand } from "../shared";
 import { readAuthStatus } from "../auth-resolve";
 import { parseOptions } from "../options";
 import { runAgentStatus, STATUS_EVENT_LIMIT, statusLog } from "./agent-status";
@@ -105,6 +107,19 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		read: (args, timeout, input, options) =>
 			readHookCommand(args, timeout, input, { cwd, ...options }),
 		write: (line) => console.log(line),
+		deferRead: (args, input) => {
+			const [command, prefix] = selfCommand();
+			const child = spawn(command, [...prefix, ...args], {
+				cwd,
+				env: { ...process.env, TEDIX_HOOK_READ: "1" },
+				detached: process.platform !== "win32",
+				stdio: ["pipe", "ignore", "ignore"],
+			});
+			child.on("error", () => {});
+			child.stdin.on("error", () => {});
+			child.stdin.end(input);
+			child.unref();
+		},
 	};
 	if (name === "status") {
 		// Never disturb the host turn: no stdout or stderr, failures go to the local log.

@@ -55,6 +55,8 @@ export interface HookDeps {
 	cwd: string;
 	read: ReadJson;
 	write: (line: string) => void;
+	/** Best-effort measurement after model-visible output, never an authority read. */
+	deferRead?: (args: string[], input: string) => void;
 	now?: () => Date;
 	/** Current Git branch of a directory, or "" when unknown. */
 	branch?: (cwd: string) => string;

@@ -20,6 +20,9 @@ describe("local feedback capture", () => {
 			expect(feedbackClauses(text)).toHaveLength(1);
 		for (const text of [
 			"Build a weather widget.",
+			"Do not call tools.",
+			"Don't run the build yet.",
+			"For this task always show debug output.",
 			"Can you always show status?",
 			"> Never mention Meadow.",
 			'Examples of corrections: "always use blue"',
