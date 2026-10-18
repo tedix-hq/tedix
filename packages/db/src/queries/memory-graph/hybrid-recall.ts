@@ -253,6 +253,28 @@ export async function fallbackRecall(
 	return filterEvidenceBackedLessons(db, scope.orgId, rows);
 }
 
+/** One tenant-fenced write preserves access/boost behavior without 2N RPCs. */
+export async function recordRecallAccess(
+	db: DbQueryClient,
+	orgId: string,
+	ids: string[],
+): Promise<void> {
+	if (!ids.length) return;
+	await db
+		.update(memoryFacts)
+		.set({
+			lastAccessedAt: new Date().toISOString(),
+			accessCount: sql`${memoryFacts.accessCount} + 1`,
+			confidence: sql`MIN(1.0, ${memoryFacts.confidence} * 1.05)`,
+		})
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify([...new Set(ids)].slice(0, 100))}))`,
+			),
+		);
+}
+
 /** Repair old rows in bounded, repeatable chunks; new writes are trigger-synced. */
 export async function backfillFactSearch(
 	db: DbQueryClient,

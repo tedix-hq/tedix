@@ -419,6 +419,12 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 				totalFacts: z.number(),
 				query: z.string(),
 				retrievalMs: z.number().optional(),
+				totalFactsApproximate: z
+					.boolean()
+					.optional()
+					.describe(
+						"The count exceeded its request budget; a cached value or returned-hit lower bound is shown.",
+					),
 			}),
 		),
 
