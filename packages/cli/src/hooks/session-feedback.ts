@@ -13,6 +13,7 @@ import { SessionFeedbackCandidateSchema } from "@tedix/api-contract/schemas/agen
 import { humanText, scrub } from "../learn-import";
 import { localFeedbackModel } from "../learn-analyze";
 import { harnessOf } from "./agent-status";
+import { normalizeGitOrigin } from "../agent-context";
 import { bindingFor, redact } from "./decision-capture";
 import {
 	AGENT_IDENTITY_ENV,
@@ -118,7 +119,10 @@ export async function runSessionFeedback(
 				sessionKey: session,
 				occurredAt: (deps.now?.() ?? new Date()).toISOString(),
 				harness: harnessOf(event, env),
-				repository: binding.origin,
+				repository:
+					typeof binding.origin === "string"
+						? normalizeGitOrigin(binding.origin.replace(/[?#].*$/, ""))
+						: undefined,
 				projectId: binding.projectId,
 			};
 			const key = createHash("sha256")
@@ -143,11 +147,33 @@ export async function runSessionFeedback(
 		.slice(0, 8)
 		.map((file) => {
 			const envelope = JSON.parse(readFileSync(join(outbox, file), "utf8"));
+			const saved = envelope.candidate;
+			const candidate = SessionFeedbackCandidateSchema.parse({
+				...saved,
+				...(typeof saved?.text === "string"
+					? { text: redact(scrub(saved.text), 300)[0] }
+					: {}),
+				...(typeof saved?.quote === "string"
+					? { quote: redact(scrub(saved.quote), 280)[0] }
+					: {}),
+				...(typeof saved?.repository === "string"
+					? {
+							repository: normalizeGitOrigin(
+								saved.repository.replace(/[?#].*$/, ""),
+							),
+						}
+					: {}),
+			});
 			return {
 				file,
 				pending: envelope.pending === true,
-				candidate: SessionFeedbackCandidateSchema.parse(envelope.candidate),
+				candidate,
 			};
+		})
+		.filter((row) => {
+			if (!TURN_ONLY.test(row.candidate.quote)) return true;
+			rmSync(join(outbox, row.file));
+			return false;
 		});
 	const pending = queued.filter((row) => row.pending);
 	const classified = await classify(pending.map((row) => row.candidate.quote));

@@ -48,7 +48,13 @@ it("confirms owner feedback privately with cross-harness scope and canonical evi
 	const result = await recordSessionFeedback(
 		{} as never,
 		scope,
-		[candidate],
+		[
+			{
+				...candidate,
+				repository:
+					"https://user:pw@github.com/fixture/meadow.git?credential=placeholder",
+			},
+		],
 		async () => '{"novel":[0]}',
 	);
 	expect(result.lessons[0]?.status).toBe("confirmed");
@@ -57,7 +63,7 @@ it("confirms owner feedback privately with cross-harness scope and canonical evi
 	expect(fact.reviewStatus).toBe("confirmed");
 	expect(fact.metadata?.learningFeed).toMatchObject({
 		ownerUserId: "fixture-user",
-		scope: { harness: "general" },
+		scope: { repo: "github.com/fixture/meadow", harness: "general" },
 		evidence: {
 			supportCount: 1,
 			state: "live",

@@ -50,7 +50,8 @@ describe("local feedback capture", () => {
 			root: process.cwd(),
 			workspace: "fixture",
 			projectId: "22222222-2222-4222-8222-222222222222",
-			origin: "https://github.com/fixture/meadow.git",
+			origin:
+				"https://user:pw@github.com/fixture/meadow.git?credential=placeholder",
 			mcpUrl: "https://fixture.invalid/mcp",
 		};
 		let offline = true;
@@ -93,6 +94,9 @@ describe("local feedback capture", () => {
 			).rejects.toThrow("offline");
 			expect(uploads[0]).toContain("Never mention Meadow");
 			expect(uploads[0]).not.toContain("PRIVATE-TASK");
+			expect(uploads[0]).not.toContain("user:pw");
+			expect(uploads[0]).not.toContain("credential=placeholder");
+			expect(uploads[0]).toContain("github.com/fixture/meadow");
 			offline = false;
 			await runSessionFeedback("turn", deps, classifier);
 			expect(uploads).toHaveLength(2);

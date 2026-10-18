@@ -298,6 +298,14 @@ describe("transcript extraction", () => {
 			),
 		).toBe("use [secret ref] ask [email], see https://x.dev/p in ~/src");
 	});
+
+	it("redacts complete URL credentials before extracting feedback quotes", () => {
+		expect(
+			scrub(
+				"Always use https://user:pw$part@fixture.example/path?key=placeholder",
+			),
+		).toBe("Always use https://[redacted]@fixture.example/path");
+	});
 });
 
 const target = {

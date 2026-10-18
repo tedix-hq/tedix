@@ -47,9 +47,12 @@ export async function recordSessionFeedback(
 	const repository = candidates[0]?.repository ?? "general";
 	const normalizeRepo = (value: string) =>
 		value
+			.trim()
 			.toLowerCase()
-			.replace(/^https?:\/\//, "")
-			.replace(/^git@([^:]+):/, "$1/")
+			.replace(/^[a-z+]+:\/\//, "")
+			.replace(/^[^@/]+@([^:/]+):/, "$1/")
+			.replace(/^[^@/]+@/, "")
+			.replace(/[?#].*$/, "")
 			.replace(/\.git$/, "")
 			.replace(/\/+$/, "");
 	const comparison = [
