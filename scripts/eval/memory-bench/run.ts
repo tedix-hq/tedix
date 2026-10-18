@@ -128,8 +128,22 @@ for (const p of lessonPrompts) {
 		topics: [],
 		budgetBytes: 2800,
 	});
+	// The hook ranks the full approved catalog, not the server's byte-trimmed branch result.
+	const catalog = a.promptSelector
+		? await a.lessonSelection.getSessionLessons(
+				{ db: a.db, authType: "user", user: { sub: "fictional-eval-user" } },
+				p.org,
+				{
+					harness: "codex",
+					repo: "fable",
+					topics: [],
+					budgetBytes: 2800,
+					catalog: true,
+				},
+			)
+		: selected;
 	const r = a.promptSelector
-		? await a.promptSelector.selectPromptLessons(selected.lessons, {
+		? await a.promptSelector.selectPromptLessons(catalog.lessons, {
 				prompt: p.text,
 				repo: "fable",
 				budgetBytes: 2800,
@@ -140,6 +154,16 @@ for (const p of lessonPrompts) {
 		prompt: p.text,
 		expected: p.expected,
 		actual: ids,
+		selector: a.promptSelector
+			? "local-prompt-from-server-catalog"
+			: "server-topics-only",
+		serverActual: selected.lessons.slice(0, 3).map((l: { id: string }) => l.id),
+		top1: p.expected.includes(ids[0]!) ? 1 : 0,
+		serverTop1: p.expected.includes(selected.lessons[0]?.id) ? 1 : 0,
+		serverPrecision:
+			selected.lessons
+				.slice(0, 3)
+				.filter((l: { id: string }) => p.expected.includes(l.id)).length / 3,
 		precision: ids.filter((id: string) => p.expected.includes(id)).length / 3,
 		bytes: Buffer.byteLength(
 			a.hook.render(
@@ -315,7 +339,13 @@ const recall = details.recall as Array<{
 }>;
 const lessons = details.lessons!.filter(
 	(r) => "precision" in (r as object),
-) as Array<{ precision: number; bytes: number }>;
+) as Array<{
+	precision: number;
+	bytes: number;
+	top1: number;
+	serverTop1: number;
+	serverPrecision: number;
+}>;
 const context = details.context as Array<{ pass: boolean; bytes: number }>;
 const lm = details.longMemEval as Array<{ recall: number; mrr: number }>;
 const row = {
@@ -338,6 +368,9 @@ const row = {
 		0.95,
 	),
 	lessonPrecisionAt3: mean(lessons.map((r) => r.precision)),
+	lessonTop1: mean(lessons.map((r) => r.top1)),
+	serverLessonPrecisionAt3: mean(lessons.map((r) => r.serverPrecision)),
+	serverLessonTop1: mean(lessons.map((r) => r.serverTop1)),
 	heldWhenInvalid: held / invalidSources.length,
 	injectedBlockBytes: {
 		mean: mean(lessons.map((r) => r.bytes)),

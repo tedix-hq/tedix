@@ -8,11 +8,21 @@ const STOP = new Set(
 	),
 );
 function terms(text: string): string[] {
-	return text
-		.replace(/([a-z])([A-Z])/g, "$1 $2")
-		.toLowerCase()
-		.split(/[^a-z0-9]+/)
-		.filter((w) => w.length > 2 && !STOP.has(w));
+	const normalized = text.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+	// Keep the number attached to its name; bare numbers would match unrelated projects.
+	const identifiers = (
+		normalized.match(/[a-z0-9]+(?:[-_.][a-z0-9]+)+/g) ?? []
+	).filter((word) => /[a-z]/.test(word) && /\d/.test(word));
+	return [
+		...normalized
+			.split(/[^a-z0-9]+/)
+			.filter(
+				(word) =>
+					!STOP.has(word) &&
+					(word.length > 2 || (/[a-z]/.test(word) && /\d/.test(word))),
+			),
+		...identifiers,
+	];
 }
 export interface LessonSelection {
 	lessons: AgentSessionLesson[];
