@@ -59,3 +59,9 @@ record shape and question categories; it copies no personal conversations.
 Docker is available on the proof host, but the optional offline comparator was
 skipped: no running local Ollama service was available. Hindsight retention needs a
 model; no hosted credentials or inference were used.
+
+Additional lifecycle fixture (outside the aggregate recall score):
+
+| Feature                             | Fictional fixture                                                                       | Expected result                                                                                                                                                                                                                                                |
+| ----------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Observations and standing summaries | [Orchard lifecycle](../../../packages/db/src/queries/memory-graph.observations.test.ts) | Repeated statements share one observation; concurrent reruns add no versions; new evidence retains prior text; contradictions cite both sides; invalidation removes the lost claim from observation and summary, then retracts both when support reaches zero. |
