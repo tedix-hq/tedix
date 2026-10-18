@@ -40,3 +40,38 @@ test("memory import understands nested metadata and skips references and stale n
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("an import extracts from the note body locally and uploads only the bounded supported rule", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "memory-body-fixture-"));
+	try {
+		writeFileSync(
+			join(dir, "feedback.md"),
+			"---\nname: status\ndescription: Status guidance\ntype: feedback\n---\nWhy: avoid repeated questions.\nHow to apply: Always show concise status.\nPRIVATE_NOTE_DETAIL",
+		);
+		let modelInput = "";
+		let uploaded = "";
+		await runMemoryImport(["--directory", dir, "--apply"], {
+			defaultTarget: {
+				workspace: "fixture",
+				organization: "org_fixture",
+				org: "org_fixture",
+				mcpUrl: "https://fixture.invalid/mcp",
+			},
+			runModel: async (prompt) => {
+				modelInput = prompt;
+				return '{"text":"Always show concise status.","quote":"Always show concise status."}';
+			},
+			read: async (_args, _ms, input) => {
+				uploaded = input!;
+				return { lessons: [] };
+			},
+			write: () => {},
+		});
+		expect(modelInput).toContain("Why: avoid repeated questions");
+		expect(uploaded).toContain("Always show concise status.");
+		expect(uploaded).toContain("sourceHash");
+		expect(uploaded).not.toContain("PRIVATE_NOTE_DETAIL");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
