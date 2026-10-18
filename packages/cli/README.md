@@ -34,7 +34,8 @@ and durable answer settlement.
   `prompt-context` runs its gateway, organization and answer reads together
   and checks preferences and lessons each turn, injecting their text once per
   session and again only on change. Unchanged sources stay silent.
-  Each turn also shows up to three ready Work items assigned to this harness
+  Each turn also shows up to three accepted Work items without a live Attempt,
+  assigned to this harness
   or without an executor in the bound project, with `tedix work start` commands.
   These suggestions use a 30-second cache; unavailable or expired reads are
   omitted. A suggestion still needs fresh admission before execution. Local
