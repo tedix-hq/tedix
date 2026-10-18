@@ -1,6 +1,7 @@
 import { cardIsDue, cardScheduleDates } from "@/lib/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
 	decisionNeedsPerson,
 	type DecisionDeckConfig,
@@ -28,6 +29,40 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		enabled: Boolean(config),
 		refetchInterval: 30_000,
 	});
+	// A scheduled reminder can be older than the newest inbox page.
+	const earlierEnabled = Boolean(config && inbox.data?.nextCursor);
+	const earlier = useInfiniteQuery({
+		...osQuery.workInteractions.listInbox.infiniteOptions({
+			input: (cursor: { at: string; id: string } | undefined) => ({
+				projectId: config?.projectId,
+				limit: config?.limit ?? 50,
+				states: ["open"],
+				cursor,
+			}),
+			initialPageParam: inbox.data?.nextCursor ?? undefined,
+			getNextPageParam: (page) => page.nextCursor ?? undefined,
+		}),
+		enabled: earlierEnabled,
+		refetchInterval: 30_000,
+	});
+	useEffect(() => {
+		if (
+			earlierEnabled &&
+			earlier.hasNextPage &&
+			!earlier.isFetching &&
+			!earlier.isError
+		)
+			void earlier.fetchNextPage();
+	}, [
+		earlierEnabled,
+		earlier.hasNextPage,
+		earlier.isFetching,
+		earlier.isError,
+		earlier.fetchNextPage,
+	]);
+	const earlierPending =
+		earlierEnabled && (earlier.isPending || earlier.hasNextPage);
+	const earlierFailed = earlierEnabled && earlier.isError;
 	const approvalRequests = useQuery({
 		...osQuery.workInteractions.listInbox.queryOptions({
 			input: {
@@ -58,9 +93,13 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 	});
 	const requests = [
 		...new Map(
-			[...(inbox.data?.data ?? []), ...(approvalRequests.data?.data ?? [])].map(
-				(row) => [row.request.id, row],
-			),
+			[
+				...(inbox.data?.data ?? []),
+				...(earlierEnabled
+					? (earlier.data?.pages.flatMap((page) => page.data) ?? [])
+					: []),
+				...(approvalRequests.data?.data ?? []),
+			].map((row) => [row.request.id, row]),
 		).values(),
 	].filter((row) => {
 		const decision = decisionEnvelope(row.request.metadata);
@@ -99,29 +138,33 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		count: requests.length + work.length + runtime.length + factories.count,
 		queuePending:
 			inbox.isPending ||
+			earlierPending ||
 			approvalRequests.isPending ||
 			workApprovals.isPending ||
 			(!config?.projectId && approvals.isPending),
 		queueFailed:
 			inbox.isError ||
+			earlierFailed ||
 			approvalRequests.isError ||
 			workApprovals.isError ||
 			(!config?.projectId && approvals.isError),
 		pending:
 			factories.pending ||
 			inbox.isPending ||
+			earlierPending ||
 			approvalRequests.isPending ||
 			workApprovals.isPending ||
 			(!config?.projectId && approvals.isPending),
 		failed:
 			factories.failed ||
 			inbox.isError ||
+			earlierFailed ||
 			approvalRequests.isError ||
 			workApprovals.isError ||
 			(!config?.projectId && approvals.isError),
 		more: Boolean(
 			factories.more ||
-			inbox.data?.hasMore ||
+			(earlierEnabled && (earlier.isPending || earlier.hasNextPage)) ||
 			approvalRequests.data?.hasMore ||
 			workApprovals.data?.hasMore ||
 			(!config?.projectId && approvals.data?.pagination.hasMore),
