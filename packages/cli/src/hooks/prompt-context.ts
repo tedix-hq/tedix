@@ -917,7 +917,6 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			binding.workItemId ? "work" : undefined,
 			delegations.length ? "delegations" : undefined,
 			ledger ? "requests" : undefined,
-			binding.nextWork ? "nextWork" : undefined,
 		].filter((name): name is string => name !== undefined);
 		const gateway = async (): Promise<JsonObject> => {
 			if (!liveSources.length) return {};
@@ -929,7 +928,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 							...command,
 							"code",
 							gatewayCode(
-								binding,
+								{ ...binding, nextWork: undefined },
 								cached.lessons?.fresh ? undefined : lessons,
 								delegations.map((d) => d.id),
 								ledger,
@@ -948,8 +947,24 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				);
 			}
 		};
-		// Independent round trips run together; each fails on its own.
-		const [, captured, data] = await Promise.all([
+		const priorities = async (): Promise<JsonObject | undefined> => {
+			if (cached.nextWork?.fresh) return cached.nextWork.value;
+			if (!binding.nextWork) return undefined;
+			try {
+				const result = await trace(
+					"priorities",
+					read(
+						[...command, "code", gatewayCode({ nextWork: binding.nextWork })],
+						GATEWAY_MS,
+					),
+				);
+				return result.nextWork;
+			} catch {
+				return undefined;
+			}
+		};
+		// A slow shared source must not suppress independently readable priorities.
+		const [, captured, data, nextWork] = await Promise.all([
 			probe(),
 			capture && source === "stored-login" && typeof login === "string" && login
 				? trace(
@@ -962,8 +977,10 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 					)
 				: Promise.resolve([] as string[]),
 			gateway(),
+			priorities(),
 		]);
 		if (cached.lessons?.fresh) data.lessons = cached.lessons.value;
+		if (nextWork) data.nextWork = nextWork;
 		if (cached.nextWork?.fresh) data.nextWork = cached.nextWork.value;
 		else if (isObject(data.nextWork) && Array.isArray(data.nextWork.data))
 			writeCache(env, "next-work", nextWorkKey, data.nextWork, now);

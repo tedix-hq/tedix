@@ -119,6 +119,7 @@ test("fresh chat receives cached priorities; unavailable refresh omits them", as
 							storedLogin: { org: binding.org },
 						};
 					if (args.some((arg) => arg.includes('"nextWork":'))) boardReads++;
+					else throw new Error("Shared gateway deadline elapsed");
 					return {
 						lessons: { organizationId, lessons: [], matched: 0 },
 						nextWork:
