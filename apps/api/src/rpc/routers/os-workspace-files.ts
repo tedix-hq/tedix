@@ -217,6 +217,8 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 					file: { workspaceId: workspace.id, resourceId: input.resourceId },
 				}),
 				note: "Uploaded workspace file",
+				// Uploaded bytes have no connected-source dependencies; file reads check workspace access.
+				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
 			},
 		});
 		const resource = await getOsWorkspaceResource(queryDb(context), {
