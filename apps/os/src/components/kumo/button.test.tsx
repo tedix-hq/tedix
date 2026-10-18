@@ -4,6 +4,22 @@ import { describe, expect, it } from "vite-plus/test";
 import { Button } from "./button";
 
 describe("Kumo Button adapter", () => {
+	it("normalizes named decorative-only children without turning text actions into icons", () => {
+		const reaction = renderToStaticMarkup(
+			<Button aria-label="More like this" size="sm" variant="ghost">
+				<svg aria-hidden="true" />
+			</Button>,
+		);
+		expect(reaction).toContain('data-icon-only="true"');
+		const text = renderToStaticMarkup(
+			<Button aria-label="Save changes" size="sm">
+				<svg aria-hidden="true" />
+				Save
+			</Button>,
+		);
+		expect(text).not.toContain("data-icon-only");
+	});
+
 	it("keeps icon buttons named, renders as a real link on request, and makes a loading link inert", () => {
 		const icon = renderToStaticMarkup(
 			<Button aria-label="Refresh usage" size="icon-sm" />,

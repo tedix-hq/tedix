@@ -9,6 +9,7 @@ import {
 	type CSSProperties,
 	cloneElement,
 	forwardRef,
+	isValidElement,
 	type ReactElement,
 	type ReactNode,
 	type Ref,
@@ -66,16 +67,18 @@ function textSizeClass(size: ButtonSize) {
 }
 
 /*
- * Product density is a semantic contract, not an accident of Kumo's internal
- * size aliases. Compact text controls use the 28px Console rhythm while their
- * adjacent icon actions retain a 32px hit area. Base and large sizes already
- * resolve to the shared 36px and 40px tiers upstream.
+ * Keep icon geometry independent of Kumo's text-size padding and gaps.
  */
+const ICON_BUTTON_CLASS =
+	"!rounded-full !p-0 !gap-0 !items-center !justify-center [&_svg]:shrink-0";
+
 const PRODUCT_SIZE_CLASS: Partial<Record<ButtonSize, string>> = {
 	xs: "!h-6",
 	sm: "!h-7",
+	icon: "!size-9",
 	"icon-xs": "!size-6",
 	"icon-sm": "!size-8",
+	"icon-lg": "!size-10",
 };
 
 /*
@@ -171,6 +174,10 @@ function buttonVariants({
 		}),
 		COARSE_TOUCH_TARGET,
 		(!multiline || iconSize) && PRODUCT_SIZE_CLASS[size],
+		iconSize && ICON_BUTTON_CLASS,
+		iconSize &&
+			variant === "ghost" &&
+			"focus-visible:bg-kumo-tint not-disabled:active:bg-kumo-tint",
 		textSizeClass(size),
 		variant === "link" &&
 			"bg-transparent text-kumo-link underline-offset-4 shadow-none hover:underline",
@@ -237,6 +244,18 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 	},
 	ref,
 ) {
+	// A named control containing only decorative content is an icon action,
+	// even when its caller supplies a text-size alias (as Feed reactions do).
+	if (
+		!multiline &&
+		!isIconSize(size) &&
+		(props["aria-label"] || props["aria-labelledby"] || title) &&
+		isValidElement<{ "aria-hidden"?: boolean | "true" | "false" }>(children) &&
+		(children.props["aria-hidden"] === true ||
+			children.props["aria-hidden"] === "true")
+	) {
+		size = "icon";
+	}
 	if (render) {
 		const disabled = loading || props.disabled;
 		const renderElement = disabled
@@ -296,7 +315,14 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 				{...props}
 				ref={ref}
 				aria-label={accessibleName as string}
-				className={cn(COARSE_TOUCH_TARGET, PRODUCT_SIZE_CLASS[size], className)}
+				className={cn(
+					COARSE_TOUCH_TARGET,
+					PRODUCT_SIZE_CLASS[size],
+					ICON_BUTTON_CLASS,
+					variant === "ghost" &&
+						"focus-visible:bg-kumo-tint not-disabled:active:bg-kumo-tint",
+					className,
+				)}
 				data-icon-only="true"
 				data-slot="button"
 				icon={icon}
