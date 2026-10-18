@@ -1,0 +1,2 @@
+CREATE INDEX `idx_memory_facts_org_recall_time` ON `memory_facts` (`organization_id`,datetime(coalesce("valid_from", "created_at")));--> statement-breakpoint
+CREATE INDEX `idx_memory_facts_org_recall_until` ON `memory_facts` (`organization_id`,datetime("valid_to"));

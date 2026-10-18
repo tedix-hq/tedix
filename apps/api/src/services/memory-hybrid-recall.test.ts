@@ -107,7 +107,7 @@ describe("hybrid memory orchestration", () => {
 			mocks.semantic,
 		])
 			expect(arm).toHaveBeenCalledTimes(1);
-		await vi.advanceTimersByTimeAsync(450);
+		await vi.advanceTimersByTimeAsync(149);
 		expect((await promise).map((x) => x.factId)).toEqual(["a"]);
 		expect(vi.getTimerCount()).toBe(0);
 	});

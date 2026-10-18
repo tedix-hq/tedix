@@ -119,7 +119,7 @@ export async function recallMemoryFacts(
 	const left = () => Math.max(0, end - performance.now());
 	const topK = Math.min(100, Math.max(1, params.topK ?? 10));
 	let missingIndex = false;
-	const armBudget = Math.min(350, left());
+	const armBudget = Math.min(450, left());
 	const [lexical, semantic, graph, temporal] = await Promise.all([
 		boundRecall(
 			async () => {

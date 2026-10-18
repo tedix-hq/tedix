@@ -194,6 +194,14 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_source").on(table.source),
 		index("idx_memory_facts_archived").on(table.archivedAt),
 		index("idx_memory_facts_valid_to").on(table.validTo),
+		index("idx_memory_facts_org_recall_time").on(
+			table.organizationId,
+			sql`datetime(coalesce(${table.validFrom}, ${table.createdAt}))`,
+		),
+		index("idx_memory_facts_org_recall_until").on(
+			table.organizationId,
+			sql`datetime(${table.validTo})`,
+		),
 		index("idx_memory_facts_status").on(table.status),
 		index("idx_memory_facts_org_type").on(table.organizationId, table.factType),
 		index("idx_memory_facts_org_domain").on(

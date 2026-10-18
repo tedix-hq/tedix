@@ -47,6 +47,15 @@ function fixture(onPrepare?: (query: string) => void) {
 		),
 	);
 	sqlite.exec(migration);
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../drizzle/20261018170409_memory-recall-time-ranges/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const db = createDbClient(createD1Facade(sqlite, { onPrepare }));
 	const add = (
 		id: string,
@@ -67,6 +76,30 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("seeks tenant time ranges before canonical eligibility checks", async () => {
+		const prepared: string[] = [];
+		const { db, add, sqlite } = fixture((query) => prepared.push(query));
+		add("recent", "cobalt launch");
+		add("foreign", "cobalt launch", "fictional-b");
+		expect(
+			(await temporalRecall(db, scope, "yesterday")).map((f) => f.factId),
+		).toEqual(["recent"]);
+		const query = prepared.find((query) => query.includes("temporal_fact_id"))!;
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array(query.match(/\?/g)?.length ?? 0).fill(null));
+		for (const index of [
+			"idx_memory_facts_org_recall_time",
+			"idx_memory_facts_org_recall_until",
+			"sqlite_autoindex_memory_facts_1",
+		])
+			expect(plan.some((row) => String(row.detail).includes(index))).toBe(true);
+		expect(
+			plan.some((row) =>
+				String(row.detail).includes("idx_memory_facts_archived"),
+			),
+		).toBe(false);
+	});
 	it("filters inactive BM25 matches before limiting candidates", async () => {
 		const { db, add } = fixture();
 		for (let i = 0; i < 520; i++)
