@@ -107,3 +107,30 @@ it("bounds learning context while preserving personal preferences and fitting le
 		lessons: [{ text: "Keep proposals short." }],
 	});
 });
+
+it("separates the captured filing request from generic legacy copy", async () => {
+	await generateDecisionCard({ db: {}, env: {} } as never, {
+		...request,
+		subject: "File request to Fictional Project?",
+		prompt:
+			"Improve Feed previews.\n\nFiled automatically: Existing Feed work fits.",
+		metadata: {
+			decisionDeck: {
+				classId: "filing.project",
+				proposal: "Generic project proposal",
+				recommendation: "Keep it if it fits",
+				reasoning: "Existing Feed work fits.",
+				confidence: 0.6,
+			},
+		},
+	});
+	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
+	expect(source.filingReview).toMatchObject({
+		requestText: "Improve Feed previews.",
+		destinationQuestion: "File request to Fictional Project?",
+		reason: "Existing Feed work fits.",
+		confidence: 0.6,
+	});
+	expect(source).not.toHaveProperty("decision");
+	expect(JSON.stringify(source)).not.toContain("Keep it if it fits");
+});
