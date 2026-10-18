@@ -15,6 +15,7 @@ export const WorkspaceFileManifestSchema = WorkspaceFileMetadataSchema.extend({
 	createdById: z.string().min(1),
 	createdAt: z.iso.datetime(),
 	expiresAt: z.iso.datetime(),
+	mimeValidated: z.boolean().optional(),
 });
 export type WorkspaceFileManifest = z.infer<typeof WorkspaceFileManifestSchema>;
 export function workspaceFileKey(
@@ -103,6 +104,7 @@ export function workspaceFileInlineMime(mime: string) {
 	return [
 		"video/mp4",
 		"video/webm",
+		"video/quicktime",
 		"application/pdf",
 		"image/png",
 		"image/jpeg",
@@ -112,4 +114,50 @@ export function workspaceFileInlineMime(mime: string) {
 	].includes(mime)
 		? mime
 		: null;
+}
+
+/** Check only the bounded prefix; unknown or truncated signatures fail closed. */
+export function workspaceFileMimeMatches(mime: string, bytes: Uint8Array) {
+	const matches = (signature: number[], offset = 0) =>
+		signature.every((byte, index) => bytes[offset + index] === byte);
+	const text = (offset: number, length: number) =>
+		String.fromCharCode(...bytes.subarray(offset, offset + length));
+	switch (mime) {
+		case "application/pdf":
+			return text(0, 5) === "%PDF-";
+		case "image/png":
+			return matches([137, 80, 78, 71, 13, 10, 26, 10]);
+		case "image/jpeg":
+			return matches([255, 216, 255]);
+		case "image/gif":
+			return ["GIF87a", "GIF89a"].includes(text(0, 6));
+		case "image/webp":
+			return text(0, 4) === "RIFF" && text(8, 4) === "WEBP";
+		case "video/webm":
+			return (
+				matches([26, 69, 223, 163]) &&
+				bytes.some((_, index) =>
+					matches([66, 130, 132, 119, 101, 98, 109], index),
+				)
+			);
+		case "video/mp4":
+		case "video/quicktime":
+		case "image/avif": {
+			if (bytes.length < 16 || text(4, 4) !== "ftyp") return false;
+			const size = new DataView(
+				bytes.buffer,
+				bytes.byteOffset,
+				bytes.byteLength,
+			).getUint32(0);
+			if (size < 16 || size > bytes.length || size % 4 !== 0) return false;
+			const brand = text(8, 4);
+			if (mime === "video/quicktime") return brand === "qt  ";
+			if (mime === "image/avif") return ["avif", "avis"].includes(brand);
+			return ["isom", "iso2", "mp41", "mp42", "avc1", "M4V ", "dash"].includes(
+				brand,
+			);
+		}
+		default:
+			return false;
+	}
 }

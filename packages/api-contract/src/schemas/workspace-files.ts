@@ -9,6 +9,14 @@ export const WorkspaceFileReferenceSchema = z.object({
 export const WorkspaceFileMetadataSchema = z.object({
 	filename: z
 		.string()
+		.overwrite(
+			(name) =>
+				name
+					.replace(/[\x00-\x1f\x7f-\x9f/\\]/g, "")
+					.trim()
+					.slice(0, 255)
+					.replace(/[\uD800-\uDBFF]$/, "") || "file",
+		)
 		.trim()
 		.min(1)
 		.max(255)

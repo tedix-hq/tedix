@@ -22,6 +22,7 @@ import {
 	readWorkspaceFileManifest,
 	workspaceFileKey,
 	workspaceFileSignature,
+	workspaceFileMimeMatches,
 	type WorkspaceFileManifest,
 } from "../../lib/workspace-files";
 
@@ -178,6 +179,21 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 			createdById: manifest.createdById,
 			createdAt: manifest.createdAt,
 		};
+		const prefix = await context.env.SKILL_ARTIFACTS.get(key, {
+			range: { offset: 0, length: Math.min(manifest.size, 512) },
+		});
+		if (!prefix) missing();
+		manifest.mimeType = workspaceFileMimeMatches(
+			manifest.mimeType,
+			new Uint8Array(await prefix.arrayBuffer()),
+		)
+			? manifest.mimeType
+			: "application/octet-stream";
+		manifest.mimeValidated = true;
+		await context.env.SKILL_ARTIFACTS.put(
+			`${key}.json`,
+			JSON.stringify(manifest),
+		);
 		await confirmOsWorkspaceFile(queryDb(context), {
 			resource: {
 				...creator,
@@ -267,7 +283,9 @@ export const getFile = read.resources.getFile.handler(
 		);
 		return {
 			filename: manifest.filename,
-			mimeType: manifest.mimeType,
+			mimeType: manifest.mimeValidated
+				? manifest.mimeType
+				: "application/octet-stream",
 			size: manifest.size,
 			url: `/api/workspace-files/${encodeURIComponent(organizationId)}/${input.workspaceId}/${input.resourceId}/media?exp=${exp}&sig=${sig}`,
 			expiresAt: new Date(exp * 1000).toISOString(),
