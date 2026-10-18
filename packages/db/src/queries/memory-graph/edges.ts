@@ -1,3 +1,4 @@
+import { refreshConsolidatedForFact } from "./observations";
 import { eq, inArray, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -17,6 +18,22 @@ export async function createEdge(
 ): Promise<MemoryEdge> {
 	const [created] = await db.insert(memoryEdges).values(edge).returning();
 	if (!created) throw new Error(`Failed to create edge: ${edge.id}`);
+	if (
+		edge.relationType === "supersedes" ||
+		edge.relationType === "contradicts"
+	) {
+		const facts = await getFactsByIds(
+			db,
+			[edge.sourceFactId, edge.targetFactId],
+			{ includeGraphAnchors: true },
+		);
+		if (
+			facts.length === 2 &&
+			facts[0]!.organizationId === facts[1]!.organizationId
+		)
+			for (const fact of facts)
+				await refreshConsolidatedForFact(db, fact.organizationId, fact.id);
+	}
 	return created;
 }
 

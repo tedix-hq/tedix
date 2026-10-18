@@ -1,3 +1,4 @@
+import { refreshConsolidatedForFact } from "./observations";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { memoryFacts } from "../../schema/memory-graph";
@@ -146,6 +147,11 @@ export async function invalidateFact(
 				: undefined,
 		})
 		.where(eq(memoryFacts.id, factId));
+	const [fact] = await db
+		.select({ orgId: memoryFacts.organizationId })
+		.from(memoryFacts)
+		.where(eq(memoryFacts.id, factId));
+	if (fact) await refreshConsolidatedForFact(db, fact.orgId, factId);
 }
 
 /** Promote retrieved probation facts unless the evidence check rejected them. */

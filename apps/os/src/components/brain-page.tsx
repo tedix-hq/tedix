@@ -1,3 +1,4 @@
+import { MemoryObservations } from "./memory-observations";
 import { BookOpen, Brain, CaretRight } from "@phosphor-icons/react";
 import type { RationaleOutcomeStatus } from "@tedix/api-contract/constants/enums";
 import type {
@@ -501,6 +502,19 @@ export function BrainPage() {
 						)}
 					</>
 				)}
+			</PageSection>
+
+			<PageSection>
+				<SectionHeader>
+					<SectionHeading>
+						<SectionTitle>What we know</SectionTitle>
+						<SectionDescription>
+							Observations, standing summaries, and the evidence behind each
+							change.
+						</SectionDescription>
+					</SectionHeading>
+				</SectionHeader>
+				<MemoryObservations />
 			</PageSection>
 
 			<PageSection>

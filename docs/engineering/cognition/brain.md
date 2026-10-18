@@ -130,3 +130,40 @@ provenance); D1 owns writes, ordering, lifecycle, and read admission.
 Flywheel diagnostics (`/flywheel/*`, including the strategy map and knowledge
 market) are diagnostics, never targets or reward inputs; a `supported`
 hypothesis means consistent, not causal.
+
+## Observations and standing summaries
+
+Brain's **What we know** section shows observations, standing summaries, and
+expandable source quotes and refresh traces. Observations combine distinct
+source statements about an accepted entity or an explicit topic. They are
+extractive: no generated paraphrase survives the removal of its source.
+
+Independent sources can share `metadata.observationTopic`, while retaining
+separate `topicKey` values for their individual state/supersession identities.
+Accepted entity resolutions group sources without guessing identity from names.
+Organization, owning tedi, visibility, and memory scope remain separate clusters;
+personal learning-feed lessons retain their existing evidence path.
+
+In workspace chat: "Show what we know about the Orchard repository, including
+its sources and latest refresh." Discover `list_memory_observations` (read:
+`mcp:memory.read`) and `consolidate_memory_observations` (refresh:
+`mcp:memory.write`); their RPC owners are `memoryGraph.listObservations` and
+`memoryGraph.consolidateObservations`. Both accept an optional `topicKey` and
+`tediId`; listing also accepts `includeHistory` and a limit up to 100.
+Read the changed records after refreshing. A counted refresh is not proof that
+the background workflow ran.
+
+The existing reflection workflow refreshes bounded groups of observations.
+Invalidation, source edits, review changes, and supersede/contradiction edges
+also re-evaluate direct dependents. A read checks full source hashes, current
+scope, conflicts, and live observations before using a cached summary. Recall
+prefers a supported summary or observation over the raw sources it covers and
+falls back to raw facts when the derived claim is held.
+
+All records stay in `memory_facts`. A deterministic head identifies each
+cluster; an atomic batch preserves its previous version before a conditional
+head update. Refresh traces retain the previous text, reason, time, changed
+source IDs, and removed support. Contradictions cite both sides and are excluded
+from standing summaries. Losing all support retracts the claim. Each source
+read is capped at 50; an oversized cluster is reported as overflow rather than
+summarized from a partial sample. Rerunning unchanged inputs adds no versions.
