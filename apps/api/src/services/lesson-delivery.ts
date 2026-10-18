@@ -27,9 +27,6 @@ import type { Subject } from "./lesson-map-reduce";
 
 export const LESSON_DELIVERY_SURFACE = "lesson_delivery";
 export const LESSON_DELIVERY_SCHEMA = "tedix.lesson-delivery.v1";
-/** Share of sessions, by session id, that receive no learned lessons. */
-export const HOLDOUT_PERCENT = 10;
-const HOLDOUT_SALT = "tedix.lesson-holdout.v1:";
 
 type Meta = Record<string, unknown>;
 const rec = (value: unknown): Meta =>
@@ -38,17 +35,6 @@ const rec = (value: unknown): Meta =>
 		: {};
 const text = (value: unknown): string =>
 	typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
-
-/** Same session id, same arm, always. */
-export async function isHoldoutSession(sessionId: string): Promise<boolean> {
-	const digest = await crypto.subtle.digest(
-		"SHA-256",
-		new TextEncoder().encode(
-			`${HOLDOUT_SALT}${sessionId.trim().toLowerCase()}`,
-		),
-	);
-	return new DataView(digest).getUint32(0) % 100 < HOLDOUT_PERCENT;
-}
 
 /** Written by the miner without review (not seeded, not person-reviewed). */
 export function isMinedLesson(metadata: unknown): boolean {

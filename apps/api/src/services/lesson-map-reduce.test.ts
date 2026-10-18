@@ -8,6 +8,18 @@ vi.mock("@tedix/db/queries/learning-feedback", () => ({
 }));
 vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
 	listCurrentLearningFeedLessons: vi.fn(async () => []),
+	filterEvidenceBackedLessons: vi.fn(async (_db, _org, rows) => rows),
+	holdLessonForRedistillation: vi.fn(async () => undefined),
+	decisionLessonEvidence: vi.fn(async (_db, _org, ids: string[]) => ({
+		version: 1,
+		sources: [...new Set(ids)].map((id) => ({
+			kind: "decision",
+			id,
+			quote: "Standing fixture decision",
+		})),
+		supportCount: new Set(ids).size,
+		state: "live",
+	})),
 	listArchivedLearningFeedLessonsForOwner: vi.fn(async () => []),
 }));
 vi.mock("@tedix/db/queries/memory-graph/domains", () => ({
@@ -33,6 +45,7 @@ import {
 	listOwnerLearningInteractionsPage,
 } from "@tedix/db/queries/learning-feedback";
 import {
+	filterEvidenceBackedLessons,
 	listArchivedLearningFeedLessonsForOwner,
 	listCurrentLearningFeedLessons,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
@@ -49,6 +62,7 @@ import {
 	mergeByWords,
 	mergedFromResponse,
 	planLessons,
+	prepareOwners,
 	settle,
 	storedRules,
 	type RuleCandidate,
@@ -535,6 +549,37 @@ describe("distillPersonalLessons", () => {
 		expect(vi.mocked(invalidateFact).mock.calls.map((c) => c[1])).toEqual([
 			"old-repo-lesson",
 		]);
+	});
+
+	it("rebuilds a held lesson even when its source history signature has not changed", async () => {
+		vi.mocked(listCurrentLearningFeedLessons).mockResolvedValue([
+			{
+				id: "held-lesson",
+				topicKey: "learning-feed:decision:general:general:standing:user:user-1",
+				content: "How the user works:\n- Keep answers brief",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: {
+						autoConfirmed: true,
+						ownerUserId: "user-1",
+						evidence: { state: "held" },
+						mapReduce: {
+							version: MAP_REDUCE_VERSION,
+							events: 400,
+							newestAt: history[0]!.occurredAt,
+							settled: 0,
+							complete: true,
+						},
+					},
+				},
+			},
+		]);
+		vi.mocked(filterEvidenceBackedLessons).mockResolvedValueOnce([]);
+		expect((await prepareOwners(db, "org-1"))[0]?.skip).toBe(false);
+		expect(
+			(await distillOwnerIncrementally(direct, db, env, "org-1", "user-1"))
+				.status,
+		).toBe("full");
 	});
 
 	it("does nothing when the history is unchanged since a complete run", async () => {

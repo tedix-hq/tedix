@@ -1,11 +1,11 @@
 /**
- * Read-only context before a submitted prompt. Uses host metadata only; never
- * sends or stores prompt text.
+ * Read shared context and rank approved lessons locally before a prompt.
+ * Never send or store prompt text.
  *
  * Every bound chat also receives the organization's approved team lessons
  * (`agent.get_agent_session_lessons`): org-wide ones plus the signed-in user's
- * own personal ones, filtered to this repository and host and ranked by the
- * branch's words. Lessons need no local selection, so a chat on any profile of
+ * own personal ones, filtered to this repository and host and ranked against
+ * the prompt, folder and selected Work title. A chat on any profile of
  * the organization gets them.
  *
  * The chat's id goes with the lessons read: the server records which lessons
@@ -53,6 +53,8 @@ import {
 	rememberDelivered,
 	repositoryName,
 } from "./decision-capture";
+import { selectPromptLessons, type LessonSelection } from "./lesson-selection";
+import type { AgentSessionLesson } from "@tedix/api-contract/schemas/agent-session-lessons";
 import { readCache, writeCache } from "./context-cache";
 import {
 	contextHash,
@@ -122,6 +124,8 @@ export interface LessonsQuery {
 	harness: string;
 	repo?: string;
 	topics: string[];
+	catalog?: boolean;
+	selectedLessonIds?: string[];
 	sessionId?: string;
 }
 const UNAVAILABLE =
@@ -276,6 +280,10 @@ export function gatewayCode(
 	if (lessons)
 		target.lessons = {
 			harness: lessons.harness,
+			...(lessons.catalog ? { catalog: true } : {}),
+			...(lessons.selectedLessonIds
+				? { selectedLessonIds: lessons.selectedLessonIds }
+				: {}),
 			...(lessons.repo ? { repo: lessons.repo } : {}),
 			...(lessons.topics.length ? { topics: lessons.topics } : {}),
 			budgetBytes: LESSON_BYTES,
@@ -299,12 +307,12 @@ export function gatewayCode(
  if (t.preferencesOutputId) pending.preferences = t.preferencesOutputId === t.contextOutputId && t.preferencesWorkspaceId === t.osWorkspaceId ? pending.shared : each(() => document(t.preferencesWorkspaceId, t.preferencesOutputId));
  if (t.lessons) pending.lessons = each(async () => {
   const r = await agent.get_agent_session_lessons(t.lessons);
-  return {organizationId:r.organizationId,matched:r.matched,truncated:r.truncated,holdout:r.holdout === true,lessons:r.lessons.map(l => ({shortId:l.shortId,text:l.text}))};
+  return {organizationId:r.organizationId,matched:r.matched,truncated:r.truncated,holdout:r.holdout === true,lessons:r.lessons.map(l => ({id:l.id,shortId:l.shortId,text:l.text,scope:l.scope,learned:l.learned,updatedAt:l.updatedAt}))};
  });
  if (t.workItemId) pending.work = each(async () => {
   const r = await work.get_work_items_by_id({id:t.workItemId});
   const comments = r.comments ?? [];
-  return {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
+  return {item:{title:r.workItem.title,id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
  });
  if (t.requests) pending.requests = each(async () => {
   const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],sessionKey:t.requests.session,...(t.requests.harness ? {harness:t.requests.harness} : {}),limit:REQUEST_READ_LIMIT,order:'newest'});
@@ -592,7 +600,7 @@ function compose(
 				throw new Error("unexpected lesson");
 			return `[${lesson.shortId}] ${lesson.text.slice(0, 600)}`;
 		});
-		// Ranked by the gateway: the budget keeps the first ones.
+		// The caller supplies ranked lessons; the budget keeps the first ones.
 		const items = all.slice(0, Math.max(lessonCap, 0));
 		delivered.lessons =
 			Boolean(unchanged.lessons) || items.length === all.length;
@@ -708,7 +716,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 	const trace = hookTrace(env, "prompt-context");
 	const now = (deps.now ?? (() => new Date()))();
 	try {
-		// Only the chat identity and host kind are retained; the prompt text is discarded here.
+		// Prompt text is used only for local ranking; gateway inputs contain identifiers.
 		const { event, session } = hostEvent(deps.stdin, env, EVENT_LIMIT);
 		// Codex is told apart by its event's turn_id, or its environment.
 		const harness = harnessOf(event, env);
@@ -844,9 +852,12 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		const lessons: LessonsQuery = {
 			harness,
 			repo: repoSlug(binding.origin),
-			topics: branchTopics(binding.branch),
-			sessionId: session,
+			topics: [],
+			catalog: true,
 		};
+		// Cache only the approved scope catalog; selected ids are revalidated live.
+		const lessonCacheKey = `${principal}|approved-v2|${lessons.harness}|${lessons.repo ?? "outside"}`;
+		const cached = { lessons: readCache(env, "lessons", lessonCacheKey, now) };
 		// Reading this chat's existing rows does not opt the organization into recording.
 		const ledger = Boolean(session) && source === "stored-login";
 		if (ledger)
@@ -861,7 +872,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		const liveSources = [
 			binding.contextOutputId ? "shared" : undefined,
 			binding.preferencesOutputId ? "preferences" : undefined,
-			"lessons",
+			cached.lessons?.fresh ? undefined : "lessons",
 			binding.workItemId ? "work" : undefined,
 			delegations.length ? "delegations" : undefined,
 			ledger ? "requests" : undefined,
@@ -877,7 +888,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 							"code",
 							gatewayCode(
 								binding,
-								lessons,
+								cached.lessons?.fresh ? undefined : lessons,
 								delegations.map((d) => d.id),
 								ledger,
 							),
@@ -910,6 +921,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				: Promise.resolve([] as string[]),
 			gateway(),
 		]);
+		if (cached.lessons?.fresh) data.lessons = cached.lessons.value;
 		if (isObject(data.lessons) && data.lessons.unavailable === true) {
 			await new Promise((resolve) => setTimeout(resolve, 150));
 			try {
@@ -920,6 +932,75 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				if (isObject(retry.lessons)) data.lessons = retry.lessons;
 			} catch {
 				/* Keep the original unavailable result; never attempt a third read. */
+			}
+		}
+		if (
+			!cached.lessons?.fresh &&
+			isObject(data.lessons) &&
+			data.lessons.unavailable !== true
+		)
+			writeCache(env, "lessons", lessonCacheKey, data.lessons, now);
+		let selection: LessonSelection | undefined;
+		if (isObject(data.lessons) && Array.isArray(data.lessons.lessons)) {
+			selection = await selectPromptLessons(
+				data.lessons.lessons as AgentSessionLesson[],
+				{
+					prompt: typeof event.prompt === "string" ? event.prompt : undefined,
+					cwd: typeof event.cwd === "string" ? event.cwd : binding.root,
+					repo: lessons.repo,
+					branch: binding.branch,
+					workTitle: data.work?.item?.title,
+					sessionId: session,
+					budgetBytes: LESSON_BYTES,
+				},
+			);
+			data.lessons = {
+				...data.lessons,
+				lessons: selection.lessons,
+				truncated:
+					data.lessons.truncated === true ||
+					selection.selectedLessonIds.length < data.lessons.lessons.length,
+				holdout: selection.holdout,
+			};
+		}
+		if (selection?.selectedLessonIds.length) {
+			try {
+				const validated = await read(
+					[
+						...command,
+						"code",
+						gatewayCode(
+							{},
+							{
+								...lessons,
+								catalog: !session,
+								sessionId: session,
+								selectedLessonIds: selection.selectedLessonIds,
+							},
+						),
+					],
+					3000,
+				);
+				if (
+					!isObject(validated.lessons) ||
+					validated.lessons.unavailable === true
+				)
+					throw new Error("lesson validation unavailable");
+				const approved = new Map(
+					(validated.lessons.lessons ?? []).map((l: AgentSessionLesson) => [
+						l.id,
+						l,
+					]),
+				);
+				data.lessons = {
+					...data.lessons,
+					holdout: validated.lessons.holdout === true,
+					lessons: selection.lessons.flatMap((l) =>
+						approved.has(l.id) ? [approved.get(l.id)] : [],
+					),
+				};
+			} catch {
+				data.lessons = { unavailable: true };
 			}
 		}
 		const scope = contextHash([
@@ -957,6 +1038,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		} catch {
 			context = UNAVAILABLE;
 		}
+
 		const message = [context, ...captured].filter(Boolean).join("\n");
 		if (message) {
 			send(message);

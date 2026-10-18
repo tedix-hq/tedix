@@ -7,6 +7,7 @@
  * the primary action already committed.
  */
 
+import { holdLessonsForCorrection } from "./lesson-evidence";
 import { classifyDecisionEdit } from "./decision-edit-preference";
 import type {
 	LearningInteractionKind,
@@ -135,6 +136,14 @@ export async function recordObservedLearningInteraction(
 			metadata: toJsonRecord({ ...input.metadata, serverObserved: true }),
 			occurredAt: input.occurredAt ?? new Date().toISOString(),
 		});
+		if (
+			!result.duplicate &&
+			(["edited", "manually_replaced"].includes(input.eventKind) ||
+				["correction", "challenge", "frustration"].includes(
+					String(input.metadata?.replyClass),
+				))
+		)
+			await holdLessonsForCorrection(context.db, result.event);
 		if (
 			!result.duplicate &&
 			context.env &&

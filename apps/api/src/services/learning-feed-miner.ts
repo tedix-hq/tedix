@@ -52,6 +52,7 @@
  * `metadata.learningFeed.scope = { repo, harness, topic }`.
  */
 
+import type { LessonEvidence } from "@tedix/api-contract/schemas/agent-session-lessons";
 import type { DbClient } from "@tedix/db/client";
 import type { Tedi } from "@tedix/db/schema/tedis";
 import type { LearningInteractionEventRow } from "@tedix/db/schema/learning-feedback";
@@ -63,6 +64,7 @@ import {
 	summarizeRecurringLearningIssues,
 } from "@tedix/db/queries/learning-feedback";
 import {
+	decisionLessonEvidence,
 	listArchivedLearningFeedLessons,
 	listStaleLearningFeedLessons,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
@@ -145,6 +147,7 @@ export interface LearningFeedFactMetadata {
 	routing?: LessonRouting;
 	/** Active without review; the miner may supersede or archive it. */
 	autoConfirmed?: true;
+	evidence?: LessonEvidence;
 	signalCounts: Record<string, number>;
 	lastEventAt: string;
 	/** Distiller version whose rules the content is; absent for quotes. */
@@ -341,7 +344,7 @@ export function buildDecisionLessons(
 				version: 1,
 				kind: strong.length > 0 ? "prefer_avoid" : "decision",
 				scope,
-				evidenceEventIds: ordered.map((e) => e.id),
+				evidenceEventIds: chosen.map((line) => line.event.id),
 				learnedFromUserIds: [
 					...new Set(
 						ordered
@@ -525,7 +528,15 @@ async function writeDecisionLessons(
 		byTopic.set(key, [...(byTopic.get(key) ?? []), event]);
 	}
 	let tedis: Tedi[] | undefined;
-	for (const [topicKey, topicEvents] of byTopic) {
+	for (const [topicKey, scopeEvents] of byTopic) {
+		const sourceEvidence = await decisionLessonEvidence(
+			db,
+			orgId,
+			scopeEvents.map((event) => event.id),
+		);
+		const liveIds = new Set(sourceEvidence.sources.map((source) => source.id));
+		const topicEvents = scopeEvents.filter((event) => liveIds.has(event.id));
+		if (topicEvents.length === 0) continue;
 		if (result.factsWritten >= MAX_FACTS_PER_RUN) {
 			result.budgetHit = true;
 			return;
@@ -578,7 +589,11 @@ async function writeDecisionLessons(
 			replaced.some(
 				(f) => rec(rec(f.metadata).learningFeed).distilled !== DISTILL_VERSION,
 			);
+		const held = replaced.some(
+			(f) => rec(rec(rec(f.metadata).learningFeed).evidence).state === "held",
+		);
 		if (
+			!held &&
 			!undistilled &&
 			!replaced.some((f) => f.reviewStatus === "pending") &&
 			quoted.metadata.evidenceEventIds.every((id) => activeIds.has(id))
@@ -593,6 +608,7 @@ async function writeDecisionLessons(
 					replies: topicEvents
 						.filter((event) => !covered.has(event.id))
 						.map((event) => ({
+							id: event.id,
 							text: text(rec(event.metadata).answer),
 							session: event.threadId,
 							occurredAt: event.occurredAt,
@@ -615,17 +631,25 @@ async function writeDecisionLessons(
 					content: clip(
 						[
 							quoted.content.split("\n")[0]!,
-							...rules.map((rule) => `- ${rule}`),
+							...rules.map(({ rule }) => `- ${rule}`),
 						].join("\n"),
 						FACT_CHARS,
 					),
-					metadata: { ...quoted.metadata, distilled: DISTILL_VERSION },
+					metadata: {
+						...quoted.metadata,
+						evidenceEventIds: [
+							...new Set(
+								rules.flatMap((r) => r.sources.map((source) => source.id)),
+							),
+						],
+						distilled: DISTILL_VERSION,
+					},
 				}
 			: quoted;
 		const sourceHash = await sha256(
 			`${ownerUserId ?? ""}\n${lesson.content.toLowerCase()}`,
 		);
-		if (await findFactBySourceHash(db, orgId, sourceHash)) continue;
+		if (!held && (await findFactBySourceHash(db, orgId, sourceHash))) continue;
 
 		let routing: LessonRouting | undefined;
 		if (route) {
@@ -651,6 +675,11 @@ async function writeDecisionLessons(
 			...lesson.metadata,
 			...(routing ? { routing } : {}),
 			autoConfirmed: true,
+			evidence: await decisionLessonEvidence(
+				db,
+				orgId,
+				lesson.metadata.evidenceEventIds,
+			),
 		};
 
 		const domain = await getOrCreateDomain(db, orgId, DOMAIN_NAME);

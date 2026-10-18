@@ -27,9 +27,16 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
+import {
+	LessonEvidenceSchema,
+	type LessonEvidence,
+	type LessonEvidenceSource,
+} from "@tedix/api-contract/schemas/agent-session-lessons";
+import { learningInteractionEvents } from "../../schema/learning-feedback";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFacts } from "../../schema/memory-graph";
+import { batchNonEmpty } from "../../utils/batch";
 
 export interface ApprovedAgentLessonRow {
 	id: string;
@@ -60,7 +67,7 @@ export async function listApprovedAgentLessons(
 		isNull(memoryFacts.tediId),
 		or(sql`${memoryFacts.visibility} IS NOT 'private'`, sql`${owner} IS NULL`),
 	);
-	return db
+	const rows = await db
 		.select({
 			id: memoryFacts.id,
 			topicKey: memoryFacts.topicKey,
@@ -94,6 +101,7 @@ export async function listApprovedAgentLessons(
 		)
 		.orderBy(desc(memoryFacts.confidence), desc(memoryFacts.updatedAt))
 		.limit(options.limit ?? 200);
+	return filterEvidenceBackedLessons(db, orgId, rows);
 }
 
 export interface StaleLearningFeedLessonRow {
@@ -121,6 +129,7 @@ export async function listCurrentLearningFeedLessons(
 	orgId: string,
 	topicPrefix: string,
 	limit = 500,
+	ownerUserId?: string,
 ): Promise<CurrentLearningFeedLessonRow[]> {
 	return db
 		.select({
@@ -136,6 +145,9 @@ export async function listCurrentLearningFeedLessons(
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
+				ownerUserId
+					? sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId') = ${ownerUserId}`
+					: undefined,
 				gte(memoryFacts.topicKey, topicPrefix),
 				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
 				isNull(memoryFacts.archivedAt),
@@ -296,4 +308,249 @@ export async function archiveCorrectedAgentLessons(
 			),
 		)
 		.returning({ id: memoryFacts.id });
+}
+
+/** Resolve decision ids within the tenant; quotes are copied from canonical sources. */
+export async function decisionLessonEvidence(
+	db: DbQueryClient,
+	orgId: string,
+	ids: string[],
+): Promise<LessonEvidence> {
+	const sources: LessonEvidenceSource[] = [];
+	const unique = [...new Set(ids)];
+	for (let offset = 0; offset < unique.length; offset += 50) {
+		const rows = await db
+			.select({
+				id: learningInteractionEvents.id,
+				metadata: learningInteractionEvents.metadata,
+				eventKind: learningInteractionEvents.eventKind,
+			})
+			.from(learningInteractionEvents)
+			.where(
+				and(
+					eq(learningInteractionEvents.organizationId, orgId),
+					inArray(
+						learningInteractionEvents.id,
+						unique.slice(offset, offset + 50),
+					),
+				),
+			);
+		for (const row of rows) {
+			const quote = row.metadata?.answer;
+			if (typeof quote === "string" && quote.trim())
+				sources.push({
+					kind: ["edited", "manually_replaced"].includes(row.eventKind)
+						? "correction"
+						: "decision",
+					id: row.id,
+					quote: quote.replace(/\s+/g, " ").trim().slice(0, 280),
+				});
+		}
+	}
+	const live = await liveEvidenceSources(db, orgId, sources);
+	const supported = sources.filter((s) =>
+		live.get(`event:${s.id}`)?.includes(s.quote),
+	);
+	return {
+		version: 1,
+		sources: supported,
+		supportCount: supported.length,
+		...(supported.length === unique.length && supported.length > 0
+			? {}
+			: { redistillRequestedAt: new Date().toISOString() }),
+		state:
+			supported.length === unique.length && supported.length > 0
+				? "live"
+				: "held",
+	};
+}
+
+/** A held lesson is the existing reflection workflow's re-distillation queue. */
+function buildHoldLessonForRedistillationStatement(
+	db: DbQueryClient,
+	orgId: string,
+	id: string,
+	expectedMetadata?: Record<string, JsonValue> | null,
+) {
+	const now = new Date().toISOString();
+	return db
+		.update(memoryFacts)
+		.set({
+			updatedAt: now,
+			metadata: sql`json_set(COALESCE(${memoryFacts.metadata}, '{}'), '$.learningFeed.evidence.state', 'held', '$.learningFeed.evidence.redistillRequestedAt', ${now})`,
+		})
+		.where(
+			and(
+				eq(memoryFacts.organizationId, orgId),
+				eq(memoryFacts.id, id),
+				expectedMetadata === undefined
+					? undefined
+					: sql`coalesce(${memoryFacts.metadata}, 'null') = ${JSON.stringify(expectedMetadata)}`,
+				or(
+					sql`COALESCE(json_extract(${memoryFacts.metadata}, '$.learningFeed.evidence.state'), '') != 'held'`,
+					sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.evidence.redistillRequestedAt') IS NULL`,
+				),
+			),
+		);
+}
+
+export async function holdLessonForRedistillation(
+	db: DbQueryClient,
+	orgId: string,
+	id: string,
+	expectedMetadata?: Record<string, JsonValue> | null,
+): Promise<void> {
+	await buildHoldLessonForRedistillationStatement(
+		db,
+		orgId,
+		id,
+		expectedMetadata,
+	);
+}
+
+/** Resolve a set once, in chunks of 50 (under D1's 100 parameter cap). */
+async function liveEvidenceSources(
+	db: DbQueryClient,
+	orgId: string,
+	sources: LessonEvidenceSource[],
+): Promise<Map<string, string>> {
+	const live = new Map<string, string>();
+	const factIds = [
+		...new Set(sources.filter((s) => s.kind === "fact").map((s) => s.id)),
+	];
+	const eventIds = [
+		...new Set(sources.filter((s) => s.kind !== "fact").map((s) => s.id)),
+	];
+	for (let i = 0; i < factIds.length; i += 50) {
+		const facts = await db
+			.select({ id: memoryFacts.id, content: memoryFacts.content })
+			.from(memoryFacts)
+			.where(
+				and(
+					eq(memoryFacts.organizationId, orgId),
+					inArray(memoryFacts.id, factIds.slice(i, i + 50)),
+					isNull(memoryFacts.validTo),
+					isNull(memoryFacts.archivedAt),
+					inArray(memoryFacts.status, ["active", "probation"]),
+					sql`COALESCE(${memoryFacts.reviewStatus}, 'pending') NOT IN ('rejected', 'superseded', 'disputed', 'stale', 'restricted')`,
+					sql`NOT EXISTS (SELECT 1 FROM memory_edges e JOIN memory_facts f ON f.id = CASE WHEN e.source_fact_id = ${memoryFacts.id} THEN e.target_fact_id ELSE e.source_fact_id END
+    WHERE (e.source_fact_id = ${memoryFacts.id} OR e.target_fact_id = ${memoryFacts.id}) AND e.relation_type IN ('contradicts', 'supersedes')
+    AND f.organization_id = ${orgId} AND f.valid_to IS NULL AND f.archived_at IS NULL AND f.status = 'active'
+    AND (e.relation_type = 'contradicts' OR e.target_fact_id = ${memoryFacts.id}))`,
+				),
+			);
+		for (const f of facts)
+			live.set(`fact:${f.id}`, f.content.replace(/\s+/g, " ").trim());
+	}
+	for (let i = 0; i < eventIds.length; i += 50) {
+		const events = await db
+			.select({
+				id: learningInteractionEvents.id,
+				metadata: learningInteractionEvents.metadata,
+			})
+			.from(learningInteractionEvents)
+			.where(
+				and(
+					eq(learningInteractionEvents.organizationId, orgId),
+					inArray(learningInteractionEvents.id, eventIds.slice(i, i + 50)),
+					sql`json_extract(${learningInteractionEvents.metadata}, '$.validTo') IS NULL`,
+					sql`json_extract(${learningInteractionEvents.metadata}, '$.supersededBy') IS NULL`,
+					sql`NOT EXISTS (SELECT 1 FROM learning_interaction_events c WHERE c.organization_id = ${orgId}
+    AND c.occurred_at > ${learningInteractionEvents.occurredAt}
+    AND c.scope_kind = ${learningInteractionEvents.scopeKind} AND c.scope_id = ${learningInteractionEvents.scopeId}
+    AND c.target_type = ${learningInteractionEvents.targetType} AND c.target_id = ${learningInteractionEvents.targetId}
+    AND c.event_kind IN ('edited', 'manually_replaced')
+    AND json_extract(c.metadata, '$.answer') IS NOT json_extract(${learningInteractionEvents.metadata}, '$.answer'))`,
+				),
+			);
+		for (const event of events) {
+			const answer = event.metadata?.answer;
+			if (typeof answer === "string")
+				live.set(`event:${event.id}`, answer.replace(/\s+/g, " ").trim());
+		}
+	}
+	return live;
+}
+function evidenceIsLive(
+	evidence: LessonEvidence,
+	live: ReadonlyMap<string, string>,
+): boolean {
+	return (
+		evidence.state === "live" &&
+		evidence.sources.length > 0 &&
+		evidence.supportCount ===
+			new Set(
+				evidence.sources.map(
+					(s) => `${s.kind === "fact" ? "fact" : "event"}:${s.id}`,
+				),
+			).size &&
+		evidence.sources.every((s) =>
+			live
+				.get(`${s.kind === "fact" ? "fact" : "event"}:${s.id}`)
+				?.includes(s.quote),
+		)
+	);
+}
+/** Authored lessons need no distillation proof; mined lessons fail closed. */
+export async function filterEvidenceBackedLessons<
+	T extends { id: string; metadata: Record<string, JsonValue> | null },
+>(db: DbQueryClient, orgId: string, rows: T[]): Promise<T[]> {
+	const parsedRows = rows
+		.map((row) => {
+			const feed = row.metadata?.learningFeed;
+			return {
+				row,
+				feed:
+					feed && typeof feed === "object" && !Array.isArray(feed)
+						? feed
+						: undefined,
+			};
+		})
+		.map((r) => ({
+			...r,
+			parsed: LessonEvidenceSchema.safeParse(r.feed?.evidence),
+		}));
+	const sourceState = await liveEvidenceSources(
+		db,
+		orgId,
+		parsedRows.flatMap((r) => (r.parsed.success ? r.parsed.data.sources : [])),
+	);
+	const live: T[] = [];
+	const held: T[] = [];
+	for (const { row, parsed } of parsedRows) {
+		const feed = row.metadata?.learningFeed;
+		if (!feed || typeof feed !== "object" || Array.isArray(feed)) {
+			live.push(row);
+			continue;
+		}
+		if (
+			!parsed.success &&
+			feed.evidence === undefined &&
+			feed.autoConfirmed !== true &&
+			!Array.isArray(feed.evidenceEventIds)
+		) {
+			live.push(row);
+			continue;
+		}
+		if (parsed.success && evidenceIsLive(parsed.data, sourceState))
+			live.push(row);
+		else held.push(row);
+	}
+	for (let offset = 0; offset < held.length; offset += 50) {
+		await db.batch(
+			batchNonEmpty(
+				held
+					.slice(offset, offset + 50)
+					.map((row) =>
+						buildHoldLessonForRedistillationStatement(
+							db,
+							orgId,
+							row.id,
+							row.metadata,
+						),
+					),
+			),
+		);
+	}
+	return live;
 }

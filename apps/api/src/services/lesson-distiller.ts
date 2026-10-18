@@ -20,6 +20,7 @@ const REPLY_CHARS = 280;
 const RULE_CHARS = 160;
 
 export interface DistillReply {
+	id: string;
 	text: string;
 	/** Session (thread) the reply came from. */
 	session: string | null;
@@ -37,13 +38,19 @@ export interface DistillInput {
 }
 
 /** Rules to deliver; `[]` when nothing lasting was found; null on failure. */
-export type LessonDistiller = (input: DistillInput) => Promise<string[] | null>;
+export interface DistilledRule {
+	rule: string;
+	sources: DistillReply[];
+}
+export type LessonDistiller = (
+	input: DistillInput,
+) => Promise<DistilledRule[] | null>;
 
 /**
  * Bumped when the prompt or filter changes, so lessons distilled by an
  * earlier version are rewritten once.
  */
-export const DISTILL_VERSION = 5;
+export const DISTILL_VERSION = 6;
 
 /** Test and harness prompts about Tedix itself teach nothing about the person. */
 export const META_REPLY =
@@ -189,8 +196,8 @@ export function parseCitedRules(text: string): CitedRule[] | null {
 export function acceptedRules(
 	cited: CitedRule[],
 	replies: DistillReply[],
-): string[] {
-	const accepted: string[] = [];
+): DistilledRule[] {
+	const accepted: DistilledRule[] = [];
 	for (const { rule, cites } of cited) {
 		if (MONEY.test(rule)) continue;
 		const sources = cites
@@ -208,11 +215,13 @@ export function acceptedRules(
 				.length === 0
 		)
 			continue;
-		if (accepted.some((kept) => kept.toLowerCase() === rule.toLowerCase()))
+		if (accepted.some((kept) => kept.rule.toLowerCase() === rule.toLowerCase()))
 			continue;
-		accepted.push(
-			rule.length > RULE_CHARS ? `${rule.slice(0, RULE_CHARS - 1)}…` : rule,
-		);
+		accepted.push({
+			rule:
+				rule.length > RULE_CHARS ? `${rule.slice(0, RULE_CHARS - 1)}…` : rule,
+			sources,
+		});
 		if (accepted.length >= MAX_RULES) break;
 	}
 	return accepted;
@@ -359,7 +368,7 @@ export function modelLessonDistiller(env: DistillEnv): LessonDistiller {
 	const ask = async (
 		input: DistillInput,
 		replies: DistillReply[],
-	): Promise<string[] | null> => {
+	): Promise<DistilledRule[] | null> => {
 		const response = await runDistillModel(env, distillPrompt(input, replies));
 		if (response === null) return null;
 		const cited = parseCitedRules(response);
@@ -374,8 +383,23 @@ export function modelLessonDistiller(env: DistillEnv): LessonDistiller {
 		for (let i = 0; i < all.length; i += MAX_REPLIES)
 			slices.push(all.slice(i, i + MAX_REPLIES));
 		const answers = await Promise.all(slices.map((slice) => ask(input, slice)));
-		const usable = answers.filter((rules): rules is string[] => rules !== null);
+		const usable = answers.filter(
+			(rules): rules is DistilledRule[] => rules !== null,
+		);
 		if (usable.length === 0) return null;
-		return mergeRules(usable);
+		return mergeRules(usable.map((rules) => rules.map((r) => r.rule))).map(
+			(rule) => ({
+				rule,
+				sources: [
+					...new Map(
+						usable
+							.flat()
+							.filter((r) => sameRule(r.rule, rule))
+							.flatMap((r) => r.sources)
+							.map((source) => [source.id, source]),
+					).values(),
+				],
+			}),
+		);
 	};
 }

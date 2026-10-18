@@ -11,6 +11,7 @@ import {
 } from "./lesson-distiller";
 
 const reply = (text: string, session: string, day: number, kind?: string) => ({
+	id: session,
 	text,
 	session,
 	occurredAt: `2026-09-${String(day).padStart(2, "0")}T10:00:00.000Z`,
@@ -78,7 +79,7 @@ describe("acceptedRules", () => {
 					{ rule: "Set crossSessionInbound to accept.", cites: [1] },
 				],
 				replies,
-			),
+			).map((r) => r.rule),
 		).toEqual(["Call them tedis, not agents."]);
 	});
 
@@ -87,7 +88,7 @@ describe("acceptedRules", () => {
 			acceptedRules(
 				[{ rule: "Never open pull requests.", cites: [1] }],
 				[reply("never open pull requests in this repo", "s9", 1)],
-			),
+			).map((r) => r.rule),
 		).toEqual(["Never open pull requests."]);
 	});
 
@@ -99,7 +100,7 @@ describe("acceptedRules", () => {
 					{ rule: "Deploy fixes to production.", cites: [2, 3] },
 				],
 				replies,
-			),
+			).map((r) => r.rule),
 		).toEqual([]);
 	});
 });
@@ -137,7 +138,9 @@ describe("modelLessonDistiller", () => {
 				"- Call them tedis, not agents. [2, 3]\n- Set crossSessionInbound to accept. [1]",
 		}));
 		const rules = await modelLessonDistiller({ AI: { run } } as never)(input);
-		expect(rules).toEqual(["Call them tedis, not agents."]);
+		expect(rules?.map((r) => r.rule)).toEqual(["Call them tedis, not agents."]);
+		expect(rules?.[0]?.sources.map((s) => s.id)).toEqual(["s2", "s1"]);
+		expect(rules?.[0]?.sources[0]?.text).toBe("again: call them tedis please");
 		const prompt = (run.mock.calls[0] as unknown[])[1] as {
 			messages: Array<{ content: string }>;
 		};

@@ -44,6 +44,9 @@ import {
 } from "@tedix/db/queries/learning-feedback";
 import {
 	type CurrentLearningFeedLessonRow,
+	decisionLessonEvidence,
+	filterEvidenceBackedLessons,
+	holdLessonForRedistillation,
 	listArchivedLearningFeedLessonsForOwner,
 	listCurrentLearningFeedLessons,
 } from "@tedix/db/queries/memory-graph/agent-lessons";
@@ -80,7 +83,7 @@ import {
 } from "./lesson-distiller";
 
 /** Bumped when chunking, prompts or planning change: lessons are rebuilt once. */
-export const MAP_REDUCE_VERSION = 6;
+export const MAP_REDUCE_VERSION = 7;
 export const CHUNK_REPLIES = 150;
 /** At most this many chunks per person per run (4,500 replies). */
 export const MAX_CHUNKS = 30;
@@ -283,9 +286,19 @@ export async function readOwnerChunk(
 			before: cursor,
 			limit: PAGE_ROWS,
 		});
+		const evidence = await decisionLessonEvidence(
+			db,
+			input.orgId,
+			rows.map((r) => r.id),
+		);
+		const liveIds = new Set(evidence.sources.map((s) => s.id));
 		for (const row of rows) {
 			cursor = { occurredAt: row.occurredAt, id: row.id };
-			if (row.organizationId !== input.orgId || input.covered.has(row.id))
+			if (
+				row.organizationId !== input.orgId ||
+				input.covered.has(row.id) ||
+				!liveIds.has(row.id)
+			)
 				continue;
 			const reply = usableReply(row);
 			if (reply) replies.push(reply);
@@ -809,7 +822,13 @@ async function ownerLessons(
 	ownerUserId: string,
 ): Promise<CurrentLearningFeedLessonRow[]> {
 	return (
-		await listCurrentLearningFeedLessons(db, orgId, LESSON_PREFIX)
+		await listCurrentLearningFeedLessons(
+			db,
+			orgId,
+			LESSON_PREFIX,
+			500,
+			ownerUserId,
+		)
 	).filter((row) => ownerOfRow(row) === ownerUserId);
 }
 
@@ -828,6 +847,8 @@ export async function prepareOwners(
 	const prepared: OwnerPreparation[] = [];
 	for (const owner of owners) {
 		const current = await ownerLessons(db, orgId, owner.ownerUserId);
+		const replaceable = current.filter(isReplaceableLesson);
+		const live = await filterEvidenceBackedLessons(db, orgId, replaceable);
 		const archived = await listArchivedLearningFeedLessonsForOwner(
 			db,
 			orgId,
@@ -843,18 +864,20 @@ export async function prepareOwners(
 			newestAt: owner.newestAt,
 			settled: settled.length,
 		};
-		const skip = current.some((row) => {
-			const run = rec(rec(rec(row.metadata).learningFeed).mapReduce);
-			return (
-				isReplaceableLesson(row) &&
-				run.complete === true &&
-				run.incremental !== true &&
-				run.version === signature.version &&
-				run.events === signature.events &&
-				run.newestAt === signature.newestAt &&
-				run.settled === signature.settled
-			);
-		});
+		const skip =
+			live.length === replaceable.length &&
+			current.some((row) => {
+				const run = rec(rec(rec(row.metadata).learningFeed).mapReduce);
+				return (
+					isReplaceableLesson(row) &&
+					run.complete === true &&
+					run.incremental !== true &&
+					run.version === signature.version &&
+					run.events === signature.events &&
+					run.newestAt === signature.newestAt &&
+					run.settled === signature.settled
+				);
+			});
 		prepared.push({
 			ownerUserId: owner.ownerUserId,
 			signature,
@@ -920,6 +943,11 @@ export async function writeOwnerLessons(
 	const newIdByKey = new Map<string, string>();
 	const domain = await getOrCreateDomain(db, input.orgId, "operations");
 	for (const lesson of lessons) {
+		const evidence = await decisionLessonEvidence(
+			db,
+			input.orgId,
+			lesson.rules.flatMap((r) => r.eventIds),
+		);
 		const same = replaceable.find(
 			(row) =>
 				row.topicKey === lesson.topicKey && row.content === lesson.content,
@@ -935,6 +963,10 @@ export async function writeOwnerLessons(
 					learningFeed: {
 						...rec(meta.learningFeed),
 						...feedOf(lesson),
+						evidence,
+						evidenceEventIds: [
+							...new Set(lesson.rules.flatMap((r) => r.eventIds)),
+						],
 						mapReduce: { ...input.signature, complete: input.complete },
 					},
 				}),
@@ -986,6 +1018,7 @@ export async function writeOwnerLessons(
 					learnedFromUserIds: [input.ownerUserId],
 					ownerUserId: input.ownerUserId,
 					autoConfirmed: true,
+					evidence,
 					signalCounts: {},
 					lastEventAt: lesson.rules
 						.map((r) => r.newestAt)
@@ -1279,7 +1312,14 @@ export async function distillOwnerIncrementally(
 		const runs = rows.map((row) =>
 			rec(rec(rec(row.metadata).learningFeed).mapReduce),
 		);
-		if (rows.length === 0 || runs.some((r) => r.version !== MAP_REDUCE_VERSION))
+		if (
+			rows.length === 0 ||
+			rows.some(
+				(row) =>
+					rec(rec(rec(row.metadata).learningFeed).evidence).state === "held",
+			) ||
+			runs.some((r) => r.version !== MAP_REDUCE_VERSION)
+		)
 			return { owner, rules: null, since: "", settled: -1 };
 		const rules: RuleCandidate[] = [];
 		for (const row of rows) {
@@ -1316,6 +1356,24 @@ export async function distillOwnerIncrementally(
 	result.replies = fresh.length;
 	if (fresh.length === 0 && base.settled === owner.signature.settled)
 		return result;
+	await step("lessons-inc-hold-corrections", quick, async () => {
+		const corrections = fresh.filter((r) =>
+			/\b(?:never|instead|stop|not|correction)\b/i.test(r.text),
+		);
+		for (const row of await ownerLessons(db, orgId, ownerUserId)) {
+			if (!isReplaceableLesson(row)) continue;
+			if (
+				(storedRules(row) ?? []).some((rule) =>
+					corrections.some(
+						(c) =>
+							c.occurredAt > rule.newestAt &&
+							sharedWords(c.text, rule.rule) >= 2,
+					),
+				)
+			)
+				await holdLessonForRedistillation(db, orgId, row.id, row.metadata);
+		}
+	});
 	const candidates =
 		fresh.length === 0
 			? []

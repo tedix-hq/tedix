@@ -1,3 +1,7 @@
+import {
+	HOLDOUT_PERCENT,
+	isHoldoutSession,
+} from "@tedix/api-contract/utils/lesson-holdout";
 /**
  * Lesson effectiveness: delivered vs holdout corrections, and the nightly
  * retirement of learned lessons that do not reduce them.
@@ -10,12 +14,7 @@ import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";
-import {
-	correctionSubjects,
-	HOLDOUT_PERCENT,
-	isHoldoutSession,
-	lessonSubjects,
-} from "./lesson-delivery";
+import { correctionSubjects, lessonSubjects } from "./lesson-delivery";
 import {
 	readLessonEffectiveness,
 	retireIneffectiveLessons,

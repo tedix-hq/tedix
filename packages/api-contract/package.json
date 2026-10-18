@@ -258,6 +258,7 @@
 		"./contracts/calendar-coordinator": "./src/contracts/calendar-coordinator.ts",
 		"./schemas/calendar-coordinator": "./src/schemas/calendar-coordinator.ts",
 		"./schemas/decision-learning": "./src/schemas/decision-learning.ts",
+		"./utils/lesson-holdout": "./src/utils/lesson-holdout.ts",
 		"./utils/decision-learning": "./src/utils/decision-learning.ts"
 	},
 	"scripts": {

@@ -1,4 +1,4 @@
-/** Private organization metadata cache. Lesson and preference text always reads live. */
+/** Private organization metadata and approved lesson catalog cache. */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -7,7 +7,7 @@ import { isObject, type JsonObject } from "./hook-io";
 
 /** How long a cached read stands in for the live one. */
 export const CACHE_TTL_MS = 10 * 60_000;
-export type CacheKind = "organization";
+export type CacheKind = "organization" | "lessons";
 
 export interface CacheEntry {
 	value: JsonObject;

@@ -28,6 +28,22 @@ export const LessonTriggersSchema = z.strictObject({
 });
 export type LessonTriggers = z.infer<typeof LessonTriggersSchema>;
 
+/** Persisted under memory_facts.metadata.learningFeed.evidence. */
+export const LessonEvidenceSourceSchema = z.object({
+	kind: z.enum(["fact", "decision", "correction"]),
+	id: z.string().min(1),
+	quote: z.string().min(1).max(280),
+});
+export type LessonEvidenceSource = z.infer<typeof LessonEvidenceSourceSchema>;
+export const LessonEvidenceSchema = z.object({
+	version: z.literal(1),
+	sources: z.array(LessonEvidenceSourceSchema),
+	supportCount: z.number().int().nonnegative(),
+	state: z.enum(["live", "held"]),
+	redistillRequestedAt: z.string().optional(),
+});
+export type LessonEvidence = z.infer<typeof LessonEvidenceSchema>;
+
 export const GetAgentSessionLessonsInputSchema = z.strictObject({
 	catalog: z
 		.boolean()
@@ -35,6 +51,7 @@ export const GetAgentSessionLessonsInputSchema = z.strictObject({
 		.describe(
 			"Return the complete approved trigger catalog for local matching, without a prompt budget or delivery receipt. Never a delivery claim.",
 		),
+	selectedLessonIds: z.array(z.string().min(1).max(100)).max(6).optional(),
 	harness: z
 		.string()
 		.trim()
@@ -87,6 +104,8 @@ export const AgentSessionLessonSchema = z.object({
 		topic: z.string(),
 	}),
 	updatedAt: z.string().nullable(),
+	learned: z.boolean().optional(),
+	supportCount: z.number().int().nonnegative().optional(),
 });
 export type AgentSessionLesson = z.infer<typeof AgentSessionLessonSchema>;
 
@@ -119,6 +138,7 @@ export const ListAgentLessonsInputSchema = z.strictObject({
 export type ListAgentLessonsInput = z.input<typeof ListAgentLessonsInputSchema>;
 
 export const AgentLessonEntrySchema = z.object({
+	evidence: LessonEvidenceSchema.nullable().optional(),
 	id: z.string().describe("Fact id"),
 	text: z.string(),
 	addedAt: z

@@ -24,6 +24,7 @@
  * (surface `lesson_retirement`).
  */
 
+import { HOLDOUT_PERCENT } from "@tedix/api-contract/utils/lesson-holdout";
 import type {
 	GetLessonEffectivenessResult,
 	LessonEffectivenessArm,
@@ -50,7 +51,6 @@ import { observedLearningActor } from "./learning-interaction-recorder";
 import { isReplaceableLesson } from "./learning-feed-miner";
 import {
 	correctionSubjects,
-	HOLDOUT_PERCENT,
 	isMinedLesson,
 	LESSON_DELIVERY_SURFACE,
 	measuredLessonsOf,
