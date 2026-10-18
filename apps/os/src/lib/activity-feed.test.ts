@@ -233,3 +233,62 @@ it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding author
 		)[0]?.actor,
 	).toBe("Codex");
 });
+
+it("keeps opaque failure diagnostics out of previews and uses structured harness provenance", async () => {
+	const { resultFeedItems } = await import("./activity-feed");
+	const { WorkAttemptProjectionSchema } =
+		await import("@tedix/api-contract/schemas/work-items");
+	const row = WorkAttemptProjectionSchema.parse({
+		attempt: {
+			orgId: project,
+			workItemId: other,
+			executorSessionId: null,
+			runtimeState: "failed",
+			runId: null,
+			admissionId: null,
+			attemptNumber: 1,
+			heartbeatAt: now.toISOString(),
+			expiresAt: null,
+			id: project,
+			executorType: "external_agent",
+			executorId: "pine-laptop",
+			externalSessionKey: "claude-code:previous",
+			metadata: { agentHarness: "codex" },
+			outcome: "failed",
+			summary:
+				"Failed: Attempt failed without a reported reason; inspect its run history.",
+			startedAt: now.toISOString(),
+			finishedAt: now.toISOString(),
+		},
+		workItem: {
+			id: other,
+			title: "Supplier review",
+			projectId: project,
+			disposition: "accepted",
+			workKind: "coding",
+			riskLevel: "medium",
+			priority: "medium",
+			accountableOwnerType: null,
+			accountableOwnerId: null,
+		},
+	});
+	const result = resultFeedItems([row])[0]!;
+	expect(result.sentence).toBe("Supplier review — Didn't finish.");
+	expect(result.attachment?.summary).toBeUndefined();
+	expect(result.actorIdentity).toMatchObject({
+		type: "external_agent",
+		id: "pine-laptop",
+		harness: "codex",
+	});
+	const updated = resultFeedItems([
+		{
+			...row,
+			attempt: {
+				...row.attempt,
+				summary: "The supplier report is ready. Follow-up is pending.",
+			},
+		},
+	])[0]!;
+	expect(updated.sentence).toBe("The supplier report is ready.");
+	expect(updated.source).toBe(`/work/items/${other}`);
+});

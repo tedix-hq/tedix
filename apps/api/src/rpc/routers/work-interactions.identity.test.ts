@@ -330,23 +330,32 @@ describe("Work interaction canonical actor projections", () => {
 				"UPDATE work_interactions SET creator_type='external_agent',creator_id=?,creator_session_id=? WHERE id=?",
 			)
 			.run("fictional-principal", sessionId, request.id);
-		const label = async () =>
+		const proposer = async () =>
 			(await target.listInbox({ states: ["open"] })).data.find(
 				(row) => row.request.id === request.id,
-			)?.askedBy;
-		expect(await label()).toBe("Codex session");
+			);
+		expect(await proposer()).toMatchObject({
+			askedBy: "Codex session",
+			creatorHarness: "codex",
+		});
 		sqlite
 			.prepare(
 				"UPDATE external_agent_sessions SET organization_id=? WHERE id=?",
 			)
 			.run("fictional-other-org", sessionId);
-		expect(await label()).toBe("Your coding assistant");
+		expect(await proposer()).toMatchObject({
+			askedBy: "Your coding assistant",
+			creatorHarness: null,
+		});
 		sqlite
 			.prepare(
 				"UPDATE external_agent_sessions SET organization_id=?,principal_id=? WHERE id=?",
 			)
 			.run(ORG_ID, "fictional-other-principal", sessionId);
-		expect(await label()).toBe("Your coding assistant");
+		expect(await proposer()).toMatchObject({
+			askedBy: "Your coding assistant",
+			creatorHarness: null,
+		});
 	});
 	it("refuses to address an unclassified captured turn to a human", async () => {
 		const { owner } = fixture();

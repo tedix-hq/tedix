@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import {
 	FeedDeckDisclosure,
-	ProposerProjectContext,
+	ProposerContext,
 } from "@/components/feed-deck-primitives";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
@@ -54,7 +54,12 @@ function RegressionDeck() {
 					</FeedDeckDisclosure>
 					<div className="fd-deck-current">
 						<Text>Your call · 1 of 14</Text>
-						<ProposerProjectContext.Provider value="Example Website Publishing Platform">
+						<ProposerContext.Provider
+							value={{
+								project: "Example Website Publishing Platform",
+								actor: { type: "external_agent", harness: "codex" },
+							}}
+						>
 							<div className="fd-decision-stack" data-has-next="true">
 								<div className="grid min-w-0 gap-3">
 									<DeckFooterContext.Provider
@@ -78,7 +83,7 @@ function RegressionDeck() {
 									</DeckFooterContext.Provider>
 								</div>
 							</div>
-						</ProposerProjectContext.Provider>
+						</ProposerContext.Provider>
 					</div>
 					<FeedDeckDisclosure
 						className="fd-deck-learning"

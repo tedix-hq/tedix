@@ -465,6 +465,7 @@ it("says in the inbox who asked, why, and which Work a quoted short id names", a
 	expect(inbox.data).toHaveLength(1);
 	expect(inbox.data[0]).toMatchObject({
 		askedBy: "Claude Code session",
+		creatorHarness: "claude-code",
 		references: [{ shortId: "4ee0fbf2", title: "Fictional scratch item" }],
 		request: {
 			metadata: { reason: "Only you can say whether 4ee0fbf2 still matters." },

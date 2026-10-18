@@ -1,3 +1,7 @@
+import {
+	WorkActorAvatar,
+	WorkActorOwnerContext,
+} from "@/components/work-actor-avatar";
 import { DeckAttentionMetrics } from "@/components/deck-attention-metrics";
 import {
 	ATTENTION_COPY,
@@ -13,7 +17,7 @@ import type {
 	ListWorkAgentSessionsResultSchema,
 	WorkProjectContributorStateSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import type { AgentsConfig } from "@tedix/api-contract/schemas/os-session-apps";
 import {
 	Select,
@@ -251,12 +255,24 @@ function AgentSessionRow({
 }) {
 	const lane = session.telemetry;
 	const state = session.effectiveState;
+	const ownerId = useContext(WorkActorOwnerContext);
 	return (
 		<li
 			data-agent-state={state}
 			className={cn("min-w-0 px-3 py-2", ROW_TINT[state as BoardState])}
 		>
 			<div className="flex flex-wrap items-center gap-3">
+				<WorkActorAvatar
+					actor={{
+						type:
+							session.harness === "codex" || session.harness === "claude-code"
+								? "user"
+								: "system",
+						id: ownerId,
+						harness: lane?.executor ?? session.harness,
+					}}
+					name={AGENT_HARNESS_LABEL[session.harness] ?? "Agent"}
+				/>
 				<Badge variant="outline">
 					{AGENT_HARNESS_LABEL[lane?.executor ?? session.harness] ?? "Agent"}
 				</Badge>

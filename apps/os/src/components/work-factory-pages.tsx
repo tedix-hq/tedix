@@ -1,3 +1,5 @@
+import { WorkActorAvatar } from "@/components/work-actor-avatar";
+import { workActorReference } from "@/lib/work-actor";
 import { WorkExecutorChoice } from "@/components/work-dispatch-app";
 import type {
 	WorkItem,
@@ -309,6 +311,10 @@ export function WorkItemReadOnlyLedgers({
 				{events.length
 					? events.map((event) => (
 							<li className="min-w-0" key={event.id}>
+								<WorkActorAvatar
+									actor={workActorReference(event.actorType, event.actorId)}
+									name={workEventActorLabel(event.actorId, event.actorType)}
+								/>
 								<Text weight="medium">
 									{sentenceCase(event.eventType.replaceAll(".", "_"))}
 								</Text>
@@ -2410,6 +2416,18 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 							.reverse()
 							.map((comment) => (
 								<li className="min-w-0" key={comment.id}>
+									<WorkActorAvatar
+										actor={workActorReference(
+											comment.authorType,
+											comment.authorId,
+											comment.metadata,
+										)}
+										name={
+											principalNames.get(
+												`${comment.authorType}:${comment.authorId}`,
+											) ?? "Team member"
+										}
+									/>
 									<Text role="label" tone="secondary">
 										{principalNames.get(
 											`${comment.authorType}:${comment.authorId}`,

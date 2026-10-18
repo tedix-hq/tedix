@@ -1,3 +1,4 @@
+import { workActorReference } from "@/lib/work-actor";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as z from "zod";
@@ -33,6 +34,12 @@ export function WorkApprovalDecisionCard({
 			kind="approval"
 			title={row.workItem.title}
 			askedBy={copy.approvalRequester}
+			actor={workActorReference(
+				row.proposal.requestedByType,
+				row.proposal.requestedById,
+				{},
+				row.proposal.requestedBySessionId,
+			)}
 			at={row.proposal.requestedAt}
 			body={row.proposal.requestRationale}
 			why={

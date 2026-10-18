@@ -35,6 +35,7 @@
 		"./schemas/decision-card-presentation": "./src/schemas/decision-card-presentation.ts",
 		"./schemas/os-card-review": "./src/schemas/os-card-review.ts",
 		"./schemas/os-activity-feed": "./src/schemas/os-activity-feed.ts",
+		"./schemas/os-work-actor": "./src/schemas/os-work-actor.ts",
 		"./schemas/os-outbound-review": "./src/schemas/os-outbound-review.ts",
 		"./schemas/os-session-apps": "./src/schemas/os-session-apps.ts",
 		"./schemas/os-workspace-schedules": "./src/schemas/os-workspace-schedules.ts",

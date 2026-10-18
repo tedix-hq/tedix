@@ -7,12 +7,7 @@ import {
 	DotsThreeIcon,
 } from "@phosphor-icons/react";
 import { FeedOutcomePreview } from "@/components/feed-outcome-preview";
-import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
-import {
-	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
-} from "@/components/kumo/collapsible";
+import { WorkActorAvatar } from "@/components/work-actor-avatar";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	PopoverRoot,
@@ -21,11 +16,7 @@ import {
 } from "@/components/kumo/popover";
 import { useOsIdentity } from "@/lib/use-os-identity";
 import { useTediNames } from "@/lib/use-tedi-names";
-import {
-	feedStoryActor,
-	feedStoryInitials,
-	timelineItems,
-} from "@/lib/feed-story";
+import { feedStoryActor, timelineItems } from "@/lib/feed-story";
 import "./feed-timeline.css";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
@@ -352,11 +343,7 @@ export function ActivityFeedApp({
 		<FeedCard
 			key={item.id}
 			item={item}
-			actor={feedStoryActor(
-				item,
-				config.projects.find((p) => p.id === item.projectId)?.label,
-				tediNames,
-			)}
+			actor={feedStoryActor(item, tediNames)}
 			project={config.projects.find((p) => p.id === item.projectId)?.label}
 			busy={busy}
 			ignoredAfterMs={
@@ -627,6 +614,7 @@ function FeedCard({
 	const copy = OS_COPY.feed;
 	const article = useRef<HTMLElement>(null);
 	const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const held = useRef(false);
 	const [reactionsOpen, setReactionsOpen] = useState(false);
 	const cancelHold = () => clearTimeout(hold.current);
 	useEffect(() => cancelHold, []);
@@ -674,14 +662,15 @@ function FeedCard({
 	return (
 		<article
 			ref={article}
-			tabIndex={0}
 			aria-label={item.sentence}
 			className="fd-story min-w-0"
 			data-reactions-open={reactionsOpen}
 			onPointerDown={(event) => {
 				if (event.pointerType === "mouse") return;
+				held.current = false;
 				cancelHold();
 				hold.current = setTimeout(() => {
+					held.current = true;
 					setReactionsOpen(true);
 					engaged.current = true;
 				}, 450);
@@ -689,35 +678,44 @@ function FeedCard({
 			onPointerUp={cancelHold}
 			onPointerCancel={cancelHold}
 			onPointerMove={cancelHold}
+			onClickCapture={(event) => {
+				if (
+					held.current &&
+					event.target instanceof Element &&
+					event.target.closest(".ft-post-link")
+				) {
+					event.preventDefault();
+					held.current = false;
+				}
+			}}
 		>
-			<Avatar className="ft-avatar" aria-hidden="true">
-				<AvatarFallback>{feedStoryInitials(actor)}</AvatarFallback>
-			</Avatar>
+			<WorkActorAvatar
+				actor={
+					item.actorIdentity ??
+					(item.tediId ? { type: "tedi", id: item.tediId } : undefined)
+				}
+				name={actor}
+				className="ft-avatar"
+				detail={`${actor}${item.actorIdentity?.harness ? " session" : ""}${project ? ` · ${project}` : ""}`}
+			/>
 			<div className="fd-story-body grid gap-3">
-				<div className="ft-byline">
-					<Text weight="semibold">{actor}</Text>
-					{project && (
-						<Text tone="secondary" className="ft-project">
-							{project}
-						</Text>
-					)}
+				<div
+					className="ft-byline"
+					title={`${actor}${item.actorIdentity?.harness ? " session" : ""}${project ? ` · ${project}` : ""}`}
+				>
+					<Text weight="semibold">{project ?? actor}</Text>
 					<time dateTime={item.at} title={absoluteTime(item.at)}>
-						{relativeTime(item.at)}
+						· {relativeTime(item.at)}
 					</time>
 				</div>
-				<Text className="ft-sentence">{item.sentence}</Text>
+				<Link
+					href={item.source}
+					className="ft-post-link"
+					aria-label={`Open ${item.attachment?.title ?? item.sentence}`}
+				>
+					<Text className="ft-sentence">{item.sentence}</Text>
+				</Link>
 				<FeedOutcomePreview item={item} />
-				<Collapsible className="ft-details">
-					<CollapsibleTrigger>{copy.details}</CollapsibleTrigger>
-					<CollapsibleContent>
-						<div className="grid gap-2">
-							<Text className="whitespace-pre-wrap break-words">
-								{item.explanation}
-							</Text>
-							<Link href={item.source}>{copy.source}</Link>
-						</div>
-					</CollapsibleContent>
-				</Collapsible>
 				<div className="fd-reactions ft-reactions flex flex-wrap gap-1">
 					<Button
 						size="sm"

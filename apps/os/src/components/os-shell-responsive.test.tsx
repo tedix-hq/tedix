@@ -18,6 +18,10 @@ const api = vi.hoisted(() => ({
 	workspacePreferences: { list: vi.fn() },
 }));
 
+vi.mock("@/components/work-actor-directory", () => ({
+	WorkActorDirectory: ({ children }: { children: ReactNode }) => children,
+}));
+
 vi.mock("@/lib/api", () => ({
 	osApi: { directory: { listMyWorkspaces: vi.fn() }, osWorkspaces: api },
 }));

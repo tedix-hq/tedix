@@ -1,3 +1,4 @@
+import { WorkActorDirectory } from "@/components/work-actor-directory";
 import {
 	CaretRight,
 	GearSix,
@@ -373,7 +374,9 @@ export function OsShell() {
 					</header>
 				)}
 				<main className="route-content">
-					<Outlet />
+					<WorkActorDirectory>
+						<Outlet />
+					</WorkActorDirectory>
 				</main>
 			</div>
 			{paletteOpen ? (

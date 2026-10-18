@@ -1,3 +1,4 @@
+import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
 import { createContext, useContext, type ReactNode } from "react";
 import {
 	CheckIcon,
@@ -5,7 +6,11 @@ import {
 	ArrowUpRightIcon,
 	CaretRightIcon,
 } from "@phosphor-icons/react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/kumo/avatar";
+import {
+	WorkActorAvatar,
+	WorkActorDirectoryContext,
+} from "@/components/work-actor-avatar";
+import { resolveWorkActor } from "@/lib/work-actor";
 import { Card } from "@/components/kumo/card";
 import {
 	Collapsible,
@@ -44,49 +49,36 @@ export function FeedDeckDisclosure({
 	);
 }
 
-export const ProposerProjectContext = createContext<string | undefined>(
-	undefined,
-);
+export const ProposerContext = createContext<{
+	project?: string;
+	actor?: WorkActorReference;
+}>({});
 
 export function ProposerChip({
 	name,
-	image,
+	actor,
 	detail,
 }: {
 	name: string;
-	image?: string;
+	actor?: WorkActorReference;
 	detail?: ReactNode;
 }) {
-	const project = useContext(ProposerProjectContext);
-	const session =
-		/^(?:Codex(?: session)?|Claude Code(?: session)?|Agent session|[\da-f-]{36} session)$/i.test(
-			name.trim(),
-		);
-	const displayName = session
-		? OS_COPY.feedDeckVisual.projectProposer(
-				/^Claude/i.test(name)
-					? "Claude Code"
-					: /^Codex/i.test(name)
-						? "Codex"
-						: OS_COPY.feedDeckVisual.agentSession,
-				project,
-			)
-		: name;
-	const initials = displayName
-		.replace(/\s*\(for\b.*$/, "")
-		.trim()
-		.split(/\s+/)
-		.slice(0, 2)
-		.map((part) => part[0])
-		.join("");
+	const context = useContext(ProposerContext);
+	const project = context.project;
+	const identity = actor ?? context.actor;
+	const directory = useContext(WorkActorDirectoryContext);
+	const resolved = resolveWorkActor(identity, name, directory);
+	const displayName = project ?? resolved.name;
 	return (
 		<div className="fd-proposer">
-			<Avatar className="fd-avatar" aria-hidden="true">
-				{image && <AvatarImage src={image} alt="" />}
-				<AvatarFallback>{initials}</AvatarFallback>
-			</Avatar>
+			<WorkActorAvatar
+				actor={identity}
+				name={name}
+				className="fd-avatar"
+				detail={`${resolved.name}${identity?.harness ? " session" : ""}${project ? ` · ${project}` : ""}`}
+			/>
 			<div>
-				<Text weight="medium" title={displayName === name ? undefined : name}>
+				<Text weight="medium" title={resolved.label}>
 					{displayName}
 				</Text>
 				{detail && (

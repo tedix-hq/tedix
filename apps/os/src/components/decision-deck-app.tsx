@@ -1,3 +1,4 @@
+import { workActorReference } from "@/lib/work-actor";
 import {
 	DeckRemainingContext,
 	DeckFooterContext,
@@ -10,7 +11,7 @@ import { DecisionLearningFeedback } from "@/components/decision-learning-feedbac
 import {
 	DeckClosure,
 	FeedDeckDisclosure,
-	ProposerProjectContext,
+	ProposerContext,
 } from "@/components/feed-deck-primitives";
 import {
 	createElement,
@@ -763,10 +764,25 @@ export function DecisionDeckApp({
 							}
 						>
 							{" "}
-							<ProposerProjectContext.Provider
-								value={
-									selected.project ? projectLabel(selected.project) : undefined
-								}
+							<ProposerContext.Provider
+								value={{
+									project: selected.project
+										? projectLabel(selected.project)
+										: undefined,
+									actor: selected.row
+										? workActorReference(
+												selected.row.request.creatorType,
+												selected.row.request.creatorId,
+												{
+													...selected.row.request.metadata,
+													agentHarness:
+														selected.row.creatorHarness ??
+														selected.row.request.metadata.agentHarness,
+												},
+												selected.row.request.creatorSessionId,
+											)
+										: undefined,
+								}}
 							>
 								<div
 									className="fd-decision-stack"
@@ -881,7 +897,7 @@ export function DecisionDeckApp({
 										/>
 									)}
 								</div>
-							</ProposerProjectContext.Provider>
+							</ProposerContext.Provider>
 						</DeckFooterContext.Provider>
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
