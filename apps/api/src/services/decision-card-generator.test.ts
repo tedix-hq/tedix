@@ -339,3 +339,30 @@ it.each([
 		);
 	},
 );
+
+it.each([
+	"No supplied project fits; reuse existing Work.",
+	"The source project is only a filing hint.",
+])(
+	"does not recommend keeping an explicit project mismatch",
+	async (reasoning) => {
+		mocks.model.mockResolvedValue(
+			JSON.stringify({
+				...copy,
+				title: "File: Create a project",
+				recommendation: "Keep this filing because existing Work matches.",
+			}),
+		);
+		expect(
+			await generateDecisionCard({ db: {}, env: {} } as never, {
+				...request,
+				prompt: "Create a project",
+				metadata: { decisionDeck: { classId: "filing.project", reasoning } },
+			}),
+		).toBeNull();
+		const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
+		expect(source.filingReview.requiredChoice).toBe(
+			"Return this filing for correction",
+		);
+	},
+);
