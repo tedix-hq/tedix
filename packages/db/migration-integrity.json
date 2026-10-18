@@ -928,6 +928,10 @@
 		{
 			"name": "20261017223106_organization-data-residency/migration.sql",
 			"sha256": "1d280f6ff814dcf26e8efabf517173cc704fd810fd83daa01cf66cc0465866e9"
+		},
+		{
+			"name": "20261018132421_decision_card_presentations/migration.sql",
+			"sha256": "4633b7de321843f0b0b0cfac9456b4c8870a8bb317183fe2d94c91c5c340ee9c"
 		}
 	]
 }
