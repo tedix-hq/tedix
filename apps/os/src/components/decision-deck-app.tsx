@@ -428,7 +428,9 @@ function DecisionDeckContent({
 				(row) => `work-approval:${row.proposal.id}` === selected?.id,
 			)?.proposal.version ??
 			null,
-		position: selected ? rows.findIndex((row) => row.id === selected.id) : 0,
+		position: selected
+			? filtered.findIndex((row) => row.id === selected.id)
+			: 0,
 		railOpened: railOpenedBeforeDecision,
 		timezone: learningModel.data?.config.timezone ?? "UTC",
 		ranking: {
@@ -439,10 +441,12 @@ function DecisionDeckContent({
 					: null,
 			features: selected ? rank(selected).factors : [],
 		},
-		candidates: rows.map((row, position) => ({
+		candidates: rows.map((row) => ({
 			id: row.id,
 			score: learningModel.data?.config.enabled ? rank(row).score : null,
-			position,
+			position: filtered.some((candidate) => candidate.id === row.id)
+				? filtered.findIndex((candidate) => candidate.id === row.id)
+				: null,
 			reason:
 				row.id === selected?.id
 					? "shown"
@@ -450,8 +454,10 @@ function DecisionDeckContent({
 						? "filtered"
 						: !available.some((candidate) => candidate.id === row.id)
 							? "batched"
-							: position >
-								  rows.findIndex((candidate) => candidate.id === selected?.id)
+							: filtered.findIndex((candidate) => candidate.id === row.id) >
+								  filtered.findIndex(
+										(candidate) => candidate.id === selected?.id,
+								  )
 								? "shown_later"
 								: "ranked_lower",
 		})),
