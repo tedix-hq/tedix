@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/tedi-workstation-egress-broker",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "SSRF-guarded egress proxy for tedi workstation containers.",
 	"license": "AGPL-3.0-only",

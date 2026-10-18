@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/tedi-codemode-core",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "Per-tedi MCP Code Mode wrapper that exposes an inner tool surface as one stateless code tool.",
 	"license": "Apache-2.0",

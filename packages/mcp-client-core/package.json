@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/mcp-client-core",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "Runtime-neutral MCP client capabilities: discovery, credentials, Code Mode, and result handling.",
 	"license": "Apache-2.0",

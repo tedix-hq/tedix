@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/tedi-workstation-runtime",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Cloudflare Sandbox adapter that gives a tedi an operating-system workstation with processes and a filesystem.",
 	"license": "AGPL-3.0-only",

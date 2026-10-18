@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/api",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Cloudflare Worker for the tenant control plane: oRPC/OpenAPI API, Home conversations, D1 access, jobs, and admin endpoints.",
 	"license": "AGPL-3.0-only",

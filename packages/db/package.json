@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/db",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "Shared database layer: Drizzle schema, D1 queries, and migrations.",
 	"license": "AGPL-3.0-only",

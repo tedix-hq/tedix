@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/widget",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "Framework-neutral, white-label embedded tedi widget for customer applications.",
 	"license": "AGPL-3.0-only",

@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/api-client",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "oRPC client construction for browsers, the CLI, and Workers calling the Tedix API.",
 	"license": "Apache-2.0",

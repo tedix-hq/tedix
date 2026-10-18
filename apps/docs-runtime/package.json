@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/docs-runtime",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Read-only serving edge for published Tedix documentation sites.",
 	"license": "AGPL-3.0-only",

@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/mcp",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Stateless multi-tenant MCP edge that serves configuration-driven tools and widgets from shared Workers and D1.",
 	"license": "AGPL-3.0-only",

@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.11.1 — 2026-10-18
+
+### Patch Changes
+
+- Plugin context follows the active organization and project and shows only this chat's unfinished requests. Unavailable and unchanged shared content stays quiet.
+- Lessons match the current task and are verified live before they reach the assistant. Prompt text stays on this computer.
+- Work context stays current during heartbeats and clears after settlement, including direct Code Mode calls.
+
 ## 0.11.0 — 2026-10-18
 
 ### Minor Changes

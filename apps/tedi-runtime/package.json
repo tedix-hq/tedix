@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/tedi-runtime",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "The Agent runtime that every tedi runs on, built on Cloudflare Agents.",
 	"license": "AGPL-3.0-only",

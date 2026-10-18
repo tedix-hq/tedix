@@ -1,6 +1,6 @@
 {
 	"name": "@tedix/api-contract",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"description": "Shared oRPC contracts, Zod schemas, and types for the Tedix API.",
 	"license": "Apache-2.0",
