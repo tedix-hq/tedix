@@ -176,6 +176,35 @@ export async function listWorkItemComments(
 		.orderBy(asc(workItemComments.createdAt));
 }
 
+export interface ListRecentWorkItemCommentsParams {
+	orgId: string;
+	workItemId: string;
+	limit: number;
+}
+
+export async function listRecentWorkItemComments(
+	db: DbQueryClient,
+	p: ListRecentWorkItemCommentsParams,
+) {
+	return db
+		.select({
+			id: workItemComments.id,
+			authorType: workItemComments.authorType,
+			authorId: workItemComments.authorId,
+			body: workItemComments.body,
+			createdAt: workItemComments.createdAt,
+		})
+		.from(workItemComments)
+		.where(
+			and(
+				eq(workItemComments.orgId, p.orgId),
+				eq(workItemComments.workItemId, p.workItemId),
+			),
+		)
+		.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))
+		.limit(p.limit);
+}
+
 /** Identifier-only projection for the MCP comment event feed. */
 export type WorkCommentEventRow = Pick<
 	WorkItemComment,
