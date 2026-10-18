@@ -194,6 +194,41 @@ describe("outbound authorization and delivery", () => {
 		]);
 		expect(gmail.send).not.toHaveBeenCalled();
 	});
+	it.each(["ready", "changes_required"] as const)(
+		"can refresh a %s review when new evidence arrives, without reusing its send authority",
+		async (verdict) => {
+			const review = {
+				...state.review!,
+				verdict,
+				notes: "Check the new source receipt",
+			};
+			const { client, queue } = fixture({ review });
+			const refreshed = await client().requestReview({
+				workItemId: WORK,
+				expectedVersion: 1,
+			});
+			expect(refreshed.version).toBe(2);
+			expect(refreshed.outbound).toEqual({
+				...state,
+				review,
+				status: "reviewing",
+			});
+			expect(queue.mock.calls[0]?.[0]).toMatchObject({
+				idempotencyKey: `outbound:${WORK}:2`,
+				conversationId: `outbound:${WORK}:2`,
+			});
+			expect(queue.mock.calls[0]?.[0].content).toContain(review.notes);
+			await expect(
+				client().act({
+					workItemId: WORK,
+					expectedVersion: refreshed.version,
+					action: "approve_send",
+					connectionInstanceId: ACCOUNT,
+				}),
+			).rejects.toThrow(/exact draft the reviewer marked ready/);
+			expect(gmail.send).not.toHaveBeenCalled();
+		},
+	);
 	it("can retry a queue failure without reusing its failed execution identity", async () => {
 		const { client, queue } = fixture({ status: "reviewing", review: null });
 		queue.mockRejectedValueOnce(new Error("Temporary queue failure"));

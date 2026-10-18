@@ -415,7 +415,9 @@ export const outboundRouter = os.router({
 		const current = await record(context, input.workItemId);
 		if (
 			current.version !== input.expectedVersion ||
-			!["reviewing", "feedback"].includes(current.outbound.status)
+			!["reviewing", "feedback", "waiting_on_you"].includes(
+				current.outbound.status,
+			)
 		)
 			throw createError(
 				ErrorCodes.CONFLICT,
@@ -436,7 +438,7 @@ export const outboundRouter = os.router({
 		const next = await save(
 			context,
 			current,
-			current.outbound,
+			{ ...current.outbound, status: "reviewing" },
 			"review_requested",
 		);
 		await dispatchReview(context, next);
