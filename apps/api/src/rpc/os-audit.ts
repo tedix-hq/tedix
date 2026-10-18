@@ -224,6 +224,16 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			pinnedRevisionId: fields(output.decision).pinnedRevisionId ?? null,
 		}),
 	},
+	"resources.requestFileUpload": {
+		action: "os.workspace_file.upload_requested",
+		resourceType: "os_workspace_resource",
+		resourceId: ({ output }) => text(output.resourceId),
+	},
+	"resources.confirmFileUpload": {
+		action: "os.workspace_file.upload_confirmed",
+		resourceType: "os_workspace_resource",
+		resourceId: ({ output }) => nestedId(output, "resource"),
+	},
 	"resources.create": {
 		action: "os.workspace_resource.created",
 		resourceType: "os_workspace_resource",

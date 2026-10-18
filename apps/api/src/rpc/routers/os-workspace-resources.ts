@@ -81,7 +81,9 @@ async function projectWorkspaceResource(
 	const resource = mapWorkspaceResource(row);
 	// A scheduled-skill link has no connection behind it to check.
 	const availability =
-		isWorkspaceSkillResource(resource) && resource.status === "active"
+		(isWorkspaceSkillResource(resource) ||
+			(resource.providerId === "tedix" && resource.resourceType === "file")) &&
+		resource.status === "active"
 			? {
 					status: "available" as const,
 					reason: null,
@@ -282,6 +284,14 @@ const list = readOs.resources.list.handler(async ({ input, context }) => {
 const create = authorOs.resources.create.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
 	const creator = resolveCreator(context);
+	if (
+		input.selection.providerId === "tedix" &&
+		input.selection.resourceType === "file"
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Use requestFileUpload and confirmFileUpload to attach a workspace file",
+		);
 	if (
 		isWorkspaceSkillResource(input.selection) &&
 		(input.selection.connectionScope !== "tenant" ||

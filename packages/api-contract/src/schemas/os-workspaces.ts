@@ -1322,6 +1322,12 @@ export const OsPresentationSlideSchema = z.object({
 export const OsOutputContentSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("document"),
+		file: z
+			.object({ workspaceId: z.uuid(), resourceId: z.uuid() })
+			.optional()
+			.describe(
+				"Workspace file to preview; access is checked independently on every read",
+			),
 		blocks: z.array(OsDocumentBlockSchema).max(500),
 		richText: OsRichTextDocumentSchema.optional().describe(
 			"Rich interactive document body; blocks remain its semantic/headless projection",

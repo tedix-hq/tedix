@@ -211,6 +211,7 @@
 		"./queries/organization-secrets": "./src/queries/organization-secrets.ts",
 		"./queries/os-workspaces/workspaces": "./src/queries/os-workspaces/workspaces.ts",
 		"./queries/os-workspaces/resources": "./src/queries/os-workspaces/resources.ts",
+		"./queries/os-workspaces/files": "./src/queries/os-workspaces/files.ts",
 		"./queries/os-workspaces/projects": "./src/queries/os-workspaces/projects.ts",
 		"./queries/os-workspaces/gadgets": "./src/queries/os-workspaces/gadgets.ts",
 		"./queries/os-workspaces/blueprints": "./src/queries/os-workspaces/blueprints.ts",
