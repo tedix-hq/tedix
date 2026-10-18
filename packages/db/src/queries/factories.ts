@@ -321,7 +321,7 @@ export interface FactoryVerdictInput {
 		Pick<
 			FactoryHealthRun,
 			"runId" | "status" | "firedAt" | "error" | "delivered"
-		>
+		> & { resultSummary?: string | null }
 	>;
 }
 
@@ -411,7 +411,9 @@ export function factoryVerdict(input: FactoryVerdictInput): {
 	if (terminal.delivered === 0) {
 		return {
 			verdict: "idle",
-			reason: `Run ${terminal.runId} succeeded but created no Work, comments or Output revisions.`,
+			reason: terminal.resultSummary
+				? `Run ${terminal.runId} completed with no attributed delivery: ${terminal.resultSummary}`
+				: `Run ${terminal.runId} completed with no attributed Work, comments or Output revisions.`,
 		};
 	}
 	return {
@@ -466,6 +468,15 @@ export async function listFactoryHealth(
 			error: sql<string | null>`substr(${skillRuns.error}, 1, 1200)`.as(
 				"ranked_error",
 			),
+			resultSummary: sql<string | null>`substr(coalesce(
+				json_extract(${skillRuns.result}, '$.noResultReason'),
+				json_extract(${skillRuns.result}, '$.backgroundOutcome.summary'),
+				CASE WHEN json_type(${skillRuns.result}, '$.summary') = 'text'
+					THEN json_extract(${skillRuns.result}, '$.summary') END,
+				json_extract(${skillRuns.result}, '$.report'),
+				json_extract(${skillRuns.result}, '$.scorecard'),
+				json_extract(${skillRuns.result}, '$.reason')
+			), 1, 1500)`.as("ranked_result_summary"),
 			rank: sql<number>`row_number() OVER (PARTITION BY ${skillRuns.skillId}, ${probeFlag} ORDER BY datetime(${skillRuns.startedAt}) DESC, ${skillRuns.id} DESC)`.as(
 				"ranked_rank",
 			),
@@ -563,6 +574,7 @@ export async function listFactoryHealth(
 				createdBy: rankedRuns.createdBy,
 				probe: rankedRuns.probe,
 				error: rankedRuns.error,
+				resultSummary: rankedRuns.resultSummary,
 			})
 			.from(rankedRuns)
 			.where(sql`${rankedRuns.rank} <= ${params.runLimit}`),
@@ -754,7 +766,12 @@ export async function listFactoryHealth(
 				now,
 				lifecycleState: lane.lifecycleState,
 				schedule,
-				runs: regularRuns,
+				runs: regularRuns.map((run) => ({
+					...run,
+					resultSummary: (runsBySkill.get(lane.skillId) ?? []).find(
+						(row) => row.id === run.runId,
+					)?.resultSummary,
+				})),
 			});
 			const ownerTediId = lane.scheduleTediId ?? lane.skillTediId ?? null;
 			const probe = probes.get(lane.skillId);
