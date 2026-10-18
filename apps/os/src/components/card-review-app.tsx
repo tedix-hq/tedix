@@ -13,7 +13,7 @@ import type {
 	CardReviewSource,
 } from "@tedix/api-contract/schemas/os-card-review";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	type KeyboardEvent,
 	type PointerEvent,
@@ -77,7 +77,15 @@ import {
 	osQuery,
 	outputDetailQueryOptions,
 	workspaceSchedulesQueryOptions,
+	userProfileQueryOptions,
 } from "@/lib/os-query-options";
+import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
+import { decisionText } from "@/shared/os-copy";
+import { useOsLocale } from "@/lib/use-os-locale";
+import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
+import { WorkDecisionCard } from "@/components/work-decision-card";
+import { DeckClosure } from "@/components/feed-deck-primitives";
+import { OS_COPY } from "@/shared/os-copy";
 import { cn } from "@/lib/utils";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 
@@ -87,9 +95,10 @@ type SheetState = { body: SheetBody; revision: number };
 const SNOOZE_STORAGE_KEY = "tedix.cardReview.snoozes";
 const SWIPE_THRESHOLD = 96;
 
-function readSnoozes(): Record<string, string> {
+function readSnoozes(key: string | null): Record<string, string> {
+	if (!key) return {};
 	try {
-		const raw = localStorage.getItem(SNOOZE_STORAGE_KEY);
+		const raw = localStorage.getItem(key);
 		const parsed: unknown = raw ? JSON.parse(raw) : {};
 		if (!parsed || typeof parsed !== "object") return {};
 		const now = new Date().toISOString();
@@ -104,9 +113,10 @@ function readSnoozes(): Record<string, string> {
 	}
 }
 
-function writeSnoozes(value: Record<string, string>) {
+function writeSnoozes(key: string | null, value: Record<string, string>) {
+	if (!key) return;
 	try {
-		localStorage.setItem(SNOOZE_STORAGE_KEY, JSON.stringify(value));
+		localStorage.setItem(key, JSON.stringify(value));
 	} catch {
 		// Snoozes are a per-viewer convenience; a blocked store only loses them.
 	}
@@ -142,6 +152,7 @@ type UndoEntry =
 			rowIndex: number;
 			previous: Record<string, Cell>;
 			counted: keyof Tally | null;
+			learningEventId?: string;
 	  }
 	| { kind: "snooze"; label: string; key: string }
 	| { kind: "skip"; label: string; key: string };
@@ -165,9 +176,64 @@ const RUN_FIRST_POLL_MS = 400;
  * The card review app: one factory card at a time, decided by a swipe, a key
  * or a big button, with the verdict written into the card sheet's own cells.
  */
-export function CardReviewApp({ config }: { config: CardReviewConfig }) {
+export function CardReviewApp({
+	config,
+	inDeck = false,
+}: {
+	config: CardReviewConfig;
+	inDeck?: boolean;
+}) {
+	useOsLocale();
 	const queryClient = useQueryClient();
+	const learningModel = useQuery(
+		osQuery.learningFeedback.model.queryOptions({ input: {} }),
+	);
+	const profile = useQuery(userProfileQueryOptions());
+	const snoozeKey = profile.data?.id
+		? `${SNOOZE_STORAGE_KEY}:${location.host}:${profile.data.id}`
+		: null;
+	const [learningEventId, setLearningEventId] = useState<string | null>(null);
 	const sources = config.sources;
+	const recordChoice = useCallback(
+		async (
+			card: ReviewCard,
+			source: CardReviewSource,
+			choice: string,
+			reason = "",
+		) => {
+			try {
+				const recorded = await osApi.learningFeedback.recordInteraction({
+					clientEventId: crypto.randomUUID(),
+					eventKind:
+						choice === "not_useful"
+							? "rejected"
+							: ["later", "skip"].includes(choice)
+								? "ignored"
+								: "accepted",
+					scope: { kind: "personal" },
+					surface: "decision_deck",
+					targetType: "output",
+					targetId: card.outputId,
+					metadata: {
+						decisionClass:
+							`factory:${source.label}:${card.type || "card"}`.slice(0, 100),
+						decisionChoice: choice,
+						rowIndex: card.rowIndex,
+						reason,
+					},
+				});
+				setLearningEventId(recorded.event.id);
+				void queryClient.invalidateQueries({
+					queryKey: osQuery.learningFeedback.key(),
+				});
+				return recorded.event.id;
+			} catch {
+				// A learning outage must not turn a saved factory verdict into a failed action.
+				return undefined;
+			}
+		},
+		[queryClient],
+	);
 
 	const outputLists = useQueries({
 		queries: sources.map((source) =>
@@ -284,18 +350,51 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 	const activeChannel =
 		channel !== null && channels.includes(channel) ? channel : null;
 	const [skipped, setSkipped] = useState<string[]>([]);
-	const [snoozes, setSnoozes] = useState<Record<string, string>>(readSnoozes);
+	const [storedSnoozes, setStoredSnoozes] = useState<{
+		key: string | null;
+		value: Record<string, string>;
+	}>(() => ({ key: snoozeKey, value: readSnoozes(snoozeKey) }));
+	const snoozes =
+		storedSnoozes.key === snoozeKey
+			? storedSnoozes.value
+			: readSnoozes(snoozeKey);
+	const setSnoozes = (value: Record<string, string>) =>
+		setStoredSnoozes({ key: snoozeKey, value });
 	const [now] = useState(() => new Date());
-	const queue = useMemo(
-		() =>
-			reviewQueue(cards, {
-				channel: activeChannel,
-				snoozes,
-				skipped,
+	const queue = useMemo(() => {
+		const pending = reviewQueue(cards, {
+			channel: activeChannel,
+			snoozes,
+			skipped,
+			now,
+		});
+		const model = learningModel.data;
+		if (!model?.config.enabled) return pending;
+		const score = (card: ReviewCard) =>
+			scoreLearning(
+				{
+					id: card.key,
+					classId:
+						`factory:${sources[card.sourceIndex]?.label}:${card.type || "card"}`.slice(
+							0,
+							100,
+						),
+					source: "decision_deck",
+					channel: card.channel,
+				},
+				model,
 				now,
-			}),
-		[cards, activeChannel, snoozes, skipped, now],
-	);
+			).score;
+		return pending.sort((a, b) => score(b) - score(a));
+	}, [
+		cards,
+		activeChannel,
+		snoozes,
+		skipped,
+		now,
+		sources,
+		learningModel.data,
+	]);
 	const inChannel = cards.filter(
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
@@ -500,8 +599,16 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 			if (verdict === "do_it" && actionLabel === null)
 				return { ok: false, error: "This card has no action to do" };
 			const reason = reasonOverride ?? formatReason(selectedChips, note);
-			if (verdict === "do_it" && source.doIt === "run_skill")
-				return runCardAction(card, source, actionLabel ?? "Do it", reason);
+			if (verdict === "do_it" && source.doIt === "run_skill") {
+				const result = await runCardAction(
+					card,
+					source,
+					actionLabel ?? decisionText("Do it"),
+					reason,
+				);
+				if (result.ok) await recordChoice(card, source, verdict, reason);
+				return result;
+			}
 			if (verdict === "do_it" && source.doIt === "copy_and_open") {
 				// Open first: a popup must start inside the user's gesture.
 				if (card.link) window.open(card.link, "_blank", "noopener,noreferrer");
@@ -527,21 +634,23 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 						: verdict === "not_useful"
 							? "notUseful"
 							: "doIt";
+				const eventId = await recordChoice(card, source, verdict, reason);
 				setTally((t) => ({ ...t, [counted]: t[counted] + 1 }));
 				setUndo({
 					kind: "write",
 					label:
 						verdict === "useful"
-							? "Marked useful"
+							? decisionText("Marked useful")
 							: verdict === "not_useful"
-								? "Marked not useful"
+								? decisionText("Marked not useful")
 								: source.doIt === "copy_and_open"
 									? "Draft copied, marked done"
-									: "Marked to do",
+									: decisionText("Marked to do"),
 					outputId: card.outputId,
 					rowIndex: card.rowIndex,
 					previous,
 					counted,
+					learningEventId: eventId,
 				});
 				setSkipped((keys) => keys.filter((key) => key !== card.key));
 				return { ok: true };
@@ -563,6 +672,8 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 			selectedChips,
 			source,
 			writeRow,
+			queryClient,
+			recordChoice,
 		],
 	);
 
@@ -570,10 +681,15 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		if (!card) return { ok: false, error: "No card is open" };
 		const next = { ...snoozes, [card.key]: snoozeUntil(new Date()) };
 		setSnoozes(next);
-		writeSnoozes(next);
-		setUndo({ kind: "snooze", label: "Snoozed until tomorrow", key: card.key });
+		writeSnoozes(snoozeKey, next);
+		setUndo({
+			kind: "snooze",
+			label: decisionText("Snoozed until tomorrow"),
+			key: card.key,
+		});
+		if (source) void recordChoice(card, source, "later");
 		return { ok: true };
-	}, [card, snoozes]);
+	}, [card, snoozes, snoozeKey, source, recordChoice]);
 
 	const skip = useCallback((): CardReviewActionResult => {
 		if (!card) return { ok: false, error: "No card is open" };
@@ -583,9 +699,10 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 				error: "This is the last card; there is none to skip to",
 			};
 		setSkipped((keys) => [...keys.filter((key) => key !== card.key), card.key]);
-		setUndo({ kind: "skip", label: "Skipped", key: card.key });
+		setUndo({ kind: "skip", label: decisionText("Skipped"), key: card.key });
+		if (source) void recordChoice(card, source, "skip");
 		return { ok: true };
-	}, [card, queue.length]);
+	}, [card, queue.length, source, recordChoice]);
 
 	const undoLast = useCallback(async (): Promise<CardReviewActionResult> => {
 		if (!undo) return { ok: false, error: "There is nothing to undo" };
@@ -594,7 +711,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 			const next = { ...snoozes };
 			delete next[undo.key];
 			setSnoozes(next);
-			writeSnoozes(next);
+			writeSnoozes(snoozeKey, next);
 		} else if (undo.kind === "skip") {
 			setSkipped((keys) => keys.filter((key) => key !== undo.key));
 		} else {
@@ -607,6 +724,15 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 					"Card review: verdict undone",
 				);
 				const counted = undo.counted;
+				if (undo.learningEventId) {
+					await osApi.learningFeedback.correct({
+						eventId: undo.learningEventId,
+						clientEventId: crypto.randomUUID(),
+					});
+					void queryClient.invalidateQueries({
+						queryKey: osQuery.learningFeedback.key(),
+					});
+				}
 				if (counted)
 					setTally((t) => ({ ...t, [counted]: Math.max(0, t[counted] - 1) }));
 			} catch (error) {
@@ -620,7 +746,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 		}
 		setUndo(null);
 		return { ok: true };
-	}, [busy, snoozes, undo, writeRow]);
+	}, [busy, snoozes, snoozeKey, undo, writeRow, queryClient]);
 
 	const decideRule = useCallback(
 		async (
@@ -733,6 +859,87 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 
 	const failed = outputLists.some((q) => q.isError);
 	const reviewed = tally.useful + tally.notUseful + tally.doIt;
+	if (inDeck)
+		return (
+			<div
+				data-card-review
+				className="fd-decision-stack grid min-w-0 gap-4"
+				data-has-next={queue.length > 1}
+			>
+				<DecisionLearningFeedback eventId={learningEventId} />
+				{failed ? (
+					<Text>{OS_COPY.feed.partial}</Text>
+				) : card && source ? (
+					<WorkDecisionCard
+						key={card.key}
+						autoFocus
+						kind="decision"
+						title={(card.action || plainWhy(card.why) || card.sourceText).slice(
+							0,
+							500,
+						)}
+						askedBy={source.label}
+						body={card.draft}
+						content={
+							<div className="grid min-w-0 gap-3">
+								<SourceLine text={card.sourceText} />
+								{card.draft && <Text>{card.draft}</Text>}
+							</div>
+						}
+						why={<Text>{plainWhy(card.why)}</Text>}
+						actions={[
+							{
+								id: "useful",
+								label: decisionText("Useful"),
+								intent: "approve",
+							},
+							{
+								id: "not_useful",
+								label: decisionText("Not useful"),
+								intent: "reject",
+							},
+							...(card.action && actionLabel
+								? [
+										{
+											id: "do_it",
+											label: actionLabel,
+											intent: "approve" as const,
+										},
+									]
+								: []),
+							{ id: "later", label: decisionText("Later"), intent: "later" },
+						]}
+						onDecision={async (feedback) => {
+							const result =
+								feedback.action === "later"
+									? snooze()
+									: await decide(
+											feedback.action as Verdict["kind"],
+											feedback.feedback,
+										);
+							if (!result.ok) throw new Error(result.error);
+						}}
+					/>
+				) : loading ? (
+					<Text>{OS_COPY.feed.loading}</Text>
+				) : (
+					<DeckClosure
+						title={
+							cards.length
+								? OS_COPY.feedDeckVisual.clear
+								: decisionText("No cards yet")
+						}
+						summary={
+							reviewed
+								? OS_COPY.feedDeckVisual.doneToday(reviewed)
+								: decisionText(
+										"New cards appear here after the next factory run.",
+									)
+						}
+					/>
+				)}
+			</div>
+		);
 
 	return (
 		<div
@@ -741,8 +948,9 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 			onKeyDown={onKeyDown}
 			data-card-review
 			className="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-4 outline-none"
-			aria-label="Card review"
+			aria-label={decisionText("Card review")}
 		>
+			<DecisionLearningFeedback eventId={learningEventId} />
 			{rules.pending.length > 0 && (
 				<PendingRules rules={rules.pending} onDecide={decideRule} />
 			)}
@@ -752,7 +960,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 					<div
 						className="flex flex-wrap gap-1.5"
 						role="group"
-						aria-label="Show cards from"
+						aria-label={decisionText("Show cards from")}
 					>
 						{[null, ...channels].map((value) => (
 							<Button
@@ -762,7 +970,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 								aria-pressed={activeChannel === value}
 								onClick={() => setChannel(value)}
 							>
-								{value ?? "All"}
+								{value ?? decisionText("All")}
 							</Button>
 						))}
 					</div>
@@ -824,7 +1032,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 					role="status"
 					className="h-80 animate-pulse rounded-2xl bg-kumo-fill motion-reduce:animate-none"
 				>
-					<span className="sr-only">Loading cards…</span>
+					<span className="sr-only">{decisionText("Loading cards…")}</span>
 				</div>
 			) : card && source ? (
 				<>
@@ -863,7 +1071,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 								onClick={() => void decide("not_useful")}
 								aria-keyshortcuts="ArrowLeft"
 							>
-								Not useful
+								{decisionText("Not useful")}
 							</Button>
 							<Button
 								size="lg"
@@ -874,7 +1082,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 								onClick={() => void decide("useful")}
 								aria-keyshortcuts="ArrowRight"
 							>
-								Useful
+								{decisionText("Useful")}
 							</Button>
 							{actionLabel !== null && (
 								<Button
@@ -901,7 +1109,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 									onClick={snooze}
 									aria-keyshortcuts="S"
 								>
-									Snooze
+									{decisionText("Snooze")}
 								</Button>
 								<Button
 									size="sm"
@@ -911,7 +1119,7 @@ export function CardReviewApp({ config }: { config: CardReviewConfig }) {
 									disabled={queue.length < 2}
 									aria-keyshortcuts="K"
 								>
-									Skip
+									{decisionText("Skip")}
 								</Button>
 							</div>
 							<UndoButton undo={undo} busy={busy} onUndo={undoLast} />
@@ -1194,7 +1402,9 @@ function SwipeCard({
 					)}
 					style={{ opacity: strength }}
 				>
-					{intent === "useful" ? "Useful" : "Not useful"}
+					{intent === "useful"
+						? decisionText("Useful")
+						: decisionText("Not useful")}
 				</div>
 			)}
 			<div className="flex flex-wrap items-center gap-1.5">
@@ -1217,9 +1427,12 @@ function SwipeCard({
 			</Text>
 
 			{card.action && !isActionLabel(card.action) && (
-				<section aria-label="Suggested action" className="flex flex-col gap-1">
+				<section
+					aria-label={decisionText("Suggested action")}
+					className="flex flex-col gap-1"
+				>
 					<Text as="h3" role="caption" tone="secondary" className="m-0">
-						Suggested action
+						{decisionText("Suggested action")}
 					</Text>
 					<Text as="p" role="body" className="m-0">
 						{card.action}
@@ -1238,9 +1451,12 @@ function SwipeCard({
 				</Text>
 			)}
 			{card.draft && (
-				<section aria-label="Draft" className="flex flex-col gap-1">
+				<section
+					aria-label={decisionText("Draft")}
+					className="flex flex-col gap-1"
+				>
 					<Text as="h3" role="caption" tone="secondary" className="m-0">
-						Draft
+						{decisionText("Draft")}
 					</Text>
 					<blockquote className="m-0 select-text whitespace-pre-wrap rounded-lg border-l-2 border-kumo-line bg-kumo-tint px-3 py-2 type-tedix-body">
 						{card.draft}
@@ -1248,7 +1464,7 @@ function SwipeCard({
 				</section>
 			)}
 			{rules.length > 0 && (
-				<Details summary="Details">
+				<Details summary={decisionText("Details")}>
 					{rules.map((rule) => (
 						<Text
 							key={rule.id}
@@ -1385,11 +1601,13 @@ function PendingRules({
 }) {
 	return (
 		<section
-			aria-label="Suggested changes"
+			aria-label={decisionText("Suggested changes")}
 			className="flex flex-col gap-2 rounded-2xl border border-kumo-line bg-kumo-tint p-3"
 		>
 			<Text as="h3" role="label" tone="strong" className="m-0">
-				{rules.length === 1 ? "Suggested change" : "Suggested changes"}
+				{rules.length === 1
+					? decisionText("Suggested change")
+					: decisionText("Suggested changes")}
 			</Text>
 			{rules.map((rule) => {
 				const { change, why } = splitWhy(rule.text);
@@ -1405,17 +1623,17 @@ function PendingRules({
 						)}
 						<div className="flex flex-wrap items-center gap-2">
 							<Button size="sm" onClick={() => onDecide(rule, "accepted")}>
-								Yes, change it
+								{decisionText("Yes, change it")}
 							</Button>
 							<Button
 								size="sm"
 								variant="outline"
 								onClick={() => onDecide(rule, "rejected")}
 							>
-								No, keep as is
+								{decisionText("No, keep as is")}
 							</Button>
 						</div>
-						<Details summary="Details">
+						<Details summary={decisionText("Details")}>
 							<Text as="p" role="caption" tone="secondary" className="m-0">
 								{rule.sourceLabel} rule {rule.id}
 							</Text>
@@ -1461,14 +1679,16 @@ function CaughtUp({
 				weight="fill"
 			/>
 			<Text as="h3" role="section" className="m-0">
-				{hasCards ? "All caught up" : "No cards yet"}
+				{hasCards
+					? decisionText("All caught up")
+					: decisionText("No cards yet")}
 			</Text>
 			<Text as="p" role="body" tone="secondary" className="m-0">
 				{summary.length > 0
 					? summary.join(" · ")
 					: hasCards
-						? "Every card here has a verdict."
-						: "New cards appear here after the next factory run."}
+						? decisionText("Every card here has a verdict.")
+						: decisionText("New cards appear here after the next factory run.")}
 			</Text>
 			<UndoButton undo={undo} busy={busy} onUndo={onUndo} />
 		</div>

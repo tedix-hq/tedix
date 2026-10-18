@@ -39,16 +39,15 @@ export function DecisionLearningFeedback({
 	const copy = OS_COPY.learning;
 	const subject = last.classId.replaceAll(/[-_:.]/g, " ");
 	const preference = model?.preferences.find((p) => p.classId === last.classId);
-	const learned =
-		preference && last.eventKind === "edited"
+	const learned = last.shortened
+		? copy.shorter(subject)
+		: preference && last.eventKind === "edited"
 			? copy.preference(preference.sentence.replaceAll(last.classId, subject))
-			: last.shortened
-				? copy.shorter(subject)
-				: last.choice === "later" || last.choice === "skip"
-					? copy.later(subject)
-					: ["rejected", "ignored"].includes(last.eventKind)
-						? copy.less(subject)
-						: copy.noted(subject);
+			: last.choice === "later" || last.choice === "skip"
+				? copy.later(subject)
+				: ["rejected", "ignored"].includes(last.eventKind)
+					? copy.less(subject)
+					: copy.noted(subject);
 	return (
 		<div
 			className="flex flex-wrap items-center gap-x-3 gap-y-1 text-kumo-secondary"

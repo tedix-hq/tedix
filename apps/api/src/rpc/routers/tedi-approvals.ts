@@ -76,6 +76,7 @@ import {
 	withAuth,
 	withServiceAuth,
 	withTediAuth,
+	userHoldsPermission,
 } from "../orpc";
 import { settleHomeToolWriteApproval } from "./kernel/write-approval-settlement";
 import { requireOrgId } from "../org-scope";
@@ -812,9 +813,23 @@ const listApprovalsProcedure = authedOs.list
 
 		const limit = input?.limit ?? 50;
 		const offset = input?.offset ?? 0;
+		if (
+			input?.decidableOnly &&
+			context.authType === "user" &&
+			!userHoldsPermission(context, "os:approve") &&
+			!userHoldsPermission(context, "settings:manage")
+		)
+			return {
+				data: [],
+				pagination: { limit, offset, total: 0, hasMore: false },
+			};
 
 		const { data, total } = await listApprovalRequests(context.db, {
 			orgId: orgId ?? undefined,
+			viewerUserId:
+				input?.decidableOnly && context.authType === "user"
+					? context.user?.sub
+					: undefined,
 			tediId: input?.tediId,
 			status: input?.status,
 			actionType: input?.actionType,

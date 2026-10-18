@@ -421,6 +421,12 @@ export const tediApprovalsContract = oc
 							.enum(["pending", "approved", "rejected", "cancelled", "expired"])
 							.optional(),
 						actionType: z.string().optional(),
+						decidableOnly: z
+							.boolean()
+							.optional()
+							.describe(
+								"Only requests the caller can decide in their accessible personal or shared context",
+							),
 					})
 					.extend(PaginationSchema.shape)
 					.optional(),

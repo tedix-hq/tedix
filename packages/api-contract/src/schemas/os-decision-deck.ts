@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { DecisionEffectSchema } from "./decision-effects";
+import { CardReviewSourceSchema } from "./os-card-review";
 
 export const DECISION_DECK_ENTRY = "tedix:app/decision-deck";
 export const DecisionKindSchema = z.enum([
@@ -98,6 +99,7 @@ export const DecisionClassPoliciesSchema = z.record(
 
 export const DecisionDeckConfigSchema = z.strictObject({
 	version: z.literal(1),
+	factorySources: z.array(CardReviewSourceSchema).max(10).default([]),
 	projectId: z.uuid().optional(),
 	limit: z.number().int().min(1).max(100).default(50),
 	unchangedThreshold: z.number().int().min(1).max(100).default(5),

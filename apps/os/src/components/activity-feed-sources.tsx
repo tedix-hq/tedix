@@ -2,6 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import { osQuery } from "@/lib/os-query-options";
+import { useOsLocale } from "@/lib/use-os-locale";
 import { resultFeedItems, workFeedItems } from "@/lib/activity-feed";
 
 type Cursor = { at: string; id: string } | undefined;
@@ -24,6 +25,7 @@ export function ActivityFeedSources({
 	request: number;
 	onUpdate: (projectId: string, state: FeedSourceState) => void;
 }) {
+	const locale = useOsLocale();
 	const work = useInfiniteQuery(
 		osQuery.workItems.listActivity.infiniteOptions({
 			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
@@ -51,7 +53,7 @@ export function ActivityFeedSources({
 			),
 			...resultFeedItems(results.data?.pages.flatMap((p) => p.data) ?? []),
 		],
-		[work.data, results.data, projectId],
+		[work.data, results.data, projectId, locale],
 	);
 	const queries = [work, results];
 	const loading = queries.some((q) => q.isFetching);

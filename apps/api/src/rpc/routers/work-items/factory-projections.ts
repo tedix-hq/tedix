@@ -42,6 +42,7 @@ export const listAttemptProjectionProcedure =
 	projectionOs.listAttemptProjection.handler(async ({ input, context }) => {
 		const page = await listOrgWorkAttempts(context.db, {
 			orgId: requireOrgId(context),
+			viewerUserId: context.authType === "user" ? context.user?.sub : undefined,
 			projectId: input.projectId,
 			workItemId: input.workItemId,
 			runtimeStates: input.runtimeStates,

@@ -77,6 +77,40 @@ beforeEach(() => {
 });
 
 describe("tediApprovals.list org scoping", () => {
+	it("retains personal context filtering for an organization admin's Deck", async () => {
+		const context = {
+			...createContext("org-1"),
+			authType: "user",
+			user: { sub: "fictional-admin" },
+			userRole: "admin",
+		} as BaseContext;
+		await createClient(context).list({
+			status: "pending",
+			decidableOnly: true,
+		});
+		expect(mocks.listApprovalRequests).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				orgId: "org-1",
+				viewerUserId: "fictional-admin",
+			}),
+		);
+	});
+	it("does not put admin-only runtime approvals in a non-admin member's decision inbox", async () => {
+		const context = {
+			...createContext("org-1"),
+			authType: "user",
+			user: { sub: "fictional-luz" },
+			userRole: "member",
+		} as BaseContext;
+		const result = await createClient(context).list({
+			status: "pending",
+			decidableOnly: true,
+		});
+		expect(result.data).toEqual([]);
+		expect(result.pagination.total).toBe(0);
+		expect(mocks.listApprovalRequests).not.toHaveBeenCalled();
+	});
 	it("scopes an unfiltered (org-wide) list by the caller's org_id", async () => {
 		const client = createClient(createContext("org-1"));
 

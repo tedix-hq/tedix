@@ -72,9 +72,10 @@ import { buildActivityFeedTools } from "@/components/activity-feed-webmcp-tools"
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { ActivityFeedFactorySource } from "@/components/activity-feed-factory-source";
 import { FeedNowStrip } from "@/components/feed-now-strip";
+import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
+import { useOsLocale } from "@/lib/use-os-locale";
 
-const copy = OS_COPY.feed;
-type Filter = keyof typeof copy.filters;
+type Filter = keyof typeof OS_COPY.feed.filters;
 export interface ActivityFeedNavigation {
 	filter?: Filter;
 	onFilterChange?: (filter: Filter) => void;
@@ -89,6 +90,8 @@ export function ActivityFeedApp({
 	config: ActivityFeedConfig;
 	navigation?: ActivityFeedNavigation;
 }) {
+	useOsLocale();
+	const copy = OS_COPY.feed;
 	const cache = useQueryClient();
 	const identity = useOsIdentity();
 	const tediNames = useTediNames();
@@ -130,7 +133,11 @@ export function ActivityFeedApp({
 	const visibleProjects = config.projects.filter(
 		(p) => !prefs.projectIds.length || prefs.projectIds.includes(p.id),
 	);
-	const factories = config.factorySources.filter((f) =>
+	const visibleFactories = useVisibleCardSources(
+		config.factorySources,
+		(f) => f.source.workspaceId,
+	);
+	const factories = visibleFactories.sources.filter((f) =>
 		visibleProjects.some((p) => p.id === f.projectId),
 	);
 	const sourceKeys = [
@@ -194,9 +201,15 @@ export function ActivityFeedApp({
 	const mainIds = new Set(main.map((i) => i.id));
 	const digest = selected.filter((i) => !mainIds.has(i.id));
 	const states = sourceKeys.map((key) => sources[key]);
-	const loading = preferences.isPending || states.some((s) => !s || s.loading);
+	const loading =
+		visibleFactories.pending ||
+		preferences.isPending ||
+		states.some((s) => !s || s.loading);
 	const failed =
-		preferences.isError || corrections.isError || states.some((s) => s?.failed);
+		visibleFactories.failed ||
+		preferences.isError ||
+		corrections.isError ||
+		states.some((s) => s?.failed);
 	const more = states.some((s) => s?.more);
 	const load = useCallback(() => setRequest((r) => r + 1), []);
 	const sentinel = useRef<HTMLDivElement>(null);
@@ -609,6 +622,7 @@ function FeedCard({
 	) => Promise<boolean>;
 	onWork: (item: ActivityFeedItem) => Promise<void>;
 }) {
+	const copy = OS_COPY.feed;
 	const article = useRef<HTMLElement>(null);
 	const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const [reactionsOpen, setReactionsOpen] = useState(false);

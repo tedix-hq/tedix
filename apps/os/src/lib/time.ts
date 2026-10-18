@@ -34,6 +34,29 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
 	const then = Date.parse(iso);
 	if (Number.isNaN(then)) return "";
 	const delta = now.getTime() - then;
+	if (osLocale().startsWith("es") && Math.abs(delta) < WEEK_MS) {
+		const elapsed = Math.abs(delta);
+		const unit =
+			elapsed < 45_000
+				? "second"
+				: elapsed < HOUR_MS
+					? "minute"
+					: elapsed < DAY_MS
+						? "hour"
+						: "day";
+		const divisor =
+			unit === "second"
+				? 1000
+				: unit === "minute"
+					? MINUTE_MS
+					: unit === "hour"
+						? HOUR_MS
+						: DAY_MS;
+		return new Intl.RelativeTimeFormat(osLocale(), {
+			numeric: "auto",
+			style: "short",
+		}).format(elapsed < 45_000 ? 0 : -Math.round(delta / divisor), unit);
+	}
 	// A schedule's next fire is in the future: "in 5m", "in 17h", "in 3d".
 	if (delta <= -45_000 && -delta < WEEK_MS) {
 		const ahead = -delta;

@@ -9,9 +9,11 @@ import {
 	isDecidableWorkApproval,
 } from "@/components/work-needs-you-count";
 import { decisionEnvelope } from "@/lib/decision-deck";
+import { useFactoryCardCount } from "@/lib/use-factory-card-count";
 
 /** The header and Deck use the same recipient checks, project scope and bounded pages. */
 export function useDecisionInbox(config?: DecisionDeckConfig) {
+	const factories = useFactoryCardCount(config?.factorySources ?? []);
 	const inbox = useQuery({
 		...osQuery.workInteractions.listInbox.queryOptions({
 			input: {
@@ -57,16 +59,19 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		workApprovals,
 		requests,
 		work,
-		count: requests.length + work.length + runtime.length,
+		count: requests.length + work.length + runtime.length + factories.count,
 		pending:
+			factories.pending ||
 			inbox.isPending ||
 			workApprovals.isPending ||
 			(!config?.projectId && approvals.isPending),
 		failed:
+			factories.failed ||
 			inbox.isError ||
 			workApprovals.isError ||
 			(!config?.projectId && approvals.isError),
 		more: Boolean(
+			factories.more ||
 			inbox.data?.hasMore ||
 			workApprovals.data?.hasMore ||
 			(!config?.projectId && approvals.data?.pagination.hasMore),

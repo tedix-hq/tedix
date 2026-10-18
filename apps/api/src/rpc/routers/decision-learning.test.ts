@@ -27,14 +27,14 @@ function fixture() {
 	sqlite
 		.prepare("INSERT INTO organizations(id,name,slug) VALUES(?,?,?)")
 		.run(ORG, "Fictional Harbor", "fictional-harbor");
-	const client = (person = "river", org = ORG) =>
+	const client = (person = "river", org = ORG, role = "owner") =>
 		createRouterClient(learningFeedbackContractRouter, {
 			context: {
 				db,
 				organizationId: org,
 				authType: "user",
 				user: { sub: person },
-				userRole: "owner",
+				userRole: role,
 				headers: new Headers(),
 				url: new URL("https://api.example.test/rpc"),
 				env: {},
@@ -43,6 +43,74 @@ function fixture() {
 	return { sqlite, db, client };
 }
 describe("decision learning authority and correction", () => {
+	it("keeps a non-admin member's factory reactions separate from another person's preferences", async () => {
+		const f = fixture();
+		await f
+			.client()
+			.configure(DecisionLearningConfigSchema.parse({ enabled: true }));
+		const member = f.client("luz", ORG, "member");
+		const owner = f.client();
+		await owner.recordInteraction({
+			clientEventId: "owner-factory",
+			eventKind: "accepted",
+			scope: { kind: "personal" },
+			surface: "decision_deck",
+			metadata: {
+				decisionClass: "factory:Inbox:reply",
+				decisionChoice: "useful",
+			},
+		});
+		await expect(
+			member.recordInteraction({
+				clientEventId: "forged-owner",
+				eventKind: "rejected",
+				scope: { kind: "personal", id: "river" },
+				surface: "decision_deck",
+			}),
+		).rejects.toThrow(/validation/);
+		await member.recordInteraction({
+			clientEventId: "member-factory",
+			eventKind: "rejected",
+			scope: { kind: "personal" },
+			surface: "decision_deck",
+			metadata: {
+				decisionClass: "factory:Inbox:reply",
+				decisionChoice: "not_useful",
+			},
+		});
+		const own = await owner.listInteractions({
+			scopeKind: "personal",
+			limit: 20,
+		});
+		const hers = await member.listInteractions({
+			scopeKind: "personal",
+			limit: 20,
+		});
+		await expect(
+			member.recordInteraction({
+				clientEventId: "shared",
+				eventKind: "accepted",
+				scope: { kind: "organization" },
+				surface: "decision_deck",
+			}),
+		).rejects.toThrow(/Shared learning/);
+		expect(own.events.map((event) => event.scopeId)).toEqual(["river"]);
+		expect(hers.events.map((event) => event.scopeId)).toEqual(["luz"]);
+		expect((await owner.model({})).eventCount).toBe(1);
+		expect((await member.model({})).eventCount).toBe(1);
+		await expect(
+			member.correct({
+				eventId: own.events[0]!.id,
+				clientEventId: "cross-person",
+			}),
+		).rejects.toThrow(/not found/);
+		await member.correct({
+			eventId: hers.events[0]!.id,
+			clientEventId: "own-correction",
+		});
+		expect((await member.model({})).eventCount).toBe(0);
+		f.sqlite.close();
+	});
 	it("keeps personal evidence private and prevents a client from forging an automatic promotion", async () => {
 		const f = fixture();
 		await f.client().configure(

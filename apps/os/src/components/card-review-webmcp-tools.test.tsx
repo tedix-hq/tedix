@@ -33,9 +33,24 @@ const api = vi.hoisted(() => ({
 	schedules: { runNow: vi.fn(), setPersonalAccess: vi.fn() },
 }));
 
-vi.mock("@/lib/api", () => ({ osApi: { osWorkspaces: api } }));
+vi.mock("@/lib/api", () => ({
+	osApi: {
+		osWorkspaces: api,
+		userProfile: {
+			getMine: vi.fn().mockResolvedValue({ id: "fictional-reviewer" }),
+		},
+		learningFeedback: {
+			model: vi.fn().mockResolvedValue({ config: { enabled: false } }),
+			recordInteraction: vi
+				.fn()
+				.mockResolvedValue({ event: { id: "fictional-event" } }),
+			correct: vi.fn().mockResolvedValue({}),
+		},
+	},
+}));
 
 import { CardReviewApp } from "./card-review-app";
+import { osApi } from "@/lib/api";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -371,10 +386,21 @@ describe("Card review WebMCP tools", () => {
 			"Wrong person: already a customer",
 			"no",
 		]);
+		expect(osApi.learningFeedback.recordInteraction).toHaveBeenCalledWith(
+			expect.objectContaining({
+				scope: { kind: "personal" },
+				eventKind: "rejected",
+				surface: "decision_deck",
+				targetId: CARDS_ID,
+			}),
+		);
 		expect(shownWho()).toBe("Jonas Feld");
 		expect(shownProgress()).toBe("2 of 3 left");
 
 		await call("card_review_undo");
+		expect(osApi.learningFeedback.correct).toHaveBeenCalledWith(
+			expect.objectContaining({ eventId: "fictional-event" }),
+		);
 		expect(sheets.get(CARDS_ID)!.rows[0]!.slice(6)).toEqual([null, null, null]);
 		expect(shownWho()).toBe("Mira Okafor");
 		expect(shownProgress()).toBe("3 of 3 left");

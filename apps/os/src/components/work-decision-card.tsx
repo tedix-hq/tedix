@@ -37,7 +37,7 @@ import { Textarea } from "@/components/kumo/textarea";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { relativeTime, absoluteTime } from "@/lib/time";
-import { OS_COPY } from "@/shared/os-copy";
+import { OS_COPY, decisionText } from "@/shared/os-copy";
 import {
 	DecisionProposalBody,
 	DecisionProposalHeading,
@@ -230,7 +230,7 @@ export function WorkDecisionCard({
 				elapsedMs: Math.max(0, Math.round(performance.now() - shownAt.current)),
 			});
 			setConfirmation(null);
-			toast.success("Got it — your feedback helps me learn.");
+			toast.success(decisionText("Got it — your feedback helps me learn."));
 			await departure;
 			setSaved(true);
 			onNext?.();
@@ -239,7 +239,7 @@ export function WorkDecisionCard({
 			setError(
 				cause instanceof Error
 					? cause.message
-					: "Your decision could not be saved. Try again.",
+					: decisionText("Your decision could not be saved. Try again."),
 			);
 		} finally {
 			inFlight.current = false;
@@ -374,7 +374,7 @@ export function WorkDecisionCard({
 						<div className="grid gap-3">
 							{editContent}
 							<Textarea
-								aria-label="Edit draft"
+								aria-label={decisionText("Edit draft")}
 								rows={8}
 								value={draft}
 								onChange={(event) => setDraft(event.target.value)}
@@ -392,7 +392,7 @@ export function WorkDecisionCard({
 							{suggestedAnswers.length ? (
 								<div
 									className="flex flex-wrap gap-2"
-									aria-label="Suggested answers"
+									aria-label={decisionText("Suggested answers")}
 								>
 									{suggestedAnswers.map((suggestion) => (
 										<Button
@@ -407,8 +407,8 @@ export function WorkDecisionCard({
 								</div>
 							) : null}
 							<Input
-								aria-label="Your answer"
-								placeholder="Your answer…"
+								aria-label={decisionText("Your answer")}
+								placeholder={decisionText("Your answer…")}
 								value={answer}
 								disabled={busy}
 								onChange={(event) => setAnswer(event.target.value)}
@@ -427,7 +427,7 @@ export function WorkDecisionCard({
 					) : null}
 					{saved ? (
 						<Text role="label" tone="secondary">
-							Decision saved
+							{decisionText("Decision saved")}
 						</Text>
 					) : (
 						<>
@@ -448,7 +448,7 @@ export function WorkDecisionCard({
 							{reasonsOpen && reject ? (
 								<div
 									className="flex flex-wrap gap-2"
-									aria-label="Why not this?"
+									aria-label={decisionText("Why not this?")}
 								>
 									{["wrong tone", "wrong facts", "not now", "don't send"].map(
 										(reason) => (
@@ -472,7 +472,9 @@ export function WorkDecisionCard({
 							>
 								<AlertDialogContent>
 									<AlertDialogHeader>
-										<AlertDialogTitle>Confirm decision</AlertDialogTitle>
+										<AlertDialogTitle>
+											{decisionText("Confirm decision")}
+										</AlertDialogTitle>
 										<AlertDialogDescription>
 											{confirmation?.confirm}
 										</AlertDialogDescription>
@@ -484,7 +486,7 @@ export function WorkDecisionCard({
 											disabled={busy}
 											onClick={() => setConfirmation(null)}
 										>
-											Go back
+											{decisionText("Go back")}
 										</Button>
 										<Button
 											disabled={busy || confirmation?.confirmDisabled}
@@ -493,7 +495,7 @@ export function WorkDecisionCard({
 													void submit(confirmation, undefined, true);
 											}}
 										>
-											Confirm
+											{decisionText("Confirm")}
 										</Button>
 									</AlertDialogFooter>
 								</AlertDialogContent>
@@ -505,12 +507,14 @@ export function WorkDecisionCard({
 										disabled={busy}
 										onClick={() => setFeedbackOpen(!feedbackOpen)}
 									>
-										Give feedback
+										{decisionText("Give feedback")}
 									</Button>
 									{feedbackOpen ? (
 										<Textarea
-											aria-label="Optional feedback"
-											placeholder="What should change? (optional)"
+											aria-label={decisionText("Optional feedback")}
+											placeholder={decisionText(
+												"What should change? (optional)",
+											)}
 											rows={2}
 											value={feedback}
 											onChange={(event) => setFeedback(event.target.value)}
@@ -540,7 +544,9 @@ export function WorkDecisionCard({
 							open={whyOpen}
 							onOpenChange={setWhyOpen}
 						>
-							<CollapsibleTrigger>Why this?</CollapsibleTrigger>
+							<CollapsibleTrigger>
+								{decisionText("Why this?")}
+							</CollapsibleTrigger>
 							<CollapsibleContent className="pt-3 text-kumo-subtle">
 								{why}
 								{learnedWhy && <DecisionLearningWhy explanation={learnedWhy} />}
@@ -591,7 +597,7 @@ export function WorkDecisionCard({
 										onClick={() => choose(action)}
 									>
 										{saving ? (
-											"Saving…"
+											decisionText("Saving…")
 										) : (
 											<span className="grid min-w-0 gap-1 whitespace-normal break-words">
 												<span>{action.label}</span>
@@ -632,7 +638,7 @@ export function WorkDecisionCard({
 									disabled={busy}
 									onClick={() => setEditing(!editing)}
 								>
-									{editing ? "Preview" : "Change"}
+									{editing ? decisionText("Preview") : decisionText("Change")}
 								</Button>
 							) : null}
 						</div>

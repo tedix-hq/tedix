@@ -7,7 +7,7 @@ import {
 } from "@/components/work-decision-card";
 import { Text } from "@/components/kumo/text";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
-import { OS_COPY } from "@/shared/os-copy";
+import { OS_COPY, decisionText } from "@/shared/os-copy";
 
 export function DecisionEnvelopeCard({
 	decision,
@@ -55,20 +55,26 @@ export function DecisionEnvelopeCard({
 					<Text className="fd-recommendation">{decision.recommendation}</Text>
 					<FeedDeckDisclosure title={OS_COPY.feedDeckVisual.context}>
 						<Text>
-							<strong>Why now:</strong> {decision.whyNow}
+							<strong>{decisionText("Why now:")}</strong> {decision.whyNow}
 						</Text>
 						<Text>
 							<strong>
-								{decision.reversibility.replaceAll("_", " ")} door
+								{decisionText(
+									decision.reversibility === "two_way"
+										? "Easy to undo"
+										: decision.reversibility === "one_way"
+											? "Hard to undo"
+											: "Reversibility unknown",
+								)}
 							</strong>{" "}
 							· {decision.blastRadius}
 						</Text>
 						<Text>
-							Confidence:{" "}
+							{decisionText("Confidence:")}{" "}
 							{decision.confidence === null
-								? "not assessed"
+								? decisionText("not assessed")
 								: `${Math.round(decision.confidence * 100)}%`}{" "}
-							· Waiting: {decision.costOfWaiting}
+							· {decisionText("Waiting:")} {decision.costOfWaiting}
 						</Text>
 					</FeedDeckDisclosure>
 					{decision.expiresAt && (
@@ -94,7 +100,7 @@ export function DecisionEnvelopeCard({
 							</Text>
 						))
 					) : (
-						<Text>No cited lessons yet.</Text>
+						<Text>{decisionText("No cited lessons yet.")}</Text>
 					)}
 				</div>
 			}
@@ -105,7 +111,7 @@ export function DecisionEnvelopeCard({
 				primary: preferDelegation
 					? option.intent === "delegate"
 					: option.intent === "approve",
-				description: `${option.consequence} Cost: ${option.cost}`,
+				description: `${option.consequence} ${decisionText("Cost:")} ${option.cost}`,
 				...(option.intent === "approve" &&
 				(decision.reversibility !== "two_way" ||
 					decision.protectedEffects.length > 0)
@@ -118,7 +124,7 @@ export function DecisionEnvelopeCard({
 				decision.kind === "question" ||
 				decision.options.some((option) => option.effect)
 					? undefined
-					: { id: "change", label: "Save changes" }
+					: { id: "change", label: decisionText("Save changes") }
 			}
 			onDecision={(feedback) =>
 				onDecision(
