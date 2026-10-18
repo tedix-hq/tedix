@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import {
 	CheckIcon,
 	FileTextIcon,
@@ -44,6 +44,10 @@ export function FeedDeckDisclosure({
 	);
 }
 
+export const ProposerProjectContext = createContext<string | undefined>(
+	undefined,
+);
+
 export function ProposerChip({
 	name,
 	image,
@@ -53,13 +57,23 @@ export function ProposerChip({
 	image?: string;
 	detail?: ReactNode;
 }) {
-	const displayName =
-		/^(?:[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\s+session|Agent session)$/i.test(
+	const project = useContext(ProposerProjectContext);
+	const session =
+		/^(?:Codex(?: session)?|Claude Code(?: session)?|Agent session|[\da-f-]{36} session)$/i.test(
 			name.trim(),
-		)
-			? OS_COPY.feedDeckVisual.agentSession
-			: name;
+		);
+	const displayName = session
+		? OS_COPY.feedDeckVisual.projectProposer(
+				/^Claude/i.test(name)
+					? "Claude Code"
+					: /^Codex/i.test(name)
+						? "Codex"
+						: OS_COPY.feedDeckVisual.agentSession,
+				project,
+			)
+		: name;
 	const initials = displayName
+		.replace(/\s*\(for\b.*$/, "")
 		.trim()
 		.split(/\s+/)
 		.slice(0, 2)

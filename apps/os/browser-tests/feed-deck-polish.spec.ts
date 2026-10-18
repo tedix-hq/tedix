@@ -51,7 +51,7 @@ try {
 			if (
 				(await title.evaluate((el) =>
 					Number.parseFloat(getComputedStyle(el).fontSize),
-				)) < 28
+				)) < 20
 			)
 				throw new Error("Proposal lost its type hierarchy");
 			if (
@@ -255,7 +255,7 @@ try {
 	);
 	const proposer = failed.locator(".fd-proposer p[title]");
 	if (
-		(await proposer.textContent()) !== "Your coding assistant" ||
+		(await proposer.textContent()) !== "Coding assistant (for this project)" ||
 		(await proposer.getAttribute("title")) !==
 			"11111111-1111-4111-8111-111111111111 session"
 	)

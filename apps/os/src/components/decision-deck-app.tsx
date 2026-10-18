@@ -1,8 +1,10 @@
+import { useDeckViewport } from "@/lib/use-deck-viewport";
 import { DecisionLearningContext } from "@/components/decision-learning-context";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
 import {
 	DeckClosure,
 	FeedDeckDisclosure,
+	ProposerProjectContext,
 } from "@/components/feed-deck-primitives";
 import { createElement, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,6 +65,7 @@ export function DecisionDeckApp({
 	config: DecisionDeckConfig;
 	workspaceId?: string;
 }) {
+	const deckRoot = useDeckViewport();
 	const client = useQueryClient();
 	const learningModel = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
@@ -465,6 +468,7 @@ export function DecisionDeckApp({
 			}}
 		>
 			<div
+				ref={deckRoot}
 				className="feed-deck fd-deck mx-auto grid w-full min-w-0 pb-8"
 				data-workspace-app-entry="decision-deck"
 			>
@@ -639,7 +643,7 @@ export function DecisionDeckApp({
 				) : selected ? (
 					<div
 						key={`${mode}:${selected.id}:${selected.row?.request.version ?? 0}`}
-						className="grid gap-3"
+						className="fd-deck-current"
 					>
 						<Text role="label">
 							{OS_COPY.decisionDeck.cardKinds[selected.kind]} ·{" "}
@@ -655,109 +659,120 @@ export function DecisionDeckApp({
 						{usesEnvelope && pastDeadline && (
 							<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
 						)}
-						<div
-							className="fd-decision-stack"
-							data-has-next={filtered.length > 1}
+						<ProposerProjectContext.Provider
+							value={
+								selected.project ? projectLabel(selected.project) : undefined
+							}
 						>
-							{mode === "history" ? (
-								<WorkDecisionCard
-									kind={current?.kind ?? "decision"}
-									title={selected.label}
-									askedBy={selected.row?.askedBy ?? "Your tedi"}
-									body={selected.row?.request.prompt}
-									why={
-										<Link href={`/work/interactions/${selected.id}`}>
-											Read the saved answer and history
-										</Link>
-									}
-									disabled
-									onDecision={async () => {}}
-									onNext={next}
-									onPrevious={previous}
-								/>
-							) : selected.id.startsWith("work-approval:") ? (
-								<WorkApprovalDecisionCard
-									row={decisions.work.find(
-										(row) => `work-approval:${row.proposal.id}` === selected.id,
-									)!}
-									onNext={next}
-									onPrevious={previous}
-								/>
-							) : selected.id.startsWith("approval:") ? (
-								<ApprovalDecisionCard
-									id={selected.id.slice("approval:".length)}
-									onNext={next}
-									onPrevious={previous}
-								/>
-							) : current &&
-							  (practiceMode ||
-									current.kind === "adr" ||
-									current.kind === "decision" ||
-									current.options.some((option) => option.effect)) ? (
-								<DecisionEnvelopeCard
-									decision={current}
-									defaultLowStakesToDelegate={config.defaultLowStakesToDelegate}
-									askedBy={
-										practiceMode
-											? "Example"
-											: (selected.row?.askedBy ?? "Your tedi")
-									}
-									disabled={
-										mode === "history" ||
-										(!practiceMode && (pastDeadline || expired))
-									}
-									onNext={next}
-									onPrevious={previous}
-									onDecision={async (feedback, choice, elapsedMs) => {
-										if (practiceMode) {
-											setPractice((value) => [
-												...value,
-												{
-													id: crypto.randomUUID(),
-													classId: current.classId,
-													choice,
-													signal: feedback.signal,
-													at: new Date().toISOString(),
-													elapsedMs,
-												},
-											]);
-											return;
+							<div
+								className="fd-decision-stack"
+								data-has-next={filtered.length > 1}
+							>
+								{mode === "history" ? (
+									<WorkDecisionCard
+										kind={current?.kind ?? "decision"}
+										title={selected.label}
+										askedBy={selected.row?.askedBy ?? "Your tedi"}
+										body={selected.row?.request.prompt}
+										why={
+											<Link href={`/work/interactions/${selected.id}`}>
+												Read the saved answer and history
+											</Link>
 										}
-										const request = selected.row!.request;
-										await osApi.workInteractions.respond({
-											requestId: request.id,
-											expectedRequestVersion: request.version,
-											responseKind: "answer",
-											body:
-												choice === "change"
-													? feedback.body
-													: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
-											resolvesRequest: choice !== "later",
-											metadata: decisionFeedbackMetadata(
-												feedback,
-												current.classId,
-												choice,
-												elapsedMs,
-											),
-										});
-										await client.invalidateQueries({
-											queryKey: osQuery.workInteractions.key({ type: "query" }),
-										});
-										await client.invalidateQueries({
-											queryKey: osQuery.learningFeedback.key(),
-										});
-									}}
-								/>
-							) : (
-								<WorkInteractionDecisionCard
-									requestId={selected.id}
-									askedBy={selected.row?.askedBy}
-									autoFocus
-									onNext={next}
-									onPrevious={previous}
-								/>
-							)}
-						</div>
+										disabled
+										onDecision={async () => {}}
+										onNext={next}
+										onPrevious={previous}
+									/>
+								) : selected.id.startsWith("work-approval:") ? (
+									<WorkApprovalDecisionCard
+										row={decisions.work.find(
+											(row) =>
+												`work-approval:${row.proposal.id}` === selected.id,
+										)!}
+										onNext={next}
+										onPrevious={previous}
+									/>
+								) : selected.id.startsWith("approval:") ? (
+									<ApprovalDecisionCard
+										id={selected.id.slice("approval:".length)}
+										onNext={next}
+										onPrevious={previous}
+									/>
+								) : current &&
+								  (practiceMode ||
+										current.kind === "adr" ||
+										current.kind === "decision" ||
+										current.options.some((option) => option.effect)) ? (
+									<DecisionEnvelopeCard
+										decision={current}
+										defaultLowStakesToDelegate={
+											config.defaultLowStakesToDelegate
+										}
+										askedBy={
+											practiceMode
+												? "Example"
+												: (selected.row?.askedBy ?? "Your tedi")
+										}
+										disabled={
+											mode === "history" ||
+											(!practiceMode && (pastDeadline || expired))
+										}
+										onNext={next}
+										onPrevious={previous}
+										onDecision={async (feedback, choice, elapsedMs) => {
+											if (practiceMode) {
+												setPractice((value) => [
+													...value,
+													{
+														id: crypto.randomUUID(),
+														classId: current.classId,
+														choice,
+														signal: feedback.signal,
+														at: new Date().toISOString(),
+														elapsedMs,
+													},
+												]);
+												return;
+											}
+											const request = selected.row!.request;
+											await osApi.workInteractions.respond({
+												requestId: request.id,
+												expectedRequestVersion: request.version,
+												responseKind: "answer",
+												body:
+													choice === "change"
+														? feedback.body
+														: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
+												resolvesRequest: choice !== "later",
+												metadata: decisionFeedbackMetadata(
+													feedback,
+													current.classId,
+													choice,
+													elapsedMs,
+												),
+											});
+											await client.invalidateQueries({
+												queryKey: osQuery.workInteractions.key({
+													type: "query",
+												}),
+											});
+											await client.invalidateQueries({
+												queryKey: osQuery.learningFeedback.key(),
+											});
+										}}
+									/>
+								) : (
+									<WorkInteractionDecisionCard
+										requestId={selected.id}
+										askedBy={selected.row?.askedBy}
+										autoFocus
+										onNext={next}
+										onPrevious={previous}
+									/>
+								)}
+							</div>
+						</ProposerProjectContext.Provider>
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
 								<Button variant="outline" onClick={previous}>

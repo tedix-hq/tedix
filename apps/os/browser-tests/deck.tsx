@@ -56,12 +56,22 @@ const manifest = OsGadgetManifestSchema.parse({
 	navigation: { work: "deck" },
 	config: DecisionDeckConfigSchema.parse({
 		version: 1,
-		examples: DECISION_DECK_EXAMPLES,
+		examples: new URLSearchParams(location.search).has("long-proposal")
+			? DECISION_DECK_EXAMPLES.map((example, index) =>
+					index
+						? example
+						: {
+								...example,
+								proposal:
+									"Open https://example.invalid/admin → Pages → home (English), review draft version92 (only final CTA to 'Ready to deploy your first tedi?'), and publish via the supported human admin flow. Automated approval review rejected pages publication because the current lane cannot publish the page. Review the exact draft before continuing.",
+							},
+				)
+			: DECISION_DECK_EXAMPLES,
 	}),
 });
 createRoot(document.getElementById("root")!).render(
 	<QueryClientProvider client={client}>
-		<main className="p-4">
+		<main data-slot="page" className="p-4">
 			<WorkspaceAppRenderer manifest={manifest} />
 		</main>
 	</QueryClientProvider>,
