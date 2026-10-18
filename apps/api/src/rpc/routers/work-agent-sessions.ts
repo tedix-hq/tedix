@@ -792,8 +792,22 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 				await setAutomaticFiling(context.db, owner, input.enabled);
 			if (!(await automaticFilingEnabled(context.db, owner)))
 				return { queued: false };
-			const { enqueueRequestFiling } =
+			const { enqueueRequestFiling, processRequestFilingQueue } =
 				await import("../../services/request-filing-queue");
+			if (input.runNow) {
+				const pass = await processRequestFilingQueue(
+					context.env,
+					{
+						...owner,
+						ownerSubject: context.user!.sub!,
+					},
+					1,
+				);
+				return {
+					queued: pass.state === "processed" && (pass.pending ?? 0) > 0,
+					pass,
+				};
+			}
 			await enqueueRequestFiling(context.env, {
 				...owner,
 				ownerSubject: context.user!.sub!,
