@@ -79,14 +79,23 @@ export async function generateDecisionCard(
 	const filingText = filing
 		? (request.prompt.split("\n\nFiled automatically:")[0] ?? "")
 		: "";
+	const translatedTopics = Object.entries(copySpec.plainTerms)
+		.filter(([term]) =>
+			new RegExp(
+				`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+				"i",
+			).test(filingText),
+		)
+		.map(([, meaning]) => meaning)
+		.join(" ");
 	const filingWords =
-		filingText
+		`${filingText} ${translatedTopics}`
 			.toLowerCase()
 			.match(/[\p{L}\p{N}]{4,}/gu)
 			?.filter(
 				(word) =>
 					!copySpec.bannedWords.some((term) =>
-						term.split(" ").includes(word),
+						term.toLowerCase().split(" ").includes(word),
 					) &&
 					!/^(?:this|that|with|from|your|have|been|will|only|please|requests?|check|review|make|show|fix|improve|whether|should|would|could|here|file|into|them|their|they)$/.test(
 						word,

@@ -289,6 +289,22 @@ it("allows a plain-English replacement when the source topic is a banned technic
 		}),
 	).toMatchObject(candidate);
 });
+it("accepts an asset translation as the filing topic without restoring jargon", async () => {
+	const candidate = {
+		...copy,
+		title: "File the company-control idea here?",
+		body: "Keeps the request under the Account project.",
+		recommendation: "The brief covers how AI helpers make choices.",
+	};
+	mocks.model.mockResolvedValue(JSON.stringify(candidate));
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Explore confidence layer for governance optimization.",
+			metadata: { decisionDeck: { classId: "filing.project" } },
+		}),
+	).toMatchObject(candidate);
+});
 it("rejects opaque mixed-case account identifiers as well as UUIDs", async () => {
 	mocks.model.mockResolvedValue(
 		JSON.stringify({
