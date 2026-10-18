@@ -2,6 +2,7 @@ import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-sub
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import {
+	workAppsQueryOptions,
 	activeWorkspacesQueryOptions,
 	canvasGadgetDetailQueryOptions,
 	canvasGadgetsQueryOptions,
@@ -99,6 +100,7 @@ export function publishLiveWorkspaceEvent(event: RuntimeStreamEvent): void {
 function workspaceQueryKeys(scope: LiveWorkspaceScope): QueryKey[] {
 	const keys: QueryKey[] = [
 		activeWorkspacesQueryOptions().queryKey,
+		workAppsQueryOptions().queryKey,
 		canvasGadgetsQueryOptions(scope.workspaceId).queryKey,
 		canvasOutputsQueryOptions(scope.workspaceId).queryKey,
 	];

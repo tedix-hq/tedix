@@ -1,10 +1,6 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
-import {
-	activeWorkspacesQueryOptions,
-	canvasGadgetsQueryOptions,
-	canvasGadgetDetailQueryOptions,
-} from "@/lib/os-query-options";
+import { workAppsQueryOptions } from "@/lib/os-query-options";
 
 function workAppRole(manifest: OsGadgetManifest): "feed" | "deck" | null {
 	if (manifest.navigation?.work) return manifest.navigation.work;
@@ -14,55 +10,21 @@ function workAppRole(manifest: OsGadgetManifest): "feed" | "deck" | null {
 	return null;
 }
 
-/** Workspace authorization, rather than an org-wide gadget catalog, bounds discovery. */
+/** One viewer-scoped read replaces workspace → list → revision waterfalls. */
 export function useWorkApps() {
-	const workspaces = useQuery(activeWorkspacesQueryOptions());
-	const lists = useQueries({
-		queries: (workspaces.data?.items ?? []).map((workspace) =>
-			canvasGadgetsQueryOptions(workspace.id),
-		),
-	});
-	const gadgets = lists
-		.flatMap((list) => list.data?.items ?? [])
-		.filter((gadget) => gadget.status === "active");
-	const details = useQueries({
-		queries: gadgets.map((gadget) =>
-			canvasGadgetDetailQueryOptions(gadget.workspaceId, gadget.id),
-		),
-	});
-	const apps = details
-		.flatMap((detail) => {
-			const data = detail.data;
-			const manifest = data?.currentRevision?.manifest;
-			return data &&
-				data.gadget.status === "active" &&
-				manifest &&
-				(manifest.navigation?.board || manifest.navigation?.work)
-				? [{ gadget: data.gadget, manifest, role: workAppRole(manifest) }]
-				: [];
-		})
-		.sort(
-			(a, b) =>
-				a.gadget.createdAt.localeCompare(b.gadget.createdAt) ||
-				a.gadget.id.localeCompare(b.gadget.id),
-		);
+	const query = useQuery(workAppsQueryOptions());
+	const apps = (query.data?.items ?? []).map((data) => ({
+		gadget: data.gadget,
+		manifest: data.currentRevision.manifest,
+		role: workAppRole(data.currentRevision.manifest),
+	}));
 	return {
 		apps,
-		pending:
-			workspaces.isPending ||
-			lists.some((q) => q.isPending) ||
-			details.some((q) => q.isPending),
-		failed:
-			workspaces.isError ||
-			lists.some((q) => q.isError) ||
-			details.some((q) => q.isError),
-		truncated: Boolean(
-			workspaces.data?.truncated || lists.some((q) => q.data?.truncated),
-		),
+		pending: query.isPending,
+		failed: query.isError,
+		truncated: Boolean(query.data?.truncated),
 		retry: () => {
-			void workspaces.refetch();
-			lists.forEach((q) => void q.refetch());
-			details.forEach((q) => void q.refetch());
+			void query.refetch();
 		},
 	};
 }

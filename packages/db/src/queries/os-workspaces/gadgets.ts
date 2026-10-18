@@ -6,7 +6,13 @@ import {
 	type OsGadgetRow,
 	osGadgetRevisions,
 	osGadgets,
+	osWorkspaces,
 } from "../../schema/os-workspaces";
+import { prefixedColumns } from "../../utils/select";
+import {
+	osWorkspaceVisibleToPredicate,
+	type OsWorkspaceViewer,
+} from "./workspaces";
 import { getAffectedRows } from "../../utils/d1-result";
 
 export interface OsGadgetScopeParams {
@@ -240,4 +246,45 @@ export async function createOsGadgetRevision(
 		ok: false,
 		reason: gadget ? "revision_conflict" : "gadget_not_found",
 	};
+}
+
+/** Installed Work apps and their current manifests, authorized before pagination. */
+export async function listOsWorkApps(
+	db: DbQueryClient,
+	organizationId: string,
+	viewer: OsWorkspaceViewer,
+	limit: number,
+) {
+	return db
+		.select({
+			gadget: prefixedColumns(osGadgets, "gadget"),
+			revision: prefixedColumns(osGadgetRevisions, "revision"),
+		})
+		.from(osGadgets)
+		.innerJoin(
+			osWorkspaces,
+			and(
+				eq(osWorkspaces.id, osGadgets.workspaceId),
+				eq(osWorkspaces.organizationId, organizationId),
+			),
+		)
+		.innerJoin(
+			osGadgetRevisions,
+			and(
+				eq(osGadgetRevisions.id, osGadgets.currentRevisionId),
+				eq(osGadgetRevisions.organizationId, organizationId),
+				eq(osGadgetRevisions.gadgetId, osGadgets.id),
+			),
+		)
+		.where(
+			and(
+				eq(osGadgets.organizationId, organizationId),
+				eq(osGadgets.status, "active"),
+				eq(osWorkspaces.status, "active"),
+				osWorkspaceVisibleToPredicate(viewer),
+				sql`(json_extract(${osGadgetRevisions.manifest}, '$.navigation.work') IN ('deck', 'feed') OR json_extract(${osGadgetRevisions.manifest}, '$.navigation.board') = 1)`,
+			),
+		)
+		.orderBy(asc(osGadgets.createdAt), asc(osGadgets.id))
+		.limit(Math.min(Math.max(limit, 1), 201));
 }

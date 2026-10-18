@@ -59,6 +59,7 @@ import {
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 	listOsGadgets,
+	listOsWorkApps,
 	updateOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import { instantiateOsBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
@@ -139,6 +140,26 @@ const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
 const runOs = authed.use(AUTHZ.osRun);
 const publishOs = authed.use(AUTHZ.osPublish);
+
+const workApps = readOs.gadgets.workApps.handler(async ({ input, context }) => {
+	const { resolveOsWorkspaceViewer } =
+		await import("../../services/os-workspace-visibility");
+	const rows = await listOsWorkApps(
+		queryDb(context),
+		requireOrgId(context),
+		await resolveOsWorkspaceViewer(context),
+		input.limit + 1,
+	);
+	return {
+		items: rows
+			.slice(0, input.limit)
+			.map((row) => ({
+				gadget: mapGadget(row.gadget),
+				currentRevision: mapGadgetRevision(row.revision),
+			})),
+		truncated: rows.length > input.limit,
+	};
+});
 
 const gadgetsList = readOs.gadgets.list.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
@@ -2132,6 +2153,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 	schedules: workspaceSchedules.osWorkspaceScheduleProcedures,
 	work: workspaceWork.osWorkspaceWorkProcedures,
 	gadgets: {
+		workApps,
 		list: gadgetsList,
 		create: gadgetsCreate,
 		get: gadgetsGet,

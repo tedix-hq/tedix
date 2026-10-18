@@ -57,6 +57,9 @@ export const WORK_FACTORY_PROJECTION_LIMIT = 100;
 /** One month of runway to rotate a credential before it expires or goes overdue. */
 export const EXPIRING_API_KEYS_WINDOW_DAYS = 30;
 
+export const workAppsQueryOptions = () =>
+	osQuery.osWorkspaces.gadgets.workApps.queryOptions({ input: { limit: 100 } });
+
 export const activeWorkspacesQueryOptions = () =>
 	osQuery.osWorkspaces.workspaces.list.queryOptions({
 		input: ACTIVE_WORKSPACES_INPUT,

@@ -402,6 +402,7 @@ const CALLS: Record<string, unknown> = {
 		workspaceId: IDS.workspaceRevenue,
 		resourceId: "00000034-0000-4000-8000-000000000002",
 	},
+	"osWorkspaces/gadgets/workApps": { limit: 100 },
 	"osWorkspaces/gadgets/list": { workspaceId: IDS.workspaceRevenue, limit: 50 },
 	"osWorkspaces/gadgets/create": {
 		workspaceId: IDS.workspaceRevenue,
