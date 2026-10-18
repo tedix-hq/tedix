@@ -298,3 +298,20 @@ it("allows normal word-form changes in a filing title", async () => {
 		)?.title,
 	).toBe("File: Explanation of the profile problem");
 });
+
+it("omits opaque source identifiers and rejects them in generated prose", async () => {
+	const id = "11111111-2222-4333-8444-555555555555";
+	mocks.model.mockResolvedValue(
+		JSON.stringify({ ...copy, body: `Review ticket ${id} before publishing.` }),
+	);
+	const failure = vi.fn();
+	expect(
+		await generateDecisionCard(
+			{ db: {}, env: {} } as never,
+			{ ...request, prompt: `Review ticket ${id}.` },
+			failure,
+		),
+	).toBeNull();
+	expect(mocks.model.mock.calls[0]?.[1]).not.toContain(id);
+	expect(failure).toHaveBeenCalledWith("invalid_copy:raw_identifier");
+});
