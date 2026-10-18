@@ -940,6 +940,10 @@
 		{
 			"name": "20261018170409_memory-recall-time-ranges/migration.sql",
 			"sha256": "09cdd16c118489e2b67cae718e827849a2ce47b6c145e4268e655f70ec8b7d37"
+		},
+		{
+			"name": "20261018172259_memory-fact-hybrid-recall-projection/migration.sql",
+			"sha256": "dcad74d697e463c1c17c686148a65c6adacce52293b26c6d5b23fe0fb4a5c52c"
 		}
 	]
 }

@@ -56,6 +56,15 @@ function fixture(onPrepare?: (query: string) => void) {
 			"utf8",
 		),
 	);
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../drizzle/20261018172259_memory-fact-hybrid-recall-projection/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const db = createDbClient(createD1Facade(sqlite, { onPrepare }));
 	const add = (
 		id: string,
@@ -76,6 +85,80 @@ function fixture(onPrepare?: (query: string) => void) {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("keeps the recall projection synchronized while retaining full historical and graph search", async () => {
+		const { db, sqlite, add } = fixture();
+		const liveScope = { ...scope, now: undefined };
+		add("current", "cobalt current");
+		add("foreign", "cobalt foreign", "fictional-b");
+		add("graph", "cobalt anchor", undefined, { memory_scope: "graph" });
+		add("ended", "cobalt ended", undefined, {
+			valid_from: "1999-01-01",
+			created_at: "1999-01-01",
+			valid_to: "2000-01-01",
+		});
+		expect(
+			(
+				await lexicalRecall(
+					db,
+					{ ...scope, now: "1999-06-01T00:00:00.000Z" },
+					"cobalt",
+				)
+			).map((f) => f.factId),
+		).toEqual(["ended"]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT fact_id FROM memory_fact_fts_recall WHERE organization_id='fictional-a' ORDER BY fact_id",
+				)
+				.all(),
+		).toEqual([{ fact_id: "current" }]);
+		expect(
+			(await lexicalRecall(db, liveScope, "cobalt")).map((f) => f.factId),
+		).toEqual(["current"]);
+		expect(
+			(
+				await lexicalRecall(
+					db,
+					{ ...liveScope, includeGraphAnchors: true },
+					"cobalt",
+				)
+			)
+				.map((f) => f.factId)
+				.sort(),
+		).toEqual(["current", "graph"]);
+		sqlite.exec(
+			"UPDATE memory_facts SET archived_at='2026-10-18' WHERE id='current'",
+		);
+		expect(await lexicalRecall(db, liveScope, "cobalt")).toEqual([]);
+		sqlite.exec(
+			"UPDATE memory_facts SET archived_at=NULL, content='amber current' WHERE id='current'",
+		);
+		expect(await lexicalRecall(db, liveScope, "cobalt")).toEqual([]);
+		expect(
+			(await lexicalRecall(db, liveScope, "amber")).map((f) => f.factId),
+		).toEqual(["current"]);
+		sqlite.exec("DELETE FROM memory_fact_fts_recall WHERE fact_id='current'");
+		expect(await backfillFactSearch(db, scope.orgId)).toBe(1);
+		expect(await backfillFactSearch(db, scope.orgId)).toBe(0);
+		sqlite.exec(
+			"INSERT INTO memory_fact_fts_recall(rowid,fact_id,organization_id,text,entity_names) SELECT rowid,fact_id,organization_id,text,entity_names FROM memory_fact_search_documents WHERE fact_id='ended'",
+		);
+		expect(await backfillFactSearch(db, scope.orgId)).toBe(1);
+		expect(await backfillFactSearch(db, scope.orgId)).toBe(0);
+		sqlite.exec(
+			`UPDATE memory_facts SET metadata='{"learningFeed":{"evidence":{"state":"held"}}}' WHERE id='current'`,
+		);
+		expect(await lexicalRecall(db, liveScope, "amber")).toEqual([]);
+		sqlite.exec("UPDATE memory_facts SET metadata=NULL WHERE id='current'");
+		sqlite.exec(
+			"UPDATE memory_facts SET valid_to='2999-01-01' WHERE id='ended'",
+		);
+		expect(
+			(await lexicalRecall(db, liveScope, "ended")).map((f) => f.factId),
+		).toEqual(["ended"]);
+		sqlite.exec("DELETE FROM memory_facts WHERE id='ended'");
+		expect(await lexicalRecall(db, liveScope, "ended")).toEqual([]);
+	});
 	it("seeks tenant time ranges before canonical eligibility checks", async () => {
 		const prepared: string[] = [];
 		const { db, add, sqlite } = fixture((query) => prepared.push(query));
@@ -301,14 +384,20 @@ describe("canonical hybrid recall D1 queries", () => {
 		sqlite.exec(
 			"UPDATE memory_entities SET display_name='Amber Foundry' WHERE id='ent'",
 		);
-		expect(await lexicalRecall(db, scope, "Cobalt")).toEqual([]);
 		expect(
-			(await lexicalRecall(db, scope, "Amber")).map((f) => f.factId),
+			await lexicalRecall(db, { ...scope, now: undefined }, "Cobalt"),
+		).toEqual([]);
+		expect(
+			(await lexicalRecall(db, { ...scope, now: undefined }, "Amber")).map(
+				(f) => f.factId,
+			),
 		).toEqual(["seed"]);
 		sqlite.exec(
 			"UPDATE memory_entity_resolutions SET status='revoked',valid_to='2026-10-18' WHERE id='resolution'",
 		);
-		expect(await lexicalRecall(db, scope, "Amber")).toEqual([]);
+		expect(
+			await lexicalRecall(db, { ...scope, now: undefined }, "Amber"),
+		).toEqual([]);
 	});
 	it("parses calendar cues deterministically and does not treat invalid dates as a cue", () => {
 		expect(recallWindow("yesterday", new Date(scope.now))).toEqual({
