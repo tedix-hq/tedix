@@ -1018,21 +1018,24 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		}
 		if (selection?.selectedLessonIds.length) {
 			try {
-				const validated = await read(
-					[
-						...command,
-						"code",
-						gatewayCode(
-							{},
-							{
-								...lessons,
-								catalog: !session,
-								sessionId: session,
-								selectedLessonIds: selection.selectedLessonIds,
-							},
-						),
-					],
-					3000,
+				const validated = await trace(
+					"lessons-validate",
+					read(
+						[
+							...command,
+							"code",
+							gatewayCode(
+								{},
+								{
+									...lessons,
+									catalog: !session,
+									sessionId: session,
+									selectedLessonIds: selection.selectedLessonIds,
+								},
+							),
+						],
+						6000,
+					),
 				);
 				if (
 					!isObject(validated.lessons) ||
