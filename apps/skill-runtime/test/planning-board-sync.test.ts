@@ -377,13 +377,22 @@ function harness(
 			}),
 		},
 	};
-	const run = (runId = "run-1", replay = false) => {
+	const run = (runId = "run-1", replay = false, projectPageIds?: string[]) => {
 		env.__RUN_CONTEXT__.runId = runId;
 		if (!replay) checkpointCache.clear();
 		return createPlanningSync({
 			...config,
 			signalWorkspaceIds: options.deniedSignal ? ["restricted-workspace"] : [],
-		}).run({ payload: { manual: true } }, step, env);
+		}).run(
+			{
+				payload: {
+					manual: true,
+					...(projectPageIds ? { projectPageIds } : {}),
+				},
+			},
+			step,
+			env,
+		);
 	};
 	return {
 		run,
@@ -597,6 +606,87 @@ describe("planning board synchronization", () => {
 		expect(result.status).toBe("partial");
 		expect(h.calls.creates).toBe(0);
 		expect(h.calls.notionWrites).toBe(0);
+	});
+	it("rejects unsupported optional actions without losing valid enrichment", async () => {
+		const h = harness();
+		const reason = h.env.REASON.ask;
+		h.env.REASON.ask = async () => {
+			const result = await reason();
+			const value = JSON.parse(result.text);
+			value.actions = [
+				{
+					title: "An unsupported proposal",
+					url: `${config.osBaseUrl}/work/projects/${projectId}`,
+				},
+			];
+			return { text: JSON.stringify(value) };
+		};
+		const result = await h.run();
+		expect(result.status).toBe("synced");
+		expect(result.changed).toContain(h.remote.url);
+		expect(result.rejectedActions).toEqual([{ page: h.remote.url, count: 1 }]);
+		expect(h.items).toHaveLength(1);
+		expect(
+			h.items.some((item) => item.title === "An unsupported proposal"),
+		).toBe(false);
+		expect(h.pages.get(pageId)).toContain("## Purpose");
+		const writes = h.calls.notionWrites;
+		const replay = await h.run("run-1", true);
+		expect(replay.rejectedActions).toEqual(result.rejectedActions);
+		expect(h.calls.notionWrites).toBe(writes);
+	});
+	it("limits a selected-project retry and excludes unrelated board exports", async () => {
+		const h = harness();
+		const otherPageId = "66666666666646668666666666666666";
+		const otherPage = {
+			...h.remote,
+			url: `https://www.notion.so/${otherPageId}`,
+			Name: "Other launch",
+			Tasks: "[]",
+		};
+		h.pages.set(otherPageId, "Other human agenda");
+		h.projects.push({
+			...h.projects[0],
+			id: "77777777-7777-4777-8777-777777777777",
+			key: "OTHER",
+			name: "Other launch",
+			metadata: { planningBoards: [config.boardKey] },
+		});
+		const query = h.env.MCP.notion.notion_query_data_sources;
+		h.env.MCP.notion.notion_query_data_sources = async (input) =>
+			input.data.data_source_urls[0].endsWith("projects")
+				? { results: [h.remote, otherPage], has_more: false }
+				: query(input);
+		const result = await h.run("selected-retry", false, [pageId]);
+		expect(result.projects).toBe(1);
+		expect(result.changed).toEqual([
+			`https://www.notion.so/${taskId}`,
+			h.remote.url,
+		]);
+		expect(result.scope).toEqual([pageId]);
+		expect(h.pages.get(otherPageId)).toBe("Other human agenda");
+		expect(h.calls.notionCreates).toBe(0);
+	});
+	it("rejects empty or invalid retry selections before writing", async () => {
+		for (const ids of [[], ["invalid"]]) {
+			const h = harness();
+			await expect(h.run("invalid-retry", false, ids)).rejects.toThrow(
+				"Project selection",
+			);
+			expect(h.calls.notionWrites).toBe(0);
+			expect(h.calls.creates).toBe(0);
+		}
+	});
+	it("reports missing selected projects without exporting other work", async () => {
+		const h = harness();
+		const result = await h.run("missing-project", false, [
+			"99999999999949998999999999999999",
+		]);
+		expect(result.status).toBe("partial");
+		expect(result.projects).toBe(0);
+		expect(h.calls.notionWrites).toBe(0);
+		expect(h.calls.notionCreates).toBe(0);
+		expect(h.calls.creates).toBe(0);
 	});
 	it("rejects invented citations before writing project enrichment", async () => {
 		const h = harness({ badCitation: true });
