@@ -75,6 +75,8 @@ export async function runMemoryImport(
 		"--type",
 		"--repository",
 		"--manifest",
+		"--workspace",
+		"--organization",
 	]);
 	for (let i = 0; i < args.length; i++) {
 		const flag = args[i]!;
@@ -148,6 +150,24 @@ export async function runMemoryImport(
 	if (!target)
 		throw new Error(
 			"No selected organization; select an explicit Tedix context before import",
+		);
+	const workspace = args.includes("--workspace")
+		? value("--workspace")
+		: process.env.TEDIX_WORKSPACE;
+	const organization = args.includes("--organization")
+		? value("--organization")
+		: process.env.TEDIX_ORGANIZATION;
+	if (workspace && target.workspace !== workspace)
+		throw new Error(
+			"The selected memory-import context does not match the explicit workspace",
+		);
+	if (
+		organization &&
+		target.organization !== organization &&
+		target.org !== organization
+	)
+		throw new Error(
+			"The selected memory-import context does not match the explicit organization",
 		);
 	const call = caller(deps.read ?? cliRead, target);
 	const results = [];

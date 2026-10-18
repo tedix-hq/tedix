@@ -206,12 +206,13 @@ export function localCommandArgs(argv: string[]): string[] {
 	if (!LOCAL_COMMANDS.includes(argv[commandIndex] ?? "")) return argv;
 	const contextAction = argv.slice(commandIndex, commandIndex + 4);
 	const appliesWorkspace =
-		contextAction[0] === "setup" &&
-		contextAction[1] === "agents" &&
-		contextAction[2] === "context" &&
-		["bind", "connect", "set-default-organization"].includes(
-			contextAction[3] ?? "",
-		);
+		(contextAction[0] === "learn" && contextAction[1] === "import-memory") ||
+		(contextAction[0] === "setup" &&
+			contextAction[1] === "agents" &&
+			contextAction[2] === "context" &&
+			["bind", "connect", "set-default-organization"].includes(
+				contextAction[3] ?? "",
+			));
 	const args: string[] = [];
 	let workspace: string | undefined;
 	let positionalOnly = false;

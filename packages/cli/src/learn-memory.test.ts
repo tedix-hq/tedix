@@ -116,3 +116,28 @@ test("a saved manifest cannot silently include new or changed notes", async () =
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("an explicit destination mismatch refuses before inference or upload", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "memory-target-fixture-"));
+	try {
+		let called = false;
+		await expect(
+			runMemoryImport(["--directory", dir, "--apply", "--workspace", "other"], {
+				defaultTarget: {
+					workspace: "fixture",
+					organization: "org_fixture",
+					org: "org_fixture",
+					mcpUrl: "https://fixture.invalid/mcp",
+				},
+				read: async () => {
+					called = true;
+					return {};
+				},
+				write: () => {},
+			}),
+		).rejects.toThrow("explicit workspace");
+		expect(called).toBe(false);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
