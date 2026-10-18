@@ -3,6 +3,20 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.11.0 — 2026-10-18
+
+### Minor Changes
+
+- Run accepted Codex and Claude Code Work from your Mac with `tedix lane serve`. Install it as a background service with `--install`, or use `--coordinated` to follow selected Work across projects.
+- Launch agents through `tedix lane run` to see their progress, tool use, usage and estimated cost on the Agents board. Failed result uploads remain available to retry.
+
+### Patch Changes
+
+- Resumed Codex lanes stay in their isolated checkout, including when the dispatcher starts from your home directory.
+- Work updates include stale lanes and expired Attempts for lanes registered with your normal CLI connection.
+- Session context points to automatic request filing and the correction review queue.
+- Relevant lessons appear before edits and commands and in lane briefs. Lane failure reports retain where delivery failed so repeated problems can inform fixes.
+
 ## 0.10.2 — 2026-10-17
 
 ### Minor Changes
