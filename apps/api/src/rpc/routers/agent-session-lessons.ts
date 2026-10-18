@@ -19,8 +19,10 @@
  * (`services/lesson-delivery.ts`) so `get_lesson_effectiveness` can compare.
  */
 
+import { isHoldoutSession } from "@tedix/api-contract/utils/lesson-holdout";
 import {
 	AGENT_LESSON_TOPIC_PREFIX,
+	LessonEvidenceSchema,
 	LessonTriggersSchema,
 	type AgentLessonEntry,
 	type AgentSessionLesson,
@@ -37,7 +39,6 @@ import {
 	recordObservedLearningInteraction,
 } from "../../services/learning-interaction-recorder";
 import {
-	isHoldoutSession,
 	isMinedLesson,
 	LESSON_DELIVERY_SURFACE,
 	lessonDeliveryMetadata,
@@ -227,6 +228,8 @@ export function selectSessionLessons(
 				text,
 				scope,
 				updatedAt: row.updatedAt,
+				learned: isMinedLesson(row.metadata),
+				supportCount: evidenceOfLesson(row.metadata)?.supportCount,
 			},
 		});
 	}
@@ -258,6 +261,7 @@ export async function getSessionLessons(
 		budgetBytes: number;
 		sessionId?: string;
 		catalog?: boolean;
+		selectedLessonIds?: string[];
 	},
 ): Promise<GetAgentSessionLessonsResult> {
 	// The same server-derived identity the learning ledger records answers
@@ -270,35 +274,42 @@ export async function getSessionLessons(
 		{ viewerUserId: actor.actorType === "user" ? actor.actorId : null },
 	);
 	if (input.catalog) {
-		const lessons = rows.flatMap((row) => {
-			const scope = lessonScope(row.metadata);
-			if (
-				scope.repo !== ANY &&
-				!(input.repo && repoMatches(scope.repo, input.repo))
+		const lessons = rows
+			.filter(
+				(row) =>
+					!input.selectedLessonIds || input.selectedLessonIds.includes(row.id),
 			)
-				return [];
-			if (
-				scope.harness !== ANY &&
-				normalizeHarness(scope.harness) !== normalizeHarness(input.harness)
-			)
-				return [];
-			const feed = row.metadata?.learningFeed;
-			const parsed = LessonTriggersSchema.safeParse(
-				feed && typeof feed === "object" && !Array.isArray(feed)
-					? feed.triggers
-					: undefined,
-			);
-			return [
-				{
-					id: row.id,
-					shortId: row.id.slice(0, 8),
-					text: row.content,
-					scope,
-					updatedAt: row.updatedAt,
-					...(parsed.success ? { triggers: parsed.data } : {}),
-				},
-			];
-		});
+			.flatMap((row) => {
+				const scope = lessonScope(row.metadata);
+				if (
+					scope.repo !== ANY &&
+					!(input.repo && repoMatches(scope.repo, input.repo))
+				)
+					return [];
+				if (
+					scope.harness !== ANY &&
+					normalizeHarness(scope.harness) !== normalizeHarness(input.harness)
+				)
+					return [];
+				const feed = row.metadata?.learningFeed;
+				const parsed = LessonTriggersSchema.safeParse(
+					feed && typeof feed === "object" && !Array.isArray(feed)
+						? feed.triggers
+						: undefined,
+				);
+				return [
+					{
+						id: row.id,
+						shortId: row.id.slice(0, 8),
+						text: row.content,
+						scope,
+						updatedAt: row.updatedAt,
+						learned: isMinedLesson(row.metadata),
+						supportCount: evidenceOfLesson(row.metadata)?.supportCount,
+						...(parsed.success ? { triggers: parsed.data } : {}),
+					},
+				];
+			});
 		return {
 			organizationId,
 			lessons,
@@ -306,15 +317,25 @@ export async function getSessionLessons(
 			truncated: rows.length >= 200,
 		};
 	}
-	const { ruleKeys, ...selected } = selectSessionLessons(rows, input);
+	const candidates = input.selectedLessonIds
+		? rows.filter((row) => input.selectedLessonIds!.includes(row.id))
+		: rows;
+	const selection = input.selectedLessonIds ? { ...input, topics: [] } : input;
+	const { ruleKeys, ...selected } = selectSessionLessons(candidates, selection);
+	if (input.selectedLessonIds)
+		selected.lessons.sort(
+			(a, b) =>
+				input.selectedLessonIds!.indexOf(a.id) -
+				input.selectedLessonIds!.indexOf(b.id),
+		);
 	const sessionId = input.sessionId?.toLowerCase();
 	if (!sessionId) return { organizationId, ...selected };
 	// A holdout session gets every lesson except the miner's own.
 	const holdout = await isHoldoutSession(sessionId);
 	const withheld = holdout
 		? selectSessionLessons(
-				rows.filter((row) => !isMinedLesson(row.metadata)),
-				input,
+				candidates.filter((row) => !isMinedLesson(row.metadata)),
+				selection,
 			)
 		: null;
 	const result = withheld
@@ -324,6 +345,12 @@ export async function getSessionLessons(
 				truncated: withheld.truncated,
 			}
 		: selected;
+	if (input.selectedLessonIds)
+		result.lessons.sort(
+			(a, b) =>
+				input.selectedLessonIds!.indexOf(a.id) -
+				input.selectedLessonIds!.indexOf(b.id),
+		);
 	// The learned lessons this session got, or (holdout) would have got.
 	const byId = new Map(rows.map((row) => [row.id, row]));
 	const measured: MeasuredLesson[] = selected.lessons.flatMap((lesson) => {
@@ -350,6 +377,16 @@ export async function getSessionLessons(
 	if (context.waitUntil) context.waitUntil(record);
 	else await record;
 	return { organizationId, ...result, holdout };
+}
+
+function evidenceOfLesson(metadata: ApprovedAgentLessonRow["metadata"]) {
+	const feed = metadata?.learningFeed;
+	const result = LessonEvidenceSchema.safeParse(
+		feed && typeof feed === "object" && !Array.isArray(feed)
+			? feed.evidence
+			: undefined,
+	);
+	return result.success ? result.data : null;
 }
 
 /** A lesson's cited decisions (`learningFeed.evidenceEventIds`), or null. */
@@ -401,6 +438,7 @@ export async function listNotebookLessons(
 				text: lessonText(row),
 				addedAt: row.createdAt ?? row.updatedAt,
 				learnedFrom: lessonLearnedFrom(row.metadata, viewerUserId),
+				evidence: evidenceOfLesson(row.metadata),
 			})),
 	};
 }

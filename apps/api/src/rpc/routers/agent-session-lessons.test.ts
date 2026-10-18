@@ -1,3 +1,4 @@
+import { isHoldoutSession } from "@tedix/api-contract/utils/lesson-holdout";
 /**
  * `getSessionLessons`: approved lessons of the caller's organization only,
  * filtered to the session's repo and harness, ranked, and trimmed to budget.
@@ -11,7 +12,6 @@ import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { isHoldoutSession } from "../../services/lesson-delivery";
 import type { BaseContext } from "../orpc";
 import {
 	lessonLearnedFrom,
@@ -392,6 +392,27 @@ describe("getSessionLessons holdout and delivery log", () => {
 			VALUES
 			('fact-written', '${ORG_1}', 'learning-feed:lesson:general:general:naming', 'Written lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation', '{"learningFeed":{"scope":{"topic":"naming"}}}'),
 			('fact-mined', '${ORG_1}', 'learning-feed:decision:general:general:communication', 'Mined lesson.', 'preference', 'active', 'confirmed', 'requires_user_confirmation', '{"learningFeed":{"autoConfirmed":true,"scope":{"topic":"communication"}}}')`);
+		sqlite.exec(
+			`INSERT INTO learning_interaction_events (id, organization_id, actor_type, client_event_id, event_kind, scope_kind, scope_id, surface, occurred_at, metadata) VALUES ('source-1', '${ORG_1}', 'user', 'source-1', 'answered', 'organization', '${ORG_1}', 'decision_capture', '2026-10-01T00:00:00Z', '{"answer":"Always keep answers brief."}')`,
+		);
+		sqlite
+			.prepare(
+				`UPDATE memory_facts SET metadata = json_set(metadata, '$.learningFeed.evidence', json(?)) WHERE id = 'fact-mined'`,
+			)
+			.run(
+				JSON.stringify({
+					version: 1,
+					state: "live",
+					supportCount: 1,
+					sources: [
+						{
+							kind: "decision",
+							id: "source-1",
+							quote: "Always keep answers brief.",
+						},
+					],
+				}),
+			);
 		const env = {
 			ENVIRONMENT: "test",
 			DB: createD1Facade(sqlite),

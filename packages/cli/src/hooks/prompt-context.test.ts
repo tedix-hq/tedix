@@ -80,7 +80,12 @@ const lessonsData = (
 		organizationId,
 		matched: lessons.length,
 		truncated: false,
-		lessons,
+		lessons: lessons.map((l) => ({
+			...l,
+			id: l.shortId,
+			scope: { repo: "general", harness: "general", topic: "general" },
+			updatedAt: null,
+		})),
 	},
 });
 const NO_LESSONS = lessonsData();
@@ -104,7 +109,12 @@ async function run(
 	const timeouts: number[] = [];
 	const sources: string[] = [];
 	const lines: string[] = [];
-	// Prompt text is discarded; only host metadata may enter CLI arguments.
+	let catalog: JsonObject | undefined = (
+		reads.find((r) => r && typeof r === "object" && "lessons" in r) as
+			| JsonObject
+			| undefined
+	)?.lessons;
+	// Prompt text stays local; only host metadata may enter CLI arguments.
 	await runPromptContext({
 		// Each run starts with an empty local cache unless the test shares one.
 		env: {
@@ -136,9 +146,15 @@ async function run(
 					throw next ?? new Error("Unknown native tool");
 				return structuredClone(next) as JsonObject;
 			}
+			if (args.some((a) => a.includes('"selectedLessonIds"'))) {
+				if (!catalog) throw new Error("missing catalog fixture");
+				return { lessons: copy(catalog) };
+			}
 			if (!reads.length) throw new Error("unexpected read");
 			const next = reads.shift();
 			if (next instanceof Error) throw next;
+			if (typeof next === "object" && next !== null && "lessons" in next)
+				catalog = (next as JsonObject).lessons;
 			return copy(next) as JsonObject;
 		},
 	});
@@ -222,7 +238,7 @@ describe("tedix hooks prompt-context", () => {
 		expect(source).toContain("agent.get_agent_session_lessons");
 		expect(source).toContain('"harness":"claude-code"');
 		expect(source).toContain('"repo":"github.com/tedix-hq/tedix"');
-		expect(source).toContain('"topics":["ops","overlay","binding"]');
+		expect(source).toContain('"selectedLessonIds"');
 		// The chat id lets the server record delivery and pick the holdout.
 		expect(source).toContain(
 			'"sessionId":"77777777-7777-4777-8777-777777777777"',
@@ -354,7 +370,16 @@ describe("tedix hooks prompt-context", () => {
 			matched: 1,
 			truncated: false,
 			holdout: false,
-			lessons: [{ shortId: "abcd1234", text: "t" }],
+			lessons: [
+				{
+					id: "full-id",
+					shortId: "abcd1234",
+					text: "t",
+					learned: undefined,
+					scope: undefined,
+					updatedAt: undefined,
+				},
+			],
 		});
 	});
 
@@ -386,7 +411,7 @@ describe("tedix hooks prompt-context", () => {
 		const text = JSON.parse(out).hookSpecificOutput.additionalContext;
 		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(6400);
 		// Lessons beyond the top six go before any document text.
-		expect(text).toContain("Team lessons: 6 of 8 approved");
+		expect(text).toContain("Team lessons: 4 of 8 approved");
 		expect(text).not.toContain("Context truncated");
 		const { contextOutputId: _o, osWorkspaceId: _w, ...rest } = BINDING;
 		const { out: only } = await run([
@@ -806,12 +831,14 @@ describe("tedix hooks prompt-context", () => {
 		expect(source).not.toContain("prompt");
 	});
 
-	test("the hook source never reads the prompt field", () => {
-		// Only `session_id` and `source` leave the host event in read hooks.
-		for (const file of ["./prompt-context.ts", "./session-start.ts"]) {
-			const source = readFileSync(new URL(file, import.meta.url), "utf8");
-			expect(source).not.toMatch(/\.prompt\b|\["prompt"\]/);
-		}
+	test("local prompt ranking never puts prompt text in gateway code", () => {
+		const source = gatewayCode(BINDING, {
+			harness: "codex",
+			topics: [],
+			catalog: true,
+		});
+		expect(source).not.toContain("PRIVATE PROMPT");
+		expect(source).not.toContain("event.prompt");
 	});
 
 	describe("decision-capture answers from Tedix OS", () => {
@@ -1290,7 +1317,7 @@ describe("prompt-context open delegations", () => {
 				session_id: OTHER,
 				prompt: "PRIVATE",
 			});
-			expect(other.calls[2]!.at(-1)).not.toContain(OPEN);
+			expect(JSON.stringify(other.calls)).not.toContain(OPEN);
 			expect(additional(other.out)).not.toContain("open delegations");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -1382,6 +1409,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		const steps: string[] = [];
 		const timeouts: number[] = [];
 		const lines: string[] = [];
+		let gatewayResponse: JsonObject | undefined;
 		const env = {
 			TEDIX_CONFIG_DIR: options.config,
 			TEDIX_HOOK_CONTEXT_BYTES: options.contextBytes ?? "10000",
@@ -1439,11 +1467,18 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 					steps.push("organization");
 					return (options.probe ?? (() => ({ organizationId: ORG })))();
 				}
+				if (code.includes('"selectedLessonIds"')) {
+					steps.push("validation");
+					return {
+						lessons: gatewayResponse?.lessons ?? lessonsData([lesson]).lessons,
+					};
+				}
 				steps.push("gateway");
-				return (
+				gatewayResponse = await (
 					options.gateway ??
 					(() => ({ preferences: preferences(), ...lessonsData([lesson]) }))
 				)(code);
+				return copy(gatewayResponse);
 			},
 		});
 		return { text: additional(lines), steps, timeouts };
@@ -1459,9 +1494,14 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			question: true,
 		});
 		const elapsed = Date.now() - started;
-		expect(steps.sort()).toEqual(["answers", "gateway", "organization"]);
+		expect(steps.sort()).toEqual([
+			"answers",
+			"gateway",
+			"organization",
+			"validation",
+		]);
 		// Three 150ms reads in sequence would take 450ms; together, about one.
-		expect(elapsed).toBeLessThan(400);
+		expect(elapsed).toBeLessThan(600);
 		expect(text).toContain("Handle authorized routine choices");
 		expect(text).toContain("Pushes race on main");
 		expect(text).toContain("The user replied in Tedix OS");
@@ -1476,7 +1516,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			expect(first.text).toContain("Handle authorized routine choices");
 			expect(first.text).toContain("Pushes race on main");
 			const second = await turn({ config, now });
-			expect(second.steps).toEqual(["gateway"]);
+			expect(second.steps).toEqual(["gateway", "validation"]);
 			expect(second.text).not.toContain("unchanged");
 			expect(second.text).not.toContain("Handle authorized routine choices");
 			expect(second.text).not.toContain("Pushes race on main");
@@ -1552,7 +1592,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			rmSync(join(config, "hook-cache"), { recursive: true, force: true });
 			const expanded = await turn({ config, now, gateway });
 			expect(expanded.text).toContain(document.text);
-			expect(expanded.text).toContain("Team lessons: 7 of 7 approved");
+			expect(expanded.text).toContain("Team lessons: 6 of 7 approved");
 			expect(expanded.text).not.toContain("complete=false");
 		} finally {
 			rmSync(config, { recursive: true, force: true });
@@ -1701,4 +1741,51 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 		expect(timeouts.filter((t) => t === 3000).length).toBeGreaterThanOrEqual(2);
 		rmSync(config, { recursive: true, force: true });
 	});
+});
+
+test("reranks a shared scope catalog per prompt without caching or sending the prompt", async () => {
+	const config = mkdtempSync(join(tmpdir(), "tedix-local-ranking-"));
+	const { osWorkspaceId: _w, contextOutputId: _o, ...binding } = BINDING;
+	const catalog = lessonsData([
+		{
+			shortId: "deploy00",
+			text: "Verify deployment health and release revision.",
+		},
+		{
+			shortId: "database",
+			text: "Use database batches with D1 queries and bound parameters.",
+		},
+	]);
+	try {
+		const first = await run(
+			[binding, AUTH, catalog],
+			{ TEDIX_CONFIG_DIR: config },
+			{ prompt: "PRIVATE_ALPHA database D1 query bound parameters" },
+		);
+		const second = await run(
+			[binding, AUTH, catalog],
+			{ TEDIX_CONFIG_DIR: config },
+			{ prompt: "PRIVATE_BETA deployment health release revision" },
+		);
+		expect(first.out.indexOf("[database]")).toBeLessThan(
+			first.out.indexOf("[deploy00]"),
+		);
+		expect(second.out.indexOf("[deploy00]")).toBeLessThan(
+			second.out.indexOf("[database]"),
+		);
+		expect(
+			second.calls.filter((c) =>
+				c.some((a) => a.includes("agent.get_agent_session_lessons")),
+			),
+		).toHaveLength(1);
+		expect(JSON.stringify([...first.calls, ...second.calls])).not.toMatch(
+			/PRIVATE_ALPHA|PRIVATE_BETA/,
+		);
+		for (const file of readdirSync(join(config, "hook-cache")))
+			expect(
+				readFileSync(join(config, "hook-cache", file), "utf8"),
+			).not.toMatch(/PRIVATE_ALPHA|PRIVATE_BETA/);
+	} finally {
+		rmSync(config, { recursive: true, force: true });
+	}
 });

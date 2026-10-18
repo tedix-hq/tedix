@@ -29,6 +29,16 @@ vi.mock("@tedix/db/queries/memory-graph/facts", () => ({
 	updateFact: vi.fn(async () => undefined),
 }));
 vi.mock("@tedix/db/queries/memory-graph/agent-lessons", () => ({
+	decisionLessonEvidence: vi.fn(async (_db, _org, ids: string[]) => ({
+		version: 1,
+		sources: ids.map((id) => ({
+			kind: "decision",
+			id,
+			quote: "Standing fixture decision",
+		})),
+		supportCount: ids.length,
+		state: "live",
+	})),
 	listArchivedLearningFeedLessons: vi.fn(async () => []),
 	listStaleLearningFeedLessons: vi.fn(async () => []),
 }));
@@ -54,6 +64,7 @@ import { invalidateFact } from "@tedix/db/queries/memory-graph/fact-lifecycle";
 import {
 	createFact,
 	findCurrentFactsByTopicKey,
+	findFactBySourceHash,
 	updateFact,
 } from "@tedix/db/queries/memory-graph/facts";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
@@ -118,6 +129,7 @@ const personal = (userId: string) => ({
 beforeEach(() => {
 	vi.clearAllMocks();
 	vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([]);
+	vi.mocked(findFactBySourceHash).mockResolvedValue(undefined);
 	vi.mocked(getTedisByOrganization).mockResolvedValue([]);
 	vi.mocked(listStaleLearningFeedLessons).mockResolvedValue([]);
 	vi.mocked(listArchivedLearningFeedLessons).mockResolvedValue([]);
@@ -545,6 +557,44 @@ describe("mineLearningFeed", () => {
 		]);
 		const result = await mineLearningFeed(db, { orgId: "org-1" });
 		expect(result.factsWritten).toBe(0);
+	});
+
+	it("rebuilds an org-wide held lesson even with the same decisions and content hash", async () => {
+		vi.mocked(listLearningInteractionsForReflection).mockImplementation(
+			async (_db, input) =>
+				input.surfaces[0] === "decision_capture"
+					? [event("e1"), event("e2")]
+					: [],
+		);
+		vi.mocked(findCurrentFactsByTopicKey).mockResolvedValue([
+			{
+				id: "held-old",
+				reviewStatus: "confirmed",
+				metadata: {
+					learningFeed: {
+						autoConfirmed: true,
+						evidenceEventIds: ["e1", "e2"],
+						evidence: { state: "held" },
+					},
+				},
+			},
+		] as never);
+		vi.mocked(findFactBySourceHash).mockResolvedValue({
+			id: "held-old",
+		} as never);
+		const result = await mineLearningFeed(db, { orgId: "org-1" });
+		expect(result.factsWritten).toBe(1);
+		expect(invalidateFact).toHaveBeenCalledWith(
+			db,
+			"held-old",
+			expect.stringContaining("Superseded"),
+		);
+		expect(vi.mocked(createFact).mock.calls[0]?.[1].metadata).toMatchObject({
+			learningFeed: {
+				autoConfirmed: true,
+				evidence: { state: "live", supportCount: 2 },
+			},
+		});
 	});
 
 	it("relearns events of a lesson the miner archived as stale", async () => {
