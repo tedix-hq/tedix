@@ -997,6 +997,23 @@ describe("canonical work lifecycle", () => {
 			expect(source).toContain(`"attemptId":"${ATTEMPT}"`);
 	});
 
+	test("successful heartbeats refresh held scope and settlement releases it", async () => {
+		const expiry = "2030-01-01T00:00:00Z";
+		const { ctx } = makeContext({ outcome: "succeeded" }, ATTEMPT, (source) =>
+			source.includes("heartbeat_work_item_attempt")
+				? { id: ATTEMPT, expiresAt: expiry }
+				: { id: ATTEMPT },
+		);
+		const scopes: unknown[] = [];
+		ctx.recordScope = (scope) => scopes.push(scope);
+		expect(await runWork(`heartbeat ${ITEM}`, ctx)).toBe(0);
+		expect(await runWork(`settle ${ITEM}`, ctx)).toBe(0);
+		expect(scopes).toEqual([
+			{ workItemId: ITEM, heldUntil: Date.parse(expiry) },
+			{ workItemId: ITEM, heldUntil: 0 },
+		]);
+	});
+
 	for (const verb of ["heartbeat", "settle"]) {
 		test(`${verb} preserves the fence after a stale response so the server can revalidate a retry`, async () => {
 			let calls = 0;

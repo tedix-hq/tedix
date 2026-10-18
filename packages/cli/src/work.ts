@@ -182,7 +182,7 @@ export interface WorkOptions {
 
 export interface WorkContext {
 	recordScope?: (scope: {
-		projectId: string;
+		projectId?: string;
 		workItemId: string;
 		heldUntil?: number;
 	}) => void;
@@ -1972,6 +1972,8 @@ async function workHeartbeat(ctx: WorkContext, id: string): Promise<number> {
 			isRecord(touch.value) && typeof touch.value.expiresAt === "string"
 				? touch.value.expiresAt
 				: undefined;
+		if (expiresAt && Date.parse(expiresAt) > clock.now())
+			ctx.recordScope?.({ workItemId: id, heldUntil: Date.parse(expiresAt) });
 		ok(ctx, touch.value, () => {
 			console.log(
 				`${green("Heartbeat", ctx.color)} touched attempt ${attemptId} on ${id}${expiresAt ? ` (attempt expires ${expiresAt})` : ""}.`,
@@ -2207,6 +2209,7 @@ async function workSettle(ctx: WorkContext, id: string): Promise<number> {
 		);
 	}
 	ctx.attemptStore.remove(workAttemptKey(ctx, id), attemptId);
+	ctx.recordScope?.({ workItemId: id, heldUntil: 0 });
 	return terminalWorkResult(
 		ctx,
 		id,
