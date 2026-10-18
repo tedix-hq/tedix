@@ -1,0 +1,41 @@
+{
+	"version": 1,
+	"dailyBudget": 3,
+	"needsYouLimit": 1,
+	"halfLifeHours": 48,
+	"deadlineWindowHours": 24,
+	"wordsPerMinute": 200,
+	"ignoredCost": 0.5,
+	"continuityBoost": 2,
+	"receiptValue": 1,
+	"actionUrgency": 2,
+	"stakes": {
+		"data": 1.2,
+		"contract": 2,
+		"production": 2,
+		"money": 2,
+		"consent": 2,
+		"message": 1.5,
+		"commitment": 1.5
+	},
+	"importance": { "low": 1, "normal": 2, "high": 4, "critical": 8 },
+	"weights": {
+		"urgency": 1,
+		"importance": 1,
+		"value": 1,
+		"continuity": 1,
+		"freshness": 1,
+		"attentionCost": 1
+	},
+	"signals": {
+		"open": 0.3,
+		"dwell": 0.2,
+		"expand_receipt": 0.5,
+		"pin": 1.5,
+		"hide": -1,
+		"not_important": -2,
+		"tell_me_earlier": 1,
+		"jump_then_decide": 2,
+		"ignored_twice": -0.5
+	}
+}

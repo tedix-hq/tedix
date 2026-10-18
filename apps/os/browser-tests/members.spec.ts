@@ -138,6 +138,7 @@ try {
 				await page.goto(
 					`${origin}/browser-tests/members.html?view=feed&locale=${locale}&theme=${theme}`,
 				);
+				await page.getByText("Everything", { exact: true }).click();
 				await page.locator("article").first().waitFor();
 				const feed = await page.locator("body").innerText();
 				for (const title of [

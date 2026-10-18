@@ -175,145 +175,60 @@ try {
 				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&theme=${theme}`,
 			);
 			await page.locator("article").first().waitFor();
-			if (await page.locator(".fd-feed-filters").count())
-				throw new Error("Feed brought back the filter row");
-			const feedFilters = page.getByRole("button", {
-				name: "Filters",
-				exact: true,
-			});
-			if (await feedFilters.isVisible()) await feedFilters.click();
-			await page.getByRole("combobox", { name: "Your activity" }).click();
-			await page.getByRole("option", { name: "Done", exact: true }).click();
-			await page
-				.getByRole("combobox", { name: "Your activity" })
-				.filter({ hasText: "Done" })
-				.waitFor();
-			await page.keyboard.press("Escape");
-			if (
-				await page.getByText("Loading your activity…", { exact: true }).count()
-			)
-				throw new Error("Loaded stories still show a loading label");
-			const story = page.locator("article").first();
-			await story.hover();
-			await story
-				.getByRole("button", { name: "More like this", exact: true })
-				.waitFor();
-			if (!(await story.locator(".fd-preview").count()))
-				throw new Error("Outcome lost its source preview");
-			const hitAreas = await story.evaluate((el) => {
-				const avatar = el.querySelector(".ft-avatar")!;
-				const actor = avatar.getBoundingClientRect();
-				const row = el.getBoundingClientRect();
-				return {
-					actor:
-						document
-							.elementFromPoint(
-								actor.x + actor.width / 2,
-								actor.y + actor.height / 2,
-							)
-							?.closest("button") === avatar,
-					row: Boolean(
-						document
-							.elementFromPoint(row.right - 2, row.top + 2)
-							?.closest(".ft-post-link"),
-					),
-				};
-			});
-			if (!hitAreas.actor || !hitAreas.row)
-				throw new Error(
-					`Feed row covered a nested control or lost its link: ${JSON.stringify(hitAreas)}`,
-				);
-			const hierarchy = await story.evaluate((el) => ({
-				actor: getComputedStyle(el.querySelector(".ft-byline p")!).fontWeight,
-				outcome: getComputedStyle(el.querySelector(".ft-sentence")!).fontWeight,
-				preview: getComputedStyle(el.querySelector(".fd-preview-title")!)
-					.fontWeight,
-			}));
-			if (
-				hierarchy.actor !== "600" ||
-				hierarchy.outcome !== "400" ||
-				hierarchy.preview !== "500"
-			)
-				throw new Error(
-					`Feed hierarchy regressed: ${JSON.stringify(hierarchy)}`,
-				);
-			const previewTitle = await story
-				.locator(".fd-preview-title")
-				.evaluate((el) => ({
-					height: el.getBoundingClientRect().height,
-					lineHeight: parseFloat(getComputedStyle(el).lineHeight),
-				}));
-			if (previewTitle.height > previewTitle.lineHeight * 2 + 1)
-				throw new Error("Long evidence title overwhelms the story preview");
-			const actions = await story.locator(".ft-reactions").evaluate((el) => {
-				const preview = el.previousElementSibling!.getBoundingClientRect();
-				const row = el.getBoundingClientRect();
-				const style = getComputedStyle(el);
-				return {
-					clearance: row.top - preview.bottom,
-					padding: [
-						parseFloat(style.paddingTop),
-						parseFloat(style.paddingBottom),
-					],
-					gap: parseFloat(style.gap),
-					buttons: [...el.querySelectorAll("button")].map((button) => {
-						const rect = button.getBoundingClientRect();
-						return { width: rect.width, height: rect.height };
-					}),
-				};
-			});
-			if (actions.clearance < 0 || actions.padding.some((value) => value < 8))
-				throw new Error(
-					"Feed actions overlap preview content or lack breathing room",
-				);
-			if (
-				actions.gap !== 8 ||
-				actions.buttons.some((box) => box.width < 36 || box.height < 36)
-			)
-				throw new Error("Feed actions lost their hit areas or consistent gaps");
-			const digest = page.locator(".fd-quiet-updates button").first();
-			const checkDigest = async () => {
-				const box = await digest.evaluate((el) => {
-					const range = document.createRange();
-					range.selectNodeContents(el);
-					const text = range.getBoundingClientRect();
-					const button = el.getBoundingClientRect();
-					return {
-						left: text.left - button.left,
-						right: button.right - text.right,
-						height: button.height,
-					};
-				});
-				if (
-					box.left < 12 ||
-					box.right < 12 ||
-					(width === 390 && box.height < 44)
-				)
-					throw new Error(
-						`Quiet update control is cramped: ${JSON.stringify(box)}`,
-					);
-			};
-			await checkDigest();
-			await digest.click();
-			await page
-				.getByRole("button", { name: "Show less", exact: true })
-				.waitFor();
-			await checkDigest();
-			const rhythm = await story.evaluate((el) => {
-				const style = getComputedStyle(el);
-				return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-			});
-			if (rhythm > 24) throw new Error("Feed post spacing exceeded 24px");
-			if ((await page.locator(".fd-moment").count()) < 1)
-				throw new Error("Missing moment headers");
-			if (await page.locator('article [data-slot="card"]').count())
-				throw new Error("Feed reverted to stacked cards");
 			if (
 				await page.evaluate(
 					() => document.documentElement.scrollWidth > innerWidth,
 				)
 			)
-				throw new Error(`Feed overflows at ${width}/${theme}`);
+				throw new Error(`Focus feed overflows at ${width}/${theme}`);
+			const forYouCount = await page.locator("[data-focus-row]").count();
+			if (forYouCount > 5)
+				throw new Error("For you exceeded its first-screen item limit");
+			const handled = page.getByRole("button", {
+				name: /Handled without you:/,
+			});
+			if (await handled.count()) {
+				await handled.click();
+				const singleLine = await page
+					.locator(".focus-handled-row .ft-sentence")
+					.evaluateAll((nodes) =>
+						nodes.every(
+							(node) =>
+								node.getBoundingClientRect().height <=
+								parseFloat(getComputedStyle(node).lineHeight) + 1,
+						),
+					);
+				if (!singleLine)
+					throw new Error("Handled outcomes must expand as one-line receipts");
+				await handled.click();
+			}
+			await page.keyboard.press("j");
+			if (
+				!(await page
+					.locator("[data-focus-row]")
+					.first()
+					.evaluate((el) => el === document.activeElement))
+			)
+				throw new Error("j did not focus the first feed row");
+			await page.keyboard.press("j");
+			await page.keyboard.press("k");
+			const story = page.locator("article").first();
+			await story.getByRole("button", { name: "Receipt", exact: true }).click();
+			await story.locator(".fd-preview").waitFor();
+			const feedFilters = page.getByRole("button", {
+				name: "Filters",
+				exact: true,
+			});
+			if (await feedFilters.isVisible()) await feedFilters.click();
+			await page.getByText("Everything", { exact: true }).click();
+			await page.keyboard.press("Escape");
+			await page.getByRole("feed", { name: "Everything" }).waitFor();
+			if ((await page.locator("[data-focus-row]").count()) !== 17)
+				throw new Error("Everything lost canonical fixture records");
+			if (
+				await page.getByRole("button", { name: /Handled without you:/ }).count()
+			)
+				throw new Error("Everything folded records");
 			await page.close();
 		}
 	}

@@ -1,0 +1,128 @@
+.focus-feed {
+	display: grid;
+	gap: 24px;
+}
+.focus-feed h2 {
+	font: 600 1rem/1.4 var(--font-sans);
+	margin: 0 0 12px;
+}
+.focus-budget,
+.focus-because {
+	font-size: 0.8125rem;
+	color: var(--muted-foreground);
+}
+.focus-needs {
+	border-bottom: 1px solid var(--border);
+	padding-bottom: 16px;
+}
+.focus-row {
+	padding: 12px 0;
+	min-width: 0;
+}
+.focus-row:focus-visible {
+	outline: 2px solid var(--color-kumo-focus);
+	outline-offset: 4px;
+}
+.focus-story {
+	display: block;
+	font-size: 0.9375rem;
+	line-height: 1.5;
+}
+.focus-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 8px;
+}
+.focus-actions button {
+	font-size: 0.8125rem;
+	color: var(--muted-foreground);
+}
+.focus-handled {
+	border-top: 1px solid var(--border);
+	margin-top: 24px;
+	padding-top: 12px;
+}
+.focus-handled-row .fd-reactions,
+.focus-handled-row .focus-actions {
+	display: none;
+}
+.focus-handled-row .focus-row {
+	padding: 4px 0;
+}
+.focus-handled-row .fd-story {
+	padding: 4px 0;
+}
+.focus-handled-row .fd-rich-preview {
+	display: none;
+}
+.focus-today-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+	align-items: baseline;
+	font-size: 0.875rem;
+}
+.focus-today-row > a:first-child {
+	max-width: 16rem;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+@media (max-width: 640px) {
+	.focus-feed {
+		gap: 16px;
+	}
+	.focus-actions button {
+		min-height: 44px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.focus-feed *,
+	.focus-feed *::before,
+	.focus-feed *::after {
+		animation: none !important;
+		transition: none !important;
+		scroll-behavior: auto !important;
+	}
+}
+[data-motion="reduced"] .focus-feed * {
+	animation: none !important;
+	transition: none !important;
+	scroll-behavior: auto !important;
+}
+.focus-receipt-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.focus-receipt-actions button {
+	font-size: 0.8125rem;
+	padding: 0 4px;
+	min-height: 28px;
+	color: var(--muted-foreground);
+}
+.focus-feed .fd-story {
+	padding: 8px 0;
+}
+.focus-feed .fd-story-body {
+	gap: 8px;
+}
+.focus-receipt {
+	border-left: 2px solid var(--border);
+	padding-left: 12px;
+}
+.focus-handled-row .focus-receipt-actions {
+	display: none;
+}
+.focus-handled-row :is(.ft-avatar, .ft-byline, .focus-because) {
+	display: none;
+}
+.focus-handled-row .fd-story {
+	display: block;
+}
+.focus-handled-row .ft-sentence {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}

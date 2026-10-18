@@ -15,6 +15,14 @@ import { ActivityFeedApp } from "./activity-feed-app";
 import type { FeedSourceState } from "./activity-feed-sources";
 
 vi.mock("@/lib/use-tedi-names", () => ({ useTediNames: () => ({}) }));
+vi.mock("@/lib/use-decision-inbox", () => ({
+	useDecisionInbox: () => ({
+		requests: [],
+		work: [],
+		queuePending: false,
+		queueFailed: false,
+	}),
+}));
 vi.mock("@/lib/use-os-identity", () => ({
 	useOsIdentity: () => ({ name: "Morgan" }),
 }));
@@ -162,6 +170,9 @@ it.each(["projects", "organization"] as const)(
 					</QueryClientProvider>,
 				),
 			);
+			await act(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			});
 			expect(host.querySelectorAll(".fd-preview")).toHaveLength(0);
 			expect(host.textContent).not.toContain("Loading your activity");
 			expect(host.textContent).toContain(row.sentence);
@@ -177,32 +188,11 @@ it.each(["projects", "organization"] as const)(
 					(b) =>
 						b.getAttribute("aria-label") === label || b.textContent === label,
 				)!;
-			const post = host.querySelector(".ft-post-link")!;
-			vi.useFakeTimers();
-			await act(async () => {
-				post.dispatchEvent(
-					new PointerEvent("pointerdown", {
-						bubbles: true,
-						pointerType: "touch",
-					}),
-				);
-				vi.advanceTimersByTime(460);
-			});
-			const heldClick = new MouseEvent("click", {
-				bubbles: true,
-				cancelable: true,
-			});
-			post.dispatchEvent(heldClick);
-			expect(heldClick.defaultPrevented).toBe(true);
-			expect(
-				host.querySelector("article")?.getAttribute("data-reactions-open"),
-			).toBe("true");
-			vi.useRealTimers();
-			await act(async () => button("Why?").click());
+			await act(async () => button("Receipt").click());
 			expect(host.textContent).toContain(
 				"The attempt settled with its receipt.",
 			);
-			await act(async () => button("Not for me").click());
+			await act(async () => button("Not important").click());
 			expect(record).toHaveBeenCalledWith(
 				expect.objectContaining({
 					eventKind: "rejected",
@@ -215,12 +205,24 @@ it.each(["projects", "organization"] as const)(
 					expectedRevision: 0,
 					preferences: expect.objectContaining({
 						activityFeed: expect.objectContaining({
-							mutedClasses: [row.classId],
+							hiddenIds: [row.id],
 						}),
 					}),
 				}),
 			);
 			expect(host.querySelector("article")).toBeNull();
+			await act(async () => button("Everything").click());
+			expect(host.querySelector("article")?.textContent).toContain(
+				row.sentence,
+			);
+			await act(async () =>
+				document.dispatchEvent(
+					new KeyboardEvent("keydown", { key: "j", bubbles: true }),
+				),
+			);
+			expect(document.activeElement).toBe(
+				host.querySelector("[data-focus-row]"),
+			);
 		} finally {
 			await act(async () => root.unmount());
 			client.clear();

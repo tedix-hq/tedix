@@ -1,11 +1,44 @@
 import * as z from "zod";
 import { LessonTriggersSchema } from "./agent-session-lessons";
+import focusFeedPolicy from "../assets/focus-feed.v1.json";
+
+const FocusFeedPolicySchema = z.strictObject({
+	version: z.literal(1),
+	dailyBudget: z.number().int().min(1).max(100),
+	needsYouLimit: z.number().int().min(1).max(3),
+	halfLifeHours: z.number().positive().max(8760),
+	deadlineWindowHours: z.number().positive().max(720),
+	wordsPerMinute: z.number().positive(),
+	ignoredCost: z.number().nonnegative(),
+	continuityBoost: z.number().nonnegative(),
+	receiptValue: z.number().nonnegative(),
+	actionUrgency: z.number().nonnegative(),
+	stakes: z.record(z.string(), z.number().min(1).max(100)),
+	importance: z.strictObject({
+		low: z.number().positive(),
+		normal: z.number().positive(),
+		high: z.number().positive(),
+		critical: z.number().positive(),
+	}),
+	weights: z.strictObject({
+		urgency: z.number().nonnegative(),
+		importance: z.number().nonnegative(),
+		value: z.number().nonnegative(),
+		continuity: z.number().nonnegative(),
+		freshness: z.number().nonnegative(),
+		attentionCost: z.number().nonnegative(),
+	}),
+	signals: z.record(z.string(), z.number().min(-10).max(10)),
+});
 
 /** Organization policy; learning supplies context, never an execution grant. */
 export const DecisionLearningConfigSchema = z.strictObject({
 	version: z.literal(1).default(1),
 	enabled: z.boolean().default(false),
 	classifyEdits: z.boolean().default(true),
+	focusFeed: FocusFeedPolicySchema.prefault(() =>
+		FocusFeedPolicySchema.parse(focusFeedPolicy),
+	),
 	instrumentationRetentionDays: z.number().int().min(8).max(365).default(90),
 	autoApproveClasses: z.array(z.string().min(1).max(100)).max(100).default([]),
 	classifierConfidence: z.number().min(0).max(1).default(0.85),
@@ -151,6 +184,13 @@ export const DecisionCandidateSchema = z.strictObject({
 export const DecisionExposureInputSchema = z.strictObject({
 	clientEventId: z.uuid(),
 	sessionId: z.uuid(),
+	feedOrigin: z
+		.strictObject({
+			sessionId: z.uuid(),
+			openedAt: z.number().int().positive(),
+			itemId: z.string().min(1).max(200),
+		})
+		.optional(),
 	cardId: z.string().min(1).max(200),
 	sourceVersion: z.number().int().positive().nullable(),
 	position: z.number().int().min(0).max(10000),

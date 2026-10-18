@@ -62,10 +62,8 @@ export function ActivityFeedFactorySource({
 				failed = true;
 				continue;
 			}
-			for (const card of result.cards.filter(
-				(card) =>
-					(!!card.result || card.done === "yes") &&
-					cardIsDue(card, now, timeZone),
+			for (const card of result.cards.filter((card) =>
+				cardIsDue(card, now, timeZone),
 			))
 				items.push({
 					id: `factory:${sheet.id}:${card.rowIndex}`,
@@ -78,7 +76,7 @@ export function ActivityFeedFactorySource({
 					projectId: binding.projectId,
 					workItemId: null,
 					tediId: null,
-					kind: "result",
+					kind: isOpen(card) ? "decision" : "result",
 					attachment: { title: sheet.title },
 					classId:
 						`factory:${binding.source.label}:${card.type || "card"}`.slice(

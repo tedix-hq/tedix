@@ -42,6 +42,7 @@ export async function readDecisionLearning(
 				"decision_capture",
 				"agent_session_import",
 				"activity_feed",
+				"focus_feed",
 				"decision_deck",
 				"decision_deck_action",
 				"work_outcome",
@@ -50,6 +51,7 @@ export async function readDecisionLearning(
 				"decision_learning",
 				"decision_edit_preference",
 			],
+			excludeFeedImpressions: true,
 			limit: config.historyLimit,
 		}),
 		listApprovedAgentLessons(db, organizationId, AGENT_LESSON_TOPIC_PREFIX, {

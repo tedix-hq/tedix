@@ -111,6 +111,7 @@ export function useDecisionInstrumentation(p: {
 					position: state.position,
 				};
 			const input: DecisionExposureInput = {
+				...feedOrigin(state.cardId),
 				selectionPolicy: "deterministic_current_order",
 				selectionProbability: null,
 				clientEventId: crypto.randomUUID(),
@@ -167,4 +168,28 @@ export function useDecisionInstrumentation(p: {
 			document.removeEventListener("visibilitychange", report);
 		};
 	}, [p.enabled, p.cardId, p.root, sessionId, encoded]);
+}
+
+function feedOrigin(cardId: string): Pick<DecisionExposureInput, "feedOrigin"> {
+	try {
+		const origin = JSON.parse(
+			sessionStorage.getItem("tedix-focus-origin") ?? "null",
+		);
+		if (
+			origin &&
+			(origin.itemId === `decision:${cardId}` || origin.itemId === cardId) &&
+			Date.now() >= origin.openedAt &&
+			Date.now() - origin.openedAt < 86400000
+		)
+			return {
+				feedOrigin: {
+					sessionId: origin.sessionId,
+					openedAt: origin.openedAt,
+					itemId: origin.itemId,
+				},
+			};
+	} catch {
+		/* A stale browser-local pointer is not attribution. */
+	}
+	return {};
 }

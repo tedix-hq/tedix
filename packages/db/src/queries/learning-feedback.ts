@@ -15,6 +15,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
 import {
 	type LearningFeedbackAttributionRow,
@@ -115,7 +116,7 @@ export function promotionRouteForSubject(
 }
 
 export async function recordLearningInteraction(
-	db: DbClient,
+	db: DbQueryClient,
 	input: {
 		organizationId: string;
 		actorType: LearningInteractionEventRow["actorType"];
@@ -199,6 +200,7 @@ export async function listLearningInteractions(
 		withIssueKey?: boolean;
 		/** Only events on these producer surfaces. */
 		surfaces?: string[];
+		excludeFeedImpressions?: boolean;
 		since?: string;
 		until?: string;
 		limit: number;
@@ -240,6 +242,14 @@ export async function listLearningInteractions(
 		if (input.surfaces.length === 0) return [];
 		// bound-params: callers pass a fixed list of producer surfaces
 		conditions.push(inArray(learningInteractionEvents.surface, input.surfaces));
+	}
+	if (input.excludeFeedImpressions) {
+		conditions.push(
+			or(
+				ne(learningInteractionEvents.surface, "focus_feed"),
+				ne(learningInteractionEvents.eventKind, "delivered"),
+			)!,
+		);
 	}
 	if (input.since) {
 		conditions.push(gte(learningInteractionEvents.occurredAt, input.since));

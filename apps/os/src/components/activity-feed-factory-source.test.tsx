@@ -82,6 +82,14 @@ it("projects an existing fictional factory sheet with its revision and the same 
 						"",
 						"Review the supplier reply.",
 					],
+					[
+						"https://supplier.example/question",
+						"Choose the fictional delivery date.",
+						"",
+						"",
+						"",
+						"",
+					],
 				],
 			},
 			note: null,
@@ -125,6 +133,12 @@ it("projects an existing fictional factory sheet with its revision and the same 
 					}),
 					expect.objectContaining({
 						sentence: "Review the supplier reply.",
+						needsAction: true,
+						done: false,
+					}),
+					expect.objectContaining({
+						sentence: "Choose the fictional delivery date.",
+						kind: "decision",
 						needsAction: true,
 						done: false,
 					}),

@@ -144,6 +144,10 @@ export const OsUserPreferencesSchema = z.object({
 			mutedClasses: z.array(z.string().min(1).max(100)).max(100),
 			preferredClasses: z.array(z.string().min(1).max(100)).max(100),
 			lastSeenAt: z.iso.datetime().nullable(),
+			hiddenIds: z.array(z.string().min(1).max(200)).max(2000).optional(),
+			pinnedIds: z.array(z.string().min(1).max(200)).max(2000).optional(),
+			budgetDay: z.string().max(10).optional(),
+			shownIds: z.array(z.string().min(1).max(200)).max(100).optional(),
 		})
 		.optional()
 		.describe(

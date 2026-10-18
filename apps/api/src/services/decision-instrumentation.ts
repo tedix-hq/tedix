@@ -1,4 +1,5 @@
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { recordLearningInteraction } from "@tedix/db/queries/learning-feedback";
 import {
 	getDecisionLearningConfig,
 	getDecisionExposure,
@@ -233,9 +234,20 @@ export async function labelDecisionOutcomes(
 			expiresAt: r.expiresAt,
 		});
 		if (inserted) immediate++;
+		if (outcome.label !== "later" && outcome.label !== "unknown")
+			await recordFeedDecision(db, r.organizationId, r.actorId, outcome);
 	}
 	for (const r of await listUnlabelledDecisionApprovals(db, at)) {
 		if (!r.decidedAt) continue;
+		const outcome: DecisionOutcome = {
+			evidenceSource: "canonical_receipt",
+			label: r.decision === "approved" ? "unchanged_approval" : "not_this",
+			reason: null,
+			exposureId: r.exposureId,
+			receiptId: r.receiptId,
+			decidedAt: r.decidedAt,
+			laterToDecisionMs: null,
+		};
 		const inserted = await insertDecisionOutcomeLabel(db, {
 			id: `${r.organizationId}:${r.receiptId}:immediate`,
 			organizationId: r.organizationId,
@@ -243,20 +255,13 @@ export async function labelDecisionOutcomes(
 			cardId: r.cardId,
 			classId: r.classId,
 			window: "immediate",
-			outcome: {
-				evidenceSource: "canonical_receipt",
-				label: r.decision === "approved" ? "unchanged_approval" : "not_this",
-				reason: null,
-				exposureId: r.exposureId,
-				receiptId: r.receiptId,
-				decidedAt: r.decidedAt,
-				laterToDecisionMs: null,
-			},
+			outcome,
 			observedAt: at,
 			dueAt: r.decidedAt,
 			expiresAt: r.expiresAt,
 		});
 		if (inserted) immediate++;
+		await recordFeedDecision(db, r.organizationId, r.actorId, outcome);
 	}
 	for (const r of await listUnlabelledDecisionDeferrals(db, at)) {
 		const inserted = await insertDecisionOutcomeLabel(db, {
@@ -330,6 +335,55 @@ export async function labelDecisionOutcomes(
 	}
 	await pruneDecisionInstrumentation(db, at);
 	return { immediate, delayed };
+}
+
+async function recordFeedDecision(
+	db: DbQueryClient,
+	organizationId: string,
+	actorId: string,
+	outcome: DecisionOutcome,
+) {
+	const exposure = await getDecisionExposure(db, {
+		organizationId,
+		actorId,
+		id: outcome.exposureId,
+	});
+	const origin = exposure?.context.feedOrigin;
+	if (
+		!origin ||
+		!exposure ||
+		(origin.itemId !== `decision:${exposure.cardId}` &&
+			origin.itemId !== exposure.cardId)
+	)
+		return;
+	const elapsedMs = Date.parse(outcome.decidedAt) - origin.openedAt;
+	if (elapsedMs < 0 || elapsedMs > 86400000) return;
+	await recordLearningInteraction(db, {
+		organizationId,
+		actorId,
+		actorType: "user",
+		clientEventId: `focus-decision:${outcome.receiptId}`,
+		eventKind: "completed_elsewhere",
+		scopeKind: "personal",
+		scopeId: actorId,
+		surface: "focus_feed",
+		issueKey: `feed:${exposure.snapshot.classId}`,
+		targetType: "feed_item",
+		targetId: origin.itemId,
+		metadata: {
+			reaction: "jump_then_decide",
+			classId: exposure.snapshot.classId,
+			projectId: exposure.snapshot.projectId,
+			workItemId: exposure.snapshot.workItemId,
+			sessionId: origin.sessionId,
+			elapsedMs,
+			receiptId: outcome.receiptId,
+			exposureId: exposure.id,
+			evidenceSource: "canonical_receipt",
+			serverObserved: true,
+		},
+		occurredAt: outcome.decidedAt,
+	});
 }
 
 export async function readDecisionCalibration(
