@@ -173,6 +173,12 @@ export const SPANISH_FEED_DECK_COPY = {
 			"attempt.expired": "necesita otro intento",
 			"attempt.failed": "necesita revisión",
 		},
+		outcomes: {
+			succeeded: "el trabajo terminó",
+			failed: "necesita revisión",
+			expired: "se pausó antes de terminar",
+			cancelled: "se detuvo",
+		},
 		workUpdated: "se actualizó",
 		title: "Tu actividad",
 		subtitle: "Lo que importa ahora, con su registro detrás.",
@@ -184,6 +190,15 @@ export const SPANISH_FEED_DECK_COPY = {
 			stalled: "Bloqueado",
 			queue: "En marcha",
 		},
+		greeting: (hour: number, name: string) =>
+			`${hour < 12 ? "Buenos días" : hour < 18 ? "Buenas tardes" : "Buenas noches"}, ${name}`,
+		decisionsWaiting: (count: string) =>
+			`${count} decisiones pendientes → Decisiones`,
+		deckClear: "Todo decidido →",
+		options: "Opciones de actividad",
+		details: "Detalles",
+		whileYouSlept: "Mientras dormías",
+		forProject: (name: string, project: string) => `${name} para ${project}`,
 		more: "👍 Más como esto",
 		why: "¿Por qué?",
 		mute: "No es para mí",

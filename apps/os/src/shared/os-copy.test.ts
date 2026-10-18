@@ -15,6 +15,6 @@ it("follows personal Spanish preferences after the app modules have already load
 	);
 	expect(decisionText("Confirm decision")).toBe("Confirmar decisión");
 	setOsFormattingPreferences({ locale: "en-GB", timezone: null });
-	expect(OS_COPY.feed.filters.all).toBe("For you");
+	expect(OS_COPY.feed.filters.all).toBe("All");
 	expect(decisionText("Confirm decision")).toBe("Confirm decision");
 });
