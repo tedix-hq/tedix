@@ -4,6 +4,7 @@ import {
 	getRelatedFactsForFacts,
 } from "@tedix/db/queries/memory-graph/edges";
 import { observationNeedsVerification } from "@tedix/context-core/memory-freshness";
+import { FactSchema } from "@tedix/api-contract/schemas/memory-graph";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
 	type FactType,
@@ -257,7 +258,7 @@ const search = authed.search
 					factId: r.factId,
 					score: r.score,
 					provenance: r.provenance,
-					fact,
+					fact: FactSchema.parse(fact),
 				};
 			})
 			.filter((r): r is NonNullable<typeof r> => r !== null)

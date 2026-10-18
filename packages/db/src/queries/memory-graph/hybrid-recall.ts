@@ -1,6 +1,7 @@
-import { and, desc, eq, getColumns, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFacts, type MemoryFact } from "../../schema/memory-graph";
+import { prefixedColumns } from "../../utils/select";
 import { filterEvidenceBackedLessons } from "./agent-lessons";
 
 export interface RecallScope {
@@ -185,7 +186,7 @@ export async function hydrateRecall(
 	if (!ids.length) return [];
 	const rows = await db
 		.select({
-			...getColumns(memoryFacts),
+			...prefixedColumns(memoryFacts, "fact"),
 			replacesFactIds: sql<string>`(
 			SELECT coalesce(json_group_array(older.id), '[]') FROM memory_edges edge
 			JOIN memory_facts older ON older.organization_id = ${scope.orgId}
@@ -198,7 +199,9 @@ export async function hydrateRecall(
 				.mapWith((value: string) => JSON.parse(value) as string[])
 				.as("replaces_fact_ids"),
 		})
-		.from(memoryFacts)
+		// D1 otherwise chooses archived_at and scans the whole active corpus
+		// even for one ID. Keep ownership/lifecycle predicates on a PK lookup.
+		.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
 		.where(
 			and(
 				eligible(scope),
