@@ -8,6 +8,7 @@ import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import {
 	decisionLearningKey,
 	decisionIsDue,
+	decisionDeadlinePassed,
 	workIsUnowned,
 	compareDecisionFreshness,
 	classReadiness,
@@ -201,4 +202,17 @@ it("holds future coordination reminders until due without delaying question dead
 		),
 	).toBe(true);
 	expect(decisionIsDue({ kind: "coordination" }, new Date())).toBe(true);
+});
+
+it("keeps due follow-ups actionable while elapsed question deadlines require revalidation", () => {
+	const dueAt = "2026-10-28T08:00:00Z";
+	const now = new Date("2026-10-29T08:00:00Z");
+	expect(decisionDeadlinePassed({ kind: "coordination", dueAt }, now)).toBe(
+		false,
+	);
+	expect(decisionDeadlinePassed({ kind: "question", dueAt }, now)).toBe(true);
+	expect(
+		decisionDeadlinePassed({ kind: "question", dueAt }, new Date(dueAt)),
+	).toBe(false);
+	expect(decisionDeadlinePassed({ kind: "question" }, now)).toBe(false);
 });
