@@ -795,18 +795,34 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 			const { enqueueRequestFiling, processRequestFilingQueue } =
 				await import("../../services/request-filing-queue");
 			if (input.runNow) {
-				const pass = await processRequestFilingQueue(
-					context.env,
-					{
-						...owner,
-						ownerSubject: context.user!.sub!,
-					},
-					1,
-				);
-				return {
-					queued: pass.state === "processed" && (pass.pending ?? 0) > 0,
-					pass,
-				};
+				try {
+					const pass = await processRequestFilingQueue(
+						context.env,
+						{
+							...owner,
+							ownerSubject: context.user!.sub!,
+						},
+						1,
+					);
+					return {
+						queued: pass.state === "processed" && (pass.pending ?? 0) > 0,
+						pass,
+					};
+				} catch (error) {
+					let cause = error;
+					for (
+						let depth = 0;
+						depth < 5 && cause instanceof Error && cause.cause instanceof Error;
+						depth++
+					)
+						cause = cause.cause;
+					throw createError(
+						ErrorCodes.SERVICE_UNAVAILABLE,
+						scrubText(
+							cause instanceof Error ? cause.message : "Request filing failed",
+						).slice(0, 1000),
+					);
+				}
 			}
 			await enqueueRequestFiling(context.env, {
 				...owner,
