@@ -244,7 +244,7 @@ export async function runDistillModel(
 		model = DISTILL_MODEL,
 		system,
 		onFailure,
-		jsonSchema,
+		jsonObject,
 	}: {
 		maxTokens?: number;
 		timeoutMs?: number;
@@ -252,7 +252,7 @@ export async function runDistillModel(
 		model?: string;
 		system?: string;
 		onFailure?: (reason: string) => void;
-		jsonSchema?: Record<string, unknown>;
+		jsonObject?: boolean;
 	} = {},
 ): Promise<string | null> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -270,11 +270,7 @@ export async function runDistillModel(
 				],
 				max_tokens: maxTokens,
 				temperature: 0,
-				...(jsonSchema
-					? {
-							response_format: { type: "json_schema", json_schema: jsonSchema },
-						}
-					: {}),
+				...(jsonObject ? { response_format: { type: "json_object" } } : {}),
 			} as never,
 			env.AI_GATEWAY_LLM_ID
 				? { gateway: { id: env.AI_GATEWAY_LLM_ID, metadata: { surface } } }
@@ -293,7 +289,7 @@ export async function runDistillModel(
 		}
 		const structured = (outcome as { response?: unknown } | null)?.response;
 		const text =
-			jsonSchema && structured && typeof structured === "object"
+			jsonObject && structured && typeof structured === "object"
 				? JSON.stringify(structured)
 				: responseText(outcome);
 		if (!text) onFailure?.("model_response_empty");
