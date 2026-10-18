@@ -7,6 +7,16 @@ import { WorkShell } from "./work-shell";
 const route = vi.hoisted(() => ({
 	pathname: "/work/admission",
 	search: {} as Record<string, unknown>,
+	defaultView: "deck" as "deck" | "feed",
+}));
+
+vi.mock("@/lib/use-work-apps", () => ({
+	useWorkApps: () => ({
+		apps: ["deck", "feed"].map((role) => ({
+			role,
+			manifest: { navigation: { workDefault: role === route.defaultView } },
+		})),
+	}),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -52,6 +62,21 @@ function renderShell(pathname: string, search: Record<string, unknown> = {}) {
 }
 
 describe("Work shell navigation", () => {
+	it("marks the configured default and respects an explicit view", () => {
+		expect(
+			renderShell("/work").querySelector('[aria-current="page"]')?.textContent,
+		).toBe("Deck");
+		route.defaultView = "feed";
+		expect(
+			renderShell("/work").querySelector('[aria-current="page"]')?.textContent,
+		).toBe("Feed");
+		route.defaultView = "deck";
+		expect(
+			renderShell("/work", { view: "feed" }).querySelector(
+				'[aria-current="page"]',
+			)?.textContent,
+		).toBe("Feed");
+	});
 	it("offers only Feed and Deck on the phone and removes tabs, More and the section picker", () => {
 		const doc = renderShell("/work");
 		expect(

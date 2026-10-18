@@ -2,6 +2,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
+import { useWorkApps } from "@/lib/use-work-apps";
 
 const WorkWebMcpTools = lazy(() =>
 	import("@/components/work-webmcp-tools").then((module) => ({
@@ -10,11 +11,25 @@ const WorkWebMcpTools = lazy(() =>
 );
 
 export function WorkShell() {
-	const deck = useRouterState({
-		select: (state) =>
-			state.location.pathname.replace(/\/$/, "") === "/work" &&
-			(state.location.search as { view?: unknown }).view === "deck",
+	const { apps } = useWorkApps();
+	const defaultView = (
+		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
+		apps.find((app) => app.role === "feed")
+	)?.role;
+	const view = useRouterState({
+		select: (state) => {
+			const search = state.location.search as {
+				view?: "deck" | "feed";
+				app?: unknown;
+			};
+			return state.location.pathname.replace(/\/$/, "") === "/work" &&
+				!search.app
+				? (search.view ?? defaultView)
+				: undefined;
+		},
 	});
+	const deck = view === "deck";
+	const feed = view === "feed";
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<Suspense fallback={null}>
@@ -29,10 +44,10 @@ export function WorkShell() {
 				<Link
 					to="/work"
 					search={{ view: "feed" }}
-					aria-current={!deck ? "page" : undefined}
+					aria-current={feed ? "page" : undefined}
 					className={cn(
 						"flex min-h-12 flex-1 items-center justify-center no-underline",
-						!deck && "font-semibold text-kumo-brand",
+						feed && "font-semibold text-kumo-brand",
 					)}
 				>
 					{OS_COPY.workHome.feed}
