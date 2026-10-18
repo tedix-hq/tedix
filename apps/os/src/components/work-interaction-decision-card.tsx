@@ -1,4 +1,8 @@
-import { connectorApproval } from "@/lib/interaction-card-kind";
+import {
+	connectorApproval,
+	connectorApprovalSummary,
+	interactionCardKind,
+} from "@/lib/interaction-card-kind";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -216,13 +220,24 @@ export function WorkInteractionDecisionCard({
 		return (
 			<DecisionAttentionContext.Provider value={null}>
 				<WorkDecisionCard
-					kind={preview.request.kind === "handoff" ? "proposal" : "question"}
+					kind={interactionCardKind(preview.request)}
 					title={interactionSubject(preview.request)}
 					askedBy={askedBy ?? preview.askedBy ?? OS_COPY.feed.actors.user}
 					at={preview.request.requestedAt}
 					content={
 						<>
-							<DecisionProposalBody body={preview.request.prompt} />
+							{connectorApproval(preview.request.metadata) ? (
+								<p>
+									{connectorApprovalSummary(
+										preview.request,
+										askedBy ??
+											preview.askedBy ??
+											OS_COPY.decisionDeck.approvalActor,
+									)}
+								</p>
+							) : (
+								<DecisionProposalBody body={preview.request.prompt} />
+							)}
 							<p role="status">{decisionText("Loading request")}</p>
 						</>
 					}
@@ -375,17 +390,7 @@ export function WorkInteractionDecisionCard({
 						)}
 						{approval ? (
 							<>
-								<p>
-									{request.metadata?.approvalOperation ===
-										"tests_write.GenerateMagicLinkForTestUser" &&
-									/non-delivered test-only link|not emailed/i.test(
-										request.prompt,
-									)
-										? OS_COPY.decisionDeck.testLoginSummary(
-												source.replace(/\s+session$/i, ""),
-											)
-										: OS_COPY.decisionDeck.approvalSummary(source)}
-								</p>
+								<p>{connectorApprovalSummary(request, source)}</p>
 								<Collapsible>
 									<CollapsibleTrigger>
 										{OS_COPY.feed.details}

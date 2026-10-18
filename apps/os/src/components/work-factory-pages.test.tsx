@@ -1081,3 +1081,19 @@ describe("lean activity navigation", () => {
 		expect(html).toContain("does not by itself prove deployment");
 	});
 });
+
+it("renders verified raster evidence as an image", () => {
+	const html = renderToStaticMarkup(
+		<EvidencePreviewResult
+			failed={false}
+			preview={{
+				status: "available",
+				text: "",
+				truncated: false,
+				imageDataUrl: "data:image/png;base64,aW1hZ2U=",
+			}}
+		/>,
+	);
+	expect(html).toContain('alt="Work evidence preview"');
+	expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
+});

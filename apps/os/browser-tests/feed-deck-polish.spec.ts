@@ -153,6 +153,12 @@ try {
 				.waitFor();
 			if (!(await story.locator(".fd-preview").count()))
 				throw new Error("Outcome lost its source preview");
+			if (
+				(await story
+					.locator(".ft-reactions")
+					.evaluate((el) => getComputedStyle(el).position)) !== "absolute"
+			)
+				throw new Error("Hidden reactions reserve an empty row");
 			const rhythm = await story.evaluate((el) => {
 				const style = getComputedStyle(el);
 				return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);

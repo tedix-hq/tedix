@@ -387,7 +387,12 @@ export function EvidencePreviewResult({
 }: {
 	failed: boolean;
 	preview:
-		| { status: "available"; text: string; truncated: boolean }
+		| {
+				status: "available";
+				text: string;
+				truncated: boolean;
+				imageDataUrl?: string;
+		  }
 		| { status: "external" }
 		| { status: "unavailable" }
 		| undefined;
@@ -406,9 +411,21 @@ export function EvidencePreviewResult({
 	return preview?.status === "available" ? (
 		<>
 			<Surface className="max-h-64 overflow-auto p-3">
-				<Text as="pre" role="body" className="whitespace-pre-wrap break-words">
-					{preview.text}
-				</Text>
+				{preview.imageDataUrl ? (
+					<img
+						src={preview.imageDataUrl}
+						alt={OS_COPY.feed.evidencePreview}
+						className="max-w-full"
+					/>
+				) : (
+					<Text
+						as="pre"
+						role="body"
+						className="whitespace-pre-wrap break-words"
+					>
+						{preview.text}
+					</Text>
+				)}
 			</Surface>
 			{preview.truncated ? (
 				<Text role="label" tone="secondary">
