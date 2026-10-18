@@ -6,7 +6,9 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
+import { detachedGitEnv } from "../../oss/git-env";
 import { adapter } from "./adapter";
+import { contextFixture, sessionIds } from "./context-fixture";
 import {
 	corrections,
 	facts,
@@ -26,7 +28,9 @@ const out = resolve(
 const label =
 	process.argv.find((a) => a.startsWith("--label="))?.slice(8) ?? "local";
 const git = (...args: string[]) => {
-	const p = Bun.spawnSync(["git", "-C", root, ...args]);
+	const p = Bun.spawnSync(["git", "-C", root, ...args], {
+		env: detachedGitEnv(),
+	});
 	if (p.exitCode) throw new Error(p.stderr.toString());
 	return p.stdout.toString().trim();
 };
@@ -46,7 +50,7 @@ const fixtureHash = createHash("sha256")
 	.digest("hex");
 const harnessHash = createHash("sha256")
 	.update(
-		["adapter.ts", "run.ts", "metrics.ts"]
+		["adapter.ts", "run.ts", "metrics.ts", "context-fixture.ts"]
 			.map((name) =>
 				readFileSync(new URL(`./${name}`, import.meta.url), "utf8"),
 			)
@@ -76,6 +80,7 @@ for (const q of queries) {
 		expected: q.expected,
 		actual: top,
 		emitted: r.ids,
+		provenance: r.provenance,
 		...retrieval(q.expected, r.ids),
 		ms: r.ms,
 		invalid: r.ids.filter(
@@ -137,7 +142,23 @@ for (const p of lessonPrompts) {
 		actual: ids,
 		precision: ids.filter((id: string) => p.expected.includes(id)).length / 3,
 		bytes: Buffer.byteLength(
-			r.lessons.map((l: { text: string }) => l.text).join("\n"),
+			a.hook.render(
+				{
+					workspace: "fixture",
+					org: p.org,
+					projectId: "11111111-1111-4111-8111-111111111111",
+					credentialOrganizationId: "22222222-2222-4222-8222-222222222222",
+				},
+				{
+					lessons: {
+						organizationId: "22222222-2222-4222-8222-222222222222",
+						lessons: r.lessons,
+						matched: selected.matched,
+						truncated: selected.truncated,
+					},
+				},
+				new Date(NOW),
+			),
 		),
 	});
 }
@@ -167,96 +188,100 @@ for (const org of orgs) {
 	}
 }
 // Execute the real gateway program with fictional local tool doubles, then the real renderer.
-const ids = [
-	"11111111-1111-4111-8111-111111111111",
-	"22222222-2222-4222-8222-222222222222",
-];
-for (let n = 0; n < 8; n++) {
-	const o = n % 2,
-		session = ids[o]!,
-		project = ids[o]!,
-		org = orgs[o]!,
-		repo = `fable-${o}`;
-	const rows = [
-		{
-			id: "unfinished",
-			sessionKey: session,
-			projectId: project,
-			harness: "codex",
-			kind: "request",
-			text: `UNFINISHED-${o}-${n}`,
-			status: "open",
-			sourceAt: NOW,
-		},
-		{
-			id: "other-session",
-			sessionKey: ids[1 - o],
-			projectId: project,
-			harness: "codex",
-			kind: "request",
-			text: "OTHER-SESSION",
-			status: "open",
-			sourceAt: NOW,
-		},
-		{
-			id: "other-project",
-			sessionKey: session,
-			projectId: ids[1 - o],
-			harness: "codex",
-			kind: "request",
-			text: "OTHER-PROJECT",
-			status: "open",
-			sourceAt: NOW,
-		},
-		{
-			id: "fulfilled",
-			sessionKey: session,
-			projectId: project,
-			harness: "codex",
-			kind: "request",
-			text: "STALE-FULFILLED",
-			status: "open",
-			sourceAt: "2026-10-18T10:00:00Z",
-			evidence: `Work-Item: ${ids[o]}`,
-		},
-	];
-	const binding = {
-		workspace: `fixture-${o}`,
-		org,
-		projectId: project,
-		root: `/fictional/${repo}`,
-		ledger: { session, harness: "codex", projectId: project, repository: repo },
-	};
-	const work = {
-		list_agent_session_requests: async () => ({ data: rows }),
-		get_work_items_by_id: async ({ id }: { id: string }) => ({
-			workItem: {
-				id,
+const ids = sessionIds;
+const scopes = await contextFixture(root);
+try {
+	for (let n = 0; n < 8; n++) {
+		const o = n % 2,
+			session = ids[o]!,
+			project = ids[o]!,
+			org = orgs[o]!,
+			repo = `fable-${o}`;
+		const rows = [
+			{
+				id: "unfinished",
+				sessionKey: session,
 				projectId: project,
-				disposition: "completed",
-				completedAt: "2026-10-18T11:58:00Z",
+				harness: "codex",
+				kind: "request",
+				text: `UNFINISHED-${o}-${n}`,
+				status: "open",
+				sourceAt: NOW,
 			},
-		}),
-	};
-	const code = a.hook.gatewayCode(binding, undefined, [], true);
-	const execute = new Function("work", "os", "agent", `return (${code})()`);
-	const data = await execute(work, {}, {});
-	const block = a.hook.render(binding, data, new Date(NOW));
-	const pass =
-		block.includes(`organization=${org}`) &&
-		block.includes(`project=${project}`) &&
-		block.includes(`UNFINISHED-${o}-${n}`) &&
-		!["OTHER-SESSION", "OTHER-PROJECT", "STALE-FULFILLED"].some((s) =>
-			block.includes(s),
-		);
-	details.context!.push({
-		session,
-		org,
-		repo,
-		pass,
-		block,
-		bytes: Buffer.byteLength(block),
-	});
+			{
+				id: "other-session",
+				sessionKey: ids[1 - o],
+				projectId: project,
+				harness: "codex",
+				kind: "request",
+				text: "OTHER-SESSION",
+				status: "open",
+				sourceAt: NOW,
+			},
+			{
+				id: "other-project",
+				sessionKey: session,
+				projectId: ids[1 - o],
+				harness: "codex",
+				kind: "request",
+				text: "OTHER-PROJECT",
+				status: "open",
+				sourceAt: NOW,
+			},
+			{
+				id: "fulfilled",
+				sessionKey: session,
+				projectId: project,
+				harness: "codex",
+				kind: "request",
+				text: "STALE-FULFILLED",
+				status: "open",
+				sourceAt: "2026-10-18T10:00:00Z",
+				evidence: `Work-Item: ${ids[o]}`,
+			},
+		];
+		const binding = {
+			...scopes.binding(o),
+			ledger: {
+				session,
+				harness: "codex",
+				projectId: project,
+				repository: repo,
+			},
+		};
+		const work = {
+			list_agent_session_requests: async () => ({ data: rows }),
+			get_work_items_by_id: async ({ id }: { id: string }) => ({
+				workItem: {
+					id,
+					projectId: project,
+					disposition: "completed",
+					completedAt: "2026-10-18T11:58:00Z",
+				},
+			}),
+		};
+		const code = a.hook.gatewayCode(binding, undefined, [], true);
+		const execute = new Function("work", "os", "agent", `return (${code})()`);
+		const data = await execute(work, {}, {});
+		const block = a.hook.render(binding, data, new Date(NOW));
+		const pass =
+			block.includes(`organization=${org}`) &&
+			block.includes(`project=${project}`) &&
+			block.includes(`UNFINISHED-${o}-${n}`) &&
+			!["OTHER-SESSION", "OTHER-PROJECT", "STALE-FULFILLED"].some((s) =>
+				block.includes(s),
+			);
+		details.context!.push({
+			session,
+			org,
+			repo,
+			pass,
+			block,
+			bytes: Buffer.byteLength(block),
+		});
+	}
+} finally {
+	scopes.close();
 }
 a.close();
 const lme = await adapter(root);
@@ -333,7 +358,8 @@ writeFileSync(
 				queries: queries.length,
 				corrections: corrections.length,
 				prompts: lessonPrompts.length,
-				sessions: context.length,
+				contextChecks: context.length,
+				sessions: 2,
 				longMemEval: longMemEval.length,
 			},
 			details,
@@ -359,6 +385,7 @@ console.table([
 		"p95 ms": +row.p95Ms.toFixed(2),
 		"lesson P@3": +row.lessonPrecisionAt3.toFixed(3),
 		held: row.heldWhenInvalid,
+		"block bytes avg/max": `${Math.round(row.injectedBlockBytes.mean)}/${row.injectedBlockBytes.max}`,
 		"context pass": row.contextPass,
 		"LME R@5": row.longMemEvalRecallAt5,
 	},

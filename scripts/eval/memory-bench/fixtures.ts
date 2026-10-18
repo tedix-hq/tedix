@@ -67,7 +67,7 @@ export const queries: Query[] = Array.from({ length: 40 }, (_, n) => {
 			kind === "entity"
 				? `Who is Vessel-${i} captain?`
 				: kind === "temporal"
-					? `When is Vessel-${i} launch now in April 2026?`
+					? `Which launch is scheduled for 2026-04-${String(i + 1).padStart(2, "0")} at Opal Dock?`
 					: kind === "supersession"
 						? `Vessel-${i} launch current replacement date dock`
 						: `What cargo does the expedition led by Mira-${o}-${i} carry?`,
