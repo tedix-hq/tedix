@@ -79,10 +79,50 @@ function seed() {
 			('c-other', 'wi-other', '${ORG}', '2026-10-15T05:46:00.000Z');
 		INSERT INTO os_output_revisions VALUES ('rev-1', '${ORG}', 'r-docs-0', '2026-10-14 06:20:00');
 	`);
+	sqlite.exec("ALTER TABLE skill_runs ADD COLUMN result TEXT");
 	return createDbClient(createD1Facade(sqlite));
 }
 
 describe("listFactoryHealth", () => {
+	it.each([
+		{
+			backgroundOutcome: {
+				classification: "no_change",
+				summary: "No assigned Work; no inference performed.",
+			},
+		},
+		{
+			noResultReason: "Waiting for the owner's CMS consent.",
+			summary: "Completed",
+		},
+		{ report: "INTAKE: no_updates; reviewed the current dependency pins." },
+		{
+			summary: { delivered: 7 },
+			report: "Factory health: seven factories delivered.",
+		},
+	])(
+		"shows the run's decision or blocker without inventing delivery: %j",
+		async (result) => {
+			const db = seed();
+			await db.run(
+				sql`UPDATE skill_runs SET result = ${JSON.stringify(result)} WHERE id = 'r-radar-1'`,
+			);
+			const radar = (
+				await listFactoryHealth(db, { orgId: ORG, now: NOW, runLimit: 2 })
+			).find((entry) => entry.slug === "radar")!;
+			const expected =
+				"noResultReason" in result
+					? result.noResultReason
+					: "report" in result
+						? result.report
+						: result.backgroundOutcome.summary;
+			expect(radar.reason).toContain(expected);
+			expect(radar.reason).not.toContain("created no Work");
+			expect(radar.verdict).toBe("idle");
+			expect(radar.runs[0]!.delivered).toBe(0);
+		},
+	);
+
 	it("gives one verdict per factory from its runs and what they delivered", async () => {
 		const db = seed();
 		const health = await listFactoryHealth(db, {
@@ -146,7 +186,7 @@ describe("listFactoryHealth", () => {
 
 it("includes recent failed manual proof runs without crediting schedule health", async () => {
 	const db = seed();
-	await db.run(sql`INSERT INTO skill_runs VALUES
+	await db.run(sql`INSERT INTO skill_runs (id, organization_id, skill_id, tedi_id, status, params, error, started_at, completed_at, created_by) VALUES
 		('proof-failure', ${ORG}, 'sk-docs', 'tedi-nova', 'failed', '{"probe":true}', 'proof failed', '2026-10-15 10:00:00', '2026-10-15 10:01:00', 'user-1'),
 		('foreign-proof', 'other-org', 'sk-docs', 'tedi-nova', 'failed', '{"probe":true}', 'private', '2026-10-15 11:00:00', '2026-10-15 11:01:00', 'user-2')`);
 	const docs = (
@@ -169,7 +209,7 @@ it("shows historical manual failures even when no runs fall in the health window
 	const db = seed();
 	await db.run(sql`DELETE FROM skill_runs WHERE skill_id = 'sk-qa'`);
 	await db.run(
-		sql`INSERT INTO skill_runs VALUES ('old-manual', ${ORG}, 'sk-qa', 'tedi-nova', 'failed', '{}', 'manual failure', '2026-07-17 10:00:00', '2026-07-17 10:01:00', 'user-1')`,
+		sql`INSERT INTO skill_runs (id, organization_id, skill_id, tedi_id, status, params, error, started_at, completed_at, created_by) VALUES ('old-manual', ${ORG}, 'sk-qa', 'tedi-nova', 'failed', '{}', 'manual failure', '2026-07-17 10:00:00', '2026-07-17 10:01:00', 'user-1')`,
 	);
 	const qa = (
 		await listFactoryHealth(db, { orgId: ORG, now: NOW, runLimit: 2 })
