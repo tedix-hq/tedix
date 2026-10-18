@@ -727,6 +727,17 @@ export const osWorkspacesContract = oc
 				.output(z.object({ link: OsWorkspaceProjectSchema })),
 		}),
 		gadgets: oc.router({
+			workApps: oc.input(z.strictObject({ limit: listLimitSchema })).output(
+				z.object({
+					items: z.array(
+						z.object({
+							gadget: OsGadgetSchema,
+							currentRevision: OsGadgetRevisionSchema,
+						}),
+					),
+					truncated: z.boolean(),
+				}),
+			),
 			list: oc
 				.route({
 					method: "GET",

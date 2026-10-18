@@ -74,7 +74,7 @@ describe("live workspace projection", () => {
 				event({ workspaceId: WORKSPACE_ID, outputId: OUTPUT_ID }),
 			),
 		).toBe(true);
-		expect(invalidations).toHaveBeenCalledTimes(4);
+		expect(invalidations).toHaveBeenCalledTimes(5);
 		expect(
 			invalidations.mock.calls.map(([filter]) => filter?.queryKey),
 		).toContainEqual(canvasOutputsQueryOptions(WORKSPACE_ID).queryKey);
@@ -98,6 +98,6 @@ describe("live workspace projection", () => {
 		expect(invalidations).not.toHaveBeenCalled();
 		reconcile("reconnecting");
 		reconcile("open");
-		expect(invalidations).toHaveBeenCalledTimes(4);
+		expect(invalidations).toHaveBeenCalledTimes(5);
 	});
 });

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vite-plus/test";
 import { WorkHome } from "./work-home";
 import {
+	workAppsQueryOptions,
 	activeWorkspacesQueryOptions,
 	canvasGadgetsQueryOptions,
 	canvasGadgetDetailQueryOptions,
@@ -111,6 +112,20 @@ function render(
 				},
 			},
 		);
+	if (!pendingEntry)
+		client.setQueryData(workAppsQueryOptions().queryKey, {
+			items: accessible
+				? gadgets.flatMap((gadget) => {
+						const data = client.getQueryData(
+							canvasGadgetDetailQueryOptions(workspaceId, gadget.id).queryKey,
+						);
+						return data?.currentRevision
+							? [{ ...data, currentRevision: data.currentRevision }]
+							: [];
+					})
+				: [],
+			truncated: false,
+		});
 	client.setQueryData(
 		osQuery.workInteractions.listInbox.queryOptions({
 			input: { projectId: undefined, limit: 50, states: ["open"] },
@@ -198,5 +213,5 @@ it("waits for the configured default instead of flashing the Feed during discove
 		render({ view: "feed" }, true, "decision-deck", "decision-deck")
 			.querySelector("article")
 			?.getAttribute("data-entry"),
-	).toBe("tedix:app/activity-feed");
+	).toBeUndefined();
 });

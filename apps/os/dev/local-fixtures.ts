@@ -5936,6 +5936,23 @@ const handlers: Record<string, (input: never) => unknown> = {
 		findWorkspace(input.workspaceId);
 		return { status: "not_connected" as const, providerId: "google-gmail" };
 	},
+	"osWorkspaces/gadgets/workApps": (input: { limit: number }) => {
+		const items = state.gadgets.flatMap((gadget) => {
+			const currentRevision = state.gadgetRevisions.find(
+				(row) => row.id === gadget.currentRevisionId,
+			);
+			return gadget.status === "active" &&
+				currentRevision &&
+				(currentRevision.manifest.navigation?.work ||
+					currentRevision.manifest.navigation?.board)
+				? [{ gadget, currentRevision }]
+				: [];
+		});
+		return {
+			items: items.slice(0, input.limit),
+			truncated: items.length > input.limit,
+		};
+	},
 	"osWorkspaces/gadgets/list": (input: {
 		workspaceId: string;
 		status?: OsGadget["status"];

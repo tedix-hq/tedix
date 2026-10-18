@@ -5550,3 +5550,65 @@ describe("blueprint upgrade preview and decision", () => {
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 });
+
+describe("Work app entry", () => {
+	it("returns current manifests in one read and fences private, archived and foreign workspaces before limiting", async () => {
+		const c = clients();
+		const other = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext(c.env, "org-1", "user-2"),
+		});
+		async function install(
+			client: typeof c.org1,
+			name: string,
+			visibility: "private" | "org",
+		) {
+			const { workspace } = await client.workspaces.create({
+				name,
+				visibility,
+			});
+			const { gadget } = await client.gadgets.create({
+				workspaceId: workspace.id,
+				name: "Deck",
+			});
+			await client.gadgets.revise({
+				workspaceId: workspace.id,
+				gadgetId: gadget.id,
+				manifest: {
+					entry: "tedix:app/decision-deck",
+					navigation: { work: "deck", workDefault: true },
+					capabilities: [],
+					config: { version: 1 },
+				},
+			});
+			return { workspace, gadget };
+		}
+		const hidden = await install(other, "Private", "private");
+		const foreign = await install(c.org2, "Foreign", "org");
+		const visible = await install(c.org1, "Mine", "private");
+		const shared = await install(c.org1, "Shared", "org");
+		const archived = await install(c.org1, "Archived", "org");
+		await c.org1.workspaces.archive({ workspaceId: archived.workspace.id });
+		const result = await c.org1.gadgets.workApps({ limit: 1 });
+		expect(result.items).toHaveLength(1);
+		expect(result.truncated).toBe(true);
+		expect(result.items[0].gadget.id).toBe(visible.gadget.id);
+		expect(result.items[0].currentRevision.manifest.navigation?.work).toBe(
+			"deck",
+		);
+		const all = await c.org1.gadgets.workApps({ limit: 100 });
+		expect(all.items.map((row) => row.gadget.id).sort()).toEqual(
+			[visible.gadget.id, shared.gadget.id].sort(),
+		);
+		expect(all.items.map((row) => row.gadget.id)).not.toContain(
+			hidden.gadget.id,
+		);
+		expect(all.items.map((row) => row.gadget.id)).not.toContain(
+			foreign.gadget.id,
+		);
+		expect(
+			(await c.machine.gadgets.workApps({ limit: 100 })).items.map(
+				(row) => row.gadget.id,
+			),
+		).toEqual([shared.gadget.id]);
+	});
+});

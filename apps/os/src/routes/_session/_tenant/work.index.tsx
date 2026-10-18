@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { prefetchWorkDeck } from "@/lib/prefetch-work-deck";
 import { WorkHome } from "@/components/work-home";
 import { workHomeSearch } from "@/lib/work-home-search";
 
 export const Route = createFileRoute("/_session/_tenant/work/")({
 	validateSearch: workHomeSearch,
+	loader: ({ context }) => {
+		prefetchWorkDeck(context.queryClient);
+	},
 	component: WorkLanding,
 });
 

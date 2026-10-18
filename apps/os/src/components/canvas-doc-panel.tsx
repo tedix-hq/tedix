@@ -61,6 +61,7 @@ import { sameDraftText } from "@/collab/ot/draft-equivalence";
 import { sentenceCase } from "@/lib/format";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
 import {
+	workAppsQueryOptions,
 	canvasGadgetDetailQueryOptions,
 	canvasGadgetsQueryOptions,
 	outputDetailQueryOptions,
@@ -396,6 +397,7 @@ export function CanvasDocPanel({
 			queryClient.invalidateQueries({
 				queryKey: canvasGadgetDetailQueryOptions(workspaceId, doc.id).queryKey,
 			});
+			queryClient.invalidateQueries(workAppsQueryOptions());
 			queryClient.invalidateQueries({
 				queryKey: canvasGadgetsQueryOptions(workspaceId).queryKey,
 				exact: true,
