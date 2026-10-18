@@ -771,12 +771,13 @@
 	min-height: 0;
 	overflow: auto;
 	overscroll-behavior: contain;
+	padding-bottom: calc(var(--fd-footer-height, 4rem) + 1rem);
+	scroll-padding-bottom: calc(var(--fd-footer-height, 4rem) + 1rem);
 	align-content: start;
 	scrollbar-width: thin;
 }
 .fd-deck-current [data-slot="card-footer"] {
-	position: sticky;
-	bottom: 0;
+	position: relative;
 	flex: none;
 	background: var(--fd-surface);
 	padding: 0.5rem var(--fd-space) 0;
@@ -786,6 +787,8 @@
 	width: 100%;
 }
 .fd-deck-current [data-decision-actions] > button {
+	flex: 0 1 auto;
+	min-height: 2.75rem;
 	padding: 0.5rem 0.8rem;
 }
 .fd-deck-current .fd-proposer {
@@ -827,4 +830,12 @@
 }
 .fd-deck-current .fd-decision-stack > :has(> .fd-decision) > .fd-decision {
 	flex: 1 1 0;
+}
+
+@media (max-width: 640px) {
+	.fd-deck-current
+		[data-decision-actions]
+		> button[data-decision-intent="approve"] {
+		flex-basis: 100%;
+	}
 }

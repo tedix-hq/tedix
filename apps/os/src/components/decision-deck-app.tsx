@@ -1,3 +1,7 @@
+import {
+	DeckRemainingContext,
+	DeckFooterContext,
+} from "@/components/deck-presentation-context";
 import { useDeckViewport } from "@/lib/use-deck-viewport";
 import { DecisionLearningContext } from "@/components/decision-learning-context";
 import { DecisionLearningFeedback } from "@/components/decision-learning-feedback";
@@ -10,6 +14,7 @@ import {
 	createElement,
 	lazy,
 	Suspense,
+	useContext,
 	useEffect,
 	useRef,
 	useState,
@@ -78,6 +83,7 @@ export function DecisionDeckApp({
 	workspaceId?: string;
 }) {
 	const deckRoot = useDeckViewport();
+	const reportRemaining = useContext(DeckRemainingContext);
 	useOsLocale();
 	const KIND_LABELS: Record<string, string> = OS_COPY.decisionDeck.kinds;
 	const PROJECT_LABELS: Record<string, string> = OS_COPY.decisionDeck.projects;
@@ -312,6 +318,13 @@ export function DecisionDeckApp({
 					available.some((candidate) => candidate.id === row.id),
 				)
 			: ranked;
+	useEffect(() => {
+		if (
+			mode === "decide" &&
+			(filtered.length > 0 || factories.sources.length === 0)
+		)
+			reportRemaining?.(filtered.length);
+	}, [mode, filtered.length, factories.sources.length, reportRemaining]);
 	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
 	const prefetchIds = ranked
 		.slice(0, 3)
@@ -501,7 +514,7 @@ export function DecisionDeckApp({
 							available.length === 0 &&
 							factories.sources.length > 0
 								? decisionText("From your factories")
-								: OS_COPY.decisionDeck.left(available.length)}
+								: OS_COPY.decisionDeck.left(filtered.length)}
 						</Text>
 						<progress
 							aria-label={decisionText("Deck progress")}
@@ -690,121 +703,166 @@ export function DecisionDeckApp({
 						{usesEnvelope && pastDeadline && (
 							<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
 						)}
-						<ProposerProjectContext.Provider
+						<DeckFooterContext.Provider
 							value={
-								selected.project ? projectLabel(selected.project) : undefined
+								mode !== "history" &&
+								!current?.options.some(
+									(option) => option.intent === "later",
+								) && (
+									<Button
+										variant="outline"
+										onClick={() => {
+											if (!practiceMode)
+												void osApi.learningFeedback
+													.recordInteraction({
+														clientEventId: crypto.randomUUID(),
+														eventKind: "ignored",
+														scope: { kind: "personal" },
+														surface: "decision_deck",
+														targetType: "work_interaction",
+														targetId: selected.id,
+														metadata: {
+															decisionClass: classId ?? selected.kind,
+															decisionChoice: "later",
+															reaction: "skip",
+															projectId: selected.project,
+														},
+													})
+													.then(async (result) => {
+														if (!result.duplicate && result.event?.id)
+															setSessionLearningId(result.event.id);
+														await client.invalidateQueries({
+															queryKey: osQuery.learningFeedback.key(),
+														});
+													})
+													.catch(() => {});
+											next();
+										}}
+									>
+										{decisionText("Later")}
+									</Button>
+								)
 							}
 						>
-							<div
-								className="fd-decision-stack"
-								data-has-next={filtered.length > 1}
+							{" "}
+							<ProposerProjectContext.Provider
+								value={
+									selected.project ? projectLabel(selected.project) : undefined
+								}
 							>
-								{mode === "history" ? (
-									<WorkDecisionCard
-										kind={current?.kind ?? "decision"}
-										title={selected.label}
-										askedBy={selected.row?.askedBy ?? decisionText("Your tedi")}
-										body={selected.row?.request.prompt}
-										why={
-											<Link href={`/work/interactions/${selected.id}`}>
-												{decisionText("Read the saved answer and history")}
-											</Link>
-										}
-										disabled
-										onDecision={async () => {}}
-										onNext={next}
-										onPrevious={previous}
-									/>
-								) : selected.id.startsWith("work-approval:") ? (
-									<WorkApprovalDecisionCard
-										row={decisions.work.find(
-											(row) =>
-												`work-approval:${row.proposal.id}` === selected.id,
-										)!}
-										onNext={next}
-										onPrevious={previous}
-									/>
-								) : selected.id.startsWith("approval:") ? (
-									<ApprovalDecisionCard
-										id={selected.id.slice("approval:".length)}
-										onNext={next}
-										onPrevious={previous}
-									/>
-								) : current &&
-								  (practiceMode ||
-										current.kind === "adr" ||
-										current.kind === "decision" ||
-										current.options.some((option) => option.effect)) ? (
-									<DecisionEnvelopeCard
-										decision={current}
-										defaultLowStakesToDelegate={
-											config.defaultLowStakesToDelegate
-										}
-										askedBy={
-											practiceMode
-												? decisionText("Example")
-												: (selected.row?.askedBy ?? decisionText("Your tedi"))
-										}
-										disabled={
-											mode === "history" ||
-											(!practiceMode && (pastDeadline || expired))
-										}
-										onNext={next}
-										onPrevious={previous}
-										onDecision={async (feedback, choice, elapsedMs) => {
-											if (practiceMode) {
-												setPractice((value) => [
-													...value,
-													{
-														id: crypto.randomUUID(),
-														classId: current.classId,
-														choice,
-														signal: feedback.signal,
-														at: new Date().toISOString(),
-														elapsedMs,
-													},
-												]);
-												return;
+								<div
+									className="fd-decision-stack"
+									data-has-next={filtered.length > 1}
+								>
+									{mode === "history" ? (
+										<WorkDecisionCard
+											kind={current?.kind ?? "decision"}
+											title={selected.label}
+											askedBy={
+												selected.row?.askedBy ?? decisionText("Your tedi")
 											}
-											const request = selected.row!.request;
-											const result = await osApi.workInteractions.respond({
-												requestId: request.id,
-												expectedRequestVersion: request.version,
-												responseKind: "answer",
-												body:
-													choice === "change"
-														? feedback.body
-														: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
-												resolvesRequest: choice !== "later",
-												metadata: decisionFeedbackMetadata(
-													feedback,
-													current.classId,
-													choice,
-													elapsedMs,
-												),
-											});
-											await client.invalidateQueries({
-												queryKey: osQuery.workInteractions.key({
-													type: "query",
-												}),
-											});
-											await client.invalidateQueries({
-												queryKey: osQuery.learningFeedback.key(),
-											});
-											return result;
-										}}
-									/>
-								) : (
-									<WorkInteractionDecisionCard
-										requestId={selected.id}
-										askedBy={selected.row?.askedBy}
-										autoFocus
-										onNext={next}
-										onPrevious={previous}
-									/>
-								)}
-							</div>
-						</ProposerProjectContext.Provider>
+											body={selected.row?.request.prompt}
+											why={
+												<Link href={`/work/interactions/${selected.id}`}>
+													{decisionText("Read the saved answer and history")}
+												</Link>
+											}
+											disabled
+											onDecision={async () => {}}
+											onNext={next}
+											onPrevious={previous}
+										/>
+									) : selected.id.startsWith("work-approval:") ? (
+										<WorkApprovalDecisionCard
+											row={decisions.work.find(
+												(row) =>
+													`work-approval:${row.proposal.id}` === selected.id,
+											)!}
+											onNext={next}
+											onPrevious={previous}
+										/>
+									) : selected.id.startsWith("approval:") ? (
+										<ApprovalDecisionCard
+											id={selected.id.slice("approval:".length)}
+											onNext={next}
+											onPrevious={previous}
+										/>
+									) : current &&
+									  (practiceMode ||
+											current.kind === "adr" ||
+											current.kind === "decision" ||
+											current.options.some((option) => option.effect)) ? (
+										<DecisionEnvelopeCard
+											decision={current}
+											defaultLowStakesToDelegate={
+												config.defaultLowStakesToDelegate
+											}
+											askedBy={
+												practiceMode
+													? decisionText("Example")
+													: (selected.row?.askedBy ?? decisionText("Your tedi"))
+											}
+											disabled={
+												mode === "history" ||
+												(!practiceMode && (pastDeadline || expired))
+											}
+											onNext={next}
+											onPrevious={previous}
+											onDecision={async (feedback, choice, elapsedMs) => {
+												if (practiceMode) {
+													setPractice((value) => [
+														...value,
+														{
+															id: crypto.randomUUID(),
+															classId: current.classId,
+															choice,
+															signal: feedback.signal,
+															at: new Date().toISOString(),
+															elapsedMs,
+														},
+													]);
+													return;
+												}
+												const request = selected.row!.request;
+												const result = await osApi.workInteractions.respond({
+													requestId: request.id,
+													expectedRequestVersion: request.version,
+													responseKind: "answer",
+													body:
+														choice === "change"
+															? feedback.body
+															: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
+													resolvesRequest: choice !== "later",
+													metadata: decisionFeedbackMetadata(
+														feedback,
+														current.classId,
+														choice,
+														elapsedMs,
+													),
+												});
+												await client.invalidateQueries({
+													queryKey: osQuery.workInteractions.key({
+														type: "query",
+													}),
+												});
+												await client.invalidateQueries({
+													queryKey: osQuery.learningFeedback.key(),
+												});
+												return result;
+											}}
+										/>
+									) : (
+										<WorkInteractionDecisionCard
+											requestId={selected.id}
+											askedBy={selected.row?.askedBy}
+											autoFocus
+											onNext={next}
+											onPrevious={previous}
+										/>
+									)}
+								</div>
+							</ProposerProjectContext.Provider>
+						</DeckFooterContext.Provider>
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
 								<Button variant="outline" onClick={previous}>
@@ -814,42 +872,7 @@ export function DecisionDeckApp({
 									{decisionText("Next")}
 								</Button>
 							</div>
-						) : (
-							!current?.options.some((option) => option.intent === "later") && (
-								<Button
-									variant="outline"
-									onClick={() => {
-										if (!practiceMode)
-											void osApi.learningFeedback
-												.recordInteraction({
-													clientEventId: crypto.randomUUID(),
-													eventKind: "ignored",
-													scope: { kind: "personal" },
-													surface: "decision_deck",
-													targetType: "work_interaction",
-													targetId: selected.id,
-													metadata: {
-														decisionClass: classId ?? selected.kind,
-														decisionChoice: "later",
-														reaction: "skip",
-														projectId: selected.project,
-													},
-												})
-												.then(async (result) => {
-													if (!result.duplicate && result.event?.id)
-														setSessionLearningId(result.event.id);
-													await client.invalidateQueries({
-														queryKey: osQuery.learningFeedback.key(),
-													});
-												})
-												.catch(() => {});
-										next();
-									}}
-								>
-									{decisionText("Later")}
-								</Button>
-							)
-						)}
+						) : null}
 					</div>
 				) : (
 					!inbox.isPending &&

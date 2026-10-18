@@ -68,6 +68,52 @@ try {
 							),
 						),
 				);
+				// Every body element must be scrollable fully above the reserved footer.
+				const overlap = await page.evaluate(() => {
+					const card = document.querySelector(".fd-card")!;
+					const body = card.querySelector<HTMLElement>(
+						'[data-slot="card-content"]',
+					)!;
+					const footer = card.querySelector<HTMLElement>(
+						'[data-slot="card-footer"]',
+					)!;
+					const boundary = footer.getBoundingClientRect();
+					const bodyRect = body.getBoundingClientRect();
+					const failures: string[] = [];
+					if (bodyRect.bottom > boundary.top + 1)
+						failures.push("body overlaps footer");
+					if (
+						parseFloat(getComputedStyle(body).paddingBottom) < boundary.height
+					)
+						failures.push("missing footer clearance");
+					if (
+						parseFloat(getComputedStyle(body).scrollPaddingBottom) <
+						boundary.height
+					)
+						failures.push("missing scroll clearance");
+					for (const node of body.querySelectorAll<HTMLElement>(
+						"button, input, textarea, a, p, summary",
+					)) {
+						if (!node.getClientRects().length) continue;
+						node.scrollIntoView({ block: "end" });
+						const rect = node.getBoundingClientRect();
+						if (rect.bottom > boundary.top + 1)
+							failures.push(node.textContent ?? node.tagName);
+					}
+					body.scrollTop = body.scrollHeight;
+					for (const button of document.querySelectorAll(
+						".fd-deck-current button",
+					)) {
+						if (button.textContent === "Later" && !footer.contains(button))
+							failures.push("Later outside card footer");
+					}
+					return failures;
+				});
+				assert.deepEqual(
+					overlap,
+					[],
+					`${width}x${height} ${colorScheme} ${stage}: footer overlap`,
+				);
 				const result = await page.evaluate(() => {
 					const card = document.querySelector(".fd-card")!;
 					const actions = [

@@ -8,7 +8,7 @@ import {
 	isOpenRequestForYou,
 	isDecidableWorkApproval,
 } from "@/components/work-needs-you-count";
-import { decisionEnvelope } from "@/lib/decision-deck";
+import { decisionEnvelope, decisionIsDue } from "@/lib/decision-deck";
 import { useFactoryCardCount } from "@/lib/use-factory-card-count";
 
 /** The header and Deck use the same recipient checks, project scope and bounded pages. */
@@ -45,6 +45,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		const decision = decisionEnvelope(row.request.metadata);
 		return (
 			isOpenRequestForYou(row) &&
+			decisionIsDue(row.request, new Date()) &&
 			row.canRespond &&
 			(!decision || decisionNeedsPerson(decision))
 		);
