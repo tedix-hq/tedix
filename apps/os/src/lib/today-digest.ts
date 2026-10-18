@@ -30,7 +30,7 @@ export function readToday(content: OsOutputContent) {
 				.slice(5)
 				.every(
 					(link) =>
-						/^\/(?:projects\/|work(?:[?#]|$))/.test(link) &&
+						/^\/work(?:\/projects\/|[?#]|$)/.test(link) &&
 						!/[\\\u0000-\u0020]/.test(link),
 				),
 	);

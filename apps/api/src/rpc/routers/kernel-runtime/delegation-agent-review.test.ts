@@ -5,7 +5,14 @@ import { createDbClient } from "@tedix/db/client";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import type { BaseContext } from "../../orpc";
 import { workApprovalsContractRouter } from "../work-approvals";
 import { admitWorkAttempt } from "../work-items/attempt-admission";
@@ -140,13 +147,18 @@ async function requestReview(f: ReturnType<typeof fixture>) {
 	return review;
 }
 
+let currentFixture: ReturnType<typeof fixture>;
+beforeEach(() => {
+	currentFixture = fixture();
+});
 afterEach(() => {
+	currentFixture.sqlite.close();
 	respondCore.mockReset();
 });
 
 describe("Home delegation agent review over the Work approval plane", () => {
 	it("holds an accepted, unadmitted Work Item and proposes it to the approver tedi", async () => {
-		const f = fixture();
+		const f = currentFixture;
 		const review = await requestReview(f);
 
 		expect(review).toMatchObject({
@@ -196,7 +208,7 @@ describe("Home delegation agent review over the Work approval plane", () => {
 	});
 
 	it("the target tedi cannot decide its own delegation", async () => {
-		const f = fixture();
+		const f = currentFixture;
 		const review = await requestReview(f);
 		await expect(
 			f.clientForTedi("tedi-cpo").decide({
@@ -210,7 +222,7 @@ describe("Home delegation agent review over the Work approval plane", () => {
 	});
 
 	it("an approval admits the held item and dispatches through the Home approval core", async () => {
-		const f = fixture();
+		const f = currentFixture;
 		const review = await requestReview(f);
 
 		await f.clientForTedi("tedi-cto").decide({
@@ -247,7 +259,7 @@ describe("Home delegation agent review over the Work approval plane", () => {
 	});
 
 	it("a rejection cancels the held item and hands the run back to the operator", async () => {
-		const f = fixture();
+		const f = currentFixture;
 		const review = await requestReview(f);
 
 		await f.clientForTedi("tedi-cto").decide({
@@ -280,7 +292,7 @@ describe("Home delegation agent review over the Work approval plane", () => {
 	});
 
 	it("an approval that cannot be carried out falls back to the operator", async () => {
-		const f = fixture();
+		const f = currentFixture;
 		const review = await requestReview(f);
 		respondCore.mockRejectedValueOnce(new Error("Delegated tedi not found"));
 
