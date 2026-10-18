@@ -770,8 +770,9 @@
 	flex: none;
 }
 .fd-deck-current > .fd-decision-stack {
-	flex: 1 1 0;
+	flex: 0 1 auto;
 	min-height: 0;
+	max-height: 100%;
 	padding-bottom: 0.5rem;
 }
 .fd-deck-current .fd-decision {

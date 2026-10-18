@@ -84,6 +84,11 @@ try {
 					const frame = card.closest(".fd-decision")!.getBoundingClientRect();
 					if (frame.bottom > card.getBoundingClientRect().bottom + 1)
 						failures.push("focus frame leaves empty space below card");
+					const stack = card
+						.closest(".fd-decision-stack")!
+						.getBoundingClientRect();
+					if (stack.bottom > frame.bottom + 16)
+						failures.push("stack leaves empty space below card");
 					if (boundary.bottom > card.getBoundingClientRect().bottom + 1)
 						failures.push("footer outside card");
 					if (bodyRect.bottom > boundary.top + 1)
