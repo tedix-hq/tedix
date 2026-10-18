@@ -33,7 +33,14 @@ it("resolves the recorded owner instead of attributing every external agent to t
 		membersListQueryOptions({ organizationId: org, limit: 100, offset: 0 })
 			.queryKey,
 		{
-			data: [{ descopeUserId: "owner", name: "Maple Owner", avatarUrl: null }],
+			data: [
+				{
+					descopeUserId: "owner-provider-subject",
+					userId: "owner",
+					name: "Maple Owner",
+					avatarUrl: null,
+				},
+			],
 		},
 	);
 	seed(workExternalPrincipalsQueryOptions(org).queryKey, [

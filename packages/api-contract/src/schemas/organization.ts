@@ -709,6 +709,7 @@ export const MemberSchema = z.object({
 	id: z.uuid(),
 	organizationId: z.uuid(),
 	descopeUserId: z.string(),
+	userId: z.string().nullable().optional(),
 	email: z.email(),
 	name: z.string().nullable(),
 	avatarUrl: z.string().nullable(),

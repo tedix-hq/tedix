@@ -273,6 +273,7 @@ export function correctionFeedItems(
 			kind: "correction",
 			classId: "correction",
 			actor: "You",
+			actorIdentity: { type: e.actorType, id: e.actorId },
 			sentence: sentence(String(e.metadata?.answer)),
 			source:
 				typeof e.metadata?.source === "string"
