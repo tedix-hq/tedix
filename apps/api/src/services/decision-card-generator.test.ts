@@ -303,3 +303,49 @@ it("rejects opaque mixed-case account identifiers as well as UUIDs", async () =>
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
 	).toBeNull();
 });
+it.each([
+	{
+		stakes: "Approval needed before changing official purpose statement",
+		prompt: request.prompt,
+	},
+	{ stakes: "The test account expires on Friday.", prompt: request.prompt },
+	{
+		stakes: "Costs $500 in paid credits.",
+		prompt: "This test costs $100 in paid credits.",
+	},
+])(
+	"omits a generic or unsupported stakes line: $stakes",
+	async ({ stakes, prompt }) => {
+		mocks.model.mockResolvedValue(JSON.stringify({ ...copy, stakes }));
+		mocks.preferences.mockResolvedValue("The style review is due Friday.");
+		const result = await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt,
+		});
+		expect(result).toMatchObject(copy);
+		expect(result).not.toHaveProperty("stakes");
+	},
+);
+it("keeps source-supported people affected in the optional stakes line", async () => {
+	const stakes = "Notifies 3 team members.";
+	mocks.model.mockResolvedValue(JSON.stringify({ ...copy, stakes }));
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Check sign-in and notify 3 team members.",
+		}),
+	).toMatchObject({ ...copy, stakes });
+});
+it("removes repeated field labels before checking the three displayed texts", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			title: `ASK: ${copy.title}`,
+			body: `IF YES: ${copy.body}`,
+			recommendation: `WHY: ${copy.recommendation}`,
+		}),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject(copy);
+});

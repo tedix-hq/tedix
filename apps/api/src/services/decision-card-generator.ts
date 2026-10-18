@@ -151,6 +151,7 @@ export async function generateDecisionCard(
 				system: [
 					copySpec.system,
 					copySpec.rewriter,
+					JSON.stringify({ plainLanguageExamples: copySpec.plainTerms }),
 					copySpec.bannedWords.join(", "),
 					filing ? copySpec.filing : "",
 				].join("\n"),
@@ -158,10 +159,39 @@ export async function generateDecisionCard(
 		);
 		if (!answer) return null;
 		try {
+			const draft = JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+			for (const [field, rule] of Object.entries(copySpec.fields)) {
+				if (typeof draft?.[field] === "string")
+					draft[field] = draft[field].replace(
+						new RegExp(`^\\s*(?:${rule.prefixes.join("|")})\\s*:\\s*`, "i"),
+						"",
+					);
+			}
 			const parsed = DecisionCardPresentationSchema.safeParse({
 				version: copySpec.version,
-				...JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/g, "")),
+				...draft,
 			});
+			if (parsed.success && parsed.data.version === 2 && parsed.data.stakes) {
+				const facts = JSON.stringify({
+					subject: request.subject,
+					prompt: request.prompt,
+					decision,
+				}).toLowerCase();
+				const stakes = parsed.data.stakes;
+				const eligible = copySpec.stakesEvidencePatterns.some((pattern) => {
+					const evidence = new RegExp(pattern, "i");
+					return evidence.test(stakes) && evidence.test(facts);
+				});
+				const numbers =
+					stakes.match(new RegExp(copySpec.stakesNumberPattern, "g")) ?? [];
+				const sourceNumbers: string[] =
+					facts.match(new RegExp(copySpec.stakesNumberPattern, "g")) ?? [];
+				if (
+					!eligible ||
+					numbers.some((number) => !sourceNumbers.includes(number))
+				)
+					delete parsed.data.stakes;
+			}
 			if (
 				parsed.success &&
 				!filing &&
