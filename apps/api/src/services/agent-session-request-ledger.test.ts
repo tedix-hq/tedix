@@ -188,7 +188,8 @@ describe("request ledger observer", () => {
 		const model: LedgerModel = async (_system, prompt, surface) => {
 			if (surface === "agent-session-project-routing") {
 				const input = JSON.parse(prompt);
-				expect(input.projects.map((p: { id: string }) => p.id)).toEqual([
+				expect(input.columns.projects).toEqual(["id", "name", "brief"]);
+				expect(input.projects.map((p: string[]) => p[0])).toEqual([
 					"project-example",
 				]);
 				return JSON.stringify({
