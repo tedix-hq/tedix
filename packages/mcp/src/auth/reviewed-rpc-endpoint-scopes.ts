@@ -108,6 +108,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"audit/getByResource": "mcp:observe.read",
 	"audit/search": "mcp:observe.read",
 	"billing/correctBillingPeriod": "platform:admin",
+	"billing/assignInternalPlan": "platform:admin",
 	"billing/createCheckout": "platform:admin",
 	"billing/createInferenceCapacityCheckout": "platform:admin",
 	"billing/createPortal": "platform:admin",

@@ -17,6 +17,12 @@ import { listMonetaryInferenceSpending } from "@tedix/db/queries/billing/spendin
 import { implement, ORPCError } from "@orpc/server";
 import { checkoutBusinessTermsParams } from "../../lib/checkout-business-terms";
 import { billingContract } from "@tedix/api-contract/contracts/billing";
+import { assignInternalPlan } from "@tedix/db/queries/billing/internal-plan";
+import { getOrganizationFeatures } from "@tedix/db/queries/organizations";
+import {
+	getRuntimeEntitlement,
+	runtimeEntitlementIsActive,
+} from "@tedix/db/queries/runtime-entitlements";
 import {
 	listProviderModelRates,
 	publishProviderModelRate,
@@ -1032,6 +1038,66 @@ const recordVoiceProviderUsageContract = os.recordVoiceProviderUsage
 		recordVoiceProviderUsage(resolveFleetAuthorityDb(context.env), input),
 	);
 
+const assignInternalPlanContract = os.assignInternalPlan
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin)
+	.handler(async ({ context, input }) => {
+		const actor = requirePlatformBillingAuthority(context);
+		const now = new Date().toISOString();
+		let assignment: { alreadyAssigned: boolean };
+		try {
+			assignment = await assignInternalPlan(
+				context.db,
+				input,
+				{ id: actor, type: context.authType ?? "user" },
+				now,
+			);
+		} catch (error) {
+			throw new ORPCError("CONFLICT", {
+				message:
+					error instanceof Error
+						? error.message
+						: "Internal plan assignment failed",
+			});
+		}
+		const entitlement = await getBillingEntitlement(
+			context.db,
+			input.organizationId,
+		);
+		const runtime = await getRuntimeEntitlement(
+			context.db,
+			input.organizationId,
+		);
+		const features = await getOrganizationFeatures(
+			context.db,
+			input.organizationId,
+		);
+		if (
+			!entitlement ||
+			!runtime ||
+			!features ||
+			entitlement.account.billingMode !== "internal"
+		) {
+			throw new ORPCError("CONFLICT", {
+				message:
+					"Internal plan assignment was superseded; read current entitlement",
+			});
+		}
+		return {
+			organizationId: input.organizationId,
+			planVersionId: entitlement.plan.id,
+			billingMode: "internal" as const,
+			...assignment,
+			features,
+			runtime,
+			active: runtimeEntitlementIsActive(runtime, Date.parse(now)),
+			settlementMode: resolveBillingSettlementMode(context.env),
+			allowOverage: entitlement.plan.allowOverage,
+			overageUnitPriceMicros: entitlement.plan.overageUnitPriceMicros,
+		};
+	});
+
 const grantCreditContract = os.grantCredit
 	.use(withAuth)
 	.use(withFleetAuthority)
@@ -1455,6 +1521,7 @@ export const billingContractRouter = os.router({
 	listPlans: listPlansContract,
 	recordVoiceProviderUsage: recordVoiceProviderUsageContract,
 	grantCredit: grantCreditContract,
+	assignInternalPlan: assignInternalPlanContract,
 	correctBillingPeriod: correctBillingPeriodContract,
 	restoreDailyCapacity: restoreDailyCapacityContract,
 	grantInferenceCapacity: grantInferenceCapacityContract,

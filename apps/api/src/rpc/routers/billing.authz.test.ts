@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 
 const activationStorage = vi.hoisted(() => vi.fn());
+const internalPlanStorage = vi.hoisted(() => vi.fn());
+vi.mock("@tedix/db/queries/billing/internal-plan", () => ({
+	assignInternalPlan: internalPlanStorage,
+}));
 const repricingStorage = vi.hoisted(() => vi.fn());
 vi.mock("./billing/credit-activation", () => ({
 	configureCreditBillingHandler: activationStorage,
@@ -711,5 +715,57 @@ describe("finite execution revocation human-only routing", () => {
 			client.revokeHistoricalFreshExecution(revoke),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 		expect(historicalMember).not.toHaveBeenCalled();
+	});
+});
+
+describe("complimentary internal plan authority", () => {
+	const assignment = {
+		organizationId,
+		planKey: "enterprise" as const,
+		idempotencyKey: "internal-plan-test",
+		reason: "Owner authorized complimentary plan",
+	};
+	beforeEach(() => internalPlanStorage.mockReset());
+	for (const human of [true, false]) {
+		it(`denies ordinary billing admins (human=${human})`, async () => {
+			const client = createRouterClient(billingContractRouter, {
+				context: context(
+					["billing:read", "billing:manage", "billing:write"],
+					human,
+				),
+			});
+			await expect(client.assignInternalPlan(assignment)).rejects.toMatchObject(
+				{ code: "FORBIDDEN" },
+			);
+			expect(internalPlanStorage).not.toHaveBeenCalled();
+		});
+	}
+	it("denies tedi principals even with platform scope", async () => {
+		const ctx = {
+			...context(["platform:admin"]),
+			authType: "tedi",
+			tediId: "tedi-test",
+			tediScopes: ["platform:admin"],
+		} as BaseContext;
+		const client = createRouterClient(billingContractRouter, { context: ctx });
+		await expect(client.assignInternalPlan(assignment)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		expect(internalPlanStorage).not.toHaveBeenCalled();
+	});
+	it("admits the platform operator and records its actor", async () => {
+		const ctx = context(["platform:admin"]);
+		internalPlanStorage.mockRejectedValueOnce(new Error("storage boundary"));
+		const client = createRouterClient(billingContractRouter, { context: ctx });
+		await expect(client.assignInternalPlan(assignment)).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: "storage boundary",
+		});
+		expect(internalPlanStorage).toHaveBeenCalledWith(
+			ctx.db,
+			assignment,
+			{ id: "key", type: "apikey" },
+			expect.any(String),
+		);
 	});
 });

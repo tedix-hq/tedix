@@ -9,6 +9,10 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import {
+	AssignInternalPlanInputSchema,
+	AssignInternalPlanResponseSchema,
+} from "../schemas/internal-plan";
 import * as z from "zod";
 import {
 	ListProviderModelRatesInputSchema,
@@ -94,6 +98,17 @@ export const billingContract = oc
 	.errors(baseErrors)
 	.router({
 		...creditBillingActivationContract,
+		assignInternalPlan: oc
+			.route({
+				method: "POST",
+				path: "/internal-plan",
+				tags: ["internal"],
+				summary: "Assign a complimentary internal plan",
+				description:
+					"Platform billing authority: atomically assign an active internal plan and its organization features, with an immutable idempotent audit receipt. Refuses Stripe-linked accounts and in-flight reservations; never calls Stripe.",
+			})
+			.input(AssignInternalPlanInputSchema)
+			.output(AssignInternalPlanResponseSchema),
 		getInferenceSpending: oc
 			.route({
 				method: "GET",
