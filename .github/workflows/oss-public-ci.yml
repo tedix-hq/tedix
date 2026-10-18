@@ -67,6 +67,15 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: bun run verify --base "$BASE_SHA" --head "$GITHUB_SHA"
 
+      # Script-only package changes are not selected by vitest related.
+      - name: Test OS when its test setup changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- .github/workflows/oss-public-ci.yml apps/os/package.json; then
+            bun run --cwd apps/os test:run
+          fi
+
       - name: Retain full failed gate logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
