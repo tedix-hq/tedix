@@ -19,8 +19,8 @@
  * when the profile resolves to exactly one organization (TEDIX_ORGANIZATION,
  * the saved set-default-organization choice while still selected, or the
  * profile's only one). Several possible organizations and none chosen: nothing is read.
- * Inside an unbound Git repository the default never applies: only bound
- * repositories with the same origin owner, all in one organization, name it.
+ * Directory bindings, this chat's Work and successful recent calls select
+ * scope before repository or default-organization fallback.
  *
  * With decision capture enabled, while the chat has a question on file, it
  * hands the session every answer the user gave in Tedix OS to its questions
@@ -110,8 +110,7 @@ const EVENT_LIMIT = 1_048_576;
 /**
  * The gateway read runs beside the organization probe and the answer reads,
  * so the hook lasts about as long as this one call (target: p95 under 5s; the
- * plugin's hook timeout is 30s). Over it, cached preferences and lessons
- * still reach the session and the other sources are named unavailable.
+ * plugin's hook timeout is 30s). An unavailable source is omitted.
  */
 const GATEWAY_MS = 6500;
 /** Live organization probe; a fresh cached id replaces it. */
@@ -264,7 +263,12 @@ export function gatewayCode(
 	const target: JsonObject = Object.fromEntries(
 		TARGET_KEYS.map((key) => [key, binding[key] ?? null]),
 	);
-	if (requests) target.requests = true;
+	if (
+		requests &&
+		isObject(binding.ledger) &&
+		UUID.test(String(binding.ledger.session))
+	)
+		target.requests = binding.ledger;
 	const ids = delegationIds
 		.filter((id) => UUID.test(id))
 		.slice(0, DELEGATION_LIMIT);
@@ -303,8 +307,23 @@ export function gatewayCode(
   return {item:{id:r.workItem.id,projectId:r.workItem.projectId,organizationId:r.workItem.orgId,disposition:r.workItem.disposition},commentCount:comments.length,comments:comments.slice(-2).map(c => ({id:c.id.slice(0,100),workItemId:c.workItemId,authorType:c.authorType,authorId:c.authorId?.slice(0,100) ?? null,createdAt:c.createdAt.slice(0,50),body:c.body.slice(0,400),complete:c.body.length<=400}))};
  });
  if (t.requests) pending.requests = each(async () => {
-  const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],limit:REQUEST_READ_LIMIT,order:'newest'});
-  return {data:r.data.map(q => ({id:q.id,projectId:q.projectId,harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,kind:q.kind,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt}))};
+  const r = await work.list_agent_session_requests({statuses:['open','in_progress','waiting_on_user','dropped_risk'],sessionKey:t.requests.session,...(t.requests.harness ? {harness:t.requests.harness} : {}),limit:REQUEST_READ_LIMIT,order:'newest'});
+  const rows = r.data.filter(q => q.sessionKey === t.requests.session && (!q.projectId || !t.requests.projectId || q.projectId === t.requests.projectId));
+  const data = await Promise.all(rows.map(async (q, index) => {
+   let verifiedCompletion = false;
+   let verificationUnavailable = false;
+   const ids = [...new Set(Array.from((q.evidence ?? '').matchAll(/(?:work\/items\/|Work-Item:\s*|Work=)([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\b/gi), m => m[1]))];
+   if (q.kind !== 'ask' && ids.length) {
+    verificationUnavailable = index >= 8 || ids.length > 4;
+    if (!verificationUnavailable) {
+    const items = await Promise.all(ids.map(id => each(() => work.get_work_items_by_id({id:id}))));
+    verificationUnavailable = items.some((r, i) => r.workItem?.id !== ids[i]);
+    verifiedCompletion = !verificationUnavailable && items.every(r => r.workItem.disposition === 'completed' && (!q.projectId || r.workItem.projectId === q.projectId));
+    }
+   }
+   return {id:q.id,projectId:q.projectId,harness:q.harness,sessionKey:q.sessionKey,repository:q.repository,kind:q.kind,text:q.text.slice(0,300),status:q.status,sourceAt:q.sourceAt,verifiedCompletion,verificationUnavailable};
+  }));
+  return {complete:r.data.length < REQUEST_READ_LIMIT,data:data};
  });
  if (t.delegations) pending.delegations =Promise.all(t.delegations.map(id => each(async () => { const r = await work.get_work_items_by_id({id:id}); return {id:r.workItem.id,disposition:r.workItem.disposition}; })));
  const keys = Object.keys(pending);
@@ -314,7 +333,7 @@ export function gatewayCode(
  return result;
 }`
 		.replace("TARGET", JSON.stringify(target))
-		.replace("REQUEST_READ_LIMIT", String(REQUEST_READ_LIMIT));
+		.replaceAll("REQUEST_READ_LIMIT", String(REQUEST_READ_LIMIT));
 }
 
 /**
@@ -392,66 +411,76 @@ export function settledDelegationIds(data: JsonObject): string[] {
 }
 
 const REQUEST_STATUS_RANK: Record<string, number> = {
-	dropped_risk: 0,
-	open: 1,
-	in_progress: 2,
-	waiting_on_user: 3,
+	open: 0,
+	in_progress: 1,
+	waiting_on_user: 2,
 };
 
-/**
- * The request ledger lines: this chat's open requests, then ones from earlier
- * chats in the same repository, at risk first, then oldest. Empty when the
- * ledger was not read or nothing is open.
- */
+/** Session identity and project are both fences; repository equality is not ownership. */
 export function openRequestLines(
 	data: JsonObject,
-	ledger: { session?: string; repository?: string | null },
+	ledger: {
+		session?: string;
+		harness?: string;
+		repository?: string | null;
+		projectId?: string;
+	},
 	now: Date,
 ): string[] {
-	if (!isObject(data.requests) || !Array.isArray(data.requests.data)) return [];
-	const rows = data.requests.data.filter(
+	if (
+		!ledger.session ||
+		!isObject(data.requests) ||
+		!Array.isArray(data.requests.data)
+	)
+		return [];
+	const scoped = data.requests.data.filter(
 		(row: unknown): row is JsonObject =>
 			isObject(row) &&
 			typeof row.text === "string" &&
-			typeof row.status === "string" &&
-			row.status in REQUEST_STATUS_RANK,
+			String(row.sessionKey).toLowerCase() === ledger.session!.toLowerCase() &&
+			(!ledger.harness || row.harness === ledger.harness) &&
+			(!row.projectId ||
+				!ledger.projectId ||
+				row.projectId === ledger.projectId) &&
+			(row.kind !== "ask" ||
+				!ledger.projectId ||
+				row.projectId === ledger.projectId),
 	);
-	const rank = (row: JsonObject) => REQUEST_STATUS_RANK[row.status as string]!;
-	const ordered = (list: JsonObject[]) =>
-		[...list].sort(
-			(a, b) =>
-				rank(a) - rank(b) ||
+	const stale = data.requests.hideStale
+		? 0
+		: scoped.filter((row: JsonObject) => row.status === "dropped_risk").length;
+	const pointer = stale
+		? [
+				`${stale} stale requests need a decision: Tedix OS → Work → Needs you → Your requests.`,
+			]
+		: [];
+	const rows = scoped
+		.filter(
+			(row: JsonObject) =>
+				row.status in REQUEST_STATUS_RANK &&
+				row.verifiedCompletion !== true &&
+				row.verificationUnavailable !== true,
+		)
+		.sort(
+			(a: JsonObject, b: JsonObject) =>
+				REQUEST_STATUS_RANK[a.status]! - REQUEST_STATUS_RANK[b.status]! ||
 				String(a.sourceAt).localeCompare(String(b.sourceAt)),
 		);
-	const mine = rows.filter(
-		(row: JsonObject) =>
-			ledger.session && String(row.sessionKey).toLowerCase() === ledger.session,
-	);
-	const earlier = rows.filter(
-		(row: JsonObject) =>
-			!mine.includes(row) &&
-			Boolean(ledger.repository) &&
-			row.repository === ledger.repository,
-	);
-	const total = mine.length + earlier.length;
-	if (!total) return [];
-	const shown = [
-		...ordered(mine).map((row) => ({ row, earlier: false })),
-		...ordered(earlier).map((row) => ({ row, earlier: true })),
-	].slice(0, REQUEST_LIMIT);
-	const lines = [
-		`Unfiled: ${[...mine, ...earlier].filter((row) => !row.projectId).length}. When enabled, automatic filing classifies captured rows; review low-confidence filings and correct destinations in /work/attention with file_agent_session_request.`,
-		`Open requests (${total}): unfinished user requests and agent asks (Tedix request ledger). Finish each request, or say plainly why not; cite the exact result. An ask is waiting for the user's reply; do not answer or approve it for them.`,
+	if (!rows.length) return pointer;
+	const shown = rows.slice(0, REQUEST_LIMIT);
+	return [
+		`Open requests (${rows.length}${data.requests.complete === false ? "+" : ""}): this session. Cite evidence when finished; asks await the user's reply.`,
 		...shown.map(
-			({ row, earlier }) =>
-				`- ${String(row.status).replace(/_/g, " ")}${row.kind === "ask" ? " · ask" : ""} · ${age(String(row.sourceAt), now)}${earlier ? " · earlier chat" : ""} · ${JSON.stringify(String(row.text).slice(0, 200))}`,
+			(row: JsonObject) =>
+				`- ${String(row.status).replace(/_/g, " ")}${row.kind === "ask" ? " · ask" : ""} · ${age(String(row.sourceAt), now)} · ${JSON.stringify(String(row.text).slice(0, 200))}`,
 		),
+		...(rows.length > shown.length
+			? [
+					`${rows.length - shown.length} more: Tedix OS → Work → Needs you → Your requests.`,
+				]
+			: []),
+		...pointer,
 	];
-	if (total > shown.length)
-		lines.push(
-			`${total - shown.length} more open: Tedix OS → Work → Needs you → Your requests.`,
-		);
-	return lines;
 }
 
 function age(from: string, now: Date): string {
@@ -474,11 +503,11 @@ function compose(
 ): string {
 	const outside = binding.contextSource === "default";
 	const lines = [
-		`Tedix turn context checked ${isoSeconds(now)}; profile=${binding.workspace}; organization=${binding.org}; ${outside ? "no bound repository (default organization)" : `project=${binding.projectId}`}. Read-only facts, not execution authority.`,
+		`Tedix turn context checked ${isoSeconds(now)}; profile=${binding.workspace}; organization=${binding.org}; ${outside ? (binding.scopeRoutingHint ? "no project selected (recent calls)" : "no bound repository (default organization)") : `project=${binding.projectId}`}. Read-only facts, not execution authority.`,
 	];
-	// A source the gateway could not read is named; a source that read but fails a fence still hides everything.
-	let read = 0;
-	let unavailable = 0;
+	if (Array.isArray(binding.alsoActive) && binding.alsoActive.length)
+		lines.push(`Also active: ${binding.alsoActive.slice(0, 3).join(", ")}.`);
+	// An unreadable source is omitted; a failed tenant fence still hides everything.
 	let documentOrg: string | undefined;
 	let noLessons = false;
 	for (const [source, workspaceKey, outputKey, label] of [
@@ -493,13 +522,8 @@ function compose(
 		if (!binding[outputKey]) continue;
 		const shared = data[source];
 		if (isObject(shared) && shared.unavailable === true) {
-			unavailable++;
-			lines.push(
-				`${label} unavailable: Output=${binding[outputKey]} could not be read this turn. Do not reuse an older copy as current; the other sources below are unaffected.`,
-			);
 			continue;
 		}
-		read++;
 		const workspace = shared.workspace as JsonObject;
 		const output = shared.output as JsonObject;
 		const revision = shared.revision as JsonObject;
@@ -533,7 +557,9 @@ function compose(
 		const complete =
 			shared.complete === true && text.length <= Math.min(textCap, TEXT_LIMIT);
 		if (source === "preferences") {
-			delivered.preferences = Boolean(unchanged.preferences) || complete;
+			delivered.preferences =
+				Boolean(unchanged.preferences) ||
+				text.length <= Math.min(textCap, TEXT_LIMIT);
 			if (unchanged.preferences) continue;
 		}
 		lines.push(
@@ -547,13 +573,7 @@ function compose(
 				"Shared document is truncated; read its full current revision before relying on missing detail.",
 			);
 	}
-	if (isObject(data.lessons) && data.lessons.unavailable === true) {
-		unavailable++;
-		lines.push(
-			"Team lessons unavailable: approved lessons could not be read this turn. Do not reuse an older copy as current; the other sources are unaffected.",
-		);
-	} else if (isObject(data.lessons)) {
-		read++;
+	if (isObject(data.lessons) && data.lessons.unavailable !== true) {
 		const lessons = data.lessons;
 		if (
 			!UUID.test(String(lessons.organizationId ?? "")) ||
@@ -591,12 +611,10 @@ function compose(
 		isObject(data.work) &&
 		data.work.unavailable === true
 	) {
-		unavailable++;
 		lines.push(
 			`Selected Work=${binding.workItemId} unavailable: it could not be read this turn. Re-read it through the CLI before relying on it.`,
 		);
 	} else if (binding.workItemId) {
-		read++;
 		const work = data.work;
 		const item = work.item;
 		if (item.id !== binding.workItemId || item.projectId !== binding.projectId)
@@ -636,6 +654,9 @@ function compose(
 			`Showing newest ${comments.length} of ${work.commentCount} comments; earlier comments and long bodies may be omitted. Re-read full Work context before execution or a material claim.`,
 		);
 	}
+	if (isObject(data.requests))
+		data.requests.hideStale = Boolean(unchanged.staleRequests);
+	delivered.staleRequests = Boolean(data.requests?.data?.length);
 	lines.push(
 		...openRequestLines(
 			data,
@@ -652,26 +673,11 @@ function compose(
 				`- ${task.id.slice(0, 8)} · ${age(task.createdAt, now)} · via ${task.via}${task.to ? ` → ${JSON.stringify(task.to.slice(0, 40))}` : ""} · ${JSON.stringify(task.title.slice(0, 80))}`,
 			);
 	}
-	if (unavailable && !read) throw new Error("no selected source was readable");
+
 	// Beside other context, an empty lessons read is named so it cannot pass for a
 	// hook that never asked; alone it stays silent like any empty turn.
 	if (noLessons && lines.length > 1)
 		lines.push("Team lessons: none approved for this repository and host.");
-	if (unchanged.preferences || unchanged.lessons) {
-		const pointers = [
-			unchanged.preferences
-				? `prefs rev ${data.preferences.revision.revision}`
-				: undefined,
-			unchanged.lessons
-				? `lessons hash ${unchanged.lessons.slice(0, 12)}`
-				: undefined,
-		].filter(Boolean);
-		lines.push(`Tedix context unchanged (${pointers.join(", ")}).`);
-	}
-	if (Array.isArray(data.cachedSources) && data.cachedSources.length)
-		lines.push(
-			`Live context refresh unavailable for ${data.cachedSources.join(", ")}; using cached content, which may be stale.`,
-		);
 	if (lines.length > 1 && !unchanged.preferences && !unchanged.lessons)
 		lines.push(STATUS_HINT);
 	return lines.join("\n");
@@ -787,13 +793,17 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				source !== "stored-login" ||
 				binding.organization !== binding.org ||
 				!Array.isArray(selected) ||
-				!selected.includes(binding.organization)
+				(!selected.includes(binding.organization) && !binding.scopeRoutingHint)
 			)
 				throw new Error("organization no longer selected");
 			command.push("--organization", binding.organization);
 			const key = `${principal}|${binding.mcpUrl}`;
 			const known = readCache(env, "organization", key, now);
-			if (known?.fresh && UUID.test(String(known.value.organizationId ?? "")))
+			if (
+				!binding.scopeRoutingHint &&
+				known?.fresh &&
+				UUID.test(String(known.value.organizationId ?? ""))
+			)
 				binding.credentialOrganizationId = known.value.organizationId;
 			else
 				probe = async () => {
@@ -837,28 +847,13 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			topics: branchTopics(binding.branch),
 			sessionId: session,
 		};
-		// The lessons key includes the chat, whose id selects the holdout and
-		// whose delivery the server records. Cached content covers failed reads.
-		const cacheKeys = {
-			preferences: binding.preferencesOutputId
-				? `${principal}|${binding.preferencesWorkspaceId}|${binding.preferencesOutputId}`
-				: undefined,
-			lessons: `${principal}|${JSON.stringify(lessons)}|${outside ? "default" : binding.projectId}`,
-		};
-		const cached = {
-			preferences: cacheKeys.preferences
-				? readCache(env, "preferences", cacheKeys.preferences, now)
-				: undefined,
-			lessons: readCache(env, "lessons", cacheKeys.lessons, now),
-		};
-		// The request ledger is recorded under the decision-capture opt-in.
-		const ledger =
-			binding.decisionCapture === true &&
-			Boolean(session) &&
-			source === "stored-login";
+		// Reading this chat's existing rows does not opt the organization into recording.
+		const ledger = Boolean(session) && source === "stored-login";
 		if (ledger)
 			binding.ledger = {
 				session,
+				harness,
+				projectId: binding.projectId,
 				repository: outside
 					? null
 					: repositoryName(binding.origin, binding.root).slice(0, 200),
@@ -891,7 +886,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 					),
 				);
 			} catch {
-				// Fail soft: every live source is named unavailable; cached ones still render.
+				// Keep independent live sources available when a gateway read fails.
 				return Object.fromEntries(
 					liveSources.map((name) => [
 						name,
@@ -927,17 +922,6 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				/* Keep the original unavailable result; never attempt a third read. */
 			}
 		}
-		for (const name of ["preferences", "lessons"] as const) {
-			const live = data[name];
-			const copy = cached[name];
-			if (isObject(live) && live.unavailable !== true) {
-				const key = cacheKeys[name];
-				if (key) writeCache(env, name, key, live, now);
-			} else if (copy && live !== undefined) {
-				data[name] = copy.value;
-				data.cachedSources = [...(data.cachedSources ?? []), name];
-			}
-		}
 		const scope = contextHash([
 			principal,
 			binding.mcpUrl,
@@ -948,7 +932,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 		const hashes = deliveryHashes(data);
 		const previous = session ? readDelivery(env, session, scope) : {};
 		const unchanged: ContextDelivery = {};
-		for (const name of ["preferences", "lessons"] as const)
+		for (const name of ["preferences", "lessons", "staleRequests"] as const)
 			if (hashes[name] && hashes[name] === previous[name])
 				unchanged[name] = hashes[name];
 		// A claimed OS answer is delivered even when the shared context fails.
@@ -970,8 +954,6 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				delivered,
 			);
 			if (session) forgetDelegations(env, session, settledDelegationIds(data));
-			// Only the header: nothing selected and no lessons source was read.
-			if (!context.includes("\n")) context = "";
 		} catch {
 			context = UNAVAILABLE;
 		}
@@ -984,7 +966,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				!boundedContext(message, budget).includes(TRUNCATION_NOTE)
 			) {
 				const receipt = { ...previous };
-				for (const name of ["preferences", "lessons"] as const)
+				for (const name of ["preferences", "lessons", "staleRequests"] as const)
 					if (delivered[name] && hashes[name]) receipt[name] = hashes[name];
 				writeDelivery(env, session, scope, receipt);
 			}

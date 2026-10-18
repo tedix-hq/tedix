@@ -44,6 +44,11 @@ test("reads only cited commits available at the event time and labels file evide
 	const text = `Fixed (${sha.slice(0, 8)}). commit ${sha}\n\`${blob}\` \`deadbeef\``;
 	const result = referencedCommitEvidence(root, text, "2020-01-02T00:00:00Z");
 	expect(result).toContain(`Commit ${sha}`);
+	expect(result).toContain("not verified on origin/main");
+	git("update-ref", "refs/remotes/origin/main", sha);
+	expect(
+		referencedCommitEvidence(root, text, "2020-01-02T00:00:00Z"),
+	).toContain("reachable from local origin/main");
 	expect(result.match(/Commit /g)).toHaveLength(1);
 	expect(result).toContain("Fix &lt;scope&gt;");
 	expect(result).toContain("Validation: targeted tests passed.");

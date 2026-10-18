@@ -1,4 +1,5 @@
 /** `tedix hooks <name>`: agent-host lifecycle hooks that read the host event on stdin. */
+import { isAbsolute } from "node:path";
 import { runAgentStatus, STATUS_EVENT_LIMIT, statusLog } from "./agent-status";
 import { runAwaitDraft } from "./await-draft";
 import { runAwaitReply } from "./await-reply";
@@ -61,11 +62,17 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		// An unreadable event is handled like a malformed one below.
 		stdin = "\u0000";
 	}
+	let cwd = process.cwd();
+	try {
+		const event = JSON.parse(stdin);
+		if (typeof event.cwd === "string" && isAbsolute(event.cwd)) cwd = event.cwd;
+	} catch {}
 	const deps: HookDeps = {
 		env: process.env,
 		stdin,
-		cwd: process.cwd(),
-		read: cliRead,
+		cwd,
+		read: (args, timeout, input, options) =>
+			cliRead(args, timeout, input, { cwd, ...options }),
 		write: (line) => console.log(line),
 	};
 	if (name === "status") {

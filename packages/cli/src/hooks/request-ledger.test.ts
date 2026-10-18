@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { deliveryHashes } from "./context-delivery";
 import type { JsonObject } from "./hook-io";
-import { openRequestLines } from "./prompt-context";
+import { gatewayCode, openRequestLines, render } from "./prompt-context";
 import {
 	ledgerText,
 	runRequestLedger,
@@ -290,7 +291,7 @@ describe("open request lines", () => {
 		...overrides,
 	});
 
-	test("lists this chat first, at risk first, then earlier chats", () => {
+	test("lists only this session and omits dropped risk and other chats", () => {
 		const lines = openRequestLines(
 			{
 				requests: {
@@ -305,13 +306,11 @@ describe("open request lines", () => {
 			{ session: SESSION, repository: "widgets" },
 			now,
 		);
-		expect(lines[0]).toStartWith("Unfiled: 3.");
-		expect(lines[1]).toStartWith("Open requests (3):");
-		expect(lines.slice(2)).toEqual([
-			'- dropped risk · 2h · "Answer the build question"',
-			'- open · 3h · "Add a changeset"',
-			'- open · 2h · earlier chat · "Ship the docs"',
-		]);
+		expect(lines[0]).toStartWith("Open requests (1):");
+		expect(lines.slice(1, 2)).toEqual(['- open · 3h · "Add a changeset"']);
+		expect(lines.at(-1)).toContain("1 stale requests need a decision");
+		expect(lines.join("\n")).not.toContain("Answer the build question");
+		expect(lines.join("\n")).not.toContain("Unfiled");
 	});
 
 	test("caps the list and points to Tedix OS", () => {
@@ -323,8 +322,8 @@ describe("open request lines", () => {
 			{ session: SESSION, repository: "widgets" },
 			now,
 		);
-		expect(lines).toHaveLength(8);
-		expect(lines.at(-1)).toContain("2 more open");
+		expect(lines).toHaveLength(7);
+		expect(lines.at(-1)).toContain("2 more:");
 	});
 
 	test("says nothing when the ledger is unavailable or empty", () => {
@@ -589,4 +588,126 @@ test("Codex capture keeps visible commentary and final text only", () => {
 		"Checking the requested result.\n\nThe result has been checked.",
 	);
 	expect(JSON.stringify(turn)).not.toContain("Internal analysis marker");
+});
+
+test("request projection fences session, harness, project, completion and preserves approval asks", () => {
+	const base = {
+		harness: "claude-code",
+		sessionKey: SESSION,
+		projectId: "project-orchid",
+		text: "Await approval",
+		status: "waiting_on_user",
+		kind: "ask",
+		sourceAt: "2026-10-06T10:00:00Z",
+	};
+	const requests = {
+		data: [
+			base,
+			{ ...base, projectId: "project-cedar", text: "Other project" },
+			{ ...base, sessionKey: OTHER, text: "Other chat" },
+			{ ...base, harness: "codex", text: "Other host" },
+			{ ...base, kind: "request", text: "Finished", verifiedCompletion: true },
+			{ ...base, kind: "request", text: "Still open", status: "in_progress" },
+		],
+	};
+	const lines = openRequestLines(
+		{ requests },
+		{ session: SESSION, harness: "claude-code", projectId: "project-orchid" },
+		new Date("2026-10-06T12:00:00Z"),
+	);
+	expect(lines[0]).toStartWith("Open requests (2):");
+	expect(lines.join("\n")).toContain("Await approval");
+	expect(lines.join("\n")).toContain("Still open");
+	expect(lines.join("\n")).not.toMatch(/Other|Finished|Unfiled/);
+});
+
+test("gateway verifies linked Work before showing a request, using one scoped snapshot", async () => {
+	const workId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	const projectId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+	const row = {
+		id: "request-fixture",
+		projectId,
+		harness: "claude-code",
+		sessionKey: SESSION,
+		kind: "request",
+		text: "Deliver the result",
+		status: "in_progress",
+		sourceAt: "2026-10-06T10:00:00Z",
+		evidence: `Work=${workId}`,
+	};
+	const ledger = { session: SESSION, harness: "claude-code", projectId };
+	const queries: JsonObject[] = [];
+	const code = gatewayCode({ ledger }, undefined, [], true);
+	const run = new Function("work", `return (${code})();`);
+	const data = await run({
+		list_agent_session_requests: async (input: JsonObject) => {
+			queries.push(input);
+			return {
+				data: [
+					row,
+					{
+						...row,
+						id: "ask-fixture",
+						kind: "ask",
+						text: "Approve publication",
+						status: "waiting_on_user",
+					},
+					{
+						...row,
+						id: "unfinished-fixture",
+						evidence: null,
+						text: "No proof yet",
+					},
+				],
+			};
+		},
+		get_work_items_by_id: async () => ({
+			workItem: { id: workId, projectId, disposition: "completed" },
+		}),
+	});
+	expect(queries).toEqual([
+		{
+			statuses: ["open", "in_progress", "waiting_on_user", "dropped_risk"],
+			sessionKey: SESSION,
+			harness: "claude-code",
+			limit: 30,
+			order: "newest",
+		},
+	]);
+	const lines = openRequestLines(data, ledger, new Date());
+	expect(lines[0]).toStartWith("Open requests (2):");
+	expect(lines.join("\n")).not.toContain("Deliver the result");
+	expect(lines.join("\n")).toContain("Approve publication");
+	expect(lines.join("\n")).toContain("No proof yet");
+});
+
+test("stale requests surface once as a pointer and never replay their text", () => {
+	const data = {
+		requests: {
+			data: [
+				{
+					id: "stale-fixture",
+					sessionKey: SESSION,
+					status: "dropped_risk",
+					kind: "request",
+					text: "Irrelevant old request",
+					sourceAt: "2026-10-06T10:00:00Z",
+				},
+			],
+		},
+	};
+	const binding = { ...BINDING, ledger: { session: SESSION } };
+	const first = render(binding, data, new Date());
+	expect(first).toContain("1 stale requests need a decision");
+	expect(first).not.toContain("Irrelevant old request");
+	const next = render(
+		binding,
+		data,
+		new Date(),
+		6400,
+		[],
+		deliveryHashes(data),
+	);
+	expect(next).not.toContain("stale requests");
+	expect(next.split("\n").length).toBeLessThanOrEqual(8);
 });

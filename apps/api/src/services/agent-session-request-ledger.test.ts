@@ -1,3 +1,4 @@
+import { settleRequestsWithCompletedWork } from "./agent-session-request-completion";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { DatabaseSync } from "node:sqlite";
 import { listAgentSessionRequests } from "@tedix/db/queries/agent-session-requests";
@@ -1816,4 +1817,82 @@ it("rebuilds derived rows after a failed event and later processed work", async 
 		{ limit: 2, now: () => T0 },
 	);
 	expect((await rows(db))[0]?.status).toBe("done");
+});
+
+it("settles only this session's requests with completed Work explicitly linked in saved evidence", async () => {
+	const db = fixture();
+	const completed = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	const pending = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+	const foreign = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+	await db.insert(workItems).values([
+		{
+			id: completed,
+			orgId: SCOPE.organizationId,
+			title: "Fictional delivered result",
+			disposition: "completed",
+			projectId: "project-orchid",
+			createdAt: T0,
+		},
+		{
+			id: pending,
+			orgId: SCOPE.organizationId,
+			title: "Fictional unfinished result",
+			disposition: "accepted",
+			projectId: "project-orchid",
+			createdAt: T0,
+		},
+		{
+			id: foreign,
+			orgId: "org-cedar",
+			title: "Another organization",
+			disposition: "completed",
+			projectId: "project-orchid",
+			createdAt: T0,
+		},
+	]);
+	const cases = [
+		{ id: "verified", evidence: `Work=${completed}` },
+		{ id: "pending", evidence: `Work=${pending}` },
+		{ id: "foreign", evidence: `Work=${foreign}` },
+		{ id: "missing-evidence", evidence: null },
+		{ id: "ask", evidence: `Work=${completed}`, kind: "ask" as const },
+		{
+			id: "other-session",
+			evidence: `Work=${completed}`,
+			sessionKey: "other-session",
+		},
+		{
+			id: "other-project",
+			evidence: `Work=${completed}`,
+			projectId: "project-cedar",
+		},
+		{ id: "partial", evidence: `Work=${completed} Work=${pending}` },
+	];
+	for (const c of cases)
+		await db.insert(agentSessionRequests).values({
+			...SCOPE,
+			projectId: "project-orchid",
+			kind: "request" as const,
+			text: c.id,
+			status: "open" as const,
+			sourceAt: T0,
+			sourceKey: c.id,
+			statusChangedAt: T0,
+			createdAt: T0,
+			updatedAt: T0,
+			...c,
+		});
+	const before = await rows(db);
+	const result = await settleRequestsWithCompletedWork(
+		db,
+		{ ...SCOPE, now: T0 },
+		before,
+	);
+	expect([...result]).toEqual(["verified"]);
+	const after = await rows(db);
+	expect(after.find((row) => row.id === "verified")).toMatchObject({
+		status: "done",
+		evidence: expect.stringContaining(completed),
+	});
+	expect(after.filter((row) => row.status === "open")).toHaveLength(7);
 });

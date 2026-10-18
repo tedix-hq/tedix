@@ -271,7 +271,7 @@ export function readJsonChild(
 		return Promise.reject(new Error("Invalid CLI read timeout"));
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
-			env: options.env ?? { ...process.env },
+			env: { ...(options.env ?? process.env), TEDIX_HOOK_READ: "1" },
 			...(options.cwd ? { cwd: options.cwd } : {}),
 			detached: process.platform !== "win32",
 			stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],

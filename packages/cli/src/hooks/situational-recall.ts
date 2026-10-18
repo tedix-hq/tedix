@@ -9,12 +9,11 @@ import {
 	renderRecall,
 	type RecallSituation,
 } from "@tedix/context-core/situational-recall";
-import { readCache, writeCache } from "./context-cache";
 import { harnessOf } from "./agent-status";
 import { hostEvent, insideRoot, PROFILE, type HookDeps } from "./hook-io";
 import { repoSlug } from "./prompt-context";
 
-/** No path, command or brief text leaves the local matcher. Cache is identity/tenant/repo scoped. */
+/** No path, command or brief text leaves the local matcher. */
 export async function recallForSituation(
 	deps: HookDeps,
 	situation: RecallSituation,
@@ -89,6 +88,7 @@ export async function recallForSituation(
 			throw new Error("Recall context unavailable");
 		if (
 			binding.organization &&
+			!binding.scopeRoutingHint &&
 			!auth.storedLogin?.accessToken?.selectedOrganizations?.includes(
 				binding.organization,
 			)
@@ -97,39 +97,22 @@ export async function recallForSituation(
 		if (!binding.organization && auth.storedLogin?.org !== binding.org)
 			throw new Error("Recall context unavailable");
 	}
-	const identity = external
-		? [auth.wouldUse, auth.externalAgent.organizationId]
-		: [auth.storedLogin?.loginId, binding.org];
 	const repo =
 		repoSlug(binding.origin) ?? briefRepository(situation.text ?? "");
-	const now = (deps.now ?? (() => new Date()))();
-	const key = JSON.stringify([
-		binding.workspace,
-		binding.org,
-		identity,
-		auth.mcpUrl,
-		repo,
-		harness,
-	]);
-	let catalog = readCache(deps.env, "recall", key, now)?.value;
-	if (!catalog) {
-		catalog = await deps.read(
-			[
-				...command,
-				"code",
-				`async () => await agent.get_agent_session_lessons(${JSON.stringify({ harness, repo, catalog: true })})`,
-			],
-			5000,
-		);
-		const parsed = GetAgentSessionLessonsResultSchema.parse(catalog);
-		if (
-			binding.credentialOrganizationId &&
-			parsed.organizationId !== binding.credentialOrganizationId
-		)
-			throw new Error("Recall context unavailable");
-		writeCache(deps.env, "recall", key, catalog, now);
-	}
+	const catalog = await deps.read(
+		[
+			...command,
+			"code",
+			`async () => await agent.get_agent_session_lessons(${JSON.stringify({ harness, repo, catalog: true })})`,
+		],
+		5000,
+	);
 	const parsed = GetAgentSessionLessonsResultSchema.parse(catalog);
+	if (
+		binding.credentialOrganizationId &&
+		parsed.organizationId !== binding.credentialOrganizationId
+	)
+		throw new Error("Recall context unavailable");
 	if (
 		options.expectedOrganizationId &&
 		parsed.organizationId !== options.expectedOrganizationId

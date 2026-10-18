@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { recordSessionScope } from "./session-scope";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import {
 	changeAgentContext,
@@ -1239,4 +1240,100 @@ test("Claude Code session id selects chat context and conflicts with a different
 			else process.env[name] = value;
 		}
 	}
+});
+
+describe("adaptive session scope", () => {
+	const sessionId = "99999999-9999-4999-8999-999999999999";
+	const projectId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	function adaptive() {
+		const { opts } = fixture();
+		bind(opts);
+		for (const name of ["orchid", "cedar"])
+			writeWorkspaceCredentials(
+				name,
+				{
+					loginId: "fictional-user",
+					org: `org_${name}`,
+					mcpUrl: `https://${name}.example.invalid/mcp`,
+				},
+				opts,
+			);
+		const chat = { ...opts, sessionId };
+		const env = { TEDIX_AGENT_SESSION: `codex:${sessionId}` };
+		return { opts, chat, env };
+	}
+	test("successful recent calls replace a legacy login default and report another active org", () => {
+		const { opts, chat, env } = adaptive();
+		recordSessionScope({ workspace: "cedar", projectId }, env, opts);
+		recordSessionScope({ workspace: "orchid", projectId }, env, opts);
+		expect(resolveAgentContext(chat)).toMatchObject({
+			org: "org_orchid",
+			projectId,
+			alsoActive: ["org_cedar"],
+		});
+		expect(resolveAgentContext({ ...chat, sessionId: OTHER_WORK }).org).toBe(
+			"org_tedix",
+		);
+	});
+	test("directory binding wins over Work and recent calls, including a nested cwd", () => {
+		const { opts, chat, env } = adaptive();
+		recordSessionScope({ workspace: "cedar", projectId }, env, opts);
+		changeAgentContext("select", { workItemId: WORK }, chat);
+		mkdirSync(join(opts.cwd, ".tedix"));
+		writeFileSync(
+			join(opts.cwd, ".tedix", "context.json"),
+			JSON.stringify({ version: 1, workspace: "orchid", projectId }),
+		);
+		const nested = join(opts.cwd, "app");
+		mkdirSync(nested);
+		expect(resolveAgentContext({ ...chat, cwd: nested })).toMatchObject({
+			org: "org_orchid",
+			projectId,
+		});
+	});
+	test("recent calls also select scope outside any Git repository", () => {
+		const { opts, chat, env } = adaptive();
+		recordSessionScope({ workspace: "orchid", projectId }, env, opts);
+		expect(
+			resolveAgentContext({
+				...chat,
+				cwd: join(opts.cwd, ".."),
+				allowDefault: true,
+			}),
+		).toMatchObject({ org: "org_orchid", projectId, scopeRoutingHint: true });
+	});
+	test("this session's selected Work wins over a later unrelated org call", () => {
+		const { opts, chat, env } = adaptive();
+		changeAgentContext("select", { workItemId: WORK }, chat);
+		recordSessionScope({ workspace: "cedar", projectId }, env, opts);
+		expect(resolveAgentContext(chat)).toMatchObject({
+			org: "org_tedix",
+			workItemId: WORK,
+			alsoActive: ["org_cedar"],
+		});
+	});
+	test("an admitted Work scope wins until its lease ends without transferring authority", () => {
+		const { opts, chat, env } = adaptive();
+		recordSessionScope(
+			{
+				workspace: "orchid",
+				projectId,
+				workItemId: WORK,
+				heldUntil: Date.now() + 60_000,
+			},
+			env,
+			opts,
+		);
+		recordSessionScope({ workspace: "cedar", projectId }, env, opts);
+		expect(resolveAgentContext(chat)).toMatchObject({
+			org: "org_orchid",
+			workItemId: WORK,
+		});
+	});
+	test("invalid explicit directory data fails closed instead of inheriting a default", () => {
+		const { opts, chat } = adaptive();
+		mkdirSync(join(opts.cwd, ".tedix"));
+		writeFileSync(join(opts.cwd, ".tedix", "context.json"), "{}");
+		expect(resolveAgentContext(chat).status).toBe("invalid");
+	});
 });

@@ -1,4 +1,9 @@
 #!/usr/bin/env bun
+import {
+	recordSessionScope,
+	scopeFromWorkResult,
+	scopeSession,
+} from "./session-scope";
 import { decodeJwtPayload } from "./jwt-payload";
 
 import { runWhoCommand } from "./who";
@@ -1129,6 +1134,17 @@ async function main() {
 					json: options.json,
 				}),
 			);
+			if (
+				!normalized.failures &&
+				!normalized.truncated &&
+				(options.organization || !isMultiOrganizationMcpUrl(options.url))
+			) {
+				recordSessionScope({
+					workspace: workspaceName,
+					organization: options.organization,
+					...scopeFromWorkResult(normalized.value, scopeSession(process.env)),
+				});
+			}
 			const { truncationHint, failures } = normalized;
 			if (truncationHint) console.error(`\n[tedix] ${truncationHint}`);
 			if (failures) {
@@ -1267,6 +1283,12 @@ async function main() {
 			// Typed Work calls use the authenticated gateway's configured native
 			// catalog. The selected organization headers are already attached.
 			process.exitCode = await runWork(options.prompt?.trim() ?? "", {
+				recordScope: (scope) =>
+					recordSessionScope({
+						workspace: workspaceName,
+						organization: options.organization,
+						...scope,
+					}),
 				client,
 				color,
 				json: options.json,
@@ -1362,6 +1384,12 @@ async function main() {
 					...(options.limit ? { limit: options.limit } : {}),
 				},
 			});
+			if (process.exitCode === 0)
+				recordSessionScope({
+					workspace: workspaceName,
+					organization: options.organization,
+					...(options.workProject ? { projectId: options.workProject } : {}),
+				});
 			return;
 		}
 		if (command === "tedi") {
