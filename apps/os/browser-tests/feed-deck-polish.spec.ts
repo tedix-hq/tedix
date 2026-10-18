@@ -226,6 +226,29 @@ try {
 				.waitFor();
 			if (!(await story.locator(".fd-preview").count()))
 				throw new Error("Outcome lost its source preview");
+			const hitAreas = await story.evaluate((el) => {
+				const avatar = el.querySelector(".ft-avatar")!;
+				const actor = avatar.getBoundingClientRect();
+				const row = el.getBoundingClientRect();
+				return {
+					actor:
+						document
+							.elementFromPoint(
+								actor.x + actor.width / 2,
+								actor.y + actor.height / 2,
+							)
+							?.closest("button") === avatar,
+					row: Boolean(
+						document
+							.elementFromPoint(row.right - 2, row.top + 2)
+							?.closest(".ft-post-link"),
+					),
+				};
+			});
+			if (!hitAreas.actor || !hitAreas.row)
+				throw new Error(
+					`Feed row covered a nested control or lost its link: ${JSON.stringify(hitAreas)}`,
+				);
 			const hierarchy = await story.evaluate((el) => ({
 				actor: getComputedStyle(el.querySelector(".ft-byline p")!).fontWeight,
 				outcome: getComputedStyle(el.querySelector(".ft-sentence")!).fontWeight,
