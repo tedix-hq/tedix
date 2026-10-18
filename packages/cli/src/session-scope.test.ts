@@ -67,6 +67,67 @@ test("Code Mode Work results correlate only this session's live Attempt", () => 
 		scopeFromWorkResult(
 			{ ...value, attempt: { ...value.attempt, runtimeState: "settled" } },
 			session,
-		).workItemId,
-	).toBeUndefined();
+		).heldUntil,
+	).toBe(0);
+});
+
+test("heartbeat-only Code results renew scope and settlement cannot clear another held Work", () => {
+	const configDir = mkdtempSync(join(tmpdir(), "scope-heartbeat-"));
+	const env = { CODEX_THREAD_ID: session };
+	const workItemId = "22222222-2222-4222-8222-222222222222";
+	const projectId = "33333333-3333-4333-8333-333333333333";
+	try {
+		recordSessionScope(
+			{
+				workspace: "fixture",
+				projectId,
+				workItemId,
+				heldUntil: Date.now() - 1,
+			},
+			env,
+			{ configDir },
+		);
+		const attempt = {
+			workItemId,
+			externalSessionKey: `codex:${session}`,
+			runtimeState: "running",
+			expiresAt: new Date(Date.now() + 60_000).toISOString(),
+		};
+		recordSessionScope(
+			{ workspace: "fixture", ...scopeFromWorkResult(attempt, session) },
+			env,
+			{ configDir },
+		);
+		expect(readSessionScopes(session, { configDir })[0]).toMatchObject({
+			projectId,
+			workItemId,
+			heldUntil: Date.parse(attempt.expiresAt),
+		});
+		recordSessionScope(
+			{
+				workspace: "fixture",
+				workItemId: "44444444-4444-4444-8444-444444444444",
+				heldUntil: 0,
+			},
+			env,
+			{ configDir },
+		);
+		expect(readSessionScopes(session, { configDir })[0]?.heldUntil).toBe(
+			Date.parse(attempt.expiresAt),
+		);
+		recordSessionScope(
+			{
+				workspace: "fixture",
+				...scopeFromWorkResult(
+					{ ...attempt, runtimeState: "settled" },
+					session,
+				),
+			},
+			env,
+			{ configDir },
+		);
+		expect(readSessionScopes(session, { configDir })[0]?.heldUntil).toBe(0);
+	} finally {
+		rmSync(configDir, { recursive: true, force: true });
+	}
 });

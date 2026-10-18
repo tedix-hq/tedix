@@ -41,30 +41,27 @@ export function scopeFromWorkResult(
 	value: unknown,
 	session: string | undefined,
 ): Pick<SessionScope, "projectId" | "workItemId" | "heldUntil"> {
-	if (
-		!isRecord(value) ||
-		!isRecord(value.workItem) ||
-		!looksLikeUuid(String(value.workItem.projectId))
-	)
-		return {};
-	const { workItem, attempt } = value;
-	const heldUntil =
-		isRecord(attempt) && typeof attempt.expiresAt === "string"
-			? Date.parse(attempt.expiresAt)
-			: 0;
-	const held =
+	if (!isRecord(value)) return {};
+	const item = isRecord(value.workItem) ? value.workItem : {};
+	const attempt = isRecord(value.attempt) ? value.attempt : value;
+	const owned =
 		session &&
-		isRecord(attempt) &&
-		attempt.runtimeState === "running" &&
 		typeof attempt.externalSessionKey === "string" &&
-		attempt.externalSessionKey.endsWith(`:${session}`) &&
-		heldUntil > Date.now();
+		attempt.externalSessionKey.endsWith(`:${session}`);
+	const workItemId = attempt.workItemId ?? item.id;
+	const expiry =
+		typeof attempt.expiresAt === "string" ? Date.parse(attempt.expiresAt) : 0;
 	return {
-		projectId: String(workItem.projectId),
-		...(held && looksLikeUuid(String(workItem.id))
+		...(looksLikeUuid(String(item.projectId))
+			? { projectId: String(item.projectId) }
+			: {}),
+		...(owned && looksLikeUuid(String(workItemId))
 			? {
-					workItemId: String(workItem.id),
-					heldUntil,
+					workItemId: String(workItemId),
+					heldUntil:
+						attempt.runtimeState === "running" && expiry > Date.now()
+							? expiry
+							: 0,
 				}
 			: {}),
 	};
@@ -125,8 +122,14 @@ export function recordSessionScope(
 					r.workspace === input.workspace &&
 					r.organization === input.organization,
 			);
+			const update =
+				input.heldUntil === 0 &&
+				same?.workItemId &&
+				same.workItemId !== input.workItemId
+					? { workspace: input.workspace, organization: input.organization }
+					: input;
 			const next = [
-				{ ...same, ...input, at: Date.now() },
+				{ ...same, ...update, at: Date.now() },
 				...rows.filter((r) => r !== same),
 			].slice(0, 8);
 			const temporary = `${file}.${process.pid}.tmp`;
