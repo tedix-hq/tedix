@@ -251,7 +251,7 @@ const canonicalBase = canonicalOverride ?? envPublicSiteUrl;
 const canonicalUrl = canonicalBase
 	? `${canonicalBase.replace(/\/+$/, "")}${canonicalPath === "/" ? "" : canonicalPath}`
 	: new URL(canonicalPath, Astro.url.origin).toString();
-const pageCanonicalUrl = withTedixTrailingSlash(canonical ?? canonicalUrl);
+const pageCanonicalUrl = canonical ?? canonicalUrl;
 
 // siteUrl drives Emdash core's WebSite JSON-LD `url` field. Keep this as the
 // public origin/base URL; collection paths are owned by urlPattern.
