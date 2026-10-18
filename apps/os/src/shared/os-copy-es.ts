@@ -117,6 +117,8 @@ export const SPANISH_FEED_DECK_COPY = {
 		shortcuts:
 			"← Esta no · → Aprobar · E Cambiar · L Más tarde · D Decide por mí · ? Por qué",
 		left: (count: number) => `${count} pendientes`,
+		position: (current: number, total: number) => `${current} de ${total}`,
+		today: (done: number, goal: number) => `${done}/${goal} hoy`,
 		clear: "Todo decidido",
 		nextBatch: (time: string) => `Próximas tarjetas a las ${time}`,
 		dailyGoal: (done: number, goal: number) =>

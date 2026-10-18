@@ -596,7 +596,8 @@ export function WorkDecisionCard({
 							{actions
 								.filter(
 									(action) =>
-										!editing || !editAction || action.intent === "reject",
+										!(action.intent === "delegate" && action.disabled) &&
+										(!editing || !editAction || action.intent === "reject"),
 								)
 								.map((action) => (
 									<Button

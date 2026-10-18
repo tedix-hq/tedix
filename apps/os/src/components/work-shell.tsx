@@ -1,5 +1,8 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
+import { DeckRemainingContext } from "@/components/deck-presentation-context";
+import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { useDeckCount } from "@/lib/use-deck-count";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
 import { useWorkApps } from "@/lib/use-work-apps";
@@ -12,6 +15,13 @@ const WorkWebMcpTools = lazy(() =>
 
 export function WorkShell() {
 	const { apps } = useWorkApps();
+	const [remaining, setRemaining] = useState<number | null>(null);
+	const deckApp = apps.find((app) => app.role === "deck");
+	const config = DecisionDeckConfigSchema.safeParse(deckApp?.manifest.config);
+	const decisions = useDeckCount(
+		config.success ? config.data : undefined,
+		deckApp?.gadget.workspaceId,
+	);
 	const defaultView = (
 		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
 		apps.find((app) => app.role === "feed")
@@ -35,18 +45,20 @@ export function WorkShell() {
 			<Suspense fallback={null}>
 				<WorkWebMcpTools />
 			</Suspense>
-			<Outlet />
+			<DeckRemainingContext.Provider value={setRemaining}>
+				<Outlet />
+			</DeckRemainingContext.Provider>
 			<nav
 				data-slot="bottom-nav"
 				aria-label={OS_COPY.workHome.views}
-				className="sticky bottom-0 z-20 mt-auto flex shrink-0 border-kumo-line border-t bg-kumo-base pb-[env(safe-area-inset-bottom)] sm:hidden"
+				className="sticky bottom-0 z-20 mt-auto flex shrink-0 border-kumo-line border-t bg-kumo-base pb-[env(safe-area-inset-bottom)] sm:order-first sm:static sm:mt-0 sm:justify-center sm:gap-4 sm:border-t-0 sm:py-2"
 			>
 				<Link
 					to="/work"
 					search={{ view: "feed" }}
 					aria-current={feed ? "page" : undefined}
 					className={cn(
-						"flex min-h-12 flex-1 items-center justify-center no-underline",
+						"flex min-h-12 flex-1 items-center justify-center gap-2 no-underline sm:flex-none",
 						feed && "font-semibold text-kumo-brand",
 					)}
 				>
@@ -57,11 +69,20 @@ export function WorkShell() {
 					search={{ view: "deck" }}
 					aria-current={deck ? "page" : undefined}
 					className={cn(
-						"flex min-h-12 flex-1 items-center justify-center no-underline",
+						"flex min-h-12 flex-1 items-center justify-center gap-2 no-underline sm:flex-none",
 						deck && "font-semibold text-kumo-brand",
 					)}
 				>
 					{OS_COPY.workHome.deck}
+					{config.success && (
+						<span className="text-xs tabular-nums text-kumo-subtle">
+							{decisions.failed
+								? "—"
+								: decisions.pending
+									? "…"
+									: ((deck ? remaining : null) ?? decisions.count)}
+						</span>
+					)}
 				</Link>
 			</nav>
 		</div>

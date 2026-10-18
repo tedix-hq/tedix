@@ -61,11 +61,12 @@ try {
 				await page.locator(".fd-decision").waitFor();
 				const text = await page.locator("body").innerText();
 				if (
-					!(await page.locator(".fd-deck-heading h2").textContent())?.includes(
-						locale === "es"
-							? "Una decisión a la vez"
-							: "One decision at a time",
-					)
+					!(await page
+						.getByRole("button", {
+							name: locale === "es" ? "Buscar una decisión" : "Find a decision",
+							exact: true,
+						})
+						.isVisible())
 				)
 					throw new Error(
 						"Work did not land on the configured Deck in the member's locale",

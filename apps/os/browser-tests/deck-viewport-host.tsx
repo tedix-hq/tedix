@@ -6,7 +6,6 @@ import {
 	ProposerContext,
 } from "@/components/feed-deck-primitives";
 import { Button } from "@/components/kumo/button";
-import { Text } from "@/components/kumo/text";
 import { useDeckViewport } from "@/lib/use-deck-viewport";
 import "@/styles.css";
 
@@ -32,28 +31,29 @@ function RegressionDeck() {
 					padding: "20px 1rem",
 				}}
 			>
-				<nav style={{ height: 52, marginBottom: 20 }}>Feed · Deck</nav>
+				<nav
+					className="hidden sm:block"
+					style={{ height: 52, marginBottom: 20 }}
+				>
+					Feed · Deck
+				</nav>
 				<div
 					ref={ref}
 					className="feed-deck fd-deck mx-auto grid w-full min-w-0"
 				>
-					<header className="fd-deck-heading">
-						<h2>One decision at a time</h2>
-						<p>Make a few choices, then get back to your day.</p>
-					</header>
-					<div className="fd-deck-progress">14 left</div>
-					<div className="fd-deck-toolbar">
-						<Button>For you</Button>
-						<Button>What you decided</Button>
+					<div className="fd-deck-controls">
+						<div className="fd-deck-progress">1 of 14 · 0/7 today</div>
+						<FeedDeckDisclosure
+							className="fd-deck-filters"
+							title="Find a decision"
+						>
+							<div className="fd-deck-toolbar">
+								<Button>For you</Button>
+								<Button>What you decided</Button>
+							</div>
+						</FeedDeckDisclosure>
 					</div>
-					<FeedDeckDisclosure
-						className="fd-deck-filters"
-						title="Find a decision"
-					>
-						Filters
-					</FeedDeckDisclosure>
 					<div className="fd-deck-current">
-						<Text>Your call · 1 of 14</Text>
 						<ProposerContext.Provider
 							value={{
 								project: "Example Website Publishing Platform",

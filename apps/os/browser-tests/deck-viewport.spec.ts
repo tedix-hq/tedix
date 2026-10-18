@@ -85,13 +85,9 @@ try {
 						failures.push("footer outside card");
 					if (bodyRect.bottom > boundary.top + 1)
 						failures.push("body overlaps footer");
-					if (
-						parseFloat(
-							getComputedStyle(card.querySelector(".fd-card-body")!)
-								.paddingBottom,
-						) < boundary.height
-					)
-						failures.push("missing footer clearance");
+					const heading = card.querySelector('[data-slot="card-header"]')!;
+					if (heading.getBoundingClientRect().bottom > bodyRect.top + 1)
+						failures.push("body overlaps heading");
 					for (const node of body.querySelectorAll<HTMLElement>(
 						"button, input, textarea, a, p, summary",
 					)) {
@@ -223,7 +219,13 @@ try {
 		await page.setViewportSize({ width: width!, height: height! });
 		await page.goto(`${origin}/browser-tests/deck.html?long-proposal=1`);
 		await page
+			.getByRole("button", { name: "Find a decision", exact: true })
+			.click();
+		await page
 			.getByRole("button", { name: "Try examples", exact: true })
+			.click();
+		await page
+			.getByRole("button", { name: "Find a decision", exact: true })
 			.click();
 		await page.locator("[data-decision-actions]").waitFor();
 		await page.evaluate(() => document.fonts.ready);

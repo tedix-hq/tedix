@@ -91,9 +91,7 @@ it("renders an actionable approval, keeps raw arguments collapsed and never dele
 	);
 	expect(buttons.some((b) => b.textContent === "Not this")).toBe(true);
 	expect(buttons.some((b) => b.textContent === "Later")).toBe(true);
-	expect(buttons.find((b) => b.textContent === "Decide for me")?.disabled).toBe(
-		true,
-	);
+	expect(buttons.some((b) => b.textContent === "Decide for me")).toBe(false);
 	expect(host.textContent).toContain("made-up test user");
 	expect(host.textContent).not.toContain("Prepared args");
 	expect(osApi.workInteractions.respond).not.toHaveBeenCalled();

@@ -1,3 +1,4 @@
+import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { workActorReference } from "@/lib/work-actor";
 import {
 	DeckRemainingContext,
@@ -519,159 +520,142 @@ export function DecisionDeckApp({
 				data-workspace-app-entry="decision-deck"
 			>
 				<DecisionLearningFeedback eventId={sessionLearningId} />
-				<header className="fd-deck-heading">
-					<Text as="h2" tone="mono">
-						{OS_COPY.decisionDeck.title}
-					</Text>
-					<Text>{OS_COPY.decisionDeck.intro}</Text>
-				</header>
-				{mode !== "history" && (
+				<div className="fd-deck-controls">
 					<div className="fd-deck-progress" role="status">
 						<Text weight="semibold">
-							{!practiceMode &&
-							available.length === 0 &&
-							factories.sources.length > 0
-								? decisionText("From your factories")
+							{selected
+								? OS_COPY.decisionDeck.position(
+										(index % filtered.length) + 1,
+										filtered.length,
+									)
 								: OS_COPY.decisionDeck.left(filtered.length)}
+							{config.gamification &&
+								` · ${OS_COPY.decisionDeck.today(metrics.decisionsToday, config.dailyGoal)}`}
 						</Text>
-						<progress
-							aria-label={decisionText("Deck progress")}
-							max={Math.max(
-								1,
-								mode === "practice"
-									? config.examples.length
-									: (batch?.ids.length ?? 0),
-							)}
-							value={Math.max(
-								0,
-								(mode === "practice"
-									? config.examples.length
-									: (batch?.ids.length ?? 0)) - available.length,
-							)}
-							className="w-full"
-						/>
-						{config.gamification && (
-							<Text tone="secondary">
-								{OS_COPY.decisionDeck.dailyGoal(
-									metrics.decisionsToday,
-									config.dailyGoal,
-								)}{" "}
-								· {OS_COPY.decisionDeck.streak(metrics.streak)}
-							</Text>
-						)}
 					</div>
-				)}
-				<div className="fd-deck-toolbar" aria-label={decisionText("Deck view")}>
-					{[
-						"decide",
-						"history",
-						...(config.examples.length ? ["practice"] : []),
-					].map((value) => (
-						<Button
-							key={value}
-							aria-pressed={mode === value}
-							variant={mode === value ? "default" : "ghost"}
-							onClick={() => {
-								setMode(value);
-								setIndex(0);
-							}}
+					<FeedDeckDisclosure
+						className="fd-deck-filters"
+						label={OS_COPY.decisionDeck.filters}
+						title={
+							<>
+								<MagnifyingGlassIcon size={18} aria-hidden="true" />
+								<span className="sr-only">{OS_COPY.decisionDeck.filters}</span>
+							</>
+						}
+					>
+						<div
+							className="fd-deck-toolbar"
+							aria-label={decisionText("Deck view")}
 						>
-							{value === "decide"
-								? decisionText("For you")
-								: value === "history"
-									? decisionText("What you decided")
-									: decisionText("Try examples")}
-						</Button>
-					))}
+							{[
+								"decide",
+								"history",
+								...(config.examples.length ? ["practice"] : []),
+							].map((value) => (
+								<Button
+									key={value}
+									aria-pressed={mode === value}
+									variant={mode === value ? "default" : "ghost"}
+									onClick={() => {
+										setMode(value);
+										setIndex(0);
+									}}
+								>
+									{value === "decide"
+										? decisionText("For you")
+										: value === "history"
+											? decisionText("What you decided")
+											: decisionText("Try examples")}
+								</Button>
+							))}
+						</div>
+						<div className="flex flex-wrap gap-2">
+							<Select
+								value={kind}
+								onValueChange={(value) => {
+									setKind(value ?? "all");
+									setIndex(0);
+								}}
+							>
+								<SelectTrigger aria-label={decisionText("Decision kind")}>
+									<SelectValue>{KIND_LABELS[kind]}</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">
+										{decisionText("All kinds")}
+									</SelectItem>
+									{DecisionKindSchema.options.map((value) => (
+										<SelectItem key={value} value={value}>
+											{KIND_LABELS[value]}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Select
+								value={project}
+								onValueChange={(value) => {
+									setProject(value ?? "all");
+									setIndex(0);
+								}}
+							>
+								<SelectTrigger aria-label={decisionText("Decision project")}>
+									<SelectValue>
+										{project === "all"
+											? decisionText("All projects")
+											: projectLabel(project)}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">
+										{decisionText("All projects")}
+									</SelectItem>
+									{[...new Set(rows.map((row) => row.project))].map((value) => (
+										<SelectItem key={value} value={value}>
+											{projectLabel(value)}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Select
+								value={urgency}
+								onValueChange={(value) => {
+									setUrgency(value ?? "all");
+									setIndex(0);
+								}}
+							>
+								<SelectTrigger aria-label={decisionText("Decision urgency")}>
+									<SelectValue>
+										{urgency === "all"
+											? decisionText("Any urgency")
+											: urgency === "now"
+												? decisionText("Needs you now")
+												: decisionText("Can wait")}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">
+										{decisionText("Any urgency")}
+									</SelectItem>
+									<SelectItem value="now">
+										{decisionText("Needs you now")}
+									</SelectItem>
+									<SelectItem value="later">
+										{decisionText("Can wait")}
+									</SelectItem>
+								</SelectContent>
+							</Select>
+							<Input
+								aria-label={decisionText("Find decisions")}
+								placeholder={decisionText("Find a decision")}
+								value={search}
+								onChange={(event) => {
+									setSearch(event.target.value);
+									setIndex(0);
+								}}
+							/>
+						</div>
+					</FeedDeckDisclosure>
 				</div>
-				<FeedDeckDisclosure
-					className="fd-deck-filters"
-					title={OS_COPY.decisionDeck.filters}
-				>
-					<div className="flex flex-wrap gap-2">
-						<Select
-							value={kind}
-							onValueChange={(value) => {
-								setKind(value ?? "all");
-								setIndex(0);
-							}}
-						>
-							<SelectTrigger aria-label={decisionText("Decision kind")}>
-								<SelectValue>{KIND_LABELS[kind]}</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="all">{decisionText("All kinds")}</SelectItem>
-								{DecisionKindSchema.options.map((value) => (
-									<SelectItem key={value} value={value}>
-										{KIND_LABELS[value]}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<Select
-							value={project}
-							onValueChange={(value) => {
-								setProject(value ?? "all");
-								setIndex(0);
-							}}
-						>
-							<SelectTrigger aria-label={decisionText("Decision project")}>
-								<SelectValue>
-									{project === "all"
-										? decisionText("All projects")
-										: projectLabel(project)}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="all">
-									{decisionText("All projects")}
-								</SelectItem>
-								{[...new Set(rows.map((row) => row.project))].map((value) => (
-									<SelectItem key={value} value={value}>
-										{projectLabel(value)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<Select
-							value={urgency}
-							onValueChange={(value) => {
-								setUrgency(value ?? "all");
-								setIndex(0);
-							}}
-						>
-							<SelectTrigger aria-label={decisionText("Decision urgency")}>
-								<SelectValue>
-									{urgency === "all"
-										? decisionText("Any urgency")
-										: urgency === "now"
-											? decisionText("Needs you now")
-											: decisionText("Can wait")}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="all">
-									{decisionText("Any urgency")}
-								</SelectItem>
-								<SelectItem value="now">
-									{decisionText("Needs you now")}
-								</SelectItem>
-								<SelectItem value="later">
-									{decisionText("Can wait")}
-								</SelectItem>
-							</SelectContent>
-						</Select>
-						<Input
-							aria-label={decisionText("Find decisions")}
-							placeholder={decisionText("Find a decision")}
-							value={search}
-							onChange={(event) => {
-								setSearch(event.target.value);
-								setIndex(0);
-							}}
-						/>
-					</div>
-				</FeedDeckDisclosure>
 				{practiceMode && (
 					<Text role="label">
 						Practice only. Choices below stay in this preview and never approve
@@ -708,10 +692,6 @@ export function DecisionDeckApp({
 						key={`${mode}:${selected.id}:${selected.row?.request.version ?? 0}`}
 						className="fd-deck-current"
 					>
-						<Text role="label">
-							{OS_COPY.decisionDeck.cardKinds[selected.kind]} ·{" "}
-							{(index % filtered.length) + 1} of {filtered.length}
-						</Text>
 						{!usesEnvelope && expiresAt && (
 							<Text>
 								{OS_COPY.decisionDeck.expires(
@@ -957,7 +937,9 @@ export function DecisionDeckApp({
 					<FeedDeckDisclosure
 						className="fd-deck-learning"
 						label="Class readiness"
-						title={OS_COPY.feedDeckVisual.learning}
+						title={
+							<span className="text-xs">{OS_COPY.feedDeckVisual.learning}</span>
+						}
 					>
 						<Text weight="medium">
 							{classId}: {learning.unchanged}/{threshold} unchanged approvals

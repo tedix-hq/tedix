@@ -1,5 +1,4 @@
-import { DeckRemainingContext } from "@/components/deck-presentation-context";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	osQuery,
@@ -34,7 +33,6 @@ export function WorkHome({
 }) {
 	useOsLocale();
 	const { apps, pending, failed, truncated, retry } = useWorkApps();
-	const [remaining, setRemaining] = useState<number | null>(null);
 	const defaultApp =
 		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
 		(pending ? undefined : apps.find((app) => app.role === "feed"));
@@ -106,42 +104,18 @@ export function WorkHome({
 	);
 	return (
 		<Page width="full" className="fd-work-home">
-			{selected?.role !== "feed" && (
-				<nav aria-label={copy.views} className="fd-work-nav">
-					<Link href="/work?view=feed" variant="navigation">
-						{copy.feed}
-					</Link>
-					<Link
-						href="/work?view=deck"
-						variant="navigation"
-						aria-current={selected?.role === "deck" ? "page" : undefined}
-						title={decisions.more ? copy.loadedCount : undefined}
-					>
-						{copy.deck}{" "}
-						<span>
-							{!config.success || decisions.failed
-								? "—"
-								: decisions.pending
-									? "…"
-									: `${remaining ?? "…"}`}
-						</span>
-					</Link>
-				</nav>
-			)}
 			{selected ? (
-				<DeckRemainingContext.Provider value={setRemaining}>
-					<WorkspaceAppRenderer
-						key={selected.gadget.id}
-						manifest={selected.manifest}
-						workspaceId={selected.gadget.workspaceId}
-						activityFeed={{
-							filter: search.filter ?? "all",
-							onFilterChange,
-							decide,
-							apps: appLinks,
-						}}
-					/>
-				</DeckRemainingContext.Provider>
+				<WorkspaceAppRenderer
+					key={selected.gadget.id}
+					manifest={selected.manifest}
+					workspaceId={selected.gadget.workspaceId}
+					activityFeed={{
+						filter: search.filter ?? "all",
+						onFilterChange,
+						decide,
+						apps: appLinks,
+					}}
+				/>
 			) : pending ? (
 				<Text>{copy.loading}</Text>
 			) : (
