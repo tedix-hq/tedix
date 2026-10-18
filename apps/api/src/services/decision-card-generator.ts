@@ -21,7 +21,15 @@ export async function generateDecisionCard(
 		getDecisionLearningConfig(context.db, request.orgId),
 		readDraftPreferences(context.db, request.orgId, request.targetId),
 	]);
-	const env = organizationModelEnv(context.env, context.db, request.orgId);
+	let dispatched = false;
+	const env = organizationModelEnv(
+		context.env,
+		context.db,
+		request.orgId,
+		() => {
+			dispatched = true;
+		},
+	);
 	const source = JSON.stringify({
 		subject: request.subject,
 		prompt: request.prompt,
@@ -38,7 +46,12 @@ export async function generateDecisionCard(
 				model: config.preferenceModel,
 				maxTokens: 450,
 				timeoutMs: 6000,
-				onFailure,
+				onFailure: (reason) =>
+					onFailure?.(
+						reason === "model_timeout"
+							? `model_timeout:${dispatched ? "provider" : "residency_check"}`
+							: reason,
+					),
 				jsonObject: true,
 				surface: "decision-card-generator",
 				system:

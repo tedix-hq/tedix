@@ -40,7 +40,12 @@ export async function requireUnrestrictedModelEgress(
 /** Bind legacy model helpers to their actual organization without changing shared Worker env. */
 export function organizationModelEnv<
 	T extends { AI?: unknown; DB?: D1Database },
->(env: T, db: DbQueryClient, organizationId: string): T {
+>(
+	env: T,
+	db: DbQueryClient,
+	organizationId: string,
+	onDispatch?: () => void,
+): T {
 	const check = () =>
 		requireUnrestrictedModelEgress(
 			db,
@@ -57,6 +62,7 @@ export function organizationModelEnv<
 				if (property === "run" && typeof value === "function")
 					return async (...args: unknown[]) => {
 						await check();
+						onDispatch?.();
 						return value.apply(target, args);
 					};
 				return typeof value === "function" ? value.bind(target) : value;
