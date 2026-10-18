@@ -1,37 +1,23 @@
-/* Scoped to the two attention surfaces; the OS shell keeps its own palette. */
+/* Follow the resolved OS palette, including organization appearance overrides. */
 .feed-deck {
-	--fd-paper: #eef3fa;
-	--fd-surface: #ffffff;
-	--fd-ink: #18201e;
-	--fd-muted: #58635e;
-	--fd-line: #dbe2e5;
-	--fd-glow: #e5f76b;
-	--fd-glow-soft: #e5f76b66;
-	--fd-control: #19221e;
-	--fd-on-control: #ffffff;
+	--fd-paper: var(--background);
+	--fd-surface: var(--card);
+	--fd-ink: var(--foreground);
+	--fd-muted: var(--muted-foreground);
+	--fd-line: var(--border);
+	--fd-glow: var(--primary);
+	--fd-glow-soft: color-mix(in srgb, var(--primary) 16%, transparent);
+	--fd-control: var(--primary);
+	--fd-on-control: var(--primary-foreground);
 	--fd-radius: 1.75rem;
 	--fd-space: clamp(1.25rem, 4vw, 3rem);
 	--fd-proposal: clamp(1.75rem, 3.6vw, 2.75rem);
 	--fd-headline: clamp(1.25rem, 2.3vw, 1.65rem);
-	--fd-shadow: 0 20px 70px -30px #273b4a40, 0 2px 6px #273b4a06;
+	--fd-shadow: var(--shadow-tedix-raised);
 	--fd-spring: cubic-bezier(0.2, 1.35, 0.35, 1);
 	--fd-ease: cubic-bezier(0.22, 1, 0.36, 1);
 	--fd-press-duration: 120ms;
 	--fd-settle-duration: 420ms;
 	--fd-exit-duration: 220ms;
 	color: var(--fd-ink);
-}
-
-.dark .feed-deck,
-.feed-deck.dark {
-	--fd-paper: #111715;
-	--fd-surface: #1b2420;
-	--fd-ink: #edf2ed;
-	--fd-muted: #a8b6ad;
-	--fd-line: #354239;
-	--fd-glow: #e5f76b;
-	--fd-glow-soft: #d3ed5026;
-	--fd-control: #e5f76b;
-	--fd-on-control: #18201e;
-	--fd-shadow: 0 24px 80px -25px #00000080, 0 1px 0 #ffffff08 inset;
 }

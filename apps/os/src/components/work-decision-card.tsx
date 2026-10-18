@@ -26,6 +26,7 @@ import { useDecisionMotion } from "@/components/use-decision-motion";
 import { Button } from "@/components/kumo/button";
 import {
 	CardContent,
+	CardFooter,
 	CardDescription,
 	CardHeader,
 	CardTitle,
@@ -39,6 +40,7 @@ import { OS_COPY } from "@/shared/os-copy";
 import {
 	DecisionProposalBody,
 	DecisionProposalHeading,
+	decisionProposalTitle,
 } from "@/components/decision-proposal-body";
 
 export type DecisionCardKind =
@@ -121,6 +123,7 @@ export function WorkDecisionCard({
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
+	const heading = decisionProposalTitle(title);
 	const attention = useContext(DecisionAttentionContext);
 	const learnedWhy = useContext(DecisionLearningContext);
 	const shownAt = useRef(performance.now());
@@ -353,8 +356,15 @@ export function WorkDecisionCard({
 							</time>
 						) : null}
 					</CardDescription>
-					<CardTitle className="text-xl leading-snug">
-						<DecisionProposalHeading title={title} />
+					<CardTitle
+						className="text-xl leading-snug"
+						style={
+							{
+								"--fd-title-size": heading.length > 55 ? "2.2vw" : "3vw",
+							} as React.CSSProperties
+						}
+					>
+						<DecisionProposalHeading title={heading} />
 					</CardTitle>
 				</CardHeader>
 				<CardContent className="grid grid-cols-1 gap-4">
@@ -371,6 +381,9 @@ export function WorkDecisionCard({
 						</div>
 					) : (
 						(content ?? (body ? <DecisionProposalBody body={body} /> : null))
+					)}
+					{heading !== title && title.length > 90 && body !== title && (
+						<DecisionProposalBody body={title} />
 					)}
 					{kind === "question" && !disabled && !saved ? (
 						<div className="grid gap-3">
@@ -416,91 +429,6 @@ export function WorkDecisionCard({
 						</Text>
 					) : (
 						<>
-							<div
-								data-decision-actions
-								className={
-									kind === "decision" ||
-									kind === "adr" ||
-									actions.some((action) => action.description)
-										? "grid grid-cols-1 gap-3 sm:grid-cols-2"
-										: "flex flex-wrap gap-2"
-								}
-							>
-								{actions
-									.filter(
-										(action) =>
-											!editing || !editAction || action.intent === "reject",
-									)
-									.map((action) => (
-										<Button
-											key={action.id}
-											data-decision-intent={action.intent}
-											className={
-												kind === "decision" ||
-												kind === "adr" ||
-												action.description
-													? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
-													: "min-h-11 grow sm:grow-0"
-											}
-											variant={
-												(action.primary ?? action.intent === "approve")
-													? "default"
-													: "outline"
-											}
-											disabled={
-												busy ||
-												action.disabled ||
-												(kind === "question" && !answer.trim()) ||
-												(editing && !draft.trim())
-											}
-											onClick={() => choose(action)}
-										>
-											{saving ? (
-												"Saving…"
-											) : (
-												<span className="grid min-w-0 gap-1 whitespace-normal break-words">
-													<span>{action.label}</span>
-													{action.description ? (
-														<span
-															className={
-																action.intent === "approve"
-																	? "fd-action-description font-normal opacity-90"
-																	: "fd-action-description font-normal text-kumo-subtle"
-															}
-														>
-															{action.description}
-														</span>
-													) : null}
-												</span>
-											)}
-										</Button>
-									))}
-								{editing && editAction ? (
-									<Button
-										disabled={
-											busy ||
-											editAction.disabled ||
-											!draft.trim() ||
-											(draft === body && !hasEdits)
-										}
-										onClick={() => void submit(editAction)}
-									>
-										{editAction.label}
-									</Button>
-								) : null}
-								{allowEdits &&
-								(kind === "outbound" || editAction) &&
-								!disabled ? (
-									<Button
-										variant="outline"
-										className="min-h-11"
-										disabled={busy}
-										onClick={() => setEditing(!editing)}
-									>
-										{editing ? "Preview" : "Change"}
-									</Button>
-								) : null}
-							</div>
 							{actions.some((action) => action.description) && (
 								<FeedDeckDisclosure
 									className="fd-action-details"
@@ -618,6 +546,96 @@ export function WorkDecisionCard({
 						</Collapsible>
 					) : null}
 				</CardContent>
+				{!saved && (
+					<CardFooter>
+						{" "}
+						<div
+							data-decision-actions
+							className={
+								kind === "decision" ||
+								kind === "adr" ||
+								actions.some((action) => action.description)
+									? "grid grid-cols-1 gap-3 sm:grid-cols-2"
+									: "flex flex-wrap gap-2"
+							}
+						>
+							{actions
+								.filter(
+									(action) =>
+										!editing || !editAction || action.intent === "reject",
+								)
+								.map((action) => (
+									<Button
+										key={action.id}
+										data-decision-intent={action.intent}
+										className={
+											kind === "decision" ||
+											kind === "adr" ||
+											action.description
+												? "h-auto min-h-20 w-full min-w-0 whitespace-normal text-left"
+												: "min-h-11 grow sm:grow-0"
+										}
+										variant={
+											(action.primary ?? action.intent === "approve")
+												? "default"
+												: "outline"
+										}
+										disabled={
+											busy ||
+											action.disabled ||
+											(kind === "question" && !answer.trim()) ||
+											(editing && !draft.trim())
+										}
+										onClick={() => choose(action)}
+									>
+										{saving ? (
+											"Saving…"
+										) : (
+											<span className="grid min-w-0 gap-1 whitespace-normal break-words">
+												<span>{action.label}</span>
+												{action.description ? (
+													<span
+														className={
+															action.intent === "approve"
+																? "fd-action-description font-normal opacity-90"
+																: "fd-action-description font-normal text-kumo-subtle"
+														}
+													>
+														{action.description}
+													</span>
+												) : null}
+											</span>
+										)}
+									</Button>
+								))}
+							{editing && editAction ? (
+								<Button
+									disabled={
+										busy ||
+										editAction.disabled ||
+										!draft.trim() ||
+										(draft === body && !hasEdits)
+									}
+									onClick={() => void submit(editAction)}
+								>
+									{editAction.label}
+								</Button>
+							) : null}
+							{allowEdits &&
+							(kind === "outbound" || editAction) &&
+							!disabled ? (
+								<Button
+									variant="outline"
+									className="min-h-11"
+									disabled={busy}
+									onClick={() => setEditing(!editing)}
+								>
+									{editing ? "Preview" : "Change"}
+								</Button>
+							) : null}
+						</div>
+					</CardFooter>
+				)}
 			</FeedDeckCard>
 		</section>
 	);

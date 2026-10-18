@@ -77,7 +77,10 @@ export const OS_COPY = {
 			"Approve this exact Work proposal with the reason you entered?",
 	},
 	feedDeckVisual: {
-		agentSession: "Your coding assistant",
+		agentSession: "Coding assistant",
+		projectProposer: (name: string, project?: string) =>
+			`${name} (for ${project ?? "this project"})`,
+		publishHomeCta: "Publish the updated home page CTA?",
 		more: "More",
 		less: "Less",
 		source: "Open source",

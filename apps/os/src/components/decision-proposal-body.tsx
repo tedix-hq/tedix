@@ -98,3 +98,28 @@ export function DecisionProposalHeading({ title }: { title: string }) {
 		</>
 	);
 }
+
+/** Derive a bounded heading when an older request uses its full brief as title. */
+export function decisionProposalTitle(title: string): string {
+	const plain = markdownLineToPlainText(
+		title.replace(/https?:\/\/[^\s)<>]+/g, ""),
+	)
+		.replace(/\s+/g, " ")
+		.trim();
+	if (plain.length <= 90) return title.length <= 90 ? title : plain;
+	if (
+		/\bpublish\b/i.test(plain) &&
+		/\bhome\b/i.test(plain) &&
+		/\bCTA\b/i.test(plain)
+	)
+		return OS_COPY.feedDeckVisual.publishHomeCta;
+	const sentence = plain.match(/^.{12,89}?[?!.](?:\s|$)/)?.[0]?.trim();
+	if (sentence) return sentence;
+	const clause = plain.split(/\s[→—]\s|;|\n/)[0]!.trim();
+	if (clause.length >= 15 && clause.length <= 89) return clause;
+	const prefix = plain
+		.slice(0, 89)
+		.replace(/\s+\S*$/, "")
+		.replace(/[,:;\s]+$/, "");
+	return `${prefix}…`;
+}
