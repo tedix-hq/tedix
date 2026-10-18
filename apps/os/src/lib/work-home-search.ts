@@ -18,6 +18,8 @@ export type WorkHomeSearch = {
 	view?: "feed" | "deck";
 	filter?: WorkFeedFilter;
 	app?: WorkAppName;
+	project?: string;
+	day?: string;
 };
 
 /** The existing Work entry carries app selection and shareable feed filters. */
@@ -26,6 +28,15 @@ export function workHomeSearch(
 ): WorkHomeSearch {
 	const filter = search.disposition === "completed" ? "history" : search.filter;
 	return {
+		...(typeof search.project === "string" &&
+		/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
+			search.project,
+		)
+			? { project: search.project }
+			: {}),
+		...(typeof search.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.day)
+			? { day: search.day }
+			: {}),
 		...(search.view === "deck" || search.view === "feed"
 			? { view: search.view }
 			: {}),

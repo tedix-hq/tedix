@@ -84,6 +84,7 @@ import {
 	rethrowWorkControlError,
 	verifiedWorkFactoryMutator,
 } from "./work-items/policy-helpers";
+import { getTodayProjectTotals } from "@tedix/db/queries/today-project";
 
 const projectsOs = implement(projectsContract).$context<BaseContext>();
 const authOs = projectsOs.use(withAuth);
@@ -661,7 +662,40 @@ const getContinuityProcedure = authOs.getContinuity
 		);
 	});
 
+const getTodayTotalsProcedure = authOs.getTodayTotals
+	.use(AUTHZ.objectiveRead)
+	.handler(async ({ input, context }) => {
+		const project = await assertProjectAccess(context, input.id);
+		if (
+			Date.parse(input.until) <= Date.parse(input.since) ||
+			Date.parse(input.until) - Date.parse(input.since) > 26 * 3600000
+		)
+			throw createError(ErrorCodes.BAD_REQUEST, "Choose one local day");
+		const totals = await getTodayProjectTotals(context.db, {
+			orgId: project.orgId,
+			projectId: project.id,
+			personId: input.personId,
+			excludeOutputId: input.excludeOutputId,
+			since: input.since,
+			until: input.until,
+			now: new Date().toISOString(),
+		});
+		const objective = project.objectiveId
+			? await getObjectiveById(context.db, project.objectiveId)
+			: null;
+		const { receiptsJson, ...counts } = totals;
+		return {
+			...counts,
+			receipts: JSON.parse(receiptsJson),
+			objective:
+				objective?.orgId === project.orgId
+					? (objective.description ?? objective.title)
+					: null,
+		};
+	});
+
 export const projectsContractRouter = projectsOs.router({
+	getTodayTotals: getTodayTotalsProcedure,
 	getContinuity: getContinuityProcedure,
 	create: createProcedure,
 	update: updateProcedure,
