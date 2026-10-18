@@ -215,6 +215,54 @@ try {
 			const story = page.locator("article").first();
 			await story.getByRole("button", { name: "Receipt", exact: true }).click();
 			await story.locator(".fd-preview").waitFor();
+			const actions = story.locator("..").locator(".focus-actions");
+			const geometry = await actions.evaluate((row) => ({
+				gap: getComputedStyle(row).gap,
+				clearance:
+					row.getBoundingClientRect().top -
+					row.previousElementSibling!.getBoundingClientRect().bottom,
+				buttons: [...row.querySelectorAll("button")].map((button) => {
+					const icon = button.querySelector("svg");
+					const style = getComputedStyle(button);
+					return {
+						height: button.getBoundingClientRect().height,
+						padding: [style.paddingLeft, style.paddingRight],
+						icon: icon ? icon.getBoundingClientRect().width : 0,
+						muted: icon && getComputedStyle(icon).color === style.color,
+					};
+				}),
+			}));
+			if (
+				geometry.gap !== "8px" ||
+				geometry.clearance < 8 ||
+				geometry.buttons.length !== 4 ||
+				geometry.buttons.some(
+					(b) =>
+						b.height < (width === 390 ? 44 : 36) ||
+						b.padding.some((p) => parseFloat(p) < 12) ||
+						b.icon < 16 ||
+						!b.muted,
+				)
+			)
+				throw new Error(
+					`Feed actions ${width}/${theme}: ${JSON.stringify(geometry)}`,
+				);
+			const pin = actions.getByRole("button", { name: "Pin", exact: true });
+			const pinBefore = await pin.boundingBox();
+			await pin.hover();
+			const pinHover = await pin.boundingBox();
+			await pin.focus();
+			const pinFocus = await pin.boundingBox();
+			if (
+				!pinBefore ||
+				!pinHover ||
+				!pinFocus ||
+				[pinHover, pinFocus].some(
+					(box) =>
+						box.width !== pinBefore.width || box.height !== pinBefore.height,
+				)
+			)
+				throw new Error("Feed action hover/focus changed its hit area");
 			const feedFilters = page.getByRole("button", {
 				name: "Filters",
 				exact: true,
