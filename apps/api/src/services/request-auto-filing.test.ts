@@ -97,18 +97,16 @@ describe("automatic filing", () => {
 		expect(work?.disposition).toBe("proposed");
 		expect(model.scoreProjectFit).toHaveBeenCalledOnce();
 	});
-	it("files uncertain asks to marked new containers while leaving their answer pending", async () => {
+	it("flags an uncertain existing destination without creating a duplicate project or answering the ask", async () => {
 		const { db, row, model } = await fixture("ask");
 		model.scoreProjectFit = async () => 0.4;
 		await autoFileRequests(db, model, { ...owner, now });
 		const [filed] = await listAgentSessionRequests(db, owner);
-		expect(filed?.projectId).not.toBe("project-docs");
+		expect(filed?.projectId).toBe("project-docs");
 		expect(filed?.status).toBe("waiting_on_user");
-		const [project] = await db
-			.select()
-			.from(projects)
-			.where(eq(projects.id, filed!.projectId!));
-		expect(project?.metadata?.autoCreated).toBe(true);
+		expect(await db.select().from(projects)).toHaveLength(1);
+		const [event] = await listRequestFilings(db, owner);
+		expect(event?.metadata?.confidence).toBe(0.4);
 		expect(
 			await getWorkItemBySourceIntentId(db, {
 				orgId: owner.organizationId,
