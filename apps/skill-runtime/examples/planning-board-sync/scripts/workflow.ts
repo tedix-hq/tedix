@@ -426,6 +426,26 @@ export function createPlanningSync(config) {
 				return { found, gaps: report.gaps };
 			});
 			report.gaps = signals.gaps;
+			if (!projectPageIds)
+				for (const task of snapshot.tasks) {
+					const parents = array(task[config.taskFields.project]).map(
+						externalId,
+					);
+					const hasProject = snapshot.remote.some(
+						(remote) =>
+							remote[config.projectFields.name] &&
+							(parents.includes(externalId(remote.url)) ||
+								array(remote[config.projectFields.tasks]).some(
+									(url) => externalId(url) === externalId(task.url),
+								)),
+					);
+					if (!hasProject)
+						report.decisions.push({
+							page: task.url,
+							reason:
+								"Task has no available named board project; left unchanged",
+						});
+				}
 			const linked = new Map();
 			if (projectPageIds)
 				for (const id of projectPageIds) {
