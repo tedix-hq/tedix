@@ -54,7 +54,11 @@ try {
 			await page
 				.getByRole("button", { name: "Try examples", exact: true })
 				.click();
-			await page.keyboard.press("Escape");
+			if (viewport.width < 640)
+				await page
+					.getByRole("button", { name: "Close decision context", exact: true })
+					.click();
+			else await page.keyboard.press("Escape");
 			const card = page.getByRole("region", {
 				name: "Send Morgan the revised delivery date?",
 			});
