@@ -58,3 +58,24 @@ it.each([
 	).toBeNull();
 	expect(mocks.model).toHaveBeenCalledTimes(2);
 });
+
+it("constrains model output and tells the retry which field failed", async () => {
+	mocks.model.mockResolvedValueOnce(
+		JSON.stringify({ ...copy, recommendation: "Do this." }),
+	);
+	const result = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		request,
+	);
+	expect(result).toMatchObject(copy);
+	expect(mocks.model.mock.calls[0]?.[2].jsonSchema).toMatchObject({
+		additionalProperties: false,
+		required: ["version", "title", "body", "recommendation"],
+		properties: {
+			recommendation: { type: "string", pattern: "\\bbecause\\b" },
+		},
+	});
+	expect(mocks.model.mock.calls[1]?.[1]).toContain(
+		"failed validation in recommendation",
+	);
+});
