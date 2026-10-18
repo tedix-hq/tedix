@@ -299,8 +299,10 @@ export function DecisionDeckApp({
 		Math.max(0, config.dailyAttentionBudget - todayCount),
 		mode === "decide" &&
 			!!profile.data?.id &&
-			!decisions.queuePending &&
-			!decisions.queueFailed &&
+			!inbox.isPending &&
+			!inbox.isError &&
+			(decisions.requests.length > 0 ||
+				(!decisions.queuePending && !decisions.queueFailed)) &&
 			!learningQuery.isPending &&
 			!learningQuery.isError,
 	);
@@ -328,7 +330,7 @@ export function DecisionDeckApp({
 	}, [mode, filtered.length, factories.sources.length, reportRemaining]);
 	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
 	const prefetchIds = ranked
-		.slice(0, 3)
+		.slice(0, 1)
 		.filter((row) => row.row)
 		.map((row) => row.id)
 		.join(",");
@@ -854,6 +856,7 @@ export function DecisionDeckApp({
 									) : (
 										<WorkInteractionDecisionCard
 											requestId={selected.id}
+											preview={selected.row}
 											askedBy={selected.row?.askedBy}
 											autoFocus
 											onNext={next}

@@ -1,10 +1,12 @@
 import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
+import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
 import { DecisionProposalBody } from "@/components/decision-proposal-body";
+import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -76,6 +78,7 @@ const offeredChoices = z.object({
 
 export function WorkInteractionDecisionCard({
 	requestId,
+	preview,
 	askedBy,
 	drafterName,
 	deliveryText,
@@ -84,6 +87,7 @@ export function WorkInteractionDecisionCard({
 	onPrevious,
 }: {
 	requestId: string;
+	preview?: z.infer<typeof WorkInteractionInboxRowSchema>;
 	askedBy?: string;
 	drafterName?: string;
 	deliveryText?: string;
@@ -199,6 +203,26 @@ export function WorkInteractionDecisionCard({
 			await refresh();
 		},
 	});
+	if (query.isPending && preview?.request.id === requestId)
+		return (
+			<DecisionAttentionContext.Provider value={null}>
+				<WorkDecisionCard
+					kind={preview.request.kind === "handoff" ? "proposal" : "question"}
+					title={interactionSubject(preview.request)}
+					askedBy={askedBy ?? preview.askedBy ?? OS_COPY.feed.actors.user}
+					at={preview.request.requestedAt}
+					content={
+						<>
+							<DecisionProposalBody body={preview.request.prompt} />
+							<p role="status">{decisionText("Loading request")}</p>
+						</>
+					}
+					actions={[]}
+					disabled
+					onDecision={(feedback) => respond.mutateAsync(feedback)}
+				/>
+			</DecisionAttentionContext.Provider>
+		);
 	if (query.isPending)
 		return (
 			<Skeleton

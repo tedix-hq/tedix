@@ -58,3 +58,34 @@ it("freezes a bounded list, preserves Later across a remount, and separates peop
 		dismissed: [],
 	});
 });
+
+it("restores an underfilled batch while loading and fills only its unused capacity without reviving Later", async () => {
+	sessionStorage.setItem(
+		"decision-deck:fictional-person:batch-one",
+		JSON.stringify({
+			key: "fictional-person:batch-one",
+			ids: ["a"],
+			dismissed: ["a"],
+		}),
+	);
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(<Preview ids={["a", "b", "c"]} ready={false} />),
+	);
+	expect(JSON.parse(host.querySelector("output")!.textContent!)).toMatchObject({
+		ids: ["a"],
+		dismissed: ["a"],
+	});
+	await act(async () => root.render(<Preview ids={["a", "b", "c"]} />));
+	expect(JSON.parse(host.querySelector("output")!.textContent!)).toMatchObject({
+		ids: ["a", "b"],
+		dismissed: ["a"],
+	});
+	await act(async () => root.render(<Preview ids={["new", "a", "b", "c"]} />));
+	expect(JSON.parse(host.querySelector("output")!.textContent!)).toMatchObject({
+		ids: ["a", "b"],
+		dismissed: ["a"],
+	});
+});

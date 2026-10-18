@@ -27,7 +27,7 @@ export function prefetchWorkDeck(client: QueryClient) {
 		.then((inbox) =>
 			Promise.all(
 				inbox.data
-					.slice(0, 3)
+					.slice(0, 1)
 					.map((row) =>
 						client.prefetchQuery(
 							workInteractionDetailQueryOptions(row.request.id),
@@ -80,7 +80,7 @@ export function prefetchWorkDeck(client: QueryClient) {
 			);
 			await Promise.all(
 				inbox.data
-					.slice(0, 3)
+					.slice(0, 1)
 					.map((row) =>
 						client.prefetchQuery(
 							workInteractionDetailQueryOptions(row.request.id),
