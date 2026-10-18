@@ -42,21 +42,23 @@ function RegressionDeck() {
 						<p>Your call · 1 of 14</p>
 						<ProposerProjectContext.Provider value="Website">
 							<div className="fd-decision-stack" data-has-next="true">
-								<WorkDecisionCard
-									kind="proposal"
-									title={proposal}
-									askedBy="Codex session"
-									body={proposal.repeat(6)}
-									why={<p>{proposal.repeat(4)}</p>}
-									actions={[
-										{ id: "approve", label: "Approve", intent: "approve" },
-										{ id: "reject", label: "Not this", intent: "reject" },
-										{ id: "later", label: "Later", intent: "later" },
-									]}
-									onDecision={async () => {
-										throw new Error("Read-only regression");
-									}}
-								/>
+								<div className="grid min-w-0 gap-3">
+									<WorkDecisionCard
+										kind="proposal"
+										title={proposal}
+										askedBy="Codex session"
+										body={proposal.repeat(6)}
+										why={<p>{proposal.repeat(4)}</p>}
+										actions={[
+											{ id: "approve", label: "Approve", intent: "approve" },
+											{ id: "reject", label: "Not this", intent: "reject" },
+											{ id: "later", label: "Later", intent: "later" },
+										]}
+										onDecision={async () => {
+											throw new Error("Read-only regression");
+										}}
+									/>
+								</div>
 							</div>
 						</ProposerProjectContext.Provider>
 					</div>
