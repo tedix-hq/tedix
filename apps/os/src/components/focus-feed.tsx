@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bell, EyeSlash, PushPin, ThumbsDown } from "@phosphor-icons/react";
 import type {
 	ActivityFeedConfig,
 	ActivityFeedItem,
@@ -876,6 +877,7 @@ function FocusRow({
 					variant="ghost"
 					size="sm"
 					aria-label="Pin"
+					icon={<PushPin size={16} aria-hidden />}
 					onClick={() => {
 						engaged.current = true;
 						void signal(item, "pin");
@@ -887,6 +889,7 @@ function FocusRow({
 					variant="ghost"
 					size="sm"
 					aria-label="Hide"
+					icon={<EyeSlash size={16} aria-hidden />}
 					onClick={() => {
 						engaged.current = true;
 						void signal(item, "hide");
@@ -898,6 +901,7 @@ function FocusRow({
 					variant="ghost"
 					size="sm"
 					aria-label="Not important"
+					icon={<ThumbsDown size={16} aria-hidden />}
 					onClick={() => {
 						engaged.current = true;
 						void signal(item, "not_important");
@@ -909,6 +913,7 @@ function FocusRow({
 					variant="ghost"
 					size="sm"
 					aria-label="Tell me earlier"
+					icon={<Bell size={16} aria-hidden />}
 					onClick={() => {
 						engaged.current = true;
 						void signal(item, "tell_me_earlier");

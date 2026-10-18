@@ -31,7 +31,7 @@
 .focus-actions {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 4px;
+	gap: 8px;
 	margin-top: 8px;
 }
 .focus-actions button {
