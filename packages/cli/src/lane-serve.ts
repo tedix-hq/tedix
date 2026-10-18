@@ -92,7 +92,7 @@ export function dispatchSkip(
 				).test(comment.body),
 		);
 	if (!delegated)
-		return `Possible human-reserved action; needs an owner comment: Delegation: ${executor} work-version=${item.version} <bounded delegation note>`;
+		return `Possible human-reserved action; needs an owner comment: Delegation: ${item.metadata?.executor} work-version=${item.version} <bounded delegation note>`;
 }
 
 export interface ServeOptions {
