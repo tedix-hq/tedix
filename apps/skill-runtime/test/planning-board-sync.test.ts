@@ -4,6 +4,7 @@ import {
 	createPlanningSync,
 	externalId,
 	managedBlock,
+	managedPurposeMatches,
 	reasoningSources,
 	reconcileFields,
 	slotAt,
@@ -687,6 +688,70 @@ describe("planning board synchronization", () => {
 		expect(h.calls.notionWrites).toBe(0);
 		expect(h.calls.notionCreates).toBe(0);
 		expect(h.calls.creates).toBe(0);
+	});
+	it("confirms enrichment when Notion auto-links a domain in its purpose", async () => {
+		const h = harness();
+		const reason = h.env.REASON.ask;
+		h.env.REASON.ask = async () => {
+			const result = await reason();
+			const value = JSON.parse(result.text);
+			value.purpose = "Example.test supports the launch.";
+			return { text: JSON.stringify(value) };
+		};
+		const fetch = h.env.MCP.notion.notion_fetch;
+		h.env.MCP.notion.notion_fetch = async (input) => {
+			const page = await fetch(input);
+			return {
+				...page,
+				text: page.text.replaceAll(
+					"Example.test",
+					"[Example.test](http://Example.test)",
+				),
+			};
+		};
+		const result = await h.run();
+		expect(result.status).toBe("synced");
+		expect(result.changed).toContain(h.remote.url);
+		expect(
+			h.outputs
+				.get("state")!
+				.currentRevision.content.rows.some(
+					([key, value]) =>
+						key === `effect:enrich:${pageId}` &&
+						JSON.parse(value).phase === "intent",
+				),
+		).toBe(false);
+	});
+	it("requires the exact managed purpose despite provider link formatting", () => {
+		const page = `Human agenda\nTEDIX SYNC BEGIN shared-planning\n## Purpose\n[Example.test](http://Example.test) supports the launch.\n## Goals\n- Ship it\nTEDIX SYNC END shared-planning`;
+		expect(
+			managedPurposeMatches(
+				page,
+				"shared-planning",
+				"Example.test supports the launch.",
+			),
+		).toBe(true);
+		expect(
+			managedPurposeMatches(
+				page,
+				"shared-planning",
+				"Example.test supports the launch",
+			),
+		).toBe(false);
+		expect(
+			managedPurposeMatches(
+				page,
+				"other-board",
+				"Example.test supports the launch.",
+			),
+		).toBe(false);
+		expect(
+			managedPurposeMatches(
+				page.replace("## Purpose", "## Other"),
+				"shared-planning",
+				"Example.test supports the launch.",
+			),
+		).toBe(false);
 	});
 	it("rejects invented citations before writing project enrichment", async () => {
 		const h = harness({ badCitation: true });

@@ -65,6 +65,20 @@ export function managedBlock(content, boardKey) {
 	return content.slice(a, b + end.length);
 }
 
+export function managedPurposeMatches(content, boardKey, purpose) {
+	const section = managedBlock(content, boardKey)?.match(
+		/\n## Purpose\n([\s\S]*?)\n## Goals(?:\n|$)/,
+	)?.[1];
+	if (!section) return false;
+	const plain = (text) =>
+		text
+			.replace(/\\([\\*~`$\[\]<>|^{}])/g, "$1")
+			.replace(/\[([^\]\n]+)\]\(https?:\/\/[^)\s]+\)/g, "$1")
+			.replace(/\s+/g, " ")
+			.trim();
+	return plain(section) === plain(prose(purpose));
+}
+
 export function reasoningSources(context, evidence, signals) {
 	const recent = [...evidence, ...signals].sort(
 		(a, b) =>
@@ -1092,8 +1106,10 @@ export function createPlanningSync(config) {
 							const read = pageText(
 								await notion.notion_fetch({ id: remote.url }),
 							);
-							return managedBlock(read, config.boardKey)?.includes(
-								prose(enrichment.purpose),
+							return managedPurposeMatches(
+								read,
+								config.boardKey,
+								enrichment.purpose,
 							)
 								? remote.url
 								: null;
