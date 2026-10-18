@@ -388,190 +388,194 @@ export function WorkDecisionCard({
 						<DecisionProposalHeading title={heading} />
 					</CardTitle>
 				</CardHeader>
-				<CardContent className="grid grid-cols-1 gap-4">
-					{editing ? (
-						<div className="grid gap-3">
-							{editContent}
-							<Textarea
-								aria-label={decisionText("Edit draft")}
-								rows={8}
-								value={draft}
-								onChange={(event) => setDraft(event.target.value)}
-								disabled={busy}
-							/>
-						</div>
-					) : (
-						(content ?? (body ? <DecisionProposalBody body={body} /> : null))
-					)}
-					{heading !== title && title.length > 90 && body !== title && (
-						<DecisionProposalBody body={title} />
-					)}
-					{kind === "question" && !disabled && !saved ? (
-						<div className="grid gap-3">
-							{suggestedAnswers.length ? (
-								<div
-									className="flex flex-wrap gap-2"
-									aria-label={decisionText("Suggested answers")}
-								>
-									{suggestedAnswers.map((suggestion) => (
-										<Button
-											key={suggestion}
-											variant={answer === suggestion ? "default" : "outline"}
-											disabled={busy}
-											onClick={() => setAnswer(suggestion)}
-										>
-											{suggestion}
-										</Button>
-									))}
-								</div>
-							) : null}
-							<Input
-								aria-label={decisionText("Your answer")}
-								placeholder={decisionText("Your answer…")}
-								value={answer}
-								disabled={busy}
-								onChange={(event) => setAnswer(event.target.value)}
-								onKeyDown={(event) => {
-									if (
-										event.key === "Enter" &&
-										!event.nativeEvent.isComposing &&
-										approve
-									) {
-										event.preventDefault();
-										void submit(approve);
-									}
-								}}
-							/>
-						</div>
-					) : null}
-					{saved ? (
-						<Text role="label" tone="secondary">
-							{decisionText("Decision saved")}
-						</Text>
-					) : (
-						<>
-							{actions.some((action) => action.description) && (
-								<FeedDeckDisclosure
-									className="fd-action-details"
-									title={OS_COPY.feedDeckVisual.choices}
-								>
-									{actions
-										.filter((action) => action.description)
-										.map((action) => (
-											<p key={action.id}>
-												<strong>{action.label}.</strong> {action.description}
-											</p>
-										))}
-								</FeedDeckDisclosure>
-							)}
-							{reasonsOpen && reject ? (
-								<div
-									className="flex flex-wrap gap-2"
-									aria-label={decisionText("Why not this?")}
-								>
-									{["wrong tone", "wrong facts", "not now", "don't send"].map(
-										(reason) => (
+				<CardContent>
+					<div className="fd-card-body grid grid-cols-1 gap-4">
+						{editing ? (
+							<div className="grid gap-3">
+								{editContent}
+								<Textarea
+									aria-label={decisionText("Edit draft")}
+									rows={8}
+									value={draft}
+									onChange={(event) => setDraft(event.target.value)}
+									disabled={busy}
+								/>
+							</div>
+						) : (
+							(content ?? (body ? <DecisionProposalBody body={body} /> : null))
+						)}
+						{heading !== title && title.length > 90 && body !== title && (
+							<DecisionProposalBody body={title} />
+						)}
+						{kind === "question" && !disabled && !saved ? (
+							<div className="grid gap-3">
+								{suggestedAnswers.length ? (
+									<div
+										className="flex flex-wrap gap-2"
+										aria-label={decisionText("Suggested answers")}
+									>
+										{suggestedAnswers.map((suggestion) => (
 											<Button
-												key={reason}
-												variant="outline"
+												key={suggestion}
+												variant={answer === suggestion ? "default" : "outline"}
 												disabled={busy}
-												onClick={() => void submit(reject, reason)}
+												onClick={() => setAnswer(suggestion)}
 											>
-												{reason}
+												{suggestion}
 											</Button>
-										),
-									)}
-								</div>
-							) : null}
-							<AlertDialog
-								open={Boolean(confirmation)}
-								onOpenChange={(open) => {
-									if (!open && !saving) setConfirmation(null);
-								}}
-							>
-								<AlertDialogContent>
-									<AlertDialogHeader>
-										<AlertDialogTitle>
-											{decisionText("Confirm decision")}
-										</AlertDialogTitle>
-										<AlertDialogDescription>
-											{confirmation?.confirm}
-										</AlertDialogDescription>
-									</AlertDialogHeader>
-									{confirmation?.confirmContent}
-									<AlertDialogFooter>
+										))}
+									</div>
+								) : null}
+								<Input
+									aria-label={decisionText("Your answer")}
+									placeholder={decisionText("Your answer…")}
+									value={answer}
+									disabled={busy}
+									onChange={(event) => setAnswer(event.target.value)}
+									onKeyDown={(event) => {
+										if (
+											event.key === "Enter" &&
+											!event.nativeEvent.isComposing &&
+											approve
+										) {
+											event.preventDefault();
+											void submit(approve);
+										}
+									}}
+								/>
+							</div>
+						) : null}
+						{saved ? (
+							<Text role="label" tone="secondary">
+								{decisionText("Decision saved")}
+							</Text>
+						) : (
+							<>
+								{actions.some((action) => action.description) && (
+									<FeedDeckDisclosure
+										className="fd-action-details"
+										title={OS_COPY.feedDeckVisual.choices}
+									>
+										{actions
+											.filter((action) => action.description)
+											.map((action) => (
+												<p key={action.id}>
+													<strong>{action.label}.</strong> {action.description}
+												</p>
+											))}
+									</FeedDeckDisclosure>
+								)}
+								{reasonsOpen && reject ? (
+									<div
+										className="flex flex-wrap gap-2"
+										aria-label={decisionText("Why not this?")}
+									>
+										{["wrong tone", "wrong facts", "not now", "don't send"].map(
+											(reason) => (
+												<Button
+													key={reason}
+													variant="outline"
+													disabled={busy}
+													onClick={() => void submit(reject, reason)}
+												>
+													{reason}
+												</Button>
+											),
+										)}
+									</div>
+								) : null}
+								<AlertDialog
+									open={Boolean(confirmation)}
+									onOpenChange={(open) => {
+										if (!open && !saving) setConfirmation(null);
+									}}
+								>
+									<AlertDialogContent>
+										<AlertDialogHeader>
+											<AlertDialogTitle>
+												{decisionText("Confirm decision")}
+											</AlertDialogTitle>
+											<AlertDialogDescription>
+												{confirmation?.confirm}
+											</AlertDialogDescription>
+										</AlertDialogHeader>
+										{confirmation?.confirmContent}
+										<AlertDialogFooter>
+											<Button
+												variant="ghost"
+												disabled={busy}
+												onClick={() => setConfirmation(null)}
+											>
+												{decisionText("Go back")}
+											</Button>
+											<Button
+												disabled={busy || confirmation?.confirmDisabled}
+												onClick={() => {
+													if (confirmation)
+														void submit(confirmation, undefined, true);
+												}}
+											>
+												{decisionText("Confirm")}
+											</Button>
+										</AlertDialogFooter>
+									</AlertDialogContent>
+								</AlertDialog>
+								{!disabled ? (
+									<div className="fd-feedback">
 										<Button
 											variant="ghost"
 											disabled={busy}
-											onClick={() => setConfirmation(null)}
+											onClick={() => setFeedbackOpen(!feedbackOpen)}
 										>
-											{decisionText("Go back")}
+											{decisionText("Give feedback")}
 										</Button>
-										<Button
-											disabled={busy || confirmation?.confirmDisabled}
-											onClick={() => {
-												if (confirmation)
-													void submit(confirmation, undefined, true);
-											}}
-										>
-											{decisionText("Confirm")}
-										</Button>
-									</AlertDialogFooter>
-								</AlertDialogContent>
-							</AlertDialog>
-							{!disabled ? (
-								<div className="fd-feedback">
-									<Button
-										variant="ghost"
-										disabled={busy}
-										onClick={() => setFeedbackOpen(!feedbackOpen)}
-									>
-										{decisionText("Give feedback")}
-									</Button>
-									{feedbackOpen ? (
-										<Textarea
-											aria-label={decisionText("Optional feedback")}
-											placeholder={decisionText(
-												"What should change? (optional)",
-											)}
-											rows={2}
-											value={feedback}
-											onChange={(event) => setFeedback(event.target.value)}
-										/>
-									) : null}
-									{feedbackOpen && feedbackAction ? (
-										<Button
-											className="mt-2"
-											disabled={busy || !feedback.trim()}
-											onClick={() => void submit(feedbackAction)}
-										>
-											{feedbackAction.label}
-										</Button>
-									) : null}
-								</div>
-							) : null}
-						</>
-					)}
-					{error ? (
-						<p role="alert" className="text-kumo-danger">
-							{error}
-						</p>
-					) : null}
-					{why || learnedWhy ? (
-						<Collapsible
-							className="fd-why"
-							open={whyOpen}
-							onOpenChange={setWhyOpen}
-						>
-							<CollapsibleTrigger>
-								{decisionText("Why this?")}
-							</CollapsibleTrigger>
-							<CollapsibleContent className="pt-3 text-kumo-subtle">
-								{why}
-								{learnedWhy && <DecisionLearningWhy explanation={learnedWhy} />}
-							</CollapsibleContent>
-						</Collapsible>
-					) : null}
+										{feedbackOpen ? (
+											<Textarea
+												aria-label={decisionText("Optional feedback")}
+												placeholder={decisionText(
+													"What should change? (optional)",
+												)}
+												rows={2}
+												value={feedback}
+												onChange={(event) => setFeedback(event.target.value)}
+											/>
+										) : null}
+										{feedbackOpen && feedbackAction ? (
+											<Button
+												className="mt-2"
+												disabled={busy || !feedback.trim()}
+												onClick={() => void submit(feedbackAction)}
+											>
+												{feedbackAction.label}
+											</Button>
+										) : null}
+									</div>
+								) : null}
+							</>
+						)}
+						{error ? (
+							<p role="alert" className="text-kumo-danger">
+								{error}
+							</p>
+						) : null}
+						{why || learnedWhy ? (
+							<Collapsible
+								className="fd-why"
+								open={whyOpen}
+								onOpenChange={setWhyOpen}
+							>
+								<CollapsibleTrigger>
+									{decisionText("Why this?")}
+								</CollapsibleTrigger>
+								<CollapsibleContent className="pt-3 text-kumo-subtle">
+									{why}
+									{learnedWhy && (
+										<DecisionLearningWhy explanation={learnedWhy} />
+									)}
+								</CollapsibleContent>
+							</Collapsible>
+						) : null}
+					</div>
 				</CardContent>
 				{!saved && (
 					<CardFooter ref={footer}>
