@@ -92,11 +92,6 @@ try {
 						) < boundary.height
 					)
 						failures.push("missing footer clearance");
-					if (
-						parseFloat(getComputedStyle(body).scrollPaddingBottom) <
-						boundary.height
-					)
-						failures.push("missing scroll clearance");
 					for (const node of body.querySelectorAll<HTMLElement>(
 						"button, input, textarea, a, p, summary",
 					)) {
@@ -105,6 +100,14 @@ try {
 						const rect = node.getBoundingClientRect();
 						if (rect.bottom > boundary.top + 1)
 							failures.push(node.textContent ?? node.tagName);
+						if (
+							node.matches("button, input") &&
+							rect.height <= bodyRect.height &&
+							rect.top < bodyRect.top - 1
+						)
+							failures.push(
+								`control clipped above: ${node.textContent ?? node.tagName}`,
+							);
 					}
 					body.scrollTop = body.scrollHeight;
 					for (const button of document.querySelectorAll(

@@ -768,7 +768,10 @@
 	min-height: 0;
 	overflow: auto;
 	overscroll-behavior: contain;
-	scroll-padding-bottom: calc(var(--fd-footer-height, 4rem) + 1rem);
+	scroll-padding-bottom: min(
+		calc(var(--fd-footer-height, 4rem) + 1rem),
+		max(0px, calc(100% - 3rem))
+	);
 	align-content: start;
 	scrollbar-width: thin;
 }
