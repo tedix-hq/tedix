@@ -110,3 +110,13 @@ owner, pinned source, provider bindings and manifest before activation. Link the
 skill to its Workspace as a `tedix` / `skill` resource. Activate the reviewed
 revision through the existing skill lifecycle, enable its native schedule, then
 run one manual pass and inspect its exact document and provider receipts.
+
+For a manual retry of selected projects, pass `manual: true` and
+`projectPageIds` containing their normalized 32-character page IDs. Imports,
+enrichment and exports stay within that selection; shared snapshots still
+support identity checks. Use this after a full pass to retry affected projects
+without rewriting completed project blocks.
+
+Unsupported optional action proposals are rejected and recorded without
+discarding valid project enrichment. They never create Work. Invalid signal
+citations still block enrichment.
