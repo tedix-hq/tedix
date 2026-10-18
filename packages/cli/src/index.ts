@@ -1034,21 +1034,16 @@ async function main() {
 	try {
 		// External-agent auth has already checked the exact organization against
 		// its pinned profile before choosing the direct tenant gateway.
-		const organizationContext = auth.source.startsWith("external-agent:")
-			? {
-					headers: {},
-					workspace: workspaceName,
-					organization: options.organization,
-				}
-			: resolveOrganizationTarget({
-					url: options.url,
-					command,
-					organization: options.organization,
-					workspace: workspaceName,
-					accessToken:
-						(await auth.oauthProvider?.tokens())?.access_token ??
-						auth.headers.Authorization?.replace(/^Bearer\s+/i, ""),
-				});
+		const organizationContext = resolveOrganizationTarget({
+			url: options.url,
+			command,
+			organization: options.organization,
+			workspace: workspaceName,
+			externalAgent: auth.source.startsWith("external-agent:"),
+			accessToken:
+				(await auth.oauthProvider?.tokens())?.access_token ??
+				auth.headers.Authorization?.replace(/^Bearer\s+/i, ""),
+		});
 		client = new TedixHomeClient({
 			headers: { ...auth.headers, ...organizationContext.headers },
 			oauthProvider: auth.oauthProvider,

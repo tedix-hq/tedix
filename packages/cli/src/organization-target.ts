@@ -9,11 +9,25 @@ export function resolveOrganizationTarget(input: {
 	environmentOrganization?: string;
 	accessToken?: string;
 	workspace: string;
+	/** Authentication already verified this external agent's pinned organization. */
+	externalAgent?: boolean;
 }): {
 	headers: Record<string, string>;
 	workspace: string;
 	organization?: string;
 } {
+	const organization =
+		input.organization ??
+		((
+			input.environmentOrganization ?? process.env.TEDIX_ORGANIZATION
+		)?.trim() ||
+			undefined);
+	if (input.externalAgent)
+		return {
+			headers: {},
+			workspace: input.workspace,
+			...(organization ? { organization } : {}),
+		};
 	if (!isMultiOrganizationMcpUrl(input.url)) {
 		if (input.organization)
 			throw new Error(
@@ -21,12 +35,6 @@ export function resolveOrganizationTarget(input: {
 			);
 		return { headers: {}, workspace: input.workspace };
 	}
-	const organization =
-		input.organization ??
-		((
-			input.environmentOrganization ?? process.env.TEDIX_ORGANIZATION
-		)?.trim() ||
-			undefined);
 	// Raw Code Mode and raw MCP requests keep the organization-qualified
 	// surface unless targeted.
 	if ((input.command === "code" || input.command === "mcp") && !organization) {
