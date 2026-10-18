@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.13.2 — 2026-10-18
+
+### Patch Changes
+
+- Allow six seconds for live lesson validation on busy gateways. Lessons still require successful validation; hook tracing now includes this read's timing.
+
 ## 0.13.1 — 2026-10-18
 
 ### Patch Changes
