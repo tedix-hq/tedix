@@ -66,6 +66,19 @@ function fixture() {
 	return { sqlite, db, add };
 }
 describe("canonical hybrid recall D1 queries", () => {
+	it("does not let an invalidated contradiction suppress its active replacement with the same timestamp", async () => {
+		const { db, sqlite, add } = fixture();
+		add("alpha-current", "Vessel-3 launch uses Opal Dock");
+		add("zulu-old", "Vessel-3 launch used Quartz Dock", undefined, {
+			valid_to: "2026-10-17",
+		});
+		sqlite.exec(
+			"INSERT INTO memory_edges(id,source_fact_id,target_fact_id,relation_type) VALUES ('s','alpha-current','zulu-old','supersedes'),('c','alpha-current','zulu-old','contradicts')",
+		);
+		expect(
+			(await lexicalRecall(db, scope, "Vessel-3")).map((fact) => fact.factId),
+		).toEqual(["alpha-current"]);
+	});
 	it("preserves numbered entity names in FTS queries", async () => {
 		const { db, add } = fixture();
 		add("v3", "Vessel-3 departs from Opal Dock");

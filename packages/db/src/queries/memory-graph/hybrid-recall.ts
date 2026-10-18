@@ -58,6 +58,8 @@ function eligible(scope: RecallScope): SQL {
 			AND newer.id = CASE WHEN e.target_fact_id = ${f.id} THEN e.source_fact_id ELSE e.target_fact_id END
 			WHERE ((e.relation_type = 'supersedes' AND e.target_fact_id = ${f.id})
 			OR (e.relation_type = 'contradicts' AND (e.source_fact_id = ${f.id} OR e.target_fact_id = ${f.id})
+			AND newer.archived_at IS NULL AND (newer.valid_to IS NULL OR datetime(newer.valid_to) > datetime(${now}))
+			AND NOT EXISTS (SELECT 1 FROM memory_edges replacement WHERE replacement.relation_type = 'supersedes' AND replacement.source_fact_id = ${f.id} AND replacement.target_fact_id = newer.id)
 			AND (datetime(coalesce(newer.valid_from,newer.created_at)) > datetime(coalesce(${f.validFrom},${f.createdAt}))
 			OR (datetime(coalesce(newer.valid_from,newer.created_at)) = datetime(coalesce(${f.validFrom},${f.createdAt})) AND newer.id > ${f.id}))))
 		)`,
