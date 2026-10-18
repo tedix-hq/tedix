@@ -12,6 +12,7 @@ vi.mock("./decision-learning", () => ({
 }));
 vi.mock("./lesson-distiller", () => ({ runDistillModel: mocks.model }));
 import { generateDecisionCard } from "./decision-card-generator";
+import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 const request = {
 	orgId: "fictional",
 	targetId: "robin",
@@ -21,11 +22,10 @@ const request = {
 	metadata: {},
 };
 const copy = {
-	version: 1,
-	title: "Allow the fictional sign-in test?",
-	body: "The test checks the sign-in flow. It still needs your approval.",
-	recommendation:
-		"Review the test scope because permission has not been granted.",
+	version: 2,
+	title: "Let the assistant sign in with a test account?",
+	body: "Checks the sample profile page using a separate browser.",
+	recommendation: "The owner needs proof that sign-in works.",
 };
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -33,68 +33,89 @@ beforeEach(() => {
 	mocks.preferences.mockResolvedValue("Prefer shorter proposals.");
 	mocks.model.mockResolvedValue(JSON.stringify(copy));
 });
-it("uses the recipient's learned preferences and configured small model without generating authority", async () => {
-	const result = await generateDecisionCard(
-		{ db: {}, env: {} } as never,
-		request,
-	);
-	expect(result).toMatchObject({ ...copy, model: "small-configured-model" });
-	expect(mocks.preferences).toHaveBeenCalledWith({}, "fictional", "robin");
-	expect(mocks.model).toHaveBeenCalledWith(
-		expect.anything(),
-		expect.stringContaining("Prefer shorter proposals."),
-		expect.objectContaining({ model: "small-configured-model" }),
-	);
-});
-it("preserves measured summary improvement feedback in the bounded generator context", async () => {
-	mocks.preferences.mockResolvedValue(
-		JSON.stringify({
-			summaryImprovements: [
-				{
-					classId: "supplier-review",
-					instruction:
-						"Improve the summary because only 50% decided from the card alone.",
-				},
-			],
-		}),
-	);
-	await generateDecisionCard({ db: {}, env: {} } as never, request);
-	expect(mocks.model).toHaveBeenCalledWith(
-		expect.anything(),
-		expect.stringContaining("50% decided from the card alone"),
-		expect.anything(),
-	);
-});
-
-it.each([
-	{ ...copy, title: "x".repeat(91) },
-	{ ...copy, version: 2 },
-	{ ...copy, body: "One. Two. Three." },
-	{ ...copy, recommendation: "Approve this." },
-	{ ...copy, options: [{ intent: "approve" }] },
-])("rejects invalid copy or invented actions", async (invalid) => {
-	mocks.model.mockResolvedValue(JSON.stringify(invalid));
+it("uses the recipient's style and configured model without generating authority", async () => {
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
-	).toBeNull();
-	expect(mocks.model).toHaveBeenCalledTimes(2);
+	).toMatchObject({ ...copy, model: "small-configured-model" });
+	expect(mocks.preferences).toHaveBeenCalledWith({}, "fictional", "robin");
+	expect(mocks.model.mock.calls[0]?.[2]).toMatchObject({
+		model: "small-configured-model",
+		jsonObject: true,
+	});
+	expect(mocks.model.mock.calls[0]?.[1]).toContain("Prefer shorter proposals.");
 });
-
-it("constrains model output and tells the retry which field failed", async () => {
+it("loads the versioned spec with a plain-English rewriter and Adriana rubric", async () => {
+	await generateDecisionCard({ db: {}, env: {} } as never, request);
+	const system = mocks.model.mock.calls[0]?.[2].system;
+	expect(system).toContain(copySpec.system);
+	expect(system).toContain("Adriana test");
+	for (const word of copySpec.bannedWords) expect(system).toContain(word);
+});
+it.each([
+	{ ...copy, title: "x".repeat(81) },
+	{ ...copy, body: "x".repeat(121) },
+	{ ...copy, recommendation: "x".repeat(121) },
+	{ ...copy, version: 1 },
+	{ ...copy, options: [{ intent: "approve" }] },
+	{ ...copy, title: "Approve the sign-in" },
+	{ ...copy, body: "One line.\nAnother." },
+	{ ...copy, body: "Review the canonical workflow." },
+	{
+		...copy,
+		title: "Use a simpler purpose statement?",
+		body: "Use the simpler purpose statement.",
+		recommendation: "The purpose statement should be simpler.",
+	},
+	{ ...copy, body: "Review ticket 11111111-2222-4333-8444-555555555555." },
+	{ ...copy, body: "Read work_abcd1234." },
+	{ ...copy, body: "Read [reference]." },
+	{ ...copy, body: "Read 96c05a17." },
+])(
+	"rejects invalid or overlapping copy and retries with the failed draft",
+	async (invalid) => {
+		mocks.model.mockResolvedValue(JSON.stringify(invalid));
+		expect(
+			await generateDecisionCard({ db: {}, env: {} } as never, request),
+		).toBeNull();
+		expect(mocks.model).toHaveBeenCalledTimes(2);
+	},
+);
+it("repairs rejected wording rather than truncating it", async () => {
 	mocks.model.mockResolvedValueOnce(
-		JSON.stringify({ ...copy, recommendation: "Do this." }),
+		JSON.stringify({ ...copy, body: "Review this workflow." }),
 	);
-	const result = await generateDecisionCard(
-		{ db: {}, env: {} } as never,
-		request,
-	);
-	expect(result).toMatchObject(copy);
-	expect(mocks.model.mock.calls[0]?.[2].jsonObject).toBe(true);
-	expect(mocks.model.mock.calls[1]?.[1]).toContain(
-		"failed validation in recommendation",
-	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject(copy);
+	expect(mocks.model.mock.calls[1]?.[1]).toContain("banned_words");
+	expect(mocks.model.mock.calls[1]?.[1]).toContain("Review this workflow.");
 });
-
+it.each(copySpec.bannedWords)(
+	"rejects banned card vocabulary: %s",
+	async (word) => {
+		mocks.model.mockResolvedValue(
+			JSON.stringify({
+				...copy,
+				recommendation: `The current ${word} needs a review.`,
+			}),
+		);
+		expect(
+			await generateDecisionCard({ db: {}, env: {} } as never, request),
+		).toBeNull();
+	},
+);
+it("allows supported optional stakes and supplies version outside model prose", async () => {
+	const { version: _, ...prose } = copy;
+	mocks.model.mockResolvedValue(
+		JSON.stringify({ ...prose, stakes: "The test account expires on Friday." }),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Check sign-in with the test account, which expires on Friday.",
+		}),
+	).toMatchObject({ ...copy, stakes: "The test account expires on Friday." });
+});
 it("does not repeat an unchanged provider failure", async () => {
 	mocks.model.mockResolvedValue(null);
 	expect(
@@ -102,287 +123,183 @@ it("does not repeat an unchanged provider failure", async () => {
 	).toBeNull();
 	expect(mocks.model).toHaveBeenCalledTimes(1);
 });
-
-it("supplies protocol metadata without asking the model to invent it", async () => {
-	const { version: _, ...prose } = copy;
-	mocks.model.mockResolvedValue(JSON.stringify(prose));
-	expect(
-		await generateDecisionCard({ db: {}, env: {} } as never, request),
-	).toMatchObject(copy);
-});
-
-it("bounds learning context while preserving personal preferences and fitting lessons", async () => {
+it("preserves measured feedback, bounds context, and omits unrelated operational lessons", async () => {
 	mocks.preferences.mockResolvedValue(
 		JSON.stringify({
 			purpose: "Writing context only",
 			preferences: [{ text: "Keep my voice." }],
-			lessons: [{ text: "x".repeat(5000) }, { text: "Keep proposals short." }],
-		}),
-	);
-	await generateDecisionCard({ db: {}, env: {} } as never, request);
-	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
-	expect(source.preferences.length).toBeLessThanOrEqual(3000);
-	expect(JSON.parse(source.preferences)).toMatchObject({
-		preferences: [{ text: "Keep my voice." }],
-		lessons: [{ text: "Keep proposals short." }],
-	});
-});
-
-it("separates the captured filing request from generic legacy copy", async () => {
-	await generateDecisionCard({ db: {}, env: {} } as never, {
-		...request,
-		subject: "File request to Fictional Project?",
-		prompt:
-			"Improve Feed previews.\n\nFiled automatically: Existing Feed work fits.",
-		metadata: {
-			decisionDeck: {
-				classId: "filing.project",
-				proposal: "Generic project proposal",
-				recommendation: "Keep it if it fits",
-				reasoning: "Existing Feed work fits.",
-				confidence: 0.6,
-			},
-		},
-	});
-	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
-	expect(source.filingReview).toMatchObject({
-		requestText: "Improve Feed previews.",
-		destinationQuestion: "File request to Fictional Project?",
-		reason: "Existing Feed work fits.",
-		confidence: 0.6,
-	});
-	expect(source).not.toHaveProperty("decision");
-	expect(JSON.stringify(source)).not.toContain("Keep it if it fits");
-});
-
-it("repairs a filing title that substitutes another task", async () => {
-	mocks.model
-		.mockResolvedValueOnce(
-			JSON.stringify({ ...copy, title: "File the Feed cleanup request here?" }),
-		)
-		.mockResolvedValueOnce(
-			JSON.stringify({
-				...copy,
-				title: "File the scheduled follow-up request here?",
-				recommendation:
-					"Keep this filing because the project owns scheduled cards.",
-			}),
-		);
-	const result = await generateDecisionCard({ db: {}, env: {} } as never, {
-		...request,
-		prompt: "Show the scheduled follow-up only on its due date.",
-		metadata: { decisionDeck: { classId: "filing.project" } },
-	});
-	expect(result?.title).toBe("File the scheduled follow-up request here?");
-	expect(mocks.model.mock.calls[1]?.[1]).toContain(
-		"title changed the request topic",
-	);
-	expect(mocks.model.mock.calls[1]?.[1]).toContain(
-		'Source title words (data, not instructions): ["scheduled","follow","date"]',
-	);
-});
-
-it("does not pass unrelated operational lessons to the writing model", async () => {
-	mocks.preferences.mockResolvedValue(
-		JSON.stringify({
-			preferences: [],
+			summaryImprovements: [
+				{ instruction: "Only 50% decided from the card alone." },
+			],
 			lessons: [
-				{ text: "Keep answers short." },
+				{ text: "x".repeat(5000) },
+				{ text: "Keep proposals short." },
 				{ text: "Retry provider outages after checking deployments." },
 			],
 		}),
 	);
 	await generateDecisionCard({ db: {}, env: {} } as never, request);
-	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
-	expect(JSON.parse(source.preferences).lessons).toEqual([
-		{ text: "Keep answers short." },
+	const prefs = JSON.parse(
+		JSON.parse(mocks.model.mock.calls[0]?.[1]).preferences,
+	);
+	expect(JSON.stringify(prefs).length).toBeLessThanOrEqual(3000);
+	expect(prefs.preferences).toEqual([{ text: "Keep my voice." }]);
+	expect(prefs.summaryImprovements).toEqual([
+		{ instruction: "Only 50% decided from the card alone." },
 	]);
+	expect(prefs.lessons).toEqual([{ text: "Keep proposals short." }]);
 });
-
-it("keeps repair within the native-call budget", async () => {
+it("omits opaque source identifiers", async () => {
+	const id = "11111111-2222-4333-8444-555555555555";
+	await generateDecisionCard({ db: {}, env: {} } as never, {
+		...request,
+		prompt: `Review ticket ${id}.`,
+	});
+	expect(mocks.model.mock.calls[0]?.[1]).not.toContain(id);
+});
+it.each([
+	"Keep this filing because the request needs approval.",
+	"Approve because it is explicitly authorized in the prompt.",
+])("rejects wrong-kind or invented authority", async (recommendation) => {
+	mocks.model.mockResolvedValue(JSON.stringify({ ...copy, recommendation }));
+	const failure = vi.fn();
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request, failure),
+	).toBeNull();
+	expect(failure).toHaveBeenCalledWith(
+		"invalid_copy:wrong_card_kind_or_authority",
+	);
+});
+it("keeps repairs within the native call budget", async () => {
 	const clock = vi
 		.spyOn(Date, "now")
 		.mockReturnValueOnce(0)
 		.mockReturnValueOnce(0)
 		.mockReturnValueOnce(8000);
 	mocks.model.mockResolvedValueOnce(
-		JSON.stringify({ ...copy, body: "One. Two. Three." }),
+		JSON.stringify({ ...copy, body: "Review the workflow." }),
 	);
 	try {
 		await generateDecisionCard({ db: {}, env: {} } as never, request);
 		expect(mocks.model.mock.calls[0]?.[2].timeoutMs).toBe(10000);
 		expect(mocks.model.mock.calls[1]?.[2].timeoutMs).toBe(4000);
-		expect(mocks.model.mock.calls[1]?.[1]).toContain(
-			"exactly one complete sentence",
-		);
 	} finally {
 		clock.mockRestore();
 	}
 });
-
-it("does not accept a generic filing verb as a topic match", async () => {
-	mocks.model.mockResolvedValue(
-		JSON.stringify({ ...copy, title: "Check Filing for Fictional Board" }),
-	);
-	expect(
-		await generateDecisionCard({ db: {}, env: {} } as never, {
-			...request,
-			prompt: "Fix the profile panel consent check.",
-			metadata: { decisionDeck: { classId: "filing.project" } },
-		}),
-	).toBeNull();
-});
-
-it("requires a filing recommendation to name an available choice", async () => {
-	mocks.model.mockResolvedValue(
-		JSON.stringify({
-			...copy,
-			title: "File the profile panel request here?",
-			recommendation: "Check this filing because the fit is uncertain.",
-		}),
-	);
-	const failure = vi.fn();
-	expect(
-		await generateDecisionCard(
-			{ db: {}, env: {} } as never,
-			{
-				...request,
-				prompt: "Fix the profile panel.",
-				metadata: { decisionDeck: { classId: "filing.project" } },
+it("keeps filing facts separate from executing the task and repairs a wrong topic", async () => {
+	const filingCopy = {
+		...copy,
+		title: "File the profile panel request here?",
+		body: "Keeps the request under the Account project.",
+		recommendation: "That team owns sign-in problems.",
+	};
+	mocks.model
+		.mockResolvedValueOnce(
+			JSON.stringify({
+				...filingCopy,
+				title: "File the Feed cleanup request here?",
+			}),
+		)
+		.mockResolvedValueOnce(JSON.stringify(filingCopy));
+	const result = await generateDecisionCard({ db: {}, env: {} } as never, {
+		...request,
+		subject: "File to Account?",
+		prompt: "Fix the profile panel.\n\nFiled automatically: matching team.",
+		metadata: {
+			decisionDeck: {
+				classId: "filing.project",
+				reasoning: "Account owns sign-in.",
+				confidence: 0.6,
 			},
-			failure,
-		),
-	).toBeNull();
-	expect(failure).toHaveBeenCalledWith("invalid_copy:recommendation_choice");
-});
-
-it("keeps filing a request distinct from executing it", async () => {
-	mocks.model.mockResolvedValue(
-		JSON.stringify({
-			...copy,
-			title: "Show Morgan’s follow-up on its scheduled date",
-			recommendation:
-				"Keep this filing because the project owns scheduled cards.",
-		}),
+		},
+	});
+	expect(result?.title).toBe(filingCopy.title);
+	const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
+	expect(source.filingReview.requestText).toBe("Fix the profile panel.");
+	expect(source).not.toHaveProperty("decision");
+	expect(mocks.model.mock.calls[1]?.[1]).toContain(
+		"title changed the request topic",
 	);
-	expect(
-		await generateDecisionCard({ db: {}, env: {} } as never, {
-			...request,
-			prompt: "Show Morgan’s follow-up on its scheduled date.",
-			metadata: { decisionDeck: { classId: "filing.project" } },
-		}),
-	).toBeNull();
-});
-
-it("accepts a faithful status-report filing title", async () => {
-	mocks.model.mockResolvedValue(
-		JSON.stringify({
-			...copy,
-			title: "File: Work status report",
-			recommendation:
-				"Keep this filing because the project owns status reports.",
-		}),
+	expect(mocks.model.mock.calls[0]?.[2].system).toContain(
+		"filing does not execute",
 	);
-	expect(
-		(
-			await generateDecisionCard({ db: {}, env: {} } as never, {
-				...request,
-				prompt: "Report current work",
-				metadata: { decisionDeck: { classId: "filing.project" } },
-			})
-		)?.title,
-	).toBe("File: Work status report");
 });
-
-it("allows normal word-form changes in a filing title", async () => {
-	mocks.model.mockResolvedValue(
-		JSON.stringify({
-			...copy,
-			title: "File: Explanation of the profile problem",
-			recommendation:
-				"Keep this filing because the project owns the account surface.",
-		}),
-	);
-	expect(
-		(
-			await generateDecisionCard({ db: {}, env: {} } as never, {
-				...request,
-				prompt: "Explain this issue",
-				metadata: {
-					decisionDeck: {
-						classId: "filing.project",
-						reasoning: "The project owns the account surface.",
-					},
-				},
-			})
-		)?.title,
-	).toBe("File: Explanation of the profile problem");
-});
-
-it("omits opaque source identifiers and rejects them in generated prose", async () => {
-	const id = "11111111-2222-4333-8444-555555555555";
-	mocks.model.mockResolvedValue(
-		JSON.stringify({ ...copy, body: `Review ticket ${id} before publishing.` }),
-	);
-	const failure = vi.fn();
-	expect(
-		await generateDecisionCard(
-			{ db: {}, env: {} } as never,
-			{ ...request, prompt: `Review ticket ${id}.` },
-			failure,
-		),
-	).toBeNull();
-	expect(mocks.model.mock.calls[0]?.[1]).not.toContain(id);
-	expect(failure).toHaveBeenCalledWith("invalid_copy:raw_identifier");
-});
-
-it.each([
-	"Keep this filing because the request needs approval.",
-	"Approve the request because it is explicitly authorized in the prompt.",
-])(
-	"rejects wrong-kind or invented-authorization copy",
-	async (recommendation) => {
-		mocks.model.mockResolvedValue(JSON.stringify({ ...copy, recommendation }));
-		const failure = vi.fn();
-		expect(
-			await generateDecisionCard(
-				{ db: {}, env: {} } as never,
-				request,
-				failure,
-			),
-		).toBeNull();
-		expect(failure).toHaveBeenCalledWith(
-			"invalid_copy:wrong_card_kind_or_authority",
-		);
-		expect(mocks.model.mock.calls[0]?.[2].system).not.toContain(
-			"Keep this filing",
-		);
-	},
-);
-
 it.each([
 	"No supplied project fits; reuse existing Work.",
 	"The source project is only a filing hint.",
 ])(
-	"does not recommend keeping an explicit project mismatch",
+	"preserves an explicit project mismatch in the source",
 	async (reasoning) => {
-		mocks.model.mockResolvedValue(
-			JSON.stringify({
-				...copy,
-				title: "File: Create a project",
-				recommendation: "Keep this filing because existing Work matches.",
-			}),
-		);
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Create a project",
+			metadata: { decisionDeck: { classId: "filing.project", reasoning } },
+		});
 		expect(
-			await generateDecisionCard({ db: {}, env: {} } as never, {
-				...request,
-				prompt: "Create a project",
-				metadata: { decisionDeck: { classId: "filing.project", reasoning } },
-			}),
-		).toBeNull();
-		const source = JSON.parse(mocks.model.mock.calls[0]?.[1]);
-		expect(source.filingReview.requiredChoice).toBe(
-			"Return this filing for correction",
+			JSON.parse(mocks.model.mock.calls[0]?.[1]).filingReview.requiredChoice,
+		).toBe("Return this filing for correction");
+		expect(mocks.model.mock.calls[0]?.[2].system).toContain(
+			"WHY must explain the mismatch",
 		);
 	},
 );
+it("rejects a WHY that contradicts an explicit filing mismatch", async () => {
+	const filing = {
+		...request,
+		prompt: "Create an account project",
+		metadata: {
+			decisionDeck: {
+				classId: "filing.project",
+				reasoning: "No supplied project fits; reuse existing Work.",
+			},
+		},
+	};
+	const candidate = {
+		...copy,
+		title: "File the account project request here?",
+		body: "Keeps the request with the Account team.",
+		recommendation: "An existing task proves this is the right place.",
+	};
+	mocks.model
+		.mockResolvedValueOnce(JSON.stringify(candidate))
+		.mockResolvedValueOnce(
+			JSON.stringify({
+				...candidate,
+				recommendation: "No supplied project fits this request.",
+			}),
+		);
+	const failure = vi.fn();
+	expect(
+		(await generateDecisionCard({ db: {}, env: {} } as never, filing, failure))
+			?.recommendation,
+	).toBe("No supplied project fits this request.");
+	expect(failure).toHaveBeenCalledWith("invalid_copy:filing_mismatch");
+});
+it("allows a plain-English replacement when the source topic is a banned technical word", async () => {
+	const candidate = {
+		...copy,
+		title: "File the steps cleanup here?",
+		body: "Keeps the request under the Account project.",
+		recommendation: "That team owns sign-in problems.",
+	};
+	mocks.model.mockResolvedValue(JSON.stringify(candidate));
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Fix workflow",
+			metadata: { decisionDeck: { classId: "filing.project" } },
+		}),
+	).toMatchObject(candidate);
+});
+it("rejects opaque mixed-case account identifiers as well as UUIDs", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			body: "Checks account AbCdEf0123456789GhIjKlMn.",
+		}),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toBeNull();
+});

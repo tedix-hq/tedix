@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./assets/decision-card-copy.v2.json": "./src/assets/decision-card-copy.v2.json",
 		"./schemas/memory-observations": "./src/schemas/memory-observations.ts",
 		"./schemas/blueprint-provisioning": "./src/schemas/blueprint-provisioning.ts",
 		"./schemas/data-residency": "./src/schemas/data-residency.ts",
