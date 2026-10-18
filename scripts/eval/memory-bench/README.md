@@ -8,6 +8,8 @@ model, Cloudflare account or running server is required. All input is fictional.
 using exactly the same fixtures. Install that checkout's dependencies first.
 `MEMORY_BENCH_OUT=/path` changes the result directory. The runner refuses dirty
 production modules and records the full source SHA and fixture hash.
+FTS projection migrations are applied in timestamp order, including dependent
+recall projections; filesystem directory order is not authoritative.
 
 - Recall: 120 facts in three organizations, 40 entity, temporal, supersession
   and entity-hop queries. Recall@5 and MRR@5 use expected fact IDs. Invalid and

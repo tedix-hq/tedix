@@ -39,9 +39,9 @@ export async function adapter(root: string) {
 		"memoryEntityResolutions",
 	])
 		sqlite.exec(schemaDdl(entities[name]));
-	for (const directory of readdirSync(
-		resolve(root, "packages/db/drizzle"),
-	).filter((name) => name.includes("memory-fact-hybrid-recall"))) {
+	for (const directory of readdirSync(resolve(root, "packages/db/drizzle"))
+		.filter((name) => name.includes("memory-fact-hybrid-recall"))
+		.sort()) {
 		sqlite.exec(
 			readFileSync(
 				resolve(root, "packages/db/drizzle", directory, "migration.sql"),
