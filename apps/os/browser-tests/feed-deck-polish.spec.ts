@@ -251,7 +251,7 @@ try {
 	);
 	const proposer = failed.locator(".fd-proposer p[title]");
 	if (
-		(await proposer.textContent()) !== "Agent session" ||
+		(await proposer.textContent()) !== "Your coding assistant" ||
 		(await proposer.getAttribute("title")) !==
 			"11111111-1111-4111-8111-111111111111 session"
 	)

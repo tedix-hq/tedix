@@ -175,7 +175,10 @@ function OsSidebar({
 								))}
 							</SidebarMenu>
 						</SidebarGroup>
-						{section.label === "Capabilities" ? <OsSidebarWorkspaces /> : null}
+						{section.label === "Capabilities" &&
+						!pathname.startsWith("/work") ? (
+							<OsSidebarWorkspaces />
+						) : null}
 					</Fragment>
 				))}
 			</SidebarContent>

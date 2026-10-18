@@ -31,7 +31,15 @@ it("shows the exact source reply before approving its effect and keeps edits out
 				/>,
 			),
 		);
-		expect(host.textContent).toContain(decision.preview.body);
+		expect(host.querySelector(".chat-markdown")).toBeNull();
+		await act(async () => {
+			[...host.querySelectorAll("button")]
+				.find((button) => button.textContent === "More")!
+				.click();
+		});
+		expect(
+			[...host.querySelectorAll(".chat-markdown p")].map((p) => p.textContent),
+		).toEqual(["Hello Morgan,", "Your source reply is ready for review."]);
 		expect(host.textContent).toContain(decision.recommendation);
 		expect(host.textContent).not.toContain("Save changes");
 		expect(

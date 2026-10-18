@@ -1,9 +1,10 @@
 import { decisionEnvelope } from "@/lib/decision-deck";
+import { OS_COPY } from "@/shared/os-copy";
 import { useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
-import { ChatMarkdown } from "@/components/chat-markdown";
+import { DecisionProposalBody } from "@/components/decision-proposal-body";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -223,10 +224,14 @@ export function WorkInteractionDecisionCard({
 	const choices = offeredChoices.parse(request.metadata ?? {});
 	const capture = decisionCaptureSummary(request.metadata);
 	const source =
-		capture?.source ??
+		(capture?.source?.includes("Codex")
+			? "Codex"
+			: capture?.source?.includes("Claude Code")
+				? "Claude Code"
+				: undefined) ??
 		(typeof request.metadata?.originChatId === "string" &&
 		request.metadata?.agentHarness === "codex"
-			? "your Codex chat"
+			? "Codex"
 			: undefined) ??
 		(typeof request.metadata?.originChatTitle === "string"
 			? request.metadata.originChatTitle
@@ -237,7 +242,12 @@ export function WorkInteractionDecisionCard({
 	const lane =
 		request.kind === "question" &&
 		Boolean(choices.laneHandoff ?? choices.followThrough?.laneHandoff);
+	const pastDeadline =
+		effectiveState === "open" &&
+		!!request.dueAt &&
+		Date.parse(request.dueAt) < Date.now();
 	const active =
+		!pastDeadline &&
 		canRespond &&
 		(effectiveState === "open" ||
 			(request.kind === "question" && effectiveState === "resolved"));
@@ -297,7 +307,10 @@ export function WorkInteractionDecisionCard({
 						) : capture?.urgency === "later" ? (
 							<p className="text-kumo-subtle">Can wait</p>
 						) : null}
-						<ChatMarkdown content={request.prompt} />
+						{pastDeadline && (
+							<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
+						)}
+						<DecisionProposalBody key={request.id} body={request.prompt} />
 						{draft ? (
 							<div className="grid gap-1 rounded-lg border border-kumo-line p-3">
 								<p className="text-kumo-subtle">

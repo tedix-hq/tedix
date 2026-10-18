@@ -1,4 +1,3 @@
-import { WorkDispatchApp } from "@/components/work-dispatch-app";
 import {
 	WORK_DISPATCH_ENTRY,
 	WorkDispatchConfigSchema,
@@ -7,41 +6,63 @@ import {
 	OfficeConfigSchema,
 	AgentsConfigSchema,
 } from "@tedix/api-contract/schemas/os-session-apps";
-import { OfficeApp } from "@/components/work-office-page";
-import { AgentsApp } from "@/components/work-agents-page";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	PERSONAL_READ_CONSENT_ENTRY,
 	PersonalReadConsentConfigSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { PersonalReadConsentApp } from "@/components/personal-read-consent-app";
 import {
 	DECISION_DECK_ENTRY,
 	DecisionDeckConfigSchema,
 } from "@tedix/api-contract/schemas/os-decision-deck";
-import { DecisionDeckApp } from "@/components/decision-deck-app";
 import {
 	ACTIVITY_FEED_ENTRY,
 	ActivityFeedConfigSchema,
 } from "@tedix/api-contract/schemas/os-activity-feed";
-import {
-	ActivityFeedApp,
-	type ActivityFeedNavigation,
-} from "@/components/activity-feed-app";
+import type { ActivityFeedNavigation } from "@/components/activity-feed-app";
 import {
 	OUTBOUND_REVIEW_ENTRY,
 	OutboundReviewConfigSchema,
 } from "@tedix/api-contract/schemas/os-outbound-review";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { CardReviewApp } from "@/components/card-review-app";
-import { OutboundReviewApp } from "@/components/outbound-review-app";
-import { AttentionApp } from "@/components/work-attention-page";
 import { Card, CardContent } from "@/components/kumo/card";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { cardReviewConfigFromManifest } from "@/lib/card-review";
 import { lazy, Suspense } from "react";
 import { Skeleton } from "@/components/kumo/skeleton";
+
+const WorkDispatchApp = lazy(() =>
+	import("./work-dispatch-app").then((m) => ({ default: m.WorkDispatchApp })),
+);
+const OfficeApp = lazy(() =>
+	import("./work-office-page").then((m) => ({ default: m.OfficeApp })),
+);
+const AgentsApp = lazy(() =>
+	import("./work-agents-page").then((m) => ({ default: m.AgentsApp })),
+);
+const PersonalReadConsentApp = lazy(() =>
+	import("./personal-read-consent-app").then((m) => ({
+		default: m.PersonalReadConsentApp,
+	})),
+);
+const DecisionDeckApp = lazy(() =>
+	import("./decision-deck-app").then((m) => ({ default: m.DecisionDeckApp })),
+);
+const CardReviewApp = lazy(() =>
+	import("./card-review-app").then((m) => ({ default: m.CardReviewApp })),
+);
+const OutboundReviewApp = lazy(() =>
+	import("./outbound-review-app").then((m) => ({
+		default: m.OutboundReviewApp,
+	})),
+);
+const AttentionApp = lazy(() =>
+	import("./work-attention-page").then((m) => ({ default: m.AttentionApp })),
+);
+const ActivityFeedApp = lazy(() =>
+	import("./activity-feed-app").then((m) => ({ default: m.ActivityFeedApp })),
+);
 
 const Portfolio = lazy(() =>
 	import("./organization-portfolio-app").then((m) => ({
@@ -55,6 +76,28 @@ const PortfolioSettings = lazy(() =>
 );
 
 export function WorkspaceAppRenderer({
+	manifest,
+	workspaceId,
+	activityFeed,
+}: {
+	manifest: OsGadgetManifest;
+	workspaceId?: string;
+	activityFeed?: ActivityFeedNavigation;
+}) {
+	return (
+		<Suspense
+			fallback={<Skeleton className="h-60 w-full" aria-label="Loading app" />}
+		>
+			<InstalledApp
+				manifest={manifest}
+				workspaceId={workspaceId}
+				activityFeed={activityFeed}
+			/>
+		</Suspense>
+	);
+}
+
+function InstalledApp({
 	manifest,
 	workspaceId,
 	activityFeed,

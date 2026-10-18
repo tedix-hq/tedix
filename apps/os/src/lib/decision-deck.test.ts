@@ -7,6 +7,7 @@ import { OsGadgetManifestWriteSchema } from "@tedix/api-contract/schemas/os-work
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import {
 	workIsUnowned,
+	compareDecisionFreshness,
 	classReadiness,
 	decisionEnvelope,
 	decisionFeedbackMetadata,
@@ -137,4 +138,35 @@ it("distinguishes nobody carrying an outcome from a live Attempt or an unknown r
 	expect(workIsUnowned({ accountableOwnerId: null, activeAttempt: null })).toBe(
 		true,
 	);
+});
+
+it("demotes elapsed deadlines even when learning would boost the old ask", () => {
+	const now = new Date("2026-10-18T00:30:00Z");
+	const stale = { dueAt: "2026-10-13T09:00:00Z", score: 1000 };
+	const fresh = { requestedAt: "2026-10-17T22:00:00Z", score: 5 };
+	expect(compareDecisionFreshness(stale, fresh, now)).toBeGreaterThan(0);
+	expect(compareDecisionFreshness(fresh, stale, now)).toBeLessThan(0);
+});
+it("uses deadline then recency without learning and preserves learned ranking for fresh cards", () => {
+	const now = new Date("2026-10-18T00:30:00Z");
+	const due = {
+		dueAt: "2026-10-18T06:30:00Z",
+		requestedAt: "2026-10-17T20:00:00Z",
+	};
+	const recent = { requestedAt: "2026-10-17T23:00:00Z" };
+	expect(compareDecisionFreshness(due, recent, now)).toBeLessThan(0);
+	expect(
+		compareDecisionFreshness(
+			recent,
+			{ requestedAt: "2026-10-12T20:00:00Z" },
+			now,
+		),
+	).toBeLessThan(0);
+	expect(
+		compareDecisionFreshness(
+			{ ...recent, score: 20 },
+			{ ...due, score: 5 },
+			now,
+		),
+	).toBeLessThan(0);
 });

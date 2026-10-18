@@ -87,7 +87,22 @@
 		</script>
 	</head>
 	<body>
-		<div id="root"></div>
+		<div id="root">
+			<div
+				role="status"
+				aria-busy="true"
+				style="
+					padding: clamp(1.5rem, 6vw, 5rem);
+					font-family: var(--font-mono, monospace);
+					color: var(--foreground, CanvasText);
+					background: var(--background, Canvas);
+					min-height: 100dvh;
+				"
+			>
+				<strong>Tedix</strong>
+				<p>Opening your workspace…</p>
+			</div>
+		</div>
 		<script type="module" src="/src/main.tsx"></script>
 	</body>
 </html>

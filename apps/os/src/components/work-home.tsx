@@ -13,6 +13,7 @@ import {
 } from "@/lib/work-home-search";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { OS_COPY } from "@/shared/os-copy";
+import "./feed-deck.css";
 
 /** Work is an entry to installed apps, using the same renderer as their workspace. */
 export function WorkHome({
@@ -72,12 +73,31 @@ export function WorkHome({
 		</nav>
 	);
 	return (
-		<Page width="full">
-			{selected && selected.role !== "feed" && (
-				<Link href="/work?view=feed" className="w-fit">
-					{copy.back}
+		<Page width="full" className="fd-work-home">
+			<nav aria-label={copy.views} className="fd-work-nav">
+				<Link
+					href="/work?view=feed"
+					variant="navigation"
+					aria-current={selected?.role === "feed" ? "page" : undefined}
+				>
+					{copy.feed}
 				</Link>
-			)}
+				<Link
+					href="/work?view=deck"
+					variant="navigation"
+					aria-current={selected?.role === "deck" ? "page" : undefined}
+					title={decisions.more ? copy.loadedCount : undefined}
+				>
+					{copy.deck}{" "}
+					<span>
+						{!config.success || decisions.failed
+							? "—"
+							: decisions.pending
+								? "…"
+								: `${decisions.count}${decisions.more ? "+" : ""}`}
+					</span>
+				</Link>
+			</nav>
 			{selected ? (
 				<WorkspaceAppRenderer
 					key={selected.gadget.id}

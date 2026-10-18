@@ -1,7 +1,7 @@
 import type { AgentsConfig } from "@tedix/api-contract/schemas/os-session-apps";
 import { WorkspaceAppRenderer } from "./workspace-app-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	projectListQueryOptions,
@@ -39,7 +39,7 @@ function session(
 	};
 }
 
-function render(
+async function render(
 	sessions: ReturnType<typeof session>[],
 	config: AgentsConfig = { version: 1 },
 ) {
@@ -69,17 +69,18 @@ function render(
 		],
 		pagination: { limit: 100, offset: 0, total: 2, hasMore: false },
 	} as never);
-	return new DOMParser().parseFromString(
-		renderToStaticMarkup(
-			<QueryClientProvider client={client}>
-				<WorkspaceAppRenderer
-					workspaceId={PROJECT_A}
-					manifest={{ entry: "tedix:app/agents", capabilities: [], config }}
-				/>
-			</QueryClientProvider>,
-		),
-		"text/html",
+	const stream = await renderToReadableStream(
+		<QueryClientProvider client={client}>
+			<WorkspaceAppRenderer
+				workspaceId={PROJECT_A}
+				manifest={{ entry: "tedix:app/agents", capabilities: [], config }}
+			/>
+		</QueryClientProvider>,
 	);
+	await stream.allReady;
+	const html = await new Response(stream).text();
+	client.clear();
+	return new DOMParser().parseFromString(html, "text/html");
 }
 
 describe("Agents board", () => {
@@ -99,8 +100,8 @@ describe("Agents board", () => {
 		expect(options.refetchOnWindowFocus).toBe(true);
 	});
 
-	it("groups sessions by project with unbound sessions last", () => {
-		const doc = render([
+	it("groups sessions by project with unbound sessions last", async () => {
+		const doc = await render([
 			session(1, "working", "Running tests", PROJECT_B),
 			session(2, "needs_you", "Approve the migration?"),
 			session(3, "done", "Pushed to main", PROJECT_A),
@@ -126,8 +127,8 @@ describe("Agents board", () => {
 		expect(strip?.textContent).toContain("Blocked1");
 	});
 
-	it("keeps urgency order and a state badge inside a project group", () => {
-		const doc = render([
+	it("keeps urgency order and a state badge inside a project group", async () => {
+		const doc = await render([
 			session(1, "working", "Running", PROJECT_A),
 			session(2, "done", "Shipped", PROJECT_A),
 			session(3, "needs_you", "Approve?", PROJECT_A),
@@ -141,9 +142,9 @@ describe("Agents board", () => {
 		expect(group?.querySelector("li")?.textContent).toContain("Waiting on you");
 	});
 
-	it("tints only needs_you and done rows and keeps the full summary on hover", () => {
+	it("tints only needs_you and done rows and keeps the full summary on hover", async () => {
 		const summary = "A very long summary ".repeat(8).trim();
-		const doc = render([
+		const doc = await render([
 			session(1, "needs_you", summary),
 			session(2, "error", "Type-check failed"),
 			session(3, "done", "Shipped"),
@@ -161,15 +162,15 @@ describe("Agents board", () => {
 		);
 	});
 
-	it("collapses idle sessions inside their group by default", () => {
-		const doc = render([session(4, "idle", "Quiet session summary")]);
+	it("collapses idle sessions inside their group by default", async () => {
+		const doc = await render([session(4, "idle", "Quiet session summary")]);
 		const group = doc.querySelector('section[aria-label="No project"]');
 		expect(group?.textContent).toContain("Inactive (1)");
 		expect(group?.querySelector("li")).toBeNull();
 	});
 
-	it("explains how to turn reporting on when no session reports", () => {
-		const doc = render([session(5, "ended", "Closed")]);
+	it("explains how to turn reporting on when no session reports", async () => {
+		const doc = await render([session(5, "ended", "Closed")]);
 		expect(doc.body.textContent).toContain("No agent sessions reporting");
 		expect(doc.body.textContent).toContain("~/.tedix/agent-status.json");
 		expect(doc.body.textContent).toContain('"enabled": true');
@@ -177,7 +178,7 @@ describe("Agents board", () => {
 	});
 });
 
-it("shows measured lane facts, estimates and a daily roll-up", () => {
+it("shows measured lane facts, estimates and a daily roll-up", async () => {
 	const lane = {
 		...session(1, "done", "Done", PROJECT_A),
 		telemetry: {
@@ -203,7 +204,7 @@ it("shows measured lane facts, estimates and a daily roll-up", () => {
 			lessonStatus: "extracted",
 		},
 	};
-	const doc = render([lane]);
+	const doc = await render([lane]);
 	expect(doc.body.textContent).toContain("fictional-model");
 	expect(doc.body.textContent).toContain("110 tokens");
 	expect(doc.body.textContent).toContain("$0.0123 estimated");
@@ -213,8 +214,8 @@ it("shows measured lane facts, estimates and a daily roll-up", () => {
 	);
 });
 
-it("scopes configured projects, states and harnesses through the generic renderer", () => {
-	const doc = render(
+it("scopes configured projects, states and harnesses through the generic renderer", async () => {
+	const doc = await render(
 		[
 			session(2, "working", "Selected lane", PROJECT_A),
 			session(4, "error", "Wrong state", PROJECT_A),
@@ -264,11 +265,14 @@ it("screen selections cannot widen manifest scope and recompute counts", () => {
 	).toEqual([sessions[1]]);
 });
 
-it("can explicitly show ended sessions through its configured state scope", () => {
-	const doc = render([session(2, "ended", "Finished local lane", PROJECT_A)], {
-		version: 1,
-		states: ["ended"],
-	});
+it("can explicitly show ended sessions through its configured state scope", async () => {
+	const doc = await render(
+		[session(2, "ended", "Finished local lane", PROJECT_A)],
+		{
+			version: 1,
+			states: ["ended"],
+		},
+	);
 	expect(doc.body.textContent).toContain("Finished local lane");
 	expect(doc.querySelector('li[data-agent-state="ended"]')).not.toBeNull();
 });

@@ -33,9 +33,11 @@ import {
 	projectListQueryOptions,
 	userProfileQueryOptions,
 	workItemListQueryOptions,
+	workInteractionDetailQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	rankDecision,
+	compareDecisionFreshness,
 	workIsUnowned,
 	classReadiness,
 	decisionEnvelope,
@@ -67,6 +69,9 @@ export function DecisionDeckApp({
 		refetchInterval: 60000,
 	});
 	const [mode, setMode] = useState("decide");
+	const [sessionLearningId, setSessionLearningId] = useState<string | null>(
+		null,
+	);
 	const [kind, setKind] = useState("all");
 	const [project, setProject] = useState("all");
 	const [urgency, setUrgency] = useState("all");
@@ -76,15 +81,16 @@ export function DecisionDeckApp({
 	const [skipped, setSkipped] = useState<string[]>([]);
 	const decisions = useDecisionInbox(config);
 	const { inbox, approvals } = decisions;
-	const history = useQuery(
-		osQuery.workInteractions.listInbox.queryOptions({
+	const history = useQuery({
+		...osQuery.workInteractions.listInbox.queryOptions({
 			input: {
 				projectId: config.projectId,
 				limit: config.limit,
 				states: ["resolved"],
 			},
 		}),
-	);
+		enabled: mode === "history",
+	});
 	const profile = useQuery(userProfileQueryOptions());
 	const projects = useQuery(projectListQueryOptions(100));
 	const projectNames = new Map(
@@ -233,12 +239,22 @@ export function DecisionDeckApp({
 					? [row.row.request.metadata.personId]
 					: [],
 		});
+	const compare = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
+		compareDecisionFreshness(
+			{
+				dueAt: a.row?.request.dueAt,
+				requestedAt: a.row?.request.requestedAt,
+				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
+			},
+			{
+				dueAt: b.row?.request.dueAt,
+				requestedAt: b.row?.request.requestedAt,
+				score: learningModel.data?.config.enabled ? rank(b).score : undefined,
+			},
+			now,
+		);
 	const ranked = rows
-		.sort((a, b) =>
-			learningModel.data?.config.enabled
-				? rank(b).score - rank(a).score
-				: Number(b.urgency === "now") - Number(a.urgency === "now"),
-		)
+		.sort(compare)
 		.filter(
 			(row) =>
 				(kind === "all" || row.kind === kind) &&
@@ -270,18 +286,21 @@ export function DecisionDeckApp({
 				: rows;
 	const filtered =
 		mode === "decide"
-			? ranked
-					.filter((row) =>
-						available.some((candidate) => candidate.id === row.id),
-					)
-					.sort(
-						(a, b) =>
-							(learningModel.data?.config.enabled
-								? rank(b).score - rank(a).score
-								: 0) || batch!.ids.indexOf(a.id) - batch!.ids.indexOf(b.id),
-					)
+			? ranked.filter((row) =>
+					available.some((candidate) => candidate.id === row.id),
+				)
 			: ranked;
 	const selected = filtered[Math.min(index, Math.max(0, filtered.length - 1))];
+	const prefetchIds = filtered
+		.slice(0, 3)
+		.filter((row) => row.row)
+		.map((row) => row.id)
+		.join(",");
+	useEffect(() => {
+		if (mode !== "decide" || !prefetchIds) return;
+		for (const id of prefetchIds.split(","))
+			void client.prefetchQuery(workInteractionDetailQueryOptions(id));
+	}, [client, mode, prefetchIds]);
 	const linkedWorkId = selected?.row?.workItem?.id;
 	const selectedWork = useQuery({
 		...workItemListQueryOptions({ idPrefix: linkedWorkId ?? "", limit: 1 }),
@@ -297,6 +316,10 @@ export function DecisionDeckApp({
 	);
 	const expiresAt =
 		selected?.row?.request.expiresAt ?? selected?.decision?.expiresAt;
+	const pastDeadline =
+		!!selected?.row?.request.dueAt &&
+		Date.parse(selected.row.request.dueAt) < now.getTime();
+	const expired = !!expiresAt && Date.parse(expiresAt) <= now.getTime();
 	const current = selected?.decision
 		? {
 				...selected.decision,
@@ -427,11 +450,17 @@ export function DecisionDeckApp({
 							},
 						}),
 					)
-					.then(() =>
-						client.invalidateQueries({
+					.then(async (result) => {
+						if (
+							choice.signal !== "shown" &&
+							!result.duplicate &&
+							result.event?.id
+						)
+							setSessionLearningId(result.event.id);
+						await client.invalidateQueries({
 							queryKey: osQuery.learningFeedback.key(),
-						}),
-					)
+						});
+					})
 					.catch(() => {});
 			}}
 		>
@@ -439,7 +468,7 @@ export function DecisionDeckApp({
 				className="feed-deck fd-deck mx-auto grid w-full min-w-0 pb-8"
 				data-workspace-app-entry="decision-deck"
 			>
-				<DecisionLearningFeedback />
+				<DecisionLearningFeedback eventId={sessionLearningId} />
 				<header className="fd-deck-heading">
 					<Text as="h2" tone="mono">
 						{OS_COPY.decisionDeck.title}
@@ -613,10 +642,8 @@ export function DecisionDeckApp({
 						className="grid gap-3"
 					>
 						<Text role="label">
-							{selected.kind === "adr"
-								? "Architecture decision"
-								: selected.kind}{" "}
-							· {(index % filtered.length) + 1} of {filtered.length}
+							{OS_COPY.decisionDeck.cardKinds[selected.kind]} ·{" "}
+							{(index % filtered.length) + 1} of {filtered.length}
 						</Text>
 						{!usesEnvelope && expiresAt && (
 							<Text>
@@ -625,8 +652,8 @@ export function DecisionDeckApp({
 								)}
 							</Text>
 						)}
-						{!usesEnvelope && nobodyOn && (
-							<Text>{OS_COPY.decisionDeck.nobodyOn}</Text>
+						{usesEnvelope && pastDeadline && (
+							<p role="status">{OS_COPY.decisionDeck.revalidate}</p>
 						)}
 						<div
 							className="fd-decision-stack"
@@ -675,7 +702,10 @@ export function DecisionDeckApp({
 											? "Example"
 											: (selected.row?.askedBy ?? "Your tedi")
 									}
-									disabled={mode === "history"}
+									disabled={
+										mode === "history" ||
+										(!practiceMode && (pastDeadline || expired))
+									}
 									onNext={next}
 									onPrevious={previous}
 									onDecision={async (feedback, choice, elapsedMs) => {

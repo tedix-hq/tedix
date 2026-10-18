@@ -304,7 +304,11 @@ describe("Decision-capture questions", () => {
 
 	async function renderDetail(
 		metadata: Record<string, JsonValue>,
-		overrides: { kind?: "question" | "handoff"; canRespond?: boolean } = {},
+		overrides: {
+			kind?: "question" | "handoff";
+			canRespond?: boolean;
+			dueAt?: string;
+		} = {},
 	) {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -319,7 +323,7 @@ describe("Decision-capture questions", () => {
 				creatorSessionId: null,
 				state: "open",
 				requestedAt: "2026-10-03T14:00:00Z",
-				dueAt: null,
+				dueAt: overrides.dueAt ?? null,
 				expiresAt: null,
 				resolvedAt: null,
 				metadata,
@@ -440,7 +444,9 @@ describe("Decision-capture questions", () => {
 		expect(container.querySelector("h2")?.textContent).toBe(
 			"acme-app · claude-code waiting: It's deployed. The live API runs commit fc6b8f9",
 		);
-		expect(text).toContain("your Claude Code session");
+		expect(container.querySelector(".fd-proposer")?.textContent).toContain(
+			"Claude Code",
+		);
 		expect(
 			container.querySelector('[data-kumo-component="CollapsibleTrigger"]')
 				?.textContent,
@@ -448,6 +454,12 @@ describe("Decision-capture questions", () => {
 		expect(text).not.toContain("Question from");
 		expect(text).toContain("Blocked");
 		expect(text).not.toContain("Can wait");
+		expect(container.querySelector(".chat-markdown")).toBeNull();
+		await act(async () => {
+			[...container.querySelectorAll("button")]
+				.find((button) => button.textContent === "More")!
+				.click();
+		});
 		expect(container.querySelector(".chat-markdown strong")?.textContent).toBe(
 			"It's deployed.",
 		);
@@ -494,11 +506,33 @@ describe("Decision-capture questions", () => {
 		expect(container.textContent).not.toContain("Blocked");
 	});
 
+	it("withholds answer controls after the request deadline until source revalidation", async () => {
+		const container = await renderDetail(
+			{},
+			{ canRespond: true, dueAt: "2026-10-01T00:00:00Z" },
+		);
+		expect(container.textContent).toContain("This deadline has passed");
+		expect(
+			container.querySelector('textarea[aria-label="Your answer"]'),
+		).toBeNull();
+		expect(
+			[...container.querySelectorAll("button")].find(
+				(button) => button.textContent === "Answer",
+			),
+		).toBeUndefined();
+	});
+
 	it("keeps the existing source label and plain prompt for other questions", async () => {
 		const container = await renderDetail({});
 		const text = container.textContent ?? "";
 		expect(text).toContain("Fixture Person");
 		expect(text).toContain("It's deployed.");
+		expect(container.querySelector(".chat-markdown")).toBeNull();
+		await act(async () => {
+			[...container.querySelectorAll("button")]
+				.find((button) => button.textContent === "More")!
+				.click();
+		});
 		expect(container.querySelector(".chat-markdown strong")).not.toBeNull();
 	});
 });

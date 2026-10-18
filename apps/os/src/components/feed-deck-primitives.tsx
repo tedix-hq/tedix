@@ -54,7 +54,9 @@ export function ProposerChip({
 	detail?: ReactNode;
 }) {
 	const displayName =
-		/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\s+session$/i.test(name.trim())
+		/^(?:[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\s+session|Agent session)$/i.test(
+			name.trim(),
+		)
 			? OS_COPY.feedDeckVisual.agentSession
 			: name;
 	const initials = displayName
