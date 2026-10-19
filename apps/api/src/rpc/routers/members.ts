@@ -21,6 +21,8 @@ import {
 	countActiveOwners,
 	getMemberById,
 	getMembersByOrganization,
+	listMemberRepresentatives,
+	setMemberIdentity,
 	inviteMember as inviteMemberD1,
 	removeMember as removeMemberD1,
 	setMemberPermissions as setMemberPermissionsD1,
@@ -492,6 +494,9 @@ function formatMemberResponse(m: {
 	organizationId: string;
 	descopeUserId: string;
 	userId?: string | null;
+	kind?: "human" | "external_agent";
+	representedUserId?: string | null;
+	representedUserName?: string | null;
 	email: string;
 	name: string | null;
 	avatarUrl: string | null;
@@ -510,6 +515,9 @@ function formatMemberResponse(m: {
 		organizationId: m.organizationId,
 		descopeUserId: m.descopeUserId,
 		userId: m.userId ?? null,
+		kind: m.kind ?? "human",
+		representedUserId: m.representedUserId ?? null,
+		representedUserName: m.representedUserName ?? null,
 		email: m.email,
 		name: m.name,
 		avatarUrl: m.avatarUrl,
@@ -559,8 +567,28 @@ export const listMembersContract = authedMembersOs.listMembers
 		});
 		const total = allMembers.length;
 
+		const representatives = await listMemberRepresentatives(
+			db,
+			organizationId,
+			members.flatMap((member) =>
+				member.kind === "external_agent" && member.representedUserId
+					? [member.representedUserId]
+					: [],
+			),
+		);
+		const names = new Map(
+			representatives.map((person) => [
+				person.userId,
+				person.name || person.email,
+			]),
+		);
 		return {
-			data: members.map(formatMemberResponse),
+			data: members.map((member) =>
+				formatMemberResponse({
+					...member,
+					representedUserName: names.get(member.representedUserId) ?? null,
+				}),
+			),
 			pagination: {
 				limit,
 				offset,
@@ -655,20 +683,46 @@ export const inviteMemberContract = authedMembersOs.inviteMember
 		// (an admin must not be able to mint an owner).
 		assertCanAssignRole(context, role);
 
+		const actor = auditActor(context);
+		// Retain the initiating principal before D1 or provider side effects.
+		await emitAuditEvent(db, {
+			organizationId,
+			actorId: actor.actorId,
+			actorType: actor.actorType,
+			action: "member.invite_requested",
+			resourceType: "organization_member",
+			metadata: { ...actor.actorMetadata, email, role },
+		});
+
 		// Create pending membership in D1 (primary store). A concurrent invite can
 		// still race the email lookup in the query layer; return an oRPC conflict
 		// that the UI can render instead of leaking a raw D1 500.
-		const member = await inviteMemberD1(db, organizationId, email, role).catch(
-			(error: unknown) => {
-				if (isD1ConstraintError(error)) {
-					throw createError(
-						ErrorCodes.CONFLICT,
-						"An invitation for this member is already being created. Refresh and try again.",
-					);
-				}
-				throw error;
-			},
-		);
+		const member = await inviteMemberD1(
+			db,
+			organizationId,
+			email,
+			role,
+			undefined,
+			actor.actorId,
+		).catch((error: unknown) => {
+			if (isD1ConstraintError(error)) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"An invitation for this member is already being created. Refresh and try again.",
+				);
+			}
+			throw error;
+		});
+
+		await emitAuditEvent(db, {
+			organizationId,
+			actorId: actor.actorId,
+			actorType: actor.actorType,
+			action: "member.invitation_created",
+			resourceType: "organization_member",
+			resourceId: member.id,
+			metadata: { ...actor.actorMetadata, email, role, status: member.status },
+		});
 
 		// Invite the user in Descope when configured.
 		//
@@ -1046,11 +1100,58 @@ export const acceptInvitationContract = authedMembersOs.acceptInvitation
 		}
 	});
 
-/**
- * Contract-based router using os.router() pattern
- * This enforces that all procedures match the contract
- */
+export const setMemberIdentityContract = authedMembersOs.setMemberIdentity
+	.use(withAuthorization("team:manage", "team:write"))
+	.handler(async ({ input, context }) => {
+		await requireOrganizationAccess(context, input.organizationId);
+		requireAdminOrOwner(context);
+		const member = await getMemberById(context.db, input.memberId);
+		if (!member || member.organizationId !== input.organizationId) {
+			throw createError(
+				ErrorCodes.NOT_FOUND,
+				"Member not found in this organization",
+			);
+		}
+		assertCanManageTarget(context, member.role);
+		const actor = auditActor(context);
+		await emitAuditEvent(context.db, {
+			organizationId: input.organizationId,
+			actorId: actor.actorId,
+			actorType: actor.actorType,
+			action: "member.identity_requested",
+			resourceType: "organization_member",
+			resourceId: member.id,
+			metadata: { ...actor.actorMetadata, ...input.identity },
+		});
+		const updated = await setMemberIdentity(
+			context.db,
+			input.organizationId,
+			input.memberId,
+			input.identity,
+		);
+		if (!updated)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Choose an active member and a different active human in this organization",
+			);
+		await emitAuditEvent(context.db, {
+			organizationId: input.organizationId,
+			actorId: actor.actorId,
+			actorType: actor.actorType,
+			action: "member.identity_set",
+			resourceType: "organization_member",
+			resourceId: member.id,
+			metadata: {
+				...actor.actorMetadata,
+				kind: updated.kind,
+				representedUserId: updated.representedUserId,
+			},
+		});
+		return { data: formatMemberResponse(updated) };
+	});
+
 export const membersContractRouter = authedMembersOs.router({
+	setMemberIdentity: setMemberIdentityContract,
 	getMembershipReconciliation: getMembershipReconciliationContract,
 	repairMembership: repairMembershipContract,
 	listMembers: listMembersContract,

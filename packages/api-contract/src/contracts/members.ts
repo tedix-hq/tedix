@@ -196,10 +196,29 @@ export const membersContract = oc
 				}),
 			),
 
-		/**
-		 * Update a member's role
-		 * PATCH /organizations/{organizationId}/members/{memberId}/role
-		 */
+		setMemberIdentity: oc
+			.route({
+				method: "PUT",
+				path: "/{organizationId}/members/{memberId}/identity",
+				summary: "Set a member's display identity",
+				description:
+					"Identify a browser agent and the active person it represents. Display provenance only; does not delegate access, change roles, or alter sign-in.",
+			})
+			.input(
+				OrgIdParamSchema.extend({
+					...MemberIdParamSchema.shape,
+					identity: z.discriminatedUnion("kind", [
+						z.strictObject({ kind: z.literal("human") }),
+						z.strictObject({
+							kind: z.literal("external_agent"),
+							displayName: z.string().trim().min(1).max(100),
+							representedUserId: z.string().min(1).max(300),
+						}),
+					]),
+				}).strict(),
+			)
+			.output(z.object({ data: MemberSchema })),
+
 		updateMemberRole: oc
 			.route({
 				tags: ["REST"],

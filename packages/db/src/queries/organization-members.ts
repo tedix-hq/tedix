@@ -139,6 +139,76 @@ export async function getMemberByCanonicalUserId(
 	});
 }
 
+/** Names are resolved inside the same organization, including off-page people. */
+export async function listMemberRepresentatives(
+	db: DbClient,
+	organizationId: string,
+	userIds: string[],
+) {
+	const rows: { userId: string | null; name: string | null; email: string }[] =
+		[];
+	for (const ids of chunkForBoundParams([...new Set(userIds)], 50)) {
+		rows.push(
+			...(await db
+				.select({
+					userId: organizationMembers.userId,
+					name: organizationMembers.name,
+					email: organizationMembers.email,
+				})
+				.from(organizationMembers)
+				.where(
+					and(
+						eq(organizationMembers.organizationId, organizationId),
+						eq(organizationMembers.status, "active"),
+						eq(organizationMembers.kind, "human"),
+						inArray(organizationMembers.userId, ids),
+					),
+				)),
+		);
+	}
+	return rows;
+}
+
+/** Conditional tenant-scoped metadata write; never changes authorization fields. */
+export async function setMemberIdentity(
+	db: DbClient,
+	organizationId: string,
+	memberId: string,
+	identity:
+		| { kind: "human" }
+		| {
+				kind: "external_agent";
+				displayName: string;
+				representedUserId: string;
+		  },
+) {
+	const representedUserId =
+		identity.kind === "external_agent" ? identity.representedUserId : null;
+	return (
+		await db
+			.update(organizationMembers)
+			.set({
+				kind: identity.kind,
+				representedUserId,
+				...(identity.kind === "external_agent"
+					? { name: identity.displayName }
+					: {}),
+				updatedAt: new Date().toISOString(),
+			})
+			.where(
+				and(
+					eq(organizationMembers.organizationId, organizationId),
+					eq(organizationMembers.id, memberId),
+					eq(organizationMembers.status, "active"),
+					representedUserId
+						? sql`EXISTS (SELECT 1 FROM organization_members AS person WHERE person.organization_id = ${organizationId} AND person.user_id = ${representedUserId} AND person.status = 'active' AND person.kind = 'human' AND person.id <> ${memberId})`
+						: undefined,
+				),
+			)
+			.returning()
+	)[0];
+}
+
 /**
  * Count active owners in an organization.
  *
@@ -439,7 +509,7 @@ export async function addMember(
  * @param email - Email to invite
  * @param role - Role to assign
  * @param descopeUserId - Descope user ID if already created in Descope
- * @param invitedBy - Descope user ID of inviter
+ * @param invitedBy - Initiating principal id (legacy callers may use a provider subject)
  */
 export async function inviteMember(
 	db: DbClient,

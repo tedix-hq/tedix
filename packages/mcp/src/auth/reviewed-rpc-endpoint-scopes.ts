@@ -383,6 +383,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"members/listPermissions": "mcp:settings.read",
 	"members/listRoles": "mcp:settings.read",
 	"members/repairMembership": "mcp:settings.admin",
+	"members/setMemberIdentity": "mcp:settings.admin",
 	"members/setMemberPermissions": "mcp:settings.admin",
 	"memoryEntities/createEntity": "mcp:memory.admin",
 	"memoryEntities/getMentionResolution": "mcp:memory.read",

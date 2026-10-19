@@ -11,6 +11,7 @@ const membersApi = vi.hoisted(() => ({
 	removeMember: vi.fn(),
 	updateMemberRole: vi.fn(),
 	setMemberPermissions: vi.fn(),
+	setMemberIdentity: vi.fn(),
 	listMembers: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
@@ -410,6 +411,49 @@ async function mountPanel(options: {
 const MANAGE = ["team:manage"];
 
 describe("members surface", () => {
+	it("labels browser agents separately from their role and saves identity through the contract", async () => {
+		const juniper = member({
+			email: "juniper@example.test",
+			name: "Juniper",
+			kind: "external_agent",
+			representedUserId: "river",
+			representedUserName: "River",
+		});
+		membersApi.setMemberIdentity.mockResolvedValue({ data: juniper });
+		const mounted = await mountPanel({
+			permissions: MANAGE,
+			members: [juniper],
+		});
+		expect(mounted.host.textContent).toContain("Juniper · agent for River");
+		const actions = mounted.host.querySelector<HTMLButtonElement>(
+			'[aria-label="Actions for juniper@example.test"]',
+		)!;
+		await act(async () => {
+			actions.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+			actions.click();
+		});
+		const edit = [
+			...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		].find((item) => item.textContent?.trim() === "Edit identity")!;
+		await act(async () => edit.click());
+		expect(document.body.textContent).toContain(
+			"Representation does not grant access",
+		);
+		await act(async () => mounted.button("Save identity")!.click());
+		await flushInviteMutation();
+		expect(membersApi.setMemberIdentity).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			memberId: juniper.id,
+			identity: {
+				kind: "external_agent",
+				displayName: "Juniper",
+				representedUserId: "river",
+			},
+		});
+		expect(mounted.invalidated).toContainEqual(osQueryKeys.members());
+		expect(membersApi.updateMemberRole).not.toHaveBeenCalled();
+	});
+
 	it("renders the Tedix member contract, not a provider admin widget", async () => {
 		const { host } = await mountPanel({});
 		for (const entry of TEAM) expect(host.textContent).toContain(entry.email);

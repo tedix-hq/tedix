@@ -44,6 +44,11 @@ export const organizationMembers = sqliteTable(
 		email: text("email").notNull(),
 		name: text("name"),
 		avatarUrl: text("avatar_url"),
+		// Display identity only. Representation never delegates the person's access.
+		kind: text("kind", { enum: ["human", "external_agent"] })
+			.notNull()
+			.default("human"),
+		representedUserId: text("represented_user_id"),
 
 		// RBAC Role
 		// Determines what actions this member can perform
@@ -69,7 +74,7 @@ export const organizationMembers = sqliteTable(
 		// Invitation tracking
 		invitedAt: text("invited_at"),
 		inviteAcceptedAt: text("invite_accepted_at"),
-		invitedBy: text("invited_by"), // descopeUserId of the inviter
+		invitedBy: text("invited_by"), // initiating principal id; older rows may use a provider subject
 
 		// Last activity tracking
 		lastActiveAt: text("last_active_at"),
