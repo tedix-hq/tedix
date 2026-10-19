@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { WorkToolbarTargetContext } from "../src/components/deck-presentation-context";
+import { OsTopbarActionsTargetContext } from "../src/components/os-topbar-actions-context";
 import { WorkActorDirectoryContext } from "../src/components/work-actor-avatar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
@@ -378,44 +379,48 @@ const manifest = OsGadgetManifestSchema.parse({
 });
 function ProofFrame({ children }: { children: ReactNode }) {
 	const [target, setTarget] = useState<HTMLDivElement | null>(null);
+	const [topbarTarget, setTopbarTarget] = useState<HTMLDivElement | null>(null);
 	if (!params.has("shell"))
 		return <main className="mx-auto max-w-5xl p-3 md:p-8">{children}</main>;
 	return (
 		<WorkToolbarTargetContext.Provider value={target}>
-			<div className="flex h-dvh flex-col">
-				<header className="flex h-14 shrink-0 items-center border-b border-kumo-line px-6 font-semibold">
-					Work
-				</header>
-				<div className="fd-work-shell flex min-h-0 flex-1 flex-col">
-					<section
-						data-slot="page"
-						className="fd-work-home mx-auto min-h-0 w-full flex-1 overflow-y-auto px-4 sm:px-6"
-					>
-						{children}
-					</section>
-					<div className="fd-work-bar">
-						<nav className="fd-work-navigation">
-							<a
-								href="?shell&surface=feed"
-								aria-current={
-									params.get("surface") === "feed" ? "page" : undefined
-								}
-							>
-								Feed
-							</a>
-							<a
-								href="?shell&surface=question"
-								aria-current={
-									params.get("surface") !== "feed" ? "page" : undefined
-								}
-							>
-								Deck 12
-							</a>
-						</nav>
-						<div ref={setTarget} className="fd-work-toolbar-slot" />
+			<OsTopbarActionsTargetContext.Provider value={topbarTarget}>
+				<div className="flex h-dvh flex-col">
+					<header className="flex h-14 shrink-0 items-center justify-between border-b border-kumo-line px-4 font-semibold sm:px-6">
+						Work
+						<div ref={setTopbarTarget} />
+					</header>
+					<div className="fd-work-shell flex min-h-0 flex-1 flex-col">
+						<section
+							data-slot="page"
+							className="fd-work-home mx-auto min-h-0 w-full flex-1 overflow-y-auto px-4 sm:px-6"
+						>
+							{children}
+						</section>
+						<div className="fd-work-bar">
+							<nav className="fd-work-navigation">
+								<a
+									href="?shell&surface=feed"
+									aria-current={
+										params.get("surface") === "feed" ? "page" : undefined
+									}
+								>
+									Feed
+								</a>
+								<a
+									href="?shell&surface=question"
+									aria-current={
+										params.get("surface") !== "feed" ? "page" : undefined
+									}
+								>
+									Deck 12
+								</a>
+							</nav>
+							<div ref={setTarget} className="fd-work-toolbar-slot" />
+						</div>
 					</div>
 				</div>
-			</div>
+			</OsTopbarActionsTargetContext.Provider>
 		</WorkToolbarTargetContext.Provider>
 	);
 }

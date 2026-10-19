@@ -204,18 +204,20 @@ it("browses all six practice kinds, explains the choice and never submits a real
 	await mount();
 	await click("Try examples");
 	expect(host.textContent).toContain("Practice only");
-	await act(async () =>
-		host
-			.querySelector<HTMLButtonElement>('[aria-label="Decision context"]')!
-			.click(),
-	);
 	for (const example of DECISION_DECK_EXAMPLES) {
 		expect(host.textContent).toContain(example.proposal);
 		expect(host.textContent).not.toContain("unchanged approvals");
 		expect(host.textContent).not.toContain("Target:");
 		await click("Why this");
-		expect(host.textContent).toContain(
-			"Prefer a bounded next step with evidence",
+		expect(
+			document.querySelector("[data-decision-context]")?.textContent,
+		).toContain("Prefer a bounded next step with evidence");
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>(
+					'[aria-label="Close decision context"]',
+				)!
+				.click(),
 		);
 		await key("j");
 	}
@@ -245,21 +247,28 @@ it("starts collapsed, opens Why in context, and remembers closure for this perso
 	expect(toggle().getAttribute("aria-expanded")).toBe("false");
 	await act(async () => toggle().click());
 	expect(toggle().getAttribute("aria-expanded")).toBe("true");
+	await act(async () =>
+		document
+			.querySelector<HTMLButtonElement>(
+				'[aria-label="Close decision context"]',
+			)!
+			.click(),
+	);
 	await click("Try examples");
-	await act(async () => toggle().click());
 	expect(toggle().getAttribute("aria-expanded")).toBe("false");
 	await click("Why this");
 	expect(toggle().getAttribute("aria-expanded")).toBe("true");
 	expect(
-		host.querySelector('.fd-context-rail [data-context-section="why"]')
-			?.textContent,
+		document.querySelector(
+			'[data-decision-context] [data-context-section="why"]',
+		)?.textContent,
 	).toContain("Prefer a bounded next step");
 	expect(
 		host.querySelector('.fd-context-main [data-context-section="why"]'),
 	).toBeNull();
 
-	const context = host.querySelector<HTMLElement>(
-		'.fd-context-rail [data-context-section="why"] h3',
+	const context = document.querySelector<HTMLElement>(
+		'[data-decision-context] [data-context-section="why"] h3',
 	)!;
 	await act(async () => {
 		context.dispatchEvent(
@@ -292,7 +301,7 @@ it("starts collapsed, opens Why in context, and remembers closure for this perso
 		cancelable: true,
 	});
 	await act(async () => document.dispatchEvent(escape));
-	expect(escape.defaultPrevented).toBe(false);
+	expect(toggle().getAttribute("aria-expanded")).toBe("false");
 });
 
 it("does not announce All clear while decision history is loading", async () => {

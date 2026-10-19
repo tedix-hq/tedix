@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { DecisionContextRail } from "./decision-context-rail";
 import {
 	afterEach,
 	beforeEach,
@@ -11,7 +12,7 @@ import {
 	vi,
 } from "vite-plus/test";
 
-const route = vi.hoisted(() => ({ pathname: "/work" }));
+const route = vi.hoisted(() => ({ pathname: "/work", context: false }));
 
 const api = vi.hoisted(() => ({
 	workspaces: { list: vi.fn() },
@@ -23,14 +24,27 @@ vi.mock("@/components/work-actor-directory", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-	osApi: { directory: { listMyWorkspaces: vi.fn() }, osWorkspaces: api },
+	osApi: {
+		directory: { listMyWorkspaces: vi.fn() },
+		osWorkspaces: api,
+		userProfile: {
+			getMine: vi.fn(async () => ({ id: "fictional-shell-person" })),
+		},
+	},
 }));
 vi.mock("@descope/react-sdk/flows", () => ({
 	getCurrentTenant: () => "acme",
 }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
-	Outlet: () => <div>Route content</div>,
+	Outlet: () =>
+		route.context ? (
+			<DecisionContextRail>
+				<p>Route content</p>
+			</DecisionContextRail>
+		) : (
+			<div>Route content</div>
+		),
 	useNavigate: () => vi.fn(),
 	useRouterState: () => route.pathname,
 }));
@@ -74,6 +88,7 @@ vi.mock("@/lib/os-query-options", async (importOriginal) => ({
 }));
 
 import { OsShell } from "./os-shell";
+import { userProfileQueryOptions } from "@/lib/os-query-options";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -85,6 +100,14 @@ const styles = readFileSync("src/styles.css", "utf8");
 function renderShell(): HTMLElement {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
+	});
+	queryClient.setQueryData(userProfileQueryOptions().queryKey, {
+		id: "fictional-shell-person",
+		email: "person@example.com",
+		name: "Fictional person",
+		avatarUrl: null,
+		revision: 1,
+		updatedAt: null,
 	});
 	const container = document.createElement("div");
 	document.body.append(container);
@@ -113,6 +136,7 @@ function rail(container: HTMLElement) {
 beforeEach(() => {
 	vi.clearAllMocks();
 	route.pathname = "/work";
+	route.context = false;
 	api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
 	api.workspacePreferences.list.mockResolvedValue({ items: [] });
 });
@@ -123,6 +147,45 @@ afterEach(() => {
 });
 
 describe("OS shell chrome", () => {
+	it("opens route context from the shell topbar and removes the entry on navigation", async () => {
+		route.context = true;
+		const container = renderShell();
+		const trigger = container.querySelector<HTMLButtonElement>(
+			'header.topbar [aria-label="Decision context"]',
+		)!;
+		expect(trigger).not.toBeNull();
+		expect(
+			container.querySelector('main [aria-label="Decision context"]'),
+		).toBeNull();
+		await act(async () => trigger.click());
+		expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+			"Decision context",
+		);
+		expect(container.querySelector("aside.fd-context-rail")).toBeNull();
+		await act(async () =>
+			document
+				.querySelector<HTMLButtonElement>(
+					'[aria-label="Close decision context"]',
+				)!
+				.click(),
+		);
+		route.context = false;
+		route.pathname = "/team";
+		await act(async () =>
+			roots.at(-1)!.render(
+				<QueryClientProvider
+					client={
+						new QueryClient({ defaultOptions: { queries: { retry: false } } })
+					}
+				>
+					<OsShell />
+				</QueryClientProvider>,
+			),
+		);
+		expect(
+			container.querySelector('header [aria-label="Decision context"]'),
+		).toBeNull();
+	});
 	it("toggles the rail with Cmd/Ctrl+B while leaving editor shortcuts alone", () => {
 		const container = renderShell();
 		const shortcut = (options: KeyboardEventInit = {}) =>

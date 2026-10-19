@@ -52,14 +52,16 @@ function SheetContent({
 	side = "right",
 	size = "sm",
 	showCloseButton = true,
+	keepMounted = false,
 	...props
 }: SheetPrimitive.Popup.Props & {
 	side?: "top" | "right" | "bottom" | "left";
 	size?: SheetSize;
 	showCloseButton?: boolean;
+	keepMounted?: boolean;
 }) {
 	return (
-		<SheetPortal>
+		<SheetPortal keepMounted={keepMounted}>
 			<SheetOverlay />
 			<SheetPrimitive.Popup
 				data-kumo-component="Sheet"

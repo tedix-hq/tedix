@@ -46,6 +46,95 @@ try {
 	}
 	if (!ready) throw new Error("Visual test server did not start");
 	browser = await chromium.launch({ headless: true });
+	for (const width of [390, 1280]) {
+		for (const theme of ["light", "dark"] as const) {
+			for (const surface of ["feed", "question"]) {
+				const page = await browser.newPage({
+					viewport: { width, height: 844 },
+					colorScheme: theme,
+				});
+				await page.goto(
+					`${origin}/browser-tests/feed-deck-polish.html?shell&surface=${surface}&theme=${theme}`,
+				);
+				const trigger = page.locator("header").getByRole("button", {
+					name: "Decision context",
+					exact: true,
+				});
+				await trigger.waitFor();
+				const before = (await page.locator(".fd-context-main").boundingBox())!;
+				const target = (await trigger.boundingBox())!;
+				if (width === 390 && (target.width < 44 || target.height < 44))
+					throw new Error("Context entry is below the mobile touch floor");
+				await trigger.focus();
+				await page.keyboard.press("Enter");
+				const dialog = page.getByRole("dialog", {
+					name: "Decision context",
+					exact: true,
+				});
+				await dialog.waitFor();
+				const after = (await page.locator(".fd-context-main").boundingBox())!;
+				if (
+					Math.abs(before.width - after.width) > 1 ||
+					Math.abs(before.x - after.x) > 1
+				)
+					throw new Error("Opening context changed the main column geometry");
+				for (let i = 0; i < 8; i++) {
+					await page.keyboard.press("Tab");
+					await page.waitForFunction(() =>
+						document.activeElement?.closest("[data-decision-context]"),
+					);
+				}
+				if (
+					await page.evaluate(
+						() => document.documentElement.scrollWidth > innerWidth,
+					)
+				)
+					throw new Error(`Context overflows at ${width}/${theme}`);
+				await page.keyboard.press("Escape");
+				await dialog.waitFor({ state: "hidden" });
+				await page.waitForFunction(
+					() =>
+						document.activeElement?.getAttribute("aria-label") ===
+						"Decision context",
+				);
+				await page.keyboard.press("i");
+				await dialog.waitFor();
+				await page.reload();
+				await dialog.waitFor();
+				await dialog
+					.getByRole("button", { name: "Close decision context" })
+					.click();
+				await dialog.waitFor({ state: "hidden" });
+				await page.keyboard.press("Tab");
+				if (
+					await page.evaluate(() =>
+						Boolean(document.activeElement?.closest("[data-decision-context]")),
+					)
+				)
+					throw new Error("Closed context remained in keyboard navigation");
+				if (surface === "question") {
+					await page.getByRole("textbox", { name: "Your answer" }).press("i");
+					if (await dialog.isVisible())
+						throw new Error("Typing i opened context");
+					await page
+						.getByRole("button", { name: "Why this", exact: true })
+						.click();
+					await dialog
+						.getByRole("heading", { name: "Why this", exact: true })
+						.waitFor();
+					await page.keyboard.press("Escape");
+					await dialog.waitFor({ state: "hidden" });
+					await page
+						.getByRole("button", { name: "Details", exact: true })
+						.click();
+					await dialog
+						.getByRole("heading", { name: "Details", exact: true })
+						.waitFor();
+				}
+				await page.close();
+			}
+		}
+	}
 	for (const width of [390, 1440]) {
 		for (const theme of ["light", "dark"] as const) {
 			const page = await browser.newPage({
@@ -464,6 +553,22 @@ try {
 		]);
 		if (delegate === approve || approve === active)
 			throw new Error(`Approve must be the only primary action in ${theme}`);
+		await preferred
+			.getByRole("button", { name: "Details", exact: true })
+			.click();
+		const context = preferred.getByRole("dialog", {
+			name: "Decision context",
+			exact: true,
+		});
+		await context.getByRole("button", { name: /Decide for me/ }).waitFor();
+		await context
+			.getByRole("button", { name: "Change", exact: true })
+			.waitFor();
+		await preferred.keyboard.press("Escape");
+		await context.waitFor({ state: "hidden" });
+		await preferred.locator(".fd-decision").focus();
+		await preferred.keyboard.press("d");
+		await preferred.getByText("1 of 5", { exact: true }).waitFor();
 		await preferred.close();
 	}
 	const touch = await browser.newPage({
