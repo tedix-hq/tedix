@@ -47,8 +47,9 @@ interface EmptyProps extends Omit<ComponentProps<"div">, "title"> {
 const APPEARANCE_CLASSES = {
 	default: "",
 	quiet:
-		"rounded-lg! border-kumo-hairline! border-dashed! bg-transparent! px-4! py-10! sm:px-8!",
-	inline: "rounded-none! border-0! bg-transparent! px-0! py-10!",
+		"rounded-lg! border-kumo-hairline! border-dashed! bg-transparent! px-tedix-card! py-8!",
+	inline:
+		"items-start! rounded-none! border-0! bg-transparent! px-0! py-8! text-left! [&_[data-slot=empty-header]]:items-start [&_[data-slot=empty-content]]:items-start [&_[data-slot=empty-description]]:text-left",
 } as const;
 
 /**
