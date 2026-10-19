@@ -1,3 +1,4 @@
+import { EntityAvatar } from "@/components/entity-avatar";
 import "./canvas-page.css";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
@@ -1032,11 +1033,25 @@ export function CanvasPage({
 					>
 						<ArrowLeft size={15} />
 					</Button>
-					<OrganizationMark
-						className="canvas-workspace-mark"
-						logoUrl={organizationWorkspace?.org.logoUrl}
-						name={organizationWorkspace?.org.name ?? "Tedix"}
-					/>
+					{selectedWorkspace ? (
+						<EntityAvatar
+							id={selectedWorkspace.id}
+							name={selectedWorkspace.name}
+							role={
+								selectedWorkspace.visibility === "private"
+									? "private"
+									: undefined
+							}
+							kind="workspace"
+							className="size-6 rounded-md"
+						/>
+					) : (
+						<OrganizationMark
+							className="canvas-workspace-mark"
+							logoUrl={organizationWorkspace?.org.logoUrl}
+							name={organizationWorkspace?.org.name ?? "Tedix"}
+						/>
+					)}
 					<span className="canvas-workspace-separator" aria-hidden="true">
 						/
 					</span>

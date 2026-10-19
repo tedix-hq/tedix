@@ -1,3 +1,5 @@
+import { tediDescription } from "@/lib/tedi-description";
+import { EntityAvatar } from "@/components/entity-avatar";
 import {
 	ArrowRight,
 	CaretDown,
@@ -90,34 +92,8 @@ export function tediStatusLabel(status: TediType["status"]): string {
 }
 
 /**
- * Roster avatar strategy: an http(s)/data URL renders as an image, a short
- * avatar string (emoji) renders as-is, anything else falls back to the
- * monogram initial.
- */
-export function avatarKind(
-	avatar: string | null,
-): "image" | "emoji" | "monogram" {
-	if (!avatar) return "monogram";
-	if (/^https?:\/\//.test(avatar) || avatar.startsWith("data:")) return "image";
-	if ([...avatar.trim()].length <= 2) return "emoji";
-	return "monogram";
-}
-
-export function tediMonogram(tedi: {
-	displayName: string | null;
-	name: string;
-	slug: string;
-}): string {
-	const source = (tedi.displayName ?? tedi.name ?? tedi.slug).trim();
-	const first = [...source][0];
-	return first ? first.toUpperCase() : "?";
-}
-
-const PERSONA_HINT_MAX = 80;
-
-/**
  * One-line role hint for the roster row: the earned-delegation active role
- * wins (roleName · careerStage); otherwise the first line of the persona.
+ * wins (roleName · careerStage); otherwise a clean sentence from the persona.
  * Titles never imply authority — this is presentation only.
  */
 export function roleHint(
@@ -127,11 +103,7 @@ export function roleHint(
 	if (activeRole) {
 		return `${activeRole.roleName} · ${humanize(activeRole.careerStage)}`;
 	}
-	const firstLine = tedi.personality?.split("\n")[0]?.trim();
-	if (!firstLine) return null;
-	return firstLine.length > PERSONA_HINT_MAX
-		? `${firstLine.slice(0, PERSONA_HINT_MAX - 1).trimEnd()}…`
-		: firstLine;
+	return tediDescription(tedi.personality);
 }
 
 export type TediRosterStatusFilter =
@@ -223,33 +195,19 @@ export function TeamChip({
 	);
 }
 
-/** 36px roster avatar tile: image URL → emoji avatar → monogram initial. */
 export function TediAvatar({
 	tedi,
 }: {
-	tedi: Pick<TediType, "avatar" | "displayName" | "name" | "slug">;
+	tedi: Pick<TediType, "id" | "avatar" | "displayName" | "name" | "slug">;
 }) {
-	const avatar = tedi.avatar;
-	const kind = avatarKind(avatar);
-	if (kind === "image" && avatar) {
-		return (
-			<img
-				src={avatar}
-				alt=""
-				className="size-9 shrink-0 rounded-lg border border-kumo-hairline object-cover"
-			/>
-		);
-	}
 	return (
-		<Text
-			as="span"
-			role="body"
-			tone="secondary"
-			weight="medium"
-			className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-kumo-hairline bg-kumo-elevated"
-		>
-			{kind === "emoji" && avatar ? avatar.trim() : tediMonogram(tedi)}
-		</Text>
+		<EntityAvatar
+			id={tedi.id}
+			name={tedi.displayName || tedi.name || tedi.slug}
+			image={tedi.avatar}
+			kind="tedi"
+			className="size-9"
+		/>
 	);
 }
 

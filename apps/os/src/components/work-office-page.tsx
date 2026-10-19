@@ -7,7 +7,7 @@ import {
 } from "@/lib/work-interaction-display";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -141,16 +141,6 @@ export function learnedFromLine(
 ): string | null {
 	if (!learnedFrom || learnedFrom.replies < 1) return null;
 	return `Learned from ${learnedFrom.replies} ${learnedFrom.replies === 1 ? "reply" : "replies"}`;
-}
-
-function initials(name: string) {
-	const parts = name.trim().split(/\s+/).filter(Boolean);
-	return (
-		parts
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase())
-			.join("") || "?"
-	);
 }
 
 export function OfficeSummarySentence({
@@ -417,6 +407,7 @@ function Knocks({ since }: { since: string }) {
 			urgent: summary?.urgency === "now",
 			outcome,
 			drafter,
+			drafterId: draft?.drafterId,
 			arriving: !firstPaint && !seen.current?.has(row.request.id),
 		};
 	});
@@ -511,9 +502,17 @@ function Knocks({ since }: { since: string }) {
 						{[...byTedi].map(([tedi, list]) => (
 							<Card key={tedi} size="sm">
 								<CardHeader className="flex items-center gap-3">
-									<Avatar size="sm">
-										<AvatarFallback>{initials(tedi)}</AvatarFallback>
-									</Avatar>
+									<EntityAvatar
+										id={list[0]?.drafterId ?? "chief-of-staff"}
+										name={tedi}
+										image={
+											tedis.data?.data.find(
+												(row) => row.id === list[0]?.drafterId,
+											)?.avatar
+										}
+										kind="tedi"
+										className="size-6"
+									/>
 									<CardTitle className="min-w-0 flex-1 truncate">
 										{tedi}
 									</CardTitle>
@@ -746,20 +745,21 @@ function Activity() {
 								const name = tedi.displayName || tedi.name;
 								const active = isActive(tedi.lastActivityAt, now);
 								return (
-									<Avatar
+									<span
 										key={tedi.id}
-										size="sm"
-										title={`${name}: ${
-											tedi.lastActivityAt
-												? `active ${relativeTime(tedi.lastActivityAt)}`
-												: "no activity yet"
-										}`}
-										className={cn(
-											active ? "ring-2 ring-kumo-brand" : "opacity-40",
-										)}
+										title={`${name}: ${tedi.lastActivityAt ? `active ${relativeTime(tedi.lastActivityAt)}` : "no activity yet"}`}
 									>
-										<AvatarFallback>{initials(name)}</AvatarFallback>
-									</Avatar>
+										<EntityAvatar
+											id={tedi.id}
+											name={name}
+											image={tedi.avatar}
+											kind="tedi"
+											className={cn(
+												"size-6",
+												active ? "ring-2 ring-kumo-brand" : "opacity-40",
+											)}
+										/>
+									</span>
 								);
 							})}
 						</div>

@@ -59,10 +59,3 @@ export function formatWorkspaceLastOpened(value: string | null): string | null {
 			date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
 	}).format(date)}`;
 }
-
-export function workspaceInitials(name: string): string {
-	const words = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
-	return (
-		words.map((word) => word[0]?.toLocaleUpperCase() ?? "").join("") || "W"
-	);
-}

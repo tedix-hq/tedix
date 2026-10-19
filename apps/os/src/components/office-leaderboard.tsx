@@ -3,7 +3,7 @@ import type { GetAgentReplyDraftLeaderboardResultSchema } from "@tedix/api-contr
 import { TEDI_CAREER_STAGES } from "@tedix/api-contract/schemas/earned-delegation";
 import type * as z from "zod";
 import { useState } from "react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/kumo/avatar";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import {
 	PageSection,
@@ -65,17 +65,6 @@ export function formatReplyTime(seconds: number | null): string {
 	return `${Math.round(seconds / 360) / 10} h`;
 }
 
-function initials(name: string): string {
-	return (
-		name
-			.split(/\s+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase())
-			.join("") || "?"
-	);
-}
-
 function sentenceCase(value: string): string {
 	const text = value.replaceAll("_", " ");
 	return text.charAt(0).toUpperCase() + text.slice(1);
@@ -108,18 +97,6 @@ function LevelProgress({ level }: { level: Level }) {
 				{text}
 			</Text>
 		</span>
-	);
-}
-
-function TediAvatar({ name, avatar }: { name: string; avatar: string | null }) {
-	const isUrl = Boolean(avatar && /^https?:\/\//.test(avatar));
-	return (
-		<Avatar size="sm">
-			{isUrl && avatar ? <AvatarImage src={avatar} alt="" /> : null}
-			<AvatarFallback>
-				{avatar && !isUrl ? avatar : initials(name)}
-			</AvatarFallback>
-		</Avatar>
 	);
 }
 
@@ -209,7 +186,13 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 									<TableCell className="tabular-nums">{index + 1}</TableCell>
 									<TableCell>
 										<span className="flex items-center gap-2">
-											<TediAvatar name={row.name} avatar={row.avatar} />
+											<EntityAvatar
+												id={row.tediId}
+												name={row.name}
+												image={row.avatar}
+												kind="tedi"
+												className="size-6"
+											/>
 											<span className="flex min-w-0 flex-col gap-1">
 												<span className="flex flex-wrap items-center gap-2">
 													<span>{row.name}</span>
@@ -252,7 +235,13 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 							</TableCell>
 							<TableCell>
 								<span className="flex items-center gap-2">
-									<TediAvatar name={coach} avatar={null} />
+									<EntityAvatar
+										id={profile.data?.id ?? "coach"}
+										name={coach}
+										image={profile.data?.avatarUrl}
+										kind="person"
+										className="size-6"
+									/>
 									<span>{coach}</span>
 								</span>
 							</TableCell>

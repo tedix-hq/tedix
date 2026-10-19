@@ -1,3 +1,4 @@
+import { EntityAvatar } from "@/components/entity-avatar";
 import {
 	AppWindow,
 	GearSix,
@@ -34,6 +35,7 @@ type PaletteCommand = {
 	title: string;
 	description: string;
 	icon: ComponentType<{ size?: number; className?: string }>;
+	workspace?: { id: string; name: string; visibility: string };
 	run: () => void;
 };
 
@@ -121,6 +123,7 @@ export function OsCommandPalette({
 			workspaces.data?.items ?? []
 		).map((workspace) => ({
 			id: `workspace-${workspace.id}`,
+			workspace,
 			title: workspace.name,
 			description: "Workspace · open its apps and outputs in Canvas",
 			icon: SquaresFour,
@@ -277,7 +280,21 @@ export function OsCommandPalette({
 											onClick={() => select(item)}
 											value={item}
 										>
-											<Icon size={16} className="shrink-0 text-kumo-subtle" />
+											{item.workspace ? (
+												<EntityAvatar
+													id={item.workspace.id}
+													name={item.workspace.name}
+													kind="workspace"
+													role={
+														item.workspace.visibility === "private"
+															? "private"
+															: undefined
+													}
+													className="size-6 rounded-md"
+												/>
+											) : (
+												<Icon size={16} className="shrink-0 text-kumo-subtle" />
+											)}
 											<div className="min-w-0">
 												<div className="font-medium text-kumo-default">
 													{item.title}

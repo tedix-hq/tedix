@@ -1191,33 +1191,16 @@ describe("CanvasPage listing", () => {
 		},
 	);
 
-	it("uses the organization logo in the breadcrumb and falls back on image failure", async () => {
+	it("uses the selected workspace's stable placeholder beside its breadcrumb", async () => {
 		mockLists();
 		const container = renderPage();
 		await flush();
-		const logo = container.querySelector<HTMLImageElement>(
-			".canvas-workspace-header img.brand-mark",
+		const avatar = container.querySelector(
+			'.canvas-workspace-header [data-entity-kind="workspace"]',
 		);
-		expect(logo?.getAttribute("src")).toBe(organization.logoUrl);
-		await act(async () => logo?.dispatchEvent(new Event("error")));
-		expect(
-			container.querySelector(".canvas-workspace-header span.brand-mark")
-				?.textContent,
-		).toBe("E");
-	});
-	it("uses the organization's letter when no logo is uploaded", async () => {
-		organization.logoUrl = null;
-		try {
-			mockLists();
-			const container = renderPage();
-			await flush();
-			expect(
-				container.querySelector(".canvas-workspace-header span.brand-mark")
-					?.textContent,
-			).toBe("E");
-		} finally {
-			organization.logoUrl = "https://images.example.test/org.png";
-		}
+		expect(avatar).not.toBeNull();
+		expect(avatar?.textContent).toBe("OR");
+		expect(container.querySelector(".canvas-workspace-header img")).toBeNull();
 	});
 	it("keeps multiple workpieces open as closeable deterministic tabs", async () => {
 		mockLists();

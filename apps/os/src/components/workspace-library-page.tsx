@@ -1,3 +1,4 @@
+import { EntityAvatar } from "@/components/entity-avatar";
 import { Archive, Clock, Lock, SquaresFour, Star } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -35,7 +36,6 @@ import {
 import {
 	formatWorkspaceLastOpened,
 	groupWorkspaceLibrary,
-	workspaceInitials,
 } from "@/lib/workspace-library";
 import { useState } from "react";
 
@@ -154,15 +154,17 @@ export function WorkspaceLibraryPage() {
 												href={`/workspace/${workspace.id}`}
 												variant="collection"
 											>
-												<Text
-													as="span"
-													role="label"
-													weight="medium"
-													tone="secondary"
-													className="grid size-9 shrink-0 place-items-center rounded-lg bg-kumo-fill"
-												>
-													{workspaceInitials(workspace.name)}
-												</Text>
+												<EntityAvatar
+													id={workspace.id}
+													name={workspace.name}
+													role={
+														workspace.visibility === "private"
+															? "private"
+															: undefined
+													}
+													kind="workspace"
+													className="size-9"
+												/>
 												<span className="grid min-w-0 flex-1 gap-0.5">
 													<span className="flex min-w-0 items-center gap-2">
 														<Text
@@ -351,15 +353,15 @@ function ArchivedWorkspaces() {
 							className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-3"
 							key={workspace.id}
 						>
-							<Text
-								as="span"
-								role="label"
-								weight="medium"
-								tone="secondary"
-								className="grid size-9 shrink-0 place-items-center rounded-lg bg-kumo-fill"
-							>
-								{workspaceInitials(workspace.name)}
-							</Text>
+							<EntityAvatar
+								id={workspace.id}
+								name={workspace.name}
+								role={
+									workspace.visibility === "private" ? "private" : undefined
+								}
+								kind="workspace"
+								className="size-9"
+							/>
 							<span className="grid min-w-0 flex-1 gap-0.5">
 								<span className="flex min-w-0 items-center gap-2">
 									<Text

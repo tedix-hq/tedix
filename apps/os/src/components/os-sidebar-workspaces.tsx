@@ -1,6 +1,7 @@
 import { ClockCounterClockwise, Star } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { EntityAvatar } from "@/components/entity-avatar";
 import {
 	SidebarCollapsible,
 	SidebarCollapsibleContent,
@@ -23,16 +24,23 @@ import {
 import {
 	groupWorkspaceLibrary,
 	type WorkspaceLibraryEntry,
-	workspaceInitials,
 } from "@/lib/workspace-library";
 
 const SIDEBAR_LIST_LIMIT = 6;
 
-function WorkspaceMark({ name }: { name: string }) {
+function WorkspaceMark({
+	workspace,
+}: {
+	workspace: WorkspaceLibraryEntry["workspace"];
+}) {
 	return (
-		<span className="grid size-6 shrink-0 place-items-center rounded-md bg-kumo-fill text-[10px] font-medium text-kumo-subtle">
-			{workspaceInitials(name)}
-		</span>
+		<EntityAvatar
+			id={workspace.id}
+			name={workspace.name}
+			role={workspace.visibility === "private" ? "private" : undefined}
+			kind="workspace"
+			className="size-6 rounded-md"
+		/>
 	);
 }
 
@@ -47,7 +55,7 @@ function SidebarWorkspaceRow({ entry }: { entry: WorkspaceLibraryEntry }) {
 				})
 			}
 		>
-			<WorkspaceMark name={entry.workspace.name} />
+			<WorkspaceMark workspace={entry.workspace} />
 			<span className="min-w-0 flex-1 truncate text-tedix-control">
 				{entry.workspace.name}
 			</span>
@@ -144,7 +152,7 @@ export function OsSidebarWorkspaces() {
 							// visible text. Padding centres the wider mark in the same
 							// 40px row (40 - 2x8 = 24, exactly the chip).
 							className="group-data-[state=collapsed]/sidebar:px-2"
-							icon={<WorkspaceMark name={entry.workspace.name} />}
+							icon={<WorkspaceMark workspace={entry.workspace} />}
 							key={entry.workspace.id}
 							onClick={() =>
 								void navigate({
@@ -170,7 +178,7 @@ export function OsSidebarWorkspaces() {
 						{groups.favorites.slice(0, SIDEBAR_LIST_LIMIT).map((entry) => (
 							<SidebarMenuButton
 								key={entry.workspace.id}
-								icon={<WorkspaceMark name={entry.workspace.name} />}
+								icon={<WorkspaceMark workspace={entry.workspace} />}
 								tooltip={entry.workspace.name}
 								onClick={() =>
 									void navigate({

@@ -1,3 +1,4 @@
+import { EntityAvatar } from "@/components/entity-avatar";
 import {
 	Archive,
 	ArrowCounterClockwise,
@@ -18,6 +19,7 @@ import type {
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { QueryClient } from "@tanstack/react-query";
 import {
+	useQuery,
 	useInfiniteQuery,
 	useMutation,
 	useQueryClient,
@@ -56,7 +58,10 @@ import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
 import { absoluteTime, relativeTime } from "@/lib/time";
-import { homeConversationsQueryKey } from "@/lib/os-query-options";
+import {
+	activeWorkspacesQueryOptions,
+	homeConversationsQueryKey,
+} from "@/lib/os-query-options";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -336,6 +341,7 @@ export function rollbackOptimisticConversationPatch(
 
 export function ConversationRow({
 	conversation,
+	workspace,
 	active = false,
 	optimistic = false,
 	now,
@@ -343,6 +349,7 @@ export function ConversationRow({
 	onSelect,
 }: {
 	conversation: HomeConversation;
+	workspace?: { id: string; name: string; visibility: string };
 	active?: boolean;
 	/**
 	 * The row is showing a locally-applied value the server has not confirmed
@@ -376,6 +383,15 @@ export function ConversationRow({
 				variant="ghost"
 			>
 				<span className="flex min-w-0 items-center gap-1.5">
+					{workspace ? (
+						<EntityAvatar
+							id={workspace.id}
+							name={workspace.name}
+							role={workspace.visibility === "private" ? "private" : undefined}
+							kind="workspace"
+							className="size-6 rounded-md"
+						/>
+					) : null}
 					{pinned ? (
 						<PushPin
 							size={12}
@@ -526,6 +542,10 @@ export function ChatSidebar({
 	workspaceId?: string;
 }) {
 	const queryClient = useQueryClient();
+	const workspaces = useQuery({
+		...activeWorkspacesQueryOptions(),
+		enabled: false,
+	});
 	const [renameTarget, setRenameTarget] = useState<HomeConversation | null>(
 		null,
 	);
@@ -834,6 +854,10 @@ export function ChatSidebar({
 										<ConversationRow
 											key={conversation.id}
 											conversation={conversation}
+											workspace={workspaces.data?.items.find(
+												(workspace) =>
+													workspace.id === conversation.workspaceId,
+											)}
 											active={conversation.id === activeConversationId}
 											optimistic={
 												(pin.isPending &&
