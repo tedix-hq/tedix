@@ -83,6 +83,11 @@ import {
 } from "./delegation-authority";
 import { emitDelegationAuthorityRuntimeEvent } from "./delegation-authority-telemetry";
 import { capabilityToolSet } from "./delegation-capabilities";
+import {
+	preflightDelegationTools,
+	assertNativeResearchCheckout,
+} from "./delegation-preflight";
+import { runWithDelegationDeadline } from "./delegation-budget";
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { ActiveTurnBinding, AgentTediDO } from "./do";
 import { type DurableCodePause } from "./durable-codemode-lifecycle";
@@ -689,6 +694,7 @@ export const runtimeFacetTurns = {
 			toolCallId: string;
 			tool: string;
 			args: unknown;
+			deadlineAt?: number;
 		},
 	): Promise<unknown> {
 		await this.assertChatTurnActive(input.runId);
@@ -777,11 +783,16 @@ export const runtimeFacetTurns = {
 					},
 					async () => {
 						await this.assertChatTurnActive(input.runId);
-						return definition.execute!(input.args as never, {
-							context: undefined,
-							messages: [],
-							toolCallId: `${input.runId}:${input.toolCallId}`,
-						});
+						return runWithDelegationDeadline(
+							input.deadlineAt,
+							async (abortSignal) =>
+								await definition.execute!(input.args as never, {
+									abortSignal,
+									context: undefined,
+									messages: [],
+									toolCallId: `${input.runId}:${input.toolCallId}`,
+								}),
+						);
 					},
 				);
 				executeMs = Date.now() - executedAt;
@@ -875,6 +886,19 @@ export const runtimeFacetTurns = {
 			throw new Error("Incomplete Home-supervised MCP authority context");
 		}
 		const supervised = Boolean(input.workItemId && input.homeRunId);
+		if (
+			supervised &&
+			input.executionSurface === "native" &&
+			input.capabilityPlan?.requiredCapabilities.includes("repository.read")
+		) {
+			assertNativeResearchCheckout(
+				input.capabilityPlan,
+				await this.computerEnvironment(
+					computerWorkspaceScope(input),
+					computerTurnContext,
+				).selected(),
+			);
+		}
 		const cronTool = this.cronAiTool(input.sessionKey);
 		// Never let a Home-supervised child reuse this DO's full-profile AIH
 		// connections. Credential caches live inside each MCP runtime instance.
@@ -912,6 +936,17 @@ export const runtimeFacetTurns = {
 				);
 			}
 		}
+		const requiredSchemas =
+			supervised &&
+			(input.capabilityPlan || input.repositoryMode === "research")
+				? await preflightDelegationTools(input.capabilityPlan, async (code) => {
+						if (!mcpRuntime)
+							throw new Error(
+								"Delegation preflight failed: child MCP credential unavailable",
+							);
+						return mcpRuntime.executeTool("tedix_mcp_code", { code });
+					})
+				: [];
 		const platform = await this.getPlatformClient();
 		let turnBinding: ActiveTurnBinding | null = null;
 		if (mcpRuntime && platform) {
@@ -1010,7 +1045,7 @@ export const runtimeFacetTurns = {
 				repositoryMode: input.repositoryMode,
 			}) +
 			(input.capabilityPlan
-				? ` This delegation is restricted to ${input.capabilityPlan.allowedToolIds.join(", ")}. For MCP tools, read each exact callable's current schema with tedix_mcp_search_tools({ query: callable }) before using tedix_mcp_call_tool; arbitrary Code Mode is unavailable. If retrieval or schema discovery fails, report the capability gap rather than inventing a result.`
+				? ` This delegation is restricted to ${input.capabilityPlan.allowedToolIds.join(", ")}. Use tedix_mcp_call_tool with the exact schemas supplied below; arbitrary Code Mode is unavailable. If retrieval fails, report the capability gap rather than inventing a result.\n${wrapUntrustedInput(requiredSchemas.join("\n"), "delegated_tool_schemas")}`
 				: "");
 		// Per-turn addenda (memory recall, matched directives, retrieved skills)
 		// follow the turn-invariant runtime contract so the provider prefix cache
@@ -1056,6 +1091,7 @@ export const runtimeFacetTurns = {
 			authorityEnvelope?: DelegationAuthorityEnvelope;
 			authorityMode?: DelegationAuthorityMode;
 			delegated?: boolean;
+			delegationBudget?: ChatTurnParams["delegationBudget"];
 			/** Vision-capable image attachments resolved by the parent (FAIL-SOFT
 			 * empty on non-vision deployments) — carried through the facet boundary
 			 * as UIMessage file parts. */
@@ -1166,6 +1202,7 @@ export const runtimeFacetTurns = {
 				sovereignty: "unconstrained",
 			} as const;
 			const turnConfiguration = {
+				delegationBudget: input.delegationBudget,
 				observerModelRef:
 					this.modelOverrideForSurface("observer")?.modelRef ?? null,
 				observerDeployment: this.modelOverrideForSurface(
@@ -2301,6 +2338,7 @@ export const runtimeFacetTurns = {
 				authorityEnvelope: input.authorityEnvelope,
 				authorityMode: input.authorityMode,
 				delegated: Boolean(input.workItemId && input.homeRunId),
+				delegationBudget: input.delegationBudget,
 				userTs: input.userTs,
 			});
 		} finally {

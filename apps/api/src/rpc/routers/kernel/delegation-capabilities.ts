@@ -69,6 +69,9 @@ export function deriveDelegationCapabilityPlan(input: {
 			/\.(?:create_draft|drafts_create|create_email_draft)$/,
 		);
 	}
+	if (/\bwork(?:\s+item)?\b/i.test(content) && /\bcomment\b/i.test(content)) {
+		providerTool("work.comment", /\.(?:add_comment|work_item_comment)$/);
+	}
 	const repositoryTask =
 		(capabilities.length === 0 ||
 			/\b(?:repo(?:sitory)?|codebase|source code)\b/i.test(

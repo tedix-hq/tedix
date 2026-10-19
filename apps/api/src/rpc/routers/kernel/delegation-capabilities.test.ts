@@ -32,6 +32,27 @@ function order(content: string, plannedToolIds: string[] = []) {
 }
 
 describe("request-derived capability plans", () => {
+	it("preflights the requested Work comment even when page reading is available", () => {
+		const content =
+			"Research https://example.com and post a comment on Work abcdef01";
+		expect(order(content).capabilityPlan?.missingCapabilities).toContain(
+			"work.comment",
+		);
+		expect(
+			order(
+				"Work abcdef01\nRead documentation at https://example.com\nPost a comment.",
+			).capabilityPlan?.missingCapabilities,
+		).toContain("work.comment");
+		expect(
+			deriveExecutionRequirement(
+				"Research documentation at https://example.com",
+				route,
+			).requiredCapabilities,
+		).toEqual([]);
+		const mapped = order(content, ["work.add_comment"]).capabilityPlan;
+		expect(mapped?.allowedToolIds).toContain("work.add_comment");
+		expect(mapped?.missingCapabilities).toEqual([]);
+	});
 	it("does not grant access from appended CLI repository metadata", () => {
 		const content =
 			"Read https://example.com/\n\nLocal terminal context:\n- cwd: /workspace/acme\n- origin: https://code.example/acme/repo.git\n- gitStatus:\n M package.json";

@@ -46,6 +46,7 @@ export interface ChatTurnParams {
 	workItemId?: string;
 	/** Parent Home run that owns this delegated turn, when present. */
 	homeRunId?: string;
+	delegationBudget?: import("./delegation-budget").DelegatedTurnBudget;
 	/** Enforced execution surface selected by the Kernel work order. */
 	executionSurface?: ExecutionSurface;
 	/** Presentation selected from the existing code-proof/capability metadata; no authority. */

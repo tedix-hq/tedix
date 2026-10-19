@@ -148,7 +148,8 @@ const CAPABILITY_SIGNALS: ReadonlyArray<{
 	},
 	{
 		capability: "repository_edit",
-		pattern: /\b(?:edit|change|implement|fix|refactor|documentation|docs?)\b/i,
+		pattern:
+			/\b(?:edit|change|implement|fix|refactor)\b|\b(?:write|update|create)\b[^.!?;\n]{0,60}\b(?:docs?|documentation|readme|files?|code)\b/i,
 	},
 	{
 		capability: "repository_read",
@@ -345,9 +346,8 @@ function recordField(
 /**
  * Per-effort-class caps. `maxToolCalls` enforces the effort class the planner
  * already committed to (route-schema.ts: effort is "a routing output, not a
- * suggestion"); `embodied` matches the child loop's stepCountIs(24) ceiling.
- * Deadlines are soft wall-clock hints — guidance in the work-order text plus
- * an advisory `deadlineMs` cap on the structured budget, never a hard kill.
+ * suggestion"). The native runtime durably enforces tool counts and absolute
+ * deadlines, aborting active inference and tool transport on deadline.
  */
 const EFFORT_CONTRACT_CAPS: Record<
 	HomeEffortClass,
@@ -413,8 +413,8 @@ export function deriveDelegationContract(route: KernelRouteDecision): {
 	return {
 		contract: {
 			successCriteria,
-			budgetHint: `about ${caps.maxToolCalls} tool calls (soft cap) — if the task genuinely needs materially more, stop and report progress instead of silently overrunning`,
-			deadlineHint: `${caps.deadlineLabel} of wall clock; if you will exceed it, return what you have as a result labeled partial`,
+			budgetHint: `at most ${caps.maxToolCalls} tool calls; the runtime stops further tool dispatch when exhausted`,
+			deadlineHint: `${caps.deadlineLabel} of wall clock; the runtime aborts active inference and tool transport at the deadline and records a partial result`,
 			failurePolicy: DELEGATION_FAILURE_POLICY,
 		},
 		budget: { maxToolCalls: caps.maxToolCalls, deadlineMs: caps.deadlineMs },
@@ -490,7 +490,7 @@ export function renderDelegationWorkOrderMessage(input: {
 		for (const item of successCriteria) lines.push(`- ${item}`);
 	}
 	if (budgetHint) lines.push(`Budget: ${budgetHint}`);
-	if (deadlineHint) lines.push(`Deadline (soft): ${deadlineHint}`);
+	if (deadlineHint) lines.push(`Deadline: ${deadlineHint}`);
 	if (failurePolicy) lines.push(`Failure policy: ${failurePolicy}`);
 	if (verifyCommand) lines.push(...verificationRequirementLines(verifyCommand));
 	if (workItemId) lines.push(`Work Item: ${workItemId}`);

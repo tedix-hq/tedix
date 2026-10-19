@@ -119,7 +119,9 @@ import { inspectExistingPiFacet } from "./pi-recovery-diagnostic";
 import { RuntimeConfigCache } from "./runtime-config-cache";
 import { RuntimeEventOutbox } from "./runtime-event-outbox";
 import { repositoryModeForMetadata } from "./runtime-tool-guidance";
+import { wrapUntrustedInput } from "./untrusted-input";
 import { capabilityPlanForMetadata } from "./delegation-capabilities";
+import { delegationBudgetForMetadata } from "./delegation-budget";
 import { terminateWorkflow } from "./workflow-cancellation";
 import { WorkflowImageCleanup } from "./workflow-image-cleanup";
 import { type WorkflowImageRef } from "./workflow-image-handoff";
@@ -852,6 +854,13 @@ export async function handleRuntimeRequest(
 						turnImages = resolved.images;
 					}
 
+					if (
+						homeRunId &&
+						workItemId &&
+						Array.isArray(metadata?.originalTargetWorkItems)
+					) {
+						userText += `\n\nOriginal target Work context (reference data; distinct from the generated dispatch Work and its lifecycle):\n${wrapUntrustedInput(JSON.stringify(metadata.originalTargetWorkItems), "original_work_context")}`;
+					}
 					// Single durable path for all turns (text and attachment).
 					const { tediId, slug } = host.state;
 					// Cloudflare Workflow instance ids reject colons (and other
@@ -870,6 +879,9 @@ export async function handleRuntimeRequest(
 						sessionKey,
 					});
 					const injectUserTs = Date.now();
+					const delegationBudget = homeRunId
+						? delegationBudgetForMetadata(metadata, injectUserTs)
+						: undefined;
 					const learningMode =
 						payload.learning_mode ?? adaptiveLearningModeForTurn({ userText });
 					const recorded = await host.recordWorkflowDispatch(
@@ -924,6 +936,7 @@ export async function handleRuntimeRequest(
 								homeRunId,
 								executionSurface,
 								repositoryMode,
+								delegationBudget,
 								authorityMode,
 								capabilityPlan,
 								...(authorityEnvelope ? { authorityEnvelope } : {}),
