@@ -47,6 +47,7 @@ describe("public API route failures", () => {
 		);
 
 		expect(response.status).toBe(502);
+		expect(response.headers.get("X-Tedix-Trace-Id")).toMatch(/^[a-f0-9-]{36}$/);
 		expect(await response.json()).toEqual({
 			status: "error",
 			service: "api-skill-runtime-binding",
@@ -75,6 +76,7 @@ describe("public API route failures", () => {
 		);
 
 		expect(response.status).toBe(500);
+		expect(response.headers.get("X-Tedix-Trace-Id")).toMatch(/^[a-f0-9-]{36}$/);
 		expect(await response.json()).toEqual({ error: "Internal server error" });
 		expect(logs.records()).toContainEqual({
 			event: "api.openapi_spec_generation_failed",

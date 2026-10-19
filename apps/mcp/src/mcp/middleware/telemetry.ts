@@ -190,6 +190,14 @@ export function wrapToolCallTelemetry(
 				},
 				capturePayloads,
 			);
+			if (!success && callToolResult && serverCtx.traceId)
+				return {
+					...callToolResult,
+					_meta: {
+						...callToolResult._meta,
+						"com.tedix/traceId": serverCtx.traceId,
+					},
+				};
 			return result;
 		} catch (error) {
 			const errorMessage =

@@ -1,4 +1,9 @@
 import { OS_COPY } from "@/shared/os-copy";
+import {
+	WorkReadNotice,
+	useWorkReadFailure,
+} from "@/components/work-read-region";
+import { workRefreshOptions } from "@/lib/work-refresh";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import {
 	WorkDecisionCard,
@@ -60,16 +65,41 @@ export function OutboundCard({
 			input: { workItemId },
 		}),
 		placeholderData: preview?.workItemId === workItemId ? preview : undefined,
+		...workRefreshOptions,
 	});
-	if (query.isError) return <p role="alert">{errorMessage(query.error)}</p>;
-	if (!query.data) return <Text role="body">Loading outbound draft…</Text>;
-	return (
-		<OutboundReviewCard
-			key={`${query.data.workItemId}:${query.data.version}`}
-			record={query.data}
-			presentation={presentation}
-			{...navigation}
+	const record =
+		query.data ?? (preview?.workItemId === workItemId ? preview : undefined);
+	const failed = query.isError || query.failureCount > 0;
+	const inRegion = useWorkReadFailure(
+		failed
+			? {
+					error: query.error ?? query.failureReason,
+					retrying: query.isFetching,
+					retry: query.refetch,
+				}
+			: undefined,
+	);
+	const notice = !inRegion && (
+		<WorkReadNotice
+			failed={failed}
+			partial={Boolean(record)}
+			retry={query.refetch}
+			retrying={query.isFetching}
+			errors={[query.error ?? query.failureReason]}
 		/>
+	);
+	if (!record)
+		return failed ? notice : <Text role="body">Loading outbound draft…</Text>;
+	return (
+		<>
+			{notice}
+			<OutboundReviewCard
+				key={`${record.workItemId}:${record.version}`}
+				record={record}
+				presentation={presentation}
+				{...navigation}
+			/>
+		</>
 	);
 }
 

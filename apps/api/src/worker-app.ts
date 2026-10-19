@@ -62,6 +62,10 @@ import {
 import { enrichInputValidationError } from "./rpc/input-validation-error";
 import { isPublicProcedure } from "./rpc/openapi-filter";
 import { type BaseContext, createContext, logProcedureCall } from "./rpc/orpc";
+import {
+	correlatedRequest,
+	correlatedErrorResponse,
+} from "@tedix/worker-kit/request-correlation";
 import { type ApiRouter, apiRouter } from "./rpc/routers/index";
 import { redactRequestLogMessage } from "./request-log-redaction";
 
@@ -164,6 +168,20 @@ const SPEC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // =============================================================================
 
 const app = new Hono<{ Bindings: CloudflareEnv }>();
+
+app.use("*", async (c, next) => {
+	const { request, traceId } = correlatedRequest(c.req.raw);
+	c.req.raw = request;
+	c.header("X-Tedix-Trace-Id", traceId);
+	await next();
+	c.res = await correlatedErrorResponse(c.res, traceId);
+	if (c.res.status >= 400)
+		console.warn("[API] request failed", {
+			event: "tedix.api.error",
+			traceId,
+			httpStatus: c.res.status,
+		});
+});
 
 app.use("*", async (c, next) => {
 	const metadata = handleOutboundMcpClientMetadata(c.req.raw);

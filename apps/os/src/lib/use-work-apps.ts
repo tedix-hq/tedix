@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { workRefreshOptions } from "@/lib/work-refresh";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { workAppsQueryOptions } from "@/lib/os-query-options";
 
@@ -12,7 +13,7 @@ function workAppRole(manifest: OsGadgetManifest): "feed" | "deck" | null {
 
 /** One viewer-scoped read replaces workspace → list → revision waterfalls. */
 export function useWorkApps() {
-	const query = useQuery(workAppsQueryOptions());
+	const query = useQuery({ ...workAppsQueryOptions(), ...workRefreshOptions });
 	const apps = (query.data?.items ?? []).map((data) => ({
 		gadget: data.gadget,
 		manifest: data.currentRevision.manifest,

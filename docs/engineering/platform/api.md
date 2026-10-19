@@ -115,3 +115,6 @@ A warm authenticated request is mostly serial D1 round trips in `withAuth`
 before the handler's own read; remove round trips rather than rewriting the
 handler's query. Read through `context.db` so calls stay inside the request's
 `first-primary` D1 session.
+
+For support references, sampled procedure costs and the top-queries recipe,
+see [Investigating slow Work reads](./observability.md).

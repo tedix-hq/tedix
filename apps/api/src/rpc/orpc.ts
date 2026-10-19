@@ -2014,6 +2014,26 @@ export async function logProcedureCall(options: {
 	const isDev = context.env.ENVIRONMENT === "development";
 	const route = path.join(".");
 	const start = Date.now();
+	const before = context.dbMetrics ? { ...context.dbMetrics } : undefined;
+	const correlation = requestCorrelation(context.headers);
+	const metrics = () => {
+		const current = context.dbMetrics;
+		return {
+			event: "tedix.api.procedure",
+			procedure: route,
+			durationMs: Date.now() - start,
+			...correlation,
+			...(current && before
+				? {
+						d1Queries: current.queries - before.queries,
+						d1KnownRowsRead: current.rowsRead - before.rowsRead,
+						d1KnownRowsWritten: current.rowsWritten - before.rowsWritten,
+						d1QueriesWithoutMeta: current.withoutMeta - before.withoutMeta,
+					}
+				: {}),
+		};
+	};
+	const sampled = !isDev && Boolean(context.dbMetrics) && Math.random() < 0.01;
 	if (isDev) console.log(`[oRPC] ${route} - Started`);
 
 	try {
@@ -2026,6 +2046,13 @@ export async function logProcedureCall(options: {
 		});
 		if (isDev)
 			console.log(`[oRPC] ${route} - Completed in ${Date.now() - start}ms`);
+		else if (sampled)
+			console.log("[oRPC] procedure", {
+				...metrics(),
+				status: "ok",
+				code: "OK",
+				sampleRate: 0.01,
+			});
 		return result;
 	} catch (error) {
 		const duration = Date.now() - start;
@@ -2034,7 +2061,15 @@ export async function logProcedureCall(options: {
 			error instanceof ORPCError && CLIENT_ERROR_CODES.has(error.code);
 		const metadata = {
 			...(await safeErrorMetadata(error)),
-			...requestCorrelation(context.headers),
+			...metrics(),
+			status: "error",
+			code:
+				error instanceof D1ReadTimeoutError || isTransientD1ReadError(error)
+					? ErrorCodes.SERVICE_UNAVAILABLE
+					: error instanceof ORPCError
+						? error.code
+						: ErrorCodes.INTERNAL_SERVER_ERROR,
+			sampleRate: 1,
 		};
 		if (isClientError) {
 			console.warn(message, metadata);
@@ -2045,6 +2080,7 @@ export async function logProcedureCall(options: {
 			throw createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,
 				"Database temporarily unavailable; retry shortly",
+				{ traceId: correlation.traceId },
 			);
 		throw error;
 	}

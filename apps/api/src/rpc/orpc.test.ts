@@ -918,6 +918,55 @@ describe("logProcedureCall", () => {
 
 	const ctx = (environment: string) =>
 		({ env: { ENVIRONMENT: environment } }) as unknown as BaseContext;
+	it("samples successful procedure cost and logs every failure without SQL or payloads", async () => {
+		vi.spyOn(Math, "random").mockReturnValue(0);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+		const dbMetrics = {
+			queries: 2,
+			rowsRead: 7,
+			rowsWritten: 0,
+			withoutMeta: 0,
+		};
+		const context = { ...ctx("production"), dbMetrics };
+		await logProcedureCall({
+			context,
+			path: ["workInteractions", "listInbox"],
+			next: async () => {
+				dbMetrics.queries += 3;
+				dbMetrics.rowsRead += 500;
+				dbMetrics.withoutMeta++;
+				return "private response";
+			},
+		});
+		expect(log.mock.calls[0]?.[1]).toMatchObject({
+			event: "tedix.api.procedure",
+			procedure: "workInteractions.listInbox",
+			status: "ok",
+			d1Queries: 3,
+			d1KnownRowsRead: 500,
+			d1QueriesWithoutMeta: 1,
+			sampleRate: 0.01,
+		});
+		await expect(
+			logProcedureCall({
+				context,
+				path: ["workInteractions", "get"],
+				next: async () => {
+					throw createError(ErrorCodes.SERVICE_UNAVAILABLE, "private request");
+				},
+			}),
+		).rejects.toThrow();
+		expect(errorLog.mock.calls[0]?.[1]).toMatchObject({
+			status: "error",
+			code: "SERVICE_UNAVAILABLE",
+			sampleRate: 1,
+		});
+		expect(JSON.stringify(log.mock.calls)).not.toContain("private response");
+		expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+			"private request",
+		);
+	});
 
 	it("stays quiet on a successful call in production", async () => {
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});

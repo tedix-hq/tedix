@@ -97,4 +97,38 @@ describe("createDbSession", () => {
 	it("exposes the header name callers must echo", () => {
 		expect(D1_BOOKMARK_HEADER).toBe("x-d1-bookmark");
 	});
+	it("measures bound statements and batches without changing their native execution", async () => {
+		const statement = {
+			bind: (..._values: unknown[]) => statement,
+			all: async () => ({
+				success: true,
+				results: [{ value: 7 }],
+				meta: { rows_read: 500, rows_written: 2 },
+			}),
+			raw: async () => [[7]],
+		};
+		const native = {
+			prepare: (_sql: string) => statement,
+			getBookmark: () => "original-bookmark",
+			batch: async (batch: unknown[]) => {
+				expect(batch).toEqual([statement]);
+				return [await statement.all()];
+			},
+		};
+		const session = createDbSession({
+			withSession: () => native,
+		} as unknown as D1Database);
+		const client = session.db.$client;
+		const bound = client.prepare("SELECT ? AS value").bind(7);
+		expect((await bound.all()).results).toEqual([{ value: 7 }]);
+		expect(await bound.raw()).toEqual([[7]]);
+		await client.batch([bound]);
+		expect(session.metrics).toEqual({
+			queries: 3,
+			rowsRead: 1000,
+			rowsWritten: 4,
+			withoutMeta: 1,
+		});
+		expect(session.getBookmark()).toBe("original-bookmark");
+	});
 });

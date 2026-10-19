@@ -3,6 +3,7 @@ import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity
 import { OS_COPY } from "@/shared/os-copy";
 import { DecisionContextRail } from "@/components/decision-context-rail";
 import { FocusFeed } from "@/components/focus-feed";
+import { WorkReadRegion } from "@/components/work-read-region";
 import "./feed-timeline.css";
 import "./focus-feed.css";
 
@@ -22,7 +23,9 @@ export function ActivityFeedApp(props: {
 }) {
 	return (
 		<DecisionContextRail>
-			<FocusFeed {...props} />
+			<WorkReadRegion>
+				<FocusFeed {...props} />
+			</WorkReadRegion>
 		</DecisionContextRail>
 	);
 }

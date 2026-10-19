@@ -21,6 +21,7 @@ vi.mock("@/lib/use-decision-inbox", () => ({
 		work: [],
 		queuePending: false,
 		queueFailed: false,
+		inbox: { error: null, isFetching: false },
 	}),
 }));
 vi.mock("@/lib/use-os-identity", () => ({

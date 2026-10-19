@@ -1,4 +1,5 @@
 import { workRefreshOptions } from "@/lib/work-refresh";
+import { WorkReadNotice } from "@/components/work-read-region";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, EyeSlash, PushPin, ThumbsDown } from "@phosphor-icons/react";
@@ -82,7 +83,10 @@ export function FocusFeed({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
 		...workRefreshOptions,
 	});
-	const preferences = useQuery(userPreferencesQueryOptions());
+	const preferences = useQuery({
+		...userPreferencesQueryOptions(),
+		...workRefreshOptions,
+	});
 	const history = useQuery({
 		...osQuery.learningFeedback.listInteractions.queryOptions({
 			input: {
@@ -234,8 +238,11 @@ export function FocusFeed({
 		factories.failed ||
 		states.some((s) => s?.failed) ||
 		preferences.isError ||
+		preferences.failureCount > 0 ||
 		history.isError ||
+		history.failureCount > 0 ||
 		model.isError ||
+		model.failureCount > 0 ||
 		decisions.queueFailed;
 	const more = states.some((s) => s?.more) || decisions.more;
 	const visible =
@@ -606,22 +613,28 @@ export function FocusFeed({
 				</p>
 			</div>
 			{status && <p role="status">{status}</p>}
-			{failed && (
-				<div role="alert">
-					<Text>Some updates could not be loaded.</Text>
-					<Button
-						variant="ghost"
-						onClick={() => {
-							void cache.refetchQueries({
-								type: "active",
-								predicate: (query) => query.state.status === "error",
-							});
-						}}
-					>
-						Try again
-					</Button>
-				</div>
-			)}
+			<WorkReadNotice
+				failed={failed}
+				partial={items.length > 0}
+				errors={[
+					preferences.error ?? preferences.failureReason,
+					history.error ?? history.failureReason,
+					model.error ?? model.failureReason,
+					decisions.inbox.error ?? decisions.inbox.failureReason,
+				]}
+				retrying={
+					preferences.isFetching ||
+					history.isFetching ||
+					model.isFetching ||
+					decisions.inbox.isFetching
+				}
+				retry={() =>
+					cache.refetchQueries({
+						type: "active",
+						predicate: (query) => query.state.status === "error",
+					})
+				}
+			/>
 			{tab === "for_you" && needs.length > 0 && (
 				<section aria-label="Needs you" className="focus-needs">
 					<h2 className="focus-section-heading">
