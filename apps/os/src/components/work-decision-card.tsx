@@ -386,7 +386,7 @@ export function WorkDecisionCard({
 						{rail && (
 							<Button
 								variant="ghost"
-								size="sm"
+								size="xs"
 								className="fd-card-details"
 								onClick={() => rail.openSection("details")}
 							>
@@ -620,7 +620,11 @@ export function WorkDecisionCard({
 													: "min-h-11 grow sm:grow-0"
 											}
 											variant={
-												action.intent === "approve" ? "default" : "ghost"
+												action === approve
+													? "default"
+													: action.intent === "reject"
+														? "outline"
+														: "ghost"
 											}
 											disabled={
 												busy ||

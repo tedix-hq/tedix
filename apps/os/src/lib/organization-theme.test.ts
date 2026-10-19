@@ -21,6 +21,41 @@ describe("organization theme projection", () => {
 		expect(Object.keys(variables)).not.toContain("--color-kumo-canvas");
 	});
 
+	it.each([
+		["#123456", "#ffffff"],
+		["#fff1a8", "#030303"],
+		["#777777", "#030303"],
+		["#7c3aed", "#ffffff"],
+		["#a68bff", "#030303"],
+	])("chooses a contrast-safe foreground for %s", (accent, expected) => {
+		const variables = organizationThemeVariables(
+			{ ...DEFAULT_ORGANIZATION_OS_THEME.light, accent },
+			DEFAULT_ORGANIZATION_OS_THEME,
+		);
+		const foreground = variables["--primary-foreground"]!;
+		expect(foreground).toBe(expected);
+		const luminance = (hex: string) => {
+			const channels = hex
+				.slice(1)
+				.match(/../g)!
+				.map((channel) => {
+					const value = Number.parseInt(channel, 16) / 255;
+					return value <= 0.04045
+						? value / 12.92
+						: ((value + 0.055) / 1.055) ** 2.4;
+				});
+			return (
+				channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+			);
+		};
+		const values = [luminance(accent), luminance(foreground)].sort(
+			(a, b) => b - a,
+		);
+		expect((values[0]! + 0.05) / (values[1]! + 0.05)).toBeGreaterThanOrEqual(
+			4.5,
+		);
+	});
+
 	it("lifts light surfaces to white instead of darkening them", () => {
 		const variables = organizationThemeVariables(
 			DEFAULT_ORGANIZATION_OS_THEME.light,

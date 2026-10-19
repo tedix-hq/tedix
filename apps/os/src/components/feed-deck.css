@@ -413,7 +413,7 @@
 	height: 0.375rem;
 	margin-right: 0.5rem;
 	border-radius: 50%;
-	background: var(--accent-honey);
+	background: var(--fd-accent);
 }
 .fd-recommendation {
 	font-size: 1.0625rem !important;
@@ -1015,7 +1015,7 @@
 
 .feed-deck :is(button, a, input, textarea, select, .fd-decision):focus-visible {
 	box-shadow: none;
-	outline: 2px solid var(--color-kumo-focus);
+	outline: 2px solid var(--ring);
 	outline-offset: 2px;
 }
 .feed-deck [data-decision-actions] > button {
@@ -1026,11 +1026,38 @@
 	border-radius: 0.75rem;
 }
 .feed-deck [data-decision-actions] > button[data-decision-intent="approve"] {
-	--background-color-kumo-brand: var(--accent-honey);
-	--background-color-kumo-brand-hover: var(--accent-honey);
-	--text-color-kumo-inverse: #171717;
-	background: var(--accent-honey);
-	color: #171717;
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+.feed-deck
+	[data-decision-actions]
+	> button[data-decision-intent="approve"]:hover:not(:disabled) {
+	background: color-mix(in oklch, var(--primary) 92%, var(--foreground));
+}
+.feed-deck [data-decision-actions] > button[data-decision-intent="reject"] {
+	border: 1px solid var(--border);
+	color: var(--card-foreground);
+}
+.feed-deck
+	[data-decision-actions]
+	> button[data-decision-intent="reject"]:hover:not(:disabled) {
+	background: var(--accent);
+}
+.feed-deck
+	[data-decision-actions]
+	> button:not(
+		[data-decision-intent="approve"],
+		[data-decision-intent="reject"]
+	) {
+	color: var(--muted-foreground);
+}
+.feed-deck
+	[data-decision-actions]
+	> button:not(
+		[data-decision-intent="approve"],
+		[data-decision-intent="reject"]
+	):hover:not(:disabled) {
+	background: var(--muted);
 }
 .feed-deck [data-decision-actions] > button > span[aria-hidden="true"] {
 	display: none;

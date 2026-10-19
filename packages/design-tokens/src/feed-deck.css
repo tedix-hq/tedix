@@ -5,12 +5,11 @@
 	--fd-ink: var(--foreground);
 	--fd-muted: var(--muted-foreground);
 	--fd-line: var(--border);
-	--fd-accent: var(--accent-honey);
-	--fd-tint: color-mix(in oklch, var(--accent-honey) 12%, transparent);
-	--fd-control: var(--accent-honey);
-	--fd-on-control: #171717;
-	--primary-foreground: #171717;
-	--tedix-action-primary: var(--accent-honey);
+	--fd-accent: var(--primary);
+	--fd-tint: color-mix(in oklch, var(--primary) 12%, transparent);
+	--fd-control: var(--primary);
+	--fd-on-control: var(--primary-foreground);
+	--tedix-action-primary: var(--primary);
 	--fd-radius: 1rem;
 	--fd-space: 2rem;
 	--fd-deck-space: clamp(1rem, 2vw, 1.5rem);
