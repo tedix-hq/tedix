@@ -25,6 +25,15 @@ describe("ToolIdSchema (verb-first snake_case, CLAUDE.md 'MCP Tool Naming')", ()
 		expect(ToolIdSchema.safeParse(toolId).success).toBe(true);
 	});
 
+	it.each([
+		"list_deck_cards",
+		"get_deck_card",
+		"decide_deck_card",
+		"list_feed_for_you",
+	])("accepts the attention tool id %s", (toolId) => {
+		expect(ToolIdSchema.safeParse(toolId).success).toBe(true);
+	});
+
 	it.each([["gmail_send"], ["workers_builds_list_builds"]])(
 		"accepts allowlisted multi-product namespace prefix id %s",
 		(toolId) => {
@@ -34,6 +43,9 @@ describe("ToolIdSchema (verb-first snake_case, CLAUDE.md 'MCP Tool Naming')", ()
 
 	it.each([
 		["skills_list"], // noun-first
+		["deck_decide"], // noun-first
+		["decideDeckCard"], // camelCase
+		["decide__deck_card"], // double underscore
 		["widgets_list"], // noun-first, prefix not an allowlisted namespace
 		["notion_pages"], // no verb at all
 		["listSkills"], // camelCase

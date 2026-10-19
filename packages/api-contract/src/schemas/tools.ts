@@ -693,6 +693,7 @@ export const TOOL_ID_LEADING_VERBS: ReadonlySet<string> = new Set([
 	"compose",
 	"configure",
 	"create",
+	"decide",
 	"decommission",
 	"delete",
 	"diff",
