@@ -177,7 +177,7 @@ function AdminOrganizationBody({
 	const ssoEnabled = features.sso || false;
 
 	return (
-		<div className="space-y-6 pb-1">
+		<div className="space-y-8">
 			<SettingsSectionNavigation
 				ariaLabel="Organization settings sections"
 				items={
@@ -186,17 +186,6 @@ function AdminOrganizationBody({
 						: ORGANIZATION_SECTION_ITEMS
 				}
 			/>
-
-			{isOwner && (
-				<div id="organization-portfolio" className="scroll-mt-24">
-					<WorkspaceAppRenderer
-						manifest={{
-							entry: "tedix:app/portfolio-settings",
-							capabilities: [],
-						}}
-					/>
-				</div>
-			)}
 
 			<div id="organization-profile" className="scroll-mt-24">
 				<Suspense fallback={<SectionSkeleton />}>
@@ -223,7 +212,7 @@ function AdminOrganizationBody({
 				</Suspense>
 			</div>
 
-			<div id="organization-billing" className="scroll-mt-24 space-y-6">
+			<div id="organization-billing" className="scroll-mt-24 space-y-8">
 				<Suspense fallback={<SectionSkeleton />}>
 					<SubscriptionSection />
 				</Suspense>
@@ -244,7 +233,7 @@ function AdminOrganizationBody({
 				)}
 			</div>
 
-			<div id="organization-authentication" className="scroll-mt-24 space-y-6">
+			<div id="organization-authentication" className="scroll-mt-24 space-y-8">
 				<Suspense fallback={<SectionSkeleton />}>
 					<AdminPortalSection
 						descopeTenantId={organization.descopeTenantId}
@@ -261,6 +250,17 @@ function AdminOrganizationBody({
 					</Suspense>
 				)}
 			</div>
+
+			{isOwner && (
+				<div id="organization-portfolio" className="scroll-mt-24">
+					<WorkspaceAppRenderer
+						manifest={{
+							entry: "tedix:app/portfolio-settings",
+							capabilities: [],
+						}}
+					/>
+				</div>
+			)}
 
 			{isOwner && (
 				<Suspense fallback={<SectionSkeleton />}>
