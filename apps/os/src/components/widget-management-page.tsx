@@ -197,7 +197,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 				onValueChange={(value) => setTab(value as Tab)}
 			>
 				<div className="grid min-w-0 gap-4">
-					<PageHeader>
+					<PageHeader className="font-normal">
 						<PageHeading>
 							<PageTitle>{surface.label}</PageTitle>
 							<PageDescription>

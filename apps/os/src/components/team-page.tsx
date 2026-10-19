@@ -590,7 +590,7 @@ export function TeamPage({
 				}}
 			>
 				<div className="grid min-w-0 gap-4">
-					<PageHeader>
+					<PageHeader className="font-normal">
 						<PageHeading>
 							<PageTitle>{surface.label}</PageTitle>
 							<PageDescription>{surface.description}</PageDescription>

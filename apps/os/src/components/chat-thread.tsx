@@ -4061,7 +4061,7 @@ export function ChatThread({
 								<Button
 									type="button"
 									size="sm"
-									className="chat-composer-chip min-w-0 max-w-32 shrink"
+									className="chat-composer-chip min-w-0 max-w-32 shrink max-sm:min-w-11! coarse:min-w-11!"
 									variant={includeContext ? "outline" : "ghost"}
 									aria-pressed={includeContext}
 									onClick={() => setIncludeContext((value) => !value)}
