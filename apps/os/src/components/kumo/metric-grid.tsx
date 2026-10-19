@@ -69,13 +69,7 @@ function MetricItem({
 			)}
 			{...props}
 		>
-			<Text
-				as="dt"
-				role="caption"
-				tone="secondary"
-				weight="medium"
-				className="uppercase tracking-wide"
-			>
+			<Text as="dt" role="label" tone="secondary" weight="medium">
 				{label}
 			</Text>
 			<Text
@@ -83,7 +77,7 @@ function MetricItem({
 				role={emphasis}
 				tone={valueTone}
 				weight={emphasis === "body" ? "medium" : "semibold"}
-				className={cn("m-0 tabular-nums", valueClassName)}
+				className={cn("m-0 wrap-anywhere tabular-nums", valueClassName)}
 			>
 				{value}
 			</Text>
