@@ -167,28 +167,35 @@ it("rejects incomplete inventories and makes no inference when disabled", async 
 	expect(mocks.model).not.toHaveBeenCalled();
 });
 
-it("pins explicit metadata protection even without a parsed decision envelope", async () => {
-	mocks.projection.mockResolvedValue({
-		cards: [
-			card("routine"),
-			{
-				...card("sensitive"),
-				interaction: {
-					request: {
-						prompt: "Review the request",
-						metadata: { protectedEffects: ["consent"] },
+it.each([
+	{ protectedEffects: ["consent"] },
+	{ protectedEffects: "money" },
+	{ approvalOperation: "" },
+])(
+	"pins protected or malformed approval metadata without an envelope: %j",
+	async (metadata) => {
+		mocks.projection.mockResolvedValue({
+			cards: [
+				card("routine"),
+				{
+					...card("sensitive"),
+					interaction: {
+						request: {
+							prompt: "Review the request",
+							metadata,
+						},
 					},
 				},
-			},
-		],
-		config: {},
-		complete: true,
-		observedAt: "2026-10-19T10:00:00.000Z",
-	});
-	const result = await rankCurrentDeck(context, input);
-	expect(result.cards[0]!.id).toBe("sensitive");
-	expect(result.signals.find((row) => row.cardId === "sensitive")!.reason).toBe(
-		"critical",
-	);
-	expect(mocks.model).toHaveBeenCalledTimes(1);
-});
+			],
+			config: {},
+			complete: true,
+			observedAt: "2026-10-19T10:00:00.000Z",
+		});
+		const result = await rankCurrentDeck(context, input);
+		expect(result.cards[0]!.id).toBe("sensitive");
+		expect(
+			result.signals.find((row) => row.cardId === "sensitive")!.reason,
+		).toBe("critical");
+		expect(mocks.model).toHaveBeenCalledTimes(1);
+	},
+);
