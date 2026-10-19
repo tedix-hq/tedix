@@ -9,6 +9,7 @@ import {
 	ExternalAgentKnowledgeCheckpointSchema,
 	ExternalAgentKnowledgeDispositionSchema,
 	ExternalAgentPrincipalSchema,
+	ExternalAgentPrincipalMetadataSchema,
 	ExternalAgentPrincipalStatusSchema,
 	ExternalAgentReputationContextSchema,
 	ExternalAgentReviewAssessmentSchema,
@@ -129,7 +130,7 @@ export const externalAgentIdentityContract = oc
 					credentialBindingType:
 						ExternalAgentGovernedCredentialBindingTypeSchema,
 					credentialBindingId: z.string().min(1).max(200),
-					metadata: JsonRecordSchema.optional(),
+					metadata: ExternalAgentPrincipalMetadataSchema.optional(),
 				}),
 			)
 			.output(ExternalAgentPrincipalSchema),

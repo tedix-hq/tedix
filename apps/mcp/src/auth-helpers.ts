@@ -10,6 +10,7 @@
  * to CloudflareEnv and WWW-Authenticate formatting.
  */
 
+import { externalAgentScopeCeiling } from "@tedix/api-contract/schemas/external-agent-identity";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import {
 	isDelegatedMcpToken,
@@ -352,6 +353,7 @@ export interface ResolvedExternalAgentSessionAuth {
 		key: string;
 		displayName: string;
 		status: "active";
+		metadata?: Record<string, unknown>;
 	};
 	session: {
 		id: string;
@@ -517,7 +519,8 @@ export async function resolveExternalAgentSessionAuth(
 	env: CloudflareEnv,
 	identity: NonNullable<AihM2mClientScopeContext["externalAgent"]>,
 	clientRecordId: string,
-): Promise<ResolvedExternalAgentSessionAuth> {
+	registeredScopes: string[] = [],
+): Promise<ResolvedExternalAgentSessionAuth & { scopes: string[] }> {
 	if (!env.API_SERVICE) {
 		throw new Error("API service binding is required for external-agent auth");
 	}
@@ -542,7 +545,14 @@ export async function resolveExternalAgentSessionAuth(
 			"External-agent session validation returned mismatched identity",
 		);
 	}
-	return resolved;
+	const ceiling = externalAgentScopeCeiling(resolved.principal.metadata);
+	return {
+		...resolved,
+		scopes:
+			ceiling === undefined
+				? registeredScopes
+				: registeredScopes.filter((scope) => ceiling.includes(scope)),
+	};
 }
 
 async function searchAihMcpServerClientsViaApi(

@@ -3254,6 +3254,7 @@ const worker = {
 									env,
 									aihM2mClient.externalAgent,
 									aihM2mClient.clientRecordId,
+									aihM2mClient.scopes,
 								);
 							} catch (error) {
 								recordExternalAgentValidation({
@@ -3300,7 +3301,10 @@ const worker = {
 								"x-tedix-auth-external-model",
 								`${externalAgent.session.modelProvider}:${externalAgent.session.modelId}:${externalAgent.session.modelVersion}`,
 							);
-							headers.set("x-tedix-auth-scopes", aihM2mClient.scopes.join(" "));
+							headers.set(
+								"x-tedix-auth-scopes",
+								externalAgent.scopes.join(" "),
+							);
 						} else {
 							headers.set("x-tedix-auth-type", "tedi");
 							headers.set("x-tedix-auth-user-id", aihM2mClient.clientRecordId);
@@ -3337,12 +3341,9 @@ const worker = {
 						// A tedi M2M grant is bound to this exact AIH server. Its effective
 						// scopes are the intersection of the registered client's scopes
 						// and the current D1 capability profile, resolved during hydration.
-						// Neither a stale-broad client nor a broader live profile can widen
-						// the other side's grant. Non-tedi clients keep their registration.
-						// `resolveAihM2mClientScopeContext` applies the live profile
-						// intersection to tedi clients after cached or fresh lookup;
-						// external-agent and other clients retain their registration.
-						headers.set("x-tedix-auth-scopes", aihM2mClient.scopes.join(" "));
+						// External agents already carry their live principal ceiling above.
+						if (!aihM2mClient.externalAgent)
+							headers.set("x-tedix-auth-scopes", aihM2mClient.scopes.join(" "));
 					} else if (authResult.scopes) {
 						// Human OAuth token — scopes come from AIH policy
 						headers.set("x-tedix-auth-scopes", authResult.scopes.join(" "));
