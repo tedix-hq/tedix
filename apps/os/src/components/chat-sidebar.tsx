@@ -45,6 +45,11 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { Text } from "@/components/kumo/text";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
+import {
 	Empty,
 	EmptyDescription,
 	EmptyHeader,
@@ -373,57 +378,73 @@ export function ConversationRow({
 			data-pinned={pinned || undefined}
 			data-optimistic={optimistic || undefined}
 			aria-busy={optimistic || undefined}
-			className="group/row flex min-w-0 items-center gap-2 rounded-lg pr-1 transition-colors hover:bg-kumo-fill focus-within:bg-kumo-fill data-[active=true]:bg-kumo-fill data-[active=true]:ring-1 data-[active=true]:ring-kumo-brand data-[active=true]:ring-inset"
+			className="group/row relative min-w-0 rounded-lg transition-colors hover:bg-kumo-tint data-[active=true]:bg-kumo-control motion-reduce:transition-none"
 		>
-			<Button
-				aria-current={active ? "true" : undefined}
-				className="min-h-11 min-w-0 flex-1 flex-col items-stretch gap-1 px-4 py-3 text-left focus-visible:ring-inset"
-				multiline
-				onClick={() => onSelect?.(conversation.id)}
-				variant="ghost"
-			>
-				<span className="flex min-w-0 items-center gap-1.5">
-					{workspace ? (
-						<EntityAvatar
-							id={workspace.id}
-							name={workspace.name}
-							role={workspace.visibility === "private" ? "private" : undefined}
-							kind="workspace"
-							className="size-6 rounded-md"
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Button
+							aria-current={active ? "true" : undefined}
+							className="min-h-11 w-full min-w-0 flex-col items-stretch gap-1 rounded-lg bg-transparent px-4 py-3 pr-16 text-left hover:bg-transparent focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:ring-inset"
+							multiline
+							onClick={() => onSelect?.(conversation.id)}
+							variant="ghost"
 						/>
-					) : null}
-					{pinned ? (
-						<PushPin
-							size={12}
-							weight="fill"
-							aria-label="Pinned"
-							data-pin-indicator="true"
-							className="shrink-0 text-kumo-subtle"
-						/>
-					) : null}
-					<Text
-						as="span"
-						role="body"
-						tone={active ? "strong" : "default"}
-						weight={active ? "medium" : "normal"}
-						truncate
-					>
-						{conversationTitle(conversation)}
-					</Text>
-					{archived ? (
-						<Text as="span" role="label" tone="secondary" className="shrink-0">
-							Archived
-						</Text>
-					) : null}
-				</span>
-				<time
-					dateTime={conversationActivityAt(conversation)}
-					title={absoluteTime(conversationActivityAt(conversation))}
-					className="text-kumo-subtle type-tedix-label"
+					}
 				>
-					{relativeTime(conversationActivityAt(conversation), now)}
-				</time>
-			</Button>
+					<span className="flex min-w-0 items-center gap-1.5">
+						{workspace ? (
+							<EntityAvatar
+								id={workspace.id}
+								name={workspace.name}
+								role={
+									workspace.visibility === "private" ? "private" : undefined
+								}
+								kind="workspace"
+								className="size-6 rounded-md"
+							/>
+						) : null}
+						{pinned ? (
+							<PushPin
+								size={12}
+								weight="fill"
+								aria-label="Pinned"
+								data-pin-indicator="true"
+								className="shrink-0 text-kumo-subtle"
+							/>
+						) : null}
+						<Text
+							as="span"
+							role="body"
+							tone={active ? "strong" : "default"}
+							weight={active ? "medium" : "normal"}
+							truncate
+						>
+							{conversationTitle(conversation)}
+						</Text>
+						{archived ? (
+							<Text
+								as="span"
+								role="label"
+								tone="secondary"
+								className="shrink-0"
+							>
+								Archived
+							</Text>
+						) : null}
+					</span>
+					<time
+						dateTime={conversationActivityAt(conversation)}
+						title={absoluteTime(conversationActivityAt(conversation))}
+						className="text-kumo-subtle type-tedix-label"
+					>
+						{relativeTime(conversationActivityAt(conversation), now)}
+					</time>
+				</TooltipTrigger>
+				<TooltipContent role="tooltip" side="right">
+					{conversationTitle(conversation)}
+				</TooltipContent>
+			</Tooltip>
 			{menu}
 		</li>
 	);
@@ -690,11 +711,12 @@ export function ChatSidebar({
 				<DropdownMenuTrigger
 					render={
 						<Button
-							aria-label={`Actions for ${conversationTitle(conversation)}`}
-							title={`Actions for ${conversationTitle(conversation)}`}
+							aria-label={`Conversation actions for ${conversationTitle(conversation)}`}
+							title={`Conversation actions for ${conversationTitle(conversation)}`}
 							size="icon-sm"
 							variant="ghost"
-							className="shrink-0 text-kumo-subtle opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 data-[popup-open]:opacity-100 coarse:opacity-100"
+							onClick={(event) => event.stopPropagation()}
+							className="absolute top-1/2 right-3 -translate-y-1/2 bg-transparent text-kumo-subtle opacity-0 transition-opacity hover:bg-kumo-tint group-focus-within/row:opacity-100 group-hover/row:opacity-100 group-data-[active=true]/row:opacity-100 data-[popup-open]:opacity-100 max-sm:opacity-100 coarse:opacity-100"
 						/>
 					}
 				>
