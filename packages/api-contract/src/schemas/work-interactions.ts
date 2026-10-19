@@ -721,6 +721,7 @@ export const RefreshDecisionSourcesInputSchema = z.strictObject({
 });
 export const RefreshDecisionSourcesResultSchema = z.strictObject({
 	created: z.number().int().nonnegative(),
+	superseded: z.number().int().nonnegative().default(0),
 	scanned: z.number().int().nonnegative(),
 	hasMore: z.boolean(),
 });

@@ -500,3 +500,49 @@ it("applies class expiry defaults while preserving explicit expiry and later due
 	expect(scheduled.dueAt).toBe(dueAt);
 	expect(scheduled.expiresAt).toBe(dueAt);
 });
+
+it("refreshes only the signed-in recipient's obsolete support cards and reports retirements without creating answers", async () => {
+	const { owner, target, sqlite } = fixture();
+	const insert =
+		sqlite.prepare(`INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata)
+	VALUES (?, ?, ?, 'question', 'Support reply', 'Source reply retained', 'user', 'owner-id', 'user', ?, '2026-01-01T00:00:00.000Z', ?)`);
+	for (const [id, version, recipient] of [
+		["old", 2, "target-id"],
+		["current", 3, "target-id"],
+		["other-old", 2, "other-id"],
+		["other-current", 3, "other-id"],
+	] as const)
+		insert.run(
+			id,
+			ORG_ID,
+			WORK_ITEM_ID,
+			recipient,
+			JSON.stringify({
+				source: "support-draft",
+				supportTicketId: "ticket",
+				supportVersion: version,
+			}),
+		);
+	const refreshed = await target.refreshDecisionSources({});
+	expect(refreshed).toMatchObject({
+		created: 0,
+		superseded: 1,
+		hasMore: false,
+	});
+	expect((await target.refreshDecisionSources({})).superseded).toBe(0);
+	expect((await owner.refreshDecisionSources({})).superseded).toBe(0);
+	expect(
+		sqlite
+			.prepare("SELECT status FROM work_interactions WHERE id='other-old'")
+			.get()?.status,
+	).toBe("open");
+	expect(
+		sqlite
+			.prepare("SELECT COUNT(*) AS count FROM work_interaction_responses")
+			.get()?.count,
+	).toBe(0);
+	expect(
+		sqlite.prepare("SELECT COUNT(*) AS count FROM work_interactions").get()
+			?.count,
+	).toBe(4);
+});

@@ -4,9 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDecisionInbox } from "./use-decision-inbox";
+import { osQuery } from "./os-query-options";
 
 const clock = vi.hoisted(() => ({ now: new Date("2026-10-18T12:00:00Z") }));
 const listInbox = vi.hoisted(() => vi.fn());
+const refreshDecisionSources = vi.hoisted(() => vi.fn());
 vi.mock("./use-card-schedule", () => ({
 	useCardSchedule: () => ({ now: clock.now, timeZone: "Europe/Berlin" }),
 }));
@@ -27,7 +29,7 @@ vi.mock("./api", async (original) => {
 		osApi: new Proxy(actual.osApi, {
 			get: (target, key) =>
 				key === "workInteractions"
-					? { listInbox }
+					? { listInbox, refreshDecisionSources }
 					: key === "workApprovals"
 						? { listInbox: async () => ({ data: [] }) }
 						: key === "tediApprovals"
@@ -66,6 +68,7 @@ afterEach(async () => {
 	client?.clear();
 	host?.remove();
 	listInbox.mockReset();
+	refreshDecisionSources.mockReset();
 });
 function Probe() {
 	const inbox = useDecisionInbox(config);
@@ -177,4 +180,37 @@ it("retains typed message approvals and valuable proposals while routing ordinar
 		await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 		expect(host.textContent).toBe("ready:3:0");
 	});
+});
+
+it("invalidates the inbox after a refresh retires support cards without creating a card", async () => {
+	refreshDecisionSources.mockResolvedValue({
+		created: 0,
+		superseded: 2,
+		scanned: 2,
+		hasMore: false,
+	});
+	listInbox.mockResolvedValue({ data: [], hasMore: false, nextCursor: null });
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	const invalidate = vi.spyOn(client, "invalidateQueries");
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<Probe />
+			</QueryClientProvider>,
+		),
+	);
+	await vi.waitFor(() =>
+		expect(invalidate).toHaveBeenCalledWith({
+			queryKey: osQuery.workInteractions.listInbox.key(),
+		}),
+	);
+	expect(invalidate).toHaveBeenCalledWith({
+		queryKey: osQuery.attention.listDeckCards.key(),
+	});
+	expect(refreshDecisionSources).toHaveBeenCalledWith({ projectId: undefined });
 });
