@@ -270,8 +270,22 @@ export class ConversationFacet extends PiAgent<
 			(await this.parent()).reconcileFacetToolEffect(runId, toolCallId),
 		assertActive: async (runId) =>
 			(await this.parent()).assertChatTurnActive(runId),
-		reserveStep: async (input) => (await this.parent()).reservePiStep(input),
-		recordStep: async (input) => (await this.parent()).recordPiStep(input),
+		reserveStep: async (input) => {
+			await new DelegationBudgetGate(this.ctx.storage).reserveInference(
+				input.runId,
+				input.stepId,
+				input.estimatedTokens,
+			);
+			return (await this.parent()).reservePiStep(input);
+		},
+		recordStep: async (input) => {
+			await new DelegationBudgetGate(this.ctx.storage).recordInferenceUsage(
+				input.runId,
+				input.stepId,
+				input.actualTokens,
+			);
+			return (await this.parent()).recordPiStep(input);
+		},
 	});
 	private readonly nativeInstanceId = crypto.randomUUID();
 	private readonly admittedResumptions = new Set<number>();
@@ -503,7 +517,9 @@ export class ConversationFacet extends PiAgent<
 					const ordinal = await this.accounting.prepareStep(
 						{
 							messages: prompt,
-							estimatedTokens: estimateSdkPromptTokens(prompt),
+							estimatedTokens:
+								estimateSdkPromptTokens(prompt) +
+								(generation.turnConfig.maxOutputTokens ?? PI_MODEL.maxTokens),
 						},
 						this.state.finalReportStop
 							? {}
@@ -1251,6 +1267,8 @@ export class ConversationFacet extends PiAgent<
 				...input,
 				delegationBudget: {
 					maxToolCalls: retainedBudget.maxToolCalls,
+					maxTokens: retainedBudget.maxTokens,
+					maxUsd: retainedBudget.maxUsd,
 					deadlineAt: retainedBudget.deadlineAt,
 				},
 			};

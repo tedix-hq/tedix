@@ -79,3 +79,58 @@ await assert.rejects(
 	/deadline reached/,
 );
 assert.equal(dispatches, 0);
+
+assert.deepEqual(
+	delegationBudgetForMetadata(
+		{ delegationBudget: { maxTokens: 80, maxUsd: 0 } },
+		now,
+	),
+	{ maxTokens: 80, maxUsd: 0 },
+);
+await gate.enroll("token-bounded", { maxTokens: 80 });
+const tokenResults = await Promise.allSettled(
+	Array.from({ length: 12 }, (_, i) =>
+		gate.reserveInference("token-bounded", `step-${i}`, 10),
+	),
+);
+assert.equal(tokenResults.filter((r) => r.status === "fulfilled").length, 8);
+await restarted.reserveInference("token-bounded", "step-0", 10);
+assert.match((await restarted.stopReason("token-bounded"))!, /token budget/);
+await assert.rejects(
+	restarted.reserveInference("token-bounded", "new-step", 1),
+	/token budget/,
+);
+await assert.rejects(
+	restarted.enroll("token-bounded", { maxTokens: 100 }),
+	/changed/,
+);
+await assert.rejects(restarted.enroll("token-bounded", undefined), /removed/);
+for (const maxUsd of [0, 0.01, 10]) {
+	const runId = `usd-${maxUsd}`;
+	await gate.enroll(runId, { maxUsd });
+	assert.match((await restarted.stopReason(runId))!, /authoritative cost/);
+	await assert.rejects(
+		restarted.reserveInference(runId, "first-step", 1),
+		/authoritative cost/,
+	);
+	assert.match(
+		(await restarted.claim(runId, "side-effect"))!,
+		/authoritative cost/,
+	);
+}
+console.log(
+	"PASS durable token reservations, concurrent/restart fences and fail-closed USD caps",
+);
+
+await gate.enroll("actual-usage", { maxTokens: 80 });
+await gate.reserveInference("actual-usage", "provider", 10);
+await gate.recordInferenceUsage("actual-usage", "provider", null);
+await gate.recordInferenceUsage("actual-usage", "provider", 2);
+assert.equal((await gate.inspect("actual-usage"))?.inference?.provider, 10);
+await gate.recordInferenceUsage("actual-usage", "provider", 80);
+assert.match((await gate.stopReason("actual-usage"))!, /token budget/);
+assert.match((await gate.claim("actual-usage", "effect"))!, /token budget/);
+await assert.rejects(
+	gate.recordInferenceUsage("actual-usage", "unknown", 10),
+	/no reservation/,
+);
