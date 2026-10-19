@@ -286,8 +286,10 @@ describe("ShareRow", () => {
 		);
 		expect(html).toContain("Created");
 		expect(html).toContain("never expires");
-		expect(html).toContain("active");
-		expect(html).toContain("Revoke");
+		expect(html).toContain("Active");
+		expect(html).toContain("Can view");
+		expect(html).toContain("Latest version");
+		expect(html).toContain("Turn off");
 	});
 
 	it("hides the revoke button on a revoked link", () => {
@@ -297,8 +299,8 @@ describe("ShareRow", () => {
 				onRevoke={() => {}}
 			/>,
 		);
-		expect(html).toContain("revoked");
-		expect(html).not.toContain("Revoke share link");
+		expect(html).toContain("Turned off");
+		expect(html).not.toContain("Turn off this link");
 	});
 });
 
@@ -354,7 +356,7 @@ describe("ShareControls", () => {
 			resourceId: OUTPUT_ID,
 		});
 		expect(container.textContent).toContain("never expires");
-		expect(container.textContent).toContain("active");
+		expect(container.textContent).toContain("Active");
 	});
 
 	it("explains the empty list without implying failure", async () => {
@@ -362,7 +364,7 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
-		expect(container.textContent).toContain("No share links yet");
+		expect(container.textContent).toContain("No links yet");
 	});
 
 	it("creates a link and shows the one-time URL with the access warning", async () => {
@@ -375,7 +377,7 @@ describe("ShareControls", () => {
 		click(findButton(container, "Share"));
 		await flush();
 
-		click(findButton(container, "Create share link"));
+		click(findButton(container, "Create link"));
 		await flush();
 
 		expect(sharesApi.create).toHaveBeenCalledWith({
@@ -386,7 +388,7 @@ describe("ShareControls", () => {
 		});
 		expect(container.textContent).toContain(formatShareLink(TOKEN));
 		expect(container.textContent).toContain(
-			"Anyone holding this link receives viewer access to this output",
+			"Anyone with this link can view this file",
 		);
 		expect(container.textContent).toContain("shown only once");
 
@@ -412,7 +414,7 @@ describe("ShareControls", () => {
 		const expiryTime = expiryTimeField();
 		setFieldValue(expiryTime, "03:04");
 
-		click(findButton(container, "Create share link"));
+		click(findButton(container, "Create link"));
 		await flush();
 		// Unchanged wire format: the same absolute instant the native
 		// datetime-local input used to produce.
@@ -439,23 +441,23 @@ describe("ShareControls", () => {
 		// Optional expiry: the trigger reads "No expiry" and offers nothing to
 		// clear until a day is chosen.
 		const trigger = expiryTrigger();
-		expect(trigger.textContent).toContain("No expiry");
+		expect(trigger.textContent).toContain("Never");
 		expect(
 			document.querySelector('[aria-label="Clear Link expiry"]'),
 		).toBeNull();
 
 		openExpiryCalendar();
 		click(expiryDay("2099-01-02"));
-		expect(expiryTrigger().textContent).not.toContain("No expiry");
+		expect(expiryTrigger().textContent).not.toContain("Never");
 
 		const clear = document.querySelector<HTMLButtonElement>(
 			'[aria-label="Clear Link expiry"]',
 		);
 		if (!clear) throw new Error("clear control missing");
 		click(clear);
-		expect(expiryTrigger().textContent).toContain("No expiry");
+		expect(expiryTrigger().textContent).toContain("Never");
 
-		click(findButton(container, "Create share link"));
+		click(findButton(container, "Create link"));
 		await flush();
 		expect(sharesApi.create).toHaveBeenCalledWith({
 			resourceType: "output",
@@ -484,14 +486,14 @@ describe("ShareControls", () => {
 		});
 		click(findButton(container, "Share"));
 		await flush();
-		click(findButton(container, "Build workspace"));
-		click(findButton(container, "Pinned"));
+		click(findButton(container, "Edit the workspace"));
+		click(findButton(container, "This version"));
 		const note = container.querySelector<HTMLInputElement>(
 			'input[aria-label="Share note"]',
 		);
 		if (!note) throw new Error("share note missing");
 		setFieldValue(note, "Approved build handoff");
-		click(findButton(container, "Create share link"));
+		click(findButton(container, "Create link"));
 		await flush();
 		expect(sharesApi.create).toHaveBeenCalledWith({
 			resourceType: "gadget",
@@ -502,7 +504,9 @@ describe("ShareControls", () => {
 			note: "Approved build handoff",
 		});
 		expect(container.textContent).toContain("/shared#token=");
-		expect(container.textContent).toContain("never transfers your connections");
+		expect(container.textContent).toContain(
+			"Your connected accounts are never shared",
+		);
 	});
 
 	it("pins an output to the exact revision shown in its detail view", async () => {
@@ -520,8 +524,8 @@ describe("ShareControls", () => {
 		});
 		click(findButton(container, "Share"));
 		await flush();
-		click(findButton(container, "Pinned"));
-		click(findButton(container, "Create share link"));
+		click(findButton(container, "This version"));
+		click(findButton(container, "Create link"));
 		await flush();
 		expect(sharesApi.create).toHaveBeenCalledWith({
 			resourceType: "output",
@@ -547,15 +551,13 @@ describe("ShareControls", () => {
 		await flush();
 
 		const listCallsBefore = sharesApi.list.mock.calls.length;
-		click(findButton(container, "Revoke"));
+		click(findButton(container, "Turn off"));
 		await flush();
 		expect(sharesApi.previewRevoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
-		expect(container.textContent).toContain(
-			"immediately end 2 active sessions",
-		);
+		expect(container.textContent).toContain("2 people have it open now");
 		expect(container.querySelector('[data-slot="alert"]')).not.toBeNull();
-		expect(container.textContent).toContain("Revoke shared link?");
-		click(findButton(container, "Confirm revoke"));
+		expect(container.textContent).toContain("Turn off this link?");
+		click(findButton(container, "Turn off link"));
 		await flush();
 
 		expect(sharesApi.revoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
@@ -568,9 +570,9 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
-		click(findButton(container, "Create share link"));
+		click(findButton(container, "Create link"));
 		await flush();
-		expect(container.textContent).toContain("Create failed: nope");
+		expect(container.textContent).toContain("Couldn't create the link. nope");
 	});
 
 	it("shows no share link until the server has actually minted one", async () => {
@@ -586,13 +588,13 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
-		click(findButton(container, "Create share link"));
+		click(findButton(container, "Create link"));
 		await flush();
 
 		expect(
 			container.querySelector('[data-slot="share-pending"]'),
 		).not.toBeNull();
-		expect(container.textContent).toContain("Waiting for the server to mint");
+		expect(container.textContent).toContain("Creating link…");
 		expect(container.textContent).not.toContain("tok_");
 
 		settle.resolve?.({ token: TOKEN, share: shareFixture() });

@@ -17,6 +17,8 @@ type SegmentedControlProps<Value extends string> = {
 	ariaLabel: string;
 	className?: string;
 	compact?: boolean;
+	/** Stretch to the container width with equal-width segments. */
+	fill?: boolean;
 };
 
 const USAGE_PERIOD_OPTIONS = ["24h", "7d", "30d"].map((value) => ({
@@ -42,6 +44,7 @@ function SegmentedControl<Value extends string>({
 	ariaLabel,
 	className,
 	compact = false,
+	fill = false,
 }: SegmentedControlProps<Value>) {
 	return (
 		<ToggleGroup
@@ -49,7 +52,8 @@ function SegmentedControl<Value extends string>({
 			data-kumo-component="SegmentedControl"
 			data-compact={compact || undefined}
 			className={cn(
-				"flex w-fit max-w-full min-w-0 items-stretch gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg bg-kumo-recessed p-0.5 ring ring-kumo-hairline/70 [scrollbar-gutter:stable] [scrollbar-width:thin]",
+				"flex max-w-full min-w-0 items-stretch gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg bg-kumo-recessed p-0.5 ring ring-kumo-hairline/70 [scrollbar-gutter:stable] [scrollbar-width:thin]",
+				fill ? "w-full" : "w-fit",
 				className,
 			)}
 			onValueChange={(groupValue) => {
@@ -66,7 +70,8 @@ function SegmentedControl<Value extends string>({
 					render={
 						<Button
 							className={cn(
-								"shrink-0 rounded-md px-2.5 type-tedix-control shadow-none transition-colors motion-reduce:transition-none max-sm:min-h-11 max-sm:px-3 coarse:min-h-11 coarse:px-3",
+								fill ? "flex-1 justify-center" : "shrink-0",
+								"rounded-md px-2.5 type-tedix-control shadow-none transition-colors motion-reduce:transition-none max-sm:min-h-11 max-sm:px-3 coarse:min-h-11 coarse:px-3",
 								option.value === value
 									? "bg-kumo-tint text-kumo-default hover:bg-kumo-tint"
 									: "bg-transparent text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default",

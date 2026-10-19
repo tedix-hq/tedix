@@ -9,7 +9,7 @@ import type {
 	OsShareRole,
 } from "@tedix/api-contract/contracts/os-shares";
 import { resolveOsTenant } from "@/shared/os-tenant";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -80,6 +80,66 @@ export function shareExpiryLabel(
 	return `${verb} ${relativeTime(share.expiresAt)}`;
 }
 
+/** Server messages are written for people; bare status words are not. */
+function shareErrorText(error: unknown, fallback: string): string {
+	const message = error instanceof Error ? error.message.trim() : "";
+	// "Not Found", "Forbidden", "fetch failed": a status, not an explanation.
+	return message.split(/\s+/).length >= 4
+		? message
+		: `${fallback} Try again later.`;
+}
+
+const RESOURCE_NOUN: Record<OsShareResourceType, string> = {
+	output: "file",
+	gadget: "app",
+	workspace: "workspace",
+};
+
+const ROLE_LABEL: Record<OsShareRole, string> = {
+	viewer: "Can view",
+	use: "Can use",
+	build: "Can edit",
+};
+
+const ROLE_VERB: Record<OsShareRole, string> = {
+	viewer: "view",
+	use: "use",
+	build: "edit",
+};
+
+const STATUS_LABEL: Record<ShareLinkStatus, string> = {
+	active: "Active",
+	expired: "Expired",
+	revoked: "Turned off",
+};
+
+function revisionModeLabel(mode: OsShareRevisionMode): string {
+	return mode === "pinned" ? "This version" : "Latest version";
+}
+
+/** One form field: label, control, optional hint, always the same spacing. */
+function ShareField(props: {
+	label: string;
+	hint?: string;
+	as?: "label" | "div";
+	children: ReactNode;
+}) {
+	const Wrapper = props.as ?? "label";
+	return (
+		<Wrapper className="grid gap-1.5" data-slot="share-field">
+			<Text as="span" role="label" tone="strong" className="m-0">
+				{props.label}
+			</Text>
+			{props.children}
+			{props.hint ? (
+				<Text as="span" role="label" tone="secondary" className="m-0">
+					{props.hint}
+				</Text>
+			) : null}
+		</Wrapper>
+	);
+}
+
 export function ShareRow(props: {
 	share: OsShareLink;
 	onRevoke?: (shareId: string) => void;
@@ -99,12 +159,15 @@ export function ShareRow(props: {
 				Created {relativeTime(props.share.createdAt)} ·{" "}
 				{shareExpiryLabel(props.share)}
 			</Text>
-			<Badge variant="secondary">{props.share.role}</Badge>
-			<Badge variant="secondary">{props.share.revisionMode}</Badge>
-			<Badge variant={shareStatusVariant(status)}>{status}</Badge>
+			<Badge variant="secondary">{ROLE_LABEL[props.share.role]}</Badge>
+			<Badge variant="secondary">
+				{revisionModeLabel(props.share.revisionMode)}
+			</Badge>
+			<Badge variant={shareStatusVariant(status)}>{STATUS_LABEL[status]}</Badge>
 			{props.share.policyMaxRole && (
 				<Text as="span" role="label" tone="warning" className="w-full pl-6">
-					Policy-limited to {props.share.policyMaxRole}:{" "}
+					Your organization limits this link to{" "}
+					{ROLE_LABEL[props.share.policyMaxRole].toLowerCase()}:{" "}
 					{props.share.policyReason}
 				</Text>
 			)}
@@ -114,9 +177,9 @@ export function ShareRow(props: {
 					size="sm"
 					disabled={props.revoking}
 					onClick={() => props.onRevoke?.(props.share.id)}
-					aria-label="Preview and revoke share link"
+					aria-label="Turn off this link"
 				>
-					<Prohibit size={14} /> Revoke
+					<Prohibit size={14} /> Turn off
 				</Button>
 			)}
 			{props.share.resourceType === "gadget" && props.share.role === "use" && (
@@ -159,9 +222,9 @@ function OneTimeLink(props: {
 				{url}
 			</Text>
 			<Text role="label" tone="secondary" className="m-0">
-				Anyone holding this link receives {props.role} access to this{" "}
-				{props.resourceType}. The secret is shown only once; Tedix stores only
-				its hash and never transfers your connections or credentials.
+				Anyone with this link can {ROLE_VERB[props.role]} this{" "}
+				{RESOURCE_NOUN[props.resourceType]}. Copy it now: it is shown only once.
+				Your connected accounts are never shared.
 			</Text>
 			<div className="flex items-center gap-2">
 				<Button
@@ -279,6 +342,7 @@ export function ShareControls(props: ShareControlsProps) {
 					origin: window.location.origin,
 					localEvaluation,
 				});
+	const noun = RESOURCE_NOUN[resourceType];
 	const cannotPinRevision =
 		resourceType !== "workspace" && currentRevisionId === null;
 
@@ -306,18 +370,17 @@ export function ShareControls(props: ShareControlsProps) {
 			<PopoverContent
 				side="bottom"
 				align="end"
-				className="grid max-h-[min(var(--available-height),calc(var(--viewport-tedix-height)-2rem))] w-[min(30rem,calc(100vw-2rem))] gap-3 overflow-y-auto p-3"
+				className="grid max-h-[min(var(--available-height),calc(var(--viewport-tedix-height)-2rem))] w-[min(26rem,calc(100vw-2rem))] gap-4 overflow-y-auto p-4"
 			>
-				<PopoverTitle className="m-0 text-kumo-subtle uppercase tracking-wide type-tedix-caption font-semibold">
-					Governed share links
+				<PopoverTitle className="m-0 font-semibold text-base text-kumo-default">
+					Share this {noun}
 				</PopoverTitle>
 				{localEvaluation && (
 					<Surface
 						className="m-0 px-3 py-2 text-kumo-subtle text-xs"
 						render={<p />}
 					>
-						Local share links stay inside this isolated dataset. They do not
-						invite a production tenant member or transfer production authority.
+						Links made here only work on this local copy of Tedix.
 					</Surface>
 				)}
 				{createShare.data && (
@@ -345,14 +408,13 @@ export function ShareControls(props: ShareControlsProps) {
 				)}
 				{shares.isError && (
 					<Text role="label" tone="error" className="m-0">
-						Share links are unavailable: {(shares.error as Error).message}
+						{shareErrorText(shares.error, "Can't load links right now.")}
 					</Text>
 				)}
 				{shares.data &&
 					(shares.data.items.length === 0 ? (
 						<Text role="label" tone="secondary" className="m-0">
-							No share links yet. Choose the least authority and whether it
-							follows living revisions.
+							No links yet.
 						</Text>
 					) : (
 						<ul className="m-0 grid list-none gap-0.5 p-0">
@@ -369,13 +431,17 @@ export function ShareControls(props: ShareControlsProps) {
 				{revokeImpact && (
 					<Alert variant="warning">
 						<Prohibit aria-hidden />
-						<AlertTitle>Revoke shared link?</AlertTitle>
+						<AlertTitle>Turn off this link?</AlertTitle>
 						<AlertDescription className="space-y-3">
 							<p>
-								Revoking will immediately end {revokeImpact.activeSessionCount}{" "}
-								active{" "}
-								{revokeImpact.activeSessionCount === 1 ? "session" : "sessions"}
-								.
+								The link stops working right away.{" "}
+								{revokeImpact.activeSessionCount === 0
+									? "Nobody has it open now."
+									: `${revokeImpact.activeSessionCount} ${
+											revokeImpact.activeSessionCount === 1
+												? "person has"
+												: "people have"
+										} it open now and will lose access.`}
 							</p>
 							<div className="flex flex-wrap gap-2">
 								<Button
@@ -383,7 +449,7 @@ export function ShareControls(props: ShareControlsProps) {
 									variant="destructive"
 									onClick={() => revokeShare.mutate(revokeImpact.shareId)}
 								>
-									Confirm revoke
+									Turn off link
 								</Button>
 								<Button
 									size="sm"
@@ -396,69 +462,73 @@ export function ShareControls(props: ShareControlsProps) {
 						</AlertDescription>
 					</Alert>
 				)}
-				{resourceType !== "output" && (
-					<Text as="label" role="label" tone="secondary" className="grid gap-1">
-						Access role
-						<SegmentedControl
-							ariaLabel="Share access role"
-							value={role as "use" | "build"}
-							onValueChange={setRole}
-							options={[
-								{ value: "use", label: "Use App" },
-								{ value: "build", label: "Build workspace" },
-							]}
-						/>
-						<span>
-							Use hides source and chat. Build still requires the recipient's
-							own Tedix authoring authority.
-						</span>
-					</Text>
-				)}
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					Revision behavior
-					<SegmentedControl
-						ariaLabel="Share revision behavior"
-						value={revisionMode}
-						onValueChange={setRevisionMode}
-						options={
+				<div className="grid gap-4 border-kumo-line border-t pt-4">
+					{resourceType !== "output" && (
+						<ShareField
+							as="div"
+							label="People with the link can"
+							hint="Use: they can use the app but not see how it is built. Edit: they also need their own Tedix access."
+						>
+							<SegmentedControl
+								ariaLabel="Share access role"
+								fill
+								value={role as "use" | "build"}
+								onValueChange={setRole}
+								options={[
+									{ value: "use", label: "Use the app" },
+									{ value: "build", label: "Edit the workspace" },
+								]}
+							/>
+						</ShareField>
+					)}
+					<ShareField
+						as="div"
+						label="Link shows"
+						hint={
 							cannotPinRevision
-								? [{ value: "living", label: "Living" }]
-								: [
-										{ value: "living", label: "Living" },
-										{ value: "pinned", label: "Pinned" },
-									]
+								? `Save this ${noun} first to share a fixed version.`
+								: "Latest version follows your changes. This version stays as it is now."
 						}
-					/>
-					<span>
-						{cannotPinRevision
-							? `Commit this ${resourceType} before pinning.`
-							: "Pinned freezes the current revision; living follows future commits."}
-					</span>
-				</Text>
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					Share note
-					<Input
-						value={note}
-						onChange={(event) => setNote(event.target.value)}
-						aria-label="Share note"
-						maxLength={240}
-						placeholder="Why this access is being granted"
-					/>
-				</Text>
-				{/* A composite control has no single labellable input, so this is a
+					>
+						<SegmentedControl
+							ariaLabel="Share revision behavior"
+							fill
+							value={revisionMode}
+							onValueChange={setRevisionMode}
+							options={
+								cannotPinRevision
+									? [{ value: "living", label: "Latest version" }]
+									: [
+											{ value: "living", label: "Latest version" },
+											{ value: "pinned", label: "This version" },
+										]
+							}
+						/>
+					</ShareField>
+					<ShareField label="Note (optional)">
+						<Input
+							value={note}
+							onChange={(event) => setNote(event.target.value)}
+							aria-label="Share note"
+							maxLength={240}
+							placeholder="For example: for Adriana to review"
+						/>
+					</ShareField>
+					{/* A composite control has no single labellable input, so this is a
 					    described group rather than an implicit <label>. */}
-				<div className="grid gap-1 text-kumo-subtle text-xs">
-					<span>Link expiry</span>
-					<DateTimePicker
-						aria-label="Link expiry"
-						value={expiresAt}
-						onChange={setExpiresAt}
-						min={new Date()}
-						placeholder="No expiry"
-					/>
-					<span>
-						Optional. Leave blank for a link that expires only when revoked.
-					</span>
+					<ShareField
+						as="div"
+						label="Expires (optional)"
+						hint="Leave empty to keep the link until you turn it off."
+					>
+						<DateTimePicker
+							aria-label="Link expiry"
+							value={expiresAt}
+							onChange={setExpiresAt}
+							min={new Date()}
+							placeholder="Never"
+						/>
+					</ShareField>
 				</div>
 				{(createShare.isPending || revokeShare.isPending) && (
 					<p
@@ -466,9 +536,7 @@ export function ShareControls(props: ShareControlsProps) {
 						role="status"
 						data-slot="share-pending"
 					>
-						{createShare.isPending
-							? "Waiting for the server to mint the link…"
-							: "Waiting for the server to confirm the revoke…"}
+						{createShare.isPending ? "Creating link…" : "Turning off link…"}
 					</p>
 				)}
 				{(createShare.isError ||
@@ -476,15 +544,14 @@ export function ShareControls(props: ShareControlsProps) {
 					previewRevoke.isError) && (
 					<p className="m-0 text-kumo-danger text-xs" role="alert">
 						{createShare.isError
-							? `Create failed: ${(createShare.error as Error).message}`
+							? `Couldn't create the link. ${(createShare.error as Error).message}`
 							: revokeShare.isError
-								? `Revoke failed: ${(revokeShare.error as Error).message}`
-								: `Preview failed: ${(previewRevoke.error as Error).message}`}
+								? `Couldn't turn off the link. ${(revokeShare.error as Error).message}`
+								: `Couldn't check this link. ${(previewRevoke.error as Error).message}`}
 					</p>
 				)}
 				<Button
-					variant="secondary"
-					size="sm"
+					className="w-full justify-center"
 					loading={createShare.isPending}
 					disabled={
 						createShare.isPending ||
@@ -492,8 +559,7 @@ export function ShareControls(props: ShareControlsProps) {
 					}
 					onClick={() => createShare.mutate()}
 				>
-					<LinkSimple size={14} />{" "}
-					{createShare.isPending ? "Creating…" : "Create share link"}
+					<LinkSimple size={14} /> Create link
 				</Button>
 			</PopoverContent>
 		</PopoverRoot>

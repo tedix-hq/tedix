@@ -188,11 +188,11 @@ describe("OutputDetailPage", () => {
 			},
 		};
 		const container = renderPage();
-		expect(container.textContent).toContain("Authoring Home run");
-		expect(container.textContent).toContain("No per-output cost allocation");
+		expect(container.textContent).toContain("See how it was made");
+		expect(container.textContent).not.toContain("cost");
 	});
 	it("does not invent a Home link when no association is available", () => {
-		expect(renderPage().textContent).not.toContain("Authoring Home run");
+		expect(renderPage().textContent).not.toContain("See how it was made");
 	});
 	it("keeps the read-only detail in the standard route lane", () => {
 		const container = renderPage();
@@ -202,7 +202,6 @@ describe("OutputDetailPage", () => {
 		const description = container.querySelector(
 			'[data-slot="page-description"]',
 		);
-		const meta = container.querySelector('[data-slot="page-meta"]');
 
 		expect(page?.className).toContain("max-w-4xl");
 		expect(page?.hasAttribute("data-full-height")).toBe(false);
@@ -210,9 +209,11 @@ describe("OutputDetailPage", () => {
 		expect(back?.textContent).toContain("All outputs");
 		expect(title?.textContent).toBe("Weekly report");
 		expect(description?.textContent).toContain(
-			"Document · Revision 3 · by user",
+			"Document · Version 3 · updated",
 		);
-		expect(meta?.textContent).toContain("Cost unavailable");
+		// No hashes, ids or empty cost chips in the read view.
+		expect(container.querySelector('[data-slot="page-meta"]')).toBeNull();
+		expect(container.textContent).not.toContain("sha256");
 		expect(container.querySelector(".eyebrow")).toBeNull();
 		expect(container.querySelector("[data-output-content]")).not.toBeNull();
 		expect(container.textContent).toContain("Open in workspace");
@@ -238,10 +239,11 @@ describe("OutputDetailPage", () => {
 
 		expect(
 			container.querySelector('[data-slot="page-description"]')?.textContent,
-		).toContain("Revision 3 · by user");
+		).toContain("Version 3 · updated");
 		expect(
 			container.querySelector('[data-slot="page-meta"]')?.textContent,
-		).toContain("Produced by weekly-report · run dddddddd");
+		).toContain("Made by weekly-report");
+		expect(container.textContent).not.toContain("dddddddd");
 	});
 
 	it("turns edit mode into a full-height edge-to-edge workshop", () => {
@@ -264,12 +266,12 @@ describe("OutputDetailPage", () => {
 			container.querySelector('[data-slot="output-workshop-footer"]'),
 		).not.toBeNull();
 		expect(container.querySelector('[data-editor="document"]')).not.toBeNull();
-		expect(container.textContent).toContain("Editing revision 3");
+		expect(container.textContent).toContain("Editing version 3");
 		expect(container.textContent).toContain("Document");
 		expect(
-			container.querySelector('input[aria-label="Revision note"]'),
+			container.querySelector('input[aria-label="What changed"]'),
 		).not.toBeNull();
-		expect(container.textContent).toContain("Save revision");
+		expect(container.textContent).toContain("Save");
 
 		clickButton(container, "Cancel");
 		expect(container.querySelector(".output-detail-workshop")).toBeNull();

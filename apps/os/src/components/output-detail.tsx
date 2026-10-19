@@ -9,8 +9,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
-import { useEffect, useState } from "react";
-import { CostChip } from "@/components/cost-chip";
+import { useState } from "react";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -41,32 +40,13 @@ import {
 	OutputWorkshopStatus,
 } from "@/components/output-workshop";
 import { ShareControls } from "@/components/share-controls";
-import { contentHash, shortHash } from "@/lib/content-hash";
 import {
 	outputDetailQueryOptions,
 	workspaceDetailQueryOptions,
 } from "@/lib/os-query-options";
 import { normalizeOutputContent } from "@/lib/output-models";
+import { relativeTime } from "@/lib/time";
 import { useReviseOutput } from "@/lib/use-revise-output";
-
-function IntegrityChip({ content }: { content: OsOutputContent }) {
-	const [hash, setHash] = useState<string | null>(null);
-	useEffect(() => {
-		let live = true;
-		contentHash(content).then((value) => {
-			if (live) setHash(value);
-		});
-		return () => {
-			live = false;
-		};
-	}, [content]);
-	if (!hash) return null;
-	return (
-		<Badge variant="secondary" title={`sha256 ${hash}`}>
-			sha256:{shortHash(hash)}
-		</Badge>
-	);
-}
 
 export function OutputDetailPage() {
 	useOutputsWebMcpTools();
@@ -111,23 +91,23 @@ export function OutputDetailPage() {
 	const saveFeedback =
 		outcome?.kind === "conflict" ? (
 			<Alert variant="destructive">
-				<AlertTitle>Someone saved a newer revision</AlertTitle>
+				<AlertTitle>Someone else saved a newer version</AlertTitle>
 				<AlertDescription>
-					Your draft was NOT written. Reload the output, reapply your change,
-					and save again.
+					Your changes were not saved. Reload the page, make your change again,
+					and save.
 				</AlertDescription>
 			</Alert>
 		) : outcome?.kind === "error" ? (
 			<Alert variant="destructive">
-				<AlertTitle>Save failed</AlertTitle>
+				<AlertTitle>Couldn't save</AlertTitle>
 				<AlertDescription>{outcome.message}</AlertDescription>
 			</Alert>
 		) : outcome?.kind === "unchanged" && detail.data ? (
 			<Alert>
 				<AlertTitle>No changes to save</AlertTitle>
 				<AlertDescription>
-					The draft matches revision {detail.data.currentRevision.revision}
-					exactly, so no new revision was recorded.
+					Nothing changed since version {detail.data.currentRevision.revision},
+					so nothing new was saved.
 				</AlertDescription>
 			</Alert>
 		) : null;
@@ -159,11 +139,10 @@ export function OutputDetailPage() {
 					<OutputWorkshopStatus>
 						<Badge
 							variant="info"
-							title={`Editing immutable revision ${detail.data.currentRevision.revision}. Save creates a new revision.`}
+							title="Saving keeps the earlier version and adds a new one."
 						>
-							Editing revision {detail.data.currentRevision.revision}
+							Editing version {detail.data.currentRevision.revision}
 						</Badge>
-						<IntegrityChip content={detail.data.currentRevision.content} />
 					</OutputWorkshopStatus>
 					<OutputWorkshopActions>
 						<OutputExportButtons
@@ -186,15 +165,15 @@ export function OutputDetailPage() {
 				</OutputWorkshopStage>
 				<OutputWorkshopFooter>
 					<Input
-						aria-label="Revision note"
+						aria-label="What changed"
 						value={note}
 						onChange={(event) => setNote(event.target.value)}
-						placeholder="Revision note (optional)"
+						placeholder="What changed? (optional)"
 						maxLength={2000}
 						className="output-detail-revision-note"
 					/>
 					<Button size="sm" onClick={submit} disabled={saving}>
-						<FloppyDisk size={14} /> {saving ? "Saving…" : "Save revision"}
+						<FloppyDisk size={14} /> {saving ? "Saving…" : "Save"}
 					</Button>
 					<Button
 						variant="ghost"
@@ -233,61 +212,41 @@ export function OutputDetailPage() {
 						<PageHeading>
 							<PageTitle>{detail.data.output.title}</PageTitle>
 							<PageDescription>
-								{outputWorkshopKindLabel(detail.data.output.kind)} · Revision{" "}
-								{detail.data.currentRevision.revision}
+								{outputWorkshopKindLabel(detail.data.output.kind)} · Version{" "}
+								{detail.data.currentRevision.revision} · updated{" "}
+								{relativeTime(detail.data.currentRevision.createdAt)}
 								{detail.data.currentRevision.note
-									? ` — ${detail.data.currentRevision.note}`
-									: ""}{" "}
-								· by {detail.data.currentRevision.createdByKind}
+									? ` · ${detail.data.currentRevision.note}`
+									: ""}
 							</PageDescription>
-							<PageMeta>
-								{/* Producer lineage exists only when a skill run authored the
-								    bytes. A human-authored revision, and every revision written
-								    before the column existed, says nothing rather than guessing.
-								    The referenced run may have been pruned, so this shows the id
-								    it holds without asserting the run still resolves. */}
-								{detail.data.authoringHomeRun && (
-									<li>
-										<Link
-											to="/work/executions/$runId"
-											search={{ branch: undefined }}
-											params={{ runId: detail.data.authoringHomeRun.runId }}
-										>
-											Authoring Home run
-										</Link>
-									</li>
-								)}
-								{detail.data.currentRevision.producedBy && (
-									<li>
-										Produced by{" "}
-										{detail.data.currentRevision.producedBy.skillId ??
-											"a skill run"}{" "}
-										· run{" "}
-										{detail.data.currentRevision.producedBy.skillRunId.slice(
-											0,
-											8,
-										)}
-									</li>
-								)}
-								<li className="flex items-center">
-									<IntegrityChip
-										content={detail.data.currentRevision.content}
-									/>
-								</li>
-								{detail.data.authoringHomeRun ? (
-									<li>No per-output cost allocation; see the authoring run.</li>
-								) : (
-									<li className="flex items-center">
-										<CostChip
-											reading={{
-												kind: "absent",
-												reason: "no_attribution_path",
-											}}
-											subject="Cost attribution for this output"
-										/>
-									</li>
-								)}
-							</PageMeta>
+							{detail.data.authoringHomeRun ||
+							detail.data.currentRevision.producedBy ? (
+								<PageMeta>
+									{/* Producer lineage exists only when a skill run authored the
+									    bytes. A human-authored revision, and every revision written
+									    before the column existed, says nothing rather than guessing.
+									    The referenced run may have been pruned, so the link is not
+									    an assertion that it still resolves. */}
+									{detail.data.currentRevision.producedBy && (
+										<li>
+											Made by{" "}
+											{detail.data.currentRevision.producedBy.skillId ??
+												"a skill"}
+										</li>
+									)}
+									{detail.data.authoringHomeRun && (
+										<li>
+											<Link
+												to="/work/executions/$runId"
+												search={{ branch: undefined }}
+												params={{ runId: detail.data.authoringHomeRun.runId }}
+											>
+												See how it was made
+											</Link>
+										</li>
+									)}
+								</PageMeta>
+							) : null}
 						</PageHeading>
 						<PageActions className="w-auto">
 							{detail.data.output.status === "active" && (
