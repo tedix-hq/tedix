@@ -312,6 +312,7 @@ export async function runLaneProcess(
 			? {
 					TEDIX_DEVIN_LANE_ROOT: deps.cwd ?? process.cwd(),
 					TEDIX_DEVIN_HEADLESS: "1",
+					TEDIX_AGENT_SESSION: `devin:${sessionKey}`,
 				}
 			: {}),
 		TEDIX_WORKSPACE: deps.childScope?.workspace ?? process.env.TEDIX_WORKSPACE,
