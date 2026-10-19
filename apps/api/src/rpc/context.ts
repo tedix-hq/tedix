@@ -24,6 +24,7 @@
  */
 
 // Type-only: erased at compile time, so it costs the eager graph nothing.
+import type { ApiKeyPurpose } from "@tedix/api-contract/schemas/organization";
 import type { JWTPayload } from "@tedix/auth/types";
 import {
 	type createDbClient,
@@ -156,6 +157,7 @@ export interface BaseContext {
 		organizationId: string;
 		/** Human-readable key name */
 		name: string;
+		purpose?: ApiKeyPurpose;
 		/** Optional permission scopes (e.g., ["apps:read", "analytics:read"]) */
 		scopes?: string[];
 	};

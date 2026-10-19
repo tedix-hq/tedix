@@ -40,6 +40,12 @@ export type MemberRole = z.infer<typeof MemberRoleSchema>;
 export const MemberStatusSchema = z.enum(["active", "invited", "deactivated"]);
 export type MemberStatus = z.infer<typeof MemberStatusSchema>;
 
+export const ApiKeyPurposeSchema = z.enum([
+	"general",
+	"external_agent_bootstrap",
+]);
+export type ApiKeyPurpose = z.infer<typeof ApiKeyPurposeSchema>;
+
 /**
  * API key environment
  * Must match packages/db/src/schema/api-keys.ts
@@ -753,6 +759,7 @@ export const ApiKeySchema = z.object({
 	name: z.string(),
 	description: z.string().nullable(),
 	keyPreview: z.string(),
+	purpose: ApiKeyPurposeSchema.optional(),
 	scopes: z.array(ApiKeyScopeSchema).nullable(),
 	descopeClientId: z.string().nullable(),
 	environment: ApiKeyEnvironmentSchema.nullable(),
@@ -851,6 +858,7 @@ export const CreateApiKeyInputSchema = z
 	.object({
 		name: z.string().min(1).max(100),
 		description: z.string().max(500).optional(),
+		purpose: ApiKeyPurposeSchema.optional(),
 		scopes: z.array(ApiKeyScopeSchema).optional(),
 		environment: ApiKeyEnvironmentSchema.optional(),
 		ipAllowlist: z.array(z.string()).optional(),

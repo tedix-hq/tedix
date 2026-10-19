@@ -1,0 +1,1 @@
+ALTER TABLE `api_keys` ADD `purpose` text DEFAULT 'general' NOT NULL;
