@@ -24,7 +24,8 @@ vi.mock("./use-decision-inbox", () => ({
 		scheduledIds,
 		approvals: { data: { data: [] } },
 		count: 4,
-		factoryCount: 0,
+		factoryCount: 1,
+		factoryCards: [{ key: "sheet:0" }],
 		pending: false,
 		failed: false,
 	}),
@@ -53,7 +54,7 @@ function Count() {
 	return <output>{queue.count}</output>;
 }
 function Deck() {
-	const { dismiss } = useDeckBatch(key, ["a", "b", "c"], 2, true);
+	const { dismiss } = useDeckBatch(key, ["a", "factory:sheet:0", "c"], 2, true);
 	return (
 		<>
 			<button onClick={() => dismiss("a")}>Later</button>

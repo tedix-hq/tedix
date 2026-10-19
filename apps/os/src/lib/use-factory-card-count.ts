@@ -1,3 +1,5 @@
+import { workRefreshOptions } from "@/lib/work-refresh";
+import type { ReviewCard } from "@/lib/card-review";
 import { cardIsDue } from "@/lib/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries } from "@tanstack/react-query";
@@ -16,9 +18,10 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 		(source) => source.workspaceId,
 	);
 	const outputs = useQueries({
-		queries: visible.sources.map((source) =>
-			canvasOutputsQueryOptions(source.workspaceId),
-		),
+		queries: visible.sources.map((source) => ({
+			...canvasOutputsQueryOptions(source.workspaceId),
+			...workRefreshOptions,
+		})),
 	});
 	const sheets = visible.sources.flatMap((source, index) =>
 		cardSheetsForSource(source, outputs[index]?.data?.items ?? []).map(
@@ -26,9 +29,12 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 		),
 	);
 	const details = useQueries({
-		queries: sheets.map(({ sheet }) => outputDetailQueryOptions(sheet.id)),
+		queries: sheets.map(({ sheet }) => ({
+			...outputDetailQueryOptions(sheet.id),
+			...workRefreshOptions,
+		})),
 	});
-	let count = 0;
+	const cards: ReviewCard[] = [];
 	let invalid = false;
 	for (const [index, { source, sheet }] of sheets.entries()) {
 		const body = details[index]?.data?.currentRevision.content;
@@ -39,7 +45,7 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 		}
 		const parsed = cardsFromSheet({
 			source,
-			sourceIndex: index,
+			sourceIndex: sources.indexOf(source),
 			outputId: sheet.id,
 			sheetTitle: sheet.title,
 			runCreatedAt: sheet.createdAt,
@@ -47,12 +53,15 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 		});
 		if ("missing" in parsed) invalid = true;
 		else
-			count += parsed.cards.filter(
-				(card) => isOpen(card) && cardIsDue(card, now, timeZone),
-			).length;
+			cards.push(
+				...parsed.cards.filter(
+					(card) => isOpen(card) && cardIsDue(card, now, timeZone),
+				),
+			);
 	}
 	return {
-		count,
+		cards,
+		count: cards.length,
 		pending:
 			visible.pending ||
 			[...outputs, ...details].some((query) => query.isPending),

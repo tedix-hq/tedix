@@ -30,6 +30,7 @@ export function useDeckCount(
 	);
 	const ids = new Set([
 		...inbox.requests.map((row) => row.request.id),
+		...inbox.factoryCards.map((card) => `factory:${card.key}`),
 		...inbox.work.map((row) => `work-approval:${row.proposal.id}`),
 		...(!config?.projectId ? (inbox.approvals.data?.data ?? []) : [])
 			.filter((row) => row.status === "pending")
@@ -50,7 +51,7 @@ export function useDeckCount(
 			.filter((row) => row.status === "pending")
 			.map((row) => `approval:${row.id}`),
 	]);
-	const nativeCount = batch
+	const count = batch
 		? [...ids].filter(
 				(id) =>
 					!batch.dismissed.includes(id) &&
@@ -59,7 +60,7 @@ export function useDeckCount(
 		: new Set([...ids].slice(0, capacity).concat([...protectedIds])).size;
 	return {
 		...inbox,
-		count: nativeCount || inbox.factoryCount,
+		count,
 		pending: inbox.pending || profile.isPending || learning.isPending,
 		failed: inbox.failed || profile.isError || learning.isError,
 	};
