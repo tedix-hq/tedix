@@ -1674,7 +1674,7 @@ function ChatStarterPrompts({
 	onChoose: (prompt: string) => void;
 }) {
 	return (
-		<div className="chat-starter-prompts mt-5 grid w-full gap-2">
+		<div className="chat-starter-prompts mt-6 grid w-full gap-2">
 			{CHAT_STARTER_PROMPTS.map((prompt) => (
 				<Button
 					key={prompt}
@@ -1832,7 +1832,7 @@ export function ApprovalInputGate({ count }: { count: number }) {
 		<div
 			data-slot="chat-approval-gate"
 			role="status"
-			className="mx-auto flex w-full max-w-[920px] items-center justify-between gap-3 rounded-2xl border border-kumo-warning bg-kumo-warning-tint px-4 py-3"
+			className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-2xl border border-kumo-warning bg-kumo-warning-tint px-4 py-3"
 		>
 			<span className="min-w-0">
 				<Text as="strong" role="body" tone="strong" className="block">
@@ -3435,8 +3435,8 @@ export function ChatThread({
 		<div
 			className={
 				composerOnly
-					? "flex min-h-0 flex-col gap-3"
-					: "flex h-full min-h-0 flex-col gap-3"
+					? "flex min-h-0 flex-col gap-4"
+					: "flex h-full min-h-0 flex-col gap-4"
 			}
 		>
 			{!composerOnly && conversationId !== null ? (
@@ -3478,9 +3478,9 @@ export function ChatThread({
 						aria-label="Conversation"
 						aria-live="polite"
 						tabIndex={0}
-						className="min-h-48 flex-1 overflow-y-auto bg-transparent p-4"
+						className="min-h-48 flex-1 overflow-y-auto bg-transparent py-4"
 					>
-						<div className="mx-auto min-w-0 w-full max-w-[920px]">
+						<div className="mx-auto min-w-0 w-full max-w-3xl">
 							{conversationId === null && !hasContent ? (
 								<Empty appearance="inline">
 									<EmptyHeader>
@@ -3720,10 +3720,7 @@ export function ChatThread({
 			) : null}
 			{directReadOpen && blockingApprovalCards.length === 0 ? (
 				readOnlyCatalog.isLoading ? (
-					<Surface
-						tier="panel"
-						className="mx-auto mb-2 w-full max-w-[920px] p-4"
-					>
+					<Surface tier="panel" className="mx-auto mb-2 w-full max-w-3xl p-4">
 						<Text role="body" tone="secondary" className="m-0">
 							Loading connected app reads…
 						</Text>
@@ -3739,7 +3736,7 @@ export function ChatThread({
 						</AlertDescription>
 					</Alert>
 				) : (
-					<div className="mx-auto w-full max-w-[920px]">
+					<div className="mx-auto w-full max-w-3xl">
 						<DirectReadComposer
 							apps={readOnlyCatalog.data?.apps ?? []}
 							pending={directRead.isPending}
@@ -3755,7 +3752,7 @@ export function ChatThread({
 			) : null}
 			<form
 				data-slot="chat-composer"
-				className="chat-composer relative mx-auto w-full max-w-[920px] rounded-2xl border border-kumo-hairline bg-kumo-base shadow-tedix-raised transition-shadow duration-tedix-standard focus-within:shadow-tedix-floating motion-reduce:transition-none"
+				className="chat-composer relative mx-auto w-full shrink-0 max-w-3xl rounded-2xl border border-kumo-hairline bg-kumo-base shadow-tedix-raised transition-shadow duration-tedix-standard focus-within:shadow-tedix-floating motion-reduce:transition-none"
 				onDragEnter={(event) => {
 					if (!Array.from(event.dataTransfer.types).includes("Files")) return;
 					event.preventDefault();
