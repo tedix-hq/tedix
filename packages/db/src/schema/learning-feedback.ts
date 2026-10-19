@@ -86,6 +86,15 @@ export const learningInteractionEvents = sqliteTable(
 			table.scopeKind,
 			table.scopeId,
 		),
+		// Evidence validation checks later corrections for one exact target.
+		index("idx_learning_event_target_occurred").on(
+			table.organizationId,
+			table.scopeKind,
+			table.scopeId,
+			table.targetType,
+			table.targetId,
+			table.occurredAt,
+		),
 		index("idx_learning_event_issue").on(table.organizationId, table.issueKey),
 		// Standalone created_at for the retention sweep (WHERE created_at < cutoff).
 		index("idx_learning_interaction_events_created").on(table.createdAt),

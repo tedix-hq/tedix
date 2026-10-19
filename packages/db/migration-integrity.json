@@ -956,6 +956,10 @@
 		{
 			"name": "20261019124437_browser_agent_membership/migration.sql",
 			"sha256": "6655662f621205c9b30a72838ecb88c20e89295ece3dbec420921a62236c23f4"
+		},
+		{
+			"name": "20261019143229_incident_polling_indexes/migration.sql",
+			"sha256": "5a74348b86687f5a004330b6c8470a56046dada076a015b06069da032702c05a"
 		}
 	]
 }

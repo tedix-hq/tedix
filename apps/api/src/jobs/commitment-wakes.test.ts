@@ -33,7 +33,7 @@ const after = "2026-10-16T12:00:00.000Z";
 const through = "2026-10-16T12:02:00.000Z";
 const changedAt = "2026-10-16T12:01:00.000Z";
 
-function fixture() {
+function fixture(plans: string[] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
@@ -62,6 +62,12 @@ function fixture() {
 				prepare(query) {
 					// The live D1 installation rejects the original eight-term scan.
 					expect((query.match(/\bUNION\b/gi) ?? []).length).toBeLessThan(4);
+					plans.push(
+						...sqlite
+							.prepare(`EXPLAIN QUERY PLAN ${query}`)
+							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+							.map((row) => String(row.detail)),
+					);
 					return sqlite.prepare(query);
 				},
 				exec: (query) => {
@@ -73,6 +79,14 @@ function fixture() {
 }
 
 describe("commitment wakes", () => {
+	it("seeks the polling time window before joining Work ownership", async () => {
+		const plans: string[] = [];
+		const { db } = fixture(plans);
+		await listCommitmentChanges(db, after, through, "production");
+		expect(plans).toContainEqual(
+			expect.stringMatching(/SEARCH e USING INDEX idx_work_events_occurred/),
+		);
+	});
 	it("keeps the initial failed scan boundary until a successful cron receipt", async () => {
 		const { sqlite, db } = fixture();
 		expect(await lastCommitmentWakeCheckpoint(db)).toBeNull();
