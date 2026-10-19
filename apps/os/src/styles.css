@@ -280,8 +280,10 @@ a:focus-visible {
 	padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-:root[data-quick-chat-launcher] .os-main {
-	/* 48px launcher + 16px bottom inset + 16px clearance, outside page scroll. */
+:root[data-quick-chat-launcher]
+	.route-content
+	[data-slot="page"]:not([data-full-height]) {
+	/* Keep the last content above the launcher without shrinking the scrollport. */
 	padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }
 
