@@ -54,7 +54,8 @@ import { KernelRouteGenerationObjectSchema } from "./route-generation";
  */
 // rev 3: normalize omitted nullable fields before validating route output.
 // rev 4: recovery retains the compact schema and Auto's streaming transport.
-export const ROUTER_CONTRACT_REV = 4;
+// rev 5: unusable self-reported confidence normalizes conservatively to zero.
+export const ROUTER_CONTRACT_REV = 5;
 
 /**
  * Stable serialization of the internal and model-facing route shapes: the

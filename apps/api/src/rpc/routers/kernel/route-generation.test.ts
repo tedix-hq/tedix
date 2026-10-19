@@ -81,6 +81,19 @@ describe("compact route generation", () => {
 		},
 	);
 
+	it.each([undefined, null, "0.9", "high", true, {}])(
+		"treats unusable confidence %j as zero without changing action fields",
+		async (confidence) => {
+			for (const compact of [false, true]) {
+				const route = { routeKind: "delegate_tedi", answer: null, confidence };
+				const decision = await generate(
+					compact ? { ...route, details } : { ...route, ...details },
+				);
+				expect(decision).toEqual({ ...route, ...details, confidence: 0 });
+			}
+		},
+	);
+
 	it("preserves all supplied delegation parameters", async () => {
 		const decision = await generate({
 			routeKind: "delegate_tedi",
