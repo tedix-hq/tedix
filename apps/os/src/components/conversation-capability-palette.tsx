@@ -28,6 +28,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
+import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import {
@@ -193,7 +194,7 @@ export function ConversationCapabilityPalette({
 						</Alert>
 					) : null}
 
-					<div className="grid gap-3 rounded-lg border border-kumo-line p-3">
+					<Surface className="grid gap-3 p-3">
 						<Label htmlFor="conversation-capability">Add capability</Label>
 						<Select value={selectedId} onValueChange={selectCapability}>
 							<SelectTrigger
@@ -234,7 +235,7 @@ export function ConversationCapabilityPalette({
 						>
 							{attach.isPending ? "Attaching…" : "Attach capability"}
 						</Button>
-					</div>
+					</Surface>
 
 					<div className="grid gap-2" aria-label="Attached capabilities">
 						{attachedQuery.isPending ? (
@@ -251,9 +252,9 @@ export function ConversationCapabilityPalette({
 							</Empty>
 						) : (
 							attached.map((capability) => (
-								<div
+								<Surface
 									key={capability.id}
-									className="flex items-start justify-between gap-3 rounded-lg border border-kumo-line p-3"
+									className="flex items-start justify-between gap-3 p-3"
 								>
 									<div className="min-w-0">
 										<div className="flex flex-wrap items-center gap-2">
@@ -276,7 +277,7 @@ export function ConversationCapabilityPalette({
 									>
 										<X aria-hidden className="size-4" />
 									</Button>
-								</div>
+								</Surface>
 							))
 						)}
 					</div>
@@ -291,7 +292,7 @@ export function ConversationCapabilityPalette({
 							SHA-256 revision. They add context only and never grant artifact
 							access or execution authority.
 						</Text>
-						<div className="mt-3 grid gap-3 rounded-lg border border-kumo-line p-3">
+						<Surface className="mt-3 grid gap-3 p-3">
 							<Label htmlFor="conversation-artifact-id">Artifact ID</Label>
 							<Input
 								id="conversation-artifact-id"
@@ -320,15 +321,15 @@ export function ConversationCapabilityPalette({
 							>
 								{pinArtifact.isPending ? "Pinning…" : "Pin revision"}
 							</Button>
-						</div>
+						</Surface>
 						<div
 							className="mt-3 grid gap-2"
 							aria-label="Pinned artifact revisions"
 						>
 							{pins.map((pin) => (
-								<div
+								<Surface
 									key={pin.id}
-									className="flex items-start justify-between gap-3 rounded-lg border border-kumo-line p-3"
+									className="flex items-start justify-between gap-3 p-3"
 								>
 									<div className="min-w-0">
 										<div className="flex flex-wrap items-center gap-2">
@@ -354,7 +355,7 @@ export function ConversationCapabilityPalette({
 									>
 										<X aria-hidden className="size-4" />
 									</Button>
-								</div>
+								</Surface>
 							))}
 							{!pinsQuery.isPending && pins.length === 0 ? (
 								<Text tone="secondary">No artifact revisions pinned.</Text>

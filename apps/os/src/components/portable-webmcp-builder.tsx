@@ -13,6 +13,7 @@ import {
 	SelectValue,
 } from "@/components/kumo/select";
 import { Skeleton } from "@/components/kumo/skeleton";
+import { Surface } from "@/components/kumo/surface";
 import { osApi } from "@/lib/api";
 import { portableWebMcpConfigurationsQueryOptions } from "@/lib/os-query-options";
 
@@ -245,7 +246,7 @@ function InstallationEditor({
 			),
 		});
 	return (
-		<div className="grid gap-4 rounded-xl border border-kumo-line p-4">
+		<Surface tier="panel" className="grid gap-4 p-4">
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<div>
 					<p className="font-medium">Tenant {configuration.externalTenantId}</p>
@@ -289,10 +290,7 @@ function InstallationEditor({
 				</Button>
 			</div>
 			{profile.routes.map((route, routeIndex) => (
-				<div
-					key={`${route.id}:${routeIndex}`}
-					className="grid gap-3 rounded-lg border border-kumo-line p-3"
-				>
+				<Surface key={`${route.id}:${routeIndex}`} className="grid gap-3 p-3">
 					<div className="grid gap-2 md:grid-cols-2">
 						<label className="grid gap-1">
 							Route id
@@ -345,10 +343,7 @@ function InstallationEditor({
 										}
 									: undefined;
 							return (
-								<div
-									key={tool.callable}
-									className="grid gap-2 rounded-lg border border-kumo-line p-3"
-								>
+								<Surface key={tool.callable} className="grid gap-2 p-3">
 									<label className="flex gap-2">
 										<input
 											type="checkbox"
@@ -444,7 +439,7 @@ function InstallationEditor({
 											</Select>
 										</div>
 									)}
-								</div>
+								</Surface>
 							);
 						})}
 					</div>
@@ -462,7 +457,7 @@ function InstallationEditor({
 					>
 						Remove route
 					</Button>
-				</div>
+				</Surface>
 			))}
 			<label className="grid gap-1">
 				Change summary
@@ -479,7 +474,7 @@ function InstallationEditor({
 					tenant’s current revision fence.
 				</p>
 			)}
-			<div className="grid gap-2 rounded-lg border border-kumo-line p-3">
+			<Surface className="grid gap-2 p-3">
 				<p className="font-medium">Roll out to other tenants</p>
 				<p className="text-kumo-subtle type-tedix-label">
 					Choose installations explicitly. A stale tenant stops the rollout and
@@ -512,7 +507,7 @@ function InstallationEditor({
 							Tenant {item.externalTenantId} · revision {item.revision}
 						</label>
 					))}
-			</div>
+			</Surface>
 			<div className="flex flex-wrap gap-2">
 				<Button
 					disabled={
@@ -568,6 +563,6 @@ function InstallationEditor({
 					</span>
 				)}
 			</div>
-		</div>
+		</Surface>
 	);
 }

@@ -58,6 +58,7 @@ import {
 } from "@/components/connections-disconnect-dialog";
 import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { SectionEyebrow } from "@/components/section-eyebrow";
+import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import {
 	CONNECTIONS_MANAGE_DENIED_REASON,
@@ -942,7 +943,7 @@ export function AppsPage({
 				) : null}
 				{apps.data && filteredApps.length > 0 && (
 					<>
-						<div className="hidden overflow-hidden rounded-xl border border-kumo-line sm:block">
+						<Surface tier="panel" className="hidden overflow-hidden sm:block">
 							<Table scrollLabel="Installed apps">
 								<TableHeader>
 									<TableRow>
@@ -992,7 +993,7 @@ export function AppsPage({
 									)}
 								</TableBody>
 							</Table>
-						</div>
+						</Surface>
 						<Collection
 							className="sm:hidden"
 							aria-label="Installed apps mobile"

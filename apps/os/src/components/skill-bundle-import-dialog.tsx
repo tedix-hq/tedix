@@ -14,6 +14,7 @@ import {
 	DialogTitle,
 } from "@/components/kumo/dialog";
 import { Input } from "@/components/kumo/input";
+import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osQueryKeys } from "@/lib/os-query-options";
@@ -226,7 +227,7 @@ export function SkillBundleImportDialog({ onClose }: { onClose: () => void }) {
 					Folder selection requires a browser with directory-upload support.
 				</Text>
 				{draft ? (
-					<div className="grid gap-1 rounded-lg border border-kumo-line p-3">
+					<Surface className="grid gap-1 p-3">
 						<Text as="strong" role="body">
 							{draft.title}
 						</Text>
@@ -236,7 +237,7 @@ export function SkillBundleImportDialog({ onClose }: { onClose: () => void }) {
 						<Text role="label" tone="secondary" className="m-0">
 							{draft.fileCount} text files
 						</Text>
-					</div>
+					</Surface>
 				) : null}
 				{readError || validate.isError || record.isError ? (
 					<Alert variant="destructive">

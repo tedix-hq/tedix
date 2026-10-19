@@ -71,6 +71,7 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
+import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi, osSiteDeprovisionApi } from "@/lib/api";
@@ -1317,7 +1318,7 @@ export function SitesPage() {
 					) : null}
 					{filteredSites?.length ? (
 						<>
-							<div className="hidden overflow-hidden rounded-xl border border-kumo-line sm:block">
+							<Surface tier="panel" className="hidden overflow-hidden sm:block">
 								<Table scrollLabel="Owned sites">
 									<TableHeader>
 										<TableRow>
@@ -1392,7 +1393,7 @@ export function SitesPage() {
 										))}
 									</TableBody>
 								</Table>
-							</div>
+							</Surface>
 							<Collection className="sm:hidden">
 								{filteredSites.map((site) => (
 									<li key={site.id} className="space-y-3 px-3 py-3">
