@@ -81,7 +81,11 @@ export function humanReservedActionClasses(content: string): string[] {
 			" ",
 		)
 		.replace(
-			/\b(?:do not|don't|don’t|never)\s+(?:read|send|email|publish|delete|pay|purchase)\b(?:(?!\b(?:but|then|however)\b|\.(?:\s|$))[^!?;,\n])*/gi,
+			/\b(?:do not|don't|don’t|never)\s+read\s+(?:`[^`\r\n]+`|"[^"\r\n]+"|'[^'\r\n]+'|[^\s;,!?]+)(?=\s*(?:$|[.!?;,]|\b(?:and|or|but|then|however|while|before|after|also|except)\b))/gi,
+			" ",
+		)
+		.replace(
+			/\b(?:do not|don't|don’t|never)\s+(?:send|email|publish|delete|pay|purchase)\b/gi,
 			" ",
 		)
 		.replace(/\bno\s+(?:bulk\s+outreach\s+or\s+)?automatic\s+sends\b/gi, " ")
