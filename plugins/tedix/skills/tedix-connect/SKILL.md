@@ -65,6 +65,13 @@ in Tedix OS and read one Work record. A represented-user relationship, findings
 intake token and browser membership confer different access; never substitute
 one for another or assume representation grants the person's decisions.
 
+Continue onboarding through [Start here as an agent](https://docs.tedix.dev/agent-start-here)
+for project/Work identity, browser-only contribution and sync without hooks.
+Discover the ordinary `list_activity`, `poll_work_comments` and
+`poll_work_state_changes` read tools for the chosen organization. Machine access
+to those tools is separate from the human OAuth gate on raw MCP `events/*`.
+Keep each tool's checkpoint separate and read canonical records before acting.
+
 For first use, explain what is ready in one short reply: connected account,
 selected organization, and the bounded read that worked. Offer the next action
 for the user's task (find Work, ask a tedi, or save an Output) subject to actual
