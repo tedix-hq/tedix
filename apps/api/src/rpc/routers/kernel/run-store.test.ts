@@ -615,9 +615,8 @@ describe("durable home event/message id formats", () => {
 });
 
 describe("homeDelegationCompletionContent — verdicts never enter the body", () => {
-	// The body is exactly what the tedi wrote (or the synthesis). Proof and
-	// output-contract verdicts ride as message metadata so the OS can render a
-	// chip, never be concatenated into the body.
+	// Proof verdicts ride as metadata. Useful text survives interrupted turns;
+	// runtime diagnostics do not become the user's answer.
 	it("relays the child's final message verbatim on completion", () => {
 		expect(
 			homeDelegationCompletionContent({
@@ -664,9 +663,7 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 						"Stopped after 17 steps: per-turn cumulative input-token ceiling reached",
 				},
 			}),
-		).toBe(
-			"The delegated tedi produced no output. Stopped after 17 steps: per-turn cumulative input-token ceiling reached; remaining work was not attempted.",
-		);
+		).toBe("I stopped before I had a result to share. Want me to try again?");
 	});
 
 	it("a stop with a text report relays the report as a partial result", () => {
@@ -684,7 +681,20 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 				},
 			}),
 		).toBe(
-			`The delegated tedi returned a partial result (Stopped after 10 steps: per-turn provider-call ceiling reached).\n\n${content}`,
+			"Here's what I found so far:\n\nTwo of five checks passed.\n\nWant me to continue?",
+		);
+	});
+
+	it("keeps runtime failure diagnostics out of the user reply", () => {
+		expect(
+			homeDelegationCompletionContent({
+				preview: null,
+				status: "failed",
+				finalMessage:
+					"This turn ended without a reply — it failed after being accepted, so nothing was produced. Reason: Delegation preflight failed: native research requires exact source/tool mappings; return to Home before inference or setup",
+			}),
+		).toBe(
+			"I couldn't finish this request. Nothing was produced. Please try again.",
 		);
 	});
 });

@@ -333,10 +333,10 @@ export function renderDelegationResponse(
 ): string {
 	const owner = route.targetTediLabel?.trim() || "the selected tedi";
 	if (!route.targetTediId) {
-		return "This needs a tedi handoff, but I could not identify one exact tedi. Name the tedi to delegate this to.";
+		return "I couldn't find a tedi for this request. Tell me who should handle it.";
 	}
 	if (!delegation) {
-		return `I recommend handing this to ${owner}, but I could not build a dispatchable work order from the current tedi catalog.`;
+		return `This would suit ${owner}, but it hasn't started yet. Ask me to try another approach.`;
 	}
 	switch (delegation.decision.mode) {
 		case "auto":
@@ -345,9 +345,9 @@ export function renderDelegationResponse(
 			return renderHeldDelegationLine(owner, delegation.approver?.label);
 		case "blocked":
 		case "boot_unavailable":
-			return `I can't dispatch ${owner}: ${delegation.decision.reason}`;
+			return `I couldn't start ${owner} on this request. Ask me to try another approach.`;
 		default:
-			return `I prepared a delegation to ${owner}. It is not dispatched yet; approve this Home run to dispatch the work order.`;
+			return `This needs approval before ${owner} can start.`;
 	}
 }
 
@@ -953,23 +953,6 @@ export async function runKernel(args: {
 					stage: "Answering",
 					phase: "generating",
 					answerDelta: delta,
-				});
-			} catch {
-				// Advisory only.
-			}
-		},
-		// Provisional thinking line. `rationale` streams on every route, so this
-		// is what the operator sees while a delegate_tedi / propose_tool_write /
-		// run_workflow / ask_human plan is being decided — routes where `answer`
-		// stays null and nothing at all reached the screen before. Display only:
-		// it never becomes `assistantContent`, never reaches the ledger,
-		// accounting, approvals or cost attribution, and the settled route
-		// supersedes it.
-		onRationaleDelta: (delta: string) => {
-			try {
-				onProgress?.({
-					stage: "Planning route",
-					rationaleDelta: delta,
 				});
 			} catch {
 				// Advisory only.
