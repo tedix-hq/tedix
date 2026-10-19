@@ -6,6 +6,7 @@ import type { McpNativeDescriptorSchema } from "@tedix/api-contract/schemas/mcp-
 import { TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS } from "@tedix/api-contract/schemas/tedi-durable-code";
 import type { CatalogueTransportCallback } from "@tedix/api-contract/schemas/tools";
 import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
+import { ATTENTION_GUIDANCE } from "./attention-guidance";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { z as NativeZ } from "zod";
 import {
@@ -3663,6 +3664,7 @@ export async function registerCodeModeTools(
 	const preamble =
 		`Execute JavaScript to call this app's ${exposedToolCount} tools across ${namespaceCount} namespaces.\n` +
 		`Namespaces: ${nsSummary}\n` +
+		`${ATTENTION_GUIDANCE}\n` +
 		`Discovery: use discover.search("keyword") first. Search results are ranked and include callable plus _match.matchedTerms/unmatchedTerms; execute the callable value exactly. name/displayName are labels only. Inspect annotations.destructiveHint / readOnlyHint before calling — destructive tools may prompt the user; read-only tools are safe to call freely. Rows also carry caller-relative authorization: authorized: false with requiredScopes/missingScopes means discoverable but not executable for this caller — skip it instead of burning a failed call. Discovery is compact by default — outputSchema and parameters are omitted; pass { includeOutputSchema: true } to get return shapes for planning downstream composition, and { includeParameters: true } for exact input schemas. schemaFreshness and meta.freshness show D1 schema sync timestamps and the catalog build time when you need to diagnose stale discovery. Search returns { results, namespaces, meta } (a plain object; iterate results). If search returns no rows, inspect meta.discovery.nearestNamespaces/suggestedQueries before declaring a capability unavailable. list_namespaces() returns an object keyed by namespace (use Object.keys/Object.entries, not .filter/.map directly); pass { includeTools: true } only for inventory.\n` +
 		`Use discover.describe(callable) for the full input schema, description and annotations. Output schemas are omitted unless requested: discover.describe({ callable, includeOutputSchema: true }).\n` +
 		`Execution: namespace.tool_name({ param: value }) using the discover.search(...).*.callable field or the compact type signatures below.\n` +

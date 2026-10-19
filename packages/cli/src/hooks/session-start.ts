@@ -2,6 +2,7 @@
 import { clearDelivery } from "./context-delivery";
 import { repositoryName } from "./decision-capture";
 import { gatewayCode, openRequestLines } from "./prompt-context";
+import { needsYou } from "./needs-you";
 import {
 	type HookDeps,
 	type JsonObject,
@@ -398,7 +399,11 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 			/* Omit unavailable context. */
 		}
 	}
-	send(lines.join("\n"));
+	const needs = bound
+		? await needsYou(deps, binding, auth, command, session)
+		: undefined;
+	send([needs?.text, ...lines].filter(Boolean).join("\n"));
+	needs?.delivered();
 }
 
 /** Only an ISO timestamp with an explicit zone can claim a lease state. */
