@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-	handleTedixCliClientMetadata,
+	handleOAuthClientMetadata,
 	TEDIX_CLI_CLIENT_METADATA,
 	TEDIX_CLI_REDIRECT_URI,
 } from "./oauth-client-metadata";
@@ -10,7 +10,7 @@ const CLIENT_ID =
 
 describe("Tedix CLI client metadata", () => {
 	it("publishes one stable, branded, public PKCE client with an exact HTTPS broker redirect", async () => {
-		const response = handleTedixCliClientMetadata(new Request(CLIENT_ID));
+		const response = handleOAuthClientMetadata(new Request(CLIENT_ID));
 		expect(response?.status).toBe(200);
 		expect(response?.headers.get("Content-Type")).toBe(
 			"application/json; charset=utf-8",
@@ -32,9 +32,41 @@ describe("Tedix CLI client metadata", () => {
 		);
 	});
 
+	it("serves Devin through the same metadata handler with bounded public-client redirects", async () => {
+		const id = "https://os.tedix.dev/.well-known/oauth-client/devin.json";
+		const response = handleOAuthClientMetadata(new Request(id));
+		expect(response?.status).toBe(200);
+		expect(await response?.json()).toEqual({
+			client_id: id,
+			client_name: "Devin",
+			client_uri: "https://devin.ai",
+			redirect_uris: [
+				"https://api.devin.ai/mcp/oauth/callback",
+				"http://localhost:8765/callback",
+			],
+			grant_types: ["authorization_code", "refresh_token"],
+			response_types: ["code"],
+			token_endpoint_auth_method: "none",
+			scope: "mcp:apps.read mcp:work.read",
+		});
+		const head = handleOAuthClientMetadata(new Request(id, { method: "HEAD" }));
+		expect(head?.status).toBe(200);
+		expect(await head?.text()).toBe("");
+		expect(
+			handleOAuthClientMetadata(new Request(id, { method: "POST" }))?.status,
+		).toBe(405);
+		for (const url of [
+			id.replace("https:", "http:"),
+			id.replace("os.tedix.dev", "evil.example"),
+			`${id}/extra`,
+		]) {
+			expect(handleOAuthClientMetadata(new Request(url))).toBeNull();
+		}
+	});
+
 	it("rejects mutation methods and lookalike hosts or paths", () => {
 		expect(
-			handleTedixCliClientMetadata(new Request(CLIENT_ID, { method: "POST" }))
+			handleOAuthClientMetadata(new Request(CLIENT_ID, { method: "POST" }))
 				?.status,
 		).toBe(405);
 		for (const url of [
@@ -42,7 +74,7 @@ describe("Tedix CLI client metadata", () => {
 			"https://os.tedix.dev/.well-known/oauth-client/tedix-cli",
 			"http://os.tedix.dev/.well-known/oauth-client/tedix-cli.json",
 		]) {
-			expect(handleTedixCliClientMetadata(new Request(url))).toBeNull();
+			expect(handleOAuthClientMetadata(new Request(url))).toBeNull();
 		}
 	});
 });

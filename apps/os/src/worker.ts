@@ -62,7 +62,7 @@ import { createOsClientErrorIngest } from "./lib/error-reporting/ingest";
 import { OS_CLIENT_ERROR_PATH } from "./lib/error-reporting/report";
 import { WEBMCP_TELEMETRY_PATH } from "./lib/webmcp/telemetry";
 import { createWebMcpTelemetryIngest } from "./lib/webmcp/telemetry-ingest";
-import { handleTedixCliClientMetadata } from "./oauth-client-metadata";
+import { handleOAuthClientMetadata } from "./oauth-client-metadata";
 import {
 	injectWebMcpBridge,
 	servesWebMcpBridge,
@@ -854,10 +854,9 @@ export async function handleOsRequest(
 	}
 	// authz: public — OAuth Client ID Metadata Document (CIMD, currently an
 	// IETF Internet-Draft), distinct from RFC 9728 protected-resource metadata.
-	// This exact,
-	// immutable HTTPS identity lets every tenant resource recognize one branded
-	// PKCE-only CLI client instead of accumulating unverified DCR registrations.
-	const clientMetadata = handleTedixCliClientMetadata(request);
+	// Exact HTTPS identities let each public client use the shared consent path
+	// without accumulating unverified DCR registrations.
+	const clientMetadata = handleOAuthClientMetadata(request);
 	if (clientMetadata) return clientMetadata;
 	// authz: public — exact CIMD callback broker. The state carries only a
 	// validated localhost port and opaque CSRF nonce; the destination host and

@@ -276,6 +276,22 @@ test("setup merges idempotently and refuses a conflicting MCP endpoint without w
 	);
 	const mcp = JSON.parse(readFileSync(join(dir, "mcp_config.json"), "utf8"));
 	expect(mcp.mcpServers.other.command).toBe("example");
+	expect(mcp.mcpServers.tedix.oauthClientId).toBe(
+		"https://os.tedix.dev/.well-known/oauth-client/devin.json",
+	);
+	const plugin = JSON.parse(
+		readFileSync(
+			new URL(
+				"../../../plugins/tedix/.devin-plugin/plugin.json",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
+	expect(plugin.mcpServers.tedix.oauthClientId).toBe(
+		mcp.mcpServers.tedix.oauthClientId,
+	);
+	expect(mcp.mcpServers.tedix.oauthClientSecret).toBeUndefined();
 	mcp.mcpServers.tedix.url = "https://example.invalid/mcp";
 	writeFileSync(join(dir, "mcp_config.json"), JSON.stringify(mcp));
 	expect(() => setupDevin(dir)).toThrow("different tedix MCP server");

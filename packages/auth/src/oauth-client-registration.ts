@@ -19,6 +19,9 @@
 export const TEDIX_CLI_OAUTH_CLIENT_ID =
 	"https://os.tedix.dev/.well-known/oauth-client/tedix-cli.json";
 
+export const TEDIX_DEVIN_OAUTH_CLIENT_ID =
+	"https://os.tedix.dev/.well-known/oauth-client/devin.json";
+
 /** Stable CIMD identity used for catalog-bound outbound MCP connections. */
 export const TEDIX_OUTBOUND_MCP_OAUTH_CLIENT_ID =
 	"https://api.tedix.dev/.well-known/oauth-client/tedix-mcp.json";

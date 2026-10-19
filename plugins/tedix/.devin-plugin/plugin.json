@@ -10,7 +10,8 @@
 	"mcpServers": {
 		"tedix": {
 			"url": "https://connect.mcp.tedix.dev/mcp",
-			"transport": "http"
+			"transport": "http",
+			"oauthClientId": "https://os.tedix.dev/.well-known/oauth-client/devin.json"
 		}
 	}
 }
