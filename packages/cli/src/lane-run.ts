@@ -16,6 +16,10 @@ import {
 import { selfCommand } from "./shared";
 import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
 import { writeDevinLaneConfig } from "./devin-config";
+import {
+	assertDevinProjectHooks,
+	writeDevinGitIdentity,
+} from "./devin-lane-security";
 import { readExternalAgentProfile } from "./external-agent-store";
 import { AGENT_IDENTITY_ENV } from "./hooks/hook-io";
 import { laneChildEnv } from "./lane-child-env";
@@ -195,6 +199,7 @@ export async function runLaneProcess(
 	const projectId = options.get("--project");
 	if (!projectId) throw new Error("--project is required");
 	const devin = executor === "devin";
+	if (devin) assertDevinProjectHooks(deps.cwd ?? process.cwd());
 	const nativeThread =
 		devin && !deps.sessionKey
 			? await createDevinLaneThread(
@@ -283,8 +288,9 @@ export async function runLaneProcess(
 	const dir = mkdtempSync(join(tmpdir(), "tedix-lane-"));
 	const receipt = join(dir, "telemetry.json");
 	const devinTranscript =
-		options.get("--transcript") ?? `${options.get("--brief")!}.devin.atif.json`;
+		options.get("--transcript") ?? join(dir, "transcript.devin.atif.json");
 	if (devin) {
+		writeDevinGitIdentity(join(dir, "gitconfig"), deps.cwd ?? process.cwd());
 		const config = join(dir, "devin.json");
 		const workspace =
 			deps.childScope?.workspace ??
@@ -308,8 +314,7 @@ export async function runLaneProcess(
 			options.get("--brief")!,
 			"--respect-workspace-trust",
 			"false",
-			"--permission-mode",
-			"smart",
+			"--sandbox",
 			"--config",
 			config,
 			"--export",
@@ -323,6 +328,8 @@ export async function runLaneProcess(
 			? {
 					TEDIX_DEVIN_LANE_ROOT: deps.cwd ?? process.cwd(),
 					TEDIX_DEVIN_HEADLESS: "1",
+					GIT_CONFIG_GLOBAL: join(dir, "gitconfig"),
+					GIT_CONFIG_NOSYSTEM: "1",
 					TEDIX_AGENT_SESSION: `devin:${sessionKey}`,
 				}
 			: {}),
@@ -543,6 +550,11 @@ export async function runLaneProcess(
 		);
 		return exitCode || 1;
 	}
-	rmSync(dir, { recursive: true, force: true });
+	if (devin && !options.has("--transcript")) {
+		rmSync(receipt, { force: true });
+		rmSync(join(dir, "devin.json"), { force: true });
+		rmSync(join(dir, "gitconfig"), { force: true });
+		process.stderr.write(`Devin transcript retained at ${devinTranscript}\n`);
+	} else rmSync(dir, { recursive: true, force: true });
 	return exitCode;
 }

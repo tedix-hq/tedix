@@ -39,3 +39,6 @@ storybook-static/
 # Local agent worktrees are separate checkouts, never sources
 .claude/worktrees/
 .worktrees/
+
+# Private Devin conversation exports
+*.devin.atif.json
