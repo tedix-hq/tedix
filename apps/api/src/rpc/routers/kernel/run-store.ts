@@ -75,6 +75,7 @@ import {
 	type DelegatedStopClassification,
 	delegatedStopFromSummary,
 	hasDelegatedOutput,
+	stripSyntheticMarkers,
 } from "./delegated-stop";
 import {
 	KERNEL_CONVERSATION_ORIGIN_PAYLOAD_KEY,
@@ -404,36 +405,44 @@ export function homeDelegationCompletionContent(input: {
 	stop?: Pick<DelegatedStopClassification, "detail" | "outcome"> | null;
 }): string {
 	// Proof and output-contract verdicts are NOT part of the body: they ride as
-	// message metadata (`homeDelegationVerdictMetadata`) so the body stays
-	// exactly what the tedi wrote and the OS renders the verdict as a chip.
+	// message metadata (`homeDelegationVerdictMetadata`) and the OS renders
+	// the verdict as a chip. Runtime diagnostics do not belong in the reply.
 	// When a full synthesis is available, use it directly — it's the operator-
 	// facing interpreted answer, no wrapping needed.
 	if (input.synthesized) return input.synthesized;
 	// A runtime stop that left nothing but the `[Turn stopped early: …]` marker
 	// is not a failed report and not a partial: the tedi produced no output.
-	// Say so plainly, with the runtime's reason, instead of relaying the marker
-	// as if it were the tedi's answer.
+	// Do not relay the marker as if it were the tedi's answer.
 	if (
 		input.stop?.outcome === "failed" &&
 		input.status === "failed" &&
 		!hasDelegatedOutput(input.finalMessage)
 	) {
-		return `The delegated tedi produced no output. ${input.stop.detail}; remaining work was not attempted.`;
+		return "I stopped before I had a result to share. Want me to try again?";
+	}
+	const finalMessage = input.finalMessage
+		? stripSyntheticMarkers(input.finalMessage)
+		: null;
+	if (
+		input.status === "failed" &&
+		/^This turn ended without a reply\b/.test(finalMessage ?? "")
+	) {
+		return "I couldn't finish this request. Nothing was produced. Please try again.";
 	}
 	// The child's own closing message is the next-best operator-facing answer:
 	// show it as the result, not as wrapped "evidence".
-	if (input.finalMessage) {
+	if (finalMessage) {
 		switch (input.status) {
 			case "completed":
-				return input.finalMessage;
+				return finalMessage;
 			case "failed":
 				return input.stop?.outcome === "partial"
-					? `The delegated tedi returned a partial result (${input.stop.detail}).\n\n${input.finalMessage}`
-					: `The delegated tedi reported that the assignment failed.\n\n${input.finalMessage}`;
+					? `Here's what I found so far:\n\n${finalMessage}\n\nWant me to continue?`
+					: `I couldn't finish this request.\n\n${finalMessage}`;
 			case "canceled":
-				return `The delegated tedi assignment was canceled.\n\n${input.finalMessage}`;
+				return `Stopped.\n\n${finalMessage}`;
 			default:
-				return input.finalMessage;
+				return finalMessage;
 		}
 	}
 	const evidence = input.preview ? ` Latest evidence: ${input.preview}` : "";

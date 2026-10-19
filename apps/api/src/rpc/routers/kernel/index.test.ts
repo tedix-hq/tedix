@@ -591,6 +591,54 @@ describe("final operator intent boundary", () => {
 	);
 });
 
+it("delivers the answer without exposing the planner's technical explanation", async () => {
+	const { assembleHomeContext } = await import("./context-assembly");
+	const { planKernelRoute } = await import("./route-planner");
+	vi.mocked(assembleHomeContext).mockResolvedValue({
+		tedis: [],
+		apps: [],
+		workflows: [],
+		workItems: [],
+		facts: [],
+		rationale: [],
+		speaker: null,
+		history: [],
+		promptCharsEstimate: 1000,
+		lastStepPromptTokens: 1,
+	} as never);
+	vi.mocked(planKernelRoute).mockImplementationOnce(async (args) => {
+		args.onRationaleDelta?.("propose_tool_write tasks.create schema");
+		args.onAnswerDelta?.("Here's the draft.");
+		return {
+			...blockedRoute,
+			routeKind: "answer_in_home",
+			answer: "Here's the draft.",
+			targetTediId: null,
+			targetTediLabel: null,
+			targetActivityId: null,
+			plannedToolIds: [],
+			usage: null,
+		} as never;
+	});
+	const onProgress = vi.fn();
+	const result = await runKernel({
+		db: {} as never,
+		env: {
+			AI: {},
+			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+		} as never,
+		organizationId: "org",
+		content: "Draft a short welcome here in chat.",
+		onProgress,
+	});
+	const progress = onProgress.mock.calls.map(([event]) => event);
+	expect(progress.some((event) => event.rationaleDelta)).toBe(false);
+	expect(
+		progress.some((event) => event.answerDelta === "Here's the draft."),
+	).toBe(true);
+	expect(result?.assistantContent).toBe("Here's the draft.");
+});
+
 it.each([
 	["Only acknowledge the active workers request.", "", "Acknowledged."],
 	["Only acknowledge this request.", "active workers", "Acknowledged."],
