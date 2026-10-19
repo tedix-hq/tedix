@@ -78,37 +78,50 @@ export function WorkspaceLibraryPage() {
 	};
 
 	return (
-		<Page width="lg" className="workspaces-surface">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>Workspaces</PageTitle>
-					<PageDescription>
-						Keep your conversations, work, and resources together.
-					</PageDescription>
-				</PageHeading>
-				<PageActions>
-					<CanvasWorkspaceControls
-						onArchived={() => undefined}
-						onSelected={(workspaceId) =>
-							void navigate({
-								to: "/workspace/$workspaceId",
-								params: { workspaceId },
-							})
-						}
-					/>
-				</PageActions>
-			</PageHeader>
+		<Page width="lg">
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>Workspaces</PageTitle>
+						<PageDescription>
+							Keep your conversations, work, and resources together.
+						</PageDescription>
+					</PageHeading>
+					<PageActions>
+						<CanvasWorkspaceControls
+							onArchived={() => undefined}
+							onSelected={(workspaceId) =>
+								void navigate({
+									to: "/workspace/$workspaceId",
+									params: { workspaceId },
+								})
+							}
+						/>
+					</PageActions>
+				</PageHeader>
 
-			<SegmentedControl
-				ariaLabel="Workspace status"
-				compact
-				onValueChange={(next) => {
-					changeSearch("");
-					setView(next);
-				}}
-				options={LIBRARY_VIEWS}
-				value={view}
-			/>
+				<SegmentedControl
+					ariaLabel="Workspace status"
+					compact
+					onValueChange={(next) => {
+						changeSearch("");
+						setView(next);
+					}}
+					options={LIBRARY_VIEWS}
+					value={view}
+				/>
+				{view === "active" &&
+				workspaces.data &&
+				workspaces.data.items.length > 0 ? (
+					<SearchInput
+						aria-label="Search workspaces"
+						containerClassName="w-full sm:max-w-md"
+						onChange={(event) => changeSearch(event.target.value)}
+						placeholder="Search workspaces…"
+						value={search}
+					/>
+				) : null}
+			</div>
 
 			{view === "archived" ? <ArchivedWorkspaces /> : null}
 			{view === "active" && workspaces.isPending ? (
@@ -124,13 +137,6 @@ export function WorkspaceLibraryPage() {
 			workspaces.data &&
 			workspaces.data.items.length > 0 ? (
 				<div className="grid gap-4">
-					<SearchInput
-						aria-label="Search workspaces"
-						containerClassName="w-full sm:max-w-md"
-						onChange={(event) => changeSearch(event.target.value)}
-						placeholder="Search workspaces…"
-						value={search}
-					/>
 					{groups.all.length > 0 ? (
 						<>
 							<Collection aria-label="Workspaces">
