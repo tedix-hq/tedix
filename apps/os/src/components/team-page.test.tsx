@@ -34,7 +34,6 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 }));
 
 import {
-	avatarKind,
 	entrustmentSummary,
 	roleHint,
 	TASKS_PREVIEW_LIMIT,
@@ -45,7 +44,6 @@ import {
 	type TediDetailLinkProps,
 	TediDetailPanel,
 	TediDetailUnavailable,
-	tediMonogram,
 	type TediOperationsDetail,
 	TediRow,
 	tediStatusLabel,
@@ -138,34 +136,6 @@ describe("tediStatusTone", () => {
 	});
 });
 
-describe("avatarKind", () => {
-	it("classifies URLs as images and short strings as emoji", () => {
-		expect(avatarKind("https://cdn.tedix.dev/a.png")).toBe("image");
-		expect(avatarKind("data:image/png;base64,AAAA")).toBe("image");
-		expect(avatarKind("🤖")).toBe("emoji");
-		expect(avatarKind(null)).toBe("monogram");
-		expect(avatarKind("not an avatar at all")).toBe("monogram");
-	});
-});
-
-describe("tediMonogram", () => {
-	it("prefers the display name and uppercases the initial", () => {
-		expect(tediMonogram(baseTedi)).toBe("C");
-		expect(tediMonogram({ ...baseTedi, displayName: null, name: "ada" })).toBe(
-			"A",
-		);
-	});
-
-	it("falls back to ? when every name source is empty", () => {
-		expect(
-			tediMonogram({ displayName: null, name: "", slug: "" } as Pick<
-				TediType,
-				"displayName" | "name" | "slug"
-			>),
-		).toBe("?");
-	});
-});
-
 describe("roleHint", () => {
 	it("prefers the earned-delegation active role", () => {
 		expect(
@@ -218,12 +188,12 @@ describe("TediAvatar", () => {
 		expect(html).toContain('src="https://cdn.tedix.dev/a.png"');
 	});
 
-	it("renders the emoji avatar as-is and the monogram otherwise", () => {
+	it("renders the emoji avatar as-is and a local role glyph otherwise", () => {
 		expect(
 			renderToStaticMarkup(<TediAvatar tedi={{ ...baseTedi, avatar: "🤖" }} />),
 		).toContain("🤖");
 		expect(renderToStaticMarkup(<TediAvatar tedi={baseTedi} />)).toContain(
-			">C<",
+			'data-entity-kind="tedi"',
 		);
 	});
 });

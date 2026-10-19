@@ -253,9 +253,13 @@ describe("OS shell chrome", () => {
 			"Local workspace",
 		);
 		expect(switcher.textContent).toContain("OS");
-		expect(header.querySelector(".brand-mark")?.className).not.toContain(
-			"hidden",
-		);
+		const mark = header.querySelector('[data-entity-kind="workspace"]')!;
+		expect(mark).not.toBeNull();
+		expect(
+			[...mark.classList].some(
+				(value) => value === "hidden" || value.endsWith(":hidden"),
+			),
+		).toBe(false);
 		expect(
 			footer.querySelector('[aria-label="Switch workspace or app"]'),
 		).toBeNull();

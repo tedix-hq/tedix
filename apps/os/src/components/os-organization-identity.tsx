@@ -1,4 +1,4 @@
-import { OrganizationMark } from "@/shared/organization-mark";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { osApi } from "@/lib/api";
 import { myWorkspacesDirectoryQueryOptions } from "@/lib/os-query-options";
 import { useWorkspaceDirectory } from "@/lib/workspace-switcher";
@@ -42,7 +42,13 @@ export function OsOrganizationIdentity({
 
 	return (
 		<>
-			<OrganizationMark logoUrl={current?.org.logoUrl} name={name} />
+			<EntityAvatar
+				id={current?.org.organizationId ?? "organization"}
+				name={name}
+				image={current?.org.logoUrl}
+				kind="workspace"
+				className="size-6 rounded-md"
+			/>
 			<div className="flex min-w-0 flex-col text-left group-data-[state=collapsed]/sidebar:hidden">
 				<strong className="max-w-[160px] truncate type-tedix-body font-semibold">
 					{name}

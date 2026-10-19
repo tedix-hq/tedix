@@ -1,0 +1,12 @@
+.entity-avatar[data-avatar-palette] {
+	background-color: var(--background);
+	color: var(--foreground);
+}
+
+/* Keep arbitrary organization palettes readable, including mid-tone canvases. */
+@supports (color: contrast-color(red)) {
+	.entity-avatar[data-avatar-palette] {
+		background-color: var(--entity-avatar-background);
+		color: contrast-color(var(--entity-avatar-background));
+	}
+}

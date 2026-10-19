@@ -14,7 +14,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import { OrganizationMark } from "@/shared/organization-mark";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 
 const APP_SURFACES = ["os", "cms"] as const;
@@ -74,10 +74,12 @@ export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 					<DropdownMenuGroup key={workspace.org.organizationId}>
 						{workspaceIndex > 0 ? <DropdownMenuSeparator /> : null}
 						<DropdownMenuLabel className="flex items-center gap-2">
-							<OrganizationMark
-								logoUrl={workspace.org.logoUrl}
+							<EntityAvatar
+								id={workspace.org.organizationId}
+								image={workspace.org.logoUrl}
 								name={workspace.org.name}
-								size="sm"
+								kind="workspace"
+								className="size-6 rounded-md"
 							/>
 							<span className="min-w-0 truncate">{workspace.org.name}</span>
 						</DropdownMenuLabel>

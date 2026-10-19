@@ -7,9 +7,13 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 const listConversations = vi.hoisted(() => vi.fn());
+const listWorkspaces = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({
-	osApi: { kernelRuntime: { listConversations } },
+	osApi: {
+		kernelRuntime: { listConversations },
+		osWorkspaces: { workspaces: { list: listWorkspaces } },
+	},
 }));
 
 import {
@@ -109,6 +113,7 @@ describe("workspace conversation back-navigation", () => {
 		});
 
 		expect(host.textContent).toContain("Conversations");
+		expect(listWorkspaces).not.toHaveBeenCalled();
 		expect(host.textContent).toContain("Cache-safe navigation");
 		expect(
 			client.getQueryData(conversationListQueryOptions(WORKSPACE_ID).queryKey),

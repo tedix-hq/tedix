@@ -1,3 +1,4 @@
+import { EntityAvatar } from "@/components/entity-avatar";
 import { createContext, useContext } from "react";
 import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
 import { HarnessMark } from "@/assets/harness-marks";
@@ -70,6 +71,14 @@ export function WorkActorAvatar({
 					<span className="work-actor-mark" data-harness={resolved.harness}>
 						<HarnessMark harness={resolved.harness} />
 					</span>
+				) : actor?.type === "tedi" ? (
+					<EntityAvatar
+						id={actor.id ?? "unknown-tedi"}
+						name={resolved.name}
+						image={resolved.image}
+						kind="tedi"
+						className="work-actor-portrait"
+					/>
 				) : (
 					<Portrait
 						name={resolved.name}

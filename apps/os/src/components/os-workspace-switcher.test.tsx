@@ -187,7 +187,7 @@ describe("OsWorkspaceSwitcher", () => {
 			'button[aria-label="Switch workspace or app"]',
 		);
 		expect(trigger?.querySelector("strong")?.textContent).toBe("Tedix");
-		const logo = trigger?.querySelector("img.brand-mark");
+		const logo = trigger?.querySelector('[data-entity-kind="workspace"] img');
 		expect(logo?.getAttribute("src")).toBe(
 			"https://images.example.test/tedix-logo.png",
 		);
@@ -199,18 +199,23 @@ describe("OsWorkspaceSwitcher", () => {
 		const menu = document.querySelector('[role="menu"]');
 		expect(
 			menu
-				?.querySelector('img.brand-mark[data-size="sm"]')
+				?.querySelector('[data-entity-kind="workspace"] img')
 				?.getAttribute("src"),
 		).toBe("https://images.example.test/tedix-logo.png");
 		expect(menu?.textContent).toContain("Northwind Labs");
 		expect(
-			menu?.querySelector('span.brand-mark[data-size="sm"]')?.textContent,
-		).toBe("N");
+			menu?.querySelector('[data-entity-kind="workspace"] span')?.textContent,
+		).toBe("NL");
 
 		await act(async () => {
 			logo?.dispatchEvent(new Event("error"));
 		});
-		expect(trigger?.querySelector("img.brand-mark")).toBeNull();
-		expect(trigger?.querySelector("span.brand-mark")?.textContent).toBe("T");
+		expect(
+			trigger?.querySelector('[data-entity-kind="workspace"] img'),
+		).toBeNull();
+		expect(
+			trigger?.querySelector('[data-entity-kind="workspace"] span')
+				?.textContent,
+		).toBe("TE");
 	});
 });
