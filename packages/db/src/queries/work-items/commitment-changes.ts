@@ -22,19 +22,21 @@ export async function listCommitmentChanges(
 	// D1 rejects the eight-term compound scan; keep each statement to four terms.
 	const statements = [
 		sql`
-		WITH changes AS (
+		WITH recent_work_events AS MATERIALIZED (
+			SELECT * FROM work_events
+			WHERE occurred_at > ${after} AND occurred_at <= ${through}
+		), changes AS (
 			SELECT 'work:' || e.id AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
 				'work' AS kind, w.id AS objectId,
 				CASE WHEN e.event_type = 'attempt.settled' THEN json_extract(e.payload, '$.outcome') ELSE e.event_type END AS state,
 				e.occurred_at AS changedAt
-			FROM work_events e JOIN work_items w ON w.id = e.work_item_id AND w.org_id = e.org_id
+			FROM recent_work_events e JOIN work_items w ON w.id = e.work_item_id AND w.org_id = e.org_id
 			JOIN tedis t ON t.organization_id = w.org_id AND t.status = 'active'
 				AND ((w.accountable_owner_type = 'tedi' AND w.accountable_owner_id = t.id)
 				OR (w.steward_type = 'tedi' AND w.steward_id = t.id)
 				OR EXISTS (SELECT 1 FROM projects p WHERE p.org_id = w.org_id AND p.id = w.project_id AND p.lead_tedi_id = t.id)
 				OR EXISTS (SELECT 1 FROM work_attempts a WHERE a.org_id = w.org_id AND a.work_item_id = w.id AND a.executor_type = 'tedi' AND a.executor_id = t.id))
-			WHERE e.occurred_at > ${after} AND e.occurred_at <= ${through}
-				AND w.disposition != 'cancelled'
+			WHERE w.disposition != 'cancelled'
 				AND (w.disposition != 'completed' OR (
 					e.event_type = 'attempt.settled' AND e.actor_type = 'external_agent'
 					AND json_extract(e.payload, '$.outcome') = 'succeeded'))
