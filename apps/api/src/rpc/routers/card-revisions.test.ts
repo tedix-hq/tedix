@@ -183,6 +183,18 @@ it("versions a structured plan together with its visible text and restores both"
 			instruction: "Change the task title",
 		});
 		expect(asked.state).toBe("open");
+		await expect(
+			target.respond({
+				requestId: planCard,
+				expectedRequestVersion: 2,
+				responseKind: "handoff_accepted",
+				body: "Start this plan",
+				resolvesRequest: true,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(
+			sqlite.prepare("SELECT COUNT(*) AS count FROM work_items").get()?.count,
+		).toBe(1);
 		const history = await target.cardHistory({ requestId: planCard });
 		const input = {
 			requestId: planCard,
