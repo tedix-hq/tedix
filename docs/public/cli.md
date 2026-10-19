@@ -425,14 +425,22 @@ Reads inspect the authenticated caller's inbox, OS app configuration, ranking
 model and learning history. An agent credential does not become its owner's
 login. Inspection records no impression and consumes no attention budget.
 
-`tedix deck decide <card-id> '<decision-json>'` uses the original interaction or
-approval contract payload and its expected version. Factory feedback uses
+`tedix deck decide <card-id> '<decision-json>'` saves bounded, unprotected
+interaction responses using the original response payload and expected version.
+The server refuses critical questions, protected or irreversible decisions,
+executable effects, handoffs and governed approvals before saving a response.
+Use the linked OS card or ask Home for the human approval flow. Factory feedback uses
 `kind: "factory"`, `cardId`, `expectedRevision`, `verdict` (`useful` or
 `not_useful`) and `reason`; it saves the configured sheet cells and learning
-signal. Provider actions and factory skill execution retain their owning tools.
+signal without executing its proposed action. Provider actions and factory skill
+execution retain their owning tools.
 Use `tedix deck --help` and the configured tool schema to inspect the payload.
 The CLI resolves the configured native MCP wire name through the authenticated
 catalog before invoking a tool; it refuses mismatched endpoints and schemas.
+
+Native `decide_deck_card` calls wrap the typed domain payload as
+`{"decision": {"kind": "interaction", "decision": {"requestId": "…"}}}`; the CLI
+adds this envelope while keeping the command syntax above.
 
 For connected agents the corresponding configured RPC tools are
 `list_deck_cards`, `get_deck_card`, `decide_deck_card` and `list_feed_for_you`.

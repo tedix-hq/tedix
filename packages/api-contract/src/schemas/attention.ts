@@ -100,6 +100,13 @@ export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 		}),
 	}),
 ]);
+/** Object envelope for native schema projection; the nested union retains domain narrowing. */
+export const DecideDeckCardRequestSchema = z.strictObject({
+	decision: DecideDeckCardInputSchema.describe(
+		"Factory usefulness feedback or a bounded, unprotected interaction response. Governed and critical decisions are refused with OS/Home guidance.",
+	),
+});
+
 export const FocusItemSchema = ActivityFeedItemSchema.extend({
 	score: z.number(),
 	unseen: z.boolean(),
