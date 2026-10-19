@@ -736,14 +736,14 @@ describe("verifyHumanMcpGrant", () => {
 		);
 		const { stageHumanMcpConsent, verifyHumanMcpGrant } =
 			await import("./mcp-grant");
-		expect(
-			await stageHumanMcpConsent({} as never, env, input.descopeUserId, {
+		await expect(
+			stageHumanMcpConsent({} as never, env, input.descopeUserId, {
 				resourceUrl: input.resourceUrl,
 				clientId: input.clientId,
 				selectedTenantIds: tenantIds,
 				approvedScopes: input.tokenScopes,
 			}),
-		).toBeNull();
+		).rejects.toThrow("Provider resource unavailable");
 		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
 			allowed: false,
 			reason: "provider_unavailable",
@@ -997,6 +997,20 @@ describe("verifyHumanMcpGrant", () => {
 		expect(await verifyHumanMcpGrant({} as never, env, input)).toMatchObject({
 			allowed: true,
 		});
+	});
+
+	it("does not stage an inbound app absent from the resource's verified client inventory", async () => {
+		mocks.searchDescopeMcpServerClients.mockResolvedValue([]);
+		const { stageHumanMcpConsent } = await import("./mcp-grant");
+		await expect(
+			stageHumanMcpConsent({} as never, env, input.descopeUserId, {
+				clientId: "TPAunregistered",
+				resourceUrl: input.resourceUrl,
+				selectedTenantIds: tenantIds,
+				approvedScopes: ["mcp:apps.read"],
+			}),
+		).resolves.toBeNull();
+		expect(mocks.stageMcpConsentPending).not.toHaveBeenCalled();
 	});
 
 	it("does not stage for forged membership", async () => {

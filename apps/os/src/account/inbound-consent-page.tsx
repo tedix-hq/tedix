@@ -144,9 +144,11 @@ export function inboundConsentDecisionError(error: unknown): string {
 		typeof error === "object" && error !== null
 			? (error as { code?: unknown; status?: unknown })
 			: null;
-	return details?.code === "UNAUTHORIZED" || details?.status === 401
-		? "Your Tedix session expired. Return to the application and sign in again."
-		: "Could not save this consent decision. Please try again.";
+	if (details?.code === "UNAUTHORIZED" || details?.status === 401)
+		return "Your Tedix session expired. Return to the application and sign in again.";
+	if (details?.code === "FORBIDDEN" || details?.status === 403)
+		return "This application or access selection could not be verified. Return to the application and check its OAuth client configuration and your organization access.";
+	return "Could not save this consent decision. Please try again.";
 }
 
 export async function advanceInboundConsentFlow(

@@ -8,6 +8,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { withFileLockSync } from "./local-file-lock";
 import { selfCommand } from "./shared";
 
@@ -86,6 +87,7 @@ export function setupDevin(directory = devinConfigDirectory()) {
 		const server = {
 			url: "https://connect.mcp.tedix.dev/mcp",
 			transport: "http",
+			oauthClientId: TEDIX_DEVIN_OAUTH_CLIENT_ID,
 		};
 		if (
 			existing &&

@@ -321,9 +321,15 @@ it("distinguishes an expired consent session from policy rejection", () => {
 	expect(inboundConsentDecisionError({ status: 401 })).toContain(
 		"session expired",
 	);
-	expect(inboundConsentDecisionError({ code: "FORBIDDEN", status: 403 })).toBe(
-		"Could not save this consent decision. Please try again.",
+	expect(
+		inboundConsentDecisionError({ code: "FORBIDDEN", status: 403 }),
+	).toContain("OAuth client configuration");
+	expect(inboundConsentDecisionError({ status: 403 })).toContain(
+		"organization access",
 	);
+	expect(
+		inboundConsentDecisionError({ code: "SERVICE_UNAVAILABLE", status: 503 }),
+	).toBe("Could not save this consent decision. Please try again.");
 });
 
 it("requires separate platform opt-in and eligible project role even when ordinary selection includes it", () => {

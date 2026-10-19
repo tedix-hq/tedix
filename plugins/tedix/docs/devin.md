@@ -27,9 +27,12 @@ bare event map using only the events and fields in the
 The CLI plugin tests enforce that schema; Cognition's template validators
 check hook JSON syntax only.
 
-TODO(devin-mcp): add the verified CIMD `oauthClientId` from the devin-mcp lane.
-The current manifest deliberately omits it; OAuth readiness is unverified.
-Do not substitute the Tedix CLI's client ID or invent a Devin client ID.
+The plugin and `tedix setup agents --devin` use the public CIMD client ID
+`https://os.tedix.dev/.well-known/oauth-client/devin.json`. Use the same ID
+for a custom web MCP, leave the client secret blank, and request only
+`mcp:apps.read mcp:work.read`. Devin uses the shared Tedix consent flow;
+installation does not grant access. The registration must appear as a verified
+client of the selected MCP resource before Tedix can save consent.
 
 Plugin hooks load in CLI and Desktop, not cloud sessions. Every command exits
 silently when `tedix` is absent and tolerates CLI errors. Context, recording and

@@ -40,6 +40,7 @@ test("Devin shares skills and declares its native MCP and fail-open hooks", () =
 		tedix: {
 			url: "https://connect.mcp.tedix.dev/mcp",
 			transport: "http",
+			oauthClientId: "https://os.tedix.dev/.well-known/oauth-client/devin.json",
 		},
 	});
 	const hooks = JSON.parse(readFileSync(join(ROOT, "hooks.json"), "utf8"));

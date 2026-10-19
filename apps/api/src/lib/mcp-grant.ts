@@ -144,18 +144,13 @@ async function verifiedHumanClient(
 	if (!resource || typeof mcpServerId !== "string" || !mcpServerId) {
 		return null;
 	}
-	let supportedScopes: Set<string> | null;
-	try {
-		supportedScopes = await registeredResourceScopes(
-			db,
-			env,
-			resource,
-			mcpServerId,
-			resourceUrl,
-		);
-	} catch {
-		return null;
-	}
+	const supportedScopes = await registeredResourceScopes(
+		db,
+		env,
+		resource,
+		mcpServerId,
+		resourceUrl,
+	);
 	if (!supportedScopes) return null;
 	// Descope redirects expose an app ID even when referrer policy hides client_id.
 	// Treat either value only as a lookup key; persist the verified canonical ID.
