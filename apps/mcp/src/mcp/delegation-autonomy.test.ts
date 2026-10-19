@@ -29,7 +29,7 @@ function context(autonomy = true) {
 }
 describe("tedi autonomous actions", () => {
 	it.each([true, false])(
-		"applies standing consent to bounded comments with Code Mode auto-confirm=%s",
+		"honors always approval despite bounded risk with Code Mode auto-confirm=%s",
 		async (autoConfirmAgent) => {
 			const result = await requireDestructiveToolApproval(
 				context(),
@@ -47,7 +47,7 @@ describe("tedi autonomous actions", () => {
 				{ destructiveHint: false },
 				{ autoConfirmAgent },
 			);
-			expect(result).toBeNull();
+			expect(result?.isError).toBe(true);
 		},
 	);
 	it.each([
@@ -246,13 +246,9 @@ it.each([true, false])(
 					},
 				},
 			);
-			if (config.approvalPolicy === "always" && autonomy) {
-				expect(result).toBeNull();
-			} else {
-				expect(result).not.toBeNull();
-				if (config.approvalPolicy === "always")
-					expect(result?.isError).toBe(true);
-			}
+			expect(result).not.toBeNull();
+			if (config.approvalPolicy === "always")
+				expect(result?.isError).toBe(true);
 		}
 	},
 );

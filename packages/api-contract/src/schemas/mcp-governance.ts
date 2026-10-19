@@ -53,6 +53,9 @@ export const ResolveAgentTransportPolicyResponseSchema = z.object({
 			version: z.literal(1),
 			maxRisk: z.literal("medium"),
 			askForClasses: z.array(z.string()).optional(),
+			policyPack: z
+				.object({ id: z.string(), version: z.number().int().positive() })
+				.optional(),
 		})
 		.optional(),
 });

@@ -193,8 +193,9 @@ export type DelegationWorkOrderStatus = z.infer<
  * Bounded-authority budget for a delegated specialist run (the "specialist
  * profile" delegation already carries owner tedi, capabilities, tools,
  * boundaries, authority, and output contract on the work order; this adds the
- * one missing piece — explicit caps). Native runs enforce maxToolCalls and
- * deadlineMs; maxTokens/maxUsd remain executor/policy inputs. An omitted cap means "no explicit cap from the work
+ * one missing piece — explicit caps). Native runs enforce maxToolCalls, deadlineMs and durable inference token
+ * reservations. maxUsd fails closed before inference until authoritative cost
+ * accounting is available. An omitted cap means "no explicit cap from the work
  * order" and the target tedi's own profile/policy budgets still apply.
  */
 export const DelegationBudgetSchema = z.object({
@@ -254,6 +255,9 @@ export type DelegationCapabilityPlan = z.infer<
 
 export const DelegationWorkOrderSchema = z.object({
 	autonomyClass: z.string().optional(),
+	autonomyPolicyPack: z
+		.object({ id: z.string(), version: z.number().int().positive() })
+		.optional(),
 	id: z.string().optional(),
 	approvalRequestId: z.string().optional(),
 	kind: z

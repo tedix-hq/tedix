@@ -64,3 +64,58 @@ describe("getActivePolicyPackDefinition", () => {
 		});
 	});
 });
+
+it("system defaults cannot grant autonomy through either policy slot", async () => {
+	const { db, sqlite } = setup();
+	const definition = JSON.stringify({
+		governancePolicy: {
+			approvalTtlHours: 12,
+			autonomy: { version: 1, maxRisk: "medium" },
+		},
+		gatingPolicy: { autonomy: { version: 1, maxRisk: "medium" } },
+	});
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs (id, name, slug, scope, status, version, target, definition, published_at) VALUES ('system', 'System', 'system-default', 'system', 'active', 1, 'tedi', ?, '2026-01-01')",
+		)
+		.run(definition);
+	expect(await getActivePolicyPackDefinition(db, "org-1")).toEqual({
+		governancePolicy: { approvalTtlHours: 12 },
+		gatingPolicy: {},
+	});
+	expect(
+		JSON.parse(
+			(
+				sqlite.prepare("SELECT definition FROM policy_packs").get() as {
+					definition: string;
+				}
+			).definition,
+		),
+	).toEqual(JSON.parse(definition));
+});
+it("pins organization autonomy to its pack id and version, replacing supplied provenance", async () => {
+	const { db, sqlite } = setup();
+	const definition = JSON.stringify({
+		governancePolicy: {
+			autonomy: {
+				version: 1,
+				maxRisk: "medium",
+				policyPack: { id: "forged", version: 999 },
+			},
+		},
+	});
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs (id, organization_id, name, slug, scope, status, version, target, definition) VALUES ('org-policy', 'org-1', 'Org', 'org', 'organization', 'active', 7, 'tedi', ?)",
+		)
+		.run(definition);
+	expect(await getActivePolicyPackDefinition(db, "org-1")).toEqual({
+		governancePolicy: {
+			autonomy: {
+				version: 1,
+				maxRisk: "medium",
+				policyPack: { id: "org-policy", version: 7 },
+			},
+		},
+	});
+});

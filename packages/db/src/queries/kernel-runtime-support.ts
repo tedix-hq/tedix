@@ -1,3 +1,4 @@
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { policyPacks } from "../schema/control-plane";
@@ -9,7 +10,11 @@ export async function getActivePolicyPackDefinition(
 	organizationId: string,
 ): Promise<Record<string, unknown> | null | undefined> {
 	const [organizationRow] = await db
-		.select({ definition: policyPacks.definition })
+		.select({
+			definition: policyPacks.definition,
+			id: policyPacks.id,
+			version: policyPacks.version,
+		})
 		.from(policyPacks)
 		.where(
 			and(
@@ -19,7 +24,24 @@ export async function getActivePolicyPackDefinition(
 		)
 		.orderBy(desc(policyPacks.version))
 		.limit(1);
-	if (organizationRow) return organizationRow.definition;
+	if (organizationRow) {
+		const definition = { ...organizationRow.definition };
+		for (const key of ["governancePolicy", "gatingPolicy"]) {
+			const raw = definition[key];
+			if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+			const layer = { ...raw } as Record<string, JsonValue>;
+			if (layer.autonomy && typeof layer.autonomy === "object")
+				layer.autonomy = {
+					...layer.autonomy,
+					policyPack: {
+						id: organizationRow.id,
+						version: organizationRow.version,
+					},
+				};
+			definition[key] = layer;
+		}
+		return definition;
+	}
 
 	// Fresh organizations intentionally start without a private policy pack.
 	// Home must still inherit the published platform default, matching the
@@ -39,7 +61,17 @@ export async function getActivePolicyPackDefinition(
 		)
 		.orderBy(desc(policyPacks.version))
 		.limit(1);
-	return systemRow?.definition;
+	if (!systemRow?.definition) return systemRow?.definition;
+	const definition = { ...systemRow.definition };
+	// Platform defaults cannot grant organization-owned autonomous execution.
+	for (const key of ["governancePolicy", "gatingPolicy"]) {
+		const raw = definition[key];
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+		const layer = { ...raw } as Record<string, JsonValue>;
+		delete layer.autonomy;
+		definition[key] = layer;
+	}
+	return definition;
 }
 
 /** Live tedis for the kernel's org context. Retired workers are excluded. */

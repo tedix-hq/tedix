@@ -26,6 +26,7 @@ export async function reviewDelegationAutonomy(
 	reason: string;
 	workstation?: boolean;
 	executionBlocked?: boolean;
+	policyPack?: { id: string; version: number };
 }> {
 	const direct = await reviewWorkstationDelegationAutonomy(context, run);
 	if (direct) return direct;
@@ -95,6 +96,7 @@ export async function reviewDelegationAutonomy(
 	});
 	return {
 		allowed: decision.canAutoDispatch && decision.mode === "auto",
+		policyPack: policy.autonomy.policyPack,
 		reason: decision.reason,
 		executionBlocked:
 			decision.mode === "blocked" &&

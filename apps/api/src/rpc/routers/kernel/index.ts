@@ -1123,6 +1123,7 @@ export async function runKernel(args: {
 			executionEnvironment,
 			authorityMode: earnedDelegationEnforcement,
 		});
+		workOrder.autonomyPolicyPack = orgPolicy?.autonomy?.policyPack;
 		delegation = {
 			workOrder,
 			decision: decideDelegationDispatch({

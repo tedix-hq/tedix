@@ -1471,7 +1471,16 @@ function computeDispatchVerdict(input: {
 		? `${input.workOrderContent}\n${route.plannedToolIds.join("\n")}`
 		: "";
 	const autonomy = decideAutonomousAction({
-		policy: input.gating?.org?.autonomy,
+		policy: input.gating?.org?.autonomy
+			? {
+					...input.gating.org.autonomy,
+					askForClasses: [
+						...(input.gating.org.autonomy.askForClasses ?? []),
+						...(input.gating.tedi?.autonomy?.askForClasses ?? []),
+						...(input.gating.session?.autonomy?.askForClasses ?? []),
+					],
+				}
+			: undefined,
 		risk: input.workOrderContent ? route.risk : "unknown",
 		content: actionContent,
 		classId: `delegation:${route.effortClass}`,
@@ -1634,7 +1643,7 @@ function computeDispatchVerdict(input: {
 	}
 
 	// 6. Target self-declares it requires approval for its actions.
-	if (card.requiresApproval === true && !autonomy.autoApprove) {
+	if (card.requiresApproval === true) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",

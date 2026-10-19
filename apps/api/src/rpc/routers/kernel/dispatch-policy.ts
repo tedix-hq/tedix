@@ -76,21 +76,6 @@ export function classifyWorkstationDispatch(args: {
 			autoDispatch: false,
 			reasons: ["human-reserved critical action"],
 		};
-	if (args.autonomy) {
-		const decision = decideAutonomousAction({
-			policy: args.autonomy,
-			risk: args.content ? (args.routeRisk ?? "medium") : "unknown",
-			content: args.content ?? "",
-			classId: "delegation:embodied",
-		});
-		return {
-			risk: decision.autoApprove ? "low" : "high",
-			autoDispatch: args.hasActingUser && decision.autoApprove,
-			reasons: [
-				args.hasActingUser ? decision.reason : "no authenticated operator",
-			],
-		};
-	}
 
 	if (!args.explicitHumanDelegation) {
 		reasons.push("kernel-initiated dispatch (no explicit human target)");
@@ -102,6 +87,9 @@ export function classifyWorkstationDispatch(args: {
 	// runtime surface or a warm/available workstation lease.
 	const targetWarm =
 		args.runtimeRunning === true || args.isolateWorkstationWarm === true;
+	if (args.isolateWorkstationWarm === null) {
+		reasons.push("target workstation lease read is unavailable");
+	}
 	if (!targetWarm) {
 		if (
 			args.runtimeRunning === false ||
@@ -116,6 +104,20 @@ export function classifyWorkstationDispatch(args: {
 	}
 	if (args.routeRisk === "high") {
 		reasons.push("route planner classified the work as high risk");
+	}
+
+	if (args.autonomy && reasons.length === 0) {
+		const decision = decideAutonomousAction({
+			policy: args.autonomy,
+			risk: args.content ? (args.routeRisk ?? "unknown") : "unknown",
+			content: args.content ?? "",
+			classId: "delegation:embodied",
+		});
+		return {
+			risk: decision.autoApprove ? "low" : "high",
+			autoDispatch: decision.autoApprove,
+			reasons: [decision.reason],
+		};
 	}
 
 	if (reasons.length > 0) {

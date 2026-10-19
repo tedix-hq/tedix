@@ -12127,15 +12127,42 @@ describe("explicitDelegationNeedsEmbodiedSurface (native-vs-workstation gate)", 
 });
 
 describe("enqueueMessage routing composition (needs × capability)", () => {
+	it.each([
+		{ delegateToTediId: "tedi-cto-agent" },
+		{ executionPolicy: "observe_only" as const },
+	])(
+		"members cannot force dispatch or override execution policy: %j",
+		async (input) => {
+			const db = createKernelRuntimeDb();
+			const client = createKernelRuntimeClient({
+				...createContext(db, { userSub: "member-1" }),
+				authType: "user",
+				apiKey: undefined,
+				userRole: "member",
+			});
+			const runner = vi.fn();
+			kernelRuntimeTestHooks.setDelegateRunnerForTest(runner);
+			await expect(
+				client.enqueueMessage({
+					conversationId: "home:test",
+					content: "Research",
+					...input,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(runner).not.toHaveBeenCalled();
+			expect(db.approvals).toHaveLength(0);
+		},
+	);
+
 	it("(a) capable target + no signal → native isolate (workstationAttach false)", async () => {
 		// tedi-cto-agent has repoConfig.repoUrl → workstation-capable. No
 		// needsEmbodiedSurface in metadata → native isolate delegation (no approval).
 		const db = createKernelRuntimeDb();
 		const client = createKernelRuntimeClient({
-			...createContext(db, { userSub: "member-1" }),
+			...createContext(db, { userSub: "admin-1" }),
 			authType: "user",
 			apiKey: undefined,
-			userRole: "member",
+			userRole: "admin",
 		});
 		const delegateRunner = vi.fn(
 			async (input: { childRunId: string; content: string }) => ({

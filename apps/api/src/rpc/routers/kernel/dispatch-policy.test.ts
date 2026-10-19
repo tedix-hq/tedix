@@ -405,3 +405,29 @@ describe("parseDispatchPolicyLayer delegationApprover", () => {
 		expect(parseDispatchPolicyLayer({ delegationApprover })).toBeNull();
 	});
 });
+
+describe("autonomous workstation fail-closed inputs", () => {
+	const base = {
+		...LOW_RISK_BASE,
+		content: "Research a paper",
+		routeRisk: "medium" as const,
+		autonomy: { version: 1 as const, maxRisk: "medium" as const },
+	};
+	it.each([
+		{ routeRisk: null },
+		{ runtimeRunning: true, isolateWorkstationWarm: null },
+		{ runtimeRunning: null, isolateWorkstationWarm: null },
+		{ runtimeRunning: false, isolateWorkstationWarm: false },
+		{ hasActingUser: false },
+	])(
+		"withholds dispatch for missing risk or unavailable runtime: %j",
+		(missing) => {
+			expect(
+				classifyWorkstationDispatch({ ...base, ...missing }).autoDispatch,
+			).toBe(false);
+		},
+	);
+	it("allows classified non-critical work on a running target", () => {
+		expect(classifyWorkstationDispatch(base).autoDispatch).toBe(true);
+	});
+});
