@@ -581,41 +581,43 @@ export function TeamPage({
 
 	return (
 		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>{surface.description}</PageDescription>
-				</PageHeading>
-				{tab === "tedis" ? (
-					<PageActions>
-						<Button
-							render={
-								<OsRouterLink
-									to="/team/new"
-									search={{ channel: "telegram", mode: "basic" }}
-								/>
-							}
-						>
-							Launch Tedi
-						</Button>
-					</PageActions>
-				) : null}
-			</PageHeader>
-
 			<Tabs
+				className="gap-8"
 				value={tab}
 				onValueChange={(value) => {
 					const next = TEAM_TABS.find((entry) => entry.id === value);
 					if (next) onTabChange?.(next.id);
 				}}
 			>
-				<TabsList aria-label="Team sections" variant="line">
-					{TEAM_TABS.map((entry) => (
-						<TabsTrigger key={entry.id} value={entry.id}>
-							{entry.label}
-						</TabsTrigger>
-					))}
-				</TabsList>
+				<div className="grid min-w-0 gap-4">
+					<PageHeader>
+						<PageHeading>
+							<PageTitle>{surface.label}</PageTitle>
+							<PageDescription>{surface.description}</PageDescription>
+						</PageHeading>
+						{tab === "tedis" ? (
+							<PageActions>
+								<Button
+									render={
+										<OsRouterLink
+											to="/team/new"
+											search={{ channel: "telegram", mode: "basic" }}
+										/>
+									}
+								>
+									Launch Tedi
+								</Button>
+							</PageActions>
+						) : null}
+					</PageHeader>
+					<TabsList aria-label="Team sections" variant="line">
+						{TEAM_TABS.map((entry) => (
+							<TabsTrigger key={entry.id} value={entry.id}>
+								{entry.label}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				</div>
 				<TabsContent value={tab}>
 					{tab === "members" ? (
 						<TeamMembersPanel
@@ -696,7 +698,7 @@ export function TediRosterPanel({
 			<RuntimeGateNotice />
 
 			<PageSection>
-				<PageToolbar>
+				<PageToolbar appearance="inline">
 					<SearchInput
 						aria-label="Search digital workers"
 						placeholder="Search by name, slug, or role"
