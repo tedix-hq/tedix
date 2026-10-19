@@ -191,23 +191,29 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 
 	return (
 		<Page width="xl">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>
-						Customize your assistant, manage customer access, and review usage
-						for {organization.name}.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			<Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
-				<TabsList variant="line" aria-label="Widget management">
-					<TabsTrigger value="experience">Customize</TabsTrigger>
-					<TabsTrigger value="customers">Customers</TabsTrigger>
-					<TabsTrigger value="settings">Funding</TabsTrigger>
-					<TabsTrigger value="performance">Performance</TabsTrigger>
-				</TabsList>
-				<TabsContent value="experience" keepMounted className="grid gap-8 pt-4">
+			<Tabs
+				className="gap-8"
+				value={tab}
+				onValueChange={(value) => setTab(value as Tab)}
+			>
+				<div className="grid min-w-0 gap-4">
+					<PageHeader>
+						<PageHeading>
+							<PageTitle>{surface.label}</PageTitle>
+							<PageDescription>
+								Customize your assistant, manage customer access, and review
+								usage for {organization.name}.
+							</PageDescription>
+						</PageHeading>
+					</PageHeader>
+					<TabsList variant="line" aria-label="Widget management">
+						<TabsTrigger value="experience">Customize</TabsTrigger>
+						<TabsTrigger value="customers">Customers</TabsTrigger>
+						<TabsTrigger value="settings">Funding</TabsTrigger>
+						<TabsTrigger value="performance">Performance</TabsTrigger>
+					</TabsList>
+				</div>
+				<TabsContent value="experience" keepMounted className="grid gap-8">
 					<ExperienceEditor
 						key={organization.id}
 						organization={organization}
@@ -233,7 +239,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						</CollapsibleContent>
 					</Collapsible>
 				</TabsContent>
-				<TabsContent value="customers" className="grid gap-8 pt-4">
+				<TabsContent value="customers" className="grid gap-8">
 					{audienceBusiness === undefined ? (
 						<>
 							<Button
@@ -261,7 +267,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						</>
 					)}
 				</TabsContent>
-				<TabsContent value="settings" className="grid max-w-4xl gap-8 pt-4">
+				<TabsContent value="settings" className="grid max-w-4xl gap-8">
 					<Panel
 						title="Distribution"
 						description={
@@ -393,7 +399,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						</Card>
 					))}
 				</TabsContent>
-				<TabsContent value="performance" className="grid max-w-4xl gap-8 pt-4">
+				<TabsContent value="performance" className="grid max-w-4xl gap-8">
 					<PageToolbar
 						appearance="inline"
 						className="sm:flex-row sm:items-center"
