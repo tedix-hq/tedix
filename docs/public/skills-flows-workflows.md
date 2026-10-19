@@ -196,11 +196,11 @@ inspect` for the run's current status and detailed evidence.
 All three surfaces use the same organization gateway, authorization, and
 records:
 
-| Surface                 | Best use                                                                                          | Important boundary                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| CLI                     | Human- and script-friendly authoring, watching, compact output, and exit codes                    | Thin commands call canonical gateway tools; they do not create a second capability model.                               |
-| MCP gateway / Code Mode | Agent-native discovery, exact schemas, direct composition, and typed calls                        | Use `discover.search()` and the returned namespaced callable; broad discovery and large returns waste context.          |
-| Tedix OS                | Visual skill authoring, workspace references, approvals, run inspection, artifacts, and promotion | Apps and Blueprints are views and composition aids; Tedix remains authoritative for skills, runs, policy, and evidence. |
+| Surface                 | Best use                                                                                          | Important boundary                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| CLI                     | Human- and script-friendly authoring, watching, compact output, and exit codes                    | Thin commands call canonical gateway tools; they do not create a second capability model.                              |
+| MCP gateway / Code Mode | Agent-native discovery, exact schemas, direct composition, and typed calls                        | Use `discover.search()` and the returned namespaced callable; broad discovery and large returns waste context.         |
+| Tedix OS                | Visual skill authoring, workspace references, approvals, run inspection, artifacts, and promotion | Apps and Templates are views and composition aids; Tedix remains authoritative for skills, runs, policy, and evidence. |
 
 The canonical MCP families are `flow.*` for one-off convenience,
 `skills.*` for persistent skill lifecycle and dynamic-run inspection, and

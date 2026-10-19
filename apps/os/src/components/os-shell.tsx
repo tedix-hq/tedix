@@ -1,8 +1,10 @@
+import { OsSettingsFrame } from "@/components/os-settings-frame";
+import { useOsLocale } from "@/lib/use-os-locale";
 import { WorkActorDirectory } from "@/components/work-actor-directory";
 import { OsTopbarActionsTargetContext } from "@/components/os-topbar-actions-context";
 import { List, MagnifyingGlass, SquaresFour } from "@phosphor-icons/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
-import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -14,7 +16,6 @@ import {
 } from "@/components/kumo/dialog";
 import {
 	isOsShellNavigationItemActive,
-	OS_SHELL_FOOTER_NAVIGATION,
 	OS_SHELL_NAVIGATION_SECTIONS,
 	OS_SHELL_PRIMARY_NAVIGATION,
 	type OsShellNavigationItem,
@@ -27,7 +28,6 @@ import {
 	SidebarContent,
 	SidebarFooter,
 	SidebarGroup,
-	SidebarGroupLabel,
 	SidebarHeader,
 	SidebarMenu,
 	SidebarMenuButton,
@@ -37,8 +37,6 @@ import {
 } from "@/components/kumo/sidebar";
 import { ApprovalNotifications } from "@/components/approval-notifications";
 import { OsQuickChat } from "@/components/os-quick-chat";
-import { OsSidebarWorkspaces } from "@/components/os-sidebar-workspaces";
-import { OsSidebarBillingStatus } from "@/components/os-sidebar-billing-status";
 import { OsOrganizationIdentity } from "@/components/os-organization-identity";
 import { OsWorkspaceSwitcher } from "@/components/os-workspace-switcher";
 import { TransportStatus } from "@/components/transport-status";
@@ -186,9 +184,11 @@ function OsSidebar({
 			</SidebarGroup>
 			<SidebarContent>
 				{OS_SHELL_NAVIGATION_SECTIONS.map((section) => (
-					<Fragment key={section.label}>
+					<SidebarGroup
+						key={section.label}
+						className="border-t border-kumo-line pt-2"
+					>
 						<SidebarGroup>
-							<SidebarGroupLabel>{section.label}</SidebarGroupLabel>
 							<SidebarMenu aria-label={section.label}>
 								{section.items.map((item) => (
 									<SidebarNavigationItem
@@ -199,25 +199,11 @@ function OsSidebar({
 								))}
 							</SidebarMenu>
 						</SidebarGroup>
-						{section.label === "Capabilities" &&
-						!pathname.startsWith("/work") ? (
-							<OsSidebarWorkspaces />
-						) : null}
-					</Fragment>
+					</SidebarGroup>
 				))}
 			</SidebarContent>
 
 			<SidebarFooter className="h-auto flex-col gap-1 py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
-				<OsSidebarBillingStatus />
-				<SidebarMenu aria-label="Setup" className="w-full">
-					{OS_SHELL_FOOTER_NAVIGATION.map((item) => (
-						<SidebarNavigationItem
-							item={item}
-							key={item.id}
-							pathname={pathname}
-						/>
-					))}
-				</SidebarMenu>
 				<OsAccountMenu identity={identity} />
 			</SidebarFooter>
 		</Sidebar>
@@ -277,6 +263,7 @@ function MobileNavigationTrigger() {
 }
 
 export function OsShell() {
+	useOsLocale();
 	const [paletteOpen, setPaletteOpen] = useState(false);
 	const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(
 		null,
@@ -359,7 +346,9 @@ export function OsShell() {
 				<main className="route-content">
 					<OsTopbarActionsTargetContext.Provider value={topbarActions}>
 						<WorkActorDirectory>
-							<Outlet />
+							<OsSettingsFrame pathname={pathname}>
+								<Outlet />
+							</OsSettingsFrame>
 						</WorkActorDirectory>
 					</OsTopbarActionsTargetContext.Provider>
 				</main>

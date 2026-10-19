@@ -357,7 +357,7 @@ describe("WorkPortfolioPage", () => {
 		expect(crm?.querySelector('a[href="/blueprints"]')).not.toBeNull();
 	});
 
-	it("marks paused loops, counts in the singular and folds unused Blueprints into one link", () => {
+	it("marks paused loops, counts in the singular and folds unused Templates into one link", () => {
 		const doc = new DOMParser().parseFromString(
 			render(
 				seededClient({
@@ -392,7 +392,7 @@ describe("WorkPortfolioPage", () => {
 			doc.querySelector('[data-factory="blueprint:bp-unused"]'),
 		).toBeNull();
 		expect(doc.querySelector('a[href="/blueprints"]')?.textContent).toBe(
-			"1 Blueprint with no runs",
+			"1 Template with no runs",
 		);
 	});
 

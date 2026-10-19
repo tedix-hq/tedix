@@ -167,8 +167,10 @@ describe("OS quick chat dogfood", () => {
 		expect(published[1]?.entity).toBeUndefined();
 		expect(published[1]?.params).toBeUndefined();
 		expect(published[1]?.routeKey).toBe("work");
-		expect(published[1]?.title).toBe("Admission queue");
-		expect(published[1]?.description).toContain("Accepted work evaluated");
+		expect(published[1]?.title).toBe("Work");
+		expect(published[1]?.description).toContain(
+			"Your tasks, decisions and recent activity.",
+		);
 
 		const { pathname: unknownPath, ...unknownContext } =
 			osPortableRouteContext("/unknown-page");

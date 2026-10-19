@@ -7,6 +7,7 @@ import { auditSearchQueryOptions } from "@/lib/os-query-options";
 import { getOsSurface } from "@/lib/os-navigation";
 import { describe, expect, it } from "vite-plus/test";
 import {
+	auditActionLabel,
 	actorLabel,
 	actorTone,
 	actorTypeLabel,
@@ -92,9 +93,9 @@ describe("actorTone", () => {
 
 describe("actorTypeLabel", () => {
 	it("sentence-cases ordinary actor types", () => {
-		expect(actorTypeLabel("user")).toBe("User");
-		expect(actorTypeLabel("external_agent")).toBe("External agent");
-		expect(actorTypeLabel("kernel")).toBe("Kernel");
+		expect(actorTypeLabel("user")).toBe("Person");
+		expect(actorTypeLabel("external_agent")).toBe("Coding assistant");
+		expect(actorTypeLabel("kernel")).toBe("Tedix");
 	});
 
 	it("preserves acronym casings sentenceCase would mangle", () => {
@@ -161,7 +162,7 @@ describe("AuditActorChip", () => {
 			<AuditActorChip actorType="external_agent" />,
 		);
 		expect(html).toContain('data-tone="warn"');
-		expect(html).toContain("External agent");
+		expect(html).toContain("Coding assistant");
 	});
 });
 
@@ -203,7 +204,7 @@ describe("AuditEventRow", () => {
 				event={event({ actorType: "kernel", resourceId: null })}
 			/>,
 		);
-		expect(html).toContain("Kernel");
+		expect(html).toContain("Tedix");
 		expect(html).not.toContain("44444444-4444-4444-8444-444444444444");
 		expect(html).not.toContain("from ");
 	});
@@ -409,5 +410,15 @@ describe("AuditEmpty", () => {
 		expect(renderToStaticMarkup(<AuditEmpty filtered />)).toContain(
 			"No audit events match this filter",
 		);
+	});
+});
+
+describe("plain activity labels", () => {
+	it("keeps internal operation names out of the activity list", () => {
+		expect(auditActionLabel("createmany")).toBe("Created multiple records");
+		expect(auditActionLabel("documents.createMany")).toBe(
+			"Created multiple records",
+		);
+		expect(auditActionLabel("home.tool_write")).toBe("Chat action");
 	});
 });

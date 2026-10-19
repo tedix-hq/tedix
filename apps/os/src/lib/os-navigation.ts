@@ -1,3 +1,5 @@
+import { navigationDescription, OS_COPY } from "@/shared/os-copy";
+
 export const OS_SURFACE_IDS = [
 	"work",
 	"chat",
@@ -27,90 +29,182 @@ export type OsNavigationItem = Readonly<{
 export const OS_NAVIGATION = [
 	{
 		id: "work",
-		label: "Work",
+		get label() {
+			return OS_COPY.navigation.work;
+		},
 		path: "/work",
-		description:
-			"What needs you, the board of projects and queues, and history",
+		get description() {
+			return navigationDescription(
+				"work",
+				"See what needs you and track your tasks.",
+			);
+		},
 	},
 	{
 		id: "chat",
-		label: "Chat",
+		get label() {
+			return OS_COPY.navigation.chat;
+		},
 		path: "/chat",
-		description: "Talk to your tedis; every run is governed and recorded",
+		get description() {
+			return navigationDescription(
+				"chat",
+				"Talk to your tedis and see their replies.",
+			);
+		},
 	},
 	{
 		id: "workspaces",
-		label: "Workspaces",
+		get label() {
+			return OS_COPY.navigation.workspaces;
+		},
 		path: "/workspaces",
-		description: "Workspaces, Apps, layouts, and previews",
+		get description() {
+			return navigationDescription(
+				"workspaces",
+				"Keep your work, documents and apps together.",
+			);
+		},
 	},
 	{
 		id: "blueprints",
-		label: "Blueprints",
+		get label() {
+			return OS_COPY.navigation.blueprints;
+		},
 		path: "/blueprints",
-		description: "Versioned templates for governed workspaces",
+		get description() {
+			return navigationDescription(
+				"blueprints",
+				"Reusable starting points for your workspaces.",
+			);
+		},
 	},
 	{
 		id: "outputs",
-		label: "Outputs",
+		get label() {
+			return OS_COPY.navigation.outputs;
+		},
 		path: "/outputs",
-		description: "Documents, sheets, presentations, and artifacts",
+		get description() {
+			return navigationDescription(
+				"outputs",
+				"Find your documents, sheets and presentations.",
+			);
+		},
 	},
 	{
 		id: "team",
-		label: "Team",
+		get label() {
+			return OS_COPY.navigation.team;
+		},
 		path: "/team",
-		description: "Tedis, people, delegation, and authority",
+		get description() {
+			return navigationDescription(
+				"team",
+				"Manage the people and tedis on your team.",
+			);
+		},
 	},
 	{
 		id: "skills",
-		label: "Skills",
+		get label() {
+			return OS_COPY.navigation.skills;
+		},
 		path: "/skills",
-		description: "Instructions, automations, flows, and schedules",
+		get description() {
+			return navigationDescription(
+				"skills",
+				"Choose instructions and tasks Tedix can repeat for you.",
+			);
+		},
 	},
 	{
 		id: "sites",
-		label: "Sites",
+		get label() {
+			return OS_COPY.navigation.sites;
+		},
 		path: "/sites",
-		description: "CMS websites and documentation sites",
+		get description() {
+			return navigationDescription("sites", "Create and manage your websites.");
+		},
 	},
 	{
 		id: "gateways",
-		label: "MCP Gateway",
+		get label() {
+			return OS_COPY.navigation.gateways;
+		},
 		path: "/gateways",
-		description:
-			"Your organization's MCP entry point and the apps it is filled from",
+		get description() {
+			return navigationDescription(
+				"gateways",
+				"Apps and tools Tedix can use for you.",
+			);
+		},
 	},
 	{
 		id: "brain",
-		label: "Brain",
+		get label() {
+			return OS_COPY.navigation.brain;
+		},
 		path: "/brain",
-		description: "Memory, rationale, and bounded context",
+		get description() {
+			return navigationDescription(
+				"brain",
+				"Review what Tedix remembers and learns.",
+			);
+		},
 	},
 	{
 		id: "audit",
-		label: "Audit",
+		get label() {
+			return OS_COPY.navigation.audit;
+		},
 		path: "/audit",
-		description: "Identity, policy, costs, receipts, and traces",
+		get description() {
+			return navigationDescription(
+				"audit",
+				"See what happened and who made each change.",
+			);
+		},
 	},
 	{
 		id: "widget",
-		label: "Widget",
+		get label() {
+			return OS_COPY.navigation.widget;
+		},
 		path: "/widget",
-		description:
-			"Embedded assistant tenants, experience, usage, and governance",
+		get description() {
+			return navigationDescription(
+				"widget",
+				"Add a chat assistant to your website.",
+			);
+		},
 	},
 	{
 		id: "compute",
-		label: "Usage & budgets",
+		get label() {
+			return OS_COPY.navigation.compute;
+		},
 		path: "/compute",
-		description: "Spend, budgets, models, and where every number came from",
+		get description() {
+			return navigationDescription(
+				"compute",
+				"Check your usage, spending and plan.",
+			);
+		},
 	},
 	{
 		id: "install",
-		label: "Install Tedix",
+		get label() {
+			return OS_COPY.navigation.install;
+		},
 		path: "/install",
-		description: "Set up the CLI, Codex, ChatGPT Work, Claude Code, and Devin",
+		get description() {
+			return navigationDescription(
+				"install",
+				"Connect Tedix to the apps you use.",
+			);
+		},
 	},
 ] as const satisfies readonly OsNavigationItem[];
 
@@ -119,3 +213,10 @@ export function getOsSurface(id: OsSurfaceId): OsNavigationItem {
 	if (!surface) throw new Error(`Unknown Tedix OS surface: ${id}`);
 	return surface;
 }
+
+export const OS_SETTINGS_NAVIGATION = [
+	getOsSurface("blueprints"),
+	getOsSurface("widget"),
+	getOsSurface("audit"),
+	getOsSurface("compute"),
+] as const;

@@ -5,7 +5,7 @@ title: "Factories, Workspaces and Projects"
 topic: "Platform"
 resource_type: guide
 description: "How a Work project, a Workspace and a tedi fit together into a factory, and which record answers which question."
-summary: "Workspace holds Outputs; the Work factory is the control plane; a factory in practice is one project, one Workspace, one tedi and its skills"
+summary: "Workspace holds Documents; the Work factory is the control plane; a factory in practice is one project, one Workspace, one tedi and its skills"
 read_when:
   - Deciding where a new initiative lives in Tedix
   - Telling a Workspace apart from a Work project
@@ -18,12 +18,12 @@ visibility: public
 Three words come up as soon as an organization runs more than one initiative
 in Tedix. They describe different layers.
 
-| Term         | What it is                                                                                                                                         | Where you see it                                  |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Workspace    | The Tedix OS container for Outputs: documents, sheets, presentations and videos, each with a revision history.                                     | OS → Workspaces                                   |
-| Work project | A ledger of Work Items with one owner and one brief. Projects group canonical Work; they do not hold files.                                        | OS → Work → Portfolio, then a project page        |
-| Work factory | The control plane around projects: cases, milestones, sprints, health, approvals, interactions, admission and capacity.                            | OS → Work → Cases, Approvals, Admission, Capacity |
-| A factory    | In practice: one Work project, one Workspace linked to it, one tedi that owns the work, and the skills or schedule that keep it producing Outputs. | All of the above, per initiative                  |
+| Term         | What it is                                                                                                                                           | Where you see it                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Workspace    | The Tedix OS container for Documents: documents, sheets, presentations and videos, each with a revision history.                                     | OS → Workspaces                                   |
+| Work project | A ledger of Work Items with one owner and one brief. Projects group canonical Work; they do not hold files.                                          | OS → Work → Portfolio, then a project page        |
+| Work factory | The control plane around projects: cases, milestones, sprints, health, approvals, interactions, admission and capacity.                              | OS → Work → Cases, Approvals, Admission, Capacity |
+| A factory    | In practice: one Work project, one Workspace linked to it, one tedi that owns the work, and the skills or schedule that keep it producing Documents. | All of the above, per initiative                  |
 
 ## Workspace: where the results live
 
@@ -77,9 +77,9 @@ Most teams do not need every record above. A working factory is the pattern:
 1. **One Work project** with a brief that says what the project produces and
    for whom. The brief is the project description; the project page shows it
    under "Brief".
-2. **One Workspace** linked to that project, holding the Outputs the project
+2. **One Workspace** linked to that project, holding the Documents the project
    exists to produce.
-3. **One tedi** that owns the Work Items and writes the Outputs.
+3. **One tedi** that owns the Work Items and writes the Documents.
 4. **Skills or a schedule** that produce the next Output without someone
    asking. The skill carries the procedure; the schedule decides when.
 
@@ -93,7 +93,7 @@ project instead of a project of its own.
 | ----------------------------- | ------------------------------------------------ | -------------------------- |
 | What is this initiative for?  | The project brief                                | A Workspace name           |
 | What is being worked on now?  | Open cases and accepted Work Items               | Documents in the Workspace |
-| What was produced?            | Outputs and their current revision               | A Work Item marked done    |
+| What was produced?            | Documents and their current revision             | A Work Item marked done    |
 | Who worked on it?             | Attempts and the project's Contributors list     | The Workspace creator      |
 | Why did an Attempt not start? | Its admission record                             | The Work Item status       |
 | What is waiting on a person?  | Open interactions and pending approval proposals | Comments on a Work Item    |

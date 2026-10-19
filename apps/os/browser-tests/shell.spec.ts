@@ -52,7 +52,7 @@ async function capture(page: Page, name: string) {
 	await page.waitForTimeout(300);
 	if (evidenceDir)
 		await page.screenshot({
-			path: `${evidenceDir}/kumo-shell-2-${name}.png`,
+			path: `${evidenceDir}/plain-labels-${name}.png`,
 			fullPage: true,
 		});
 }
@@ -271,7 +271,7 @@ try {
 					"/gateways",
 					null,
 				],
-				["billing", "/admin/billing", "/admin", "Billing"],
+				["billing", "/admin/billing", "/admin", "Usage & billing"],
 				[
 					"workspace",
 					"/workspace/00000030-0000-4000-8000-000000000001",
@@ -375,136 +375,129 @@ try {
 		}
 	}
 	for (const theme of ["light", "dark"] as const) {
-		for (const [plan, collapsed, destination, section] of [
-			["enterprise", false, "/admin/billing", "Usage"],
-			["growth", false, "/admin/billing?section=subscription", "Subscription"],
-			["growth", true, "/admin/billing", "Usage"],
-		] as const) {
+		for (const width of [1280, 390]) {
 			const page = await browser.newPage({
-				viewport: { width: 1280, height: 900 },
+				viewport: { width, height: 900 },
 				colorScheme: theme,
 			});
 			await page.addInitScript(
-				({ theme, collapsed }) => {
-					localStorage.setItem("tedix-os-theme", theme);
-					localStorage.setItem(
-						"tedix-os-sidebar-collapsed",
-						collapsed ? "1" : "0",
-					);
-				},
-				{ theme, collapsed },
+				(value) => localStorage.setItem("tedix-os-theme", value),
+				theme,
 			);
-			await page.route("**/api/rpc/billing/getOverview**", async (route) => {
-				const response = await route.fetch();
-				const body = await response.json();
-				body.json.snapshot.status = "past_due";
-				body.json.snapshot.planKey = plan;
-				await route.fulfill({ response, json: body });
-			});
-			let documentRequests = 0;
-			page.on("request", (request) => {
-				if (
-					request.isNavigationRequest() &&
-					request.resourceType() === "document" &&
-					request.frame() === page.mainFrame()
-				)
-					documentRequests++;
-			});
 			await page.goto(`${origin}/team`);
-			const link = collapsed
-				? page.getByRole("link", { name: "Billing and usage", exact: true })
-				: page.locator(`[data-sidebar="footer"] a[href="${destination}"]`);
-			await link.waitFor();
-			if (collapsed)
-				assert.equal(await link.getAttribute("data-sidebar"), "menu-button");
-			documentRequests = 0;
+			if (width === 390)
+				await capture(page, `sidebar-collapsed-${width}-${theme}`);
+			if (width === 390)
+				await page
+					.getByRole("button", { name: "Toggle navigation", exact: true })
+					.click();
+			const sidebar = rail(page);
+			await sidebar.waitFor();
+			assert.deepEqual(await sidebar.locator("a").allTextContents(), [
+				"Work",
+				"Chat",
+				"Workspaces",
+				"Documents",
+				"Team",
+				"Skills",
+				"Connections",
+				"Websites",
+				"Memory",
+			]);
+			assert.equal(
+				await sidebar.locator('[data-sidebar="group-label"]').count(),
+				0,
+			);
+			assert.equal(
+				await sidebar.locator('[data-sidebar="footer"] a').count(),
+				0,
+			);
+			await capture(page, `sidebar-expanded-${width}-${theme}`);
+			if (width === 1280) {
+				await page
+					.getByRole("button", { name: "Collapse sidebar", exact: true })
+					.click();
+				await stateIs(page, "collapsed");
+				await capture(page, `sidebar-collapsed-${width}-${theme}`);
+			}
+			await page
+				.getByRole("button", { name: "Account menu", exact: true })
+				.click();
+			const menu = page.getByRole("menu");
+			await menu.waitFor();
+			const labels = await menu.getByRole("menuitem").allTextContents();
+			assert(labels[0]?.startsWith("Usage"));
+			assert.deepEqual(labels.slice(1), [
+				"Billing",
+				"Settings",
+				"Personal settings",
+				"Install apps",
+				"Sign out",
+			]);
+			await capture(page, `avatar-menu-${width}-${theme}`);
 			await page.evaluate(
 				() =>
-					(document.documentElement.dataset.navigationProof =
-						"billing-same-document"),
+					(document.documentElement.dataset.navigationProof = "same-document"),
 			);
-			await link.click();
-			await page.waitForURL(
-				(url) => `${url.pathname}${url.search}` === destination,
-			);
-			const selected = page.getByRole("tab", { name: section, exact: true });
-			await selected.waitFor();
-			assert.equal(await selected.getAttribute("aria-selected"), "true");
-			await page.getByRole("tabpanel").waitFor();
+			await menu
+				.getByRole("menuitem", { name: "Billing", exact: true })
+				.click();
+			await page.waitForURL((url) => url.pathname === "/admin/billing");
 			assert.equal(
 				await page.evaluate(
 					() => document.documentElement.dataset.navigationProof,
 				),
-				"billing-same-document",
+				"same-document",
 			);
-			assert.equal(
-				documentRequests,
-				0,
-				"Billing link performed document navigation",
-			);
-			if (section === "Subscription")
-				await capture(page, `billing-subscription-1280-${theme}`);
-			console.log(
-				`PASS billing ${plan}/${collapsed ? "collapsed" : "expanded"}/${theme}: ${section}`,
-			);
+			if (width === 390) await stateIs(page, "collapsed");
+			const settings = page.getByRole("navigation", {
+				name: "Settings sections",
+				exact: true,
+			});
+			await settings.waitFor();
+			for (const label of [
+				"Templates",
+				"Website chat",
+				"Activity log",
+				"Usage & billing",
+			])
+				assert.equal(
+					await settings
+						.getByRole("link", { name: label, exact: true })
+						.count(),
+					1,
+				);
+			await capture(page, `settings-rail-${width}-${theme}`);
+			await capture(page, `breadcrumb-${width}-${theme}`);
+			for (const [label, path] of [
+				["Templates", "/blueprints"],
+				["Website chat", "/widget"],
+				["Activity log", "/audit"],
+				["Usage & billing", "/compute"],
+			]) {
+				await settings.getByRole("link", { name: label, exact: true }).click();
+				await page.waitForURL((url) => url.pathname === path);
+				await page
+					.getByRole("heading", { name: label, exact: true, level: 1 })
+					.waitFor();
+				assert.equal(
+					await settings
+						.getByRole("link", { name: label, exact: true })
+						.getAttribute("aria-current"),
+					"page",
+				);
+				await page.waitForFunction(
+					(label) => document.title.includes(label),
+					label,
+				);
+			}
 			await page.close();
 		}
 	}
-	for (const theme of ["light", "dark"] as const) {
-		const page = await browser.newPage({
-			viewport: { width: 390, height: 900 },
-			colorScheme: theme,
-		});
-		await page.addInitScript(
-			(value) => localStorage.setItem("tedix-os-theme", value),
-			theme,
-		);
-		await page.route("**/api/rpc/billing/getOverview**", async (route) => {
-			const response = await route.fetch();
-			const body = await response.json();
-			body.json.snapshot.status = "past_due";
-			await route.fulfill({ response, json: body });
-		});
-		await page.goto(`${origin}/admin/billing`);
-		await page.getByRole("tab", { name: "Usage", exact: true }).waitFor();
-		await page
-			.getByRole("button", { name: "Toggle navigation", exact: true })
-			.click();
-		await stateIs(page, "expanded");
-		await page.evaluate(
-			() =>
-				(document.documentElement.dataset.navigationProof =
-					"mobile-billing-same-document"),
-		);
-		await page
-			.locator(
-				'[data-sidebar="footer"] a[href="/admin/billing?section=subscription"]',
-			)
-			.click();
-		await page.waitForURL(
-			(url) =>
-				url.pathname === "/admin/billing" &&
-				url.search === "?section=subscription",
-		);
-		await stateIs(page, "collapsed");
-		assert.equal(
-			await page
-				.getByRole("tab", { name: "Subscription", exact: true })
-				.getAttribute("aria-selected"),
-			"true",
-		);
-		assert.equal(
-			await page.evaluate(
-				() => document.documentElement.dataset.navigationProof,
-			),
-			"mobile-billing-same-document",
-		);
-		await capture(page, `billing-subscription-390-${theme}`);
-		await page.close();
-	}
 	console.log(
-		"PASS: expanded Manage/Upgrade and collapsed billing row navigate client-side to Usage/Subscription; light/dark",
+		"PASS: nine sidebar links, avatar-only footer, account menu, settings rail, retained URLs and titles; desktop/390 × light/dark",
 	);
+
 	console.log(
 		"PASS: resource titles, linked list ancestors, billing/workspace trails, truncation tooltip, phone last-two crumbs and client navigation; desktop/390 × light/dark",
 	);

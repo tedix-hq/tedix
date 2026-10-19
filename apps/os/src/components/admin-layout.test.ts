@@ -63,7 +63,7 @@ describe("canAccessAdminSection", () => {
 			"text/html",
 		);
 		expect(doc.body.textContent).toContain(
-			"This area needs administrative authority",
+			"Only organization owners and admins can open these settings",
 		);
 		const card = doc.querySelector('[data-slot="card"]');
 		expect(card?.getAttribute("data-size")).toBe("sm");

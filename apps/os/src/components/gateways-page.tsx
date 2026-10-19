@@ -33,10 +33,7 @@ export function GatewaysPage() {
 				<PageHeader>
 					<PageHeading>
 						<PageTitle>{surface.label}</PageTitle>
-						<PageDescription>
-							{surface.description}. Gateways compose apps but are not
-							themselves installed capabilities or sites.
-						</PageDescription>
+						<PageDescription>{surface.description}</PageDescription>
 					</PageHeading>
 				</PageHeader>
 				<CapabilityNavigation active="gateway" />
@@ -44,9 +41,9 @@ export function GatewaysPage() {
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>
-						<SectionTitle>Organization gateways</SectionTitle>
+						<SectionTitle>Shared connection</SectionTitle>
 						<SectionDescription>
-							Open a gateway to manage its MCP configuration and membership.
+							Choose which apps and tools Tedix can use.
 						</SectionDescription>
 					</SectionHeading>
 					{query.data ? (
@@ -56,7 +53,7 @@ export function GatewaysPage() {
 				{query.isPending ? <ListSkeleton /> : null}
 				{query.isError ? (
 					<Alert variant="destructive">
-						<AlertTitle>Gateways are unavailable</AlertTitle>
+						<AlertTitle>Connections are unavailable</AlertTitle>
 						<AlertDescription>
 							{(query.error as Error).message}
 						</AlertDescription>
@@ -64,7 +61,7 @@ export function GatewaysPage() {
 				) : null}
 				{!query.isPending && gateways.length === 0 ? (
 					<Text as="p" role="body" tone="secondary">
-						No unified gateways belong to this organization.
+						No shared connection is set up for your organization.
 					</Text>
 				) : null}
 				{gateways.length ? (

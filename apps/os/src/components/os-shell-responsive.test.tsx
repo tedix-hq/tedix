@@ -48,6 +48,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	useNavigate: () => vi.fn(),
 	useRouterState: () => route.pathname,
 }));
+vi.mock("@/components/kumo/link-provider", () => ({
+	OsRouterLink: ({ to, ...props }: { to: string }) => (
+		<a href={to} {...props} />
+	),
+}));
 vi.mock("@/components/os-command-palette", () => ({
 	OsCommandPalette: () => null,
 }));
@@ -290,22 +295,16 @@ describe("OS shell chrome", () => {
 		const primary = container.querySelector('[aria-label="Primary"]')!;
 		expect(
 			[...primary.querySelectorAll("a")].map((a) => a.textContent),
-		).toEqual(["Work", "Chat", "Workspaces", "Outputs"]);
+		).toEqual(["Work", "Chat", "Workspaces", "Documents"]);
 		expect(primary.closest('[data-sidebar="content"]')).toBeNull();
-		const setup = container.querySelector('[aria-label="Setup"]')!;
-		expect(setup.closest('[data-sidebar="footer"]')).not.toBeNull();
-		expect([...setup.querySelectorAll("a")].map((a) => a.textContent)).toEqual([
-			"Install Tedix",
-		]);
+		expect(container.querySelector('[aria-label="Setup"]')).toBeNull();
+		expect(container.querySelector('[data-sidebar="group-label"]')).toBeNull();
 		for (const label of [
 			"Team",
 			"Skills",
-			"MCP Gateway",
-			"Brain",
-			"Blueprints",
-			"Widget",
-			"Audit",
-			"Usage & budgets",
+			"Connections",
+			"Websites",
+			"Memory",
 		]) {
 			expect(
 				[...rail(container).querySelectorAll("a")].filter(

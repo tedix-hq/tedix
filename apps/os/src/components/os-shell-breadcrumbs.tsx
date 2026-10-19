@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/use-document-title";
 import { useQuery } from "@tanstack/react-query";
 import { Breadcrumbs } from "@/components/kumo/breadcrumbs";
 import { resolveOsShellRouteContext } from "@/lib/os-shell-navigation";
@@ -12,7 +13,7 @@ function OutputBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
 	const context = resolveOsShellRouteContext(pathname, {
 		output: data?.output.title,
 	});
-	return <Breadcrumbs items={context.crumbs} section={context.section} />;
+	return <RouteBreadcrumbs context={context} />;
 }
 
 function SkillBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
@@ -20,7 +21,7 @@ function SkillBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
 	const context = resolveOsShellRouteContext(pathname, {
 		skill: data?.entry?.title,
 	});
-	return <Breadcrumbs items={context.crumbs} section={context.section} />;
+	return <RouteBreadcrumbs context={context} />;
 }
 
 function AppBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
@@ -28,7 +29,7 @@ function AppBreadcrumbs({ pathname, id }: { pathname: string; id: string }) {
 	const context = resolveOsShellRouteContext(pathname, {
 		app: data?.app?.name,
 	});
-	return <Breadcrumbs items={context.crumbs} section={context.section} />;
+	return <RouteBreadcrumbs context={context} />;
 }
 
 export function OsShellBreadcrumbs({ pathname }: { pathname: string }) {
@@ -39,5 +40,16 @@ export function OsShellBreadcrumbs({ pathname }: { pathname: string }) {
 	const appId = /^\/apps\/([^/]+)/.exec(pathname)?.[1];
 	if (appId) return <AppBreadcrumbs pathname={pathname} id={appId} />;
 	const context = resolveOsShellRouteContext(pathname);
+	return <RouteBreadcrumbs context={context} />;
+}
+
+function RouteBreadcrumbs({
+	context,
+}: {
+	context: ReturnType<typeof resolveOsShellRouteContext>;
+}) {
+	useDocumentTitle(
+		`${context.crumbs.map((crumb) => crumb.label).join(" · ")} · Tedix`,
+	);
 	return <Breadcrumbs items={context.crumbs} section={context.section} />;
 }

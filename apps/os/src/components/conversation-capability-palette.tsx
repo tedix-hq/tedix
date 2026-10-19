@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Paperclip, PuzzlePiece, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Capability } from "@tedix/api-contract/contracts/capabilities";
@@ -166,42 +171,40 @@ export function ConversationCapabilityPalette({
 	return (
 		<>
 			<Button
-				aria-label="Conversation capabilities"
+				aria-label="Chat context"
 				size="sm"
 				variant="outline"
 				onClick={() => setOpen(true)}
 			>
 				<PuzzlePiece aria-hidden className="size-4" />
-				Capabilities
+				Context
 				{attached.length > 0 ? <Badge>{attached.length}</Badge> : null}
 			</Button>
 			<Dialog open={open} onOpenChange={setOpen}>
 				<DialogContent className="sm:max-w-xl">
 					<DialogHeader>
-						<DialogTitle>Conversation capabilities</DialogTitle>
+						<DialogTitle>Chat context</DialogTitle>
 						<DialogDescription>
-							Attach named organizational capabilities as context for this
-							conversation. They do not grant tools, MCP scopes, or FGA access;
-							every action still passes the existing authorization and policy
-							gates.
+							Add saved information to help Tedix with this chat. Access to apps
+							and actions still needs the usual permission.
 						</DialogDescription>
 					</DialogHeader>
 
 					{error ? (
 						<Alert variant="destructive">
-							<AlertTitle>Capability update failed</AlertTitle>
+							<AlertTitle>Could not update chat context</AlertTitle>
 							<AlertDescription>{error}</AlertDescription>
 						</Alert>
 					) : null}
 
 					<Surface className="grid gap-3 p-3">
-						<Label htmlFor="conversation-capability">Add capability</Label>
+						<Label htmlFor="conversation-capability">Add saved context</Label>
 						<Select value={selectedId} onValueChange={selectCapability}>
 							<SelectTrigger
 								id="conversation-capability"
-								aria-label="Capability"
+								aria-label="Saved context"
 							>
-								<SelectValue placeholder="Choose an active capability" />
+								<SelectValue placeholder="Choose saved context" />
 							</SelectTrigger>
 							<SelectContent>
 								{available.map((capability) => (
@@ -212,7 +215,7 @@ export function ConversationCapabilityPalette({
 							</SelectContent>
 						</Select>
 						<Label htmlFor="conversation-capability-replay-name">
-							Replay name
+							Reference name
 						</Label>
 						<Input
 							id="conversation-capability-replay-name"
@@ -226,24 +229,24 @@ export function ConversationCapabilityPalette({
 							role="caption"
 							tone="secondary"
 						>
-							Stable lowercase name used when this conversation is replayed.
+							A short name Tedix can use to refer to this saved information.
 							Letters, numbers, and underscores only; start with a letter.
 						</Text>
 						<Button
 							disabled={!selectedId || !replayNameValid || attach.isPending}
 							onClick={() => attach.mutate()}
 						>
-							{attach.isPending ? "Attaching…" : "Attach capability"}
+							{attach.isPending ? "Attaching…" : "Add context"}
 						</Button>
 					</Surface>
 
-					<div className="grid gap-2" aria-label="Attached capabilities">
+					<div className="grid gap-2" aria-label="Added context">
 						{attachedQuery.isPending ? (
-							<Text tone="secondary">Loading capabilities…</Text>
+							<Text tone="secondary">Loading context…</Text>
 						) : attached.length === 0 ? (
 							<Empty>
 								<EmptyHeader>
-									<EmptyTitle>No capabilities attached</EmptyTitle>
+									<EmptyTitle>No extra context added</EmptyTitle>
 									<EmptyDescription>
 										This conversation currently uses ordinary organization
 										context.
@@ -285,23 +288,22 @@ export function ConversationCapabilityPalette({
 					<div className="border-t border-kumo-line pt-4">
 						<div className="mb-3 flex items-center gap-2">
 							<Paperclip aria-hidden className="size-4" />
-							<Text weight="medium">Pinned artifact revisions</Text>
+							<Text weight="medium">Pinned files</Text>
 						</div>
 						<Text role="caption" tone="secondary">
-							Pins accept platform-published single-file artifacts with a
-							SHA-256 revision. They add context only and never grant artifact
-							access or execution authority.
+							Pin a published file version for Tedix to refer to in this chat.
+							Access to the file still needs permission.
 						</Text>
 						<Surface className="mt-3 grid gap-3 p-3">
-							<Label htmlFor="conversation-artifact-id">Artifact ID</Label>
+							<Label htmlFor="conversation-artifact-id">File ID</Label>
 							<Input
 								id="conversation-artifact-id"
 								value={artifactId}
 								onChange={(event) => setArtifactId(event.currentTarget.value)}
-								placeholder="Artifact ID from run evidence"
+								placeholder="File ID from a saved result"
 							/>
 							<Label htmlFor="conversation-artifact-replay-name">
-								Replay name
+								Reference name
 							</Label>
 							<Input
 								id="conversation-artifact-replay-name"
@@ -319,13 +321,10 @@ export function ConversationCapabilityPalette({
 								}
 								onClick={() => pinArtifact.mutate()}
 							>
-								{pinArtifact.isPending ? "Pinning…" : "Pin revision"}
+								{pinArtifact.isPending ? "Pinning…" : "Pin version"}
 							</Button>
 						</Surface>
-						<div
-							className="mt-3 grid gap-2"
-							aria-label="Pinned artifact revisions"
-						>
+						<div className="mt-3 grid gap-2" aria-label="Pinned files">
 							{pins.map((pin) => (
 								<Surface
 									key={pin.id}
@@ -335,13 +334,21 @@ export function ConversationCapabilityPalette({
 										<div className="flex flex-wrap items-center gap-2">
 											<Text weight="medium">{pin.artifact.name}</Text>
 											<Badge>
-												{pin.state === "active" ? "Pinned revision" : "Stale"}
+												{pin.state === "active" ? "Pinned version" : "Stale"}
 											</Badge>
 										</div>
-										<Text role="caption" tone="mono-secondary">
-											{pin.replayName} · sha256:
-											{pin.revision.digest.slice(0, 12)}…
-										</Text>
+										<Collapsible>
+											<CollapsibleTrigger>Details</CollapsibleTrigger>
+											<CollapsibleContent>
+												<Text
+													role="caption"
+													tone="mono-secondary"
+													className="break-all"
+												>
+													{pin.replayName} · sha256:{pin.revision.digest}
+												</Text>
+											</CollapsibleContent>
+										</Collapsible>
 										<Text role="caption" tone="secondary">
 											Attached by {pin.whyPresent.type} {pin.whyPresent.actorId}
 										</Text>
@@ -358,7 +365,7 @@ export function ConversationCapabilityPalette({
 								</Surface>
 							))}
 							{!pinsQuery.isPending && pins.length === 0 ? (
-								<Text tone="secondary">No artifact revisions pinned.</Text>
+								<Text tone="secondary">No file versions pinned.</Text>
 							) : null}
 						</div>
 					</div>

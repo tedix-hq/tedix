@@ -17,7 +17,7 @@ visibility: public
 
 A factory is a recurring lane owned by a tedi: a Work project and standing
 objective, a revisioned executable skill, a schedule and a health Work Item.
-A Workspace holds its sources, Outputs and review app. Configuration, a queued
+A Workspace holds its sources, Documents and review app. Configuration, a queued
 run and a delivered result are separate facts.
 
 For an overnight coordinator, use a tedi-owned scheduled skill workflow to
@@ -137,7 +137,7 @@ A factory for one person's own inbox belongs in that person's private
 Workspace. Give it to them with `update_os_workspace` (`visibility:
 "private"`, their `ownerUserId`): the current owner can do it, and so can an
 organization admin for an org Workspace; afterwards only that member sees
-it. The linked skill's runs still read and write that Workspace's Outputs,
+it. The linked skill's runs still read and write that Workspace's Documents,
 and nothing else of the member's. Declare the mailbox read in the skill's
 manifest (`google_gmail: [search_threads]`). The owner then opens the
 Workspace and clicks **Let this read my Gmail (read-only)** on the skill's
@@ -201,9 +201,9 @@ runner. Lifecycle uses `pause_factory`, `resume_factory` and `archive_factory`. 
 | `paused`     | Future scheduled runs are disabled.                                    |
 | `pending`    | The first scheduled run is not due yet.                                |
 
-Pause disables future dispatch while preserving cadence and Outputs; it does
+Pause disables future dispatch while preserving cadence and Documents; it does
 not cancel an in-flight run. Resume restores the existing schedule. Archive
-retires the lane and removes its schedule; it preserves Work and Outputs.
+retires the lane and removes its schedule; it preserves Work and Documents.
 For disposable factories, cancel the returned health Work Item, archive the
 project, and complete its standing objective only after checking nothing else
 uses them. Archive the scratch Workspace after verifying no schedule remains.
@@ -258,7 +258,7 @@ normal runtime consent, budget and execution gates still apply.
 
 For an existing factory, resolve its Workspace, structured project links,
 selected resources, lane and schedule before changing it. Read only the
-relevant Work, latest runs and Outputs; preserve access errors, truncation and
+relevant Work, latest runs and Documents; preserve access errors, truncation and
 missing links. Blueprint setup uses its exact published revision and
 `preflight_os_blueprint` bindings; preflight grants no execution authority.
 

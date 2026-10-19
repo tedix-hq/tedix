@@ -112,11 +112,22 @@ export const ACTOR_TONE_BADGE_VARIANTS: Record<ActorTone, BadgeVariant> = {
 	warn: "warning",
 };
 
-/** Acronym casings sentenceCase would mangle; everything else sentence-cases. */
+/** Display names keep internal actor types out of the activity list. */
 const ACTOR_TYPE_LABELS: Partial<Record<AuditActorType, string>> = {
+	user: "Person",
+	external_agent: "Coding assistant",
+	kernel: "Tedix",
 	api_key: "API key",
 	m2m: "M2M",
 };
+
+export function auditActionLabel(action: string): string {
+	if (action === "home.tool_write" || action === "home_tool_write")
+		return "Chat action";
+	if (action.split(".").at(-1)?.toLowerCase() === "createmany")
+		return "Created multiple records";
+	return sentenceCase(action);
+}
 
 export function actorTypeLabel(actorType: AuditActorType): string {
 	return ACTOR_TYPE_LABELS[actorType] ?? sentenceCase(actorType);
@@ -204,7 +215,7 @@ export function AuditEventRow({
 					truncate
 					title={event.action}
 				>
-					{sentenceCase(event.action)}
+					{auditActionLabel(event.action)}
 				</Text>
 				<Text role="label" tone="secondary" as="span" truncate>
 					{humanize(event.resourceType)}
@@ -295,7 +306,7 @@ export function AuditEventTable({
 										className="block"
 										title={event.action}
 									>
-										{sentenceCase(event.action)}
+										{auditActionLabel(event.action)}
 									</Text>
 								</TableCell>
 								<TableCell className="max-w-60">
@@ -772,7 +783,7 @@ export function AuditPage({
 						<DialogHeader>
 							<DialogTitle>Audit event</DialogTitle>
 							<DialogDescription>
-								{sentenceCase(inspectedEvent.action)} ·{" "}
+								{auditActionLabel(inspectedEvent.action)} ·{" "}
 								<time dateTime={inspectedEvent.timestamp}>
 									{absoluteTime(inspectedEvent.timestamp)}
 								</time>

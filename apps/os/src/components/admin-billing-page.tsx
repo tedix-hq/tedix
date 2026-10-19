@@ -21,6 +21,7 @@
  * with a replace navigation so refresh/back does not replay it.
  */
 
+import { OS_COPY } from "@/shared/os-copy";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Info, ShieldCheck } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -132,7 +133,7 @@ export function AdminBillingPage({
 		<Page width="xl">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Billing &amp; usage</PageTitle>
+					<PageTitle>{OS_COPY.navigation.compute}</PageTitle>
 					<PageDescription>
 						Understand what you are using, what you will pay, and how much
 						capacity remains.

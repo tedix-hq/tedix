@@ -231,7 +231,7 @@ export function groupFactories(
 	return [...groups].map(([tedi, factories]) => ({ tedi, factories }));
 }
 
-/** A published Blueprint nobody ran this week is a template, not a factory. */
+/** A published Template nobody ran this week is a template, not a factory. */
 export function isIdleTemplate(row: FactoryScoreboardEntry): boolean {
 	return row.kind === "blueprint" && row.runs === 0;
 }
@@ -262,7 +262,7 @@ const VERDICT_BADGES: Record<
 
 /**
  * A loop shows the inspect_factory_health verdict, the same one the CLI and
- * MCP report. A Blueprint has no verdict, so it keeps the scoreboard's own
+ * MCP report. A Template has no verdict, so it keeps the scoreboard's own
  * idle flag.
  */
 export function factoryStatus(
@@ -312,7 +312,7 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 						</Badge>
 					) : null}
 					<Badge variant="outline">
-						{row.kind === "blueprint" ? "Blueprint" : "Loop"}
+						{row.kind === "blueprint" ? "Template" : "Loop"}
 					</Badge>
 				</div>
 			</div>
@@ -374,8 +374,8 @@ function FactoryScoreboard() {
 				<SectionHeading>
 					<SectionTitle id="portfolio-factories-title">Factories</SectionTitle>
 					<SectionDescription>
-						Runs and results of each scheduled loop and Blueprint over the last
-						7 days.
+						Runs and results of each scheduled loop and Template over the last 7
+						days.
 					</SectionDescription>
 					{failing || notFiring ? (
 						<Text as="p" role="label" tone="error" data-factory-problems="">
@@ -391,7 +391,7 @@ function FactoryScoreboard() {
 				{unusedTemplates ? (
 					<SectionActions>
 						<Link variant="section" href="/blueprints">
-							{counted(unusedTemplates, "Blueprint")} with no runs
+							{counted(unusedTemplates, "Template")} with no runs
 						</Link>
 					</SectionActions>
 				) : null}
@@ -427,8 +427,8 @@ function FactoryScoreboard() {
 			) : (
 				<Muted>
 					{unusedTemplates
-						? "No loop or Blueprint ran in the last 7 days"
-						: "No scheduled loops or published Blueprints yet"}
+						? "No loop or Template ran in the last 7 days"
+						: "No scheduled loops or published Templates yet"}
 				</Muted>
 			)}
 		</PageSection>

@@ -98,7 +98,7 @@ export function WidgetManagementPage() {
 		return (
 			<Page width="xl">
 				<Alert variant="destructive">
-					<AlertTitle>Widget configuration unavailable</AlertTitle>
+					<AlertTitle>Website chat settings unavailable</AlertTitle>
 					<AlertDescription>
 						The organization context could not be loaded.
 					</AlertDescription>
@@ -176,7 +176,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 		return (
 			<Page width="xl">
 				<Alert variant="destructive">
-					<AlertTitle>Widget configuration unavailable</AlertTitle>
+					<AlertTitle>Website chat settings unavailable</AlertTitle>
 					<AlertDescription>
 						The organization profile could not be loaded.
 					</AlertDescription>
@@ -206,7 +206,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 							</PageDescription>
 						</PageHeading>
 					</PageHeader>
-					<TabsList variant="line" aria-label="Widget management">
+					<TabsList variant="line" aria-label="Website chat settings">
 						<TabsTrigger value="experience">Customize</TabsTrigger>
 						<TabsTrigger value="customers">Customers</TabsTrigger>
 						<TabsTrigger value="settings">Funding</TabsTrigger>

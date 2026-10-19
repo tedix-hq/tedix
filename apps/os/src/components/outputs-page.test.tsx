@@ -317,7 +317,7 @@ describe("OutputsPage", () => {
 		await flush();
 		expect(container.querySelector('[data-slot="page"]')).not.toBeNull();
 
-		expect(container.textContent).toContain("Outputs are unavailable");
+		expect(container.textContent).toContain("Documents are unavailable");
 		expect(container.textContent).toContain(
 			"API request timed out after 15000ms",
 		);

@@ -13,8 +13,38 @@ export function decisionText(english: string): string {
 		: english;
 }
 
+export function navigationDescription(
+	id: keyof typeof SPANISH_FEED_DECK_COPY.navigationDescriptions,
+	english: string,
+): string {
+	return osLocale().startsWith("es")
+		? SPANISH_FEED_DECK_COPY.navigationDescriptions[id]
+		: english;
+}
+
 /** Generic OS wording. Names and tenant-specific content come from records. */
 const ENGLISH_COPY = {
+	navigation: {
+		work: "Work",
+		chat: "Chat",
+		workspaces: "Workspaces",
+		outputs: "Documents",
+		team: "Team",
+		skills: "Skills",
+		gateways: "Connections",
+		sites: "Websites",
+		brain: "Memory",
+		blueprints: "Templates",
+		widget: "Website chat",
+		audit: "Activity log",
+		compute: "Usage & billing",
+		install: "Install apps",
+		settings: "Settings",
+		usage: "Usage",
+		billing: "Billing",
+		personalSettings: "Personal settings",
+		signOut: "Sign out",
+	},
 	routePending: {
 		loading: "Loading Tedix OS…",
 	},
@@ -420,6 +450,11 @@ const ENGLISH_COPY = {
 /** Resolve at render time so loading or changing personal preferences updates copy. */
 export const OS_COPY = {
 	...ENGLISH_COPY,
+	get navigation() {
+		return osLocale().startsWith("es")
+			? SPANISH_FEED_DECK_COPY.navigation
+			: ENGLISH_COPY.navigation;
+	},
 	get workHome() {
 		return osLocale().startsWith("es")
 			? SPANISH_FEED_DECK_COPY.workHome

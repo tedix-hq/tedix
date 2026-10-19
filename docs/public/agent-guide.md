@@ -295,7 +295,7 @@ lessons are refreshed on every prompt across harnesses. Neither installation
 nor a saved lesson proves that a host dispatched the hook or read the result.
 
 Today and the context rail show **Learned today**, with links to active rules
-from your feedback. Open Brain to inspect their supporting quotes. Historical
+from your feedback. Open Memory to inspect their supporting quotes. Historical
 notes can be previewed with `tedix learn import-memory --directory <path>`;
 `--date YYYY-MM-DD --type feedback --apply` imports only the selected files.
 Raw notes are processed locally; only extracted rules, quotes and file evidence

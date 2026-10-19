@@ -159,7 +159,7 @@ Detail: [Build and inspect a factory as an agent](./factory-agent-guide.md).
 
 ## 5. Know the containers
 
-A **Workspace** holds Outputs. A **Work project** holds Work Items and a brief.
+A **Workspace** holds Documents. A **Work project** holds Work Items and a brief.
 The **Work factory** records around them (cases, milestones, approvals,
 interactions, admission, capacity) are the control plane. A working factory is
 one project, one Workspace, one tedi and the skills or schedule that keep it

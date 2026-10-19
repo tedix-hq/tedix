@@ -769,7 +769,7 @@ export function OutputsPage() {
 			{outputs.isPending ? <ListSkeleton /> : null}
 			{outputs.isError ? (
 				<Alert variant="destructive">
-					<AlertTitle>Outputs are unavailable</AlertTitle>
+					<AlertTitle>Documents are unavailable</AlertTitle>
 					<AlertDescription>
 						<span>{(outputs.error as Error).message}</span>
 						<Button

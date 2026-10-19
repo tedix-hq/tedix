@@ -94,6 +94,6 @@ describe("CostChip", () => {
 		const html = render({ kind: "absent", reason: "ingestion_dark" });
 		expect(html).toContain("Model cost for this run");
 		expect(html).toContain("aria-label=");
-		expect(html).toContain("understates real spend");
+		expect(html).toContain("lower than the actual spending");
 	});
 });

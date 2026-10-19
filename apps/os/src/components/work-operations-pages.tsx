@@ -1822,7 +1822,7 @@ export function WorkInteractionsPage() {
 				}
 			/>
 			<KumoTabs
-				aria-label="Interaction view"
+				aria-label="Message view"
 				value={listView}
 				onValueChange={(value) => {
 					paging.reset();
@@ -1946,7 +1946,7 @@ export function WorkInteractionsPage() {
 				{query.isPending ? (
 					<Loading />
 				) : query.isError ? (
-					<Failure title="Interactions unavailable" error={query.error} />
+					<Failure title="Messages unavailable" error={query.error} />
 				) : visibleRows.length === 0 ? (
 					<None
 						title={
@@ -1967,7 +1967,7 @@ export function WorkInteractionsPage() {
 						}
 					/>
 				) : (
-					<Table scrollLabel="Interactions">
+					<Table scrollLabel="Messages">
 						<TableHeader>
 							<TableRow>
 								<TableHead>Request</TableHead>
@@ -2316,7 +2316,7 @@ export function WorkAdmissionPage() {
 		<Page width="full">
 			<Header
 				title="Admission"
-				description="Inspect ranked eligibility and normalized Work Item admission requirements. Starting an Attempt re-evaluates all gates atomically."
+				description="See which tasks are ready to start and what each needs. Readiness is checked again when work starts."
 			/>
 			<Card>
 				<CardHeader>

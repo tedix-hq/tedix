@@ -21,12 +21,12 @@ For Git-backed product documentation, use [Documentation sites](./docs-sites.md)
 
 ## Availability
 
-CMS is part of the invited Cloud beta. An organization admin can open **Sites**
+CMS is part of the invited Cloud beta. An organization admin can open **Websites**
 and create a CMS site with a name, globally unique slug, and starter template.
 The action creates the site's authoring connection and media storage. The site
 is ready for authoring but remains unpublished until its first theme deploy.
 Someone without the organization's `settings:manage` permission can view owned
-sites but cannot create one. The **Sites** page shows the organization's CMS
+sites but cannot create one. The **Websites** page shows the organization's CMS
 site usage and plan limit. Paused sites still use a slot; completed deprovisioning
 frees it. A matching retry does not consume another slot.
 
@@ -35,7 +35,7 @@ organization's Tedix gateway with the `mcp:content.admin` scope. Confirm the
 workspace with `tedix -w <workspace> auth status`, discover the exact tool schema,
 then supply the same name, slug, and template. A matching retry returns the
 existing site. A slug already owned by another organization is rejected.
-Custom hostnames can be connected from **Sites** when the organization's
+Custom hostnames can be connected from **Websites** when the organization's
 `customDomain` feature is enabled. Business and Enterprise plans enable it by
 default; an organization-specific feature override can change availability.
 
@@ -47,14 +47,14 @@ remains experimental [operator work](./self-hosted-boundary.md).
 ## Connect a custom hostname
 
 An organization admin with `settings:manage` can open an active CMS site in
-**Sites → Custom domain**. An authorized agent can use the organization's
+**Websites → Custom domain**. An authorized agent can use the organization's
 `begin_cms_domain`, `get_cms_domain`, `verify_cms_domain`, and
 `remove_cms_domain` gateway tools. Changes require both `settings:manage` and
 `mcp:content.admin`; reads require `settings:manage` and `mcp:content.read`.
 
 1. Begin a claim for your main hostname, such as `example.com` or
    `blog.example.com`. Tedix shows the exact DNS names and values for this
-   claim. Copy them from **Sites**; the ownership value is unique to the claim,
+   claim. Copy them from **Websites**; the ownership value is unique to the claim,
    which expires after seven days.
 2. Add the records at your DNS provider:
 
@@ -64,20 +64,20 @@ An organization admin with `settings:manage` can open an active CMS site in
    | Subdomain, such as `blog.example.com` | Direct, publicly visible CNAME from the hostname to the returned `{site-slug}.cms.tedix.dev` target. If your provider offers a proxy switch, use **DNS only**.                         |
    | Zone apex, such as `example.com`      | Provider-supported flattened CNAME, ALIAS, or ANAME at `@` pointing to the returned target. Do not use a fixed IP address. Your DNS provider must support an apex alias or flattening. |
 
-3. Once the records appear in public DNS, select **Verify domain**. If Sites
+3. Once the records appear in public DNS, select **Verify domain**. If Websites
    then shows more TXT or CNAME records for Cloudflare hostname or certificate
    validation, add each exact name and value and verify again. DNS consoles
    differ in whether they append the zone name, so check the resulting public
    record name before retrying.
-4. Wait until Sites reports the hostname **and** its TLS certificate active.
+4. Wait until Websites reports the hostname **and** its TLS certificate active.
    Then open the HTTPS URL and confirm that it serves your site. DNS ownership
    alone does not make the site live.
 
 For an apex domain, you can also redirect `www.example.com` to `example.com`.
-After the apex is active, start the separate **www redirect** claim in Sites.
+After the apex is active, start the separate **www redirect** claim in Websites.
 Add its own `_tedix-cms.www.example.com` TXT and a direct, DNS-only CNAME for
 `www` to the target shown for that claim. Add any further validation records
-Sites shows, then verify until the `www` hostname and certificate are active.
+Websites shows, then verify until the `www` hostname and certificate are active.
 Tedix then sends an HTTPS 301 redirect to the apex and preserves the path and
 query string. A `www` DNS record by itself does not create a redirect. An agent
 can start this companion with `begin_cms_domain` using
