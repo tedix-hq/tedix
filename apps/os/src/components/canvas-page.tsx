@@ -1,3 +1,4 @@
+import "./canvas-page.css";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 import { ArrowLeft, FileX, SidebarSimple } from "@phosphor-icons/react";
@@ -1007,7 +1008,7 @@ export function CanvasPage({
 		<Page
 			fullHeight
 			width="bleed"
-			className="canvas-surface"
+			className="canvas-surface workspace-design"
 			data-canvas-focus={focusMode || undefined}
 			data-chat-collapsed={
 				(chatCollapsed && openedDocs.length > 0 && !simpleMode) || undefined
@@ -1023,6 +1024,7 @@ export function CanvasPage({
 					<Button
 						aria-label={OS_COPY.workspace.allWorkspaces}
 						className="canvas-workspace-back"
+						title={OS_COPY.workspace.allWorkspaces}
 						onClick={() => void navigate({ to: "/workspaces" })}
 						size="icon-sm"
 						variant="ghost"
@@ -1039,11 +1041,11 @@ export function CanvasPage({
 					</span>
 					<div className="canvas-workspace-title">
 						{selectedApp && selectedWorkspace ? (
-							<p className="canvas-workspace-breadcrumb">
+							<p className="canvas-workspace-breadcrumb type-tedix-caption">
 								{selectedWorkspace.name}
 							</p>
 						) : null}
-						<h1>
+						<h1 className="type-tedix-body">
 							{selectedApp?.name ?? selectedWorkspace?.name ?? surface.label}
 						</h1>
 						<p className="sr-only">

@@ -193,9 +193,9 @@ export function CanvasResourceRail({
 		<aside aria-label="Workspace library" className="canvas-resource-rail">
 			<div className="canvas-resource-library">
 				<header className="canvas-resource-library-header">
-					<div>
-						<h2>Resources</h2>
-						<p>
+					<div className="grid gap-3">
+						<h2 className="type-tedix-section">Resources</h2>
+						<p className="type-tedix-body">
 							{shownGadgets.length > 0
 								? "Open an app to work through this workspace, or a file to read or edit it. Use the conversation to ask for changes."
 								: "Start with a file below. Open it in the Editor to read or edit it, or use the conversation to ask for changes."}

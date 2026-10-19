@@ -144,7 +144,7 @@ export function WorkspaceLibraryPage() {
 											key={workspace.id}
 										>
 											<Link
-												className="min-w-0 flex-1 justify-start gap-3 px-3 py-2.5 text-left"
+												className="min-w-0 flex-1 justify-start gap-3 px-3 py-3 text-left"
 												href={`/workspace/${workspace.id}`}
 												variant="collection"
 											>
@@ -194,8 +194,11 @@ export function WorkspaceLibraryPage() {
 											</Link>
 											<Button
 												aria-label={`${preference?.favorite ? "Remove" : "Add"} ${workspace.name} ${preference?.favorite ? "from" : "to"} favorites`}
+												title={`${preference?.favorite ? "Remove from" : "Add to"} favorites`}
 												className={
-													preference?.favorite ? "text-kumo-link" : undefined
+													preference?.favorite
+														? "text-kumo-link"
+														: "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 coarse:opacity-100"
 												}
 												onClick={() =>
 													favorite.mutate({
@@ -339,7 +342,7 @@ function ArchivedWorkspaces() {
 						restore.variables?.workspaceId === workspace.id;
 					return (
 						<li
-							className="flex min-w-0 items-center gap-3 px-3 py-2.5"
+							className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-3"
 							key={workspace.id}
 						>
 							<Text

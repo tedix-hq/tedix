@@ -177,7 +177,7 @@ function WorkspaceAppCard({
 					) : (
 						<span />
 					)}
-					<Button size="sm" variant="default" onClick={onOpen}>
+					<Button size="sm" variant="outline" onClick={onOpen}>
 						Open app
 					</Button>
 				</div>
