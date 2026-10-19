@@ -129,15 +129,15 @@ function OsSidebar({
 				</OsWorkspaceSwitcher>
 			</SidebarHeader>
 
-			<SidebarGroup className="shrink-0 px-2 pb-1.5">
+			<SidebarGroup className="shrink-0 px-2 pb-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
 				{collapsed ? null : (
 					<Button
-						className="mx-0 my-2 flex !h-8 w-full items-center gap-2.5 whitespace-nowrap rounded-lg border border-transparent bg-kumo-base px-3 text-left text-kumo-subtle transition-colors hover:border-kumo-hairline hover:bg-kumo-tint hover:text-kumo-default coarse:min-h-11"
+						className="mx-0 my-2 flex !h-8 w-full items-center gap-2 whitespace-nowrap rounded-lg border border-transparent bg-kumo-base px-3 text-left text-kumo-subtle transition-colors hover:border-kumo-hairline hover:bg-kumo-tint hover:text-kumo-default coarse:min-h-11"
 						onClick={onOpenPalette}
 						size="sm"
 						variant="ghost"
 					>
-						<MagnifyingGlass size={14} />
+						<MagnifyingGlass size={16} />
 						<span>Quick search…</span>
 						<kbd className="ml-auto text-kumo-subtle type-tedix-caption">
 							⌘K
@@ -180,7 +180,7 @@ function OsSidebar({
 				))}
 			</SidebarContent>
 
-			<SidebarFooter className="h-auto flex-col gap-1.5 py-2.5 group-data-[state=collapsed]/sidebar:px-2">
+			<SidebarFooter className="h-auto flex-col gap-2 py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
 				<OsSidebarBillingStatus />
 				<SidebarMenu aria-label="Setup" className="w-full">
 					{OS_SHELL_FOOTER_NAVIGATION.map((item) => (
@@ -191,7 +191,7 @@ function OsSidebar({
 						/>
 					))}
 				</SidebarMenu>
-				<div className="flex items-center gap-1 self-stretch group-data-[state=collapsed]/sidebar:flex-col group-data-[state=collapsed]/sidebar:gap-1.5 group-data-[state=collapsed]/sidebar:self-auto">
+				<div className="flex items-center gap-2 self-stretch group-data-[state=collapsed]/sidebar:flex-col group-data-[state=collapsed]/sidebar:gap-2 group-data-[state=collapsed]/sidebar:self-auto">
 					<SidebarTrigger
 						aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
 						className="ml-auto shrink-0 group-data-[state=collapsed]/sidebar:ml-0"
@@ -249,6 +249,7 @@ function MobileNavigationTrigger() {
 		<SidebarTrigger
 			aria-label="Toggle navigation"
 			className="ghost-icon-button"
+			title="Toggle navigation"
 		>
 			<List size={18} />
 		</SidebarTrigger>

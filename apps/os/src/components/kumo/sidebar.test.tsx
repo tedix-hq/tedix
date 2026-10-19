@@ -163,15 +163,6 @@ describe("SidebarMenuButton", () => {
 });
 
 describe("collapsed rail", () => {
-	/*
-	 * The regression this guards: Kumo publishes NO `display: none` for a nav
-	 * label. The row is `icon (shrink-0) + gap + label (flex-1 min-w-0)`, and the
-	 * collapsed rail is deliberately narrower than `icon + gap`, so the label is
-	 * squeezed to zero width and `tooltip` carries the name. Giving the row
-	 * `px-0` when collapsed hands that width back and the rail renders truncated
-	 * labels ("W..", "C.."). Measured in a real browser at 56px: label width 0,
-	 * icon centre exactly 28px.
-	 */
 	it("renders icon-only rows: no label box, and a tooltip carrying the name", () => {
 		const container = document.createElement("div");
 		document.body.append(container);
@@ -203,6 +194,7 @@ describe("collapsed rail", () => {
 			'[data-sidebar="menu-button"]',
 		);
 		// Kumo arms the tooltip only while collapsed.
+		expect(row?.getAttribute("aria-label")).toBe("Work");
 		expect(row?.hasAttribute("data-trigger-disabled")).toBe(false);
 		expect(
 			container.querySelector("[data-base-ui-tooltip-trigger]"),
