@@ -1,3 +1,4 @@
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { cardIsDue, cardScheduleDates } from "@/lib/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -27,7 +28,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 			},
 		}),
 		enabled: Boolean(config),
-		refetchInterval: 30_000,
+		...workRefreshOptions,
 	});
 	// A scheduled reminder can be older than the newest inbox page.
 	const earlierEnabled = Boolean(config && inbox.data?.nextCursor);
@@ -43,7 +44,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 			getNextPageParam: (page) => page.nextCursor ?? undefined,
 		}),
 		enabled: earlierEnabled,
-		refetchInterval: 30_000,
+		...workRefreshOptions,
 	});
 	useEffect(() => {
 		if (
@@ -73,12 +74,12 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 			},
 		}),
 		enabled: Boolean(config),
-		refetchInterval: 30_000,
+		...workRefreshOptions,
 	});
 	const approvals = useQuery({
 		...pendingApprovalsQueryOptions(),
 		enabled: Boolean(config) && !config?.projectId,
-		refetchInterval: 30_000,
+		...workRefreshOptions,
 	});
 	const workApprovals = useQuery({
 		...osQuery.workApprovals.listInbox.queryOptions({
@@ -89,7 +90,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 			},
 		}),
 		enabled: Boolean(config),
-		refetchInterval: 30_000,
+		...workRefreshOptions,
 	});
 	const requests = [
 		...new Map(

@@ -1,5 +1,6 @@
+import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { workActorReference } from "@/lib/work-actor";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as z from "zod";
 import type { WorkApprovalInboxRowSchema } from "@tedix/api-contract/schemas/work-approvals";
@@ -26,6 +27,7 @@ export function WorkApprovalDecisionCard({
 	onPrevious: () => void;
 }) {
 	const client = useQueryClient();
+	const optimistic = useContext(OptimisticDeckDecisionContext);
 	const [rationale, setRationale] = useState("");
 	const copy = OS_COPY.workHome;
 	return (
@@ -87,17 +89,18 @@ export function WorkApprovalDecisionCard({
 					decision: feedback.action === "approve" ? "approved" : "rejected",
 					rationale: rationale.trim(),
 				});
-				await Promise.all([
-					client.invalidateQueries({ queryKey: osQuery.workApprovals.key() }),
-					client.invalidateQueries({
-						queryKey: osQuery.learningFeedback.key(),
-					}),
-					client.invalidateQueries(
-						workItemReadinessQueryOptions(row.workItem.id),
-					),
-					client.invalidateQueries(workSchedulerQueryOptions()),
-					client.invalidateQueries(workFleetQueryOptions()),
-				]);
+				if (!optimistic)
+					await Promise.all([
+						client.invalidateQueries({ queryKey: osQuery.workApprovals.key() }),
+						client.invalidateQueries({
+							queryKey: osQuery.learningFeedback.key(),
+						}),
+						client.invalidateQueries(
+							workItemReadinessQueryOptions(row.workItem.id),
+						),
+						client.invalidateQueries(workSchedulerQueryOptions()),
+						client.invalidateQueries(workFleetQueryOptions()),
+					]);
 				return { learningClientEventId: `work-approval:${result.decision.id}` };
 			}}
 		/>

@@ -1,3 +1,4 @@
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import { Check, Pulse, X } from "@phosphor-icons/react";
@@ -47,11 +48,11 @@ export function ApprovalNotifications({
 	const runSet = useQuery({
 		...homeRunSetQueryOptions(conversationId ?? ""),
 		enabled: conversationId !== null,
-		refetchInterval: 15_000,
+		...workRefreshOptions,
 	});
 	const runtime = useQuery({
 		...pendingApprovalsQueryOptions(),
-		refetchInterval: 15_000,
+		...workRefreshOptions,
 	});
 	const homeApprovals = runSet.data
 		? approvalsFromRunSet(runSet.data.runSet).filter(isActionableHomeApproval)

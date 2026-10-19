@@ -1,3 +1,4 @@
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, EyeSlash, PushPin, ThumbsDown } from "@phosphor-icons/react";
@@ -79,7 +80,7 @@ export function FocusFeed({
 	}));
 	const model = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
-		refetchInterval: 60000,
+		...workRefreshOptions,
 	});
 	const preferences = useQuery(userPreferencesQueryOptions());
 	const history = useQuery({
@@ -90,7 +91,7 @@ export function FocusFeed({
 				surfaces: FOCUS_HISTORY_SURFACES,
 			},
 		}),
-		refetchInterval: 60000,
+		...workRefreshOptions,
 	});
 	const prefs =
 		preferences.data?.preferences.activityFeed ?? EMPTY_FEED_PREFERENCES;

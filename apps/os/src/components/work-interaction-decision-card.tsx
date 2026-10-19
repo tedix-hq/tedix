@@ -1,3 +1,4 @@
+import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import {
 	connectorApproval,
@@ -8,7 +9,7 @@ import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
-import { useRef } from "react";
+import { useContext, useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
@@ -103,6 +104,7 @@ export function WorkInteractionDecisionCard({
 	onPrevious?: () => void;
 }) {
 	const client = useQueryClient();
+	const optimistic = useContext(OptimisticDeckDecisionContext);
 	const shown = useRef({ requestId, at: Date.now() });
 	if (shown.current.requestId !== requestId)
 		shown.current = { requestId, at: Date.now() };
@@ -216,7 +218,7 @@ export function WorkInteractionDecisionCard({
 					source: "os-decision-card",
 				},
 			});
-			await refresh();
+			if (!optimistic) await refresh();
 			return result;
 		},
 	});
