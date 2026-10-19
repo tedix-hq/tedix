@@ -163,7 +163,7 @@ export function BillingUsageOverview({
 	);
 
 	return (
-		<div className="space-y-5">
+		<div className="space-y-8">
 			<BillingPlanStatus overview={overview} />
 			<BillingCreditWallet overview={overview} />
 			{usageQuery.data.totals.unpricedRowCount > 0 && (
@@ -180,11 +180,11 @@ export function BillingUsageOverview({
 				</Alert>
 			)}
 			<BillingRunCosts organizationId={organizationId} />
-			<details className="rounded-lg border border-kumo-line p-4">
-				<summary className="cursor-pointer font-medium">
+			<details className="space-y-4">
+				<summary className="min-h-11 cursor-pointer content-center rounded-lg px-1 font-medium type-tedix-body hover:bg-kumo-tint focus-visible:outline-2 focus-visible:outline-kumo-ring">
 					Advanced usage and billing details
 				</summary>
-				<div className="mt-4 space-y-4">
+				<div className="space-y-8">
 					{overview.credits?.billingMode === "monetary" && (
 						<Text tone="secondary">
 							Token counters and historical token-plan rates below are
@@ -231,7 +231,7 @@ export function BillingUsageOverview({
 								</Text>
 							</div>
 						</CardHeader>
-						<CardContent className="space-y-5">
+						<CardContent className="space-y-4">
 							<div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
 								<div>
 									<Text role="label" tone="secondary">

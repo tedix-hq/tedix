@@ -255,7 +255,7 @@ function AdminBillingBody({
 					<TabsTrigger value="invoices">Invoices &amp; documents</TabsTrigger>
 				</TabsList>
 
-				<TabsContent value="usage" className="space-y-6 pt-4">
+				<TabsContent value="usage" className="space-y-8 pt-4">
 					<Suspense fallback={<SectionSkeleton />}>
 						<BillingUsageOverview organizationId={organizationId} />
 					</Suspense>
@@ -264,7 +264,7 @@ function AdminBillingBody({
 					</Suspense>
 				</TabsContent>
 
-				<TabsContent value="subscription" className="space-y-6 pt-4">
+				<TabsContent value="subscription" className="space-y-8 pt-4">
 					{/* Checkout CONFLICTs render inside the section's mutation error. */}
 					<Suspense fallback={<SectionSkeleton />}>
 						<SubscriptionSection />
