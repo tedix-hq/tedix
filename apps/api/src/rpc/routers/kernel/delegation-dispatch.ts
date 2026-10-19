@@ -344,34 +344,33 @@ function recordField(
 // ---------------------------------------------------------------------------
 
 /**
- * Per-effort-class caps. `maxToolCalls` enforces the effort class the planner
- * already committed to (route-schema.ts: effort is "a routing output, not a
- * suggestion"). The native runtime durably enforces tool counts and absolute
- * deadlines, aborting active inference and tool transport on deadline.
+ * Safety backstops leave room for discovery, source reads and recovery within
+ * each task class. Explicit caller limits still win below. The native runtime
+ * durably enforces counts and deadlines; these are not completion targets.
  */
 const EFFORT_CONTRACT_CAPS: Record<
 	HomeEffortClass,
 	{ maxToolCalls: number; deadlineMs: number; deadlineLabel: string }
 > = {
 	single_read: {
-		maxToolCalls: 3,
-		deadlineMs: 120_000,
-		deadlineLabel: "~2 minutes",
-	},
-	multi_hop_read: {
-		maxToolCalls: 8,
-		deadlineMs: 300_000,
-		deadlineLabel: "~5 minutes",
-	},
-	fan_out: {
-		maxToolCalls: 16,
+		maxToolCalls: 12,
 		deadlineMs: 600_000,
 		deadlineLabel: "~10 minutes",
 	},
+	multi_hop_read: {
+		maxToolCalls: 40,
+		deadlineMs: 1_800_000,
+		deadlineLabel: "~30 minutes",
+	},
+	fan_out: {
+		maxToolCalls: 80,
+		deadlineMs: 3_600_000,
+		deadlineLabel: "~60 minutes",
+	},
 	embodied: {
-		maxToolCalls: 24,
-		deadlineMs: 1_200_000,
-		deadlineLabel: "~20 minutes",
+		maxToolCalls: 160,
+		deadlineMs: 7_200_000,
+		deadlineLabel: "~120 minutes",
 	},
 };
 
