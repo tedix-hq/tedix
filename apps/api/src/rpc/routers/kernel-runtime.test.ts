@@ -32,6 +32,7 @@ import {
 	workItems,
 } from "@tedix/db/schema";
 import { policyPacks } from "@tedix/db/schema/control-plane";
+import { workstationLeases } from "@tedix/db/schema/workstations";
 import { tediApprovalExecutionReceipts } from "@tedix/db/schema/approval-simulations";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
@@ -1594,6 +1595,10 @@ function createKernelRuntimeDb(opts?: {
 						// execute() synthesizes an admitted row from the WHERE id so the
 						// two-step reserve→finalize proceeds.
 						selectedRows = [...runtimeSubmissionRows] as typeof selectedRows;
+						return this;
+					}
+					if (table === workstationLeases) {
+						selectedRows = [];
 						return this;
 					}
 					throw new Error("Unexpected table in kernel runtime test");
