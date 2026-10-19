@@ -68,7 +68,7 @@ function Step({
 function GuideLink({ href, children }: { href: string; children: ReactNode }) {
 	return (
 		<a
-			className="inline-flex items-center gap-1 text-kumo-brand underline underline-offset-2"
+			className="inline-flex min-h-11 items-center gap-1 rounded-sm text-kumo-brand underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-kumo-ring"
 			href={href}
 			rel="noreferrer"
 			target="_blank"
