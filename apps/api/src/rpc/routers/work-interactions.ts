@@ -9,6 +9,10 @@ import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-
 import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
+import {
+	latestCardChangeRequest,
+	listCardRevisions,
+} from "@tedix/db/queries/work-items/card-revisions";
 import { outboundRouter } from "./work-outbound";
 import { outboundInteractionOverlays } from "@tedix/db/queries/work-items/outbound";
 import { listExternalAgentSessionHarnessesByIds } from "@tedix/db/queries/external-agent-identity/session-state";
@@ -513,6 +517,25 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 		};
 	}
 	try {
+		if (input.resolvesRequest) {
+			const change = await latestCardChangeRequest(
+				context.db,
+				orgId,
+				input.requestId,
+			);
+			if (change) {
+				const revisions = await listCardRevisions(
+					context.db,
+					orgId,
+					input.requestId,
+				);
+				if (!revisions.some((revision) => revision.responseId === change.id))
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Your agent is revising this card. Review the new version before deciding.",
+					);
+			}
+		}
 		let metadata = approvingUserId
 			? { ...input.metadata, actor: { type: actor.type, id: actor.id } }
 			: input.metadata;
