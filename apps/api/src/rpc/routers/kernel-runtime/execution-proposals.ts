@@ -7,7 +7,13 @@ import {
 	inspectWorkstationDispatchAdmission,
 } from "../kernel/workstation-dispatch";
 import { resolveHomeAttachments } from "./attachment-storage";
-import { AUTHZ, ErrorCodes, createError, withServiceAuth } from "../../orpc";
+import {
+	AUTHZ,
+	ErrorCodes,
+	createError,
+	withServiceAuth,
+	userHoldsPermission,
+} from "../../orpc";
 import {
 	type ExecutionRequirement,
 	ExecutionRequirementSchema,
@@ -441,6 +447,10 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			...nonNullRecord(input.metadata),
 			...(workspaceContext ? { workspaceContext } : {}),
 		};
+		delete metadata.chatApprovalReply;
+		const allowWorkflowConfirmation =
+			context.authType !== "user" ||
+			userHoldsPermission(context, "tedis:update");
 		if (input.attachments?.some((a) => a.type === "audio"))
 			await requireUnrestrictedModelEgress(
 				context.db,
@@ -813,6 +823,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			// recursion); runRowMetadata is reconstructed from the row at re-drive.
 			redriveInput: {
 				selectedWorkspaceDocument,
+				allowWorkflowConfirmation,
 				executionPolicy: input.executionPolicy,
 				attachments,
 				organizationId,
@@ -1094,6 +1105,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		if (kernelEligible) {
 			const turnInput: KernelTurnWorkInput = {
 				selectedWorkspaceDocument,
+				allowWorkflowConfirmation,
 				executionPolicy: input.executionPolicy,
 				attachments,
 				modelRef: input.modelRef,

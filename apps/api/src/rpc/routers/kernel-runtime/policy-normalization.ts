@@ -10,6 +10,7 @@ import {
 	ErrorCodes,
 	createError,
 	withAuth,
+	userHoldsPermission,
 } from "../../orpc";
 import {
 	type EnqueueHomeMessageInput,
@@ -665,6 +666,12 @@ async function readSessionWriteAllowlist(
 		conversationId: string;
 	},
 ): Promise<string[] | null> {
+	// Conversation access does not transfer an operator's standing write grants.
+	if (
+		context.authType === "user" &&
+		!userHoldsPermission(context, "tedis:update")
+	)
+		return null;
 	try {
 		// Scan recent conversation runs (not just the single latest — the current
 		// turn's run is inserted persist-first and carries no grant) for the most

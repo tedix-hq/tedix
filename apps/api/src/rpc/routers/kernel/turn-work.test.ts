@@ -1614,6 +1614,33 @@ describe("chatApprovalReplyContent", () => {
 });
 
 describe("runKernelTurnWork workflow confirm → dispatch intercept", () => {
+	it("retains the ingress denial after the turn is serialized for durable execution", async () => {
+		const dispatchWorkflowConfirm = vi.fn();
+		const kernel = vi.fn(async () => ({
+			route: route({
+				routeKind: "answer_in_home",
+				answer: "An authorized operator must confirm.",
+			}),
+			assistantContent: "An authorized operator must confirm.",
+			evidence: null,
+		}));
+		const input: KernelTurnWorkInput = JSON.parse(
+			JSON.stringify({
+				...affirmativeInput(),
+				allowWorkflowConfirmation: false,
+			}),
+		);
+		await runKernelTurnWork(
+			stubDeps({
+				db: dbWithPriorRuns(PENDING_PRIOR_RUNS),
+				kernel,
+				dispatchWorkflowConfirm,
+			}),
+			input,
+		);
+		expect(dispatchWorkflowConfirm).not.toHaveBeenCalled();
+		expect(kernel).toHaveBeenCalledTimes(1);
+	});
 	it("observe-only never confirms a prior workflow and records no actionable route", async () => {
 		const dispatchWorkflowConfirm = vi.fn();
 		const kernel = vi.fn(async () => ({

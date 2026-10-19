@@ -521,6 +521,8 @@ export interface KernelTurnWorkInput {
 	modelRef?: string;
 	/** Acting user (`context.descopeUserId ?? context.user?.sub`). */
 	descopeUserId?: string;
+	/** Ingress-owned control decision, retained through DO execution and redrive. */
+	allowWorkflowConfirmation?: boolean;
 	createdAt: string;
 	assistantAt: string;
 	completedAt: string;
