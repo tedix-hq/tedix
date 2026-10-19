@@ -872,16 +872,18 @@ export function AppsPage({
 
 	return (
 		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>
-						Apps installed for this organization. Accounts and tool permissions
-						are managed separately.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			<CapabilityNavigation active="installed" />
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>{surface.label}</PageTitle>
+						<PageDescription>
+							Apps installed for this organization. Accounts and tool
+							permissions are managed separately.
+						</PageDescription>
+					</PageHeading>
+				</PageHeader>
+				<CapabilityNavigation active="installed" />
+			</div>
 
 			<PageSection>
 				<SectionHeader>
@@ -895,7 +897,7 @@ export function AppsPage({
 				</SectionHeader>
 				{apps.data && installedApps.length > 0 ? (
 					<>
-						<PageToolbar>
+						<PageToolbar appearance="inline">
 							<SearchInput
 								containerClassName="w-full sm:max-w-sm"
 								aria-label="Search installed apps"

@@ -344,16 +344,18 @@ function CloudAppStorePage({
 
 	return (
 		<Page width="xl">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>Explore apps</PageTitle>
-					<PageDescription>
-						Find tools for your work. Review an app, install it for your
-						organization, then connect an account if needed.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			<CapabilityNavigation active="browse" />
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>Explore apps</PageTitle>
+						<PageDescription>
+							Find tools for your work. Review an app, install it for your
+							organization, then connect an account if needed.
+						</PageDescription>
+					</PageHeading>
+				</PageHeader>
+				<CapabilityNavigation active="browse" />
+			</div>
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>

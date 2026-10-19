@@ -691,21 +691,23 @@ export function AdminConnectionsPage({
 
 	return (
 		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>
-						{scope === "organization"
-							? "Organization connections"
-							: "My accounts"}
-					</PageTitle>
-					<PageDescription>
-						{scope === "organization"
-							? "Accounts shared with this organization."
-							: "Accounts only you can use, across workspaces."}
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			<CapabilityNavigation active={scope} />
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>
+							{scope === "organization"
+								? "Organization connections"
+								: "My accounts"}
+						</PageTitle>
+						<PageDescription>
+							{scope === "organization"
+								? "Accounts shared with this organization."
+								: "Accounts only you can use, across workspaces."}
+						</PageDescription>
+					</PageHeading>
+				</PageHeader>
+				<CapabilityNavigation active={scope} />
+			</div>
 
 			{canManageConnections ? null : (
 				<Alert>
@@ -819,7 +821,10 @@ export function AdminConnectionsPage({
 			) : (
 				<>
 					{/* Filter toolbar */}
-					<PageToolbar aria-label="Connection inventory controls">
+					<PageToolbar
+						aria-label="Connection inventory controls"
+						appearance="inline"
+					>
 						<div className="min-w-0 flex-1">
 							<KumoTabs
 								className="min-w-0 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tablist]]:!h-11"

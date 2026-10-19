@@ -29,16 +29,18 @@ export function GatewaysPage() {
 	const gateways = query.data?.gateway ? [query.data.gateway] : [];
 	return (
 		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>
-						{surface.description}. Gateways compose apps but are not themselves
-						installed capabilities or sites.
-					</PageDescription>
-				</PageHeading>
-			</PageHeader>
-			<CapabilityNavigation active="gateway" />
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>{surface.label}</PageTitle>
+						<PageDescription>
+							{surface.description}. Gateways compose apps but are not
+							themselves installed capabilities or sites.
+						</PageDescription>
+					</PageHeading>
+				</PageHeader>
+				<CapabilityNavigation active="gateway" />
+			</div>
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>

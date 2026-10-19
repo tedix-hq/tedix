@@ -670,54 +670,56 @@ export function SkillsPage({
 
 	return (
 		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>
-						Reusable instructions and scheduled workflows your tedis can run.
-					</PageDescription>
-				</PageHeading>
-				{canManage && search.section === "skills" ? (
-					<PageActions>
-						<Button variant="outline" onClick={() => setShowImport(true)}>
-							<UploadSimple size={14} /> Import bundle
-						</Button>
-					</PageActions>
-				) : null}
-			</PageHeader>
-			<CapabilityNavigation active="skills" />
-			<KumoTabs
-				aria-label="Skills sections"
-				value={search.section}
-				onValueChange={(section) =>
-					onSearchChange({
-						section: section as SkillsSearch["section"],
-						page: 1,
-					})
-				}
-				tabs={SKILLS_SECTIONS.map(({ id, label }) => ({ value: id, label }))}
-			/>
-			<PageToolbar>
-				<SearchInput
-					aria-label={searchLabel}
-					placeholder={`Search ${search.section} by name or purpose…`}
-					containerClassName="w-full lg:max-w-md"
-					value={search.q}
-					onChange={(event) =>
-						onSearchChange({ q: event.target.value, page: 1 })
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>{surface.label}</PageTitle>
+						<PageDescription>
+							Reusable instructions and scheduled workflows your tedis can run.
+						</PageDescription>
+					</PageHeading>
+					{canManage && search.section === "skills" ? (
+						<PageActions>
+							<Button variant="outline" onClick={() => setShowImport(true)}>
+								<UploadSimple size={14} /> Import bundle
+							</Button>
+						</PageActions>
+					) : null}
+				</PageHeader>
+				<CapabilityNavigation active="skills" />
+				<KumoTabs
+					aria-label="Skills sections"
+					value={search.section}
+					onValueChange={(section) =>
+						onSearchChange({
+							section: section as SkillsSearch["section"],
+							page: 1,
+						})
 					}
-					trailing={
-						resultCount == null ? undefined : (
-							<span
-								aria-label={`${resultCount} results`}
-								className="whitespace-nowrap text-kumo-subtle type-tedix-label"
-							>
-								{formatCount(resultCount)} results
-							</span>
-						)
-					}
+					tabs={SKILLS_SECTIONS.map(({ id, label }) => ({ value: id, label }))}
 				/>
-			</PageToolbar>
+				<PageToolbar appearance="inline">
+					<SearchInput
+						aria-label={searchLabel}
+						placeholder={`Search ${search.section} by name or purpose…`}
+						containerClassName="w-full lg:max-w-md"
+						value={search.q}
+						onChange={(event) =>
+							onSearchChange({ q: event.target.value, page: 1 })
+						}
+						trailing={
+							resultCount == null ? undefined : (
+								<span
+									aria-label={`${resultCount} results`}
+									className="whitespace-nowrap text-kumo-subtle type-tedix-label"
+								>
+									{formatCount(resultCount)} results
+								</span>
+							)
+						}
+					/>
+				</PageToolbar>
+			</div>
 
 			{search.section === "skills" ? (
 				<PageSection>
