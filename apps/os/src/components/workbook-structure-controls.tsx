@@ -1,6 +1,13 @@
+import { CaretDown } from "@phosphor-icons/react";
 import type { OsWorkbook } from "@tedix/api-contract/schemas/os-workspaces";
 import { useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
 import { activeWorkbookSheet } from "@/lib/output-models";
 import {
 	deleteColumns,
@@ -85,23 +92,24 @@ export function WorkbookStructureControls({
 		],
 	];
 	return (
-		<div
-			className="flex flex-wrap gap-1"
-			role="group"
-			aria-label="Sheet structure"
-		>
-			{actions.map(([label, run, unavailable]) => (
-				<Button
-					key={label}
-					size="xs"
-					variant="ghost"
-					disabled={disabled || unavailable}
-					onClick={() => onChange(run())}
-				>
-					{label}
-				</Button>
-			))}
-		</div>
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={<Button size="xs" variant="ghost" disabled={disabled} />}
+			>
+				Rows and columns <CaretDown size={12} aria-hidden />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="start" aria-label="Sheet structure">
+				{actions.map(([label, run, unavailable]) => (
+					<DropdownMenuItem
+						key={label}
+						disabled={disabled || unavailable}
+						onClick={() => onChange(run())}
+					>
+						{label}
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 

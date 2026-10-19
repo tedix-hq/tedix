@@ -46,12 +46,19 @@ function mount() {
 	const root = createRoot(container);
 	act(() => root.render(<Editor />));
 	const click = (label: string) => {
-		const button = [
-			...container.querySelectorAll<HTMLButtonElement>("button"),
-		].find(
+		let button = [...container.querySelectorAll<HTMLElement>("button")].find(
 			(item) =>
 				item.getAttribute("aria-label") === label || item.textContent === label,
 		);
+		if (!button) {
+			const trigger = [
+				...container.querySelectorAll<HTMLButtonElement>("button"),
+			].find((item) => item.textContent?.includes("Rows and columns"))!;
+			act(() => trigger.click());
+			button = [
+				...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+			].find((item) => item.textContent === label);
+		}
 		expect(button, label).toBeDefined();
 		act(() => button!.click());
 	};

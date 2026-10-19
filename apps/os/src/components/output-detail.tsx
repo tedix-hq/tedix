@@ -1,3 +1,4 @@
+import "./output-detail.css";
 import {
 	ArrowLeft,
 	FloppyDisk,
@@ -228,7 +229,7 @@ export function OutputDetailPage() {
 			)}
 			{detail.data && (
 				<>
-					<PageHeader>
+					<PageHeader className="flex-row items-start">
 						<PageHeading>
 							<PageTitle>{detail.data.output.title}</PageTitle>
 							<PageDescription>
@@ -288,39 +289,43 @@ export function OutputDetailPage() {
 								)}
 							</PageMeta>
 						</PageHeading>
-						<PageActions>
-							{activeWorkspace ? (
-								<Button
-									render={
-										<Link
-											to="/workspace/$workspaceId"
-											params={{ workspaceId: activeWorkspace.id }}
-											search={{
-												workpiece: `output:${outputId}`,
-												pane: "workpiece",
-											}}
-										/>
-									}
-									variant="secondary"
-								>
-									<SquaresFour size={14} /> Open in workspace
-								</Button>
-							) : null}
+						<PageActions className="w-auto">
 							{detail.data.output.status === "active" && (
-								<Button variant="secondary" onClick={startEditing}>
+								<Button onClick={startEditing}>
 									<PencilSimple size={14} /> Edit
 								</Button>
 							)}
-							<OutputExportButtons
-								outputId={outputId}
-								kind={detail.data.output.kind}
-							/>
-							<ShareControls
-								outputId={outputId}
-								currentRevisionId={detail.data.currentRevision.id}
-							/>
 						</PageActions>
 					</PageHeader>
+					<PageActions className="sm:justify-start">
+						{activeWorkspace ? (
+							<Button
+								render={
+									<Link
+										to="/workspace/$workspaceId"
+										params={{ workspaceId: activeWorkspace.id }}
+										search={{
+											workpiece: `output:${outputId}`,
+											pane: "workpiece",
+										}}
+									/>
+								}
+								variant="outline"
+								size="sm"
+								className="max-sm:flex-none!"
+							>
+								<SquaresFour size={14} /> Open in workspace
+							</Button>
+						) : null}
+						<OutputExportButtons
+							outputId={outputId}
+							kind={detail.data.output.kind}
+						/>
+						<ShareControls
+							outputId={outputId}
+							currentRevisionId={detail.data.currentRevision.id}
+						/>
+					</PageActions>
 					{saveFeedback}
 					<OutputContentView
 						content={detail.data.currentRevision.content}
