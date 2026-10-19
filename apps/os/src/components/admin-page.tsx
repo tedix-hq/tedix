@@ -88,7 +88,7 @@ function AdminDestinationRow({
 			</IconFrame>
 			<div className="min-w-0 flex-1">
 				<Text weight="medium">{destination.title}</Text>
-				<Text role="label" tone="secondary" className="mt-0.5">
+				<Text role="label" tone="secondary" className="mt-1">
 					{destination.description}
 				</Text>
 			</div>
@@ -120,7 +120,7 @@ function StatusRow({
 			>
 				<div className="min-w-0 flex-1">
 					<Text weight="medium">{title}</Text>
-					<Text role="label" tone="secondary" className="mt-0.5">
+					<Text role="label" tone="secondary" className="mt-1">
 						{status.detail}
 					</Text>
 				</div>
@@ -285,7 +285,7 @@ export function AdminPage() {
 								};
 
 	return (
-		<Page width="md" className="os-admin-page">
+		<Page width="md" className="os-admin-page max-w-3xl">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>Admin</PageTitle>
