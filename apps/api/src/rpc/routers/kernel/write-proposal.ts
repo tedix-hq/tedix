@@ -328,19 +328,17 @@ export function renderWriteDeclined(
 	},
 ): string {
 	const appSlug = route.toolIntent?.appSlug?.trim();
-	const capability = route.toolIntent?.capability?.trim();
-	const app = appSlug ?? "that app";
-	const cap = capability ?? "make that change";
+	const app = appSlug?.replaceAll("-", " ") || "that app";
 	switch (declined.stage) {
 		case "disabled":
 		case "no_provider":
 		case "no_write_tools":
-			return `I can't make that change to ${app} from Home right now — ${app} isn't set up for writes here. Ask me to delegate this to a tedi that has ${app} connected.`;
+			return `I can't update ${app} from this chat yet. Ask me to delegate this to a tedi with access.`;
 		case "planner_declined":
-			return `I found write-capable ${app} tooling, but couldn't match this request to one exact ${capability ? `${capability} call` : "action"} — nothing was created or sent. Home stages one change per message: if you asked for several, send them one at a time; otherwise name the exact action you want staged for approval, or ask the owning tedi to make the change directly.`;
+			return `I couldn't prepare that change in ${app}; nothing was created or sent. Tell me what should be added or changed, and where.`;
 		case "validation_failed":
 		case "missing_inputs":
-			return `I couldn't turn that into a concrete ${app} change I'd be confident proposing — nothing was created or sent. Tell me the specifics (what to ${cap}, and the exact values) so I can try again, or ask the owning tedi to make the change directly.`;
+			return `I need a few more specifics to update ${app}; nothing was created or sent. Tell me which item to change and the values to use.`;
 		default:
 			// error or any unknown future stage — safe, non-promising generic
 			return `I couldn't prepare that ${app} change — nothing was created or sent.`;

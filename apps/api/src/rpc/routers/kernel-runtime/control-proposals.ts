@@ -621,9 +621,11 @@ async function cancelKernelRunCore(
 		eventCount: 0,
 		status: "canceled",
 	});
-	const preview = input.reason
-		? `Home run canceled by operator: ${input.reason}`
-		: "Home run canceled by operator.";
+	const preview = /budget|cost containment|time.?out|taking too long/i.test(
+		input.reason ?? "",
+	)
+		? "I stopped because this was taking much longer than expected. Want me to continue?"
+		: "Stopped. You can ask me to try again when you're ready.";
 	const existingMetadata = nonNullRecord(existingRun.metadata) ?? {};
 
 	// Cascade the cancel to a live delegated child: the parent going canceled

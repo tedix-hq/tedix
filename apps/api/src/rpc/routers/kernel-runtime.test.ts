@@ -7534,6 +7534,43 @@ describe("kernel runtime router", () => {
 		expect(canceled.run.status).toBe("canceled");
 	});
 
+	it.each([
+		[undefined, "Stopped. You can ask me to try again when you're ready."],
+		[
+			"Stopped from Home composer",
+			"Stopped. You can ask me to try again when you're ready.",
+		],
+		[
+			"Cost containment: work-order budget exceeded; schema failures",
+			"I stopped because this was taking much longer than expected. Want me to continue?",
+		],
+	])(
+		"cancelRun keeps technical reasons out of the reply (%s)",
+		async (reason, preview) => {
+			const db = createKernelRuntimeDb();
+			db.runs.push(
+				normalizeKernelRuntimeRunInsert({
+					id: "home-cancel-plain",
+					organizationId: ORG_ID,
+					conversationId: "home:cancel-plain",
+					status: "running",
+					createdAt: "2026-06-06T08:00:00.000Z",
+				}),
+			);
+			const client = createKernelRuntimeClient(createContext(db));
+			const canceled = await client.cancelRun({
+				runId: "home-cancel-plain",
+				reason,
+			});
+			expect(
+				db.runs.find((run) => run.id === "home-cancel-plain")?.preview,
+			).toBe(preview);
+			expect(canceled.run.metadata?.cancelReason).toBe(reason ?? null);
+			const read = await client.readRun({ runId: "home-cancel-plain" });
+			expect(read.run.metadata?.childRunPreview).toBe(preview);
+		},
+	);
+
 	it("cancelRun resolves the DO via kernel.idFromName(organizationId) — the same identity the enqueue path uses", async () => {
 		const db = createKernelRuntimeDb();
 		db.runs.push(
@@ -9209,9 +9246,11 @@ describe("home approved-write layer (v1)", () => {
 		// not the planner's optimistic "Confirm and I'll prepare it for approval"
 		// text — the write moat held and nothing was created or sent.
 		expect(result.run.status).toBe("completed");
-		expect(result.assistantMessage?.content).toContain("write-capable");
 		expect(result.assistantMessage?.content).toContain(
-			"exact globex.invoices.create call",
+			"nothing was created or sent",
+		);
+		expect(result.assistantMessage?.content).not.toContain(
+			"globex.invoices.create",
 		);
 		expect(result.assistantMessage?.content).toContain("globex");
 		expect(result.assistantMessage?.content).not.toContain(

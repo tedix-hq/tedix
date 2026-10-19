@@ -266,20 +266,20 @@ describe("renderWriteDeclined — each stage maps to an honest one-liner", () =>
 			writeRoute("globex", "create_invoice"),
 		);
 		expect(msg).toContain("globex");
-		expect(msg).toContain("write-capable");
-		expect(msg).toContain("exact create_invoice call");
-		expect(msg).toContain("one change per message");
+		expect(msg).toContain("what should be added or changed");
+		expect(msg).not.toMatch(/tooling|create_invoice|approval/);
 		expect(msg).toContain("nothing was created or sent");
 		expect(msg).not.toContain(OPTIMISTIC_PROMISE);
 	});
 
-	it("validation_failed: asks for specifics, includes the capability verb", () => {
+	it("validation_failed: asks for specifics without exposing tool names", () => {
 		const msg = renderWriteDeclined(
 			{ stage: "validation_failed" } satisfies KernelWriteProposalDeclined,
 			writeRoute("linear", "create_issue"),
 		);
 		expect(msg).toContain("linear");
-		expect(msg).toContain("create_issue");
+		expect(msg).toContain("which item to change");
+		expect(msg).not.toContain("create_issue");
 		expect(msg).not.toContain(OPTIMISTIC_PROMISE);
 	});
 
@@ -364,7 +364,7 @@ describe("renderRouteResponse — propose_tool_write: honest messaging", () => {
 	it("default (no decline): hedged text — describes the intent, does NOT firm-promise delivery", () => {
 		const msg = renderRouteResponse(proposeWriteRoute());
 		expect(msg).toContain("globex");
-		expect(msg).toContain("create_invoice");
+		expect(msg).not.toContain("create_invoice");
 		// Must NOT promise "Confirm and I'll prepare it for approval" (the write may fail)
 		expect(msg).not.toContain(FIRM_PROMISE);
 		// Should be non-empty and contain the app label
@@ -374,7 +374,7 @@ describe("renderRouteResponse — propose_tool_write: honest messaging", () => {
 	it("default (no decline): still describes the intent clearly without requiring confirmation", () => {
 		const msg = renderRouteResponse(proposeWriteRoute("gmail", "send_message"));
 		expect(msg).toContain("gmail");
-		expect(msg).toContain("send_message");
+		expect(msg).not.toContain("send_message");
 		expect(msg).not.toContain(FIRM_PROMISE);
 	});
 
