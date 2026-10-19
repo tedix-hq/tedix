@@ -62,10 +62,15 @@ export function listPersonalAgentOutcomeSources(db: DbQueryClient, limit = 50) {
 		 AND cfg.key=w.org_id || ':' || json_extract(w.provenance,'$.personalAgentContribution.sourceAgentId')
 		 AND json_extract(cfg.value,'$.active')=1
 		JOIN work_interactions i ON i.org_id=w.org_id AND i.work_item_id=w.id
+		 AND i.target_type='user' AND i.target_id=cfg.user_id
+		 AND json_extract(i.metadata,'$.source')='personal-agent-inbound'
 		JOIN work_interaction_responses r ON r.org_id=i.org_id AND r.interaction_id=i.id
 		 AND r.responder_type='user' AND r.responder_id=cfg.user_id AND r.resolves_request=1
+		 AND r.response_kind='answer'
 		 AND r.responder_session_id IS NULL AND r.responder_external_session_key IS NULL
 		 AND json_extract(r.metadata,'$.actor') IS NULL
+		 AND coalesce(json_extract(r.metadata,'$.source'),'') NOT IN ('triage-fyi','auto-reply')
+		 AND coalesce(json_extract(r.metadata,'$.draftOutcome'),'')<>'auto'
 		LEFT JOIN observations v ON v.org_id=w.org_id AND v.work_item_id=w.id
 		WHERE json_extract(cfg.value,'$.orgId')=w.org_id
 		 AND json_extract(cfg.value,'$.representedUserId')=cfg.user_id
@@ -266,6 +271,7 @@ export async function getPersonalAgentValue(
 		 (SELECT count(*) FROM cohort WHERE kind='proposal') AS decisionFindings,
 		 (SELECT count(*) FROM cohort c WHERE c.kind='proposal' AND EXISTS (SELECT 1 FROM work_interactions i
 		 WHERE i.org_id=${e.orgId} AND i.work_item_id=c.id AND i.target_type='user' AND i.target_id=${e.representedUserId}
+		 AND json_extract(i.metadata,'$.source')='personal-agent-inbound'
 		 AND json_extract(i.metadata,'$.decisionDeck') IS NOT NULL AND i.created_at<${end})) AS decisionCards,
 		 (SELECT count(*) FROM cohort WHERE kind='fyi') AS fyiFindings,
 		 (SELECT count(*) FROM cohort c WHERE c.kind='proposal' AND EXISTS (
@@ -273,6 +279,9 @@ export async function getPersonalAgentValue(
 		 WHERE i.org_id=${e.orgId} AND i.work_item_id=c.id AND r.responder_type='user' AND r.responder_id=${e.representedUserId}
 		 AND i.target_type='user' AND i.target_id=${e.representedUserId} AND json_extract(i.metadata,'$.decisionDeck') IS NOT NULL AND i.created_at<${end}
 		 AND r.responder_session_id IS NULL AND r.responder_external_session_key IS NULL AND json_extract(r.metadata,'$.actor') IS NULL
+		 AND r.response_kind='answer' AND json_extract(i.metadata,'$.source')='personal-agent-inbound'
+		 AND coalesce(json_extract(r.metadata,'$.source'),'') NOT IN ('triage-fyi','auto-reply')
+		 AND coalesce(json_extract(r.metadata,'$.draftOutcome'),'')<>'auto'
 		 AND r.resolves_request=1 AND r.responded_at<${end} AND json_extract(r.metadata,'$.cardAction') IS NOT NULL)) AS decidedFromCard,
 		 (SELECT count(*) FROM outcomes) AS outcomes,
 		 (SELECT count(*) FROM outcomes WHERE json_extract(payload,'$.execution.state')='verified') AS verifiedOutcomes,
