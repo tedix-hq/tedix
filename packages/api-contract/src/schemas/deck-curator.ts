@@ -48,6 +48,7 @@ export const DeckRankSignalSchema = z.strictObject({
 		"critical",
 		"valuable",
 		"ranked_lower",
+		"threshold_retained",
 		"disabled",
 		"insufficient_examples",
 		"budget_exhausted",

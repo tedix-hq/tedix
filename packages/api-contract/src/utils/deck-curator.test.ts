@@ -90,3 +90,9 @@ it("never hides, raises a score or demotes a critical card behind a model-ranked
 	expect(ordered.map((card) => card.score)).toEqual([-100, 15, 10]);
 	expect(cards[0]!.score).toBe(20);
 });
+
+it("retains a NOISE label honestly when the configured threshold prevents lowering", () => {
+	expect(
+		deckRankSignal("a", '{"label":"NOISE"}', [], { ...config, threshold: 0 }),
+	).toMatchObject({ label: "NOISE", penalty: 0, reason: "threshold_retained" });
+});

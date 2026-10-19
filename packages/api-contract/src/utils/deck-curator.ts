@@ -99,7 +99,13 @@ export function deckRankSignal(
 		cardId,
 		label,
 		penalty: lower ? -config.noisePenalty : 0,
-		reason: !label ? "model_failed" : lower ? "ranked_lower" : "valuable",
+		reason: !label
+			? "model_failed"
+			: lower
+				? "ranked_lower"
+				: label === "NOISE"
+					? "threshold_retained"
+					: "valuable",
 		exampleIds: examples.map((item) => item.id),
 	};
 }
