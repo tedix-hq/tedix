@@ -433,9 +433,9 @@ describe("OutputsPage", () => {
 			"sm:grid-cols-2",
 		);
 		expect(container.querySelector("ul")?.className).toContain(
-			"md:grid-cols-3",
+			"xl:grid-cols-3",
 		);
-		expect(container.querySelector("ul")?.className).toContain(
+		expect(container.querySelector("ul")?.className).not.toContain(
 			"lg:grid-cols-4",
 		);
 		expect(container.querySelector("ul")?.className).not.toContain("sm:px-3");

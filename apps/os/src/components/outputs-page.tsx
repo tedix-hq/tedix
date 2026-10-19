@@ -189,6 +189,7 @@ function OutputMenu(props: {
 					render={
 						<Button
 							aria-label={`Actions for ${props.item.output.title}`}
+							title={`Actions for ${props.item.output.title}`}
 							size="icon-sm"
 							variant="ghost"
 						/>
@@ -356,7 +357,7 @@ function OutputCard(props: OutputCardProps) {
 			>
 				<OutputPreview preview={item.preview} />
 			</div>
-			<div className="flex items-center gap-2.5 px-3 py-2.5">
+			<div className="flex items-center gap-3 p-4">
 				<IconFrame size="sm">
 					<Icon size={16} />
 				</IconFrame>
@@ -365,7 +366,7 @@ function OutputCard(props: OutputCardProps) {
 						as="strong"
 						tone="strong"
 						role="control"
-						truncate
+						className="line-clamp-2 break-words"
 						weight="medium"
 					>
 						{item.output.title}
@@ -798,7 +799,7 @@ export function OutputsPage() {
 				<ul
 					className={
 						layout === "grid"
-							? "m-0 grid grid-cols-1 list-none gap-3 p-0 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+							? "m-0 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3"
 							: "m-0 grid list-none gap-1 p-0"
 					}
 				>

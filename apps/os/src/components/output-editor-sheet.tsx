@@ -1051,7 +1051,7 @@ export function SheetEditor({
 			<div className="sheet-editor-desk">
 				<div className="sheet-page sheet-editor-page">
 					<div className="sheet-editor-formula grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-1">
-						<div className="col-span-full flex flex-wrap items-center gap-1">
+						<div className="col-span-full flex flex-wrap items-center gap-2">
 							<Button
 								size="xs"
 								variant="ghost"
