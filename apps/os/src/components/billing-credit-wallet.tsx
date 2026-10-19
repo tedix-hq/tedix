@@ -7,7 +7,7 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
-import { Progress } from "@/components/kumo/progress";
+import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
 import {
 	formatCreditWorth,
@@ -160,7 +160,8 @@ export function BillingCreditWallet({
 						</Text>
 						{credits.monthlyCapMicros !== null && (
 							<>
-								<Progress
+								<Meter
+									label="Monthly spending cap used or held"
 									value={Math.min(
 										100,
 										credits.monthlyCapMicros > 0

@@ -19,7 +19,7 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
-import { Progress } from "@/components/kumo/progress";
+import { Meter } from "@/components/kumo/meter";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { BillingPlanStatus } from "@/components/billing-plan-status";
@@ -257,7 +257,10 @@ export function BillingUsageOverview({
 								</Text>
 							</div>
 							{!isUnlimited && !monthlyMetered && (
-								<Progress value={Math.min(usagePct * 100, 100)} />
+								<Meter
+									label="Included token allowance used"
+									value={Math.min(usagePct * 100, 100)}
+								/>
 							)}
 							<div className="grid gap-3 border-kumo-line border-t pt-4 sm:grid-cols-4">
 								<PlanFact
