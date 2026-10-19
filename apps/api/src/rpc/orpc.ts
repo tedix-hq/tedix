@@ -676,6 +676,17 @@ export function resolveForwardedMcpUserTenantContext({
 export const withAuth = base.middleware(async (options, input) => {
 	const { context } = options;
 	const next: typeof options.next = async (...args) => {
+		if (
+			context.apiKey?.purpose === "external_agent_bootstrap" &&
+			!(
+				isServiceBinding(context.headers) &&
+				isExternalAgentSessionExchangeCall(context.headers, context.url)
+			)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Bootstrap credential is only valid for session exchange",
+			);
 		if (!context.env.AGENT_REVIEW_PROJECT_ID) return options.next(...args);
 		const { guardAgentReviewAccess } =
 			await import("../services/agent-review-access");
@@ -1927,6 +1938,9 @@ async function authenticateApiKey(context: BaseContext): Promise<void> {
 		throw new Error("API key has expired");
 	}
 
+	if (apiKey.purpose === "external_agent_bootstrap" && !apiKey.expiresAt)
+		throw new Error("Bootstrap credential has no enrollment expiry");
+
 	// Check IP allowlist
 	if (apiKey.ipAllowlist) {
 		const allowedIps = Array.isArray(apiKey.ipAllowlist)
@@ -1959,6 +1973,7 @@ async function authenticateApiKey(context: BaseContext): Promise<void> {
 		id: apiKey.id,
 		organizationId: apiKey.organizationId,
 		name: apiKey.name,
+		purpose: apiKey.purpose,
 		scopes: apiKey.scopes ?? undefined,
 	};
 

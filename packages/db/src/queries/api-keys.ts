@@ -97,6 +97,7 @@ export async function createApiKey(
 		organizationId: string;
 		name: string;
 		description?: string;
+		purpose?: ApiKey["purpose"];
 		scopes?: ApiKeyScope[];
 		environment?: ApiKeyEnvironment;
 		ipAllowlist?: string[];
@@ -105,6 +106,13 @@ export async function createApiKey(
 		createdBy?: string;
 	},
 ): Promise<{ rawKey: string; apiKey: ApiKey }> {
+	if (
+		data.purpose === "external_agent_bootstrap" &&
+		(!data.expiresAt ||
+			!Number.isFinite(Date.parse(data.expiresAt)) ||
+			Date.parse(data.expiresAt) <= Date.now())
+	)
+		throw new Error("Bootstrap credentials require a future enrollment expiry");
 	const id = crypto.randomUUID();
 	const now = new Date().toISOString();
 	const environment = data.environment ?? "test";
@@ -120,7 +128,11 @@ export async function createApiKey(
 		description: data.description,
 		keyHash,
 		keyPreview: preview,
-		scopes: data.scopes ?? ["apps:read"],
+		purpose: data.purpose ?? "general",
+		scopes:
+			data.purpose === "external_agent_bootstrap"
+				? []
+				: (data.scopes ?? ["apps:read"]),
 		environment,
 		ipAllowlist: data.ipAllowlist,
 		expiresAt: data.expiresAt,
@@ -191,7 +203,7 @@ export async function deleteApiKey(db: DbClient, id: string): Promise<void> {
 
 /**
  * Rotate an API key
- * Generates a new key, stores the old hash in previousKeyHash with a 24-hour grace period.
+ * General keys retain a 24-hour grace period; bootstrap credentials have none.
  *
  * @param db - Database client
  * @param id - API key ID
@@ -200,6 +212,7 @@ export async function deleteApiKey(db: DbClient, id: string): Promise<void> {
 export async function rotateApiKey(
 	db: DbClient,
 	id: string,
+	options: { grace?: boolean } = {},
 ): Promise<{ rawKey: string; apiKey: ApiKey }> {
 	const existing = await getApiKeyById(db, id);
 	if (!existing) {
@@ -215,15 +228,17 @@ export async function rotateApiKey(
 	const newKeyHash = await hashApiKey(key);
 
 	const now = new Date();
-	const gracePeriodEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+	const gracePeriodEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+	const grace =
+		existing.purpose !== "external_agent_bootstrap" && options.grace !== false;
 
 	const [updated] = await db
 		.update(apiKeys)
 		.set({
 			keyHash: newKeyHash,
 			keyPreview: preview,
-			previousKeyHash: existing.keyHash,
-			previousKeyExpiresAt: gracePeriodEnd.toISOString(),
+			previousKeyHash: grace ? existing.keyHash : null,
+			previousKeyExpiresAt: grace ? gracePeriodEnd.toISOString() : null,
 			rotatedAt: now.toISOString(),
 			updatedAt: now.toISOString(),
 		})

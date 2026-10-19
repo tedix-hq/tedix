@@ -1000,6 +1000,10 @@
 		{
 			"name": "20261019221323_attention-card-tldr/migration.sql",
 			"sha256": "323ed80ab319771586df362f2fd6335e433a6dee465cb6a203e86c64a78d189a"
+		},
+		{
+			"name": "20261019234628_external_agent_bootstrap_purpose/migration.sql",
+			"sha256": "2714feb7370c69403b4c44866af7c17e7f4593e70c9dc5bdc8fcf5d0a4d15a77"
 		}
 	]
 }

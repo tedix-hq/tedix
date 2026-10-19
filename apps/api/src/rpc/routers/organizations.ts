@@ -1043,6 +1043,7 @@ export const listApiKeysContract = authedOrganizationsOs.listApiKeys
 			name: key.name,
 			description: toStringOrNull(key.description),
 			keyPreview: key.keyPreview,
+			purpose: key.purpose,
 			scopes: filterScopes(key.scopes),
 			descopeClientId: null as string | null,
 			environment: toValidEnvironment(key.environment),
@@ -1098,14 +1099,25 @@ export const createApiKeyContract = authedOrganizationsOs.createApiKey
 			throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
 		}
 
-		assertDelegatableApiKeyScopes(context, keyData.scopes ?? []);
+		const bootstrap = keyData.purpose === "external_agent_bootstrap";
+		if (
+			bootstrap &&
+			(!keyData.expiresAt || Date.parse(keyData.expiresAt) <= Date.now())
+		)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Bootstrap credentials require a future expiresAt",
+			);
+		const scopes = bootstrap ? [] : keyData.scopes;
+		assertDelegatableApiKeyScopes(context, scopes ?? []);
 
 		// API keys are pure D1 — no external provider integration needed
 		const result = await createApiKeyDb(db, {
 			organizationId,
 			name: keyData.name,
 			description: keyData.description,
-			scopes: keyData.scopes,
+			purpose: keyData.purpose,
+			scopes,
 			environment: keyData.environment as "test" | "live" | undefined,
 			ipAllowlist: keyData.ipAllowlist,
 			expiresAt: keyData.expiresAt,
@@ -1121,6 +1133,7 @@ export const createApiKeyContract = authedOrganizationsOs.createApiKey
 				name: result.apiKey.name,
 				description: result.apiKey.description,
 				keyPreview: result.apiKey.keyPreview,
+				purpose: result.apiKey.purpose,
 				scopes: result.apiKey.scopes,
 				descopeClientId: null,
 				environment: result.apiKey.environment,
@@ -1183,6 +1196,7 @@ export const revokeApiKeyContract = authedOrganizationsOs.revokeApiKey
 			name: revoked.name,
 			description: revoked.description,
 			keyPreview: revoked.keyPreview,
+			purpose: revoked.purpose,
 			scopes: revoked.scopes,
 			descopeClientId: null,
 			environment: revoked.environment,
@@ -1299,6 +1313,7 @@ export const rotateApiKeyContract = authedOrganizationsOs.rotateApiKey
 				name: result.apiKey.name,
 				description: result.apiKey.description ?? null,
 				keyPreview: result.apiKey.keyPreview,
+				purpose: result.apiKey.purpose,
 				scopes: result.apiKey.scopes,
 				descopeClientId: null,
 				environment: result.apiKey.environment,
@@ -1348,6 +1363,7 @@ export const getExpiringKeysContract = authedOrganizationsOs.getExpiringKeys
 				name: key.name,
 				description: key.description ?? null,
 				keyPreview: key.keyPreview,
+				purpose: key.purpose,
 				scopes: key.scopes,
 				descopeClientId: null as string | null,
 				environment: key.environment,

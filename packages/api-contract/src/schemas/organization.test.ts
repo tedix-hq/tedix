@@ -135,3 +135,26 @@ describe("API key creation and public metadata", () => {
 		).toEqual(publicKey);
 	});
 });
+
+describe("API key bootstrap purpose contract", () => {
+	it("preserves bootstrap purpose through the RPC input", () => {
+		const input = {
+			organizationId: "00000000-0000-4000-8000-000000000001",
+			name: "Cloud bootstrap",
+			purpose: "external_agent_bootstrap",
+			scopes: [],
+			expiresAt: "2099-01-01T00:00:00.000Z",
+		};
+		expect(
+			organizationsContract.createApiKey["~orpc"].inputSchemas[0]!.parse(input),
+		).toEqual(input);
+	});
+	it("refuses unknown credential purposes", () => {
+		expect(
+			CreateApiKeyInputSchema.safeParse({
+				name: "Unknown",
+				purpose: "unrestricted",
+			}).success,
+		).toBe(false);
+	});
+});

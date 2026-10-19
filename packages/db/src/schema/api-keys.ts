@@ -28,6 +28,9 @@ export const apiKeys = sqliteTable(
 		// Key identification
 		name: text("name").notNull(),
 		description: text("description"),
+		purpose: text("purpose", { enum: ["general", "external_agent_bootstrap"] })
+			.notNull()
+			.default("general"),
 
 		// Key storage (security)
 		// keyHash: SHA-256 hash of the actual key (for verification)
