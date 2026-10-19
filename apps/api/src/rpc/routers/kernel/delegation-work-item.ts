@@ -7,6 +7,11 @@
  */
 
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
+import { DelegationFyiSchema } from "@tedix/api-contract/schemas/work-items";
+import {
+	recordDelegationFyi,
+	readDelegationFyi,
+} from "@tedix/db/queries/work-items/delegation-autonomy";
 import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution-evidence";
 import type {
 	HomePlan,
@@ -190,6 +195,7 @@ export async function createDelegationWorkItem(
 	context: BaseContext,
 	input: {
 		assigneeTediId: string;
+		autonomyClass?: string;
 		childRunId: string;
 		content: string;
 		/**
@@ -251,6 +257,7 @@ export async function createDelegationWorkItem(
 				homeRunId: input.homeRunId,
 				childRunId: input.childRunId,
 				canonicalWorkItemReuse: !homeDelegationReview,
+				...(input.autonomyClass ? { autonomyClass: input.autonomyClass } : {}),
 			},
 		});
 		return existing.id;
@@ -330,6 +337,7 @@ export async function createDelegationWorkItem(
 			source: "kernelRuntime.directDelegation",
 			homeRunId: input.homeRunId,
 			childRunId: input.childRunId,
+			...(input.autonomyClass ? { autonomyClass: input.autonomyClass } : {}),
 		},
 	});
 	return workItem.id;
@@ -841,10 +849,12 @@ export async function disposeDelegationWorkItem(
 	> = [];
 	let canonicalWorkItemReuse = false;
 	let homeCreatedDelegationWrapper = false;
+	let taskTitle = "Delegated work";
 	let requiredProofKind: DelegationRequiredProofKind = null;
 	try {
 		const existingItem = await getWorkItemById(context.db, input.workItemId);
 		const existingMetadata = nonNullRecord(existingItem?.metadata);
+		taskTitle = existingItem?.title ?? taskTitle;
 		homeCreatedDelegationWrapper = Boolean(
 			existingItem &&
 			((existingMetadata?.source === "kernelRuntime.directDelegation" &&
@@ -1035,6 +1045,8 @@ export async function disposeDelegationWorkItem(
 		`child-run:${input.childRunId}`;
 	let retryCount = 0;
 	let attemptLeaseExpired = false;
+	let autonomyClass: string | undefined;
+	let homeRunId: string | undefined;
 	try {
 		const attempts = (
 			await listWorkItemAttempts(context.db, {
@@ -1074,6 +1086,12 @@ export async function disposeDelegationWorkItem(
 		);
 		const delegationAttempt =
 			attempt ?? settledSucceededAttempt ?? expiredAttempt;
+		autonomyClass = stringFromPayload(
+			nonNullRecord(delegationAttempt?.metadata)?.autonomyClass,
+		);
+		homeRunId = stringFromPayload(
+			nonNullRecord(delegationAttempt?.metadata)?.homeRunId,
+		);
 		attemptLeaseExpired = Boolean(
 			!attempt && !settledSucceededAttempt && expiredAttempt,
 		);
@@ -1225,6 +1243,32 @@ export async function disposeDelegationWorkItem(
 	}
 	// Successful Home wrappers return only after fenced settlement and canonical
 	// completion have converged; failures are not inferred from missing references.
+	if (autonomyClass && homeRunId) {
+		const fyiEvent = await readDelegationFyi(context.db, {
+			orgId: input.organizationId,
+			workItemId: input.workItemId,
+			childRunId: input.childRunId,
+		});
+		const fyi = DelegationFyiSchema.safeParse(fyiEvent?.payload.delegationFyi);
+		await recordDelegationFyi(context.db, {
+			orgId: input.organizationId,
+			workItemId: input.workItemId,
+			at: input.createdAt,
+			fyi: {
+				...(fyi.success
+					? fyi.data
+					: {
+							classId: autonomyClass,
+							homeRunId,
+							childRunId: input.childRunId,
+							tediId: input.delegatedTediId,
+							tediName: input.delegatedTediId,
+							task: taskTitle,
+						}),
+				outcome: input.childRunStatus,
+			},
+		});
+	}
 	return result;
 }
 

@@ -2,6 +2,7 @@
 // and the org-scoped home-namespace Work Item write mirror.
 import type { ToolInputJsonSchema } from "@tedix/api-contract/schemas/tools";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
+import { kernelRuntimeContract } from "@tedix/api-contract/contracts/kernel-runtime";
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import {
@@ -209,6 +210,19 @@ export const KERNEL_RUNTIME_TOOLS: TediToolSpec[] = [
 		includeTediIdParam: false,
 		annotations: MUTATING,
 		rpcEndpoint: "kernelRuntime/retryDelegation",
+	},
+	{
+		name: "sweep_delegation_autonomy",
+		remoteName: "sweep_delegation_autonomy",
+		description:
+			"Release pending Home delegation holds only when the current organization autonomy policy independently allows them. Does not supply a human approval. Carry nextCursor until null.",
+		inputSchema: zodToToolInputJsonSchema(
+			procedureInputSchema(kernelRuntimeContract.sweepDelegationAutonomy),
+		),
+		allowExplicitTediId: false,
+		includeTediIdParam: false,
+		annotations: MUTATING,
+		rpcEndpoint: "kernelRuntime/sweepDelegationAutonomy",
 	},
 	{
 		name: "create_work_item",

@@ -51,6 +51,30 @@ A tedi acts under its own identity rather than signing in as the person who
 asked. The requester stays on the record, but their permissions are not
 copied to the tedi.
 
+## Critical-only autonomy
+
+An organization can opt into low- and medium-risk delegation and tool actions
+with an immutable policy-pack revision containing
+`governancePolicy.autonomy: { "version": 1, "maxRisk": "medium" }`.
+Organizations without this setting keep their existing approval policy.
+
+Home dispatches eligible work immediately, including work for a running tedi
+whose workstation needs warming. Its Feed receipt identifies the task, tedi,
+and outcome. **This should have asked me** saves an owner/admin correction
+lesson that requires approval for that delegation class next time.
+
+High-risk work and critical actions still require a human: money or budget
+changes, external messages, public publishing, consent or credentials,
+sign-in or MFA, access changes, data deletion, and production authentication
+or provider settings. Existing scopes, spending limits, runtime readiness,
+and repository push gates still apply. Unclassified execution stays gated.
+
+An owner/admin can run `sweep_delegation_autonomy` to recheck existing Home
+delegation holds against the current policy. Carry its returned cursor until
+there are no more pages. Policy releases retain an audit record; critical and
+explicitly held requests remain pending. Repeating the sweep does not create
+another child for an already resolved delegation.
+
 ## Persistent browser sessions
 
 To keep one browser's tabs, cookies and logins across a tedi's turns, set

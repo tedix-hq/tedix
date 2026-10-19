@@ -1,4 +1,9 @@
 import { selectRetainIndex } from "@tedix/context-core/compaction-boundary";
+import {
+	humanReservedActionClasses,
+	nativeToolActionContent,
+	nativeToolAutonomyRisk,
+} from "@tedix/api-contract/utils/approval-policy";
 import { recoverDurableObjectDeploymentReset } from "./durable-object-recovery";
 import { classifyTediContextOverflow } from "./context-overflow";
 import { resolveModelInputBudgetTokens } from "./model-input-budget";
@@ -246,6 +251,7 @@ export type ConversationParentPort = Pick<
 	| "enrollFacetDispatchRun"
 	| "recordFacetModelStep"
 	| "executeFacetTool"
+	| "facetToolApprovalDecision"
 	| "checkFacetTurnBudget"
 >;
 
@@ -861,7 +867,25 @@ export class ConversationFacet extends PiAgent<
 						);
 						if (!descriptor)
 							return { block: "Tool is outside the admitted parent surface" };
-						if (descriptor.needsApproval) {
+						const checkCritical =
+							humanReservedActionClasses(
+								nativeToolActionContent(call.name, call.arguments),
+							).length > 0 || nativeToolAutonomyRisk(call.name) === "high";
+						const decision =
+							descriptor.needsApproval || checkCritical
+								? await (
+										await this.parent()
+									).facetToolApprovalDecision({
+										runId: this.requireRunId(),
+										toolCallId: call.id,
+										tool: call.name,
+										args: call.arguments,
+									})
+								: { autoApprove: false, critical: false };
+						if (
+							(descriptor.needsApproval && !decision.autoApprove) ||
+							decision.critical
+						) {
 							const approvalId = `${this.requireRunId()}:${call.id}`;
 							let approval = await this.ctx.storage.get<ToolApproval>(
 								`pi-tool-approval:${approvalId}`,

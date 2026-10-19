@@ -1,4 +1,5 @@
 import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-reference";
+import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { resolveHomeAttachments } from "./attachment-storage";
 import { listWorkItemsPage } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemComments } from "@tedix/db/queries/work-items/comments";
@@ -634,7 +635,20 @@ async function readOrgGovernancePolicy(
 			organizationId,
 		);
 		if (!definition) return null;
-		return parseKernelGovernancePolicy(definition.governancePolicy ?? null);
+		const policy = parseKernelGovernancePolicy(
+			definition.governancePolicy ?? null,
+		);
+		if (policy.autonomy) {
+			try {
+				policy.autonomy.askForClasses = [
+					...(policy.autonomy.askForClasses ?? []),
+					...(await readDelegationAutonomyLessons(context.db, organizationId)),
+				];
+			} catch {
+				policy.autonomy.askForClasses = ["*"];
+			}
+		}
+		return policy;
 	} catch {
 		return null;
 	}

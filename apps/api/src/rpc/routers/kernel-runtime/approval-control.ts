@@ -2,6 +2,8 @@ import {
 	workstationDispatchIdentity,
 	inspectWorkstationDispatchAdmission,
 } from "../kernel/workstation-dispatch";
+import { reviewDelegationAutonomy } from "./delegation-autonomy-review";
+import { recordDelegationFyi } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import {
 	acceptWorkItem,
@@ -101,7 +103,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		 */
 		approvedWorkItemId?: string;
 		/** Who resolved: the operator (default) or the approval tedi. */
-		resolvedBy?: { type: "user" | "tedi"; id: string };
+		resolvedBy?: { type: "user" | "tedi" | "policy"; id: string };
 	},
 ): Promise<{
 	run: HomeRun;
@@ -112,6 +114,14 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			ErrorCodes.CONFLICT,
 			"Terminal Home run cannot resolve a delegation approval",
 		);
+	if (input.resolvedBy?.type === "policy") {
+		const review = await reviewDelegationAutonomy(context, input.run);
+		if (input.decision !== "approve" || !review.allowed)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				`Autonomy policy refused release: ${review.reason}`,
+			);
+	}
 	const pending = kernelDelegationRecommendationFromRun(input.run);
 	if (!pending) {
 		throw createError(
@@ -185,6 +195,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		delegatedTediId: pending.targetTediId,
 		payload: {
 			delegationWorkOrder: nextWorkOrder,
+			resolvedBy: input.resolvedBy ?? null,
 			resolution: input.note ?? null,
 			status: nextDelegation.resolutionStatus,
 		},
@@ -238,6 +249,27 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		homeDelegation: nextDelegation,
 		delegationWorkOrder: nextWorkOrder,
 	};
+	const recordPolicyFyi = async (
+		workItemId: string | null,
+		childRunId: string,
+		outcome: string,
+	) => {
+		if (input.resolvedBy?.type !== "policy" || !workItemId) return;
+		await recordDelegationFyi(context.db, {
+			orgId: input.organizationId,
+			workItemId,
+			at: resolvedAt,
+			fyi: {
+				classId: `delegation:${nonNullRecord(pending.metadata.kernelRoute)?.effortClass ?? "unknown"}`,
+				homeRunId: input.run.id,
+				childRunId,
+				tediId: pending.targetTediId,
+				tediName: String(pending.workOrder.targetTediLabel ?? "tedi"),
+				task: String(pending.workOrder.objective ?? sourceContent),
+				outcome,
+			},
+		});
+	};
 	const approvedExecutionRequirement = ExecutionRequirementSchema.safeParse(
 		nonNullRecord(nextWorkOrder)?.executionRequirement,
 	);
@@ -267,6 +299,10 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				now: resolvedAt,
 			});
 		const workstationWorkItemId = await createDelegationWorkItem(context, {
+			autonomyClass:
+				input.resolvedBy?.type === "policy"
+					? `delegation:${nonNullRecord(pending.metadata.kernelRoute)?.effortClass ?? "unknown"}`
+					: undefined,
 			assigneeTediId: pending.targetTediId,
 			childRunId: identity.runtimeRunId,
 			content: sourceContent,
@@ -281,7 +317,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				) ?? stringFromPayload(nonNullRecord(input.run.metadata)?.objectiveId),
 			workItemId: requestedWorkItemId,
 		});
-		await runWorkstationWorkOrderDispatch(context, {
+		const dispatch = await runWorkstationWorkOrderDispatch(context, {
 			content: sourceContent,
 			conversationId: input.run.conversationId,
 			delegateToTediId: pending.targetTediId,
@@ -290,11 +326,20 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			organizationId: input.organizationId,
 			runId: input.run.id,
 			trigger:
-				input.resolvedBy?.type === "tedi" ? "agent-approval" : "human-approval",
+				input.resolvedBy?.type === "policy"
+					? "policy-auto-approval"
+					: input.resolvedBy?.type === "tedi"
+						? "agent-approval"
+						: "human-approval",
 			userMessageId: input.run.inputMessageId ?? `${input.run.id}:input`,
 			workItemId: workstationWorkItemId,
 			workOrder: nextWorkOrder,
 		});
+		await recordPolicyFyi(
+			workstationWorkItemId,
+			dispatch.childRunId,
+			dispatch.status,
+		);
 		const updatedRun = await getKernelRuntimeRun(context.db, {
 			id: input.run.id,
 		});
@@ -313,6 +358,10 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		stringFromPayload(nonNullRecord(approvedMetadata)?.workItemId) ??
 		stringFromPayload(nonNullRecord(input.run.runtimeMetadata)?.workItemId);
 	const delegationWorkItemId = await createDelegationWorkItem(context, {
+		autonomyClass:
+			input.resolvedBy?.type === "policy"
+				? `delegation:${nonNullRecord(pending.metadata.kernelRoute)?.effortClass ?? "unknown"}`
+				: undefined,
 		assigneeTediId: pending.targetTediId,
 		childRunId: predictedChildRunId,
 		content: sourceContent,
@@ -377,9 +426,11 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 					? { requiredProofKind: "code" }
 					: {}),
 				dispatchTrigger:
-					input.resolvedBy?.type === "tedi"
-						? "agent-approval"
-						: "human-approval",
+					input.resolvedBy?.type === "policy"
+						? "policy-auto-approval"
+						: input.resolvedBy?.type === "tedi"
+							? "agent-approval"
+							: "human-approval",
 				...(delegationWorkItemId
 					? {
 							workItemId: delegationWorkItemId,
@@ -395,6 +446,11 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		error: errorMessage(error),
 		status: "failed" as const,
 	}));
+	await recordPolicyFyi(
+		delegationWorkItemId,
+		childResult.childRunId,
+		childResult.status,
+	);
 	if (childResult.status === "failed") {
 		await recordHomeDelegationDispatchFailure(context, {
 			childConversationId: childResult.childConversationId,

@@ -19,6 +19,25 @@
  *    Approval card before anything runs (pre-existing behavior).
  */
 
+import {
+	type DelegationAutonomyPolicy,
+	decideAutonomousAction,
+	humanReservedActionClasses,
+	parseDelegationAutonomyPolicy,
+} from "@tedix/api-contract/utils/approval-policy";
+
+export function approvalHeldDelegationIntent(content: string): boolean {
+	const text = content.toLowerCase();
+	const asksForDelegation =
+		/\b(delegat(?:e|ion|ing)|handoff|hand-off|work\s*order)\b/.test(text);
+	const asksForApproval = /\b(approval|approve|sign[ -]?off)\b/.test(text);
+	const holdsDispatch =
+		/\b(?:do not|don't|not)\s+(?:dispatch|delegate|send|start)\b/.test(text) ||
+		/\bpark(?:ed)?\b.{0,80}\bapproval\b/.test(text) ||
+		/\bapproval\b.{0,80}\b(?:before|first|then wait|wait)\b/.test(text);
+	return asksForDelegation && asksForApproval && holdsDispatch;
+}
+
 export type WorkstationDispatchRisk = "low" | "high";
 
 export interface WorkstationDispatchDecision {
@@ -30,6 +49,8 @@ export interface WorkstationDispatchDecision {
 }
 
 export function classifyWorkstationDispatch(args: {
+	autonomy?: DelegationAutonomyPolicy;
+	content?: string;
 	/** input.delegateToTediId was set by the caller (human picked the tedi). */
 	explicitHumanDelegation: boolean;
 	/** An authenticated user identity is on the request (speaker authority). */
@@ -49,6 +70,27 @@ export function classifyWorkstationDispatch(args: {
 	routeRisk?: "low" | "medium" | "high" | null;
 }): WorkstationDispatchDecision {
 	const reasons: string[] = [];
+	if (args.content && humanReservedActionClasses(args.content).length)
+		return {
+			risk: "high",
+			autoDispatch: false,
+			reasons: ["human-reserved critical action"],
+		};
+	if (args.autonomy) {
+		const decision = decideAutonomousAction({
+			policy: args.autonomy,
+			risk: args.content ? (args.routeRisk ?? "medium") : "unknown",
+			content: args.content ?? "",
+			classId: "delegation:embodied",
+		});
+		return {
+			risk: decision.autoApprove ? "low" : "high",
+			autoDispatch: args.hasActingUser && decision.autoApprove,
+			reasons: [
+				args.hasActingUser ? decision.reason : "no authenticated operator",
+			],
+		};
+	}
 
 	if (!args.explicitHumanDelegation) {
 		reasons.push("kernel-initiated dispatch (no explicit human target)");
@@ -131,6 +173,7 @@ export interface EarnedDelegationRolloutPolicy {
 }
 
 export interface DispatchPolicyLayer {
+	autonomy?: DelegationAutonomyPolicy;
 	/** Explicit gating decision for autonomous dispatch. Absent = no opinion. */
 	effect?: DispatchPolicyEffect;
 	/** Optional human-readable note carried onto the delegation receipt. */
@@ -288,10 +331,17 @@ export function parseDispatchPolicyLayer(
 		}
 	}
 	const delegationApprover = parseDelegationApprover(record.delegationApprover);
-	if (effect === undefined && !earnedDelegation && !delegationApprover)
+	const autonomy = parseDelegationAutonomyPolicy(record.autonomy);
+	if (
+		effect === undefined &&
+		!earnedDelegation &&
+		!delegationApprover &&
+		!autonomy
+	)
 		return null;
 	return {
 		...(effect ? { effect } : {}),
+		...(autonomy ? { autonomy } : {}),
 		...(reason ? { reason } : {}),
 		...(earnedDelegation ? { earnedDelegation } : {}),
 		...(delegationApprover ? { delegationApprover } : {}),

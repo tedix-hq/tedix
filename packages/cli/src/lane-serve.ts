@@ -1,4 +1,5 @@
 import type * as z from "zod";
+import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -72,17 +73,12 @@ export function dispatchSkip(
 	if (item.startAt && Date.parse(item.startAt) > Date.now())
 		return `Work is scheduled for ${item.startAt}`;
 	if (item.activeAttempt) return "Work already has a live Attempt";
-	if (
-		/\b(consent|mfa|oauth|sign[ -]?in|log[ -]?in)\b/i.test(
-			`${item.title}\n${item.description ?? ""}`,
-		)
-	)
+	const reserved = humanReservedActionClasses(
+		`${item.title}\n${item.description ?? ""}`,
+	);
+	if (reserved.includes("credentials"))
 		return "Consent, authentication and user presence remain human-only";
-	const reserved =
-		/\b(pay(?:ment)?|purchase|buy|transfer|refund|money|bank|consent|oauth|mfa|sign[ -]?in|log[ -]?in|send|email|whatsapp|message|publish|post as|impersonat\w*)\b/i.test(
-			`${item.title}\n${item.description ?? ""}`,
-		);
-	if (!reserved) return;
+	if (!reserved.length) return;
 	const delegated =
 		item.accountableOwnerType === "user" &&
 		comments.some(

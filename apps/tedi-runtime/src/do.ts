@@ -1,4 +1,5 @@
 import { createObjectStoreTools } from "./object-store-tools";
+import { nativeToolAutonomy } from "./native-tool-autonomy";
 import { createR2SqlTools } from "./r2-sql-tools";
 import {
 	type InboundEmailPayload,
@@ -3845,6 +3846,46 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			this.facetTurnsHost(),
 			input,
 		);
+	}
+	async facetToolApprovalDecision(input: {
+		runId: string;
+		toolCallId: string;
+		tool: string;
+		args: unknown;
+	}): Promise<{ autoApprove: boolean; critical: boolean }> {
+		await this.assertChatTurnActive(input.runId);
+		const binding = this.activeTurnBinding;
+		if (!binding || binding.runId !== input.runId)
+			return { autoApprove: false, critical: true };
+		try {
+			const decision = await nativeToolAutonomy({
+				api: this.env.API_SERVICE,
+				organizationId: this.state.orgId,
+				tediId: this.state.tediId,
+				tool: input.tool,
+				args: input.args,
+			});
+			if (!decision.autoApprove) return decision;
+			await this.eventOutbox.publish({
+				id: `${input.runId}:autonomy:${input.toolCallId}`,
+				tediId: this.state.tediId,
+				kind: "approval.resolved",
+				conversationId: binding.conversationId,
+				runId: input.runId,
+				payload: {
+					resolvedBy: "policy",
+					policyVersion: 1,
+					toolCallId: input.toolCallId,
+					tool: input.tool,
+					reason: decision.reason,
+				},
+				runtime: { backend: "cloudflare-agents" },
+				createdAt: new Date().toISOString(),
+			});
+			return decision;
+		} catch {
+			return { autoApprove: false, critical: true };
+		}
 	}
 	private async prepareMcpFacetTurn(input: {
 		noFunds?: boolean;

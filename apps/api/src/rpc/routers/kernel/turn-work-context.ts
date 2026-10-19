@@ -283,6 +283,7 @@ export interface KernelTurnWorkDeps {
 	 * turn. Absent in tests that don't exercise auto-dispatch tracking.
 	 */
 	createDelegationWorkItem?: (input: {
+		autonomyClass?: string;
 		assigneeTediId: string;
 		childRunId: string;
 		content: string;

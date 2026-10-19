@@ -2419,3 +2419,111 @@ describe("decideDelegationDispatch approvalRoute", () => {
 		).toBeUndefined();
 	});
 });
+
+describe("organization critical-only delegation autonomy", () => {
+	const autonomy = { version: 1 as const, maxRisk: "medium" as const };
+	const base = () => ({
+		route: makeRoute(),
+		card: makeCard({ requiresApproval: true }),
+		speaker: { approvalAuthority: true },
+		gating: { org: { autonomy } },
+		workOrderContent: "Research the paper and add notes to the target Work",
+	});
+	it("auto-dispatches both low and medium risk despite the target's legacy approval flag", () => {
+		for (const risk of ["low", "medium"] as const)
+			expect(
+				decideDelegationDispatch({ ...base(), route: makeRoute({ risk }) })
+					.mode,
+			).toBe("auto");
+	});
+	it("uses standing organization authorization for a scoped member's non-critical delegation", () => {
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				speaker: { approvalAuthority: false },
+			}).mode,
+		).toBe("auto");
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				speaker: { approvalAuthority: false },
+				workOrderContent: "Email a customer",
+			}),
+		).toMatchObject({ mode: "needs_approval", approvalRoute: "human" });
+	});
+	it.each([false, true])(
+		"auto-dispatches a running embodied target with lease warm=%s",
+		(hasWarmWorkstationLease) => {
+			expect(
+				decideDelegationDispatch({
+					...base(),
+					route: makeRoute({ effortClass: "embodied" }),
+					card: makeCard({
+						requiresApproval: true,
+						embodied: true,
+						hasWarmWorkstationLease,
+						hasRepository: true,
+						environmentReady: false,
+					}),
+				}).mode,
+			).toBe("auto");
+		},
+	);
+	it("retains human critical/high-risk holds and explicit operator holds", () => {
+		for (const content of [
+			"email a customer",
+			"Publish the result",
+			"Increase the budget",
+			"Delete data",
+		])
+			expect(
+				decideDelegationDispatch({ ...base(), workOrderContent: content }),
+			).toMatchObject({ mode: "needs_approval", approvalRoute: "human" });
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				route: makeRoute({ risk: "high" }),
+			}),
+		).toMatchObject({ mode: "needs_approval", approvalRoute: "human" });
+		expect(
+			decideDelegationDispatch({ ...base(), operatorHeldForApproval: true })
+				.mode,
+		).toBe("needs_approval");
+	});
+	it("preserves scope, capability, depth, policy-deny and human-correction fences", () => {
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				card: makeCard({ scopeGroups: [] }),
+			}).canAutoDispatch,
+		).toBe(false);
+		expect(decideDelegationDispatch({ ...base(), card: null }).mode).toBe(
+			"blocked",
+		);
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				delegationDepth: MAX_DELEGATION_DEPTH,
+			}).mode,
+		).toBe("blocked");
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				gating: { org: { autonomy }, session: { effect: "deny" } },
+			}).canAutoDispatch,
+		).toBe(false);
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				gating: {
+					org: {
+						autonomy: {
+							...autonomy,
+							askForClasses: ["delegation:multi_hop_read"],
+						},
+					},
+				},
+			}),
+		).toMatchObject({ mode: "needs_approval", approvalRoute: "human" });
+	});
+});

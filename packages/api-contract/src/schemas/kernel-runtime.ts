@@ -253,6 +253,7 @@ export type DelegationCapabilityPlan = z.infer<
 >;
 
 export const DelegationWorkOrderSchema = z.object({
+	autonomyClass: z.string().optional(),
 	id: z.string().optional(),
 	approvalRequestId: z.string().optional(),
 	kind: z
@@ -1121,3 +1122,14 @@ export const RespondHomeApprovalInputSchema = z.object({
 export type RespondHomeApprovalInput = z.infer<
 	typeof RespondHomeApprovalInputSchema
 >;
+
+export const SweepDelegationAutonomyInputSchema = z.object({
+	organizationId: z.string().optional(),
+	limit: z.number().int().min(1).max(20).default(10),
+	cursor: z.object({ at: z.string(), id: z.string() }).optional(),
+});
+export const SweepDelegationAutonomyResultSchema = z.object({
+	dispatched: z.array(z.string()),
+	held: z.array(z.object({ runId: z.string(), reason: z.string() })),
+	nextCursor: z.object({ at: z.string(), id: z.string() }).nullable(),
+});

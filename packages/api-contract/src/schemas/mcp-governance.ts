@@ -48,6 +48,13 @@ export const ResolveAgentTransportPolicyInputSchema = z.object({
 });
 export const ResolveAgentTransportPolicyResponseSchema = z.object({
 	requireExplicitApprovalPolicy: z.boolean(),
+	autonomy: z
+		.object({
+			version: z.literal(1),
+			maxRisk: z.literal("medium"),
+			askForClasses: z.array(z.string()).optional(),
+		})
+		.optional(),
 });
 
 /**

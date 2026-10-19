@@ -118,12 +118,20 @@ export type ChildEnqueue = (args: {
  */
 export function buildAutoDelegationDispatcher(deps: {
 	enqueueChild: ChildEnqueue;
+	recordFyi?: (
+		input: AutoDelegationDispatchInput,
+		result: AutoDelegationDispatchResult,
+	) => Promise<void>;
 	predictChildRunId: (args: {
 		clientRequestId: string;
 		tediId: string;
 	}) => string;
 }): AutoDelegationDispatcher {
 	return async (input) => {
+		if (deps.recordFyi && input.workOrder.autonomyClass && !input.workItemId)
+			throw new Error(
+				"Automatic delegation requires a canonical Work Item for its FYI",
+			);
 		const clientRequestId = `${input.homeRunId}:auto:${input.delegatedTediId}`;
 		// Deterministic child-run id — also the idempotency key, so a re-fired
 		// turn dedups to the same child (matches the forced delegateToTediId path).
@@ -190,11 +198,20 @@ export function buildAutoDelegationDispatcher(deps: {
 					: {}),
 			},
 		});
-		return {
+		const receipt: AutoDelegationDispatchResult = {
 			childRunId: result.runId ?? predicted,
 			childConversationId: result.conversationId,
 			status: result.status === "failed" ? "failed" : "queued",
 			error: result.error,
 		};
+		try {
+			await deps.recordFyi?.(input, receipt);
+		} catch (error) {
+			console.warn(
+				"[autoDispatch] FYI write failed; terminal reconciliation rebuilds it from the Work Attempt",
+				error,
+			);
+		}
+		return receipt;
 	};
 }

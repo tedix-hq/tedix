@@ -168,7 +168,15 @@ assert.match(
 	checkoutPrompt,
 	/You may use assigned MCP apps to read Work projects and items/,
 );
-assert.match(checkoutPrompt, /Do not infer that this permits Work mutations/);
+assert.match(
+	checkoutPrompt,
+	/requested comments or specification updates on the target Work Item/,
+);
+assert.match(checkoutPrompt, /within your existing scopes and ownership/);
+assert.match(
+	checkoutPrompt,
+	/Critical actions require a human; do not approve them yourself/,
+);
 assert.doesNotMatch(
 	checkoutPrompt,
 	/Use dedicated assigned-work tools to start it/,

@@ -427,6 +427,9 @@ function makeLimitStubDb(rows: { definition: unknown }[]): DbClient {
 		limit(): Promise<{ definition: unknown }[]> {
 			return Promise.resolve(rows);
 		},
+		orderBy() {
+			return chain;
+		},
 	};
 	return { select: () => chain } as unknown as DbClient;
 }

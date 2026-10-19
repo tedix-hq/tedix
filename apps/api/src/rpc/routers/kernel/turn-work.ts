@@ -1204,6 +1204,7 @@ export async function runKernelTurnWork(
 					delegatedTediId: autoDelegation.workOrder.targetTediId,
 				});
 				autoDelegationWorkItemId = await deps.createDelegationWorkItem({
+					autonomyClass: autoDelegation.workOrder.autonomyClass,
 					assigneeTediId: autoDelegation.workOrder.targetTediId,
 					childRunId: predictedChildRunId,
 					content,

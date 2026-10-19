@@ -126,12 +126,15 @@ ${content}
 			status: "queued",
 		}));
 		const predictChildRunId = vi.fn(() => "tedi-cpo:mcp:run-1_auto_tedi-cpo");
+		const recordFyi = vi.fn(async () => {});
 		const dispatch = buildAutoDelegationDispatcher({
 			enqueueChild,
 			predictChildRunId,
+			recordFyi,
 		});
 
 		const result = await dispatch(input);
+		expect(recordFyi).toHaveBeenCalledWith(input, result);
 
 		// Idempotency follows the forced delegateToTediId path: pass the stable
 		// client request id to cognitive-runtime and let the runtime return the

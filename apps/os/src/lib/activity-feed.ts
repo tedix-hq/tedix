@@ -90,6 +90,14 @@ export function workFeedItems(
 		)
 		.map((e) => ({
 			...base(`work:${e.id}`, e.createdAt, projectId, e.workItemId),
+			...(e.delegationFyi
+				? {
+						autonomyFeedback: {
+							eventId: e.id,
+							classId: e.delegationFyi.classId,
+						},
+					}
+				: {}),
 			actor:
 				e.personalAgentContribution?.sourceAgentName ??
 				(e.authorType === "external_agent"
@@ -120,20 +128,27 @@ export function workFeedItems(
 						}
 					: {}),
 			},
-			tediId: e.authorType === "tedi" ? e.authorId : null,
+			tediId:
+				e.delegationFyi?.tediId ??
+				(e.authorType === "tedi" ? e.authorId : null),
 			personalAgentContribution: e.personalAgentContribution,
 			kind: e.personalAgentContribution?.kind === "fyi" ? "signal" : "work",
 			sentence: sentence(
-				e.body !== e.eventType &&
-					e.body.length <= 180 &&
-					/\p{L}/u.test(sentence(e.body)) &&
-					!/[`\n]|https?:|[a-f\d]{8,}|(?:session|codex|claude-code)\s*(?:·|waiting:)|\b(?:SHA|D1|Attempt)\b/i.test(
-						e.body,
-					)
-					? e.body
-					: `${e.workItemTitle} ${workEvents[e.eventType] ?? OS_COPY.feed.workUpdated}.`,
+				e.delegationFyi
+					? `Delegated “${e.delegationFyi.task.slice(0, 100)}” to ${e.delegationFyi.tediName}: ${e.delegationFyi.outcome}.`
+					: e.body !== e.eventType &&
+						  e.body.length <= 180 &&
+						  /\p{L}/u.test(sentence(e.body)) &&
+						  !/[`\n]|https?:|[a-f\d]{8,}|(?:session|codex|claude-code)\s*(?:·|waiting:)|\b(?:SHA|D1|Attempt)\b/i.test(
+								e.body,
+						  )
+						? e.body
+						: `${e.workItemTitle} ${workEvents[e.eventType] ?? OS_COPY.feed.workUpdated}.`,
 			),
-			classId: `work:${e.eventType}`.slice(0, 100),
+			classId: (e.delegationFyi?.classId ?? `work:${e.eventType}`).slice(
+				0,
+				100,
+			),
 			done: ["completed", "cancelled"].includes(e.workItemDisposition),
 			stalled: /blocked|expired|failed/.test(e.eventType),
 			importance: e.personalAgentContribution
