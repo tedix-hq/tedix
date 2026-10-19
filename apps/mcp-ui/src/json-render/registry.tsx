@@ -8,6 +8,15 @@
  */
 
 import { getByPath, setByPath } from "@json-render/core";
+import {
+	DecisionCardComponent,
+	DecisionDetailsComponent,
+	SwipeStackComponent,
+	ProvenanceBadgeComponent,
+	DeadlineChipComponent,
+	DraftPreviewComponent,
+	OptionListComponent,
+} from "./components/DecisionPrimitives";
 import { standardDirectives } from "@json-render/directives";
 import { defineRegistry } from "@json-render/react";
 import { shadcnComponents } from "@json-render/shadcn";
@@ -429,6 +438,21 @@ export const { registry: tedixRegistry, handlers: tedixHandlers } =
 					/>
 				);
 			},
+			DecisionCard: ({ props, children }) => (
+				<DecisionCardComponent {...props}>{children}</DecisionCardComponent>
+			),
+			DecisionDetails: ({ props, children }) => (
+				<DecisionDetailsComponent {...props}>
+					{children}
+				</DecisionDetailsComponent>
+			),
+			SwipeStack: ({ props, children }) => (
+				<SwipeStackComponent {...props}>{children}</SwipeStackComponent>
+			),
+			ProvenanceBadge: ({ props }) => <ProvenanceBadgeComponent {...props} />,
+			DeadlineChip: ({ props }) => <DeadlineChipComponent {...props} />,
+			DraftPreview: ({ props }) => <DraftPreviewComponent {...props} />,
+			OptionList: ({ props }) => <OptionListComponent {...props} />,
 			ActionButton: ({ props, on }) => (
 				<ActionButtonComponent
 					label={props.label as string | null | undefined}

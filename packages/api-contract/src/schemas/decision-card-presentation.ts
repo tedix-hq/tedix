@@ -51,6 +51,12 @@ export const DecisionCardPresentationSchema = z.union([
 			text.endsWith("?"),
 		),
 		body: line(copySpec.fields.body.maxLength),
+		context: line(copySpec.contextMaxLength).optional(),
+		sourceFingerprint: z
+			.string()
+			.regex(/^[a-f0-9]{64}$/)
+			.optional(),
+		actionLabels: z.record(z.string().min(1).max(120), line(50)).optional(),
 		recommendation: line(copySpec.fields.recommendation.maxLength),
 		stakes: line(copySpec.stakesMaxLength).optional(),
 		effectStatus: z.enum(["known", "unknown"]).optional(),

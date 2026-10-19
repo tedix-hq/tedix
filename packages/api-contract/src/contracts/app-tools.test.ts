@@ -27,6 +27,8 @@ describe("ToolIdSchema (verb-first snake_case, CLAUDE.md 'MCP Tool Naming')", ()
 
 	it.each([
 		"list_deck_cards",
+		"show_deck",
+		"show_feed",
 		"get_deck_card",
 		"decide_deck_card",
 		"list_feed_for_you",

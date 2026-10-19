@@ -7,6 +7,13 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import { outboundContract } from "./outbound";
+import {
+	CardHistoryInputSchema,
+	CardHistorySchema,
+	RequestCardChangesInputSchema,
+	ReviseCardInputSchema,
+	CardRevisionSchema,
+} from "../schemas/card-revisions";
 import { RegenerateDecisionCardInputSchema } from "../schemas/decision-card-presentation";
 import {
 	RefreshDecisionSourcesInputSchema,
@@ -35,6 +42,21 @@ export const workInteractionsContract = oc
 	.errors(baseErrors)
 	.router({
 		outbound: outboundContract,
+		cardHistory: oc.input(CardHistoryInputSchema).output(CardHistorySchema),
+		requestCardChanges: oc
+			.route({
+				summary:
+					"Ask the card's owner to revise its content without deciding it",
+			})
+			.input(RequestCardChangesInputSchema)
+			.output(WorkInteractionRequestSchema),
+		reviseCard: oc
+			.route({
+				summary:
+					"Append a card revision, or restore a previous version; agent rewrites must cite the change request response",
+			})
+			.input(ReviseCardInputSchema)
+			.output(CardRevisionSchema),
 		refreshDecisionSources: oc
 			.route({
 				method: "POST",

@@ -1,5 +1,6 @@
 import { ArrowsClockwise } from "@phosphor-icons/react";
 import { LearnedToday } from "@/components/learned-today";
+import { WeeklyCardContext } from "@/components/weekly-card-context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
@@ -135,6 +136,7 @@ export function TodayPost({
 							: "Open Deck · count unavailable"}
 				</Link>
 				{(!compact || expanded) && <LearnedToday timeZone={config.timeZone} />}
+				<WeeklyCardContext />
 				{output.isPending ? (
 					<Text>Opening Today…</Text>
 				) : !digest ? (

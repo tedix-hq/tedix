@@ -1418,6 +1418,21 @@ describe("ToolHandler result ergonomics", () => {
 	});
 
 	describe("modelSummaryTemplate projection", () => {
+		it("returns attention Markdown while retaining cards in structured content", () => {
+			const data = {
+				cards: [{ id: "sample", ask: "Review the draft?" }],
+				markdown:
+					"- [Review the draft?](https://tedix.os.tedix.dev/work?view=deck#card=sample)",
+			};
+			const c = ctx({ modelSummaryTemplate: "{markdown}" });
+			expect(handler.buildTextContent({ data, status: 200 }, c)).toBe(
+				data.markdown,
+			);
+			expect(
+				handler.buildStructuredContent({ data, status: 200 }, c),
+			).toMatchObject({ cards: data.cards });
+		});
+
 		const data = {
 			items: [{ id: "a" }, { id: "b" }, { id: "c" }],
 			meta: { total: 41, query: "printers" },

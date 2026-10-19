@@ -471,3 +471,35 @@ it("keeps raw URLs out of headings and shows the full source through titled link
 	expect(link?.getAttribute("href")).toBe(url);
 	expect(link?.textContent).toBe("Open workspace document");
 });
+
+it("routes credential cards to settings without an answer or feedback field", async () => {
+	const decide = await mount({
+		kind: "question",
+		title: "Replace the Firecrawl key for the radar?",
+		body: "Opens the existing connection settings.",
+		actions: [{ id: "answer", label: "Answer", intent: "approve" }],
+	});
+	expect(host.querySelector("textarea")).toBeNull();
+	expect(
+		host.querySelector('a[href="/account/connections"]')?.textContent,
+	).toBe("Open connection settings");
+	expect(decide).not.toHaveBeenCalled();
+});
+
+it("refuses a secret-like answer before invoking any card mutation", async () => {
+	const decide = await mount({
+		kind: "question",
+		title: "What should change?",
+		body: "Tell the agent your preference",
+		actions: [{ id: "answer", label: "Answer", intent: "approve" }],
+	});
+	await type(
+		'textarea[aria-label="Your answer"]',
+		"fc-" + "fictional".repeat(5),
+	);
+	await click("Answer");
+	expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+		"use connection settings",
+	);
+	expect(decide).not.toHaveBeenCalled();
+});

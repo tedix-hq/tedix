@@ -134,6 +134,32 @@ async function fixture(
 			route.request().method() === "GET"
 				? (JSON.parse(url.searchParams.get("data") ?? "{}").json ?? {})
 				: (route.request().postDataJSON()?.json ?? {});
+		if (path.endsWith("/attention/getDeckCard")) {
+			const row = requests.find((row) => row.id === input.cardId)!;
+			return json({
+				id: row.id,
+				kind: "decision",
+				label: `${row.subject}?`,
+				project: "Unfiled",
+				urgency: "later",
+				source: "/work",
+				requestedAt: row.requestedAt,
+				dueAt: null,
+				score: 0,
+				decision: row.metadata.decisionDeck,
+				interaction: { request: row },
+				presentation: {
+					version: 2,
+					title: `${row.subject}?`,
+					context: "A fictional choice is ready for review.",
+					body: "Records the selected choice for this example.",
+					recommendation: "Review the supplied terms before deciding.",
+					actionLabels: { approve: "Approve choice", reject: "Reject choice" },
+				},
+			});
+		}
+		if (path.endsWith("/learningFeedback/cardContextPrompt"))
+			return json({ ask: false });
 		if (path.endsWith("/workInteractions/listInbox")) {
 			if (options.loading)
 				await new Promise((resolve) => setTimeout(resolve, 4000));
@@ -238,7 +264,7 @@ try {
 			await fixture(page);
 			await page.goto(`${origin}/work?view=deck`);
 			await page
-				.getByRole("region", { name: "Review card 1", exact: true })
+				.getByRole("region", { name: "Review card 1?", exact: true })
 				.waitFor();
 			const progress = page.locator("[data-deck-progress]");
 			const tab = page.getByRole("link", { name: /^Deck/ });
@@ -280,12 +306,12 @@ try {
 			);
 			for (let n = 1; n <= 2; n++) {
 				await page
-					.getByRole("region", { name: `Review card ${n}`, exact: true })
+					.getByRole("region", { name: `Review card ${n}?`, exact: true })
 					.getByRole("button", { name: /^Approve/ })
 					.click();
 			}
 			await page
-				.getByRole("region", { name: "Review card 3", exact: true })
+				.getByRole("region", { name: "Review card 3?", exact: true })
 				.waitFor();
 			assert.equal(
 				await progress.locator("p").innerText(),
@@ -326,7 +352,7 @@ try {
 			await screenshot("filtered");
 			for (let n = 3; n <= 7; n++)
 				await page
-					.getByRole("region", { name: `Review card ${n}`, exact: true })
+					.getByRole("region", { name: `Review card ${n}?`, exact: true })
 					.getByRole("button", { name: /^Approve/ })
 					.click();
 			await page
@@ -340,7 +366,7 @@ try {
 				.click();
 			for (let n = 8; n <= 20; n++)
 				await page
-					.getByRole("region", { name: `Planning card ${n}`, exact: true })
+					.getByRole("region", { name: `Planning card ${n}?`, exact: true })
 					.getByRole("button", { name: /^Approve/ })
 					.click();
 			await page
@@ -392,12 +418,12 @@ try {
 	await fixture(page, { failure: true });
 	await page.goto(`${origin}/work?view=deck`);
 	const first = page.getByRole("region", {
-		name: "Review card 1",
+		name: "Review card 1?",
 		exact: true,
 	});
 	await first.getByRole("button", { name: /^Approve/ }).click();
 	await page
-		.getByRole("region", { name: "Review card 2", exact: true })
+		.getByRole("region", { name: "Review card 2?", exact: true })
 		.waitFor();
 	assert.equal(
 		await page.locator("[data-deck-progress] p").innerText(),

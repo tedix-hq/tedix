@@ -244,6 +244,8 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// Approved team lessons a local agent session reads before each prompt.
 	get_agent_session_lessons: "mcp:messaging",
 	get_decision_learning: "mcp:tedis",
+	record_card_context: "mcp:tedis",
+	record_card_context_view: "mcp:tedis",
 	get_decision_calibration: "mcp:tedis",
 	get_decision_instrumentation: "mcp:tedis",
 	record_decision_exposure: "mcp:tedis",

@@ -245,6 +245,11 @@ export function OutboundReviewCard({
 		<div className="grid gap-3">
 			<WorkDecisionCard
 				kind="outbound"
+				revisionTarget={
+					record.requestVersion
+						? { requestId: state.interactionId, version: record.requestVersion }
+						: undefined
+				}
 				title={presentation?.title ?? (state.draft.subject || record.title)}
 				askedBy={reviewerName}
 				at={state.review?.reviewedAt}

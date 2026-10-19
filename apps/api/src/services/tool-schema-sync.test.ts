@@ -2852,6 +2852,8 @@ it.each(["pause", "resume", "archive"])(
 it("pins headless attention names and capability kinds", () => {
 	for (const [endpoint, name, kind] of [
 		["attention/listDeckCards", "list_deck_cards", "read"],
+		["attention/showDeck", "show_deck", "read"],
+		["attention/showFeed", "show_feed", "read"],
 		["attention/getDeckCard", "get_deck_card", "read"],
 		["attention/decideDeckCard", "decide_deck_card", "write"],
 		["attention/listFeedForYou", "list_feed_for_you", "read"],

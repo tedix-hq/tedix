@@ -1332,6 +1332,176 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			};
 		},
 	),
+	cardHistory: readOs.cardHistory.handler(async ({ input, context }) => {
+		const { readCardHistory } = await import("../../services/card-revisions");
+		return readCardHistory(context, {
+			orgId: requireOrgId(context),
+			requestId: input.requestId,
+			beforeRevision: input.beforeRevision,
+		});
+	}),
+	reviseCard: writeOs.reviseCard.handler(async ({ input, context }) => {
+		const { reviseCardContent } = await import("../../services/card-revisions");
+		return reviseCardContent(context, input);
+	}),
+	requestCardChanges: writeOs.requestCardChanges.handler(
+		async ({ input, context }) => {
+			const { cardRevisionAccess, ensureCardInitialRevision } =
+				await import("../../services/card-revisions");
+			const { credentialCard } =
+				await import("@tedix/api-contract/utils/card-secrets");
+			const access = await cardRevisionAccess(context, input.requestId);
+			const { orgId, request, recipient, ownerTediId } = access;
+			if (!recipient)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only the addressed person can ask for changes",
+				);
+			if (
+				credentialCard(`${request.subject} ${request.prompt}`, request.metadata)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Use connection settings to update credentials",
+				);
+			if (
+				request.version !== input.expectedRequestVersion ||
+				!(
+					["question", "input"].includes(request.kind) ||
+					(request.kind === "handoff" &&
+						WorkProposalMetadataSchema.safeParse(request.metadata).success)
+				)
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Reload this card before asking for changes",
+				);
+			if (request.metadata.schema === "tedix.outbound.v1") {
+				if (!request.workItemId)
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						"The outbound task is unavailable",
+					);
+				const current = await call(
+					outboundRouter.get,
+					{ workItemId: request.workItemId },
+					{ context },
+				);
+				await call(
+					outboundRouter.act,
+					{
+						workItemId: request.workItemId,
+						expectedVersion: current.version,
+						action: "feedback",
+						feedback: input.instruction,
+					},
+					{ context },
+				);
+				return requestOutput(
+					(await getWorkInteraction(context.db, {
+						orgId,
+						interactionId: request.id,
+					}))!,
+				);
+			}
+			if (
+				!ownerTediId &&
+				!(
+					request.creatorType === "external_agent" &&
+					(request.creatorExternalSessionKey || request.metadata.sessionId)
+				)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"This card has no reachable owning agent. Open its source task to request a revision.",
+				);
+			const homeConversation =
+				typeof request.metadata.homeConversationId === "string"
+					? request.metadata.homeConversationId
+					: typeof request.metadata.conversationId === "string"
+						? request.metadata.conversationId
+						: null;
+			if (ownerTediId && !homeConversation && !context.env.AUTOMATION_EVENTS)
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					"The agent is unavailable; try again shortly",
+				);
+			const history = await ensureCardInitialRevision(context, access);
+			const result = await call(
+				respondProcedure,
+				{
+					requestId: request.id,
+					expectedRequestVersion: request.version,
+					responseKind:
+						request.kind === "handoff"
+							? "handoff_declined"
+							: request.kind === "input"
+								? "input_provided"
+								: "answer",
+					resolvesRequest: false,
+					body: `Please revise this card's written content: ${input.instruction}\n\nKeep the same card (${request.id}). Read its current request version and cardHistory, then call workInteractions.reviseCard with the revised body, expectedRevision=${history.at(-1)!.revision}, and this change request's responseId from the response history. ${request.kind === "handoff" ? "Include the complete revised structured proposal with the same proposal.key; approval must create exactly those revised tasks." : ""} Do not approve, send or execute the card.`,
+					metadata: {
+						cardAction: "ask_changes",
+						decisionChoice: "change",
+						instruction: input.instruction,
+						source: "os-decision-card",
+					},
+				},
+				{ context },
+			);
+			let delivered = false;
+			let deliveryRunId: string | null = null;
+			if (ownerTediId && homeConversation) {
+				const { kernelRuntimeContractRouter } =
+					await import("./kernel-runtime");
+				const home = await call(
+					kernelRuntimeContractRouter.enqueueMessage,
+					{
+						conversationId: homeConversation,
+						delegateToTediId: ownerTediId,
+						content: `${result.response.body}\nChange request responseId=${result.response.id}.`,
+						idempotencyKey: `card-revision:${result.response.id}`,
+					},
+					{ context },
+				);
+				delivered = home.status !== "failed";
+				deliveryRunId = home.run.id;
+			} else if (ownerTediId) {
+				const { AutomationEventSchema } =
+					await import("@tedix/api-contract/schemas/automation-events");
+				try {
+					await context.env.AUTOMATION_EVENTS!.send(
+						AutomationEventSchema.parse({
+							kind: "tedi_turn",
+							organizationId: orgId,
+							tediId: ownerTediId,
+							idempotencyKey: `card-revision:${result.response.id}`,
+							conversationId: `card:${request.id}`,
+							source: "interaction-reply",
+							content: `${result.response.body}\nChange request responseId=${result.response.id}.`,
+						}),
+					);
+					delivered = true;
+				} catch {
+					console.warn(
+						"[card-revisions] Reply is durable; Interaction maintenance will retry owner delivery",
+						{ requestId: request.id, responseId: result.response.id },
+					);
+				}
+			}
+			if (delivered) {
+				const { recordWorkInteractionReviewWake } =
+					await import("@tedix/db/queries/work-items/interactions");
+				await recordWorkInteractionReviewWake(
+					context.db,
+					{ ...request, version: result.request.version },
+					new Date().toISOString(),
+					deliveryRunId,
+				);
+			}
+			return result.request;
+		},
+	),
 	regenerateCard: writeOs.regenerateCard.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const actor = await verifiedActiveWorkActor(context, orgId);

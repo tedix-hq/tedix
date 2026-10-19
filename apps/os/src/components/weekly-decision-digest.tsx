@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
 import { classReadiness } from "@/lib/decision-deck";
+import { attentionMetrics } from "@/lib/deck-attention";
 import { Text } from "@/components/kumo/text";
 import { Link } from "@/components/kumo/link";
 import { OS_COPY } from "@/shared/os-copy";
@@ -28,7 +29,12 @@ export function WeeklyDecisionDigest() {
 				),
 		),
 	];
-	if (!classes.length) return null;
+	const metrics = attentionMetrics(
+		(query.data?.events ?? []).filter(
+			(event) => Date.parse(event.occurredAt) >= since,
+		),
+	);
+	if (!classes.length && !metrics.measuredDecisions) return null;
 	return (
 		<section
 			aria-label={OS_COPY.decisionDeck.weeklyTitle}
@@ -36,6 +42,15 @@ export function WeeklyDecisionDigest() {
 		>
 			<Text weight="semibold">{OS_COPY.decisionDeck.weeklyTitle}</Text>
 			<Text tone="secondary">{OS_COPY.decisionDeck.weeklyScope}</Text>
+			{metrics.medianMs !== null && (
+				<Text>
+					Median decision time {Math.round(metrics.medianMs / 1000)} s;{" "}
+					{metrics.withoutDetailsRate === null
+						? "details use not measured yet"
+						: `${Math.round(metrics.withoutDetailsRate * 100)}% decided without opening details`}
+					.
+				</Text>
+			)}
 			{classes.map((classId) => {
 				const rows = events.filter(
 					(event) => event.metadata?.decisionClass === classId,

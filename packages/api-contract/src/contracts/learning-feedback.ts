@@ -1,6 +1,7 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
+import { AttentionViewInputSchema } from "../schemas/attention";
 import * as z from "zod";
 import {
 	DecisionExposureInputSchema,
@@ -37,6 +38,35 @@ export const learningFeedbackContract = oc
 	.route({ tags: ["learning-feedback"], prefix: "/learning-feedback" })
 	.errors(baseErrors)
 	.router({
+		cardContextPrompt: oc
+			.route({
+				operationId: "record_card_context_view",
+				summary:
+					"Ask whether this visibly presented card has a sampled context question",
+			})
+			.input(
+				AttentionViewInputSchema.extend({
+					cardId: z.string().min(1).max(200),
+					sourceFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+				}),
+			)
+			.output(z.object({ ask: z.boolean() })),
+		cardContext: oc
+			.route({
+				operationId: "record_card_context",
+				summary: "Record your sampled card context feedback",
+			})
+			.input(
+				z.strictObject({
+					cardId: z.string().min(1).max(200),
+					clientEventId: z.uuid(),
+					enough: z.boolean(),
+					chip: z
+						.enum(["who", "why_now", "cost", "risk", "draft", "too_long"])
+						.optional(),
+				}),
+			)
+			.output(z.object({ saved: z.literal(true) })),
 		model: oc.input(z.object({})).output(DecisionLearningModelSchema),
 		recordExposure: oc
 			.route({

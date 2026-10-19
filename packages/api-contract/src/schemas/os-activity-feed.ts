@@ -3,6 +3,7 @@ import { WorkActorReferenceSchema } from "./os-work-actor";
 import { PersonalAgentContributionSchema } from "./personal-agent-inbound";
 import { CardReviewSourceSchema } from "./os-card-review";
 import { DecisionEnvelopeSchema } from "./os-decision-deck";
+import { DecisionCardPresentationSchema } from "./decision-card-presentation";
 
 export const ACTIVITY_FEED_ENTRY = "tedix:app/activity-feed";
 export const ActivityFeedKindSchema = z.enum([
@@ -52,6 +53,8 @@ export const ActivityFeedItemSchema = z.strictObject({
 		})
 		.optional(),
 	decision: DecisionEnvelopeSchema.optional(),
+	presentation: DecisionCardPresentationSchema.nullable().optional(),
+	faceText: z.string().optional(),
 });
 export type ActivityFeedItem = z.infer<typeof ActivityFeedItemSchema>;
 

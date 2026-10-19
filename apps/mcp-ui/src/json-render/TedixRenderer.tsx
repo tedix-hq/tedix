@@ -57,6 +57,7 @@ import {
 } from "../lib/widget-host-hooks";
 import { ItemDetailContent } from "./components/ItemDetailContent";
 import { buildTedixActionHandlers } from "./handler-utils";
+import { runToolAction } from "./call-tool-action";
 import { tedixDirectives, tedixRegistry } from "./registry";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
@@ -254,11 +255,13 @@ function TedixRendererInner({
 	const [embeddedData] = useState<Record<string, unknown> | null>(() =>
 		widgetRenderData(readEmbeddedData()),
 	);
-	const hostData = widgetRenderData(toolInfo.output);
 	const responseMeta = toolInfo.responseMetadata as Record<
 		string,
 		unknown
 	> | null;
+	const hostData = widgetRenderData(
+		responseMeta?.["tedix/widgetData"] ?? toolInfo.output,
+	);
 
 	// Merge: propData > Tedix OS embedded data > responseMetadata + structuredContent output
 	const data = useMemo(
@@ -537,13 +540,7 @@ function TedixRendererInner({
 			call_tool: async (params: Record<string, unknown>) => {
 				setActionError(null);
 				try {
-					const name = params?.tool;
-					if (typeof name !== "string" || !name.trim())
-						throw new Error("This action has no tool configured.");
-					await callHostTool(
-						name,
-						isRecord(params?.arguments) ? params.arguments : {},
-					);
+					await runToolAction(params, stateStore, callHostTool);
 				} catch (error) {
 					setActionError(
 						error instanceof Error

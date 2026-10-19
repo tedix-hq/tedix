@@ -5,6 +5,7 @@ import { WorkActorDirectoryContext } from "../src/components/work-actor-avatar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { OsGadgetManifestSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { WorkspaceAppRenderer } from "../src/components/workspace-app-renderer";
 import { WorkDecisionCard } from "../src/components/work-decision-card";
@@ -342,6 +343,51 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 		canCancel: false,
 		responses: { data: [], hasMore: false, nextCursor: null },
 	});
+	client.setQueryData(
+		osQuery.attention.getDeckCard.queryOptions({
+			input: { cardId: request.id, projectId: undefined, limit: 100 },
+		}).queryKey,
+		DeckCardSchema.parse({
+			id: request.id,
+			kind: "question",
+			label: request.subject,
+			project: "Unfiled",
+			urgency: "later",
+			source: "/work",
+			score: 0,
+			requestedAt: request.requestedAt,
+			dueAt: null,
+			decision: null,
+			interaction: {
+				request,
+				effectiveState: "open",
+				canRespond: true,
+				canCancel: false,
+				workItem: null,
+				responseCount: 0,
+				askedBy: "Codex session",
+			},
+			presentation: {
+				version: 2,
+				title:
+					params.get("surface") === "question"
+						? request.subject
+						: "Approve fictional test login?",
+				context:
+					params.get("surface") === "question"
+						? "Your supplier needs a delivery date."
+						: "The reported fix needs a check with a test account.",
+				body:
+					params.get("surface") === "question"
+						? "Saves your date for the draft reply; sends nothing."
+						: "Checks the fix with the test account; sends no email.",
+				recommendation:
+					params.get("surface") === "question"
+						? "Friday leaves time to check the order before dispatch."
+						: "Recommend yes because the test account and operation are specified.",
+			},
+		}),
+	);
 }
 
 if (params.has("retry")) {

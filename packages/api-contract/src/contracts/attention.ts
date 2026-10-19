@@ -4,6 +4,7 @@ import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
 	AttentionViewInputSchema,
+	AttentionAppViewSchema,
 	DeckProjectionSchema,
 	DeckCardSchema,
 	DecideDeckCardRequestSchema,
@@ -15,8 +16,25 @@ export const attentionContract = oc
 	.errors({
 		...baseErrors,
 		CONFLICT: { message: "Attention projection changed or is incomplete" },
+		SERVICE_UNAVAILABLE: { message: "The writing agent is unavailable" },
 	})
 	.router({
+		showDeck: oc
+			.route({
+				summary: "Show decisions that need you",
+				description:
+					"Render the authenticated member’s ranked decision Deck here, with full drafts, evidence, answers and authorized actions. Use when decisions deserve attention; terminal hosts receive Markdown links.",
+			})
+			.input(AttentionViewInputSchema)
+			.output(AttentionAppViewSchema),
+		showFeed: oc
+			.route({
+				summary: "Show your For you feed",
+				description:
+					"Render the authenticated member’s ranked Needs you and Updates feed here, including personal-agent findings and provenance. Terminal hosts receive Markdown links.",
+			})
+			.input(AttentionViewInputSchema)
+			.output(AttentionAppViewSchema),
 		listDeckCards: oc
 			.input(AttentionViewInputSchema)
 			.output(DeckProjectionSchema),
@@ -27,7 +45,7 @@ export const attentionContract = oc
 			.route({
 				summary: "Record bounded Deck feedback",
 				description:
-					"Saves factory usefulness feedback and unprotected, reversible interaction responses. Critical decisions, governed approvals, handoffs and executable effects require their originating OS card or Home approval flow; this endpoint refuses them before writing.",
+					"Requests agent rewrites, restores content revisions, saves factory usefulness feedback and records unprotected, reversible interaction responses. Revision actions use their source owner and never approve or execute the card. Critical decisions, governed approvals, handoffs and executable effects require their originating OS card or Home approval flow.",
 			})
 			.input(DecideDeckCardRequestSchema)
 			.output(z.strictObject({ saved: z.literal(true), cardId: z.string() })),

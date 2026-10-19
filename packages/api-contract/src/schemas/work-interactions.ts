@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import { AgentReplyDeliveryGateResultSchema } from "./agent-turn-triage";
 import { BoundedJsonObjectSchema } from "./bounded-json";
 import { OutboundRecordSchema } from "./outbound";
@@ -74,6 +75,9 @@ export const WorkProposalMetadataSchema = z
 		}),
 	})
 	.describe("Handoff proposal; additional evidence keys are ignored.");
+export type WorkProposal = z.infer<
+	typeof WorkProposalMetadataSchema
+>["proposal"];
 
 export const WorkInteractionKindSchema = z.enum([
 	"question",
@@ -351,6 +355,12 @@ export const RespondToWorkInteractionInputSchema = z
 			),
 	})
 	.superRefine((value, context) => {
+		if (containsCardSecret([value.body, value.metadata]))
+			context.addIssue({
+				code: "custom",
+				message: CARD_SECRET_MESSAGE,
+				path: ["body"],
+			});
 		if (
 			(value.artifactRef === undefined) !==
 			(value.artifactVersion === undefined)

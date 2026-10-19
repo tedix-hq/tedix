@@ -962,8 +962,44 @@
 			"sha256": "5a74348b86687f5a004330b6c8470a56046dada076a015b06069da032702c05a"
 		},
 		{
+			"name": "20261019200603_deck-mcp-app/migration.sql",
+			"sha256": "d7433eb5107fe8472bc682b58ac1db2d5a43b0e3b56f5b4eb0f065c19f9bd479"
+		},
+		{
+			"name": "20261019201215_attention-app-value-bindings/migration.sql",
+			"sha256": "b3cc75fa802f8a5b333c480eb0d77f3d2185602e108f36fb33d3ade3c6939413"
+		},
+		{
+			"name": "20261019201325_attention-app-view-assets/migration.sql",
+			"sha256": "42cdbd188235289b989c2a97b958e9ebe901275b9ce9934004145635bd152308"
+		},
+		{
+			"name": "20261019201801_attention-layout-catalog-props/migration.sql",
+			"sha256": "039d42b90cdaf245ab8afccd63e777ce6eb3ee1b0185dcc9e020ff3e954e4006"
+		},
+		{
+			"name": "20261019202615_card_revisions/migration.sql",
+			"sha256": "dcefb58bd213b929074038f56108559fcd5e1f1795def224e3c7f612d377b409"
+		},
+		{
+			"name": "20261019204315_card_revision_projection_guard/migration.sql",
+			"sha256": "b3cc75fa802f8a5b333c480eb0d77f3d2185602e108f36fb33d3ade3c6939413"
+		},
+		{
+			"name": "20261019204401_card_revision_projection_fence/migration.sql",
+			"sha256": "43208a23d4cec2bc6cddfa473415d44085e1bd833837cecbc52ebddbb8696d4e"
+		},
+		{
 			"name": "20261019204456_commitment_wake_progress_and_ranges/migration.sql",
 			"sha256": "56927990ce6d7cb62e4993be452e1d3a3151b70dd653346c26d00829681c71f0"
+		},
+		{
+			"name": "20261019215022_card_revision_plan_snapshots/migration.sql",
+			"sha256": "aca01149cee638ca237f94f1f66bbb3c1a5a8aa7c41e484a1402ed729281cca5"
+		},
+		{
+			"name": "20261019221323_attention-card-tldr/migration.sql",
+			"sha256": "323ed80ab319771586df362f2fd6335e433a6dee465cb6a203e86c64a78d189a"
 		}
 	]
 }

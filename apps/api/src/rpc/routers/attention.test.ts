@@ -5,11 +5,13 @@ import type { BaseContext } from "../orpc";
 import { attentionContractRouter } from "./attention";
 const mocks = vi.hoisted(() => ({
 	loadDeckProjection: vi.fn(),
+	loadForYouProjection: vi.fn(),
 	call: vi.fn(),
 	record: vi.fn(),
 }));
 vi.mock("../../services/attention-projection", () => ({
 	loadDeckProjection: mocks.loadDeckProjection,
+	loadForYouProjection: mocks.loadForYouProjection,
 }));
 vi.mock("@orpc/server", async (original) => ({
 	...(await original<Record<string, unknown>>()),
@@ -434,4 +436,100 @@ it("refuses governed Work approvals before dispatch", async () => {
 		}),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 	expect(mocks.call).not.toHaveBeenCalled();
+});
+
+it("routes change requests on protected cards without deciding or executing them", async () => {
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [boundedCard({}, { kind: "approval" })],
+		complete: true,
+	});
+	mocks.call.mockResolvedValue({});
+	await expect(
+		client().decideDeckCard({
+			decision: {
+				kind: "request_changes",
+				cardId: requestId,
+				expectedRequestVersion: 1,
+				instruction: "Shorten the draft introduction.",
+			},
+		}),
+	).resolves.toEqual({ saved: true, cardId: requestId });
+	expect(mocks.call).toHaveBeenCalledTimes(1);
+	expect(mocks.call.mock.calls[0]?.[1]).toEqual({
+		requestId,
+		expectedRequestVersion: 1,
+		instruction: "Shorten the draft introduction.",
+	});
+	expect(mocks.record).not.toHaveBeenCalled();
+});
+
+it("refuses secret-like change instructions before loading or writing a Deck", async () => {
+	await expect(
+		client().decideDeckCard({
+			decision: {
+				kind: "request_changes",
+				cardId: requestId,
+				expectedRequestVersion: 1,
+				instruction: "fc-" + "fictional".repeat(5),
+			},
+		}),
+	).rejects.toBeDefined();
+	expect(mocks.call).not.toHaveBeenCalled();
+	expect(mocks.loadDeckProjection).not.toHaveBeenCalled();
+});
+
+it("show tools enforce caller scopes and retain incomplete text fallback", async () => {
+	await expect(client([]).showDeck({})).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	await expect(client([]).showFeed({})).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [],
+		count: 0,
+		complete: false,
+		observedAt: "2026-10-19T12:00:00.000Z",
+	});
+	const view = await client().showDeck({ limit: 1 });
+	expect(view).toMatchObject({ empty: true, complete: false });
+	expect(view.markdown).toContain("inventory is incomplete");
+	expect(view.notice).toContain("Reload");
+});
+it("show_feed separates Needs you from Updates without creating actions", async () => {
+	const item = {
+		id: "sample",
+		actor: "Sample assistant",
+		sentence: "Source update",
+		source: "/work",
+		projectId: null,
+		tediId: null,
+		workItemId: null,
+		kind: "work",
+		classId: "sample.update",
+		importance: "normal",
+		at: "2026-10-19T12:00:00.000Z",
+		dueAt: null,
+		needsAction: false,
+		stalled: false,
+		done: false,
+		explanation: "Source detail",
+		reactions: [],
+		score: 1,
+		unseen: true,
+		deadline: false,
+		factors: {},
+	};
+	mocks.loadForYouProjection.mockResolvedValue({
+		items: [item, { ...item, id: "needs", needsAction: true }],
+		heldCount: 0,
+		used: 2,
+		day: "2026-10-19",
+		complete: true,
+		observedAt: "2026-10-19T12:00:00.000Z",
+	});
+	const view = await client().showFeed({});
+	expect(view.needsYou.map((c) => c.id)).toEqual(["needs"]);
+	expect(view.updates.map((c) => c.id)).toEqual(["sample"]);
+	expect(view.cards.every((c) => !c.actions.length)).toBe(true);
 });

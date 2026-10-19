@@ -3,14 +3,16 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { CallerIdentity } from "./mcp/caller-identity";
 import { buildMcpServer, type CachedAppData } from "./mcp/server-factory";
 
-vi.mock("cloudflare:workers", () => ({
+vi.mock("cloudflare:workers", async (importOriginal) => ({
+	...(await importOriginal<typeof import("cloudflare:workers")>()),
 	tracing: {
 		enterSpan: (_name: string, callback: (span: unknown) => unknown) =>
 			callback({ setAttribute: vi.fn() }),
 	},
 }));
 
-vi.mock("@cloudflare/codemode", () => {
+vi.mock("@cloudflare/codemode", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@cloudflare/codemode")>();
 	const sanitizeToolName = (name: string) =>
 		name.replace(/[^a-zA-Z0-9_]/g, "_");
 	return {
@@ -580,7 +582,7 @@ vi.mock("@cloudflare/codemode", () => {
 			),
 		}),
 		sanitizeToolName,
-		truncateResult: (value: unknown) => value,
+		truncateResult: actual.truncateResult,
 	};
 });
 
@@ -608,7 +610,7 @@ const ACCEPT_BOTH = "application/json, text/event-stream";
 const CODE =
 	'async () => await payments.premium_research_brief({ topic: "Solana agent payments" })';
 
-function createApiService() {
+function createApiService(draft?: string) {
 	return {
 		fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const request =
@@ -633,6 +635,7 @@ function createApiService() {
 			if (url.pathname === "/rpc/nosana/listDeployments") {
 				return Response.json({
 					json: {
+						...(draft ? { draft } : {}),
 						deployments: [
 							{
 								id: "deployment-1",
@@ -1072,6 +1075,7 @@ describe("Code Mode payment-gated tools", () => {
 			};
 		}>(response);
 		const result = body.result.structuredContent.result;
+		expect(body.result._meta).toHaveProperty("tedix/widgetData", result);
 		expect(result._meta.ui.resourceUri).toBe(
 			"ui://widgets/mcp-app/nosana/r/deployments.html",
 		);
@@ -1091,6 +1095,30 @@ describe("Code Mode payment-gated tools", () => {
 				},
 			},
 		});
+	});
+
+	it("retains full widget drafts when the model result exceeds its budget", async () => {
+		const draft = "Full draft paragraph. ".repeat(2000);
+		const env = createEnv(createApiService(draft));
+		const response = await postRpc(env, createExecutionContext(), {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "code",
+				arguments: {
+					code: "async () => await nosana.get_deployments({ limit: 10 })",
+				},
+			},
+		});
+		const body = await readJsonRpcResponse<{
+			result: {
+				structuredContent: { result: { __tedix_truncated?: boolean } };
+				_meta: { "tedix/widgetData": { draft: string } };
+			};
+		}>(response);
+		expect(body.result.structuredContent.result.__tedix_truncated).toBe(true);
+		expect(body.result._meta["tedix/widgetData"].draft).toBe(draft);
 	});
 
 	it("exposes explicit generative UI views from the Code Mode ui namespace", async () => {

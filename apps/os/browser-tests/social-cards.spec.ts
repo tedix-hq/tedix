@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { chromium, type Page } from "playwright";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
+import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 
 const cwd = new URL("../", import.meta.url).pathname;
@@ -211,6 +212,53 @@ try {
 				route.request().method() === "GET"
 					? (JSON.parse(url.searchParams.get("data") ?? "{}").json ?? {})
 					: (route.request().postDataJSON()?.json ?? {});
+			if (path.endsWith("/attention/getDeckCard")) {
+				const index = sheets.findIndex(
+					({ output }) => input.cardId === `factory:${output.id}:0`,
+				);
+				const factory = index >= 0;
+				return json(
+					DeckCardSchema.parse({
+						id: input.cardId,
+						kind: factory ? "decision" : "question",
+						label: factory ? sources[index]!.label : native.request.subject,
+						project: "Opportunities",
+						urgency: "later",
+						source: "/work",
+						score: 0,
+						requestedAt: native.request.requestedAt,
+						dueAt: null,
+						decision: null,
+						...(factory
+							? {
+									factory: {
+										outputId: sheets[index]!.output.id,
+										sourceIndex: index,
+										rowIndex: 0,
+										revision: 1,
+										draft: "A fictional draft for review.",
+										why: "A fictional opportunity is ready.",
+										sourceText: "Morgan Example",
+									},
+								}
+							: { interaction: native }),
+						presentation: {
+							version: 2,
+							title: factory
+								? `Review the fictional ${sources[index]!.label.toLowerCase()} opportunity?`
+								: "Review the fictional native question?",
+							context: factory
+								? "Morgan's opportunity is ready for review."
+								: "Your supplier needs a delivery date.",
+							body: factory
+								? "Records whether it is useful; sends nothing."
+								: "Saves your date for the reply draft; sends nothing.",
+							recommendation:
+								"Review first because only you know whether this helps.",
+						},
+					}),
+				);
+			}
 			if (path.endsWith("/workInteractions/listInbox"))
 				return json({
 					data:
@@ -283,9 +331,25 @@ try {
 					name: /Review the fictional social opportunity/,
 				})
 				.waitFor();
+			const factoryRow = page.getByRole("article").filter({
+				has: page.getByRole("link", {
+					name: /Review the fictional social opportunity/,
+				}),
+			});
 			assert(
-				await page.getByText("Opportunities", { exact: false }).count(),
-				"factory Feed row carries project context",
+				!(await factoryRow
+					.getByText("Opportunities", { exact: true })
+					.isVisible()),
+				"factory Feed keeps project context behind Details",
+			);
+			await factoryRow
+				.getByRole("button", { name: "Details", exact: true })
+				.click();
+			assert(
+				await factoryRow
+					.getByText("Opportunities", { exact: true })
+					.isVisible(),
+				"factory Feed Details preserves project context",
 			);
 			assert(
 				await page.evaluate(

@@ -15,6 +15,7 @@ import {
 import {
 	workInteractions,
 	workInteractionResponses,
+	workInteractionCardRevisions,
 } from "@tedix/db/schema/work-factory";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -83,6 +84,7 @@ function fixture(overrides: Partial<OutboundState> = {}) {
 			workItemComments,
 			workInteractions,
 			workInteractionResponses,
+			workInteractionCardRevisions,
 		),
 	);
 	sqlite
@@ -390,6 +392,39 @@ describe("outbound authorization and delivery", () => {
 			}),
 		).rejects.toThrow(/changed/);
 		expect(gmail.send).toHaveBeenCalledTimes(1);
+	});
+	it("restores a saved body as a new revision requiring fresh review", async () => {
+		const { sqlite, client } = fixture();
+		try {
+			const edited = await client().act({
+				workItemId: WORK,
+				expectedVersion: 1,
+				action: "edit",
+				body: "A revised email for Lina.",
+			});
+			const restored = await client().act({
+				workItemId: WORK,
+				expectedVersion: edited.version,
+				action: "edit",
+				body: state.draft.body,
+				restoreRevision: 1,
+			});
+			expect(restored.outbound).toMatchObject({
+				status: "reviewing",
+				review: null,
+				draftRevision: 3,
+				draft: { body: state.draft.body },
+			});
+			expect(
+				sqlite
+					.prepare(
+						"SELECT cause,instruction FROM work_interaction_card_revisions ORDER BY revision DESC LIMIT 1",
+					)
+					.get(),
+			).toEqual({ cause: "restore", instruction: "Restore version 1" });
+		} finally {
+			sqlite.close();
+		}
 	});
 	it("invalidates review after editing and captures the old and final wording", async () => {
 		const { client, queue } = fixture();

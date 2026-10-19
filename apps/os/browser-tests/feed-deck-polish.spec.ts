@@ -538,7 +538,7 @@ try {
 			await page.getByRole("button", { name: "Why this", exact: true }).click();
 			await page
 				.getByRole("heading", {
-					name: "Learning your preferences",
+					name: "Results and learning",
 					exact: true,
 				})
 				.waitFor();

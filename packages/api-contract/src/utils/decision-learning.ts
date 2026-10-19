@@ -137,6 +137,7 @@ export function learnDecisions(input: {
 	const events = replayEvents.filter(
 		(event) =>
 			event.surface !== "decision_deck_action" &&
+			event.surface !== "card_context" &&
 			!(
 				event.surface === "focus_feed" &&
 				event.metadata?.reaction === "impression"

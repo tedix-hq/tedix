@@ -760,6 +760,7 @@ export const TOOL_ID_LEADING_VERBS: ReadonlySet<string> = new Set([
 	"search",
 	"send",
 	"set",
+	"show",
 	"steer",
 	"store",
 	"submit",

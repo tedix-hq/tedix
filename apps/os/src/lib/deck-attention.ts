@@ -51,11 +51,36 @@ export function attentionMetrics(
 		),
 	];
 	const elapsed = decisions.flatMap((event) =>
-		typeof event.metadata?.elapsedMs === "number"
+		typeof event.metadata?.elapsedMs === "number" &&
+		Number.isFinite(event.metadata.elapsedMs) &&
+		event.metadata.elapsedMs >= 0
 			? [event.metadata.elapsedMs]
 			: [],
 	);
+	const firstViewElapsed = decisions
+		.flatMap((event) =>
+			typeof event.metadata?.firstViewedAt === "number" &&
+			typeof event.metadata.elapsedMs === "number" &&
+			Number.isFinite(event.metadata.elapsedMs) &&
+			event.metadata.elapsedMs >= 0
+				? [event.metadata.elapsedMs]
+				: [],
+		)
+		.sort((a, b) => a - b);
 	const days = new Set(decisions.map((event) => event.occurredAt.slice(0, 10)));
+	const middle = Math.floor(firstViewElapsed.length / 2);
+	const actions = unique.filter(
+		(event) =>
+			event.surface === "decision_deck_action" ||
+			(event.surface === "decision_deck" &&
+				event.metadata?.reaction === "skip" &&
+				event.metadata.decisionChoice === "later"),
+	);
+	const observedDetails = decisions.filter(
+		(event) =>
+			typeof event.metadata?.firstViewedAt === "number" &&
+			typeof event.metadata.railOpenedBeforeDecision === "boolean",
+	);
 	let streak = 0;
 	const cursor = new Date(`${today}T00:00:00Z`);
 	if (!days.has(today)) cursor.setUTCDate(cursor.getUTCDate() - 1);
@@ -64,6 +89,26 @@ export function attentionMetrics(
 		cursor.setUTCDate(cursor.getUTCDate() - 1);
 	}
 	return {
+		medianMs: firstViewElapsed.length
+			? firstViewElapsed.length % 2
+				? firstViewElapsed[middle]!
+				: (firstViewElapsed[middle - 1]! + firstViewElapsed[middle]!) / 2
+			: null,
+		withoutDetailsRate: observedDetails.length
+			? observedDetails.filter(
+					(event) => event.metadata?.railOpenedBeforeDecision === false,
+				).length / observedDetails.length
+			: null,
+		measuredDecisions: firstViewElapsed.length,
+		laterCount: actions.filter(
+			(event) => event.metadata?.decisionChoice === "later",
+		).length,
+		notThisCount: actions.filter(
+			(event) => event.metadata?.decisionChoice === "reject",
+		).length,
+		changeRequestCount: actions.filter(
+			(event) => event.metadata?.cardAction === "request_changes",
+		).length,
 		averageMs: elapsed.length
 			? elapsed.reduce((sum, value) => sum + value, 0) / elapsed.length
 			: null,

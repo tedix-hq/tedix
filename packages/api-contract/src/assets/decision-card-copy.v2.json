@@ -54,9 +54,23 @@
 		"agent-board",
 		"telemetry",
 		"memory-port",
-		"memory port"
+		"memory port",
+		"AI workers",
+		"Workers fetch",
+		"markdown",
+		"D1",
+		"oRPC",
+		"MCP",
+		"API key",
+		"credential",
+		"credentials",
+		"endpoint",
+		"OAuth",
+		"gateway",
+		"schema"
 	],
 	"rawIdentifierPattern": "\\b(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|[0-9a-f]{8,64}|(?:org|work|attempt|session)_[a-z0-9_-]+)\\b|\\[reference\\]|\\b(?=[A-Za-z0-9]{20,64}\\b)(?=[A-Za-z0-9]*[A-Z])(?=[A-Za-z0-9]*[a-z])(?=[A-Za-z0-9]*\\d)[A-Za-z0-9]+\\b",
+	"technicalTextPattern": "\\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\\b|\\b(?:TypeError|ReferenceError|SyntaxError|ENOTFOUND|ECONNRESET|FORBIDDEN|BAD_REQUEST|CONFLICT)\\b|(?:^|\\s)/(?:Users|tmp|var|apps|packages)/",
 	"overlapThreshold": 0.55,
 	"stopWords": [
 		"a",
@@ -166,5 +180,17 @@
 			"body": "Checks the sample profile page in a separate browser.",
 			"recommendation": "The owner asked for proof that sign-in works."
 		}
-	]
+	],
+	"faceWordLimit": 60,
+	"contextMaxLength": 120,
+	"faceInstruction": "Also return context: one plain-English line explaining who or what this is about and why now, at most 120 characters. Keep title, context, body, recommendation and stakes together within 44 words to leave room for labels and buttons in the 60-word face. Body states the exact conditional result and any known cost/risk; if unknown, say so. Recommendation names the recommended outcome and a different source-supported reason. Do not guess confidence: the view uses the original confidence or says not assessed. Move technical names, internal project labels, raw errors, logs and IDs to Details. Preserve people, essential numbers, deadlines and whether yes saves a task, approves a plan, sends a message or changes settings. Never silently upgrade one into another. These requirements override earlier formatting guidance. Return no options or effects; existing buttons keep their exact meaning. Also return actionLabels, an object with keys matching supplied option IDs or approve, reject, later and delegate intents, and labels of at most four words each. Name the concrete outcome of each supplied intent. Labels only: never invent an intent, change the existing consequence, or imply sending when yes only saves a task. Keep the complete face including actionLabels under 46 words; the view reserves fourteen words for labels, confidence and controls.",
+	"unknownConsequence": "The source does not describe what yes changes.",
+	"producerContext": {
+		"factory": "The buttons record whether this suggested next step is useful. They do not execute the suggestion, send a message, change an invoice or grant permission. Describe that exact next consequence.",
+		"workApproval": "The buttons approve or reject the supplied permission request for this task. Approval records permission; it does not itself complete the task or change settings. Only describe scope established by the supplied rationale.",
+		"runtimeApproval": "The buttons approve or reject the saved action described by this request. Do not infer effects from an internal operation name. If its description does not establish the change or cost, state that it is unknown."
+	},
+	"pendingFace": "Preparing a shorter summary. Open Details to review the source.",
+	"pendingTitle": "Review this request?",
+	"faceChromeWords": 14
 }

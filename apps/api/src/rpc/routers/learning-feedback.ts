@@ -8,6 +8,7 @@ import {
 import { readDecisionLearning } from "../../services/decision-learning";
 import { setDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { learningFeedbackContract } from "@tedix/api-contract/contracts/learning-feedback";
+import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type {
 	LearningScopeKind,
 	LearningSubjectKind,
@@ -907,6 +908,56 @@ const correct = authed.correct
 	});
 
 export const learningFeedbackContractRouter = learningFeedbackOs.router({
+	cardContextPrompt: authed.cardContextPrompt
+		.use(
+			withAuthorization(
+				{
+					handlerOwnedUserAuthorization:
+						"A person may report a visible, recipient-fenced card; sampling is personal and cannot grant approval",
+				},
+				"tedis:write",
+			),
+		)
+		.handler(async ({ input, context }): Promise<{ ask: boolean }> => {
+			requireLearningPerson(context);
+			const { loadDeckProjection } =
+				await import("../../services/attention-projection");
+			const { sampleCardContext } =
+				await import("../../services/card-context-feedback");
+			const projection = await loadDeckProjection(context, input);
+			const card = projection.cards.find((card) => card.id === input.cardId);
+			const copy = DecisionCardPresentationSchema.safeParse(
+				card?.interaction?.request.metadata.cardPresentation,
+			).data;
+			return {
+				ask:
+					card &&
+					copy?.version === 2 &&
+					copy.sourceFingerprint === input.sourceFingerprint
+						? await sampleCardContext(
+								context,
+								card,
+								projection.model.config.enabled,
+							)
+						: false,
+			};
+		}),
+	cardContext: authed.cardContext
+		.use(
+			withAuthorization(
+				{
+					handlerOwnedUserAuthorization:
+						"Only the person who received a sampled context question may answer it; the server derives the card class and personal learning scope",
+				},
+				"tedis:write",
+			),
+		)
+		.handler(async ({ input, context }) => {
+			const actorId = requireLearningPerson(context);
+			const { recordCardContext } =
+				await import("../../services/card-context-feedback");
+			return recordCardContext(context, actorId, input);
+		}),
 	recordExposure,
 	getCalibration,
 	getInstrumentation,

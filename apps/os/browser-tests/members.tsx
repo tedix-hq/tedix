@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
@@ -181,6 +182,44 @@ for (const [index, source] of sources.entries()) {
 			},
 		},
 	});
+	const cardId = `factory:${output.id}:0`;
+	client.setQueryData(
+		osQuery.attention.getDeckCard.queryOptions({
+			input: { cardId, projectId: undefined, limit: 100 },
+		}).queryKey,
+		DeckCardSchema.parse({
+			id: cardId,
+			kind: "decision",
+			label: source.title,
+			project: "Shared research",
+			urgency: "later",
+			source: "/work",
+			score: 0,
+			requestedAt: now,
+			dueAt: null,
+			decision: null,
+			factory: {
+				outputId: output.id,
+				sourceIndex: index,
+				rowIndex: 0,
+				revision: 1,
+				draft: "",
+				why: source.why,
+				sourceText: source.title,
+			},
+			presentation: {
+				version: 2,
+				title:
+					index === 0
+						? "Review Luz's inbox follow-up?"
+						: `Review ${source.title}?`,
+				context: source.why,
+				body: "Records whether this suggestion helped; sends nothing.",
+				recommendation:
+					"Review first because only you know whether it is useful.",
+			},
+		}),
+	);
 }
 client.setQueryData(userProfileQueryOptions().queryKey, {
 	id: "fictional-luz",

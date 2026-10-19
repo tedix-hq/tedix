@@ -277,6 +277,15 @@ export async function executeDecisionCardEffect(
 	const metadata = input.metadata ?? {};
 	if (!option.effect) return { ...input, metadata };
 	if (
+		typeof request.metadata.cardContent === "string" &&
+		request.metadata.cardContent !==
+			(parsed.data.preview?.body ?? request.prompt)
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"This wording changed. The agent must revise the source draft and request a fresh review before this action can run.",
+		);
+	if (
 		metadata.feedbackSignal === "edited" ||
 		(typeof metadata.editedBody === "string" &&
 			metadata.editedBody !==

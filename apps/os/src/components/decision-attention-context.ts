@@ -8,6 +8,8 @@ export const DecisionAttentionContext = createContext<
 			intent?: string;
 			signal: string;
 			elapsedMs: number;
+			decidedAt?: number;
+			detailsOpened?: boolean;
 	  }) => void)
 	| null
 >(null);

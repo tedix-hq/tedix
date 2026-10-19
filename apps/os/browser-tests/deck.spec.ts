@@ -157,6 +157,90 @@ try {
 			console.log(
 				`Decision deck browser passed: ${viewport.width}x${viewport.height}`,
 			);
+			for (const dark of [false, true]) {
+				for (const mcp of [false, true]) {
+					await page.goto(
+						`${origin}/browser-tests/card-tldr.html?${mcp ? "mcp=1&" : ""}${dark ? "dark=1" : ""}`,
+					);
+					const plain = page.getByRole(mcp ? "article" : "region", {
+						name: "Save a follow-up task for Jules?",
+					});
+					await plain.waitFor();
+					await page.evaluate(async () => {
+						await document.fonts.ready;
+						await Promise.all(
+							document
+								.getAnimations()
+								.filter(
+									(animation) =>
+										animation.effect?.getTiming().iterations !== Infinity,
+								)
+								.map((animation) => animation.finished.catch(() => {})),
+						);
+					});
+					await page
+						.getByRole("button", { name: "Save task", exact: false })
+						.waitFor();
+					assert(
+						!(await page
+							.getByText("Source invocation:", { exact: false })
+							.isVisible()),
+						"technical source stays behind Details",
+					);
+					const text = await plain.innerText();
+					assert(
+						(text.match(/\S+/gu) ?? []).length <= 60,
+						`the full visible card is under 60 words: ${text}`,
+					);
+					assert(
+						await page.evaluate(
+							() => document.documentElement.scrollWidth <= innerWidth,
+						),
+						"plain card has no horizontal overflow",
+					);
+					if (process.env.CARD_TLDR_SCREENSHOT_DIR)
+						await page.screenshot({
+							path: `${process.env.CARD_TLDR_SCREENSHOT_DIR}/card-tldr-${mcp ? "mcp" : "after"}-${viewport.width}-${dark ? "dark" : "light"}.png`,
+							fullPage: true,
+						});
+					if (mcp) {
+						await plain.locator("summary").focus();
+						await page.keyboard.press("Enter");
+					} else
+						await page
+							.getByRole("button", { name: "Details", exact: true })
+							.click();
+					assert(
+						await page
+							.getByText("Source invocation:", { exact: false })
+							.isVisible(),
+						"the exact source remains available",
+					);
+					if (process.env.CARD_TLDR_SCREENSHOT_DIR && !mcp) {
+						await page.goto(
+							`${origin}/browser-tests/card-tldr.html?before=1${dark ? "&dark=1" : ""}`,
+						);
+						await page
+							.getByText("Source invocation:", { exact: false })
+							.waitFor();
+						await page.evaluate(async () => {
+							await Promise.all(
+								document
+									.getAnimations()
+									.filter(
+										(animation) =>
+											animation.effect?.getTiming().iterations !== Infinity,
+									)
+									.map((animation) => animation.finished.catch(() => {})),
+							);
+						});
+						await page.screenshot({
+							path: `${process.env.CARD_TLDR_SCREENSHOT_DIR}/card-tldr-before-${viewport.width}-${dark ? "dark" : "light"}.png`,
+							fullPage: true,
+						});
+					}
+				}
+			}
 		} finally {
 			await page.close();
 		}

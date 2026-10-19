@@ -99,6 +99,7 @@ export const OutboundStateSchema = z.strictObject({
 export type OutboundState = z.infer<typeof OutboundStateSchema>;
 
 export const OutboundRecordSchema = z.strictObject({
+	requestVersion: z.number().int().positive().optional(),
 	learningClientEventId: z.string().optional(),
 	workItemId: z.uuid(),
 	projectId: z.uuid().nullable(),

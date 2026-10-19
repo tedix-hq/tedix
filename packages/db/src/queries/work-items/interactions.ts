@@ -1,5 +1,9 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
+	CARD_SECRET_MESSAGE,
+	containsCardSecret,
+} from "@tedix/api-contract/utils/card-secrets";
+import {
 	and,
 	asc,
 	desc,
@@ -256,6 +260,8 @@ export async function respondToWorkInteraction(
 	db: DbQueryClient,
 	p: RespondWorkInteractionParams,
 ): Promise<WorkInteractionResponse> {
+	if (containsCardSecret([p.body, p.metadata]))
+		throw new WorkControlError("INVALID_TRANSITION", CARD_SECRET_MESSAGE);
 	await validateActor(db, p.orgId, p.responder);
 	const request = (
 		await db
@@ -397,6 +403,22 @@ export async function respondToWorkInteraction(
 	try {
 		const [responses] = await db.batch([
 			responseInsert,
+			...(p.metadata?.cardAction === "ask_changes"
+				? [
+						db
+							.update(workInteractions)
+							.set({
+								metadata: sql`json_remove(json_set(${workInteractions.metadata}, '$.followThrough.reviewAt', ${p.now}), '$.followThrough.reviewWakeVersion')`,
+							})
+							.where(
+								and(
+									eq(workInteractions.orgId, p.orgId),
+									eq(workInteractions.id, p.interactionId),
+									sql`EXISTS (SELECT 1 FROM work_interaction_responses r WHERE r.id=${p.id} AND r.org_id=${p.orgId})`,
+								),
+							),
+					]
+				: []),
 			...(isLane
 				? [
 						db
@@ -1756,7 +1778,7 @@ export async function listDueWorkInteractionReviews(
 						AND NOT EXISTS (SELECT 1 FROM work_interaction_responses newer WHERE newer.org_id=r.org_id AND newer.interaction_id=r.interaction_id AND (newer.resolves_request=1 OR json_extract(newer.metadata,'$.corrects') IS NOT NULL) AND (newer.responded_at>r.responded_at OR (newer.responded_at=r.responded_at AND newer.id>r.id))))))`,
 				sql`NOT EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.disposition IN ('completed','cancelled'))`,
 				sql`((${workInteractions.creatorType}='tedi' AND EXISTS (SELECT 1 FROM tedis t WHERE t.id=${workInteractions.creatorId} AND t.organization_id=${workInteractions.orgId} AND t.status='active')) OR
-		(${workInteractions.creatorType}='external_agent' AND EXISTS (SELECT 1 FROM external_agent_sessions s WHERE s.id=${workInteractions.creatorSessionId} AND s.organization_id=${workInteractions.orgId} AND s.principal_id=${workInteractions.creatorId} AND s.status='active')))`,
+		(${workInteractions.creatorType}='external_agent' AND EXISTS (SELECT 1 FROM external_agent_sessions s WHERE s.id=${workInteractions.creatorSessionId} AND s.organization_id=${workInteractions.orgId} AND s.principal_id=${workInteractions.creatorId} AND s.status='active')) OR EXISTS (SELECT 1 FROM work_items w JOIN tedis t ON t.id=w.accountable_owner_id AND t.organization_id=w.org_id WHERE w.org_id=${workInteractions.orgId} AND w.id=${workInteractions.workItemId} AND w.accountable_owner_type='tedi' AND t.status='active' AND t.retired_at IS NULL))`,
 			),
 		)
 		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))

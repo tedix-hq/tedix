@@ -9,6 +9,7 @@
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
+import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
 import { sql } from "drizzle-orm";
 import {
 	check,
@@ -596,6 +597,39 @@ export const workInteractions = sqliteTable(
 			"chk_work_interaction_context",
 			sql`${table.workItemId} IS NOT NULL OR ${table.caseId} IS NOT NULL OR ${table.projectId} IS NOT NULL`,
 		),
+	],
+);
+
+export const workInteractionCardRevisions = sqliteTable(
+	"work_interaction_card_revisions",
+	{
+		id: text("id").primaryKey(),
+		orgId: text("org_id").notNull(),
+		requestId: text("request_id").notNull(),
+		revision: integer("revision").notNull(),
+		body: text("body").notNull(),
+		proposal: text("proposal", { mode: "json" }).$type<WorkProposal | null>(),
+		cause: text("cause", {
+			enum: ["initial", "agent_rewrite", "human_edit", "restore"],
+		}).notNull(),
+		actorType: text("actor_type").notNull(),
+		actorId: text("actor_id").notNull(),
+		actorSessionId: text("actor_session_id"),
+		instruction: text("instruction"),
+		responseId: text("response_id"),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [
+		uniqueIndex("uq_card_revision").on(
+			table.orgId,
+			table.requestId,
+			table.revision,
+		),
+		foreignKey({
+			columns: [table.orgId, table.requestId],
+			foreignColumns: [workInteractions.orgId, workInteractions.id],
+		}),
+		check("chk_card_revision_positive", sql`${table.revision} > 0`),
 	],
 );
 
