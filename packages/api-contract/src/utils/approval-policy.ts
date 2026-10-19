@@ -77,6 +77,10 @@ export function nativeToolActionContent(name: string, args: unknown): string {
 export function humanReservedActionClasses(content: string): string[] {
 	const actionable = content
 		.replace(
+			/\bno\s+(?:(?:external\s+)?(?:messages?|emails?|publication|money|credentials?|permissions?|deletions?)\b\s*(?:,\s*|\b(?:or|and)\b\s*)?)+/gi,
+			" ",
+		)
+		.replace(
 			/\b(?:do not|don't|don’t|never)\s+(?:read|send|email|publish|delete|pay|purchase)\b(?:(?!\b(?:but|then|however)\b|\.(?:\s|$))[^!?;,\n])*/gi,
 			" ",
 		)

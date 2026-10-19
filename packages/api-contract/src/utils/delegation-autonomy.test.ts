@@ -61,6 +61,7 @@ describe("critical-only autonomy v1", () => {
 		"Read the email inbox",
 		"Inspect the OAuth status",
 		"Read README; do not read /workspace/.env",
+		"Write an internal research note. No external messages, publication, money, credentials, permissions or deletions.",
 		"Draft email options; the operator reviews every message before sending. No bulk outreach or automatic sends.",
 	])("allows non-critical low and medium work: %s", (content) => {
 		for (const risk of ["low", "medium"] as const)
@@ -106,6 +107,9 @@ describe("critical-only autonomy v1", () => {
 		"Do not send messages but publish the article",
 		"The operator reviews every message before sending; then send the email",
 		"No automatic sends, but email a customer now",
+		"No money and pay the invoice now",
+		"No credentials, but read /workspace/.env",
+		"No external messages or publication; publish the article",
 	])("requires a human even if a caller labels it low: %s", (content) => {
 		expect(humanReservedActionClasses(content).length).toBeGreaterThan(0);
 		expect(
