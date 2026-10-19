@@ -856,7 +856,7 @@ describe("planKernelRoute", () => {
 				doGenerate: async (options) => {
 					if (model.doGenerateCalls.length > 1) return good.doGenerate(options);
 					return {
-						finishReason: "stop",
+						finishReason: { unified: "stop", raw: "stop" },
 						usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
 						warnings: [],
 						content: [
@@ -865,7 +865,7 @@ describe("planKernelRoute", () => {
 								text:
 									failure === "unparsable JSON"
 										? "not JSON"
-										: '{"routeKind":"invalid"}',
+										: '{"routeKind":"untrusted-secret-route"}',
 							},
 						],
 					};
@@ -898,8 +898,23 @@ describe("planKernelRoute", () => {
 					expect.objectContaining({
 						event: "route_decision_retry",
 						outcome: "succeeded",
+						finishReason: "stop",
+						outputCharacters: expect.any(Number),
+						validationIssues:
+							failure === "invalid schema"
+								? expect.arrayContaining([
+										expect.objectContaining({
+											path: "routeKind",
+											code: "invalid_value",
+										}),
+									])
+								: [],
 					}),
 				);
+				expect(JSON.stringify(warn.mock.calls)).not.toContain(
+					"untrusted-secret-route",
+				);
+				expect(JSON.stringify(warn.mock.calls)).not.toContain("not JSON");
 			} finally {
 				warn.mockRestore();
 			}

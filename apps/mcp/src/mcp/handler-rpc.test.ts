@@ -141,6 +141,48 @@ it("returns a slow filing receipt rather than timing out after enabling filing",
 	}
 });
 
+it("returns a routing retry receipt beyond the default 15-second transport ceiling", async () => {
+	vi.useFakeTimers();
+	try {
+		const apiFetch = vi.fn(
+			() =>
+				new Promise<Response>((resolve) => {
+					setTimeout(
+						() =>
+							resolve(
+								Response.json({
+									json: {
+										newRunId: "fictional-retry",
+										run: { id: "fictional-retry", status: "running" },
+									},
+								}),
+							),
+						25_000,
+					);
+				}),
+		);
+		const pending = new ToolHandler().execute(
+			{ runId: "fictional-failed" },
+			{
+				...ctx({ transport: "rpc", endpoint: "kernelRuntime/retryRun" }),
+				env: {
+					ENVIRONMENT: "test",
+					API_URL: "https://api.example.test",
+					API_SERVICE: { fetch: apiFetch },
+				} as unknown as CloudflareEnv,
+			},
+		);
+		await vi.advanceTimersByTimeAsync(25_000);
+		expect(await pending).toMatchObject({
+			status: 200,
+			data: { newRunId: "fictional-retry" },
+		});
+		expect(apiFetch).toHaveBeenCalledOnce();
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 describe("approved Work responder delegation", () => {
 	it.each([
 		{
