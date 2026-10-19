@@ -83,8 +83,11 @@ describe("commitment wakes", () => {
 		const plans: string[] = [];
 		const { db } = fixture(plans);
 		await listCommitmentChanges(db, after, through, "production");
+		expect(plans).toContain("MATERIALIZE recent_work_events");
 		expect(plans).toContainEqual(
-			expect.stringMatching(/SEARCH e USING INDEX idx_work_events_occurred/),
+			expect.stringMatching(
+				/SEARCH work_events USING INDEX idx_work_events_occurred/,
+			),
 		);
 	});
 	it("keeps the initial failed scan boundary until a successful cron receipt", async () => {
