@@ -102,6 +102,23 @@ export function workFeedItems(
 				type: e.authorType,
 				id: e.authorId,
 				harness: e.agentHarness,
+				...(e.personalAgentContribution
+					? {
+							contributor: {
+								id: e.personalAgentContribution.sourceAgentId,
+								displayName: e.personalAgentContribution.sourceAgentName,
+								representedUserId:
+									e.personalAgentContribution.representedUserId,
+							},
+							source: {
+								channel: e.personalAgentContribution.sourceChannel,
+								capturedAt: e.personalAgentContribution.capturedAt,
+								evidenceUrl: e.personalAgentContribution.evidenceUrl,
+								externalFindingId:
+									e.personalAgentContribution.externalFindingId,
+							},
+						}
+					: {}),
 			},
 			tediId: e.authorType === "tedi" ? e.authorId : null,
 			personalAgentContribution: e.personalAgentContribution,

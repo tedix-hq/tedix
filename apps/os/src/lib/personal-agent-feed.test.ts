@@ -32,6 +32,20 @@ it("shows an enrolled agent's fictional finding as one Feed post with provenance
 	};
 	const rows = workFeedItems([event], null);
 	expect(rows).toHaveLength(1);
+	expect(rows[0]?.actorIdentity).toMatchObject({
+		type: "system",
+		id: `personal-agent:${id}`,
+		contributor: {
+			id,
+			displayName: "Cedar Scout",
+			representedUserId: "fictional-luz",
+		},
+		source: {
+			channel: "browser_form",
+			evidenceUrl: contribution.evidenceUrl,
+			externalFindingId: "cedar-one",
+		},
+	});
 	const row = ActivityFeedItemSchema.parse(rows[0]);
 	expect(row).toMatchObject({
 		actor: "Cedar Scout",
