@@ -210,24 +210,26 @@ export function TediDetailPage() {
 					<AlertDescription>{errorMessage(tediQuery.error)}</AlertDescription>
 				</Alert>
 			)}
-			{tedi && <TediDetailHeader tedi={tedi} summary={summary} />}
+			<div className="grid min-w-0 gap-4">
+				{tedi && <TediDetailHeader tedi={tedi} summary={summary} />}
 
-			<Tabs value={activeTab}>
-				<TabsList aria-label="Tedi detail sections" variant="line">
-					{DETAIL_NAV.map((item) => (
-						<TabsTrigger
-							key={item.value}
-							nativeButton={false}
-							value={item.value}
-							render={
-								<Link to={item.path} params={{ tediId }} preload="intent" />
-							}
-						>
-							{item.label}
-						</TabsTrigger>
-					))}
-				</TabsList>
-			</Tabs>
+				<Tabs value={activeTab}>
+					<TabsList aria-label="Tedi detail sections" variant="line">
+						{DETAIL_NAV.map((item) => (
+							<TabsTrigger
+								key={item.value}
+								nativeButton={false}
+								value={item.value}
+								render={
+									<Link to={item.path} params={{ tediId }} preload="intent" />
+								}
+							>
+								{item.label}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				</Tabs>
+			</div>
 
 			<Outlet />
 		</Page>

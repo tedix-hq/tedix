@@ -131,39 +131,43 @@ export function AppDetailLayout() {
 
 			{app && (
 				<>
-					<PageHeader>
-						<PageHeading>
-							<PageTitle>{app.name}</PageTitle>
-							{app.description && (
-								<PageDescription>{app.description}</PageDescription>
-							)}
-							<PageMeta>
-								<li>
-									Slug <strong>{app.slug}</strong>
-								</li>
-								{app.visibility && (
-									<li>
-										Visibility <strong>{app.visibility}</strong>
-									</li>
+					<div className="grid min-w-0 gap-4">
+						<PageHeader>
+							<PageHeading>
+								<PageTitle>{app.name}</PageTitle>
+								{app.description && (
+									<PageDescription>{app.description}</PageDescription>
 								)}
-								{app.appStoreStatus && (
+								<PageMeta>
 									<li>
-										App store <strong>{app.appStoreStatus}</strong>
+										Slug <strong>{app.slug}</strong>
 									</li>
-								)}
-								{app.metadata?.mcpConfig?.authMode && (
+									{app.visibility && (
+										<li>
+											Visibility <strong>{app.visibility}</strong>
+										</li>
+									)}
+									{app.appStoreStatus && (
+										<li>
+											App store <strong>{app.appStoreStatus}</strong>
+										</li>
+									)}
+									{app.metadata?.mcpConfig?.authMode && (
+										<li>
+											MCP auth{" "}
+											<strong>{app.metadata.mcpConfig.authMode}</strong>
+										</li>
+									)}
 									<li>
-										MCP auth <strong>{app.metadata.mcpConfig.authMode}</strong>
+										MCP endpoint{" "}
+										<AppMetaCode>{mcpEndpointHost(app)}</AppMetaCode>
 									</li>
-								)}
-								<li>
-									MCP endpoint <AppMetaCode>{mcpEndpointHost(app)}</AppMetaCode>
-								</li>
-							</PageMeta>
-						</PageHeading>
-					</PageHeader>
+								</PageMeta>
+							</PageHeading>
+						</PageHeader>
 
-					<AppTabStrip appId={appId} />
+						<AppTabStrip appId={appId} />
+					</div>
 
 					<Outlet />
 				</>

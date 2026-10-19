@@ -132,73 +132,75 @@ export function SkillDetailLayout() {
 	return (
 		<Page width="lg">
 			<PageBack render={<Link to="/skills" />}>All skills</PageBack>
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{skill.title}</PageTitle>
-					<PageDescription>
-						{skill.summary ??
-							skill.description ??
-							"Reusable governed procedure"}
-					</PageDescription>
-					<div className="mt-2 flex flex-wrap gap-2">
-						<Badge variant="outline">revision {skill.revision}</Badge>
-						{skill.lifecycleState ? (
-							<Badge variant="secondary">{skill.lifecycleState}</Badge>
-						) : null}
-					</div>
-				</PageHeading>
-				{executable || canRun ? (
-					<PageActions>
-						{canRun ? (
-							<Button
-								variant="outline"
-								onClick={() => {
-									setFolderDraft(skill.folderPath ?? "");
-									setFolderDialogOpen(true);
-								}}
-							>
-								<FolderOpen size={15} /> Move
-							</Button>
-						) : null}
-						{executable ? (
-							<Button
-								disabled={!canRun}
-								title={canRun ? undefined : TEDIS_MANAGE_DENIED_REASON}
-								onClick={() => setDialogOpen(true)}
-							>
-								<Play size={15} /> Run now
-							</Button>
-						) : null}
-					</PageActions>
-				) : null}
-			</PageHeader>
-			<Tabs value={activeTab}>
-				<TabsList aria-label="Skill detail sections" variant="line">
-					{(["overview", "runs", "versions", "schedule"] as const).map(
-						(tab) => (
-							<TabsTrigger
-								key={tab}
-								nativeButton={false}
-								value={tab}
-								render={
-									<Link
-										to={
-											tab === "overview"
-												? "/skills/$skillId"
-												: `/skills/$skillId/${tab}`
-										}
-										params={{ skillId }}
-									/>
-								}
-							>
-								{tab === "overview"
-									? "Overview"
-									: tab[0]?.toUpperCase() + tab.slice(1)}
-							</TabsTrigger>
-						),
-					)}
-				</TabsList>
-			</Tabs>
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>{skill.title}</PageTitle>
+						<PageDescription>
+							{skill.summary ??
+								skill.description ??
+								"Reusable governed procedure"}
+						</PageDescription>
+						<div className="mt-2 flex flex-wrap gap-2">
+							<Badge variant="outline">revision {skill.revision}</Badge>
+							{skill.lifecycleState ? (
+								<Badge variant="secondary">{skill.lifecycleState}</Badge>
+							) : null}
+						</div>
+					</PageHeading>
+					{executable || canRun ? (
+						<PageActions>
+							{canRun ? (
+								<Button
+									variant="outline"
+									onClick={() => {
+										setFolderDraft(skill.folderPath ?? "");
+										setFolderDialogOpen(true);
+									}}
+								>
+									<FolderOpen size={15} /> Move
+								</Button>
+							) : null}
+							{executable ? (
+								<Button
+									disabled={!canRun}
+									title={canRun ? undefined : TEDIS_MANAGE_DENIED_REASON}
+									onClick={() => setDialogOpen(true)}
+								>
+									<Play size={15} /> Run now
+								</Button>
+							) : null}
+						</PageActions>
+					) : null}
+				</PageHeader>
+				<Tabs value={activeTab}>
+					<TabsList aria-label="Skill detail sections" variant="line">
+						{(["overview", "runs", "versions", "schedule"] as const).map(
+							(tab) => (
+								<TabsTrigger
+									key={tab}
+									nativeButton={false}
+									value={tab}
+									render={
+										<Link
+											to={
+												tab === "overview"
+													? "/skills/$skillId"
+													: `/skills/$skillId/${tab}`
+											}
+											params={{ skillId }}
+										/>
+									}
+								>
+									{tab === "overview"
+										? "Overview"
+										: tab[0]?.toUpperCase() + tab.slice(1)}
+								</TabsTrigger>
+							),
+						)}
+					</TabsList>
+				</Tabs>
+			</div>
 			<Outlet />
 
 			<Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
