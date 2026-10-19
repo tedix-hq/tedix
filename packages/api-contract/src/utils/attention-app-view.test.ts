@@ -313,3 +313,13 @@ it("offers supplied answers alongside free text without inventing an effect", ()
 	});
 	expect(view.actions.at(-1)!.textArgumentPath).toBe("/decision/decision/body");
 });
+
+it("keeps an explicitly pending projection from reviving stale saved copy", () => {
+	const card = raw("question", { cardPresentation: copy });
+	card.presentation = null;
+	const view = deckDisplayCard(card, 0);
+	expect(view.ask).not.toBe(copy.title);
+	expect(view.context).toBeNull();
+	expect(view.actions).toEqual([]);
+	expect(attentionMarkdown([view], true)).not.toContain(copy.title);
+});
