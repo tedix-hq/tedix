@@ -182,7 +182,7 @@
 	);
 	/*
 	 * Organization themes validate accent against background at 4.5:1 and derive
-	 * --primary-foreground from that same background. The Button adapter pairs
+	 * --primary-foreground for contrast against the accent. The Button adapter pairs
 	 * these two tokens, so tenant accent remains visible without assuming that a
 	 * forced-white label will contrast with every valid light or dark palette.
 	 */

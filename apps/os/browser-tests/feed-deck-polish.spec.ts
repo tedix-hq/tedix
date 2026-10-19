@@ -101,14 +101,17 @@ try {
 			const colors = await primary.evaluate((el) => ({
 				fill: getComputedStyle(el).backgroundColor,
 				text: getComputedStyle(el).color,
-				honey: getComputedStyle(el).getPropertyValue("--accent-honey").trim(),
+				expectedText: getComputedStyle(el)
+					.getPropertyValue("--primary-foreground")
+					.trim(),
 			}));
 			if (
-				colors.text !== "rgb(23, 23, 23)" ||
+				colors.text !==
+					(theme === "light" ? "rgb(255, 255, 255)" : "rgb(3, 3, 3)") ||
 				colors.fill === "rgba(0, 0, 0, 0)"
 			)
 				throw new Error(
-					`Approve lost its honey fill or dark text: ${JSON.stringify(colors)}`,
+					`Approve lost its tenant fill or contrasting text: ${JSON.stringify(colors)}`,
 				);
 			const type = await title.evaluate((el) => ({
 				family: getComputedStyle(el).fontFamily,
@@ -403,7 +406,7 @@ try {
 			fill('[data-decision-intent="approve"]'),
 		]);
 		if (delegate === approve || approve === active)
-			throw new Error(`Approve must be the only honey action in ${theme}`);
+			throw new Error(`Approve must be the only primary action in ${theme}`);
 		await preferred.close();
 	}
 	const touch = await browser.newPage({

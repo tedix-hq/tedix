@@ -44,7 +44,7 @@ const THEME_PROPERTIES = [
 export const OS_ORGANIZATION_THEME_CACHE_KEY = "tedix-os-organization-theme";
 
 /* Bumped when the compiled shape changes so a stale entry is simply ignored. */
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 let activeTheme: OrganizationOsTheme | null = null;
 
@@ -134,6 +134,10 @@ export function organizationThemeVariables(
 	theme: Pick<OrganizationOsTheme, "uiFont" | "codeFont">,
 	options: OrganizationThemeOptions = {},
 ): Record<string, string> {
+	const luminance = relativeLuminance(palette.accent);
+	const whiteContrast = 1.05 / (luminance + 0.05);
+	const darkContrast =
+		(luminance + 0.05) / (relativeLuminance("#030303") + 0.05);
 	const dark = paletteIsDark(palette);
 	const highContrast = options.highContrast === true;
 	const ladder = dark ? DARK_LADDER : LIGHT_LADDER;
@@ -161,7 +165,8 @@ export function organizationThemeVariables(
 		"--popover": dark ? tint : palette.background,
 		"--popover-foreground": palette.foreground,
 		"--primary": palette.accent,
-		"--primary-foreground": palette.background,
+		"--primary-foreground":
+			whiteContrast >= darkContrast ? "#ffffff" : "#030303",
 		"--secondary": control,
 		"--secondary-foreground": highContrast
 			? palette.foreground

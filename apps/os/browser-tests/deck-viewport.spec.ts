@@ -208,10 +208,7 @@ try {
 						result.proposer.includes("Example Website Publishing Platform") &&
 						result.harness === "codex",
 				);
-				assert.equal(
-					result.accent,
-					colorScheme === "dark" ? "rgb(236, 183, 48)" : "rgb(154, 106, 5)",
-				);
+				assert.equal(result.accent, "rgb(36, 99, 235)");
 				assert.equal(
 					result.surface,
 					colorScheme === "dark" ? "rgb(30, 26, 47)" : "rgb(236, 236, 243)",
