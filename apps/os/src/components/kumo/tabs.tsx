@@ -33,7 +33,7 @@ function KumoTabs({
 			role="group"
 			aria-label={ariaLabel}
 			className={cn(
-				"min-w-0 max-w-full [&_[role=tablist]]:!h-8 [&_[role=tablist]]:max-w-full [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:text-tedix-control [&_[role=tablist]]:leading-[1.125rem] [&_[role=tab]]:!h-7 [&_[role=tab]]:px-2.5 [&_[role=tab]]:py-0 max-sm:[&_[role=tablist]]:!h-11 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tab]]:px-3 coarse:[&_[role=tablist]]:!h-11 coarse:[&_[role=tab]]:!h-11 coarse:[&_[role=tab]]:px-3",
+				"min-w-0 max-w-full [&_[role=tablist]]:!h-8 [&_[role=tablist]]:max-w-full [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:text-tedix-control [&_[role=tablist]]:leading-[1.125rem] [&_[role=tab]]:!h-7 [&_[role=tab]]:px-2.5 [&_[role=tab]]:py-0 max-sm:[&_[role=tablist]]:!h-11 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tab]]:min-w-11 max-sm:[&_[role=tab]]:px-3 coarse:[&_[role=tablist]]:!h-11 coarse:[&_[role=tab]]:!h-11 coarse:[&_[role=tab]]:min-w-11 coarse:[&_[role=tab]]:px-3",
 				className,
 			)}
 		>
@@ -144,7 +144,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
 		<TabsPrimitive.Tab
 			data-kumo-part="tab"
 			className={cn(
-				"relative z-1 flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded bg-transparent px-2.5 type-tedix-control text-kumo-subtle outline-none transition-colors motion-reduce:transition-none max-sm:px-3 coarse:px-3",
+				"relative z-1 flex shrink-0 cursor-pointer items-center justify-center whitespace-nowrap rounded bg-transparent px-2.5 type-tedix-control text-kumo-subtle outline-none transition-colors motion-reduce:transition-none max-sm:min-w-11 max-sm:px-3 coarse:min-w-11 coarse:px-3",
 				"hover:text-kumo-default focus-visible:ring-2 focus-visible:ring-kumo-brand disabled:pointer-events-none disabled:opacity-50 aria-selected:text-kumo-default",
 				"group-data-[variant=filter]/tabs-list:h-full group-data-[variant=filter]/tabs-list:rounded-lg group-data-[variant=filter]/tabs-list:px-3 group-data-[variant=filter]/tabs-list:hover:bg-kumo-tint group-data-[variant=filter]/tabs-list:focus-visible:ring-inset max-sm:group-data-[variant=filter]/tabs-list:px-2",
 				"group-data-[variant=line]/tabs-list:h-full group-data-[variant=line]/tabs-list:rounded-none group-data-[variant=line]/tabs-list:px-3 group-data-[variant=line]/tabs-list:py-0",

@@ -1,3 +1,4 @@
+import { Question } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { SupportReport } from "@tedix/api-contract/schemas/support";
@@ -98,8 +99,15 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 	}
 	return (
 		<>
-			<Button variant="ghost" onClick={start}>
-				Get help
+			<Button
+				variant="ghost"
+				onClick={start}
+				aria-label="Get help"
+				title="Get help"
+				className="max-sm:size-11 max-sm:p-0"
+			>
+				<Question aria-hidden size={20} className="sm:hidden" />
+				<span className="max-sm:sr-only">Get help</span>
 			</Button>
 			<Dialog open={open} onOpenChange={setOpen}>
 				<DialogContent size="xl" className="min-[900px]:w-[52rem]">
