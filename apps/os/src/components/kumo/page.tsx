@@ -267,7 +267,7 @@ function Collection({
 			data-slot="collection"
 			data-appearance={appearance}
 			className={cn(
-				"m-0 grid list-none divide-y divide-kumo-hairline p-0 [&>li]:min-w-0",
+				"m-0 grid list-none divide-y divide-kumo-hairline p-0 [&>li]:min-h-11 [&>li]:min-w-0",
 				appearance === "bounded" &&
 					"overflow-hidden rounded-lg border border-kumo-line",
 				className,
@@ -304,7 +304,7 @@ function SectionCollection({
 				<Collection
 					aria-label={title}
 					data-slot="section-collection"
-					className="[&>li]:px-3 [&>li]:py-2.5"
+					className="[&>li]:px-4 [&>li]:py-3"
 				>
 					{children}
 				</Collection>
