@@ -2,6 +2,7 @@ import { jsonSchema, zodSchema } from "ai";
 import type * as z from "zod";
 import {
 	KernelRouteDecisionSchema,
+	normalizeRouteDecisionCandidate,
 	type KernelRouteDecision,
 } from "./route-schema";
 
@@ -40,9 +41,17 @@ export const kernelRouteGenerationSchema = jsonSchema<
 	}
 >(zodSchema(KernelRouteGenerationObjectSchema).jsonSchema, {
 	validate: (value) => {
-		const full = KernelRouteDecisionSchema.safeParse(value);
+		const candidate = normalizeRouteDecisionCandidate(value);
+		const full = KernelRouteDecisionSchema.safeParse(candidate);
 		if (full.success) return { success: true, value: full.data };
-		const wire = KernelRouteGenerationObjectSchema.safeParse(value);
+		const wire = KernelRouteGenerationObjectSchema.safeParse(
+			candidate && typeof candidate === "object" && "details" in candidate
+				? {
+						...candidate,
+						details: normalizeRouteDecisionCandidate(candidate.details),
+					}
+				: candidate,
+		);
 		if (!wire.success) return { success: false, error: wire.error };
 		if (wire.data.details === null && wire.data.routeKind !== "answer_in_home")
 			return {

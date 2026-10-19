@@ -4,7 +4,10 @@ import type {
 	ToolInputJsonSchema,
 } from "@tedix/api-contract/schemas/tools";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
-import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
+import {
+	EnqueueHomeMessageInputSchema,
+	RetryHomeRunInputSchema,
+} from "@tedix/api-contract/schemas/kernel-runtime";
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import type { AppTool } from "./server-context";
@@ -663,6 +666,16 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 		inputSchema: STEER_HOME_RUN_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "kernelRuntime/steerRun",
+	},
+	{
+		name: "retry_home_run",
+		description:
+			"Retry a failed Home routing or delegated run. When run.metadata.routeFailure.code is HOME_ROUTE_UNAVAILABLE and retryable is true, pass retryRunId as runId. Replays the saved message under current permissions; repeated calls for the same routing failure share one retry run. Poll read_home_run for its result.",
+		inputSchema: zodToToolInputJsonSchema(
+			RetryHomeRunInputSchema.omit({ organizationId: true }),
+		),
+		annotations: MUTATING,
+		rpcEndpoint: "kernelRuntime/retryRun",
 	},
 	{
 		name: "retry_delegation",

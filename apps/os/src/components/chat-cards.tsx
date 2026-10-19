@@ -1044,13 +1044,14 @@ export const STOPPABLE_RUN_STATUSES: ReadonlySet<TediRunStatus> =
  * Interruption controls for one run. Pure and NEVER optimistic: Stop/Retry
  * only dispatch callbacks; the integrator keeps `status` sourced from the run
  * set / stream terminals (`run.canceled`, `run.failed`, `run.started` of the
- * retry) and passes `pending` from the mutation. Retry renders only for
- * `failed` + `delegated` — `kernelRuntime.retryRun` rejects anything else.
+ * retry) and passes `pending` from the mutation. Retry supports failed delegated
+ * runs and model failures before routing. The API rechecks eligibility.
  * Renders null when no control applies.
  */
 export function RunControls({
 	status,
 	delegated = false,
+	routeRetryable = false,
 	pending = false,
 	onStop,
 	onRetry,
@@ -1058,13 +1059,15 @@ export function RunControls({
 	status: TediRunStatus;
 	/** True when the run has a `delegatedTediId` (retry eligibility). */
 	delegated?: boolean;
+	/** A model failure before any route or side effect was selected. */
+	routeRetryable?: boolean;
 	/** True while a cancel/retry mutation is in flight — disables both. */
 	pending?: boolean;
 	onStop?: () => void;
 	onRetry?: () => void;
 }) {
 	const showStop = STOPPABLE_RUN_STATUSES.has(status);
-	const showRetry = status === "failed" && delegated;
+	const showRetry = status === "failed" && (delegated || routeRetryable);
 	if (!showStop && !showRetry) return null;
 	return (
 		<div
@@ -1096,7 +1099,7 @@ export function RunControls({
 					disabled={pending}
 					onClick={() => onRetry?.()}
 				>
-					Retry
+					{routeRetryable ? "Try again" : "Retry"}
 				</Button>
 			) : null}
 		</div>

@@ -1,3 +1,4 @@
+import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
 import { OS_COPY } from "@/shared/os-copy";
 import {
 	isLocalAiUnavailable,
@@ -1958,9 +1959,13 @@ export function controllableRun(
 	const own = runSet.runs.find((run) => run.id === pendingRunId);
 	if (own) return own;
 	const active = new Set(runSet.activeRunIds);
-	return runSet.runs
-		.filter((run) => active.has(run.id))
-		.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+	const newest = [...runSet.runs].sort(
+		(a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+	);
+	return (
+		newest.find((run) => active.has(run.id)) ??
+		(newest[0] && isHomeRouteRetryable(newest[0]) ? newest[0] : undefined)
+	);
 }
 
 export function useIsRunActive(
@@ -2686,7 +2691,8 @@ export function ChatThread({
 	const retryRun = useMutation({
 		mutationFn: (input: { runId: string }) =>
 			osApi.kernelRuntime.retryRun(input),
-		onSuccess: () => {
+		onSuccess: (result) => {
+			setPendingRunId(result.newRunId);
 			queryClient.invalidateQueries({
 				queryKey: homeRunSetQueryKey(conversationId),
 			});
@@ -3656,6 +3662,7 @@ export function ChatThread({
 											<RunControls
 												status={pendingRun.status}
 												delegated={pendingRun.delegatedTediId != null}
+												routeRetryable={isHomeRouteRetryable(pendingRun)}
 												pending={cancelRun.isPending || retryRun.isPending}
 												onStop={() =>
 													cancelRun.mutate({ runId: pendingRun.id })
@@ -3664,6 +3671,16 @@ export function ChatThread({
 													retryRun.mutate({ runId: pendingRun.id })
 												}
 											/>
+										</li>
+									) : null}
+									{retryRun.error ? (
+										<li>
+											<Text role="label" tone="error" className="m-0">
+												{errorMessage(
+													retryRun.error,
+													"The retry could not be started. Please try again.",
+												)}
+											</Text>
 										</li>
 									) : null}
 									{shouldShowRunningIndicator({

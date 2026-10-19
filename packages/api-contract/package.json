@@ -15,6 +15,7 @@
 		"./schemas/mcp-grant": "./src/schemas/mcp-grant.ts",
 		"./schemas/kernel-request": "./src/schemas/kernel-request.ts",
 		"./utils/approval-decision": "./src/utils/approval-decision.ts",
+		"./utils/home-route-retry": "./src/utils/home-route-retry.ts",
 		"./utils/attention-copy": "./src/utils/attention-copy.ts",
 		"./schemas/repository-observer": "./src/schemas/repository-observer.ts",
 		"./contracts/repository-observer": "./src/contracts/repository-observer.ts",

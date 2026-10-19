@@ -2468,6 +2468,7 @@ export async function persistKernelTurnStart(
 ): Promise<{
 	receivedEvent: KernelRuntimeEvent;
 	startedEvent: KernelRuntimeEvent;
+	inserted: boolean;
 }> {
 	const received = buildKernelRuntimeEventRow(context, input.events[0]);
 	const started = buildKernelRuntimeEventRow(context, {
@@ -2556,6 +2557,7 @@ export async function persistKernelTurnStart(
 	return {
 		receivedEvent: receivedEvent.event,
 		startedEvent: startedEvent.event,
+		inserted: receivedPersisted.inserted,
 	};
 }
 

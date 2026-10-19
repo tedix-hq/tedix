@@ -1,3 +1,4 @@
+import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { requireUnrestrictedModelEgress } from "../../../services/unrouted-model-egress";
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
 import { captureHomeKernelRequest } from "../../../kernel/request-home-source";
@@ -23,6 +24,7 @@ import {
 	existingRunStartedCause,
 	insertKernelRuntimeEvent,
 	persistKernelTurnStart,
+	normalizeHomeRunRecord,
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
 import type { KernelDO } from "../../../kernel/kernel-do";
@@ -839,7 +841,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			// the conversation-index bump land in ONE D1 batch; the submission
 			// ledger admit reuses the claim above. Event order and ids are the
 			// ones the former sequential inserts produced.
-			await persistKernelTurnStart(context, {
+			const opened = await persistKernelTurnStart(context, {
 				priorCause,
 				submission: claimedSubmission,
 				events: [
@@ -915,6 +917,34 @@ export const enqueueMessageRoute = authed.enqueueMessage
 							: completedAt,
 				},
 			});
+			// Routing retries share a run key. Only the first durable receipt may
+			// schedule inference; a simultaneous tap observes the same run.
+			if (
+				typeof input.metadata?.retriedFromRunId === "string" &&
+				!opened.inserted
+			) {
+				const existing = await getKernelRuntimeRun(context.db, {
+					id: runId,
+					organizationId,
+				});
+				if (!existing)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Retry run is not available yet",
+					);
+				const run = normalizeHomeRunRecord(existing);
+				return {
+					idempotencyKey: runId,
+					conversationId,
+					status:
+						run.status === "running"
+							? ("queued" as const)
+							: run.status === "canceled"
+								? ("failed" as const)
+								: run.status,
+					run,
+				};
+			}
 			if (kernelCorrection) {
 				await insertKernelRuntimeEvent(context, {
 					id: homeRuntimeEventId({

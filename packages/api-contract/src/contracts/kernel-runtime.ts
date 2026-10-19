@@ -517,9 +517,9 @@ export const kernelRuntimeContract = oc
 			.route({
 				method: "POST",
 				path: "/runs/{runId}/retry",
-				summary: "Retry a failed Tedix Home delegated run",
+				summary: "Retry a failed Tedix Home routing or delegated run",
 				description:
-					"Re-dispatches the same delegation work order from a terminal failed run to the same target tedi under a fresh idempotency key (a new run row). Only valid when the run is status='failed' and carries both a delegatedTediId and a delegationWorkOrder in its metadata. The original failed run is not modified. Double-dispatch is prevented by the fresh idempotency key — two concurrent POSTs produce two new run rows with distinct ids.",
+					"Retries a terminal failed run. Model failures before routing replay the saved message through current ingress authorization and policy, sharing one retry run for repeated or concurrent calls. Delegated failures re-dispatch the stored delegation work order to the same target under a fresh run id. The original run remains failed. Routing failures expose run.metadata.routeFailure with code HOME_ROUTE_UNAVAILABLE, retryable=true and retryRunId.",
 			})
 			.input(RetryHomeRunInputSchema)
 			.output(

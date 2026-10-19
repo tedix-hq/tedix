@@ -972,6 +972,32 @@ describe("controllableRun", () => {
 			"old",
 		);
 	});
+	it("recovers a routing retry after reload without resurfacing an older failure", () => {
+		const failed = {
+			...run("failed", "2026-10-04T00:00:00Z"),
+			status: "failed" as const,
+			metadata: {
+				kernelRoute: null,
+				bodyExecutionResult: { error: { kind: "model", retryable: true } },
+				redriveInput: {
+					content: "Create a work item for the fictional project.",
+				},
+			},
+		};
+		expect(
+			controllableRun({ runs: [...runs, failed], activeRunIds: [] }, null)?.id,
+		).toBe("failed");
+		const completed = {
+			...run("retried", "2026-10-05T00:00:00Z"),
+			status: "completed" as const,
+		};
+		expect(
+			controllableRun(
+				{ runs: [...runs, failed, completed], activeRunIds: [] },
+				null,
+			),
+		).toBeUndefined();
+	});
 	it("falls back to the newest active run after a reload or in another tab", () => {
 		expect(
 			controllableRun({ runs, activeRunIds: ["old", "new"] }, null)?.id,

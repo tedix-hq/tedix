@@ -995,6 +995,55 @@ describe("planKernelRoute", () => {
 		expect(model.doStreamCalls).toHaveLength(0);
 	});
 
+	it("allows a healthy 12-second re-ask within the overall deadline", async () => {
+		vi.useFakeTimers();
+		const timeouts = vi
+			.spyOn(AbortSignal, "timeout")
+			.mockImplementation((ms) => {
+				const controller = new AbortController();
+				setTimeout(
+					() => controller.abort(new DOMException("Timed out", "TimeoutError")),
+					ms,
+				);
+				return controller.signal;
+			});
+		const invalid = objectModel({ routeKind: "invalid" });
+		const good = objectModel({ ...FALLBACK_DECISION, answer: "Ready." });
+		const model = new MockLanguageModelV3({
+			doGenerate: async (options) => {
+				if (model.doGenerateCalls.length === 1)
+					return invalid.doGenerate(options);
+				await new Promise<void>((resolve, reject) => {
+					setTimeout(resolve, 12_000);
+					options.abortSignal?.addEventListener(
+						"abort",
+						() => reject(options.abortSignal?.reason),
+						{ once: true },
+					);
+				});
+				return good.doGenerate(options);
+			},
+		});
+		try {
+			const pending = planKernelRoute({
+				model,
+				context: EMPTY_CONTEXT,
+				content: "Status for Orion",
+			});
+			await vi.advanceTimersByTimeAsync(12_000);
+			expect(await pending).toMatchObject({
+				routeKind: "answer_in_home",
+				answer: "Ready.",
+			});
+			expect(model.doGenerateCalls).toHaveLength(2);
+			expect(model.doStreamCalls).toHaveLength(0);
+		} finally {
+			vi.clearAllTimers();
+			timeouts.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
 	it("bounds the retry by the remaining route deadline", async () => {
 		const invalid = objectModel({ routeKind: "invalid" });
 		const model = new MockLanguageModelV3({

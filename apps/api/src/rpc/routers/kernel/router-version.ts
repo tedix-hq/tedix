@@ -52,7 +52,8 @@ import { KernelRouteGenerationObjectSchema } from "./route-generation";
  * stamps `explicitDelegationIntent` — the meaning of a persisted
  * `delegate_tedi` decision changed without a schema-shape change.
  */
-export const ROUTER_CONTRACT_REV = 2;
+// rev 3: normalize omitted nullable fields before validating route output.
+export const ROUTER_CONTRACT_REV = 3;
 
 /**
  * Stable serialization of the internal and model-facing route shapes: the

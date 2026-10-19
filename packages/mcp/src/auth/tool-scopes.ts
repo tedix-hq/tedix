@@ -78,6 +78,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	// `kernel` or `os` namespace. Preserve the API's capability at these exact
 	// endpoints; an arbitrary aggregate name must never borrow a family grant.
 	"kernelRuntime/enqueueMessage": "mcp:tedis.write",
+	"kernelRuntime/retryRun": "mcp:tedis.write",
 	"kernelRuntime/readRun": "mcp:tedis.read",
 	"kernelRuntime/readRunEvents": "mcp:tedis.read",
 	"kernelRuntime/readMessages": "mcp:tedis.read",

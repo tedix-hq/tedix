@@ -3127,7 +3127,7 @@ describe("kernel runtime router", () => {
 	it("settles the turn failed (model unavailable) when the Kernel returns null — no heuristic answer", async () => {
 		const db = createKernelRuntimeDb();
 		const client = createKernelRuntimeClient(createContext(db));
-		const kernel = vi.fn(async () => null);
+		const kernel = vi.fn(async (_input: unknown) => null);
 		kernelRuntimeTestHooks.setKernelForTest(kernel);
 
 		const result = await client.enqueueMessage({
@@ -3154,7 +3154,27 @@ describe("kernel runtime router", () => {
 		expect(persistedAssistant?.content).toContain(
 			"configured model did not produce a valid route decision",
 		);
-		expect(result.run.metadata).toMatchObject({ kernelRoute: null });
+		expect(result.run.metadata).toMatchObject({
+			kernelRoute: null,
+			routeFailure: {
+				code: "HOME_ROUTE_UNAVAILABLE",
+				retryable: true,
+				retryRunId: result.run.id,
+			},
+		});
+		const [retried, duplicate] = await Promise.all([
+			client.retryRun({ runId: result.run.id }),
+			client.retryRun({ runId: result.run.id }),
+		]);
+		const repeated = await client.retryRun({ runId: result.run.id });
+		expect(repeated.newRunId).toBe(retried.newRunId);
+		expect(retried.newRunId).not.toBe(result.run.id);
+		expect(duplicate.newRunId).toBe(retried.newRunId);
+		expect(kernel).toHaveBeenCalledTimes(2);
+		expect(kernel.mock.calls[1]?.[0]).toMatchObject({
+			content: "Capture this idea for the quarterly planning review",
+			conversationId: "home:test",
+		});
 	});
 
 	it("records Home turns against the organization subject instead of a hidden tedi", async () => {
