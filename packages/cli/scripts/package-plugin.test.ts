@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	cpSync,
@@ -25,6 +26,56 @@ import {
 
 const decode = (files: Map<string, Uint8Array>, name: string) =>
 	JSON.parse(new TextDecoder().decode(files.get(name)!));
+
+test("Devin shares skills and declares its native MCP and fail-open hooks", () => {
+	const manifest = JSON.parse(
+		readFileSync(join(ROOT, ".devin-plugin/plugin.json"), "utf8"),
+	);
+	const canonical = JSON.parse(readFileSync(join(ROOT, "plugin.json"), "utf8"));
+	expect(manifest.name).toBe(canonical.name);
+	expect(manifest.version).toBe(canonical.version);
+	expect(manifest.skills).toBe("skills");
+	expect(manifest.mcpServers).toEqual({
+		tedix: {
+			url: "https://connect.mcp.tedix.dev/mcp",
+			transport: "http",
+		},
+	});
+	const hooks = JSON.parse(readFileSync(join(ROOT, "hooks.json"), "utf8"));
+	const commands = handlers(hooks).map((handler) => handler.command as string);
+	expect(commands).toHaveLength(6);
+	for (const name of [
+		"session-start",
+		"prompt-context",
+		"capture-reply",
+		"capture-stop",
+		"status",
+		"devin-permission",
+	])
+		expect(
+			commands.some((command) =>
+				command.includes(` hooks ${name} --host devin --plugin`),
+			),
+		).toBe(true);
+	withDirectory((directory) => {
+		const stub = join(directory, "tedix");
+		writeFileSync(stub, "#!/bin/sh\nexit 1\n");
+		chmodSync(stub, 0o700);
+		for (const command of commands) {
+			expect(command).toStartWith(HOOK_GUARD);
+			expect(command).toEndWith(" # tedix-managed-devin-hook");
+			for (const path of ["/missing-tedix-cli", directory]) {
+				const result = spawnSync("/bin/sh", ["-c", command], {
+					env: { PATH: path },
+					encoding: "utf8",
+				});
+				expect(result.status).toBe(0);
+				expect(result.stdout).toBe("");
+				expect(result.stderr).toBe("");
+			}
+		}
+	});
+});
 const EVENTS = new Set([
 	"PreToolUse",
 	"SessionStart",

@@ -26,6 +26,7 @@ import {
 	skipInheritedDevinHook,
 } from "./devin-event";
 import { devinPermissionBlock } from "./devin-permission";
+import { skipDevinPluginHook } from "./devin-plugin";
 
 export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix plugin)
 
@@ -86,7 +87,9 @@ export const readHookCommand: ReadJson = async (
 export async function runHooksCommand(args: string[]): Promise<number> {
 	if (skipInheritedDevinHook(args, process.env)) return 0;
 	const devin = args[1] === "--host" && args[2] === "devin";
-	if (devin && args.length !== 3) return 1;
+	const plugin = devin && args[3] === "--plugin";
+	if (devin && args.length !== (plugin ? 4 : 3)) return 1;
+	if (plugin && skipDevinPluginHook(args[0]!, process.env)) return 0;
 	if (devin) args = [args[0]!];
 	const name = args[0];
 	if (!name || name === "--help" || name === "-h") {

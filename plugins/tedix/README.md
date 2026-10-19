@@ -2,6 +2,9 @@
 
 ## Use it
 
+- Devin CLI, Desktop and cloud: `devin plugins install tedix-hq/tedix#plugins/tedix -y`.
+  See the [Devin guide](docs/devin.md) for MCP connection, local hooks and
+  organization installation. Devin OAuth configuration is pending the CIMD lane.
 - Claude chat and Cowork: add a custom connector named **Tedix** with the URL
   `https://connect.mcp.tedix.dev/mcp`, then sign in.
 - Claude Code: `claude plugin marketplace add tedix-hq/tedix-plugins`, then

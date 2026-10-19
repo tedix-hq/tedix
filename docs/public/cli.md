@@ -473,7 +473,25 @@ or organization data. To install the CLI again later, follow [Install](#install)
   run `tedix login ORG_SLUG` again. `tedix auth status` shows whether a saved
   workspace is already selected without printing its credential.
 
-## Devin CLI
+## Devin CLI, Desktop and cloud
+
+Install the Tedix plugin in your personal Devin scope first:
+
+```sh
+devin plugins install tedix-hq/tedix#plugins/tedix -y
+devin plugins info tedix
+devin mcp login tedix
+```
+
+Skills and MCP declarations follow your personal account to CLI, Desktop and
+cloud sessions. Connect cloud MCP access through **Customize → MCPs**; complete
+OAuth yourself. Local plugin hooks need the Tedix CLI and run only in CLI and
+Desktop. Installation does not prove MCP authorization or hook execution.
+The Devin CIMD client ID is pending; OAuth readiness remains unverified.
+See the [Devin plugin guide](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/devin.md).
+
+Use the following local setup as a fallback when you need hooks and MCP
+configuration without installing the plugin's skills:
 
 Install [Devin CLI](https://docs.devin.ai/cli), then complete its browser login
 yourself. With an existing authorized Tedix CLI workspace:
@@ -509,3 +527,8 @@ Use `tedix setup agents --devin --dry-run` to preview setup. To enable context
 reads, bind the repository using `tedix setup agents context bind` or launch
 Devin with `TEDIX_PLUGIN_PREFLIGHT=1`. Decision capture and status keep their
 existing explicit opt-ins; setup alone does not enable uploads.
+
+Plugin hooks defer to matching setup hooks marked `tedix-managed-devin-hook`
+and to governed lane hooks. This requires a CLI with Devin plugin support;
+older CLIs fail open for plugin hooks. Setup remains a local fallback so it
+does not change your personal Devin Cloud plugin scope.
