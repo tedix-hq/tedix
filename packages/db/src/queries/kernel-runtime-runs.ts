@@ -291,6 +291,7 @@ export interface TransitionKernelRuntimeRunStatusParams {
 	id: string;
 	organizationId: string;
 	fromStatus: KernelRuntimeRun["status"];
+	expectedUpdatedAt?: string;
 	patch: KernelRuntimeRunUpdate;
 }
 
@@ -307,6 +308,9 @@ export function buildTransitionKernelRuntimeRunStatusStatement(
 				eq(kernelRuntimeRuns.id, input.id),
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				eq(kernelRuntimeRuns.status, input.fromStatus),
+				...(input.expectedUpdatedAt === undefined
+					? []
+					: [eq(kernelRuntimeRuns.updatedAt, input.expectedUpdatedAt)]),
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });

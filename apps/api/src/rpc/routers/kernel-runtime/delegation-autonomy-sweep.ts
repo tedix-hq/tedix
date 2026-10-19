@@ -8,6 +8,7 @@ import { authed } from "./policy-normalization";
 import { reviewDelegationAutonomy } from "./delegation-autonomy-review";
 import { respondKernelDelegationRecommendationApprovalCore } from "./approval-control";
 import { releaseWorkstationDelegationAutonomy } from "./delegation-autonomy-workstation";
+import { closePolicyBlockedDelegation } from "./delegation-autonomy-blocked";
 
 export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 	.use(
@@ -40,8 +41,33 @@ export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 			cursor: input.cursor,
 		});
 		const dispatched: string[] = [];
+		const blocked: Array<{ runId: string; reason: string }> = [];
 		const held: Array<{ runId: string; reason: string }> = [];
-		for (const run of runs.slice(0, input.limit)) {
+		const page = runs.slice(0, input.limit);
+		const sweepId = crypto.randomUUID();
+		const recordAudit = (phase: "started" | "completed") =>
+			insertAuditEvent(context.db, {
+				organizationId,
+				actorType: "user",
+				actorId: userId!,
+				action: "kernel.delegation.autonomy_swept",
+				resourceType: "organization",
+				resourceId: organizationId,
+				metadata: {
+					sweepId,
+					phase,
+					policyVersion: 1,
+					excludeReferences: input.excludeReferences,
+					candidateRunIds: page.map((run) => run.id),
+					dispatched: [...dispatched],
+					blocked: [...blocked],
+					held: [...held],
+				},
+				ipAddress: context.headers.get("CF-Connecting-IP"),
+				userAgent: context.headers.get("User-Agent"),
+			});
+		await recordAudit("started");
+		for (const run of page) {
 			if (
 				input.excludeReferences.some((reference) =>
 					JSON.stringify(run).includes(reference),
@@ -52,7 +78,15 @@ export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 			}
 			const review = await reviewDelegationAutonomy(context, run);
 			if (!review.allowed) {
-				held.push({ runId: run.id, reason: review.reason });
+				if (review.executionBlocked) {
+					if (await closePolicyBlockedDelegation(context, run))
+						blocked.push({ runId: run.id, reason: review.reason });
+					else
+						held.push({
+							runId: run.id,
+							reason: "delegation or policy changed; reload",
+						});
+				} else held.push({ runId: run.id, reason: review.reason });
 				continue;
 			}
 			try {
@@ -78,25 +112,12 @@ export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 				});
 			}
 		}
-		const last = runs.slice(0, input.limit).at(-1);
-		await insertAuditEvent(context.db, {
-			organizationId,
-			actorType: "user",
-			actorId: userId!,
-			action: "kernel.delegation.autonomy_swept",
-			resourceType: "organization",
-			resourceId: organizationId,
-			metadata: {
-				policyVersion: 1,
-				excludeReferences: input.excludeReferences,
-				dispatched,
-				held,
-			},
-			ipAddress: context.headers.get("CF-Connecting-IP"),
-			userAgent: context.headers.get("User-Agent"),
-		});
+		const last = page.at(-1);
+		await recordAudit("completed");
 		return {
+			sweepId,
 			dispatched,
+			blocked,
 			held,
 			nextCursor:
 				runs.length > input.limit && last

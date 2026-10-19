@@ -7,6 +7,7 @@ import { schemaDdl } from "../test/schema-ddl";
 import {
 	compareAndTouchKernelRuntimeRun,
 	getKernelRuntimeRun,
+	transitionKernelRuntimeRunStatus,
 } from "./kernel-runtime-runs";
 
 const READ_AT = "2026-09-26T10:00:01.000Z";
@@ -27,7 +28,43 @@ async function setup() {
 	return db;
 }
 
-describe("compareAndTouchKernelRuntimeRun", () => {
+describe("guarded Home run transitions", () => {
+	it("does not close an approval that another resolver has touched", async () => {
+		const db = await setup();
+		await compareAndTouchKernelRuntimeRun(db, {
+			id: "run-1",
+			organizationId: "org-1",
+			status: "requires_approval",
+			expectedUpdatedAt: READ_AT,
+			updatedAt: "2026-09-26T10:00:02.000Z",
+		});
+		expect(
+			await transitionKernelRuntimeRunStatus(db, {
+				id: "run-1",
+				organizationId: "org-1",
+				fromStatus: "requires_approval",
+				expectedUpdatedAt: READ_AT,
+				patch: { status: "failed" },
+			}),
+		).toBe(false);
+		expect((await getKernelRuntimeRun(db, { id: "run-1" }))?.status).toBe(
+			"requires_approval",
+		);
+	});
+	it("closes the matching snapshot once and keeps the organization boundary", async () => {
+		const db = await setup();
+		const close = (organizationId: string) =>
+			transitionKernelRuntimeRunStatus(db, {
+				id: "run-1",
+				organizationId,
+				fromStatus: "requires_approval",
+				expectedUpdatedAt: READ_AT,
+				patch: { status: "failed" },
+			});
+		expect(await close("org-2")).toBe(false);
+		expect(await close("org-1")).toBe(true);
+		expect(await close("org-1")).toBe(false);
+	});
 	it("lets exactly one resolver holding the same read win", async () => {
 		const db = await setup();
 		const claim = (updatedAt: string) =>

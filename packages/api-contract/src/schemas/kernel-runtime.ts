@@ -1125,7 +1125,7 @@ export type RespondHomeApprovalInput = z.infer<
 
 export const SweepDelegationAutonomyInputSchema = z.object({
 	organizationId: z.string().optional(),
-	limit: z.number().int().min(1).max(20).default(10),
+	limit: z.number().int().min(1).max(20).default(1),
 	cursor: z.object({ at: z.string(), id: z.string() }).optional(),
 	excludeReferences: z
 		.array(z.string().min(8).max(200))
@@ -1134,7 +1134,9 @@ export const SweepDelegationAutonomyInputSchema = z.object({
 		.describe("Literal resource or run references that must remain held."),
 });
 export const SweepDelegationAutonomyResultSchema = z.object({
+	sweepId: z.string().uuid(),
 	dispatched: z.array(z.string()),
+	blocked: z.array(z.object({ runId: z.string(), reason: z.string() })),
 	held: z.array(z.object({ runId: z.string(), reason: z.string() })),
 	nextCursor: z.object({ at: z.string(), id: z.string() }).nullable(),
 });
