@@ -1,5 +1,6 @@
 import type { BaseContext } from "../../orpc";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import { decideAutonomousAction } from "@tedix/api-contract/utils/approval-policy";
 import { KernelRouteDecisionSchema } from "../kernel/route-schema";
 import {
 	buildDelegationWorkOrder,
@@ -20,7 +21,12 @@ import {
 export async function reviewDelegationAutonomy(
 	context: BaseContext,
 	run: KernelRuntimeRun,
-): Promise<{ allowed: boolean; reason: string; workstation?: boolean }> {
+): Promise<{
+	allowed: boolean;
+	reason: string;
+	workstation?: boolean;
+	executionBlocked?: boolean;
+}> {
 	const direct = await reviewWorkstationDelegationAutonomy(context, run);
 	if (direct) return direct;
 	const pending = kernelDelegationRecommendationFromRun(run);
@@ -90,5 +96,13 @@ export async function reviewDelegationAutonomy(
 	return {
 		allowed: decision.canAutoDispatch && decision.mode === "auto",
 		reason: decision.reason,
+		executionBlocked:
+			decision.mode === "blocked" &&
+			decideAutonomousAction({
+				policy: policy.autonomy,
+				risk: route.data.risk,
+				content: source,
+				classId: `delegation:${route.data.effortClass ?? "unknown"}`,
+			}).autoApprove,
 	};
 }
