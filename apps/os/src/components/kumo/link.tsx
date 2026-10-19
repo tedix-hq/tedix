@@ -91,7 +91,7 @@ const NAVIGATION_CLASSES = cn(
 );
 
 const COLLECTION_CLASSES =
-	"inline-flex cursor-pointer items-center rounded-md no-underline! hover:bg-kumo-tint hover:no-underline! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus motion-reduce:transition-none";
+	"inline-flex min-h-11 cursor-pointer items-center rounded-lg no-underline! hover:bg-kumo-tint hover:no-underline! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus motion-reduce:transition-none";
 
 function Link({ className, variant = "inline", ...props }: LinkProps) {
 	if (variant === "record") {
