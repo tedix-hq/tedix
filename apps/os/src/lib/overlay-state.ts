@@ -372,11 +372,30 @@ export function visibleOverlays(
 	overlays: readonly StreamedOverlay[],
 	durableMessageIds: ReadonlySet<string>,
 	durableRunIds: ReadonlySet<string> = new Set(),
+	endedRuns: ReadonlyMap<string, "failed" | "canceled"> = new Map(),
 ): StreamedOverlay[] {
-	return overlays.filter(
-		(overlay) =>
-			!durableRunIds.has(overlay.runId) &&
-			!durableMessageIds.has(overlay.messageId) &&
-			!durableMessageIds.has(overlay.key),
-	);
+	return overlays
+		.filter(
+			(overlay) =>
+				!durableRunIds.has(overlay.runId) &&
+				!durableMessageIds.has(overlay.messageId) &&
+				!durableMessageIds.has(overlay.key),
+		)
+		.map((overlay) => {
+			const outcome = endedRuns.get(overlay.runId);
+			if (!outcome) return overlay;
+			const explanation =
+				outcome === "failed"
+					? "This reply was interrupted. You can ask me to try again."
+					: "Stopped. You can ask me to try again when you're ready.";
+			return {
+				...overlay,
+				phase: null,
+				rationale: "",
+				finalized: true,
+				text:
+					explanation +
+					(overlay.text.trim() ? `\n\nPartial reply:\n\n${overlay.text}` : ""),
+			};
+		});
 }

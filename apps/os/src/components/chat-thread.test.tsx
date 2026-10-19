@@ -2353,6 +2353,62 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.enqueueMessage.mockReset();
 	});
 
+	it("reconciles a failed run when its final stream event never arrived", async () => {
+		const state = createOverlayState();
+		applyOverlayEvent(state, {
+			id: "partial",
+			runId: RUN_ID,
+			conversationId: CONVERSATION_ID,
+			kind: "message.delta",
+			delta: "Hi",
+			createdAt: "2026-10-19T10:00:00.000Z",
+		});
+		applyOverlayEvent(state, {
+			id: "phase",
+			runId: RUN_ID,
+			conversationId: CONVERSATION_ID,
+			kind: "message.phase",
+			payload: { phase: "generating" },
+			createdAt: "2026-10-19T10:00:01.000Z",
+		});
+		transport.overlays = listOverlays(state) as never[];
+		try {
+			kernelRuntimeApi.readMessages.mockResolvedValue({
+				messages: [
+					message({
+						role: "user",
+						runId: RUN_ID,
+						id: `${RUN_ID}:input`,
+						content: "Draft a note.",
+					}),
+				],
+				nextCursor: null,
+			});
+			kernelRuntimeApi.readRunSet.mockResolvedValue(
+				runSetPayload({
+					activeRunIds: [],
+					runs: [
+						{
+							id: RUN_ID,
+							organizationId: ORG_ID,
+							conversationId: CONVERSATION_ID,
+							status: "failed",
+							createdAt: "2026-10-19T10:00:00.000Z",
+						},
+					],
+				}),
+			);
+			const { container } = mountThread();
+			await flush();
+			expect(container.textContent).toContain("This reply was interrupted");
+			expect(container.textContent).toContain("Partial reply:");
+			expect(container.textContent).toContain("Hi");
+			expect(container.textContent).not.toContain("Writing");
+		} finally {
+			transport.overlays = [];
+		}
+	});
+
 	it("keeps a new message separate from an unconfirmed send and retries its own request", async () => {
 		transport.actions.enqueueMessage.mockReset();
 		transport.actions.enqueueMessage.mockRejectedValue(
