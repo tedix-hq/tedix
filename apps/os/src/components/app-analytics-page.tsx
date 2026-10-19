@@ -68,7 +68,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
-import { Progress } from "@/components/kumo/progress";
+import { Meter } from "@/components/kumo/meter";
 import { Collection } from "@/components/kumo/page";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -932,7 +932,12 @@ function ToolRecord({ tool }: { tool: AppToolBreakdown["tools"][number] }) {
 				</Text>
 			</div>
 			<div className="mt-3 flex items-center gap-3">
-				<Progress value={tool.successRate} className="h-2" />
+				<Meter
+					label={`${tool.toolName} success rate`}
+					hideLabel
+					value={tool.successRate}
+					className="h-2"
+				/>
 				<Text
 					as="span"
 					role="label"
@@ -1050,7 +1055,12 @@ function ToolRow({
 					<TooltipTrigger
 						render={
 							<div className="flex items-center gap-2">
-								<Progress value={tool.successRate} className="h-2" />
+								<Meter
+									label={`${tool.toolName} success rate`}
+									hideLabel
+									value={tool.successRate}
+									className="h-2"
+								/>
 								<Text
 									as="span"
 									role="label"
@@ -1194,7 +1204,12 @@ function CodeModeBreakdownTable({
 										<TooltipTrigger
 											render={
 												<div className="flex items-center gap-2">
-													<Progress value={row.successRate} className="h-2" />
+													<Meter
+														label={`${name} success rate`}
+														hideLabel
+														value={row.successRate}
+														className="h-2"
+													/>
 													<Text
 														as="span"
 														role="label"
@@ -1737,7 +1752,9 @@ function HumanActivityReviewSection({
 								{traceEvidenceCoverageLabel(traceCoverage)}
 							</Text>
 						</div>
-						<Progress
+						<Meter
+							label="Trace proof coverage"
+							hideLabel
 							value={Math.round(traceCoverage.proofCoverageRate * 100)}
 							className="h-2"
 						/>
@@ -1758,7 +1775,9 @@ function HumanActivityReviewSection({
 								{traceFreshnessCoverageLabel(traceFreshness)}
 							</Text>
 						</div>
-						<Progress
+						<Meter
+							label="Trace proof freshness"
+							hideLabel
 							value={Math.round(traceFreshness.freshnessRate * 100)}
 							className="h-2"
 						/>

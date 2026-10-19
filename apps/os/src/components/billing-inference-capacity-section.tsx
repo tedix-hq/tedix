@@ -13,7 +13,7 @@ import {
 	SettingsSection,
 	SettingsSectionContent,
 } from "@/components/kumo/page";
-import { Progress } from "@/components/kumo/progress";
+import { Meter } from "@/components/kumo/meter";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
@@ -181,7 +181,8 @@ export function BillingInferenceCapacitySection() {
 								remaining
 							</Text>
 						</div>
-						<Progress
+						<Meter
+							label="Daily token capacity used"
 							value={
 								tokenTotal > 0 ? (capacity.usedTokens / tokenTotal) * 100 : 0
 							}
@@ -225,13 +226,16 @@ export function BillingInferenceCapacitySection() {
 								</Text>
 							)}
 						</div>
-						<Progress
-							value={
-								spendTotal !== null && spendTotal > 0
-									? (capacity.usedSpendMicros / spendTotal) * 100
-									: 0
-							}
-						/>
+						{spendTotal !== null ? (
+							<Meter
+								label="Daily spend capacity used"
+								value={
+									spendTotal > 0
+										? (capacity.usedSpendMicros / spendTotal) * 100
+										: 0
+								}
+							/>
+						) : null}
 						<Text role="label" tone="secondary">
 							{capacity.baseDailySpendLimitMicros === null
 								? "Unlimited base"
