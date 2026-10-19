@@ -46,7 +46,7 @@ try {
 	}
 	if (!ready) throw new Error("Visual test server did not start");
 	browser = await chromium.launch({ headless: true });
-	for (const width of [390, 1280]) {
+	for (const width of [390, 1199, 1280, 1600, 2000]) {
 		for (const theme of ["light", "dark"] as const) {
 			for (const surface of ["feed", "question"]) {
 				const page = await browser.newPage({
@@ -67,18 +67,42 @@ try {
 					throw new Error("Context entry is below the mobile touch floor");
 				await trigger.focus();
 				await page.keyboard.press("Enter");
-				const dialog = page.getByRole("dialog", {
-					name: "Decision context",
-					exact: true,
-				});
+				const dialog = page.locator("[data-decision-context]:visible");
 				await dialog.waitFor();
+				await settleAnimations(page);
 				const after = (await page.locator(".fd-context-main").boundingBox())!;
 				if (
-					Math.abs(before.width - after.width) > 1 ||
-					Math.abs(before.x - after.x) > 1
+					width < 1200 &&
+					(Math.abs(before.width - after.width) > 1 ||
+						Math.abs(before.x - after.x) > 1)
 				)
 					throw new Error("Opening context changed the main column geometry");
-				for (let i = 0; i < 8; i++) {
+				const rail = (await dialog.boundingBox())!;
+				if (width >= 1200) {
+					const expected = Math.min(360, Math.max(300, width * 0.24));
+					if (rail.width > 360 || Math.abs(rail.width - expected) > 1)
+						throw new Error(`Context rail width ${rail.width} at ${width}`);
+					if (Math.abs(rail.x - after.x - after.width - 32) > 1)
+						throw new Error("Card and rail gap is not 32px");
+					if (Math.abs(after.x - (width - rail.x - rail.width)) > 1)
+						throw new Error("Card and rail group is not centered");
+				} else if ((await dialog.getAttribute("role")) !== "dialog") {
+					throw new Error("Narrow context did not use the topbar Sheet");
+				}
+				console.log(
+					JSON.stringify({
+						surface,
+						width,
+						theme,
+						railWidth: rail.width,
+						gap: width >= 1200 ? rail.x - after.x - after.width : null,
+					}),
+				);
+				if (process.env.TEDIX_SCREENSHOT_DIR && width !== 1199)
+					await page.screenshot({
+						path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-rail-${surface === "question" ? "deck" : "feed"}-${width}-${theme}.png`,
+					});
+				for (let i = 0; width < 1200 && i < 8; i++) {
 					await page.keyboard.press("Tab");
 					await page.waitForFunction(() =>
 						document.activeElement?.closest("[data-decision-context]"),
@@ -556,10 +580,7 @@ try {
 		await preferred
 			.getByRole("button", { name: "Details", exact: true })
 			.click();
-		const context = preferred.getByRole("dialog", {
-			name: "Decision context",
-			exact: true,
-		});
+		const context = preferred.locator("[data-decision-context]:visible");
 		await context.getByRole("button", { name: /Decide for me/ }).waitFor();
 		await context
 			.getByRole("button", { name: "Change", exact: true })
@@ -571,6 +592,102 @@ try {
 		await preferred.getByText("1 of 5", { exact: true }).waitFor();
 		await preferred.close();
 	}
+	const retry = await browser.newPage({
+		viewport: { width: 2000, height: 1000 },
+	});
+	await retry.route("**/api/rpc/learningFeedback/listInteractions**", (route) =>
+		route.fulfill({ json: { json: { events: [] } } }),
+	);
+	await retry.route("**/api/rpc/workApprovals/listInbox**", (route) =>
+		route.fulfill({
+			json: {
+				json: {
+					data: [],
+					hasMore: false,
+					nextCursor: null,
+					observedAt: new Date().toISOString(),
+				},
+			},
+		}),
+	);
+	await retry.route("**/api/rpc/tediApprovals/list**", (route) =>
+		route.fulfill({
+			json: {
+				json: {
+					data: [],
+					pagination: { limit: 50, offset: 0, total: 0, hasMore: false },
+				},
+			},
+		}),
+	);
+	let olderFails = true;
+	let approvalFails = true;
+	let olderReads = 0;
+	let approvalReads = 0;
+	await retry.route(
+		"**/api/rpc/workInteractions/listInbox**",
+		async (route) => {
+			const request = route.request();
+			const url = new URL(request.url());
+			const input =
+				request.method() === "GET"
+					? (JSON.parse(url.searchParams.get("data") ?? "{}").json ?? {})
+					: (request.postDataJSON()?.json ?? {});
+			if (input.cursor) olderReads++;
+			if (input.decisionKind) approvalReads++;
+			if ((input.cursor && olderFails) || (input.decisionKind && approvalFails))
+				return route.fulfill({ status: 503, body: "Temporary source failure" });
+			return route.fulfill({
+				json: {
+					json: {
+						data: [],
+						hasMore: false,
+						nextCursor: null,
+						observedAt: new Date().toISOString(),
+					},
+				},
+			});
+		},
+	);
+	await retry.goto(
+		`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&retry&motion=reduced`,
+	);
+	const banner = retry
+		.getByRole("alert")
+		.filter({ hasText: "Some decisions could not be loaded" });
+	await banner.waitFor();
+	await retry.locator(".fd-decision").waitFor();
+	const bannerBox = (await banner.boundingBox())!;
+	const cardBox = (await retry.locator(".fd-decision").boundingBox())!;
+	if (
+		Math.abs(bannerBox.x - cardBox.x) > 1 ||
+		Math.abs(bannerBox.width - cardBox.width) > 1
+	)
+		throw new Error("Source error banner is outside the card column");
+	if (process.env.TEDIX_SCREENSHOT_DIR)
+		await retry.screenshot({
+			path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-rail-error-before-retry.png`,
+		});
+	olderFails = false;
+	const partialRetry = retry.waitForResponse(
+		(response) =>
+			response.url().includes("/workInteractions/listInbox") &&
+			response.status() === 503,
+	);
+	await banner.getByRole("button", { name: "Try again" }).click();
+	await (await partialRetry).finished();
+	if (olderReads < 2 || approvalReads < 1 || !(await banner.isVisible()))
+		throw new Error(
+			"Retry skipped a source or cleared while another source still failed",
+		);
+	approvalFails = false;
+	await banner.getByRole("button", { name: "Try again" }).click();
+	await banner.waitFor({ state: "hidden" });
+	if (process.env.TEDIX_SCREENSHOT_DIR)
+		await retry.screenshot({
+			path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-rail-error-after-retry.png`,
+		});
+	await retry.close();
 	const touch = await browser.newPage({
 		viewport: { width: 390, height: 844 },
 		isMobile: true,
@@ -678,7 +795,7 @@ try {
 		throw new Error("Failed save left the card invisible");
 	await failed.close();
 	console.log(
-		"Feed and Deck: 4 viewport/theme combinations, drag/spring-back, accent, timeline and reduced motion passed.",
+		"Feed and Deck: bounded context rail, responsive Sheets, retry recovery, drag/spring-back, accent, timeline and reduced motion passed.",
 	);
 } finally {
 	await browser?.close();

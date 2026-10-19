@@ -122,6 +122,15 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		: [];
 	return {
 		inbox,
+		refetch: () =>
+			Promise.all([
+				inbox.refetch(),
+				...(earlierEnabled ? [earlier.refetch()] : []),
+				approvalRequests.refetch(),
+				workApprovals.refetch(),
+				...(!config?.projectId ? [approvals.refetch()] : []),
+				factories.refetch(),
+			]),
 		approvalRequests,
 		approvals: {
 			...approvals,

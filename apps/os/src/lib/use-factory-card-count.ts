@@ -61,6 +61,12 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 	}
 	return {
 		cards,
+		refetch: async () => {
+			await visible.refetch();
+			await Promise.all(
+				[...outputs, ...details].map((query) => query.refetch()),
+			);
+		},
 		count: cards.length,
 		pending:
 			visible.pending ||

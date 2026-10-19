@@ -54,6 +54,7 @@ import { WorkInteractionDecisionCard } from "@/components/work-interaction-decis
 import { ApprovalDecisionCard } from "@/components/work-decision-stack";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import { Button } from "@/components/kumo/button";
+import { Alert } from "@/components/kumo/alert";
 import { Input } from "@/components/kumo/input";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Link } from "@/components/kumo/link";
@@ -834,21 +835,20 @@ function DecisionDeckContent({
 					</Text>
 				)}
 				{!practiceMode && (decisions.failed || learningQuery.isError) && (
-					<Text role="body">
-						Some decisions could not be loaded.{" "}
-						<Button
-							variant="outline"
-							onClick={() => {
-								void inbox.refetch();
-								void decisions.approvalRequests.refetch();
-								void approvals.refetch();
-								void decisions.workApprovals.refetch();
-								void learningQuery.refetch();
-							}}
-						>
-							{decisionText("Try again")}
-						</Button>
-					</Text>
+					<Alert variant="warning" className="fd-source-error" role="alert">
+						<div className="flex flex-wrap items-center justify-between gap-2">
+							<span>Some decisions could not be loaded.</span>
+							<Button
+								variant="outline"
+								onClick={() => {
+									void decisions.refetch();
+									void learningQuery.refetch();
+								}}
+							>
+								{decisionText("Try again")}
+							</Button>
+						</div>
+					</Alert>
 				)}
 				{!practiceMode && inbox.isPending && (
 					<Text>{decisionText("Loading decisions…")}</Text>
