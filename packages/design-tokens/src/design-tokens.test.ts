@@ -55,8 +55,10 @@ describe("@tedix/design-tokens", () => {
 		expect(css).toContain("--text-tedix-section--line-height: 1.375rem;");
 		expect(css).toContain(".type-tedix-section {");
 		expect(css).toContain('"FT Kunst Grotesk"');
-		expect(css).toContain("--color-kumo-fill: light-dark(");
-		expect(css).toContain("--color-kumo-fill-hover: light-dark(");
+		expect(css).toContain("--color-kumo-fill: var(");
+		expect(css).toContain("--tedix-fill,\n\t\tlight-dark(");
+		expect(css).toContain("--color-kumo-fill-hover: var(");
+		expect(css).toContain("--tedix-fill-hover,\n\t\tlight-dark(");
 		expect(css).toContain("--color-kumo-focus: var(--ring);");
 		expect(css).not.toContain("--color-kumo-fill: var(--muted);");
 	});

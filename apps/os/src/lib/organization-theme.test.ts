@@ -6,6 +6,26 @@ import {
 	setOrganizationTheme,
 } from "./organization-theme";
 
+function contrast(first: string, second: string): number {
+	const luminance = (hex: string) => {
+		const channels = hex
+			.slice(1)
+			.match(/../g)!
+			.map((channel) => {
+				const value = Number.parseInt(channel, 16) / 255;
+				return value <= 0.04045
+					? value / 12.92
+					: ((value + 0.055) / 1.055) ** 2.4;
+			});
+		return (
+			channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+		);
+	};
+	const a = luminance(first),
+		b = luminance(second);
+	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
 describe("organization theme projection", () => {
 	afterEach(() => setOrganizationTheme(null));
 
@@ -34,26 +54,7 @@ describe("organization theme projection", () => {
 		);
 		const foreground = variables["--primary-foreground"]!;
 		expect(foreground).toBe(expected);
-		const luminance = (hex: string) => {
-			const channels = hex
-				.slice(1)
-				.match(/../g)!
-				.map((channel) => {
-					const value = Number.parseInt(channel, 16) / 255;
-					return value <= 0.04045
-						? value / 12.92
-						: ((value + 0.055) / 1.055) ** 2.4;
-				});
-			return (
-				channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
-			);
-		};
-		const values = [luminance(accent), luminance(foreground)].sort(
-			(a, b) => b - a,
-		);
-		expect((values[0]! + 0.05) / (values[1]! + 0.05)).toBeGreaterThanOrEqual(
-			4.5,
-		);
+		expect(contrast(accent, foreground)).toBeGreaterThanOrEqual(4.5);
 	});
 
 	it("lifts light surfaces to white instead of darkening them", () => {
@@ -87,7 +88,9 @@ describe("organization theme projection", () => {
 		expect(variables["--accent"]).toBe(mix(19));
 		expect(variables["--border"]).toBe(mix(19));
 		expect(variables["--input"]).toBe(mix(31));
-		expect(variables["--muted-foreground"]).toBe(mix(70));
+		expect(
+			contrast(variables["--muted-foreground"]!, "#030303"),
+		).toBeGreaterThanOrEqual(4.5);
 		// Dark overlays climb to the tint step rather than sitting on the canvas.
 		expect(variables["--popover"]).toBe(variables["--accent"]);
 	});
@@ -133,13 +136,13 @@ describe("organization theme projection", () => {
 		// so the preference composes with any published palette.
 		expect(high["--border"]).toBe("color-mix(in oklch, #f5f5f5 34%, #030303)");
 		expect(high["--input"]).toBe("color-mix(in oklch, #f5f5f5 45%, #030303)");
-		expect(high["--muted-foreground"]).toBe(
-			"color-mix(in oklch, #f5f5f5 78%, #030303)",
+		expect(contrast(high["--muted-foreground"]!, "#030303")).toBeGreaterThan(
+			contrast(plain["--muted-foreground"]!, "#030303"),
 		);
 		// Surfaces are untouched: the preference narrows legibility roles only.
 		expect(high["--card"]).toBe(plain["--card"]);
 		expect(high["--secondary-foreground"]).toBe("#f5f5f5");
-		for (const property of ["--border", "--input", "--muted-foreground"]) {
+		for (const property of ["--border", "--input"]) {
 			expect(strength(high[property])).toBeGreaterThan(
 				strength(plain[property]) as number,
 			);
@@ -156,6 +159,35 @@ describe("organization theme projection", () => {
 		].map((property) => strength(high[property]));
 		expect(ladder).toEqual([...ladder].sort((a, b) => a - b));
 	});
+
+	it.each([
+		DEFAULT_ORGANIZATION_OS_THEME.light,
+		DEFAULT_ORGANIZATION_OS_THEME.dark,
+		{ background: "#f0f8ff", foreground: "#123456", accent: "#1245aa" },
+		{ background: "#051a18", foreground: "#d0fff0", accent: "#60e0c0" },
+		{ background: "#fff8e8", foreground: "#4d3010", accent: "#854500" },
+		{ background: "#181205", foreground: "#fff1a8", accent: "#fff1a8" },
+		{ background: "#ffffff", foreground: "#767676", accent: "#0055aa" },
+		{ background: "#737373", foreground: "#ffffff", accent: "#ffffff" },
+	])(
+		"keeps secondary text at AA independently of surface contrast: $background",
+		(palette) => {
+			for (const surfaceContrast of [0, 25, 50, 75, 100]) {
+				for (const highContrast of [false, true]) {
+					const variables = organizationThemeVariables(
+						{ ...palette, contrast: surfaceContrast },
+						DEFAULT_ORGANIZATION_OS_THEME,
+						{ highContrast },
+					);
+					for (const role of ["--muted-foreground", "--secondary-foreground"]) {
+						expect(
+							contrast(variables[role]!, palette.background),
+						).toBeGreaterThanOrEqual(4.5);
+					}
+				}
+			}
+		},
+	);
 
 	it("works in light mode from the same floors", () => {
 		const high = organizationThemeVariables(

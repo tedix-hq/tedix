@@ -55,8 +55,8 @@
 	--secondary: #ffffff;
 	--secondary-foreground: #404040;
 	--muted: #f5f5f5;
-	/* #6b6b6b keeps captions at AA (≥4.5:1) on the recessed #f3f3f3 tone. */
-	--muted-foreground: #6b6b6b;
+	/* Keep body-size secondary text at AA on the canvas and neutral fills. */
+	--muted-foreground: #606060;
 	/* Hover and selection reserve one neutral step for state. */
 	--accent: #f5f5f5;
 	--accent-foreground: #171717;

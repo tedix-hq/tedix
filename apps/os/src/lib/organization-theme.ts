@@ -37,6 +37,8 @@ const THEME_PROPERTIES = [
 	"--border",
 	"--input",
 	"--ring",
+	"--tedix-fill",
+	"--tedix-fill-hover",
 	"--font-sans",
 	"--font-mono",
 ] as const;
@@ -44,18 +46,82 @@ const THEME_PROPERTIES = [
 export const OS_ORGANIZATION_THEME_CACHE_KEY = "tedix-os-organization-theme";
 
 /* Bumped when the compiled shape changes so a stale entry is simply ignored. */
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 
 let activeTheme: OrganizationOsTheme | null = null;
 
-function relativeLuminance(hex: string): number {
-	const linear = (offset: number) => {
+type Color = [number, number, number];
+
+function linearRgb(hex: string): Color {
+	return [1, 3, 5].map((offset) => {
 		const channel = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
 		return channel <= 0.04045
 			? channel / 12.92
 			: ((channel + 0.055) / 1.055) ** 2.4;
-	};
-	return 0.2126 * linear(1) + 0.7152 * linear(3) + 0.0722 * linear(5);
+	}) as Color;
+}
+
+function toOklch(hex: string): Color {
+	const [r, g, b] = linearRgb(hex);
+	const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+	const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+	const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+	const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+	const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+	return [
+		0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+		Math.hypot(a, bb),
+		Math.atan2(bb, a),
+	];
+}
+
+/** Match the surface ladder's OKLCH shorter-hue interpolation in sRGB. */
+function mixedColor(first: string, second: string, percent: number): string {
+	if (percent === 0) return second;
+	if (percent === 100) return first;
+	const one = toOklch(first);
+	const two = toOklch(second);
+	if (one[1] < 0.000004) one[2] = two[2];
+	if (two[1] < 0.000004) two[2] = one[2];
+	const weight = percent / 100;
+	const L = two[0] + (one[0] - two[0]) * weight;
+	const C = two[1] + (one[1] - two[1]) * weight;
+	const delta = Math.atan2(
+		Math.sin(one[2] - two[2]),
+		Math.cos(one[2] - two[2]),
+	);
+	const hue = two[2] + delta * weight;
+	const a = C * Math.cos(hue),
+		b = C * Math.sin(hue);
+	const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+	const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+	const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+	return `#${[
+		4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+		-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+		-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+	]
+		.map((channel) => {
+			const value =
+				channel <= 0.0031308
+					? 12.92 * channel
+					: 1.055 * channel ** (1 / 2.4) - 0.055;
+			return Math.round(Math.min(1, Math.max(0, value)) * 255)
+				.toString(16)
+				.padStart(2, "0");
+		})
+		.join("")}`;
+}
+
+function contrastRatio(first: string, second: string): number {
+	const a = relativeLuminance(first),
+		b = relativeLuminance(second);
+	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+function relativeLuminance(hex: string): number {
+	const [r, g, b] = linearRgb(hex);
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 /*
@@ -149,15 +215,52 @@ export function organizationThemeVariables(
 		);
 	const recess = (anchor: number, floor?: number) =>
 		`color-mix(in oklch, ${palette.foreground} ${step(anchor, floor)}%, ${palette.background})`;
-	const lifted = `color-mix(in oklch, #ffffff ${step(LIGHT_SURFACE_LIFT)}%, ${palette.background})`;
-	const surface = dark ? recess(ladder.surface) : lifted;
-	const control = dark ? recess(ladder.control) : lifted;
-	const tint = recess(ladder.tint);
+	const surfaces: string[] = [palette.background];
+	const surfaceColor = (color: string, strength: number) => {
+		// A valid palette can sit exactly at AA. Do not let its surface ladder
+		// erase the foreground contrast that the published palette validated.
+		const minimum = Math.min(
+			4.6,
+			contrastRatio(palette.foreground, palette.background),
+		);
+		while (
+			strength > 0 &&
+			contrastRatio(
+				palette.foreground,
+				mixedColor(color, palette.background, strength),
+			) < minimum
+		)
+			strength--;
+		surfaces.push(mixedColor(color, palette.background, strength));
+		return `color-mix(in oklch, ${color} ${strength}%, ${palette.background})`;
+	};
+	const elevated = surfaceColor(palette.foreground, step(ladder.elevated));
+	const recessed = surfaceColor(palette.foreground, step(ladder.recessed));
+	const lifted = dark ? "" : surfaceColor("#ffffff", step(LIGHT_SURFACE_LIFT));
+	const surface = dark
+		? surfaceColor(palette.foreground, step(ladder.surface))
+		: lifted;
+	const control = dark
+		? surfaceColor(palette.foreground, step(ladder.control))
+		: lifted;
+	const tint = surfaceColor(palette.foreground, step(ladder.tint));
+	const fill = surfaceColor(palette.foreground, dark ? 19 : 9);
+	const fillHover = surfaceColor(palette.foreground, dark ? 31 : 3);
+	const readableText = (strength: number) => {
+		let color = mixedColor(palette.foreground, palette.background, strength);
+		while (
+			strength < 100 &&
+			surfaces.some((background) => contrastRatio(color, background) < 4.6)
+		) {
+			color = mixedColor(palette.foreground, palette.background, ++strength);
+		}
+		return color;
+	};
 	return {
 		"--background": palette.background,
 		"--foreground": palette.foreground,
-		"--background-lighter": recess(ladder.elevated),
-		"--background-base": recess(ladder.recessed),
+		"--background-lighter": elevated,
+		"--background-base": recessed,
 		"--card": surface,
 		"--card-foreground": palette.foreground,
 		/* The Console keeps light overlays on the canvas and lets elevation come
@@ -170,14 +273,18 @@ export function organizationThemeVariables(
 		"--secondary": control,
 		"--secondary-foreground": highContrast
 			? palette.foreground
-			: `color-mix(in oklch, ${palette.foreground} 90%, ${palette.background})`,
+			: readableText(90),
 		"--muted": tint,
-		"--muted-foreground": recess(ladder.muted, HIGH_CONTRAST_FLOOR.muted),
+		"--muted-foreground": readableText(
+			step(ladder.muted, HIGH_CONTRAST_FLOOR.muted),
+		),
 		"--accent": tint,
 		"--accent-foreground": palette.foreground,
 		"--border": recess(ladder.border, HIGH_CONTRAST_FLOOR.border),
 		"--input": recess(ladder.input, HIGH_CONTRAST_FLOOR.input),
 		"--ring": palette.accent,
+		"--tedix-fill": fill,
+		"--tedix-fill-hover": fillHover,
 		"--font-sans": UI_FONTS[theme.uiFont],
 		"--font-mono": CODE_FONTS[theme.codeFont],
 	};
