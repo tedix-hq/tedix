@@ -160,7 +160,7 @@ export function OrganizationProfileForm({
 						form.handleSubmit();
 					}}
 				>
-					<div className="space-y-6">
+					<div className="space-y-8 sm:[&>[data-orientation]]:grid-cols-2 sm:[&>[data-orientation]]:gap-x-6 sm:[&>[data-orientation]]:gap-y-1 sm:[&>[data-orientation]>label]:col-start-1 sm:[&>[data-orientation]>label]:row-start-1 sm:[&>[data-orientation]>:nth-child(2)]:col-start-2 sm:[&>[data-orientation]>:nth-child(2)]:row-span-2 sm:[&>[data-orientation]>:nth-child(2)]:row-start-1 sm:[&>[data-orientation]>:last-child]:col-span-1 sm:[&>[data-orientation]>:last-child]:col-start-1 sm:[&>[data-orientation]>:last-child]:row-start-2">
 						<FormField
 							form={form}
 							name="name"
@@ -195,7 +195,7 @@ export function OrganizationProfileForm({
 							)}
 						</FormField>
 
-						<div className="space-y-2">
+						<div className="grid gap-3 sm:grid-cols-2 sm:gap-6">
 							<Text weight="medium">Logo</Text>
 							<OrganizationLogoUpload
 								organizationId={organizationId}
@@ -271,7 +271,7 @@ export function OrganizationProfileForm({
 							</Alert>
 						) : null}
 
-						<div className="flex items-center justify-end gap-3 pt-2">
+						<div className="flex flex-wrap items-center justify-end gap-2">
 							{saved && !updateOrganization.isPending ? (
 								<Text as="span" tone="secondary">
 									Saved
