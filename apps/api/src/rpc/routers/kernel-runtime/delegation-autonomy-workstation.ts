@@ -13,6 +13,7 @@ import {
 	stringFromPayload,
 } from "../kernel/runtime-shared";
 import { resolveKernelDelegateTarget } from "./run-reads-streams";
+import { homeWorkstationAttachPayload } from "../kernel/workstation-attach";
 import { resolveKernelWorkstationAttachWorkOrder } from "./control-proposals";
 import { reviewDelegationAutonomy } from "./delegation-autonomy-review";
 import { ExecutionRequirementSchema } from "@tedix/api-contract/schemas/execution-evidence";
@@ -50,6 +51,21 @@ export async function releaseWorkstationDelegationAutonomy(
 		throw createError(
 			ErrorCodes.CONFLICT,
 			"Direct delegation approval is no longer pending",
+		);
+	const payload = homeWorkstationAttachPayload(approval.payload);
+	if (
+		approval.actionType !== "workstation.attach" ||
+		approval.tediId !== targetId ||
+		!payload ||
+		payload.homeRunId !== run.id ||
+		payload.homeConversationId !== run.conversationId ||
+		payload.delegateToTediId !== targetId ||
+		(payload.workOrder?.sourceContent ??
+			nonNullRecord(approval.payload)?.requestPreview) !== source
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Direct delegation approval does not match its stored request",
 		);
 	const target = await resolveKernelDelegateTarget(context, {
 		organizationId: input.organizationId,
