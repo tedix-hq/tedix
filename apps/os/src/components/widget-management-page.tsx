@@ -207,7 +207,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 					<TabsTrigger value="settings">Funding</TabsTrigger>
 					<TabsTrigger value="performance">Performance</TabsTrigger>
 				</TabsList>
-				<TabsContent value="experience" keepMounted className="grid gap-4 pt-4">
+				<TabsContent value="experience" keepMounted className="grid gap-8 pt-4">
 					<ExperienceEditor
 						key={organization.id}
 						organization={organization}
@@ -233,7 +233,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						</CollapsibleContent>
 					</Collapsible>
 				</TabsContent>
-				<TabsContent value="customers" className="grid gap-4 pt-4">
+				<TabsContent value="customers" className="grid gap-8 pt-4">
 					{audienceBusiness === undefined ? (
 						<>
 							<Button
@@ -261,7 +261,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						</>
 					)}
 				</TabsContent>
-				<TabsContent value="settings" className="grid max-w-4xl gap-4 pt-4">
+				<TabsContent value="settings" className="grid max-w-4xl gap-8 pt-4">
 					<Panel
 						title="Distribution"
 						description={
@@ -393,7 +393,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						</Card>
 					))}
 				</TabsContent>
-				<TabsContent value="performance" className="grid max-w-4xl gap-6 pt-4">
+				<TabsContent value="performance" className="grid max-w-4xl gap-8 pt-4">
 					<PageToolbar
 						appearance="inline"
 						className="sm:flex-row sm:items-center"
