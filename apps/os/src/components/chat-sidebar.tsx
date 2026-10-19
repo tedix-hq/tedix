@@ -372,7 +372,7 @@ export function ConversationRow({
 		>
 			<Button
 				aria-current={active ? "true" : undefined}
-				className="min-w-0 flex-1 flex-col items-stretch gap-0 px-2.5 py-1.5 text-left coarse:min-h-11"
+				className="min-h-11 min-w-0 flex-1 flex-col items-stretch gap-1 px-3 py-2 text-left"
 				multiline
 				onClick={() => onSelect?.(conversation.id)}
 				variant="ghost"
@@ -673,9 +673,10 @@ export function ChatSidebar({
 					render={
 						<Button
 							aria-label={`Actions for ${conversationTitle(conversation)}`}
+							title={`Actions for ${conversationTitle(conversation)}`}
 							size="icon-sm"
 							variant="ghost"
-							className="shrink-0 text-kumo-subtle opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100 data-[popup-open]:opacity-100"
+							className="shrink-0 text-kumo-subtle opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 data-[popup-open]:opacity-100 coarse:opacity-100"
 						/>
 					}
 				>
@@ -749,12 +750,8 @@ export function ChatSidebar({
 			className="flex min-w-0 flex-col gap-4"
 			data-active-conversation={activeConversationId ?? "new"}
 		>
-			<div className="sticky top-0 z-10 grid gap-3 rounded-xl bg-kumo-base px-3 pt-3 pb-4">
+			<div className="sticky top-0 z-10 grid gap-3 bg-kumo-base pb-4">
 				<div className="flex items-center justify-between gap-2">
-					{/* The rail is 275px and the actions are wider when archived is shown
-					    ("Hide archived" is the longer label), so the heading is the part
-					    that has to yield. Without min-w-0 nothing shrinks and the row
-					    overflows the rail. */}
 					<h2 className="m-0 min-w-0 truncate font-medium text-kumo-default type-tedix-label">
 						Conversations
 					</h2>
@@ -768,6 +765,7 @@ export function ChatSidebar({
 										size="icon-sm"
 										variant="ghost"
 										aria-label="Conversation list options"
+										title="Conversation list options"
 										icon={<DotsThree size={16} />}
 									/>
 								}
@@ -829,7 +827,7 @@ export function ChatSidebar({
 							<section key={group.key} aria-labelledby={headingId}>
 								<h3
 									id={headingId}
-									className="m-0 mb-1 px-2 font-medium text-kumo-inactive uppercase tracking-[0.08em] type-tedix-label"
+									className="m-0 mb-2 px-3 font-medium text-kumo-subtle type-tedix-label"
 								>
 									{group.label}
 								</h3>
@@ -1078,6 +1076,7 @@ export function ChatConversationHeader({
 		<div className="canvas-chat-conversation-header flex min-w-0 flex-1 items-center gap-1">
 			<Button
 				aria-label="Back to conversations"
+				title="Back to conversations"
 				onClick={onBack}
 				size="icon-sm"
 				variant="ghost"
