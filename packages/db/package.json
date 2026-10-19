@@ -6,6 +6,8 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./schema/organization-secrets": "./src/schema/organization-secrets.ts",
+		"./queries/personal-agent-inbound": "./src/queries/personal-agent-inbound.ts",
 		"./queries/memory-graph/session-feedback": "./src/queries/memory-graph/session-feedback.ts",
 		"./queries/memory-graph/observations": "./src/queries/memory-graph/observations.ts",
 		"./queries/today-project": "./src/queries/today-project.ts",

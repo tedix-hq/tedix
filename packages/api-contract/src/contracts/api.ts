@@ -92,6 +92,7 @@ import { tenantCatalogContract } from "./tenant-catalog";
 import { tenantMembershipContract } from "./tenant-membership";
 import { tenantBehavioralEvalsContract } from "./tenant-behavioral-evals";
 import { toolSchemaSyncContract } from "./tool-schema-sync";
+import { personalAgentInboundContract } from "./personal-agent-inbound";
 import { userSettingsContract } from "./user-settings";
 import { userProfileContract } from "./user-profile";
 import { voiceContract } from "./voice";
@@ -186,6 +187,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	toolSchemaSync: toolSchemaSyncContract,
 
 	// Per-user OS settings + read-only operational context projection
+	personalAgentInbound: personalAgentInboundContract,
 	userSettings: userSettingsContract,
 	userProfile: userProfileContract,
 

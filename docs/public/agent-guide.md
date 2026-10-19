@@ -230,6 +230,9 @@ click. A channel delivery is not evidence that the human acted.
 
 ## Operate from workspace chat
 
+For owner-enrolled external findings, see [Personal-agent findings](./personal-agent-inbound.md)
+for the browser form, contract procedures, receipts and revocation.
+
 Every app or factory build must update its agent guide with the actions,
 permissions and checks needed to operate it from workspace chat. Include a
 plain example request and the tools behind it; prove the chat path as well

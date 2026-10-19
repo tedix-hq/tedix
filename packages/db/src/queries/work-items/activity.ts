@@ -3,6 +3,10 @@
  * items, newest first.
  */
 
+import {
+	PersonalAgentContributionSchema,
+	type PersonalAgentContribution,
+} from "@tedix/api-contract/schemas/personal-agent-inbound";
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { personalWorkFeedPredicate } from "./personal-feed";
@@ -38,6 +42,7 @@ export interface WorkActivityRow {
 	agentSession: string | null;
 	agentHarness: string | null;
 	settlement: WorkActivitySettlement | null;
+	personalAgentContribution?: PersonalAgentContribution;
 	body: string;
 	createdAt: string;
 }
@@ -135,6 +140,16 @@ export async function listWorkActivity(
 		.limit(cap + 1);
 	const events: WorkActivityRow[] = rows.slice(0, cap).map((r) => {
 		const md = (r.metadata ?? {}) as Record<string, unknown>;
+		const contribution = PersonalAgentContributionSchema.safeParse(
+			md.personalAgentContribution,
+		);
+		const trustedContribution =
+			contribution.success &&
+			r.eventType === "personal_agent.finding_received" &&
+			r.authorType === "system" &&
+			r.authorId === `personal-agent:${contribution.data.sourceAgentId}`
+				? contribution.data
+				: undefined;
 		return {
 			id: r.id,
 			workItemId: r.workItemId,
@@ -148,6 +163,9 @@ export async function listWorkActivity(
 			agentHarness:
 				typeof md.agentHarness === "string" ? md.agentHarness : null,
 			settlement: settlementFromMetadata(md),
+			...(trustedContribution
+				? { personalAgentContribution: trustedContribution }
+				: {}),
 			body: typeof md.summary === "string" ? md.summary : r.eventType,
 			createdAt: r.createdAt,
 		};

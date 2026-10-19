@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { WorkActorReferenceSchema } from "./os-work-actor";
+import { PersonalAgentContributionSchema } from "./personal-agent-inbound";
 import { CardReviewSourceSchema } from "./os-card-review";
 import { DecisionEnvelopeSchema } from "./os-decision-deck";
 
@@ -25,6 +26,7 @@ export const ActivityFeedItemSchema = z.strictObject({
 	id: z.string().min(1),
 	actor: z.string().min(1),
 	actorIdentity: WorkActorReferenceSchema.optional(),
+	personalAgentContribution: PersonalAgentContributionSchema.optional(),
 	sentence: z.string().min(1).max(1000),
 	source: z.string().min(1).max(2000),
 	projectId: z.uuid().nullable(),

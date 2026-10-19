@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
+import { PersonalAgentContributionSchema } from "./personal-agent-inbound";
 import {
 	ExecutionCapabilitySchema,
 	ExecutionRequirementSchema,
@@ -2176,6 +2177,7 @@ export const WorkActivityEventSchema = z.object({
 	agentSession: z.string().nullable(),
 	agentHarness: z.string().nullable(),
 	settlement: WorkActivitySettlementSchema.nullable(),
+	personalAgentContribution: PersonalAgentContributionSchema.optional(),
 	body: z.string(),
 	createdAt: z.string(),
 });
