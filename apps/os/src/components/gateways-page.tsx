@@ -72,9 +72,9 @@ export function GatewaysPage() {
 								<Link
 									to="/apps/$appId"
 									params={{ appId: gateway.id }}
-									className="flex min-h-16 items-center gap-3 px-3 py-2.5 text-inherit no-underline hover:bg-kumo-tint"
+									className="flex min-h-16 min-w-0 flex-wrap items-center gap-3 px-4 py-3 text-inherit no-underline hover:bg-kumo-tint focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-kumo-focus"
 								>
-									<div className="grid size-9 place-items-center rounded-md border border-kumo-line bg-kumo-tint">
+									<div className="grid size-9 shrink-0 place-items-center rounded-md border border-kumo-line bg-kumo-tint">
 										<AppWindow size={18} />
 									</div>
 									<div className="min-w-0 flex-1">
@@ -85,7 +85,7 @@ export function GatewaysPage() {
 											as="p"
 											role="caption"
 											tone="secondary"
-											className="m-0"
+											className="m-0 break-words [overflow-wrap:anywhere]"
 										>
 											{mcpEndpointUrl({ ...gateway, customMcpDomain: null })}
 										</Text>

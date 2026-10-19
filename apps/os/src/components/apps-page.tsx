@@ -307,13 +307,8 @@ export function AppRowMain({
 }) {
 	return (
 		<span className="grid min-w-0 gap-1">
-			<span className="flex flex-wrap items-center gap-1.5">
-				<Text
-					as="strong"
-					weight="medium"
-					truncate
-					className="tracking-[-0.2px]"
-				>
+			<span className="flex flex-wrap items-center gap-2">
+				<Text as="strong" weight="medium" truncate>
 					{app.name}
 				</Text>
 				<AppChip tone={visibilityTone(app.visibility)}>
@@ -339,7 +334,7 @@ export function AppRowMain({
 					role="label"
 					tone="secondary"
 					truncate
-					className="tracking-[-0.1px] max-sm:hidden"
+					className="max-sm:hidden"
 				>
 					{app.description}
 				</Text>
@@ -442,40 +437,25 @@ export function ConnectionRow({
 	action?: ReactNode;
 }) {
 	return (
-		<li className="flex min-h-14 items-center gap-3 rounded-lg px-3 py-2.5">
+		<li className="flex min-h-14 items-center gap-3 rounded-lg px-4 py-3">
 			<IconFrame>
 				<Plugs size={18} />
 			</IconFrame>
 			<span className="grid min-w-0 flex-1 gap-1">
-				<span className="flex flex-wrap items-center gap-1.5">
+				<span className="flex flex-wrap items-center gap-2">
 					<AppChip tone={connectionTone(connection.status)}>
 						{sentenceCase(connection.status)}
 					</AppChip>
-					<Text
-						as="span"
-						role="label"
-						tone="secondary"
-						className="tracking-[-0.1px]"
-					>
+					<Text as="span" role="label" tone="secondary">
 						{connection.tokenScope === "tenant"
 							? "org-shared credential"
 							: "personal credential"}
 					</Text>
 				</span>
-				<Text
-					as="strong"
-					weight="medium"
-					truncate
-					className="tracking-[-0.2px]"
-				>
+				<Text as="strong" weight="medium" truncate>
 					{connection.providerName}
 				</Text>
-				<Text
-					as="span"
-					role="label"
-					tone="secondary"
-					className="tracking-[-0.1px]"
-				>
+				<Text as="span" role="label" tone="secondary">
 					{grantedScopesLabel(connection)}
 					{connection.connectedByEmail
 						? ` · connected by ${connection.connectedByEmail}`
@@ -483,7 +463,7 @@ export function ConnectionRow({
 				</Text>
 			</span>
 			{action ? (
-				<span className="flex shrink-0 items-center gap-1.5">{action}</span>
+				<span className="flex shrink-0 items-center gap-2">{action}</span>
 			) : null}
 		</li>
 	);
@@ -1023,7 +1003,7 @@ export function AppsPage({
 								<li
 									key={app.id}
 									data-app-row="mobile"
-									className="grid gap-3 px-3 py-3"
+									className="grid gap-3 px-4 py-3"
 								>
 									<div className="flex min-w-0 items-start gap-3">
 										<IconFrame aria-hidden>

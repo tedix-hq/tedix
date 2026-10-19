@@ -33,7 +33,7 @@ import { appDetailQueryOptions } from "@/lib/os-query-options";
 
 function AppMetaCode({ children }: { children: ReactNode }) {
 	return (
-		<code className="rounded-md border border-kumo-hairline bg-kumo-fill px-1.5 py-px">
+		<code className="rounded-md border border-kumo-hairline bg-kumo-fill px-2 py-1 [overflow-wrap:anywhere]">
 			{children}
 		</code>
 	);
@@ -137,7 +137,7 @@ export function AppDetailLayout() {
 							{app.description && (
 								<PageDescription>{app.description}</PageDescription>
 							)}
-							<PageMeta className="tracking-[-0.1px]">
+							<PageMeta>
 								<li>
 									Slug <strong>{app.slug}</strong>
 								</li>
