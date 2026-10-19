@@ -29,7 +29,7 @@ function Page({
 			data-slot="page"
 			data-full-height={fullHeight || undefined}
 			className={cn(
-				"mx-auto flex w-full min-w-0 flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:px-10",
+				"mx-auto flex w-full min-w-0 flex-1 flex-col gap-tedix-section px-tedix-gutter py-6",
 				fullHeight
 					? "min-h-0 overflow-hidden"
 					: "overflow-y-auto [&>*]:shrink-0",
@@ -51,8 +51,8 @@ function PageHeader({
 			data-slot="page-header"
 			data-divided={divided || undefined}
 			className={cn(
-				"flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between",
-				divided && "border-kumo-line border-b pb-5",
+				"flex min-w-0 flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between",
+				divided && "border-kumo-line border-b pb-4",
 				"[&_.eyebrow]:!hidden",
 				className,
 			)}
@@ -65,7 +65,7 @@ function PageHeading({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="page-heading"
-			className={cn("min-w-0 space-y-1.5", className)}
+			className={cn("min-w-0 space-y-2", className)}
 			{...props}
 		/>
 	);
