@@ -124,18 +124,22 @@ export function canvasDocsSearchValue(
 export type ChatSearch = {
 	/** Durable Home conversation open on `/chat`; absent = the new-thread state. */
 	conversation?: string;
+	details?: string;
+	branch?: string;
 };
 
-/**
- * `/chat` carries only the conversation id. Nothing else about the Chat
- * surface is addressable, and the id is validated so an arbitrary string can
- * never become the active thread.
- */
+/** Conversation and execution selections are bounded URL identifiers. */
 export function validateChatSearch(
 	search: Record<string, unknown>,
 ): ChatSearch {
 	const conversation = canvasConversationFromSearch(search.conversation);
-	return conversation ? { conversation } : {};
+	const details = optionalUuidSearchParam(search.details);
+	const branch = details ? optionalUuidSearchParam(search.branch) : undefined;
+	return {
+		...(conversation ? { conversation } : {}),
+		...(details ? { details } : {}),
+		...(branch ? { branch } : {}),
+	};
 }
 
 export function validateWorkspaceSearch(

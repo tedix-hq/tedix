@@ -7014,6 +7014,51 @@ const handlers: Record<string, (input: never) => unknown> = {
 		),
 		nextCursor: null,
 	}),
+	"kernelRuntime/readRun": (input: { runId: string }) => ({
+		run: findHomeRun(input.runId),
+	}),
+	"kernelRuntime/readRunTrace": (input: { runId: string }) => {
+		const run = findHomeRun(input.runId);
+		return {
+			trace: {
+				version: "home-run-trace.v1",
+				organizationId: ORG_ID,
+				conversationId: run.conversationId,
+				homeRunId: run.id,
+				traceBundleId: null,
+				harnessVersionId: null,
+				status: run.status,
+				parentEventIds: [`${run.id}:0`, `${run.id}:1`],
+				branches: [],
+				wakeReceipts: [],
+				synthesis: [],
+				latency: {
+					parentElapsedMs:
+						run.completedAt && run.startedAt
+							? Date.parse(run.completedAt) - Date.parse(run.startedAt)
+							: null,
+					maxWakeQueueMs: null,
+					finalWakeToSynthesisMs: null,
+				},
+				eventIds: {
+					kernel: [`${run.id}:0`, `${run.id}:1`],
+					tedi: [],
+					audit: [],
+				},
+				artifactIds: [],
+				health: {
+					status: "healthy",
+					findings: [],
+					counts: { errors: 0, warnings: 0 },
+				},
+				complete: true,
+				gaps: [],
+				assembledAt: now(),
+				sources: ["kernel_runtime_events"],
+			},
+		};
+	},
+
 	"kernelRuntime/readRunSet": (input: { conversationId: string }) => {
 		const runs = state.homeRuns.filter(
 			(row) => row.conversationId === input.conversationId,

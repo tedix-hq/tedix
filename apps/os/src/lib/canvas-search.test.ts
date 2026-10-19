@@ -176,3 +176,29 @@ describe("/chat URL search", () => {
 		expect(validateChatSearch({ conversation: 42 })).toEqual({});
 	});
 });
+
+describe("Chat response details URL", () => {
+	it("keeps the conversation while selecting an execution and branch", () => {
+		expect(
+			validateChatSearch({
+				conversation: OUTPUT_ID,
+				details: GADGET_ID,
+				branch: OUTPUT_ID,
+			}),
+		).toEqual({
+			conversation: OUTPUT_ID,
+			details: GADGET_ID,
+			branch: OUTPUT_ID,
+		});
+	});
+	it("discards malformed execution ids and orphan branches", () => {
+		expect(
+			validateChatSearch({
+				conversation: OUTPUT_ID,
+				details: "../../trace",
+				branch: GADGET_ID,
+			}),
+		).toEqual({ conversation: OUTPUT_ID });
+		expect(validateChatSearch({ branch: GADGET_ID })).toEqual({});
+	});
+});

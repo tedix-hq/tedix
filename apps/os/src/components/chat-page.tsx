@@ -1,3 +1,4 @@
+import { ChatExecutionDetailsProvider } from "@/components/chat-execution-sheet";
 import { FolderPlus } from "@phosphor-icons/react";
 import type { HomeConversation } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
@@ -138,66 +139,89 @@ export function ChatPage() {
 	};
 
 	return (
-		<Page
-			fullHeight
-			width="bleed"
-			className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row md:gap-4"
+		<ChatExecutionDetailsProvider
+			runId={search.details}
+			branchId={search.branch}
+			onOpen={(runId) => {
+				void navigate({
+					to: "/chat",
+					search: {
+						conversation: activeConversationId ?? undefined,
+						details: runId,
+					},
+					resetScroll: false,
+				});
+			}}
+			onClose={() => {
+				void navigate({
+					to: "/chat",
+					search: { conversation: activeConversationId ?? undefined },
+					replace: true,
+					resetScroll: false,
+				});
+			}}
 		>
-			<h1 className="sr-only">Chat</h1>
-			<aside
-				data-slot="chat-conversation-directory"
-				className={`${mobileListOpen ? "block" : "hidden"} min-h-0 flex-1 overflow-y-auto md:block md:max-h-none md:w-72 md:flex-none md:border-r md:border-kumo-line md:pr-3`}
+			<Page
+				fullHeight
+				width="bleed"
+				className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row md:gap-4"
 			>
-				<ChatSidebar
-					activeConversationId={activeConversationId}
-					onSelect={selectConversation}
-				/>
-			</aside>
-			<div
-				data-slot="chat-active-conversation"
-				className={`${mobileListOpen ? "hidden" : "flex"} min-h-0 min-w-0 flex-1 flex-col md:flex`}
-			>
-				<div className="flex h-12 shrink-0 items-center border-kumo-line border-b md:hidden">
-					<ChatConversationHeader
+				<h1 className="sr-only">Chat</h1>
+				<aside
+					data-slot="chat-conversation-directory"
+					className={`${mobileListOpen ? "block" : "hidden"} min-h-0 flex-1 overflow-y-auto md:block md:max-h-none md:w-72 md:flex-none md:border-r md:border-kumo-line md:pr-3`}
+				>
+					<ChatSidebar
+						activeConversationId={activeConversationId}
+						onSelect={selectConversation}
+					/>
+				</aside>
+				<div
+					data-slot="chat-active-conversation"
+					className={`${mobileListOpen ? "hidden" : "flex"} min-h-0 min-w-0 flex-1 flex-col md:flex`}
+				>
+					<div className="flex h-12 shrink-0 items-center border-kumo-line border-b md:hidden">
+						<ChatConversationHeader
+							conversationId={activeConversationId}
+							onBack={() => setMobileListOpen(true)}
+							onDeleted={() => {
+								selectConversation(null);
+								setMobileListOpen(true);
+							}}
+						/>
+					</div>
+					{activeConversationId ? (
+						<SaveAsWorkspaceButton conversationId={activeConversationId} />
+					) : null}
+					<ChatThread
+						key={newConversationKey}
 						conversationId={activeConversationId}
-						onBack={() => setMobileListOpen(true)}
-						onDeleted={() => {
-							selectConversation(null);
-							setMobileListOpen(true);
+						onConversationCreated={(conversationId, workspaceId) => {
+							queryClient.invalidateQueries({
+								queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
+							});
+							// A pending send may finish after the user has selected New.
+							if (generation !== selectionGeneration.current) return;
+							// Only a conversation that already belongs to a workspace opens
+							// there. `pane` must not travel: it would pin an explicit pane.
+							if (workspaceId) {
+								void navigate({
+									to: "/workspace/$workspaceId",
+									params: { workspaceId },
+									search: { conversation: conversationId },
+								});
+								return;
+							}
+							setSelection({ conversationId });
+							void navigate({
+								to: "/chat",
+								search: { conversation: conversationId },
+								replace: true,
+							});
 						}}
 					/>
 				</div>
-				{activeConversationId ? (
-					<SaveAsWorkspaceButton conversationId={activeConversationId} />
-				) : null}
-				<ChatThread
-					key={newConversationKey}
-					conversationId={activeConversationId}
-					onConversationCreated={(conversationId, workspaceId) => {
-						queryClient.invalidateQueries({
-							queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
-						});
-						// A pending send may finish after the user has selected New.
-						if (generation !== selectionGeneration.current) return;
-						// Only a conversation that already belongs to a workspace opens
-						// there. `pane` must not travel: it would pin an explicit pane.
-						if (workspaceId) {
-							void navigate({
-								to: "/workspace/$workspaceId",
-								params: { workspaceId },
-								search: { conversation: conversationId },
-							});
-							return;
-						}
-						setSelection({ conversationId });
-						void navigate({
-							to: "/chat",
-							search: { conversation: conversationId },
-							replace: true,
-						});
-					}}
-				/>
-			</div>
-		</Page>
+			</Page>
+		</ChatExecutionDetailsProvider>
 	);
 }
