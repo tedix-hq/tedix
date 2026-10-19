@@ -374,6 +374,137 @@ try {
 			await page.close();
 		}
 	}
+	for (const theme of ["light", "dark"] as const) {
+		for (const [plan, collapsed, destination, section] of [
+			["enterprise", false, "/admin/billing", "Usage"],
+			["growth", false, "/admin/billing?section=subscription", "Subscription"],
+			["growth", true, "/admin/billing", "Usage"],
+		] as const) {
+			const page = await browser.newPage({
+				viewport: { width: 1280, height: 900 },
+				colorScheme: theme,
+			});
+			await page.addInitScript(
+				({ theme, collapsed }) => {
+					localStorage.setItem("tedix-os-theme", theme);
+					localStorage.setItem(
+						"tedix-os-sidebar-collapsed",
+						collapsed ? "1" : "0",
+					);
+				},
+				{ theme, collapsed },
+			);
+			await page.route("**/api/rpc/billing/getOverview**", async (route) => {
+				const response = await route.fetch();
+				const body = await response.json();
+				body.json.snapshot.status = "past_due";
+				body.json.snapshot.planKey = plan;
+				await route.fulfill({ response, json: body });
+			});
+			let documentRequests = 0;
+			page.on("request", (request) => {
+				if (
+					request.isNavigationRequest() &&
+					request.resourceType() === "document" &&
+					request.frame() === page.mainFrame()
+				)
+					documentRequests++;
+			});
+			await page.goto(`${origin}/team`);
+			const link = collapsed
+				? page.getByRole("link", { name: "Billing and usage", exact: true })
+				: page.locator(`[data-sidebar="footer"] a[href="${destination}"]`);
+			await link.waitFor();
+			if (collapsed)
+				assert.equal(await link.getAttribute("data-sidebar"), "menu-button");
+			documentRequests = 0;
+			await page.evaluate(
+				() =>
+					(document.documentElement.dataset.navigationProof =
+						"billing-same-document"),
+			);
+			await link.click();
+			await page.waitForURL(
+				(url) => `${url.pathname}${url.search}` === destination,
+			);
+			const selected = page.getByRole("tab", { name: section, exact: true });
+			await selected.waitFor();
+			assert.equal(await selected.getAttribute("aria-selected"), "true");
+			await page.getByRole("tabpanel").waitFor();
+			assert.equal(
+				await page.evaluate(
+					() => document.documentElement.dataset.navigationProof,
+				),
+				"billing-same-document",
+			);
+			assert.equal(
+				documentRequests,
+				0,
+				"Billing link performed document navigation",
+			);
+			if (section === "Subscription")
+				await capture(page, `billing-subscription-1280-${theme}`);
+			console.log(
+				`PASS billing ${plan}/${collapsed ? "collapsed" : "expanded"}/${theme}: ${section}`,
+			);
+			await page.close();
+		}
+	}
+	for (const theme of ["light", "dark"] as const) {
+		const page = await browser.newPage({
+			viewport: { width: 390, height: 900 },
+			colorScheme: theme,
+		});
+		await page.addInitScript(
+			(value) => localStorage.setItem("tedix-os-theme", value),
+			theme,
+		);
+		await page.route("**/api/rpc/billing/getOverview**", async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.json.snapshot.status = "past_due";
+			await route.fulfill({ response, json: body });
+		});
+		await page.goto(`${origin}/admin/billing`);
+		await page.getByRole("tab", { name: "Usage", exact: true }).waitFor();
+		await page
+			.getByRole("button", { name: "Toggle navigation", exact: true })
+			.click();
+		await stateIs(page, "expanded");
+		await page.evaluate(
+			() =>
+				(document.documentElement.dataset.navigationProof =
+					"mobile-billing-same-document"),
+		);
+		await page
+			.locator(
+				'[data-sidebar="footer"] a[href="/admin/billing?section=subscription"]',
+			)
+			.click();
+		await page.waitForURL(
+			(url) =>
+				url.pathname === "/admin/billing" &&
+				url.search === "?section=subscription",
+		);
+		await stateIs(page, "collapsed");
+		assert.equal(
+			await page
+				.getByRole("tab", { name: "Subscription", exact: true })
+				.getAttribute("aria-selected"),
+			"true",
+		);
+		assert.equal(
+			await page.evaluate(
+				() => document.documentElement.dataset.navigationProof,
+			),
+			"mobile-billing-same-document",
+		);
+		await capture(page, `billing-subscription-390-${theme}`);
+		await page.close();
+	}
+	console.log(
+		"PASS: expanded Manage/Upgrade and collapsed billing row navigate client-side to Usage/Subscription; light/dark",
+	);
 	console.log(
 		"PASS: resource titles, linked list ancestors, billing/workspace trails, truncation tooltip, phone last-two crumbs and client navigation; desktop/390 × light/dark",
 	);

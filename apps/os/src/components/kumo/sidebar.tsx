@@ -334,6 +334,9 @@ function SidebarFooter({
 	);
 }
 
+// Kumo recognizes the footer by displayName and keeps it outside the peek zone.
+SidebarFooter.displayName = "Sidebar.Footer";
+
 function SidebarLoading({
 	className,
 	...props
