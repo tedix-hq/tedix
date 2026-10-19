@@ -344,12 +344,12 @@ export function SkillRow({
 		</>
 	) : null;
 	return (
-		<li className="min-h-16 min-w-0 px-3 py-2.5 max-sm:min-h-0 max-sm:py-3">
+		<li className="min-w-0">
 			<Link
 				to="/skills/$skillId"
 				params={{ skillId: skill.id }}
 				title={skillDetailLabel(skill)}
-				className="flex min-w-0 items-start gap-3 rounded-lg text-inherit no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-kumo-focus"
+				className="flex min-h-16 min-w-0 items-start gap-3 px-4 py-3 text-inherit no-underline hover:bg-kumo-tint focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-kumo-focus"
 			>
 				<IconFrame aria-hidden>
 					<BookOpenText size={18} />
@@ -360,13 +360,13 @@ export function SkillRow({
 							as="strong"
 							role="body"
 							weight="medium"
-							className="min-w-0 truncate tracking-[-0.2px]"
+							className="min-w-0 truncate"
 						>
 							{skill.title}
 						</Text>
 					</span>
 					{skill.lifecycleState || executable !== undefined ? (
-						<span className="flex min-w-0 flex-wrap items-center gap-1.5">
+						<span className="flex min-w-0 flex-wrap items-center gap-2">
 							{skill.lifecycleState ? (
 								<SkillChip tone={lifecycleTone(skill.lifecycleState)}>
 									{sentenceCase(skill.lifecycleState)}
@@ -383,7 +383,7 @@ export function SkillRow({
 						as="span"
 						role="label"
 						tone="secondary"
-						className="tracking-[-0.1px] max-sm:truncate"
+						className="max-sm:truncate"
 						data-row-summary
 					>
 						{owner} · {evidence}
@@ -394,7 +394,7 @@ export function SkillRow({
 							as="span"
 							role="label"
 							tone="secondary"
-							className="truncate tracking-[-0.1px] max-sm:hidden"
+							className="truncate max-sm:hidden"
 						>
 							{blurb}
 						</Text>
@@ -493,17 +493,17 @@ export function WorkflowRow({
 	const latestRun = health?.latestRun ?? null;
 	const latestRunAt = latestRun?.completedAt ?? latestRun?.startedAt ?? null;
 	return (
-		<li className="flex min-h-16 min-w-0 items-start gap-3 px-3 py-2.5">
+		<li className="flex min-h-16 min-w-0 items-start gap-3 px-4 py-3">
 			<IconFrame>
 				<FlowArrow size={18} />
 			</IconFrame>
 			<span className="grid min-w-0 gap-1">
-				<span className="flex flex-wrap items-center gap-1.5">
+				<span className="flex flex-wrap items-center gap-2">
 					<Text
 						as="strong"
 						role="body"
 						weight="medium"
-						className="min-w-0 truncate tracking-[-0.2px]"
+						className="min-w-0 truncate"
 					>
 						{definition.title}
 					</Text>
@@ -530,7 +530,7 @@ export function WorkflowRow({
 					as="span"
 					role="label"
 					tone="secondary"
-					className="flex flex-wrap items-center gap-1.5 tracking-[-0.1px]"
+					className="flex flex-wrap items-center gap-2"
 				>
 					<span
 						className="min-w-0 truncate"
@@ -567,12 +567,7 @@ export function WorkflowRow({
 					) : null}
 				</Text>
 				{definition.description ? (
-					<Text
-						as="span"
-						role="label"
-						tone="secondary"
-						className="truncate tracking-[-0.1px]"
-					>
+					<Text as="span" role="label" tone="secondary" className="truncate">
 						{definition.description}
 					</Text>
 				) : null}

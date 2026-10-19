@@ -472,13 +472,13 @@ export function TediRow({
 					aria-expanded={expanded}
 					aria-label={`${expanded ? "Collapse" : "Expand"} ${tedi.displayName ?? tedi.name} details`}
 					onClick={onToggle}
-					className="min-h-16 w-full min-w-0 items-start gap-3 rounded-none px-3 py-2.5 text-left sm:flex-1"
+					className="min-h-16 w-full min-w-0 items-start gap-3 rounded-none px-4 py-3 text-left sm:flex-1"
 					multiline
 					variant="ghost"
 				>
 					<TediAvatar tedi={tedi} />
 					<span className="flex min-w-0 flex-1 flex-col gap-1">
-						<span className="flex flex-wrap items-center gap-1.5">
+						<span className="flex flex-wrap items-center gap-2">
 							<Text
 								as="strong"
 								role="body"
@@ -517,7 +517,7 @@ export function TediRow({
 						{expanded ? <CaretDown size={14} /> : <CaretRight size={14} />}
 					</span>
 				</Button>
-				<div className="self-end px-3 pb-2 sm:self-center sm:p-0 sm:pr-3">
+				<div className="self-end px-4 pb-3 sm:self-center sm:p-0 sm:pr-4">
 					<TediDetailLink
 						tediId={tedi.id}
 						tediName={tedi.displayName ?? tedi.name}
@@ -692,7 +692,7 @@ export function TediRosterPanel({
 	const hasFilters = Boolean(search.trim()) || status !== "all";
 
 	return (
-		<div className="grid min-w-0 gap-5">
+		<div className="grid min-w-0 gap-8">
 			<RuntimeGateNotice />
 
 			<PageSection>

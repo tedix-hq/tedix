@@ -104,7 +104,7 @@ function PermissionBadges({ role }: { role: MemberRole }) {
 						>
 							{GROUP_LABELS[group]}
 						</Text>
-						<div className="flex flex-wrap gap-1.5">
+						<div className="flex flex-wrap gap-2">
 							{inGroup.map((entry) => (
 								<Badge
 									key={entry.permission}
@@ -279,7 +279,7 @@ export function CapabilityScopeReference() {
 
 export function TeamRolesPanel() {
 	return (
-		<div className="grid gap-5">
+		<div className="grid gap-8">
 			<Alert>
 				<LockKey aria-hidden />
 				<AlertTitle>Roles are fixed security boundaries</AlertTitle>
