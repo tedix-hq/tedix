@@ -1,9 +1,23 @@
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
-import { PersonalAgentEnrollmentSchema } from "../schemas/personal-agent-inbound";
+import {
+	PersonalAgentEnrollmentSchema,
+	PersonalAgentValueSchema,
+} from "../schemas/personal-agent-inbound";
 
 export const personalAgentInboundContract = oc.errors(baseErrors).router({
+	configureDelivery: oc
+		.input(
+			z.strictObject({
+				id: z.uuid(),
+				email: z
+					.strictObject({ memberId: z.uuid(), senderAddressId: z.uuid() })
+					.nullable(),
+			}),
+		)
+		.output(PersonalAgentEnrollmentSchema),
+	value: oc.input(z.strictObject({})).output(z.array(PersonalAgentValueSchema)),
 	enroll: oc
 		.input(
 			z.strictObject({

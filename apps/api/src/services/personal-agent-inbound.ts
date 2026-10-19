@@ -23,7 +23,7 @@ import {
 } from "@tedix/db/utils/secrets-encryption";
 import { HTTPException } from "hono/http-exception";
 
-export async function receivePersonalAgentFinding(
+export async function authenticatePersonalAgent(
 	db: DbClient,
 	masterKey: string,
 	input: {
@@ -31,8 +31,6 @@ export async function receivePersonalAgentFinding(
 		userId: string;
 		enrollmentId: string;
 		token: string;
-		finding: unknown;
-		channel: PersonalAgentContribution["sourceChannel"];
 	},
 ) {
 	const denied = () =>
@@ -60,6 +58,28 @@ export async function receivePersonalAgentFinding(
 		)
 	)
 		throw denied();
+	return { enrollment: e, revision: row.revision };
+}
+
+export async function receivePersonalAgentFinding(
+	db: DbClient,
+	masterKey: string,
+	input: {
+		orgId: string;
+		userId: string;
+		enrollmentId: string;
+		token: string;
+		finding: unknown;
+		channel: PersonalAgentContribution["sourceChannel"];
+	},
+) {
+	const { enrollment: e, revision } = await authenticatePersonalAgent(
+		db,
+		masterKey,
+		input,
+	);
+	const denied = () =>
+		new HTTPException(401, { message: "Invalid or revoked enrollment" });
 	const finding = PersonalAgentFindingSchema.safeParse(input.finding);
 	if (!finding.success)
 		throw new HTTPException(400, { message: "Invalid finding" });
@@ -83,7 +103,7 @@ export async function receivePersonalAgentFinding(
 	const sourceIntentId = `personal-agent:${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 	const result = await capturePersonalAgentFinding(db, {
 		enrollment: e,
-		revision: row.revision,
+		revision,
 		finding: finding.data,
 		contribution,
 		sourceIntentId,

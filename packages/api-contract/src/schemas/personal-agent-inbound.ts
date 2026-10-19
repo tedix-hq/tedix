@@ -8,6 +8,14 @@ export const PersonalAgentEnrollmentSchema = z.strictObject({
 	projectId: z.uuid(),
 	secretName: z.string().min(1),
 	active: z.boolean(),
+	delivery: z
+		.strictObject({
+			workComment: z.literal(true),
+			email: z
+				.strictObject({ memberId: z.uuid(), senderAddressId: z.uuid() })
+				.nullable(),
+		})
+		.optional(),
 	createdAt: z.iso.datetime(),
 });
 export type PersonalAgentEnrollment = z.infer<
@@ -47,4 +55,54 @@ export const PersonalAgentReceiptSchema = z.strictObject({
 	capturedAt: z.iso.datetime(),
 	duplicate: z.boolean(),
 	disposition: z.literal("proposed"),
+});
+
+export const PersonalAgentOutcomeSchema = z.strictObject({
+	id: z.string(),
+	sourceAgentId: z.uuid(),
+	externalFindingId: z.string(),
+	workItemId: z.uuid(),
+	interactionId: z.uuid(),
+	responseId: z.uuid(),
+	decision: z.string(),
+	option: z.string().nullable(),
+	decidedBy: z.string(),
+	decidedAt: z.iso.datetime(),
+	sourceVersion: z.number().int(),
+	correctsResponseId: z.string().nullable(),
+	supersedes: z.string().nullable(),
+	execution: z.strictObject({
+		state: z.enum(["unverified", "verified", "corroborated", "contradicted"]),
+		evidenceId: z.string().nullable(),
+		evidenceUri: z.string().nullable(),
+		evidenceVersion: z.string().nullable(),
+		observationSource: z.string().nullable(),
+		observerType: z.string().nullable(),
+		observerId: z.string().nullable(),
+		verificationId: z.string().nullable(),
+		observedAt: z.string().nullable(),
+	}),
+	recordedAt: z.iso.datetime(),
+});
+export type PersonalAgentOutcome = z.infer<typeof PersonalAgentOutcomeSchema>;
+
+export const PersonalAgentValueSchema = z.strictObject({
+	sourceAgentId: z.uuid(),
+	sourceAgentName: z.string(),
+	windowStart: z.iso.datetime(),
+	windowEnd: z.iso.datetime(),
+	findings: z.number(),
+	decisionFindings: z.number(),
+	decisionCards: z.number(),
+	fyiFindings: z.number(),
+	decidedFromCard: z.number(),
+	decidedFromCardPercent: z.number().nullable(),
+	outcomes: z.number(),
+	verifiedOutcomes: z.number(),
+	corroboratedOutcomes: z.number(),
+	emailsSent: z.number(),
+	acknowledgedOutcomes: z.number(),
+	agentReportedReminderRetirements: z.number(),
+	remindersAvoided: z.null(),
+	historicalChatBaseline: z.null(),
 });

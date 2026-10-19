@@ -1,13 +1,15 @@
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { labelDecisionOutcomes } from "../services/decision-instrumentation";
+import { reconcilePersonalAgentOutcomes } from "../services/personal-agent-outbound";
 
 /** Rides the existing maintenance tick; receipt/window uniqueness makes retries harmless. */
-export function runDecisionOutcomeLabeller(
+export async function runDecisionOutcomeLabeller(
 	env: CloudflareEnv,
 	scheduledTime: number,
 ) {
-	return labelDecisionOutcomes(
-		createDbQueryClient(env.DB),
-		new Date(scheduledTime),
-	);
+	const db = createDbQueryClient(env.DB);
+	const now = new Date(scheduledTime);
+	const labels = await labelDecisionOutcomes(db, now);
+	const personalAgents = await reconcilePersonalAgentOutcomes(db, env, now);
+	return { ...labels, personalAgentOutcomes: personalAgents.recorded };
 }

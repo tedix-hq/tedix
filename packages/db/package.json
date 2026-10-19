@@ -7,7 +7,9 @@
 	"type": "module",
 	"exports": {
 		"./schema/organization-secrets": "./src/schema/organization-secrets.ts",
+		"./schema/tedi-email": "./src/schema/tedi-email.ts",
 		"./queries/personal-agent-inbound": "./src/queries/personal-agent-inbound.ts",
+		"./queries/personal-agent-outbound": "./src/queries/personal-agent-outbound.ts",
 		"./queries/work-items/delegation-autonomy": "./src/queries/work-items/delegation-autonomy.ts",
 		"./queries/memory-graph/session-feedback": "./src/queries/memory-graph/session-feedback.ts",
 		"./queries/memory-graph/observations": "./src/queries/memory-graph/observations.ts",
