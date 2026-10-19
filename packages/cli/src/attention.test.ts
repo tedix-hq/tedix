@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { runAttentionCommand } from "./attention";
 import type { NativeToolContext } from "./work";
-function fixture(options: { endpoint?: string; organization?: string } = {}) {
+function fixture(
+	options: { endpoint?: string; organization?: string; decide?: boolean } = {},
+) {
 	const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
 	const freshness = {
 		source: "orpc",
@@ -19,9 +21,12 @@ function fixture(options: { endpoint?: string; organization?: string } = {}) {
 	});
 	const native = descriptor(
 		"tedix__configured_deck_list",
-		options.endpoint ?? "attention/listDeckCards",
+		options.endpoint ??
+			(options.decide ? "attention/decideDeckCard" : "attention/listDeckCards"),
 	);
-	const callable = "attention.list_deck_cards";
+	const callable = options.decide
+		? "attention.decide_deck_card"
+		: "attention.list_deck_cards";
 	const client = {
 		getTimeoutMs: () => 10000,
 		callToolWithDestructiveApproval: async () => {
@@ -63,8 +68,17 @@ function fixture(options: { endpoint?: string; organization?: string } = {}) {
 					authorized: true,
 					native,
 					schemaFreshness: freshness,
-					parameters: { type: "object" },
+					parameters: options.decide
+						? {
+								type: "object",
+								required: ["decision"],
+								properties: { decision: { type: "object" } },
+								additionalProperties: false,
+							}
+						: { type: "object" },
 				};
+			if (name === native.name && options.decide)
+				return { saved: true, cardId: "11111111-1111-4111-8111-111111111111" };
 			if (name === native.name)
 				return {
 					cards: [],
@@ -140,4 +154,23 @@ describe("Deck CLI native transport", () => {
 		expect(await runAttentionCommand("deck", ctx)).toBe(2);
 		expect(calls).toEqual([]);
 	});
+});
+
+test("wraps domain JSON in the native object envelope without approval elicitation", async () => {
+	const { ctx, calls } = fixture({ decide: true });
+	const requestId = "11111111-1111-4111-8111-111111111111";
+	const decision = {
+		kind: "interaction",
+		decision: {
+			requestId,
+			expectedRequestVersion: 3,
+			responseKind: "answer",
+			body: "Use the proposed topic",
+			metadata: {},
+		},
+	};
+	ctx.positionals = ["decide", requestId, JSON.stringify(decision)];
+	expect(await runAttentionCommand("deck", ctx)).toBe(0);
+	expect(calls.at(-1)?.input).toMatchObject({ decision });
+	expect(Object.keys(calls.at(-1)!.input)).toEqual(["decision"]);
 });

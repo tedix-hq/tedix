@@ -1,3 +1,4 @@
+import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
@@ -5,7 +6,7 @@ import {
 	AttentionViewInputSchema,
 	DeckProjectionSchema,
 	DeckCardSchema,
-	DecideDeckCardInputSchema,
+	DecideDeckCardRequestSchema,
 	ForYouProjectionSchema,
 } from "../schemas/attention";
 
@@ -23,7 +24,12 @@ export const attentionContract = oc
 			.input(AttentionViewInputSchema.extend({ cardId: z.string().min(1) }))
 			.output(DeckCardSchema),
 		decideDeckCard: oc
-			.input(DecideDeckCardInputSchema)
+			.route({
+				summary: "Record bounded Deck feedback",
+				description:
+					"Saves factory usefulness feedback and unprotected, reversible interaction responses. Critical decisions, governed approvals, handoffs and executable effects require their originating OS card or Home approval flow; this endpoint refuses them before writing.",
+			})
+			.input(DecideDeckCardRequestSchema)
 			.output(z.strictObject({ saved: z.literal(true), cardId: z.string() })),
 		listFeedForYou: oc
 			.input(AttentionViewInputSchema)

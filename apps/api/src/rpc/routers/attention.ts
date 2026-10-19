@@ -10,8 +10,11 @@ import {
 import { osWorkspacesContractRouter } from "./os-workspaces";
 import { AUTHZ, type BaseContext, withAuth, withAuthorization } from "../orpc";
 import { workInteractionsContractRouter } from "./work-interactions";
-import { workApprovalsContractRouter } from "./work-approvals";
-import { tediApprovalsContractRouter } from "./tedi-approvals";
+import {
+	classifyDeckCard,
+	DecisionEnvelopeSchema,
+} from "@tedix/api-contract/schemas/os-decision-deck";
+import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 
 const os = implement(attentionContract).$context<BaseContext>();
 const authenticated = os.use(withAuth);
@@ -20,7 +23,7 @@ const write = authenticated.use(
 	withAuthorization(
 		{
 			handlerOwnedUserAuthorization:
-				"Canonical interaction and approval procedures revalidate the credential's recipient or designated approver and tenant on every mutation",
+				"Only bounded feedback reaches canonical interaction or sheet mutations, which revalidate the credential recipient/resource access and tenant on every write",
 		},
 		"mcp:messaging.write",
 	),
@@ -50,7 +53,8 @@ export const attentionContractRouter = os.router({
 		return card;
 	}),
 	decideDeckCard: write.decideDeckCard.handler(
-		async ({ input, context, errors }) => {
+		async ({ input: requestInput, context, errors }) => {
+			const input = requestInput.decision;
 			const { loadDeckProjection } =
 				await import("../../services/attention-projection");
 			const projection = await loadDeckProjection(context, {
@@ -148,25 +152,82 @@ export const attentionContractRouter = os.router({
 				});
 				return { saved: true as const, cardId: input.cardId };
 			}
-			if (input.kind === "interaction") {
-				await call(workInteractionsContractRouter.respond, input.decision, {
-					context,
+
+			const cardUrl = context.env.OS_URL
+				? new URL(card.source, context.env.OS_URL).toString()
+				: `Tedix OS path ${card.source}`;
+			const requiresHuman = () =>
+				errors.FORBIDDEN({
+					message: `This decision is not bounded feedback. Open ${cardUrl}, or ask Home to obtain human approval. No response or effect was saved.`,
 				});
-				return { saved: true as const, cardId: input.decision.requestId };
-			}
-			if (input.kind === "work_approval") {
-				await call(workApprovalsContractRouter.decide, input.decision, {
-					context,
+			if (input.kind !== "interaction") throw requiresHuman();
+			const request = card.interaction?.request;
+			if (!request) throw requiresHuman();
+			if (request.version !== input.decision.expectedRequestVersion)
+				throw errors.CONFLICT({
+					message: "This decision changed; reload the card",
 				});
-				return {
-					saved: true as const,
-					cardId: `work-approval:${input.decision.proposalId}`,
-				};
-			}
-			await call(tediApprovalsContractRouter.resolve, input.decision, {
+			const metadata = request.metadata;
+			const parsed = DecisionEnvelopeSchema.safeParse(metadata.decisionDeck);
+			const envelope = parsed.success ? parsed.data : null;
+			const classId =
+				envelope?.classId ?? String(metadata.decisionClass ?? request.kind);
+			const presentation = metadata.cardPresentation;
+			const critical =
+				classifyDeckCard({
+					kind: card.kind,
+					classId,
+					risk:
+						typeof metadata.riskLevel === "string"
+							? metadata.riskLevel
+							: undefined,
+					action: String(
+						metadata.approvalOperation ??
+							`${request.subject}\n${request.prompt}`,
+					),
+					protectedEffects:
+						envelope?.protectedEffects ??
+						(card.kind === "outbound"
+							? ["message"]
+							: metadata.localImport
+								? ["consent"]
+								: []),
+					needsPerson: true,
+				}).reason === "critical";
+			const reserved = humanReservedActionClasses(
+				`${classId}\n${request.subject}\n${request.prompt}\n${envelope?.proposal ?? ""}\n${envelope?.recommendation ?? ""}\n${input.decision.body}`,
+			);
+			// The nested respond handler can execute envelope effects or start handoffs.
+			// Reject those capabilities here, rather than relying on wrapper annotations.
+			if (
+				critical ||
+				reserved.length ||
+				request.kind === "handoff" ||
+				["outbound", "approval"].includes(card.kind) ||
+				metadata.approvalOperation !== undefined ||
+				Boolean(metadata.localImport) ||
+				(metadata.riskLevel !== undefined &&
+					!["low", "medium"].includes(String(metadata.riskLevel))) ||
+				(metadata.protectedEffects !== undefined &&
+					(!Array.isArray(metadata.protectedEffects) ||
+						metadata.protectedEffects.length > 0)) ||
+				(metadata.reversibility !== undefined &&
+					metadata.reversibility !== "two_way") ||
+				(metadata.decisionDeck !== undefined && !parsed.success) ||
+				(presentation &&
+					typeof presentation === "object" &&
+					!Array.isArray(presentation) &&
+					presentation.effectStatus === "unknown") ||
+				(envelope &&
+					(envelope.reversibility !== "two_way" ||
+						envelope.protectedEffects.length > 0 ||
+						envelope.options.some((option) => option.effect)))
+			)
+				throw requiresHuman();
+			await call(workInteractionsContractRouter.respond, input.decision, {
 				context,
 			});
-			return { saved: true as const, cardId: `approval:${input.decision.id}` };
+			return { saved: true as const, cardId: input.decision.requestId };
 		},
 	),
 	listFeedForYou: read.listFeedForYou.handler(async ({ input, context }) => {

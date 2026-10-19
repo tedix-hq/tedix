@@ -16,8 +16,9 @@ tedix deck decide <card-id> '<decision-json>' [--json]
 tedix feed [for-you] [--project <uuid>] [--limit <n>] [--json]
 
 Optional final JSON on list, show, or feed selects {"gadgetId":"…","timeZone":"Europe/Berlin"}.
-Decisions use the typed kind (interaction, work_approval, runtime_approval, factory) and decision payload shown by the card schema.
-Interaction and Work approval decisions require the expected version from show.
+Decisions save factory feedback or bounded, unprotected interaction responses using the typed decision JSON.
+Critical decisions, governed approvals, handoffs and executable effects require the OS card or Home approval flow.
+Interaction decisions require the expected version from show.
 Reads use your authenticated recipient, not another person's identity. They do not record impressions.
 A partial projection prints complete=false; it is not an exact total.`;
 }
@@ -63,7 +64,7 @@ export async function runAttentionCommand(
 			if (expectedId !== cardId)
 				throw new Error("The card ID and decision payload do not match");
 			tool = "decide_deck_card";
-			input = parsed;
+			input = { decision: parsed };
 		} else {
 			const cardId =
 				command === "deck" && verb === "show" ? args.shift() : undefined;

@@ -2863,3 +2863,31 @@ it("pins headless attention names and capability kinds", () => {
 		).toBe(name);
 	}
 });
+
+it("projects bounded Deck feedback through the real object-envelope converter", async () => {
+	const fixture = makeDb([
+		makeRpcTool({
+			toolId: "decide_deck_card",
+			endpoint: "attention/decideDeckCard",
+		}),
+	]);
+	const result = await runToolSchemaSync(fixture.db, {
+		mode: "projection",
+		apply: true,
+		endpoints: ["attention/decideDeckCard"],
+	});
+	expect(result).toMatchObject({ total: 1, updated: 1 });
+	expect(fixture.updates[0]?.patch).toMatchObject({
+		inputSchema: {
+			type: "object",
+			required: ["decision"],
+			properties: { decision: expect.any(Object) },
+			additionalProperties: false,
+		},
+		annotations: {
+			readOnlyHint: false,
+			destructiveHint: false,
+			openWorldHint: false,
+		},
+	});
+});
