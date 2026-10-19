@@ -500,6 +500,7 @@ export function AuditFilters({
 			</Surface>
 			<div className="hidden md:block">
 				<AuditFilterForm
+					appearance="inline"
 					appliedAction={appliedAction}
 					appliedResourceType={appliedResourceType}
 					onApply={onApply}
