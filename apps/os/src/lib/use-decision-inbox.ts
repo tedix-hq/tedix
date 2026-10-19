@@ -36,10 +36,15 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 				const result = await osApi.workInteractions.refreshDecisionSources({
 					projectId,
 				});
-				if (active && result.created)
-					await client.invalidateQueries({
-						queryKey: osQuery.workInteractions.listInbox.key(),
-					});
+				if (active && (result.created || result.superseded))
+					await Promise.all([
+						client.invalidateQueries({
+							queryKey: osQuery.workInteractions.listInbox.key(),
+						}),
+						client.invalidateQueries({
+							queryKey: osQuery.attention.listDeckCards.key(),
+						}),
+					]);
 			} catch {
 				/* A source failure must not discard the existing inbox. */
 			}

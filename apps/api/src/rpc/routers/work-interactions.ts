@@ -32,6 +32,7 @@ import {
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
 	reviewWorkInteraction,
+	sweepSupersededSupportDraftInteractions,
 } from "@tedix/db/queries/work-items/interactions";
 import {
 	listUndeliveredWorkInteractionResponses,
@@ -1308,11 +1309,27 @@ export const workInteractionsContractRouter = interactionsOs.router({
 				);
 			const { materializeDeadlineDecisions } =
 				await import("../../services/deadline-decisions");
-			return materializeDeadlineDecisions(context.db, {
+			const deadlines = await materializeDeadlineDecisions(context.db, {
 				orgId,
 				userId: actor.id,
 				projectId: input.projectId,
 			});
+			const support = await sweepSupersededSupportDraftInteractions(
+				context.db,
+				{
+					orgId,
+					targetId: actor.id,
+					projectId: input.projectId,
+					now: new Date().toISOString(),
+					limit: 50,
+				},
+			);
+			return {
+				created: deadlines.created,
+				superseded: support.superseded,
+				scanned: deadlines.scanned + support.scanned,
+				hasMore: deadlines.hasMore || support.hasMore,
+			};
 		},
 	),
 	regenerateCard: writeOs.regenerateCard.handler(async ({ input, context }) => {

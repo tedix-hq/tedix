@@ -1,5 +1,15 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	exists,
+	inArray,
+	isNull,
+	or,
+	sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import { agentSessionRequests } from "../../schema/agent-session-requests";
@@ -685,6 +695,33 @@ export async function expireWorkInteraction(
 	);
 }
 
+function supportDraftCandidateSource() {
+	return and(
+		sql`json_type(${workInteractions.metadata}, '$.supportTicketId') = 'text'`,
+		sql`json_type(${workInteractions.metadata}, '$.supportVersion') = 'integer'`,
+		or(
+			sql`json_extract(${workInteractions.metadata}, '$.source') = 'support-draft'`,
+			and(
+				sql`json_extract(${workInteractions.metadata}, '$.source') = 'night-source-adapter'`,
+				sql`json_extract(${workInteractions.metadata}, '$.originalSource') = 'support-work-draft'`,
+				sql`json_extract(${workInteractions.metadata}, '$.sourceKey') = 'support-draft:' || json_extract(${workInteractions.metadata}, '$.supportTicketId') || ':' || json_extract(${workInteractions.metadata}, '$.supportVersion')`,
+				sql`json_extract(${workInteractions.metadata}, '$.decisionDeck.classId') = 'support.reply'`,
+				sql`json_extract(${workInteractions.metadata}, '$.decisionDeck.kind') = 'outbound'`,
+			),
+		),
+	);
+}
+
+function supportDraftSupersession(now: string, supersededBy: string) {
+	return {
+		status: "expired" as const,
+		expiredAt: now,
+		resolutionFence: crypto.randomUUID(),
+		version: sql`${workInteractions.version}+1`,
+		metadata: sql`json_set(${workInteractions.metadata}, '$.supersession', json(${JSON.stringify({ reason: "newer_support_draft", supersededBy, at: now })}))`,
+	};
+}
+
 /** Retain previous drafts as expired history, without answering for the recipient. */
 export async function supersedeSupportDraftInteractions(
 	db: DbQueryClient,
@@ -694,34 +731,27 @@ export async function supersedeSupportDraftInteractions(
 		eq(workInteractions.orgId, p.orgId),
 		eq(workInteractions.targetType, "user"),
 		eq(workInteractions.targetId, p.targetId),
-		sql`json_extract(${workInteractions.metadata}, '$.source') = 'support-draft'`,
 		sql`json_extract(${workInteractions.metadata}, '$.supportTicketId') = ${p.ticketId}`,
-		sql`json_type(${workInteractions.metadata}, '$.supportVersion') = 'integer'`,
+		supportDraftCandidateSource(),
 	);
 	const [latest] = await db
 		.select({ id: workInteractions.id, metadata: workInteractions.metadata })
 		.from(workInteractions)
-		.where(sameSource)
+		.where(
+			and(
+				sameSource,
+				sql`json_extract(${workInteractions.metadata}, '$.source') = 'support-draft'`,
+			),
+		)
 		.orderBy(
 			desc(sql`json_extract(${workInteractions.metadata}, '$.supportVersion')`),
+			desc(workInteractions.id),
 		)
 		.limit(1);
 	if (!latest) return [];
 	return db
 		.update(workInteractions)
-		.set({
-			status: "expired",
-			expiredAt: p.now,
-			resolutionFence: crypto.randomUUID(),
-			version: sql`${workInteractions.version}+1`,
-			metadata: sql`json_set(${workInteractions.metadata}, '$.supersession', json(${JSON.stringify(
-				{
-					reason: "newer_support_draft",
-					supersededBy: latest.id,
-					at: p.now,
-				},
-			)}))`,
-		})
+		.set(supportDraftSupersession(p.now, latest.id))
 		.where(
 			and(
 				sameSource,
@@ -730,6 +760,96 @@ export async function supersedeSupportDraftInteractions(
 			),
 		)
 		.returning({ id: workInteractions.id });
+}
+
+/** Select only obsolete candidates, so bounded refreshes cannot starve later tickets. */
+export async function sweepSupersededSupportDraftInteractions(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		targetId: string;
+		projectId?: string;
+		now: string;
+		limit: number;
+	},
+) {
+	const newer = alias(workInteractions, "newer_support_draft");
+	const replacement = db
+		.select({ id: newer.id })
+		.from(newer)
+		.where(
+			and(
+				eq(newer.orgId, p.orgId),
+				eq(newer.targetType, "user"),
+				eq(newer.targetId, p.targetId),
+				sql`json_extract(${newer.metadata}, '$.source') = 'support-draft'`,
+				sql`json_type(${newer.metadata}, '$.supportVersion') = 'integer'`,
+				sql`json_extract(${newer.metadata}, '$.supportTicketId') = json_extract(${workInteractions.metadata}, '$.supportTicketId')`,
+				sql`json_extract(${newer.metadata}, '$.supportVersion') > json_extract(${workInteractions.metadata}, '$.supportVersion')`,
+			),
+		)
+		.orderBy(
+			desc(sql`json_extract(${newer.metadata}, '$.supportVersion')`),
+			desc(newer.id),
+		)
+		.limit(1);
+	const rows = await db
+		.select({
+			id: workInteractions.id,
+			version: workInteractions.version,
+			supersededBy: sql<string>`(${replacement})`.as("superseded_by"),
+		})
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetId, p.targetId),
+				eq(workInteractions.status, "open"),
+				supportDraftCandidateSource(),
+				exists(replacement),
+				p.projectId
+					? or(
+							eq(workInteractions.projectId, p.projectId),
+							exists(
+								db
+									.select({ id: workItems.id })
+									.from(workItems)
+									.where(
+										and(
+											eq(workItems.orgId, p.orgId),
+											eq(workItems.id, workInteractions.workItemId),
+											eq(workItems.projectId, p.projectId),
+										),
+									),
+							),
+						)
+					: undefined,
+			),
+		)
+		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
+		.limit(p.limit + 1);
+	const selected = rows.slice(0, p.limit);
+	const [first, ...rest] = selected.map((row) =>
+		db
+			.update(workInteractions)
+			.set(supportDraftSupersession(p.now, row.supersededBy))
+			.where(
+				and(
+					eq(workInteractions.orgId, p.orgId),
+					eq(workInteractions.id, row.id),
+					eq(workInteractions.version, row.version),
+					eq(workInteractions.status, "open"),
+				),
+			)
+			.returning({ id: workInteractions.id }),
+	);
+	const closed = first ? await db.batch([first, ...rest]) : [];
+	return {
+		superseded: closed.reduce((count, rows) => count + rows.length, 0),
+		scanned: selected.length,
+		hasMore: rows.length > p.limit,
+	};
 }
 
 /** Retire obsolete requests without answering in the recipient's name. */
