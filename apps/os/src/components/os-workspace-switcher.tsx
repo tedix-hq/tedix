@@ -55,7 +55,10 @@ export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 					className="ml-auto shrink-0 group-data-[state=collapsed]/sidebar:hidden"
 				/>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start" className="w-64">
+			<DropdownMenuContent
+				align="start"
+				className="w-(--anchor-width) min-w-56 max-w-[calc(100vw-1rem)]"
+			>
 				<DropdownMenuGroup>
 					<DropdownMenuLabel>Workspaces and apps</DropdownMenuLabel>
 				</DropdownMenuGroup>
