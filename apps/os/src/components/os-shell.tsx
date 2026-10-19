@@ -69,14 +69,15 @@ function navigationIcon(item: OsShellNavigationItem) {
  * always dismissed it, so re-assert that here rather than wiring an onClick
  * through every nav row.
  */
-function CloseMobileNavigationOnNavigate({ pathname }: { pathname: string }) {
+function CloseMobileNavigationOnNavigate() {
 	const { isMobile, setOpenMobile } = useSidebar();
-	const previousPathname = useRef(pathname);
+	const href = useRouterState({ select: (state) => state.location.href });
+	const previousHref = useRef(href);
 
 	useEffect(() => {
-		if (isMobile && previousPathname.current !== pathname) setOpenMobile(false);
-		previousPathname.current = pathname;
-	}, [isMobile, pathname, setOpenMobile]);
+		if (isMobile && previousHref.current !== href) setOpenMobile(false);
+		previousHref.current = href;
+	}, [href, isMobile, setOpenMobile]);
 
 	return null;
 }
@@ -321,7 +322,7 @@ export function OsShell() {
 			resizable
 			peekable
 		>
-			<CloseMobileNavigationOnNavigate pathname={pathname} />
+			<CloseMobileNavigationOnNavigate />
 			{workspaceWorkbench ? null : <SidebarKeyboardShortcut />}
 			{workspaceWorkbench ? null : (
 				<OsSidebar

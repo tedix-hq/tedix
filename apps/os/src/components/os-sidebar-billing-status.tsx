@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Coins } from "@phosphor-icons/react";
+import { Link } from "@/components/kumo/link";
 import {
 	formatUsageCredits,
 	formatCreditWorth,
@@ -22,7 +23,7 @@ import {
  * Local sessions (`bun run-local`) have no billing, so nothing is shown.
  */
 export function OsSidebarBillingStatus() {
-	const { state } = useSidebar();
+	const { open } = useSidebar();
 	const context = useOsOperationalContext();
 	const canManageBilling =
 		!isLocalSession() &&
@@ -38,7 +39,8 @@ export function OsSidebarBillingStatus() {
 	// A healthy balance lives in Organization settings → Billing; the sidebar
 	// only carries it while it needs the owner's attention.
 	if (!overview.data || !billingNeedsAttention(overview.data)) return null;
-	if (state === "collapsed") {
+	// A temporary peek must not replace the row under the pointer.
+	if (!open) {
 		return (
 			<SidebarMenu aria-label="Billing" className="w-full">
 				<SidebarMenuButton
@@ -69,7 +71,7 @@ export function OsSidebarBillingStatus() {
 				<span className="text-kumo-subtle type-tedix-caption">
 					Plan balance
 				</span>
-				<a
+				<Link
 					className="text-kumo-brand type-tedix-caption font-medium underline underline-offset-2"
 					href={
 						snapshot?.planKey === "enterprise"
@@ -80,7 +82,7 @@ export function OsSidebarBillingStatus() {
 					{monetary || snapshot?.planKey === "enterprise"
 						? "Manage"
 						: "Upgrade"}
-				</a>
+				</Link>
 			</div>
 			<p className="mt-1 font-semibold type-tedix-label" aria-live="polite">
 				{remaining}
