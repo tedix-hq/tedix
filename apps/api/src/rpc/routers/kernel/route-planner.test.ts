@@ -848,7 +848,7 @@ describe("planKernelRoute", () => {
 	});
 
 	it.each(["invalid schema", "unparsable JSON"])(
-		"recovers once from %s with a stricter schema and the same context",
+		"recovers once from %s with a strict re-ask and the same context",
 		async (failure) => {
 			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 			const good = objectModel({ ...FALLBACK_DECISION, answer: "Ready." });
@@ -914,6 +914,19 @@ describe("planKernelRoute", () => {
 						outcome: "succeeded",
 						finishReason: "stop",
 						outputCharacters: expect.any(Number),
+						outputShape:
+							failure === "invalid schema"
+								? {
+										routeKind: null,
+										fieldTypes: {
+											answer: "undefined",
+											confidence: "undefined",
+											details: "undefined",
+											rationale: "undefined",
+											risk: "undefined",
+										},
+									}
+								: null,
 						validationIssues:
 							failure === "invalid schema"
 								? expect.arrayContaining([
@@ -2128,6 +2141,27 @@ describe("Auto Router Home answer", () => {
 			],
 		});
 	}
+	it("validates a prose-wrapped streamed route without another inference pass", async () => {
+		const decision = { ...FALLBACK_DECISION, answer: "Ready for Orion." };
+		const model = autoModel(decision, textStream("never"), [
+			"Here is the route:\n",
+			...jsonChunks(decision),
+			"\nFinished.",
+		]);
+		const deltas: string[] = [];
+		const result = await planKernelRoute({
+			model,
+			context: EMPTY_CONTEXT,
+			content: "Status for Orion",
+			onAnswerDelta: (delta) => deltas.push(delta),
+		});
+		expect(result?.answer).toBe("Ready for Orion.");
+		expect(model.doStreamCalls).toHaveLength(1);
+		expect(model.doGenerateCalls).toHaveLength(0);
+		expect(deltas.join("")).toBe("Ready for Orion.");
+		expect(result?.usage).toMatchObject({ inputTokens: 10, outputTokens: 20 });
+	});
+
 	it("re-asks Auto with the same compact streamed protocol and never buffers recovery", async () => {
 		const wire = {
 			routeKind: "answer_in_home",
