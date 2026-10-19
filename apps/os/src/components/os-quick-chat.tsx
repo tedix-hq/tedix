@@ -14,6 +14,7 @@ import {
 } from "@/lib/tedi-widget-config";
 import { useOsIdentity } from "@/lib/use-os-identity";
 import { resolveOsTenant } from "@/shared/os-tenant";
+import launcherStyles from "./os-quick-chat.css?inline";
 
 declare const __LOCAL_DEMO_ENABLED__: boolean;
 
@@ -275,6 +276,19 @@ function applyLauncherSuppression(pathname: string): void {
 	const host = document.querySelector<HTMLElement>("[data-tedix-widget]");
 	if (!host) return;
 	host.hidden = shouldSuppressQuickChatLauncher(pathname);
+	const shadow = host.shadowRoot;
+	if (shadow && !shadow.querySelector("[data-os-launcher-style]")) {
+		// The external widget's open shadow root isolates its defaults from OS CSS.
+		const style = document.createElement("style");
+		style.dataset.osLauncherStyle = "";
+		style.textContent = launcherStyles;
+		shadow.append(style);
+	}
+	const launcher = shadow?.querySelector<HTMLButtonElement>(".tedix-launcher");
+	document.documentElement.toggleAttribute(
+		"data-quick-chat-launcher",
+		!host.hidden && Boolean(launcher && !launcher.hidden),
+	);
 }
 
 /**
@@ -517,6 +531,7 @@ export function OsQuickChat() {
 			disposers.forEach((dispose) => dispose());
 			window.Tedix?.shutdown();
 			script.remove();
+			document.documentElement.removeAttribute("data-quick-chat-launcher");
 		};
 	}, []);
 

@@ -1,0 +1,31 @@
+/* OS launcher chrome; the embedded conversation keeps its own presentation. */
+:host([hidden]) {
+	display: none !important;
+}
+
+.tedix-launcher {
+	width: 48px;
+	height: 48px;
+	left: auto;
+	right: calc(16px + env(safe-area-inset-right, 0px));
+	bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+	border-color: var(--primary);
+	background: var(--primary);
+	color: var(--primary-foreground);
+	box-shadow: var(--shadow-tedix-floating);
+}
+
+.tedix-launcher-mark {
+	border: 0;
+	background: transparent;
+	color: inherit;
+}
+
+.tedix-launcher:hover {
+	box-shadow: var(--shadow-tedix-overlay);
+}
+
+.tedix-launcher:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 4px;
+}

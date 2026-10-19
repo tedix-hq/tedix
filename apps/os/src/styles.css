@@ -280,6 +280,11 @@ a:focus-visible {
 	padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+:root[data-quick-chat-launcher] .os-main {
+	/* 48px launcher + 16px bottom inset + 16px clearance, outside page scroll. */
+	padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+
 .topbar {
 	position: relative;
 	z-index: 10;
