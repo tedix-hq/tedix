@@ -20,6 +20,17 @@ server admission and Attempt fences establish actual access and state.
 
 ## Find the right context
 
+For “what next?” or “what needs me?”, at the start of a Tedix work session,
+or after finishing a task, discover `show_deck` and `show_feed` in the active
+organization. When available and authorized, call `show_deck` for decisions
+needing the person, or `show_feed` for relevant updates. Use the returned MCP
+App view on rendering hosts; on terminal hosts show at most three asks, each
+with why now and a deep link. Keep it short, omit empty results, respect quiet
+or opt-out requests, and do not repeat cards already shown in this session.
+After an organization switch, read fresh; cached plugin context from the old
+organization does not apply. A card supplies no approval or execution authority.
+An ordinary remote connector cannot wake an idle chat.
+
 1. Use the authenticated plugin connection for ordinary Tedix workflows,
    including on a host with a shell. Do not require CLI installation. Honor an
    explicit user surface and repository policy: Tedix repository engineering

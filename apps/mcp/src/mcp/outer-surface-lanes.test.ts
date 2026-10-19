@@ -45,6 +45,10 @@ describe("outer-surface lanes", () => {
 					(tools[0]!.inputSchema as { properties: object }).properties,
 				).sort(),
 			).toEqual(["agentSessionId", "code"]);
+			expect(tools[0]!.description).toContain(
+				"discover show_deck and show_feed in the active organization",
+			);
+			expect(tools[0]!.description).toContain("respect quiet/opt-out requests");
 		},
 	);
 

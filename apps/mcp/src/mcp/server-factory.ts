@@ -11,6 +11,7 @@
  * @module @tedix/mcp/mcp/server-factory
  */
 import type { McpServer } from "@modelcontextprotocol/server";
+import { ATTENTION_GUIDANCE } from "./attention-guidance";
 import { readTediEndpointCeiling } from "../tedi-tool-ceiling";
 import type {
 	AppCapabilities,
@@ -769,7 +770,13 @@ async function buildServerInstructions(
 	}
 
 	const mcpConfig = cachedData.metadata?.mcpConfig;
-	const parts: string[] = [];
+	const parts: string[] =
+		mcpConfig?.codeMode === true ||
+		cachedData.tools.some((tool) =>
+			["show_deck", "show_feed"].includes(tool.toolId),
+		)
+			? [ATTENTION_GUIDANCE]
+			: [];
 
 	if (mcpConfig?.serverInstructions) {
 		parts.push(mcpConfig.serverInstructions);

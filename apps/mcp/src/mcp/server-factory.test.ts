@@ -474,6 +474,25 @@ describe("catalog MCP prompts", () => {
 });
 
 describe("buildMcpServer — legacy initialize skills extension declaration", () => {
+	it("guides remote hosts when a Deck view is configured", async () => {
+		const data = createCachedData();
+		data.app.id = "attention-guidance-test";
+		data.tools = [{ toolId: "show_deck" }] as typeof data.tools;
+		const server = await buildMcpServer(
+			data,
+			undefined,
+			createEnv(),
+			createExecutionContext(),
+		);
+		const { init } = await connectLegacyClient(server);
+		expect(init.result?.instructions).toContain(
+			"discover show_deck and show_feed in the active organization",
+		);
+		expect(init.result?.instructions).toContain(
+			"does not wake an idle session",
+		);
+	});
+
 	it("declares io.modelcontextprotocol/skills with directoryRead, byte-for-byte like the modern server/discover path", async () => {
 		const { init } = await buildServerWithSkill();
 

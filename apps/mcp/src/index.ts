@@ -1,4 +1,5 @@
 import { createMcpServer } from "@tedix/mcp-shared/server";
+import { ATTENTION_GUIDANCE } from "./mcp/attention-guidance";
 import { z } from "zod";
 import {
 	AGGREGATE_SURFACE_CACHE_TTL_MS,
@@ -2132,6 +2133,7 @@ function compactCodeModeToolDescription(resolvedApp: ResolvedApp): string {
 		`Execute JavaScript against the ${appSlug} Code Mode surface.`,
 		'Find tools and skills with bounded discovery, for example `async () => await discover.search({"query":"list_mcp_authorizations","limit":3})`; this loads the aggregate catalog. Use each returned tool callable exactly, including its namespace prefix; follow the returned load expression for skills. Once the namespace is known, a single JSON-literal search with that exact `namespace` value or an exact `async () => await discover.describe("namespace.tool")` expression loads only that namespace.',
 		"Call `codemode.__runtime()` for execution-surface proof.",
+		ATTENTION_GUIDANCE,
 	].join(" ");
 }
 
@@ -2152,7 +2154,13 @@ function modernDiscoverInstructions(
 					"For operator-to-tedi validation, prefer the governed Home/kernel path or direct tedi namespace run_tedi_turn/messages_read when explicitly requested.",
 				].join(" ")
 			: "";
-	const instructions = [configured, codeMode].filter(Boolean).join("\n\n");
+	const instructions = [
+		configured,
+		codeMode,
+		...(codeMode ? [ATTENTION_GUIDANCE] : []),
+	]
+		.filter(Boolean)
+		.join("\n\n");
 	return instructions || undefined;
 }
 

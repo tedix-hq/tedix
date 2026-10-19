@@ -449,6 +449,35 @@ learning sources. Decisions require messaging write scope and the original
 resource's designation and mutation authority. These tools must be installed
 in the operator's catalog; a source checkout does not install them.
 
+## Needs-you decisions in local hosts
+
+With the optional context hooks active, Claude Code, Codex CLI and Devin CLI
+receive a compact **Needs you** block at session start or the next prompt.
+It reads the signed-in person's Deck through `tedix deck list`, using the same
+valuable-only gate and ranking as Tedix OS. Up to three new cards include an
+ask, why now and a Deck deep link. The block has at most five lines and 1,800
+UTF-8 bytes; private draft bodies and source text are excluded, and displayed
+text is redacted. Empty, unavailable or ambiguous reads produce no block.
+
+Delivery receipts contain hashes only, scoped to this chat, signed-in person,
+gateway and freshly verified organization. Startup and prompt hooks share
+receipts; cards already shown in this chat stay quiet, including after an
+organization switch and return. A new chat can show still-relevant cards again.
+The block reads current context each turn and never caches Deck content.
+External-agent credentials do not read the owner's personal Deck.
+
+Set `TEDIX_NEEDS_YOU=0` to silence this block while keeping other context.
+`TEDIX_PLUGIN_PREFLIGHT=0` silences both context hooks. Neither switch enables
+decision capture or any write permission.
+
+The injected hint allows the agent to discover and call `show_deck` when the
+connected catalog provides it. MCP App hosts can render the interactive view;
+terminal hosts use text and links. Remote Claude, ChatGPT and Codex cloud use
+MCP server guidance and the bundled session guide to discover `show_deck` or
+`show_feed` when asked what's next, at a Tedix session's start, or after a task.
+They must respect quiet requests and skip repeated or empty results. This is
+guidance during active turns, not a background wake-up or proof of host render.
+
 ## Uninstall
 
 Tedix CLI is a standalone file. Removing it does not delete your Tedix

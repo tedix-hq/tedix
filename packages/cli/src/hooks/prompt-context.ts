@@ -54,6 +54,7 @@ import {
 	repositoryName,
 } from "./decision-capture";
 import { selectPromptLessons, type LessonSelection } from "./lesson-selection";
+import { needsYou } from "./needs-you";
 import type { AgentSessionLesson } from "@tedix/api-contract/schemas/agent-session-lessons";
 import { readCache, writeCache } from "./context-cache";
 import {
@@ -975,22 +976,27 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			}
 		};
 		// Slow documents or request history must not suppress lessons or priorities.
-		const [, captured, data, nextWork, lessonCatalog] = await Promise.all([
-			probe(),
-			capture && source === "stored-login" && typeof login === "string" && login
-				? trace(
-						"answers",
-						captureContext(
-							deps,
-							{ ...binding, command, user: login },
-							session!,
-						),
-					)
-				: Promise.resolve([] as string[]),
-			gateway(),
-			priorities(),
-			catalog(),
-		]);
+		const [, captured, data, nextWork, lessonCatalog, needs] =
+			await Promise.all([
+				probe(),
+				capture &&
+				source === "stored-login" &&
+				typeof login === "string" &&
+				login
+					? trace(
+							"answers",
+							captureContext(
+								deps,
+								{ ...binding, command, user: login },
+								session!,
+							),
+						)
+					: Promise.resolve([] as string[]),
+				gateway(),
+				priorities(),
+				catalog(),
+				needsYou(deps, binding, auth, command, session),
+			]);
 		data.lessons = lessonCatalog;
 		if (nextWork) data.nextWork = nextWork;
 		if (cached.nextWork?.fresh) data.nextWork = cached.nextWork.value;
@@ -1100,6 +1106,7 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				now,
 				// The claimed OS answer follows the context and must fit too.
 				budget -
+					(needs ? Buffer.byteLength(needs.text, "utf8") + 1 : 0) -
 					captured.reduce(
 						(size, line) => size + Buffer.byteLength(line, "utf8") + 1,
 						0,
@@ -1113,9 +1120,13 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 			context = UNAVAILABLE;
 		}
 
-		const message = [context, ...captured].filter(Boolean).join("\n");
+		const message = [needs?.text, context, ...captured]
+			.filter(Boolean)
+			.join("\n");
 		if (message) {
 			send(message);
+			if (needs && boundedContext(message, budget).includes(needs.text))
+				needs.delivered();
 			if (
 				session &&
 				context !== UNAVAILABLE &&

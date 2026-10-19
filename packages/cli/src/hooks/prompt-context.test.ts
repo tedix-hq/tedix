@@ -120,6 +120,7 @@ async function run(
 		// Each run starts with an empty local cache unless the test shares one.
 		env: {
 			TEDIX_CONFIG_DIR: mkdtempSync(join(tmpdir(), "tedix-prompt-cache-")),
+			TEDIX_NEEDS_YOU: "0", // Deck delivery has separate needs-you fixtures.
 			...env,
 		},
 		stdin: JSON.stringify(event),
@@ -1457,7 +1458,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 			);
 		else rmSync(question, { force: true });
 		await runPromptContext({
-			env,
+			env: { ...env, TEDIX_NEEDS_YOU: "0" },
 			stdin: JSON.stringify({
 				session_id: options.session ?? SESSION,
 				prompt: "PRIVATE",
