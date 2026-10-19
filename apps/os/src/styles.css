@@ -291,7 +291,7 @@ a:focus-visible {
 	display: flex;
 	flex: none;
 	align-items: center;
-	gap: 12px;
+	gap: 8px;
 	height: 56px;
 	padding: 0 var(--spacing-tedix-gutter);
 	border-bottom: 1px solid var(--border);
@@ -396,7 +396,7 @@ a:focus-visible {
 .transport-status {
 	display: inline-flex;
 	align-items: center;
-	gap: 7px;
+	gap: 8px;
 	margin-left: auto;
 	color: var(--muted-foreground);
 	font-size: var(--text-tedix-label);
@@ -3074,6 +3074,11 @@ a:focus-visible {
 }
 
 @media (max-width: 820px) {
+	.topbar-actions .transport-status {
+		max-width: 6rem;
+		white-space: normal;
+	}
+
 	.topbar-context span:first-child,
 	.topbar-context svg {
 		display: none;

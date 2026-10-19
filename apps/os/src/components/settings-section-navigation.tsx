@@ -159,13 +159,13 @@ export function SettingsSectionNavigation({
 		<nav
 			ref={navigationRef}
 			aria-label={ariaLabel}
-			className="sticky top-0 z-10 -mx-4 border-kumo-line border-b bg-kumo-base sm:-mx-6 lg:-mx-10"
+			className="sticky top-0 z-10 -mx-tedix-gutter border-kumo-line border-b bg-kumo-base"
 		>
 			<div
 				ref={viewportRef}
 				className="min-w-0 max-w-full scroll-px-12 overflow-x-auto overscroll-x-contain"
 			>
-				<div className="flex w-max min-w-full items-center gap-1 px-4 py-2 sm:px-6 lg:px-10">
+				<div className="flex w-max min-w-full items-center gap-1 px-tedix-gutter py-2">
 					{items.map(([label, id]) => (
 						<Link
 							key={id}
