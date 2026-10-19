@@ -9,6 +9,7 @@ import { assertWorkApprovalWakeAccepted } from "./work-approval-redrive";
 
 const WINDOW_MS = 120_000;
 const DEBOUNCE_MS = 30_000;
+const MAX_REPLAY_WINDOWS = 10;
 
 export function commitmentWakeWindows(
 	checkpoint: string | null,
@@ -18,6 +19,21 @@ export function commitmentWakeWindows(
 	const start = checkpoint
 		? Math.floor((Date.parse(checkpoint) - DEBOUNCE_MS) / WINDOW_MS) * WINDOW_MS
 		: end - WINDOW_MS;
+	// A failed replay retains its checkpoint. Never turn that backlog into an
+	// unbounded D1 burst or advance past changes that were not delivered.
+	const count = Math.max(0, (end - start) / WINDOW_MS);
+	if (count > MAX_REPLAY_WINDOWS) {
+		console.warn(
+			JSON.stringify({
+				event: "commitment_wakes.replay_budget_exceeded",
+				windows: count,
+				maxWindows: MAX_REPLAY_WINDOWS,
+			}),
+		);
+		throw new Error(
+			"Commitment wake replay budget exceeded; checkpoint retained",
+		);
+	}
 	const windows = [];
 	for (let at = start; at < end; at += WINDOW_MS)
 		windows.push({
