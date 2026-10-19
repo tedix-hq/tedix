@@ -1,4 +1,5 @@
 import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -101,10 +102,12 @@ export function BillingCreditWallet({
 					</Text>
 				</div>
 				{!overview.inferenceCapacity.available && (
-					<Text tone="error">
-						{reasons[overview.inferenceCapacity.blockingReason ?? ""] ??
-							"Usage is blocked. Check your plan and limits below."}
-					</Text>
+					<Alert variant="destructive">
+						<AlertDescription>
+							{reasons[overview.inferenceCapacity.blockingReason ?? ""] ??
+								"Usage is blocked. Check your plan and limits below."}
+						</AlertDescription>
+					</Alert>
 				)}
 				<MetricGrid columns={3} appearance="bounded">
 					<MetricItem

@@ -653,11 +653,13 @@ export function ConnectionsPanel({
 				errorDescription={connectionFailureMessage(Boolean(contextNote))}
 			/>
 			{manage && disconnectMutation.isError && (
-				<Text as="p" role="body" tone="error" className="m-0">
-					The disconnect failed:{" "}
-					{(disconnectMutation.error as Error).message ||
-						"the credential could not be removed."}
-				</Text>
+				<Alert variant="destructive">
+					<AlertDescription>
+						The disconnect failed:{" "}
+						{(disconnectMutation.error as Error).message ||
+							"the credential could not be removed."}
+					</AlertDescription>
+				</Alert>
 			)}
 			{connections.data && shownConnections.length === 0 && (
 				<ConnectionsEmpty />
