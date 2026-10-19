@@ -960,6 +960,10 @@
 		{
 			"name": "20261019143229_incident_polling_indexes/migration.sql",
 			"sha256": "5a74348b86687f5a004330b6c8470a56046dada076a015b06069da032702c05a"
+		},
+		{
+			"name": "20261019204456_commitment_wake_progress_and_ranges/migration.sql",
+			"sha256": "56927990ce6d7cb62e4993be452e1d3a3151b70dd653346c26d00829681c71f0"
 		}
 	]
 }

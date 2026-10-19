@@ -71,3 +71,12 @@ export const platformCronExecutions = sqliteTable(
 export type PlatformCronExecution = typeof platformCronExecutions.$inferSelect;
 export type NewPlatformCronExecution =
 	typeof platformCronExecutions.$inferInsert;
+
+/** Replay progress is independent of cron health receipts and their retention. */
+export const platformCronCheckpoints = sqliteTable(
+	"platform_cron_checkpoints",
+	{
+		scheduleId: text("schedule_id").primaryKey(),
+		through: text("through").notNull(),
+	},
+);

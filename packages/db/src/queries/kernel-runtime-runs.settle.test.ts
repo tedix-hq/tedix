@@ -86,6 +86,45 @@ describe("settleKernelRuntimeTurn", () => {
 		expect(rows.map((row) => row.id)).toEqual(["evt-message", "evt-terminal"]);
 	});
 
+	it("rolls back a blocked run closure when either terminal event cannot be written", async () => {
+		for (const kind of ["message.completed", "run.failed"]) {
+			const sqlite = new DatabaseSync(":memory:");
+			sqlite.exec("PRAGMA foreign_keys = OFF");
+			sqlite.exec(schemaDdl(kernelRuntimeRuns, kernelRuntimeEvents));
+			sqlite.exec(
+				`CREATE TRIGGER reject_event BEFORE INSERT ON kernel_runtime_events WHEN NEW.kind = '${kind}' BEGIN SELECT RAISE(ABORT, 'event unavailable'); END`,
+			);
+			const db = createDbClient(createD1Facade(sqlite));
+			await db.insert(kernelRuntimeRuns).values({
+				id: "run-1",
+				organizationId: "org-1",
+				conversationId: "home:main",
+				status: "requires_approval",
+				updatedAt: SETTLED_AT,
+			});
+			const input = turnParams();
+			await expect(
+				settleKernelRuntimeTurn(db, {
+					run: {
+						...input.run,
+						fromStatus: "requires_approval",
+						expectedUpdatedAt: SETTLED_AT,
+						patch: { status: "failed", updatedAt: SETTLED_AT },
+					},
+					events: input.events.map((event, index) => ({
+						...event,
+						kind: index === 0 ? "message.completed" : "run.failed",
+					})),
+				}),
+			).rejects.toThrow();
+			expect((await getKernelRuntimeRun(db, { id: "run-1" }))?.status).toBe(
+				"requires_approval",
+			);
+			expect(await listKernelRuntimeEvents(db, { runId: "run-1" })).toEqual([]);
+			sqlite.close();
+		}
+	});
+
 	it("keeps the transcript when an operator cancel already won the run row", async () => {
 		const db = await setup("canceled");
 		const result = await settleKernelRuntimeTurn(db, turnParams());

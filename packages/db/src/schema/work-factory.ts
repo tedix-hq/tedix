@@ -489,6 +489,7 @@ export const workApprovalProposals = sqliteTable(
 				table.approverId,
 			)
 			.where(sql`${table.status} = 'pending'`),
+		index("idx_work_approval_resolved").on(table.resolvedAt),
 		index("idx_work_approval_approver_status").on(
 			table.orgId,
 			table.approverType,
@@ -578,6 +579,7 @@ export const workInteractions = sqliteTable(
 			columns: [table.orgId, table.projectId],
 			foreignColumns: [projects.orgId, projects.id],
 		}).onDelete("cascade"),
+		index("idx_work_interactions_due").on(table.dueAt),
 		index("idx_work_interactions_target_status").on(
 			table.orgId,
 			table.targetType,
@@ -664,6 +666,7 @@ export const workInteractionResponses = sqliteTable(
 			columns: [table.orgId, table.interactionId],
 			foreignColumns: [workInteractions.orgId, workInteractions.id],
 		}).onDelete("restrict"),
+		index("idx_work_interaction_responses_time").on(table.respondedAt),
 		index("idx_work_interaction_responses_cursor").on(
 			table.orgId,
 			table.interactionId,
