@@ -285,7 +285,7 @@ async function retryDelegationWorkItem(
 				orgId: organizationId,
 				authorType: "system",
 				authorId: retryTarget.accountableOwnerId ?? null,
-				body: `Delegation recovery ceiling reached (${retryCount}/${MAX_DELEGATION_RETRIES} retries). No further automatic re-dispatch — escalate to a human operator.`,
+				body: "Repeated tries did not finish this task. Please review what went wrong before trying again.",
 				metadata: toJsonRecord({
 					escalation: "operator",
 					failureReason:
@@ -311,7 +311,7 @@ async function retryDelegationWorkItem(
 		}
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			"delegation retry ceiling reached — escalated to a human operator",
+			"Repeated tries did not finish this task. Please review what went wrong before trying again.",
 		);
 	}
 	const nextRetryCount = retryCount + 1;
@@ -574,12 +574,15 @@ async function cancelKernelRunCore(
 		organizationId,
 	});
 	if (!existingRun) {
-		throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"I couldn't find that reply. Refresh the chat and try again.",
+		);
 	}
 	if (isTerminalHomeRunStatus(existingRun.status as TediRunStatus)) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			`Home run is already "${existingRun.status}" and cannot be canceled`,
+			"That reply has already ended. Send a new message to continue.",
 		);
 	}
 	// Durable abort intent BEFORE any downstream action: even if
@@ -842,19 +845,25 @@ async function steerKernelRunCore(
 	const { organizationId } = input;
 	const instruction = input.instruction.trim();
 	if (!instruction) {
-		throw createError(ErrorCodes.BAD_REQUEST, "Steering instruction required");
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Tell me what you'd like to change.",
+		);
 	}
 	const existingRun = await getKernelRuntimeRun(context.db, {
 		id: input.homeRunId,
 		organizationId,
 	});
 	if (!existingRun) {
-		throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"I couldn't find that reply. Refresh the chat and try again.",
+		);
 	}
 	if (isTerminalHomeRunStatus(existingRun.status as TediRunStatus)) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			`Home run is already "${existingRun.status}" and cannot be steered`,
+			"That reply has already ended. Send a new message to continue.",
 		);
 	}
 	const steeredAt = nowIso();
@@ -910,7 +919,7 @@ async function steerKernelRunCore(
 				}
 			: null,
 	};
-	const preview = `Operator steered this Home run: ${instruction.slice(0, 180)}`;
+	const preview = `You added: ${instruction.slice(0, 180)}`;
 	await updateKernelRuntimeRun(context.db, input.homeRunId, {
 		latestEventKind: "message.received",
 		latestEventAt: steeredAt,
