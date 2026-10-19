@@ -13,6 +13,13 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { CodeBlock } from "@/components/kumo/code";
+import {
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { SharedReviewBatch } from "./shared-review-batch";
 import { WidgetFrame } from "@/components/widget-frame";
@@ -332,14 +339,19 @@ export function SharedResourcePage() {
 						? "Fixed version"
 						: "Latest version"}
 				</Badge>
-				<details className="relative text-sm text-kumo-subtle">
-					<summary className="cursor-pointer select-none">About access</summary>
-					<p className="absolute right-0 z-10 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-kumo-line bg-kumo-elevated p-3 text-kumo-default shadow-lg">
-						This share uses your own signed-in Tedix account. It does not
-						transfer the owner's connections, credentials or private memory.
-						Tedix checks access when you open it and while it remains open.
-					</p>
-				</details>
+				<Popover>
+					<PopoverTrigger render={<Button variant="ghost" size="sm" />}>
+						About access
+					</PopoverTrigger>
+					<PopoverContent align="end" className="w-72">
+						<PopoverTitle className="sr-only">About access</PopoverTitle>
+						<PopoverDescription>
+							This share uses your own signed-in Tedix account. It does not
+							transfer the owner's connections, credentials or private memory.
+							Tedix checks access when you open it and while it remains open.
+						</PopoverDescription>
+					</PopoverContent>
+				</Popover>
 			</header>
 			{payload.share.note && (
 				<p className="m-0 shrink-0 text-sm text-kumo-subtle">
