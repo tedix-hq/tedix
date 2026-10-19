@@ -1,3 +1,4 @@
+import { ArrowsClockwise } from "@phosphor-icons/react";
 import { LearnedToday } from "@/components/learned-today";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -90,14 +91,16 @@ export function TodayPost({
 		}
 	}
 	return (
-		<Card aria-labelledby="today-heading">
+		<Card aria-labelledby="today-heading" className="focus-today">
 			<CardHeader>
-				<div className="flex items-center justify-between gap-3">
+				<div className="flex items-baseline justify-between gap-3">
 					<CardTitle id="today-heading" ref={heading} tabIndex={-1}>
 						Today
 					</CardTitle>
 					<Button
 						variant="ghost"
+						size="sm"
+						icon={<ArrowsClockwise size={16} aria-hidden />}
 						disabled={refreshing}
 						onClick={() => void refresh()}
 					>
@@ -114,7 +117,9 @@ export function TodayPost({
 				) : (
 					<>
 						<Text>{digest.purpose}</Text>
-						<Text tone="secondary">{digest.updated}</Text>
+						<Text tone="secondary" className="type-tedix-caption">
+							{digest.updated}
+						</Text>
 						{(compact && !expanded ? digest.rows.slice(0, 1) : digest.rows).map(
 							([
 								name,
@@ -128,48 +133,56 @@ export function TodayPost({
 							]) => (
 								<article
 									key={project}
-									className={
-										compact
-											? "focus-today-row"
-											: "grid gap-1 border-t border-kumo-line pt-3"
-									}
+									className="focus-today-project grid gap-3"
 								>
-									<Link href={project!}>{name}</Link>
+									<Link
+										variant="record"
+										className="font-medium"
+										href={project!}
+									>
+										{name}
+									</Link>
 									{!compact && <Text tone="secondary">{goal}</Text>}
-									{compact && (
-										<Text tone="secondary">
-											{Number(needs) > 0
-												? "Needs you"
-												: running !== "Nothing running now."
-													? "Moving"
-													: "Updated"}
-										</Text>
-									)}
-									<Link href={receipts!}>
-										{compact
-											? (changesSinceLook?.get(project!.split("/").at(-1)!) ??
-												progress)
-											: progress}
-									</Link>
-									{!compact && <Text>{running}</Text>}
-									<Link href={deck!}>
-										{needs} need{needs === "1" ? "s" : ""} you
-									</Link>
+									<div className="focus-today-chips">
+										{compact && (
+											<Text tone="secondary">
+												{Number(needs) > 0
+													? "Needs you"
+													: running !== "Nothing running now."
+														? "Moving"
+														: "Updated"}
+											</Text>
+										)}
+										<Link variant="record" href={receipts!}>
+											{compact
+												? (changesSinceLook?.get(project!.split("/").at(-1)!) ??
+													progress)
+												: progress}
+										</Link>
+										{!compact && <Text>{running}</Text>}
+										<Link variant="record" href={deck!}>
+											{needs} need{needs === "1" ? "s" : ""} you
+										</Link>
+									</div>
 								</article>
 							),
 						)}
-						{compact && digest.rows.length > 1 && (
-							<Button
-								variant="ghost"
-								aria-expanded={expanded}
-								onClick={() => setExpanded((value) => !value)}
-							>
-								{expanded
-									? "Fewer projects"
-									: `${digest.rows.length - 1} more projects`}
-							</Button>
-						)}
-						{digest.quiet && <Text tone="secondary">{digest.quiet}</Text>}
+						<div className="flex flex-wrap items-baseline gap-x-4 gap-y-2 text-kumo-subtle type-tedix-caption">
+							{compact && digest.rows.length > 1 && (
+								<Button
+									variant="link"
+									size="sm"
+									className="!px-0 text-kumo-subtle"
+									aria-expanded={expanded}
+									onClick={() => setExpanded((value) => !value)}
+								>
+									{expanded
+										? "Fewer projects"
+										: `${digest.rows.length - 1} more projects`}
+								</Button>
+							)}
+							{digest.quiet && <span>{digest.quiet}</span>}
+						</div>
 					</>
 				)}
 				{message && (

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, EyeSlash, PushPin, ThumbsDown } from "@phosphor-icons/react";
+import {
+	Bell,
+	DotsThree,
+	EyeSlash,
+	PushPin,
+	ThumbsDown,
+} from "@phosphor-icons/react";
 import type {
 	ActivityFeedConfig,
 	ActivityFeedItem,
@@ -20,6 +26,14 @@ import {
 	DecisionContextToolbar,
 } from "./decision-context-rail";
 import { Button } from "./kumo/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "./kumo/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./kumo/tooltip";
+import { absoluteTime, relativeTime } from "@/lib/time";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { SegmentedControl } from "./kumo/segmented-control";
@@ -587,19 +601,21 @@ export function FocusFeed({
 				/>
 			))}
 			<DecisionContextToolbar />
-			<SegmentedControl
-				ariaLabel="Feed order"
-				value={tab}
-				onValueChange={setTab}
-				options={[
-					{ value: "for_you", label: "For you" },
-					{ value: "everything", label: "Everything" },
-				]}
-			/>
-			<p className="focus-budget">
-				Worth your time today: {selection.selected.length} · handled without
-				you: {handled.length}
-			</p>
+			<div className="grid gap-2">
+				<SegmentedControl
+					ariaLabel="Feed order"
+					value={tab}
+					onValueChange={setTab}
+					options={[
+						{ value: "for_you", label: "For you" },
+						{ value: "everything", label: "Everything" },
+					]}
+				/>
+				<p className="focus-budget">
+					Worth your time today: {selection.selected.length} · handled without
+					you: {handled.length}
+				</p>
+			</div>
 			{status && <p role="status">{status}</p>}
 			{failed && (
 				<div role="alert">
@@ -619,8 +635,12 @@ export function FocusFeed({
 			)}
 			{tab === "for_you" && needs.length > 0 && (
 				<section aria-label="Needs you" className="focus-needs">
-					<h2>Needs you</h2>
-					{needs.map((i) => render(i, true))}
+					<h2 className="focus-section-heading">
+						Needs you <span>{needs.length}</span>
+					</h2>
+					<div role="list" className="focus-list">
+						{needs.map((i) => render(i, true))}
+					</div>
 				</section>
 			)}
 			{config.today && (
@@ -663,11 +683,19 @@ export function FocusFeed({
 				aria-busy={loading}
 			>
 				{tab === "everything" ? (
-					visible.map((i) => render(i))
+					<div role="list" className="focus-list">
+						{visible.map((i) => render(i))}
+					</div>
 				) : (
 					<>
-						<h2>Updates</h2>
-						{updates.map((i) => render(i, true))}
+						<h2 className="focus-section-heading">
+							Updates <span>{updates.length}</span>
+						</h2>
+						{updates.length > 0 && (
+							<div role="list" className="focus-list">
+								{updates.map((i) => render(i, true))}
+							</div>
+						)}
 						{!updates.length && !loading && (
 							<Text tone="secondary">Nothing else needs your attention.</Text>
 						)}
@@ -675,6 +703,7 @@ export function FocusFeed({
 							<>
 								<Button
 									variant="ghost"
+									className="focus-more !px-0"
 									aria-expanded={heldOpen}
 									onClick={() => setHeldOpen((v) => !v)}
 								>
@@ -682,24 +711,36 @@ export function FocusFeed({
 										? "Fewer updates"
 										: `${waiting.length} more updates`}
 								</Button>
-								{heldOpen && waiting.map((i) => render(i))}
+								{heldOpen && (
+									<div role="list" className="focus-list">
+										{waiting.map((i) => render(i))}
+									</div>
+								)}
 							</>
 						)}
 						{handled.length > 0 && (
 							<section className="focus-handled">
 								<Button
 									variant="ghost"
+									className="focus-more !px-0"
 									aria-expanded={handledOpen}
 									onClick={() => setHandledOpen((v) => !v)}
 								>
 									Handled without you: {handled.length}
 								</Button>
-								{handledOpen &&
-									handled.map((i) => (
-										<div key={i.id} className="focus-handled-row">
-											{render(i)}
-										</div>
-									))}
+								{handledOpen && (
+									<div role="list" className="focus-list">
+										{handled.map((i) => (
+											<div
+												key={i.id}
+												role="presentation"
+												className="focus-handled-row"
+											>
+												{render(i)}
+											</div>
+										))}
+									</div>
+								)}
 							</section>
 						)}
 					</>
@@ -712,6 +753,7 @@ export function FocusFeed({
 			{more && (
 				<Button
 					variant="ghost"
+					className="focus-more !px-0"
 					onClick={() => setRequest((r) => r + 1)}
 					disabled={loading}
 				>
@@ -842,10 +884,22 @@ function FocusRow({
 				}),
 			);
 	}
+	const rowActions = [
+		{ label: "Pin", reaction: "pin", Icon: PushPin },
+		{ label: "Hide", reaction: "hide", Icon: EyeSlash },
+		{ label: "Not important", reaction: "not_important", Icon: ThumbsDown },
+		{ label: "Tell me earlier", reaction: "tell_me_earlier", Icon: Bell },
+	] as const;
+	function react(reaction: FocusSignal) {
+		engaged.current = true;
+		void signal(item, reaction);
+	}
+
 	return (
 		<div
 			ref={root}
 			tabIndex={-1}
+			role="listitem"
 			data-focus-row={item.id}
 			className="focus-row"
 			onClickCapture={(e) => {
@@ -853,13 +907,20 @@ function FocusRow({
 			}}
 		>
 			{item.needsAction ? (
-				<article aria-label={item.sentence}>
+				<article aria-label={item.sentence} className="focus-decision-row">
 					<Link
+						variant="record"
 						className="focus-story"
 						href={`/work?view=deck#card=${encodeURIComponent(item.id.replace(/^decision:/, ""))}`}
 					>
-						{actor === "You" ? "You ask" : `${actor} asks`}: {item.sentence}
+						{item.sentence}
 					</Link>
+					<p className="focus-meta">
+						{project ?? actor} ·{" "}
+						<time dateTime={item.at} title={absoluteTime(item.at)}>
+							{relativeTime(item.at)}
+						</time>
+					</p>
 				</article>
 			) : (
 				<FeedCard
@@ -872,55 +933,50 @@ function FocusRow({
 				/>
 			)}
 			{item.because && <p className="focus-because">{item.because}</p>}
-			<div className="focus-actions">
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-label="Pin"
-					icon={<PushPin size={16} aria-hidden />}
-					onClick={() => {
-						engaged.current = true;
-						void signal(item, "pin");
-					}}
-				>
-					Pin
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-label="Hide"
-					icon={<EyeSlash size={16} aria-hidden />}
-					onClick={() => {
-						engaged.current = true;
-						void signal(item, "hide");
-					}}
-				>
-					Hide
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-label="Not important"
-					icon={<ThumbsDown size={16} aria-hidden />}
-					onClick={() => {
-						engaged.current = true;
-						void signal(item, "not_important");
-					}}
-				>
-					Not important
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-label="Tell me earlier"
-					icon={<Bell size={16} aria-hidden />}
-					onClick={() => {
-						engaged.current = true;
-						void signal(item, "tell_me_earlier");
-					}}
-				>
-					Tell me earlier
-				</Button>
+			<div className="focus-row-tools">
+				<div className="focus-actions">
+					{rowActions.map(({ label, reaction, Icon }) => (
+						<Tooltip key={reaction}>
+							<TooltipTrigger
+								render={
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label={label}
+										onClick={() => react(reaction)}
+									/>
+								}
+							>
+								<Icon size={16} aria-hidden />
+							</TooltipTrigger>
+							<TooltipContent>{label}</TooltipContent>
+						</Tooltip>
+					))}
+				</div>
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								aria-label="More actions"
+							/>
+						}
+					>
+						<DotsThree size={20} aria-hidden />
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						{rowActions.map(({ label, reaction, Icon }) => (
+							<DropdownMenuItem
+								key={reaction}
+								icon={Icon}
+								onClick={() => react(reaction)}
+							>
+								{label}
+							</DropdownMenuItem>
+						))}
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 		</div>
 	);

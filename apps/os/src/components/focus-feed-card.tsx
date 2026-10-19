@@ -57,10 +57,11 @@ export function FeedCard({
 				</div>
 				<Link
 					href={item.source}
+					variant="record"
 					className="ft-post-link"
 					aria-label={`Open ${item.attachment?.title ?? item.sentence}`}
 				>
-					<Text className="ft-sentence">{item.sentence}</Text>
+					<Text className="ft-sentence font-medium">{item.sentence}</Text>
 				</Link>
 				<div className="focus-receipt-actions">
 					<Button
@@ -108,7 +109,9 @@ export function FeedCard({
 					<div className="focus-receipt">
 						<FeedOutcomePreview item={item} />
 						<Text tone="secondary">{item.explanation}</Text>
-						<Link href={item.source}>Open receipt</Link>
+						<Link variant="record" href={item.source}>
+							Open receipt
+						</Link>
 					</div>
 				)}
 				{rail?.activeSection === section && (
