@@ -1,7 +1,13 @@
 import { createRouterClient, ORPCError } from "@orpc/server";
 import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
-import { AUTHZ, type BaseContext, ErrorCodes, createError } from "../../orpc";
+import {
+	AUTHZ,
+	type BaseContext,
+	ErrorCodes,
+	createError,
+	userHoldsPermission,
+} from "../../orpc";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { cancelWorkItem } from "@tedix/db/queries/work-items/crud";
@@ -627,7 +633,7 @@ export const respondApprovalRoute = authed.respondApproval
 	});
 
 export const retryRunRoute = authed.retryRun
-	.use(AUTHZ.tedisWrite)
+	.use(AUTHZ.homeUse)
 	.handler(async ({ context, input }) => {
 		const organizationId = resolveOrganizationId(context, input.organizationId);
 		const existingRun = await getKernelRuntimeRun(context.db, {
@@ -636,6 +642,25 @@ export const retryRunRoute = authed.retryRun
 		});
 		if (!existingRun) {
 			throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
+		}
+		if (
+			context.authType === "user" &&
+			!userHoldsPermission(context, "tedis:update")
+		) {
+			const saved = nonNullRecord(
+				nonNullRecord(existingRun.metadata)?.redriveInput,
+			);
+			const userId = context.descopeUserId ?? context.user?.sub;
+			if (
+				!userId ||
+				saved?.descopeUserId !== userId ||
+				!isHomeRouteRetryable(existingRun)
+			) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Members may retry only their own dropped Home routing turn",
+				);
+			}
 		}
 		await ensureHomeConversationAccess(context, {
 			conversationId: existingRun.conversationId,

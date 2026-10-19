@@ -38,6 +38,8 @@ import { resolveWorkItemSteward } from "./stewardship";
 export interface CreateWorkItemParams {
 	id: string;
 	orgId: string;
+	/** Supplied by authenticated ingress, never from request metadata. */
+	createdBy?: WorkActor;
 	title: string;
 	description?: string;
 	workKind?: WorkItemKind;
@@ -148,24 +150,42 @@ export async function createWorkItem(
 	params: CreateWorkItemParams,
 ): Promise<WorkItem> {
 	const stewardship = await resolveWorkItemSteward(db, params);
-	const row = (
-		await db
-			.insert(workItems)
-			.values({
-				...params,
-				...stewardship,
-				disposition: "proposed",
-				workKind: params.workKind ?? "other",
-				riskLevel: params.riskLevel ?? "medium",
-				requiredCapabilities: params.requiredCapabilities ?? [],
-				requiredAuthorities: params.requiredAuthorities ?? [],
-				admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
-				priority: params.priority ?? "medium",
-				provenance: params.provenance ?? {},
-				metadata: params.metadata ?? {},
-			})
-			.returning()
-	)[0];
+	const { createdBy, ...values } = params;
+	const insert = db
+		.insert(workItems)
+		.values({
+			...values,
+			...stewardship,
+			disposition: "proposed",
+			workKind: params.workKind ?? "other",
+			riskLevel: params.riskLevel ?? "medium",
+			requiredCapabilities: params.requiredCapabilities ?? [],
+			requiredAuthorities: params.requiredAuthorities ?? [],
+			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,
+			priority: params.priority ?? "medium",
+			provenance: params.provenance ?? {},
+			metadata: params.metadata ?? {},
+		})
+		.returning();
+	const rows = createdBy
+		? (
+				await db.batch([
+					insert,
+					db.insert(workEvents).values({
+						id: crypto.randomUUID(),
+						orgId: params.orgId,
+						workItemId: params.id,
+						eventType: "work.created",
+						actorType: createdBy.type,
+						actorId: createdBy.id,
+						actorSessionId: createdBy.sessionId,
+						payload: {},
+						occurredAt: params.createdAt,
+					}),
+				])
+			)[0]
+		: await insert;
+	const row = rows[0];
 	if (!row) throw new Error("Work Item insert returned no row");
 	return normalizeWorkItemRow(row);
 }

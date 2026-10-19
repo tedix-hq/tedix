@@ -676,7 +676,7 @@ export const workItemsContract = oc
 					"Update descriptive Work Item specification fields. Disposition, readiness, attempts, and evidence are changed only through their dedicated operations.",
 			})
 			.input(
-				z.object({
+				z.strictObject({
 					id: z.uuid(),
 					executor: WorkExecutorSchema.optional(),
 					laneDispatch: LaneDispatchPlanSchema.optional(),
@@ -971,6 +971,12 @@ export const workItemsContract = oc
 				z.object({
 					id: z.uuid(),
 					body: z.string().min(1).max(10000),
+					requestDelegation: z
+						.boolean()
+						.optional()
+						.describe(
+							"Explicitly request executor assignment from this comment; requires specification authority. Ordinary comment text never changes assignment.",
+						),
 					metadata: JsonRecordSchema.optional(),
 				}),
 			)

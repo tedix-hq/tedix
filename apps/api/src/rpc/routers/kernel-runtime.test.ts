@@ -3126,7 +3126,13 @@ describe("kernel runtime router", () => {
 
 	it("settles the turn failed (model unavailable) when the Kernel returns null — no heuristic answer", async () => {
 		const db = createKernelRuntimeDb();
-		const client = createKernelRuntimeClient(createContext(db));
+		const context = {
+			...createContext(db, { userSub: "member-1" }),
+			authType: "user" as const,
+			apiKey: undefined,
+			userRole: "member" as const,
+		};
+		const client = createKernelRuntimeClient(context);
 		const kernel = vi.fn(async (_input: unknown) => null);
 		kernelRuntimeTestHooks.setKernelForTest(kernel);
 
@@ -3162,6 +3168,24 @@ describe("kernel runtime router", () => {
 				retryRunId: result.run.id,
 			},
 		});
+		const otherMember = createKernelRuntimeClient({
+			...context,
+			user: { sub: "member-2" } as BaseContext["user"],
+		});
+		await expect(
+			otherMember.retryRun({ runId: result.run.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		db.grantRows.push(
+			grantRow({
+				conversationId: "home:test",
+				userId: "member-1",
+				access: "read",
+			}),
+		);
+		await expect(
+			client.retryRun({ runId: result.run.id }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		db.grantRows[0]!.access = "edit";
 		const [retried, duplicate] = await Promise.all([
 			client.retryRun({ runId: result.run.id }),
 			client.retryRun({ runId: result.run.id }),
@@ -11955,7 +11979,12 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 		// tedi-cto-agent has repoConfig.repoUrl → workstation-capable. No
 		// needsEmbodiedSurface in metadata → native isolate delegation (no approval).
 		const db = createKernelRuntimeDb();
-		const client = createKernelRuntimeClient(createContext(db));
+		const client = createKernelRuntimeClient({
+			...createContext(db, { userSub: "member-1" }),
+			authType: "user",
+			apiKey: undefined,
+			userRole: "member",
+		});
 		const delegateRunner = vi.fn(
 			async (input: { childRunId: string; content: string }) => ({
 				childConversationId: "agent:main:main",
@@ -11985,6 +12014,17 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 			},
 		});
 		expect(db.approvals).toHaveLength(0);
+		db.tediRows.find((row) => row.id === "tedi-cto-agent")!.organizationId =
+			"foreign-org";
+		await expect(
+			client.enqueueMessage({
+				conversationId: "home:test",
+				content: "Do not dispatch",
+				delegateToTediId: "tedi-cto-agent",
+				idempotencyKey: "comp-test-a-denied",
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(delegateRunner).toHaveBeenCalledTimes(1);
 	});
 
 	it("reuses an existing Work Item for native delegation without creating a wrapper", async () => {

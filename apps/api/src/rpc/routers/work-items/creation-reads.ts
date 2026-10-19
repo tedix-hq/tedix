@@ -5,6 +5,7 @@ import {
 	WorkCheckpointProjectionSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { withAuthorization } from "../../orpc";
+import { verifiedActiveWorkActor } from "../work-items-principal";
 import { getOrgGraphHealth } from "@tedix/db/queries/org-graph-health";
 import {
 	getProjectById,
@@ -118,6 +119,10 @@ export const createProcedure = authOs.create.handler(
 			return await createWorkItem(context.db, {
 				id: crypto.randomUUID(),
 				orgId,
+				createdBy:
+					context.authType === "user"
+						? await verifiedActiveWorkActor(context, orgId)
+						: undefined,
 				title: input.title,
 				description: input.description,
 				workKind: input.workKind,

@@ -974,6 +974,7 @@ describe("Work Item router collaboration ledgers", () => {
 		await client("owner").addComment({
 			id: created.id,
 			body: "Delegated to the Mac Lead",
+			requestDelegation: true,
 		});
 		const current = await client().getById({ id: created.id });
 		expect(current.workItem.metadata).toMatchObject({
@@ -990,7 +991,11 @@ describe("Work Item router collaboration ledgers", () => {
 			title: "Other fictional guide",
 		});
 		await expect(
-			client().addComment({ id: other.id, body: "Delegated to Codex" }),
+			client().addComment({
+				id: other.id,
+				body: "Delegated to Codex",
+				requestDelegation: true,
+			}),
 		).rejects.toThrow();
 		expect((await client().getById({ id: other.id })).comments).toHaveLength(0);
 	});

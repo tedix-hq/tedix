@@ -340,9 +340,10 @@ export async function verifiedWorkItemCommentAuthor(
 		};
 	}
 	if (context.authType === "user" && typeof context.user?.sub === "string") {
+		const membership = await verifiedActiveUserMembership(context, orgId);
 		return {
 			authorType: "user",
-			authorId: context.user.sub,
+			authorId: membership.userId,
 			metadata,
 		};
 	}

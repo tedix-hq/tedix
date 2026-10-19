@@ -85,6 +85,7 @@ import {
 	verifiedWorkFactoryMutator,
 } from "./work-items/policy-helpers";
 import { getTodayProjectTotals } from "@tedix/db/queries/today-project";
+import { assertSpecificationContributorGrant } from "./work-items/specification-policy";
 
 const projectsOs = implement(projectsContract).$context<BaseContext>();
 const authOs = projectsOs.use(withAuth);
@@ -138,6 +139,12 @@ const createProcedure = authOs.create
 	.use(AUTHZ.objectiveWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgIdOrInput(context, input.organizationId);
+		await assertSpecificationContributorGrant(
+			context,
+			orgId,
+			undefined,
+			input.metadata?.workSpecificationContributors,
+		);
 
 		const existing = await getProjectByKey(context.db, orgId, input.key);
 		if (existing) {
@@ -176,6 +183,12 @@ const updateProcedure = authOs.update
 	.use(AUTHZ.objectiveWrite)
 	.handler(async ({ input, context }) => {
 		const existing = await assertProjectAccess(context, input.id);
+		await assertSpecificationContributorGrant(
+			context,
+			existing.orgId,
+			existing.metadata?.workSpecificationContributors,
+			input.metadata?.workSpecificationContributors,
+		);
 		if (input.leadTediId) {
 			await assertLeadTediInOrg(context, existing.orgId, input.leadTediId);
 		}

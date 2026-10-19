@@ -1281,6 +1281,7 @@ export const AUTHZ = {
 		{ anyOf: ["os:run", "settings:manage"] },
 		"apps:write",
 	),
+	homeUse: withAuthorization("os:run", "tedis:write"),
 	platformAdmin: withPlatformAdminAuthorization(),
 	secretsRead: withAuthorization("secrets:manage", "tools:read"),
 	secretsWrite: withAuthorization("secrets:manage", "tools:write"),

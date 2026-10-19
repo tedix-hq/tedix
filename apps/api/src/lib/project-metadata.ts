@@ -17,6 +17,12 @@ export function projectMetadataForUpdate(
 		});
 	return {
 		...incoming,
+		...(incoming.workSpecificationContributors === undefined &&
+		existing?.workSpecificationContributors !== undefined
+			? {
+					workSpecificationContributors: existing.workSpecificationContributors,
+				}
+			: {}),
 		...(existing?.repositoryObserver === undefined
 			? {}
 			: { repositoryObserver: existing.repositoryObserver }),
