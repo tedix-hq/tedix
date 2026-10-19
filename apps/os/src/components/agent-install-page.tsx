@@ -55,10 +55,11 @@ function Step({
 			</Text>
 			{command ? (
 				<ClipboardText
-					className="max-w-full"
+					className="max-w-full max-sm:min-h-11 coarse:min-h-11 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-h-11 coarse:[&_button]:min-w-11"
 					size="sm"
 					text={command}
 					textToCopy={command}
+					tooltip={{ text: "Copy command" }}
 				/>
 			) : null}
 		</div>
