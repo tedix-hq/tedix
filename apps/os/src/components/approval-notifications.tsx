@@ -171,6 +171,9 @@ export function ApprovalNotifications({
 								className="grid min-w-0 gap-2 rounded-lg border border-kumo-warning bg-kumo-warning-tint p-3"
 								key={approval.approvalId}
 							>
+								<Text as="strong" role="body" tone="strong">
+									{approval.summary}
+								</Text>
 								<ApprovalDecisionCopy
 									approval={{
 										actionType: "home_request",
@@ -179,9 +182,6 @@ export function ApprovalNotifications({
 								/>
 								<details>
 									<summary>Technical details</summary>
-									<Text as="strong" role="body" tone="strong">
-										{approval.summary}
-									</Text>
 									{approval.detail ? (
 										<Text role="label" tone="secondary">
 											{approval.detail}
