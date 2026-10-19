@@ -224,6 +224,9 @@ describe("directDelegationDispatchContent", () => {
 		expect(content).toContain("Home owns the linked Work Item lifecycle");
 		expect(content).toContain("You may read\nWork projects and items");
 		expect(content).toContain("Do NOT create");
+		expect(content).toContain("comments to the assigned Work Item");
+		expect(content).toContain("update its specification when requested");
+		expect(content).not.toContain("start, comment, heartbeat");
 		expect(content).toContain("performs the only terminal settlement");
 		expect(content).toContain("Outcome: succeeded");
 		expect(content).not.toContain("Verification:");

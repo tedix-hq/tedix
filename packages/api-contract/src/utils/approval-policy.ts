@@ -29,6 +29,10 @@ export function parseDelegationAutonomyPolicy(
 const criticalActionRules = criticalActions.classes.map((rule) => ({
 	id: rule.id,
 	pattern: new RegExp(rule.pattern, "i"),
+	filePattern:
+		"filePattern" in rule && typeof rule.filePattern === "string"
+			? new RegExp(rule.filePattern, "i")
+			: null,
 }));
 
 export function nativeToolAutonomyRisk(
@@ -45,6 +49,25 @@ export function nativeToolAutonomyRisk(
 
 /** Proxy tools enforce critical actions at the inner tool boundary, not on quoted data. */
 export function nativeToolActionContent(name: string, args: unknown): string {
+	if (
+		criticalActions.nativePathActions.includes(name) &&
+		args !== null &&
+		typeof args === "object"
+	) {
+		const paths = JSON.stringify(
+			Object.fromEntries(
+				Object.entries(args).filter(([key]) =>
+					criticalActions.nativePathArgumentKeys.includes(key),
+				),
+			),
+		);
+		return [
+			name,
+			...criticalActionRules
+				.filter((rule) => rule.filePattern?.test(paths))
+				.map((rule) => rule.id),
+		].join(" ");
+	}
 	return criticalActions.nativeArgumentActions.includes(name)
 		? `${name} ${JSON.stringify(args)}`
 		: name;
@@ -52,15 +75,24 @@ export function nativeToolActionContent(name: string, args: unknown): string {
 
 /** Shared by Home, the runtime, and local lanes; tool names use the same vocabulary. */
 export function humanReservedActionClasses(content: string): string[] {
-	const normalized = content
+	const actionable = content
 		.replace(
-			/\b(?:do not|don't|don’t|never)\s+(?:send|email|publish|delete|pay|purchase)\b(?:(?!\b(?:but|then|however)\b)[^.!?;,\n])*/gi,
+			/\b(?:do not|don't|don’t|never)\s+(?:read|send|email|publish|delete|pay|purchase)\b(?:(?!\b(?:but|then|however)\b|\.(?:\s|$))[^!?;,\n])*/gi,
 			" ",
 		)
+		.replace(/\bno\s+(?:bulk\s+outreach\s+or\s+)?automatic\s+sends\b/gi, " ")
+		.replace(
+			/\b(?:reviews?|approves?)\s+(?:every|each|all)\s+(?:messages?|emails?|drafts?)\s+before\s+sending\b/gi,
+			" ",
+		);
+	const normalized = actionable
 		.replace(/([a-z])([A-Z])/g, "$1 $2")
 		.replace(/[_:.]/g, " ");
 	return criticalActionRules
-		.filter((rule) => rule.pattern.test(normalized))
+		.filter(
+			(rule) =>
+				rule.pattern.test(normalized) || rule.filePattern?.test(actionable),
+		)
 		.map((rule) => rule.id);
 }
 

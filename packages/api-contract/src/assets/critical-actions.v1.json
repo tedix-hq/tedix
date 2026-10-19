@@ -27,6 +27,24 @@
 		"run_git",
 		"repo_commit"
 	],
+	"nativePathActions": [
+		"read",
+		"write",
+		"edit",
+		"ls",
+		"find",
+		"grep",
+		"code_search"
+	],
+	"nativePathArgumentKeys": [
+		"path",
+		"filePath",
+		"file_path",
+		"paths",
+		"cwd",
+		"directory",
+		"glob"
+	],
 	"classes": [
 		{
 			"id": "money",
@@ -42,7 +60,8 @@
 		},
 		{
 			"id": "credentials",
-			"pattern": "\\b(consent|mfa|sign[_ -]?in|log[_ -]?in|credentials?|passwords?|secrets?|api[_ -]+keys?|access[_ -]+tokens?|(?:grant|authorize|complete)[_ -]+(?:access|token|oauth)|rotate[_ -]+(?:key|secret))\\b"
+			"pattern": "\\b(consent|mfa|sign[_ -]?in|log[_ -]?in|credentials?|passwords?|secrets?|api[_ -]+keys?|access[_ -]+tokens?|(?:grant|authorize|complete)[_ -]+(?:access|token|oauth)|rotate[_ -]+(?:key|secret))\\b",
+			"filePattern": "(?:^|[^\\w.-])(?!\\.(?:env|dev\\.vars)(?:\\.[\\w-]+)*\\.(?:example|sample|template)(?=$|[^\\w.-]))(?:\\.(?:env(?:\\.[\\w-]+)*|dev\\.vars(?:\\.[\\w-]+)*|npmrc|pypirc)|id_(?:rsa|ed25519|ecdsa)|(?:credentials?|secrets?|passwords?|api[_-]?keys?|access[_-]?tokens?)(?:\\.[\\w-]+)*)(?=$|[^\\w.-])"
 		},
 		{
 			"id": "access_control",

@@ -3,12 +3,54 @@ import {
 	decideAutonomousAction,
 	decideKernelWriteApproval,
 	humanReservedActionClasses,
+	nativeToolActionContent,
 	nativeToolAutonomyRisk,
 	parseKernelGovernancePolicy,
 } from "./approval-policy";
 
 const policy = { version: 1 as const, maxRisk: "medium" as const };
 describe("critical-only autonomy v1", () => {
+	it.each([
+		"/workspace/.env",
+		"/workspace/.env.production",
+		"/workspace/.dev.vars",
+		"/workspace/.npmrc",
+		"/workspace/id_ed25519",
+		"/workspace/credentials.json",
+		"/workspace/secrets.txt",
+	])("requires a human for native credential-file access: %s", (path) => {
+		for (const tool of ["read", "write", "edit", "grep", "find", "ls"])
+			expect(
+				decideAutonomousAction({
+					policy,
+					risk: nativeToolAutonomyRisk(tool),
+					content: nativeToolActionContent(tool, { path }),
+				}),
+			).toMatchObject({
+				autoApprove: false,
+				reason: "human-reserved: credentials",
+			});
+	});
+	it.each([
+		"/workspace/notes.md",
+		"/workspace/payments.ts",
+		"/workspace/.env.example",
+		"/workspace/id_ed25519.pub",
+	])(
+		"keeps ordinary file work automatic and ignores quoted note content: %s",
+		(path) => {
+			expect(
+				decideAutonomousAction({
+					policy,
+					risk: "medium",
+					content: nativeToolActionContent("write", {
+						path,
+						content: "Never send messages or reveal credentials.",
+					}),
+				}).autoApprove,
+			).toBe(true);
+		},
+	);
 	it.each([
 		"Research the caching algorithms",
 		"Add a comment to the target Work",
@@ -18,6 +60,8 @@ describe("critical-only autonomy v1", () => {
 		"Draft an email to a customer",
 		"Read the email inbox",
 		"Inspect the OAuth status",
+		"Read README; do not read /workspace/.env",
+		"Draft email options; the operator reviews every message before sending. No bulk outreach or automatic sends.",
 	])("allows non-critical low and medium work: %s", (content) => {
 		for (const risk of ["low", "medium"] as const)
 			expect(
@@ -41,6 +85,11 @@ describe("critical-only autonomy v1", () => {
 		"Use credentials",
 		"Reset a password",
 		"Read API keys",
+		"Read /workspace/.env",
+		"Read .env",
+		"Read `.env`",
+		"cat .env; echo done",
+		"Read /workspace/id_ed25519",
 		"Sign in",
 		"Grant a role",
 		"Create a role",
@@ -55,6 +104,8 @@ describe("critical-only autonomy v1", () => {
 		"Without asking me, email a customer",
 		"Do not wait before sending the email",
 		"Do not send messages but publish the article",
+		"The operator reviews every message before sending; then send the email",
+		"No automatic sends, but email a customer now",
 	])("requires a human even if a caller labels it low: %s", (content) => {
 		expect(humanReservedActionClasses(content).length).toBeGreaterThan(0);
 		expect(
