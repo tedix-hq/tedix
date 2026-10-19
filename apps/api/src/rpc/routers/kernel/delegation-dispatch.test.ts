@@ -763,7 +763,7 @@ ${source}
 			card: makeCard(),
 			userContent: "anything",
 		});
-		expect(wo.budget).toEqual({ maxToolCalls: 8, deadlineMs: 300_000 });
+		expect(wo.budget).toEqual({ maxToolCalls: 40, deadlineMs: 1_800_000 });
 	});
 
 	it("caller-supplied caps win per-field while derived caps fill the gaps", () => {
@@ -774,8 +774,8 @@ ${source}
 			budget: { maxUsd: 2.0 },
 		});
 		expect(wo.budget).toEqual({
-			maxToolCalls: 8,
-			deadlineMs: 300_000,
+			maxToolCalls: 40,
+			deadlineMs: 1_800_000,
 			maxUsd: 2.0,
 		});
 	});
@@ -1658,12 +1658,16 @@ describe("decideDelegationDispatch", () => {
 // --- Delegation contract (arXiv:2603.18043) ----------------------------------
 
 describe("delegation contract", () => {
-	it("derives per-effort-class budgets (single_read 3, multi_hop_read 8, fan_out 16, embodied 24)", () => {
+	it("scales safety backstops with task complexity", () => {
 		const cases = [
-			{ effortClass: "single_read", maxToolCalls: 3, deadlineMs: 120_000 },
-			{ effortClass: "multi_hop_read", maxToolCalls: 8, deadlineMs: 300_000 },
-			{ effortClass: "fan_out", maxToolCalls: 16, deadlineMs: 600_000 },
-			{ effortClass: "embodied", maxToolCalls: 24, deadlineMs: 1_200_000 },
+			{ effortClass: "single_read", maxToolCalls: 12, deadlineMs: 600_000 },
+			{
+				effortClass: "multi_hop_read",
+				maxToolCalls: 40,
+				deadlineMs: 1_800_000,
+			},
+			{ effortClass: "fan_out", maxToolCalls: 80, deadlineMs: 3_600_000 },
+			{ effortClass: "embodied", maxToolCalls: 160, deadlineMs: 7_200_000 },
 		] as const;
 		for (const c of cases) {
 			const { budget } = deriveDelegationContract(
@@ -1680,7 +1684,7 @@ describe("delegation contract", () => {
 		const { budget } = deriveDelegationContract(
 			makeRoute({ effortClass: null }),
 		);
-		expect(budget).toEqual({ maxToolCalls: 8, deadlineMs: 300_000 });
+		expect(budget).toEqual({ maxToolCalls: 40, deadlineMs: 1_800_000 });
 	});
 
 	it("read routes get read-shaped success criteria (cite the tool calls that produced the facts)", () => {
@@ -1715,8 +1719,8 @@ describe("delegation contract", () => {
 		const { contract } = deriveDelegationContract(makeRoute());
 		expect(contract.failurePolicy).toMatch(/^fail_closed/);
 		expect(contract.failurePolicy).toContain('"Partial result:"');
-		expect(contract.budgetHint).toContain("8 tool calls");
-		expect(contract.deadlineHint).toContain("~5 minutes");
+		expect(contract.budgetHint).toContain("40 tool calls");
+		expect(contract.deadlineHint).toContain("~30 minutes");
 	});
 
 	it("buildDelegationWorkOrder rides the derived contract on the work order", () => {
@@ -1789,8 +1793,8 @@ describe("renderDelegationWorkOrderMessage — CONTRACT block", () => {
 			fallbackWorkOrderId: "wo-e2e",
 		});
 		expect(message).toContain("Success criteria:");
-		expect(message).toContain("Budget: at most 3 tool calls");
-		expect(message).toContain("Deadline: ~2 minutes");
+		expect(message).toContain("Budget: at most 12 tool calls");
+		expect(message).toContain("Deadline: ~10 minutes");
 		expect(message).toContain("Failure policy: fail_closed —");
 	});
 });
