@@ -1672,6 +1672,25 @@ describe("Tedix OS origin router", () => {
 		);
 	});
 
+	it("serves the manifest with its MIME and keeps installation responses private", async () => {
+		const response = await handleOsRequest(
+			new Request("https://tedix.os.tedix.dev/manifest.webmanifest"),
+			{
+				ASSETS: {
+					fetch: async () =>
+						new Response('{"name":"Tedix"}', {
+							headers: { "Content-Type": "application/octet-stream" },
+						}),
+				},
+			},
+		);
+		expect(response.headers.get("Content-Type")).toBe(
+			"application/manifest+json",
+		);
+		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+		expect(await response.json()).toEqual({ name: "Tedix" });
+	});
+
 	it("privately caches only successful hashed static code", async () => {
 		for (const [path, mime] of [
 			["/assets/os-AbCd1234.js", "text/javascript; charset=utf-8"],
