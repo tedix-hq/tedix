@@ -30,7 +30,7 @@
 		"test:browser:feed-deck": "bun browser-tests/feed-deck-polish.spec.ts",
 		"test:browser:apps": "bun browser-tests/widget-apps.spec.ts",
 		"test:browser:viewport": "bun browser-tests/deck-viewport.spec.ts && bun browser-tests/viewport-band.spec.ts",
-		"test:browser:deck": "bun browser-tests/deck.spec.ts",
+		"test:browser:deck": "bun browser-tests/deck.spec.ts && bun browser-tests/deck-progress.spec.ts",
 		"test:browser:social-cards": "bun browser-tests/social-cards.spec.ts",
 		"test:browser:deck-speed": "bun browser-tests/deck-speed.spec.ts",
 		"test:browser:members": "bun browser-tests/members.spec.ts",

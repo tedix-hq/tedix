@@ -589,7 +589,16 @@ try {
 		await context.waitFor({ state: "hidden" });
 		await preferred.locator(".fd-decision").focus();
 		await preferred.keyboard.press("d");
-		await preferred.getByText("1 of 5", { exact: true }).waitFor();
+		await preferred
+			.locator("[data-deck-progress]")
+			.getByText("2 of 6", { exact: true })
+			.waitFor();
+		if (
+			(await preferred
+				.getByRole("progressbar", { name: "Deck progress" })
+				.getAttribute("aria-valuenow")) !== "1"
+		)
+			throw new Error("Skipping a card lost the stable progress total");
 		await preferred.close();
 	}
 	const retry = await browser.newPage({
