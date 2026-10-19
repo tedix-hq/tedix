@@ -445,24 +445,35 @@ identity. Include the repository's Work and Agent-Session commit trailers and
 `Co-Authored-By: Devin <noreply@devin.ai>` when Devin authors a commit.
 
 The runner changes into the worktree and uses `-p --prompt-file`, native resume,
-`--respect-workspace-trust false`, `--permission-mode accept-edits`, an explicit
-generated `--config`, and `--export`. It retains the ATIF transcript beside the
-brief (`<brief>.devin.atif.json`, or `--transcript <path>`), captures stdout as
+`--respect-workspace-trust false`, mandatory `--sandbox`, a generated `--config`,
+and `--export`. It retains the ATIF transcript in the
+private lane temporary directory (or `--transcript <path>`), captures stdout as
 the final message, and checks both the exported session identity and
 `devin list --format json` before settlement.
 Usage and cost remain unknown unless observed; stdout is a report, not verified
 completion evidence.
 
-The permission profile approves worktree file reads/writes, development commands
-(`bun`, `bunx`, `node`, `tedix`, `rg`, `ls`, `cat`, `sed`), selected Git commands,
-`gh run list/view`, Tedix MCP tools and the Tedix/Devin documentation domains.
-Raw Git pushes, Tedix login, Wrangler deploy, SSH keys, user configuration and
-dotenv files have deny rules. Use the repository's guarded `bun run push`.
-A PreToolUse fence rejects direct file writes outside the worktree, symlink
-escapes, changes to `.devin` configuration and prohibited command forms.
-These are tool approvals, not OS isolation: approved runtimes can execute
-repository code. Devin's OS sandbox selects autonomous mode and is not combined
-with this accept-edits profile. Use trusted worktrees.
+The permission profile approves worktree file reads/writes, explicit development
+command prefixes (`bun run`, `bun test`, `tedix`, `rg`, `ls`, `cat`, `sed`), selected
+Git commands, `gh run list/view`, Tedix MCP tools and the documentation domains.
+Sandboxing selects Devin's autonomous mode; the lane PreToolUse hook still rejects
+commands outside the explicit scope, including compound shell commands. Raw Git pushes, Tedix login, Wrangler deploy,
+`curl`, `wget`, `ssh`, `scp` and `env` are denied. Use guarded `bun run push`.
+Read/write denies protect credential stores, SSH keys, user configuration and
+dotenv files. The OS sandbox applies the read denies to exec processes too;
+indirect runtime reads cannot bypass them. This also prevents commands needing
+those credentials from reading them; use the configured MCP connection for
+Tedix access. The lane fails if the sandbox or permission hook fails.
+The runner supplies a temporary Git config containing only author name and email;
+credential helpers and owner config remain hidden.
+The user-level setup installs lifecycle hooks without the lane permission hook.
+
+Before ACP creation and every resumed launch, `.devin/` and `.claude/` must
+match HEAD with no untracked or ignored additions. Executable project hooks are
+rejected even when committed; use the generated lane hooks. Verification disables
+Git fsmonitor and text conversion helpers. Inspect and remove unexpected changes
+before retrying.
+Conversation exports matching `*.devin.atif.json` are ignored by Git.
 
 Devin's live hook dispatch, ACP persistence and MCP read must be checked after
 login with the smoke test. Unlike Codex, Tedix does not queue or automatically

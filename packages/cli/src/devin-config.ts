@@ -11,6 +11,7 @@ import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { withFileLockSync } from "./local-file-lock";
 import { selfCommand } from "./shared";
+import { devinSecretPaths } from "./devin-lane-security";
 
 export function devinConfigDirectory(env = process.env) {
 	return join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "devin");
@@ -25,7 +26,7 @@ export function devinCliCommand() {
 		.join(" ");
 }
 
-export function devinHooks() {
+export function devinHooks(lane = false) {
 	const cli = devinCliCommand();
 	return Object.fromEntries(
 		[
@@ -34,7 +35,7 @@ export function devinHooks() {
 			["UserPromptSubmit", "capture-reply"],
 			["Stop", "capture-stop"],
 			["SessionEnd", "status"],
-			["PreToolUse", "devin-permission"],
+			...(lane ? [["PreToolUse", "devin-permission"]] : []),
 		].reduce<Array<[string, unknown[]]>>((entries, [event, name]) => {
 			const entry = entries.find(([key]) => key === event);
 			const hook = {
@@ -99,7 +100,10 @@ export function setupDevin(directory = devinConfigDirectory()) {
 				"Devin already has a different tedix MCP server; inspect it before setup",
 			);
 		const hooks = { ...objectField(config.hooks) };
-		for (const [event, entries] of Object.entries(devinHooks())) {
+		for (const [event, entries] of Object.entries({
+			PreToolUse: [],
+			...devinHooks(),
+		})) {
 			const previous = hooks[event] ?? [];
 			if (!Array.isArray(previous))
 				throw new Error(`Invalid Devin ${event} hooks`);
@@ -154,7 +158,7 @@ export function setupDevin(directory = devinConfigDirectory()) {
 	});
 }
 
-/** Tool approvals, not an OS sandbox: approved runtimes can execute repository code. */
+/** Paired with mandatory --sandbox: Read denies also constrain exec processes. */
 export function devinPermissionProfile(
 	cwd: string,
 	session?: { id: string; principalKey?: string },
@@ -165,7 +169,8 @@ export function devinPermissionProfile(
 	return {
 		attribution: false,
 		read_config_from: { claude: false },
-		hooks: devinHooks(),
+		hooks: devinHooks(true),
+		sandbox: { excluded: { allow: [], ask: [], deny: ["Exec(**)"] } },
 		permissions: {
 			allow: [
 				`Read(${root}/**)`,
@@ -183,9 +188,9 @@ export function devinPermissionProfile(
 					"git switch",
 					"git branch",
 					"git merge-base",
-					"bun",
-					"bunx",
-					"node",
+					"bun run",
+					"bun test",
+					"bun --version",
 					"devin --version",
 					"devin models",
 					"rg",
@@ -218,17 +223,22 @@ export function devinPermissionProfile(
 				"mcp__tedix__*",
 			],
 			deny: [
+				...["curl", "wget", "ssh", "scp", "env"].map((tool) => `Exec(${tool})`),
 				"Exec(git push)",
 				"Exec(tedix login)",
 				"Exec(wrangler deploy)",
 				"Exec(bunx wrangler deploy)",
 				"Exec(npx wrangler deploy)",
 				...[
+					...devinSecretPaths(),
+					`${root}/.devin/**`,
+					`${root}/.claude/**`,
 					"~/.ssh/**",
 					"~/.config/**",
 					"**/.env",
 					"**/.env.*",
 					"**/.dev.vars",
+					"**/.dev.vars.*",
 				].flatMap((path) => [`Read(${path})`, `Write(${path})`]),
 			],
 			ask: [],

@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { laneChildEnv } from "./lane-child-env";
+import { assertDevinProjectHooks } from "./devin-lane-security";
 
 export function devinAvailable(executable = "devin") {
 	const result = spawnSync(executable, ["auth", "status"], {
@@ -45,6 +46,7 @@ export async function createDevinLaneThread(
 	model?: string,
 	timeoutMs = 30_000,
 ) {
+	assertDevinProjectHooks(cwd);
 	// ACP's agentInfo can contain a development placeholder rather than the CLI release.
 	const release = spawnSync(executable, ["--version"], {
 		cwd,
