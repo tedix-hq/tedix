@@ -37,11 +37,13 @@ export function buildAttention(
 			note: row.prompt,
 			href: `/work/interactions/${row.id}`,
 			source: "interaction",
-			activitySource: row.creatorSession?.startsWith("codex:")
-				? "local_codex"
-				: row.creatorSession?.startsWith("claude-code:")
-					? "local_claude"
-					: "unknown",
+			activitySource: row.creatorSession?.startsWith("devin:")
+				? "local_devin"
+				: row.creatorSession?.startsWith("codex:")
+					? "local_codex"
+					: row.creatorSession?.startsWith("claude-code:")
+						? "local_claude"
+						: "unknown",
 		});
 		if (row.workItemId) representedItems.add(row.workItemId);
 	}
@@ -81,11 +83,13 @@ export function buildAttention(
 			projectId: row.projectId,
 			who:
 				worker ||
-				(row.session?.startsWith("codex:")
-					? ATTENTION_COPY.local_codex
-					: row.session?.startsWith("claude-code:")
-						? ATTENTION_COPY.local_claude
-						: ATTENTION_COPY.unknownSource),
+				(row.session?.startsWith("devin:")
+					? ATTENTION_COPY.local_devin
+					: row.session?.startsWith("codex:")
+						? ATTENTION_COPY.local_codex
+						: row.session?.startsWith("claude-code:")
+							? ATTENTION_COPY.local_claude
+							: ATTENTION_COPY.unknownSource),
 			column:
 				row.outcome === "succeeded"
 					? "done"
@@ -115,13 +119,15 @@ export function buildAttention(
 					: "factory"
 				: run
 					? "cloud_tedi"
-					: row.session?.startsWith("codex:")
-						? "local_codex"
-						: row.session?.startsWith("claude-code:")
-							? "local_claude"
-							: row.who === "tedi"
-								? "cloud_tedi"
-								: "unknown",
+					: row.session?.startsWith("devin:")
+						? "local_devin"
+						: row.session?.startsWith("codex:")
+							? "local_codex"
+							: row.session?.startsWith("claude-code:")
+								? "local_claude"
+								: row.who === "tedi"
+									? "cloud_tedi"
+									: "unknown",
 			tediName: worker,
 			finishedAt: row.finishedAt,
 		});
@@ -137,9 +143,11 @@ export function buildAttention(
 		cards.push({
 			id: row.id,
 			who:
-				row.harness === "codex"
-					? ATTENTION_COPY.local_codex
-					: ATTENTION_COPY.local_claude,
+				row.harness === "devin"
+					? ATTENTION_COPY.local_devin
+					: row.harness === "codex"
+						? ATTENTION_COPY.local_codex
+						: ATTENTION_COPY.local_claude,
 			title: row.label,
 			projectId: row.projectId,
 			column:
@@ -159,7 +167,12 @@ export function buildAttention(
 					? `/work/projects/${row.projectId}`
 					: "/work/portfolio",
 			source: "session",
-			activitySource: row.harness === "codex" ? "local_codex" : "local_claude",
+			activitySource:
+				row.harness === "devin"
+					? "local_devin"
+					: row.harness === "codex"
+						? "local_codex"
+						: "local_claude",
 			finishedAt: row.state === "done" ? row.lastEventAt : null,
 		});
 	}
@@ -252,9 +265,11 @@ export function buildAttention(
 		cards.push({
 			id: row.id,
 			who:
-				row.harness === "codex"
-					? ATTENTION_COPY.local_codex
-					: ATTENTION_COPY.local_claude,
+				row.harness === "devin"
+					? ATTENTION_COPY.local_devin
+					: row.harness === "codex"
+						? ATTENTION_COPY.local_codex
+						: ATTENTION_COPY.local_claude,
 			title: row.text,
 			projectId: row.projectId ?? parent?.projectId ?? null,
 			column: reportedDone ? "done" : "blocked",
@@ -267,7 +282,12 @@ export function buildAttention(
 					: ATTENTION_COPY.laneUnconfirmed,
 			href: parent ? `/work/items/${parent.workItemId}` : "/work/needs-you",
 			source: "reported_lane",
-			activitySource: row.harness === "codex" ? "local_codex" : "local_claude",
+			activitySource:
+				row.harness === "devin"
+					? "local_devin"
+					: row.harness === "codex"
+						? "local_codex"
+						: "local_claude",
 			finishedAt: reportedDone ? row.statusChangedAt : null,
 		});
 	}

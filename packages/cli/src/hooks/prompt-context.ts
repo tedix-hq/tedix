@@ -294,7 +294,7 @@ export function gatewayCode(
 	if (
 		isObject(binding.nextWork) &&
 		UUID.test(String(binding.nextWork.projectId)) &&
-		["codex", "claude-code"].includes(binding.nextWork.harness)
+		["codex", "claude-code", "devin"].includes(binding.nextWork.harness)
 	)
 		target.nextWork = binding.nextWork;
 	// Every source reads concurrently: the call lasts as long as its slowest read.

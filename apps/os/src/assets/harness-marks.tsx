@@ -1,6 +1,21 @@
 // Brand silhouettes from Simple Icons (CC0): openai at 15.0.0, claude at develop.
 // https://github.com/simple-icons/simple-icons
-export function HarnessMark({ harness }: { harness: "codex" | "claude-code" }) {
+export function HarnessMark({
+	harness,
+}: {
+	harness: "codex" | "claude-code" | "devin";
+}) {
+	if (harness === "devin")
+		return (
+			<svg
+				viewBox="0 0 24 24"
+				fill="currentColor"
+				aria-hidden="true"
+				data-harness-mark="devin"
+			>
+				<path d="M5 3h6c7 0 10 4 10 9s-3 9-10 9H5V3zm5 4v10h1c4 0 5-2 5-5s-1-5-5-5h-1z" />
+			</svg>
+		);
 	return (
 		<svg
 			viewBox="0 0 24 24"

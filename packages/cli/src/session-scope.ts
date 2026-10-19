@@ -1,3 +1,4 @@
+import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -22,19 +23,24 @@ const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/;
 
 /** An explicit harness selection wins; conflicting inherited host ids are ignored. */
 export function scopeSession(env: NodeJS.ProcessEnv): string | undefined {
-	const explicit = /^(?:codex|claude-code|chatgpt):(.+)$/.exec(
+	const explicit = /^(?:codex|claude-code|devin|chatgpt):(.+)$/.exec(
 		env.TEDIX_AGENT_SESSION ?? "",
 	)?.[1];
 	if (explicit)
-		return looksLikeUuid(explicit) ? explicit.toLowerCase() : undefined;
+		return isHostSessionId(explicit) ? explicit.toLowerCase() : undefined;
 	const ids = [
 		...new Set(
-			[env.CODEX_THREAD_ID, env.CODEX_SESSION_ID, env.CLAUDE_CODE_SESSION_ID]
+			[
+				env.CODEX_THREAD_ID,
+				env.CODEX_SESSION_ID,
+				env.CLAUDE_CODE_SESSION_ID,
+				env.DEVIN_SESSION_ID,
+			]
 				.filter(Boolean)
 				.map((id) => id!.toLowerCase()),
 		),
 	];
-	return ids.length === 1 && looksLikeUuid(ids[0]!) ? ids[0] : undefined;
+	return ids.length === 1 && isHostSessionId(ids[0]!) ? ids[0] : undefined;
 }
 /** A read of another executor's Attempt must not become this chat's held Work. */
 export function scopeFromWorkResult(
@@ -79,7 +85,7 @@ export function readSessionScopes(
 	options?: CredentialStoreOpts,
 	now = Date.now(),
 ): SessionScope[] {
-	if (!session || !looksLikeUuid(session)) return [];
+	if (!session || !isHostSessionId(session)) return [];
 	try {
 		const rows: unknown = JSON.parse(
 			readFileSync(path(session, options), "utf8"),

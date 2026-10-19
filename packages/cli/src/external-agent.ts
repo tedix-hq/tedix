@@ -262,6 +262,7 @@ function resolveSessionTuple(input: {
 			process.env.CODEX_SESSION_ID?.trim() ||
 			process.env.CODEX_THREAD_ID?.trim(),
 		"claude-code": process.env.CLAUDE_CODE_SESSION_ID?.trim(),
+		devin: process.env.DEVIN_SESSION_ID?.trim(),
 		cursor: process.env.CURSOR_TRACE_ID?.trim(),
 	};
 	if (

@@ -53,6 +53,7 @@ const STATUS: Record<
 const HARNESS: Record<SessionRequest["harness"], string> = {
 	"claude-code": "Claude Code",
 	codex: "Codex",
+	devin: "Devin",
 	tedi: "Tedi",
 	skill: "Skill",
 };

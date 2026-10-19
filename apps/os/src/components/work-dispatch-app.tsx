@@ -23,6 +23,7 @@ const labels: Record<WorkExecutor, string> = {
 	human: "Human",
 	tedi: "Tedi",
 	codex: "Codex",
+	devin: "Devin",
 	"claude-code": "Claude Code",
 };
 function ExecutorChoice({
@@ -59,7 +60,8 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 	const viewer = useQuery(userProfileQueryOptions());
 	const parsed = WorkExecutorSchema.safeParse(item.metadata?.executor);
 	const executor = parsed.success ? parsed.data : "human";
-	const localExecutor = executor === "codex" || executor === "claude-code";
+	const localExecutor =
+		executor === "codex" || executor === "claude-code" || executor === "devin";
 	const attempts = useQuery({
 		...osQuery.workItems.listAttempts.queryOptions({
 			input: { id: item.id, limit: 1 },

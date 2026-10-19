@@ -8,6 +8,11 @@ export function laneChildEnv(env = process.env): NodeJS.ProcessEnv {
 		"CODEX_SESSION_ID",
 		"CLAUDE_CODE_SESSION_ID",
 		"CLAUDECODE",
+		"DEVIN_SESSION_ID",
+		"DEVIN_PROJECT_DIR",
+		"TEDIX_HOOK_HOST",
+		"TEDIX_DEVIN_LANE_ROOT",
+		"TEDIX_DEVIN_HEADLESS",
 	])
 		delete child[key];
 	return child;

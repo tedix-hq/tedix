@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { devinConfigDirectory, setupDevin } from "./devin-config";
 
 type AgentHost = "codex" | "claude";
 type CommandResult = { status: number; stdout: string; stderr: string };
@@ -27,6 +28,7 @@ Usage:
   tedix setup agents                 Detect Codex and Claude Code, then ask to install
   tedix setup agents --codex         Set up Codex only
   tedix setup agents --claude        Set up Claude Code only
+  tedix setup agents --devin --yes   Merge Devin hooks and MCP config (no login)
   tedix setup agents --all --yes     Require both hosts; skip Tedix's prompt
   tedix setup agents --status        Report installed, login, hook, and read steps
   tedix setup agents --update        Preview and refresh installed host plugins
@@ -212,6 +214,43 @@ export async function runAgentHostSetup(
 	run: HostCommandRunner = runHostCommand,
 	confirm?: (prompt: string) => Promise<boolean>,
 ): Promise<number> {
+	if (args.includes("--devin")) {
+		if (
+			new Set(args).size !== args.length ||
+			(args.includes("--status") && args.includes("--update"))
+		)
+			throw new Error("Duplicate or conflicting Devin setup options");
+		if (
+			args.some(
+				(arg) =>
+					!["--devin", "--yes", "--dry-run", "--status", "--update"].includes(
+						arg,
+					),
+			)
+		)
+			throw new Error("Use --devin separately from other host targets");
+		console.log(
+			`Devin: merge Tedix hooks and MCP in ${devinConfigDirectory()}; disable Claude config imports to avoid duplicate and incompatible hooks; disable automatic attribution.`,
+		);
+		if (args.includes("--dry-run") || args.includes("--status")) {
+			console.log(
+				"OAuth, hook dispatch and authorized reads are unverified. Run devin mcp login tedix after setup.",
+			);
+			return 0;
+		}
+		if (
+			!args.includes("--yes") &&
+			!(await (confirm ?? promptForConsent)(
+				"Merge Devin configuration? [Y/n] ",
+			))
+		)
+			return 0;
+		setupDevin();
+		console.log(
+			"Devin configured. Run devin mcp login tedix, then start a new Devin session and verify one read. Repository AGENTS.md loads natively. Claude config imports are disabled for Devin; existing Claude files are untouched.",
+		);
+		return 0;
+	}
 	if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
 		console.log(agentHostSetupUsage());
 		return 0;

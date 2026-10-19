@@ -1619,6 +1619,7 @@ export const WorkExecutorSchema = z.enum([
 	"tedi",
 	"codex",
 	"claude-code",
+	"devin",
 ]);
 export type WorkExecutor = z.infer<typeof WorkExecutorSchema>;
 

@@ -22,6 +22,7 @@ export const AttentionCardSchema = z.strictObject({
 		.enum([
 			"local_claude",
 			"local_codex",
+			"local_devin",
 			"cloud_tedi",
 			"factory",
 			"coordinator",

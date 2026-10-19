@@ -7,6 +7,7 @@
  * `tedix work agent-session-report` call. It never prints to stdout, prompts, or blocks the host turn.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import {
 	appendFileSync,
 	chmodSync,
@@ -48,7 +49,7 @@ export const REPORT_VERB = "agent-session-report";
 const SESSION_KEY = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const ORGANIZATION = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const STATES = new Set(["working", "needs_you", "done", "error", "ended"]);
-const HARNESSES = new Set(["claude-code", "codex"]);
+const HARNESSES = new Set(["claude-code", "codex", "devin"]);
 const TRUTHY = new Set(["1", "true", "yes"]);
 const FALSY = new Set(["0", "false", "no"]);
 const SUMMARY_LIMIT = 160;
@@ -115,7 +116,7 @@ export function pruneStatusFiles(env: NodeJS.ProcessEnv, now: number): number {
 		return 0;
 	}
 	for (const name of names) {
-		if (!/^(claude-code|codex)-/.test(name)) continue;
+		if (!/^(claude-code|codex|devin)-/.test(name)) continue;
 		const path = join(directory, name);
 		try {
 			if (now - statSync(path).mtimeMs <= STATUS_PRUNE_AFTER_MS) continue;
@@ -476,6 +477,7 @@ export function transition(
 }
 
 export function harnessOf(event: JsonObject, env: NodeJS.ProcessEnv): string {
+	if (env.TEDIX_HOOK_HOST === "devin" || env.DEVIN_PROJECT_DIR) return "devin";
 	if (
 		(event.turn_id !== undefined && event.turn_id !== null) ||
 		env.CODEX_THREAD_ID ||
@@ -520,7 +522,7 @@ export function sessionBinding(
 	sessionId: string,
 	env: NodeJS.ProcessEnv,
 ): SessionBinding {
-	if (!looksLikeUuid(sessionId)) return {};
+	if (!isHostSessionId(sessionId)) return {};
 	try {
 		const context = resolveAgentContext({
 			cwd,
