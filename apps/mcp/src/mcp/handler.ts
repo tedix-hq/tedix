@@ -228,6 +228,7 @@ const INTERNAL_TIMEOUT_FLOORS_MS: Record<string, number> = {
 	// tedi diagnostic reads so the synchronous lane has real headroom; clients
 	// that opt into the Tasks extension still get the async-canary deferral path.
 	"kernelRuntime/enqueueMessage": 60_000,
+	"kernelRuntime/retryRun": 60_000,
 	"kernelRuntime/readMessages": 45_000,
 	"kernelRuntime/readRunSet": 45_000,
 	"kernelRuntime/readRun": 45_000,

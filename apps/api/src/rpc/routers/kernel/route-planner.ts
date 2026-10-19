@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { NoObjectGeneratedError, zodSchema } from "ai";
 import type { SelectedKernelModel } from "./llm";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
@@ -549,8 +550,29 @@ export async function planKernelRoute(
 			// Spend the remaining deadline on the re-ask, reserving a quarter
 			// for the tool-free answer rather than clipping every retry at 10s.
 			const timeoutMs = Math.max(0, Math.floor(remainingMs() * 0.75));
+			// Record field paths and error codes, never provider text or input values.
+			let validationCause: unknown = error.cause;
+			for (
+				let depth = 0;
+				depth < 5 &&
+				validationCause instanceof Error &&
+				!(validationCause instanceof ZodError);
+				depth++
+			) {
+				validationCause = validationCause.cause;
+			}
+			const validationIssues =
+				validationCause instanceof ZodError
+					? validationCause.issues.slice(0, 12).map((issue) => ({
+							code: issue.code,
+							path: issue.path.map(String).join(".").slice(0, 160),
+						}))
+					: [];
 			const retryLog = {
 				component: "kernel.route_planner",
+				finishReason: error.finishReason ?? null,
+				outputCharacters: error.text?.length ?? null,
+				validationIssues,
 				event: "route_decision_retry",
 				error: safeExceptionTopology(error),
 				model:
