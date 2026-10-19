@@ -3076,7 +3076,7 @@ export function ChatThread({
 			);
 			if (conversationId === null)
 				newConversationIdRef.current = targetConversationId;
-			const key = nextIdempotencyKey(idempotencyKeyRef.current);
+			const key = nextIdempotencyKey(null);
 			idempotencyKeyRef.current = key;
 			setSendError(null);
 			stickToBottomRef.current = true;
@@ -3112,11 +3112,8 @@ export function ChatThread({
 	);
 
 	/**
-	 * One send path for both the composer and Retry.
-	 *
-	 * The key is minted once and held across failures, so `content` is bound to
-	 * it: a retry re-sends the original text even when the composer has since
-	 * been used for something else. The draft leaves the textarea immediately —
+	 * Each composer submission gets a new key; Retry replays the original request.
+	 * The draft leaves the textarea immediately —
 	 * the provisional bubble now holds it — but the localStorage copy stays
 	 * until the send succeeds, which is what makes a reload mid-send restore the
 	 * draft rather than lose it.
@@ -3146,7 +3143,7 @@ export function ChatThread({
 			if (conversationId === null) {
 				newConversationIdRef.current = targetConversationId;
 			}
-			const key = nextIdempotencyKey(idempotencyKeyRef.current);
+			const key = nextIdempotencyKey(null);
 			idempotencyKeyRef.current = key;
 			if (directCommand) {
 				idempotencyKeyRef.current = null;

@@ -428,7 +428,7 @@ describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
 
 		// An upstream failure does NOT: onSendError collapses it.
 		await expect(conversation.enqueue({ content: "hi" }, "k")).rejects.toThrow(
-			/The Cap'n Web call failed/,
+			/The connection was interrupted\. Please try again\./,
 		);
 		await expect(
 			conversation.enqueue({ content: "hi" }, "k"),
