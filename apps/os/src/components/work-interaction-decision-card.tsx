@@ -2,6 +2,11 @@ import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { workActorReference } from "@/lib/work-actor";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import {
+	WorkReadNotice,
+	useWorkReadFailure,
+} from "@/components/work-read-region";
+import { workRefreshOptions } from "@/lib/work-refresh";
+import {
 	connectorApproval,
 	connectorApprovalSummary,
 	interactionCardKind,
@@ -109,24 +114,46 @@ export function WorkInteractionDecisionCard({
 	const shown = useRef({ requestId, at: Date.now() });
 	if (shown.current.requestId !== requestId)
 		shown.current = { requestId, at: Date.now() };
+	const detailPreview =
+		preview?.request.id === requestId && preview.latestDraft !== undefined
+			? {
+					request: preview.request,
+					effectiveState: preview.effectiveState,
+					canRespond: preview.canRespond,
+					canCancel: preview.canCancel,
+					latestDraft: preview.latestDraft,
+					responses: {
+						data: [],
+						nextCursor: null,
+						hasMore: preview.responseCount > 0,
+					},
+				}
+			: undefined;
 	const query = useQuery({
 		...workInteractionDetailQueryOptions(requestId),
-		placeholderData:
-			preview?.request.id === requestId && preview.latestDraft !== undefined
-				? {
-						request: preview.request,
-						effectiveState: preview.effectiveState,
-						canRespond: preview.canRespond,
-						canCancel: preview.canCancel,
-						latestDraft: preview.latestDraft,
-						responses: {
-							data: [],
-							nextCursor: null,
-							hasMore: preview.responseCount > 0,
-						},
-					}
-				: undefined,
+		...workRefreshOptions,
+		placeholderData: detailPreview,
 	});
+	const detail = query.data ?? detailPreview;
+	const readFailed = query.isError || query.failureCount > 0;
+	const inRegion = useWorkReadFailure(
+		readFailed
+			? {
+					error: query.error ?? query.failureReason,
+					retrying: query.isFetching,
+					retry: query.refetch,
+				}
+			: undefined,
+	);
+	const readNotice = !inRegion && (
+		<WorkReadNotice
+			failed={readFailed}
+			partial={Boolean(query.data || preview?.request.id === requestId)}
+			errors={[query.error ?? query.failureReason]}
+			retrying={query.isFetching}
+			retry={query.refetch}
+		/>
+	);
 	const refresh = () =>
 		Promise.all([
 			client.invalidateQueries({
@@ -147,11 +174,11 @@ export function WorkInteractionDecisionCard({
 		]);
 	const respond = useMutation({
 		mutationFn: async (feedback: DecisionCardFeedback) => {
-			if (!query.data) throw new Error("Request is not loaded");
-			const { request } = query.data;
+			if (!detail) throw new Error("Request is not loaded");
+			const { request } = detail;
 			const proposal = request.kind === "handoff";
 			const deferred = proposal && feedback.action === "not-now";
-			const draft = latestDraftOf(query.data);
+			const draft = latestDraftOf(detail);
 			const offered = offeredChoices.parse(request.metadata ?? {});
 			const lane =
 				request.kind === "question" &&
@@ -225,17 +252,18 @@ export function WorkInteractionDecisionCard({
 	});
 	const cancel = useMutation({
 		mutationFn: async () => {
-			if (!query.data) throw new Error("Request is not loaded");
+			if (!detail) throw new Error("Request is not loaded");
 			await osApi.workInteractions.cancel({
 				requestId,
-				expectedRequestVersion: query.data.request.version,
+				expectedRequestVersion: detail.request.version,
 			});
 			await refresh();
 		},
 	});
-	if (query.isPending && preview?.request.id === requestId)
+	if (!detail && preview?.request.id === requestId)
 		return (
 			<DecisionAttentionContext.Provider value={null}>
+				{readNotice}
 				<WorkDecisionCard
 					kind={interactionCardKind(preview.request)}
 					title={interactionSubject(preview.request)}
@@ -266,7 +294,9 @@ export function WorkInteractionDecisionCard({
 							) : (
 								<DecisionProposalBody body={preview.request.prompt} />
 							)}
-							<p role="status">{decisionText("Loading request")}</p>
+							{!readFailed && (
+								<p role="status">{decisionText("Loading request")}</p>
+							)}
 						</>
 					}
 					actions={[]}
@@ -275,24 +305,15 @@ export function WorkInteractionDecisionCard({
 				/>
 			</DecisionAttentionContext.Provider>
 		);
-	if (query.isPending)
+	if (!detail && query.isPending)
 		return (
 			<Skeleton
 				className="h-60 w-full"
 				aria-label={decisionText("Loading request")}
 			/>
 		);
-	if (!query.data || query.isError)
-		return (
-			<p role="alert">
-				This request could not be loaded.{" "}
-				<Button variant="outline" onClick={() => void query.refetch()}>
-					{decisionText("Try again")}
-				</Button>
-			</p>
-		);
-	const { request, effectiveState, canRespond, canCancel, responses } =
-		query.data;
+	if (!detail) return readNotice;
+	const { request, effectiveState, canRespond, canCancel, responses } = detail;
 	if (request.metadata?.schema === "tedix.outbound.v1" && request.workItemId)
 		return (
 			<OutboundCard
@@ -327,7 +348,7 @@ export function WorkInteractionDecisionCard({
 			? request.metadata.originChatTitle
 			: (askedBy ??
 				(request.creatorType === "tedi" ? "Your tedi" : "Your agent")));
-	const draft = latestDraftOf(query.data);
+	const draft = latestDraftOf(detail);
 	const proposal = request.kind === "handoff";
 	const approval = connectorApproval(request.metadata);
 	const lane =
@@ -390,6 +411,7 @@ export function WorkInteractionDecisionCard({
 						];
 	return (
 		<div className="grid min-w-0 gap-3">
+			{readNotice}
 			{deliveryText ? <p className="text-kumo-subtle">{deliveryText}</p> : null}
 			<WorkDecisionCard
 				autoFocus={autoFocus}

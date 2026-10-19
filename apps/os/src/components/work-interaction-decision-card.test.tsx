@@ -169,4 +169,95 @@ it("renders usable actions and the draft from the same authorized inbox payload 
 	).toBeGreaterThan(0);
 	expect(host.textContent).not.toContain("Loading request");
 	expect(respond).not.toHaveBeenCalled();
+	const answer = host.querySelector("textarea")!;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(
+			HTMLTextAreaElement.prototype,
+			"value",
+		)!.set!.call(answer, "Keep this preview answer");
+		answer.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	const query = client
+		.getQueryCache()
+		.find(workInteractionDetailQueryOptions(preview.request.id))!;
+	await act(async () => {
+		query.setState({
+			status: "error",
+			fetchStatus: "idle",
+			fetchFailureCount: 4,
+			error: new Error("unavailable"),
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	expect(host.querySelector("textarea")).toBe(answer);
+	expect(answer.value).toBe("Keep this preview answer");
+	expect(answer.disabled).toBe(false);
+	expect(client.getQueryData(query.queryKey)).toBeUndefined();
+	expect(host.textContent).toContain("Some items couldn't load");
+});
+
+it("retains the last successful detail and typed answer when a refresh fails, then recovers", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	const options = workInteractionDetailQueryOptions(preview.request.id);
+	const data = {
+		request: preview.request,
+		effectiveState: "open" as const,
+		canRespond: true,
+		canCancel: false,
+		latestDraft: null,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	};
+	client.setQueryData(options.queryKey, data);
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkInteractionDecisionCard
+					requestId={preview.request.id}
+					preview={preview}
+				/>
+			</QueryClientProvider>,
+		),
+	);
+	const answer = host.querySelector("textarea")!;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(
+			HTMLTextAreaElement.prototype,
+			"value",
+		)!.set!.call(answer, "Friday works");
+		answer.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await act(async () => {
+		await client
+			.fetchQuery({
+				...options,
+				retry: false,
+				staleTime: 0,
+				queryFn: async () => {
+					throw new Error("backend slow");
+				},
+			})
+			.catch(() => {});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	expect(client.getQueryData(options.queryKey)).toEqual(data);
+	expect(host.textContent).toContain(preview.request.subject);
+	expect(host.querySelector("textarea")).toBe(answer);
+	expect(answer.value).toBe("Friday works");
+	expect(host.querySelectorAll('[role="alert"]')).toHaveLength(0);
+	expect(host.textContent).toContain("Some items couldn't load");
+	await act(async () => {
+		await client.fetchQuery({
+			...options,
+			retry: false,
+			staleTime: 0,
+			queryFn: async () => data,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	expect(host.textContent).not.toContain("couldn't load");
 });

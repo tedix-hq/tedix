@@ -1,4 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { workRefreshOptions } from "@/lib/work-refresh";
+import { WorkReadReporter } from "@/components/work-read-region";
 import { useEffect, useMemo, useRef } from "react";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import {
@@ -32,15 +34,16 @@ export function ActivityFeedSources({
 	const locale = useOsLocale();
 	const context = useQuery(operationalContextQueryOptions());
 	const names = useWorkPrincipalNames(context.data?.organization.id);
-	const work = useInfiniteQuery(
-		osQuery.workItems.listActivity.infiniteOptions({
+	const work = useInfiniteQuery({
+		...osQuery.workItems.listActivity.infiniteOptions({
 			input: (cursor: Cursor) => ({ projectId, limit: pageSize, cursor }),
 			initialPageParam: undefined as Cursor,
 			getNextPageParam: (page) => page.nextCursor ?? undefined,
 		}),
-	);
-	const results = useInfiniteQuery(
-		osQuery.workItems.listAttemptProjection.infiniteOptions({
+		...workRefreshOptions,
+	});
+	const results = useInfiniteQuery({
+		...osQuery.workItems.listAttemptProjection.infiniteOptions({
 			input: (cursor: Cursor) => ({
 				projectId,
 				limit: pageSize,
@@ -50,7 +53,8 @@ export function ActivityFeedSources({
 			initialPageParam: undefined as Cursor,
 			getNextPageParam: (page) => page.nextCursor ?? undefined,
 		}),
-	);
+		...workRefreshOptions,
+	});
 	const items = useMemo(
 		() => [
 			...workFeedItems(
@@ -81,5 +85,10 @@ export function ActivityFeedSources({
 				void query.fetchNextPage();
 		}
 	}, [request]);
-	return null;
+	return (
+		<>
+			<WorkReadReporter query={work} />
+			<WorkReadReporter query={results} />
+		</>
+	);
 }

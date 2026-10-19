@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { activeWorkspacesQueryOptions } from "@/lib/os-query-options";
 
 /** A shared app can bind several people's factories. Read only the viewer's spaces. */
@@ -8,6 +9,7 @@ export function useVisibleCardSources<T>(
 ) {
 	const workspaces = useQuery({
 		...activeWorkspacesQueryOptions(),
+		...workRefreshOptions,
 		enabled: sources.length > 0,
 	});
 	const visible = new Set(workspaces.data?.items.map((space) => space.id));

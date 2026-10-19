@@ -1,4 +1,9 @@
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
+import {
+	WorkReadNotice,
+	useWorkReadFailure,
+} from "@/components/work-read-region";
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { useContext, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/kumo/button";
@@ -23,19 +28,31 @@ export function ApprovalDecisionCard({
 }) {
 	const client = useQueryClient();
 	const optimistic = useContext(OptimisticDeckDecisionContext);
-	const query = useQuery(
-		osQuery.tediApprovals.getById.queryOptions({ input: { id } }),
+	const query = useQuery({
+		...osQuery.tediApprovals.getById.queryOptions({ input: { id } }),
+		...workRefreshOptions,
+	});
+	const failed = query.isError || query.failureCount > 0;
+	const inRegion = useWorkReadFailure(
+		failed
+			? {
+					error: query.error ?? query.failureReason,
+					retrying: query.isFetching,
+					retry: query.refetch,
+				}
+			: undefined,
+	);
+	const notice = !inRegion && (
+		<WorkReadNotice
+			failed={failed}
+			partial={Boolean(query.data)}
+			retry={query.refetch}
+			retrying={query.isFetching}
+			errors={[query.error ?? query.failureReason]}
+		/>
 	);
 	if (query.isPending) return <p>Loading approval…</p>;
-	if (!query.data || query.isError)
-		return (
-			<p role="alert">
-				Approval unavailable.{" "}
-				<Button variant="outline" onClick={() => void query.refetch()}>
-					Try again
-				</Button>
-			</p>
-		);
+	if (!query.data) return notice;
 	const approval = query.data;
 	const active =
 		approval.status === "pending" &&
@@ -69,40 +86,43 @@ export function ApprovalDecisionCard({
 		};
 	};
 	return (
-		<WorkDecisionCard
-			autoFocus
-			kind="approval"
-			title={approval.review.operatorQuestion || approval.description}
-			askedBy="Your tedi"
-			actor={{ type: "tedi", id: approval.tediId }}
-			at={approval.createdAt}
-			body={approval.review.summary}
-			why={
-				<div className="grid gap-2">
-					<p>{approval.description}</p>
-					<Link href="/work/approvals">
-						Review full action and execution history
-					</Link>
-				</div>
-			}
-			actions={
-				active
-					? [
-							{ id: "approve", label: "Approve", intent: "approve" },
-							{ id: "reject", label: "Reject", intent: "reject" },
-							{
-								id: "always",
-								label: "Always allow this",
-								confirm: `Allow all ${approval.actionType} actions across this organization when approval rules are applied? This covers every tedi, not just this request. You can disable the rule in Approvals.`,
-							},
-						]
-					: []
-			}
-			disabled={!active}
-			onDecision={decide}
-			onNext={onNext}
-			onPrevious={onPrevious}
-		/>
+		<>
+			{notice}
+			<WorkDecisionCard
+				autoFocus
+				kind="approval"
+				title={approval.review.operatorQuestion || approval.description}
+				askedBy="Your tedi"
+				actor={{ type: "tedi", id: approval.tediId }}
+				at={approval.createdAt}
+				body={approval.review.summary}
+				why={
+					<div className="grid gap-2">
+						<p>{approval.description}</p>
+						<Link href="/work/approvals">
+							Review full action and execution history
+						</Link>
+					</div>
+				}
+				actions={
+					active
+						? [
+								{ id: "approve", label: "Approve", intent: "approve" },
+								{ id: "reject", label: "Reject", intent: "reject" },
+								{
+									id: "always",
+									label: "Always allow this",
+									confirm: `Allow all ${approval.actionType} actions across this organization when approval rules are applied? This covers every tedi, not just this request. You can disable the rule in Approvals.`,
+								},
+							]
+						: []
+				}
+				disabled={!active}
+				onDecision={decide}
+				onNext={onNext}
+				onPrevious={onPrevious}
+			/>
+		</>
 	);
 }
 

@@ -27,6 +27,7 @@
 import type { JWTPayload } from "@tedix/auth/types";
 import {
 	type createDbClient,
+	type DbSession,
 	createDbSession,
 	D1_BOOKMARK_HEADER,
 } from "@tedix/db/client";
@@ -55,6 +56,7 @@ export interface BaseContext {
 	 * consistency across requests once read replication is enabled.
 	 */
 	dbBookmark?: () => string | null;
+	dbMetrics?: DbSession["metrics"];
 	/**
 	 * Authenticated user (Descope JWT payload)
 	 * Present when authenticated via Descope SSO (Tedix OS and user-facing endpoints)
@@ -215,6 +217,7 @@ export function createContext(
 		env,
 		db: session.db,
 		dbBookmark: session.getBookmark,
+		dbMetrics: session.metrics,
 		headers: request.headers,
 		url: new URL(request.url),
 		rateLimiter: env.API_RATE_LIMITER,

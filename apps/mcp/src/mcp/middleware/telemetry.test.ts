@@ -291,6 +291,12 @@ describe("telemetry middleware — exactly-one cardinality", () => {
 			}),
 		);
 		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({
+			result: {
+				isError: true,
+				_meta: { "com.tedix/traceId": "trace-uuid" },
+			},
+		});
 		expect(trackSpy).toHaveBeenCalledTimes(1);
 		expect(trackSpy.mock.calls[0]?.[1]).toMatchObject({
 			eventType: "tool_call",

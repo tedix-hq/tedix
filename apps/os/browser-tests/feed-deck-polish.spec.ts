@@ -653,8 +653,8 @@ try {
 		`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&retry&motion=reduced`,
 	);
 	const banner = retry
-		.getByRole("alert")
-		.filter({ hasText: "Some decisions could not be loaded" });
+		.getByRole("status")
+		.filter({ hasText: "Some items couldn't load" });
 	await banner.waitFor();
 	await retry.locator(".fd-decision").waitFor();
 	const bannerBox = (await banner.boundingBox())!;
@@ -663,7 +663,9 @@ try {
 		Math.abs(bannerBox.x - cardBox.x) > 1 ||
 		Math.abs(bannerBox.width - cardBox.width) > 1
 	)
-		throw new Error("Source error banner is outside the card column");
+		throw new Error("Source error notice is outside the card column");
+	if (await retry.getByRole("alert").count())
+		throw new Error("Partial source failure rendered a full error banner");
 	if (process.env.TEDIX_SCREENSHOT_DIR)
 		await retry.screenshot({
 			path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-rail-error-before-retry.png`,
@@ -676,6 +678,7 @@ try {
 	);
 	await banner.getByRole("button", { name: "Try again" }).click();
 	await (await partialRetry).finished();
+	await banner.getByRole("button", { name: "Try again" }).waitFor();
 	if (olderReads < 2 || approvalReads < 1 || !(await banner.isVisible()))
 		throw new Error(
 			"Retry skipped a source or cleared while another source still failed",

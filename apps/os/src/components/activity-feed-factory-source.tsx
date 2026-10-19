@@ -1,4 +1,5 @@
 import { workRefreshOptions } from "@/lib/work-refresh";
+import { WorkReadReporter } from "@/components/work-read-region";
 import { cardIsDue } from "@/lib/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -114,5 +115,12 @@ export function ActivityFeedFactorySource({
 		timeZone,
 	]);
 	useEffect(() => onUpdate(sourceKey, state), [sourceKey, state, onUpdate]);
-	return null;
+	return (
+		<>
+			<WorkReadReporter query={outputs} />
+			{details.map((query, index) => (
+				<WorkReadReporter key={sheets[index]!.id} query={query} />
+			))}
+		</>
+	);
 }

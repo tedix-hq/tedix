@@ -357,6 +357,35 @@ if (params.has("retry")) {
 
 if (params.get("motion") === "reduced")
 	document.documentElement.dataset.motion = "reduced";
+if (params.has("resilience")) {
+	const snapshots = client
+		.getQueryCache()
+		.getAll()
+		.filter((query) =>
+			JSON.stringify(query.queryKey).includes("workInteractions"),
+		)
+		.map((query) => ({ query, state: { ...query.state } }));
+	const fail = () => {
+		for (const { query } of snapshots) {
+			if (params.get("resilience") === "empty")
+				query.setState({ data: undefined });
+			query.setState({
+				status: "error",
+				fetchStatus: "idle",
+				fetchFailureCount: 4,
+				error: {
+					code: "SERVICE_UNAVAILABLE",
+					data: { traceId: "11111111-1111-4111-8111-111111111111" },
+				},
+			});
+		}
+	};
+	window.addEventListener("work-resilience:fail", fail);
+	window.addEventListener("work-resilience:recover", () => {
+		for (const { query, state } of snapshots) query.setState(state);
+	});
+	if (params.get("resilience") !== "ready") fail();
+}
 document.documentElement.classList.toggle(
 	"dark",
 	params.get("theme") === "dark",

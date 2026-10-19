@@ -95,6 +95,10 @@ import {
 import { collectAdvertisedScopes } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
 import {
+	requestTraceId,
+	correlatedErrorResponse,
+} from "@tedix/worker-kit/request-correlation";
+import {
 	applyInboundTrustHeaderHygiene,
 	isServiceBinding,
 	stripServiceBindingMarker,
@@ -1230,7 +1234,7 @@ export async function handleMcpRequest(
 	const hasSubscriptionStream = Boolean(
 		(env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS,
 	);
-	return mountMcp(server, request, {
+	const response = await mountMcp(server, request, {
 		toolResponseTimeoutMs: (name) =>
 			toolResponseTimeoutMs(
 				name,
@@ -1284,6 +1288,13 @@ export async function handleMcpRequest(
 		taskHandlers,
 		completionHandler,
 		directoryReadHandler,
+	});
+	const headers = new Headers(response.headers);
+	headers.set("X-Tedix-Trace-Id", traceId);
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
 	});
 }
 
@@ -3947,8 +3958,29 @@ const worker = {
  */
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	override async fetch(request: Request): Promise<Response> {
-		return worker.fetch(request, this.env, this.ctx);
+		return fetchWithCorrelation(request, this.env, this.ctx);
 	}
+}
+
+async function fetchWithCorrelation(
+	request: Request,
+	env: CloudflareEnv,
+	ctx: ExecutionContext,
+): Promise<Response> {
+	const traceId = requestTraceId(request.headers);
+	// The MCP handler owns SEP-414 body metadata; don't override it with a generated header.
+	const response = await correlatedErrorResponse(
+		await worker.fetch(request, env, ctx),
+		traceId,
+		false,
+	);
+	if (response.status >= 400)
+		console.warn("[MCP] request failed", {
+			event: "tedix.mcp.error",
+			traceId: response.headers.get("X-Tedix-Trace-Id"),
+			httpStatus: response.status,
+		});
+	return response;
 }
 
 export default {
@@ -3957,6 +3989,6 @@ export default {
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
 	): Promise<Response> {
-		return worker.fetch(stripServiceBindingMarker(request), env, ctx);
+		return fetchWithCorrelation(stripServiceBindingMarker(request), env, ctx);
 	},
 };

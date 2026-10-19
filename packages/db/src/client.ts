@@ -40,6 +40,12 @@ export const D1_BOOKMARK_HEADER = "x-d1-bookmark";
 export type D1SessionConstraint = "first-unconstrained" | "first-primary";
 
 export interface DbSession {
+	metrics: {
+		queries: number;
+		rowsRead: number;
+		rowsWritten: number;
+		withoutMeta: number;
+	};
 	/** Drizzle client bound to the session. Use this for every query in the request. */
 	db: DbClient;
 	/**
@@ -86,12 +92,76 @@ export function createDbSession(
 	// A bookmark is strictly more specific than a constraint — prefer it when the
 	// caller supplied one, so the session resumes rather than restarting.
 	const session = d1.withSession(bookmark?.trim() || constraint);
+	const metrics = { queries: 0, rowsRead: 0, rowsWritten: 0, withoutMeta: 0 };
+	const statements = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
+	const record = (result: D1Result) => {
+		if (
+			typeof result.meta.rows_read !== "number" ||
+			typeof result.meta.rows_written !== "number"
+		)
+			metrics.withoutMeta++;
+		metrics.rowsRead += result.meta.rows_read ?? 0;
+		metrics.rowsWritten += result.meta.rows_written ?? 0;
+	};
+	const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+		const proxy = new Proxy(statement, {
+			get(target, key) {
+				if (key === "bind")
+					return (...values: unknown[]) => wrap(target.bind(...values));
+				if (["raw", "first", "all", "run"].includes(String(key)))
+					return async (...args: unknown[]) => {
+						metrics.queries++;
+						// D1 raw/first omit meta. Never report their unknown row cost as zero.
+						const hasMeta = key === "all" || key === "run";
+						if (!hasMeta) metrics.withoutMeta++;
+						try {
+							const result = await Reflect.apply(
+								Reflect.get(target, key),
+								target,
+								args,
+							);
+							if (hasMeta) record(result as D1Result);
+							return result;
+						} catch (error) {
+							if (hasMeta) metrics.withoutMeta++;
+							throw error;
+						}
+					};
+				const value = Reflect.get(target, key);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+		statements.set(proxy, statement);
+		return proxy;
+	};
+	const measured = new Proxy(session, {
+		get(target, key) {
+			if (key === "prepare") return (sql: string) => wrap(target.prepare(sql));
+			if (key === "batch")
+				return async (batch: D1PreparedStatement[]) => {
+					metrics.queries += batch.length;
+					try {
+						const results = await target.batch(
+							batch.map((statement) => statements.get(statement) ?? statement),
+						);
+						results.forEach(record);
+						return results;
+					} catch (error) {
+						metrics.withoutMeta += batch.length;
+						throw error;
+					}
+				};
+			const value = Reflect.get(target, key);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
 	return {
+		metrics,
 		// Cast is confined to the `$client` escape hatch: a session-backed Drizzle
 		// instance has an identical query surface, and `$client` narrows from
 		// D1Database to D1DatabaseSession. The one caller that reaches for it
 		// (queries/billing/settlement.ts) takes `D1Executor`, which both satisfy.
-		db: drizzle(session, { relations }) as unknown as DbClient,
+		db: drizzle(measured, { relations }) as unknown as DbClient,
 		getBookmark: () => session.getBookmark() ?? null,
 	};
 }
