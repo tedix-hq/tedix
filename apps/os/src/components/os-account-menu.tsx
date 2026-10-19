@@ -1,3 +1,4 @@
+import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
 	Coins,
 	GearSix,
@@ -30,12 +31,16 @@ import { billingOverviewQueryOptions } from "@/lib/os-query-options";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
 import type { OsIdentity } from "@/lib/use-os-identity";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
-import { buildAccountProfileUrl } from "@/shared/account-profile-routing";
+import { OS_COPY } from "@/shared/os-copy";
+import { canAccessAdminSection } from "@/components/admin-layout";
 import { OS_LOGOUT_PATH } from "@/shared/session-status";
 
 export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 	const { state } = useSidebar();
 	const context = useOsOperationalContext();
+	const canManageSettings = context.data?.authority
+		? canAccessAdminSection(context.data.authority)
+		: false;
 	const canManageBilling =
 		!isLocalSession() &&
 		(context.data?.authority.permissions.includes("billing:manage") ?? false);
@@ -107,14 +112,14 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 							</DropdownMenuLabel>
 							<DropdownMenuLinkItem
 								closeOnClick
-								href="/compute"
+								render={<OsRouterLink to="/compute" />}
 								icon={
 									<span className="flex size-4 shrink-0 items-center justify-center">
 										<UsageIcon size={16} />
 									</span>
 								}
 							>
-								Usage
+								{OS_COPY.navigation.usage}
 								{remaining ? (
 									<span className="ml-auto text-kumo-subtle type-tedix-caption">
 										{remaining}
@@ -124,31 +129,37 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 							{canManageBilling ? (
 								<DropdownMenuLinkItem
 									closeOnClick
-									href="/admin/billing"
+									render={<OsRouterLink to="/admin/billing" />}
 									icon={Coins}
 								>
-									Billing
+									{OS_COPY.navigation.billing}
 								</DropdownMenuLinkItem>
 							) : null}
 						</DropdownMenuGroup>
 						<DropdownMenuSeparator />
 						<DropdownMenuGroup>
-							<DropdownMenuLinkItem closeOnClick href="/admin" icon={GearSix}>
-								Organization settings
+							{canManageSettings ? (
+								<DropdownMenuLinkItem
+									closeOnClick
+									render={<OsRouterLink to="/admin" />}
+									icon={GearSix}
+								>
+									{OS_COPY.navigation.settings}
+								</DropdownMenuLinkItem>
+							) : null}
+							<DropdownMenuLinkItem
+								closeOnClick
+								render={<OsRouterLink to="/account/settings" />}
+								icon={UserCircle}
+							>
+								{OS_COPY.navigation.personalSettings}
 							</DropdownMenuLinkItem>
 							<DropdownMenuLinkItem
 								closeOnClick
-								href="/account/settings"
+								render={<OsRouterLink to="/install" />}
 								icon={UserCircle}
 							>
-								Personal settings
-							</DropdownMenuLinkItem>
-							<DropdownMenuLinkItem
-								closeOnClick
-								href={buildAccountProfileUrl(new URL(window.location.href))}
-								icon={UserCircle}
-							>
-								Profile
+								{OS_COPY.navigation.install}
 							</DropdownMenuLinkItem>
 						</DropdownMenuGroup>
 						<DropdownMenuSeparator />
@@ -157,7 +168,7 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 							href={OS_LOGOUT_PATH}
 							icon={SignOut}
 						>
-							Sign out
+							{OS_COPY.navigation.signOut}
 						</DropdownMenuLinkItem>
 					</DropdownMenuContent>
 				</DropdownMenu>

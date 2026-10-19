@@ -1,16 +1,30 @@
+import { getOsSurface } from "@/lib/os-navigation";
+import { useOsLocale } from "@/lib/use-os-locale";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 
 export const CAPABILITY_NAV_ITEMS = [
-	{ id: "gateway", label: "Gateway", to: "/gateways" },
+	{
+		id: "gateway",
+		get label() {
+			return getOsSurface("gateways").label;
+		},
+		to: "/gateways",
+	},
 	{ id: "installed", label: "Installed apps", to: "/apps" },
 	{ id: "browse", label: "Browse apps", to: "/explore/apps" },
-	{ id: "skills", label: "Skills", to: "/skills" },
+	{
+		id: "skills",
+		get label() {
+			return getOsSurface("skills").label;
+		},
+		to: "/skills",
+	},
 	{
 		id: "organization",
-		label: "Organization connections",
+		label: "Connected accounts",
 		to: "/admin/connections",
 	},
 	{ id: "personal", label: "My accounts", to: "/account/connections" },
@@ -52,6 +66,7 @@ export function CapabilityNavigation({
 		| "organization"
 		| "personal";
 }) {
+	useOsLocale();
 	const activeItemRef = useRef<HTMLSpanElement>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const [overflowState, setOverflowState] = useState({

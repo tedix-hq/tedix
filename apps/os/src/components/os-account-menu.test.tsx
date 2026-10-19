@@ -19,8 +19,13 @@ const viewer = vi.hoisted(() => ({
 const billing = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock("@/lib/use-os-preferences", () => ({
 	useOsOperationalContext: () => ({
-		data: { authority: { permissions: viewer.permissions } },
+		data: { authority: { role: "member", permissions: viewer.permissions } },
 	}),
+}));
+vi.mock("@/components/kumo/link-provider", () => ({
+	OsRouterLink: ({ to, ...props }: { to: string }) => (
+		<a href={to} {...props} />
+	),
 }));
 vi.mock("@/lib/local-inference", () => ({
 	isLocalSession: () => viewer.local,
@@ -124,12 +129,18 @@ describe("sidebar account menu", () => {
 			]),
 		).toEqual([
 			["Usage", "/compute"],
-			["Organization settings", "/admin"],
 			["Personal settings", "/account/settings"],
-			["Profile", new URL("/account/profile", window.location.origin).href],
+			["Install apps", "/install"],
 			["Sign out", OS_LOGOUT_PATH],
 		]);
 		expect(billing.query).not.toHaveBeenCalled();
+	});
+
+	it("shows Settings only with organization settings access", async () => {
+		viewer.permissions = ["settings:manage"];
+		const menu = await openMenu();
+		expect(menu.querySelector('[href="/admin"]')?.textContent).toBe("Settings");
+		expect(menu.querySelector('[href="/admin/billing"]')).toBeNull();
 	});
 
 	it("closes when a navigation item is selected", async () => {

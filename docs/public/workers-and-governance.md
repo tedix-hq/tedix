@@ -138,7 +138,7 @@ revokes existing sessions. Creation and reads are audited as the tedi.
 The session cannot write, run, approve or widen its own access.
 
 From workspace chat, ask "Read this Workspace in your own console and tell
-me which Outputs are listed." The tedi uses its existing identity through
+me which Documents are listed." The tedi uses its existing identity through
 the session broker and the organization's `/tedi-console` entry; it must
 never borrow a human session or expose credentials in chat, links or logs.
 If access is missing, give the administrator the exact setting above.

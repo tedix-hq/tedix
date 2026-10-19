@@ -101,7 +101,7 @@ describe("AdminPage", () => {
 		const root = createRoot(container);
 		await act(async () => root.render(<AdminPage />));
 
-		expect(container.textContent).toContain("Admin");
+		expect(container.textContent).toContain("Settings");
 		expect(container.textContent).toContain(
 			"Manage your organization, access, connected services, and billing.",
 		);
@@ -115,7 +115,7 @@ describe("AdminPage", () => {
 			"Organization",
 			"Connections",
 			"API keys",
-			"Billing",
+			"Usage & billing",
 			"Payments",
 		]) {
 			expect(container.textContent).toContain(destination);
@@ -123,7 +123,7 @@ describe("AdminPage", () => {
 		const frames = container.querySelectorAll(
 			'[data-slot="icon-frame"][data-appearance="fill"][data-size="sm"]',
 		);
-		expect(frames).toHaveLength(5);
+		expect(frames).toHaveLength(8);
 
 		for (const internalDetail of [
 			"D1 authoritative",

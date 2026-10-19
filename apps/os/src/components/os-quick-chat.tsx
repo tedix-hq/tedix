@@ -139,8 +139,8 @@ const routeDescriptions: Record<
 		description: "Details of the selected execution run.",
 	},
 	"output-detail": {
-		title: "Output",
-		description: "The selected output and its content.",
+		title: "Document",
+		description: "The selected document and its content.",
 	},
 	"skill-detail": {
 		title: "Skill",
@@ -152,12 +152,12 @@ const routeDescriptions: Record<
 		description: "Find, create, and reopen workspaces.",
 	},
 	blueprints: {
-		title: "Blueprints",
+		title: "Templates",
 		description: "Reusable workspace templates.",
 	},
 	chat: { title: "Chat", description: "The native OS conversation workbench." },
 	outputs: {
-		title: "Outputs",
+		title: "Documents",
 		description: "Documents and other outputs available in this organization.",
 	},
 	skills: {
@@ -230,9 +230,8 @@ export function osPortableRouteContext(pathname: string): PortableRouteContext {
 		...routeDescriptions[routeKey],
 		...(path === "/work" || path === "/work/"
 			? {
-					title: "Admission queue",
-					description:
-						"Accepted work evaluated against dependencies, capabilities, authority, budget, resources, and active attempts. Rows distinguish completed gate evaluation from pending or unavailable checks.",
+					title: "Work",
+					description: "Your tasks, decisions and recent activity.",
 				}
 			: {}),
 	};

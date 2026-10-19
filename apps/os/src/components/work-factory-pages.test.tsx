@@ -648,10 +648,10 @@ describe("Work item read-only ledgers", () => {
 		);
 
 		expect(html.match(/data-slot="section-collection"/g)).toHaveLength(4);
-		expect(html).toContain("Runtime outcomes remain separate");
-		expect(html).toContain("independent review are separate transitions");
+		expect(html).toContain("See who worked on this task");
+		expect(html).toContain("Saved evidence may still need to be reviewed");
 		expect(html).toContain("lifecycle state is recorded here");
-		expect(html).toContain("Attempt 1");
+		expect(html).toContain("Session 1");
 		expect(html).toContain("Finished");
 		expect(html).toContain("Browser proof");
 		expect(html).toContain(compactEvidenceUri(machineEvidence));
@@ -673,8 +673,8 @@ describe("Work item read-only ledgers", () => {
 			/>,
 		);
 
-		expect(html).toContain("No acceptance contract defined.");
-		expect(html).toContain("No execution attempts on this page.");
+		expect(html).toContain("The expected result has not been described yet.");
+		expect(html).toContain("No work sessions on this page.");
 		expect(html).toContain("No lifecycle events recorded.");
 	});
 
@@ -746,7 +746,7 @@ describe("Work attempt records", () => {
 			/>,
 		);
 
-		expect(html).toContain('aria-label="Attempt records"');
+		expect(html).toContain('aria-label="Work session records"');
 		expect(html).toContain('data-slot="collection"');
 		expect(html).toContain('data-appearance="inline"');
 		expect(html).toContain("lg:hidden");
@@ -861,12 +861,12 @@ describe("Recorded Work outcomes and activity", () => {
 		const html = renderToStaticMarkup(
 			<WorkRecordedOutcome attempt={attempt} />,
 		);
-		expect(html).toContain("Latest Attempt: Finished · Succeeded");
+		expect(html).toContain("Latest session: Finished · Succeeded");
 		expect(html).toContain(attempt.summary);
 		expect(html).toContain(sha);
 		expect(html).toContain('dateTime="2026-10-03T09:15:00.000Z"');
 		expect(html).toContain(
-			"separately from deployment and independent verification",
+			"Check the latest session result and any published changes",
 		);
 		expect(html).not.toContain("Deployment verified");
 	});
@@ -882,7 +882,7 @@ describe("Recorded Work outcomes and activity", () => {
 		expect(html).toContain("no recorded settlement");
 		expect(html).not.toContain("In progress");
 		const missing = renderToStaticMarkup(<WorkRecordedOutcome />);
-		expect(missing).toContain("No Attempt settlement recorded");
+		expect(missing).toContain("No session result recorded");
 	});
 	it("shows last heartbeat as a timestamp without claiming harness liveness", () => {
 		const html = renderToStaticMarkup(
@@ -1005,9 +1005,9 @@ describe("Recorded Work outcomes and activity", () => {
 			);
 			if (!next) throw new Error("Attempt next-page control missing");
 			await act(async () => next.click());
-			expect(host.textContent).toContain("Attempt 1");
+			expect(host.textContent).toContain("Session 1");
 			expect(host.textContent).toContain(
-				"Latest Attempt: Finished · Succeeded",
+				"Latest session: Finished · Succeeded",
 			);
 			expect(host.textContent).toContain(attempt.summary);
 		} finally {

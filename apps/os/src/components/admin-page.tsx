@@ -1,7 +1,6 @@
 import {
 	Buildings,
 	CaretRight,
-	CreditCard,
 	Key,
 	Plugs,
 	Wallet,
@@ -25,15 +24,12 @@ import {
 	billingOverviewQueryOptions,
 	connectionsOverviewQueryOptions,
 } from "@/lib/os-query-options";
+import { OS_SETTINGS_NAVIGATION } from "@/lib/os-navigation";
+import { OS_COPY } from "@/shared/os-copy";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
 type AdminDestination = {
-	to:
-		| "/admin/organization"
-		| "/admin/connections"
-		| "/admin/api-keys"
-		| "/admin/billing"
-		| "/admin/payments";
+	to: string;
 	title: string;
 	description: string;
 	icon: ComponentType<{ size?: number }>;
@@ -57,12 +53,6 @@ const ADMIN_DESTINATIONS: AdminDestination[] = [
 		title: "API keys",
 		description: "Create, rotate, and revoke automation credentials",
 		icon: Key,
-	},
-	{
-		to: "/admin/billing",
-		title: "Billing",
-		description: "Usage, costs, plan limits, and subscription",
-		icon: CreditCard,
 	},
 	{
 		to: "/admin/payments",
@@ -288,7 +278,7 @@ export function AdminPage() {
 		<Page width="md" className="os-admin-page max-w-3xl">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Admin</PageTitle>
+					<PageTitle>{OS_COPY.navigation.settings}</PageTitle>
 					<PageDescription>
 						Manage your organization, access, connected services, and billing.
 					</PageDescription>
@@ -296,7 +286,7 @@ export function AdminPage() {
 			</PageHeader>
 			<SectionCollection
 				title="At a glance"
-				description="Current organization status from your effective access and live control-plane reads."
+				description="Check your organization, connected accounts and plan."
 				empty="Status is unavailable."
 			>
 				<StatusRow
@@ -318,7 +308,15 @@ export function AdminPage() {
 
 			<Text weight="medium">Manage settings</Text>
 			<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-				{ADMIN_DESTINATIONS.map((destination) => (
+				{[
+					...OS_SETTINGS_NAVIGATION.map((item) => ({
+						to: item.path,
+						title: item.label,
+						description: item.description,
+						icon: Buildings,
+					})),
+					...ADMIN_DESTINATIONS,
+				].map((destination) => (
 					<AdminDestinationRow key={destination.to} destination={destination} />
 				))}
 			</Card>

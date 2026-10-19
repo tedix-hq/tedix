@@ -365,7 +365,7 @@ describe("Work interactions", () => {
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
 			pageClass("xl"),
 		);
-		const views = page.host.querySelector('[aria-label="Interaction view"]');
+		const views = page.host.querySelector('[aria-label="Message view"]');
 		expect(views?.textContent).toContain("Requested by me");
 		const queue = page.host.querySelector(
 			'[aria-labelledby="interaction-queue-title"]',

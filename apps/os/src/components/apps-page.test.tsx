@@ -307,8 +307,8 @@ describe("AppRowMain", () => {
 				eligibility={{ badge: "ready", result: readyResult }}
 			/>,
 		);
-		expect(html).toContain("Governance ready");
-		expect(html).toContain("3 tools in governance inventory");
+		expect(html).toContain("Ready to use");
+		expect(html).toContain("3 tools listed");
 		expect(html).toContain("acme · acme.mcp.tedix.dev");
 		expect(html.match(/data-slot="badge"/g)).toHaveLength(2);
 		expect(html).not.toContain(">Healthy<");

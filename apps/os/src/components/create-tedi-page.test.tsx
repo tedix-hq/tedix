@@ -240,7 +240,7 @@ describe("CreateTediPage", () => {
 		expect(
 			doc.querySelector('[aria-labelledby="launch-readiness-title"]'),
 		).not.toBeNull();
-		expect(text).toContain("Ready to launch?");
+		expect(text).toContain("Ready to add your tedi?");
 		expect(text).not.toContain("Launch Summary");
 		const markup = doc.body.innerHTML;
 		for (const legacyToken of [

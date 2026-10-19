@@ -112,25 +112,23 @@ export type AbsentReason =
 export const ABSENT_LABEL: Readonly<Record<AbsentReason, string>> = {
 	no_rows: "No cost recorded",
 	ingestion_pending: "Cost pending",
-	ingestion_dark: "Cost ingestion dark",
-	not_priced_here: "No cost attributed",
-	unattested: "Cost unattested",
-	no_attribution_path: "Cost not attributable",
+	ingestion_dark: "Cost updates delayed",
+	not_priced_here: "Cost unavailable",
+	unattested: "Cost unconfirmed",
+	no_attribution_path: "Cost unknown",
 };
 
 export const ABSENT_DETAIL: Readonly<Record<AbsentReason, string>> = {
-	no_rows:
-		"No cost row exists for this. That is an absence of evidence, not a spend of zero.",
+	no_rows: "No cost has been recorded. This does not mean the work was free.",
 	ingestion_pending:
-		"The cost ledger ingests on a 15-minute cycle, so work newer than the last tick has no row yet.",
+		"Costs update every 15 minutes. This work may be too recent to show yet.",
 	ingestion_dark:
-		"The cost ledger has not received a row for hours. Any total shown understates real spend by an unknown amount.",
+		"Cost updates are delayed. The total shown may be lower than the actual spending.",
 	not_priced_here:
-		"The producer of this record emits effort (steps, attempts, tool calls, duration) and no monetary cost. Money for this work, if any, is attributed on the call ledger instead.",
-	unattested:
-		"The executor self-reported this cost with no schema and the server recorded it without verifying it, so no monetary value can be read from it.",
+		"This record tracks work rather than spending. Check the related run for its cost.",
+	unattested: "The assistant reported this cost, but it could not be checked.",
 	no_attribution_path:
-		"Nothing links this record to a cost row — it carries no run, workflow or reservation id — so its cost cannot be attributed here at all. That is a missing join, not a spend of zero. Cost for the work that produced it is on that run.",
+		"This record has no link to a recorded cost. Check the related run for its cost; a missing cost does not mean zero spending.",
 };
 
 /** Chip tone. `caution` covers every state that is not a trustworthy number. */

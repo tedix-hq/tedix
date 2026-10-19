@@ -1,7 +1,9 @@
+import { afterEach } from "vite-plus/test";
+import { setOsLocale } from "@/shared/os-locale";
+import { OS_SETTINGS_NAVIGATION, getOsSurface } from "./os-navigation";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	isOsShellNavigationItemActive,
-	OS_SHELL_FOOTER_NAVIGATION,
 	OS_SHELL_NAVIGATION_SECTIONS,
 	OS_SHELL_PRIMARY_NAVIGATION,
 	resolveOsShellRouteContext,
@@ -10,14 +12,13 @@ import {
 const OS_SHELL_ALL_NAVIGATION = [
 	...OS_SHELL_PRIMARY_NAVIGATION,
 	...OS_SHELL_NAVIGATION_SECTIONS.flatMap((section) => section.items),
-	...OS_SHELL_FOOTER_NAVIGATION,
 ];
 
 describe("OS shell navigation", () => {
 	it("keeps every Tedix surface reachable through the flat navigation", () => {
 		expect(
 			OS_SHELL_NAVIGATION_SECTIONS.map((section) => section.label),
-		).toEqual(["Capabilities", "Manage"]);
+		).toEqual(["Team and tools"]);
 		expect(OS_SHELL_ALL_NAVIGATION.map((item) => item.id)).toEqual([
 			"work",
 			"chat",
@@ -28,11 +29,6 @@ describe("OS shell navigation", () => {
 			"gateways",
 			"sites",
 			"brain",
-			"blueprints",
-			"widget",
-			"audit",
-			"compute",
-			"install",
 		]);
 	});
 
@@ -62,24 +58,21 @@ describe("OS shell navigation", () => {
 			true,
 		);
 		expect(resolveOsShellRouteContext("/apps")).toEqual({
-			section: "Capabilities",
-			crumbs: [{ label: "MCP Gateway" }],
+			crumbs: [{ label: "Connections" }],
 		});
 	});
 
 	it("keeps setup separate from account menu destinations", () => {
-		expect(OS_SHELL_FOOTER_NAVIGATION.map((item) => item.path)).toEqual([
-			"/install",
-		]);
 		for (const path of ["/admin"]) {
 			expect(resolveOsShellRouteContext(path)).toEqual({
-				section: "Manage",
-				crumbs: [{ label: "Organization settings" }],
+				crumbs: [{ label: "Settings" }],
 			});
 		}
 		expect(resolveOsShellRouteContext("/compute")).toEqual({
-			section: "Manage",
-			crumbs: [{ label: "Usage & budgets" }],
+			crumbs: [
+				{ label: "Settings", href: "/admin" },
+				{ label: "Usage & billing" },
+			],
 		});
 	});
 
@@ -94,7 +87,6 @@ describe("OS shell navigation", () => {
 			crumbs: [{ label: "Work" }],
 		});
 		expect(resolveOsShellRouteContext("/team/tedi-1")).toEqual({
-			section: "Capabilities",
 			crumbs: [{ label: "Team" }],
 		});
 		expect(resolveOsShellRouteContext("/account/settings")).toEqual({
@@ -130,11 +122,38 @@ describe("OS shell navigation", () => {
 			expect(context.crumbs.some((crumb) => crumb.href === "#")).toBe(false);
 		}
 		expect(resolveOsShellRouteContext("/admin/billing")).toEqual({
-			section: "Manage",
 			crumbs: [
-				{ label: "Organization settings", href: "/admin" },
-				{ label: "Billing" },
+				{ label: "Settings", href: "/admin" },
+				{ label: "Usage & billing" },
 			],
 		});
+	});
+});
+
+afterEach(() => setOsLocale("en-US"));
+describe("navigation translations", () => {
+	it("updates existing navigation items when Spanish preferences arrive", () => {
+		setOsLocale("es-ES");
+		expect(getOsSurface("outputs").label).toBe("Documentos");
+		expect(getOsSurface("gateways").description).toBe(
+			"Apps y herramientas que Tedix puede usar por ti.",
+		);
+		expect(OS_SETTINGS_NAVIGATION.map((item) => item.label)).toEqual([
+			"Plantillas",
+			"Chat del sitio web",
+			"Registro de actividad",
+			"Uso y facturación",
+		]);
+		expect(getOsSurface("gateways").label).toBe("Conexiones");
+		expect(getOsSurface("sites").label).toBe("Sitios web");
+		expect(getOsSurface("brain").label).toBe("Memoria");
+		expect(getOsSurface("install").label).toBe("Instalar apps");
+	});
+	it("keeps each settings destination reachable at its existing URL", () => {
+		for (const item of OS_SETTINGS_NAVIGATION)
+			expect(resolveOsShellRouteContext(item.path).crumbs).toEqual([
+				{ label: "Settings", href: "/admin" },
+				{ label: item.label },
+			]);
 	});
 });

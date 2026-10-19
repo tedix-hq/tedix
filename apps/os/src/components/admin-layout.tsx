@@ -42,10 +42,9 @@ function AdminRestricted() {
 		<Page width="md">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Administration</PageTitle>
+					<PageTitle>Settings</PageTitle>
 					<PageDescription>
-						Organization configuration for operators with administrative
-						authority.
+						Manage your organization and its settings.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
@@ -54,11 +53,10 @@ function AdminRestricted() {
 					<ShieldCheck size={20} aria-hidden />
 					<div>
 						<Text role="body" weight="medium">
-							This area needs administrative authority
+							Only organization owners and admins can open these settings
 						</Text>
 						<Text tone="secondary">
-							Your credential resolves no administrative role or permission in
-							this organization. Ask an owner or admin if you need access.
+							Ask an owner or admin if you need access to these settings.
 						</Text>
 					</div>
 				</CardContent>

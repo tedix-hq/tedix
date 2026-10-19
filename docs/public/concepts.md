@@ -5,7 +5,7 @@ title: "Core concepts"
 topic: "Platform"
 resource_type: guide
 description: "The small set of Tedix terms a new operator or agent needs before using the platform."
-summary: "Public glossary for organizations, tedis, runs, Work Items, cases, milestones, Outputs, apps, skills, and approvals"
+summary: "Public glossary for organizations, tedis, runs, Work Items, cases, milestones, Documents, apps, skills, and approvals"
 read_when:
   - Learning Tedix terminology
   - Translating a product request into Tedix objects

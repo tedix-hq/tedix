@@ -505,8 +505,8 @@ export function TeamEmpty() {
 				</EmptyMedia>
 				<EmptyTitle>No tedis yet</EmptyTitle>
 				<EmptyDescription>
-					Tedis are your organization&apos;s durable digital workers. Launch one
-					here or through the Tedix CLI — the same governed roster renders here.
+					A tedi is an assistant that works with your team. Add one to help with
+					recurring tasks.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
@@ -563,7 +563,7 @@ export function TeamPage({
 										/>
 									}
 								>
-									Launch Tedi
+									Add a tedi
 								</Button>
 							</PageActions>
 						) : null}

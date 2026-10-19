@@ -191,13 +191,13 @@ export function WorkItemReadOnlyLedgers({
 	return (
 		<>
 			<SectionCollection
-				title="Acceptance contract"
+				title="What done looks like"
 				description={
 					acceptanceContract
-						? "What done looks like"
-						: "Required before proposed work can become execution-ready."
+						? "The result this task should deliver."
+						: "Describe the result before starting work."
 				}
-				empty="No acceptance contract defined."
+				empty="The expected result has not been described yet."
 			>
 				{acceptanceContract?.doneLooksLike ? (
 					<li>{acceptanceContract.doneLooksLike}</li>
@@ -205,15 +205,15 @@ export function WorkItemReadOnlyLedgers({
 			</SectionCollection>
 			<PageGrid className="items-start">
 				<SectionCollection
-					title={`Attempts on this page (${attempts.length})`}
-					description="Runtime outcomes remain separate from business disposition."
-					empty="No execution attempts on this page."
+					title={`Work sessions on this page (${attempts.length})`}
+					description="See who worked on this task and how each session ended."
+					empty="No work sessions on this page."
 					footer={attemptControls}
 				>
 					{attemptsError ? (
 						<li>
 							<QueryFailure
-								title="Attempts unavailable"
+								title="Work sessions unavailable"
 								error={attemptsError}
 							/>
 						</li>
@@ -224,7 +224,7 @@ export function WorkItemReadOnlyLedgers({
 								key={attempt.id}
 							>
 								<div className="min-w-0">
-									<Text weight="medium">Attempt {attempt.attemptNumber}</Text>
+									<Text weight="medium">Session {attempt.attemptNumber}</Text>
 									<Text
 										role="label"
 										tone="mono-secondary"
@@ -255,7 +255,7 @@ export function WorkItemReadOnlyLedgers({
 				</SectionCollection>
 				<SectionCollection
 					title={`Evidence on this page (${evidence.length})`}
-					description="Submission and independent review are separate transitions."
+					description="Saved evidence may still need to be reviewed."
 					empty="No evidence submitted on this page."
 					footer={evidenceControls}
 				>
@@ -789,7 +789,7 @@ export function WorkItemsTable({
 							Outcome
 						</TableHead>
 						{showDisposition ? (
-							<TableHead className="w-[15%] xl:w-[12%]">Disposition</TableHead>
+							<TableHead className="w-[15%] xl:w-[12%]">Status</TableHead>
 						) : null}
 						{showReadiness ? (
 							<TableHead
@@ -1903,8 +1903,8 @@ export function WorkRecordedOutcome({
 	return (
 		<SectionCollection
 			title="Recorded outcome"
-			description="Work is completed. The latest Attempt result is recorded separately from deployment and independent verification."
-			empty="No Attempt settlement recorded."
+			description="Work is marked complete. Check the latest session result and any published changes below."
+			empty="No session result recorded."
 		>
 			<li className="grid gap-2">
 				{error ? (
@@ -1914,7 +1914,7 @@ export function WorkRecordedOutcome({
 				) : attempt ? (
 					<>
 						<Text weight="medium">
-							Latest Attempt: {sentenceCase(attempt.runtimeState)} ·{" "}
+							Latest session: {sentenceCase(attempt.runtimeState)} ·{" "}
 							{attemptOutcomeLabel(attempt)}
 						</Text>
 						<WorkAttemptActivity attempt={attempt} />
@@ -1949,8 +1949,8 @@ export function WorkRecordedOutcome({
 					</>
 				) : (
 					<Text as="p" role="body" tone="secondary">
-						No Attempt settlement recorded. Completion alone does not establish
-						an executor result or deployment.
+						No session result recorded. Completion alone does not establish an
+						executor result or deployment.
 					</Text>
 				)}
 			</li>
@@ -1985,7 +1985,7 @@ export function WorkAttemptsLedger({
 		<>
 			<Collection
 				appearance="inline"
-				aria-label="Attempt records"
+				aria-label="Work session records"
 				className="border-kumo-line border-y lg:hidden"
 			>
 				{records.map(({ attempt, workItem }) => (
@@ -2015,7 +2015,7 @@ export function WorkAttemptsLedger({
 					</li>
 				))}
 			</Collection>
-			<Table scrollLabel="Attempts" containerClassName="hidden lg:block">
+			<Table scrollLabel="Work sessions" containerClassName="hidden lg:block">
 				<TableHeader>
 					<TableRow>
 						<TableHead>Work</TableHead>

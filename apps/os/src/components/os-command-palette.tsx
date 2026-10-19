@@ -11,6 +11,8 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { OS_COPY } from "@/shared/os-copy";
+import { useOsLocale } from "@/lib/use-os-locale";
 import { OS_NAVIGATION } from "@/lib/os-navigation";
 import type { ComponentType } from "react";
 import { useMemo, useState } from "react";
@@ -59,6 +61,7 @@ export function OsCommandPalette({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
+	const locale = useOsLocale();
 	const navigate = useNavigate();
 	const [query, setQuery] = useState("");
 	const workspaces = useQuery({
@@ -104,16 +107,15 @@ export function OsCommandPalette({
 		pageCommands.push(
 			{
 				id: "page-settings",
-				title: "Settings",
-				description:
-					"Appearance, identity, harnesses, and personal preferences",
+				title: OS_COPY.navigation.personalSettings,
+				description: "Choose your appearance and personal preferences.",
 				icon: GearSix,
 				run: go("/account/settings"),
 			},
 			{
 				id: "page-admin",
-				title: "Admin settings",
-				description: "Tenant policy, access, AI, cost, and delivery controls",
+				title: OS_COPY.navigation.settings,
+				description: "Manage your organization, access and billing.",
 				icon: ShieldCheck,
 				run: go("/admin"),
 			},
@@ -125,7 +127,7 @@ export function OsCommandPalette({
 			id: `workspace-${workspace.id}`,
 			workspace,
 			title: workspace.name,
-			description: "Workspace · open its apps and outputs in Canvas",
+			description: "Workspace · open its apps and documents",
 			icon: SquaresFour,
 			run: () => {
 				void navigate({
@@ -143,7 +145,7 @@ export function OsCommandPalette({
 				return {
 					id: `output-${output.id}`,
 					title: output.title,
-					description: `${output.kind} · ${output.workspaceId && activeWorkspaceIds.has(output.workspaceId) ? "open collaboratively" : "governed output"}`,
+					description: `${output.kind} · ${output.workspaceId && activeWorkspaceIds.has(output.workspaceId) ? "open collaboratively" : "document"}`,
 					icon: Stack,
 					run: () => {
 						const target = primaryOutputNavigationTarget(
@@ -170,7 +172,7 @@ export function OsCommandPalette({
 			(app) => ({
 				id: `app-${app.id}`,
 				title: app.name,
-				description: `${app.slug} · MCP app`,
+				description: `${app.slug} · app`,
 				icon: AppWindow,
 				run: () =>
 					void navigate({ to: "/apps/$appId", params: { appId: app.id } }),
@@ -206,14 +208,19 @@ export function OsCommandPalette({
 				label: "Workspaces and Apps",
 				items: workspaceCommands,
 			},
-			{ id: "outputs", label: "Outputs", items: outputCommands },
-			{ id: "apps", label: "MCP apps", items: appCommands },
+			{
+				id: "outputs",
+				label: OS_COPY.navigation.outputs,
+				items: outputCommands,
+			},
+			{ id: "apps", label: "Apps", items: appCommands },
 			{ id: "skills", label: "Skills", items: skillCommands },
 			{ id: "runs", label: "Recent runs", items: runCommands },
 		];
 	}, [
 		apps.data,
 		navigate,
+		locale,
 		outputs.data,
 		runs.data,
 		skills.data,

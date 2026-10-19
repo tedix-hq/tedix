@@ -103,7 +103,7 @@ export function blueprintStatusVariant(
 }
 
 export function revisionIndicator(currentRevisionId: string | null): string {
-	return currentRevisionId ? "Revision recorded" : "No revision yet";
+	return currentRevisionId ? "Version saved" : "No version yet";
 }
 
 /**
@@ -113,28 +113,28 @@ export function revisionIndicator(currentRevisionId: string | null): string {
 export function requirementsSummaryText(
 	requirements: OsBlueprintDefinition["requirements"],
 ): string {
-	if (!requirements) return "no pinned requirements";
+	if (!requirements) return "no saved requirements";
 	const parts = [
-		`${formatCount(requirements.skills.length)} pinned skills`,
+		`${formatCount(requirements.skills.length)} saved skills`,
 		`${formatCount(requirements.connections.length)} connections`,
-		`${formatCount(requirements.policies.length)} policy packs`,
+		`${formatCount(requirements.policies.length)} rules`,
 	];
 	if ((requirements.resources ?? []).length > 0) {
 		parts.push(
-			`${formatCount(requirements.resources?.length ?? 0)} resource slots`,
+			`${formatCount(requirements.resources?.length ?? 0)} saved resources`,
 		);
 	}
 	if (requirements.steward) {
-		parts.push(`steward ${requirements.steward.tediSlug}`);
+		parts.push(`maintained by ${requirements.steward.tediSlug}`);
 	}
-	if (requirements.runtime) parts.push("a runtime constraint");
+	if (requirements.runtime) parts.push("run limits");
 	if (requirements.layout) {
 		parts.push(
-			`${formatCount(requirements.layout.placements.length)} placements`,
+			`${formatCount(requirements.layout.placements.length)} app positions`,
 		);
 	}
 	if (requirements.outputs.length > 0) {
-		parts.push(`${formatCount(requirements.outputs.length)} outputs`);
+		parts.push(`${formatCount(requirements.outputs.length)} documents`);
 	}
 	return parts.join(" · ");
 }
@@ -148,7 +148,7 @@ function RequirementsSummary({
 		<Text role="label" tone="secondary" className="m-0">
 			{requirementsSummaryText(requirements)}
 			{requirements
-				? ". Pins are preserved as recorded — author them with revise_os_blueprint, then resolve them with preflight_os_blueprint."
+				? ". Saved requirements stay with this version. Check the setup before creating a workspace."
 				: "."}
 		</Text>
 	);
@@ -311,11 +311,10 @@ export function BlueprintsEmpty() {
 				<EmptyMedia variant="icon">
 					<BlueprintIcon size={20} />
 				</EmptyMedia>
-				<EmptyTitle>No blueprints yet</EmptyTitle>
+				<EmptyTitle>No templates yet</EmptyTitle>
 				<EmptyDescription>
-					Blueprints are versioned workspace templates: declare apps, skills,
-					connections, and policy requirements once, then instantiate whole
-					workspaces from them.
+					Save a workspace setup once, then reuse its apps, skills and
+					connections for new workspaces.
 				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
@@ -400,7 +399,7 @@ function EditorLabel({ children }: { children: ReactNode }) {
 // ---------------------------------------------------------------------------
 
 const createBlueprintSchema = z.object({
-	name: z.string().trim().min(1, "Enter a Blueprint name.").max(120),
+	name: z.string().trim().min(1, "Enter a Template name.").max(120),
 	description: z.string().trim().max(2_000),
 });
 
@@ -443,13 +442,13 @@ function CreateBlueprintForm({
 				void form.handleSubmit();
 			}}
 		>
-			<EditorLabel>New blueprint</EditorLabel>
+			<EditorLabel>New template</EditorLabel>
 			<FormField form={form} name="name" label="Name">
 				{(field, meta) => (
 					<FormInput
 						field={field}
 						{...meta}
-						aria-label="Blueprint name"
+						aria-label="Template name"
 						maxLength={120}
 					/>
 				)}
@@ -459,14 +458,14 @@ function CreateBlueprintForm({
 					<FormTextarea
 						field={field}
 						{...meta}
-						aria-label="Blueprint description"
+						aria-label="Template description"
 						maxLength={2_000}
 					/>
 				)}
 			</FormField>
 			<div className="flex items-center gap-2">
 				<Button size="sm" disabled={create.isPending} type="submit">
-					{create.isPending ? "Creating…" : "Create blueprint"}
+					{create.isPending ? "Creating…" : "Create template"}
 				</Button>
 				<Button size="sm" variant="ghost" onClick={onCancel}>
 					Cancel
@@ -474,7 +473,7 @@ function CreateBlueprintForm({
 			</div>
 			{create.isError && (
 				<Alert variant="destructive">
-					<AlertTitle>Creating the blueprint failed</AlertTitle>
+					<AlertTitle>Creating the template failed</AlertTitle>
 					<AlertDescription>{(create.error as Error).message}</AlertDescription>
 				</Alert>
 			)}
@@ -635,7 +634,7 @@ function DefinitionEditor({
 			{revise.isError &&
 				(isConflictError(revise.error) ? (
 					<Alert variant="destructive">
-						<AlertTitle>Revision conflict</AlertTitle>
+						<AlertTitle>A newer version was saved</AlertTitle>
 						<AlertDescription>
 							A newer revision was recorded while you were editing — reload the
 							latest definition and re-apply your changes.
@@ -885,7 +884,7 @@ function InstantiateForm({
 					<EditorLabel>Setup check</EditorLabel>
 					{preflight.isPending && (
 						<Text role="label" tone="secondary" className="m-0">
-							Checking this Blueprint against your organization…
+							Checking this Template against your organization…
 						</Text>
 					)}
 					{preflight.isError && (
@@ -909,7 +908,7 @@ function InstantiateForm({
 						preflight.data?.preflight &&
 						!currentPreflight && (
 							<Text role="label" tone="error" className="m-0">
-								The Blueprint revision changed. Reload this Blueprint before
+								The Template revision changed. Reload this Template before
 								creating a workspace.
 							</Text>
 						)}
@@ -1088,7 +1087,7 @@ function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
 	if (detail.isError) {
 		return (
 			<Alert variant="destructive">
-				<AlertTitle>The blueprint is unavailable</AlertTitle>
+				<AlertTitle>The template is unavailable</AlertTitle>
 				<AlertDescription>{(detail.error as Error).message}</AlertDescription>
 			</Alert>
 		);
@@ -1104,8 +1103,8 @@ function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
 			<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-kumo-subtle type-tedix-label">
 				<span>
 					{currentRevision
-						? `Revision ${currentRevision.revision}`
-						: "No revision yet"}
+						? `Version ${currentRevision.revision}`
+						: "No version yet"}
 				</span>
 				<span>
 					· created{" "}
@@ -1392,20 +1391,19 @@ function GalleryExplore() {
 			<SectionHeader>
 				<SectionHeading>
 					<SectionTitle id="blueprint-gallery-title">
-						Published blueprints
+						Published templates
 					</SectionTitle>
 					<SectionDescription>
-						Governed starting points shared by your organization and trusted
-						tenant catalogs.
+						Workspace setups shared by your organization and trusted publishers.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<PageToolbar aria-label="Blueprint gallery controls" appearance="inline">
+			<PageToolbar aria-label="Template gallery controls" appearance="inline">
 				<SearchInput
-					aria-label="Search blueprint gallery"
+					aria-label="Search template gallery"
 					containerClassName="w-full sm:w-64 sm:shrink-0"
 					onChange={(event) => setQuery(event.target.value)}
-					placeholder="Search blueprints"
+					placeholder="Search templates"
 					value={query}
 				/>
 				{gallery.data && (
@@ -1416,7 +1414,7 @@ function GalleryExplore() {
 						aria-live="polite"
 					>
 						{formatCount(visibleItems.length)} of{" "}
-						{formatCount(gallery.data.items.length)} loaded blueprints
+						{formatCount(gallery.data.items.length)} loaded templates
 					</Text>
 				)}
 			</PageToolbar>
@@ -1430,7 +1428,7 @@ function GalleryExplore() {
 				visibleItems.length === 0 && (
 					<Empty appearance="quiet">
 						<EmptyDescription>
-							No blueprints match “{query.trim()}”.
+							No templates match “{query.trim()}”.
 						</EmptyDescription>
 					</Empty>
 				)}
@@ -1440,14 +1438,13 @@ function GalleryExplore() {
 						<GalleryCard key={item.id} item={item}>
 							<InstantiateForm
 								nameFieldLabel={`Workspace name for ${item.name}`}
-								successNote="The blueprint was copied into your organization."
+								successNote="The template was copied into your organization."
 								request={async (workspaceName) => {
 									const result =
 										await osApi.osWorkspaces.blueprints.instantiateFromGallery({
 											blueprintId: item.id,
 											workspaceName,
 										});
-									// The copy lands in "My blueprints".
 									queryClient.invalidateQueries({
 										queryKey: osQueryKeys.blueprints(),
 									});
@@ -1472,13 +1469,13 @@ function GalleryExplore() {
 type BlueprintsTab = "mine" | "explore";
 
 const BLUEPRINT_TABS = [
-	{ value: "mine", label: "My blueprints" },
+	{ value: "mine", label: "My templates" },
 	{ value: "explore", label: "Explore" },
 ] as const;
 
 const importBlueprintSchema = z.object({
 	file: z.custom<File>((value) => value instanceof File, {
-		message: "Choose a portable Blueprint package.",
+		message: "Choose a portable Template package.",
 	}),
 	name: z.string().trim().max(120),
 });
@@ -1503,7 +1500,7 @@ function BlueprintImportForm({
 			const parsed = OsBlueprintExportSchema.safeParse(submitted);
 			if (!parsed.success) {
 				throw new Error(
-					"The selected file is not a valid Tedix Blueprint package.",
+					"The selected file is not a valid Tedix Template package.",
 				);
 			}
 			return osApi.osWorkspaces.blueprints.import({
@@ -1528,10 +1525,10 @@ function BlueprintImportForm({
 
 	const errorMessage = importPackage.isError
 		? isConflictError(importPackage.error)
-			? "A Blueprint with that name already exists. Enter a different imported name."
+			? "A Template with that name already exists. Enter a different imported name."
 			: importPackage.error instanceof Error
 				? importPackage.error.message
-				: "Importing the Blueprint package failed."
+				: "Importing the Template package failed."
 		: null;
 
 	return (
@@ -1546,16 +1543,15 @@ function BlueprintImportForm({
 		>
 			<EditorLabel>Import portable package</EditorLabel>
 			<Text role="label" tone="secondary" className="m-0">
-				Tedix validates the versioned envelope and digest before it writes a
-				private draft. Dependencies remain declarations until you preflight them
-				in this organization.
+				Tedix checks the file before saving a private draft. Check the setup to
+				see whether its apps and connections are available to your team.
 			</Text>
-			<FormField form={form} name="file" label="Portable Blueprint package">
+			<FormField form={form} name="file" label="Portable Template package">
 				{(field, meta) => (
 					<Input
 						accept="application/json,.json,.tedix-blueprint.json"
 						aria-describedby={meta.errorId ?? meta.descriptionId}
-						aria-label="Portable Blueprint package"
+						aria-label="Portable Template package"
 						aria-invalid={meta.invalid}
 						id={meta.id}
 						onBlur={field.handleBlur}
@@ -1572,14 +1568,14 @@ function BlueprintImportForm({
 			<FormField
 				form={form}
 				name="name"
-				label="Imported Blueprint name"
+				label="Imported Template name"
 				optional
 			>
 				{(field, meta) => (
 					<FormInput
 						field={field}
 						{...meta}
-						aria-label="Imported Blueprint name"
+						aria-label="Imported Template name"
 						maxLength={120}
 						placeholder="Optional name override"
 					/>
@@ -1649,7 +1645,7 @@ function MyBlueprints({
 					size="sm"
 					variant="ghost"
 				>
-					<ArrowLeft size={14} /> All blueprints
+					<ArrowLeft size={14} /> All templates
 				</Button>
 				<div className="blueprint-detail-heading">
 					<div className="min-w-0">
@@ -1689,18 +1685,18 @@ function MyBlueprints({
 		<PageSection aria-labelledby="my-blueprints-title">
 			<SectionHeader>
 				<SectionHeading>
-					<SectionTitle id="my-blueprints-title">My blueprints</SectionTitle>
+					<SectionTitle id="my-blueprints-title">My templates</SectionTitle>
 					<SectionDescription>
 						Versioned workspace definitions owned by this organization.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<PageToolbar aria-label="Blueprint library controls" appearance="inline">
+			<PageToolbar aria-label="Template library controls" appearance="inline">
 				<SearchInput
-					aria-label="Search blueprints"
+					aria-label="Search templates"
 					containerClassName="w-full sm:w-64 sm:shrink-0"
 					onChange={(event) => changeQuery(event.target.value)}
-					placeholder="Search blueprints"
+					placeholder="Search templates"
 					value={query}
 				/>
 				{blueprints.data && (
@@ -1712,13 +1708,13 @@ function MyBlueprints({
 					>
 						Showing {formatCount(displayedItems.length)} of{" "}
 						{formatCount(visibleItems.length)}{" "}
-						{query.trim() ? "matching blueprints" : "blueprints"}
+						{query.trim() ? "matching templates" : "templates"}
 					</Text>
 				)}
 			</PageToolbar>
 			<ListQueryBoundary
 				query={blueprints}
-				errorTitle="Blueprints are unavailable"
+				errorTitle="Templates are unavailable"
 			/>
 			{blueprints.data && blueprints.data.items.length === 0 && (
 				<BlueprintsEmpty />
@@ -1728,14 +1724,14 @@ function MyBlueprints({
 				visibleItems.length === 0 && (
 					<Empty appearance="quiet">
 						<EmptyDescription>
-							No blueprints match “{query.trim()}”.
+							No templates match “{query.trim()}”.
 						</EmptyDescription>
 					</Empty>
 				)}
 			{blueprints.data && visibleItems.length > 0 && (
 				<>
 					<Collection
-						aria-label="Owned blueprints"
+						aria-label="Owned templates"
 						data-slot="blueprint-owned-list"
 						className="min-w-0"
 					>
@@ -1770,7 +1766,7 @@ function MyBlueprints({
 					{blueprints.data.truncated && (
 						<Text role="body" tone="secondary" className="m-0">
 							Showing the first {formatCount(blueprints.data.items.length)}{" "}
-							blueprints — more exist beyond this page.
+							templates — more exist beyond this page.
 						</Text>
 					)}
 				</>
@@ -1813,14 +1809,14 @@ export function BlueprintsPage() {
 								}}
 							>
 								<Plus size={14} />
-								New blueprint
+								New template
 							</Button>
 						</PageActions>
 					)}
 				</PageHeader>
 
 				<SegmentedControl
-					ariaLabel="Blueprint views"
+					ariaLabel="Template views"
 					className="w-full sm:w-fit"
 					value={tab}
 					onValueChange={setTab}

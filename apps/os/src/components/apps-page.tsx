@@ -131,7 +131,7 @@ export function visibilityLabel(visibility: AppListItem["visibility"]): string {
 }
 
 export const BADGE_LABELS: Record<EligibilityBadge, string> = {
-	ready: "governance ready",
+	ready: "ready to use",
 	setup_needed: "setup needed",
 	plan_upgrade: "plan upgrade",
 };
@@ -327,7 +327,7 @@ export function AppRowMain({
 			</Text>
 			{eligibility ? (
 				<Text as="span" role="caption" tone="secondary">
-					{toolCountLabel(eligibility.result)} in governance inventory
+					{toolCountLabel(eligibility.result)} listed
 				</Text>
 			) : null}
 			{app.description ? (
@@ -889,8 +889,7 @@ export function AppsPage({
 					<SectionHeading>
 						<SectionTitle>Installed apps</SectionTitle>
 						<SectionDescription>
-							Installation, account, gateway, governance, and health are
-							separate states. Open an app to manage them.
+							Open an app to check its connection, permissions and status.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -1066,8 +1065,8 @@ export function AppsPage({
 				)}
 				{eligibility.isError && apps.data && apps.data.data.length > 0 && (
 					<Text role="body" tone="secondary" className="m-0">
-						Grant status is unavailable right now — apps are listed without
-						their governance badges.
+						App permissions could not be checked. The apps are shown without
+						permission badges.
 					</Text>
 				)}
 			</PageSection>

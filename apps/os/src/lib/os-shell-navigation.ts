@@ -1,4 +1,9 @@
-import { getOsSurface, type OsNavigationItem } from "./os-navigation";
+import { OS_COPY } from "@/shared/os-copy";
+import {
+	OS_SETTINGS_NAVIGATION,
+	getOsSurface,
+	type OsNavigationItem,
+} from "./os-navigation";
 
 export type OsShellNavigationItem = OsNavigationItem;
 
@@ -14,27 +19,15 @@ export const OS_SHELL_PRIMARY_NAVIGATION = [
 	getOsSurface("outputs"),
 ] as const;
 
-/** Setup destinations that sit in the sidebar footer, beside settings. */
-export const OS_SHELL_FOOTER_NAVIGATION = [getOsSurface("install")] as const;
-
 export const OS_SHELL_NAVIGATION_SECTIONS = [
 	{
-		label: "Capabilities",
+		label: "Team and tools",
 		items: [
 			getOsSurface("team"),
 			getOsSurface("skills"),
 			getOsSurface("gateways"),
 			getOsSurface("sites"),
 			getOsSurface("brain"),
-		],
-	},
-	{
-		label: "Manage",
-		items: [
-			getOsSurface("blueprints"),
-			getOsSurface("widget"),
-			getOsSurface("audit"),
-			getOsSurface("compute"),
 		],
 	},
 ] as const satisfies readonly OsShellNavigationSection[];
@@ -70,64 +63,72 @@ export function resolveOsShellRouteContext(
 		{
 			prefix: "/outputs/",
 			parent: "/outputs",
-			label: "Outputs",
-			title: titles.output ?? "Output",
+			label: getOsSurface("outputs").label,
+			title: titles.output ?? "Document",
 		},
 		{
 			prefix: "/skills/",
 			parent: "/skills",
-			label: "Skills",
+			label: getOsSurface("skills").label,
 			title: titles.skill ?? "Skill",
-			section: "Capabilities",
 		},
 		{
 			prefix: "/apps/",
 			parent: "/gateways",
-			label: "MCP Gateway",
+			label: getOsSurface("gateways").label,
 			title: titles.app ?? "App",
-			section: "Capabilities",
 		},
 		{
 			prefix: "/workspace/",
 			parent: "/workspaces",
-			label: "Workspaces",
+			label: getOsSurface("workspaces").label,
 			title: titles.workspace ?? "Workspace",
 		},
 	];
 	const resource = resources.find(({ prefix }) => pathname.startsWith(prefix));
 	if (resource)
 		return {
-			...(resource.section ? { section: resource.section } : {}),
 			crumbs: [
 				{ label: resource.label, href: resource.parent },
 				{ label: resource.title },
 			],
 		};
 	if (pathname.startsWith("/account/settings")) {
-		return { section: "Account", crumbs: [{ label: "Personal settings" }] };
+		return {
+			section: "Account",
+			crumbs: [{ label: OS_COPY.navigation.personalSettings }],
+		};
 	}
 	if (pathname === "/admin" || pathname.startsWith("/admin/")) {
 		const destination = {
-			"/admin/billing": "Billing",
+			"/admin/billing": OS_COPY.navigation.compute,
 			"/admin/organization": "Organization",
 			"/admin/connections": "Connections",
 			"/admin/api-keys": "API keys",
 			"/admin/payments": "Payments",
 		}[pathname];
 		return {
-			section: "Manage",
 			crumbs: destination
 				? [
-						{ label: "Organization settings", href: "/admin" },
+						{ label: OS_COPY.navigation.settings, href: "/admin" },
 						{ label: destination },
 					]
-				: [{ label: "Organization settings" }],
+				: [{ label: OS_COPY.navigation.settings }],
 		};
 	}
-	for (const item of [
-		...OS_SHELL_PRIMARY_NAVIGATION,
-		...OS_SHELL_FOOTER_NAVIGATION,
-	]) {
+	const settingsItem = OS_SETTINGS_NAVIGATION.find((item) =>
+		isOsShellNavigationItemActive(item, pathname),
+	);
+	if (settingsItem)
+		return {
+			crumbs: [
+				{ label: OS_COPY.navigation.settings, href: "/admin" },
+				{ label: settingsItem.label },
+			],
+		};
+	if (pathname === "/install")
+		return { crumbs: [{ label: getOsSurface("install").label }] };
+	for (const item of OS_SHELL_PRIMARY_NAVIGATION) {
 		if (isOsShellNavigationItemActive(item, pathname))
 			return { crumbs: [{ label: item.label }] };
 	}
@@ -135,8 +136,7 @@ export function resolveOsShellRouteContext(
 		const activeItem = section.items.find((item) =>
 			isOsShellNavigationItemActive(item, pathname),
 		);
-		if (activeItem)
-			return { section: section.label, crumbs: [{ label: activeItem.label }] };
+		if (activeItem) return { crumbs: [{ label: activeItem.label }] };
 	}
 	return { crumbs: [{ label: "OS" }] };
 }

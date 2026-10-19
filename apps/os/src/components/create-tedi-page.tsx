@@ -707,14 +707,13 @@ export function CreateTediPage({
 					>
 						← Back to Tedis
 					</Link>
-					<PageTitle className="mt-3">Launch tedi</PageTitle>
+					<PageTitle className="mt-3">Add a tedi</PageTitle>
 					<PageDescription>
-						Create a new remote tedi with the shared platform model stack and
-						get it online fast.
+						Choose a name and instructions for your new assistant.
 					</PageDescription>
 				</PageHeading>
 				<PageActions>
-					<Badge variant="secondary">Fast path</Badge>
+					<Badge variant="secondary">New tedi</Badge>
 				</PageActions>
 			</PageHeader>
 
@@ -728,12 +727,12 @@ export function CreateTediPage({
 			>
 				<Card>
 					<CardHeader>
-						<CardTitle>Launch Configuration</CardTitle>
+						<CardTitle>Tedi settings</CardTitle>
 					</CardHeader>
 					<CardContent className="space-y-6">
 						<Input
 							label="Tedi name"
-							description="Required. The stable slug is generated from this name at launch."
+							description="Choose a name your team will recognize."
 							name="name"
 							required
 							value={state.name}
@@ -811,7 +810,7 @@ export function CreateTediPage({
 										Webchat only
 									</KumoSelect.Option>
 									<KumoSelect.Option value="none">
-										Launch now, connect later
+										Connect later
 									</KumoSelect.Option>
 								</KumoSelect>
 							</div>
@@ -1062,7 +1061,7 @@ export function CreateTediPage({
 									role="section"
 									weight="semibold"
 								>
-									Ready to launch?
+									Ready to add your tedi?
 								</Text>
 								<Text role="body" tone="secondary" className="mt-1">
 									Confirm the model, connection, and authority checks before
@@ -1143,7 +1142,7 @@ export function CreateTediPage({
 							title={!canCreateTedis ? TEDIS_CREATE_DENIED_REASON : undefined}
 						>
 							<RocketLaunch className="mr-2 h-4 w-4" />
-							{createMutation.isPending ? "Launching..." : "Launch tedi"}
+							{createMutation.isPending ? "Adding…" : "Add a tedi"}
 						</Button>
 					</CardContent>
 				</Card>

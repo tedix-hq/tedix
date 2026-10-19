@@ -429,8 +429,8 @@ describe("status and conflict helpers", () => {
 	});
 
 	it("labels the revision indicator honestly", () => {
-		expect(revisionIndicator(REVISION_ID)).toBe("Revision recorded");
-		expect(revisionIndicator(null)).toBe("No revision yet");
+		expect(revisionIndicator(REVISION_ID)).toBe("Version saved");
+		expect(revisionIndicator(null)).toBe("No version yet");
 	});
 
 	it("recognizes only the typed CONFLICT error", () => {
@@ -463,7 +463,7 @@ describe("BlueprintRow", () => {
 		expect(html).toContain("Weekly reporting pod");
 		expect(html).toContain('data-status="draft"');
 		expect(html).toContain("Draft");
-		expect(html).toContain("Revision recorded");
+		expect(html).toContain("Version saved");
 		expect(html).toContain('dateTime="2026-08-12T10:00:00.000Z"');
 		expect(html).not.toContain("aria-expanded");
 		expect(html.indexOf("Reporting workspace")).toBeLessThan(
@@ -478,7 +478,7 @@ describe("BlueprintRow", () => {
 				blueprint={blueprintFixture({ currentRevisionId: null })}
 			/>,
 		);
-		expect(html).toContain("No revision yet");
+		expect(html).toContain("No version yet");
 	});
 
 	it("flags catalog-visible blueprints with the In gallery badge", () => {
@@ -546,7 +546,7 @@ describe("GalleryEmpty", () => {
 describe("BlueprintsEmpty", () => {
 	it("explains the empty list without implying failure", () => {
 		expect(renderToStaticMarkup(<BlueprintsEmpty />)).toContain(
-			"No blueprints yet",
+			"No templates yet",
 		);
 	});
 });
@@ -561,7 +561,7 @@ describe("BlueprintsPage list", () => {
 			items: Array.from({ length: 18 }, (_, index) =>
 				blueprintFixture({
 					id: `blueprint-${index}`,
-					name: `Blueprint ${index + 1}`,
+					name: `Template ${index + 1}`,
 				}),
 			),
 			truncated: false,
@@ -571,22 +571,18 @@ describe("BlueprintsPage list", () => {
 
 		const list = container.querySelector('[data-slot="blueprint-owned-list"]');
 		expect(list?.children).toHaveLength(BLUEPRINTS_VISIBLE_PAGE_SIZE);
-		expect(container.textContent).toContain("Showing 15 of 18 blueprints");
+		expect(container.textContent).toContain("Showing 15 of 18 templates");
 		const libraryToolbar = container.querySelector(
-			'[data-slot="page-toolbar"][aria-label="Blueprint library controls"]',
+			'[data-slot="page-toolbar"][aria-label="Template library controls"]',
 		);
 		expect(
-			libraryToolbar?.querySelector('input[aria-label="Search blueprints"]'),
+			libraryToolbar?.querySelector('input[aria-label="Search templates"]'),
 		).not.toBeNull();
-		expect(libraryToolbar?.textContent).toContain(
-			"Showing 15 of 18 blueprints",
-		);
+		expect(libraryToolbar?.textContent).toContain("Showing 15 of 18 templates");
 		click(findButton(container, "Show more"));
 		expect(list?.children).toHaveLength(18);
-		expect(libraryToolbar?.textContent).toContain(
-			"Showing 18 of 18 blueprints",
-		);
-		setFieldValue(fieldByLabel(container, "Search blueprints"), "Blueprint");
+		expect(libraryToolbar?.textContent).toContain("Showing 18 of 18 templates");
+		setFieldValue(fieldByLabel(container, "Search templates"), "Template");
 		expect(list?.children).toHaveLength(BLUEPRINTS_VISIBLE_PAGE_SIZE);
 	});
 
@@ -599,7 +595,7 @@ describe("BlueprintsPage list", () => {
 		await flush();
 
 		const list = container.querySelector('[data-slot="blueprint-owned-list"]');
-		expect(list?.getAttribute("aria-label")).toBe("Owned blueprints");
+		expect(list?.getAttribute("aria-label")).toBe("Owned templates");
 		expect(list?.className).toContain("rounded-lg");
 		expect(list?.className).not.toContain("rounded-xl");
 	});
@@ -614,7 +610,7 @@ describe("BlueprintsPage list", () => {
 		const container = renderPage();
 		await flush();
 
-		expect(container.textContent).toContain("Blueprints are unavailable");
+		expect(container.textContent).toContain("Templates are unavailable");
 		expect(container.textContent).toContain(
 			"API request timed out after 15000ms",
 		);
@@ -645,7 +641,7 @@ describe("BlueprintsPage list", () => {
 		);
 		expect(container.textContent).toContain("Reporting workspace");
 		expect(container.textContent).toContain("Ops pod");
-		expect(container.textContent).toContain("My blueprints");
+		expect(container.textContent).toContain("My templates");
 		expect(
 			container.querySelector('[data-slot="section-header"]'),
 		).not.toBeNull();
@@ -660,24 +656,24 @@ describe("BlueprintsPage list", () => {
 		const container = renderPage();
 		await flush();
 
-		const search = fieldByLabel(container, "Search blueprints");
+		const search = fieldByLabel(container, "Search templates");
 		expect(
 			search.closest('[data-kumo-component="SearchInput"]')?.className,
 		).toContain("sm:w-64 sm:shrink-0");
 		setFieldValue(search, "finance");
 
-		expect(container.textContent).toContain("No blueprints match “finance”.");
+		expect(container.textContent).toContain("No templates match “finance”.");
 		expect(container.textContent).toContain(
-			"Showing 0 of 0 matching blueprints",
+			"Showing 0 of 0 matching templates",
 		);
-		expect(container.textContent).not.toContain("No blueprints yet");
+		expect(container.textContent).not.toContain("No templates yet");
 	});
 
 	it("shows the empty state when no blueprints exist", async () => {
 		blueprintsApi.list.mockResolvedValue({ items: [], truncated: false });
 		const container = renderPage();
 		await flush();
-		expect(container.textContent).toContain("No blueprints yet");
+		expect(container.textContent).toContain("No templates yet");
 	});
 });
 
@@ -688,23 +684,23 @@ describe("create flow", () => {
 		const container = renderPage();
 		await flush();
 
-		click(findButton(container, "New blueprint"));
+		click(findButton(container, "New template"));
 		setFieldValue(
-			fieldByLabel(container, "Blueprint name"),
+			fieldByLabel(container, "Template name"),
 			"  Reporting workspace ",
 		);
 		setFieldValue(
-			fieldByLabel(container, "Blueprint description"),
+			fieldByLabel(container, "Template description"),
 			"Weekly reporting pod",
 		);
-		click(findButton(container, "Create blueprint"));
+		click(findButton(container, "Create template"));
 		await flush();
 
 		expect(blueprintsApi.create).toHaveBeenCalledWith({
 			name: "Reporting workspace",
 			description: "Weekly reporting pod",
 		});
-		expect(container.querySelector('[aria-label="Blueprint name"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Template name"]')).toBeNull();
 	});
 });
 
@@ -774,7 +770,7 @@ describe("portable package flow", () => {
 		click(findButton(container, "Import package"));
 		const fileInput = fieldByLabel(
 			container,
-			"Portable Blueprint package",
+			"Portable Template package",
 		) as HTMLInputElement;
 		const file = new File(
 			[serializeBlueprintPackage(portableExportFixture())],
@@ -787,7 +783,7 @@ describe("portable package flow", () => {
 		});
 		act(() => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
 		setFieldValue(
-			fieldByLabel(container, "Imported Blueprint name"),
+			fieldByLabel(container, "Imported Template name"),
 			" Imported reporting workspace ",
 		);
 		const importButtons = [...container.querySelectorAll("button")].filter(
@@ -801,7 +797,7 @@ describe("portable package flow", () => {
 			name: "Imported reporting workspace",
 		});
 		expect(
-			container.querySelector('[aria-label="Portable Blueprint package"]'),
+			container.querySelector('[aria-label="Portable Template package"]'),
 		).toBeNull();
 	});
 });
@@ -869,7 +865,7 @@ describe("definition editing", () => {
 		click(findButton(container, "Save definition"));
 		await flush();
 
-		expect(container.textContent).toContain("Revision conflict");
+		expect(container.textContent).toContain("A newer version was saved");
 		const getCallsBefore = blueprintsApi.get.mock.calls.length;
 		click(findButton(container, "Reload latest"));
 		await flush();
@@ -1290,15 +1286,15 @@ describe("explore tab", () => {
 		expect(container.textContent).toContain("Sales Pod");
 		expect(container.textContent).toContain("by Second Org");
 		expect(container.textContent).toContain("2 apps");
-		expect(container.textContent).toContain("Published blueprints");
+		expect(container.textContent).toContain("Published templates");
 		expect(container.textContent).not.toContain("Featured");
-		const gallerySearch = fieldByLabel(container, "Search blueprint gallery");
+		const gallerySearch = fieldByLabel(container, "Search template gallery");
 		expect(
 			gallerySearch.closest(
-				'[data-slot="page-toolbar"][aria-label="Blueprint gallery controls"]',
+				'[data-slot="page-toolbar"][aria-label="Template gallery controls"]',
 			),
 		).not.toBeNull();
-		expect(container.textContent).toContain("1 of 1 loaded blueprints");
+		expect(container.textContent).toContain("1 of 1 loaded templates");
 		expect(
 			gallerySearch.closest('[data-kumo-component="SearchInput"]')?.className,
 		).toContain("sm:w-64 sm:shrink-0");
@@ -1318,7 +1314,7 @@ describe("explore tab", () => {
 		});
 		expect(container.textContent).toContain("Created workspace");
 		expect(container.textContent).toContain(
-			"The blueprint was copied into your organization.",
+			"The template was copied into your organization.",
 		);
 	});
 
