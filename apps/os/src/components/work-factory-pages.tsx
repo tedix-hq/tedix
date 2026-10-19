@@ -2323,9 +2323,11 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 					error={latestAttempts.error}
 				/>
 			) : null}
-			<section
+			<Surface
+				as="section"
+				tier="panel"
 				aria-label={OS_COPY.work.atAGlance}
-				className="grid gap-3 rounded-xl border border-kumo-line bg-kumo-base p-4"
+				className="grid gap-3 p-4"
 			>
 				<Text as="h2" weight="semibold">
 					{OS_COPY.work.atAGlance}
@@ -2391,7 +2393,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 						</dd>
 					</div>
 				</dl>
-			</section>
+			</Surface>
 			{item.description ? (
 				<Card>
 					<CardHeader>

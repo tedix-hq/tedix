@@ -8,6 +8,7 @@ import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
+import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import {
@@ -67,9 +68,11 @@ function WorkspaceScheduleRow({
 	const next = schedule.enabled ? nextRunLine(schedule.nextRunAt) : null;
 	const titleId = `workspace-schedule-${schedule.resourceId}`;
 	return (
-		<article
+		<Surface
+			as="article"
+			tier="panel"
 			aria-labelledby={titleId}
-			className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-xl border border-kumo-line p-4 sm:flex sm:p-6"
+			className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 p-4 sm:flex sm:p-6"
 			data-workspace-schedule={schedule.skillId}
 		>
 			<Clock
@@ -131,7 +134,7 @@ function WorkspaceScheduleRow({
 			>
 				See runs
 			</Link>
-		</article>
+		</Surface>
 	);
 }
 
