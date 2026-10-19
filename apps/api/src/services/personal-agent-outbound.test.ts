@@ -141,7 +141,10 @@ async function setup() {
 	}
 	async function decide(
 		workItemId: string,
-		metadata = { cardAction: "explore", decisionChoice: "approve" },
+		metadata: Record<string, string> = {
+			cardAction: "explore",
+			decisionChoice: "approve",
+		},
 		responderId = user,
 	) {
 		const id = crypto.randomUUID();
@@ -165,6 +168,50 @@ async function setup() {
 }
 
 describe("personal-agent outbound", () => {
+	it("does not treat automated acknowledgments in the person's name as their decision", async () => {
+		const h = await setup();
+		try {
+			for (const [n, metadata] of [
+				[
+					1,
+					{
+						source: "triage-fyi",
+						cardAction: "explore",
+						decisionChoice: "approve",
+					},
+				],
+				[
+					2,
+					{
+						draftOutcome: "auto",
+						cardAction: "explore",
+						decisionChoice: "approve",
+					},
+				],
+			] as const) {
+				const receipt = await h.finding(n);
+				await h.decide(receipt.workItemId, metadata);
+			}
+			await reconcilePersonalAgentOutcomes(h.db, h.env);
+			expect(
+				await listPersonalAgentOutcomes(h.db, {
+					orgId: org,
+					userId: user,
+					enrollmentId: h.e.enrollment.id,
+				}),
+			).toEqual([]);
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			expect((await h.client.value({}))[0]).toMatchObject({
+				findings: 2,
+				decisionCards: 2,
+				decidedFromCard: 0,
+				outcomes: 0,
+			});
+			expect(h.send).not.toHaveBeenCalled();
+		} finally {
+			h.sqlite.close();
+		}
+	});
 	it("returns current Work confirmations as corroborated and propagates changed stances without inventing system verification", async () => {
 		const h = await setup();
 		try {
