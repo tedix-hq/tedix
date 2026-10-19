@@ -464,6 +464,7 @@ export const listActivityProcedure = authOs.listActivity.handler(
 			orgId,
 			viewerUserId: context.authType === "user" ? context.user?.sub : undefined,
 			cursor: input.cursor,
+			afterSequence: input.afterSequence,
 			workItemId: input.workItemId,
 			projectId: input.projectId,
 			objectiveId: input.objectiveId,

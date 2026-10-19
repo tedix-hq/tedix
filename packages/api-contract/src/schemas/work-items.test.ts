@@ -4,6 +4,7 @@ import {
 	WorkAttemptCliRowSchema,
 	WorkCliLedgerInputSchema,
 	WorkCliEventInputSchema,
+	ListWorkActivityInputSchema,
 } from "./work-items";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -19,6 +20,28 @@ import {
 	ResolvedWorkEvidenceSchema,
 	WorkEvidencePreviewSchema,
 } from "./work-items";
+
+describe("Work activity polling input", () => {
+	it("rejects mixed pagination modes and invalid forward checkpoints", () => {
+		expect(ListWorkActivityInputSchema.parse({ afterSequence: 0 })).toEqual({
+			afterSequence: 0,
+		});
+		for (const afterSequence of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+			expect(
+				ListWorkActivityInputSchema.safeParse({ afterSequence }).success,
+			).toBe(false);
+		}
+		expect(
+			ListWorkActivityInputSchema.safeParse({
+				afterSequence: 0,
+				cursor: {
+					at: "2026-10-19T00:00:00.000Z",
+					id: "11111111-1111-4111-8111-111111111111",
+				},
+			}).success,
+		).toBe(false);
+	});
+});
 
 describe("Work Attempt Artifacts repository", () => {
 	it("normalizes a fork request and exposes secret-free provenance", () => {

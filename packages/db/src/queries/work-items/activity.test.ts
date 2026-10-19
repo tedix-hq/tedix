@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
+import { workEvents } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { listWorkActivity } from "./activity";
 
@@ -84,5 +85,71 @@ describe("listWorkActivity", () => {
 		const db = seed();
 		const { events } = await listWorkActivity(db, { orgId: "org" });
 		expect(events).toHaveLength(3);
+	});
+
+	it("polls by append sequence across equal and late timestamps without skipping the next page", async () => {
+		const db = seed(true);
+		const first = await listWorkActivity(db, {
+			orgId: "org",
+			afterSequence: 0,
+			limit: 1,
+		});
+		expect(first.events.map((e) => e.id)).toEqual(["e1"]);
+		expect(first).toMatchObject({
+			nextSequence: 1,
+			truncated: true,
+			nextCursor: null,
+		});
+		const second = await listWorkActivity(db, {
+			orgId: "org",
+			afterSequence: first.nextSequence,
+			limit: 2,
+		});
+		expect(second.events.map((e) => e.id)).toEqual(["e2", "e3"]);
+		expect(second).toMatchObject({ nextSequence: 3, truncated: false });
+		await db.insert(workEvents).values({
+			id: "late",
+			orgId: "org",
+			workItemId: "sweep",
+			eventType: "comment",
+			actorType: "external_agent",
+			actorId: "agent",
+			occurredAt: "2026-08-27T00:00:00.000Z",
+		});
+		const late = await listWorkActivity(db, {
+			orgId: "org",
+			afterSequence: second.nextSequence,
+		});
+		expect(late.events.map((e) => e.id)).toEqual(["late"]);
+		expect(late.nextSequence).toBe(4);
+		const empty = await listWorkActivity(db, {
+			orgId: "org",
+			afterSequence: late.nextSequence,
+		});
+		expect(empty).toMatchObject({
+			events: [],
+			nextSequence: 4,
+			truncated: false,
+		});
+	});
+
+	it("filters before a forward page and keeps another tenant's checkpoint empty", async () => {
+		const db = seed();
+		const result = await listWorkActivity(db, {
+			orgId: "org",
+			afterSequence: 0,
+			projectId: "proj",
+			objectiveId: "other-goal",
+			eventTypes: ["attempt.started"],
+			limit: 1,
+		});
+		expect(result.events.map((e) => e.id)).toEqual(["e3"]);
+		expect(result).toMatchObject({ nextSequence: 3, truncated: false });
+		expect(
+			await listWorkActivity(db, {
+				orgId: "another-org",
+				afterSequence: 0,
+			}),
+		).toMatchObject({ events: [], nextSequence: 0, truncated: false });
 	});
 });

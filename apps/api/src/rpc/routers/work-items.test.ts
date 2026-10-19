@@ -1167,3 +1167,63 @@ describe("bounded CLI projections using owning D1 reads", () => {
 		).toHaveLength(1);
 	});
 });
+
+describe("Work activity forward polling", () => {
+	it("passes the checkpoint and filters to the ledger and normalizes event disposition", async () => {
+		const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const foreignId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		seed({ id, projectId: PROJECT_ID, disposition: "accepted" });
+		seed({ id: foreignId, orgId: OTHER_ORG_ID, projectId: PROJECT_ID });
+		const insert = sqlite.prepare(
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES(?,?,?,'comment','external_agent','agent','{}',?)",
+		);
+		insert.run(
+			"11111111-1111-4111-8111-111111111111",
+			ORG_ID,
+			id,
+			"2026-10-19T01:00:00.000Z",
+		);
+		insert.run(
+			"22222222-2222-4222-8222-222222222222",
+			OTHER_ORG_ID,
+			foreignId,
+			"2026-10-19T01:00:00.000Z",
+		);
+		insert.run(
+			"33333333-3333-4333-8333-333333333333",
+			ORG_ID,
+			id,
+			"2026-10-18T01:00:00.000Z",
+		);
+		const c = client();
+		const first = await c.listActivity({
+			afterSequence: 0,
+			projectId: PROJECT_ID,
+			limit: 1,
+		});
+		expect(first).toMatchObject({
+			nextSequence: 1,
+			truncated: true,
+			nextCursor: null,
+		});
+		expect(first.events[0]).toMatchObject({
+			workItemId: id,
+			workItemDisposition: "accepted",
+		});
+		const next = await c.listActivity({
+			afterSequence: first.nextSequence,
+			projectId: PROJECT_ID,
+			limit: 1,
+		});
+		expect(next).toMatchObject({ nextSequence: 3, truncated: false });
+		expect(next.events.map((e) => e.id)).toEqual([
+			"33333333-3333-4333-8333-333333333333",
+		]);
+		expect(
+			await c.listActivity({
+				afterSequence: next.nextSequence,
+				projectId: PROJECT_ID,
+			}),
+		).toMatchObject({ events: [], nextSequence: 3 });
+	});
+});

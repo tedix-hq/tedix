@@ -63,6 +63,23 @@ it("filters a person's Feed before paging, retaining their tasks, requested help
 		expect(
 			[...activity.events, ...next.events].map((row) => row.workItemId).sort(),
 		).toEqual(["needed", "own", "shared"]);
+		const forward = await listWorkActivity(db, {
+			orgId: "org",
+			viewerUserId: "luz",
+			afterSequence: 0,
+			limit: 2,
+		});
+		const forwardNext = await listWorkActivity(db, {
+			orgId: "org",
+			viewerUserId: "luz",
+			afterSequence: forward.nextSequence,
+			limit: 2,
+		});
+		expect(forward.truncated).toBe(true);
+		expect(
+			[...forward.events, ...forwardNext.events].map((e) => e.workItemId),
+		).toEqual(["own", "needed", "shared"]);
+		expect(forwardNext).toMatchObject({ nextSequence: 4, truncated: false });
 		const attempts = await listOrgWorkAttempts(db, {
 			orgId: "org",
 			viewerUserId: "luz",
