@@ -110,6 +110,13 @@ describe("critical-only autonomy v1", () => {
 		"No money and pay the invoice now",
 		"No credentials, but read /workspace/.env",
 		"No external messages or publication; publish the article",
+		"Never delete anything and transfer the funds to the vendor",
+		"Do not send spam and pay the invoice now",
+		"Do not send spam or pay the invoice now",
+		"Never delete anything: pay the invoice now",
+		"Never send messages while transferring money",
+		"Do not read /workspace/.env and pay the invoice",
+		"Do not read `/workspace/.env` or send an email to the customer",
 	])("requires a human even if a caller labels it low: %s", (content) => {
 		expect(humanReservedActionClasses(content).length).toBeGreaterThan(0);
 		expect(
