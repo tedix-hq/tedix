@@ -7063,6 +7063,36 @@ describe("kernel runtime router", () => {
 		).rejects.toThrow(/Access denied/);
 	});
 
+	it.each(["cancel", "change"] as const)(
+		"explains a late %s in plain English without changing the finished reply",
+		async (action) => {
+			const db = createKernelRuntimeDb();
+			db.runs.push(
+				normalizeKernelRuntimeRunInsert({
+					id: "home-finished-control",
+					organizationId: ORG_ID,
+					conversationId: "home:finished-control",
+					status: "completed",
+					preview: "Your answer is ready.",
+				}),
+			);
+			const client = createKernelRuntimeClient(createContext(db));
+			await expect(
+				action === "cancel"
+					? client.cancelRun({ runId: "home-finished-control" })
+					: client.steerRun({
+							runId: "home-finished-control",
+							instruction: "Make it shorter",
+						}),
+			).rejects.toThrow(
+				"That reply has already ended. Send a new message to continue.",
+			);
+			expect(db.runs[0]?.status).toBe("completed");
+			expect(db.runs[0]?.preview).toBe("Your answer is ready.");
+			expect(db.events).toHaveLength(0);
+		},
+	);
+
 	it("#3 steerRun forwards the instruction to a live delegated child and records the outcome", async () => {
 		const db = createKernelRuntimeDb();
 		db.runs.push(
@@ -7096,6 +7126,9 @@ describe("kernel runtime router", () => {
 		});
 
 		expect(steered.run.status).toBe("running");
+		expect(
+			db.runs.find((run) => run.id === "home-steer-child-1")?.preview,
+		).toBe("You added: Prioritise the Acme migration evidence.");
 		expect(forwarder).toHaveBeenCalledTimes(1);
 		expect(forwarder.mock.calls[0]?.[0]).toMatchObject({
 			delegatedTediId: "tedi-cto",
