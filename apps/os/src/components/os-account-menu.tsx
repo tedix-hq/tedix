@@ -83,9 +83,10 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 				) : null}
 			</Tooltip>
 			<DropdownMenuContent
-				side="top"
-				align="start"
-				className="w-[260px] max-w-[calc(100vw-1rem)]"
+				side={state === "collapsed" ? "right" : "top"}
+				align={state === "collapsed" ? "end" : "start"}
+				collisionPadding={8}
+				className="w-[calc(var(--sidebar-width,260px)-2rem)] max-w-[calc(100vw-1rem)] outline-none!"
 			>
 				<DropdownMenuGroup>
 					<DropdownMenuLabel className="flex items-center gap-2 px-2 py-2">
@@ -102,7 +103,11 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 					<DropdownMenuLinkItem
 						closeOnClick
 						href="/compute"
-						icon={<UsageIcon size={16} />}
+						icon={
+							<span className="mr-2 flex size-4 shrink-0 items-center justify-center">
+								<UsageIcon size={16} />
+							</span>
+						}
 					>
 						Usage
 						{remaining ? (
