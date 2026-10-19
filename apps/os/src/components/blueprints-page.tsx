@@ -703,7 +703,7 @@ function BlueprintSetupCheck({
 				will check again before writing the workspace.
 			</Text>
 			{preflight.decisions.length > 0 && (
-				<ul className="m-0 grid gap-1 pl-4 text-sm text-kumo-subtle">
+				<ul className="m-0 grid gap-1 pl-4 type-tedix-body text-kumo-subtle">
 					{preflight.decisions.map((decision, index) => (
 						<li key={`${decision.kind}:${decision.subject}:${index}`}>
 							{sentenceCase(decision.kind.replaceAll("_", " "))}:{" "}
@@ -1101,7 +1101,7 @@ function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
 			data-slot="blueprint-detail"
 			className="grid min-w-0 gap-4 px-4 py-4"
 		>
-			<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-kumo-subtle text-xs">
+			<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-kumo-subtle type-tedix-label">
 				<span>
 					{currentRevision
 						? `Revision ${currentRevision.revision}`
@@ -1153,7 +1153,7 @@ function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
 					</Text>
 				)}
 				{exportPackage.isSuccess && (
-					<span className="text-kumo-success text-xs" role="status">
+					<span className="text-kumo-success type-tedix-label" role="status">
 						Portable package downloaded.
 					</span>
 				)}
@@ -1195,7 +1195,7 @@ function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
 						{publish.isPending ? "Publishing…" : "Publish"}
 					</Button>
 					{publish.isPending && (
-						<span className="text-kumo-subtle text-xs" role="status">
+						<span className="text-kumo-subtle type-tedix-label" role="status">
 							Waiting for the server to confirm the publish…
 						</span>
 					)}
