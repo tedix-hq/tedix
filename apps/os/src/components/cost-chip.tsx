@@ -14,15 +14,13 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Tone → Badge variant. Nothing that is not a trustworthy number gets a
- * confident variant: an unavailable read is outline, and every caution state
- * (absent, unpriced, quarantined) is warning-toned so a missing number never
- * reads like a settled one.
+ * Cost provenance is metadata, not execution status. Labels distinguish
+ * missing and estimated readings without borrowing status colours.
  */
 export const COST_TONE_VARIANTS: Record<CostTone, BadgeVariant> = {
-	known: "success",
-	estimate: "info",
-	caution: "warning",
+	known: "secondary",
+	estimate: "secondary",
+	caution: "outline",
 	unavailable: "outline",
 };
 
@@ -79,7 +77,7 @@ export function CostChip({
 		>
 			<span className="tabular-nums">{readingLabel(reading)}</span>
 			{provenance !== null && (
-				<span className="ml-1 opacity-70">{PROVENANCE_LABEL[provenance]}</span>
+				<span className="ml-1">{PROVENANCE_LABEL[provenance]}</span>
 			)}
 		</Badge>
 	);
