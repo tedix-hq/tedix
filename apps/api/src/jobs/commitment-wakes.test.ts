@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -20,14 +20,24 @@ import { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { osGadgetExecutions } from "@tedix/db/schema/os-workspaces";
 import { skillRuns } from "@tedix/db/schema/cognitive";
 import {
+	advanceCommitmentWakeCheckpoint,
 	listCommitmentChanges,
 	lastCommitmentWakeCheckpoint,
 } from "@tedix/db/queries/work-items/commitment-changes";
-import { platformCronExecutions } from "@tedix/db/schema/platform-cron-executions";
+import {
+	platformCronExecutions,
+	platformCronCheckpoints,
+} from "@tedix/db/schema/platform-cron-executions";
 import {
 	buildCommitmentWakeRequest,
 	commitmentWakeWindows,
+	dispatchCommitmentWakes,
 } from "./commitment-wakes";
+
+vi.mock("./stall-recovery", () => ({
+	dispatchStallRecovery: vi.fn(async () => 0),
+}));
+import { dispatchStallRecovery } from "./stall-recovery";
 
 const after = "2026-10-16T12:00:00.000Z";
 const through = "2026-10-16T12:02:00.000Z";
@@ -51,31 +61,27 @@ function fixture(plans: string[] = []) {
 			osGadgetExecutions,
 			skillRuns,
 			platformCronExecutions,
+			platformCronCheckpoints,
 		),
 	);
 	sqlite.exec(`INSERT INTO tedis (id,organization_id,name,slug,status) VALUES ('worker-1','org-1','Orion','orion','active'),('worker-2','org-2','Lyra','lyra','active');
 	INSERT INTO work_items(id,org_id,title,created_at,disposition,accountable_owner_type,accountable_owner_id) VALUES ('work-1','org-1','Scratch commitment','${after}','accepted','tedi','worker-1');`);
-	return {
-		sqlite,
-		db: createDbClient(
-			createD1Facade({
-				prepare(query) {
-					// The live D1 installation rejects the original eight-term scan.
-					expect((query.match(/\bUNION\b/gi) ?? []).length).toBeLessThan(4);
-					plans.push(
-						...sqlite
-							.prepare(`EXPLAIN QUERY PLAN ${query}`)
-							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
-							.map((row) => String(row.detail)),
-					);
-					return sqlite.prepare(query);
-				},
-				exec: (query) => {
-					sqlite.exec(query);
-				},
-			}),
-		),
-	};
+	const binding = createD1Facade({
+		prepare(query) {
+			expect((query.match(/\bUNION\b/gi) ?? []).length).toBeLessThan(4);
+			plans.push(
+				...sqlite
+					.prepare(`EXPLAIN QUERY PLAN ${query}`)
+					.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+					.map((row) => String(row.detail)),
+			);
+			return sqlite.prepare(query);
+		},
+		exec: (query) => {
+			sqlite.exec(query);
+		},
+	});
+	return { sqlite, db: createDbClient(binding), binding };
 }
 
 describe("commitment wakes", () => {
@@ -84,6 +90,20 @@ describe("commitment wakes", () => {
 		const { db } = fixture(plans);
 		await listCommitmentChanges(db, after, through, "production");
 		expect(plans).toContain("MATERIALIZE recent_work_events");
+		for (const name of [
+			"idx_work_items_deadline",
+			"idx_work_items_due_date",
+			"idx_work_approval_resolved",
+			"idx_approval_requests_resolved",
+			"idx_work_interaction_responses_time",
+			"idx_work_interactions_due",
+			"idx_os_gadget_executions_completed",
+			"idx_skill_runs_completed",
+		]) {
+			expect(plans, name).toContainEqual(
+				expect.stringContaining(`USING INDEX ${name}`),
+			);
+		}
 		expect(plans).toContainEqual(
 			expect.stringMatching(
 				/SEARCH work_events USING INDEX idx_work_events_occurred/,
@@ -96,37 +116,102 @@ describe("commitment wakes", () => {
 		sqlite.exec(
 			`INSERT INTO platform_cron_executions(id,schedule_id,cron,scheduled_at,started_at,status,affected_row_counts,created_at) VALUES ('tick-1','commitment-wakes','*/2 * * * *','${after}','${after}','failure','{}','${after}'),('tick-2','commitment-wakes','*/2 * * * *','${through}','${through}','running','{}','${through}')`,
 		);
-		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-16T11:56:00.000Z",
+		);
 		sqlite.exec(
 			"UPDATE platform_cron_executions SET status='success' WHERE id='tick-2'",
 		);
-		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
 	});
 	it("debounces until a whole window settles and replays the same windows after failure", () => {
 		const now = Date.parse(through);
 		expect(commitmentWakeWindows(null, now)).toEqual([
 			{ after: "2026-10-16T11:58:00.000Z", through: after },
 		]);
-		expect(commitmentWakeWindows(after, now + 30_000)).toHaveLength(2);
-		expect(commitmentWakeWindows(through, now + 30_000)).toEqual([
+		expect(commitmentWakeWindows(after, now + 30_000)).toEqual([
 			{ after, through },
 		]);
+		expect(commitmentWakeWindows(through, now + 30_000)).toEqual([]);
 	});
-	it("retains an oversized backlog instead of replaying or silently skipping it", () => {
-		const now = Date.parse(through) + 30_000;
-		expect(commitmentWakeWindows("2026-10-16T11:42:30.000Z", now)).toHaveLength(
-			10,
+	it("drains an old checkpoint in contiguous ten-window ticks", async () => {
+		const { db, binding } = fixture();
+		const start = "2026-10-17T12:18:00.000Z";
+		const now = Date.parse("2026-10-19T15:04:40.000Z");
+		await advanceCommitmentWakeCheckpoint(db, start);
+		const env = { DB: binding, ENVIRONMENT: "test" } as CloudflareEnv;
+		const counts = await dispatchCommitmentWakes(env, now);
+		const first = "2026-10-17T12:38:00.000Z";
+		expect(counts).toMatchObject({
+			windowsProcessed: 10,
+			checkpointMs: Date.parse(first),
+		});
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(first);
+		await dispatchCommitmentWakes(env, now);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-17T12:58:00.000Z",
 		);
-		expect(() =>
-			commitmentWakeWindows("2026-10-16T11:40:30.000Z", now),
-		).toThrow("Commitment wake replay budget exceeded; checkpoint retained");
-		expect(() =>
-			commitmentWakeWindows(
-				"2026-10-17T12:18:30.000Z",
-				Date.parse("2026-10-19T15:04:40.000Z"),
-			),
-		).toThrow("Commitment wake replay budget exceeded; checkpoint retained");
+		await advanceCommitmentWakeCheckpoint(db, first);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-17T12:58:00.000Z",
+		);
 	});
+	it("pins a fresh scheduler boundary when its first wake fails", async () => {
+		const { sqlite, db, binding } = fixture();
+		sqlite.exec(
+			`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('first','org-1','work-1','work.accepted','user','owner','${changedAt}')`,
+		);
+		const env = {
+			DB: binding,
+			ENVIRONMENT: "test",
+			TEDI_SERVICE: {
+				fetch: async () => new Response("retry", { status: 503 }),
+			},
+		} as unknown as CloudflareEnv;
+		await expect(
+			dispatchCommitmentWakes(env, Date.parse(through) + 30_000),
+		).rejects.toThrow();
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
+	});
+	it("retains accepted windows on later failure and retries with the same delivery key", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES
+			('first','org-1','work-1','work.accepted','user','owner','${changedAt}'),
+			('second','org-1','work-1','work.accepted','user','owner','2026-10-16T12:03:00.000Z')`);
+		const keys: string[] = [];
+		const fetch = vi.fn(async (request: Request) => {
+			keys.push(
+				((await request.json()) as { client_request_id: string })
+					.client_request_id,
+			);
+			return keys.length === 2
+				? new Response("unavailable", { status: 503 })
+				: Response.json({ run_id: "run-accepted", accepted: true });
+		});
+		const env = {
+			DB: binding,
+			ENVIRONMENT: "test",
+			TEDI_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		const now = Date.parse("2026-10-16T12:06:30.000Z");
+		await expect(dispatchCommitmentWakes(env, now)).rejects.toThrow();
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		expect(dispatchStallRecovery).toHaveBeenCalled();
+		await dispatchCommitmentWakes(env, now);
+		expect(keys[1]).toBe(keys[2]);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-16T12:06:00.000Z",
+		);
+		// Health receipts cannot jump over replay progress.
+		sqlite.exec(
+			`INSERT INTO platform_cron_executions(id,schedule_id,cron,scheduled_at,started_at,status,affected_row_counts,created_at) VALUES ('healthy','commitment-wakes','*/2 * * * *','2026-10-19T12:00:00.000Z','${after}','success','{}','${after}')`,
+		);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-16T12:06:00.000Z",
+		);
+	});
+
 	it("suppresses self writes, completed Work, unchanged records and foreign tenants", async () => {
 		const { sqlite, db } = fixture();
 		const event = sqlite.prepare(
@@ -187,6 +272,25 @@ describe("commitment wakes", () => {
 				"2026-10-16T12:04:00.000Z",
 				"production",
 			),
+		).toEqual([]);
+	});
+	it("uses due date only without a deadline and keeps the time window exclusive at its start", async () => {
+		const { sqlite, db } = fixture();
+		sqlite
+			.prepare("UPDATE work_items SET due_date=?, deadline=?")
+			.run(changedAt, "2026-10-17T12:00:00.000Z");
+		expect(
+			await listCommitmentChanges(db, after, through, "production"),
+		).toEqual([]);
+		sqlite.exec("UPDATE work_items SET deadline=NULL");
+		expect(
+			(await listCommitmentChanges(db, after, through, "production")).map(
+				(row) => row.key,
+			),
+		).toEqual([`overdue:work-1:${changedAt}`]);
+		sqlite.prepare("UPDATE work_items SET due_date=?").run(after);
+		expect(
+			await listCommitmentChanges(db, after, through, "production"),
 		).toEqual([]);
 	});
 	it("wakes the requester when another actor answers an Interaction", async () => {

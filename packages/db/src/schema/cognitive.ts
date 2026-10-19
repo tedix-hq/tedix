@@ -645,6 +645,7 @@ export const skillRuns = sqliteTable(
 		originTediRunId: text("origin_tedi_run_id"),
 	},
 	(table) => [
+		index("idx_skill_runs_completed").on(table.completedAt),
 		index("idx_skill_runs_org_status").on(table.organizationId, table.status),
 		index("idx_skill_runs_skill").on(table.skillId),
 		index("idx_skill_runs_tedi_started").on(table.tediId, table.startedAt),

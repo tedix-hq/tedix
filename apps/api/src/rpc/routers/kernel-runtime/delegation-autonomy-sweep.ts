@@ -76,20 +76,20 @@ export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 				held.push({ runId: run.id, reason: "operator-excluded reference" });
 				continue;
 			}
-			const review = await reviewDelegationAutonomy(context, run);
-			if (!review.allowed) {
-				if (review.executionBlocked) {
-					if (await closePolicyBlockedDelegation(context, run))
-						blocked.push({ runId: run.id, reason: review.reason });
-					else
-						held.push({
-							runId: run.id,
-							reason: "delegation or policy changed; reload",
-						});
-				} else held.push({ runId: run.id, reason: review.reason });
-				continue;
-			}
 			try {
+				const review = await reviewDelegationAutonomy(context, run);
+				if (!review.allowed) {
+					if (review.executionBlocked) {
+						if (await closePolicyBlockedDelegation(context, run))
+							blocked.push({ runId: run.id, reason: review.reason });
+						else
+							held.push({
+								runId: run.id,
+								reason: "delegation or policy changed; reload",
+							});
+					} else held.push({ runId: run.id, reason: review.reason });
+					continue;
+				}
 				if (review.workstation)
 					await releaseWorkstationDelegationAutonomy(context, {
 						organizationId,

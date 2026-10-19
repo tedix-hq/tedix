@@ -89,6 +89,7 @@ export const tediApprovalRequests = sqliteTable(
 		workflowId: text("workflow_id"),
 	},
 	(table) => [
+		index("idx_approval_requests_resolved").on(table.resolvedAt),
 		index("idx_approval_requests_status").on(table.orgId, table.status),
 		index("idx_approval_requests_tedi_status").on(table.tediId, table.status),
 	],

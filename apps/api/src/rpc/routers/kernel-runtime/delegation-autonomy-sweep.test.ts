@@ -15,8 +15,7 @@ const mocks = vi.hoisted(() => ({
 	workstation: vi.fn(),
 	audit: vi.fn(),
 	member: vi.fn(),
-	transition: vi.fn(),
-	event: vi.fn(),
+	settle: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/organization-members", () => ({
 	getMemberByUserId: mocks.member,
@@ -25,7 +24,6 @@ vi.mock("@tedix/db/queries/kernel-runtime-runs", () => ({
 	listPendingDelegationRuns: vi.fn(async () =>
 		mocks.rows.filter((row) => row.status === "requires_approval"),
 	),
-	transitionKernelRuntimeRunStatus: mocks.transition,
 }));
 vi.mock("@tedix/db/queries/audit", () => ({ insertAuditEvent: mocks.audit }));
 vi.mock("./delegation-autonomy-review", () => ({
@@ -49,7 +47,7 @@ vi.mock("./delegation-autonomy-workstation", () => ({
 }));
 vi.mock("../kernel/run-store", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../kernel/run-store")>()),
-	insertKernelRuntimeEvent: mocks.event,
+	persistKernelTurnSettlement: mocks.settle,
 }));
 
 import { sweepDelegationAutonomyRoute } from "./delegation-autonomy-sweep";
@@ -65,17 +63,19 @@ describe("pending delegation policy sweep", () => {
 			updatedAt: "2026-10-19T12:00:00.000Z",
 		}));
 		mocks.audit.mockReset().mockResolvedValue(undefined);
-		mocks.transition.mockReset().mockImplementation(async (_db, input) => {
-			const run = mocks.rows.find((row) => row.id === input.id);
-			if (
-				!run ||
-				run.status !== input.fromStatus ||
-				run.updatedAt !== input.expectedUpdatedAt
-			)
-				return false;
-			Object.assign(run, input.patch);
-			return true;
-		});
+		mocks.settle
+			.mockReset()
+			.mockImplementation(async (_context, { run: input }) => {
+				const run = mocks.rows.find((row) => row.id === input.id);
+				if (
+					!run ||
+					run.status !== input.fromStatus ||
+					run.updatedAt !== input.expectedUpdatedAt
+				)
+					return { runTransitioned: false };
+				Object.assign(run, input.patch);
+				return { runTransitioned: true };
+			});
 		mocks.member.mockResolvedValue({ role: "owner", status: "active" });
 		mocks.release.mockImplementation(async (_context, input) => {
 			input.run.status = "queued";
@@ -142,30 +142,47 @@ describe("pending delegation policy sweep", () => {
 		expect(mocks.rows[1].status).toBe("requires_approval");
 		expect(mocks.release).not.toHaveBeenCalled();
 		expect(mocks.workstation).not.toHaveBeenCalled();
-		expect(mocks.event.mock.calls.map((call) => call[1].kind)).toEqual([
-			"run.failed",
-			"message.completed",
-		]);
-		expect(mocks.event.mock.calls[1][1].payload.content).toContain(
+		expect(
+			mocks.settle.mock.calls[0][1].events.map(
+				(event: { kind: string }) => event.kind,
+			),
+		).toEqual(["message.completed", "run.failed"]);
+		expect(mocks.settle.mock.calls[0][1].events[0].payload.content).toContain(
 			"allowed by your approval policy",
 		);
 		const second = await client().sweep({ limit: 10 });
 		expect(second.blocked).toEqual([]);
-		expect(mocks.transition).toHaveBeenCalledTimes(1);
+		expect(mocks.settle).toHaveBeenCalledTimes(1);
 	});
 	it("preserves a changed execution blocker and stops before an unaudited dispatch", async () => {
 		mocks.rows[0].id = "blocked";
-		mocks.transition.mockResolvedValueOnce(false);
+		mocks.settle.mockResolvedValueOnce({ runTransitioned: false });
 		const result = await client().sweep({ limit: 10 });
 		expect(result.blocked).toEqual([]);
 		expect(result.held[0].reason).toContain("changed");
-		expect(mocks.event).not.toHaveBeenCalled();
+		expect(mocks.rows[0].status).toBe("requires_approval");
 		mocks.rows[0].id = "research";
 		mocks.audit.mockRejectedValueOnce(new Error("audit unavailable"));
 		await expect(client().sweep({ limit: 10 })).rejects.toThrow(
 			"audit unavailable",
 		);
 		expect(mocks.release).not.toHaveBeenCalled();
+	});
+	it("continues the sweep and records a completed audit after a blocked settlement fails", async () => {
+		mocks.rows[0].id = "blocked";
+		mocks.rows[1].id = "research";
+		mocks.settle.mockRejectedValueOnce(new Error("D1 unavailable"));
+		const result = await client().sweep({ limit: 10 });
+		expect(result.held).toContainEqual({
+			runId: "blocked",
+			reason: "D1 unavailable",
+		});
+		expect(result.dispatched).toEqual(["research"]);
+		expect(mocks.rows[0].status).toBe("requires_approval");
+		expect(mocks.audit.mock.calls[1][1].metadata).toMatchObject({
+			phase: "completed",
+			held: result.held,
+		});
 	});
 	it("retains operator-excluded resources and records the constraint on every sweep", async () => {
 		mocks.rows[0].metadata = {

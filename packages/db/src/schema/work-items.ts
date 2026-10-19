@@ -296,6 +296,8 @@ export const workItems = sqliteTable(
 		// Supersedes the bare `idx_work_items_org` (a strict prefix of this and of
 		// several other org-leading indexes). The board list orders by created_at
 		// DESC; org_id alone meant a temp B-tree over every item in the org.
+		index("idx_work_items_deadline").on(table.deadline),
+		index("idx_work_items_due_date").on(table.dueDate),
 		index("idx_work_items_org_created").on(table.orgId, table.createdAt),
 		index("idx_work_items_org_disposition").on(table.orgId, table.disposition),
 		index("idx_work_items_org_kind_risk").on(

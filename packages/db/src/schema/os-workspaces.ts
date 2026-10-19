@@ -451,6 +451,7 @@ export const osGadgetExecutions = sqliteTable(
 		completedAt: text("completed_at"),
 	},
 	(table) => [
+		index("idx_os_gadget_executions_completed").on(table.completedAt),
 		index("os_gadget_executions_org_idx").on(table.organizationId),
 		index("os_gadget_executions_gadget_idx").on(
 			table.gadgetId,
