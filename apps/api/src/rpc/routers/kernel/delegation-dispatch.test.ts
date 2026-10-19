@@ -1756,7 +1756,7 @@ describe("renderDelegationWorkOrderMessage — CONTRACT block", () => {
 			"- the answer states the specific facts read, citing the tool calls that produced them",
 		);
 		expect(message).toContain("Budget: about 8 tool calls (soft cap)");
-		expect(message).toContain("Deadline (soft): ~5 minutes of wall clock");
+		expect(message).toContain("Deadline: ~5 minutes of wall clock");
 		expect(message).toContain("Failure policy: fail_closed —");
 	});
 
@@ -1789,8 +1789,8 @@ describe("renderDelegationWorkOrderMessage — CONTRACT block", () => {
 			fallbackWorkOrderId: "wo-e2e",
 		});
 		expect(message).toContain("Success criteria:");
-		expect(message).toContain("Budget: about 3 tool calls");
-		expect(message).toContain("Deadline (soft): ~2 minutes");
+		expect(message).toContain("Budget: at most 3 tool calls");
+		expect(message).toContain("Deadline: ~2 minutes");
 		expect(message).toContain("Failure policy: fail_closed —");
 	});
 });

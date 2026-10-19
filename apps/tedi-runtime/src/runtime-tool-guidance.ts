@@ -3,7 +3,7 @@ import { ACTION_RECEIPT_INSTRUCTION } from "@tedix/api-contract/utils/action-rec
 import type { ToolSet } from "ai";
 
 /** Presentation only: execution authority still comes from the Work Attempt and tool envelope. */
-export type RepositoryMode = "checkout";
+export type RepositoryMode = "checkout" | "research";
 
 function record(value: unknown): Record<string, unknown> | null {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -24,6 +24,17 @@ export function repositoryModeForMetadata(
 		rawRequirement === undefined
 			? undefined
 			: ExecutionRequirementSchema.safeParse(rawRequirement);
+	if (
+		workOrder &&
+		requirement?.success &&
+		requirement.data.surface === "native" &&
+		!requirement.data.requiredCapabilities.some(
+			(capability) =>
+				capability === "repository_read" || capability === "repository_edit",
+		) &&
+		value.requiredProofKind !== "code"
+	)
+		return "research";
 	// Malformed or explicitly prohibited context cannot select a checkout workflow.
 	if (
 		requirement &&
@@ -48,15 +59,37 @@ const CHECKOUT_UNRELATED_TOOLS = new Set([
 	"decide_work_approval",
 ]);
 
+const RESEARCH_SETUP_TOOLS = new Set([
+	...CHECKOUT_UNRELATED_TOOLS,
+	"open_computer",
+	"close_computer",
+	"exec",
+	"read_execution",
+	"cancel_execution",
+	"code_search",
+	"read",
+	"ls",
+	"find",
+	"grep",
+	"write",
+	"edit",
+	"delete",
+]);
+
 /** Narrow before the existing authority filter; retained tool objects keep every gate and projection. */
 export function selectRepositoryToolSurface(
 	tools: ToolSet,
 	mode?: RepositoryMode,
 ): ToolSet {
-	return mode === "checkout"
+	return mode
 		? Object.fromEntries(
 				Object.entries(tools).filter(
-					([name]) => !CHECKOUT_UNRELATED_TOOLS.has(name),
+					([name]) =>
+						!(
+							mode === "research"
+								? RESEARCH_SETUP_TOOLS
+								: CHECKOUT_UNRELATED_TOOLS
+						).has(name),
 				),
 			)
 		: tools;
@@ -91,6 +124,13 @@ export function workspaceToolGuidance(input: {
 	supervised?: boolean;
 	repositoryMode?: RepositoryMode;
 }): string {
+	if (input.repositoryMode === "research")
+		return [
+			input.supervised ? SUPERVISED_NOTE : "",
+			"This is native research. Use the granted source-reading tools and supplied Work context directly. Repository and workstation setup tools are unavailable; return a capability gap to Home if the sources cannot be read.",
+		]
+			.filter(Boolean)
+			.join(" ");
 	return [
 		...(input.supervised ? [SUPERVISED_NOTE] : []),
 		WORKSPACE_NOTE,

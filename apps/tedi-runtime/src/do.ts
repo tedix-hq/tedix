@@ -3839,6 +3839,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		toolCallId: string;
 		tool: string;
 		args: unknown;
+		deadlineAt?: number;
 	}): Promise<unknown> {
 		return runtimeFacetTurns.executeFacetTool.call(
 			this.facetTurnsHost(),
@@ -3884,6 +3885,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		authorityEnvelope?: DelegationAuthorityEnvelope;
 		authorityMode?: DelegationAuthorityMode;
 		delegated?: boolean;
+		delegationBudget?: ChatTurnParams["delegationBudget"];
 		/** Vision-capable image attachments resolved by the parent (FAIL-SOFT
 		 * empty on non-vision deployments) — carried through the facet boundary
 		 * as UIMessage file parts. */

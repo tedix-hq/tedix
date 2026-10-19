@@ -46,6 +46,8 @@ export type TedixPiDispatch<R> = {
 	receipt?: R;
 };
 export type TedixPiProviderOptions<R> = {
+	/** Absolute, durable work-order deadline, also bounds an active provider stream. */
+	deadlineAt?: () => number | undefined;
 	/** Maximum provider idle time between headers/stream parts; defaults to120s. */
 	idleTimeoutMs?: number;
 	catalog(): readonly Model<Api>[];
@@ -415,6 +417,14 @@ export function createTedixPiProvider<R>(
 			options.signal?.addEventListener("abort", forwardAbort, { once: true });
 			if (options.signal?.aborted) forwardAbort();
 			let idleTimer: ReturnType<typeof setTimeout> | undefined;
+			let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+			const deadlineAt = config.deadlineAt?.();
+			if (deadlineAt !== undefined) {
+				const expired = () =>
+					sdkAbort.abort(new Error("delegated wall-clock deadline reached"));
+				if (deadlineAt <= Date.now()) expired();
+				else deadlineTimer = setTimeout(expired, deadlineAt - Date.now());
+			}
 			const armIdle = () => {
 				if (idleTimer !== undefined) clearTimeout(idleTimer);
 				idleTimer = setTimeout(
@@ -480,6 +490,7 @@ export function createTedixPiProvider<R>(
 					abortSignal: sdkAbort.signal,
 				};
 				options.signal?.throwIfAborted();
+				sdkAbort.signal.throwIfAborted();
 				dispatched = true;
 				armIdle();
 				const pendingResponse = (async () =>
@@ -777,6 +788,7 @@ export function createTedixPiProvider<R>(
 					error instanceof Error ? error.message : String(error);
 			} finally {
 				if (idleTimer !== undefined) clearTimeout(idleTimer);
+				if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
 				options.signal?.removeEventListener("abort", forwardAbort);
 				if (reader) {
 					try {

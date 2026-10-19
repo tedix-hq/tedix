@@ -80,8 +80,13 @@ import { promptCacheKey, explicitPromptCacheConfig } from "./prompt-cache";
 import { codeModeToolModelOutput } from "./codemode-model-output";
 import { computerReadToolModelOutput } from "./computer-read-model-output";
 import { computerExecutionModelOutput } from "./computer-execution-model-output";
+import {
+	DelegationBudgetGate,
+	type DelegatedTurnBudget,
+} from "./delegation-budget";
 
 export interface ConversationFacetState {
+	delegationBudget?: DelegatedTurnBudget;
 	/** Authenticated parent-stamped transport identity; never a model/tool authority grant. */
 	turnMetadata?: Record<string, unknown> | null;
 	/** Parent-stamped full system prompt (persona + addenda + MCP notes). */
@@ -135,7 +140,10 @@ export interface ConversationFacetState {
 }
 
 /** Why a facet turn's loop was stopped early by the mid-turn budget gate. */
-export type FacetBudgetStopReason = "budget_exhausted" | "step_ceiling";
+export type FacetBudgetStopReason =
+	| "budget_exhausted"
+	| "step_ceiling"
+	| "delegation_budget";
 
 export interface ConversationFacetTurnResult {
 	assistantText: string;
@@ -160,6 +168,7 @@ export interface ConversationFacetTurnResult {
 }
 
 export interface ConversationTurnConfiguration {
+	delegationBudget?: DelegatedTurnBudget;
 	turnMetadata?: Record<string, unknown> | null;
 	system: string;
 	stableSystemPrefix?: string | null;
@@ -436,6 +445,7 @@ export class ConversationFacet extends PiAgent<
 		const models = createModels();
 		models.setProvider(
 			createTedixPiProvider({
+				deadlineAt: () => this.state.delegationBudget?.deadlineAt,
 				catalog: () => [this.selectedPiModel()],
 				resolveModel: () => {
 					this.selected = this.selectModelForTurn();
@@ -450,6 +460,8 @@ export class ConversationFacet extends PiAgent<
 				},
 				prepare: async (_model, context) => {
 					const runId = this.requireRunId();
+					if (await this.checkDelegationBudget())
+						throw new Error(this.state.budgetStop!.reason);
 					await this.assertFacetRuntimeDispatch();
 					this.assertToolRegistryAvailable();
 					if (
@@ -582,6 +594,7 @@ export class ConversationFacet extends PiAgent<
 					};
 				},
 				settled: async (receipt, message, measurement) => {
+					await this.checkDelegationBudget();
 					// Pi consumes this same settled AssistantMessage after the canonical receipt.
 					// Preserve provider detail while normalizing Tedix's broader Azure overflow
 					// classifier to Pi's recognized native overflow marker, never retrying it as transient.
@@ -708,6 +721,19 @@ export class ConversationFacet extends PiAgent<
 					replay: "unsafe" as const,
 					execute: async (args, api) => {
 						this.assertToolRegistryAvailable();
+						const denied = this.state.delegationBudget
+							? await new DelegationBudgetGate(this.ctx.storage).claim(
+									this.requireRunId(),
+									api.callId,
+								)
+							: null;
+						if (denied) {
+							this.stopDelegationBudget(denied);
+							return {
+								...nativeToolOutput({ error: denied }),
+								control: { terminate: true },
+							};
+						}
 						const result = await (
 							await this.parent()
 						).executeFacetTool({
@@ -715,6 +741,7 @@ export class ConversationFacet extends PiAgent<
 							runId: this.requireRunId(),
 							tool: descriptor.name,
 							toolCallId: api.callId,
+							deadlineAt: this.state.delegationBudget?.deadlineAt,
 						});
 						try {
 							assertFacetToolRegistryAvailable(result);
@@ -1052,6 +1079,7 @@ export class ConversationFacet extends PiAgent<
 	 * The effect and local journal reads are outside that retry boundary. */
 	private async checkNativeToolBudget(): Promise<boolean> {
 		if (this.state.budgetStop) return true;
+		if (await this.checkDelegationBudget()) return true;
 		try {
 			const runId = this.requireRunId();
 			const checkpoint = await this.accounting.inspect(runId);
@@ -1156,6 +1184,21 @@ export class ConversationFacet extends PiAgent<
 		if (!this.state.runId) throw new Error("Pi turn has no parent run");
 		return this.state.runId;
 	}
+	private stopDelegationBudget(reason: string): void {
+		this.setState({
+			...this.state,
+			budgetStop: { kind: "delegation_budget", reason },
+			recoveryBlockedRunId: this.state.runId,
+		});
+	}
+	private async checkDelegationBudget(): Promise<boolean> {
+		if (!this.state.delegationBudget) return false;
+		const reason = await new DelegationBudgetGate(this.ctx.storage).stopReason(
+			this.requireRunId(),
+		);
+		if (reason) this.stopDelegationBudget(reason);
+		return Boolean(reason);
+	}
 	private assertToolRegistryAvailable(): void {
 		if (
 			this.state.toolRegistryUnavailableRunId === this.state.runId &&
@@ -1176,6 +1219,17 @@ export class ConversationFacet extends PiAgent<
 		input: ConversationTurnConfiguration,
 	): Promise<number> {
 		const prior = this.state.turnCount;
+		const gate = new DelegationBudgetGate(this.ctx.storage);
+		await gate.enroll(input.runId, input.delegationBudget);
+		const retainedBudget = await gate.inspect(input.runId);
+		if (retainedBudget)
+			input = {
+				...input,
+				delegationBudget: {
+					maxToolCalls: retainedBudget.maxToolCalls,
+					deadlineAt: retainedBudget.deadlineAt,
+				},
+			};
 		if (
 			this.state.runId === input.runId &&
 			JSON.stringify(this.state.turnMetadata ?? null) !==
@@ -1329,16 +1383,23 @@ export class ConversationFacet extends PiAgent<
 			await this.registerOriginalUiMessage(id, pending.originalUiMessage);
 		await this.submitMessages([message], { submissionId: id });
 		const terminal = await this.waitForSubmission(id);
-		if (terminal.status !== "completed" || !terminal.messageId)
+		await this.checkDelegationBudget();
+		const delegatedStop = this.state.budgetStop?.kind === "delegation_budget";
+		if (
+			(terminal.status !== "completed" || !terminal.messageId) &&
+			!delegatedStop
+		)
 			throw new Error(
 				terminal.error ?? "Native Pi submission has no owned answer",
 			);
-		const owned = await this.session.getMessage(terminal.messageId);
-		if (!owned || owned.role !== "assistant")
+		const owned = terminal.messageId
+			? await this.session.getMessage(terminal.messageId)
+			: null;
+		if ((owned && owned.role !== "assistant") || (!owned && !delegatedStop))
 			throw new Error("Native Pi answer ownership mismatch");
 		await this.accounting.begin(pending.configuration.runId);
 		await this.accounting.assertComplete();
-		const text = owned.parts
+		const text = (owned?.parts ?? [])
 			.filter((part) => part.type === "text")
 			.map((part) => part.text ?? "")
 			.join("")
@@ -1359,18 +1420,20 @@ export class ConversationFacet extends PiAgent<
 				},
 				recoveryBlockedRunId: this.state.runId,
 			});
+		await this.checkDelegationBudget();
 		const stop = this.state.budgetStop;
 		const modelError = emptyTurnModelError({
 			assistantText: text,
 			lastModelError: this.state.lastModelError,
 		});
-		if (modelError) throw new Error(modelError);
+		if (modelError && stop?.kind !== "delegation_budget")
+			throw new Error(modelError);
 		let report = "";
 		const reportReason = finalReportReason({
 			stopReason: stop?.reason ?? null,
 			assistantText: text,
 		});
-		if (reportReason) {
+		if (reportReason && stop?.kind !== "delegation_budget") {
 			this.setState({
 				...this.state,
 				finalReportStop: { reason: reportReason },

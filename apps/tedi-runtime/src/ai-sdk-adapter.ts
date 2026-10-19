@@ -324,6 +324,7 @@ function safeExecuteTool(
 	name: string,
 	args: unknown,
 	binding?: TedixMcpRuntimeBinding | null,
+	signal?: AbortSignal,
 ): Promise<unknown> {
 	if (binding?.toolArgumentConstraints && name === "tedix_mcp_code") {
 		return Promise.resolve({
@@ -363,11 +364,10 @@ function safeExecuteTool(
 				}
 			: args;
 	const execute = () =>
-		runtime.executeTool(
-			name,
-			constrainedArgs as Record<string, unknown>,
-			binding ? { binding } : undefined,
-		);
+		runtime.executeTool(name, constrainedArgs as Record<string, unknown>, {
+			binding,
+			signal,
+		});
 	const exactCall = name === "tedix_mcp_call_tool";
 	const reconnectableCall = exactCall || name === "tedix_mcp_code";
 	const tenantBoundExactCall = binding?.toolArgumentConstraints && exactCall;
@@ -446,8 +446,14 @@ export function tedixMcpAITools(
 									"One complete uninvoked async arrow function. Discovery example: async () => { return await discover.search({ query: 'connection status', includeParameters: true }); }. Inspect the returned schema before calling the exact namespace.tool(args); use result variable names distinct from namespace names.",
 								),
 						}),
-						execute: async (args) =>
-							safeExecuteTool(runtime, "tedix_mcp_code", args, binding),
+						execute: async (args, options) =>
+							safeExecuteTool(
+								runtime,
+								"tedix_mcp_code",
+								args,
+								binding,
+								options.abortSignal,
+							),
 					}),
 				}
 			: {}),
@@ -460,8 +466,14 @@ export function tedixMcpAITools(
 					.optional()
 					.describe("Include tool names for each namespace. Use sparingly."),
 			}),
-			execute: async (args) =>
-				safeExecuteTool(runtime, "tedix_mcp_list_namespaces", args, binding),
+			execute: async (args, options) =>
+				safeExecuteTool(
+					runtime,
+					"tedix_mcp_list_namespaces",
+					args,
+					binding,
+					options.abortSignal,
+				),
 		}),
 		tedix_mcp_search_tools: tool({
 			description:
@@ -478,8 +490,14 @@ export function tedixMcpAITools(
 					.optional()
 					.describe("Include parameter schemas for exact calls. More verbose."),
 			}),
-			execute: async (args) =>
-				safeExecuteTool(runtime, "tedix_mcp_search_tools", args, binding),
+			execute: async (args, options) =>
+				safeExecuteTool(
+					runtime,
+					"tedix_mcp_search_tools",
+					args,
+					binding,
+					options.abortSignal,
+				),
 		}),
 		tedix_mcp_call_tool: tool({
 			description:
@@ -493,8 +511,14 @@ export function tedixMcpAITools(
 					.optional()
 					.describe("JSON arguments for the callable."),
 			}),
-			execute: async (args) =>
-				safeExecuteTool(runtime, "tedix_mcp_call_tool", args, binding),
+			execute: async (args, options) =>
+				safeExecuteTool(
+					runtime,
+					"tedix_mcp_call_tool",
+					args,
+					binding,
+					options.abortSignal,
+				),
 		}),
 		mcp_read_resource: tool({
 			description:
@@ -507,8 +531,14 @@ export function tedixMcpAITools(
 					.string()
 					.describe("Resource URI, e.g. skill://git-workflow/SKILL.md."),
 			}),
-			execute: async (args) =>
-				safeExecuteTool(runtime, "mcp_read_resource", args, binding),
+			execute: async (args, options) =>
+				safeExecuteTool(
+					runtime,
+					"mcp_read_resource",
+					args,
+					binding,
+					options.abortSignal,
+				),
 		}),
 		mcp_complete_argument: tool({
 			description:
@@ -543,8 +573,14 @@ export function tedixMcpAITools(
 						"Sibling argument values that scope the completion, e.g. { tediId: 'tedi_42' }.",
 					),
 			}),
-			execute: async (args) =>
-				safeExecuteTool(runtime, "mcp_complete_argument", args, binding),
+			execute: async (args, options) =>
+				safeExecuteTool(
+					runtime,
+					"mcp_complete_argument",
+					args,
+					binding,
+					options.abortSignal,
+				),
 		}),
 		mcp_directory_read: tool({
 			description:
@@ -561,8 +597,14 @@ export function tedixMcpAITools(
 					.optional()
 					.describe("Optional pagination cursor from a prior result."),
 			}),
-			execute: async (args) =>
-				safeExecuteTool(runtime, "mcp_directory_read", args, binding),
+			execute: async (args, options) =>
+				safeExecuteTool(
+					runtime,
+					"mcp_directory_read",
+					args,
+					binding,
+					options.abortSignal,
+				),
 		}),
 	};
 	return binding?.toolArgumentConstraints
