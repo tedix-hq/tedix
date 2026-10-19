@@ -2,15 +2,28 @@ import type { AgentsConfig } from "@tedix/api-contract/schemas/os-session-apps";
 import { WorkspaceAppRenderer } from "./workspace-app-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import {
 	projectListQueryOptions,
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
 import { AgentStateBadge, filterAgentSessions } from "./work-agents-page";
 
-const NOW = Date.now();
+const NOW = Date.parse("2026-06-15T12:34:00.000Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(NOW);
+});
+afterEach(() => vi.useRealTimers());
 
 type State = "needs_you" | "error" | "done" | "working" | "idle" | "ended";
 
