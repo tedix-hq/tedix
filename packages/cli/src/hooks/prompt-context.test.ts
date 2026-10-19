@@ -666,7 +666,10 @@ describe("tedix hooks prompt-context", () => {
 		// The limit the plugin hook manifests (Claude source, Codex package) declare.
 		const limit = JSON.parse(
 			readFileSync(
-				join(import.meta.dir, "../../../../plugins/tedix/hooks/hooks.json"),
+				join(
+					import.meta.dir,
+					"../../../../plugins/tedix/config/host-hooks.json",
+				),
 				"utf8",
 			),
 		)

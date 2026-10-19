@@ -200,8 +200,10 @@ URL, never a bearer token. A web installation cannot install the Tedix CLI the l
 ChatGPT on the web is not supported yet: the plugin is not in the ChatGPT
 plugin directory, and a developer-mode custom connector is not a tested path.
 
-The plugin's lifecycle hooks are declared in `hooks/hooks.json`, the hosts'
-default plugin hook location. Review them in the host's `/hooks` view; Codex
+The source plugin's Claude Code and Codex manifests explicitly reference
+`config/host-hooks.json`, keeping their wrapped configuration separate from
+Devin's root `hooks.json`. Local ZIPs use the hosts' default `hooks/hooks.json`.
+Review them in the host's `/hooks` view; Codex
 runs them only after you trust them. Every hook runs `tedix hooks <name>`
 behind a guard: without the `tedix` command it exits 0 with no output, so a
 host without the CLI sees no error and no live authentication or Work facts
@@ -221,7 +223,7 @@ and lease expiry, which still must be verified before a write. Command hooks
 cannot invoke the agent's native MCP tool session through the documented host
 interface, and ordinary Chat does not run local hooks.
 
-The source `hooks/hooks.json` registers both `await-reply` (Claude Code) and
+The source `config/host-hooks.json` registers both `await-reply` (Claude Code) and
 `await-draft` (Codex); a marketplace install from this directory gets both, and
 each exits at once on the other host. Packaged `--host` artifacts ship only
 their host's hook.

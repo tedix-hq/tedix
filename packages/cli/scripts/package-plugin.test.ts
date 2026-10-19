@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXPANDED_HOOK_BYTES, HOOK_BYTES } from "../src/hooks/prompt-context";
 import { pluginRepoFiles } from "./build-plugin-repo";
+import { devinHooksSchema } from "./devin-hooks";
 import {
 	build,
 	CLI_GATE,
@@ -42,6 +43,7 @@ test("Devin shares skills and declares its native MCP and fail-open hooks", () =
 		},
 	});
 	const hooks = JSON.parse(readFileSync(join(ROOT, "hooks.json"), "utf8"));
+	devinHooksSchema.parse(hooks);
 	const commands = handlers(hooks).map((handler) => handler.command as string);
 	expect(commands).toHaveLength(6);
 	for (const name of [
@@ -232,7 +234,8 @@ describe("plugin packager", () => {
 	test("prompt context fits the limit both installed plugins declare", () => {
 		// Installed Claude plugins run the source hooks.json; Codex runs the package.
 		const declared = [
-			JSON.parse(readFileSync(join(ROOT, "hooks/hooks.json"), "utf8")).hooks,
+			JSON.parse(readFileSync(join(ROOT, "config/host-hooks.json"), "utf8"))
+				.hooks,
 			decode(packageFiles({ local: true }), "hooks/hooks.json").hooks,
 		].map((hooks) =>
 			handlers(hooks)
@@ -243,7 +246,8 @@ describe("plugin packager", () => {
 		expect(HOOK_BYTES).toBeLessThan(6500);
 		expect(EXPANDED_HOOK_BYTES).toBeLessThan(10100);
 		for (const hooks of [
-			JSON.parse(readFileSync(join(ROOT, "hooks/hooks.json"), "utf8")).hooks,
+			JSON.parse(readFileSync(join(ROOT, "config/host-hooks.json"), "utf8"))
+				.hooks,
 			decode(packageFiles({ local: true }), "hooks/hooks.json").hooks,
 		])
 			expect(
@@ -378,7 +382,7 @@ describe("plugin packager", () => {
 
 	test("every source hook is guarded against a missing CLI", () => {
 		const hooks = JSON.parse(
-			readFileSync(join(ROOT, "hooks/hooks.json"), "utf8"),
+			readFileSync(join(ROOT, "config/host-hooks.json"), "utf8"),
 		).hooks;
 		expect(handlers(hooks).every((handler) => hookName(handler))).toBe(true);
 	});

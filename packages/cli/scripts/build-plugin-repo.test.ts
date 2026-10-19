@@ -34,6 +34,11 @@ describe("public plugin repository", () => {
 		expect([...files.keys()].some((path) => path.startsWith("hooks/"))).toBe(
 			false,
 		);
+		for (const path of [
+			".claude-plugin/plugin.json",
+			".codex-plugin/plugin.json",
+		])
+			expect(JSON.parse(text(files.get(path)))).not.toHaveProperty("hooks");
 		expect([...files.keys()].some((path) => path.startsWith("skills/"))).toBe(
 			true,
 		);

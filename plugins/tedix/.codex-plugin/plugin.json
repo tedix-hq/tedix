@@ -96,5 +96,6 @@
 				"release_notes": "Tedix 0.2.0: connect ChatGPT and Codex to the Tedix organization you are invited to. Six skills cover connection checks, reading Work and its evidence, delegating to a tedi, resuming admitted Work and saving Workspace Outputs. Every action runs with the signed-in user's role in that organization."
 			}
 		}
-	}
+	},
+	"hooks": "./config/host-hooks.json"
 }

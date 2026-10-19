@@ -159,7 +159,7 @@ function addFiles(
 
 /** The local hooks, in the host's native form; the logic lives in the Tedix CLI. */
 function localHooks(root: string, host: Host): any {
-	const hooks = readJson(root, "hooks/hooks.json");
+	const hooks = readJson(root, "config/host-hooks.json");
 	// Only Claude Code can wake a session from a background hook (asyncRewake);
 	// elsewhere such a hook would hold the turn open, so it is not shipped.
 	// Codex instead continues from a synchronous Stop hook (await-draft), which
@@ -221,10 +221,9 @@ export function packageFiles(
 		if (mcpUrl !== undefined) server.url = mcpUrl;
 		if (mcpBearerEnv !== undefined)
 			server.headers = { Authorization: `Bearer \${${mcpBearerEnv}}` };
-		files.set(
-			".claude-plugin/plugin.json",
-			json(readJson(root, ".claude-plugin/plugin.json")),
-		);
+		const manifest = readJson(root, ".claude-plugin/plugin.json");
+		delete manifest.hooks;
+		files.set(".claude-plugin/plugin.json", json(manifest));
 		files.set(".mcp.json", json({ mcpServers: mcp.mcpServers }));
 		if (local) files.set("hooks/hooks.json", json(localHooks(root, "claude")));
 		addFiles(root, files, [...skillPaths(root), ...assets]);
@@ -234,6 +233,8 @@ export function packageFiles(
 		throw new Error("MCP URL overrides currently apply only to --host claude");
 	const manifest = readJson(root, "plugin.json");
 	const extension = manifest.extensions["com.openai"];
+	// Host packages use hooks/hooks.json discovery; cloud packages omit hooks.
+	delete extension.hooks;
 	extension.review.test_cases = readJson(root, "review/cases.json");
 	extension.publication.release_notes = readFileSync(
 		join(root, "review/release-notes.md"),
@@ -246,7 +247,10 @@ export function packageFiles(
 				"It contains no local lifecycle hooks, credentials or\ncopied tokens.",
 				"This local artifact includes opt-in context hooks, opt-in decision capture and an opt-in turn-status reporter, run by the installed Tedix CLI, and contains no credentials or copied tokens.",
 			);
-		paths.push(".mcp.json", ".claude-plugin/plugin.json");
+		paths.push(".mcp.json");
+		const claude = readJson(root, ".claude-plugin/plugin.json");
+		delete claude.hooks;
+		files.set(".claude-plugin/plugin.json", json(claude));
 		files.set("hooks/hooks.json", json(localHooks(root, "openai")));
 		// The portable extension is authoritative. Mirror its complete overlay,
 		// rather than rely on an older compatibility manifest being merged.
