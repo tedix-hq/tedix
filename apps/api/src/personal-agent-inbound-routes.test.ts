@@ -1,3 +1,4 @@
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { PersonalAgentReceiptSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
@@ -38,7 +39,13 @@ function setup() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
 		canonicalWorkFactoryDdl() +
-			schemaDdl(organizationSecrets, userConfigs, workEvents, workInteractions),
+			schemaDdl(
+				organizationSecrets,
+				userConfigs,
+				workEvents,
+				workInteractions,
+				organizationMembers,
+			),
 	);
 	sqlite
 		.prepare(
@@ -81,7 +88,7 @@ function setup() {
 	}
 	function send(
 		e: Awaited<ReturnType<typeof enroll>>,
-		data = finding,
+		data: Omit<typeof finding, "kind"> & { kind: "fyi" | "proposal" } = finding,
 		form = false,
 		override: { orgId?: string; userId?: string; token?: string } = {},
 	) {
@@ -107,6 +114,42 @@ function setup() {
 }
 
 describe("personal-agent intake", () => {
+	it("turns a proposal into exactly one owner card, and never promotes a replayed FYI", async () => {
+		const h = setup();
+		try {
+			await h.db.insert(organizationMembers).values({
+				id: "member",
+				organizationId: org,
+				userId: user,
+				descopeUserId: `descope-${user}`,
+				email: "luz@example.test",
+				role: "owner",
+				status: "active",
+			});
+			const e = await h.enroll();
+			const proposal = {
+				...finding,
+				kind: "proposal" as const,
+				externalFindingId: "proposal-1",
+			};
+			expect((await h.send(e, proposal)).status).toBe(201);
+			expect((await h.send(e, proposal)).status).toBe(200);
+			expect((await h.send(e, finding)).status).toBe(201);
+			expect(
+				(await h.send(e, { ...finding, kind: "proposal" as const })).status,
+			).toBe(200);
+			const cards = await h.db.select().from(workInteractions);
+			expect(cards).toHaveLength(1);
+			expect(cards[0]).toMatchObject({
+				targetId: user,
+				metadata: {
+					decisionDeck: { kind: "proposal", classId: "personal.proposal" },
+				},
+			});
+		} finally {
+			h.sqlite.close();
+		}
+	});
 	it("enrolls once, captures 10 fictional form/webhook findings once, projects only to the owner, and returns receipts", async () => {
 		const h = setup();
 		try {

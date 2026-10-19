@@ -94,6 +94,7 @@ export function learnDecisions(input: {
 				.filter(
 					(e) =>
 						e.organizationId === input.organizationId &&
+						e.surface !== "decision_deck_routing" &&
 						(e.scopeKind !== "personal" ||
 							(input.personId !== null && e.scopeId === input.personId)) &&
 						Number.isFinite(Date.parse(e.occurredAt)) &&

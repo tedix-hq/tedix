@@ -231,3 +231,20 @@ it("keeps fresh approvals ahead of newer filing questions without reviving stale
 		),
 	).toBeGreaterThan(0);
 });
+
+it("shows an owned deadline decision before its deadline while preserving explicit reminder dates", () => {
+	const now = new Date("2026-10-19T12:00:00Z");
+	const request = {
+		kind: "question",
+		dueAt: "2026-10-20T12:00:00Z",
+		metadata: { source: "deadline-decisions" },
+	};
+	expect(decisionIsDue(request, now, "Europe/Berlin")).toBe(true);
+	expect(
+		decisionIsDue(
+			{ ...request, metadata: { source: "reminder" } },
+			now,
+			"Europe/Berlin",
+		),
+	).toBe(false);
+});

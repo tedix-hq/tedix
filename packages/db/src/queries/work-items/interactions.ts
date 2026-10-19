@@ -1619,3 +1619,33 @@ export async function recordWorkInteractionReviewWake(
 			),
 		);
 }
+
+/** Recognize a manually prepared deadline card before the automatic source runs. */
+export async function getDeadlineDecision(
+	db: DbQueryClient,
+	input: {
+		orgId: string;
+		userId: string;
+		workItemId: string;
+		deadlineKey: string;
+	},
+) {
+	return (
+		(
+			await db
+				.select()
+				.from(workInteractions)
+				.where(
+					and(
+						eq(workInteractions.orgId, input.orgId),
+						eq(workInteractions.workItemId, input.workItemId),
+						eq(workInteractions.targetType, "user"),
+						eq(workInteractions.targetId, input.userId),
+						sql`json_extract(${workInteractions.metadata}, '$.source') = 'deadline-decisions'`,
+						sql`json_extract(${workInteractions.metadata}, '$.deadlineKey') = ${input.deadlineKey}`,
+					),
+				)
+				.limit(1)
+		)[0] ?? null
+	);
+}

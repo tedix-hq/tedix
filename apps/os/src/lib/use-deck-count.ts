@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
+import {
+	DEFAULT_DECK_ROUTING,
+	type DecisionDeckConfig,
+} from "@tedix/api-contract/schemas/os-decision-deck";
 import { interactionCardKind } from "@/lib/interaction-card-kind";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { osQuery, userProfileQueryOptions } from "@/lib/os-query-options";
@@ -39,9 +42,14 @@ export function useDeckCount(
 	const capacity = Math.max(
 		0,
 		(config?.dailyAttentionBudget ?? 0) -
-			attentionMetrics(learning.data?.events ?? [], now).cardsToday,
+			attentionMetrics(
+				learning.data?.events ?? [],
+				now,
+				DEFAULT_DECK_ROUTING.version,
+			).cardsToday,
 	);
 	const protectedIds = new Set([
+		...(inbox.criticalIds ?? []),
 		...inbox.scheduledIds,
 		...inbox.requests
 			.filter((row) => interactionCardKind(row.request) === "approval")

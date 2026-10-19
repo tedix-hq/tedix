@@ -1,3 +1,8 @@
+import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
+import {
+	classifyDeckCard,
+	type DeckRoutingPolicy,
+} from "@tedix/api-contract/schemas/os-decision-deck";
 import { cardIsDue, isCardScheduleField } from "@/lib/card-schedule";
 import {
 	type CardActionKind,
@@ -536,5 +541,34 @@ export function resultParts(result: string): {
 		text: match ? result.replace(match[0], "").trim() : result,
 		workHref: match ? match[0] : null,
 		failed: /^failed\b/i.test(result),
+	};
+}
+
+/** Factory type is the producer's value class; prose alone cannot promote a card. */
+export function routeFactoryCard(
+	card: Pick<ReviewCard, "type" | "key" | "sourceLabel">,
+	policy?: DeckRoutingPolicy,
+	now = new Date(),
+	model?: DecisionLearningModel,
+) {
+	const learningClass =
+		`factory:${card.sourceLabel}:${card.type || "card"}`.slice(0, 100);
+	const learnedUsefulness = model?.config.enabled
+		? model.weights.usefulness.find(
+				(weight) => weight.key === `class:${learningClass}`,
+			)
+		: undefined;
+	return {
+		id: card.key,
+		...classifyDeckCard(
+			{
+				kind: "proposal",
+				classId: card.type.trim().toLowerCase(),
+				learnedUsefulness,
+				needsPerson: true,
+			},
+			policy,
+			now,
+		),
 	};
 }

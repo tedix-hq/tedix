@@ -75,6 +75,7 @@ const sources = [
 	maxRuns: 3,
 	columns: {
 		source: "Source",
+		type: "Type",
 		why: "Why",
 		useful: "Useful",
 		reason: "Reason",
@@ -165,8 +166,18 @@ for (const [index, source] of sources.entries()) {
 			revision: 1,
 			content: {
 				kind: "sheet",
-				columns: ["Source", "Why", "Useful", "Reason", "Done", "Result"],
-				rows: [[source.title, source.why, "", "", "", source.why]],
+				columns: [
+					"Source",
+					"Why",
+					"Useful",
+					"Reason",
+					"Done",
+					"Result",
+					"Type",
+				],
+				rows: [
+					[source.title, source.why, "", "", "", source.why, "opportunity"],
+				],
 			},
 		},
 	});

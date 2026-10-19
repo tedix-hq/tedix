@@ -136,6 +136,7 @@ describe("Work interactions router", () => {
 	it("mounts the complete structured interaction lifecycle", () => {
 		expect(Object.keys(workInteractionsContractRouter)).toEqual([
 			"outbound",
+			"refreshDecisionSources",
 			"regenerateCard",
 			"create",
 			"review",

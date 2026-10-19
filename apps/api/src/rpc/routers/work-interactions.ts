@@ -1,3 +1,4 @@
+import { PersonalAgentContributionSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import {
 	ListWorkInteractionCliInboxResultSchema,
 	WORK_PROPOSAL_SCHEMA,
@@ -893,6 +894,14 @@ function askedBy(
 	if (metadata.schema === WORK_PROPOSAL_SCHEMA)
 		return metadata.source === "tedix learn" ? "Onboarding" : "Tedix";
 	if (metadata.schema === CAPTURE_HEALTH_SCHEMA) return "Tedix";
+	if (request.creatorType === "system") {
+		const personal = PersonalAgentContributionSchema.safeParse(
+			metadata.personalAgentContribution,
+		);
+		return personal.success
+			? `${personal.data.sourceAgentName} · your personal agent`
+			: "Tedix";
+	}
 	if (request.creatorType === "tedi")
 		return tediNames.get(request.creatorId) ?? "A tedi";
 	const host = creatorHarness(request, sessionHarnesses);
@@ -1269,6 +1278,24 @@ const recordDraftDeliveryProcedure = writeOs.recordDraftDelivery.handler(
 
 export const workInteractionsContractRouter = interactionsOs.router({
 	outbound: outboundRouter,
+	refreshDecisionSources: writeOs.refreshDecisionSources.handler(
+		async ({ input, context }) => {
+			const orgId = requireOrgId(context);
+			const actor = await verifiedActiveWorkActor(context, orgId);
+			if (actor.type !== "user")
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only the signed-in person can refresh their decision sources",
+				);
+			const { materializeDeadlineDecisions } =
+				await import("../../services/deadline-decisions");
+			return materializeDeadlineDecisions(context.db, {
+				orgId,
+				userId: actor.id,
+				projectId: input.projectId,
+			});
+		},
+	),
 	regenerateCard: writeOs.regenerateCard.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const actor = await verifiedActiveWorkActor(context, orgId);

@@ -718,6 +718,7 @@ export const workItemsContract = oc
 						.max(100)
 						.optional(),
 					dueDate: WorkItemTimestampSchema.nullable().optional(),
+					deadline: WorkItemTimestampSchema.nullable().optional(),
 					startAt: z.iso
 						.datetime()
 						.nullable()

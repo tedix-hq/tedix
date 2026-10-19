@@ -127,3 +127,26 @@ editor-heavy workspace whose useful state begins after session establishment.
 
 See the public [Cloudflare architecture](../../docs/public/cloudflare-architecture.md)
 for the API, runtime, storage, and frontend boundaries.
+
+## Deck decisions
+
+The Deck accepts critical approvals, opportunities, owned strategy choices and
+near deadlines. Routine filing, delegation and tool writes remain in Feed.
+The versioned `deck-routing.v1.json` asset supplies the rules; a Deck gadget's
+`config.routing` can override them. Routing receipts use the existing personal
+learning ledger. Repeated negative usefulness signals can move a valuable
+class back to Feed; critical boundaries remain visible.
+
+To operate from workspace chat, ask: "Refresh my deadline decisions and show
+the source task and draft before I decide." Discover `refresh_decision_sources`
+(`workInteractions.refreshDecisionSources`, `mcp:messaging.write`); it accepts
+only the authenticated person and scans their owned unfinished Work. The Deck
+refreshes this source when opened and every two minutes. A date produces one
+card per task. Personal-agent findings marked `proposal` produce an owner card;
+FYIs stay in Feed. Factory sheets must declare a valuable Type, such as
+`opportunity` or `relationship.followup`, to enter the Deck.
+
+A follow-up card's `create_owner_task` choice creates a proposed task assigned
+to the person who answered. The draft and source stay on that task; sending
+remains that person's next step. Source creation, a saved answer, task creation
+and an external send are separate outcomes.

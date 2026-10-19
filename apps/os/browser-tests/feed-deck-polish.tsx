@@ -286,7 +286,7 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 		version: 1,
 		metadata: {
 			...(params.get("surface") === "question"
-				? {}
+				? { decisionClass: "opportunity.customer_delivery" }
 				: { approvalOperation: "tests_write.GenerateMagicLinkForTestUser" }),
 			approvalTarget: "viewer@example.com",
 			cardPresentation: {

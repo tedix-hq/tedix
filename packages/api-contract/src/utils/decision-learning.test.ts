@@ -58,6 +58,13 @@ const learn = (events: LearningInteractionEvent[], overrides = {}) =>
 	});
 
 describe("decision learning replay", () => {
+	it("does not train preferences from machine routing receipts", () => {
+		const model = learn([
+			event(1, { surface: "decision_deck_routing", eventKind: "delivered" }),
+		]);
+		expect(model.eventCount).toBe(0);
+		expect(model.weights.usefulness).toEqual([]);
+	});
 	it("correlates the completed decision receipt when another card has the same class", () => {
 		const completed = event(1, { clientEventId: "decision-capture:reply-one" });
 		const newer = event(2, { clientEventId: "decision-capture:reply-two" });

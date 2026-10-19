@@ -46,6 +46,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	DecisionKindSchema,
+	DEFAULT_DECK_ROUTING,
 	type DecisionDeckConfig,
 } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
@@ -202,7 +203,11 @@ function DecisionDeckContent({
 				]
 			: [];
 	});
-	const metrics = attentionMetrics(learningQuery.data?.events ?? []);
+	const metrics = attentionMetrics(
+		learningQuery.data?.events ?? [],
+		new Date(),
+		DEFAULT_DECK_ROUTING.version,
+	);
 	const todayCount = metrics.cardsToday;
 	const [now, setNow] = useState(() => new Date());
 	useEffect(() => {
@@ -373,7 +378,9 @@ function DecisionDeckContent({
 	);
 	const { batch, dismiss } = useDeckBatch(
 		batchKey,
-		rows.map((row) => row.id),
+		rows
+			.filter((row) => !decisions.criticalIds.has(row.id))
+			.map((row) => row.id),
 		Math.max(0, config.dailyAttentionBudget - todayCount),
 		mode === "decide" &&
 			!!profile.data?.id &&
@@ -390,6 +397,7 @@ function DecisionDeckContent({
 			? rows.filter(
 					(row) =>
 						row.id === focusCard ||
+						decisions.criticalIds.has(row.id) ||
 						(batch &&
 							(row.kind === "approval" ||
 								decisions.scheduledIds.has(row.id) ||
@@ -569,7 +577,9 @@ function DecisionDeckContent({
 		mode === "decide" &&
 		!focusCard &&
 		todayCount >= config.dailyAttentionBudget &&
-		(!selected || !metrics.shownToday.includes(selected.id));
+		(!selected ||
+			(!decisions.criticalIds.has(selected.id) &&
+				!metrics.shownToday.includes(selected.id)));
 	useAppWebMcpTools(
 		"decision_deck",
 		{
@@ -696,6 +706,7 @@ function DecisionDeckContent({
 							targetId: selected.id,
 							metadata: {
 								answerSource: "os-decision-card",
+								routingPolicyVersion: DEFAULT_DECK_ROUTING.version,
 								decisionClass: classId ?? selected.kind,
 								decisionChoice: intent,
 								elapsedMs: choice.elapsedMs,
@@ -889,6 +900,7 @@ function DecisionDeckContent({
 									<FactoryCards
 										key={selected.id}
 										inDeck
+										routing={config.routing}
 										config={{ version: 1, sources: factories.sources }}
 										focusCardKey={selected.id.slice("factory:".length)}
 									/>

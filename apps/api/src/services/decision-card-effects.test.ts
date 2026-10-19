@@ -195,6 +195,50 @@ async function fixture(decision = envelope) {
 }
 
 describe("decision card effects", () => {
+	it("creates an owner task with the unsent draft and never sends a message", async () => {
+		const decision = structuredClone(envelope);
+		decision.kind = "proposal";
+		decision.options[0]!.effect = {
+			kind: "create_owner_task",
+			workItemId: work,
+			title: "Send the follow-up to Morgan",
+			description:
+				"Draft for Morgan: Shall we catch up next week? Send manually after checking the profile.",
+		};
+		const f = await fixture(decision);
+		f.sqlite
+			.prepare(
+				"update work_items set work_class='maintenance', purpose_exception_expires_at=? where id=?",
+			)
+			.run(new Date(Date.now() + 86400000).toISOString(), work);
+		const result = await executeDecisionCardEffect(f.context, f.input);
+		expect(result.metadata?.decisionEffect).toMatchObject({
+			kind: "create_owner_task",
+			status: "succeeded",
+			state: "proposed",
+		});
+		const task = f.sqlite
+			.prepare("select * from work_items where parent_work_item_id=?")
+			.get(work);
+		expect(task).toMatchObject({
+			accountable_owner_type: "user",
+			accountable_owner_id: "person",
+			disposition: "proposed",
+			title: "Send the follow-up to Morgan",
+		});
+		expect(task?.description).toContain("Draft for Morgan");
+		await expect(
+			executeDecisionCardEffect(f.context, { ...f.input, expectedVersion: 2 }),
+		).rejects.toThrow();
+		expect(
+			f.sqlite
+				.prepare(
+					"select count(*) as n from work_items where parent_work_item_id=?",
+				)
+				.get(work)?.n,
+		).toBe(1);
+		f.sqlite.close();
+	});
 	it.each(["accept_work", "complete_work"] as const)(
 		"executes %s through the existing Work lifecycle",
 		async (kind) => {

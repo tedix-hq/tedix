@@ -1,3 +1,4 @@
+import { DEFAULT_DECK_ROUTING } from "@tedix/api-contract/schemas/os-decision-deck";
 import {
 	useEffect,
 	useLayoutEffect,
@@ -20,7 +21,7 @@ export function deckBatchKey(
 	projectId: string | undefined,
 	windowKey: string,
 ) {
-	return `${workspaceId ?? "preview"}:${personId}:${projectId ?? "all"}:${windowKey}`;
+	return `value-v${DEFAULT_DECK_ROUTING.version}:${workspaceId ?? "preview"}:${personId}:${projectId ?? "all"}:${windowKey}`;
 }
 
 /** Badges observe the Deck's existing saved list without creating or deciding cards. */
