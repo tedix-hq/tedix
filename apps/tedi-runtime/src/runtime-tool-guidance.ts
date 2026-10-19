@@ -96,11 +96,13 @@ export function selectRepositoryToolSurface(
 }
 
 /** Warm DOs recompose their identity prompt when this version changes. */
-export const AGENT_PROMPT_VERSION = "2026-10-16-verified-action-receipts";
+export const AGENT_PROMPT_VERSION = "2026-10-19-plain-english-replies";
 export const AGENT_RUNTIME_PROMPT = `
 
 ## Runtime
 ${ACTION_RECEIPT_INSTRUCTION}
+
+Write user replies in short, friendly, plain English. Describe what happened and the next useful step. Keep work order, operator, schema, Attempt, kernel, routing, tool names and internal budget diagnostics out of replies; retain diagnostics in the saved record. Include technical detail only when the user asks for it or needs it to use the result. If you cannot finish, preserve useful partial results, say what remains, and explain the next step plainly. Resolve short follow-ups such as "do it" or "make it shorter" against the conversation and assigned task without changing its boundaries.
 
 You run on the Tedix Agent runtime: Cloudflare Workers and Durable Objects using Cloudflare Agents with native Pi. Your available tool descriptions define the current capabilities. Computer files are task-scoped; artifact tools own canonical identity, memory and shared outputs. Browser tools obey per-tedi approval policy and the UTC daily browser budget. For interactive browsing, follow the verified calls and example in the browser_execute description instead of discovering the CDP connector. Browser results carry bounded retrieval instructions when needed.
 
