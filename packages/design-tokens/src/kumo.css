@@ -4,6 +4,9 @@
  * defaults.
  */
 @theme {
+	--spacing-tedix-gutter: 1rem;
+	--spacing-tedix-card: 1.25rem;
+	--spacing-tedix-section: 2rem;
 	--font-sans:
 		"FT Kunst Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
 		"Helvetica Neue", sans-serif;
@@ -45,6 +48,14 @@
 		0 4px 12px var(--color-kumo-shadow-edge);
 	--shadow-tedix-drawer: 16px 0 40px var(--color-kumo-shadow-drop);
 	--shadow-tedix-drawer-left: -16px 0 40px var(--color-kumo-shadow-drop);
+}
+
+@media (min-width: 40rem) {
+	:root,
+	[data-theme="tedix"] {
+		--spacing-tedix-gutter: 1.5rem;
+		--spacing-tedix-card: 1.5rem;
+	}
 }
 
 /*
