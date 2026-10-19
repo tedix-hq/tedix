@@ -121,6 +121,7 @@ export function assertDevinProjectHooks(cwd: string) {
 			.map((key) => key.replace(/\.(?:clean|smudge|process|required)$/, "")),
 	);
 	for (const driver of drivers) {
+		if (!/^filter\.[a-zA-Z0-9_.-]+$/.test(driver)) throw new Error(blocked);
 		for (const operation of ["clean", "smudge", "process"])
 			gitOptions.push("-c", `${driver}.${operation}=`);
 		gitOptions.push("-c", `${driver}.required=false`);

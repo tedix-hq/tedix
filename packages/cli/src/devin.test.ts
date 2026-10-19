@@ -763,3 +763,9 @@ test("project hook verification cannot execute Git fsmonitor or text conversion 
 	expect(() => assertDevinProjectHooks(dir)).toThrow("differ from HEAD");
 	expect(existsSync(marker)).toBe(false);
 });
+
+test("unsupported Git filter driver names fail closed before verification", () => {
+	const { dir, git } = gitFixture();
+	git("config", "filter.lane=unsafe.clean", "echo fictional-helper");
+	expect(() => assertDevinProjectHooks(dir)).toThrow("Devin project hooks");
+});
