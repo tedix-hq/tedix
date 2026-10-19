@@ -195,6 +195,7 @@
 		"./schemas/model-catalog-projection": "./src/schemas/model-catalog-projection.ts",
 		"./schemas/organization": "./src/schemas/organization.ts",
 		"./schemas/work-stewardship": "./src/schemas/work-stewardship.ts",
+		"./schemas/work-specification-policy": "./src/schemas/work-specification-policy.ts",
 		"./schemas/oidc-identity": "./src/schemas/oidc-identity.ts",
 		"./schemas/os-theme": "./src/schemas/os-theme.ts",
 		"./schemas/organization-purpose": "./src/schemas/organization-purpose.ts",

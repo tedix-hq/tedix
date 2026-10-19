@@ -167,7 +167,7 @@ export async function resolveWorkspaceContext(
 }
 
 export const enqueueMessageRoute = authed.enqueueMessage
-	.use(AUTHZ.tedisWrite)
+	.use(AUTHZ.homeUse)
 	.handler(async ({ context, input }) => {
 		const enqueueStartedAtMs = Date.now();
 		if (

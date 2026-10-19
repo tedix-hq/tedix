@@ -22,6 +22,7 @@ export const addCommentProcedure = authOs.addComment.handler(
 				input.metadata,
 			);
 			if (
+				input.requestDelegation === true &&
 				!workItem.metadata?.executor &&
 				/\bdelegat(?:ed|ion)\b/i.test(input.body)
 			) {

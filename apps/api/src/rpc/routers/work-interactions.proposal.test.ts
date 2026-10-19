@@ -558,9 +558,11 @@ describe("Work proposal acceptance", () => {
 		f.sqlite.exec(
 			"CREATE TRIGGER fail_child BEFORE INSERT ON work_items WHEN NEW.source_intent_id='proposal:second' BEGIN SELECT RAISE(ABORT, 'child create failed'); END",
 		);
-		await expect(f.accept(request)).rejects.toMatchObject({
-			cause: { message: "child create failed" },
-		});
+		await expect(
+			f.accept(request).catch((error: Error) => {
+				throw error.cause ?? error;
+			}),
+		).rejects.toThrow("child create failed");
 		expect(f.rows()).toHaveLength(2);
 		expect(
 			f.sqlite

@@ -246,11 +246,9 @@ async function resolveActor(
 export const updateSpecificationProcedure =
 	factoryOs.updateSpecification.handler(async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
-		const actor = await workItemStewardActor(
-			context,
-			workItem,
-			"specification",
-		);
+		const { workItemSpecificationActor } =
+			await import("./specification-policy");
+		const actor = await workItemSpecificationActor(context, workItem, input);
 		if (
 			input.expectedWorkItemVersion !== undefined &&
 			input.expectedWorkItemVersion !== workItem.version

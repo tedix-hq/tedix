@@ -10,6 +10,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import * as z from "zod";
 import { WorkItemDescription } from "@/components/work-item-description";
+import { WorkItemCommentComposer } from "@/components/work-item-comment-composer";
+import { WorkItemSpecificationEditor } from "@/components/work-item-specification-editor";
 import { OS_COPY } from "@/shared/os-copy";
 import {
 	plainWorkText,
@@ -2308,6 +2310,10 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 				description={OS_COPY.work.kinds[item.workKind]}
 			/>
 			<WorkExecutorChoice item={item} />
+			<WorkItemSpecificationEditor
+				key={`${item.id}:${item.version}`}
+				item={item}
+			/>
 			<WorkItemStatusSummary
 				disposition={item.disposition}
 				accountableOwnerType={item.accountableOwnerType}
@@ -2407,6 +2413,11 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 					</CardContent>
 				</Card>
 			) : null}
+			<Card>
+				<CardContent>
+					<WorkItemCommentComposer key={item.id} itemId={item.id} />
+				</CardContent>
+			</Card>
 			<SectionCollection
 				title={OS_COPY.work.activity}
 				description={OS_COPY.work.activityDescription}
