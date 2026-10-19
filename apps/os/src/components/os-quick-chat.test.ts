@@ -468,6 +468,8 @@ describe("OsQuickChat mount", () => {
 	it("hides the widget host where a native composer sits bottom-right", async () => {
 		const widgetHost = document.createElement("div");
 		widgetHost.setAttribute("data-tedix-widget", "");
+		const shadow = widgetHost.attachShadow({ mode: "open" });
+		shadow.innerHTML = '<button class="tedix-launcher">Help</button>';
 		document.body.append(widgetHost);
 		const previous = window.location.pathname;
 		window.history.pushState({}, "", "/chat");
@@ -476,9 +478,23 @@ describe("OsQuickChat mount", () => {
 			const { listeners } = await mount();
 			listeners.get("ready")?.({});
 			expect(widgetHost.hidden).toBe(true);
+			expect(
+				document.documentElement.hasAttribute("data-quick-chat-launcher"),
+			).toBe(false);
 			window.history.pushState({}, "", "/work");
 			listeners.get("ready")?.({});
 			expect(widgetHost.hidden).toBe(false);
+			expect(
+				document.documentElement.hasAttribute("data-quick-chat-launcher"),
+			).toBe(true);
+			expect(shadow.querySelectorAll("[data-os-launcher-style]")).toHaveLength(
+				1,
+			);
+			shadow.querySelector("button")!.hidden = true;
+			listeners.get("ready")?.({});
+			expect(
+				document.documentElement.hasAttribute("data-quick-chat-launcher"),
+			).toBe(false);
 		} finally {
 			widgetHost.remove();
 			window.history.pushState({}, "", previous);
