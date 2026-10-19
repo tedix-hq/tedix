@@ -2167,7 +2167,27 @@ export type WorkActivitySettlement = z.infer<
 	typeof WorkActivitySettlementSchema
 >;
 
+export const DelegationFyiSchema = z.object({
+	classId: z.string(),
+	homeRunId: z.string(),
+	childRunId: z.string(),
+	tediId: z.string(),
+	tediName: z.string(),
+	task: z.string(),
+	outcome: z.string(),
+});
+
+export const DelegationAutonomyFeedbackInputSchema = z.object({
+	id: z.uuid(),
+	eventId: z.string().min(1).max(1000),
+});
+export const DelegationAutonomyFeedbackResultSchema = z.object({
+	classId: z.string(),
+	requiresHumanApproval: z.literal(true),
+});
+
 export const WorkActivityEventSchema = z.object({
+	delegationFyi: DelegationFyiSchema.optional(),
 	id: z.string(),
 	workItemId: z.string(),
 	workItemTitle: z.string(),

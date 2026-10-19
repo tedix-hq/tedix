@@ -479,7 +479,7 @@ describe("write/destructive verb sets", () => {
 					name,
 					annotations: { destructiveHint: false },
 				}),
-			).toBe("low");
+			).toBe(verb === "send" || verb === "publish" ? "high" : "low");
 		}
 	});
 
@@ -511,10 +511,9 @@ describe("classifyWriteRisk", () => {
 			expect(classifyWriteRisk({ name })).toBe("high");
 		}
 	});
-	it("constructive verbs are fail-closed unless explicitly safe", () => {
+	it("constructive verbs need an explicit safe hint and must be non-critical", () => {
 		for (const name of [
 			"create_invoice",
-			"gmail__send_message",
 			"add_contact",
 			"update_record",
 			"insert_row",
@@ -525,21 +524,30 @@ describe("classifyWriteRisk", () => {
 					name,
 					annotations: { destructiveHint: false },
 				}),
-			).toBe("low");
+			).toBe(name === "create_invoice" ? "high" : "low");
 		}
+	});
+	it("requires human approval for sending despite a safe provider annotation", () => {
+		expect(
+			classifyWriteRisk({
+				name: "gmail__send_message",
+				annotations: { destructiveHint: false },
+			}),
+		).toBe("high");
 	});
 });
 
 describe("classifyWriteRisk fail-closed boundary", () => {
-	it("returns low only for an explicit false hint without a destructive verb", () => {
+	it("returns low only for explicitly safe non-critical writes", () => {
 		expect(
 			classifyWriteRisk({
-				name: "create_invoice",
+				name: "create_note",
 				annotations: { destructiveHint: false },
 			}),
 		).toBe("low");
 		for (const tool of [
 			{ name: "create_invoice" },
+			{ name: "create_invoice", annotations: { destructiveHint: false } },
 			{ name: "send_payment" },
 			{ name: "execute_payout" },
 			{

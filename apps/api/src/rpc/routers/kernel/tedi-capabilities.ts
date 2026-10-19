@@ -45,16 +45,16 @@ import type {
 	KernelContextCache,
 } from "../../../kernel/context-cache";
 import { getAppMetadataJson } from "@tedix/db/queries/app-records";
+import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
+import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
 	getTediLearnedCapabilities,
 	type TediLearnedCapability,
 } from "@tedix/db/queries/cognitive/learned-capabilities";
 import { listSkillLabelsByTediIds } from "@tedix/db/queries/cognitive/skill-catalog";
-import {
-	getActiveOrganizationPolicyPackDefinition,
-	getPolicyPackDefinitionsByIds,
-} from "@tedix/db/queries/control-plane/definitions";
+import { getPolicyPackDefinitionsByIds } from "@tedix/db/queries/control-plane/definitions";
+import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-support";
 import {
 	type ActiveDelegationEntrustmentProjection,
 	getActiveDelegationEntrustmentProjections,
@@ -636,12 +636,32 @@ export async function readOrgDispatchPolicyLayer(
 	cache?: { cache: KernelContextCache; trace?: CacheTrace },
 ): Promise<DispatchPolicyLayer | null> {
 	try {
-		const read = () =>
-			getActiveOrganizationPolicyPackDefinition(db, organizationId);
+		const read = () => getActivePolicyPackDefinition(db, organizationId);
 		const definition = await (cache
 			? cache.cache.read(organizationId, "orgPolicyPack", read, cache.trace)
 			: read());
-		return parseDispatchPolicyLayer(definition?.gatingPolicy);
+		const layer = parseDispatchPolicyLayer(definition?.gatingPolicy);
+		const autonomy = parseKernelGovernancePolicy(
+			definition?.governancePolicy,
+		).autonomy;
+		if (!autonomy) return layer;
+		try {
+			return {
+				...layer,
+				autonomy: {
+					...autonomy,
+					askForClasses: [
+						...(autonomy.askForClasses ?? []),
+						...(await readDelegationAutonomyLessons(db, organizationId)),
+					],
+				},
+			};
+		} catch {
+			return {
+				effect: "deny",
+				reason: "autonomy correction lessons are unavailable",
+			};
+		}
 	} catch {
 		return null;
 	}

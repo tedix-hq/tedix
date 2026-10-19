@@ -27,6 +27,10 @@
  *     recorded.
  */
 
+import {
+	decideAutonomousAction,
+	humanReservedActionClasses,
+} from "@tedix/api-contract/utils/approval-policy";
 import type {
 	ExecutionCapability,
 	ExecutionRequirement,
@@ -839,6 +843,7 @@ export function buildDelegationWorkOrder(input: {
 		...(authorityEnvelope ? { authorityEnvelope } : {}),
 		contract,
 		traceExcerpts: boundedTraceExcerpts,
+		autonomyClass: `delegation:${route.effortClass}`,
 		projectValidation,
 		outputSchema: outputSchema ?? null,
 		...(verifyCommand ? { verifyCommand } : {}),
@@ -1308,6 +1313,7 @@ function routeNeedsEmbodiedSurface(route: KernelRouteDecision): boolean {
 
  */
 export function decideDelegationDispatch(input: {
+	workOrderContent?: string;
 	route: KernelRouteDecision;
 	card: TediCapabilityCard | null;
 	speaker: { approvalAuthority?: boolean } | null;
@@ -1371,6 +1377,7 @@ export function decideDelegationDispatch(input: {
 	}
 
 	const verdict = computeDispatchVerdict({
+		workOrderContent: input.workOrderContent,
 		route,
 		card,
 		speaker,
@@ -1448,6 +1455,7 @@ function earnedHoldApprovalRoute(
 }
 
 function computeDispatchVerdict(input: {
+	workOrderContent?: string;
 	route: KernelRouteDecision;
 	card: TediCapabilityCard | null;
 	speaker: { approvalAuthority?: boolean } | null;
@@ -1459,6 +1467,31 @@ function computeDispatchVerdict(input: {
 	} | null;
 }): DispatchDecision {
 	const { route, card, speaker } = input;
+	const actionContent = input.workOrderContent
+		? `${input.workOrderContent}\n${route.plannedToolIds.join("\n")}`
+		: "";
+	const autonomy = decideAutonomousAction({
+		policy: input.gating?.org?.autonomy,
+		risk: input.workOrderContent ? route.risk : "unknown",
+		content: actionContent,
+		classId: `delegation:${route.effortClass}`,
+	});
+	if (actionContent && humanReservedActionClasses(actionContent).length) {
+		return {
+			canAutoDispatch: false,
+			mode: "needs_approval",
+			approvalRoute: "human",
+			reason: autonomy.reason,
+		};
+	}
+	if (input.gating?.org?.autonomy && !autonomy.autoApprove) {
+		return {
+			canAutoDispatch: false,
+			mode: "needs_approval",
+			approvalRoute: "human",
+			reason: autonomy.reason,
+		};
+	}
 	const needsWorkstation = input.executionRequirement
 		? requiresWorkstationLease(input.executionRequirement)
 		: routeNeedsEmbodiedSurface(route);
@@ -1530,13 +1563,14 @@ function computeDispatchVerdict(input: {
 					"target body is cold; isolate is not running and no warm workstation lease exists; refusing dispatch instead of enqueuing a child that fails its first turn",
 			};
 		}
-		return {
-			canAutoDispatch: false,
-			mode: "needs_approval",
-			approvalRoute: "human",
-			reason:
-				"embodied work for a running isolate with a cold workstation lease; approve to dispatch, then the tedi warms its own workstation on the first turn",
-		};
+		if (!autonomy.autoApprove)
+			return {
+				canAutoDispatch: false,
+				mode: "needs_approval",
+				approvalRoute: "human",
+				reason:
+					"embodied work for a running isolate with a cold workstation lease; approve to dispatch, then the tedi warms its own workstation on the first turn",
+			};
 	}
 
 	// 3c. Warm workstation lease, but the workstation environment is not ready
@@ -1552,6 +1586,7 @@ function computeDispatchVerdict(input: {
 	//     a control-plane preflight (CMA "prove the tier is ready before delegate")
 	//     rather than something the tedi discovers mid-task.
 	if (
+		!autonomy.autoApprove &&
 		card.embodied === true &&
 		needsWorkstation &&
 		card.hasRepository === true &&
@@ -1571,7 +1606,11 @@ function computeDispatchVerdict(input: {
 	//    operator. An explicitly autonomous target may wake for a cognitive turn:
 	//    its scope, speaker authority, and route-risk checks still run below. The
 	//    embodied cold-body refusal above remains non-promotable.
-	if (!AVAILABLE_STATES.has(card.availability) && card.requiresApproval) {
+	if (
+		!autonomy.autoApprove &&
+		!AVAILABLE_STATES.has(card.availability) &&
+		card.requiresApproval
+	) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",
@@ -1595,7 +1634,7 @@ function computeDispatchVerdict(input: {
 	}
 
 	// 6. Target self-declares it requires approval for its actions.
-	if (card.requiresApproval === true) {
+	if (card.requiresApproval === true && !autonomy.autoApprove) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",
@@ -1615,9 +1654,8 @@ function computeDispatchVerdict(input: {
 		};
 	}
 
-	// 8. Speaker authority — only an operator with approval authority can
-	//    pre-authorize an autonomous dispatch.
-	if (!speaker?.approvalAuthority) {
+	// Without standing organization authorization, the speaker must authorize dispatch.
+	if (!autonomy.autoApprove && !speaker?.approvalAuthority) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",

@@ -553,7 +553,14 @@ it("any-local shares two slots across native Claude and Codex Attempts", async (
 });
 
 it("any-local requests delegation for the assigned native executor", () => {
-	const reserved = { ...item(), title: "Summarize email fixtures" };
+	expect(
+		dispatchSkip(
+			{ ...item(), title: "Summarize email fixtures" },
+			[],
+			"any-local",
+		),
+	).toBeUndefined();
+	const reserved = { ...item(), title: "Send an email to a customer" };
 	expect(dispatchSkip(reserved, [], "any-local")).toContain(
 		"Delegation: codex work-version=2",
 	);

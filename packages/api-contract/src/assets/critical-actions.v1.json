@@ -1,0 +1,60 @@
+{
+	"version": 1,
+	"nativeLowRiskTools": [
+		"read",
+		"ls",
+		"find",
+		"grep",
+		"code_search",
+		"browser_markdown",
+		"browser_read_result"
+	],
+	"nativeMediumRiskTools": [
+		"write",
+		"edit",
+		"artifact_write",
+		"artifact_patch",
+		"exec",
+		"run_git",
+		"tedix_mcp_code",
+		"tedix_mcp_call_tool"
+	],
+	"nativeHighRiskTools": ["browser_execute", "execute", "repo_commit"],
+	"nativeArgumentActions": [
+		"exec",
+		"browser_execute",
+		"execute",
+		"run_git",
+		"repo_commit"
+	],
+	"classes": [
+		{
+			"id": "money",
+			"pattern": "\\b(pay(?:ments?|ing)?|purchas(?:e|es|ing)|buy(?:ing)?|transfer(?:s|ring)?|refund(?:s|ing)?|charg(?:e|es|ing)|(?:create|issue|settle|void)[_ -]+(?:(?:an?|the)[_ -]+)?invoices?|money|bank|spend(?:ing)?|chang(?:e|ing)[_ -]+budgets?|(?:raise|increase|lower|update|set|configure|adjust|decrease|reduce|modify|allocate|add|grant|revoke|remove)[_ -]+(?:the[_ -]+)?(?:budgets?|credits?|credit[_ -]+billing))\\b"
+		},
+		{
+			"id": "external_message",
+			"pattern": "\\b(send(?:ing|s)?|whatsapp|impersonat\\w*)\\b|\\b(?:email|message)[_ -]+(?:a[_ -]+|the[_ -]+|our[_ -]+)?(?:customer|client|person|people|external|recipient|them|him|her)\\b|^\\s*(?:please\\s+)?email\\b|\\b(?:(?:slack|discord|teams)[_ -]+(?:\\w+[_ -]+){0,2}(?:post|reply)|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:slack|discord|teams))\\b"
+		},
+		{
+			"id": "public_publish",
+			"pattern": "\\b(publish(?:ing|ed|es)?|post[_ -]+as|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:public|social|linkedin|reddit|tweet|blog))\\b"
+		},
+		{
+			"id": "credentials",
+			"pattern": "\\b(consent|mfa|sign[_ -]?in|log[_ -]?in|credentials?|passwords?|secrets?|api[_ -]+keys?|access[_ -]+tokens?|(?:grant|authorize|complete)[_ -]+(?:access|token|oauth)|rotate[_ -]+(?:key|secret))\\b"
+		},
+		{
+			"id": "access_control",
+			"pattern": "\\b(?:(?:change|update|set|grant|revoke|assign|remove|add|create|edit|modify|configure)[_ -]+(?:\\w+[_ -]+){0,3}(?:roles?|permissions?|memberships?|members?)|invite[_ -]+(?:user|member))\\b"
+		},
+		{
+			"id": "delete_data",
+			"pattern": "\\b(delet(?:e|es|ed|ing)|destroy(?:ing)?|purg(?:e|ing)|drop[_ -]+(?:table|database)|trash(?:ing)?|rm|rmdir)\\b"
+		},
+		{
+			"id": "production_settings",
+			"pattern": "\\b(?:(?:change|update|set|configure|repair)[_ -]+(?:\\w+[_ -]+){0,4}(?:production[_ -]+)?(?:auth|oauth|provider)[_ -]+(?:settings?|config(?:uration)?))\\b"
+		}
+	]
+}

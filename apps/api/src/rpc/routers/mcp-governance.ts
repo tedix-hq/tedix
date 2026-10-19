@@ -10,11 +10,13 @@ import { implement } from "@orpc/server";
 import { mcpGovernanceContract } from "@tedix/api-contract/contracts/mcp-governance";
 import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
 import { getPolicyPackById } from "@tedix/db/queries/control-plane/definitions";
+import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-support";
 import {
 	resolveToolApprovalGrant,
 	resolveWorkItemAuthorization,
 } from "@tedix/db/queries/mcp-governance";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
+import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { type BaseContext, withServiceAuth } from "../orpc";
 
 const mcpGovernanceOs = implement(
@@ -30,8 +32,27 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				input.tediId,
 				input.organizationId,
 			);
-			if (!tedi?.policyPackId) {
-				return { requireExplicitApprovalPolicy: false };
+			if (!tedi) return { requireExplicitApprovalPolicy: false };
+			const organizationPolicy = await getActivePolicyPackDefinition(
+				context.db,
+				input.organizationId,
+			);
+			const autonomy = parseKernelGovernancePolicy(
+				organizationPolicy?.governancePolicy,
+			).autonomy;
+			if (autonomy)
+				autonomy.askForClasses = [
+					...(autonomy.askForClasses ?? []),
+					...(await readDelegationAutonomyLessons(
+						context.db,
+						input.organizationId,
+					)),
+				];
+			if (!tedi.policyPackId) {
+				return {
+					requireExplicitApprovalPolicy: false,
+					...(autonomy ? { autonomy } : {}),
+				};
 			}
 			const policyPack = await getPolicyPackById(context.db, tedi.policyPackId);
 			if (
@@ -40,12 +61,16 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				(policyPack.organizationId !== null &&
 					policyPack.organizationId !== input.organizationId)
 			) {
-				return { requireExplicitApprovalPolicy: false };
+				return {
+					requireExplicitApprovalPolicy: false,
+					...(autonomy ? { autonomy } : {}),
+				};
 			}
 			const governance = parseKernelGovernancePolicy(
 				policyPack.definition?.governancePolicy,
 			);
 			return {
+				...(autonomy ? { autonomy } : {}),
 				requireExplicitApprovalPolicy:
 					governance.requireExplicitThirdPartyApprovalPolicy === true,
 			};

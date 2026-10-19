@@ -5,6 +5,7 @@ import {
 	createError,
 	userHoldsPermission,
 } from "../../orpc";
+import { recordDelegationFyi } from "@tedix/db/queries/work-items/delegation-autonomy";
 import type { CodemodeExecuteWritePayload } from "@tedix/api-contract/schemas/codemode-execute-write";
 import type {
 	HomePlan,
@@ -219,6 +220,27 @@ export function buildKernelTurnWorkDeps(
 		// cognitive-runtime enqueue + deterministic child-run id as the forced
 		// delegateToTediId path (`defaultKernelDelegateRunner`).
 		dispatchAutoDelegation: buildAutoDelegationDispatcher({
+			recordFyi: async (input, result) => {
+				if (!input.workOrder.autonomyClass) return;
+				if (!input.workItemId)
+					throw new Error(
+						"Automatic delegation requires a canonical Work Item for its FYI",
+					);
+				await recordDelegationFyi(context.db, {
+					orgId: input.organizationId,
+					workItemId: input.workItemId,
+					at: nowIso(),
+					fyi: {
+						classId: input.workOrder.autonomyClass,
+						homeRunId: input.homeRunId,
+						childRunId: result.childRunId,
+						tediId: input.delegatedTediId,
+						tediName: input.workOrder.targetTediLabel ?? "tedi",
+						task: input.workOrder.objective,
+						outcome: result.status,
+					},
+				});
+			},
 			predictChildRunId: predictAgentRunId,
 			enqueueChild: async (args) => {
 				// The kernel is a trusted internal caller, but the request context

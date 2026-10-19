@@ -2,6 +2,7 @@ import {
 	workstationDispatchIdentity,
 	inspectWorkstationDispatchAdmission,
 } from "../kernel/workstation-dispatch";
+import { reviewWorkstationDelegationAutonomy } from "./delegation-autonomy-workstation-policy";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import {
 	CODEMODE_EXECUTE_WRITE_KIND,
@@ -1010,6 +1011,7 @@ async function steerKernelRunCore(
 export async function resolveKernelWorkstationAttachWorkOrder(
 	context: BaseContext,
 	input: {
+		policyResolution?: boolean;
 		approvalRequestId: string;
 		organizationId: string;
 		resolution?: string | null;
@@ -1051,6 +1053,14 @@ export async function resolveKernelWorkstationAttachWorkOrder(
 	if (!existingRun) {
 		throw createError(ErrorCodes.NOT_FOUND, "Home work order run not found");
 	}
+	if (
+		input.policyResolution &&
+		!(await reviewWorkstationDelegationAutonomy(context, existingRun))?.allowed
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Autonomy policy refused the workstation release",
+		);
 	const resolvedAt = nowIso();
 	const progress = resolvedWorkstationAttachProgress(input.status);
 	const nextRunStatus: TediRunStatus =
@@ -1109,7 +1119,9 @@ export async function resolveKernelWorkstationAttachWorkOrder(
 		: null;
 	const preview =
 		input.status === "approved"
-			? "Workstation attachment approved — dispatching the certified work order to the workstation-backed tedi."
+			? input.policyResolution
+				? "Autonomy policy released the workstation delegation."
+				: "Workstation attachment approved — dispatching the certified work order to the workstation-backed tedi."
 			: "Workstation attachment rejected by operator.";
 	const nextMetadata = {
 		...existingMetadata,
@@ -1117,6 +1129,9 @@ export async function resolveKernelWorkstationAttachWorkOrder(
 		approvalResolvedAt: resolvedAt,
 		approvalResolution: input.resolution ?? approval.resolution ?? null,
 		approvalStatus: input.status,
+		...(input.policyResolution
+			? { resolvedBy: { type: "policy", id: "delegation-autonomy.v1" } }
+			: {}),
 		delegationWorkOrder: nextWorkOrder,
 		...(existingWorkItemId
 			? {
@@ -1154,6 +1169,9 @@ export async function resolveKernelWorkstationAttachWorkOrder(
 		delegatedTediId: payload.delegateToTediId,
 		payload: {
 			approvalRequestId: input.approvalRequestId,
+			...(input.policyResolution
+				? { resolvedBy: { type: "policy", id: "delegation-autonomy.v1" } }
+				: {}),
 			delegationWorkOrder: nextWorkOrder,
 			nextRunStatus,
 			resolution: input.resolution ?? approval.resolution ?? null,
@@ -1200,7 +1218,9 @@ export async function resolveKernelWorkstationAttachWorkOrder(
 			existingRuntimeMetadata: nonNullRecord(existingRun.runtimeMetadata),
 			organizationId: input.organizationId,
 			runId: payload.homeRunId,
-			trigger: "human-approval",
+			trigger: input.policyResolution
+				? "policy-auto-approval"
+				: "human-approval",
 			userMessageId: existingRun.inputMessageId ?? `${payload.homeRunId}:input`,
 			workItemId: existingWorkItemId,
 			workOrder: nextWorkOrder,

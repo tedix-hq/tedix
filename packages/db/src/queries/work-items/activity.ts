@@ -9,6 +9,8 @@ import {
 } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { DelegationFyiSchema } from "@tedix/api-contract/schemas/work-items";
+import type { DelegationFyi } from "./delegation-autonomy";
 import { personalWorkFeedPredicate } from "./personal-feed";
 import {
 	type WorkItemDisposition,
@@ -32,6 +34,7 @@ export interface WorkActivitySettlement {
 
 /** A recent board event (comment/heartbeat/block/done/…) for the activity feed. */
 export interface WorkActivityRow {
+	delegationFyi?: DelegationFyi;
 	id: string;
 	workItemId: string;
 	workItemTitle: string;
@@ -162,7 +165,16 @@ export async function listWorkActivity(
 			r.authorId === `personal-agent:${contribution.data.sourceAgentId}`
 				? contribution.data
 				: undefined;
+		const fyi = DelegationFyiSchema.safeParse(md.delegationFyi);
+		const trustedFyi =
+			fyi.success &&
+			r.eventType === "delegation.fyi" &&
+			r.authorType === "system" &&
+			r.authorId === "home"
+				? fyi.data
+				: undefined;
 		return {
+			...(trustedFyi ? { delegationFyi: trustedFyi } : {}),
 			id: r.id,
 			workItemId: r.workItemId,
 			workItemTitle: r.workItemTitle,

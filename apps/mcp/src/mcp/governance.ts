@@ -1,4 +1,9 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
+import {
+	decideAutonomousAction,
+	humanReservedActionClasses,
+	type DelegationAutonomyPolicy,
+} from "@tedix/api-contract/utils/approval-policy";
 import type { ToolAnnotations } from "@tedix/api-contract/schemas/tools";
 import {
 	checkAnnotationAssertion,
@@ -21,7 +26,10 @@ import {
 } from "./mrtr";
 import { isTedixManagedMcpUrl } from "./managed-mcp-auth";
 import type { AppTool, ServerContext } from "./server-context";
-import { toolRiskAuditMetadata } from "./tool-risk-policy";
+import {
+	resolveToolRiskPolicy,
+	toolRiskAuditMetadata,
+} from "./tool-risk-policy";
 import { emitMcpAuditEvent, type McpEvent } from "./utils/analytics";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
@@ -658,7 +666,67 @@ export async function requireDestructiveToolApproval(
 		agent,
 		tool,
 	);
-	if (annotations?.destructiveHint !== true && !isOwnedChannelBoundary)
+	const risk = resolveToolRiskPolicy({ meta: tool.meta ?? null })?.riskTier;
+	if (
+		annotations?.destructiveHint !== true &&
+		!isOwnedChannelBoundary &&
+		!humanReservedActionClasses(tool.toolId).length &&
+		risk !== "high_impact_write" &&
+		risk !== "external_side_effect"
+	)
+		return null;
+	let autonomy: DelegationAutonomyPolicy | undefined;
+	if (
+		callerIsAgent(agent, options?.extra) &&
+		agent.apiClient?.mcpGovernance?.resolveAgentTransportPolicy &&
+		agent.app?.organizationId &&
+		agent.callerIdentity?.tediId
+	) {
+		try {
+			const policy =
+				await agent.apiClient.mcpGovernance.resolveAgentTransportPolicy({
+					organizationId: agent.app.organizationId,
+					tediId: agent.callerIdentity.tediId,
+				});
+			autonomy = policy.autonomy;
+		} catch {
+			return approvalFailure(
+				"Autonomous action policy is unavailable; no side effect was executed.",
+			);
+		}
+	}
+	const autonomousDecision = decideAutonomousAction({
+		policy: autonomy,
+		classId: `tool:${agent.appSlug ?? ""}:${tool.toolId}`,
+		risk:
+			risk === "read" || (!risk && annotations?.readOnlyHint === true)
+				? "low"
+				: risk === "bounded_write" ||
+					  (!risk &&
+							annotations?.readOnlyHint === false &&
+							annotations.destructiveHint !== true &&
+							tool.config?.transport === "rpc")
+					? "medium"
+					: risk
+						? "high"
+						: "unknown",
+		content: `${agent.appSlug ?? ""}:${tool.toolId}`,
+	});
+	if (autonomy && autonomousDecision.autoApprove && !isOwnedChannelBoundary) {
+		emitGovernanceAuditEvent(
+			agent,
+			tool,
+			"destructive_approved",
+			autonomousDecision.reason,
+			{ policyVersion: autonomy.version, resolvedBy: "policy" },
+		);
+		return null;
+	}
+	if (
+		annotations?.destructiveHint !== true &&
+		!isOwnedChannelBoundary &&
+		!autonomy
+	)
 		return null;
 	// `content_publish` has no preview contract. Unknown arguments can be
 	// stripped downstream, so a caller-supplied dryRun=true must never bypass
@@ -740,6 +808,18 @@ export async function requireDestructiveToolApproval(
 		);
 		return approvalFailure(
 			`Action "${tool.toolId}" was not approved: no current server-attributed authorization receipt from an accountable principal matches the active Work Item and publish scope (${resolution.reason}). No side effect was executed.`,
+		);
+	}
+
+	if (autonomy) {
+		emitGovernanceAuditEvent(
+			agent,
+			tool,
+			"destructive_denied",
+			autonomousDecision.reason,
+		);
+		return approvalFailure(
+			`Human approval required: ${autonomousDecision.reason}. Route this action through Home's approval flow. No side effect was executed.`,
 		);
 	}
 

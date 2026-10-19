@@ -88,6 +88,7 @@ import {
 } from "./delegation-dispatch";
 import {
 	type DispatchPolicyLayer,
+	approvalHeldDelegationIntent,
 	resolveEarnedDelegationEnforcement,
 } from "./dispatch-policy";
 import { readFactoryChatHealth } from "./factory-chat-tools";
@@ -225,18 +226,6 @@ function containsToken(text: string, token: string): boolean {
 	return new RegExp(
 		`(^|[^a-z0-9])${escapeRegExp(trimmed)}(?=$|[^a-z0-9])`,
 	).test(text);
-}
-
-function approvalHeldDelegationIntent(content: string): boolean {
-	const text = content.toLowerCase();
-	const asksForDelegation =
-		/\b(delegat(?:e|ion|ing)|handoff|hand-off|work\s*order)\b/.test(text);
-	const asksForApproval = /\b(approval|approve|sign[ -]?off)\b/.test(text);
-	const holdsDispatch =
-		/\b(?:do not|don't|not)\s+(?:dispatch|delegate|send|start)\b/.test(text) ||
-		/\bpark(?:ed)?\b.{0,80}\bapproval\b/.test(text) ||
-		/\bapproval\b.{0,80}\b(?:before|first|then wait|wait)\b/.test(text);
-	return asksForDelegation && asksForApproval && holdsDispatch;
 }
 
 function findMentionedTedi(
@@ -1137,6 +1126,7 @@ export async function runKernel(args: {
 		delegation = {
 			workOrder,
 			decision: decideDelegationDispatch({
+				workOrderContent: content,
 				route,
 				card,
 				executionRequirement,

@@ -1,3 +1,99 @@
+import criticalActions from "../assets/critical-actions.v1.json";
+
+export interface DelegationAutonomyPolicy {
+	version: 1;
+	maxRisk: "medium";
+	askForClasses?: string[];
+}
+
+export function parseDelegationAutonomyPolicy(
+	raw: unknown,
+): DelegationAutonomyPolicy | undefined {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const value = raw as Record<string, unknown>;
+	return value.version === 1 && value.maxRisk === "medium"
+		? {
+				version: 1,
+				maxRisk: "medium",
+				...(Array.isArray(value.askForClasses)
+					? {
+							askForClasses: value.askForClasses.filter(
+								(item): item is string => typeof item === "string",
+							),
+						}
+					: {}),
+			}
+		: undefined;
+}
+
+const criticalActionRules = criticalActions.classes.map((rule) => ({
+	id: rule.id,
+	pattern: new RegExp(rule.pattern, "i"),
+}));
+
+export function nativeToolAutonomyRisk(
+	name: string,
+): "low" | "medium" | "high" | "unknown" {
+	return criticalActions.nativeLowRiskTools.includes(name)
+		? "low"
+		: criticalActions.nativeMediumRiskTools.includes(name)
+			? "medium"
+			: criticalActions.nativeHighRiskTools.includes(name)
+				? "high"
+				: "unknown";
+}
+
+/** Proxy tools enforce critical actions at the inner tool boundary, not on quoted data. */
+export function nativeToolActionContent(name: string, args: unknown): string {
+	return criticalActions.nativeArgumentActions.includes(name)
+		? `${name} ${JSON.stringify(args)}`
+		: name;
+}
+
+/** Shared by Home, the runtime, and local lanes; tool names use the same vocabulary. */
+export function humanReservedActionClasses(content: string): string[] {
+	const normalized = content
+		.replace(
+			/\b(?:do not|don't|don’t|never)\s+(?:send|email|publish|delete|pay|purchase)\b(?:(?!\b(?:but|then|however)\b)[^.!?;,\n])*/gi,
+			" ",
+		)
+		.replace(/([a-z])([A-Z])/g, "$1 $2")
+		.replace(/[_:.]/g, " ");
+	return criticalActionRules
+		.filter((rule) => rule.pattern.test(normalized))
+		.map((rule) => rule.id);
+}
+
+export function decideAutonomousAction(input: {
+	policy?: DelegationAutonomyPolicy | null;
+	risk: "low" | "medium" | "high" | "critical" | "unknown";
+	content: string;
+	classId?: string;
+}): { autoApprove: boolean; reason: string } {
+	const reserved = humanReservedActionClasses(input.content);
+	if (
+		input.policy?.askForClasses?.includes("*") ||
+		(input.classId && input.policy?.askForClasses?.includes(input.classId))
+	)
+		return {
+			autoApprove: false,
+			reason: `human correction requires approval for ${input.classId}`,
+		};
+	if (reserved.length)
+		return {
+			autoApprove: false,
+			reason: `human-reserved: ${reserved.join(", ")}`,
+		};
+	if (input.risk !== "low" && input.risk !== "medium")
+		return {
+			autoApprove: false,
+			reason: `${input.risk} risk requires human approval`,
+		};
+	return input.policy?.version === 1 && input.policy.maxRisk === "medium"
+		? { autoApprove: true, reason: `autonomy v1: ${input.risk} risk` }
+		: { autoApprove: false, reason: "no autonomy policy configured" };
+}
+
 // ---------------------------------------------------------------------------
 // Kernel governance policy (parsed from PolicyPackDefinition.governancePolicy)
 // ---------------------------------------------------------------------------
@@ -23,6 +119,7 @@
  *                      {@link decideKernelWriteApproval}.
  */
 export interface KernelGovernancePolicy {
+	autonomy?: DelegationAutonomyPolicy;
 	approvalTtlHours?: number;
 	maxDelegationsPerTurn?: number;
 	writeTier?: KernelWriteTierPolicy;
@@ -36,7 +133,7 @@ export interface KernelGovernancePolicy {
 }
 
 /** Coarse risk classification of a proposed provider write. */
-export type KernelWriteRiskTier = "low" | "high";
+export type KernelWriteRiskTier = "low" | "medium" | "high";
 
 /**
  * Trusted-write auto-approve tier. The kernel's symmetric analogue of the
@@ -120,6 +217,8 @@ export function parseKernelGovernancePolicy(
 		);
 		if (cap !== null) out.maxDelegationsPerTurn = cap;
 	}
+	const autonomy = parseDelegationAutonomyPolicy(record.autonomy);
+	if (autonomy) out.autonomy = autonomy;
 	if (record.writeTier !== undefined) {
 		const writeTier = parseWriteTierPolicy(record.writeTier);
 		if (writeTier) out.writeTier = writeTier;
@@ -221,6 +320,18 @@ export function decideKernelWriteApproval(input: {
 	proposal: KernelWriteApprovalProposal;
 }): KernelWriteApprovalDecision {
 	const { appSlug, toolName, riskTier } = input.proposal;
+	if (input.policy?.autonomy) {
+		const decision = decideAutonomousAction({
+			policy: input.policy.autonomy,
+			risk: riskTier,
+			content: `${appSlug}:${toolName}`,
+		});
+		return {
+			autoResolve: decision.autoApprove,
+			source: decision.autoApprove ? "policy" : null,
+			reason: decision.reason,
+		};
+	}
 	// 1. Session-scoped pre-authorization — explicit, conversation-bounded grant.
 	if (writeToolMatchesAllowlist(appSlug, toolName, input.sessionAllowlist)) {
 		return {

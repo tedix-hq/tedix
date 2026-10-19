@@ -14,6 +14,8 @@ import {
 	withServiceAuth,
 	userHoldsPermission,
 } from "../../orpc";
+import { decideAutonomousAction } from "@tedix/api-contract/utils/approval-policy";
+import { recordDelegationFyi } from "@tedix/db/queries/work-items/delegation-autonomy";
 import {
 	type ExecutionRequirement,
 	ExecutionRequirementSchema,
@@ -511,6 +513,22 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// cap; defaults apply when absent.
 		const [governancePolicy, sessionWriteAllowlist, priorCauseRead] =
 			await ingressReads;
+		if (
+			input.delegateToTediId &&
+			!workstationAttach &&
+			governancePolicy?.autonomy &&
+			!decideAutonomousAction({
+				policy: governancePolicy.autonomy,
+				risk: "medium",
+				content: turnContent,
+				classId: "delegation:embodied",
+			}).autoApprove
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"This delegation requires a human approval. Submit this task through Home without delegateToTediId so Home can prepare its approval card. Nothing was dispatched.",
+			);
+		}
 		// Kernel turns are persisted BEFORE the kernel runs and the kernel work
 		// is registered with `context.waitUntil` (see `turnWork` below): a
 		// caller that disconnects mid-kernel (e.g. an MCP client's inner
@@ -539,6 +557,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// gates only the human-approval click, never body certification.
 		const dispatchPolicy = workstationAttach
 			? classifyWorkstationDispatch({
+					autonomy: governancePolicy?.autonomy,
+					content: turnContent,
 					explicitHumanDelegation: Boolean(input.delegateToTediId),
 					hasActingUser: Boolean(context.descopeUserId ?? context.user?.sub),
 					runtimeRunning:
@@ -636,6 +656,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			!homePlan &&
 			(isolateDelegation ? childRunId : workstationChildRunId)
 				? await createDelegationWorkItem(context, {
+						autonomyClass: governancePolicy?.autonomy
+							? "delegation:embodied"
+							: undefined,
 						assigneeTediId: input.delegateToTediId,
 						childRunId: (isolateDelegation
 							? childRunId
@@ -1073,13 +1096,32 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				userMessageId,
 				workItemId: delegationWorkItemId,
 				workOrder: delegationWorkOrder,
-			}).catch((error) => {
-				console.warn(
-					"[kernelRuntime.enqueueMessage] workstation work order dispatch failed",
-					errorMessage(error),
-				);
-				return null;
-			});
+			})
+				.then(async (result) => {
+					if (governancePolicy?.autonomy && delegationWorkItemId)
+						await recordDelegationFyi(context.db, {
+							orgId: organizationId,
+							workItemId: delegationWorkItemId,
+							at: nowIso(),
+							fyi: {
+								classId: "delegation:embodied",
+								homeRunId: runId,
+								childRunId: result.childRunId,
+								tediId: input.delegateToTediId!,
+								tediName: delegateTarget?.slug ?? "tedi",
+								task: turnContent,
+								outcome: result.status,
+							},
+						});
+					return result;
+				})
+				.catch((error) => {
+					console.warn(
+						"[kernelRuntime.enqueueMessage] workstation work order dispatch failed",
+						errorMessage(error),
+					);
+					return null;
+				});
 			if (context.waitUntil) {
 				context.waitUntil(dispatchWork);
 			} else {
@@ -1386,6 +1428,32 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				KERNEL_DELEGATE_ENQUEUE_BUDGET_MS,
 				"Home delegated child dispatch",
 			)
+				.then(async (result) => {
+					if (governancePolicy?.autonomy && delegationWorkItemId) {
+						try {
+							await recordDelegationFyi(context.db, {
+								orgId: organizationId,
+								workItemId: delegationWorkItemId,
+								at: nowIso(),
+								fyi: {
+									classId: "delegation:embodied",
+									homeRunId: runId,
+									childRunId: result.childRunId,
+									tediId: delegatedTediId,
+									tediName: delegateTarget?.slug ?? "tedi",
+									task: turnContent,
+									outcome: result.status,
+								},
+							});
+						} catch (error) {
+							console.warn(
+								"[kernelRuntime] FYI write deferred to terminal reconciliation",
+								error,
+							);
+						}
+					}
+					return result;
+				})
 				.catch((error) => {
 					console.warn(
 						"[kernelRuntime.enqueueMessage] delegated child dispatch failed",

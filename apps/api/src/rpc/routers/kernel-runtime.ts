@@ -45,8 +45,10 @@ import {
 import { kernelRuntimeOs } from "./kernel-runtime/policy-normalization";
 import { uploadAttachmentRoute } from "./kernel-runtime/attachments";
 import { readToolResultRoute } from "./kernel-runtime/tool-results";
+import { sweepDelegationAutonomyRoute } from "./kernel-runtime/delegation-autonomy-sweep";
 
 export const kernelRuntimeContractRouter = kernelRuntimeOs.router({
+	sweepDelegationAutonomy: sweepDelegationAutonomyRoute,
 	listConversationCapabilities: listConversationCapabilitiesRoute,
 	attachConversationCapability: attachConversationCapabilityRoute,
 	detachConversationCapability: detachConversationCapabilityRoute,

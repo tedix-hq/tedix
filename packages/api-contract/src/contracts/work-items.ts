@@ -1,5 +1,7 @@
 import {
 	LaneDispatchPlanSchema,
+	DelegationAutonomyFeedbackInputSchema,
+	DelegationAutonomyFeedbackResultSchema,
 	WorkExecutorSchema,
 	ListWorkCliProjectionInputSchema,
 	ListWorkCliProjectionResultSchema,
@@ -146,6 +148,14 @@ export const workItemsContract = oc
 	.route({ tags: ["work-items"], prefix: "/work-items" })
 	.errors(baseErrors)
 	.router({
+		recordDelegationAutonomyFeedback: oc
+			.route({
+				method: "POST",
+				path: "/delegation-autonomy-feedback",
+				summary: "Ask before this class of delegation in future",
+			})
+			.input(DelegationAutonomyFeedbackInputSchema)
+			.output(DelegationAutonomyFeedbackResultSchema),
 		fileAgentReview: oc
 			.route({
 				method: "POST",

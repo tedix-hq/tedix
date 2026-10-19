@@ -4,6 +4,8 @@ import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
 	ApproveHomePlanAssignmentsInputSchema,
+	SweepDelegationAutonomyInputSchema,
+	SweepDelegationAutonomyResultSchema,
 	CancelHomeRunInputSchema,
 	ConversationCapabilityReplayNameSchema,
 	ConversationCapabilitySchema,
@@ -46,6 +48,15 @@ export const kernelRuntimeContract = oc
 	.route({ tags: ["kernel-runtime"], prefix: "/kernel/runtime" })
 	.errors(baseErrors)
 	.router({
+		sweepDelegationAutonomy: oc
+			.route({
+				method: "POST",
+				path: "/delegations/autonomy-sweep",
+				summary:
+					"Release pending delegations under the current autonomy policy",
+			})
+			.input(SweepDelegationAutonomyInputSchema)
+			.output(SweepDelegationAutonomyResultSchema),
 		listConversationCapabilities: oc
 			.route({
 				method: "GET",

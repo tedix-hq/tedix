@@ -18,6 +18,11 @@ function createContext(input?: {
 	return {
 		authType: "service-binding",
 		db: {
+			select: () => ({
+				from: () => ({
+					where: () => ({ orderBy: () => ({ limit: async () => [] }) }),
+				}),
+			}),
 			query: {
 				tedis: {
 					findFirst: vi.fn(async () => input?.tedi),

@@ -36,7 +36,7 @@ export function FeedCard({
 	rowActions?: FocusRowAction[];
 	onReact: (
 		item: ActivityFeedItem,
-		reaction: "more" | "mute" | "comment" | "why" | "ignore",
+		reaction: "more" | "mute" | "comment" | "why" | "ignore" | "ask",
 		text?: string,
 	) => Promise<boolean>;
 	onWork: (item: ActivityFeedItem) => Promise<void>;
@@ -44,6 +44,7 @@ export function FeedCard({
 	const [receipt, setReceipt] = useState(false);
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");
+	const [correctionSaved, setCorrectionSaved] = useState(false);
 	const rail = useContext(DecisionRailContext);
 	const section = `feed-${item.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 	const directory = useContext(WorkActorDirectoryContext);
@@ -88,6 +89,20 @@ export function FeedCard({
 				</Link>
 				{(identity?.type === "external_agent" || identity?.contributor) && (
 					<WorkSourceProvenance actor={identity} name={actor} source={source} />
+				)}
+				{item.autonomyFeedback && (
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={busy || correctionSaved}
+						onClick={async () => {
+							if (await onReact(item, "ask")) setCorrectionSaved(true);
+						}}
+					>
+						{correctionSaved
+							? "I'll ask next time"
+							: "This should have asked me"}
+					</Button>
 				)}
 				<FocusRowActions
 					actions={[

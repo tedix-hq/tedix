@@ -314,6 +314,10 @@ export class PiConversationFixture extends ProductionConversationFacet {
 	}
 	protected async parent(): Promise<ConversationParentPort> {
 		return {
+			facetToolApprovalDecision: async () => ({
+				autoApprove: false,
+				critical: false,
+			}),
 			assertChatTurnActive: async () => {
 				if ((await this.stats()).cancelled)
 					throw new Error("fixture authority cancelled");

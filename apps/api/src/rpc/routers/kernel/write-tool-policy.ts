@@ -1,4 +1,7 @@
-import type { KernelWriteRiskTier } from "@tedix/api-contract/utils/approval-policy";
+import {
+	humanReservedActionClasses,
+	type KernelWriteRiskTier,
+} from "@tedix/api-contract/utils/approval-policy";
 
 export interface McpTool {
 	name: string;
@@ -14,7 +17,7 @@ export type ToolParamDefaults = Record<string, string | number | boolean>;
  * Destructive/irreversible verbs — the high-risk subset of the write verbs. A
  * write matching one of these (or carrying `destructiveHint:true`) is high risk
  * and never policy-auto-approved (only an explicit session pre-authorization can
- * carry one through). Creates/updates/sends/adds are low risk by exclusion.
+ * carry one through). The shared critical-action classifier also applies.
  *
  * Exported for the subset invariant test — this list is a subset of the write
  * verbs by construction ({@link WRITE_VERB_RE} is built from the union below),
@@ -174,6 +177,7 @@ const DESTRUCTIVE_VERB_RE = verbMatcher(DESTRUCTIVE_VERBS);
  * make every write high.
  */
 export function classifyWriteRisk(tool: McpTool): KernelWriteRiskTier {
+	if (humanReservedActionClasses(tool.name).length) return "high";
 	if (DESTRUCTIVE_VERB_RE.test(tool.name)) return "high";
 	return tool.annotations?.destructiveHint === false ? "low" : "high";
 }

@@ -42,6 +42,9 @@ export const ActivityFeedItemSchema = z.strictObject({
 	done: z.boolean(),
 	explanation: z.string(),
 	reactions: z.array(ActivityFeedReactionSchema).max(5),
+	autonomyFeedback: z
+		.object({ eventId: z.string(), classId: z.string() })
+		.optional(),
 	attachment: z
 		.strictObject({
 			title: z.string().min(1).max(200),

@@ -71,8 +71,10 @@ import {
 	updateCaseProcedure,
 } from "./work-items/cases";
 import { inspectAttemptRepositoryProcedure } from "./work-items/workstation-inspection";
+import { recordDelegationAutonomyFeedbackProcedure } from "./work-items/delegation-autonomy";
 
 export const workItemsContractRouter = workItemsOs.router({
+	recordDelegationAutonomyFeedback: recordDelegationAutonomyFeedbackProcedure,
 	fileAgentReview: fileAgentReviewProcedure,
 	listCliProjection: listCliProjectionProcedure,
 	getCheckpointProjection: getCheckpointProjectionProcedure,

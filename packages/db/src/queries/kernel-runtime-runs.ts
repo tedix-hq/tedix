@@ -139,6 +139,34 @@ export async function listKernelRuntimeRuns(
 	return input.offset ? query.offset(input.offset) : query;
 }
 
+/** Stable cursor: resolving a row must not skip the next pending row. */
+export async function listPendingDelegationRuns(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		limit: number;
+		cursor?: { at: string; id: string };
+	},
+): Promise<KernelRuntimeRun[]> {
+	return db
+		.select()
+		.from(kernelRuntimeRuns)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(kernelRuntimeRuns.status, "requires_approval"),
+				sql`(json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object' OR json_extract(${kernelRuntimeRuns.metadata}, '$.delegationWorkOrder.kind') = 'workstation.attach')`,
+				...(input.cursor
+					? [
+							sql`(${kernelRuntimeRuns.createdAt}, ${kernelRuntimeRuns.id}) < (${input.cursor.at}, ${input.cursor.id})`,
+						]
+					: []),
+			),
+		)
+		.orderBy(desc(kernelRuntimeRuns.createdAt), desc(kernelRuntimeRuns.id))
+		.limit(input.limit);
+}
+
 export async function listKernelRuntimeRunMetadata(
 	db: DbClient,
 	input: { organizationId: string; conversationId: string; limit: number },

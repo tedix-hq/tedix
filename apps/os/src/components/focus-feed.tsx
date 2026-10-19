@@ -448,9 +448,23 @@ export function FocusFeed({
 	]);
 	async function react(
 		item: ActivityFeedItem,
-		reaction: "more" | "mute" | "comment" | "why" | "ignore",
+		reaction: "more" | "mute" | "comment" | "why" | "ignore" | "ask",
 		text = "",
 	) {
+		if (reaction === "ask") {
+			if (!item.workItemId || !item.autonomyFeedback) return false;
+			try {
+				await osApi.workItems.recordDelegationAutonomyFeedback({
+					id: item.workItemId,
+					eventId: item.autonomyFeedback.eventId,
+				});
+				setStatus("Lesson saved. This class of delegation will ask next time.");
+				return true;
+			} catch {
+				setStatus("Could not save your correction.");
+				return false;
+			}
+		}
 		if (reaction !== "comment")
 			return signal(
 				item,

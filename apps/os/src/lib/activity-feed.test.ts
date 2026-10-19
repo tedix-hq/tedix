@@ -271,6 +271,33 @@ it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding author
 			names,
 		)[0]?.actor,
 	).toBe("Codex");
+	const fyi = workFeedItems(
+		[
+			{
+				...events[0]!,
+				eventType: "delegation.fyi",
+				delegationFyi: {
+					classId: "delegation:multi_hop_read",
+					homeRunId: "home",
+					childRunId: "child",
+					tediId: project,
+					tediName: "Cedar",
+					task: "Review the paper",
+					outcome: "completed",
+				},
+			},
+		],
+		project,
+	)[0];
+	expect(fyi).toMatchObject({
+		sentence: "Delegated “Review the paper” to Cedar: completed.",
+		needsAction: false,
+		autonomyFeedback: {
+			eventId: events[0]!.id,
+			classId: "delegation:multi_hop_read",
+		},
+	});
+	expect(fyi?.decision).toBeUndefined();
 });
 
 it("keeps opaque failure diagnostics out of previews and uses structured harness provenance", async () => {
