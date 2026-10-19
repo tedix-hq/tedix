@@ -1,5 +1,6 @@
 import type { BaseContext } from "../../orpc";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import { getApprovalRequestById } from "@tedix/db/queries/approvals";
 import {
 	approvalHeldDelegationIntent,
 	classifyWorkstationDispatch,
@@ -8,6 +9,7 @@ import { readOrgDispatchPolicyLayer } from "../kernel/tedi-capabilities";
 import {
 	isTerminalHomeRunStatus,
 	nonNullRecord,
+	stringFromPayload,
 } from "../kernel/runtime-shared";
 
 export async function reviewWorkstationDelegationAutonomy(
@@ -16,13 +18,28 @@ export async function reviewWorkstationDelegationAutonomy(
 ) {
 	const metadata = nonNullRecord(run.metadata);
 	const order = nonNullRecord(metadata?.delegationWorkOrder);
+	const approvalId = stringFromPayload(metadata?.approvalRequestId);
 	if (
+		!metadata ||
 		isTerminalHomeRunStatus(run.status) ||
 		order?.kind !== "workstation.attach" ||
-		!metadata?.approvalRequestId ||
+		!approvalId ||
 		metadata.approvalResolvedAt
 	)
 		return null;
+	if (
+		run.childRunId ||
+		metadata.childRunId ||
+		nonNullRecord(metadata.homeApprovedDispatch)?.childRunId ||
+		nonNullRecord(run.runtimeMetadata)?.childRunId ||
+		nonNullRecord(run.runtimeMetadata)?.dispatch === "workstation-dispatched"
+	)
+		return {
+			allowed: false,
+			reason:
+				"delegation already has execution evidence; retain its current approval",
+			workstation: true,
+		};
 	const policy = await readOrgDispatchPolicyLayer(
 		context.db,
 		run.organizationId,
@@ -47,9 +64,24 @@ export async function reviewWorkstationDelegationAutonomy(
 		hasActingUser: true,
 		runtimeRunning: null,
 	});
-	return {
+	const result = {
 		allowed: decision.autoDispatch,
 		reason: decision.reasons.join("; "),
 		workstation: true,
 	};
+	if (
+		result.allowed &&
+		!stringFromPayload(metadata.workItemId) &&
+		order.executionRequirement === undefined
+	) {
+		const approval = await getApprovalRequestById(context.db, approvalId);
+		if (!approval || approval.orgId !== run.organizationId)
+			return {
+				...result,
+				allowed: false,
+				executionBlocked: true,
+				reason: "legacy delegation has no organization-scoped approval record",
+			};
+	}
+	return result;
 }

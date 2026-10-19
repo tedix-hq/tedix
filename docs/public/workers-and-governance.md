@@ -58,6 +58,11 @@ with an immutable policy-pack revision containing
 `governancePolicy.autonomy: { "version": 1, "maxRisk": "medium" }`.
 Organizations without this setting keep their existing approval policy.
 
+For tool writes, enable `governancePolicy.writeTier.autoApproveLowRisk` and
+set `governancePolicy.writeTier.trustedTools` to the permitted tool patterns.
+An explicit `"*"` pattern provides standing consent within existing grants;
+high-risk and critical actions still require a human.
+
 Home dispatches eligible work immediately, including work for a running tedi
 whose workstation needs warming. Its Feed receipt identifies the task, tedi,
 and outcome. **This should have asked me** saves an owner/admin correction

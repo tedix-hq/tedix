@@ -13,11 +13,13 @@ export async function closePolicyBlockedDelegation(
 	context: BaseContext,
 	run: KernelRuntimeRun,
 ): Promise<boolean> {
+	if (run.status !== "requires_approval" || run.childRunId) return false;
 	const review = await reviewDelegationAutonomy(context, run);
 	if (!review.executionBlocked) return false;
 	const at = new Date().toISOString();
-	const content =
-		"The task is allowed by your approval policy. The selected tedi needs the required tools or access before it can retry.";
+	const content = review.workstation
+		? "This task is allowed by your policy, but its legacy approval record is unavailable. Send a new request to run it with current tools and access."
+		: "The task is allowed by your approval policy. The selected tedi needs the required tools or access before it can retry.";
 	const messageId = asyncCompletionAssistantMessageId(run.id);
 	const metadata = toJsonRecord({
 		...nonNullRecord(run.metadata),
@@ -25,6 +27,7 @@ export async function closePolicyBlockedDelegation(
 		policyBlocked: {
 			version: 1,
 			reason: review.reason,
+			approvalRequestId: nonNullRecord(run.metadata)?.approvalRequestId ?? null,
 			resolvedBy: { type: "policy", id: "delegation-autonomy.v1" },
 		},
 	});

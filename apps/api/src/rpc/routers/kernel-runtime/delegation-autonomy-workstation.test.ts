@@ -4,6 +4,9 @@ import type { BaseContext } from "../../orpc";
 const mocks = vi.hoisted(() => ({
 	eligible: true,
 	status: "pending",
+	actionType: "workstation.attach",
+	approvalRunId: "home",
+	approvalSource: "Research the paper",
 	admit: vi.fn(),
 	dispatch: vi.fn(),
 	fyi: vi.fn(),
@@ -38,6 +41,15 @@ vi.mock("@tedix/db/queries/approvals", () => ({
 	getApprovalRequestById: vi.fn(async () => ({
 		orgId: "org",
 		status: mocks.status,
+		tediId: "tedi",
+		actionType: mocks.actionType,
+		payload: {
+			source: "home.workstation_attach",
+			homeRunId: mocks.approvalRunId,
+			homeConversationId: "conversation",
+			delegateToTediId: "tedi",
+			workOrder: { sourceContent: mocks.approvalSource },
+		},
 	})),
 	resolveApprovalRequest: mocks.resolve,
 }));
@@ -69,6 +81,9 @@ describe("direct workstation policy migration", () => {
 		vi.clearAllMocks();
 		mocks.eligible = true;
 		mocks.status = "pending";
+		mocks.actionType = "workstation.attach";
+		mocks.approvalRunId = "home";
+		mocks.approvalSource = "Research the paper";
 		mocks.admit.mockResolvedValue("work");
 		mocks.resolve.mockImplementation(async () => {
 			if (mocks.status !== "pending") return null;
@@ -102,6 +117,20 @@ describe("direct workstation policy migration", () => {
 		).rejects.toThrow("no longer pending");
 		expect(mocks.dispatch).toHaveBeenCalledTimes(1);
 	});
+	it.each(["action", "run", "source"])(
+		"refuses an approval belonging to a different request before admission: %s",
+		async (mismatch) => {
+			if (mismatch === "action") mocks.actionType = "home.tool_write";
+			if (mismatch === "run") mocks.approvalRunId = "other";
+			if (mismatch === "source") mocks.approvalSource = "Email a customer";
+			await expect(
+				releaseWorkstationDelegationAutonomy(context, input),
+			).rejects.toThrow("does not match its stored request");
+			expect(mocks.admit).not.toHaveBeenCalled();
+			expect(mocks.resolve).not.toHaveBeenCalled();
+			expect(mocks.dispatch).not.toHaveBeenCalled();
+		},
+	);
 	it("does not resolve critical work or work without a fresh admitted Attempt", async () => {
 		mocks.eligible = false;
 		await expect(
