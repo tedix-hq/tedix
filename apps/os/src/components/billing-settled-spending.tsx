@@ -1,5 +1,6 @@
 import type { BillingInferenceSpending } from "@tedix/api-contract/schemas/billing-spending";
 import { useQuery } from "@tanstack/react-query";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Text } from "@/components/kumo/text";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -143,10 +144,12 @@ export function BillingSettledSpending() {
 		);
 	if (spending.isError || !spending.data)
 		return (
-			<Text tone="error">
-				Settled credit charges could not be read. This does not mean zero
-				spending.
-			</Text>
+			<Alert variant="destructive">
+				<AlertDescription>
+					Settled credit charges could not be read. This does not mean zero
+					spending.
+				</AlertDescription>
+			</Alert>
 		);
 	return <SettledSpendingRows data={spending.data} />;
 }

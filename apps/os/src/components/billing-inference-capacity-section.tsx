@@ -435,11 +435,13 @@ export function BillingInferenceCapacitySection() {
 					</div>
 				)}
 				{checkoutMutation.isError && (
-					<Text tone="error">
-						{checkoutMutation.error instanceof Error
-							? checkoutMutation.error.message
-							: "Failed to start capacity checkout"}
-					</Text>
+					<Alert variant="destructive">
+						<AlertDescription>
+							{checkoutMutation.error instanceof Error
+								? checkoutMutation.error.message
+								: "Failed to start capacity checkout"}
+						</AlertDescription>
+					</Alert>
 				)}
 			</SettingsSectionContent>
 		</SettingsSection>
