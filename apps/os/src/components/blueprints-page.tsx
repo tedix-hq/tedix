@@ -1787,7 +1787,7 @@ export function BlueprintsPage() {
 	const [showImport, setShowImport] = useState(false);
 
 	return (
-		<Page width="lg" className="blueprints-surface">
+		<Page width="lg">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>{surface.label}</PageTitle>
