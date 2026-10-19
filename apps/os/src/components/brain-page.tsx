@@ -534,7 +534,7 @@ export function BrainPage() {
 						<KumoTabs
 							value={tab}
 							onValueChange={(value) => setTab(value as OutcomeTabId)}
-							className="shrink-0"
+							className="shrink-0 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-w-11"
 							aria-label="Decision outcome"
 							size="sm"
 							tabs={OUTCOME_TABS.map(({ id, label }) => ({ value: id, label }))}

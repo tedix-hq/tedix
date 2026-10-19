@@ -827,7 +827,7 @@ export function AdminConnectionsPage({
 					>
 						<div className="min-w-0 flex-1">
 							<KumoTabs
-								className="min-w-0 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tablist]]:!h-11"
+								className="min-w-0 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-w-11"
 								value={statusFilter}
 								onValueChange={(value) =>
 									onSearchChange({

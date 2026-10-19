@@ -688,6 +688,7 @@ export function SkillsPage({
 				</PageHeader>
 				<CapabilityNavigation active="skills" />
 				<KumoTabs
+					className="max-sm:[&_button]:min-w-11 coarse:[&_button]:min-w-11"
 					aria-label="Skills sections"
 					value={search.section}
 					onValueChange={(section) =>
