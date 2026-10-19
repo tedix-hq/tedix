@@ -13,6 +13,10 @@ import {
 	putUserConfig,
 } from "@tedix/db/queries/user-configs";
 import { encryptSecret } from "@tedix/db/utils/secrets-encryption";
+import {
+	getPersonalAgentEmailDestination,
+	getPersonalAgentValue,
+} from "@tedix/db/queries/personal-agent-outbound";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -42,6 +46,81 @@ const owner = implement(personalAgentInboundContract)
 	});
 
 export const personalAgentInboundContractRouter = {
+	configureDelivery: owner.configureDelivery.handler(
+		async ({ input, context }) => {
+			const key = personalAgentConfigKey(context.orgId, input.id);
+			const row = await getUserConfig(context.db, {
+				userId: context.ownerUserId,
+				namespace: PERSONAL_AGENT_NAMESPACE,
+				key,
+			});
+			const parsed = PersonalAgentEnrollmentSchema.safeParse(row?.value);
+			if (
+				!row ||
+				!parsed.success ||
+				!parsed.data.active ||
+				parsed.data.orgId !== context.orgId ||
+				parsed.data.representedUserId !== context.ownerUserId
+			)
+				throw createError(ErrorCodes.NOT_FOUND, "Active enrollment not found");
+			const enrollment = {
+				...parsed.data,
+				delivery: { workComment: true as const, email: input.email },
+			};
+			if (
+				input.email &&
+				!(await getPersonalAgentEmailDestination(context.db, enrollment))
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Choose the enrolled agent's active member identity and an active organization sender address",
+				);
+			const saved = await putUserConfig(context.db, {
+				userId: context.ownerUserId,
+				namespace: PERSONAL_AGENT_NAMESPACE,
+				key,
+				value: enrollment,
+				expectedRevision: row.revision,
+			});
+			if (!saved.ok)
+				throw createError(ErrorCodes.CONFLICT, "Enrollment changed; reload");
+			return enrollment;
+		},
+	),
+	value: owner.value.handler(async ({ context }) => {
+		const end = new Date().toISOString();
+		const start = new Date(Date.parse(end) - 7 * 86400000).toISOString();
+		const rows = await listUserConfigs(context.db, {
+			userId: context.ownerUserId,
+			namespace: PERSONAL_AGENT_NAMESPACE,
+			limit: 500,
+		});
+		const result = [];
+		for (const row of rows) {
+			const parsed = PersonalAgentEnrollmentSchema.safeParse(row.value);
+			if (
+				!parsed.success ||
+				parsed.data.orgId !== context.orgId ||
+				parsed.data.representedUserId !== context.ownerUserId
+			)
+				continue;
+			const e = parsed.data;
+			const counts = await getPersonalAgentValue(context.db, e, start, end);
+			result.push({
+				sourceAgentId: e.id,
+				sourceAgentName: e.sourceAgentName,
+				windowStart: start,
+				windowEnd: end,
+				...counts,
+				decidedFromCardPercent: counts.decisionCards
+					? (100 * counts.decidedFromCard) / counts.decisionCards
+					: null,
+				remindersAvoided: null,
+				historicalChatBaseline: null,
+			});
+		}
+		return result;
+	}),
 	enroll: owner.enroll.handler(async ({ input, context }) => {
 		const project = await getProjectByIdForOrganization(
 			context.db,

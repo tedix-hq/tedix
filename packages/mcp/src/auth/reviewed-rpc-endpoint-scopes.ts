@@ -11,6 +11,8 @@
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"personalAgentInbound/enroll": "mcp:apps.write",
+	"personalAgentInbound/configureDelivery": "mcp:apps.write",
+	"personalAgentInbound/value": "mcp:apps.write",
 	"personalAgentInbound/list": "mcp:apps.write",
 	"personalAgentInbound/revoke": "mcp:apps.write",
 	"runtimeEntitlements/checkModelEgress": "platform:admin",

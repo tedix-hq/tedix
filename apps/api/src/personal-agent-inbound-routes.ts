@@ -2,7 +2,16 @@ import { createDbClient } from "@tedix/db/client";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
-import { receivePersonalAgentFinding } from "./services/personal-agent-inbound";
+import {
+	authenticatePersonalAgent,
+	receivePersonalAgentFinding,
+} from "./services/personal-agent-inbound";
+import {
+	listPersonalAgentOutcomes,
+	acknowledgePersonalAgentOutcome,
+} from "@tedix/db/queries/personal-agent-outbound";
+import { PersonalAgentOutcomeSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
+import * as z from "zod";
 
 export const personalAgentInboundRoutes = new Hono<{
 	Bindings: CloudflareEnv;
@@ -22,6 +31,68 @@ personalAgentInboundRoutes.use("*", async (c, next) => {
 });
 
 const path = "/:orgId/:userId/:enrollmentId";
+personalAgentInboundRoutes.get(`${path}/outcomes`, async (c) => {
+	const token = c.req.header("Authorization")?.match(/^Bearer (\S+)$/)?.[1];
+	if (!token || token.length < 32 || token.length > 200)
+		return c.json({ error: "Invalid or revoked enrollment" }, 401);
+	if (!c.env.SECRETS_MASTER_KEY)
+		return c.json({ error: "Outcomes unavailable" }, 503);
+	const after = Number(c.req.query("after") ?? "0");
+	if (!Number.isSafeInteger(after) || after < 0)
+		return c.json({ error: "Invalid cursor" }, 400);
+	const db = createDbClient(c.env.DB);
+	await authenticatePersonalAgent(db, c.env.SECRETS_MASTER_KEY, {
+		...c.req.param(),
+		token,
+	});
+	const rows = await listPersonalAgentOutcomes(db, {
+		...c.req.param(),
+		after,
+		limit: 100,
+	});
+	return c.json({
+		outcomes: rows.map((row) => ({
+			sequence: row.sequence,
+			outcome: PersonalAgentOutcomeSchema.parse(row.payload),
+			delivery: {
+				workComment: "recorded",
+				email: row.emailStatus ?? "not_sent",
+				acknowledgedAt: row.acknowledgedAt,
+			},
+		})),
+		nextCursor: rows.at(-1)?.sequence ?? after,
+		hasMore: rows.length === 100,
+	});
+});
+personalAgentInboundRoutes.post(`${path}/outcomes/ack`, async (c) => {
+	const token = c.req.header("Authorization")?.match(/^Bearer (\S+)$/)?.[1];
+	if (!token || token.length < 32 || token.length > 200)
+		return c.json({ error: "Invalid or revoked enrollment" }, 401);
+	if (!c.env.SECRETS_MASTER_KEY)
+		return c.json({ error: "Outcomes unavailable" }, 503);
+	const parsed = z
+		.strictObject({
+			outcomeId: z.string().min(1).max(500),
+			reminderId: z.string().min(1).max(200).optional(),
+		})
+		.safeParse(await c.req.json());
+	if (!parsed.success) return c.json({ error: "Invalid acknowledgment" }, 400);
+	const db = createDbClient(c.env.DB);
+	await authenticatePersonalAgent(db, c.env.SECRETS_MASTER_KEY, {
+		...c.req.param(),
+		token,
+	});
+	const saved = await acknowledgePersonalAgentOutcome(db, {
+		...c.req.param(),
+		...parsed.data,
+	});
+	return saved
+		? c.json({
+				acknowledged: true,
+				reminderSuppression: "unverified_agent_report",
+			})
+		: c.json({ error: "Outcome not found" }, 404);
+});
 personalAgentInboundRoutes.get(path, (c) =>
 	c.html(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Send a personal-agent finding</title><h1>Send a finding</h1><p>This creates a proposal or FYI for the enrolled person. It never runs an action. Use the credential provided by the owner; this does not sign in as them.</p><form method="post">
 <p><label>Enrollment token <input name="token" type="password" autocomplete="off" required maxlength="200"></label></p>
