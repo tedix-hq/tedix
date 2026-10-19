@@ -6,6 +6,7 @@ export async function runDecisionCardCopyModel(
 	prompt: string,
 	options: {
 		orgId: string;
+		source?: "decision_card_copy" | "deck_curator_rank";
 		model: string;
 		maxTokens: number;
 		timeoutMs: number;
@@ -26,7 +27,7 @@ export async function runDecisionCardCopyModel(
 			{ modelRef: options.model },
 			{
 				organizationId: options.orgId,
-				source: "decision_card_copy",
+				source: options.source ?? "decision_card_copy",
 			},
 		);
 		if (!selected) {
@@ -39,7 +40,10 @@ export async function runDecisionCardCopyModel(
 			maxOutputTokens: options.maxTokens,
 			maxRetries: 0,
 			system: options.system,
-			runtimeContext: { orgId: options.orgId, source: "decision_card_copy" },
+			runtimeContext: {
+				orgId: options.orgId,
+				source: options.source ?? "decision_card_copy",
+			},
 			model: selected.model,
 			prompt: JSON.stringify({
 				source: prompt,

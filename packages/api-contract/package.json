@@ -10,6 +10,8 @@
 		"./utils/decision-card-copy": "./src/utils/decision-card-copy.ts",
 		"./utils/card-context": "./src/utils/card-context.ts",
 		"./assets/card-context.v1.json": "./src/assets/card-context.v1.json",
+		"./schemas/deck-curator": "./src/schemas/deck-curator.ts",
+		"./utils/deck-curator": "./src/utils/deck-curator.ts",
 		"./utils/feed-story": "./src/utils/feed-story.ts",
 		"./utils/decision-expiry": "./src/utils/decision-expiry.ts",
 		"./utils/activity-feed": "./src/utils/activity-feed.ts",

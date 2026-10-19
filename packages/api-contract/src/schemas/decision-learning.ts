@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { LessonTriggersSchema } from "./agent-session-lessons";
+import { DeckCuratorRankerConfigSchema } from "./deck-curator";
 import focusFeedPolicy from "../assets/focus-feed.v1.json";
 
 const FocusFeedPolicySchema = z.strictObject({
@@ -36,6 +37,7 @@ export const DecisionLearningConfigSchema = z.strictObject({
 	version: z.literal(1).default(1),
 	enabled: z.boolean().default(false),
 	classifyEdits: z.boolean().default(true),
+	deckCuratorRanker: DeckCuratorRankerConfigSchema.optional(),
 	focusFeed: FocusFeedPolicySchema.prefault(() =>
 		FocusFeedPolicySchema.parse(focusFeedPolicy),
 	),

@@ -47,6 +47,39 @@ Discover each callable, then describe its exact schema before calling it.
 Use the returned namespace. Reads do not grant mutation authority; repository
 changes follow the [Work lifecycle](./AGENTS.md).
 
+## Rank a Deck before curation
+
+`rank_deck_cards` is a paid, explicit snapshot operation for the authenticated
+recipient. Ask from workspace chat, "Rank my current Deck and show the reasons
+and example receipts." Discover the callable before use. A tedi needs its own
+recipient delegation; its owner's sign-in does not grant inbox access. The
+operation does not install a curator, change the OS order, rewrite cards or
+make decisions. Save its returned cards and signals in a revisioned Output
+when using them in a factory review.
+
+The organization learning policy's optional `deckCuratorRanker` configuration
+selects the model, label threshold, penalty, time limits and spend reservations.
+It defaults to disabled and selects Qwen3 30B A3B FP8 through the existing
+Workers AI Gateway adapter. Exactly eight distinct, explicit personal
+usefulness verdicts are retrieved by title and summary similarity, excluding
+the current cohort. Approving an action is not a usefulness verdict. Missing
+examples, invalid output, unavailable Gateway configuration or exhausted
+budgets leave the original score intact. Critical cards always come first;
+model signals can only lower other scores and cannot remove cards.
+
+Default reservations are $0.005 per attempted classification, $0.25 per run
+and $1 per organization per UTC day. Reservations are conservative admission
+accounting, not reconciled provider charges; failed inference retains its
+reservation. Measure provider charges from actual run usage. Curator turns,
+retrieval and Gateway add-ons are separate.
+Changing models requires rechecking the reservation against that model's cost.
+
+For autonomous curation, separately verify the owning skill revision, recipient
+grant, immutable card revisions and undo, trigger, schedule and actual run
+receipts. Keep decision resolution in shadow until the relevant approval
+policy fix is verified live. A ranking snapshot is not evidence that any of
+those mechanisms is installed or active.
+
 ## Create: preview, approve, then build
 
 Choose the source project, owner, cadence, Workspace and durable Output first.
