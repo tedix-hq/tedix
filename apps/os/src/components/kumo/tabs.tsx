@@ -33,7 +33,7 @@ function KumoTabs({
 			role="group"
 			aria-label={ariaLabel}
 			className={cn(
-				"min-w-0 max-w-full [&_[role=tablist]]:!h-8 [&_[role=tablist]]:max-w-full [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:text-tedix-control [&_[role=tablist]]:leading-[1.125rem] [&_[role=tab]]:!h-7 [&_[role=tab]]:px-2.5 [&_[role=tab]]:py-0 max-sm:[&_[role=tablist]]:!h-11 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tab]]:min-w-11 max-sm:[&_[role=tab]]:px-3 coarse:[&_[role=tablist]]:!h-11 coarse:[&_[role=tab]]:!h-11 coarse:[&_[role=tab]]:min-w-11 coarse:[&_[role=tab]]:px-3",
+				"min-w-0 max-w-full [&_[role=tablist]]:!h-8 [&_[role=tablist]]:max-w-full [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:text-tedix-control [&_[role=tablist]]:leading-[1.125rem] [&_[role=tab]]:!h-7 [&_[role=tab]]:px-2.5 [&_[role=tab]]:py-0 max-sm:[&_[role=tablist]]:!h-11 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tab]]:min-w-11 max-sm:[&_[role=tab]]:px-3 max-sm:[&_[data-kumo-part=overflow-control]]:min-h-11 max-sm:[&_[data-kumo-part=overflow-control]]:min-w-11 coarse:[&_[role=tablist]]:!h-11 coarse:[&_[role=tab]]:!h-11 coarse:[&_[role=tab]]:min-w-11 coarse:[&_[role=tab]]:px-3 coarse:[&_[data-kumo-part=overflow-control]]:min-h-11 coarse:[&_[data-kumo-part=overflow-control]]:min-w-11",
 				className,
 			)}
 		>
