@@ -30,7 +30,7 @@ function Card({
 			data-slot="card"
 			data-tone={tone}
 			className={cn(
-				"group/card flex min-w-0 flex-col gap-4 rounded-xl border border-kumo-line py-4 type-tedix-body shadow-none! ring-0 data-[tone=raised]:bg-kumo-elevated data-[tone=raised]:shadow-tedix-raised! data-[size=sm]:gap-3 data-[size=sm]:py-3",
+				"group/card flex min-w-0 flex-col gap-4 rounded-xl border border-kumo-line py-tedix-card type-tedix-body shadow-none! ring-0 data-[tone=raised]:bg-kumo-elevated data-[tone=raised]:shadow-tedix-raised! data-[size=sm]:gap-3 data-[size=sm]:py-3",
 				className,
 			)}
 			{...props}
@@ -43,7 +43,7 @@ function CardHeader({ className, ...props }: ComponentProps<"div">) {
 		<div
 			data-slot="card-header"
 			className={cn(
-				"group/card-header @container/card-header grid min-w-0 auto-rows-min grid-cols-1 items-start gap-2 px-4 sm:has-data-[slot=card-action]:grid-cols-[minmax(0,1fr)_auto] sm:has-data-[slot=card-description]:grid-rows-[auto_auto] group-data-[size=sm]/card:px-3",
+				"group/card-header @container/card-header grid min-w-0 auto-rows-min grid-cols-1 items-start gap-2 px-tedix-card sm:has-data-[slot=card-action]:grid-cols-[minmax(0,1fr)_auto] sm:has-data-[slot=card-description]:grid-rows-[auto_auto] group-data-[size=sm]/card:px-3",
 				className,
 			)}
 			{...props}
@@ -88,7 +88,10 @@ function CardContent({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="card-content"
-			className={cn("min-w-0 px-4 group-data-[size=sm]/card:px-3", className)}
+			className={cn(
+				"min-w-0 px-tedix-card group-data-[size=sm]/card:px-3",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -99,7 +102,7 @@ function CardFooter({ className, ...props }: ComponentProps<"div">) {
 		<div
 			data-slot="card-footer"
 			className={cn(
-				"flex flex-wrap items-center gap-2 px-4 group-data-[size=sm]/card:px-3",
+				"flex flex-wrap items-center gap-2 px-tedix-card group-data-[size=sm]/card:px-3",
 				className,
 			)}
 			{...props}
