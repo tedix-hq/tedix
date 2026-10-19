@@ -59,3 +59,9 @@
 .work-actor.fd-avatar {
 	--actor-size: 1.75rem;
 }
+@media (max-width: 640px), (pointer: coarse) {
+	.work-actor {
+		min-width: 2.75rem;
+		min-height: 2.75rem;
+	}
+}

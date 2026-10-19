@@ -2,14 +2,17 @@ import {
 	DecisionContextSection,
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
-import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
+import type {
+	WorkActorReference,
+	WorkContributionSource,
+} from "@tedix/api-contract/schemas/os-work-actor";
 import { createContext, useContext, type ReactNode } from "react";
 import { FileTextIcon, CaretRightIcon } from "@phosphor-icons/react";
 import {
 	WorkActorAvatar,
 	WorkActorDirectoryContext,
 } from "@/components/work-actor-avatar";
-import { resolveWorkActor } from "@/lib/work-actor";
+import { resolveWorkContributor } from "@/lib/work-actor";
 import { Card } from "@/components/kumo/card";
 import {
 	Collapsible,
@@ -75,6 +78,7 @@ export function FeedDeckDisclosure({
 export const ProposerContext = createContext<{
 	project?: string;
 	actor?: WorkActorReference;
+	source?: WorkContributionSource;
 }>({});
 
 export function ProposerChip({
@@ -90,7 +94,7 @@ export function ProposerChip({
 	const project = context.project;
 	const identity = actor ?? context.actor;
 	const directory = useContext(WorkActorDirectoryContext);
-	const resolved = resolveWorkActor(identity, name, directory);
+	const resolved = resolveWorkContributor(identity, name, directory);
 	return (
 		<div className="fd-proposer">
 			<WorkActorAvatar
@@ -101,7 +105,7 @@ export function ProposerChip({
 			/>
 			<div>
 				<Text weight="medium" title={resolved.label}>
-					{resolved.name}
+					{resolved.label}
 				</Text>
 				{(detail || project) && (
 					<Text role="label" tone="secondary">
