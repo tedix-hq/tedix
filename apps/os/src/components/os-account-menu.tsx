@@ -1,4 +1,10 @@
-import { Coins, GearSix, SignOut, UserCircle } from "@phosphor-icons/react";
+import {
+	Coins,
+	GearSix,
+	SidebarSimple,
+	SignOut,
+	UserCircle,
+} from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/kumo/avatar";
 import {
@@ -10,12 +16,13 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import { useSidebar } from "@/components/kumo/sidebar";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/kumo/tooltip";
+	SidebarMenu,
+	SidebarMenuButton,
+	SidebarMenuItem,
+	SidebarTrigger,
+	useSidebar,
+} from "@/components/kumo/sidebar";
 import { formatUsageCredits } from "@/lib/billing-credit-display";
 import { hasUnlimitedTokenUsage } from "@/lib/billing-display";
 import { isLocalSession } from "@/lib/local-inference";
@@ -48,7 +55,7 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 		: null;
 	const UsageIcon = SURFACE_ICONS.compute;
 	const avatar = (
-		<Avatar size="sm" className="size-7 shrink-0">
+		<Avatar className="size-5 shrink-0">
 			{identity.avatarUrl ? (
 				<AvatarImage src={identity.avatarUrl} alt="" />
 			) : null}
@@ -59,98 +66,111 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 	);
 
 	return (
-		<DropdownMenu>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<DropdownMenuTrigger
-							aria-label="Account menu"
-							className="group/user-chip flex min-w-0 items-center gap-2 self-stretch rounded-lg text-left text-kumo-subtle type-tedix-label transition-colors hover:text-kumo-default max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11 group-data-[state=collapsed]/sidebar:self-auto"
-						/>
-					}
-				>
-					{avatar}
-					<span className="max-w-[116px] truncate group-data-[state=collapsed]/sidebar:hidden">
-						{identity.name}
-					</span>
-					<UserCircle
-						className="shrink-0 opacity-0 transition-opacity group-hover/user-chip:opacity-100 group-focus-visible/user-chip:opacity-100 group-data-[state=collapsed]/sidebar:hidden"
-						size={13}
-					/>
-				</TooltipTrigger>
-				{state === "collapsed" ? (
-					<TooltipContent side="right">Account</TooltipContent>
-				) : null}
-			</Tooltip>
-			<DropdownMenuContent
-				side={state === "collapsed" ? "right" : "top"}
-				align={state === "collapsed" ? "end" : "start"}
-				collisionPadding={8}
-				className="w-[calc(var(--sidebar-width,260px)-2rem)] max-w-[calc(100vw-1rem)] outline-none!"
-			>
-				<DropdownMenuGroup>
-					<DropdownMenuLabel className="flex items-center gap-2 px-2 py-2">
-						{avatar}
-						<div className="min-w-0">
-							<div className="truncate text-kumo-default type-tedix-label">
+		<SidebarMenu aria-label="Account" className="w-full">
+			<SidebarMenuItem className="relative flex flex-col gap-1">
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={
+							<SidebarMenuButton
+								aria-label="Account menu"
+								tooltip="Account"
+								className="pr-14 font-medium! data-[popup-open]:bg-kumo-tint"
+								icon={
+									<span className="flex size-4 shrink-0 items-center justify-center">
+										{avatar}
+									</span>
+								}
+							>
 								{identity.name}
-							</div>
-							<div className="truncate text-kumo-subtle type-tedix-caption font-normal">
-								{identity.email}
-							</div>
-						</div>
-					</DropdownMenuLabel>
-					<DropdownMenuLinkItem
-						closeOnClick
-						href="/compute"
-						icon={
-							<span className="mr-2 flex size-4 shrink-0 items-center justify-center">
-								<UsageIcon size={16} />
-							</span>
+							</SidebarMenuButton>
 						}
+					/>
+					<DropdownMenuContent
+						side="top"
+						align="start"
+						collisionPadding={8}
+						className="w-(--anchor-width) min-w-60 max-w-[calc(100vw-1rem)] p-0 outline-none! [&_[role=menuitem]]:px-3 [&_[role=menuitem]>svg]:mr-0 [&_[role=menuitem]>svg]:size-4"
 					>
-						Usage
-						{remaining ? (
-							<span className="ml-auto text-kumo-subtle type-tedix-caption">
-								{remaining}
-							</span>
-						) : null}
-					</DropdownMenuLinkItem>
-					{canManageBilling ? (
+						<DropdownMenuGroup>
+							<DropdownMenuLabel className="flex items-center gap-2 px-3 py-2">
+								<span className="flex size-4 shrink-0 items-center justify-center">
+									{avatar}
+								</span>
+								<div className="min-w-0">
+									<div className="truncate text-kumo-default type-tedix-label">
+										{identity.name}
+									</div>
+									<div className="truncate text-kumo-subtle type-tedix-caption font-normal">
+										{identity.email}
+									</div>
+								</div>
+							</DropdownMenuLabel>
+							<DropdownMenuLinkItem
+								closeOnClick
+								href="/compute"
+								icon={
+									<span className="flex size-4 shrink-0 items-center justify-center">
+										<UsageIcon size={16} />
+									</span>
+								}
+							>
+								Usage
+								{remaining ? (
+									<span className="ml-auto text-kumo-subtle type-tedix-caption">
+										{remaining}
+									</span>
+								) : null}
+							</DropdownMenuLinkItem>
+							{canManageBilling ? (
+								<DropdownMenuLinkItem
+									closeOnClick
+									href="/admin/billing"
+									icon={Coins}
+								>
+									Billing
+								</DropdownMenuLinkItem>
+							) : null}
+						</DropdownMenuGroup>
+						<DropdownMenuSeparator />
+						<DropdownMenuGroup>
+							<DropdownMenuLinkItem closeOnClick href="/admin" icon={GearSix}>
+								Organization settings
+							</DropdownMenuLinkItem>
+							<DropdownMenuLinkItem
+								closeOnClick
+								href="/account/settings"
+								icon={UserCircle}
+							>
+								Personal settings
+							</DropdownMenuLinkItem>
+							<DropdownMenuLinkItem
+								closeOnClick
+								href={buildAccountProfileUrl(new URL(window.location.href))}
+								icon={UserCircle}
+							>
+								Profile
+							</DropdownMenuLinkItem>
+						</DropdownMenuGroup>
+						<DropdownMenuSeparator />
 						<DropdownMenuLinkItem
 							closeOnClick
-							href="/admin/billing"
-							icon={Coins}
+							href={OS_LOGOUT_PATH}
+							icon={SignOut}
 						>
-							Billing
+							Sign out
 						</DropdownMenuLinkItem>
-					) : null}
-				</DropdownMenuGroup>
-				<DropdownMenuSeparator />
-				<DropdownMenuGroup>
-					<DropdownMenuLinkItem closeOnClick href="/admin" icon={GearSix}>
-						Organization settings
-					</DropdownMenuLinkItem>
-					<DropdownMenuLinkItem
-						closeOnClick
-						href="/account/settings"
-						icon={UserCircle}
-					>
-						Personal settings
-					</DropdownMenuLinkItem>
-					<DropdownMenuLinkItem
-						closeOnClick
-						href={buildAccountProfileUrl(new URL(window.location.href))}
-						icon={UserCircle}
-					>
-						Profile
-					</DropdownMenuLinkItem>
-				</DropdownMenuGroup>
-				<DropdownMenuSeparator />
-				<DropdownMenuLinkItem closeOnClick href={OS_LOGOUT_PATH} icon={SignOut}>
-					Sign out
-				</DropdownMenuLinkItem>
-			</DropdownMenuContent>
-		</DropdownMenu>
+					</DropdownMenuContent>
+				</DropdownMenu>
+				<SidebarTrigger
+					aria-label={
+						state === "collapsed" ? "Expand sidebar" : "Collapse sidebar"
+					}
+					title={state === "collapsed" ? "Expand sidebar" : "Collapse sidebar"}
+					className="absolute top-0 right-0 size-11 shrink-0 group-data-[state=collapsed]/sidebar:static group-data-[state=collapsed]/sidebar:self-center"
+				>
+					<SidebarSimple size={15} />
+				</SidebarTrigger>
+			</SidebarMenuItem>
+		</SidebarMenu>
 	);
 }

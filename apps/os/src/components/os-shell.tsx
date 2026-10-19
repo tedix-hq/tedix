@@ -3,7 +3,6 @@ import {
 	CaretRight,
 	List,
 	MagnifyingGlass,
-	SidebarSimple,
 	SquaresFour,
 } from "@phosphor-icons/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
@@ -180,7 +179,7 @@ function OsSidebar({
 				))}
 			</SidebarContent>
 
-			<SidebarFooter className="h-auto flex-col gap-2 py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
+			<SidebarFooter className="h-auto flex-col gap-1 py-2 group-data-[state=collapsed]/sidebar:px-2 coarse:group-data-[state=collapsed]/sidebar:px-1">
 				<OsSidebarBillingStatus />
 				<SidebarMenu aria-label="Setup" className="w-full">
 					{OS_SHELL_FOOTER_NAVIGATION.map((item) => (
@@ -191,15 +190,6 @@ function OsSidebar({
 						/>
 					))}
 				</SidebarMenu>
-				<div className="flex items-center gap-2 self-stretch group-data-[state=collapsed]/sidebar:flex-col group-data-[state=collapsed]/sidebar:gap-2 group-data-[state=collapsed]/sidebar:self-auto">
-					<SidebarTrigger
-						aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-						className="ml-auto shrink-0 group-data-[state=collapsed]/sidebar:ml-0"
-						title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-					>
-						<SidebarSimple size={15} />
-					</SidebarTrigger>
-				</div>
 				<OsAccountMenu identity={identity} />
 			</SidebarFooter>
 		</Sidebar>
