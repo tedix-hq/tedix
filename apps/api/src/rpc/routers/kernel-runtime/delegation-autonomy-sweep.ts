@@ -42,6 +42,14 @@ export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 		const dispatched: string[] = [];
 		const held: Array<{ runId: string; reason: string }> = [];
 		for (const run of runs.slice(0, input.limit)) {
+			if (
+				input.excludeReferences.some((reference) =>
+					JSON.stringify(run).includes(reference),
+				)
+			) {
+				held.push({ runId: run.id, reason: "operator-excluded reference" });
+				continue;
+			}
 			const review = await reviewDelegationAutonomy(context, run);
 			if (!review.allowed) {
 				held.push({ runId: run.id, reason: review.reason });
@@ -78,7 +86,12 @@ export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 			action: "kernel.delegation.autonomy_swept",
 			resourceType: "organization",
 			resourceId: organizationId,
-			metadata: { policyVersion: 1, dispatched, held },
+			metadata: {
+				policyVersion: 1,
+				excludeReferences: input.excludeReferences,
+				dispatched,
+				held,
+			},
 			ipAddress: context.headers.get("CF-Connecting-IP"),
 			userAgent: context.headers.get("User-Agent"),
 		});

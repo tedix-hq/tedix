@@ -1127,6 +1127,11 @@ export const SweepDelegationAutonomyInputSchema = z.object({
 	organizationId: z.string().optional(),
 	limit: z.number().int().min(1).max(20).default(10),
 	cursor: z.object({ at: z.string(), id: z.string() }).optional(),
+	excludeReferences: z
+		.array(z.string().min(8).max(200))
+		.max(20)
+		.default([])
+		.describe("Literal resource or run references that must remain held."),
 });
 export const SweepDelegationAutonomyResultSchema = z.object({
 	dispatched: z.array(z.string()),
