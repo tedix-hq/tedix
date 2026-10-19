@@ -1,9 +1,12 @@
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vite-plus/test";
 import { tracedAi } from "../../../lib/traced-ai";
-import { kernelRouteGenerationSchema } from "./route-generation";
+import {
+	kernelRouteGenerationSchema,
+	repairRouteDecisionText,
+} from "./route-generation";
 
-async function generate(value: unknown) {
+async function generate(value: unknown, text = JSON.stringify(value)) {
 	return (
 		await tracedAi.generateObject({
 			model: new MockLanguageModelV3({
@@ -11,10 +14,11 @@ async function generate(value: unknown) {
 					finishReason: "stop",
 					usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
 					warnings: [],
-					content: [{ type: "text", text: JSON.stringify(value) }],
+					content: [{ type: "text", text }],
 				}),
 			}),
 			schema: kernelRouteGenerationSchema,
+			repairText: repairRouteDecisionText,
 			prompt: "Route the request.",
 			maxRetries: 0,
 		})
@@ -36,6 +40,44 @@ const details = {
 };
 
 describe("compact route generation", () => {
+	it.each(["prose", "fence"])(
+		"validates a single complete route wrapped in %s",
+		async (wrapper) => {
+			const value = {
+				routeKind: "answer_in_home",
+				answer: "Ready for Orion.",
+				confidence: 0.9,
+				details: null,
+			};
+			const json = JSON.stringify(value);
+			const text =
+				wrapper === "fence"
+					? "```json\n" + json + "\n```"
+					: "Here is the route:\n" + json + "\nFinished.";
+			expect(await generate(value, text)).toMatchObject({
+				routeKind: value.routeKind,
+				answer: value.answer,
+				confidence: value.confidence,
+			});
+		},
+	);
+
+	it.each(['{"routeKind":', "{} {}", "[{}]", '"text"'])(
+		"refuses to invent or choose an object in %s",
+		async (text) => {
+			expect(await repairRouteDecisionText({ text })).toBeNull();
+		},
+	);
+
+	it("still rejects invalid action fields after removing presentation text", async () => {
+		await expect(
+			generate(
+				null,
+				'Here is the route: {"routeKind":"delegate_tedi","confidence":0.9,"details":null}',
+			),
+		).rejects.toThrow();
+	});
+
 	it("expands a direct answer without inventing action parameters", async () => {
 		const decision = await generate({
 			routeKind: "answer_in_home",
@@ -53,6 +95,20 @@ describe("compact route generation", () => {
 			targetTediId: null,
 			toolIntent: null,
 			workflowHint: null,
+		});
+	});
+
+	it("accepts a compact direct answer with omitted inapplicable details", async () => {
+		const decision = await generate({
+			routeKind: "answer_in_home",
+			answer: "The Orion workspace is ready.",
+		});
+		expect(decision).toMatchObject({
+			answer: "The Orion workspace is ready.",
+			confidence: 0,
+			risk: "low",
+			toolIntent: null,
+			plannedToolIds: [],
 		});
 	});
 
@@ -116,9 +172,11 @@ describe("compact route generation", () => {
 		"suggest_handoff",
 		"ask_human",
 	])("refuses missing details for %s", async (routeKind) => {
-		await expect(
-			generate({ routeKind, answer: null, confidence: 0.9, details: null }),
-		).rejects.toThrow();
+		for (const details of [null, undefined]) {
+			await expect(
+				generate({ routeKind, answer: null, confidence: 0.9, details }),
+			).rejects.toThrow();
+		}
 	});
 
 	it("does not let nested fields change the streamed route", async () => {

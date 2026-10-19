@@ -36,8 +36,11 @@ import {
 	KERNEL_STREAM_IDLE_TIMEOUT_MS,
 	withIdleAbort,
 } from "./llm-guard";
-import type { KernelRouteDecision } from "./route-schema";
-import { kernelRouteGenerationSchema } from "./route-generation";
+import { HOME_ROUTE_KINDS, type KernelRouteDecision } from "./route-schema";
+import {
+	kernelRouteGenerationSchema,
+	repairRouteDecisionText,
+} from "./route-generation";
 import { getRouterVersion } from "./router-version";
 
 // Modest bounds — the planner emits a small typed object plus a short message.
@@ -176,6 +179,31 @@ const ROUTE_INSTRUCTION =
 	"Choose exactly one routeKind and fill the route-specific fields. For answer_in_home, answer holds the complete final answer to the operator. Write routeKind first, then answer, then the remaining fields. Respond with the typed route decision only.";
 
 const ROUTE_RETRY_INSTRUCTION = `${ROUTE_INSTRUCTION} Return every field required by the compact schema: routeKind, answer, confidence, details. Put all action metadata inside details; use details=null only for answer_in_home. Do not include Markdown or text outside the JSON object.`;
+
+function routeOutputShape(text: string | undefined) {
+	try {
+		const value: unknown = JSON.parse(text ?? "");
+		if (value === null || typeof value !== "object" || Array.isArray(value))
+			return null;
+		const record = value as Record<string, unknown>;
+		return {
+			routeKind:
+				HOME_ROUTE_KINDS.find((kind) => kind === record.routeKind) ?? null,
+			fieldTypes: Object.fromEntries(
+				["answer", "confidence", "details", "rationale", "risk"].map((key) => [
+					key,
+					record[key] === null
+						? "null"
+						: Array.isArray(record[key])
+							? "array"
+							: typeof record[key],
+				]),
+			),
+		};
+	} catch {
+		return null;
+	}
+}
 
 // Tail instruction for the tool-free answer pass. It shares SYSTEM_PROMPT and
 // the whole user prompt prefix with the route pass, so the provider's prefix
@@ -571,6 +599,7 @@ export async function planKernelRoute(
 				component: "kernel.route_planner",
 				finishReason: error.finishReason ?? null,
 				outputCharacters: error.text?.length ?? null,
+				outputShape: routeOutputShape(error.text),
 				validationIssues,
 				event: "route_decision_retry",
 				error: safeExceptionTopology(error),
@@ -788,6 +817,7 @@ async function planKernelRouteUnguarded(
 		const result = await tracedAi.generateObject({
 			model: model.model,
 			schema: kernelRouteGenerationSchema,
+			repairText: repairRouteDecisionText,
 			system: SYSTEM_PROMPT,
 			telemetry: objectSpanTelemetry("kernel.route_plan", span),
 			...modelPrompt,
@@ -1131,6 +1161,7 @@ async function streamRoutePlan(args: {
 	const result = tracedAi.streamObject({
 		model: model.model,
 		schema: kernelRouteGenerationSchema,
+		repairText: repairRouteDecisionText,
 		system: SYSTEM_PROMPT,
 		telemetry: objectSpanTelemetry("kernel.route_plan.stream", args.span),
 		...modelPrompt,

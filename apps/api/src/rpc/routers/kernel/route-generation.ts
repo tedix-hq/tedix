@@ -6,6 +6,29 @@ import {
 	type KernelRouteDecision,
 } from "./route-schema";
 
+/** Remove presentation text around one complete JSON object; never repair its fields. */
+export async function repairRouteDecisionText({
+	text,
+}: {
+	text: string;
+}): Promise<string | null> {
+	try {
+		JSON.parse(text);
+		return null;
+	} catch {
+		const first = text.indexOf("{");
+		const last = text.lastIndexOf("}");
+		if (first < 0 || last <= first) return null;
+		const candidate = text.slice(first, last + 1);
+		try {
+			JSON.parse(candidate);
+			return candidate;
+		} catch {
+			return null;
+		}
+	}
+}
+
 const DetailsSchema = KernelRouteDecisionSchema.omit({
 	routeKind: true,
 	answer: true,
@@ -60,10 +83,16 @@ export const kernelRouteGenerationSchema = jsonSchema<
 		const full = KernelRouteDecisionSchema.safeParse(candidate);
 		if (full.success) return { success: true, value: full.data };
 		const wire = KernelRouteGenerationObjectSchema.safeParse(
-			candidate && typeof candidate === "object" && "details" in candidate
+			candidate && typeof candidate === "object"
 				? {
 						...candidate,
-						details: normalizeRouteDecisionCandidate(candidate.details),
+						details:
+							"details" in candidate
+								? normalizeRouteDecisionCandidate(candidate.details)
+								: "routeKind" in candidate &&
+									  candidate.routeKind === "answer_in_home"
+									? null
+									: undefined,
 					}
 				: candidate,
 		);
