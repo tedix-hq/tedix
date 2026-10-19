@@ -1,0 +1,2 @@
+CREATE INDEX `idx_learning_event_target_occurred` ON `learning_interaction_events` (`organization_id`,`scope_kind`,`scope_id`,`target_type`,`target_id`,`occurred_at`);--> statement-breakpoint
+CREATE INDEX `idx_work_events_occurred` ON `work_events` (`occurred_at`);

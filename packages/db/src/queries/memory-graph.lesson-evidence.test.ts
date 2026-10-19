@@ -11,12 +11,28 @@ import {
 } from "./memory-graph/agent-lessons";
 
 const ORG = "fictional-orchard";
-function setup() {
+function setup(plans: string[] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	for (const table of [memoryFacts, memoryEdges, learningInteractionEvents])
 		sqlite.exec(schemaDdl(table));
-	const db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
+	const db = createDbClient(
+		createD1Facade(
+			{
+				prepare(query) {
+					plans.push(
+						...sqlite
+							.prepare(`EXPLAIN QUERY PLAN ${query}`)
+							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+							.map((row) => String(row.detail)),
+					);
+					return sqlite.prepare(query);
+				},
+				exec: (query) => sqlite.exec(query),
+			},
+			{ maxBoundParams: 100 },
+		),
+	);
 	const fact = (
 		id: string,
 		content: string,
@@ -67,6 +83,19 @@ function setup() {
 }
 
 describe("lesson evidence lifecycle", () => {
+	it("seeks corrections by exact target and time instead of scanning later org events", async () => {
+		const plans: string[] = [];
+		const { db, event } = setup(plans);
+		event("decision", "Always verify before release.");
+		expect(
+			(await decisionLessonEvidence(db, ORG, ["decision"])).supportCount,
+		).toBe(1);
+		expect(plans).toContainEqual(
+			expect.stringMatching(
+				/SEARCH c USING INDEX idx_learning_event_target_occurred .*target_type=\? AND target_id=\? AND occurred_at>\?/,
+			),
+		);
+	});
 	it.each(["valid_to", "archived_at"])(
 		"holds and queues a lesson when a source gets %s, without disabling auto-confirmation",
 		async (column) => {

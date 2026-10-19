@@ -704,6 +704,8 @@ export const workEvents = sqliteTable(
 			columns: [table.orgId, table.workItemId],
 			foreignColumns: [workItems.orgId, workItems.id],
 		}).onDelete("cascade"),
+		// Global commitment polling filters time before joining Work and tedis.
+		index("idx_work_events_occurred").on(table.occurredAt),
 		index("idx_work_events_item_sequence").on(
 			table.orgId,
 			table.workItemId,
