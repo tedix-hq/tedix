@@ -1,4 +1,5 @@
 import { WorkActorDirectory } from "@/components/work-actor-directory";
+import { OsTopbarActionsTargetContext } from "@/components/os-topbar-actions-context";
 import { List, MagnifyingGlass, SquaresFour } from "@phosphor-icons/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -277,6 +278,9 @@ function MobileNavigationTrigger() {
 
 export function OsShell() {
 	const [paletteOpen, setPaletteOpen] = useState(false);
+	const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(
+		null,
+	);
 	const [setupPromptOpen, setSetupPromptOpen] = useState(
 		() => new URLSearchParams(window.location.search).get("setup") === "1",
 	);
@@ -341,6 +345,10 @@ export function OsShell() {
 							<OsShellBreadcrumbs pathname={pathname} />
 						</div>
 						<div className="topbar-actions">
+							<div
+								ref={setTopbarActions}
+								className="flex shrink-0 items-center empty:hidden"
+							/>
 							<SupportGetHelp organization={tenantLabel} />
 							<ApprovalNotifications />
 							<TopbarSearch onOpenPalette={() => setPaletteOpen(true)} />
@@ -349,9 +357,11 @@ export function OsShell() {
 					</header>
 				)}
 				<main className="route-content">
-					<WorkActorDirectory>
-						<Outlet />
-					</WorkActorDirectory>
+					<OsTopbarActionsTargetContext.Provider value={topbarActions}>
+						<WorkActorDirectory>
+							<Outlet />
+						</WorkActorDirectory>
+					</OsTopbarActionsTargetContext.Provider>
 				</main>
 			</div>
 			{paletteOpen ? (

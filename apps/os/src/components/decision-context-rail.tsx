@@ -16,7 +16,7 @@ import {
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-	SidebarSimpleIcon,
+	InfoIcon,
 	SlidersHorizontalIcon,
 	CaretDownIcon,
 } from "@phosphor-icons/react";
@@ -29,6 +29,12 @@ import {
 	SheetTitle,
 } from "@/components/kumo/sheet";
 import { WorkToolbarTargetContext } from "@/components/deck-presentation-context";
+import { OsTopbarActionsTargetContext } from "@/components/os-topbar-actions-context";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import {
 	PopoverRoot,
 	PopoverTrigger,
@@ -63,6 +69,9 @@ export function DecisionContextRail({
 	children: ReactNode;
 	surface?: "deck" | "feed";
 }) {
+	const topbarTarget = useContext(OsTopbarActionsTargetContext);
+	const contextTrigger = useRef<HTMLButtonElement>(null);
+	const contextId = useId();
 	const profile = useQuery(userProfileQueryOptions());
 	const key = profile.data?.id
 		? `tedix:decision-context:${profile.data.id}`
@@ -100,12 +109,14 @@ export function DecisionContextRail({
 	};
 	useEffect(() => {
 		const shortcut = (event: KeyboardEvent) => {
-			if (shortcutsOpen || (surface === "feed" && event.key === "?")) return;
 			if (
-				(event.key.toLowerCase() !== "i" &&
-					event.key !== "?" &&
-					event.key !== "Escape") ||
-				(event.key === "Escape" && !open) ||
+				event.defaultPrevented ||
+				shortcutsOpen ||
+				(surface === "feed" && event.key === "?")
+			)
+				return;
+			if (
+				(event.key.toLowerCase() !== "i" && event.key !== "?") ||
 				event.metaKey ||
 				event.ctrlKey ||
 				event.altKey ||
@@ -116,16 +127,14 @@ export function DecisionContextRail({
 			event.preventDefault();
 			if (event.key === "?") {
 				setShortcutsOpen(true);
-			} else changeOpen(event.key === "Escape" ? false : !open);
+			} else changeOpen(!open);
 		};
 		document.addEventListener("keydown", shortcut);
 		return () => document.removeEventListener("keydown", shortcut);
 	}, [open, key, shortcutsOpen, surface]);
 	useEffect(() => {
 		if (!open || !target) return;
-		const container = target.closest<HTMLElement>(
-			".fd-context-rail, .fd-context-sheet",
-		);
+		const container = target.closest<HTMLElement>("[data-decision-context]");
 		const node = section
 			? target.querySelector<HTMLElement>(`[data-context-section="${section}"]`)
 			: null;
@@ -148,11 +157,36 @@ export function DecisionContextRail({
 		</div>
 	);
 	const contents = (
-		<div ref={setTarget} className="fd-context-sections">
+		<div
+			ref={setTarget}
+			className="feed-deck fd-context-sections !rounded-none !bg-transparent !p-0"
+		>
 			{RAIL_SECTIONS.map((id) => (
 				<div key={id} data-rail-slot={id} />
 			))}
 		</div>
+	);
+	const trigger = (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<Button
+						ref={contextTrigger}
+						variant="ghost"
+						size="icon"
+						aria-label="Decision context"
+						aria-haspopup="dialog"
+						aria-expanded={open}
+						aria-controls={open ? contextId : undefined}
+						aria-keyshortcuts="I"
+						onClick={() => changeOpen(!open)}
+					/>
+				}
+			>
+				<InfoIcon aria-hidden size={20} />
+			</TooltipTrigger>
+			<TooltipContent>Decision context (I)</TooltipContent>
+		</Tooltip>
 	);
 	return (
 		<DecisionRailContext.Provider
@@ -177,42 +211,36 @@ export function DecisionContextRail({
 				},
 			}}
 		>
-			<div
-				className="feed-deck fd-context-layout"
-				data-context-open={open && !phone}
-			>
+			{topbarTarget ? createPortal(trigger, topbarTarget) : trigger}
+			<div className="feed-deck fd-context-layout">
 				<div className="fd-context-main">{children}</div>
-				{phone ? (
-					<Sheet open={open} onOpenChange={changeOpen}>
-						<SheetContent
-							side="bottom"
-							className="feed-deck fd-context-sheet"
-							showCloseButton={false}
-						>
-							<SheetHeader className="flex-row items-center justify-between">
-								<SheetTitle className="sr-only">Context</SheetTitle>
-								<Button
-									variant="ghost"
-									size="sm"
-									aria-label="Close decision context"
-									onClick={() => changeOpen(false)}
-								>
-									Done
-								</Button>
-							</SheetHeader>
-							{contents}
-						</SheetContent>
-					</Sheet>
-				) : (
-					<aside
-						className="fd-context-rail"
-						aria-label="Decision context"
-						hidden={!open}
-					>
-						{contents}
-					</aside>
-				)}
 			</div>
+			<Sheet open={open} onOpenChange={changeOpen}>
+				<SheetContent
+					id={contextId}
+					data-decision-context
+					side={phone ? "bottom" : "right"}
+					size="md"
+					className={`gap-8 p-4 sm:p-6 ${phone ? "max-h-[80dvh] rounded-t-xl" : ""}`}
+					showCloseButton={false}
+					keepMounted
+					finalFocus={contextTrigger}
+				>
+					<SheetHeader className="flex-row items-center justify-between p-0 sm:p-0">
+						<SheetTitle>Decision context</SheetTitle>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="min-h-11"
+							aria-label="Close decision context"
+							onClick={() => changeOpen(false)}
+						>
+							Done
+						</Button>
+					</SheetHeader>
+					{contents}
+				</SheetContent>
+			</Sheet>
 			<Sheet open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
 				<SheetContent
 					side={phone ? "bottom" : "right"}
@@ -237,6 +265,7 @@ export function DecisionContextToolbar({
 }) {
 	const rail = useContext(DecisionRailContext);
 	const target = useContext(WorkToolbarTargetContext);
+	if (!children && !filters) return null;
 	const toolbar = (
 		<div className="feed-deck fd-app-toolbar">
 			{children}
@@ -257,17 +286,6 @@ export function DecisionContextToolbar({
 				) : (
 					<div className="fd-toolbar-filters">{filters}</div>
 				))}
-			<Button
-				className="fd-context-toggle"
-				variant="ghost"
-				size="icon"
-				aria-label="Decision context"
-				aria-expanded={rail?.open}
-				aria-keyshortcuts="I"
-				onClick={rail?.toggle}
-			>
-				<SidebarSimpleIcon size={20} />
-			</Button>
 		</div>
 	);
 	return target ? createPortal(toolbar, target) : toolbar;
@@ -321,7 +339,7 @@ export function DecisionContextSection({
 	if (!rail)
 		return (
 			<section>
-				<h3>{title}</h3>
+				<h3 className="type-tedix-section">{title}</h3>
 				{children}
 			</section>
 		);
@@ -358,14 +376,14 @@ export function DecisionContextSection({
 								open={rail.activeSection === id}
 								onOpenChange={(open) => rail.openSection(open ? id : undefined)}
 							>
-								<h3>
+								<h3 className="type-tedix-section">
 									<CollapsibleTrigger>{title}</CollapsibleTrigger>
 								</h3>
 								<CollapsibleContent>{children}</CollapsibleContent>
 							</Collapsible>
 						) : (
 							<>
-								<h3>{title}</h3>
+								<h3 className="type-tedix-section">{title}</h3>
 								{children}
 							</>
 						)}
