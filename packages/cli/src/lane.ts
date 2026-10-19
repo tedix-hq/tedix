@@ -45,7 +45,7 @@ export async function prefixLaneBrief(
 	}
 }
 
-export const laneUsage = `tedix lane serve --executor codex|claude-code|any-local [--max N] [--project <id>] [--coordinated] [--rules <skill-id|slug>] [--repo <path>] [--install]
+export const laneUsage = `tedix lane serve --executor codex|claude-code|devin|any-local [--max N] [--project <id>] [--coordinated] [--rules <skill-id|slug>] [--repo <path>] [--install]
 
 ${laneRunUsage}
 
@@ -63,6 +63,7 @@ Workspace and organization must stay the same on start and settlement.`;
 export function laneSession(env: NodeJS.ProcessEnv): string {
 	if (env.TEDIX_AGENT_SESSION) return env.TEDIX_AGENT_SESSION;
 	// A Codex child can inherit the launcher's Claude id.
+	if (env.DEVIN_SESSION_ID) return `devin:${env.DEVIN_SESSION_ID}`;
 	if (env.CODEX_THREAD_ID) return `codex:${env.CODEX_THREAD_ID}`;
 	if (env.CLAUDE_CODE_SESSION_ID)
 		return `claude-code:${env.CLAUDE_CODE_SESSION_ID}`;

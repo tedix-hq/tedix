@@ -20,6 +20,12 @@ import { runSessionFeedback } from "./session-feedback";
 import { runRequestLedger } from "./request-ledger";
 import { runSituationalRecall } from "./situational-recall";
 import { runSessionStart } from "./session-start";
+import {
+	devinContextOutput,
+	devinHookEvent,
+	skipInheritedDevinHook,
+} from "./devin-event";
+import { devinPermissionBlock } from "./devin-permission";
 
 export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix plugin)
 
@@ -44,6 +50,7 @@ tedix setup agents context enable-decision-capture. Status reporting runs
 only with ~/.tedix/agent-status.json {"enabled": true} or TEDIX_AGENT_STATUS=1.`;
 
 const EVENT_LIMITS: Record<string, number> = {
+	"devin-permission": 4_194_304,
 	"situational-recall": 1_048_576,
 	"session-start": 1_048_576,
 	"prompt-context": 1_048_576,
@@ -77,6 +84,10 @@ export const readHookCommand: ReadJson = async (
 };
 
 export async function runHooksCommand(args: string[]): Promise<number> {
+	if (skipInheritedDevinHook(args, process.env)) return 0;
+	const devin = args[1] === "--host" && args[2] === "devin";
+	if (devin && args.length !== 3) return 1;
+	if (devin) args = [args[0]!];
 	const name = args[0];
 	if (!name || name === "--help" || name === "-h") {
 		console.log(hooksUsage);
@@ -95,23 +106,51 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		// An unreadable event is handled like a malformed one below.
 		stdin = "\u0000";
 	}
+	if (name === "devin-permission") {
+		const root = process.env.TEDIX_DEVIN_LANE_ROOT;
+		if (!devin || !root) return 0;
+		let reason: string | undefined;
+		try {
+			reason = devinPermissionBlock(stdin, root);
+		} catch {
+			reason = "Devin lane permission check failed";
+		}
+		if (reason) {
+			console.log(JSON.stringify({ decision: "block", reason }));
+			return 2;
+		}
+		return 0;
+	}
+	let env = process.env;
+	if (devin) {
+		try {
+			const normalized = devinHookEvent(stdin, env);
+			stdin = normalized.stdin;
+			env = normalized.env;
+		} catch {
+			return 0;
+		}
+	}
 	let cwd = process.cwd();
 	try {
 		const event = JSON.parse(stdin);
 		if (typeof event.cwd === "string" && isAbsolute(event.cwd)) cwd = event.cwd;
 	} catch {}
 	const deps: HookDeps = {
-		env: process.env,
+		env,
 		stdin,
 		cwd,
 		read: (args, timeout, input, options) =>
-			readHookCommand(args, timeout, input, { cwd, ...options }),
-		write: (line) => console.log(line),
+			readHookCommand(args, timeout, input, { cwd, env, ...options }),
+		write: (line) =>
+			console.log(
+				devin ? devinContextOutput(line, env.DEVIN_SESSION_ID!) : line,
+			),
 		deferRead: (args, input) => {
 			const [command, prefix] = selfCommand();
 			const child = spawn(command, [...prefix, ...args], {
 				cwd,
-				env: { ...process.env, TEDIX_HOOK_READ: "1" },
+				env: { ...env, TEDIX_HOOK_READ: "1" },
 				detached: process.platform !== "win32",
 				stdio: ["pipe", "ignore", "ignore"],
 			});
@@ -124,7 +163,7 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 	if (name === "status") {
 		// Never disturb the host turn: no stdout or stderr, failures go to the local log.
 		try {
-			await runAgentStatus({ env: process.env, stdin, cwd: process.cwd() });
+			await runAgentStatus({ env, stdin, cwd });
 		} catch (error) {
 			statusLog(
 				process.env,

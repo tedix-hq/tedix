@@ -60,6 +60,7 @@ function fixture({
 	refuse = false,
 	dark = false,
 	failSettle = false,
+	devinReady = true,
 	executor = "codex" as ServeOptions["executor"],
 	coordinated = false,
 } = {}) {
@@ -89,6 +90,7 @@ function fixture({
 	const config = { ...options, executor, coordinated };
 	const dispatcher = new LaneDispatcher(config, dir, {
 		darkWake: () => dark,
+		devinAvailable: () => devinReady,
 		provision: () => {},
 		cleanup: () => true,
 		thread: async () => ({
@@ -141,35 +143,39 @@ function fixture({
 		},
 		launch: async (args, deps) => {
 			const nativeExecutor =
-				args[args.indexOf("--executor") + 1] === "claude-code"
-					? "claude-code"
-					: "codex";
+				args[args.indexOf("--executor") + 1] === "devin"
+					? "devin"
+					: args[args.indexOf("--executor") + 1] === "claude-code"
+						? "claude-code"
+						: "codex";
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
 			expect(deps?.cwd).toBe(
 				join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
 			);
 			expect(args.slice(args.indexOf("--") + 1)).toEqual(
-				nativeExecutor === "claude-code"
-					? [
-							"claude",
-							"-p",
-							"--session-id",
-							expect.any(String),
-							"--output-format",
-							"stream-json",
-							"--verbose",
-						]
-					: [
-							"codex",
-							"exec",
-							"-C",
-							join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
-							"resume",
-							expect.any(String),
-							"-o",
-							expect.any(String),
-							"-",
-						],
+				nativeExecutor === "devin"
+					? ["devin"]
+					: nativeExecutor === "claude-code"
+						? [
+								"claude",
+								"-p",
+								"--session-id",
+								expect.any(String),
+								"--output-format",
+								"stream-json",
+								"--verbose",
+							]
+						: [
+								"codex",
+								"exec",
+								"-C",
+								join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+								"resume",
+								expect.any(String),
+								"-o",
+								expect.any(String),
+								"-",
+							],
 			);
 			expect(brief).toContain("revision 7");
 			expect(brief).toContain("Keep all evidence in OS.");
@@ -205,6 +211,27 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher admission", () => {
+	it("admits and settles Devin through the same dispatcher", async () => {
+		const { dispatcher, events, releases } = fixture({ executor: "devin" });
+		await dispatcher.tick();
+		await until(() => releases.length === 2);
+		expect(
+			events.find((event) => event.verb === "start")?.env.TEDIX_AGENT_SESSION,
+		).toStartWith("devin:");
+		for (const release of releases) release();
+		await dispatcher.drain();
+		expect(events.filter((event) => event.verb === "settle")).toHaveLength(2);
+	});
+	it("leaves logged-out Devin work unclaimed for a later tick", async () => {
+		const { dispatcher, events, releases } = fixture({
+			executor: "devin",
+			devinReady: false,
+		});
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(releases).toHaveLength(0);
+		expect(events.some((event) => event.verb === "start")).toBe(false);
+	});
 	it("admits only explicit server selections when serving coordinated Work across projects", async () => {
 		const { dispatcher, events, releases } = fixture({ coordinated: true });
 		await dispatcher.tick();

@@ -14,15 +14,18 @@ import {
 	LaneTelemetryInputSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
 import { selfCommand } from "./shared";
+import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
+import { writeDevinLaneConfig } from "./devin-config";
 import { AGENT_IDENTITY_ENV } from "./hooks/hook-io";
 import { laneChildEnv } from "./lane-child-env";
 import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
 import { parseLaneTranscript, type LaneObservation } from "./lane-telemetry";
 
-export const laneRunUsage = `tedix lane run --executor codex|claude-code|tedi|skill --brief <file> --project <id>
+export const laneRunUsage = `tedix lane run --executor codex|claude-code|devin|tedi|skill --brief <file> --project <id>
   [--model <id>] [--reasoning <effort>] [--rate-scope <scope>] [--work-item <id>]
   [--transcript <file>] [--telemetry <file>] -- <command> [args...]
 tedix lane import --executor codex|claude-code --transcript <file> --project <id> [--apply]
+Devin needs no command after --; its runner supplies prompt-file, resume and permission arguments.
 
 Registers observations using the owner's selected organization. A report grants no
 Work execution authority: the child still obtains its own Attempt with lane start.
@@ -184,17 +187,29 @@ export async function runLaneProcess(
 		return 0;
 	}
 	const executor = options.get("--executor");
-	if (!["codex", "claude-code", "tedi", "skill"].includes(executor ?? ""))
-		throw new Error("Choose --executor codex|claude-code|tedi|skill");
+	if (
+		!["codex", "claude-code", "devin", "tedi", "skill"].includes(executor ?? "")
+	)
+		throw new Error("Choose --executor codex|claude-code|devin|tedi|skill");
 	const projectId = options.get("--project");
 	if (!projectId) throw new Error("--project is required");
-	const sessionKey = deps.sessionKey ?? randomUUID();
+	const devin = executor === "devin";
+	const nativeThread =
+		devin && !deps.sessionKey
+			? await createDevinLaneThread(
+					deps.cwd ?? process.cwd(),
+					command[0] ?? "devin",
+					options.get("--model"),
+				)
+			: undefined;
+	const sessionKey = deps.sessionKey ?? nativeThread?.thread.id ?? randomUUID();
 	const startedAt = new Date().toISOString();
 	let telemetry: LaneObservation = {
 		executor: executor as LaneObservation["executor"],
-		model: options.get("--model") ?? null,
-		provider:
-			executor === "codex"
+		model: nativeThread?.model ?? options.get("--model") ?? null,
+		provider: devin
+			? "devin"
+			: executor === "codex"
 				? "openai"
 				: executor === "claude-code"
 					? "anthropic"
@@ -260,13 +275,45 @@ export async function runLaneProcess(
 		);
 		return 0;
 	}
-	if (!command.length || !options.has("--brief")) throw new Error(laneRunUsage);
+	if ((!command.length && !devin) || !options.has("--brief"))
+		throw new Error(laneRunUsage);
 	LaneTelemetryInputSchema.parse(telemetry);
 	await report(sessionKey, telemetry);
 	const dir = mkdtempSync(join(tmpdir(), "tedix-lane-"));
 	const receipt = join(dir, "telemetry.json");
+	const devinTranscript =
+		options.get("--transcript") ?? `${options.get("--brief")!}.devin.atif.json`;
+	if (devin) {
+		const config = join(dir, "devin.json");
+		writeDevinLaneConfig(config, deps.cwd ?? process.cwd());
+		command.splice(
+			0,
+			command.length,
+			command[0] ?? "devin",
+			"-p",
+			"-r",
+			sessionKey,
+			"--prompt-file",
+			options.get("--brief")!,
+			"--respect-workspace-trust",
+			"false",
+			"--permission-mode",
+			"accept-edits",
+			"--config",
+			config,
+			"--export",
+			devinTranscript,
+			...(telemetry.model ? ["--model", telemetry.model] : []),
+		);
+	}
 	const env = {
 		...laneChildEnv(),
+		...(devin
+			? {
+					TEDIX_DEVIN_LANE_ROOT: deps.cwd ?? process.cwd(),
+					TEDIX_DEVIN_HEADLESS: "1",
+				}
+			: {}),
 		TEDIX_WORKSPACE: deps.childScope?.workspace ?? process.env.TEDIX_WORKSPACE,
 		TEDIX_ORGANIZATION:
 			deps.childScope?.organization ?? process.env.TEDIX_ORGANIZATION,
@@ -290,12 +337,22 @@ export async function runLaneProcess(
 		env,
 		cwd: deps.cwd,
 		detached: deps.detachedChild,
-		stdio: ["pipe", codexJson || claudeJson ? "pipe" : "inherit", "inherit"],
+		stdio: [
+			"pipe",
+			codexJson || claudeJson || devin ? "pipe" : "inherit",
+			"inherit",
+		],
 	});
 	if (child.pid) deps.onSpawn?.(child.pid);
-	child.stdin?.end(readFileSync(options.get("--brief")!));
+	child.stdin?.end(devin ? undefined : readFileSync(options.get("--brief")!));
 	child.stdout?.on("data", (chunk) => {
 		process.stdout.write(chunk);
+		if (devin) {
+			telemetry.finalMessage = (
+				telemetry.finalMessage + chunk.toString()
+			).slice(-24000);
+			return;
+		}
 		buffer += chunk.toString();
 		const lines = buffer.split("\n");
 		buffer = lines.pop()!.slice(-65536);
@@ -346,7 +403,7 @@ export async function runLaneProcess(
 		[exitCode, signal] = await new Promise<[number, NodeJS.Signals | null]>(
 			(resolve, reject) => {
 				child.once("error", reject);
-				child.once("exit", (code, sig) => resolve([code ?? 1, sig]));
+				child.once("close", (code, sig) => resolve([code ?? 1, sig]));
 			},
 		);
 	} catch (error) {
@@ -366,6 +423,23 @@ export async function runLaneProcess(
 	)
 		exitCode = 1;
 	try {
+		if (devin) {
+			const exported = JSON.parse(readFileSync(devinTranscript, "utf8"));
+			if (exported.session_id !== sessionKey)
+				throw new Error(
+					"Devin transcript identity differs from the admitted session",
+				);
+			telemetry.shas = [
+				...new Set(telemetry.finalMessage.match(/\b[a-f0-9]{40}\b/g) ?? []),
+			].slice(0, 100);
+		}
+		if (
+			devin &&
+			!devinSessionIds(deps.cwd ?? process.cwd(), command[0]!).includes(
+				sessionKey,
+			)
+		)
+			throw new Error("Devin resumed session was not found in this worktree");
 		const path =
 			options.get("--transcript") ??
 			(nativeId
@@ -410,7 +484,7 @@ export async function runLaneProcess(
 			} catch {}
 		}
 	} catch (error) {
-		if (deps.sessionKey) exitCode = 1;
+		if (deps.sessionKey || devin) exitCode = 1;
 		process.stderr.write(`Lane transcript: ${String(error)}\n`);
 	}
 	await heartbeat;

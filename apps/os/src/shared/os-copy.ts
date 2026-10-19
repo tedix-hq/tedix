@@ -326,6 +326,7 @@ const ENGLISH_COPY = {
 			tedi: "Tedi",
 			external_agent: "Project team",
 			codex: "Codex",
+			devin: "Devin",
 			"claude-code": "Claude",
 			system: "Tedix",
 		},

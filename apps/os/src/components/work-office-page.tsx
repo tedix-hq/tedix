@@ -581,7 +581,11 @@ export function knocksPerHour(requestedAt: string[], now: number): number[] {
 	return hours;
 }
 
-const HARNESS_LABELS = { "claude-code": "Claude Code", codex: "Codex" };
+const HARNESS_LABELS = {
+	"claude-code": "Claude Code",
+	codex: "Codex",
+	devin: "Devin",
+};
 
 type SeenSession = { harness: string; key: string; at: string };
 
@@ -648,13 +652,15 @@ function Activity() {
 			})),
 		...sessionsFromKnocks(knocks.data?.data ?? []),
 	];
-	const harnesses = (["claude-code", "codex"] as const).map((harness) => ({
-		harness,
-		...sessionActivity(
-			seen.filter((entry) => entry.harness === harness),
-			now,
-		),
-	}));
+	const harnesses = (["claude-code", "codex", "devin"] as const).map(
+		(harness) => ({
+			harness,
+			...sessionActivity(
+				seen.filter((entry) => entry.harness === harness),
+				now,
+			),
+		}),
+	);
 	const hours = knocksPerHour(
 		(knocks.data?.data ?? []).map((row) => row.request.requestedAt),
 		now,

@@ -1,0 +1,214 @@
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { withFileLockSync } from "./local-file-lock";
+import { selfCommand } from "./shared";
+
+export function devinConfigDirectory(env = process.env) {
+	return join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "devin");
+}
+
+export function devinHooks() {
+	const [program, prefix] = selfCommand();
+	const cli = [program, ...prefix]
+		.map((part) => `'${part.replaceAll("'", "'\\''")}'`)
+		.join(" ");
+	return Object.fromEntries(
+		[
+			["SessionStart", "session-start"],
+			["UserPromptSubmit", "prompt-context"],
+			["UserPromptSubmit", "capture-reply"],
+			["Stop", "capture-stop"],
+			["SessionEnd", "status"],
+			["PreToolUse", "devin-permission"],
+		].reduce<Array<[string, unknown[]]>>((entries, [event, name]) => {
+			const entry = entries.find(([key]) => key === event);
+			const hook = {
+				matcher: "",
+				hooks: [
+					{
+						type: "command",
+						command:
+							name === "devin-permission"
+								? `${cli} hooks devin-permission --host devin || exit 2 # tedix-managed-devin-hook`
+								: `${cli} hooks ${name} --host devin || true # tedix-managed-devin-hook`,
+						timeout: 30,
+					},
+				],
+			};
+			if (entry) entry[1].push(hook);
+			else entries.push([event!, [hook]]);
+			return entries;
+		}, []),
+	);
+}
+
+function readConfig(path: string): Record<string, unknown> {
+	if (!existsSync(path)) return {};
+	const value = JSON.parse(readFileSync(path, "utf8"));
+	if (!isRecord(value))
+		throw new Error(`Expected a JSON object in ${path}; file was not changed`);
+	return value;
+}
+
+function objectField(value: unknown): Record<string, unknown> {
+	if (value === undefined) return {};
+	if (!isRecord(value))
+		throw new Error(
+			"Invalid Devin configuration object; files were not changed",
+		);
+	return value;
+}
+
+/** Merge only Tedix's entries; malformed files and conflicting server names fail closed. */
+export function setupDevin(directory = devinConfigDirectory()) {
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	withFileLockSync(join(directory, ".tedix-setup.lock"), () => {
+		const configPath = join(directory, "config.json");
+		const mcpPath = join(directory, "mcp_config.json");
+		const config = readConfig(configPath);
+		const mcp = readConfig(mcpPath);
+		const servers = objectField(mcp.mcpServers);
+		const existing = servers.tedix;
+		const server = {
+			url: "https://connect.mcp.tedix.dev/mcp",
+			transport: "http",
+		};
+		if (
+			existing &&
+			(!isRecord(existing) ||
+				existing.url !== server.url ||
+				existing.transport !== server.transport)
+		)
+			throw new Error(
+				"Devin already has a different tedix MCP server; inspect it before setup",
+			);
+		const hooks = { ...objectField(config.hooks) };
+		for (const [event, entries] of Object.entries(devinHooks())) {
+			const previous = hooks[event] ?? [];
+			if (!Array.isArray(previous))
+				throw new Error(`Invalid Devin ${event} hooks`);
+			hooks[event] = [
+				...previous.filter(
+					(entry: unknown) =>
+						!(
+							isRecord(entry) &&
+							Array.isArray(entry.hooks) &&
+							entry.hooks.length > 0 &&
+							entry.hooks.every(
+								(hook: unknown) =>
+									isRecord(hook) &&
+									typeof hook.command === "string" &&
+									hook.command.endsWith(" # tedix-managed-devin-hook"),
+							)
+						),
+				),
+				...entries,
+			];
+		}
+		for (const [path, value] of [
+			[
+				configPath,
+				{
+					...config,
+					attribution: false,
+					read_config_from: {
+						...objectField(config.read_config_from),
+						claude: false,
+					},
+					hooks,
+				},
+			],
+			[
+				mcpPath,
+				{
+					...mcp,
+					mcpServers: {
+						...servers,
+						tedix: { ...objectField(existing), ...server },
+					},
+				},
+			],
+		] as const) {
+			const temporary = `${path}.${process.pid}.tmp`;
+			writeFileSync(temporary, JSON.stringify(value, null, 2) + "\n", {
+				mode: 0o600,
+			});
+			renameSync(temporary, path);
+		}
+	});
+}
+
+/** Tool approvals, not an OS sandbox: approved runtimes can execute repository code. */
+export function devinPermissionProfile(cwd: string) {
+	const root = resolve(cwd);
+	if (/[()\n\r*?\[\]{}]/.test(root))
+		throw new Error("Unsupported Devin workspace path");
+	return {
+		attribution: false,
+		read_config_from: { claude: false },
+		hooks: devinHooks(),
+		permissions: {
+			allow: [
+				`Read(${root}/**)`,
+				`Write(${root}/**)`,
+				...[
+					"git status",
+					"git diff",
+					"git log",
+					"git show",
+					"git rev-parse",
+					"git add",
+					"git commit",
+					"git switch",
+					"git branch",
+					"git merge-base",
+					"bun",
+					"bunx",
+					"node",
+					"tedix",
+					"rg",
+					"ls",
+					"cat",
+					"sed",
+					"gh run list",
+					"gh run view",
+				].map((command) => `Exec(${command})`),
+				"Fetch(https://docs.tedix.dev/*)",
+				"Fetch(https://docs.devin.ai/*)",
+				"mcp__tedix__*",
+			],
+			deny: [
+				"Exec(git push)",
+				"Exec(tedix login)",
+				"Exec(wrangler deploy)",
+				"Exec(bunx wrangler deploy)",
+				"Exec(npx wrangler deploy)",
+				...[
+					"~/.ssh/**",
+					"~/.config/**",
+					"**/.env",
+					"**/.env.*",
+					"**/.dev.vars",
+				].flatMap((path) => [`Read(${path})`, `Write(${path})`]),
+			],
+			ask: [],
+		},
+	};
+}
+
+export function writeDevinLaneConfig(path: string, cwd: string) {
+	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	writeFileSync(
+		path,
+		JSON.stringify(devinPermissionProfile(cwd), null, 2) + "\n",
+		{ mode: 0o600, flag: "wx" },
+	);
+}

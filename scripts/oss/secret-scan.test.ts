@@ -520,6 +520,17 @@ describe("public secret scan", () => {
 			{ kind: "content", line: 1, path: "src/real.ts", rule: "customer-email" },
 		]);
 	});
+	test("permits Devin's public bot trailer without permitting other vendor addresses", () => {
+		const findings = scanTrackedFiles(
+			fixture({
+				"docs/bot.md": "Co-Authored-By: Devin <noreply@devin.ai>\n",
+				"docs/customer.md": `Contact ${["private-person", "devin.ai"].join("@")}\n`,
+			}),
+		).filter((finding) => finding.rule === "customer-email");
+		expect(findings.map((finding) => finding.path)).toEqual([
+			"docs/customer.md",
+		]);
+	});
 
 	test("does not report stale allowlist entries during a scoped scan", () => {
 		const fakeToken = ["ghp", "_123456789012345678901234"].join("");

@@ -4,6 +4,7 @@
  * never placed in a command argument, uploaded by the read hooks, logged or saved.
  */
 import { spawn } from "node:child_process";
+import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { closeSync, openSync, readSync, realpathSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import { resolveAgentContext } from "../agent-context";
@@ -84,7 +85,11 @@ export function hostEvent(
 	if (
 		(options.requireIdentity && !identities.length) ||
 		identities.some(
-			(value) => typeof value !== "string" || !UUID.test(value),
+			(value) =>
+				typeof value !== "string" ||
+				!(env.TEDIX_HOOK_HOST === "devin"
+					? isHostSessionId(value)
+					: UUID.test(value)),
 		) ||
 		new Set(identities.map((value) => String(value).toLowerCase())).size > 1
 	)
@@ -141,6 +146,7 @@ export function unattendedRun(
 	event: JsonObject,
 	env: NodeJS.ProcessEnv,
 ): boolean {
+	if (env.TEDIX_DEVIN_HEADLESS === "1") return true;
 	if (
 		env.CLAUDE_CODE_SESSION_ATTENDED === "0" &&
 		!claudeBackgroundSession(event, env)

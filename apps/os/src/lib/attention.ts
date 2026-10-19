@@ -23,6 +23,10 @@ export const ATTENTION_SOURCES = {
 		label: ATTENTION_COPY.local_codex,
 		color: "var(--tedix-hue-blue)",
 	},
+	local_devin: {
+		label: ATTENTION_COPY.local_devin,
+		color: "var(--tedix-hue-violet)",
+	},
 	cloud_tedi: {
 		label: ATTENTION_COPY.cloud_tedi,
 		color: "var(--tedix-hue-violet)",

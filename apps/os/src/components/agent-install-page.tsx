@@ -243,6 +243,45 @@ export function AgentInstallPage() {
 							</p>
 						</CardContent>
 					</Card>
+					<Card>
+						<CardHeader>
+							<CardTitle>Devin CLI</CardTitle>
+							<CardDescription>
+								Connect Devin to your Tedix workspace.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<Step
+								number={1}
+								title="Sign in to Devin"
+								command="devin auth login"
+							>
+								Complete the browser login yourself.
+							</Step>
+							<Step
+								number={2}
+								title="Set up Tedix"
+								command="tedix setup agents --devin --yes"
+							>
+								Merges hooks and the MCP connection. Disables Claude config
+								imports in Devin to avoid duplicate hooks.
+							</Step>
+							<Step
+								number={3}
+								title="Authorize MCP"
+								command="devin mcp login tedix"
+							>
+								Review your organization and scopes in the browser.
+							</Step>
+							<Step number={4} title="Verify">
+								Start Devin and ask for one read-only Tedix profile and
+								organization check.
+							</Step>
+							<GuideLink href="https://docs.tedix.dev/cli/#devin-cli">
+								Devin setup and lane smoke test
+							</GuideLink>
+						</CardContent>
+					</Card>
 				</div>
 			</PageSection>
 

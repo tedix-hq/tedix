@@ -1,0 +1,6 @@
+This is a read-only Tedix harness smoke test. Read the repository AGENTS.md.
+Use the Tedix MCP server to discover tools and make one bounded read of your
+profile and selected organization. Do not create or modify Work, files, or
+external resources. Do not start an Attempt or authenticate. Finish with
+DEVIN_TEDIX_SMOKE_OK only if the authorized read succeeded; otherwise report
+the exact blocker. Never print credentials.

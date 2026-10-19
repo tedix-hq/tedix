@@ -418,3 +418,44 @@ keeps the reported session, harness, hook trust, dispatch path and delivery stat
 A suspected delivery gap creates proposed Work, once per fingerprint, lesson and
 actor session. Unknown delivery stays unknown; an observed delivery does not
 create a delivery-gap proposal. Other incident producers can use the same tool.
+
+## Devin lanes
+
+[Set up Devin](./cli.md#devin-cli) before assigning it local coding Work.
+Choose executor `devin` in Work or run
+`tedix lane serve --executor devin --workspace <profile> --organization <org>`.
+`any-local` considers Devin only when `devin auth status` confirms it is usable.
+The dispatcher obtains a persistent native session and resolved model through
+ACP metadata before starting an Attempt; missing metadata stops before a model
+turn. Its normal admission, heartbeat, lease expiry and settlement rules apply.
+Devin receives the same accepted outcome, brief and revisioned standing rules
+as the other local executors. Native identity is `devin:<session-id>`; word-pair
+ids are accepted alongside UUIDs. Never invent a session or reuse another host's
+identity. Include the repository's Work and Agent-Session commit trailers and
+`Co-Authored-By: Devin <noreply@devin.ai>` when Devin authors a commit.
+
+The runner changes into the worktree and uses `-p --prompt-file`, native resume,
+`--respect-workspace-trust false`, `--permission-mode accept-edits`, an explicit
+generated `--config`, and `--export`. It retains the ATIF transcript beside the
+brief (`<brief>.devin.atif.json`, or `--transcript <path>`), captures stdout as
+the final message, and checks both the exported session identity and
+`devin list --format json` before settlement.
+Usage and cost remain unknown unless observed; stdout is a report, not verified
+completion evidence.
+
+The permission profile approves worktree file reads/writes, development commands
+(`bun`, `bunx`, `node`, `tedix`, `rg`, `ls`, `cat`, `sed`), selected Git commands,
+`gh run list/view`, Tedix MCP tools and the Tedix/Devin documentation domains.
+Raw Git pushes, Tedix login, Wrangler deploy, SSH keys, user configuration and
+dotenv files have deny rules. Use the repository's guarded `bun run push`.
+A PreToolUse fence rejects direct file writes outside the worktree, symlink
+escapes, changes to `.devin` configuration and prohibited command forms.
+These are tool approvals, not OS isolation: approved runtimes can execute
+repository code. Devin's OS sandbox selects autonomous mode and is not combined
+with this accept-edits profile. Use trusted worktrees.
+
+Devin's live hook dispatch, ACP persistence and MCP read must be checked after
+login with the smoke test. Unlike Codex, Tedix does not queue or automatically
+resume idle interactive Devin sessions to deliver supervisor replies; inspect
+Tedix OS and continue the session yourself. ATIF token/tool import and historic
+decision import are not implemented; lane liveness and final stdout are reported.

@@ -186,6 +186,7 @@ export const SPANISH_FEED_DECK_COPY = {
 			tedi: "Tedi",
 			external_agent: "Sesión de programación",
 			codex: "Sesión de Codex",
+			devin: "Sesión de Devin",
 			"claude-code": "Sesión de Claude Code",
 			system: "Tedix",
 		},

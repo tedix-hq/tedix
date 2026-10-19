@@ -110,7 +110,7 @@ export const OS_NAVIGATION = [
 		id: "install",
 		label: "Install Tedix",
 		path: "/install",
-		description: "Set up the CLI, Codex, ChatGPT Work, and Claude Code",
+		description: "Set up the CLI, Codex, ChatGPT Work, Claude Code, and Devin",
 	},
 ] as const satisfies readonly OsNavigationItem[];
 

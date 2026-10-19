@@ -472,3 +472,40 @@ or organization data. To install the CLI again later, follow [Install](#install)
 - Login failure: confirm the organization slug with your administrator, then
   run `tedix login ORG_SLUG` again. `tedix auth status` shows whether a saved
   workspace is already selected without printing its credential.
+
+## Devin CLI
+
+Install [Devin CLI](https://docs.devin.ai/cli), then complete its browser login
+yourself. With an existing authorized Tedix CLI workspace:
+
+```sh
+devin auth login
+tedix setup agents --devin --yes
+devin mcp login tedix
+```
+
+Setup merges `~/.config/devin/config.json` and `mcp_config.json`, preserving
+unrelated hooks, settings and servers. A conflicting `tedix` server or invalid
+JSON stops setup. It installs opt-in Tedix session, prompt, capture and status
+hooks, turns off automatic commit attribution, and disables Claude configuration
+imports in Devin to prevent duplicate Tedix hooks and incompatible Claude-only
+hooks. Existing Claude files remain intact. Repository `AGENTS.md` loads natively.
+Each host's MCP OAuth grant remains separate from the CLI login.
+
+From a source checkout, after both browser logins, run this read-only smoke test
+with a project in your selected organization:
+
+```sh
+tedix lane run --executor devin --brief packages/cli/examples/devin-smoke.txt --project <project-id>
+```
+
+The smoke test uses a model turn and reports lane telemetry. It asks Devin to
+read its MCP profile and selected organization, without changing Work or files.
+Check for `DEVIN_TEDIX_SMOKE_OK`; a successful process exit alone does not prove
+the MCP read succeeded. Source development can substitute
+`bun packages/cli/src/index.ts` for `tedix`.
+
+Use `tedix setup agents --devin --dry-run` to preview setup. To enable context
+reads, bind the repository using `tedix setup agents context bind` or launch
+Devin with `TEDIX_PLUGIN_PREFLIGHT=1`. Decision capture and status keep their
+existing explicit opt-ins; setup alone does not enable uploads.

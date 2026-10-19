@@ -283,6 +283,7 @@ export function waitingQuestions(
 			continue;
 		}
 		if (ageMs > QUESTION_MAX_AGE_MS) continue;
+		if (question.host === "devin") continue;
 		const host = question.host === "codex" ? "codex" : "claude-code";
 		const status = peek(
 			join(configDir(env), "agent-status", `${host}-${session}.json`),
@@ -336,6 +337,7 @@ export function localSessions(
 			continue;
 		}
 		const record = peek(path);
+		if (record?.host === "devin") continue;
 		const host = record?.host === "codex" ? "codex" : "claude-code";
 		found.push({
 			session,

@@ -190,6 +190,7 @@ it("keeps one persistent Waiting on you card for a human handoff", () => {
 
 it.each([
 	["codex:session", "external_agent", "Claude", "local_codex"],
+	["devin:quiet-river", "external_agent", "Devin", "local_devin"],
 	[null, "external_agent", "Codex", "unknown"],
 	[null, "tedi", null, "cloud_tedi"],
 ] as const)(

@@ -1,3 +1,4 @@
+import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -307,8 +308,8 @@ function selectedWork(
 function chatIdentity(options?: AgentContextOptions): string | undefined {
 	if (options?.sessionId === null) return undefined;
 	if (options?.sessionId !== undefined) {
-		if (!looksLikeUuid(options.sessionId))
-			throw new Error("--session requires a full chat UUID");
+		if (!isHostSessionId(options.sessionId))
+			throw new Error("--session requires a native chat id");
 		return options.sessionId.toLowerCase();
 	}
 	// One chat per process: a Codex chat id and a Claude Code session id that
@@ -317,11 +318,12 @@ function chatIdentity(options?: AgentContextOptions): string | undefined {
 		process.env.CODEX_SESSION_ID,
 		process.env.CODEX_THREAD_ID,
 		process.env.CLAUDE_CODE_SESSION_ID,
+		process.env.DEVIN_SESSION_ID,
 	]
 		.map((id) => id?.trim())
 		.filter((id): id is string => Boolean(id))
 		.map((id) => id.toLowerCase());
-	if (ids.some((id) => !looksLikeUuid(id)) || new Set(ids).size > 1)
+	if (ids.some((id) => !isHostSessionId(id)) || new Set(ids).size > 1)
 		throw new Error(
 			"Chat identity is invalid or conflicting; verify the current chat before selecting context",
 		);
@@ -356,7 +358,7 @@ function chatBinding(
 					!row.target.org ||
 					typeof row.target.mcpUrl !== "string" ||
 					!row.target.mcpUrl)) ||
-			!looksLikeUuid(row.sessionId) ||
+			!isHostSessionId(row.sessionId) ||
 			(row.workItemId !== undefined && !looksLikeUuid(row.workItemId)) ||
 			Boolean(row.osWorkspaceId) !== Boolean(row.contextOutputId) ||
 			(row.osWorkspaceId !== undefined &&
@@ -1326,7 +1328,7 @@ export function setDefaultOrganization(
 export const agentContextUsage = `Local opt-in Tedix session context
 
   tedix setup agents context bind --workspace <profile> [--organization <selected ID>] --project <UUID>
-  tedix setup agents context connect --workspace <profile> [--organization <selected ID>] --project <UUID> [--session <chat UUID>]
+  tedix setup agents context connect --workspace <profile> [--organization <selected ID>] --project <UUID> [--session <native chat id>]
   tedix setup agents context select <Work Item UUID>
   tedix setup agents context clear
   tedix setup agents context connect-output --os-workspace <UUID> --output <UUID>
@@ -1341,7 +1343,7 @@ export const agentContextUsage = `Local opt-in Tedix session context
   tedix setup agents context unbind
 
 Run in the repository, or pass --directory <path>. Select/clear/connect-output/
-disconnect-output/show accept --session <chat UUID>; the Codex chat or Claude Code
+disconnect-output/show accept --session <native chat id>; the Codex, Claude Code or Devin
 session identity in the environment is used automatically. Connect profiles require an exact consent-selected
 organization ID from auth status. connect pins the profile, organization and project
 for this chat only; it does not retarget the repository or sibling chats. Clear Work

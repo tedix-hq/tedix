@@ -188,7 +188,12 @@ export function resultFeedItems(
 						: sessionHarness(a.metadata.agentHarness, a.externalSessionKey) ===
 							  "codex"
 							? "Codex"
-							: OS_COPY.feed.actors.external_agent,
+							: sessionHarness(
+										a.metadata.agentHarness,
+										a.externalSessionKey,
+								  ) === "devin"
+								? "Devin"
+								: OS_COPY.feed.actors.external_agent,
 			actorIdentity: workActorReference(
 				a.executorType,
 				a.executorId,

@@ -95,6 +95,7 @@ export const AGENT_BOARD_SECTIONS: readonly {
 export const AGENT_HARNESS_LABEL: Record<string, string> = {
 	"claude-code": ATTENTION_COPY.local_claude,
 	codex: ATTENTION_COPY.local_codex,
+	devin: "Local session (Devin)",
 	tedi: "Tedi",
 	skill: "Skill",
 };
@@ -265,7 +266,9 @@ function AgentSessionRow({
 				<WorkActorAvatar
 					actor={{
 						type:
-							session.harness === "codex" || session.harness === "claude-code"
+							session.harness === "codex" ||
+							session.harness === "claude-code" ||
+							session.harness === "devin"
 								? "user"
 								: "system",
 						id: ownerId,

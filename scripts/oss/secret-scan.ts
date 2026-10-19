@@ -165,6 +165,8 @@ const FIXTURE_EMAIL_DOMAINS = [
 ];
 
 function isPlaceholderEmail(address: string): boolean {
+	// Public Devin bot attribution; other addresses at the vendor remain private.
+	if (address.toLowerCase() === "noreply@devin.ai") return true;
 	const domain = address.slice(address.lastIndexOf("@") + 1).toLowerCase();
 	const labels = domain.split(".");
 	// `pkg@0.23.0.patch` in a lockfile or manifest is a version, not an address.
@@ -567,7 +569,7 @@ export interface PushRange {
 const TRAILER_LINE = /^(Work-Item|Agent-Session):\s*(.*)$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HARNESS_SESSION =
-	/^[a-z][a-z0-9-]*:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+	/^(?:[a-z][a-z0-9-]*:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|devin:[a-z]+-[a-z]+)$/;
 
 /**
  * Maintainer trailers are optional, but public history keeps them forever, so

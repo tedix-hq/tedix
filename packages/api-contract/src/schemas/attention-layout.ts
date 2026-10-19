@@ -10,6 +10,7 @@ const AttentionColumnSchema = z.enum([
 export const AttentionSourceSchema = z.enum([
 	"local_claude",
 	"local_codex",
+	"local_devin",
 	"cloud_tedi",
 	"factory",
 	"coordinator",

@@ -11,6 +11,7 @@ function render({
 	owner = true,
 	active = false,
 	disposition = "accepted",
+	executor = "claude-code",
 } = {}) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -42,7 +43,7 @@ function render({
 		disposition,
 		accountableOwnerType: "user",
 		accountableOwnerId: owner ? "owner" : "another-user",
-		metadata: { executor: "claude-code", laneDispatch: { state: "ready" } },
+		metadata: { executor, laneDispatch: { state: "ready" } },
 	} as unknown as WorkItem;
 	const html = renderToStaticMarkup(
 		<QueryClientProvider client={client}>
@@ -54,15 +55,18 @@ function render({
 }
 
 describe("Start session", () => {
-	it("offers the owner a start action for accepted local Work", () => {
-		const doc = render();
-		const button = [...doc.querySelectorAll("button")].find(
-			(row) => row.textContent === "Start session",
-		);
-		expect(button).toBeDefined();
-		expect(button?.hasAttribute("disabled")).toBe(false);
-		expect(doc.body.textContent).toContain("Waiting for a connected Mac.");
-	});
+	it.each(["claude-code", "devin"])(
+		"offers the owner a start action for accepted %s Work",
+		(executor) => {
+			const doc = render({ executor });
+			const button = [...doc.querySelectorAll("button")].find(
+				(row) => row.textContent === "Start session",
+			);
+			expect(button).toBeDefined();
+			expect(button?.hasAttribute("disabled")).toBe(false);
+			expect(doc.body.textContent).toContain("Waiting for a connected Mac.");
+		},
+	);
 	it("does not offer a start action for another owner's Work or proposed Work", () => {
 		expect(render({ owner: false }).body.textContent).not.toContain(
 			"Start session",

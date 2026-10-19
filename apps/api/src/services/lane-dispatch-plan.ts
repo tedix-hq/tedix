@@ -3,7 +3,9 @@ import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
 export function initialLaneDispatch(
 	executor: unknown,
 ): LaneDispatchPlan | undefined {
-	return ["codex", "claude-code", "tedi", "human"].includes(String(executor))
+	return ["codex", "claude-code", "devin", "tedi", "human"].includes(
+		String(executor),
+	)
 		? { state: "ready" }
 		: undefined;
 }
@@ -20,6 +22,7 @@ export function mentionedExecutor(
 		return { executor: "codex" as const };
 	if (/\bClaude(?: Code)?\b/i.test(target))
 		return { executor: "claude-code" as const };
+	if (/\bDevin\b/i.test(target)) return { executor: "devin" as const };
 	const normalized = target.trim().toLowerCase();
 	const tedi = tedis.find((t) =>
 		[t.name, t.slug].some((n) => n.toLowerCase() === normalized),

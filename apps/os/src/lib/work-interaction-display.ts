@@ -19,6 +19,7 @@ const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
 const DECISION_CAPTURE_HOSTS: Record<string, string> = {
 	"claude-code": "Claude Code",
 	codex: "Codex",
+	devin: "Devin",
 };
 
 const decisionCaptureMetadataSchema = z.object({
