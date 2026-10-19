@@ -83,6 +83,16 @@ packaged skills and host guides are in the
 and the published marketplace is
 [tedix-hq/tedix-plugins](https://github.com/tedix-hq/tedix-plugins).
 
+For Devin CLI, Desktop and cloud, install from the source subdirectory with
+`devin plugins install tedix-hq/tedix#plugins/tedix -y`. Inspect it with
+`devin plugins info tedix`, then use `devin mcp login tedix` locally or connect
+through **Customize → MCPs** for cloud sessions. The Devin CIMD client ID is
+pending; OAuth readiness remains unverified. The shared skills load across
+surfaces; plugin hooks run only in CLI/Desktop and silently skip a missing
+Tedix CLI. `tedix setup agents --devin --yes` remains the local fallback;
+matching managed hooks take precedence to avoid duplicate capture. See the
+[Devin plugin guide](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/devin.md).
+
 On first use, run the `tedix-connect` skill, or follow its steps: confirm the
 account with `get_profile`, resolve the organization separately, and make one
 bounded read-only call through Code Mode. Account identity, organization
