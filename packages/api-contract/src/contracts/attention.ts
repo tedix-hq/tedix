@@ -2,6 +2,7 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import { DeckRankSignalSchema } from "../schemas/deck-curator";
 import {
 	AttentionViewInputSchema,
 	AttentionAppViewSchema,
@@ -35,6 +36,19 @@ export const attentionContract = oc
 			})
 			.input(AttentionViewInputSchema)
 			.output(AttentionAppViewSchema),
+		rankDeckCards: oc
+			.route({
+				summary: "Rank the caller's Deck without deciding or hiding cards",
+			})
+			.input(AttentionViewInputSchema)
+			.output(
+				z.strictObject({
+					cards: z.array(DeckCardSchema).max(100),
+					signals: z.array(DeckRankSignalSchema).max(100),
+					reservedMicros: z.number().int().nonnegative(),
+					observedAt: z.iso.datetime(),
+				}),
+			),
 		listDeckCards: oc
 			.input(AttentionViewInputSchema)
 			.output(DeckProjectionSchema),

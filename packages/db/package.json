@@ -87,6 +87,7 @@
 		"./queries/graph-projection-entities": "./src/queries/graph-projection-entities.ts",
 		"./queries/graph-projection-read-model": "./src/queries/graph-projection-read-model.ts",
 		"./queries/learning-feedback": "./src/queries/learning-feedback.ts",
+		"./queries/deck-curator-budget": "./src/queries/deck-curator-budget.ts",
 		"./queries/cognitive/knowledge-entries": "./src/queries/cognitive/knowledge-entries.ts",
 		"./queries/cognitive/learned-capabilities": "./src/queries/cognitive/learned-capabilities.ts",
 		"./queries/cognitive/muscle-memory": "./src/queries/cognitive/muscle-memory.ts",

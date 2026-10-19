@@ -88,6 +88,11 @@ export const attentionContractRouter = os.router({
 			markdown: attentionMarkdown(cards, projection.complete),
 		};
 	}),
+	rankDeckCards: write.rankDeckCards.handler(async ({ input, context }) => {
+		const { rankCurrentDeck } =
+			await import("../../services/deck-curator-ranker");
+		return rankCurrentDeck(context, input);
+	}),
 	listDeckCards: read.listDeckCards.handler(async ({ input, context }) => {
 		const { loadDeckProjection } =
 			await import("../../services/attention-projection");
@@ -409,6 +414,13 @@ export const attentionContractRouter = os.router({
 								100,
 							),
 						decisionChoice: input.verdict,
+						cardId: card.id,
+						cardTitle: card.label.slice(0, 500),
+						cardSummary: (
+							original.why ||
+							original.sourceText ||
+							card.label
+						).slice(0, 2000),
 						rowIndex: original.rowIndex,
 						reason: input.reason,
 					},

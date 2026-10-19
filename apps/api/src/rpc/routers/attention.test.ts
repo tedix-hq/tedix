@@ -348,6 +348,7 @@ it("records factory usefulness without executing its proposed action", async () 
 		cards: [
 			{
 				id: "factory:row",
+				label: "Review this lead?",
 				factory: { outputId: requestId, sourceIndex: 0, rowIndex: 0 },
 			},
 		],
