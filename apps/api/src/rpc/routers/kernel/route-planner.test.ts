@@ -889,9 +889,23 @@ describe("planKernelRoute", () => {
 					type: "json",
 					schema: {
 						required: expect.arrayContaining([
-							"plannedToolIds",
-							"targetTediId",
+							"routeKind",
+							"answer",
+							"confidence",
+							"details",
 						]),
+						properties: {
+							details: {
+								anyOf: expect.arrayContaining([
+									expect.objectContaining({
+										required: expect.arrayContaining([
+											"plannedToolIds",
+											"targetTediId",
+										]),
+									}),
+								]),
+							},
+						},
 					},
 				});
 				expect(warn).toHaveBeenCalledWith(
@@ -2114,6 +2128,46 @@ describe("Auto Router Home answer", () => {
 			],
 		});
 	}
+	it("re-asks Auto with the same compact streamed protocol and never buffers recovery", async () => {
+		const wire = {
+			routeKind: "answer_in_home",
+			answer: "Recovered.",
+			confidence: 0.9,
+			details: null,
+		};
+		const model = new MockLanguageModelV3({
+			modelId: "cloudflare/auto",
+			doGenerate: async () => {
+				throw new Error("Buffered structured output is unavailable");
+			},
+			doStream: async () => ({
+				stream: textStream(
+					model.doStreamCalls.length === 1
+						? '{"routeKind":"invalid"}'
+						: JSON.stringify(wire),
+				),
+			}),
+		});
+		const deltas: string[] = [];
+		const result = await planKernelRoute({
+			model,
+			context: EMPTY_CONTEXT,
+			content: "Status for Orion",
+			env: { KERNEL_ROUTE_HEDGE_AFTER_MS: "0" },
+			onAnswerDelta: (text) => deltas.push(text),
+		});
+		expect(result?.answer).toBe("Recovered.");
+		expect(model.doGenerateCalls).toHaveLength(0);
+		expect(model.doStreamCalls).toHaveLength(2);
+		expect(model.doStreamCalls[1]?.responseFormat).toEqual(
+			model.doStreamCalls[0]?.responseFormat,
+		);
+		expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+			"Put all action metadata inside details",
+		);
+		expect(deltas).toEqual(["Recovered."]);
+	});
+
 	it("answers in one pass: the route answer streams as it grows, no answer pass, one usage record", async () => {
 		const answer = "Rain is water falling from clouds, condensed from vapour.";
 		const model = autoModel(
@@ -2205,14 +2259,22 @@ describe("Auto Router Home answer", () => {
 		expect(text).toContain("routeKind first");
 		expect(text).not.toContain("outline");
 	});
-	it("falls back to the buffered pass once when the route stream yields no object", async () => {
+	it("re-asks an empty Auto route stream once before answering", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			const model = autoModel(
-				{ ...FALLBACK_DECISION, answer: "Rain is water falling from clouds." },
-				textStream("never"),
-				[],
-			);
+			const model = new MockLanguageModelV3({
+				modelId: "cloudflare/auto",
+				doStream: async () => ({
+					stream: routeStream(
+						model.doStreamCalls.length === 1
+							? []
+							: jsonChunks({
+									...FALLBACK_DECISION,
+									answer: "Rain is water falling from clouds.",
+								}),
+					),
+				}),
+			});
 			const deltas: string[] = [];
 			const result = await planKernelRoute({
 				model,
@@ -2222,8 +2284,8 @@ describe("Auto Router Home answer", () => {
 			});
 			expect(result?.answer).toBe("Rain is water falling from clouds.");
 			expect(deltas).toEqual(["Rain is water falling from clouds."]);
-			expect(model.doStreamCalls).toHaveLength(1);
-			expect(model.doGenerateCalls).toHaveLength(1);
+			expect(model.doStreamCalls).toHaveLength(2);
+			expect(model.doGenerateCalls).toHaveLength(0);
 			expect(warn).toHaveBeenCalledWith(
 				expect.objectContaining({
 					event: "route_decision_retry",

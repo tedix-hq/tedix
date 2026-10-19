@@ -1,5 +1,5 @@
 import { ZodError } from "zod";
-import { NoObjectGeneratedError, zodSchema } from "ai";
+import { NoObjectGeneratedError } from "ai";
 import type { SelectedKernelModel } from "./llm";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 /** Bounded model-backed Home route planning. The selected model is authoritative;
@@ -36,10 +36,7 @@ import {
 	KERNEL_STREAM_IDLE_TIMEOUT_MS,
 	withIdleAbort,
 } from "./llm-guard";
-import {
-	KernelRouteDecisionSchema,
-	type KernelRouteDecision,
-} from "./route-schema";
+import type { KernelRouteDecision } from "./route-schema";
 import { kernelRouteGenerationSchema } from "./route-generation";
 import { getRouterVersion } from "./router-version";
 
@@ -177,6 +174,8 @@ const RECITATION_WORK_ITEMS_CAP = 5;
 // operator's first token by the whole answer.
 const ROUTE_INSTRUCTION =
 	"Choose exactly one routeKind and fill the route-specific fields. For answer_in_home, answer holds the complete final answer to the operator. Write routeKind first, then answer, then the remaining fields. Respond with the typed route decision only.";
+
+const ROUTE_RETRY_INSTRUCTION = `${ROUTE_INSTRUCTION} Return every field required by the compact schema: routeKind, answer, confidence, details. Put all action metadata inside details; use details=null only for answer_in_home. Do not include Markdown or text outside the JSON object.`;
 
 // Tail instruction for the tool-free answer pass. It shares SYSTEM_PROMPT and
 // the whole user prompt prefix with the route pass, so the provider's prefix
@@ -420,8 +419,8 @@ export function shapeRouteUsage(
  * With `onAnswerDelta`, every model uses a single `streamObject` pass:
  * answer-field deltas are emitted incrementally as the model produces them
  * (held back until routeKind is known), and the final validated decision is
- * obtained via `await result.object`. Malformed decisions get one buffered
- * retry with the full schema, then a tool-free answer_in_home fallback.
+ * obtained via `await result.object`. Malformed decisions get one same-schema
+ * re-ask (streamed for Auto), then a tool-free answer_in_home fallback.
  * Provider failures, admission denials and cancellation retain their cause.
  * Every inference attempt remains metered.
  *
@@ -511,7 +510,7 @@ export async function planKernelRoute(
 		typeof model.model !== "string" &&
 		model.model.modelId === "cloudflare/auto",
 	);
-	// A buffered retry delivers its complete answer after the route guard.
+	// Recovered answers are delivered only after the route guard.
 	let streamedAnswer = false;
 	const onAnswerDelta =
 		responseOnly || !args.onAnswerDelta
@@ -588,7 +587,9 @@ export async function planKernelRoute(
 						{
 							...args,
 							model: retryModel,
-							onAnswerDelta: undefined,
+							// Auto's buffered json_schema path can outlast the recovery
+							// deadline; retain the streamed forced-tool transport.
+							onAnswerDelta: autoRouter ? () => {} : undefined,
 							onRationaleDelta: undefined,
 							generationTimeoutMs: timeoutMs,
 							abortSignal: flatAbortSignal(timeoutMs, args.abortSignal),
@@ -755,10 +756,11 @@ async function planKernelRouteUnguarded(
 			model,
 			onAnswerDelta,
 			onRationaleDelta,
+			retry,
 			streamIdleMs,
 			abortSignal,
 			span,
-			hedgeAfterMs: resolveRouteHedgeAfterMs(args.env),
+			hedgeAfterMs: retry ? 0 : resolveRouteHedgeAfterMs(args.env),
 			organizationId: gatewayContext?.organizationId ?? organizationId,
 		});
 		try {
@@ -777,9 +779,7 @@ async function planKernelRouteUnguarded(
 			buildUserPrompt(
 				content,
 				context,
-				retry
-					? `${ROUTE_INSTRUCTION} Return every field required by the schema, including null fields. Do not include Markdown or text outside the JSON object.`
-					: ROUTE_INSTRUCTION,
+				retry ? ROUTE_RETRY_INSTRUCTION : ROUTE_INSTRUCTION,
 			),
 			args.images,
 			context.history,
@@ -787,9 +787,7 @@ async function planKernelRouteUnguarded(
 		const requestTrace = azureTraceInput(model, modelPrompt);
 		const result = await tracedAi.generateObject({
 			model: model.model,
-			schema: retry
-				? zodSchema(KernelRouteDecisionSchema)
-				: kernelRouteGenerationSchema,
+			schema: kernelRouteGenerationSchema,
 			system: SYSTEM_PROMPT,
 			telemetry: objectSpanTelemetry("kernel.route_plan", span),
 			...modelPrompt,
@@ -906,6 +904,7 @@ function hedgedRouteStream(input: {
 	model: SelectedKernelModel;
 	onAnswerDelta: (delta: string) => void;
 	onRationaleDelta?: (delta: string) => void;
+	retry?: boolean;
 	streamIdleMs: number;
 	abortSignal?: AbortSignal;
 	span: Record<string, string>;
@@ -951,6 +950,7 @@ function hedgedRouteStream(input: {
 			images: input.images,
 			content: input.content,
 			context: input.context,
+			retry: input.retry,
 			model: laneModel,
 			idle,
 			signal: AbortSignal.any([
@@ -1084,6 +1084,7 @@ async function streamRoutePlan(args: {
 	operatorContent?: string;
 	context: KernelContext;
 	model: SelectedKernelModel;
+	retry?: boolean;
 	onAnswerDelta: (delta: string) => void;
 	/** Provisional-rationale sink — display only, every route (see
 	 * {@link PlanKernelRouteArgs.onRationaleDelta}). */
@@ -1118,7 +1119,11 @@ async function streamRoutePlan(args: {
 		signal,
 	} = args;
 	const modelPrompt = homeModelPrompt(
-		buildUserPrompt(content, context),
+		buildUserPrompt(
+			content,
+			context,
+			args.retry ? ROUTE_RETRY_INSTRUCTION : ROUTE_INSTRUCTION,
+		),
 		args.images,
 		context.history,
 	);
@@ -1131,7 +1136,7 @@ async function streamRoutePlan(args: {
 		...modelPrompt,
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
 		abortSignal: signal ?? idle.signal,
-		maxRetries: 1,
+		maxRetries: args.retry ? 0 : 1,
 		// The SDK default logs every stream error; a request aborted because it
 		// lost the hedge race is an expected outcome, not one.
 		onError: ({ error }) => {
