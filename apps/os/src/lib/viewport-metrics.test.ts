@@ -58,6 +58,50 @@ afterEach(() => {
 });
 
 describe("installViewportMetrics", () => {
+	it.each([0.8, 1, 1.25, 1.5, 1.75])(
+		"tracks desktop zoom %s without a bottom inset",
+		async (zoom) => {
+			window.innerHeight = 800;
+			const viewport = createFakeViewport(800);
+			installFakeViewport(viewport);
+			const teardown = installViewportMetrics();
+
+			window.innerHeight = Math.round(800 / zoom);
+			viewport.height = 800 / zoom;
+			viewport.emit("resize");
+			await runFrame();
+
+			expect(read("--viewport-tedix-height")).toBe(`${800 / zoom}px`);
+			expect(parseFloat(read("--viewport-tedix-bottom"))).toBeLessThanOrEqual(
+				0.5,
+			);
+			teardown();
+		},
+	);
+
+	it("tracks mobile browser chrome, keyboard and visual viewport panning", async () => {
+		window.innerHeight = 844;
+		const viewport = createFakeViewport(760);
+		installFakeViewport(viewport);
+		const teardown = installViewportMetrics();
+		for (const [height, top] of [
+			[844, 0],
+			[420, 0],
+			[360, 60],
+			[844, 0],
+		] as const) {
+			viewport.height = height;
+			viewport.offsetTop = top;
+			viewport.emit("resize");
+			viewport.emit("scroll");
+			await runFrame();
+			expect(read("--viewport-tedix-height")).toBe(`${height}px`);
+			expect(read("--viewport-tedix-top")).toBe(`${top}px`);
+			expect(read("--viewport-tedix-bottom")).toBe(`${844 - height - top}px`);
+		}
+		teardown();
+	});
+
 	it("publishes the visible rectangle on install", () => {
 		window.innerHeight = 800;
 		installFakeViewport(createFakeViewport(800));
