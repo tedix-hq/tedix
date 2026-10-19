@@ -35,6 +35,7 @@ import {
 } from "react";
 
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 
 /**
  * Tedix OS application shell rail.
@@ -348,16 +349,29 @@ function SidebarMenuSubButton({
 /** 28px desktop ghost affordance with the shared 44px mobile touch floor. */
 function SidebarTrigger({
 	className,
+	title,
 	...props
 }: ComponentProps<typeof KumoSidebarTrigger>) {
+	const { state } = useSidebar();
+	const label =
+		props["aria-label"] ??
+		(state === "collapsed" ? "Expand sidebar" : "Collapse sidebar");
 	return (
-		<KumoSidebarTrigger
-			className={cn(
-				"size-7 rounded-md text-kumo-subtle max-sm:size-11 coarse:size-11",
-				className,
-			)}
-			{...props}
-		/>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<KumoSidebarTrigger
+						aria-keyshortcuts="Meta+B Control+B"
+						className={cn(
+							"size-7 rounded-md text-kumo-subtle max-sm:size-11 coarse:size-11",
+							className,
+						)}
+						{...props}
+					/>
+				}
+			/>
+			<TooltipContent>{title ?? label} (⌘/Ctrl+B)</TooltipContent>
+		</Tooltip>
 	);
 }
 
