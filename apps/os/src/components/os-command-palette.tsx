@@ -84,6 +84,9 @@ export function OsCommandPalette({
 		enabled: open,
 		staleTime: 30_000,
 	});
+	const loadingResources = [workspaces, outputs, apps, skills, runs].some(
+		(query) => query.isPending,
+	);
 
 	const groups = useMemo<PaletteGroup[]>(() => {
 		const go = (to: string) => () => {
@@ -96,14 +99,6 @@ export function OsCommandPalette({
 			icon: SURFACE_ICONS[item.id],
 			run: go(item.path),
 		}));
-		pageCommands.splice(2, 0, {
-			id: "page-workspaces",
-			title: "Workspaces",
-			description:
-				"Browse favorites, recent work, and governed workspace templates",
-			icon: SquaresFour,
-			run: go("/workspaces"),
-		});
 		pageCommands.push(
 			{
 				id: "page-settings",
@@ -262,6 +257,11 @@ export function OsCommandPalette({
 				placeholder="Search pages, workspaces, outputs, apps, skills…"
 			/>
 			<CommandPalette.List>
+				{loadingResources ? (
+					<div role="status" aria-label="Loading resources">
+						<CommandPalette.Loading />
+					</div>
+				) : null}
 				<CommandPalette.Results>
 					{(group: PaletteGroup) => (
 						<CommandPalette.Group key={group.id} items={group.items}>
@@ -293,9 +293,11 @@ export function OsCommandPalette({
 						</CommandPalette.Group>
 					)}
 				</CommandPalette.Results>
-				<CommandPalette.Empty>
-					No matching pages or resources
-				</CommandPalette.Empty>
+				{loadingResources ? null : (
+					<CommandPalette.Empty>
+						No matching pages or resources
+					</CommandPalette.Empty>
+				)}
 			</CommandPalette.List>
 			<CommandPalette.Footer>
 				<span>

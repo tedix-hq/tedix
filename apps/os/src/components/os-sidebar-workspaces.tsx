@@ -7,6 +7,7 @@ import {
 	SidebarCollapsibleTrigger,
 	SidebarGroup,
 	SidebarGroupLabel,
+	SidebarLoading,
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuChevron,
@@ -15,7 +16,6 @@ import {
 	SidebarMenuSubButton,
 	useSidebar,
 } from "@/components/kumo/sidebar";
-import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	activeWorkspacesQueryOptions,
 	workspacePreferencesQueryOptions,
@@ -110,7 +110,7 @@ export function OsSidebarWorkspaces() {
 	if (workspaces.isPending || preferences.isPending)
 		return (
 			<SidebarGroup>
-				<ListSkeleton rows={3} rowClassName="h-8" />
+				<SidebarLoading label="Loading workspace shortcuts" />
 			</SidebarGroup>
 		);
 	if (workspaces.isError || preferences.isError)
