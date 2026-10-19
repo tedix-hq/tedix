@@ -124,6 +124,27 @@ bootstrap required to run or deploy this Worker. The `dev` and deploy scripts
 are maintainer-only until the public installation path described in the
 [self-hosted boundary](../../docs/public/self-hosted-boundary.md) is complete.
 
+## Delegated research and budgets
+
+Home resolves original Work references inside the selected organization before
+enqueueing a child. Their canonical ids and bounded context travel separately
+from the generated dispatch Work that owns execution. Ambiguous references
+return candidates rather than a guessed id.
+
+The child preflights required MCP callables with its own credential and receives
+their exact schemas before inference. Missing tools, scopes, or a prepared
+checkout for native source research fail closed. Preflight grants no permission;
+Work comments still require existing Work write authority. Native research
+without repository capabilities exposes no repository or workstation setup tools.
+
+`maxToolCalls` and `deadlineMs` on a work order are enforced by a durable per-run
+gate. Calls are admitted atomically before effects; retries retain consumption
+and the original deadline. The deadline aborts active inference and MCP transport
+and bounds waiting for other tools. Cancellation cannot undo an effect a provider
+already accepted. Exhaustion settles through the normal ledger mirror with
+`delegation_budget`, a partial-result notice, and no extra final-report inference.
+Other organization and model budgets continue to apply independently.
+
 ## Facet metrics (Analytics Engine)
 
 Facet turn observability writes to the `RUNTIME_ANALYTICS` binding

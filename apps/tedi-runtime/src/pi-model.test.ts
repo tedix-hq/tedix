@@ -732,6 +732,31 @@ test("binary prompt reservations include wire-sized media without expanding byte
 	assert.ok(estimateSdkPromptTokens(prompt) <= expected + 1);
 	assert.ok(expected > 400000);
 });
+test("delegated deadline aborts upstream inference and settles before terminal", async () => {
+	let signal: AbortSignal | undefined;
+	let settled = false;
+	const sdk: LanguageModelV2 = {
+		...v2([]),
+		doStream: async (options) => {
+			signal = options.abortSignal;
+			return { stream: new ReadableStream<LanguageModelV2StreamPart>() };
+		},
+	};
+	const provider = createTedixPiProvider({
+		catalog: () => [model],
+		resolveModel: () => sdk,
+		deadlineAt: () => Date.now() + 20,
+		prepare: async () => ({ receipt: "deadline" }),
+		settled: async (_receipt, _message, measurement) => {
+			assert.equal(measurement.dispatched, true);
+			settled = true;
+		},
+	});
+	const result = await provider.streamSimple(model, context, {}).result();
+	assert.match(result.errorMessage!, /delegated wall-clock deadline/);
+	assert.equal(signal?.aborted, true);
+	assert.equal(settled, true);
+});
 for (const entry of cases) {
 	await entry.run();
 	console.log(`PASS ${entry.name}`);

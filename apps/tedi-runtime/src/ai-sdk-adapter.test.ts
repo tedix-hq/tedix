@@ -192,6 +192,36 @@ import { aigMetadataHeader } from "./llm";
 	]);
 }
 
+{
+	const { tedixMcpAITools } = await import("./ai-sdk-adapter");
+	let observed: AbortSignal | undefined;
+	const runtime = {
+		executeTool: async (
+			_name: string,
+			_args: unknown,
+			options: { signal?: AbortSignal },
+		) => {
+			observed = options.signal;
+			return {};
+		},
+	} as never;
+	const controller = new AbortController();
+	await tedixMcpAITools(runtime).tedix_mcp_call_tool!.execute!(
+		{ callable: "work.add_comment", args: {} },
+		{
+			toolCallId: "budget-test",
+			messages: [],
+			abortSignal: controller.signal,
+			context: undefined,
+		},
+	);
+	controller.abort();
+	assert.equal(
+		observed?.aborted,
+		true,
+		"budget cancellation reaches MCP core transport",
+	);
+}
 // --- Embedded tenant scope disables Code Mode and forces host arguments -----
 {
 	const { tedixMcpAITools } = await import("./ai-sdk-adapter");
