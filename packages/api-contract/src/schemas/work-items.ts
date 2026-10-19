@@ -2186,6 +2186,15 @@ export type WorkActivityEvent = z.infer<typeof WorkActivityEventSchema>;
 export const ListWorkActivityInputSchema = z
 	.object({
 		cursor: WorkFactoryProjectionCursorSchema.optional(),
+		afterSequence: z
+			.number()
+			.int()
+			.min(0)
+			.max(Number.MAX_SAFE_INTEGER)
+			.optional()
+			.describe(
+				"Forward polling checkpoint: return matching events in ledger sequence order after this position. Start at 0 to replay, then persist nextSequence after processing the page. Keep the same filters; cannot combine with cursor.",
+			),
 		// Scope to one Work Item's own history. Callers building a per-item
 		// audit trail passed this long before it existed, and a non-strict
 		// object silently dropped it — the caller then reasonably believed an
@@ -2210,13 +2219,26 @@ export const ListWorkActivityInputSchema = z
 	})
 	// Strict for the same reason the Work Item list is: a dropped filter is
 	// indistinguishable from an honest empty scope at the call site.
-	.strict();
+	.strict()
+	.refine(
+		(input) => input.cursor === undefined || input.afterSequence === undefined,
+		{ message: "cursor and afterSequence are mutually exclusive" },
+	);
 export type ListWorkActivityInput = z.infer<typeof ListWorkActivityInputSchema>;
 
 export const ListWorkActivityResultSchema = z.object({
 	events: z.array(WorkActivityEventSchema),
 	truncated: z.boolean(),
 	nextCursor: WorkFactoryProjectionCursorSchema.nullable().optional(),
+	nextSequence: z
+		.number()
+		.int()
+		.min(0)
+		.max(Number.MAX_SAFE_INTEGER)
+		.optional()
+		.describe(
+			"Present for forward polling, including empty pages. Save only after processing every event; poll immediately while truncated, otherwise back off. Scoped to this organization and the unchanged filters, not a receipt of execution.",
+		),
 });
 
 /** Exact bounded CLI read shapes; full Work records remain separate. */

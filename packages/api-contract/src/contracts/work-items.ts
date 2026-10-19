@@ -633,7 +633,7 @@ export const workItemsContract = oc
 			.route({
 				method: "GET",
 				path: "/activity",
-				summary: "List recent org board events",
+				summary: "List board history or poll activity after a checkpoint",
 			})
 			.input(ListWorkActivityInputSchema)
 			.output(ListWorkActivityResultSchema),

@@ -7,7 +7,7 @@ import {
 	PersonalAgentContributionSchema,
 	type PersonalAgentContribution,
 } from "@tedix/api-contract/schemas/personal-agent-inbound";
-import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { personalWorkFeedPredicate } from "./personal-feed";
 import {
@@ -68,6 +68,7 @@ export interface ListWorkActivityParams {
 	orgId: string;
 	viewerUserId?: string;
 	cursor?: { at: string; id: string };
+	afterSequence?: number;
 	workItemId?: string;
 	projectId?: string;
 	objectiveId?: string;
@@ -80,8 +81,8 @@ const ACTIVITY_MAX_LIMIT = 300;
 
 /**
  * Org-wide recent board events from the append-only work_events ledger, joined
- * to their items and newest first. Credential-derived actor/session fields let
- * callers group events by the exact execution attempt.
+ * to their items. History is newest first; forward polling follows the ledger
+ * sequence so late timestamps cannot skip an event.
  */
 export async function listWorkActivity(
 	db: DbClient,
@@ -90,7 +91,10 @@ export async function listWorkActivity(
 	events: WorkActivityRow[];
 	truncated: boolean;
 	nextCursor: { at: string; id: string } | null;
+	nextSequence?: number;
 }> {
+	if (params.cursor && params.afterSequence !== undefined)
+		throw new Error("cursor and afterSequence are mutually exclusive");
 	const cap = Math.min(
 		Math.max(1, params.limit ?? ACTIVITY_DEFAULT_LIMIT),
 		ACTIVITY_MAX_LIMIT,
@@ -98,6 +102,8 @@ export async function listWorkActivity(
 	const conditions = [eq(workEvents.orgId, params.orgId)];
 	if (params.viewerUserId)
 		conditions.push(personalWorkFeedPredicate(params.viewerUserId)!);
+	if (params.afterSequence !== undefined)
+		conditions.push(gt(workEvents.sequence, params.afterSequence));
 	if (params.cursor)
 		conditions.push(
 			or(
@@ -123,6 +129,7 @@ export async function listWorkActivity(
 	}
 	const rows = await db
 		.select({
+			sequence: workEvents.sequence,
 			id: workEvents.id,
 			workItemId: workEvents.workItemId,
 			workItemTitle: workItems.title,
@@ -136,9 +143,14 @@ export async function listWorkActivity(
 		.from(workEvents)
 		.innerJoin(workItems, eq(workItems.id, workEvents.workItemId))
 		.where(and(...conditions))
-		.orderBy(desc(workEvents.occurredAt), desc(workEvents.id))
+		.orderBy(
+			...(params.afterSequence !== undefined
+				? [asc(workEvents.sequence)]
+				: [desc(workEvents.occurredAt), desc(workEvents.id)]),
+		)
 		.limit(cap + 1);
-	const events: WorkActivityRow[] = rows.slice(0, cap).map((r) => {
+	const page = rows.slice(0, cap);
+	const events: WorkActivityRow[] = page.map((r) => {
 		const md = (r.metadata ?? {}) as Record<string, unknown>;
 		const contribution = PersonalAgentContributionSchema.safeParse(
 			md.personalAgentContribution,
@@ -175,6 +187,13 @@ export async function listWorkActivity(
 		events,
 		truncated: rows.length > cap,
 		nextCursor:
-			rows.length > cap && last ? { at: last.createdAt, id: last.id } : null,
+			params.afterSequence === undefined && rows.length > cap && last
+				? { at: last.createdAt, id: last.id }
+				: null,
+		...(params.afterSequence !== undefined
+			? {
+					nextSequence: page.at(-1)?.sequence ?? params.afterSequence,
+				}
+			: {}),
 	};
 }
