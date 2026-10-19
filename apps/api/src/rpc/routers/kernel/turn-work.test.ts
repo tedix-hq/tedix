@@ -1087,6 +1087,8 @@ describe("runKernelTurnWork progress seam", () => {
 			expect(warnSpy).toHaveBeenCalledWith({
 				component: "kernel.turn_work",
 				event: "kernel_planner_failed",
+				organizationId: "org-1",
+				runId: "run-1",
 				error: { type: "Error" },
 			});
 			expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(privateText);

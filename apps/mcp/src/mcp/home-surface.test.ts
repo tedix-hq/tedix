@@ -74,6 +74,7 @@ describe("home surface tools", () => {
 				"home__rename_conversation",
 				"home__respond_home_approval",
 				"home__retry_delegation",
+				"home__retry_home_run",
 				"home__steer_home_run",
 				"home__synthesize_spoken_reply",
 				"home__update_work_item",
@@ -134,6 +135,7 @@ describe("home surface tools", () => {
 			home__cancel_home_run: "kernelRuntime/cancelRun",
 			home__steer_home_run: "kernelRuntime/steerRun",
 			home__retry_delegation: "kernelRuntime/retryDelegation",
+			home__retry_home_run: "kernelRuntime/retryRun",
 			home__synthesize_spoken_reply: "voice/synthesizeSpokenReply",
 			home__create_work_item: "workItems/create",
 			home__update_work_item: "workItems/updateSpecification",
@@ -355,7 +357,7 @@ describe("home surface tools", () => {
 	});
 });
 
-describe("home Work Item write tools are fail-closed without the write scope", () => {
+describe("home write tools are fail-closed without the write scope", () => {
 	const tools = buildHomeSurfaceTools();
 	const byId = new Map(tools.map((tool) => [tool.toolId, tool]));
 	// The Code Mode authorization path resolves inner-tool scopes with
@@ -369,6 +371,7 @@ describe("home Work Item write tools are fail-closed without the write scope", (
 		home__accept_work_item: "mcp:work.admin",
 		home__complete_work_item: "mcp:work.write",
 		home__cancel_work_item: "mcp:work.write",
+		home__retry_home_run: "mcp:tedis.write",
 	};
 
 	it("resolves a concrete, non-empty write scope for every Work Item write tool", () => {

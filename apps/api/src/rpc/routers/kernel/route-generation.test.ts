@@ -56,6 +56,31 @@ describe("compact route generation", () => {
 		});
 	});
 
+	it.each([false, true])(
+		"accepts omitted nullable action fields (compact=%s)",
+		async (compact) => {
+			const action = {
+				rationale: "The operator requested a bounded work item proposal.",
+				risk: "medium",
+				toolIntent: {
+					capability: "work_items.create",
+					appSlug: "fictional-work",
+				},
+			};
+			const route = { routeKind: "propose_tool_write", confidence: 0.9 };
+			const decision = await generate(
+				compact ? { ...route, details: action } : { ...route, ...action },
+			);
+			expect(decision).toMatchObject({
+				...route,
+				answer: null,
+				targetTediId: null,
+				plannedToolIds: [],
+				toolIntent: { ...action.toolIntent, connectionStatus: null },
+			});
+		},
+	);
+
 	it("preserves all supplied delegation parameters", async () => {
 		const decision = await generate({
 			routeKind: "delegate_tedi",

@@ -1,3 +1,6 @@
+import { createRouterClient, ORPCError } from "@orpc/server";
+import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
+import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
 import { AUTHZ, type BaseContext, ErrorCodes, createError } from "../../orpc";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
@@ -17,7 +20,10 @@ import {
 	listKernelRuntimeEvents,
 	listTediRuntimeEvents,
 } from "@tedix/db/queries/kernel-runtime-events";
-import { ensureHomeConversationAccess } from "../kernel/run-store";
+import {
+	ensureHomeConversationAccess,
+	normalizeHomeRunRecord,
+} from "../kernel/run-store";
 import {
 	errorMessage,
 	nonNullRecord,
@@ -636,10 +642,47 @@ export const retryRunRoute = authed.retryRun
 			organizationId,
 			required: "edit",
 		});
-		const result = await retryKernelRunCore(context, {
-			organizationId,
-			run: existingRun,
-		});
+		const result = await (async () => {
+			if (!isHomeRouteRetryable(existingRun))
+				return retryKernelRunCore(context, {
+					organizationId,
+					run: existingRun,
+				});
+			const metadata = nonNullRecord(existingRun.metadata);
+			const saved = nonNullRecord(metadata?.redriveInput)!;
+			const runtime = nonNullRecord(existingRun.runtimeMetadata);
+			// Re-enter normal ingress under today's caller, catalog and policy.
+			// Never reuse a saved user identity, approval or session allowlist.
+			const replay = EnqueueHomeMessageInputSchema.parse({
+				content: saved.content,
+				attachments: saved.attachments,
+				modelRef: saved.modelRef,
+				executionPolicy: saved.executionPolicy,
+				workspaceContext: runtime?.workspaceContext,
+				organizationId,
+				conversationId: existingRun.conversationId,
+				idempotencyKey: `route-retry:${existingRun.id}`,
+				metadata: { retriedFromRunId: existingRun.id },
+			});
+			const { enqueueMessageRoute } = await import("./execution-proposals");
+			const enqueue = createRouterClient(enqueueMessageRoute, { context });
+			const queued = await enqueue(replay).catch(async (error: unknown) => {
+				if (!(error instanceof ORPCError) || error.code !== "CONFLICT")
+					throw error;
+				const concurrent = await getKernelRuntimeRun(context.db, {
+					id: replay.idempotencyKey!,
+					organizationId,
+				});
+				if (
+					!concurrent ||
+					nonNullRecord(concurrent.runtimeMetadata)?.retriedFromRunId !==
+						existingRun.id
+				)
+					throw error;
+				return { run: normalizeHomeRunRecord(concurrent) };
+			});
+			return { run: queued.run, newRunId: queued.run.id };
+		})();
 		await recordObservedLearningInteraction(context, {
 			organizationId,
 			clientEventId: await observedLearningEventId(

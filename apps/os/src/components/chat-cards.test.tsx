@@ -919,6 +919,14 @@ describe("RunControls", () => {
 		expect(kernelOnly).toBe("");
 	});
 
+	it("offers Try again for a routing failure and disables it while pending", () => {
+		const html = renderToStaticMarkup(
+			<RunControls status="failed" routeRetryable pending />,
+		);
+		expect(html).toContain("Try again");
+		expect(html).toContain('disabled=""');
+	});
+
 	it("renders nothing for terminal completed/canceled runs", () => {
 		expect(renderToStaticMarkup(<RunControls status="completed" />)).toBe("");
 		expect(renderToStaticMarkup(<RunControls status="canceled" />)).toBe("");

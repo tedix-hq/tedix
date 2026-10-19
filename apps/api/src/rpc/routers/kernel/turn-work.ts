@@ -870,6 +870,8 @@ export async function runKernelTurnWork(
 				console.warn({
 					component: "kernel.turn_work",
 					event: "kernel_planner_failed",
+					organizationId,
+					runId,
 					error: safeExceptionTopology(e),
 				});
 			}
@@ -1481,8 +1483,13 @@ export async function runKernelTurnWork(
 		approvalIds: writeApprovalRequestId ? [writeApprovalRequestId] : [],
 		runtimeServices: ["kernel-runtime", "home", "mcp"],
 	});
+	const routeFailure =
+		modelUnavailable && !billingDenialCode
+			? { code: "HOME_ROUTE_UNAVAILABLE", retryable: true, retryRunId: runId }
+			: null;
 	const turnRunMetadata = {
 		...runRowMetadata,
+		...(routeFailure ? { routeFailure } : {}),
 		...(writeProposalActive && writeProposal
 			? {
 					approvalRequestId: writeApprovalRequestId,
@@ -1765,6 +1772,7 @@ export async function runKernelTurnWork(
 		childRunId: autoChildRunId ?? undefined,
 		payload: {
 			status: terminalPayloadStatus,
+			...(routeFailure ? { routeFailure } : {}),
 			approvalRequestId: writeApprovalRequestId ?? approvalRequestId,
 			inputMessageId: userMessageId,
 			outputMessageId: assistantMessageId,

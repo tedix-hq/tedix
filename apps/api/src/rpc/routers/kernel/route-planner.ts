@@ -545,8 +545,10 @@ export async function planKernelRoute(
 				(args.generationTimeoutMs ?? KERNEL_LLM_FLAT_TIMEOUT_MS) -
 				(Date.now() - startedAt);
 			const retryModel = model.forOperation();
-			// Reserve time for the tool-free answer inside the turn deadline.
-			const timeoutMs = Math.min(10_000, Math.floor(remainingMs() / 2));
+			// Reasoning models can take longer than 10s to produce a valid route.
+			// Spend the remaining deadline on the re-ask, reserving a quarter
+			// for the tool-free answer rather than clipping every retry at 10s.
+			const timeoutMs = Math.max(0, Math.floor(remainingMs() * 0.75));
 			const retryLog = {
 				component: "kernel.route_planner",
 				event: "route_decision_retry",
