@@ -86,6 +86,37 @@ function CloseMobileNavigationOnNavigate({ pathname }: { pathname: string }) {
 	return null;
 }
 
+function SidebarKeyboardShortcut() {
+	const { toggleSidebar } = useSidebar();
+	useEffect(() => {
+		const toggle = (event: KeyboardEvent) => {
+			if (
+				event.defaultPrevented ||
+				event.repeat ||
+				event.altKey ||
+				event.shiftKey ||
+				!(event.metaKey || event.ctrlKey) ||
+				event.key.toLowerCase() !== "b" ||
+				event
+					.composedPath()
+					.some(
+						(node) =>
+							node instanceof Element &&
+							node.matches(
+								"input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=textbox]",
+							),
+					)
+			)
+				return;
+			event.preventDefault();
+			toggleSidebar();
+		};
+		window.addEventListener("keydown", toggle);
+		return () => window.removeEventListener("keydown", toggle);
+	}, [toggleSidebar]);
+	return null;
+}
+
 function SidebarNavigationItem({
 	item,
 	pathname,
@@ -204,10 +235,11 @@ function TopbarSearch({ onOpenPalette }: { onOpenPalette: () => void }) {
 		return (
 			<Button
 				aria-label="Search"
+				aria-keyshortcuts="Meta+K Control+K"
 				className="topbar-search"
 				onClick={onOpenPalette}
 				size="icon-sm"
-				title="Search"
+				title="Search (⌘/Ctrl+K)"
 				variant="ghost"
 			>
 				<MagnifyingGlass size={15} />
@@ -218,10 +250,11 @@ function TopbarSearch({ onOpenPalette }: { onOpenPalette: () => void }) {
 	return (
 		<Button
 			aria-label="Search"
+			aria-keyshortcuts="Meta+K Control+K"
 			className="topbar-search"
 			onClick={onOpenPalette}
 			size="sm"
-			title="Search"
+			title="Search (⌘/Ctrl+K)"
 			variant="ghost"
 		>
 			<MagnifyingGlass size={15} />
@@ -290,6 +323,7 @@ export function OsShell() {
 	return (
 		<SidebarProvider collapsedStorageKey={SIDEBAR_COLLAPSED_KEY}>
 			<CloseMobileNavigationOnNavigate pathname={pathname} />
+			{workspaceWorkbench ? null : <SidebarKeyboardShortcut />}
 			{workspaceWorkbench ? null : (
 				<OsSidebar
 					identity={identity}

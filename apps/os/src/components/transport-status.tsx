@@ -24,6 +24,11 @@
 import type { ConversationStreamStatus } from "@/lib/conversation-stream";
 import type { RealtimeStatusSnapshot } from "@/lib/realtime-connection";
 import { useRealtimeStatus } from "@/lib/use-realtime";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 
 const STATUS_LABELS: Record<ConversationStreamStatus, string> = {
 	idle: "Not live",
@@ -79,13 +84,22 @@ export function TransportStatus() {
 	const label = snapshot.degraded
 		? "Live updates paused"
 		: STATUS_LABELS[snapshot.status];
+	const description = transportStatusTitle(snapshot);
 	return (
-		<span
-			className="transport-status"
-			data-status={snapshot.degraded ? "degraded" : snapshot.status}
-			title={transportStatusTitle(snapshot)}
-		>
-			<span aria-hidden="true" /> {label}
-		</span>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span
+						aria-description={description}
+						className="transport-status rounded focus-visible:outline-2 focus-visible:outline-kumo-focus"
+						data-status={snapshot.degraded ? "degraded" : snapshot.status}
+						tabIndex={0}
+					>
+						<span aria-hidden="true" /> {label}
+					</span>
+				}
+			/>
+			<TooltipContent>{description}</TooltipContent>
+		</Tooltip>
 	);
 }

@@ -123,6 +123,52 @@ afterEach(() => {
 });
 
 describe("OS shell chrome", () => {
+	it("toggles the rail with Cmd/Ctrl+B while leaving editor shortcuts alone", () => {
+		const container = renderShell();
+		const shortcut = (options: KeyboardEventInit = {}) =>
+			new KeyboardEvent("keydown", {
+				key: "b",
+				ctrlKey: true,
+				bubbles: true,
+				cancelable: true,
+				...options,
+			});
+		const event = shortcut();
+		act(() => window.dispatchEvent(event));
+		expect(event.defaultPrevented).toBe(true);
+		expect(rail(container).dataset.state).toBe("collapsed");
+		act(() =>
+			window.dispatchEvent(shortcut({ ctrlKey: false, metaKey: true })),
+		);
+		expect(rail(container).dataset.state).toBe("expanded");
+		for (const html of [
+			"<input>",
+			"<textarea></textarea>",
+			"<select></select>",
+			'<div contenteditable="true"></div>',
+		]) {
+			const editor = document.createElement("div");
+			editor.innerHTML = html;
+			container.append(editor);
+			const event = shortcut();
+			act(() => editor.firstElementChild!.dispatchEvent(event));
+			expect(event.defaultPrevented).toBe(false);
+			expect(rail(container).dataset.state).toBe("expanded");
+		}
+		for (const options of [
+			{ repeat: true },
+			{ shiftKey: true },
+			{ altKey: true },
+		]) {
+			act(() => window.dispatchEvent(shortcut(options)));
+			expect(rail(container).dataset.state).toBe("expanded");
+		}
+		const handled = shortcut();
+		handled.preventDefault();
+		act(() => window.dispatchEvent(handled));
+		expect(rail(container).dataset.state).toBe("expanded");
+	});
+
 	it("places the workspace switcher with the organization and keeps the account menu in the footer", () => {
 		const container = renderShell();
 		const header = container.querySelector('[data-sidebar="header"]')!;

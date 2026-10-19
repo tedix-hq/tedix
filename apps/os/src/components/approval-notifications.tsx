@@ -4,6 +4,7 @@ import { Check, Pulse, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { approvalsFromRunSet } from "@/components/chat-cards";
 import { Button } from "@/components/kumo/button";
+import { Badge } from "@/components/kumo/badge";
 import { Link } from "@/components/kumo/link";
 import {
 	PopoverContent,
@@ -133,9 +134,9 @@ export function ApprovalNotifications({
 					>
 						<Pulse size={16} weight={count > 0 ? "bold" : "regular"} />
 						{count > 0 ? (
-							<span className="absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-kumo-brand px-1 text-kumo-inverse type-tedix-caption">
+							<Badge className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 tabular-nums">
 								{count > 99 ? "99+" : count}
-							</span>
+							</Badge>
 						) : null}
 					</Button>
 				}
