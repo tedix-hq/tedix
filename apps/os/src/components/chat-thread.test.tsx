@@ -138,10 +138,7 @@ import {
 	appendHydrateEvents,
 	buildReadArguments,
 	ChatMessageBubble,
-	ChatResponseActions,
 	ChatThread,
-	chatResponseActionPrompt,
-	chatResponseActionSendsImmediately,
 	chatDraftKey,
 	composerImageRefusal,
 	compareHomeMessages,
@@ -157,7 +154,6 @@ import {
 	mergeHomeMessages,
 	newHomeConversationId,
 	needsDelegationChoice,
-	latestActionableAssistantMessageId,
 	isBlockingApprovalCard,
 	nextSessionAutoApproval,
 	nextIdempotencyKey,
@@ -347,115 +343,6 @@ function StubLink({
 	);
 }
 
-describe("chat response actions", () => {
-	it("offers Tedix-native transient and durable continuation paths", () => {
-		const html = renderToStaticMarkup(
-			<ChatResponseActions onChoose={() => undefined} />,
-		);
-		expect(html).toContain('data-slot="chat-response-actions"');
-		expect(html).toContain("Visualize");
-		expect(html).toContain("Generate UI");
-		expect(html).toContain("Create output");
-		expect(html).toContain("Build app");
-	});
-
-	it("keeps persistence behind an explicit confirmation step", () => {
-		expect(chatResponseActionPrompt("visualize")).toContain(
-			"Do not create or modify a durable app or Output",
-		);
-		expect(chatResponseActionPrompt("visualize")).toContain("ui.get_catalog");
-		expect(chatResponseActionPrompt("generate-ui")).toContain(
-			"ui.create_mcp_app",
-		);
-		expect(chatResponseActionPrompt("output")).toContain(
-			"ask for my confirmation",
-		);
-		expect(chatResponseActionPrompt("gadget")).toContain(
-			"ask for my confirmation",
-		);
-		expect(chatResponseActionSendsImmediately("visualize")).toBe(true);
-		expect(chatResponseActionSendsImmediately("generate-ui")).toBe(true);
-		expect(chatResponseActionSendsImmediately("output")).toBe(false);
-		expect(chatResponseActionSendsImmediately("gadget")).toBe(false);
-	});
-
-	it("targets only the newest completed assistant answer with prose", () => {
-		expect(
-			latestActionableAssistantMessageId([
-				message({ id: "answer-1", content: "First answer" }),
-				message({ id: "empty", content: "", role: "assistant" }),
-				message({ id: "failed", content: "Partial", status: "failed" }),
-				message({ id: "answer-2", content: "Latest answer" }),
-			]),
-		).toBe("answer-2");
-		expect(
-			latestActionableAssistantMessageId([
-				message({ id: "answer", content: "Previous answer" }),
-				message({ id: "user", content: "New question", role: "user" }),
-			]),
-		).toBeNull();
-	});
-
-	it("offers no continuation on a turn whose delegated run failed", () => {
-		// Regression: "Continue with Visualize / Generate UI" rendered
-		// under "The delegated tedi reported that the assignment failed." The
-		// parent message is legitimately completed — it delivered the report —
-		// so the failure only shows on the child run.
-		const report = {
-			...message({ id: "report", content: "The delegated tedi failed." }),
-			childRunId: "child-1",
-		};
-		expect(
-			latestActionableAssistantMessageId([report], [
-				{ id: "child-1", status: "failed" },
-			] as never),
-		).toBeNull();
-		// A child that succeeded is still an answer worth promoting.
-		expect(
-			latestActionableAssistantMessageId([report], [
-				{ id: "child-1", status: "completed" },
-			] as never),
-		).toBe("report");
-		// Nor under a rejected or failed write (its own run did not complete).
-		expect(
-			latestActionableAssistantMessageId(
-				[
-					{
-						...message({ id: "rejected", content: "Rejected." }),
-						runId: "w-1",
-					},
-				],
-				[{ id: "w-1", status: "canceled" }] as never,
-			),
-		).toBeNull();
-		expect(
-			latestActionableAssistantMessageId(
-				[
-					{
-						...message({ id: "declined", content: "Nothing was created." }),
-						runId: "w-2",
-					},
-				],
-				[
-					{
-						id: "w-2",
-						status: "completed",
-						metadata: {
-							kernelWriteProposalDeclined: { stage: "planner_declined" },
-						},
-					},
-				] as never,
-			),
-		).toBeNull();
-		// An in-flight child is not a failure either.
-		expect(
-			latestActionableAssistantMessageId([report], [
-				{ id: "child-1", status: "running" },
-			] as never),
-		).toBe("report");
-	});
-});
-
 describe("JumpToLatestControl", () => {
 	it("reserves a row outside the scrollport for the icon-only control", () => {
 		const html = renderToStaticMarkup(
@@ -642,7 +529,7 @@ describe("ChatMessageBubble", () => {
 				message={message({ role: "assistant", content: "The answer is 42." })}
 			/>,
 		);
-		expect(html).toContain("Copy this response to the clipboard");
+		expect(html).toContain('aria-label="Copy"');
 		// Hover-revealed, but never removed from the tab order — focus inside the
 		// control brings it back for keyboard operators.
 		expect(html).toContain("focus-within:opacity-100");
@@ -655,7 +542,7 @@ describe("ChatMessageBubble", () => {
 				message={message({ role: "user", content: "What is the answer?" })}
 			/>,
 		);
-		expect(html).not.toContain("Copy this response to the clipboard");
+		expect(html).not.toContain('aria-label="Copy"');
 	});
 
 	it("renders structured direct-read results as labeled fields instead of JSON", () => {
@@ -779,27 +666,21 @@ describe("ChatMessageBubble", () => {
 		expect(html).toContain("<strong>bold</strong>");
 	});
 
-	it("links the run chip to the run detail route when a runId is present", () => {
+	it("offers an in-place Details dialog when a runId is present", () => {
 		const html = renderToStaticMarkup(
-			<ChatMessageBubble
-				message={message({ runId: RUN_ID })}
-				LinkComponent={StubLink}
-			/>,
+			<ChatMessageBubble message={message({ runId: RUN_ID })} />,
 		);
-		expect(html).toContain(`href="/work/executions/${RUN_ID}"`);
+		expect(html).toContain('aria-haspopup="dialog"');
 		expect(html).toContain("Details");
 		expect(html).not.toContain(`run ${RUN_ID.slice(0, 8)}`);
 	});
 
 	it("keeps execution details compact without repeating the prompt", () => {
 		const html = renderToStaticMarkup(
-			<ChatMessageBubble
-				message={message({ runId: RUN_ID })}
-				LinkComponent={StubLink}
-			/>,
+			<ChatMessageBubble message={message({ runId: RUN_ID })} />,
 		);
-		expect(html).toContain(`href="/work/executions/${RUN_ID}"`);
-		expect(html).toContain(">Details<");
+		expect(html).toContain('aria-haspopup="dialog"');
+		expect(html).toContain('aria-label="Details"');
 		expect(html).not.toContain("Run:");
 		expect(html).not.toContain("rounded-full border");
 	});
@@ -825,14 +706,11 @@ describe("ChatMessageBubble", () => {
 						key={row.id}
 						message={row}
 						showExecutionLink={links.has(row.id)}
-						LinkComponent={StubLink}
 					/>
 				))}
 			</ul>,
 		);
-		expect(
-			html.match(new RegExp(`href="/work/executions/${RUN_ID}"`, "g")),
-		).toHaveLength(1);
+		expect(html.match(/aria-label="Details"/g)).toHaveLength(2);
 		expect(html).toContain("Facets currently cannot set alarms.");
 		expect(html).toContain("failed");
 		expect(executionLinkMessageIds([message()]).size).toBe(0);
@@ -872,9 +750,9 @@ describe("ChatMessageBubble", () => {
 
 	it("omits the run chip when the message carries no runId", () => {
 		const html = renderToStaticMarkup(
-			<ChatMessageBubble message={message()} LinkComponent={StubLink} />,
+			<ChatMessageBubble message={message()} />,
 		);
-		expect(html).not.toContain("run-chip");
+		expect(html).not.toContain('aria-label="Details"');
 	});
 
 	it("labels attachment-only turns instead of rendering an empty bubble", () => {

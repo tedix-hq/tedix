@@ -30,7 +30,6 @@ import type {
 	HomeRun,
 	HomeRunSet,
 } from "@tedix/api-contract/schemas/kernel-runtime";
-import type { ComponentType } from "react";
 import {
 	Fragment,
 	useCallback,
@@ -78,7 +77,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { ClipboardText } from "@/components/kumo/clipboard-text";
+import { ChatMessageActions } from "@/components/chat-message-actions";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
 import { ChatMarkdown } from "@/components/chat-markdown";
@@ -106,10 +105,8 @@ import {
 	ApprovalCard,
 	type ApprovalCardData,
 	approvalsFromRunSet,
-	type CardRunLinkProps,
 	dedupeDelegations,
 	DelegationWorkCard,
-	ExecutionLinkChip,
 	mergeToolEvents,
 	pruneDepartedRunFrames,
 	RunControls,
@@ -234,109 +231,6 @@ export type ChatContext = {
 type ComposerAttachment = TediMessageAttachment & { previewUrl: string | null };
 
 const CHAT_FORMATS = OS_COPY.chatFormats;
-
-export type ChatResponseAction =
-	| "visualize"
-	| "generate-ui"
-	| "output"
-	| "gadget";
-
-export const CHAT_RESPONSE_ACTIONS: ReadonlyArray<{
-	action: ChatResponseAction;
-	label: string;
-	description: string;
-}> = [
-	{
-		action: "visualize",
-		label: "Visualize",
-		description:
-			"Generate a catalog-constrained json-render MCP UI now, without saving an artifact.",
-	},
-	{
-		action: "generate-ui",
-		label: "Generate UI",
-		description:
-			"Generate a transient free-form HTML/CSS MCP App now, without saving an artifact.",
-	},
-	{
-		action: "output",
-		label: "Create output",
-		description:
-			"Prepare a durable document, sheet, or presentation for review.",
-	},
-	{
-		action: "gadget",
-		label: "Build app",
-		description: "Prepare a reusable workspace app for review.",
-	},
-] as const;
-
-/**
- * Promotion is a conversation step, never a hidden persistence shortcut. The
- * operator can inspect or edit this draft before sending it, and durable
- * Output/Gadget creation still goes through the kernel's ordinary approval
- * and tool-policy path. MCP UI remains explicitly transient.
- */
-export function chatResponseActionPrompt(action: ChatResponseAction): string {
-	switch (action) {
-		case "visualize":
-			return "Generate a polished, transient json-render MCP UI for the immediately preceding response. Inspect ui.get_catalog, author a custom catalog-constrained layoutSpec, validate it with ui.validate_layout, and return ui.create_view directly so it renders inline. Preserve a useful structured fallback. Do not create or modify a durable app or Output.";
-		case "generate-ui":
-			return "Generate a polished, transient free-form HTML/CSS MCP App for the immediately preceding response. Return ui.create_mcp_app directly with self-contained semantic HTML/CSS, the relevant structured data, and a meaningful summary fallback so it renders inline. Do not use remote assets and do not create or modify a durable app or Output.";
-		case "output":
-			return "Turn the immediately preceding response into a durable OS Output. First propose the best format and title, then ask for my confirmation before creating or modifying anything.";
-		case "gadget":
-			return "Turn the immediately preceding response into a reusable OS app. First propose what the app will do and which capabilities it needs, then ask for my confirmation before creating or modifying anything.";
-	}
-}
-
-export function chatResponseActionSendsImmediately(
-	action: ChatResponseAction,
-): boolean {
-	return action === "visualize" || action === "generate-ui";
-}
-
-/** Only the newest successful prose answer may offer follow-up actions. */
-/**
- * The message the continuation chips attach to, or null.
- *
- * The chips promote an answer — visualize it, build a gadget from it. A turn
- * that reports a failure has nothing to promote, and offering "Visualize" under
- * "I couldn't complete that turn" reads as the product not knowing what just
- * happened. The parent message is legitimately `completed` in that case (it
- * delivered the report), so the failure has to come from the child run it
- * names, which the run set already carries.
- */
-export function latestActionableAssistantMessageId(
-	messages: readonly HomeMessage[],
-	runs: readonly HomeRun[] = [],
-): string | null {
-	const failedRuns = new Set(
-		runs.flatMap((run) =>
-			run.id &&
-			!ACTIVE_RUN_STATUSES.has(run.status) &&
-			(run.status !== "completed" ||
-				// A write Home declined to stage completed without doing anything.
-				recordOrNull(run.metadata)?.kernelWriteProposalDeclined != null)
-				? [run.id]
-				: [],
-		),
-	);
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message?.role === "user") return null;
-		if (
-			message?.role === "assistant" &&
-			message.status === "completed" &&
-			!(message.childRunId && failedRuns.has(message.childRunId)) &&
-			!(message.runId && failedRuns.has(message.runId)) &&
-			decodeChatContext(message.content).content.trim().length > 0
-		) {
-			return message.id;
-		}
-	}
-	return null;
-}
 
 const CHAT_SLASH_COMMANDS = [
 	{
@@ -1398,15 +1292,15 @@ export function StructuredReadResult({ value }: { value: unknown }) {
 export function ChatMessageBubble({
 	message,
 	showExecutionLink = true,
+	latest = false,
 	context,
 	workspaceId,
-	LinkComponent,
 }: {
 	message: HomeMessage;
 	showExecutionLink?: boolean;
+	latest?: boolean;
 	context?: ChatContext;
 	workspaceId?: string;
-	LinkComponent?: ComponentType<CardRunLinkProps>;
 }) {
 	const isUser = message.role === "user";
 	const decoded = decodeChatContext(message.content);
@@ -1506,31 +1400,11 @@ export function ChatMessageBubble({
 						<span className="text-kumo-danger">failed</span>
 					) : null}
 					{message.status === "canceled" ? <span>canceled</span> : null}
-					{message.runId && showExecutionLink ? (
-						<ExecutionLinkChip
-							runId={message.runId}
-							label="Details"
-							appearance="inline"
-							LinkComponent={LinkComponent}
-						/>
-					) : null}
-					{/*
-					 * Per-turn copy, on assistant turns only — a user turn is already in
-					 * the operator's hands. Built on the ClipboardText adapter rather
-					 * than a local `navigator.clipboard` button so it shares the one
-					 * confirmation animation, the one polite live-region announcement,
-					 * and the one accessible label set with every other copy in Console.
-					 * Revealed on hover to keep the transcript quiet, and on
-					 * `focus-within` so it is reachable by keyboard — the control is
-					 * always in the tab order, only its opacity changes.
-					 */}
-					{!isUser && decoded.content ? (
-						<ClipboardText
-							size="sm"
-							text="Copy response"
-							textToCopy={decoded.content}
-							labels={{ copyAction: "Copy this response to the clipboard" }}
-							className="w-fit opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100 motion-reduce:transition-none"
+					{!isUser ? (
+						<ChatMessageActions
+							content={decoded.content}
+							runId={showExecutionLink ? message.runId : undefined}
+							latest={latest}
 						/>
 					) : null}
 				</Text>
@@ -1606,36 +1480,6 @@ export function ChatMessageWidgets({
 				</li>
 			))}
 		</>
-	);
-}
-
-/** Native continuation controls for promoting one answer through Tedix-owned surfaces. */
-export function ChatResponseActions({
-	onChoose,
-}: {
-	onChoose: (action: ChatResponseAction) => void;
-}) {
-	return (
-		<li
-			data-slot="chat-response-actions"
-			className="flex min-w-0 flex-wrap items-center gap-1.5"
-		>
-			<Text as="span" role="label" tone="secondary" className="mr-1">
-				Continue with
-			</Text>
-			{CHAT_RESPONSE_ACTIONS.map((item) => (
-				<Button
-					key={item.action}
-					type="button"
-					size="xs"
-					variant="outline"
-					title={item.description}
-					onClick={() => onChoose(item.action)}
-				>
-					{item.label}
-				</Button>
-			))}
-		</li>
 	);
 }
 
@@ -3421,18 +3265,9 @@ export function ChatThread({
 	};
 	const hasContent =
 		displayMessages.length > 0 || provisionalSends.length > 0 || showRunning;
-	const actionableAssistantMessageId = showRunning
-		? null
-		: latestActionableAssistantMessageId(displayMessages, runSet?.runs ?? []);
-	const chooseResponseAction = (action: ChatResponseAction) => {
-		const prompt = chatResponseActionPrompt(action);
-		if (chatResponseActionSendsImmediately(action)) {
-			void startSend(prompt);
-			return;
-		}
-		updateDraft(prompt);
-		composerRef.current?.focus();
-	};
+	const latestAssistantMessageId = displayMessages.findLast(
+		(message) => message.role === "assistant",
+	)?.id;
 
 	return (
 		<div
@@ -3554,6 +3389,7 @@ export function ChatThread({
 										<Fragment key={message.id}>
 											<ChatMessageBubble
 												message={message}
+												latest={message.id === latestAssistantMessageId}
 												showExecutionLink={executionLinks.has(message.id)}
 												context={context}
 												workspaceId={workspaceId}
@@ -3562,9 +3398,6 @@ export function ChatThread({
 												message={message}
 												onFollowUp={startSend}
 											/>
-											{message.id === actionableAssistantMessageId ? (
-												<ChatResponseActions onChoose={chooseResponseAction} />
-											) : null}
 										</Fragment>
 									))}
 									{/* Provisional user turns render after every durable row and

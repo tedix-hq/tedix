@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { HomeExecutionDetailPage } from "@/components/home-execution-detail";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { homeRunQueryOptions } from "@/lib/os-query-options";
 import { prefetchHomeExecutionRoute } from "@/lib/os-route-loaders";
 
 export const Route = createFileRoute(
@@ -11,13 +11,20 @@ export const Route = createFileRoute(
 				? search.branch
 				: undefined,
 	}),
-	loader: ({ context, params }) =>
-		prefetchHomeExecutionRoute(context.queryClient, params.runId),
-	component: HomeExecutionRoute,
+	loaderDeps: ({ search }) => ({ branch: search.branch }),
+	loader: async ({ context, params, deps }) => {
+		await prefetchHomeExecutionRoute(context.queryClient, params.runId);
+		const result = await context.queryClient.ensureQueryData(
+			homeRunQueryOptions(params.runId),
+		);
+		throw redirect({
+			to: "/chat",
+			search: {
+				conversation: result.run.conversationId,
+				details: params.runId,
+				branch: deps.branch,
+			},
+			replace: true,
+		});
+	},
 });
-
-function HomeExecutionRoute() {
-	const { runId } = Route.useParams();
-	const { branch } = Route.useSearch();
-	return <HomeExecutionDetailPage runId={runId} branchId={branch} />;
-}
