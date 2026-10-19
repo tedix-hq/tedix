@@ -22,6 +22,7 @@ import {
 } from "./lane-serve";
 import { laneServicePlist } from "./lane-service";
 import { laneChildEnv } from "./lane-child-env";
+import { CliReadError } from "./hooks/hook-io";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
@@ -82,10 +83,21 @@ function fixture({
 	}));
 	const events: Array<{
 		verb: string;
+		args: string[];
 		env: NodeJS.ProcessEnv;
 		input?: Record<string, unknown>;
 	}> = [];
 	const releases: Array<() => void> = [];
+	const control = {
+		startError: refuse
+			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
+			: (undefined as Error | undefined),
+		readiness: { ready: true, reasons: [] as Array<{ detail: string }> },
+		history: {
+			data: [] as Record<string, unknown>[],
+			nextCursor: null as string | null,
+		},
+	};
 	let threadNumber = 0;
 	const config = { ...options, executor, coordinated };
 	const dispatcher = new LaneDispatcher(config, dir, {
@@ -107,7 +119,7 @@ function fixture({
 			const inputIndex = args.indexOf("--input");
 			const input =
 				inputIndex < 0 ? undefined : JSON.parse(args[inputIndex + 1]!);
-			events.push({ verb, env, input });
+			events.push({ verb, args, env, input });
 			if (verb === "dispatch-list") expect(input.dispatchReadyOnly).toBe(true);
 			let response: unknown;
 			if (verb === "dispatch-list")
@@ -117,7 +129,8 @@ function fixture({
 					workItem: items.find((row) => row.id === args[6]),
 					comments: [],
 				};
-			else if (verb === "dispatch-attempts") response = { data: [] };
+			else if (verb === "dispatch-attempts") response = control.history;
+			else if (verb === "readiness") response = control.readiness;
 			else if (verb === "show")
 				response = {
 					id: options.rules,
@@ -128,7 +141,7 @@ function fixture({
 			else if (verb === "start" && args[4] === "agent")
 				response = { principalKey: "local-acme" };
 			else if (verb === "start") {
-				if (refuse) throw new Error("Admission refused: resource capacity");
+				if (control.startError) throw control.startError;
 				response = {
 					workItem: items.find((row) => row.id === args[6]),
 					attempt: {
@@ -202,7 +215,7 @@ function fixture({
 			return 0;
 		},
 	});
-	return { dispatcher, dir, events, releases };
+	return { dispatcher, dir, events, releases, control, items };
 }
 async function until(test: () => boolean) {
 	for (let n = 0; n < 100 && !test(); n++)
@@ -332,13 +345,167 @@ describe("dispatcher admission", () => {
 		releases[2]!();
 		await dispatcher.drain();
 	});
-	it("never launches after admission refusal and does not retry the revision", async () => {
-		const { dispatcher, releases } = fixture({ refuse: true });
+	it("preserves rejection diagnostics once and retries only after backoff and fresh admission", async () => {
+		const { dispatcher, releases, events, dir, control, items } = fixture({
+			refuse: true,
+		});
+		items.splice(1);
 		await dispatcher.tick();
 		await dispatcher.drain();
+		const path = join(dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved).toMatchObject({
+			phase: "deferred",
+			retries: 1,
+			admissionFailure: "Error: Admission refused: resource capacity",
+			admissionState: "rejected",
+			failureCommented: true,
+		});
+		expect(saved.retryAt).toBeGreaterThan(Date.now() + 55_000);
+		expect(events.find((e) => e.verb === "comment")?.args.join(" ")).toContain(
+			"resource capacity",
+		);
 		await dispatcher.tick();
 		await dispatcher.drain();
 		expect(releases).toHaveLength(0);
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
+		saved.retryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		control.startError = undefined;
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+		expect(events.filter((e) => e.verb === "dispatch-attempts")).toHaveLength(
+			2,
+		);
+	});
+	it("bounds failures with exponential backoff and opens a new retry window after its deadline", async () => {
+		const { dispatcher, dir, items, events } = fixture({ refuse: true });
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		for (let n = 1; n <= 5; n++) {
+			await dispatcher.tick();
+			await dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.retries).toBe(n);
+			if (n < 5)
+				expect(saved.retryAt).toBeGreaterThan(
+					Date.now() + 60_000 * 2 ** (n - 1) - 5_000,
+				);
+			else expect(saved.retryAt).toBe(saved.retryDeadlineAt);
+			saved.retryAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+		}
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(5);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		saved.retryDeadlineAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(JSON.parse(readFileSync(path, "utf8")).retries).toBe(1);
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	});
+	it.each(["failed", "expired"])(
+		"holds lost admission responses until canonical history retires the Attempt as %s",
+		async (outcome) => {
+			const { dispatcher, dir, items, events, control, releases } = fixture({
+				refuse: true,
+			});
+			items.splice(1);
+			control.startError = new Error("Tedix CLI read deadline elapsed");
+			const path = join(dir, `${item().id}-2.json`);
+			const retry = async () => {
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				saved.retryAt = 0;
+				writeFileSync(path, JSON.stringify(saved));
+				await dispatcher.tick();
+				await dispatcher.drain();
+			};
+			await dispatcher.tick();
+			await dispatcher.drain();
+			expect(JSON.parse(readFileSync(path, "utf8")).admissionState).toBe(
+				"unknown",
+			);
+			control.startError = undefined;
+			control.history.nextCursor = "older-page";
+			await retry();
+			control.history.nextCursor = null;
+			control.history.data = [
+				{
+					id: "lost-attempt",
+					outcome: null,
+					expiresAt: "2020-01-01T00:00:00.000Z",
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			await retry();
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				1,
+			);
+			expect(releases).toHaveLength(0);
+			// Lease expiry alone is insufficient; the server must retire the Attempt.
+			control.history.data[0]!.outcome = outcome;
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			saved.retryAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+			await dispatcher.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await dispatcher.drain();
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				2,
+			);
+		},
+	);
+	it("recovers a legacy failed no-Attempt receipt after purpose repair and preserves completed receipts", async () => {
+		const { dispatcher, dir, items, control, releases, events } = fixture();
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "failed",
+				note: "Tedix CLI read failed (exit 2)",
+			}),
+		);
+		control.readiness = {
+			ready: false,
+			reasons: [{ detail: "purpose_blocked: Missing objective" }],
+		};
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(0);
+		expect(readFileSync(path, "utf8")).toContain("purpose_blocked");
+		control.readiness = { ready: true, reasons: [] };
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		saved.retryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
+	});
+	it("allows a changed Work revision without waiting for the old revision's retry deadline", async () => {
+		const { dispatcher, items, control, releases } = fixture({ refuse: true });
+		items.splice(1);
+		await dispatcher.tick();
+		await dispatcher.drain();
+		items[0]!.version++;
+		control.startError = undefined;
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
 	});
 	it("does nothing during dark wake", async () => {
 		const { dispatcher, events } = fixture({ dark: true });
@@ -373,6 +540,18 @@ it("requires the owner's version-specific note for money or personal messaging",
 		body: "Delegation: codex work-version=2 Send this approved draft to the named recipient.",
 	};
 	expect(dispatchSkip(work, [note])).toBeUndefined();
+	for (const owner of [
+		{ accountableOwnerType: null, accountableOwnerId: null },
+		{ accountableOwnerType: "user" as const, accountableOwnerId: null },
+		{
+			accountableOwnerType: "tedi" as const,
+			accountableOwnerId: "fictional-tedi",
+		},
+	]) {
+		const reason = dispatchSkip({ ...work, ...owner }, [note]);
+		expect(reason).toContain("no accountable user owner");
+		expect(reason).toContain("Set an accountable user owner");
+	}
 	expect(
 		dispatchSkip(work, [{ ...note, authorId: "another-owner" }]),
 	).toContain("owner comment");

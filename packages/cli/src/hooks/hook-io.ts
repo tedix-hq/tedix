@@ -44,10 +44,21 @@ export interface ReadOptions {
 	 */
 	cwd?: string;
 	env?: NodeJS.ProcessEnv;
+	includeErrorMessage?: boolean;
 }
 
 /** Bytes of the child's stderr a read failure message carries. */
 export const HOOK_READ_STDERR_TAIL = 300;
+
+export class CliReadError extends Error {
+	constructor(
+		message: string,
+		readonly code?: string,
+		readonly status?: number,
+	) {
+		super(message);
+	}
+}
 
 export interface HookDeps {
 	env: NodeJS.ProcessEnv;
@@ -291,8 +302,35 @@ export function readJsonChild(
 		/** "Tedix CLI read failed (exit 1): <last stderr bytes>" */
 		const failure = (how: string) => {
 			const tail = stderr.toString("utf8").trim().replace(/\s+/g, " ");
-			return new Error(
-				`Tedix CLI read failed (${how})${tail ? `: ${tail}` : ""}`,
+			let diagnostic = tail;
+			let code: string | undefined;
+			let status: number | undefined;
+			if (options.includeErrorMessage) {
+				try {
+					const value: unknown = JSON.parse(
+						Buffer.concat(chunks, bytes).toString("utf8"),
+					);
+					if (
+						isObject(value) &&
+						isObject(value.error) &&
+						typeof value.error.message === "string"
+					) {
+						diagnostic = JSON.stringify(value.error).slice(0, 1800);
+						code =
+							typeof value.error.code === "string"
+								? value.error.code
+								: undefined;
+						status =
+							typeof value.error.status === "number"
+								? value.error.status
+								: undefined;
+					}
+				} catch {}
+			}
+			return new CliReadError(
+				`Tedix CLI read failed (${how})${diagnostic ? `: ${diagnostic}` : ""}`,
+				code,
+				status,
 			);
 		};
 		const kill = (signal: NodeJS.Signals) => {

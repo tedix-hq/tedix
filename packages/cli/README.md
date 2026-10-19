@@ -379,14 +379,24 @@ its result and parsed usage. The server watcher detects stale lanes; the native
 coordinator reviews results and decides Work completion or retry.
 
 `--max` defaults to 5. One dispatcher per organization and executor runs on a
-machine; retained live process groups consume slots after restart. Each Work
-revision runs once. Ambiguous admission is retained for inspection. Pre-admission
-read failures and failed settlements retain bounded retries, a minute apart;
-settlement recovery checks the exact server Attempt before writing again.
+machine; retained live process groups consume slots after restart. Completed
+receipts remain fenced. Admission failures retain their diagnostics and retry
+with exponential backoff starting at one minute, at most five times per
+30-minute window. A new Work revision or an elapsed window permits fresh
+admission checks. Before retrying, complete canonical Attempt history and current
+readiness must exclude a live Attempt or a completed result for that revision.
+Unknown or truncated history holds admission; lease expiry alone cannot retire
+an Attempt. Existing failed receipts without an Attempt use the same recovery.
+The first failure is logged and a Work comment is attempted once per revision;
+an uncertain comment response is retained without sending it again. Failed
+settlements keep their separate bounded one-minute retries and check the exact
+server Attempt before writing again.
 
 Possible money or personal messaging requests are skipped and logged unless an
 actual owner comment says `Delegation: codex work-version=<version> <bounded note>`.
 Use the assigned executor name in that comment for Claude Code.
+Work without an accountable user owner must first have one set; a comment from
+any other author cannot delegate that owner's actions.
 Consent, MFA and authentication remain human-only. The lexical screen is
 conservative; provider permissions and atomic Work admission still apply.
 

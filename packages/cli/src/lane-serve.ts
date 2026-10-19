@@ -30,7 +30,7 @@ import type { LaneObservation } from "./lane-telemetry";
 import { selfCommand } from "./shared";
 import { getCurrentWorkspace } from "./credential-store";
 import { installLaneService } from "./lane-service";
-import { readJsonChild } from "./hooks/hook-io";
+import { CliReadError, readJsonChild } from "./hooks/hook-io";
 
 type WorkAttempt = z.infer<typeof WorkAttemptSchema>;
 
@@ -79,17 +79,17 @@ export function dispatchSkip(
 	if (reserved.includes("credentials"))
 		return "Consent, authentication and user presence remain human-only";
 	if (!reserved.length) return;
-	const delegated =
-		item.accountableOwnerType === "user" &&
-		comments.some(
-			(comment) =>
-				comment.authorType === "user" &&
-				comment.authorId === item.accountableOwnerId &&
-				new RegExp(
-					`^Delegation: ${item.metadata?.executor} work-version=${item.version}\\s+\\S.{9,}`,
-					"im",
-				).test(comment.body),
-		);
+	if (item.accountableOwnerType !== "user" || !item.accountableOwnerId)
+		return "Possible human-reserved action; no accountable user owner can authorize a delegation comment. Set an accountable user owner, then have that owner add the version-specific Delegation comment.";
+	const delegated = comments.some(
+		(comment) =>
+			comment.authorType === "user" &&
+			comment.authorId === item.accountableOwnerId &&
+			new RegExp(
+				`^Delegation: ${item.metadata?.executor} work-version=${item.version}\\s+\\S.{9,}`,
+				"im",
+			).test(comment.body),
+	);
 	if (!delegated)
 		return `Possible human-reserved action; needs an owner comment: Delegation: ${item.metadata?.executor} work-version=${item.version} <bounded delegation note>`;
 }
@@ -214,7 +214,7 @@ async function cli<T>(
 		[...prefix, ...args, "--json"],
 		60_000,
 		undefined,
-		{ cwd, env },
+		{ cwd, env, includeErrorMessage: true },
 	)) as T;
 }
 
@@ -245,6 +245,10 @@ interface Receipt {
 	telemetry?: LaneObservation;
 	retries?: number;
 	retryAt?: number;
+	retryDeadlineAt?: number;
+	failureCommented?: boolean;
+	admissionFailure?: string;
+	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
 	pendingObservation?: Record<string, unknown>;
 	reportRetryAt?: number;
@@ -508,14 +512,17 @@ export class LaneDispatcher {
 				if (
 					this.running.has(item.id) ||
 					(previous &&
-						(previous.phase !== "deferred" ||
-							(previous.retries ?? 0) >= 5 ||
-							Date.now() < (previous.retryAt ?? 0)))
+						(previous.attemptId ||
+							!["deferred", "failed", "preparing"].includes(previous.phase) ||
+							(previous.pid && alive(previous.pid)) ||
+							Date.now() < (previous.retryAt ?? 0) ||
+							((previous.retries ?? 0) >= 5 &&
+								Date.now() < (previous.retryDeadlineAt ?? 0))))
 				) {
 					this.log(
 						"skipped",
 						item.id,
-						"This Work revision has a retained receipt or retry deadline",
+						`This Work revision has a retained receipt or retry deadline${previous?.note ? `: ${previous.note}` : ""}`,
 					);
 					continue;
 				}
@@ -532,11 +539,19 @@ export class LaneDispatcher {
 	}
 	private async execute(candidate: DispatchItem, previous?: Receipt) {
 		const path = this.path(candidate);
+		const inRetryWindow = Date.now() < (previous?.retryDeadlineAt ?? 0);
+		const retryDeadlineAt = inRetryWindow
+			? previous!.retryDeadlineAt!
+			: Date.now() + 30 * 60_000;
 		const receipt: Receipt = {
 			itemId: candidate.id,
 			version: candidate.version,
 			phase: "preparing",
-			retries: previous?.retries ?? 0,
+			retries: inRetryWindow ? (previous?.retries ?? 0) : 0,
+			retryDeadlineAt,
+			failureCommented: previous?.failureCommented,
+			admissionFailure: previous?.admissionFailure ?? previous?.note,
+			admissionState: previous?.admissionState ?? "not_sent",
 		};
 		this.save(path, receipt);
 		let admitted = false;
@@ -570,22 +585,31 @@ export class LaneDispatcher {
 			);
 			if (reason || item.version !== candidate.version)
 				throw new Error(reason ?? "Work changed before admission");
-			const history = await this.call<{ data: WorkAttempt[] }>([
+			const history = await this.call<{
+				data: WorkAttempt[];
+				nextCursor: string | null;
+			}>([
 				"work",
 				"dispatch-attempts",
 				item.id,
 				"--input",
-				JSON.stringify({ limit: 10 }),
+				JSON.stringify({ limit: 100 }),
 			]);
-			if (!Array.isArray(history.data))
-				throw new Error("Attempt history is unavailable");
+			if (!Array.isArray(history.data) || history.nextCursor !== null)
+				throw new Error(
+					"Complete Attempt history is unavailable; admission remains held",
+				);
 			if (
 				history.data.some(
-					(attempt) => attempt.metadata?.dispatchVersion === item.version,
+					(attempt) =>
+						!attempt.outcome ||
+						(attempt.metadata?.dispatchVersion === item.version &&
+							attempt.outcome !== "failed" &&
+							attempt.outcome !== "expired"),
 				)
 			)
 				throw new Error(
-					"This Work revision already has a dispatcher Attempt; inspect or revise the Work before retrying",
+					"Canonical history has a live Attempt or a completed dispatcher result; admission remains held",
 				);
 			const skill = await this.call<
 				{ entry?: RulesAsset } & Partial<RulesAsset>
@@ -636,6 +660,16 @@ export class LaneDispatcher {
 			if (typeof identity.principalKey !== "string")
 				throw new Error("No verified executor principal");
 			receipt.executorKey = identity.principalKey;
+			const readiness = await this.call<{
+				ready: boolean;
+				reasons: Array<{ detail: string }>;
+			}>(["work", "readiness", item.id], receipt.session, receipt.executorKey);
+			if (readiness.ready !== true)
+				throw new Error(
+					`Admission not ready: ${JSON.stringify(readiness.reasons)}`,
+				);
+			receipt.admissionState = "unknown";
+			this.save(path, receipt);
 			admissionSent = true;
 			const started = await this.call<{
 				attempt: { id: string; expiresAt: string };
@@ -661,6 +695,7 @@ export class LaneDispatcher {
 			if (typeof started.attempt?.id !== "string")
 				throw new Error("Admission returned no Attempt");
 			admitted = true;
+			receipt.admissionState = "admitted";
 			receipt.attemptId = started.attempt.id;
 			receipt.phase = "admitted";
 			receipt.retries = 0;
@@ -798,8 +833,43 @@ export class LaneDispatcher {
 			).slice(0, 1800);
 		} catch (error) {
 			receipt.outcome = "failed";
+			if (
+				!admitted &&
+				admissionSent &&
+				receipt.admissionState === "unknown" &&
+				error instanceof CliReadError &&
+				([400, 401, 403, 409, 422, 429].includes(error.status ?? 0) ||
+					[
+						"BAD_REQUEST",
+						"UNAUTHORIZED",
+						"FORBIDDEN",
+						"CONFLICT",
+						"EXTERNAL_AGENT_IDENTITY_REQUIRED",
+					].includes(error.code ?? ""))
+			)
+				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
+			if (!admitted) receipt.admissionFailure ??= receipt.note;
 			this.log("skipped-or-failed", candidate.id, receipt.note);
+			if (!admitted && !receipt.failureCommented) {
+				// Persist before sending: an uncertain comment response must not cause duplicates.
+				receipt.failureCommented = true;
+				this.save(path, receipt);
+				try {
+					await this.call([
+						"work",
+						"comment",
+						candidate.id,
+						`Dispatcher admission held for Work revision ${candidate.version}: ${receipt.note}. Retained for bounded retry after canonical Attempt reconciliation; no execution launched.`,
+					]);
+				} catch (commentError) {
+					this.log(
+						"failure-comment-unconfirmed",
+						candidate.id,
+						String(commentError),
+					);
+				}
+			}
 		} finally {
 			if (timer) clearInterval(timer);
 			if (leaseTimer) clearInterval(leaseTimer);
@@ -808,11 +878,17 @@ export class LaneDispatcher {
 				receipt.phase = "settling";
 				this.save(path, receipt);
 				await this.settle(receipt);
-			} else if (!admissionSent) {
+			} else {
 				receipt.phase = "deferred";
 				receipt.retries = (receipt.retries ?? 0) + 1;
-				receipt.retryAt = Date.now() + 60_000;
-			} else receipt.phase = "failed";
+				receipt.retryAt =
+					receipt.retries >= 5
+						? retryDeadlineAt
+						: Math.min(
+								Date.now() + 60_000 * 2 ** (receipt.retries - 1),
+								retryDeadlineAt,
+							);
+			}
 			if (receipt.repo && (!receipt.pid || !alive(receipt.pid))) {
 				if (!this.deps.cleanup(this.options.repo, receipt.repo))
 					this.log("worktree-retained", candidate.id, receipt.repo);
