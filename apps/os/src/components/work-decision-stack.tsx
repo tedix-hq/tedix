@@ -4,6 +4,7 @@ import {
 	useWorkReadFailure,
 } from "@/components/work-read-region";
 import { workRefreshOptions } from "@/lib/work-refresh";
+import { DeckCardSkeleton } from "@/components/deck-progress";
 import { useContext, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/kumo/button";
@@ -51,7 +52,7 @@ export function ApprovalDecisionCard({
 			errors={[query.error ?? query.failureReason]}
 		/>
 	);
-	if (query.isPending) return <p>Loading approval…</p>;
+	if (query.isPending) return <DeckCardSkeleton />;
 	if (!query.data) return notice;
 	const approval = query.data;
 	const active =

@@ -329,7 +329,9 @@ describe("WorkNeedsYouPage", () => {
 		const list = doc.querySelector('[aria-label="Needs you"]');
 		const rows = [...(list?.querySelectorAll("[data-decision-row]") ?? [])];
 		expect(rows).toHaveLength(6);
-		expect(rows[0]?.textContent).toContain("Loading approval");
+		expect(
+			rows[0]?.querySelector('[aria-label="Loading decision"]'),
+		).not.toBeNull();
 		expect(
 			rows.some((row) => row.textContent?.includes("Harbor tours launch plan")),
 		).toBe(true);

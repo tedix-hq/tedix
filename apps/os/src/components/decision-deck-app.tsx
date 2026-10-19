@@ -17,6 +17,12 @@ import {
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
 import { workActorReference } from "@/lib/work-actor";
+import { useDeckProgress } from "@/lib/use-deck-progress";
+import {
+	DeckProgress,
+	DeckCompletion,
+	DeckCardSkeleton,
+} from "@/components/deck-progress";
 import { LearnedToday } from "@/components/learned-today";
 import {
 	DeckRemainingContext,
@@ -359,14 +365,21 @@ function DecisionDeckContent({
 			},
 			now,
 		);
+	const matchesFilters = (row: {
+		kind: string;
+		project: string;
+		urgency: string;
+		label: string;
+	}) =>
+		(kind === "all" || row.kind === kind) &&
+		(project === "all" || row.project === project) &&
+		(urgency === "all" || row.urgency === urgency) &&
+		row.label.toLowerCase().includes(search.toLowerCase());
 	const ranked = rows
 		.sort(compare)
 		.filter(
 			(row) =>
-				(kind === "all" || row.kind === kind) &&
-				(project === "all" || row.project === project) &&
-				(urgency === "all" || row.urgency === urgency) &&
-				row.label.toLowerCase().includes(search.toLowerCase()) &&
+				matchesFilters(row) &&
 				!optimisticIds.includes(row.id) &&
 				(mode !== "practice" || !skipped.includes(row.id)),
 		);
@@ -413,9 +426,29 @@ function DecisionDeckContent({
 					available.some((candidate) => candidate.id === row.id),
 				)
 			: ranked;
+	const remaining = available.filter(
+		(row) => !optimisticIds.includes(row.id),
+	).length;
 	useEffect(() => {
-		if (mode === "decide") reportRemaining?.(filtered.length);
-	}, [mode, filtered.length, reportRemaining]);
+		if (mode === "decide" && batch && !decisions.pending && !decisions.failed)
+			reportRemaining?.(remaining);
+	}, [
+		mode,
+		batch,
+		decisions.pending,
+		decisions.failed,
+		remaining,
+		reportRemaining,
+	]);
+	const progress = useDeckProgress(
+		`${batchKey}:${mode}`,
+		available,
+		matchesFilters,
+		filtered.length,
+	);
+	const filtersActive =
+		kind !== "all" || project !== "all" || urgency !== "all" || search !== "";
+	const saving = optimisticIds.some((id) => !batch?.dismissed.includes(id));
 	const selected =
 		mode === "decide" && focusCard
 			? filtered.find((row) => row.id === focusCard)
@@ -831,18 +864,28 @@ function DecisionDeckContent({
 							</div>
 						</div>
 					}
-				>
-					{selected && (
-						<div className="fd-position" role="status">
-							<Text tone="secondary">
-								{OS_COPY.decisionDeck.position(
-									filtered.findIndex((row) => row.id === selected.id) + 1,
-									filtered.length,
-								)}
-							</Text>
-						</div>
+				/>
+				{progress.total > 0 &&
+					!budgetReached &&
+					(selected ||
+						(!decisions.pending &&
+							!decisions.failed &&
+							!learningQuery.isPending &&
+							!learningQuery.isError)) && (
+						<DeckProgress
+							total={progress.total}
+							completed={progress.completed}
+							position={Math.min(
+								progress.total,
+								progress.completed +
+									(selected
+										? filtered.findIndex((row) => row.id === selected.id) + 1
+										: 0),
+							)}
+							filtered={filtersActive}
+							saving={saving}
+						/>
 					)}
-				</DecisionContextToolbar>
 				{practiceMode && (
 					<Text role="label" tone="secondary" className="fd-practice-notice">
 						Practice only. Choices below stay in this preview and never approve
@@ -883,16 +926,20 @@ function DecisionDeckContent({
 						}}
 					/>
 				)}
-				{!practiceMode && inbox.isPending && (
-					<Text>{decisionText("Loading decisions…")}</Text>
-				)}
-				{mode === "decide" &&
-				selected?.id.startsWith("factory:") &&
-				!budgetReached ? (
+				{!selected &&
+				!practiceMode &&
+				(mode === "history"
+					? history.isPending
+					: decisions.pending || learningQuery.isPending || !batch) &&
+				!(decisions.failed || learningQuery.isError) ? (
+					<DeckCardSkeleton />
+				) : mode === "decide" &&
+				  selected?.id.startsWith("factory:") &&
+				  !budgetReached ? (
 					<div className="fd-deck-current">
-						<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
+						<Suspense fallback={<DeckCardSkeleton />}>
 							{factories.pending ? (
-								<Text>{OS_COPY.feed.loading}</Text>
+								<DeckCardSkeleton />
 							) : (
 								<OptimisticDeckDecisionContext.Provider
 									value={optimisticDecision}
@@ -1150,7 +1197,22 @@ function DecisionDeckContent({
 							: !decisions.pending && !learningQuery.isPending)) &&
 					(practiceMode || mode === "history" || batch) &&
 					!(decisions.failed || learningQuery.isError) &&
-					(available.length > 0 ? (
+					(mode === "decide" &&
+					progress.total > 0 &&
+					progress.completed === progress.total ? (
+						<DeckCompletion
+							total={progress.total}
+							filtered={filtersActive}
+							saving={saving}
+							onClearFilters={() => {
+								setKind("all");
+								setProject("all");
+								setUrgency("all");
+								setSearch("");
+								setIndex(0);
+							}}
+						/>
+					) : available.length > 0 ? (
 						<Text>{OS_COPY.decisionDeck.noMatches}</Text>
 					) : (
 						<DeckClosure
