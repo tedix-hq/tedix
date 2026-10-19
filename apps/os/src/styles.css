@@ -317,16 +317,10 @@ a:focus-visible {
 	line-height: var(--text-tedix-body--line-height);
 }
 
-.topbar-context span,
-.topbar-context strong {
+.topbar-context span {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-}
-
-.topbar-context strong {
-	color: var(--foreground);
-	font-weight: 500;
 }
 
 .topbar-search {
@@ -703,16 +697,6 @@ a:focus-visible {
 
 .canvas-workspace-title {
 	min-width: 0;
-}
-
-.canvas-workspace-breadcrumb {
-	overflow: hidden;
-	margin: 0;
-	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 14px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 .canvas-workspace-title h1 {
@@ -3079,11 +3063,6 @@ a:focus-visible {
 	.topbar-actions .transport-status {
 		max-width: 6rem;
 		white-space: normal;
-	}
-
-	.topbar-context span:first-child,
-	.topbar-context svg {
-		display: none;
 	}
 
 	.transport-status {

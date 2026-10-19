@@ -1169,7 +1169,9 @@ describe("CanvasPage listing", () => {
 				container.querySelector(".canvas-workspace-title h1")?.textContent,
 			).toBe(name);
 			expect(
-				container.querySelector(".canvas-workspace-breadcrumb")?.textContent,
+				container.querySelector(
+					'nav[aria-label="breadcrumb"] a[href^="/workspace/"]',
+				)?.textContent,
 			).toBe("Ops room");
 
 			osWorkspacesApi.outputs.get.mockResolvedValue({

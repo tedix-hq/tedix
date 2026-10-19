@@ -49,6 +49,7 @@ async function stateIs(page: Page, state: string) {
 	);
 }
 async function capture(page: Page, name: string) {
+	await page.waitForTimeout(300);
 	if (evidenceDir)
 		await page.screenshot({
 			path: `${evidenceDir}/kumo-shell-2-${name}.png`,
@@ -230,6 +231,152 @@ try {
 		await widthIs(page, 270);
 		await page.close();
 	}
+	for (const theme of ["light", "dark"] as const) {
+		for (const width of [1280, 390]) {
+			const page = await browser.newPage({
+				viewport: { width, height: 900 },
+				colorScheme: theme,
+			});
+			await page.addInitScript(
+				(value) => localStorage.setItem("tedix-os-theme", value),
+				theme,
+			);
+			const longTitle =
+				"Booth video 1 script and storyboard — production notes and scene-by-scene direction";
+			await page.route(
+				"**/api/rpc/osWorkspaces/outputs/get**",
+				async (route) => {
+					const response = await route.fetch();
+					const body = await response.json();
+					body.json.output.title = longTitle;
+					await route.fulfill({ response, json: body });
+				},
+			);
+			for (const [name, path, parent, expected] of [
+				[
+					"outputs",
+					"/outputs/00000040-0000-4000-8000-000000000001",
+					"/outputs",
+					longTitle,
+				],
+				[
+					"skill",
+					"/skills/00000020-0000-4000-8000-000000000001",
+					"/skills",
+					null,
+				],
+				[
+					"app",
+					"/apps/00000080-0000-4000-8000-000000000001",
+					"/gateways",
+					null,
+				],
+				["billing", "/admin/billing", "/admin", "Billing"],
+				[
+					"workspace",
+					"/workspace/00000030-0000-4000-8000-000000000001",
+					"/workspaces",
+					null,
+				],
+			] as const) {
+				await page.goto(`${origin}${path}`);
+				const trail = page.getByRole("navigation", {
+					name: "breadcrumb",
+					exact: true,
+				});
+				await trail.waitFor();
+				const current = trail.locator('[aria-current="page"]:visible');
+				if (expected)
+					await page.waitForFunction(
+						(value) =>
+							Array.from(
+								document.querySelectorAll(
+									'nav[aria-label="breadcrumb"] [aria-current="page"]',
+								),
+							).some((node) => node.textContent === value),
+						expected,
+					);
+				else {
+					await page.waitForFunction(() =>
+						Array.from(
+							document.querySelectorAll(
+								'nav[aria-label="breadcrumb"] [aria-current="page"]',
+							),
+						).some(
+							(node) =>
+								node.textContent &&
+								node.textContent !== "Skill" &&
+								node.textContent !== "App",
+						),
+					);
+					assert.equal(
+						(await current.textContent())?.trim(),
+						(
+							await page
+								.getByRole("heading", { level: 1 })
+								.first()
+								.textContent()
+						)?.trim(),
+					);
+				}
+				const parentHref =
+					width === 390 && name === "workspace" ? path : parent;
+				assert.equal(
+					await trail.locator(`a[href="${parentHref}"]:visible`).count(),
+					1,
+				);
+				assert.equal(await trail.locator('a[href="#"]').count(), 0);
+				if (width === 390) {
+					assert.equal(
+						(await trail.locator('[aria-current="page"]:visible').count()) +
+							(await trail.locator("a:visible").count()),
+						2,
+					);
+					assert.equal(
+						await page.evaluate(
+							() => document.documentElement.scrollWidth > innerWidth,
+						),
+						false,
+						`${name} overflows phone`,
+					);
+				}
+				if (name === "outputs" && width === 390) {
+					const title = current.locator("[tabindex='0']");
+					assert(
+						await title.evaluate((node) => node.scrollWidth > node.clientWidth),
+						"Long title was not truncated",
+					);
+					await title.focus();
+					await page.getByRole("tooltip").waitFor();
+					assert.equal(
+						await page.getByRole("tooltip").textContent(),
+						longTitle,
+					);
+					await page.keyboard.press("Escape");
+					await title.evaluate((node) => (node as HTMLElement).blur());
+				}
+				await capture(page, `breadcrumbs-${name}-${width}-${theme}`);
+				await page.evaluate(
+					() =>
+						(document.documentElement.dataset.navigationProof =
+							"same-document"),
+				);
+				await trail.locator(`a[href="${parentHref}"]:visible`).click();
+				await page.waitForURL((url) => url.pathname === parentHref);
+				assert.equal(
+					await page.evaluate(
+						() => document.documentElement.dataset.navigationProof,
+					),
+					"same-document",
+					"Breadcrumb reloaded document",
+				);
+			}
+			await page.close();
+		}
+	}
+	console.log(
+		"PASS: resource titles, linked list ancestors, billing/workspace trails, truncation tooltip, phone last-two crumbs and client navigation; desktop/390 × light/dark",
+	);
 	console.log(
 		"PASS: sidebar drag, keyboard bounds, reset, persistence, delayed hover/focus peek, Escape/leave, stable layout, coarse-pointer and mobile guards; light/dark",
 	);

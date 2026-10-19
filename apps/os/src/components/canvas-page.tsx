@@ -48,6 +48,7 @@ import {
 	EmptyTitle,
 } from "@/components/kumo/empty";
 import { Button } from "@/components/kumo/button";
+import { Breadcrumbs } from "@/components/kumo/breadcrumbs";
 import {
 	Dialog,
 	DialogContent,
@@ -1040,10 +1041,19 @@ export function CanvasPage({
 						/
 					</span>
 					<div className="canvas-workspace-title">
-						{selectedApp && selectedWorkspace ? (
-							<p className="canvas-workspace-breadcrumb type-tedix-caption">
-								{selectedWorkspace.name}
-							</p>
+						{selectedWorkspace ? (
+							<Breadcrumbs
+								items={[
+									{ label: "Workspaces", href: "/workspaces" },
+									{
+										label: selectedWorkspace.name,
+										...(selectedApp
+											? { href: `/workspace/${selectedWorkspace.id}` }
+											: {}),
+									},
+									...(selectedApp ? [{ label: selectedApp.name }] : []),
+								]}
+							/>
 						) : null}
 						<h1 className="type-tedix-body">
 							{selectedApp?.name ?? selectedWorkspace?.name ?? surface.label}
