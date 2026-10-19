@@ -710,7 +710,7 @@ export async function requireDestructiveToolApproval(
 		autonomousDecision.autoApprove &&
 		!isOwnedChannelBoundary &&
 		annotations?.destructiveHint !== true &&
-		configuredApproval !== "work_item"
+		!configuredApproval
 	) {
 		emitGovernanceAuditEvent(
 			agent,

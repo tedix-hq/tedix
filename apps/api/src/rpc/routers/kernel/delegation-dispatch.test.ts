@@ -2424,18 +2424,43 @@ describe("organization critical-only delegation autonomy", () => {
 	const autonomy = { version: 1 as const, maxRisk: "medium" as const };
 	const base = () => ({
 		route: makeRoute(),
-		card: makeCard({ requiresApproval: true }),
+		card: makeCard({ requiresApproval: false }),
 		speaker: { approvalAuthority: true },
 		gating: { org: { autonomy } },
 		workOrderContent: "Research the paper and add notes to the target Work",
 	});
-	it("auto-dispatches both low and medium risk despite the target's legacy approval flag", () => {
+	it("auto-dispatches low and medium risk when the target permits it", () => {
 		for (const risk of ["low", "medium"] as const)
 			expect(
 				decideDelegationDispatch({ ...base(), route: makeRoute({ risk }) })
 					.mode,
 			).toBe("auto");
 	});
+	it.each(["tedi", "session"] as const)(
+		"honors stricter %s autonomy corrections",
+		(layer) => {
+			const input = base();
+			expect(
+				decideDelegationDispatch({
+					...input,
+					gating: {
+						...input.gating,
+						[layer]: { autonomy: { ...autonomy, askForClasses: ["*"] } },
+					},
+				}).canAutoDispatch,
+			).toBe(false);
+		},
+	);
+
+	it("org autonomy cannot override the target's requiresApproval", () => {
+		expect(
+			decideDelegationDispatch({
+				...base(),
+				card: makeCard({ requiresApproval: true }),
+			}).canAutoDispatch,
+		).toBe(false);
+	});
+
 	it("uses standing organization authorization for a scoped member's non-critical delegation", () => {
 		expect(
 			decideDelegationDispatch({
@@ -2459,7 +2484,7 @@ describe("organization critical-only delegation autonomy", () => {
 					...base(),
 					route: makeRoute({ effortClass: "embodied" }),
 					card: makeCard({
-						requiresApproval: true,
+						requiresApproval: false,
 						embodied: true,
 						hasWarmWorkstationLease,
 						hasRepository: true,

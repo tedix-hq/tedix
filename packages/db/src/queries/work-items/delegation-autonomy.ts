@@ -10,6 +10,7 @@ async function delegationEventId(key: string): Promise<string> {
 
 export interface DelegationFyi {
 	classId: string;
+	policyPack?: { id: string; version: number };
 	homeRunId: string;
 	childRunId: string;
 	tediId: string;

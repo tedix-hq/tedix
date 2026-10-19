@@ -232,6 +232,7 @@ export function buildKernelTurnWorkDeps(
 					at: nowIso(),
 					fyi: {
 						classId: input.workOrder.autonomyClass,
+						policyPack: input.workOrder.autonomyPolicyPack,
 						homeRunId: input.homeRunId,
 						childRunId: result.childRunId,
 						tediId: input.delegatedTediId,

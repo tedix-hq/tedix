@@ -28,7 +28,7 @@ describe("direct pending delegation policy", () => {
 			},
 		} as unknown as KernelRuntimeRun;
 	}
-	it("permits bounded research and code, while retaining critical and explicit human holds", async () => {
+	it("withholds direct delegation without verified route risk and warm-state evidence", async () => {
 		for (const text of [
 			"Research the paper",
 			"Fix the parser through normal push gates",
@@ -36,7 +36,7 @@ describe("direct pending delegation policy", () => {
 			expect(
 				(await reviewWorkstationDelegationAutonomy(context, run(text)))
 					?.allowed,
-			).toBe(true);
+			).toBe(false);
 		for (const text of [
 			"Email a customer",
 			"Delete records",

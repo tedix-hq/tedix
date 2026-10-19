@@ -66,6 +66,7 @@ export async function reviewWorkstationDelegationAutonomy(
 	});
 	const result = {
 		allowed: decision.autoDispatch,
+		policyPack: policy.autonomy.policyPack,
 		reason: decision.reasons.join("; "),
 		workstation: true,
 	};

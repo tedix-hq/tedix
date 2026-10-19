@@ -100,7 +100,12 @@ export const sweepDelegationAutonomyRoute = authed.sweepDelegationAutonomy
 						organizationId,
 						run,
 						decision: "approve",
-						resolvedBy: { type: "policy", id: "delegation-autonomy.v1" },
+						resolvedBy: {
+							type: "policy",
+							id: review.policyPack
+								? `${review.policyPack.id}@${review.policyPack.version}`
+								: "delegation-autonomy.v1",
+						},
 						note: "Released by active low/medium autonomy policy; no human approval was supplied.",
 					});
 				dispatched.push(run.id);

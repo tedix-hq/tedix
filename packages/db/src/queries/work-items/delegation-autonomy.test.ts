@@ -141,3 +141,18 @@ describe("delegation FYI and correction lessons", () => {
 		expect(await readDelegationAutonomyLessons(db, "org")).toEqual([]);
 	});
 });
+
+it("retains exact policy provenance in the FYI receipt", async () => {
+	const { db } = fixture();
+	const policyPack = { id: "org-policy", version: 7 };
+	await recordDelegationFyi(db, {
+		...input,
+		fyi: { ...input.fyi, policyPack },
+	});
+	const receipt = await readDelegationFyi(db, {
+		orgId: input.orgId,
+		workItemId: input.workItemId,
+		childRunId: input.fyi.childRunId,
+	});
+	expect(receipt?.payload.delegationFyi).toMatchObject({ policyPack });
+});

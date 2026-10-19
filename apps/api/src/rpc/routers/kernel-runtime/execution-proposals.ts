@@ -179,6 +179,16 @@ export const enqueueMessageRoute = authed.enqueueMessage
 	.handler(async ({ context, input }) => {
 		const enqueueStartedAtMs = Date.now();
 		if (
+			(input.delegateToTediId || input.executionPolicy !== "normal") &&
+			context.authType === "user" &&
+			!userHoldsPermission(context, "tedis:update")
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Worker dispatch and execution policy require tedis:update",
+			);
+		}
+		if (
 			input.delegateToTediId &&
 			(context.env as CloudflareEnv & { TEDIX_LOCAL_DEMO_ENABLED?: string })
 				.TEDIX_LOCAL_DEMO_ENABLED === "true" &&
@@ -519,7 +529,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			governancePolicy?.autonomy &&
 			!decideAutonomousAction({
 				policy: governancePolicy.autonomy,
-				risk: "medium",
+				risk: "unknown",
 				content: turnContent,
 				classId: "delegation:embodied",
 			}).autoApprove
