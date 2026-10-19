@@ -366,13 +366,11 @@ export function ConversationRow({
 			data-pinned={pinned || undefined}
 			data-optimistic={optimistic || undefined}
 			aria-busy={optimistic || undefined}
-			className={`group/row flex min-w-0 items-center gap-1 rounded-lg pr-1 transition-colors ${
-				active ? "bg-kumo-fill" : "hover:bg-kumo-tint"
-			}`}
+			className="group/row flex min-w-0 items-center gap-2 rounded-lg pr-1 transition-colors hover:bg-kumo-fill focus-within:bg-kumo-fill data-[active=true]:bg-kumo-fill data-[active=true]:ring-1 data-[active=true]:ring-kumo-brand data-[active=true]:ring-inset"
 		>
 			<Button
 				aria-current={active ? "true" : undefined}
-				className="min-h-11 min-w-0 flex-1 flex-col items-stretch gap-1 px-3 py-2 text-left"
+				className="min-h-11 min-w-0 flex-1 flex-col items-stretch gap-1 px-4 py-3 text-left focus-visible:ring-inset"
 				multiline
 				onClick={() => onSelect?.(conversation.id)}
 				variant="ghost"
@@ -405,7 +403,7 @@ export function ConversationRow({
 				<time
 					dateTime={conversationActivityAt(conversation)}
 					title={absoluteTime(conversationActivityAt(conversation))}
-					className="text-kumo-subtle text-xs"
+					className="text-kumo-subtle type-tedix-label"
 				>
 					{relativeTime(conversationActivityAt(conversation), now)}
 				</time>
@@ -750,9 +748,9 @@ export function ChatSidebar({
 			className="flex min-w-0 flex-col gap-4"
 			data-active-conversation={activeConversationId ?? "new"}
 		>
-			<div className="sticky top-0 z-10 grid gap-3 bg-kumo-base pb-4">
+			<div className="grid gap-4">
 				<div className="flex items-center justify-between gap-2">
-					<h2 className="m-0 min-w-0 truncate font-medium text-kumo-default type-tedix-label">
+					<h2 className="m-0 min-w-0 truncate font-semibold text-kumo-strong type-tedix-section">
 						Conversations
 					</h2>
 					{/* Conversations have no create verb — a thread exists once its first
@@ -827,7 +825,7 @@ export function ChatSidebar({
 							<section key={group.key} aria-labelledby={headingId}>
 								<h3
 									id={headingId}
-									className="m-0 mb-2 px-3 font-medium text-kumo-subtle type-tedix-label"
+									className="m-0 mb-3 px-4 font-medium text-kumo-subtle type-tedix-label"
 								>
 									{group.label}
 								</h3>

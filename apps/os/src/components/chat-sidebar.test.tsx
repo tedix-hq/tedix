@@ -520,7 +520,7 @@ describe("conversations rail header", () => {
 	});
 
 	it("gives the heading a semantic type role, not a raw size", () => {
-		expect(heading?.classList.contains("type-tedix-label")).toBe(true);
+		expect(heading?.classList.contains("type-tedix-section")).toBe(true);
 		expect(heading?.classList.contains("text-xs")).toBe(false);
 	});
 });
