@@ -1,0 +1,71 @@
+.workspace-design .canvas-workspace-header {
+	padding-inline: 24px;
+}
+
+.workspace-design .canvas-workspace-mark {
+	width: 24px;
+	height: 24px;
+	flex-basis: 24px;
+}
+
+.workspace-design .canvas-resource-library,
+.workspace-design .canvas-resource-library-sections {
+	gap: 32px;
+}
+
+.workspace-design .canvas-resource-library-header {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 16px;
+	padding-bottom: 24px;
+}
+
+.workspace-design .canvas-resource-search {
+	grid-column: 1 / -1;
+}
+
+.workspace-design .canvas-resource-section {
+	gap: 12px;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+}
+
+.workspace-design .workspace-app-body {
+	gap: 8px;
+	padding: 24px;
+}
+
+.workspace-design .workspace-app-footer {
+	padding-top: 8px;
+}
+
+@media (max-width: 719px) {
+	.workspace-design .canvas-resource-library-header {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.workspace-design .canvas-resource-library-header > [data-slot="button"] {
+		justify-self: start;
+	}
+
+	.workspace-design .workspace-app-body {
+		padding: 16px;
+	}
+
+	.workspace-design
+		.workspace-app-cards[data-count="1"]
+		.workspace-app-preview.workspace-app-preview,
+	.workspace-design .workspace-app-preview.workspace-app-preview {
+		height: 96px;
+		min-height: 0;
+	}
+}
+
+@media (max-width: 639px) {
+	.workspace-design .canvas-workspace-header {
+		padding-inline: 16px;
+	}
+}

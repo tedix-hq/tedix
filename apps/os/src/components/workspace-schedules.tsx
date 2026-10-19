@@ -69,7 +69,7 @@ function WorkspaceScheduleRow({
 	return (
 		<article
 			aria-labelledby={titleId}
-			className="flex min-w-0 items-start gap-3 rounded-xl border border-kumo-line p-4"
+			className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-xl border border-kumo-line p-4 sm:flex sm:p-6"
 			data-workspace-schedule={schedule.skillId}
 		>
 			<Clock
@@ -77,7 +77,7 @@ function WorkspaceScheduleRow({
 				size={20}
 				className="mt-0.5 shrink-0 text-kumo-subtle"
 			/>
-			<div className="grid min-w-0 flex-1 gap-1">
+			<div className="grid min-w-0 flex-1 gap-2">
 				<Text
 					as="h3"
 					id={titleId}
@@ -125,7 +125,8 @@ function WorkspaceScheduleRow({
 				)}
 			</div>
 			<Link
-				className="shrink-0 type-tedix-control"
+				className="col-start-2 w-fit shrink-0"
+				variant="navigation"
 				href={`/skills/${encodeURIComponent(schedule.skillId)}/runs`}
 			>
 				See runs
