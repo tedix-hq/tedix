@@ -447,6 +447,12 @@ export const TriageResultSchema = z.object({
 			"`unavailable` when the model failed or timed out (or triage is disabled); urgency is then `later`",
 		),
 	urgency: z.enum(["now", "later"]),
+	attentionKind: z
+		.lazy(() => AgentTurnAttentionKindSchema)
+		.optional()
+		.describe(
+			"Server attention verdict using the configured ask threshold; FYI turns do not create a decision-capture question",
+		),
 	labels: z
 		.record(z.string(), z.number().min(0).max(1))
 		.describe("Probability per policy question id"),

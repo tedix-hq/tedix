@@ -1,3 +1,7 @@
+import {
+	rankDeckCard,
+	compareDecisionFreshness,
+} from "@tedix/api-contract/utils/deck-projection";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { matchQuery } from "@tanstack/react-query";
 import {
@@ -78,8 +82,6 @@ import {
 } from "@/lib/os-query-options";
 import {
 	decisionDeadlinePassed,
-	rankDecision,
-	compareDecisionFreshness,
 	workIsUnowned,
 	classReadiness,
 	decisionEnvelope,
@@ -89,8 +91,7 @@ import {
 import { decisionCaptureSummary } from "@/lib/work-interaction-display";
 import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
-import { deckBatchKey, useDeckBatch } from "@/lib/use-deck-batch";
-import { deckBatchWindow, attentionMetrics } from "@/lib/deck-attention";
+import { attentionMetrics } from "@/lib/deck-attention";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-card";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
@@ -132,6 +133,7 @@ function DecisionDeckContent({
 	const client = useQueryClient();
 	const [optimisticIds, setOptimisticIds] = useState<string[]>([]);
 	const inFlightDecisions = useRef(0);
+	const [saving, setSaving] = useState(false);
 	const factories = useVisibleCardSources(
 		config.factorySources,
 		(source) => source.workspaceId,
@@ -214,13 +216,11 @@ function DecisionDeckContent({
 		new Date(),
 		DEFAULT_DECK_ROUTING.version,
 	);
-	const todayCount = metrics.cardsToday;
 	const [now, setNow] = useState(() => new Date());
 	useEffect(() => {
 		const timer = setInterval(() => setNow(new Date()), 30_000);
 		return () => clearInterval(timer);
 	}, []);
-	const window = deckBatchWindow(config.batchTimesUtc, now);
 	const visitId = useRef(crypto.randomUUID());
 	useEffect(() => {
 		if (!profile.data?.id) return;
@@ -240,12 +240,10 @@ function DecisionDeckContent({
 			.catch(() => {});
 	}, [profile.data?.id, client]);
 	const practiceMode = mode === "practice";
-	const factoryCards = new Map(
-		decisions.factoryCards.map((card) => [`factory:${card.key}`, card]),
-	);
 	const rows = practiceMode
 		? config.examples.map((decision, i) => ({
 				id: `example:${i}`,
+				requestedAt: undefined,
 				kind: decision.kind,
 				label: decision.proposal,
 				project: "Examples",
@@ -257,6 +255,7 @@ function DecisionDeckContent({
 				...(mode === "decide"
 					? decisions.factoryCards.map((card) => ({
 							id: `factory:${card.key}`,
+							requestedAt: card.runCreatedAt,
 							kind: "decision",
 							label: card.action || card.why || card.sourceText,
 							project:
@@ -281,6 +280,7 @@ function DecisionDeckContent({
 					const cardKind = interactionCardKind(row.request);
 					return {
 						id: row.request.id,
+						requestedAt: row.request.requestedAt,
 						kind: cardKind,
 						label: row.request.subject,
 						project:
@@ -291,7 +291,7 @@ function DecisionDeckContent({
 								? {
 										...decision,
 										proposal: presentation.title,
-										preview: { body: presentation.body },
+										preview: decision.preview ?? { body: presentation.body },
 										recommendation: presentation.recommendation,
 									}
 								: decision,
@@ -301,6 +301,7 @@ function DecisionDeckContent({
 				...(mode === "decide"
 					? decisions.work.map((row) => ({
 							id: `work-approval:${row.proposal.id}`,
+							requestedAt: row.proposal.requestedAt,
 							kind: "approval",
 							label: row.workItem.title,
 							project: row.workItem.projectId ?? "Unfiled",
@@ -312,6 +313,7 @@ function DecisionDeckContent({
 				...(!config.projectId && mode === "decide"
 					? (approvals.data?.data ?? []).map((approval) => ({
 							id: `approval:${approval.id}`,
+							requestedAt: approval.createdAt,
 							kind: "approval",
 							label: approval.description,
 							project: "Organization",
@@ -322,45 +324,19 @@ function DecisionDeckContent({
 					: []),
 			];
 	const rank = (row: (typeof rows)[number]) =>
-		rankDecision(row, learningModel.data, new Date(), {
-			classId:
-				row.decision?.classId ??
-				(typeof row.row?.request.metadata?.decisionClass === "string"
-					? row.row.request.metadata.decisionClass
-					: (row.row?.request.kind ?? row.kind)),
-			dueAt: row.row?.request.dueAt,
-			text: row.label,
-			tediId:
-				typeof row.row?.request.metadata?.proposerTediId === "string"
-					? row.row.request.metadata.proposerTediId
-					: null,
-			source:
-				typeof row.row?.request.metadata?.source === "string"
-					? row.row.request.metadata.source
-					: "decision_capture",
-			channel:
-				typeof row.row?.request.metadata?.channel === "string"
-					? row.row.request.metadata.channel
-					: undefined,
-			personIds:
-				typeof row.row?.request.metadata?.personId === "string"
-					? [row.row.request.metadata.personId]
-					: [],
-		});
+		rankDeckCard(row, learningModel.data, now, row.row?.request);
 	const compare = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
 		compareDecisionFreshness(
 			{
 				kind: mode === "decide" ? a.kind : undefined,
 				dueAt: a.row?.request.dueAt,
-				requestedAt:
-					a.row?.request.requestedAt ?? factoryCards.get(a.id)?.runCreatedAt,
+				requestedAt: a.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
 			},
 			{
 				kind: mode === "decide" ? b.kind : undefined,
 				dueAt: b.row?.request.dueAt,
-				requestedAt:
-					b.row?.request.requestedAt ?? factoryCards.get(b.id)?.runCreatedAt,
+				requestedAt: b.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(b).score : undefined,
 			},
 			now,
@@ -383,43 +359,11 @@ function DecisionDeckContent({
 				!optimisticIds.includes(row.id) &&
 				(mode !== "practice" || !skipped.includes(row.id)),
 		);
-	const batchKey = deckBatchKey(
-		workspaceId,
-		profile.data?.id,
-		config.projectId,
-		window.key,
-	);
-	const { batch, dismiss } = useDeckBatch(
-		batchKey,
-		rows
-			.filter((row) => !decisions.criticalIds.has(row.id))
-			.map((row) => row.id),
-		Math.max(0, config.dailyAttentionBudget - todayCount),
-		mode === "decide" &&
-			!!profile.data?.id &&
-			!inbox.isPending &&
-			!inbox.isError &&
-			!decisions.factoryPending &&
-			(decisions.requests.length > 0 ||
-				(!decisions.queuePending && !decisions.queueFailed)) &&
-			!learningQuery.isPending &&
-			!learningQuery.isError,
-	);
+
 	const available =
-		mode === "decide"
-			? rows.filter(
-					(row) =>
-						row.id === focusCard ||
-						decisions.criticalIds.has(row.id) ||
-						(batch &&
-							(row.kind === "approval" ||
-								decisions.scheduledIds.has(row.id) ||
-								batch.ids.includes(row.id)) &&
-							!batch.dismissed.includes(row.id)),
-				)
-			: mode === "practice"
-				? rows.filter((row) => !skipped.includes(row.id))
-				: rows;
+		mode === "practice"
+			? rows.filter((row) => !skipped.includes(row.id))
+			: rows;
 	const filtered =
 		mode === "decide"
 			? ranked.filter((row) =>
@@ -430,25 +374,17 @@ function DecisionDeckContent({
 		(row) => !optimisticIds.includes(row.id),
 	).length;
 	useEffect(() => {
-		if (mode === "decide" && batch && !decisions.pending && !decisions.failed)
+		if (mode === "decide" && !decisions.pending && !decisions.failed)
 			reportRemaining?.(remaining);
-	}, [
-		mode,
-		batch,
-		decisions.pending,
-		decisions.failed,
-		remaining,
-		reportRemaining,
-	]);
+	}, [mode, decisions.pending, decisions.failed, remaining, reportRemaining]);
 	const progress = useDeckProgress(
-		`${batchKey}:${mode}`,
+		`${workspaceId}:${profile.data?.id}:${mode}`,
 		available,
 		matchesFilters,
 		filtered.length,
 	);
 	const filtersActive =
 		kind !== "all" || project !== "all" || urgency !== "all" || search !== "";
-	const saving = optimisticIds.some((id) => !batch?.dismissed.includes(id));
 	const selected =
 		mode === "decide" && focusCard
 			? filtered.find((row) => row.id === focusCard)
@@ -511,9 +447,7 @@ function DecisionDeckContent({
 			: (selected?.row?.request.kind ?? selected?.kind));
 	useDecisionInstrumentation({
 		enabled:
-			mode === "decide" &&
-			Boolean(batch && profile.data?.id) &&
-			!decisions.failed,
+			mode === "decide" && Boolean(profile.data?.id) && !decisions.failed,
 		scopeKey: `${globalThis.location.host}:${workspaceId}:${profile.data?.id}`,
 		root: deckRoot,
 		cardId: selected?.id,
@@ -596,7 +530,13 @@ function DecisionDeckContent({
 			setIndex((value) => Math.min(filtered.length - 1, value + 1));
 		else if (selected) {
 			if (practiceMode) setSkipped((value) => [...value, selected.id]);
-			else dismiss(selected.id);
+			else {
+				setIndex(
+					(filtered.findIndex((row) => row.id === selected.id) + 1) %
+						Math.max(1, filtered.length),
+				);
+				return;
+			}
 			setIndex(0);
 		}
 	};
@@ -606,13 +546,6 @@ function DecisionDeckContent({
 			Math.max(0, filtered.findIndex((row) => row.id === selected?.id) - 1),
 		);
 	};
-	const budgetReached =
-		mode === "decide" &&
-		!focusCard &&
-		todayCount >= config.dailyAttentionBudget &&
-		(!selected ||
-			(!decisions.criticalIds.has(selected.id) &&
-				!metrics.shownToday.includes(selected.id)));
 	useAppWebMcpTools(
 		"decision_deck",
 		{
@@ -636,6 +569,7 @@ function DecisionDeckContent({
 			? async (write: () => Promise<unknown>) => {
 					const id = selected.id;
 					inFlightDecisions.current++;
+					setSaving(true);
 					setOptimisticIds((ids) => [...ids, id]);
 					clearFocusCard();
 					setIndex(0);
@@ -650,7 +584,6 @@ function DecisionDeckContent({
 					);
 					try {
 						const result = await write();
-						dismiss(id);
 						return result;
 					} catch (error) {
 						undo();
@@ -664,6 +597,7 @@ function DecisionDeckContent({
 						throw error;
 					} finally {
 						if (--inFlightDecisions.current === 0) {
+							setSaving(false);
 							const keys = [
 								osQuery.workInteractions.key(),
 								osQuery.workApprovals.key(),
@@ -866,7 +800,6 @@ function DecisionDeckContent({
 					}
 				/>
 				{progress.total > 0 &&
-					!budgetReached &&
 					(selected ||
 						(!decisions.pending &&
 							!decisions.failed &&
@@ -930,12 +863,10 @@ function DecisionDeckContent({
 				!practiceMode &&
 				(mode === "history"
 					? history.isPending
-					: decisions.pending || learningQuery.isPending || !batch) &&
+					: decisions.pending || learningQuery.isPending) &&
 				!(decisions.failed || learningQuery.isError) ? (
 					<DeckCardSkeleton />
-				) : mode === "decide" &&
-				  selected?.id.startsWith("factory:") &&
-				  !budgetReached ? (
+				) : mode === "decide" && selected?.id.startsWith("factory:") ? (
 					<div className="fd-deck-current">
 						<Suspense fallback={<DeckCardSkeleton />}>
 							{factories.pending ? (
@@ -960,11 +891,6 @@ function DecisionDeckContent({
 						{decisions.pending
 							? "Opening that decision…"
 							: "That decision is no longer available in this view."}
-					</Text>
-				) : budgetReached ? (
-					<Text>
-						You’ve reached your attention budget.{" "}
-						<Link href="/work/attention">Open Needs you</Link>
 					</Text>
 				) : selected ? (
 					<div
@@ -1195,8 +1121,7 @@ function DecisionDeckContent({
 						(mode === "history"
 							? !history.isPending && !history.isError
 							: !decisions.pending && !learningQuery.isPending)) &&
-					(practiceMode || mode === "history" || batch) &&
-					!(decisions.failed || learningQuery.isError) &&
+					(practiceMode || !(decisions.failed || learningQuery.isError)) &&
 					(mode === "decide" &&
 					progress.total > 0 &&
 					progress.completed === progress.total ? (
@@ -1235,12 +1160,6 @@ function DecisionDeckContent({
 									? OS_COPY.decisionDeck.streak(metrics.streak)
 									: undefined
 							}
-							detail={OS_COPY.decisionDeck.nextBatch(
-								window.next.toLocaleTimeString([], {
-									hour: "2-digit",
-									minute: "2-digit",
-								}),
-							)}
 						/>
 					))
 				)}

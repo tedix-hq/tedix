@@ -11,7 +11,7 @@ import {
 	safeSource,
 	decisionFeedItems,
 	sentence,
-} from "./activity-feed";
+} from "@tedix/api-contract/utils/activity-feed";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 
@@ -228,7 +228,8 @@ describe("activity feed", () => {
 });
 
 it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding authors", async () => {
-	const { workFeedItems } = await import("./activity-feed");
+	const { workFeedItems } =
+		await import("@tedix/api-contract/utils/activity-feed");
 	const events = [
 		"work.accepted",
 		"work.specification_updated",
@@ -301,7 +302,8 @@ it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding author
 });
 
 it("keeps opaque failure diagnostics out of previews and uses structured harness provenance", async () => {
-	const { resultFeedItems } = await import("./activity-feed");
+	const { resultFeedItems } =
+		await import("@tedix/api-contract/utils/activity-feed");
 	const { WorkAttemptProjectionSchema } =
 		await import("@tedix/api-contract/schemas/work-items");
 	const row = WorkAttemptProjectionSchema.parse({
@@ -360,7 +362,8 @@ it("keeps opaque failure diagnostics out of previews and uses structured harness
 });
 
 it("keeps a personal correction's recorded author for their photo lookup", async () => {
-	const { correctionFeedItems } = await import("./activity-feed");
+	const { correctionFeedItems } =
+		await import("@tedix/api-contract/utils/activity-feed");
 	const { LearningInteractionEventSchema } =
 		await import("@tedix/api-contract/schemas/learning-feedback");
 	const event = LearningInteractionEventSchema.parse({

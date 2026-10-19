@@ -50,7 +50,10 @@ export function DecisionEnvelopeCard({
 			content={
 				<div className="grid min-w-0 gap-3 break-words">
 					{decision.preview && (
-						<DecisionProposalBody body={decision.preview.body} />
+						<DecisionProposalBody
+							body={decision.preview.body}
+							inline={decision.kind === "outbound"}
+						/>
 					)}
 					{!decision.preview && (
 						<Text className="fd-card-summary">{decision.whyNow}</Text>

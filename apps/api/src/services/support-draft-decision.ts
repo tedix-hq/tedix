@@ -6,9 +6,11 @@ import {
 	attentionCopy,
 } from "@tedix/api-contract/utils/attention-copy";
 import { supportObjectId } from "@tedix/api-contract/utils/support-report";
+import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
 import {
 	createWorkInteraction,
 	getWorkInteraction,
+	supersedeSupportDraftInteractions,
 } from "@tedix/db/queries/work-items/interactions";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import type { BaseContext } from "../rpc/orpc";
@@ -28,12 +30,26 @@ export async function ensureSupportDraftDecision(
 			orgId: config.platformOrgId,
 			interactionId: id,
 		})
-	)
+	) {
+		await supersedeSupportDraftInteractions(context.db, {
+			orgId: config.platformOrgId,
+			ticketId: row.id,
+			targetId: config.adminUserId,
+			now: new Date().toISOString(),
+		});
 		return;
+	}
+	const now = new Date().toISOString();
+	const expiresAt = defaultDecisionExpiry({
+		now,
+		kind: "outbound",
+		classId: "support.reply",
+	});
 	const decision = DecisionEnvelopeSchema.parse({
 		version: 1,
 		kind: "outbound",
 		classId: "support.reply",
+		expiresAt,
 		proposal: attentionCopy("supportDraftProposal", {
 			title: row.report.title,
 		}).slice(0, 300),
@@ -95,6 +111,7 @@ export async function ensureSupportDraftDecision(
 				: { type: "user", id: config.adminUserId },
 			targetType: "user",
 			targetId: config.adminUserId,
+			expiresAt,
 			metadata: toJsonRecord({
 				source: "support-draft",
 				reason: ATTENTION_COPY.supportDraftReason,
@@ -103,7 +120,7 @@ export async function ensureSupportDraftDecision(
 				supportTicketId: row.id,
 				supportVersion: row.version,
 			}),
-			now: new Date().toISOString(),
+			now,
 		});
 	} catch (error) {
 		if (
@@ -114,4 +131,10 @@ export async function ensureSupportDraftDecision(
 		)
 			throw error;
 	}
+	await supersedeSupportDraftInteractions(context.db, {
+		orgId: config.platformOrgId,
+		ticketId: row.id,
+		targetId: config.adminUserId,
+		now: new Date().toISOString(),
+	});
 }

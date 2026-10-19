@@ -22,7 +22,7 @@ const project = {
 	createdAt: "2026-10-01T00:00:00.000Z",
 };
 const totals = {
-	needsYou: 0,
+	needsYou: null,
 	decisions: 0,
 	documents: 0,
 	lastTouched: null,
@@ -166,7 +166,11 @@ describe("Today editions", () => {
 								})
 					: { events: [], nextCursor: null },
 			list_attempt_projection: async () => ({ data: [], nextCursor: null }),
-			get_today_project_totals: async () => totals,
+			get_today_project_totals: async (input) => {
+				expect(input.includeDeckCount).toBe(false);
+				expect(input.timeZone).toBe(config.timeZone);
+				return totals;
+			},
 			get_os_output: async () => ({ currentRevision: { revision: 4 } }),
 			revise_os_output: async (input) => {
 				expect(input.expectedRevision).toBe(4);
@@ -193,6 +197,39 @@ describe("Today editions", () => {
 		expect(result.projects).toBe(2);
 		expect(content.blocks[3].text).toBe("1 project quiet");
 		expect(content.blocks[4].rows).toHaveLength(1);
+		expect(content.blocks[4].rows[0][4]).toBe("");
+	});
+	test("keeps labels short and machine receipt identities intact without publishing stale attention counts", () => {
+		const receiptId = "11111111-1111-4111-8111-111111111111";
+		const result = projectRow(
+			{ ...project, name: "Website customer success planning" },
+			[],
+			[],
+			{
+				...totals,
+				needsYou: 242,
+				documents: 1,
+				receipts: [
+					{
+						id: receiptId,
+						title: `Plan ${receiptId}`,
+						source: `/outputs/${receiptId}`,
+						at: NOW.toISOString(),
+					},
+				],
+			},
+			NOW,
+			config,
+		);
+		expect(result.row[0]).toBe("Website customer success");
+		expect(result.row[4]).toBe("");
+		expect(result.receipts[0]).toEqual([
+			project.id,
+			receiptId,
+			"Plan updated.",
+			`/outputs/${receiptId}`,
+			NOW.toISOString(),
+		]);
 	});
 	test("does no source reads outside local edition slots", async () => {
 		setSystemTime(new Date("2026-10-18T09:15:00.000Z"));

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { runAttentionCommand } from "./attention";
 import {
 	recordSessionScope,
 	scopeFromWorkResult,
@@ -1227,6 +1228,21 @@ async function main() {
 					...(options.workReason ? { reason: options.workReason } : {}),
 					...(options.limit ? { limit: options.limit } : {}),
 				},
+			});
+			return;
+		}
+		if (command === "deck" || command === "feed") {
+			process.exitCode = await runAttentionCommand(command, {
+				client,
+				json: options.json,
+				positionals: options.positionals ?? [],
+				projectId: options.workProject,
+				limit: options.limit,
+				workspace: workspaceName,
+				mcpUrl: options.url,
+				organizationId: organizationContext.workspace,
+				bootstrapCache: fileNativeBootstrapCache(),
+				signal: commandAbort.signal,
 			});
 			return;
 		}

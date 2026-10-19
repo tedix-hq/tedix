@@ -1,12 +1,12 @@
 import type {
 	ActivityFeedConfig,
 	ActivityFeedItem,
-} from "@tedix/api-contract/schemas/os-activity-feed";
+} from "../schemas/os-activity-feed";
 import {
 	DecisionLearningConfigSchema,
 	type DecisionLearningModel,
-} from "@tedix/api-contract/schemas/decision-learning";
-import type { LearningInteractionEvent } from "@tedix/api-contract/schemas/learning-feedback";
+} from "../schemas/decision-learning";
+import type { LearningInteractionEvent } from "../schemas/learning-feedback";
 import { safeSource, type FeedPreferences } from "./activity-feed";
 
 export type FocusSignal =

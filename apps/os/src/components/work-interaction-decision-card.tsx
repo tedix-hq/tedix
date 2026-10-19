@@ -260,6 +260,9 @@ export function WorkInteractionDecisionCard({
 			await refresh();
 		},
 	});
+	const previewDecision = preview
+		? decisionEnvelope(preview.request.metadata)
+		: null;
 	if (!detail && preview?.request.id === requestId)
 		return (
 			<DecisionAttentionContext.Provider value={null}>
@@ -292,7 +295,12 @@ export function WorkInteractionDecisionCard({
 									)}
 								</p>
 							) : (
-								<DecisionProposalBody body={preview.request.prompt} />
+								<DecisionProposalBody
+									body={
+										previewDecision?.preview?.body ?? preview.request.prompt
+									}
+									inline={previewDecision?.kind === "outbound"}
+								/>
 							)}
 							{!readFailed && (
 								<p role="status">{decisionText("Loading request")}</p>
@@ -334,6 +342,9 @@ export function WorkInteractionDecisionCard({
 		request.metadata?.cardPresentation,
 	).data;
 	const capture = decisionCaptureSummary(request.metadata);
+	const decision = decisionEnvelope(request.metadata);
+	const outboundBody =
+		decision?.kind === "outbound" ? decision.preview?.body : undefined;
 	const source =
 		(capture?.source?.includes("Codex")
 			? "Codex"
@@ -476,7 +487,8 @@ export function WorkInteractionDecisionCard({
 						) : (
 							<DecisionProposalBody
 								key={request.id}
-								body={presentation?.body ?? request.prompt}
+								body={outboundBody ?? presentation?.body ?? request.prompt}
+								inline={decision?.kind === "outbound"}
 							/>
 						)}
 						{presentation && (

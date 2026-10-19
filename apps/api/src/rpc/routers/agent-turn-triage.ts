@@ -557,6 +557,9 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 	return {
 		status: "ok",
 		...scoreTriage(policy, labels),
+		...(labels[ATTENTION.ask.id] !== undefined
+			? { attentionKind: attentionKindOf(labels[ATTENTION.ask.id]!) }
+			: {}),
 		labels,
 		model: policy.model,
 		policyVersion: policy.version,

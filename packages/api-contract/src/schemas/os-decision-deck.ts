@@ -125,6 +125,7 @@ export function classifyDeckCard(
 		protectedEffects?: readonly string[];
 		tasteOrStrategy?: boolean;
 		needsPerson: boolean;
+		effectKnown?: boolean;
 		dueAt?: string | null;
 	},
 	policy: DeckRoutingPolicy = DEFAULT_DECK_ROUTING,
@@ -157,6 +158,7 @@ export function classifyDeckCard(
 			)
 		)
 			reason = "critical";
+		else if (card.effectKnown === false) reason = "missing_effect";
 		else if (matches(policy.feedClasses)) reason = "routine";
 		else if (matches(policy.valuableClasses)) reason = "valuable";
 		else if (card.tasteOrStrategy) reason = "owner_strategy";
@@ -176,7 +178,7 @@ export function classifyDeckCard(
 	)
 		reason = "learned_feed";
 	return {
-		destination: ["routine", "learned_feed"].includes(reason)
+		destination: ["routine", "learned_feed", "missing_effect"].includes(reason)
 			? ("feed" as const)
 			: ("deck" as const),
 		reason,

@@ -685,6 +685,53 @@ export async function expireWorkInteraction(
 	);
 }
 
+/** Retain previous drafts as expired history, without answering for the recipient. */
+export async function supersedeSupportDraftInteractions(
+	db: DbQueryClient,
+	p: { orgId: string; ticketId: string; targetId: string; now: string },
+) {
+	const sameSource = and(
+		eq(workInteractions.orgId, p.orgId),
+		eq(workInteractions.targetType, "user"),
+		eq(workInteractions.targetId, p.targetId),
+		sql`json_extract(${workInteractions.metadata}, '$.source') = 'support-draft'`,
+		sql`json_extract(${workInteractions.metadata}, '$.supportTicketId') = ${p.ticketId}`,
+		sql`json_type(${workInteractions.metadata}, '$.supportVersion') = 'integer'`,
+	);
+	const [latest] = await db
+		.select({ id: workInteractions.id, metadata: workInteractions.metadata })
+		.from(workInteractions)
+		.where(sameSource)
+		.orderBy(
+			desc(sql`json_extract(${workInteractions.metadata}, '$.supportVersion')`),
+		)
+		.limit(1);
+	if (!latest) return [];
+	return db
+		.update(workInteractions)
+		.set({
+			status: "expired",
+			expiredAt: p.now,
+			resolutionFence: crypto.randomUUID(),
+			version: sql`${workInteractions.version}+1`,
+			metadata: sql`json_set(${workInteractions.metadata}, '$.supersession', json(${JSON.stringify(
+				{
+					reason: "newer_support_draft",
+					supersededBy: latest.id,
+					at: p.now,
+				},
+			)}))`,
+		})
+		.where(
+			and(
+				sameSource,
+				eq(workInteractions.status, "open"),
+				sql`json_extract(${workInteractions.metadata}, '$.supportVersion') < ${latest.metadata.supportVersion}`,
+			),
+		)
+		.returning({ id: workInteractions.id });
+}
+
 /** Retire obsolete requests without answering in the recipient's name. */
 export async function sweepObsoleteWorkInteractions(
 	db: DbQueryClient,

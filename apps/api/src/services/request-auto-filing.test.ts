@@ -84,7 +84,7 @@ async function fixture(
 }
 
 describe("automatic filing", () => {
-	it("uses configured intake for unbound scope without provisioning bare containers", async () => {
+	it("keeps an unmeasured intake suggestion unfiled without creating Work", async () => {
 		const { db, row } = await fixture();
 		await autoFileRequests(
 			db,
@@ -96,7 +96,7 @@ describe("automatic filing", () => {
 			},
 		);
 		expect((await listAgentSessionRequests(db, owner))[0]?.projectId).toBe(
-			"project-docs",
+			null,
 		);
 		expect(await db.select().from(projects)).toHaveLength(1);
 		expect(await db.select().from(osWorkspaces)).toHaveLength(0);
@@ -104,9 +104,9 @@ describe("automatic filing", () => {
 			orgId: owner.organizationId,
 			sourceIntentId: `request-filing:${row.id}`,
 		});
-		expect(work?.disposition).toBe("proposed");
+		expect(work).toBeNull();
 		expect((await listRequestFilings(db, owner))[0]?.metadata?.confidence).toBe(
-			0,
+			null,
 		);
 	});
 	it("uses fit confidence, creates proposed Work once, and preserves open status", async () => {
@@ -129,11 +129,17 @@ describe("automatic filing", () => {
 		model.scoreProjectFit = async () => 0.4;
 		await autoFileRequests(db, model, { ...owner, now });
 		const [filed] = await listAgentSessionRequests(db, owner);
-		expect(filed?.projectId).toBe("project-docs");
+		expect(filed?.projectId).toBeNull();
 		expect(filed?.status).toBe("waiting_on_user");
 		expect(await db.select().from(projects)).toHaveLength(1);
 		const [event] = await listRequestFilings(db, owner);
-		expect(event?.metadata?.confidence).toBe(0.4);
+		expect(event?.metadata).toMatchObject({
+			confidence: 0.4,
+			pending: true,
+			suggestedProjectId: "project-docs",
+		});
+		await autoFileRequests(db, model, { ...owner, now });
+		expect(await listRequestFilings(db, owner)).toHaveLength(1);
 		expect(
 			await getWorkItemBySourceIntentId(db, {
 				orgId: owner.organizationId,
@@ -197,27 +203,30 @@ describe("automatic filing", () => {
 			expect(await listRequestFilings(db, owner)).toEqual([]);
 		}
 	});
-	it("retries proposed Work from a committed filing after an interrupted invocation", async () => {
-		const { db, row, model } = await fixture("issue");
-		await recordRequestFiling(db, {
-			...owner,
-			row,
-			projectId: "project-docs",
-			by: "auto",
-			confidence: 0.9,
-			reason: "Fits",
-			actionable: true,
-			now,
-		});
-		await autoFileRequests(db, model, { ...owner, now });
-		expect(model).not.toHaveBeenCalled();
-		expect(
-			await getWorkItemBySourceIntentId(db, {
+	it.each([0, 0.4, 0.8, 0.9])(
+		"retries only confident committed filings after an interruption (%s)",
+		async (confidence) => {
+			const { db, row, model } = await fixture("issue");
+			await recordRequestFiling(db, {
+				...owner,
+				row,
+				projectId: "project-docs",
+				by: "auto",
+				confidence,
+				reason: "Fits",
+				actionable: true,
+				now,
+			});
+			await autoFileRequests(db, model, { ...owner, now });
+			expect(model).not.toHaveBeenCalled();
+			const work = await getWorkItemBySourceIntentId(db, {
 				orgId: owner.organizationId,
 				sourceIntentId: `request-filing:${row.id}`,
-			}),
-		).not.toBeNull();
-	});
+			});
+			if (confidence >= 0.8) expect(work).not.toBeNull();
+			else expect(work).toBeNull();
+		},
+	);
 	it("feeds corrected examples into the next pick and measures the weekly cohort", async () => {
 		const { db, row, model } = await fixture("idea");
 		await autoFileRequests(db, model, { ...owner, now });
@@ -263,9 +272,9 @@ describe("automatic filing", () => {
 			"2026-10-10T10:03:00.000Z",
 		);
 		expect(digest).toMatchObject({
-			total: 2,
+			total: 1,
 			corrected: 1,
-			correctionRate: 0.5,
+			correctionRate: 1,
 		});
 		expect(
 			await weeklyFilingDigest(
@@ -537,32 +546,39 @@ it("proposes an unmatched scope within its existing intake, without creating sta
 		});
 	await autoFileRequests(db, model, { ...owner, now });
 	const [filed] = await listAgentSessionRequests(db, owner);
-	expect(filed?.projectId).toBe("project-docs");
+	expect(filed?.projectId).toBeNull();
 	const [event] = await listRequestFilings(db, owner);
-	expect(event?.metadata?.confidence).toBe(0);
+	expect(event?.metadata).toMatchObject({
+		confidence: null,
+		pending: true,
+		suggestedProjectId: "project-docs",
+	});
 	expect(event?.metadata?.reason).toContain(
-		"Filed provisionally in Documentation",
+		"Left unfiled: no measured project match",
 	);
 	const work = await getWorkItemBySourceIntentId(db, {
 		orgId: owner.organizationId,
 		sourceIntentId: `request-filing:${row.id}`,
 	});
-	expect(work?.disposition).toBe("proposed");
-	expect(work?.description).toContain("Factory proposal");
+	expect(work).toBeNull();
 	expect(await db.select().from(projects)).toHaveLength(1);
 	expect(await db.select().from(osWorkspaces)).toEqual([]);
 });
 
 it("leaves an unbound unmatched row open instead of creating an unowned project", async () => {
 	const { db } = await fixture();
-	await expect(
-		autoFileRequests(
-			db,
-			async () => JSON.stringify({ ...pick, projectId: null }),
-			{ ...owner, now },
-		),
-	).rejects.toThrow("existing source project");
-	expect(await listRequestFilings(db, owner)).toEqual([]);
+	await autoFileRequests(
+		db,
+		async () => JSON.stringify({ ...pick, projectId: null }),
+		{ ...owner, now },
+	);
+	const [event] = await listRequestFilings(db, owner);
+	expect(event?.metadata).toMatchObject({
+		projectId: null,
+		confidence: null,
+		pending: true,
+		suggestedProjectId: null,
+	});
 	expect(await db.select().from(projects)).toHaveLength(1);
 	expect(await db.select().from(workItems)).toEqual([]);
 });

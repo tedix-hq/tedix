@@ -1,0 +1,206 @@
+import { learnDecisions } from "./decision-learning";
+import { DecisionLearningConfigSchema } from "../schemas/decision-learning";
+import { describe, expect, it } from "vite-plus/test";
+import type * as z from "zod";
+import type { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
+import { rankDeckCard, projectDeckCards } from "./deck-projection";
+
+type Row = z.infer<typeof WorkInteractionInboxRowSchema>;
+const now = new Date("2026-10-19T12:00:00.000Z");
+function row(
+	id: string,
+	metadata: Record<string, unknown> = {},
+	overrides: Partial<Row> = {},
+): Row {
+	return {
+		request: {
+			id,
+			kind: "question",
+			subject: "A worthwhile decision?",
+			prompt: "What should happen next?",
+			metadata,
+			requestedAt: "2026-10-19T10:00:00.000Z",
+			dueAt: null,
+			projectId: null,
+			workItemId: null,
+		},
+		effectiveState: "open",
+		canRespond: true,
+		...overrides,
+	} as Row;
+}
+function project(requests: Row[]) {
+	return projectDeckCards({
+		requests,
+		work: [],
+		runtime: [],
+		now,
+		timeZone: "Europe/Berlin",
+	});
+}
+const decision = {
+	version: 1,
+	kind: "outbound",
+	classId: "customer.followup",
+	proposal: "Send the prepared answer?",
+	whyNow: "The customer is waiting.",
+	recommendation: "Send the answer because it addresses the question.",
+	preview: { body: "Full draft\n\nSecond paragraph with details." },
+	reversibility: "one_way",
+	tasteOrStrategy: false,
+	protectedEffects: ["message"],
+	blastRadius: "The customer receives the reply.",
+	confidence: 0.9,
+	costOfWaiting: "The issue remains unanswered.",
+	reasoning: "The draft answers the customer.",
+	lessons: [],
+	options: [
+		{
+			id: "send",
+			label: "Send",
+			intent: "approve",
+			consequence: "The reply is sent.",
+			cost: "One message",
+		},
+		{
+			id: "wait",
+			label: "Wait",
+			intent: "later",
+			consequence: "No message is sent.",
+			cost: "The customer waits",
+		},
+	],
+};
+
+describe("canonical Deck projection", () => {
+	it("keeps valuable and critical decisions while hiding filing and status noise", () => {
+		expect(
+			project([
+				row("filing", { decisionClass: "filing.request" }),
+				row("fyi", {
+					schema: "tedix.decision-capture.v1",
+					attention: { kind: "fyi" },
+				}),
+				row("customer", { decisionDeck: decision }),
+				row("opportunity", { decisionClass: "opportunity.new" }),
+				row("critical", { riskLevel: "critical" }),
+			]).map((card) => card.id),
+		).toEqual(["customer", "opportunity", "critical"]);
+	});
+	it("preserves the complete draft and the canonical response version", () => {
+		const original = row("customer", { decisionDeck: decision });
+		original.request.version = 7;
+		const [card] = project([original]);
+		expect(card?.decision?.preview?.body).toBe(decision.preview.body);
+		expect(card?.interaction?.request.version).toBe(7);
+	});
+	it("excludes another recipient, resolved, reviewing and future scheduled cards", () => {
+		expect(
+			project([
+				row("other", { riskLevel: "critical" }, { canRespond: false }),
+				row(
+					"resolved",
+					{ riskLevel: "critical" },
+					{ effectiveState: "resolved" },
+				),
+				row("reviewing", {
+					schema: "tedix.outbound.v1",
+					outboundStatus: "reviewing",
+					riskLevel: "critical",
+				}),
+				row("future", { riskLevel: "critical", scheduledAt: "2026-10-20" }),
+			]),
+		).toEqual([]);
+	});
+	it("dedicates approvals priority but demotes expired deadlines for revalidation", () => {
+		const expired = row("expired", { riskLevel: "critical" });
+		expired.request.dueAt = "2026-10-18T12:00:00.000Z";
+		expect(
+			project([
+				expired,
+				row("fresh", { riskLevel: "critical" }),
+				row("approval", {
+					approvalOperation: "publish",
+					approvalTarget: "a document",
+				}),
+			]).map((card) => card.id),
+		).toEqual(["approval", "fresh", "expired"]);
+	});
+});
+
+it("uses learned source and project weights for factories and approvals as well as interaction cards", () => {
+	const model = learnDecisions({
+		organizationId: "fictional-orchard",
+		personId: "river",
+		events: [],
+		config: DecisionLearningConfigSchema.parse({ enabled: true }),
+		now,
+	});
+	model.weights.personal.push({
+		key: "source:decision_capture",
+		value: 2,
+		examples: 3,
+		evidenceIds: ["choice1"],
+	});
+	model.weights.priority.push({
+		key: "project:orchard-project",
+		value: 3,
+		examples: 3,
+		evidenceIds: ["choice2"],
+	});
+	for (const kind of ["decision", "approval"]) {
+		const card = {
+			id: `${kind}:1`,
+			kind,
+			project: "orchard-project",
+			urgency: "later",
+			label: "Prepare the next step",
+			decision: null,
+		};
+		const score = rankDeckCard(card, model, now);
+		expect(score.score).toBeGreaterThan(0);
+		expect(score.factors.flatMap((factor) => factor.evidenceIds)).toEqual(
+			expect.arrayContaining(["choice1", "choice2"]),
+		);
+	}
+});
+
+it("keeps critical credential and consent requests whose subject carries the ask", () => {
+	for (const subject of [
+		"Replace my API key?",
+		"Extend the organization consent?",
+		"Allow this service to read my private records?",
+	]) {
+		const request = row(subject);
+		request.request.subject = subject;
+		request.request.prompt = "Continue the previously described setup.";
+		expect(project([request]).map((card) => card.id)).toEqual([subject]);
+	}
+});
+
+it("emits both admitted and withheld routing receipts without a human vote", () => {
+	const routes: Array<{ id: string; destination: string; reason: string }> = [];
+	const cards = projectDeckCards({
+		requests: [
+			row("filing", { decisionClass: "filing.request" }),
+			row("outbound", { schema: "tedix.outbound.v1" }),
+		],
+		work: [],
+		runtime: [],
+		now,
+		onRoute: (route) => routes.push(route),
+	});
+	expect(cards.map((card) => card.id)).toEqual(["outbound"]);
+	expect(routes).toEqual([
+		expect.objectContaining({
+			id: "filing",
+			destination: "feed",
+			reason: "routine",
+		}),
+		expect.objectContaining({
+			id: "outbound",
+			destination: "deck",
+			reason: "critical",
+		}),
+	]);
+});

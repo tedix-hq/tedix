@@ -21,7 +21,7 @@ import {
 	snoozeUntil,
 	sourceParts,
 	verdictCells,
-} from "./card-review";
+} from "@tedix/api-contract/utils/card-review";
 
 const INBOX_WS = "11111111-1111-4111-8111-111111111111";
 const SOCIAL_WS = "22222222-2222-4222-8222-222222222222";

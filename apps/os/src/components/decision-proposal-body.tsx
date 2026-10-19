@@ -13,13 +13,19 @@ import { Link } from "@/components/kumo/link";
 import { OS_COPY } from "@/shared/os-copy";
 
 /** Keep the proposal readable without losing the complete source text. */
-export function DecisionProposalBody({ body }: { body: string }) {
+export function DecisionProposalBody({
+	body,
+	inline = false,
+}: {
+	body: string;
+	inline?: boolean;
+}) {
 	const [expanded, setExpanded] = useState(false);
 	const rail = useContext(DecisionRailContext);
 	const preview = markdownLineToPlainText(
 		body.replace(/https?:\/\/[^\s)<>]+/g, "").replace(/\n+/g, " "),
 	);
-	if (rail)
+	if (rail && !inline)
 		return (
 			<div className="fd-proposal-body">
 				<p className="fd-proposal-preview">{preview}</p>
@@ -36,7 +42,7 @@ export function DecisionProposalBody({ body }: { body: string }) {
 		);
 	return (
 		<div className="fd-proposal-body">
-			{expanded ? (
+			{inline || expanded ? (
 				<ChatMarkdown
 					content={body}
 					components={{
@@ -64,15 +70,17 @@ export function DecisionProposalBody({ body }: { body: string }) {
 			) : (
 				<p className="fd-proposal-preview">{preview}</p>
 			)}
-			<Button
-				className="fd-proposal-more"
-				variant="ghost"
-				size="sm"
-				aria-expanded={expanded}
-				onClick={() => setExpanded((value) => !value)}
-			>
-				{expanded ? OS_COPY.feedDeckVisual.less : OS_COPY.feedDeckVisual.more}
-			</Button>
+			{!inline && (
+				<Button
+					className="fd-proposal-more"
+					variant="ghost"
+					size="sm"
+					aria-expanded={expanded}
+					onClick={() => setExpanded((value) => !value)}
+				>
+					{expanded ? OS_COPY.feedDeckVisual.less : OS_COPY.feedDeckVisual.more}
+				</Button>
+			)}
 		</div>
 	);
 }

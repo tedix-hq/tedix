@@ -429,6 +429,9 @@ export function triageOf(value: unknown, latencyMs: number): TriageResult {
 	return {
 		status: "ok",
 		urgency: value.urgency,
+		...(value.attentionKind === "fyi" || value.attentionKind === "needs_you"
+			? { attentionKind: value.attentionKind }
+			: {}),
 		labels: Object.fromEntries(labels),
 		urgentLabels,
 		model: value.model.slice(0, 200),
@@ -1085,8 +1088,8 @@ async function onStop(
 		options.triageTimeoutMs ?? TRIAGE_TIMEOUT_MS,
 	);
 	await settle(triage);
-	if (triage.status !== "ok") {
-		// Shared Work comments must not become a fallback transcript store.
+	if (triage.status !== "ok" || triage.attentionKind === "fyi") {
+		// Status updates and unclassified turns stay in their chat/private ledger.
 		rmSync(state, { force: true });
 		return;
 	}

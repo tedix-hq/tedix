@@ -5,7 +5,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
-import { readToday, todayShortcut } from "@/lib/today-digest";
+import {
+	readToday,
+	todayProjectLabel,
+	todayProgress,
+	todayShortcut,
+} from "@/lib/today-digest";
 import {
 	Card,
 	CardContent,
@@ -33,6 +38,17 @@ export function TodayPost({
 		input: { outputId: config.outputId },
 	});
 	const output = useQuery({ ...options, refetchInterval: 60_000 });
+	const deck = useQuery({
+		...osQuery.attention.listDeckCards.queryOptions({
+			input: { limit: 100 },
+		}),
+		refetchInterval: 30_000,
+	});
+	const purpose = useQuery({
+		...osQuery.organizationPurpose.getActive.queryOptions({ input: {} }),
+		refetchInterval: 60_000,
+		retry: false,
+	});
 	const content = output.data?.currentRevision?.content;
 	const digest = useMemo(() => content && readToday(content), [content]);
 	useEffect(
@@ -111,6 +127,13 @@ export function TodayPost({
 				</div>
 			</CardHeader>
 			<CardContent className="grid gap-4">
+				<Link variant="record" href="/work?view=deck">
+					{deck.data?.complete && !deck.isError
+						? `Needs you ${deck.data.count}`
+						: deck.isPending
+							? "Checking Deck…"
+							: "Open Deck · count unavailable"}
+				</Link>
 				{(!compact || expanded) && <LearnedToday timeZone={config.timeZone} />}
 				{output.isPending ? (
 					<Text>Opening Today…</Text>
@@ -118,21 +141,14 @@ export function TodayPost({
 					<Text>Today is unavailable. Try Refresh.</Text>
 				) : (
 					<>
-						<Text>{digest.purpose}</Text>
+						{purpose.data?.charter?.purpose && (
+							<Text>{purpose.data.charter.purpose}</Text>
+						)}
 						<Text tone="secondary" className="type-tedix-caption">
 							{digest.updated}
 						</Text>
 						{(compact && !expanded ? digest.rows.slice(0, 1) : digest.rows).map(
-							([
-								name,
-								goal,
-								progress,
-								running,
-								needs,
-								project,
-								receipts,
-								deck,
-							]) => (
+							([name, goal, progress, running, , project, receipts]) => (
 								<article
 									key={project}
 									className="focus-today-project grid gap-3"
@@ -142,29 +158,27 @@ export function TodayPost({
 										className="font-medium"
 										href={project!}
 									>
-										{name}
+										{todayProjectLabel(name!)}
 									</Link>
 									{!compact && <Text tone="secondary">{goal}</Text>}
 									<div className="focus-today-chips">
 										{compact && (
 											<Text tone="secondary">
-												{Number(needs) > 0
-													? "Needs you"
-													: running !== "Nothing running now."
-														? "Moving"
-														: "Updated"}
+												{running !== "Nothing running now."
+													? "Moving"
+													: "Updated"}
 											</Text>
 										)}
 										<Link variant="record" href={receipts!}>
-											{compact
-												? (changesSinceLook?.get(project!.split("/").at(-1)!) ??
-													progress)
-												: progress}
+											{todayProgress(
+												compact
+													? (changesSinceLook?.get(
+															project!.split("/").at(-1)!,
+														) ?? progress!)
+													: progress!,
+											)}
 										</Link>
 										{!compact && <Text>{running}</Text>}
-										<Link variant="record" href={deck!}>
-											{needs} need{needs === "1" ? "s" : ""} you
-										</Link>
 									</div>
 								</article>
 							),

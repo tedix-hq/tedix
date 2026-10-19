@@ -183,6 +183,7 @@ const portableBlueprintExport = {
 };
 
 const CALLS: Record<string, unknown> = {
+	"attention/listDeckCards": {},
 	"workInteractions/outbound/list": { limit: 50 },
 	"workInteractions/outbound/get": {
 		workItemId: "00000090-0000-4000-8000-000000000001",

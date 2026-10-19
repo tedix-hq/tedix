@@ -7,6 +7,7 @@
  * resolved correctly from `memoryGraph/gaps/detect`.
  */
 
+import { attentionContract } from "../contracts/attention";
 import { getOpenAPIMeta } from "@orpc/openapi";
 import { repositoryObserverContract } from "../contracts/repository-observer";
 import { supportContract } from "../contracts/support";
@@ -211,6 +212,7 @@ export const ROUTERS: Record<string, unknown> = {
 	support: supportContract,
 	workApprovals: workApprovalsContract,
 	workAgentSessions: workAgentSessionsContract,
+	attention: attentionContract,
 	workInteractions: workInteractionsContract,
 	workFleet: workFleetContract,
 	workScheduler: workSchedulerContract,

@@ -98,7 +98,7 @@ Every hook does nothing until you opt in to its feature:
 | ---------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `session-start`        | Session start, resume, clear, compaction                                                           | Reads auth and the bound Work Item from Tedix and adds a short brief to the session. Sends no session content.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | `tedix setup agents context bind`, or `TEDIX_PLUGIN_PREFLIGHT=1`                                                                                                                                                                                                                                        |
 | `prompt-context`       | Each submitted prompt                                                                              | Reads the selected Work's latest comments, connected documents and the organization's approved team lessons for this repository and adds them as context, plus one line per open delegation this session registered with `tedix work delegate`. With decision capture on, it also lists up to five open requests from your request ledger. Never sends the prompt text. Reads run in parallel; the preferences document, the lessons and the organization check are cached for ten minutes per profile, organization and user under `~/.tedix/hook-cache/`. `TEDIX_HOOK_TRACE=1` prints per-step timings to stderr. | A repository binding; `context select`, `connect-output` or `connect-preferences` add sources. Outside a bound repository, lessons and that organization's `connect-preferences` document, for `TEDIX_ORGANIZATION`, the `context set-default-organization` choice or the profile's single organization |
-| `capture-stop`         | End of each turn (background)                                                                      | Sends the turn's final message, redacted and bounded to 6,000 characters, as a question in your organization. It appears in your "For you" inbox in Tedix OS until you or a tedi answers it. It also uploads the turn with a redacted digest of its tool failures and the agents it started, for your private request ledger.                                                                                                                                                                                                                                                                                       | `tedix setup agents context enable-decision-capture`                                                                                                                                                                                                                                                    |
+| `capture-stop`         | End of each turn (background)                                                                      | Records the redacted turn and tool-failure digest in your private request ledger. Triage creates a question only when the turn needs attention; an explicit FYI classification creates no question. Deck routing then selects valuable decisions.                                                                                                                                                                                                                                                                                                                                                                   | `tedix setup agents context enable-decision-capture`                                                                                                                                                                                                                                                    |
 | `capture-reply`        | Each submitted prompt (background)                                                                 | Sends your reply to that question, redacted and bounded the same way. It also uploads each message you type, redacted the same way, for your private request ledger; on Tedix a small model records its requests, questions and decisions in the background.                                                                                                                                                                                                                                                                                                                                                        | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
 | `await-reply`          | End of each turn; Claude Code only, background, up to four hours                                   | Wakes the session with every answer you gave in Tedix OS to its questions (not only the newest), or a tedi automatic reply, and records each delivery once.                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
 | `await-draft`          | End of each turn; Codex only, may hold the turn up to 5 minutes                                    | Continues the turn with your pending Tedix OS answers to the session's questions, or an automatic tedi reply, and records each delivery once.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Same as `capture-stop`                                                                                                                                                                                                                                                                                  |
@@ -403,6 +403,43 @@ can change, so discover those live through Code Mode instead:
 ```bash
 tedix code 'async () => await discover.search({ query: "calendar", limit: 3 })'
 ```
+
+## Read your Deck and Feed
+
+Use the same ranked attention view as Tedix OS:
+
+```bash
+tedix deck list --json
+tedix deck show <card-id> --json
+tedix feed --json
+```
+
+`deck list` returns the full gated queue's `count`, a bounded `cards` list and
+`complete`. A false `complete` means a source is truncated; it must not be
+treated as an exact total. Unavailable sources fail the request. Choose an app
+when several visible Work apps have the same role:
+`tedix deck list '{"gadgetId":"<uuid>"}'`. Pass a viewer timezone with
+`{"timeZone":"Europe/Berlin"}` for scheduled cards. Without an override,
+the reader uses your saved OS timezone preference.
+Reads inspect the authenticated caller's inbox, OS app configuration, ranking
+model and learning history. An agent credential does not become its owner's
+login. Inspection records no impression and consumes no attention budget.
+
+`tedix deck decide <card-id> '<decision-json>'` uses the original interaction or
+approval contract payload and its expected version. Factory feedback uses
+`kind: "factory"`, `cardId`, `expectedRevision`, `verdict` (`useful` or
+`not_useful`) and `reason`; it saves the configured sheet cells and learning
+signal. Provider actions and factory skill execution retain their owning tools.
+Use `tedix deck --help` and the configured tool schema to inspect the payload.
+The CLI resolves the configured native MCP wire name through the authenticated
+catalog before invoking a tool; it refuses mismatched endpoints and schemas.
+
+For connected agents the corresponding configured RPC tools are
+`list_deck_cards`, `get_deck_card`, `decide_deck_card` and `list_feed_for_you`.
+Read tools require messaging read scope plus the scopes of their OS, Work and
+learning sources. Decisions require messaging write scope and the original
+resource's designation and mutation authority. These tools must be installed
+in the operator's catalog; a source checkout does not install them.
 
 ## Uninstall
 

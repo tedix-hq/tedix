@@ -7,6 +7,24 @@ import {
 } from "./caller-identity";
 
 describe("configured direct transport eligibility", () => {
+	it.each([
+		"list_deck_cards",
+		"get_deck_card",
+		"decide_deck_card",
+		"list_feed_for_you",
+	])("requires configured native opt-in for %s", (toolId) => {
+		const row = { toolId, enabled: true, config: { nativeDirect: true } };
+		expect(
+			shouldBypassCodeModeForCaller({ authType: "external_agent" }, toolId, [
+				row,
+			]),
+		).toBe(true);
+		expect(
+			shouldBypassCodeModeForCaller({ authType: "external_agent" }, toolId, [
+				{ ...row, config: {} },
+			]),
+		).toBe(false);
+	});
 	const row = {
 		toolId: "get_work",
 		enabled: true,

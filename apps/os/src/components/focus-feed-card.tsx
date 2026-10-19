@@ -2,7 +2,7 @@ import { useContext, useState } from "react";
 import { ChatText, Info, ListPlus, Receipt } from "@phosphor-icons/react";
 import { FocusRowActions, type FocusRowAction } from "./focus-row-actions";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
-import type { FocusItem } from "@/lib/focus-feed";
+import type { FocusItem } from "@tedix/api-contract/utils/focus-feed";
 import {
 	DecisionContextSection,
 	DecisionRailContext,

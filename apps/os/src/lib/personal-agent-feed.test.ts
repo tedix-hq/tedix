@@ -1,7 +1,7 @@
 import { expect, it } from "vite-plus/test";
 import { ActivityFeedItemSchema } from "@tedix/api-contract/schemas/os-activity-feed";
-import { workFeedItems } from "./activity-feed";
-import { timelineItems } from "./feed-story";
+import { workFeedItems } from "@tedix/api-contract/utils/activity-feed";
+import { timelineItems } from "@tedix/api-contract/utils/feed-story";
 
 it("shows an enrolled agent's fictional finding as one Feed post with provenance and canonical Work receipt", () => {
 	const id = "11111111-1111-4111-8111-111111111111";

@@ -89,7 +89,6 @@ export function projectRow(project, events, attempts, totals, now, config) {
 			) &&
 			new Date(r.attempt.expiresAt) > now,
 	);
-	const needs = totals.needsYou;
 	const count = (n, one, many) => (n ? `${n} ${n === 1 ? one : many}` : null);
 	const progress = [
 		count(completed, "task finished", "tasks finished"),
@@ -124,18 +123,18 @@ export function projectRow(project, events, attempts, totals, now, config) {
 		receipts: (totals.receipts ?? []).map((r) => [
 			project.id,
 			r.id,
-			r.title + " updated.",
+			first(r.title) + " updated.",
 			r.source,
 			r.at,
 		]),
-		quiet: !progress && !live.length && !needs,
+		quiet: !progress && !live.length,
 		row: [
-			project.name,
+			first(project.name).split(/\s+/).slice(0, 3).join(" "),
 			first(project.objective ?? totals.objective ?? project.description) ||
 				"Goal not stated yet.",
 			progress ? progress + "." : "No finished work recorded today.",
 			running,
-			String(needs),
+			"",
 			`/work/projects/${project.id}`,
 			base,
 			`/work?view=deck&project=${project.id}`,
@@ -240,6 +239,8 @@ export default {
 					await api.get_today_project_totals({
 						id: project.id,
 						personId: config.personId,
+						includeDeckCount: false,
+						timeZone: config.timeZone,
 						...localDayBounds(clock.day, config.timeZone),
 						excludeOutputId: config.outputId,
 					}),

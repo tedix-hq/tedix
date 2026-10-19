@@ -53,6 +53,7 @@ export const DecisionCardPresentationSchema = z.union([
 		body: line(copySpec.fields.body.maxLength),
 		recommendation: line(copySpec.fields.recommendation.maxLength),
 		stakes: line(copySpec.stakesMaxLength).optional(),
+		effectStatus: z.enum(["known", "unknown"]).optional(),
 	}),
 ]);
 

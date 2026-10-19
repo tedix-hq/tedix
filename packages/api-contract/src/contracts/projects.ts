@@ -744,20 +744,23 @@ export const projectsContract = oc
 				path: "/{id}/today-totals",
 				summary: "Read project totals for the saved Today post",
 				description:
-					"Counts for one configured person without private request text. Called by the scheduled Today skill, never on page load.",
+					"Project receipts without private request text, optionally with the signed-in person's own complete Deck count. Scheduled machine callers set includeDeckCount=false: needsYou is null and no person's Deck is read.",
 			})
 			.input(
 				z.strictObject({
 					id: z.uuid(),
 					personId: z.string().min(1).max(300),
 					excludeOutputId: z.uuid(),
+					timeZone: z.string().min(1).max(100).default("UTC"),
+					gadgetId: z.uuid().optional(),
+					includeDeckCount: z.boolean().default(true),
 					since: z.iso.datetime(),
 					until: z.iso.datetime(),
 				}),
 			)
 			.output(
 				z.object({
-					needsYou: z.number().int().nonnegative(),
+					needsYou: z.number().int().nonnegative().nullable(),
 					decisions: z.number().int().nonnegative(),
 					documents: z.number().int().nonnegative(),
 					lastTouched: z.string().nullable(),

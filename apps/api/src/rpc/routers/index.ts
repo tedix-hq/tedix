@@ -192,6 +192,9 @@ export const apiRouter = {
 			(m) => m.workAgentSessionsContractRouter,
 		),
 	),
+	attention: lazyRouter(() =>
+		import("./attention").then((m) => m.attentionContractRouter),
+	),
 	workInteractions: lazyRouter(() =>
 		import("./work-interactions").then((m) => m.workInteractionsContractRouter),
 	),

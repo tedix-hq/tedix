@@ -1,3 +1,4 @@
+import { attentionContract } from "./attention";
 import "@orpc/openapi/extensions/route";
 /**
  * Combined API Contract for oRPC
@@ -305,6 +306,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	support: supportContract,
 	workApprovals: workApprovalsContract,
 	workAgentSessions: workAgentSessionsContract,
+	attention: attentionContract,
 	workInteractions: workInteractionsContract,
 	workFleet: workFleetContract,
 	workScheduler: workSchedulerContract,

@@ -1,3 +1,4 @@
+import { compareDecisionFreshness } from "@tedix/api-contract/utils/deck-projection";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	DecisionDeckConfigSchema,
@@ -10,7 +11,6 @@ import {
 	decisionIsDue,
 	decisionDeadlinePassed,
 	workIsUnowned,
-	compareDecisionFreshness,
 	classReadiness,
 	decisionEnvelope,
 	decisionFeedbackMetadata,
@@ -218,7 +218,8 @@ it("keeps due follow-ups actionable while elapsed question deadlines require rev
 });
 
 it("keeps fresh approvals ahead of newer filing questions without reviving stale approvals", async () => {
-	const { compareDecisionFreshness } = await import("./decision-deck");
+	const { compareDecisionFreshness } =
+		await import("@tedix/api-contract/utils/deck-projection");
 	const now = new Date("2026-10-18T12:00:00Z");
 	const approval = { kind: "approval", requestedAt: "2026-10-17T10:00:00Z" };
 	const question = { kind: "question", requestedAt: "2026-10-18T11:59:00Z" };

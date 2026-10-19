@@ -699,6 +699,7 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 					[TRIAGE_CALLABLE]: () => ({
 						...TRIAGE_OK,
 						urgency: "later",
+						attentionKind: "needs_you",
 						urgentLabels: [],
 					}),
 				},
@@ -708,6 +709,35 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(statusState()).toMatchObject({ state: "done", summary: "Pushed." });
 		expect(notifications()).toEqual([]);
 		expect(reports()).toHaveLength(1);
+	});
+
+	test("a server-classified FYI turn records status without creating a question or requesting a reply draft", async () => {
+		enableStatus();
+		await runHook(
+			"stop",
+			{
+				last_assistant_message:
+					"All checks pass; the source change is committed.",
+			},
+			[BINDING, AUTH],
+			{
+				gateway: {
+					[TRIAGE_CALLABLE]: () => ({
+						...TRIAGE_OK,
+						urgency: "later",
+						attentionKind: "fyi",
+						urgentLabels: [],
+					}),
+				},
+			},
+		);
+		expect(payloads).toEqual([]);
+		expect(gatewayCalls.map(([callable]) => callable)).toEqual([
+			TRIAGE_CALLABLE,
+		]);
+		expect(existsSync(state())).toBe(false);
+		expect(statusState()?.state).toBe("done");
+		expect(notifications()).toEqual([]);
 	});
 
 	test("failed or malformed triage never creates a human request or notification", async () => {

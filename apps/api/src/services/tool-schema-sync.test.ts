@@ -2847,3 +2847,15 @@ it.each(["pause", "resume", "archive"])(
 		expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint]).toBe("write");
 	},
 );
+
+it("pins headless attention names and capability kinds", () => {
+	for (const [endpoint, name, kind] of [
+		["attention/listDeckCards", "list_deck_cards", "read"],
+		["attention/getDeckCard", "get_deck_card", "read"],
+		["attention/decideDeckCard", "decide_deck_card", "write"],
+		["attention/listFeedForYou", "list_feed_for_you", "read"],
+	]) {
+		expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint!]).toBe(name);
+		expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint!]).toBe(kind);
+	}
+});

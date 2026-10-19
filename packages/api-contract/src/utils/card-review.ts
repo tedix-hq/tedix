@@ -1,20 +1,17 @@
-import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
+import type { DecisionLearningModel } from "../schemas/decision-learning";
 import {
 	classifyDeckCard,
 	type DeckRoutingPolicy,
-} from "@tedix/api-contract/schemas/os-decision-deck";
-import { cardIsDue, isCardScheduleField } from "@/lib/card-schedule";
+} from "../schemas/os-decision-deck";
+import { cardIsDue, isCardScheduleField } from "./card-schedule";
 import {
 	type CardActionKind,
 	CARD_REVIEW_ENTRY,
 	type CardReviewConfig,
 	CardReviewConfigSchema,
 	type CardReviewSource,
-} from "@tedix/api-contract/schemas/os-card-review";
-import type {
-	OsGadgetManifest,
-	OsOutput,
-} from "@tedix/api-contract/schemas/os-workspaces";
+} from "../schemas/os-card-review";
+import type { OsGadgetManifest, OsOutput } from "../schemas/os-workspaces";
 
 /**
  * Card review: a built-in workspace app that turns a factory's card sheets

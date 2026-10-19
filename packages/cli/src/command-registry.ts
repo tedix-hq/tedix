@@ -1,3 +1,4 @@
+import { attentionUsage } from "./attention";
 import { COMMANDS, interactiveSlashCommands } from "./commands";
 import { agentContextUsage } from "./agent-context";
 import { HUMAN_CONNECT_CONSENT_SCOPES } from "@tedix/mcp-shared/auth/consent-scopes";
@@ -56,6 +57,24 @@ const HUMAN_JSON = ["human", "json"] as const;
 
 /** Canonical shell command inventory. Aliases resolve to, but never duplicate, a row. */
 export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
+	{
+		name: "deck",
+		argHint: "<list|show|decide>",
+		surface: "gateway-direct",
+		summary: "Read and decide your ranked Deck",
+		mutability: "mixed",
+		output: HUMAN_JSON,
+		help: attentionUsage,
+	},
+	{
+		name: "feed",
+		argHint: "[for-you]",
+		surface: "gateway-direct",
+		summary: "Read your ranked Feed",
+		mutability: "read",
+		output: HUMAN_JSON,
+		help: attentionUsage,
+	},
 	{
 		name: "setup",
 		surface: "local",

@@ -12,6 +12,19 @@ export const TODAY_COLUMNS = [
 	"Deck link",
 ];
 
+export function todayProjectLabel(label: string) {
+	return label.trim().split(/\s+/).slice(0, 3).join(" ");
+}
+
+export function todayProgress(text: string) {
+	return text
+		.replace(
+			/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+			"record",
+		)
+		.trim();
+}
+
 export function readToday(content: OsOutputContent) {
 	if (content.kind !== "document") return null;
 	const table = content.blocks.find((b) => b.type === "table");
@@ -55,7 +68,7 @@ export function readToday(content: OsOutputContent) {
 						{
 							id: `today-document:${id}`,
 							projectId,
-							sentence,
+							sentence: todayProgress(sentence),
 							source,
 							at,
 							actor: "Tedix",

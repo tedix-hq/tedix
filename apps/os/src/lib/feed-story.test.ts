@@ -1,6 +1,9 @@
 import { expect, it } from "vite-plus/test";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
-import { timelineItems, feedStoryActor } from "./feed-story";
+import {
+	timelineItems,
+	feedStoryActor,
+} from "@tedix/api-contract/utils/feed-story";
 
 it("keeps pending and resolved deck cards out of posts and tells the story in time order", () => {
 	const row = (id: string, kind: ActivityFeedItem["kind"], at: string) =>

@@ -13,8 +13,12 @@ import {
 	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,
 } from "@/lib/os-query-options";
-import { cardSheetsForSource, cardsFromSheet, isOpen } from "@/lib/card-review";
-import { sentence } from "@/lib/activity-feed";
+import {
+	cardSheetsForSource,
+	cardsFromSheet,
+	isOpen,
+} from "@tedix/api-contract/utils/card-review";
+import { sentence } from "@tedix/api-contract/utils/activity-feed";
 
 /** Read existing factory sheets; decisions and provider actions remain with their owners. */
 export function ActivityFeedFactorySource({

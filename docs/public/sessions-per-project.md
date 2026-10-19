@@ -72,6 +72,17 @@ an admitted Attempt before it may change a Work Item.
 | Work → Deck                                 | The questions and handoffs those sessions raised, with their answers.                                                                                                                                                  |
 | Work → Feed → Apps → Office → Your requests | Your private requests, promises and open loops across your local sessions, with status and evidence.                                                                                                                   |
 
+The Feed's Today post reads **Needs you** from the current Deck projection,
+not the saved document's interaction totals. An incomplete projection shows
+that the count is unavailable. Purpose wording comes from the current charter;
+saved wording is not shown when that charter cannot be read. Scheduled callers
+cannot request another person's attention count: `projects.getTodayTotals`
+requires the signed-in person's own `personId`, with `timeZone` and an optional
+`gadgetId` selecting the same Deck view. Scheduled workflows set
+`includeDeckCount: false` to read project receipts without reading a person's
+Deck. That returns `needsYou: null`, which the saved document should render as
+**Open Deck** or leave blank; the live Today post supplies the current count.
+
 Independent local sessions register with `tedix lane start "<title>"
 --project <project-id>` after bootstrapping their own agent identity. Registration
 uses ordinary Work admission and a bounded heartbeat; `lane done` or `lane fail`

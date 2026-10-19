@@ -177,6 +177,7 @@ export interface SessionBinding {
 export interface TriageResult {
 	status: "ok" | "unavailable";
 	urgency: "now" | "later";
+	attentionKind?: "needs_you" | "fyi";
 	labels: Record<string, number>;
 	urgentLabels: string[];
 	model: string;

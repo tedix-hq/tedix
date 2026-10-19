@@ -5,6 +5,8 @@ import {
 	WorkProposalMetadataSchema,
 } from "@tedix/api-contract/schemas/work-interactions";
 import { call, implement } from "@orpc/server";
+import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import { outboundRouter } from "./work-outbound";
@@ -281,19 +283,36 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		);
 	const target = capturedWithoutTriage ? actor : input.requestedFrom;
 	const requestedAt = new Date().toISOString();
+	const decision = DecisionEnvelopeSchema.safeParse(
+		input.metadata?.decisionDeck,
+	).data;
+	const expiresAt =
+		target.type === "user"
+			? defaultDecisionExpiry({
+					classId:
+						decision?.classId ??
+						(typeof input.metadata?.decisionClass === "string"
+							? input.metadata.decisionClass
+							: undefined),
+					kind: decision?.kind ?? input.kind,
+					now: requestedAt,
+					dueAt: input.dueAt,
+					expiresAt: input.expiresAt ?? decision?.expiresAt,
+				})
+			: input.expiresAt;
 	if (input.dueAt !== undefined && input.dueAt <= requestedAt) {
 		throw createError(
 			ErrorCodes.UNPROCESSABLE_CONTENT,
 			"Work interaction due time must be in the future",
 		);
 	}
-	if (input.expiresAt !== undefined && input.expiresAt <= requestedAt) {
+	if (expiresAt !== undefined && expiresAt <= requestedAt) {
 		throw createError(
 			ErrorCodes.UNPROCESSABLE_CONTENT,
 			"Work interaction expiry must be in the future",
 		);
 	}
-	if (input.dueAt && input.expiresAt && input.expiresAt < input.dueAt) {
+	if (input.dueAt && expiresAt && expiresAt < input.dueAt) {
 		throw createError(
 			ErrorCodes.UNPROCESSABLE_CONTENT,
 			"Work interaction expiry cannot precede its due time",
@@ -348,7 +367,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			targetType: target.type,
 			targetId: target.id,
 			dueAt: input.dueAt,
-			expiresAt: input.expiresAt,
+			expiresAt,
 			metadata: {
 				...input.metadata,
 				...(lessonRecall ? { lessonRecall } : {}),
