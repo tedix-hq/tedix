@@ -131,6 +131,12 @@ describe("OS shell chrome", () => {
 			'[aria-label="Collapse sidebar"]',
 		)!;
 		expect(trigger).not.toBeNull();
+		const account = footer.querySelector('[aria-label="Account menu"]')!;
+		expect(trigger.closest('[data-sidebar="menu-item"]')).toBe(
+			account.closest('[data-sidebar="menu-item"]'),
+		);
+		expect(account.contains(trigger)).toBe(false);
+		expect(footer.className).toContain("gap-1");
 		const switcher = header.querySelector(
 			'[aria-label="Switch workspace or app"]',
 		)!;

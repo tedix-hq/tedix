@@ -82,6 +82,36 @@ afterEach(() => {
 });
 
 describe("sidebar account menu", () => {
+	it("uses a sidebar row without a hover icon and keeps collapse outside its trigger", async () => {
+		await openMenu();
+		const trigger = document.querySelector<HTMLButtonElement>(
+			'[aria-label="Account menu"]',
+		)!;
+		expect(trigger.dataset.sidebar).toBe("menu-button");
+		expect(trigger.textContent).toBe("AAda Lovelace");
+		expect(trigger.querySelector("svg")).toBeNull();
+		expect(trigger.querySelector('[data-slot="avatar"]')).not.toBeNull();
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		const collapse = document.querySelector<HTMLButtonElement>(
+			'[aria-label="Collapse sidebar"]',
+		)!;
+		expect(trigger.contains(collapse)).toBe(false);
+		expect(collapse.closest('[data-sidebar="menu-item"]')).toBe(
+			trigger.closest('[data-sidebar="menu-item"]'),
+		);
+		await act(async () =>
+			document.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+			),
+		);
+		expect(document.querySelector('[role="menu"]')).toBeNull();
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		await act(async () => collapse.click());
+		expect(collapse.getAttribute("aria-label")).toBe("Expand sidebar");
+		await act(async () => trigger.click());
+		expect(document.querySelector('[role="menu"]')).not.toBeNull();
+	});
+
 	it("opens on click with account destinations and no owner billing for members", async () => {
 		const menu = await openMenu();
 		expect(menu).not.toBeNull();
