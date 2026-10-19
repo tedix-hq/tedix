@@ -15,5 +15,7 @@ export function useVisibleCardSources<T>(
 		sources: sources.filter((source) => visible.has(workspaceId(source))),
 		pending: sources.length > 0 && workspaces.isPending,
 		failed: sources.length > 0 && workspaces.isError,
+		refetch: () =>
+			sources.length > 0 ? workspaces.refetch() : Promise.resolve(),
 	};
 }

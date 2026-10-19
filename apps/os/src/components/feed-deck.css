@@ -738,6 +738,9 @@
 .fd-work-home {
 	max-width: 64rem;
 }
+.fd-work-home:has(.fd-context-layout) {
+	max-width: none;
+}
 .fd-work-nav {
 	display: flex;
 	align-items: center;
@@ -968,19 +971,24 @@
 }
 
 .fd-context-layout {
+	--fd-context-width: clamp(300px, 24vw, 360px);
 	position: relative;
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 0;
+	grid-template-columns: minmax(0, 1fr);
 	column-gap: 0;
 	width: 100%;
+	max-width: 44rem;
+	margin-inline: auto;
+	align-items: start;
 	min-width: 0;
 	padding: 0;
 	background: none;
 	border-radius: 0;
 }
 .fd-context-layout[data-context-open="true"] {
-	grid-template-columns: minmax(0, 1fr) 20rem;
-	gap: 1.5rem;
+	max-width: calc(44rem + 2rem + var(--fd-context-width));
+	grid-template-columns: minmax(0, 1fr) var(--fd-context-width);
+	gap: 2rem;
 }
 .fd-context-main {
 	min-width: 0;
@@ -990,6 +998,10 @@
 	margin-left: auto;
 }
 .fd-context-rail {
+	position: sticky;
+	top: 1rem;
+	align-self: start;
+	width: var(--fd-context-width);
 	min-width: 0;
 	max-height: calc(100dvh - 10rem);
 	overflow-y: auto;
@@ -997,11 +1009,7 @@
 	padding: 1.5rem;
 }
 .fd-context-rail[hidden] {
-	display: block;
-	visibility: hidden;
-	padding: 0;
-	border: 0;
-	overflow: hidden;
+	display: none;
 }
 .fd-context-sections {
 	display: flex;
@@ -1009,7 +1017,14 @@
 	gap: 2rem;
 	padding: 0;
 	min-width: 0;
+	max-width: 20rem;
+	width: 100%;
+	margin-inline: auto;
 	overflow-wrap: anywhere;
+}
+.fd-deck > .fd-source-error {
+	flex: none;
+	margin: 0;
 }
 .fd-context-section {
 	display: grid;

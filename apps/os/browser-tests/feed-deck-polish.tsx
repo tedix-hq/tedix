@@ -341,6 +341,20 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 	});
 }
 
+if (params.has("retry")) {
+	client.setQueryData(
+		osQuery.workInteractions.listInbox.queryOptions({
+			input: { projectId: undefined, limit: 50, states: ["open"] },
+		}).queryKey,
+		{
+			data: [],
+			hasMore: true,
+			nextCursor: { at: today.toISOString(), id: projectId },
+			observedAt: today.toISOString(),
+		},
+	);
+}
+
 if (params.get("motion") === "reduced")
 	document.documentElement.dataset.motion = "reduced";
 document.documentElement.classList.toggle(

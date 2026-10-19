@@ -17,6 +17,7 @@ vi.mock("./use-factory-card-count", () => ({
 		pending: false,
 		failed: false,
 		more: false,
+		refetch: vi.fn(),
 	}),
 }));
 vi.mock("./api", async (original) => {

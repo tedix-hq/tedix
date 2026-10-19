@@ -79,6 +79,7 @@ export function DecisionContextRail({
 	const [open, setOpen] = useState(false);
 	const [shortcutsOpen, setShortcutsOpen] = useState(false);
 	const [phone, setPhone] = useState(false);
+	const [desktop, setDesktop] = useState(false);
 	const [target, setTarget] = useState<HTMLDivElement | null>(null);
 	const [section, setSection] = useState<string>();
 	const visited = useRef(new Set<string>());
@@ -93,6 +94,13 @@ export function DecisionContextRail({
 	useEffect(() => {
 		const media = matchMedia("(max-width: 639px)");
 		const update = () => setPhone(media.matches);
+		update();
+		media.addEventListener("change", update);
+		return () => media.removeEventListener("change", update);
+	}, []);
+	useEffect(() => {
+		const media = matchMedia("(min-width: 1200px)");
+		const update = () => setDesktop(media.matches);
 		update();
 		media.addEventListener("change", update);
 		return () => media.removeEventListener("change", update);
@@ -116,7 +124,9 @@ export function DecisionContextRail({
 			)
 				return;
 			if (
-				(event.key.toLowerCase() !== "i" && event.key !== "?") ||
+				(event.key.toLowerCase() !== "i" &&
+					event.key !== "?" &&
+					!(event.key === "Escape" && desktop && open)) ||
 				event.metaKey ||
 				event.ctrlKey ||
 				event.altKey ||
@@ -127,11 +137,14 @@ export function DecisionContextRail({
 			event.preventDefault();
 			if (event.key === "?") {
 				setShortcutsOpen(true);
-			} else changeOpen(!open);
+			} else {
+				changeOpen(event.key === "Escape" ? false : !open);
+				if (event.key === "Escape") contextTrigger.current?.focus();
+			}
 		};
 		document.addEventListener("keydown", shortcut);
 		return () => document.removeEventListener("keydown", shortcut);
-	}, [open, key, shortcutsOpen, surface]);
+	}, [open, key, shortcutsOpen, surface, desktop]);
 	useEffect(() => {
 		if (!open || !target) return;
 		const container = target.closest<HTMLElement>("[data-decision-context]");
@@ -175,7 +188,7 @@ export function DecisionContextRail({
 						variant="ghost"
 						size="icon"
 						aria-label="Decision context"
-						aria-haspopup="dialog"
+						aria-haspopup={desktop ? undefined : "dialog"}
 						aria-expanded={open}
 						aria-controls={open ? contextId : undefined}
 						aria-keyshortcuts="I"
@@ -212,35 +225,62 @@ export function DecisionContextRail({
 			}}
 		>
 			{topbarTarget ? createPortal(trigger, topbarTarget) : trigger}
-			<div className="feed-deck fd-context-layout">
+			<div
+				className="feed-deck fd-context-layout"
+				data-context-open={open && desktop}
+			>
 				<div className="fd-context-main">{children}</div>
+				{desktop && (
+					<aside
+						id={contextId}
+						data-decision-context
+						className="fd-context-rail"
+						aria-label="Decision context"
+						hidden={!open}
+					>
+						<div className="mb-8 flex items-center justify-between gap-2">
+							<h2 className="type-tedix-section">Decision context</h2>
+							<Button
+								variant="ghost"
+								size="sm"
+								aria-label="Close decision context"
+								onClick={() => changeOpen(false)}
+							>
+								Done
+							</Button>
+						</div>
+						{contents}
+					</aside>
+				)}
 			</div>
-			<Sheet open={open} onOpenChange={changeOpen}>
-				<SheetContent
-					id={contextId}
-					data-decision-context
-					side={phone ? "bottom" : "right"}
-					size="md"
-					className={`gap-8 p-4 sm:p-6 ${phone ? "max-h-[80dvh] rounded-t-xl" : ""}`}
-					showCloseButton={false}
-					keepMounted
-					finalFocus={contextTrigger}
-				>
-					<SheetHeader className="flex-row items-center justify-between p-0 sm:p-0">
-						<SheetTitle>Decision context</SheetTitle>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="min-h-11"
-							aria-label="Close decision context"
-							onClick={() => changeOpen(false)}
-						>
-							Done
-						</Button>
-					</SheetHeader>
-					{contents}
-				</SheetContent>
-			</Sheet>
+			{!desktop && (
+				<Sheet open={open} onOpenChange={changeOpen}>
+					<SheetContent
+						id={contextId}
+						data-decision-context
+						side={phone ? "bottom" : "right"}
+						size="md"
+						className={`gap-8 p-4 sm:p-6 ${phone ? "max-h-[80dvh] rounded-t-xl" : ""}`}
+						showCloseButton={false}
+						keepMounted
+						finalFocus={contextTrigger}
+					>
+						<SheetHeader className="flex-row items-center justify-between p-0 sm:p-0">
+							<SheetTitle>Decision context</SheetTitle>
+							<Button
+								variant="ghost"
+								size="sm"
+								className="min-h-11"
+								aria-label="Close decision context"
+								onClick={() => changeOpen(false)}
+							>
+								Done
+							</Button>
+						</SheetHeader>
+						{contents}
+					</SheetContent>
+				</Sheet>
+			)}
 			<Sheet open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
 				<SheetContent
 					side={phone ? "bottom" : "right"}
