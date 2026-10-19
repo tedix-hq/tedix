@@ -544,7 +544,16 @@ interface NativeCommand {
 	/** Native tool names recorded with the cached bootstrap. */
 	tools?: Record<string, string>;
 }
-const nativeCommands = new WeakMap<WorkContext, NativeCommand>();
+export type NativeToolContext = Pick<
+	WorkContext,
+	| "client"
+	| "workspace"
+	| "mcpUrl"
+	| "organizationId"
+	| "bootstrapCache"
+	| "signal"
+>;
+const nativeCommands = new WeakMap<NativeToolContext, NativeCommand>();
 const WORK_RESPONSE_BYTES = 4 * 1024 * 1024;
 const CLI_PROJECTION_SCHEMAS: Record<
 	string,
@@ -588,6 +597,10 @@ const CLI_PROJECTION_SCHEMAS: Record<
 	},
 };
 const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
+	list_deck_cards: "attention/listDeckCards",
+	get_deck_card: "attention/getDeckCard",
+	decide_deck_card: "attention/decideDeckCard",
+	list_feed_for_you: "attention/listFeedForYou",
 	triage_agent_turn: "agentTurnTriage/triage",
 	label_agent_reply: "agentTurnTriage/labelReply",
 	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
@@ -655,7 +668,7 @@ const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	update_work_case: "workItems/updateCase",
 };
 
-function nativeOptions(ctx: WorkContext) {
+function nativeOptions(ctx: NativeToolContext) {
 	const state = nativeCommands.get(ctx);
 	if (!state) throw new Error("Work native command context is missing");
 	ctx.signal?.throwIfAborted();
@@ -688,13 +701,16 @@ function usableDescriptor(value: unknown) {
 	return descriptor;
 }
 
-function bootstrapCacheKey(ctx: WorkContext): string | undefined {
+function bootstrapCacheKey(ctx: NativeToolContext): string | undefined {
 	if (!ctx.bootstrapCache || !ctx.mcpUrl) return undefined;
 	return [ctx.mcpUrl, ctx.workspace, ctx.organizationId ?? ""].join("|");
 }
 
 /** Validate a gateway bootstrap answer, fresh or cached, for this command. */
-function checkedBootstrap(ctx: WorkContext, info: Record<string, unknown>) {
+function checkedBootstrap(
+	ctx: NativeToolContext,
+	info: Record<string, unknown>,
+) {
 	const bootstrap = McpNativeBootstrapSchema.parse({
 		nativeContext: info.nativeContext,
 		nativeCatalog: info.nativeCatalog,
@@ -718,7 +734,7 @@ function checkedBootstrap(ctx: WorkContext, info: Record<string, unknown>) {
 	return bootstrap;
 }
 
-async function nativeBootstrap(ctx: WorkContext) {
+async function nativeBootstrap(ctx: NativeToolContext) {
 	const state = nativeCommands.get(ctx)!;
 	if (state.context) return state.context;
 	if (!ctx.mcpUrl)
@@ -752,7 +768,11 @@ async function nativeBootstrap(ctx: WorkContext) {
 }
 
 /** Remember the native tool a callable resolved to, beside the cached bootstrap. */
-function recordNativeTool(ctx: WorkContext, callable: string, name: string) {
+function recordNativeTool(
+	ctx: NativeToolContext,
+	callable: string,
+	name: string,
+) {
 	const state = nativeCommands.get(ctx)!;
 	const key = bootstrapCacheKey(ctx);
 	if (!key || !state.context || state.tools?.[callable] === name) return;
@@ -762,7 +782,7 @@ function recordNativeTool(ctx: WorkContext, callable: string, name: string) {
 }
 
 /** Drop a cached bootstrap that failed to resolve; the next read fetches it fresh. */
-function forgetCachedBootstrap(ctx: WorkContext): boolean {
+function forgetCachedBootstrap(ctx: NativeToolContext): boolean {
 	const state = nativeCommands.get(ctx)!;
 	const key = bootstrapCacheKey(ctx);
 	if (!state.contextFromCache || !key) return false;
@@ -787,7 +807,7 @@ function validateNativeSchema(schema: unknown, value: unknown): void {
 
 /** Explain why a catalog row cannot be called, keeping the row's alias and scope details. */
 function catalogRowRefusal(
-	ctx: WorkContext,
+	ctx: NativeToolContext,
 	callable: string,
 	row: unknown,
 ): string {
@@ -813,7 +833,7 @@ function catalogRowRefusal(
 
 /** Resolve an exact configured callable; the catalog's native name is the wire identity. */
 async function boardCall(
-	ctx: WorkContext,
+	ctx: NativeToolContext,
 	callable: string,
 	args: Record<string, unknown>,
 	destructiveApprovalReason?: string,
@@ -974,6 +994,21 @@ async function boardCall(
 			},
 		};
 	}
+}
+
+/** Resolve a configured canonical tool through the same tenant/schema/native checks as Work. */
+export async function callConfiguredNativeTool(
+	ctx: NativeToolContext,
+	tool: string,
+	input: Record<string, unknown>,
+): Promise<unknown> {
+	nativeCommands.set(ctx, {
+		protocolSequence: {},
+		deadlineAt: Date.now() + ctx.client.getTimeoutMs(),
+	});
+	const result = await boardCall(ctx, `tedix.${tool}`, input);
+	if (result.error) throw new Error(result.error.message);
+	return result.value;
 }
 
 /** Rows per native bounded board page. */

@@ -646,6 +646,10 @@ export const GRAPH_GOVERNANCE_KIND_OVERRIDES: Record<
  * explicit in discovery and authorization scope routing.
  */
 export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
+	"attention/listDeckCards": "list_deck_cards",
+	"attention/getDeckCard": "get_deck_card",
+	"attention/decideDeckCard": "decide_deck_card",
+	"attention/listFeedForYou": "list_feed_for_you",
 	"repositoryObserver/configure": "configure_repository_observer",
 	"repositoryObserver/observe": "observe_repository_event",
 	"repositoryObserver/report": "report_repository_observation",
@@ -767,6 +771,10 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	string,
 	"read" | "write" | "destructive"
 > = {
+	"attention/listDeckCards": "read",
+	"attention/getDeckCard": "read",
+	"attention/decideDeckCard": "write",
+	"attention/listFeedForYou": "read",
 	"repositoryObserver/configure": "write",
 	"repositoryObserver/observe": "write",
 	"repositoryObserver/report": "write",

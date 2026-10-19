@@ -475,3 +475,28 @@ it("says in the inbox who asked, why, and which Work a quoted short id names", a
 		},
 	});
 });
+
+it("applies class expiry defaults while preserving explicit expiry and later due dates", async () => {
+	const { owner } = fixture();
+	const input = {
+		workItemId: WORK_ITEM_ID,
+		kind: "question" as const,
+		reason: "Review a support draft.",
+		subject: "Review the response?",
+		prompt: "The complete proposed support response.",
+		metadata: { decisionClass: "support.reply" },
+		requestedFrom: { type: "user" as const, id: "target-id" },
+	};
+	const created = await owner.create(input);
+	expect(Date.parse(created.expiresAt!) - Date.parse(created.requestedAt)).toBe(
+		3 * 86_400_000,
+	);
+	const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+	expect((await owner.create({ ...input, expiresAt })).expiresAt).toBe(
+		expiresAt,
+	);
+	const dueAt = new Date(Date.now() + 30 * 86_400_000).toISOString();
+	const scheduled = await owner.create({ ...input, dueAt });
+	expect(scheduled.dueAt).toBe(dueAt);
+	expect(scheduled.expiresAt).toBe(dueAt);
+});

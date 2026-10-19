@@ -254,10 +254,7 @@ export function OutboundReviewCard({
 						<p className="text-kumo-subtle">
 							{state.draft.channel} · To {state.draft.recipient}
 						</p>
-						<ChatMarkdown
-							content={presentation?.body ?? state.draft.body}
-							preserveLineBreaks
-						/>
+						<ChatMarkdown content={state.draft.body} preserveLineBreaks />
 						{presentation && (
 							<p className="fd-recommendation">{presentation.recommendation}</p>
 						)}

@@ -11,7 +11,7 @@ import {
 	cardSheetsForSource,
 	type SheetBody,
 	sourceParts,
-} from "@/lib/card-review";
+} from "@tedix/api-contract/utils/card-review";
 import {
 	canvasGadgetDetailQueryOptions,
 	canvasOutputsQueryOptions,

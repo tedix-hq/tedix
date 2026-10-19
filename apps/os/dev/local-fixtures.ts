@@ -3976,6 +3976,12 @@ const LOCAL_LESSONS = [
 // ---------------------------------------------------------------------------
 
 const handlers: Record<string, (input: never) => unknown> = {
+	"attention/listDeckCards": () => ({
+		cards: [],
+		count: 0,
+		complete: true,
+		observedAt: new Date().toISOString(),
+	}),
 	"workInteractions/outbound/list": () => [LOCAL_OUTBOUND],
 	"workInteractions/outbound/get": () => LOCAL_OUTBOUND,
 	"workInteractions/outbound/accounts": () => [],

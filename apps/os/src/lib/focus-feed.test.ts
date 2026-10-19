@@ -6,13 +6,13 @@ import {
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { LearningInteractionEventSchema } from "@tedix/api-contract/schemas/learning-feedback";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
-import { EMPTY_FEED_PREFERENCES } from "./activity-feed";
+import { EMPTY_FEED_PREFERENCES } from "@tedix/api-contract/utils/activity-feed";
 import {
 	everythingFeed,
 	focusSelection,
 	rankFocusFeed,
 	focusFeedMetrics,
-} from "./focus-feed";
+} from "@tedix/api-contract/utils/focus-feed";
 const now = new Date("2030-01-01T12:00:00Z");
 const project = "11111111-1111-4111-8111-111111111111";
 const config = ActivityFeedConfigSchema.parse({

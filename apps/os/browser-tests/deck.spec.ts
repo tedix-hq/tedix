@@ -144,8 +144,15 @@ try {
 				"the deck ends instead of wrapping",
 			);
 			assert(
-				await page.getByText("Next cards at", { exact: false }).isVisible(),
-				"closure names the next scheduled batch",
+				await page
+					.getByText(/\d+ practice choices in this preview\./)
+					.isVisible(),
+				"completion identifies the unsaved practice choices",
+			);
+			assert.equal(
+				await page.getByText("Next cards at", { exact: false }).count(),
+				0,
+				"completion does not defer the shared queue behind a local batch",
 			);
 			console.log(
 				`Decision deck browser passed: ${viewport.width}x${viewport.height}`,

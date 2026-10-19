@@ -36,20 +36,24 @@ export async function readFilingReview(
 			latest.set(event.targetId, event);
 	const filings = [...latest].map(([id, event]) => {
 		const m = event.metadata;
-		const confidence = typeof m?.confidence === "number" ? m.confidence : 0;
+		const confidence = typeof m?.confidence === "number" ? m.confidence : null;
 		const by =
 			m?.by === "correction" ? ("correction" as const) : ("auto" as const);
 		return {
 			id,
 			text: String(m?.text ?? ""),
 			projectId: typeof m?.projectId === "string" ? m.projectId : null,
+			suggestedProjectId:
+				typeof m?.suggestedProjectId === "string" ? m.suggestedProjectId : null,
 			previousProjectId:
 				typeof m?.previousProjectId === "string" ? m.previousProjectId : null,
 			by,
 			confidence,
 			reason: String(m?.reason ?? ""),
 			at: event.occurredAt,
-			review: by === "auto" && confidence < AUTO_FILING_THRESHOLD,
+			review:
+				by === "auto" &&
+				(confidence === null || confidence < AUTO_FILING_THRESHOLD),
 		};
 	});
 	return {

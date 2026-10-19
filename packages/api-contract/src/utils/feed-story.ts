@@ -1,4 +1,4 @@
-import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
+import type { ActivityFeedItem } from "../schemas/os-activity-feed";
 
 /** Pending choices belong in the Deck. The timeline only tells what happened. */
 export function timelineItems<T extends ActivityFeedItem>(

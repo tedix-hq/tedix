@@ -1,0 +1,16 @@
+{
+	"version": 1,
+	"classes": {
+		"support.reply": 3,
+		"outbound": 7,
+		"relationship": 14
+	},
+	"kinds": {
+		"question": 7,
+		"approval": 7,
+		"proposal": 7,
+		"decision": 7,
+		"outbound": 7,
+		"adr": 30
+	}
+}

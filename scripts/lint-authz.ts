@@ -553,6 +553,8 @@ function walkRouterFiles(dir: string): string[] {
  * supplying only an id is still safe. Each entry must say why.
  */
 export const SCOPED_BY_CONSTRUCTION: Record<string, string> = {
+	loadDeckProjection:
+		"Selects gadgetId only from osWorkspaces.gadgets.workApps' organization- and viewer-scoped inventory. Every interaction, Work approval, runtime approval, preference, model and factory-output read calls its existing authorized router with the original caller context; no caller-supplied identifier reaches an unscoped DB lookup. Verified in services/attention-projection.ts.",
 	getCatalogOsBlueprint:
 		"Cross-org gallery read BY DESIGN: the query predicate fences to visibility='catalog' AND status='published', so only blueprints an org explicitly published to the shared gallery resolve; the caller's org never grants access — catalog visibility does. Verified in queries/os-workspaces/blueprints.ts.",
 	getOsOutputMutationReceiptForInstance:

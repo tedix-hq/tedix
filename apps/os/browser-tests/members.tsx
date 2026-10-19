@@ -5,7 +5,7 @@ import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activit
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
-import { FOCUS_HISTORY_SURFACES } from "../src/lib/focus-feed";
+import { FOCUS_HISTORY_SURFACES } from "@tedix/api-contract/utils/focus-feed";
 import { WorkHome } from "../src/components/work-home";
 import { setOsFormattingPreferences } from "../src/lib/format";
 import {

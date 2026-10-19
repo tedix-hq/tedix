@@ -28,7 +28,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Card, CardContent } from "@/components/kumo/card";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
-import { cardReviewConfigFromManifest } from "@/lib/card-review";
+import { cardReviewConfigFromManifest } from "@tedix/api-contract/utils/card-review";
 import { lazy, Suspense } from "react";
 import { Skeleton } from "@/components/kumo/skeleton";
 

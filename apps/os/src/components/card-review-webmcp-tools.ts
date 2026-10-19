@@ -4,7 +4,10 @@ import type {
 } from "@tedix/webmcp-core/model-context";
 import { webMcpError, webMcpResult } from "@tedix/webmcp-core/model-context";
 // Type-only: erased at runtime, so the module stays import-inert.
-import type { PendingRule, ReviewCard } from "@/lib/card-review";
+import type {
+	PendingRule,
+	ReviewCard,
+} from "@tedix/api-contract/utils/card-review";
 
 /**
  * WebMCP tools for the Card review app (`tedix:app/card-review`), registered

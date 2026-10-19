@@ -86,7 +86,9 @@ export async function recordRequestFiling(
 		row: AgentSessionRequestRow;
 		projectId: string | null;
 		by: "auto" | "correction";
-		confidence: number;
+		confidence: number | null;
+		suggestedProjectId?: string;
+		pending?: boolean;
 		reason: string;
 		now: string;
 		actionable?: boolean;
@@ -133,6 +135,8 @@ export async function recordRequestFiling(
 		text: input.row.text,
 		by: input.by,
 		confidence: input.confidence,
+		suggestedProjectId: input.suggestedProjectId ?? null,
+		pending: input.pending ?? false,
 		reason: input.reason,
 		actionable: input.actionable ?? false,
 		factoryProposal: input.factoryProposal ?? false,
@@ -203,8 +207,10 @@ export async function recordRequestFiling(
 						clientEventId: sql<string>`${eventId}`.as("client_event_id"),
 						signalClass: sql<"quality">`'quality'`.as("signal_class"),
 						eventKind: sql<
-							"accepted" | "edited"
-						>`${input.by === "auto" ? "accepted" : "edited"}`.as("event_kind"),
+							"accepted" | "edited" | "delivered"
+						>`${input.by === "auto" ? (input.pending ? "delivered" : "accepted") : "edited"}`.as(
+							"event_kind",
+						),
 						scopeKind: sql<
 							"personal" | "project"
 						>`${shared ? "project" : "personal"}`.as("scope_kind"),
@@ -308,6 +314,7 @@ export async function listUnfiledRequests(
 				eq(agentSessionRequests.userId, owner.userId),
 				isNull(agentSessionRequests.projectId),
 				sql`${agentSessionRequests.status} not in ('done', 'cancelled')`,
+				sql`not exists (select 1 from learning_interaction_events e where e.organization_id = ${owner.organizationId} and e.issue_key = 'request-filing:' || ${agentSessionRequests.id} and e.surface = ${FILING_SURFACE} and json_extract(e.metadata, '$.ledgerOwnerId') = ${owner.userId} and json_extract(e.metadata, '$.pending') = 1 and e.occurred_at >= ${agentSessionRequests.updatedAt})`,
 			),
 		)
 		.orderBy(desc(agentSessionRequests.sourceAt))
@@ -409,6 +416,7 @@ export async function ensureFilingWorkspace(
 export async function pendingFilingWork(
 	db: DbQueryClient,
 	owner: AgentSessionRequestOwner & { learningOwnerId?: string },
+	minimumConfidence: number,
 ) {
 	return db
 		.select({
@@ -433,6 +441,7 @@ export async function pendingFilingWork(
 				sql`${agentSessionRequests.projectId} is not null`,
 				sql`${agentSessionRequests.status} not in ('done', 'cancelled')`,
 				sql`json_extract(${learningInteractionEvents.metadata}, '$.actionable') = 1`,
+				sql`json_extract(${learningInteractionEvents.metadata}, '$.confidence') >= ${minimumConfidence}`,
 				sql`json_extract(${learningInteractionEvents.metadata}, '$.workItemId') is null`,
 				sql`not exists (select 1 from work_items w where w.org_id = ${owner.organizationId} and w.source_intent_id = 'request-filing:' || ${agentSessionRequests.id})`,
 			),

@@ -6,6 +6,7 @@ import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-
 import { workInteractionDetailQueryOptions } from "@/lib/os-query-options";
 import { WorkInteractionDecisionCard } from "./work-interaction-decision-card";
 import { DecisionAttentionContext } from "./decision-attention-context";
+import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 
 const { get, respond } = vi.hoisted(() => ({
 	get: vi.fn(() => new Promise<never>(() => {})),
@@ -260,4 +261,55 @@ it("retains the last successful detail and typed answer when a refresh fails, th
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	});
 	expect(host.textContent).not.toContain("couldn't load");
+});
+
+it("shows the complete outbound envelope draft inline before and after details arrive", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const row = structuredClone(preview);
+	row.request.metadata = {
+		decisionDeck: {
+			...DECISION_DECK_EXAMPLES[0]!,
+			preview: { body: "Hello Morgan,\n\nThe exact proposed reply." },
+		},
+		cardPresentation: {
+			version: 2,
+			title: "Send the reply?",
+			body: "Generated summary only.",
+			recommendation: "Review it.",
+		},
+	};
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkInteractionDecisionCard requestId={row.request.id} preview={row} />
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.querySelector(".chat-markdown")?.textContent).toContain(
+		"The exact proposed reply.",
+	);
+	expect(host.querySelector(".fd-proposal-more")).toBeNull();
+	await act(async () => {
+		client.setQueryData(
+			workInteractionDetailQueryOptions(row.request.id).queryKey,
+			{
+				request: row.request,
+				effectiveState: "open",
+				canRespond: true,
+				canCancel: false,
+				latestDraft: null,
+				responses: { data: [], hasMore: false, nextCursor: null },
+			},
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expect(
+		host.querySelector(".fd-proposal-body .chat-markdown")?.textContent,
+	).toContain("The exact proposed reply.");
+	expect(host.querySelector(".fd-proposal-more")).toBeNull();
 });

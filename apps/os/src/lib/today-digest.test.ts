@@ -1,7 +1,19 @@
 import { expect, it } from "vite-plus/test";
-import { readToday, TODAY_COLUMNS, todayShortcut } from "./today-digest";
+import {
+	readToday,
+	TODAY_COLUMNS,
+	todayProjectLabel,
+	todayProgress,
+	todayShortcut,
+} from "./today-digest";
 import { workHomeSearch } from "./work-home-search";
 const project = "11111111-1111-4111-8111-111111111111";
+it("keeps project labels short and receipt identifiers out of progress copy", () => {
+	expect(todayProjectLabel("  Customer support and success ")).toBe(
+		"Customer support and",
+	);
+	expect(todayProgress(`Published ${project}.`)).toBe("Published record.");
+});
 it("reads one saved edition and its receipts while rejecting external links", () => {
 	const digest = readToday({
 		kind: "document",
@@ -33,7 +45,7 @@ it("reads one saved edition and its receipts while rejecting external links", ()
 					[
 						project,
 						"doc",
-						"Plan updated.",
+						`Plan ${project} updated.`,
 						"/outputs/doc",
 						"2026-10-18T09:00:00.000Z",
 					],
@@ -43,7 +55,7 @@ it("reads one saved edition and its receipts while rejecting external links", ()
 	});
 	expect(digest?.rows).toHaveLength(1);
 	expect(digest?.receipts[0]).toMatchObject({
-		sentence: "Plan updated.",
+		sentence: "Plan record updated.",
 		projectId: project,
 		source: "/outputs/doc",
 		done: true,

@@ -147,6 +147,7 @@ describe("triage", () => {
 			urgency: "later",
 			urgentLabels: [],
 			labels: { asks_user: 0 },
+			attentionKind: "fyi",
 		});
 	});
 

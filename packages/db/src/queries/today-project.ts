@@ -9,12 +9,10 @@ export async function getTodayProjectTotals(
 		personId: string;
 		since: string;
 		until: string;
-		now: string;
 		excludeOutputId: string;
 	},
 ) {
 	const rows = await db.all<{
-		needsYou: number;
 		decisions: number;
 		documents: number;
 		lastTouched: string | null;
@@ -38,11 +36,6 @@ export async function getTodayProjectTotals(
 			AND a.approver_type='user' AND a.approver_id=${p.personId}
 		)
 		SELECT
-			(SELECT count(*) FROM requests WHERE status='open'
-				AND (expires_at IS NULL OR julianday(expires_at)>julianday(${p.now})) AND (due_at IS NULL OR julianday(due_at)<julianday(${p.until}))
-				AND NOT (coalesce(json_extract(metadata,'$.schema'),'')='tedix.decision-capture.v1' AND coalesce(json_extract(metadata,'$.attention.kind'),'')='fyi')
-				AND coalesce(json_extract(metadata,'$.outboundStatus'),'') NOT IN ('reviewing','feedback'))
-			+ (SELECT count(*) FROM approvals WHERE status='pending' AND julianday(expires_at)>julianday(${p.now})) AS needsYou,
 			(SELECT count(*) FROM requests WHERE status='resolved' AND kind IN ('question','input') AND julianday(resolved_at)>=julianday(${p.since}) AND julianday(resolved_at)<julianday(${p.until}))
 			+ (SELECT count(*) FROM approvals WHERE status IN ('approved','rejected') AND julianday(resolved_at)>=julianday(${p.since}) AND julianday(resolved_at)<julianday(${p.until})) AS decisions,
 			(SELECT count(*) FROM documents WHERE updated_at>=${p.since} AND updated_at<${p.until}) AS documents,

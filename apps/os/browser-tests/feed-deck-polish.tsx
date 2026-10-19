@@ -22,7 +22,10 @@ import "../src/styles.css";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
-import { focusDay, FOCUS_HISTORY_SURFACES } from "../src/lib/focus-feed";
+import {
+	focusDay,
+	FOCUS_HISTORY_SURFACES,
+} from "@tedix/api-contract/utils/focus-feed";
 
 const client = new QueryClient({
 	defaultOptions: {
@@ -342,17 +345,44 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 }
 
 if (params.has("retry")) {
-	client.setQueryData(
-		osQuery.workInteractions.listInbox.queryOptions({
-			input: { projectId: undefined, limit: 50, states: ["open"] },
-		}).queryKey,
-		{
-			data: [],
-			hasMore: true,
-			nextCursor: { at: today.toISOString(), id: projectId },
-			observedAt: today.toISOString(),
+	const inboxKey = osQuery.workInteractions.listInbox.queryOptions({
+		input: { projectId: undefined, limit: 50, states: ["open"] },
+	}).queryKey;
+	const known = client.getQueryData(inboxKey);
+	const approvalKey = osQuery.workInteractions.listInbox.queryOptions({
+		input: {
+			projectId: undefined,
+			limit: 50,
+			states: ["open"],
+			decisionKind: "approval",
 		},
-	);
+	}).queryKey;
+	const approval = client.getQueryData(approvalKey);
+	const cursor = { at: today.toISOString(), id: projectId };
+	client.setQueryData(inboxKey, {
+		...known,
+		data: [...(known?.data ?? []), ...(approval?.data ?? [])],
+		hasMore: true,
+		nextCursor: cursor,
+		observedAt: today.toISOString(),
+	});
+	client.removeQueries({
+		queryKey: osQuery.workInteractions.listInbox.infiniteOptions({
+			input: (cursor: { at: string; id: string } | undefined) => ({
+				projectId: undefined,
+				limit: 50,
+				states: ["open"],
+				cursor,
+			}),
+			initialPageParam: cursor,
+			getNextPageParam: (page) => page.nextCursor ?? undefined,
+		}).queryKey,
+		exact: true,
+	});
+	client.removeQueries({
+		queryKey: approvalKey,
+		exact: true,
+	});
 }
 
 if (params.get("motion") === "reduced")

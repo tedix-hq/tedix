@@ -10,7 +10,7 @@ import {
 	type ReviewCard,
 	reviewQueue,
 	type SheetBody,
-} from "@/lib/card-review";
+} from "@tedix/api-contract/utils/card-review";
 
 /**
  * How a workspace app introduces itself on its card in the Resources pane:

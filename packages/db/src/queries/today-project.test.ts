@@ -4,7 +4,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { getTodayProjectTotals } from "./today-project";
 
-it("counts the configured person's project asks and linked public documents without returning private text", async () => {
+it("counts the person's project receipts without deriving attention from the interaction ledger", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 	CREATE TABLE work_items(id TEXT, org_id TEXT, project_id TEXT);
@@ -54,16 +54,15 @@ it("counts the configured person's project asks and linked public documents with
 			personId: "person",
 			since: "2026-10-17T22:00:00.000Z",
 			until: "2026-10-18T22:00:00.000Z",
-			now: "2026-10-18T10:00:00.000Z",
 			excludeOutputId: "today",
 		},
 	);
 	expect(totals).toMatchObject({
-		needsYou: 1,
 		decisions: 1,
 		documents: 1,
 		lastTouched: "2026-10-18T08:00:00.000Z",
 	});
+	expect(totals).not.toHaveProperty("needsYou");
 	expect(JSON.parse(totals.receiptsJson)).toEqual([
 		{
 			id: "doc",

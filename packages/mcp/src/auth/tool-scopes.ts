@@ -105,6 +105,10 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"osWorkspaces/outputs/patchSlides": "mcp:apps.write",
 	// Interaction RPCs retain the API's messaging authority through organization
 	// aliases. Their Work-prefixed names do not change the owning capability.
+	"attention/listDeckCards": "mcp:messaging.read",
+	"attention/getDeckCard": "mcp:messaging.read",
+	"attention/listFeedForYou": "mcp:messaging.read",
+	"attention/decideDeckCard": "mcp:messaging.write",
 	"workInteractions/create": "mcp:messaging.write",
 	"workInteractions/refreshDecisionSources": "mcp:messaging.write",
 	"workInteractions/regenerateCard": "mcp:messaging.write",

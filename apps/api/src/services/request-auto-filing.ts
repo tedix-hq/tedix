@@ -19,8 +19,9 @@ import {
 	getWorkItemBySourceIntentId,
 } from "@tedix/db/queries/work-items/crud";
 import type { LedgerModel } from "./agent-session-request-ledger";
+import { REQUEST_FILING_POLICY } from "@tedix/api-contract/schemas/request-filing-policy";
 
-export const AUTO_FILING_THRESHOLD = 0.8;
+export const AUTO_FILING_THRESHOLD = REQUEST_FILING_POLICY.autoApplyConfidence;
 const PickSchema = z.object({
 	projectId: z.string().nullable(),
 	objectiveId: z.string().nullable().optional(),
@@ -233,9 +234,7 @@ export async function autoFileRequests(
 			: (projects.find((p) => p.id === requestedWork?.projectId) ??
 				projects.find((p) => p.id === session?.projectId) ??
 				projects.find((p) => p.id === owner.intakeProjectId));
-		const projectId = candidate?.id ?? intake?.id;
-		if (!projectId)
-			throw new Error("A factory proposal needs an existing source project");
+		const projectId = candidate?.id ?? intake?.id ?? null;
 		// Legacy/Home Work may be unprojected; this backlink never moves its Work.
 		if (
 			pick.workItemId &&
@@ -257,15 +256,17 @@ export async function autoFileRequests(
 						project: candidate,
 						corrections,
 					})
-				: 0;
-		if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1)
+				: null;
+		if (
+			confidence !== null &&
+			(!Number.isFinite(confidence) || confidence < 0 || confidence > 1)
+		)
 			throw new Error("Request filing fit score unavailable");
+		const pending = confidence === null || confidence < AUTO_FILING_THRESHOLD;
 		const factoryProposal =
 			(!candidate && !requestedWork) || pick.container === "factory_proposal";
-		const reason = intake
-			? requestedWork
-				? `Filed with existing Work in ${intake.name}. ${pick.reason}`
-				: `Filed provisionally in ${intake.name}. Proposed scope: ${pick.name} — ${pick.brief}. ${pick.reason}`
+		const reason = pending
+			? `Left unfiled: ${confidence === null ? "no measured project match" : "project match below the automatic threshold"}. Suggested scope: ${pick.name} — ${pick.brief}. ${pick.reason}`
 			: pick.reason;
 		const actionable =
 			(pick.actionable || factoryProposal) &&
@@ -273,17 +274,23 @@ export async function autoFileRequests(
 		await recordRequestFiling(db, {
 			...owner,
 			row,
-			projectId,
+			projectId: pending ? null : projectId,
+			suggestedProjectId: pending ? (projectId ?? undefined) : undefined,
+			pending,
 			by: "auto",
 			confidence,
 			reason,
-			actionable,
+			actionable: !pending && actionable,
 			factoryProposal,
 			workItemId: requestedWork?.id,
 		});
 	}
 	// Retry from durable filing evidence, including after a prior invocation died mid-write.
-	for (const { request: row, metadata } of await pendingFilingWork(db, owner)) {
+	for (const { request: row, metadata } of await pendingFilingWork(
+		db,
+		owner,
+		AUTO_FILING_THRESHOLD,
+	)) {
 		const sourceIntentId = `request-filing:${row.id}`;
 		try {
 			await createWorkItem(db, {

@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadNotice } from "@/components/work-read-region";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,7 +36,7 @@ import {
 	decisionFeedItems,
 	EMPTY_FEED_PREFERENCES,
 	feedLearningInput,
-} from "@/lib/activity-feed";
+} from "@tedix/api-contract/utils/activity-feed";
 import {
 	everythingFeed,
 	FOCUS_HISTORY_SURFACES,
@@ -45,11 +46,14 @@ import {
 	rankFocusFeed,
 	type FocusItem,
 	type FocusSignal,
-} from "@/lib/focus-feed";
+} from "@tedix/api-contract/utils/focus-feed";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
 import { useTediNames } from "@/lib/use-tedi-names";
-import { feedStoryActor, timelineItems } from "@/lib/feed-story";
+import {
+	feedStoryActor,
+	timelineItems,
+} from "@tedix/api-contract/utils/feed-story";
 import { buildActivityFeedTools } from "./activity-feed-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 
@@ -143,7 +147,7 @@ export function FocusFeed({
 		...Object.entries(sources)
 			.filter(([id]) => sourceIds.includes(id))
 			.flatMap(([, s]) => s.items),
-		...correctionFeedItems(events),
+		...correctionFeedItems(events, OS_COPY.feed),
 		...decisionFeedItems(decisions.requests, now),
 		...approvalFeedItems(decisions.work, now).map((item) => ({
 			...item,

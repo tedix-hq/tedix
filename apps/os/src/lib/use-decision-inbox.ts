@@ -1,6 +1,5 @@
-import { interactionCardKind } from "@/lib/interaction-card-kind";
 import { workRefreshOptions } from "@/lib/work-refresh";
-import { cardIsDue, cardScheduleDates } from "@/lib/card-schedule";
+import { cardScheduleDates } from "@/lib/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import {
 	useInfiniteQuery,
@@ -8,16 +7,12 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useEffect } from "react";
-import {
-	classifyDeckCard,
-	type DecisionDeckConfig,
-} from "@tedix/api-contract/schemas/os-decision-deck";
+import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
 import { osQuery, pendingApprovalsQueryOptions } from "@/lib/os-query-options";
 import {
-	isOpenRequestForYou,
-	isDecidableWorkApproval,
-} from "@/components/work-needs-you-count";
-import { decisionEnvelope, decisionIsDue } from "@/lib/decision-deck";
+	projectDeckCards,
+	type DeckRoutingReceipt,
+} from "@tedix/api-contract/utils/deck-projection";
 import { useFactoryCardCount } from "@/lib/use-factory-card-count";
 import { useDeckRoutingAudit } from "@/lib/use-deck-routing-audit";
 import { osApi } from "@/lib/api";
@@ -29,6 +24,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 	const learning = useQuery({
 		...osQuery.learningFeedback.model.queryOptions({ input: {} }),
 		enabled: Boolean(config),
+		...workRefreshOptions,
 	});
 	const enabled = Boolean(config);
 	const projectId = config?.projectId;
@@ -144,113 +140,33 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 				...(approvalRequests.data?.data ?? []),
 			].map((row) => [row.request.id, row]),
 		).values(),
-	].filter(
-		(row) =>
-			isOpenRequestForYou(row) &&
-			decisionIsDue(row.request, now, timeZone) &&
-			row.canRespond,
-	);
-	const routedRequests = candidates.map((row) => {
-		const decision = decisionEnvelope(row.request.metadata);
-		const kind = decision?.kind ?? interactionCardKind(row.request);
-		const classId =
-			decision?.classId ??
-			String(row.request.metadata.decisionClass ?? row.request.kind);
-		const learnedUsefulness = learning.data?.config.enabled
-			? learning.data.weights.usefulness.find(
-					(weight) => weight.key === `class:${classId}`,
-				)
-			: undefined;
-		return {
-			id: row.request.id,
-			row,
-			...classifyDeckCard(
-				{
-					kind,
-					classId,
-					learnedUsefulness,
-					action: decision
-						? undefined
-						: String(
-								row.request.metadata.approvalOperation ??
-									`${row.request.subject ?? ""}\n${row.request.prompt}`,
-							),
-					risk:
-						typeof row.request.metadata.riskLevel === "string"
-							? row.request.metadata.riskLevel
-							: undefined,
-					protectedEffects:
-						decision?.protectedEffects ??
-						(kind === "outbound"
-							? ["message"]
-							: row.request.metadata.localImport
-								? ["consent"]
-								: []),
-					tasteOrStrategy: decision?.tasteOrStrategy,
-					needsPerson: true,
-					dueAt: row.request.dueAt,
-				},
-				config?.routing,
-				now,
-			),
-		};
+	];
+	const routes: DeckRoutingReceipt[] = [];
+	const projected = projectDeckCards({
+		requests: candidates,
+		work: workApprovals.data?.data ?? [],
+		runtime: config?.projectId ? [] : (approvals.data?.data ?? []),
+		model: learning.data,
+		now,
+		timeZone,
+		routing: config?.routing,
+		onRoute: (route) => routes.push(route),
 	});
-	const routedWork = (workApprovals.data?.data ?? [])
-		.filter(
-			(row) =>
-				isDecidableWorkApproval(row) && cardIsDue(row.proposal, now, timeZone),
-		)
-		.map((row) => ({
-			id: `work-approval:${row.proposal.id}`,
-			row,
-			...classifyDeckCard(
-				{
-					kind: "approval",
-					classId: `approval.${row.proposal.authorityKey}`,
-					action: row.proposal.authorityKey,
-					risk: row.workItem.riskLevel,
-					needsPerson: true,
-				},
-				config?.routing,
-				now,
-			),
-		}));
-	const routedRuntime = (!config?.projectId ? (approvals.data?.data ?? []) : [])
-		.filter((row) => row.status === "pending" && cardIsDue(row, now, timeZone))
-		.map((row) => ({
-			id: `approval:${row.id}`,
-			row,
-			...classifyDeckCard(
-				{
-					kind: "approval",
-					classId: `approval.${row.actionType}`,
-					action: `${row.actionType} ${String(row.payload.toolName ?? row.payload.toolId ?? "")}`,
-					risk:
-						typeof row.payload.riskLevel === "string"
-							? row.payload.riskLevel
-							: undefined,
-					needsPerson: true,
-					protectedEffects:
-						row.review.intent === "browser_takeover" ? ["consent"] : [],
-				},
-				config?.routing,
-				now,
-			),
-		}));
-	useDeckRoutingAudit([...routedRequests, ...routedWork, ...routedRuntime]);
-	const requests = routedRequests
-		.filter((item) => item.destination === "deck")
-		.map((item) => item.row);
-	const work = routedWork
-		.filter((item) => item.destination === "deck")
-		.map((item) => item.row);
-	const runtime = routedRuntime
-		.filter((item) => item.destination === "deck")
-		.map((item) => item.row);
+	useDeckRoutingAudit(routes);
+	const requests = projected.flatMap((card) =>
+		card.interaction ? [card.interaction] : [],
+	);
+	const work = projected.flatMap((card) =>
+		card.workApproval ? [card.workApproval] : [],
+	);
+	const runtime = projected.flatMap((card) =>
+		card.runtimeApproval ? [card.runtimeApproval] : [],
+	);
 	return {
 		inbox,
 		refetch: () =>
 			Promise.all([
+				learning.refetch(),
 				inbox.refetch(),
 				...(earlierEnabled ? [earlier.refetch()] : []),
 				approvalRequests.refetch(),
@@ -266,9 +182,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		workApprovals,
 		requests,
 		criticalIds: new Set(
-			[...routedRequests, ...routedWork, ...routedRuntime]
-				.filter((row) => row.reason === "critical")
-				.map((row) => row.id),
+			routes.filter((row) => row.reason === "critical").map((row) => row.id),
 		),
 		scheduledIds: new Set(
 			requests
@@ -294,6 +208,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 			(!config?.projectId && approvals.isError),
 		pending:
 			factories.pending ||
+			learning.isPending ||
 			inbox.isPending ||
 			earlierPending ||
 			approvalRequests.isPending ||
@@ -301,6 +216,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 			(!config?.projectId && approvals.isPending),
 		failed:
 			factories.failed ||
+			learning.isError ||
 			inbox.isError ||
 			earlierFailed ||
 			approvalRequests.isError ||

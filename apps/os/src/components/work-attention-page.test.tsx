@@ -278,10 +278,61 @@ it("shows automatic destinations, reasons and reversible moves without a filing 
 	);
 	for (const label of [
 		"Filed to Documentation",
-		"auto-filed, low confidence",
+		"auto-filed, needs a better match",
 		"Guides belong with documentation",
 		"Move:",
 	])
 		expect(html).toContain(label);
 	expect(html).not.toContain("File to project");
 });
+
+it.each(["docs", null])(
+	"keeps an unknown-confidence request unfiled with suggestion %s",
+	(suggestedProjectId) => {
+		const html = renderToStaticMarkup(
+			<AttentionBoard
+				file={() => {}}
+				data={{
+					cards: [],
+					projects: [
+						{
+							id: "docs",
+							name: "Documentation",
+							status: "active",
+							active: 0,
+							recent: 0,
+						},
+					],
+					unfiled: [],
+					truncated: false,
+					automaticFilingEnabled: true,
+					pendingFilingCount: 1,
+					filings: [
+						{
+							id: "pending-request",
+							text: "Find a project for the guide",
+							projectId: null,
+							suggestedProjectId,
+							previousProjectId: null,
+							by: "auto",
+							confidence: null,
+							reason: "No confident project match yet",
+							at: "2026-10-17T00:00:00Z",
+							review: true,
+						},
+					],
+				}}
+			/>,
+		);
+		expect(html).toContain(
+			suggestedProjectId ? "Unfiled · suggested Documentation" : "Unfiled",
+		);
+		expect(html).toContain("needs a better match");
+		expect(html).toContain("No confident project match yet");
+		expect(html).toContain('aria-label="Move: Find a project for the guide"');
+		expect(html).toContain("waiting for a confident project match");
+		expect(html).not.toContain("auto-filed");
+		expect(html).not.toContain("Filed to Documentation");
+		expect(html).not.toContain("All captured requests are filed");
+	},
+);

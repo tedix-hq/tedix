@@ -1,6 +1,6 @@
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import { workRefreshOptions } from "@/lib/work-refresh";
-import type { ReviewCard } from "@/lib/card-review";
+import type { ReviewCard } from "@tedix/api-contract/utils/card-review";
 import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDeckRoutingAudit } from "@/lib/use-deck-routing-audit";
 import { cardIsDue } from "@/lib/card-schedule";
@@ -12,7 +12,7 @@ import {
 	cardsFromSheet,
 	isOpen,
 	routeFactoryCard,
-} from "@/lib/card-review";
+} from "@tedix/api-contract/utils/card-review";
 import {
 	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,

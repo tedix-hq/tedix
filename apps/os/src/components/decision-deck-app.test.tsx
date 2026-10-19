@@ -369,7 +369,41 @@ const linkedRow = (id: string, subject: string, canRespond = true) =>
 		responseCount: 0,
 	});
 
-it("opens an authorized linked request outside the saved automatic batch and returns to that batch on next", async () => {
+it("keeps the complete outbound draft inline when generated card copy summarizes it", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("No live requests in the fixture"),
+	);
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Review supplier reply",
+	);
+	const draft =
+		"Hello Morgan,\n\nThe revised date is Friday. No discount has been promised.";
+	const decision = structuredClone(DECISION_DECK_EXAMPLES[0]!);
+	decision.preview = { body: draft };
+	decision.options[0]!.effect = {
+		kind: "publish_support",
+		ticketId: "00000000-0000-4000-8000-000000000001",
+		expectedVersion: 2,
+	};
+	row.request.metadata = {
+		decisionDeck: decision,
+		cardPresentation: {
+			version: 2,
+			title: "Send the revised date?",
+			body: "A short generated summary.",
+			recommendation: "Review the source reply.",
+		},
+	};
+	await mount({ rows: [row] });
+	expect(host.textContent).toContain("Hello Morgan,");
+	expect(host.textContent).toContain(
+		"The revised date is Friday. No discount has been promised.",
+	);
+	expect(host.querySelector(".fd-proposal-more")).toBeNull();
+});
+
+it("opens an authorized linked request and keeps every gated card available beyond the old daily budget", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("No live requests in the fixture"),
 	);
@@ -386,18 +420,14 @@ it("opens an authorized linked request outside the saved automatic batch and ret
 	expect(host.textContent).toContain(`Live request ${target.request.id}`);
 	expect(host.textContent).not.toContain(`Live request ${first.request.id}`);
 	expect(host.textContent).toContain("2 of 2");
-	const saved = Object.keys(sessionStorage).find((key) =>
-		key.startsWith("decision-deck:"),
-	)!;
-	expect(JSON.parse(sessionStorage.getItem(saved)!).ids).toEqual([
-		first.request.id,
-	]);
 	await click("Skip linked preview");
 	expect(globalThis.location.hash).toBe("");
 	expect(host.textContent).toContain(`Live request ${first.request.id}`);
-	expect(JSON.parse(sessionStorage.getItem(saved)!).ids).toEqual([
-		first.request.id,
-	]);
+	await click("Skip linked preview");
+	expect(host.textContent).toContain(`Live request ${target.request.id}`);
+	expect(
+		Object.keys(sessionStorage).some((key) => key.startsWith("decision-deck:")),
+	).toBe(false);
 });
 
 it("does not substitute another card when the linked request is not actionable for this person", async () => {
@@ -421,7 +451,7 @@ it("does not substitute another card when the linked request is not actionable f
 	expect(host.textContent).not.toContain("Live request");
 });
 
-it("keeps critical approvals outside the valuable-card batch allowance", async () => {
+it("keeps critical and valuable cards available without browser batch state", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("No live requests in the fixture"),
 	);
@@ -439,10 +469,10 @@ it("keeps critical approvals outside the valuable-card batch allowance", async (
 	);
 	await mount({ rows: [critical, valuable], budget: 1 });
 	expect(host.textContent).toContain("1 of 2");
-	const saved = Object.keys(sessionStorage).find((key) =>
-		key.startsWith("decision-deck:"),
-	)!;
-	expect(JSON.parse(sessionStorage.getItem(saved)!).ids).toEqual([
-		valuable.request.id,
-	]);
+	expect(host.textContent).toContain(`Live request ${critical.request.id}`);
+	await click("Skip linked preview");
+	expect(host.textContent).toContain(`Live request ${valuable.request.id}`);
+	expect(
+		Object.keys(sessionStorage).some((key) => key.startsWith("decision-deck:")),
+	).toBe(false);
 });

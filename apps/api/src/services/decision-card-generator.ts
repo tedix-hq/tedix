@@ -162,6 +162,7 @@ export async function generateDecisionCard(
 			validationFeedback: repair || undefined,
 			system: [
 				copySpec.system,
+				copySpec.effectAvailabilityInstruction,
 				copySpec.rewriter,
 				JSON.stringify({ plainLanguageExamples: copySpec.plainTerms }),
 				copySpec.bannedWords.join(", "),

@@ -1,6 +1,6 @@
 import { workRefreshOptions } from "@/lib/work-refresh";
 import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
-import { routeFactoryCard } from "@/lib/card-review";
+import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
 import { DecisionRailContext } from "@/components/decision-context-rail";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import { useCardSchedule } from "@/lib/use-card-schedule";
@@ -73,7 +73,7 @@ import {
 	sourceParts,
 	type Verdict,
 	verdictCells,
-} from "@/lib/card-review";
+} from "@tedix/api-contract/utils/card-review";
 import {
 	canvasOutputsQueryOptions,
 	osQuery,

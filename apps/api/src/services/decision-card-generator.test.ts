@@ -45,6 +45,7 @@ it("loads the versioned spec with a plain-English rewriter and Adriana rubric", 
 	await generateDecisionCard({ db: {}, env: {} } as never, request);
 	const system = mocks.model.mock.calls[0]?.[2].system;
 	expect(system).toContain(copySpec.system);
+	expect(system).toContain(copySpec.effectAvailabilityInstruction);
 	expect(system).toContain("Adriana test");
 	for (const word of copySpec.bannedWords) expect(system).toContain(word);
 });
@@ -491,4 +492,13 @@ it("reports actual field lengths separately from source facts when repairing", a
 	expect(
 		JSON.parse(mocks.model.mock.calls[1]?.[2].validationFeedback).lengths.body,
 	).toEqual({ actual: 121, limit: 120 });
+});
+
+it("retains the model's structured unknown-effect signal without inventing an action", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({ ...copy, effectStatus: "unknown" }),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject({ effectStatus: "unknown" });
 });

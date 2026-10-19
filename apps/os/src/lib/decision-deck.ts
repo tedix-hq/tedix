@@ -1,9 +1,4 @@
 import { cardIsDue } from "@/lib/card-schedule";
-import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
-import {
-	scoreLearning,
-	type LearningCandidate,
-} from "@tedix/api-contract/utils/decision-learning";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import type { DecisionCardFeedback } from "@/components/work-decision-card";
 import diff from "fast-diff";
@@ -98,71 +93,6 @@ export function workIsUnowned(
 		| undefined,
 ) {
 	return work?.activeAttempt === null && work.accountableOwnerId === null;
-}
-
-export function rankDecision<
-	T extends {
-		id: string;
-		kind: string;
-		project: string;
-		urgency: string;
-		decision: ReturnType<typeof decisionEnvelope>;
-	},
->(
-	row: T,
-	model: DecisionLearningModel | undefined,
-	now: Date,
-	context: Partial<LearningCandidate> = {},
-) {
-	return model
-		? scoreLearning(
-				{
-					id: row.id,
-					classId: row.decision?.classId ?? row.kind,
-					projectId: row.project,
-					urgency: row.urgency === "now" ? 1 : 0,
-					protected: row.decision ? true : row.kind === "approval",
-					lessons: row.decision?.lessons.map((l) => ({
-						...l,
-						classId: row.decision!.classId,
-					})),
-					...context,
-				},
-				model,
-				now,
-			)
-		: { score: 0, factors: [], lessonIds: [] };
-}
-
-/** An elapsed request deadline needs revalidation before it competes with fresh decisions. */
-export function compareDecisionFreshness(
-	a: {
-		kind?: string;
-		dueAt?: string | null;
-		requestedAt?: string;
-		score?: number;
-	},
-	b: {
-		kind?: string;
-		dueAt?: string | null;
-		requestedAt?: string;
-		score?: number;
-	},
-	now: Date,
-) {
-	const due = (value?: string | null) =>
-		value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : Infinity;
-	const aDue = due(a.dueAt);
-	const bDue = due(b.dueAt);
-	const stale = Number(aDue < now.getTime()) - Number(bDue < now.getTime());
-	return (
-		stale ||
-		Number(b.kind === "approval") - Number(a.kind === "approval") ||
-		(b.score ?? 0) - (a.score ?? 0) ||
-		(aDue !== bDue ? aDue - bDue : 0) ||
-		(Date.parse(b.requestedAt ?? "") || 0) -
-			(Date.parse(a.requestedAt ?? "") || 0)
-	);
 }
 
 /** Correlate feedback with the durable effect, never a later client telemetry event. */

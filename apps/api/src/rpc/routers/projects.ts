@@ -684,6 +684,29 @@ const getTodayTotalsProcedure = authOs.getTodayTotals
 			Date.parse(input.until) - Date.parse(input.since) > 26 * 3600000
 		)
 			throw createError(ErrorCodes.BAD_REQUEST, "Choose one local day");
+		let needsYou: number | null = null;
+		if (input.includeDeckCount) {
+			const person = await verifiedActiveWorkActor(context, project.orgId);
+			if (person.type !== "user" || person.id !== input.personId)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Today attention totals require the signed-in person's own Deck",
+				);
+			const { loadDeckProjection } =
+				await import("../../services/attention-projection");
+			const deck = await loadDeckProjection(context, {
+				projectId: project.id,
+				timeZone: input.timeZone,
+				gadgetId: input.gadgetId,
+				limit: 100,
+			});
+			if (!deck.complete)
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					"Deck count is incomplete",
+				);
+			needsYou = deck.count;
+		}
 		const totals = await getTodayProjectTotals(context.db, {
 			orgId: project.orgId,
 			projectId: project.id,
@@ -691,7 +714,6 @@ const getTodayTotalsProcedure = authOs.getTodayTotals
 			excludeOutputId: input.excludeOutputId,
 			since: input.since,
 			until: input.until,
-			now: new Date().toISOString(),
 		});
 		const objective = project.objectiveId
 			? await getObjectiveById(context.db, project.objectiveId)
@@ -699,6 +721,7 @@ const getTodayTotalsProcedure = authOs.getTodayTotals
 		const { receiptsJson, ...counts } = totals;
 		return {
 			...counts,
+			needsYou,
 			receipts: JSON.parse(receiptsJson),
 			objective:
 				objective?.orgId === project.orgId

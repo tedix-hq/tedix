@@ -1,5 +1,8 @@
 import type { WorkInteractionReplyDraft } from "@tedix/db/schema/work-factory";
 import { describe, expect, it } from "vite-plus/test";
+import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
+import { LearningInteractionEventSchema } from "@tedix/api-contract/schemas/learning-feedback";
+import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import {
 	type DecisionCaptureRequestView,
 	type DecisionCaptureResponseView,
@@ -279,6 +282,50 @@ describe("decision card feedback", () => {
 			});
 		},
 	);
+	it("feeds opportunity handoff feedback into the person's decision model", () => {
+		const signal = decisionCaptureLearningSignal({
+			organizationId: "org-fictional",
+			request: request({ metadata: { decisionClass: "inbox-opportunity" } }),
+			response: response({
+				responseKind: "handoff_declined",
+				metadata: {
+					source: "os-decision-card",
+					decisionClass: "inbox-opportunity",
+					decisionChoice: "reject",
+					cardAction: "never",
+					feedbackSignal: "rejected",
+					feedbackText: "This customer already replied.",
+				},
+			}),
+			draft: null,
+		});
+		expect(signal).not.toBeNull();
+		const event = LearningInteractionEventSchema.parse({
+			...signal,
+			id: "opportunity-feedback",
+			actorType: "user",
+			actorId: "person-river",
+			scopeKind: "personal",
+			scopeId: "person-river",
+			threadId: null,
+			runId: null,
+			createdAt: response().respondedAt,
+			metadata: { ...signal!.metadata, serverObserved: true },
+		});
+		const model = learnDecisions({
+			organizationId: "org-fictional",
+			personId: "person-river",
+			config: DecisionLearningConfigSchema.parse({ enabled: true }),
+			events: [event],
+			now: new Date(response().respondedAt),
+		});
+		expect(model.eventCount).toBe(1);
+		expect(model.receipts[0]).toMatchObject({
+			classId: "inbox-opportunity",
+			eventKind: "rejected",
+			choice: "reject",
+		});
+	});
 	it("does not promote an agent's card feedback into human learning", () => {
 		expect(
 			decisionCaptureLearningSignal({

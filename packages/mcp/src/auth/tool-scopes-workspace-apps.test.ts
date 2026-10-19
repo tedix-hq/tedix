@@ -7,6 +7,20 @@ import {
 // Explicit endpoint policy is independent of customer aggregate aliases and
 // remains a floor when a catalog row loses or misreports effect metadata.
 const cases = [
+	["attention/listDeckCards", "list_deck_cards", "read", "mcp:messaging.read"],
+	["attention/getDeckCard", "get_deck_card", "read", "mcp:messaging.read"],
+	[
+		"attention/listFeedForYou",
+		"list_feed_for_you",
+		"read",
+		"mcp:messaging.read",
+	],
+	[
+		"attention/decideDeckCard",
+		"decide_deck_card",
+		"write",
+		"mcp:messaging.write",
+	],
 	[
 		"calendarCoordinator/supportedAccounts",
 		"list_calendar_accounts",

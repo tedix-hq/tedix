@@ -1,22 +1,90 @@
-import { cardIsDue } from "@/lib/card-schedule";
-import { sessionHarness, workActorReference } from "@/lib/work-actor";
-import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
-import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
+import { cardIsDue } from "./card-schedule";
+import type { WorkActorReference } from "../schemas/os-work-actor";
+function sessionHarness(harness: unknown, sessionKey?: string | null) {
+	return typeof harness === "string" && harness
+		? harness
+		: (sessionKey?.split(":")[0] ?? null);
+}
+function workActorReference(
+	type: string,
+	id: string | null | undefined,
+	metadata: Record<string, unknown> = {},
+	sessionKey?: string | null,
+): WorkActorReference {
+	return {
+		type,
+		id,
+		harness: sessionHarness(
+			metadata.agentHarness ?? metadata.host,
+			sessionKey ??
+				(typeof metadata.agentSession === "string"
+					? metadata.agentSession
+					: null),
+		),
+	};
+}
+import type { DecisionLearningModel } from "../schemas/decision-learning";
+import { scoreLearning } from "./decision-learning";
 import type {
 	ActivityFeedConfig,
 	ActivityFeedItem,
-} from "@tedix/api-contract/schemas/os-activity-feed";
+} from "../schemas/os-activity-feed";
 import type {
 	WorkActivityEvent,
 	WorkAttemptProjectionSchema,
-} from "@tedix/api-contract/schemas/work-items";
-import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
-import type { WorkApprovalInboxRowSchema } from "@tedix/api-contract/schemas/work-approvals";
-import type { LearningInteractionEvent } from "@tedix/api-contract/schemas/learning-feedback";
-import type { OsUserPreferences } from "@tedix/api-contract/schemas/user-settings";
+} from "../schemas/work-items";
+import type { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
+import type { WorkApprovalInboxRowSchema } from "../schemas/work-approvals";
+import type { LearningInteractionEvent } from "../schemas/learning-feedback";
+import type { OsUserPreferences } from "../schemas/user-settings";
 import type * as z from "zod";
-import { OS_COPY } from "@/shared/os-copy";
-import { decisionEnvelope } from "@/lib/decision-deck";
+export interface FeedCopy {
+	actors: Record<string, string>;
+	workEvents: Record<string, string>;
+	outcomes: Record<string, string>;
+	workUpdated: string;
+	workExplanation: string;
+	resultExplanation: string;
+	correctionExplanation: string;
+}
+export const DEFAULT_FEED_COPY: FeedCopy = {
+	actors: {
+		user: "Person",
+		tedi: "Tedi",
+		external_agent: "Project team",
+		codex: "Codex",
+		devin: "Devin",
+		"claude-code": "Claude",
+		system: "Tedix",
+	},
+	workEvents: {
+		"work.created": "was proposed",
+		"work.accepted": "was accepted",
+		"work.completed": "was completed",
+		"work.cancelled": "was cancelled",
+		"work.specification_updated": "was updated",
+		"attempt.started": "started",
+		"attempt.expired": "needs a fresh attempt",
+		"attempt.failed": "needs another look",
+	},
+	outcomes: {
+		succeeded: "the work finished",
+		failed: "needs another look",
+		expired: "paused before finishing",
+		cancelled: "was stopped",
+	},
+	workUpdated: "was updated",
+	workExplanation: "Recorded in the linked Work history.",
+	resultExplanation: "The linked attempt records this outcome.",
+	correctionExplanation:
+		"Your correction is recorded for reflection into personal lessons.",
+};
+import { DecisionEnvelopeSchema } from "../schemas/os-decision-deck";
+function decisionEnvelope(
+	metadata: Record<string, unknown> | null | undefined,
+) {
+	return DecisionEnvelopeSchema.safeParse(metadata?.decisionDeck).data ?? null;
+}
 
 export type FeedPreferences = NonNullable<OsUserPreferences["activityFeed"]>;
 export const EMPTY_FEED_PREFERENCES: FeedPreferences = {
@@ -78,9 +146,10 @@ export function workFeedItems(
 	events: WorkActivityEvent[],
 	projectId: string | null,
 	names: ReadonlyMap<string, string> = new Map(),
+	copy: FeedCopy = DEFAULT_FEED_COPY,
 ): ActivityFeedItem[] {
-	const actors: Record<string, string> = OS_COPY.feed.actors;
-	const workEvents: Record<string, string> = OS_COPY.feed.workEvents;
+	const actors: Record<string, string> = copy.actors;
+	const workEvents: Record<string, string> = copy.workEvents;
 	return events
 		.filter(
 			(e) =>
@@ -105,7 +174,8 @@ export function workFeedItems(
 					: undefined) ??
 				names.get(`${e.authorType}:${e.authorId}`) ??
 				actors[e.authorType] ??
-				OS_COPY.feed.actors.system,
+				copy.actors.system ??
+				"Tedix",
 			actorIdentity: {
 				type: e.authorType,
 				id: e.authorId,
@@ -143,7 +213,7 @@ export function workFeedItems(
 								e.body,
 						  )
 						? e.body
-						: `${e.workItemTitle} ${workEvents[e.eventType] ?? OS_COPY.feed.workUpdated}.`,
+						: `${e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`,
 			),
 			classId: (e.delegationFyi?.classId ?? `work:${e.eventType}`).slice(
 				0,
@@ -161,7 +231,7 @@ export function workFeedItems(
 					? `From ${e.personalAgentContribution.sourceAgentName}, for you. ${e.personalAgentContribution.kind === "fyi" ? "FYI" : "Proposal"}; no action executed. Source: ${e.personalAgentContribution.evidenceUrl}`
 					: null,
 				e.body === e.eventType ? null : e.body,
-				OS_COPY.feed.workExplanation,
+				copy.workExplanation,
 			]
 				.filter(Boolean)
 				.join("\n\n"),
@@ -182,6 +252,7 @@ function outcomeSummary(value: unknown) {
 
 export function resultFeedItems(
 	rows: z.infer<typeof WorkAttemptProjectionSchema>[],
+	copy: FeedCopy = DEFAULT_FEED_COPY,
 ): ActivityFeedItem[] {
 	return rows
 		.filter((r) => r.attempt.outcome !== null)
@@ -196,7 +267,7 @@ export function resultFeedItems(
 			classId: `${a.executorType}:result:${a.outcome}`,
 			actor:
 				a.executorType === "tedi"
-					? OS_COPY.feed.actors.tedi
+					? (copy.actors.tedi ?? "Tedi")
 					: sessionHarness(a.metadata.agentHarness, a.externalSessionKey) ===
 						  "claude-code"
 						? "Claude"
@@ -208,7 +279,7 @@ export function resultFeedItems(
 										a.externalSessionKey,
 								  ) === "devin"
 								? "Devin"
-								: OS_COPY.feed.actors.external_agent,
+								: (copy.actors.external_agent ?? "Project team"),
 			actorIdentity: workActorReference(
 				a.executorType,
 				a.executorId,
@@ -219,7 +290,7 @@ export function resultFeedItems(
 			sentence: sentence(
 				outcomeSummary(a.metadata.feedSentence) ??
 					outcomeSummary(a.summary) ??
-					`${w.title} — ${a.outcome === "failed" || a.outcome === "expired" ? "Didn't finish" : (OS_COPY.feed.outcomes[a.outcome as keyof typeof OS_COPY.feed.outcomes] ?? OS_COPY.feed.workUpdated)}.`,
+					`${w.title} — ${a.outcome === "failed" || a.outcome === "expired" ? "Didn't finish" : (copy.outcomes[a.outcome as keyof typeof copy.outcomes] ?? copy.workUpdated)}.`,
 			),
 			attachment: {
 				title: w.title.slice(0, 200),
@@ -233,7 +304,7 @@ export function resultFeedItems(
 						: "low",
 			stalled: a.outcome !== "succeeded",
 			done: a.outcome === "succeeded",
-			explanation: [a.summary, OS_COPY.feed.resultExplanation]
+			explanation: [a.summary, copy.resultExplanation]
 				.filter(Boolean)
 				.join("\n\n"),
 		}));
@@ -315,6 +386,7 @@ export function approvalFeedItems(
 
 export function correctionFeedItems(
 	events: LearningInteractionEvent[],
+	copy: FeedCopy = DEFAULT_FEED_COPY,
 ): ActivityFeedItem[] {
 	return events
 		.filter(
@@ -342,7 +414,7 @@ export function correctionFeedItems(
 				typeof e.metadata?.source === "string"
 					? e.metadata.source
 					: `/work/interactions/${e.targetId}`,
-			explanation: OS_COPY.feed.correctionExplanation,
+			explanation: copy.correctionExplanation,
 		}));
 }
 

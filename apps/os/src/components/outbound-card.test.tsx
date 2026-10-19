@@ -4,11 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { OutboundRecord } from "@tedix/api-contract/schemas/outbound";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { LOCAL_OUTBOUND } from "../../dev/outbound-fixture";
 import { osQuery, tediRosterQueryOptions } from "@/lib/os-query-options";
 import { OutboundStyleProfile, OutboundReviewCard } from "./outbound-card";
 
-function card(record = LOCAL_OUTBOUND) {
+function card(
+	record = LOCAL_OUTBOUND,
+	presentation?: DecisionCardPresentation,
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
@@ -24,7 +28,7 @@ function card(record = LOCAL_OUTBOUND) {
 	return new DOMParser().parseFromString(
 		renderToStaticMarkup(
 			<QueryClientProvider client={client}>
-				<OutboundReviewCard record={record} />
+				<OutboundReviewCard record={record} presentation={presentation} />
 			</QueryClientProvider>,
 		),
 		"text/html",
@@ -38,6 +42,19 @@ function button(doc: Document, name: string) {
 }
 
 describe("outbound human review card", () => {
+	it("keeps the exact source draft on the card when generated copy is present", () => {
+		const doc = card(LOCAL_OUTBOUND, {
+			version: 2,
+			title: "Send the reply?",
+			body: "A generated summary replaces no source wording.",
+			recommendation: "Review the draft.",
+		});
+		const body =
+			doc.querySelector(".fd-card .chat-markdown") ??
+			doc.querySelector(".chat-markdown");
+		expect(body?.textContent).toContain("Hi Lina");
+		expect(body?.textContent).not.toContain("A generated summary");
+	});
 	it("shows draft, reasoning and reviewer notes with Gmail sending disabled until an account is chosen", () => {
 		const doc = card();
 		expect(doc.body.textContent).toContain("Hi Lina");

@@ -1,5 +1,7 @@
 import { openExamples } from "./deck-controls";
 import { chromium, type Browser, type Page } from "playwright";
+import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
+import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 
 async function settleAnimations(page: Page) {
 	await page.evaluate(async () => {
@@ -607,6 +609,18 @@ try {
 	await retry.route("**/api/rpc/learningFeedback/listInteractions**", (route) =>
 		route.fulfill({ json: { json: { events: [] } } }),
 	);
+	await retry.route("**/api/rpc/learningFeedback/model**", (route) =>
+		route.fulfill({
+			json: {
+				json: learnDecisions({
+					organizationId: "fictional-pine",
+					personId: "fictional-person",
+					events: [],
+					now: new Date(),
+				}),
+			},
+		}),
+	);
 	await retry.route("**/api/rpc/workApprovals/listInbox**", (route) =>
 		route.fulfill({
 			json: {
@@ -633,6 +647,37 @@ try {
 	let approvalFails = true;
 	let olderReads = 0;
 	let approvalReads = 0;
+	const existingQuestion = WorkInteractionInboxRowSchema.parse({
+		request: {
+			id: "11111111-1111-4111-8111-111111111111",
+			orgId: "11111111-1111-4111-8111-111111111111",
+			workItemId: null,
+			caseId: null,
+			projectId: null,
+			kind: "question",
+			subject: "Which delivery date should we offer?",
+			prompt:
+				"We will use your date in the draft reply. Friday leaves time to check the order before dispatch.",
+			requestedFromType: "user",
+			requestedFromId: "fictional-person",
+			creatorType: "external_agent",
+			creatorId: "codex",
+			creatorSessionId: null,
+			state: "open",
+			requestedAt: new Date().toISOString(),
+			dueAt: null,
+			expiresAt: null,
+			resolvedAt: null,
+			version: 1,
+			metadata: { decisionClass: "opportunity.customer_delivery" },
+		},
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		workItem: null,
+		responseCount: 0,
+		askedBy: "Codex session",
+	});
 	await retry.route(
 		"**/api/rpc/workInteractions/listInbox**",
 		async (route) => {
@@ -649,7 +694,7 @@ try {
 			return route.fulfill({
 				json: {
 					json: {
-						data: [],
+						data: input.cursor || input.decisionKind ? [] : [existingQuestion],
 						hasMore: false,
 						nextCursor: null,
 						observedAt: new Date().toISOString(),
@@ -686,6 +731,9 @@ try {
 			response.status() === 503,
 	);
 	await banner.getByRole("button", { name: "Try again" }).click();
+	await banner
+		.getByRole("button", { name: "Try again" })
+		.waitFor({ state: "hidden" });
 	await (await partialRetry).finished();
 	await banner.getByRole("button", { name: "Try again" }).waitFor();
 	if (olderReads < 2 || approvalReads < 1 || !(await banner.isVisible()))

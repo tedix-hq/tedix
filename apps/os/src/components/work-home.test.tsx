@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vite-plus/test";
+import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { WorkHome } from "./work-home";
 import {
 	workAppsQueryOptions,
@@ -66,6 +67,15 @@ function render(
 			input: { scopeKind: "personal", limit: 200 },
 		}).queryKey,
 		{ events: [] },
+	);
+	client.setQueryData(
+		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+		learnDecisions({
+			organizationId: "44444444-4444-4444-8444-444444444444",
+			personId: "morgan",
+			events: [],
+			now: new Date(),
+		}),
 	);
 	const workspaceId = "11111111-1111-4111-8111-111111111111";
 	const creator = {

@@ -38,7 +38,7 @@ export function RequestFilingReview({
 				(data.pendingFilingCount ?? data.unfiled.length) > 0 && (
 					<Text tone="secondary">
 						{data.pendingFilingCount ?? data.unfiled.length} captured requests
-						are being filed automatically.
+						are waiting for a confident project match.
 					</Text>
 				)}
 			{(data.pendingFilingCount ?? data.unfiled.length) === 0 && (
@@ -55,9 +55,12 @@ export function RequestFilingReview({
 					<CardContent className="grid gap-2 pt-3">
 						<Text>{row.text}</Text>
 						<Text tone="secondary">
-							Filed to {names.get(row.projectId ?? "") ?? "project"} ·{" "}
-							{row.by === "auto" ? "auto-filed" : "corrected"}
-							{row.review ? ", low confidence" : ""}
+							{row.projectId
+								? `Filed to ${names.get(row.projectId) ?? "project"} · ${row.by === "auto" ? "auto-filed" : "corrected"}`
+								: row.suggestedProjectId
+									? `Unfiled · suggested ${names.get(row.suggestedProjectId) ?? "project"}`
+									: "Unfiled"}
+							{row.review ? ", needs a better match" : ""}
 						</Text>
 						<Text role="label" tone="secondary">
 							{row.reason}

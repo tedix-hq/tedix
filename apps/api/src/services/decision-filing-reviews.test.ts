@@ -13,8 +13,7 @@ import { agentSessionRequests } from "@tedix/db/schema/agent-session-requests";
 import { recordAgentSessionRequests } from "@tedix/db/queries/agent-session-requests";
 import { recordRequestFiling } from "@tedix/db/queries/request-filings";
 import { upsertUserConfig } from "@tedix/db/queries/user-configs";
-import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
-import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { materializeFilingReviews } from "./decision-filing-reviews";
 
 const owner = {
@@ -88,29 +87,29 @@ async function fixture() {
 }
 
 describe("filing review source", () => {
-	it("makes only low-confidence owner cards and never duplicates the same source event", async () => {
+	it("batches uncertain filings into one expiring FYI per owner per day", async () => {
 		const f = await fixture();
-		const low = await f.filing("Review the uncertain destination", 0.4);
+		for (let i = 0; i < 25; i++) await f.filing(`Uncertain request ${i}`, 0.4);
 		await f.filing("Definitely docs", 0.99);
 		await f.filing("Another person's private request", 0.2, "grace");
-		await materializeFilingReviews(f.db, owner);
-		await materializeFilingReviews(f.db, owner);
+		await materializeFilingReviews(f.db, owner, now);
+		await materializeFilingReviews(f.db, owner, now);
 		const rows = await f.db.select().from(workInteractions);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({
-			id: low.event.id,
+			kind: "coordination",
 			targetType: "user",
 			targetId: owner.userId,
 			projectId,
+			expiresAt: "2026-10-18T00:00:00.000Z",
 		});
-		const card = DecisionEnvelopeSchema.parse(rows[0]!.metadata.decisionDeck);
-		expect(card.proposal).toBe("Filed to Acme Docs?");
-		expect(card.options[1]!.effect).toEqual({
-			kind: "file_request",
-			requestId: low.row.id,
-			projectId: null,
-			expectedProjectId: projectId,
+		expect(rows[0]!.metadata).toMatchObject({
+			source: "request-auto-filing-digest",
+			attention: { kind: "fyi" },
 		});
+		expect(rows[0]!.metadata.decisionDeck).toBeUndefined();
+		await materializeFilingReviews(f.db, owner, "2026-10-18T00:00:00.000Z");
+		expect(await f.db.select().from(workInteractions)).toHaveLength(2);
 	});
 	it("respects opt-out and never offers an obsolete auto filing after a correction", async () => {
 		const f = await fixture();
@@ -136,35 +135,4 @@ describe("filing review source", () => {
 		await materializeFilingReviews(f.db, owner);
 		expect(await f.db.select().from(workInteractions)).toHaveLength(0);
 	});
-});
-
-it("runs new filing cards through the shared generator while retaining their exact filing effect", async () => {
-	const f = await fixture();
-	await f.filing("Review the uncertain destination", 0.4);
-	const generator = await import("./decision-card-generator");
-	const copy = {
-		version: 1 as const,
-		title: "Keep this request with Docs?",
-		body: "This request was filed with Docs.",
-		recommendation: "Review its destination because the filing is uncertain.",
-		model: "small-model",
-		generatedAt: "2026-10-18T11:00:00.000Z",
-	};
-	const spy = vi
-		.spyOn(generator, "generateDecisionCard")
-		.mockResolvedValue(copy);
-	try {
-		await materializeFilingReviews(f.db, owner, {
-			DB: createD1Facade(f.sqlite),
-		} as CloudflareEnv);
-		const [row] = await f.db.select().from(workInteractions);
-		expect(row?.metadata.cardPresentation).toEqual(copy);
-		const decision = DecisionEnvelopeSchema.parse(row?.metadata.decisionDeck);
-		expect(
-			decision.options.find((x) => x.id === "correct")?.effect,
-		).toMatchObject({ kind: "file_request", expectedProjectId: projectId });
-		expect(row?.status).toBe("open");
-	} finally {
-		spy.mockRestore();
-	}
 });

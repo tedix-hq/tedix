@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadReporter } from "@/components/work-read-region";
@@ -9,7 +10,10 @@ import {
 } from "@/lib/os-query-options";
 import { useWorkPrincipalNames } from "@/components/work-operations-pages";
 import { useOsLocale } from "@/lib/use-os-locale";
-import { resultFeedItems, workFeedItems } from "@/lib/activity-feed";
+import {
+	resultFeedItems,
+	workFeedItems,
+} from "@tedix/api-contract/utils/activity-feed";
 
 type Cursor = { at: string; id: string } | undefined;
 export interface FeedSourceState {
@@ -61,8 +65,12 @@ export function ActivityFeedSources({
 				work.data?.pages.flatMap((p) => p.events) ?? [],
 				projectId ?? null,
 				names,
+				OS_COPY.feed,
 			),
-			...resultFeedItems(results.data?.pages.flatMap((p) => p.data) ?? []),
+			...resultFeedItems(
+				results.data?.pages.flatMap((p) => p.data) ?? [],
+				OS_COPY.feed,
+			),
 		],
 		[work.data, results.data, projectId, locale, names],
 	);

@@ -3,38 +3,91 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
+import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { useDeckCount } from "./use-deck-count";
 import { deckBatchKey, useDeckBatch } from "./use-deck-batch";
 import { deckBatchWindow } from "./deck-attention";
-import { osQuery, userProfileQueryOptions } from "./os-query-options";
-let scheduledIds = new Set<string>();
-vi.mock("./use-decision-inbox", () => ({
-	useDecisionInbox: () => ({
-		requests: [
-			...["a", "b", "c"].map((id) => ({ request: { id } })),
-			{
-				request: {
-					id: "approval",
-					kind: "question",
-					metadata: { approvalOperation: "write.Send", approvalTarget: "test" },
-				},
-			},
-		],
-		work: [],
-		scheduledIds,
-		approvals: { data: { data: [] } },
-		count: 4,
-		factoryCount: 1,
-		factoryCards: [{ key: "sheet:0" }],
+import { osQuery, pendingApprovalsQueryOptions } from "./os-query-options";
+
+vi.mock("./use-factory-card-count", () => ({
+	useFactoryCardCount: () => ({
+		count: 0,
+		cards: [],
 		pending: false,
 		failed: false,
+		more: false,
+		refetch: vi.fn(),
 	}),
 }));
+vi.mock("./api", async (original) => {
+	const actual = await original<typeof import("./api")>();
+	return {
+		...actual,
+		osApi: new Proxy(actual.osApi, {
+			get: (target, key) =>
+				key === "workInteractions"
+					? new Proxy(actual.osApi.workInteractions, {
+							get: (target, key) =>
+								key === "refreshDecisionSources"
+									? async () => ({ created: 0, scanned: 0, hasMore: false })
+									: Reflect.get(target, key),
+						})
+					: key === "learningFeedback"
+						? new Proxy(actual.osApi.learningFeedback, {
+								get: (target, key) =>
+									key === "recordInteraction"
+										? async () => ({})
+										: Reflect.get(target, key),
+							})
+						: Reflect.get(target, key),
+		}),
+	};
+});
+
 const config = DecisionDeckConfigSchema.parse({
 	version: 1,
 	dailyAttentionBudget: 2,
 	batchTimesUtc: ["00:00"],
 });
+const now = new Date().toISOString();
+const rows = [1, 2, 3, 4].map((number) =>
+	WorkInteractionInboxRowSchema.parse({
+		request: {
+			id: `${number}1111111-1111-4111-8111-111111111111`,
+			orgId: "55555555-5555-4555-8555-555555555555",
+			workItemId: null,
+			caseId: null,
+			projectId: null,
+			kind: "question",
+			subject: `Opportunity ${number}`,
+			prompt: "Review this fictional opportunity.",
+			requestedFromType: "user",
+			requestedFromId: "morgan",
+			creatorType: "external_agent",
+			creatorId: "fictional-codex",
+			creatorSessionId: null,
+			state: "open",
+			requestedAt: now,
+			dueAt: null,
+			expiresAt: null,
+			resolvedAt: null,
+			version: 1,
+			metadata:
+				number === 4
+					? {
+							approvalOperation: "gmail.send",
+							approvalTarget: "fictional-recipient",
+						}
+					: { decisionClass: "opportunity.lead" },
+		},
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		workItem: null,
+		responseCount: 0,
+	}),
+);
 const key = deckBatchKey(
 	"workspace",
 	"morgan",
@@ -43,44 +96,72 @@ const key = deckBatchKey(
 );
 let root: ReturnType<typeof createRoot>;
 let host: HTMLDivElement;
+let client: QueryClient;
 afterEach(async () => {
 	await act(async () => root?.unmount());
+	client?.clear();
 	host?.remove();
 	sessionStorage.clear();
-	scheduledIds = new Set();
 });
 function Count() {
 	const queue = useDeckCount(config, "workspace");
 	return <output>{queue.count}</output>;
 }
-function Deck() {
-	const { dismiss } = useDeckBatch(key, ["a", "factory:sheet:0", "c"], 2, true);
+function LegacyBatch() {
+	const { dismiss } = useDeckBatch(
+		key,
+		rows.map((row) => row.request.id),
+		2,
+		true,
+	);
 	return (
 		<>
-			<button onClick={() => dismiss("a")}>Later</button>
-			<button onClick={() => dismiss("approval")}>Later approval</button>
+			<button onClick={() => dismiss(rows[0]!.request.id)}>Later</button>
+			<button onClick={() => dismiss(rows[3]!.request.id)}>
+				Later approval
+			</button>
 		</>
 	);
 }
-it("Feed, sidebar and Deck observers share the saved batch and update together after Later", async () => {
-	const client = new QueryClient({
+it("Feed, sidebar and Deck count the same gated queue despite legacy batch state", async () => {
+	client = new QueryClient({
 		defaultOptions: {
 			queries: { enabled: false, staleTime: Infinity, retry: false },
 		},
 	});
-	client.setQueryData(userProfileQueryOptions().queryKey, {
-		id: "morgan",
-		email: "morgan@example.com",
-		name: "Morgan",
-		avatarUrl: null,
-		revision: 0,
-		updatedAt: null,
+	const inboxKey = osQuery.workInteractions.listInbox.queryOptions({
+		input: { limit: 50, states: ["open"] },
+	}).queryKey;
+	client.setQueryData(inboxKey, {
+		data: rows,
+		hasMore: false,
+		nextCursor: null,
+		observedAt: now,
 	});
 	client.setQueryData(
-		osQuery.learningFeedback.listInteractions.queryOptions({
-			input: { scopeKind: "personal", limit: 200 },
+		osQuery.workInteractions.listInbox.queryOptions({
+			input: { limit: 50, states: ["open"], decisionKind: "approval" },
 		}).queryKey,
-		{ events: [] },
+		{ data: [], hasMore: false, nextCursor: null, observedAt: now },
+	);
+	client.setQueryData(
+		osQuery.workApprovals.listInbox.queryOptions({
+			input: { limit: 50, statuses: ["pending"] },
+		}).queryKey,
+		{ data: [], hasMore: false, nextCursor: null, observedAt: now },
+	);
+	client.setQueryData(pendingApprovalsQueryOptions().queryKey, {
+		data: [],
+		pagination: { limit: 50, offset: 0, total: 0, hasMore: false },
+	});
+	client.setQueryData(
+		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+		learnDecisions({
+			organizationId: "fictional-orchard",
+			personId: "morgan",
+			events: [],
+			now: new Date(now),
+		}),
 	);
 	host = document.createElement("div");
 	document.body.append(host);
@@ -91,45 +172,36 @@ it("Feed, sidebar and Deck observers share the saved batch and update together a
 				<Count />
 				<Count />
 				<Count />
-				<Deck />
+				<LegacyBatch />
 			</QueryClientProvider>,
 		),
 	);
-	expect(
-		[...host.querySelectorAll("output")].map((el) => el.textContent),
-	).toEqual(["3", "3", "3"]);
-	// A reminder released today enters even when the saved batch is already full.
-	scheduledIds = new Set(["c"]);
-	await act(async () =>
-		root.render(
-			<QueryClientProvider client={client}>
-				<Count />
-				<Count />
-				<Count />
-				<Deck />
-			</QueryClientProvider>,
-		),
-	);
-	expect(
-		[...host.querySelectorAll("output")].map((el) => el.textContent),
-	).toEqual(["4", "4", "4"]);
-	scheduledIds = new Set();
-	await act(async () =>
-		root.render(
-			<QueryClientProvider client={client}>
-				<Count />
-				<Count />
-				<Count />
-				<Deck />
-			</QueryClientProvider>,
-		),
-	);
+	const counts = () =>
+		[...host.querySelectorAll("output")].map((element) => element.textContent);
+	expect(counts()).toEqual(["4", "4", "4"]);
 	await act(async () => host.querySelector("button")!.click());
-	expect(
-		[...host.querySelectorAll("output")].map((el) => el.textContent),
-	).toEqual(["2", "2", "2"]);
 	await act(async () => host.querySelectorAll("button")[1]!.click());
-	expect(
-		[...host.querySelectorAll("output")].map((el) => el.textContent),
-	).toEqual(["1", "1", "1"]);
+	expect(sessionStorage.length).toBeGreaterThan(0);
+	expect(counts()).toEqual(["4", "4", "4"]);
+	await act(async () =>
+		client.setQueryData(inboxKey, {
+			data: rows.map((row, index) =>
+				index
+					? row
+					: {
+							...row,
+							effectiveState: "resolved" as const,
+							request: {
+								...row.request,
+								state: "resolved" as const,
+								resolvedAt: now,
+							},
+						},
+			),
+			hasMore: false,
+			nextCursor: null,
+			observedAt: now,
+		}),
+	);
+	await vi.waitFor(() => expect(counts()).toEqual(["3", "3", "3"]));
 });
