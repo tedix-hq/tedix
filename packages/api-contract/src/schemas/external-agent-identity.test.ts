@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	ExternalAgentPrincipalMetadataSchema,
+	externalAgentScopeCeiling,
 	ExternalAgentReviewAssessmentSchema,
 	ExternalAgentSessionSchema,
 } from "./external-agent-identity";
@@ -84,5 +86,47 @@ describe("ExternalAgentReviewAssessmentSchema", () => {
 				policyViolationSeverity: 0,
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("external-agent enrollment ceiling", () => {
+	it.each([
+		"platform:admin",
+		"*",
+		"connections.admin",
+		"mcp:apps",
+		"mcp:work",
+		"mcp:settings.read",
+		"mcp:settings.write",
+		"mcp:settings.admin",
+		"mcp:team.admin",
+		"mcp:apps.admin",
+		"invented:scope",
+	])("refuses cloud scope %s", (scope) => {
+		expect(
+			ExternalAgentPrincipalMetadataSchema.safeParse({
+				platform: "codex-cloud",
+				allowedScopes: [scope],
+			}).success,
+		).toBe(false);
+	});
+	it("accepts exact read/write capabilities and preserves unrelated metadata", () => {
+		expect(
+			ExternalAgentPrincipalMetadataSchema.parse({
+				platform: "codex-cloud",
+				allowedScopes: ["mcp:work.read", "mcp:work.write"],
+				label: "fixture",
+			}),
+		).toMatchObject({ label: "fixture" });
+	});
+	it("preserves legacy principals and denies missing or malformed cloud ceilings", () => {
+		expect(externalAgentScopeCeiling({})).toBeUndefined();
+		expect(externalAgentScopeCeiling({ allowedScopes: [] })).toEqual([]);
+		expect(() =>
+			externalAgentScopeCeiling({ platform: "codex-cloud" }),
+		).toThrow();
+		expect(() =>
+			externalAgentScopeCeiling({ allowedScopes: "mcp:work.read" }),
+		).toThrow();
 	});
 });

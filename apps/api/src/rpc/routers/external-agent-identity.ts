@@ -1,5 +1,6 @@
 import { implement, ORPCError } from "@orpc/server";
 import { externalAgentIdentityContract } from "@tedix/api-contract/contracts/external-agent-identity";
+import { externalAgentScopeCeiling } from "@tedix/api-contract/schemas/external-agent-identity";
 import { parseTedixMcpAudience } from "@tedix/auth/aih-audiences";
 import {
 	createDescopeMcpServerClient,
@@ -153,6 +154,21 @@ function workloadAllowedScopes(metadata: unknown): string[] {
 	return Array.isArray(value)
 		? value.filter((scope): scope is string => typeof scope === "string")
 		: [];
+}
+
+function enforceApiKeyScopeCeiling(
+	scopes: string[],
+	metadata: Record<string, unknown>,
+) {
+	try {
+		const ceiling = externalAgentScopeCeiling(metadata);
+		if (ceiling !== undefined) resolveFederatedWorkloadScopes(scopes, ceiling);
+	} catch {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Requested MCP scopes exceed or lack a valid principal allowedScopes ceiling",
+		);
+	}
 }
 
 function rethrowWorkloadIdentityError(error: unknown): never {
@@ -1285,13 +1301,12 @@ const issueMcpCredential = authed.issueMcpCredential.handler(
 			}
 		}
 		const organizationId = requireOrganization(context, input.organizationId);
-		{
-			// The binding key proves the accountable principal and carries only Work
-			// lifecycle authority. MCP capabilities belong to the target Descope
-			// resource; resolveExternalAgentMcpClientScopes below constrains every
-			// requested grant to that resource's approved exact scopes.
-			await requireBoundPrincipal(context, organizationId, input.principalId);
-		}
+		const principal = await requireBoundPrincipal(
+			context,
+			organizationId,
+			input.principalId,
+		);
+		enforceApiKeyScopeCeiling(input.scopes, principal.metadata);
 		return issueMcpCredentialForOrganization(input, context, organizationId);
 	},
 );
@@ -1383,6 +1398,8 @@ async function issueMcpCredentialForOrganization(
 			mcpServerUrl,
 		};
 	}
+	if (active.principal.credentialBindingType === "api_key")
+		enforceApiKeyScopeCeiling(input.scopes, active.principal.metadata);
 	const leaseOwnerToken = crypto.randomUUID();
 	const leaseStartedAt = new Date();
 	const leaseInput = {

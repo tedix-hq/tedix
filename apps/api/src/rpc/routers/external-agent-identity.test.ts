@@ -656,6 +656,99 @@ describe("external-agent knowledge lifecycle", () => {
 });
 
 describe("external-agent MCP client scopes", () => {
+	it.each(["mcp:work.write", "platform:admin"])(
+		"rejects API-key request %s outside the principal ceiling before provider issuance",
+		async (scope) => {
+			sqlite
+				.prepare(
+					"UPDATE external_agent_principals SET metadata = ? WHERE id = ?",
+				)
+				.run(
+					JSON.stringify({
+						platform: "codex-cloud",
+						allowedScopes: ["mcp:work.read"],
+					}),
+					SUBJECT,
+				);
+			vi.mocked(loadDescopeMcpServer).mockResolvedValue({
+				approvedScopes: { connectionsScopes: [{ name: scope }] },
+			} as never);
+			const client = createRouterClient(externalAgentIdentityContractRouter, {
+				context: context({ type: "apikey", id: "subject-key" }),
+			});
+			await expect(
+				client.issueMcpCredential({
+					organizationId: ORG,
+					principalId: SUBJECT,
+					sessionId: SUBJECT_SESSION,
+					mcpServerUrl: "https://example.mcp.tedix.dev/mcp",
+					scopes: [scope],
+				}),
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: expect.stringContaining("allowedScopes"),
+			});
+			expect(createDescopeMcpServerClient).not.toHaveBeenCalled();
+		},
+	);
+
+	it("allows a scope within the ceiling to reach the resource approval gate", async () => {
+		sqlite
+			.prepare("UPDATE external_agent_principals SET metadata = ? WHERE id = ?")
+			.run(
+				JSON.stringify({
+					platform: "codex-cloud",
+					allowedScopes: ["mcp:work.read"],
+				}),
+				SUBJECT,
+			);
+		const ctx = context({ type: "apikey", id: "subject-key" });
+		ctx.env = {
+			ENVIRONMENT: "test",
+			DESCOPE_PROJECT_ID: "test-project",
+			DESCOPE_MANAGEMENT_KEY: "test-key",
+		} as CloudflareEnv;
+		vi.spyOn(ctx.db.query.apps, "findFirst").mockResolvedValue({
+			metadata: { mcpConfig: { descopeResourceId: "resource" } },
+		} as never);
+		vi.mocked(loadDescopeMcpServer).mockResolvedValue({
+			approvedScopes: { connectionsScopes: [] },
+		} as never);
+		const client = createRouterClient(externalAgentIdentityContractRouter, {
+			context: ctx,
+		});
+		await expect(
+			client.issueMcpCredential({
+				organizationId: ORG,
+				principalId: SUBJECT,
+				sessionId: SUBJECT_SESSION,
+				mcpServerUrl: "https://example.mcp.tedix.dev/mcp",
+				scopes: ["mcp:work.read"],
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("not approved by the target resource"),
+		});
+		expect(loadDescopeMcpServer).toHaveBeenCalled();
+	});
+	it("refuses a cloud enrollment with no ceiling", async () => {
+		sqlite
+			.prepare("UPDATE external_agent_principals SET metadata = ? WHERE id = ?")
+			.run(JSON.stringify({ platform: "codex-cloud" }), SUBJECT);
+		const client = createRouterClient(externalAgentIdentityContractRouter, {
+			context: context({ type: "apikey", id: "subject-key" }),
+		});
+		await expect(
+			client.issueMcpCredential({
+				organizationId: ORG,
+				principalId: SUBJECT,
+				sessionId: SUBJECT_SESSION,
+				mcpServerUrl: "https://example.mcp.tedix.dev/mcp",
+				scopes: ["mcp:work.read"],
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
 	it("returns BAD_REQUEST for a scope removed from the target after the session started and releases the lease", async () => {
 		const requestContext = context({ type: "apikey", id: "subject-key" });
 		requestContext.env = {

@@ -1870,6 +1870,65 @@ describe("intersectScopes", () => {
 });
 
 describe("resolveExternalAgentSessionAuth", () => {
+	it.each([
+		[{}, ["mcp:work.read", "mcp:work.write"]],
+		[
+			{ platform: "codex-cloud", allowedScopes: ["mcp:work.read"] },
+			["mcp:work.read"],
+		],
+		[{ platform: "codex-cloud", allowedScopes: [] }, []],
+	] as const)(
+		"uses the live ceiling %j even with unchanged registered scopes",
+		async (metadata, expected) => {
+			const identity = {
+				organizationId: "org",
+				principalId: "principal",
+				sessionId: "session",
+			};
+			let liveMetadata: Record<string, unknown> = {};
+			const fetch = vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							json: {
+								principal: {
+									id: identity.principalId,
+									organizationId: identity.organizationId,
+									metadata: liveMetadata,
+								},
+								session: { id: identity.sessionId },
+							},
+						}),
+						{ headers: { "Content-Type": "application/json" } },
+					),
+			);
+			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+			const registered = ["mcp:work.read", "mcp:work.write"];
+			expect(
+				(
+					await resolveExternalAgentSessionAuth(
+						env,
+						identity,
+						"client",
+						registered,
+					)
+				).scopes,
+			).toEqual(registered);
+			liveMetadata = metadata;
+			expect(
+				(
+					await resolveExternalAgentSessionAuth(
+						env,
+						identity,
+						"client",
+						registered,
+					)
+				).scopes,
+			).toEqual(expected);
+			expect(fetch).toHaveBeenCalledTimes(2);
+		},
+	);
+
 	it("accepts only the exact canonical active identity returned by API", async () => {
 		const identity = {
 			organizationId: "00000000-0000-4000-8000-000000000001",

@@ -1,5 +1,75 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
+import {
+	MCP_CAPABILITY_SCOPES,
+	MCP_GRANULAR_CAPABILITY_SCOPES,
+} from "./mcp-capability-scopes";
+
+const principalScopeCatalog = new Set<string>([
+	...Object.keys(MCP_CAPABILITY_SCOPES),
+	...Object.keys(MCP_GRANULAR_CAPABILITY_SCOPES),
+	"connections.read",
+	"connections.execute",
+	"connections.admin",
+	"platform:admin",
+	"*",
+]);
+
+export const ExternalAgentPrincipalMetadataSchema = z
+	.object({
+		platform: z
+			.enum(["claude-cloud", "codex-cloud", "devin-cloud", "other"])
+			.optional(),
+		allowedScopes: z
+			.array(
+				z
+					.string()
+					.refine(
+						(scope) => principalScopeCatalog.has(scope),
+						"Unknown capability scope",
+					),
+			)
+			.max(64)
+			.optional(),
+	})
+	.catchall(JsonValueSchema)
+	.superRefine((metadata, ctx) => {
+		if (!metadata.platform) return;
+		if (!metadata.allowedScopes)
+			ctx.addIssue({
+				code: "custom",
+				path: ["allowedScopes"],
+				message: "Cloud enrollment requires allowedScopes",
+			});
+		for (const scope of metadata.allowedScopes ?? []) {
+			if (
+				scope === "*" ||
+				scope === "platform:admin" ||
+				scope === "connections.admin" ||
+				scope in MCP_CAPABILITY_SCOPES ||
+				scope.startsWith("mcp:settings.") ||
+				scope.startsWith("mcp:team.") ||
+				scope.endsWith(".admin")
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["allowedScopes"],
+					message: `Cloud enrollment forbids ${scope}`,
+				});
+		}
+	});
+
+/** Undefined preserves legacy enrollment; malformed or missing cloud ceilings fail closed. */
+export function externalAgentScopeCeiling(
+	metadata: Record<string, unknown> | undefined,
+): string[] | undefined {
+	if (metadata?.platform === undefined && metadata?.allowedScopes === undefined)
+		return undefined;
+	const parsed = ExternalAgentPrincipalMetadataSchema.safeParse(metadata);
+	if (!parsed.success)
+		throw new Error("Invalid external-agent allowedScopes ceiling");
+	return parsed.data.allowedScopes;
+}
 
 export const ExternalAgentPrincipalStatusSchema = z.enum([
 	"active",
