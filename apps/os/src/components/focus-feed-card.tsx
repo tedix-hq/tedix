@@ -1,4 +1,6 @@
 import { useContext, useState } from "react";
+import { ChatText, Info, ListPlus, Receipt } from "@phosphor-icons/react";
+import { FocusRowActions, type FocusRowAction } from "./focus-row-actions";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import type { FocusItem } from "@/lib/focus-feed";
 import {
@@ -20,11 +22,13 @@ export function FeedCard({
 	busy,
 	onReact,
 	onWork,
+	rowActions = [],
 }: {
 	item: FocusItem;
 	actor: string;
 	project?: string;
 	busy: boolean;
+	rowActions?: FocusRowAction[];
 	onReact: (
 		item: ActivityFeedItem,
 		reaction: "more" | "mute" | "comment" | "why" | "ignore",
@@ -63,48 +67,41 @@ export function FeedCard({
 				>
 					<Text className="ft-sentence font-medium">{item.sentence}</Text>
 				</Link>
-				<div className="focus-receipt-actions">
-					<Button
-						size="sm"
-						variant="ghost"
-						aria-label="Receipt"
-						aria-expanded={receipt}
-						onClick={() => {
-							setReceipt((v) => !v);
-							if (!receipt) void onReact(item, "why");
-						}}
-					>
-						Receipt
-					</Button>
-					<Button
-						size="sm"
-						variant="ghost"
-						aria-label="Comment"
-						aria-expanded={comment}
-						onClick={() => setComment((v) => !v)}
-					>
-						Note
-					</Button>
-					<Button
-						size="sm"
-						variant="ghost"
-						aria-label="Why this update"
-						onClick={() => rail?.openSection(section)}
-					>
-						Why this
-					</Button>
-					{item.projectId && (
-						<Button
-							size="sm"
-							variant="ghost"
-							disabled={busy}
-							aria-label="Turn into Work"
-							onClick={() => void onWork(item)}
-						>
-							Make a task
-						</Button>
-					)}
-				</div>
+				<FocusRowActions
+					actions={[
+						{
+							label: "Receipt",
+							Icon: Receipt,
+							expanded: receipt,
+							onClick: () => {
+								setReceipt((v) => !v);
+								if (!receipt) void onReact(item, "why");
+							},
+						},
+						{
+							label: "Comment",
+							Icon: ChatText,
+							expanded: comment,
+							onClick: () => setComment((v) => !v),
+						},
+						{
+							label: "Why this update",
+							Icon: Info,
+							onClick: () => rail?.openSection(section),
+						},
+						...(item.projectId
+							? [
+									{
+										label: "Turn into Work",
+										Icon: ListPlus,
+										disabled: busy,
+										onClick: () => void onWork(item),
+									},
+								]
+							: []),
+						...rowActions,
+					]}
+				/>
 				{receipt && (
 					<div className="focus-receipt">
 						<FeedOutcomePreview item={item} />

@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	Bell,
-	DotsThree,
-	EyeSlash,
-	PushPin,
-	ThumbsDown,
-} from "@phosphor-icons/react";
+import { Bell, EyeSlash, PushPin, ThumbsDown } from "@phosphor-icons/react";
 import type {
 	ActivityFeedConfig,
 	ActivityFeedItem,
@@ -26,13 +20,7 @@ import {
 	DecisionContextToolbar,
 } from "./decision-context-rail";
 import { Button } from "./kumo/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "./kumo/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./kumo/tooltip";
+import { FocusRowActions } from "./focus-row-actions";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
@@ -894,6 +882,11 @@ function FocusRow({
 		engaged.current = true;
 		void signal(item, reaction);
 	}
+	const actions = rowActions.map(({ label, reaction, Icon }) => ({
+		label,
+		Icon,
+		onClick: () => react(reaction),
+	}));
 
 	return (
 		<div
@@ -930,54 +923,11 @@ function FocusRow({
 					busy={busy}
 					onReact={onReact}
 					onWork={onWork}
+					rowActions={actions}
 				/>
 			)}
 			{item.because && <p className="focus-because">{item.because}</p>}
-			<div className="focus-row-tools">
-				<div className="focus-actions">
-					{rowActions.map(({ label, reaction, Icon }) => (
-						<Tooltip key={reaction}>
-							<TooltipTrigger
-								render={
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										aria-label={label}
-										onClick={() => react(reaction)}
-									/>
-								}
-							>
-								<Icon size={16} aria-hidden />
-							</TooltipTrigger>
-							<TooltipContent>{label}</TooltipContent>
-						</Tooltip>
-					))}
-				</div>
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								aria-label="More actions"
-							/>
-						}
-					>
-						<DotsThree size={20} aria-hidden />
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						{rowActions.map(({ label, reaction, Icon }) => (
-							<DropdownMenuItem
-								key={reaction}
-								icon={Icon}
-								onClick={() => react(reaction)}
-							>
-								{label}
-							</DropdownMenuItem>
-						))}
-					</DropdownMenuContent>
-				</DropdownMenu>
-			</div>
+			{item.needsAction && <FocusRowActions actions={actions} />}
 		</div>
 	);
 }

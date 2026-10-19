@@ -108,15 +108,13 @@ export function WorkShell() {
 							)}
 						>
 							{OS_COPY.workHome.deck}
-							{config.success && (
-								<span className="text-xs tabular-nums text-kumo-subtle">
-									{decisions.failed
-										? "—"
-										: decisions.pending
-											? "…"
-											: ((deck ? remaining : null) ?? decisions.count)}
-								</span>
-							)}
+							{config.success &&
+								((deck && remaining !== null) ||
+									(!decisions.pending && !decisions.failed)) && (
+									<span className="type-tedix-label tabular-nums text-kumo-subtle">
+										{(deck ? remaining : null) ?? decisions.count}
+									</span>
+								)}
 						</Link>
 					</nav>
 					{(feed || deck) && (

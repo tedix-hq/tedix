@@ -93,18 +93,20 @@ export function TodayPost({
 	return (
 		<Card aria-labelledby="today-heading" className="focus-today">
 			<CardHeader>
-				<div className="flex items-baseline justify-between gap-3">
+				<div className="focus-today-heading flex items-baseline justify-between gap-3">
 					<CardTitle id="today-heading" ref={heading} tabIndex={-1}>
 						Today
 					</CardTitle>
 					<Button
 						variant="ghost"
 						size="sm"
-						icon={<ArrowsClockwise size={16} aria-hidden />}
 						disabled={refreshing}
 						onClick={() => void refresh()}
 					>
-						{refreshing ? "Refreshing…" : "Refresh"}
+						<span className="inline-flex items-center gap-2">
+							<span>{refreshing ? "Refreshing…" : "Refresh"}</span>
+							<ArrowsClockwise size={16} aria-hidden />
+						</span>
 					</Button>
 				</div>
 			</CardHeader>
@@ -167,7 +169,7 @@ export function TodayPost({
 								</article>
 							),
 						)}
-						<div className="flex flex-wrap items-baseline gap-x-4 gap-y-2 text-kumo-subtle type-tedix-caption">
+						<div className="flex flex-wrap items-baseline gap-x-4 gap-y-2 text-kumo-subtle type-tedix-control">
 							{compact && digest.rows.length > 1 && (
 								<Button
 									variant="link"

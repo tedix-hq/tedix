@@ -386,7 +386,7 @@ export function WorkDecisionCard({
 						{rail && (
 							<Button
 								variant="ghost"
-								size="xs"
+								size="sm"
 								className="fd-card-details"
 								onClick={() => rail.openSection("details")}
 							>

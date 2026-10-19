@@ -743,7 +743,7 @@ function DecisionDeckContent({
 					)}
 				</DecisionContextToolbar>
 				{practiceMode && (
-					<Text role="label">
+					<Text role="label" tone="secondary" className="fd-practice-notice">
 						Practice only. Choices below stay in this preview and never approve
 						Work, send messages or teach your real profile.
 					</Text>

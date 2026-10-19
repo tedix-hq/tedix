@@ -99,12 +99,12 @@
 	grid-row: 1 / span 2;
 	display: flex;
 	align-items: flex-start;
-	gap: 0.25rem;
+	gap: 0.5rem;
 	color: var(--muted-foreground);
 }
 .focus-actions {
 	display: flex;
-	gap: 0.25rem;
+	gap: 0.5rem;
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity var(--fd-press-duration);
@@ -133,12 +133,15 @@
 	display: none;
 }
 .focus-feed .focus-today[data-slot="card"] {
-	padding: 1.5rem;
+	padding: var(--spacing-tedix-card);
 	gap: 1rem;
 	background: var(--card);
 }
 .focus-today > :is([data-slot="card-header"], [data-slot="card-content"]) {
-	padding-inline: 0;
+	padding: 0;
+}
+.focus-today-heading [data-slot="button"] {
+	margin-block: -0.5rem;
 }
 .focus-today-chips {
 	display: flex;
@@ -157,27 +160,34 @@
 	line-height: 1.5;
 	overflow-wrap: anywhere;
 }
-.focus-receipt-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.25rem;
+.focus-feed .fd-story-body > * {
+	grid-column: 1 / -1;
 }
-.focus-receipt-actions button {
-	font-size: 0.8125rem;
-	color: var(--muted-foreground);
+.focus-feed .fd-story-body > .ft-byline {
+	grid-column: 1;
+	grid-row: 1;
+	align-self: center;
+}
+.focus-feed .fd-story-body > .focus-row-tools {
+	grid-column: 2;
+	grid-row: 1;
+	align-self: center;
 }
 .focus-feed .fd-story {
 	position: static;
 	padding: 0;
 }
+.focus-feed .fd-story:hover {
+	background: transparent;
+}
 .focus-feed .fd-story-body {
+	grid-template-columns: minmax(0, 1fr) auto;
 	gap: 0.5rem;
 }
 .focus-receipt {
 	border-left: 2px solid var(--border);
 	padding-left: 0.75rem;
 }
-.focus-handled-row .focus-receipt-actions,
 .focus-handled-row :is(.ft-avatar, .ft-byline, .focus-because) {
 	display: none;
 }
@@ -189,12 +199,10 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-@media (min-width: 1024px) {
-	.feed-deck.fd-feed.focus-feed {
-		gap: 2.5rem;
-	}
-}
 @media (max-width: 640px), (pointer: coarse) {
+	.focus-today-heading [data-slot="button"] {
+		margin-block: -0.75rem;
+	}
 	.focus-actions {
 		display: none;
 	}
