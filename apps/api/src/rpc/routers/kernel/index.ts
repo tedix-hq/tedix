@@ -384,10 +384,8 @@ export function renderRouteResponse(
 			);
 
 		case "propose_tool_write": {
-			const capability = route.toolIntent?.capability?.trim();
 			const appSlug = route.toolIntent?.appSlug?.trim();
-			const capLabel = capability ?? "that change";
-			const appLabel = appSlug ?? "the relevant app";
+			const appLabel = appSlug?.replaceAll("-", " ") || "the relevant app";
 			// When the write-proposal planner already declined, render the honest
 			// decline line instead of the optimistic "I'll prepare it for approval"
 			// promise (which is false when nothing was formed). This covers render
@@ -398,7 +396,7 @@ export function renderRouteResponse(
 			if (writeDeclined) {
 				return renderWriteDeclined(writeDeclined, route);
 			}
-			return `This looks like a write — ${capLabel} via ${appLabel}. I'll attempt to prepare it for approval — confirm to proceed.`;
+			return `I'm checking how to make that change in ${appLabel}.`;
 		}
 
 		case "delegate_tedi": {
