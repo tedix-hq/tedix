@@ -1,5 +1,8 @@
 import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-reference";
 import { resolveHomeAttachments } from "./attachment-storage";
+import { listWorkItemsPage } from "@tedix/db/queries/work-items/crud";
+import { listWorkItemComments } from "@tedix/db/queries/work-items/comments";
+import { resolveDelegationWorkContext } from "../kernel/delegation-work-context";
 import { requireOrgId } from "../../org-scope";
 import { homeAttachmentContent } from "../kernel/attachment-content";
 import {
@@ -192,6 +195,41 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	// Approval/retry dispatches may happen in a later request. Recover the
 	// original handles from the parent rather than silently losing its files.
 	const homeRunId = stringFromPayload(metadata.homeRunId);
+	const order = nonNullRecord(metadata.delegationWorkOrder);
+	const originalTargets = await resolveDelegationWorkContext(
+		typeof order?.sourceContent === "string" ? order.sourceContent : content,
+		async (prefix) => {
+			const page = await listWorkItemsPage(context.db, {
+				orgId: organizationId,
+				idPrefix: prefix,
+				limit: 10,
+			});
+			return Promise.all(
+				page.data.map(
+					async ({ id, title, description, acceptanceContract }) => ({
+						id,
+						title,
+						description: description?.slice(0, 4000) ?? null,
+						acceptanceContract,
+						...(page.total === 1
+							? {
+									comments: (await listWorkItemComments(context.db, id))
+										.slice(-10)
+										.map((comment) => ({
+											id: comment.id,
+											body: comment.body.slice(0, 2000),
+											truncated: comment.body.length > 2000,
+										})),
+								}
+							: {}),
+					}),
+				),
+			);
+		},
+	);
+	if (originalTargets.length) {
+		metadata = { ...metadata, originalTargetWorkItems: originalTargets };
+	}
 	if (attachments === undefined && homeRunId) {
 		const parent = await getKernelRuntimeRun(context.db, {
 			id: homeRunId,

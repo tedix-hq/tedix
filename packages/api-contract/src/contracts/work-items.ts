@@ -532,7 +532,18 @@ export const workItemsContract = oc
 				path: "/{id}",
 				summary: "Get Work Item",
 			})
-			.input(z.object({ id: z.uuid() }))
+			.input(
+				z.object({
+					id: z
+						.union([
+							z.uuid(),
+							z.string().regex(/^[a-f\d]{8}(?:[a-f\d-]{0,27})$/i),
+						])
+						.describe(
+							"Canonical Work UUID or an unambiguous UUID prefix of at least eight hex characters. Never pad or invent a UUID; ambiguous prefixes return candidates.",
+						),
+				}),
+			)
 			.output(
 				z.object({
 					workItem: WorkItemSchema,
