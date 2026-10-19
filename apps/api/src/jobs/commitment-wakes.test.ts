@@ -19,6 +19,8 @@ import {
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { osGadgetExecutions } from "@tedix/db/schema/os-workspaces";
 import { skillRuns } from "@tedix/db/schema/cognitive";
+import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
+import { buildRuntimeRunId } from "@tedix/api-contract/utils/runtime-identity";
 import {
 	advanceCommitmentWakeCheckpoint,
 	listCommitmentChanges,
@@ -55,6 +57,7 @@ function fixture(plans: string[] = []) {
 			tediApprovalRequests,
 			osGadgetExecutions,
 			skillRuns,
+			tediRuntimeEvents,
 			platformCronExecutions,
 			platformCronCheckpoints,
 		),
@@ -204,6 +207,123 @@ describe("commitment wakes", () => {
 		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
 			"2026-10-16T12:06:00.000Z",
 		);
+	});
+
+	it.each([
+		"run.started",
+		"run.failed",
+		"run.canceled",
+		"run.completed",
+	] as const)(
+		"advances past an already delivered wake with canonical %s evidence",
+		async (kind) => {
+			const { sqlite, db, binding } = fixture();
+			await advanceCommitmentWakeCheckpoint(db, after);
+			sqlite.exec(
+				`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('changed','org-1','work-1','work.accepted','user','owner','${changedAt}')`,
+			);
+			await db.insert(tediRuntimeEvents).values({
+				id: "wake-receipt",
+				organizationId: "org-1",
+				tediId: "worker-1",
+				kind,
+				runId: buildRuntimeRunId({
+					tediId: "worker-1",
+					surface: "mcp",
+					turnKey: `commitments:org-1:worker-1:${through}`,
+				}),
+				runtimeBackend: "cloudflare-agents",
+				createdAt: changedAt,
+			});
+			const fetch = vi.fn(async () =>
+				Response.json({ outcome: "failed" }, { status: 500 }),
+			);
+			const result = await dispatchCommitmentWakes(
+				{
+					DB: binding,
+					ENVIRONMENT: "production",
+					TEDI_SERVICE: { fetch },
+				} as unknown as CloudflareEnv,
+				Date.parse(through) + 30_000,
+			);
+			expect(result).toMatchObject({
+				dispatched: 0,
+				deduplicated: 1,
+				windowsProcessed: 1,
+			});
+			expect(fetch).not.toHaveBeenCalled();
+			expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+		},
+	);
+	it("recovers a lost transport response from a concurrently committed ingress receipt", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(
+			`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('changed','org-1','work-1','work.accepted','user','owner','${changedAt}')`,
+		);
+		const fetch = vi.fn(async () => {
+			await db.insert(tediRuntimeEvents).values({
+				id: "accepted-during-send",
+				organizationId: "org-1",
+				tediId: "worker-1",
+				kind: "run.started",
+				runId: buildRuntimeRunId({
+					tediId: "worker-1",
+					surface: "mcp",
+					turnKey: `commitments:org-1:worker-1:${through}`,
+				}),
+				runtimeBackend: "cloudflare-agents",
+				createdAt: changedAt,
+			});
+			throw new Error("response lost");
+		});
+		const counts = await dispatchCommitmentWakes(
+			{
+				DB: binding,
+				ENVIRONMENT: "production",
+				TEDI_SERVICE: { fetch },
+			} as unknown as CloudflareEnv,
+			Date.parse(through) + 30_000,
+		);
+		expect(counts).toMatchObject({ deduplicated: 1, windowsProcessed: 1 });
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+	});
+	it("retains the window for an unacknowledged failure even with a foreign tenant receipt", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(
+			`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES ('changed','org-1','work-1','work.accepted','user','owner','${changedAt}')`,
+		);
+		const runId = buildRuntimeRunId({
+			tediId: "worker-1",
+			surface: "mcp",
+			turnKey: `commitments:org-1:worker-1:${through}`,
+		});
+		await db.insert(tediRuntimeEvents).values({
+			id: "foreign-receipt",
+			organizationId: "org-2",
+			tediId: "worker-1",
+			kind: "run.failed",
+			runId,
+			runtimeBackend: "cloudflare-agents",
+			createdAt: changedAt,
+		});
+		const fetch = vi.fn(async () =>
+			Response.json({ run_id: runId, outcome: "failed" }, { status: 500 }),
+		);
+		await expect(
+			dispatchCommitmentWakes(
+				{
+					DB: binding,
+					ENVIRONMENT: "production",
+					TEDI_SERVICE: { fetch },
+				} as unknown as CloudflareEnv,
+				Date.parse(through) + 30_000,
+			),
+		).rejects.toThrow();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(after);
 	});
 
 	it("suppresses self writes, completed Work, unchanged records and foreign tenants", async () => {
