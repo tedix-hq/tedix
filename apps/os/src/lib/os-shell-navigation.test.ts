@@ -63,7 +63,7 @@ describe("OS shell navigation", () => {
 		);
 		expect(resolveOsShellRouteContext("/apps")).toEqual({
 			section: "Capabilities",
-			label: "MCP Gateway",
+			crumbs: [{ label: "MCP Gateway" }],
 		});
 	});
 
@@ -71,30 +71,70 @@ describe("OS shell navigation", () => {
 		expect(OS_SHELL_FOOTER_NAVIGATION.map((item) => item.path)).toEqual([
 			"/install",
 		]);
-		for (const path of ["/admin", "/admin/billing"]) {
+		for (const path of ["/admin"]) {
 			expect(resolveOsShellRouteContext(path)).toEqual({
 				section: "Manage",
-				label: "Admin",
+				crumbs: [{ label: "Organization settings" }],
 			});
 		}
 		expect(resolveOsShellRouteContext("/compute")).toEqual({
 			section: "Manage",
-			label: "Usage & budgets",
+			crumbs: [{ label: "Usage & budgets" }],
 		});
 	});
 
 	it("projects section and route context into the top bar", () => {
 		expect(resolveOsShellRouteContext("/workspace/workspace-1")).toEqual({
-			label: "Workspaces",
+			crumbs: [
+				{ label: "Workspaces", href: "/workspaces" },
+				{ label: "Workspace" },
+			],
 		});
-		expect(resolveOsShellRouteContext("/work")).toEqual({ label: "Work" });
+		expect(resolveOsShellRouteContext("/work")).toEqual({
+			crumbs: [{ label: "Work" }],
+		});
 		expect(resolveOsShellRouteContext("/team/tedi-1")).toEqual({
 			section: "Capabilities",
-			label: "Team",
+			crumbs: [{ label: "Team" }],
 		});
 		expect(resolveOsShellRouteContext("/account/settings")).toEqual({
 			section: "Account",
-			label: "Personal settings",
+			crumbs: [{ label: "Personal settings" }],
+		});
+	});
+	it("uses real list destinations and resolved resource titles", () => {
+		for (const [path, titles, href, label] of [
+			[
+				"/outputs/document-1",
+				{ output: "Booth video 1 script and storyboard" },
+				"/outputs",
+				"Booth video 1 script and storyboard",
+			],
+			[
+				"/skills/skill-1/versions",
+				{ skill: "Research" },
+				"/skills",
+				"Research",
+			],
+			["/apps/app-1/tools", { app: "Calendar" }, "/gateways", "Calendar"],
+			[
+				"/workspace/workspace-1",
+				{ workspace: "Revenue Ops" },
+				"/workspaces",
+				"Revenue Ops",
+			],
+		] as const) {
+			const context = resolveOsShellRouteContext(path, titles);
+			expect(context.crumbs[0]?.href).toBe(href);
+			expect(context.crumbs[1]).toEqual({ label });
+			expect(context.crumbs.some((crumb) => crumb.href === "#")).toBe(false);
+		}
+		expect(resolveOsShellRouteContext("/admin/billing")).toEqual({
+			section: "Manage",
+			crumbs: [
+				{ label: "Organization settings", href: "/admin" },
+				{ label: "Billing" },
+			],
 		});
 	});
 });

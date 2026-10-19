@@ -195,6 +195,7 @@ const CALLS: Record<string, unknown> = {
 	"tedis/listOperationsSummaries": undefined,
 	"tediUsage/getCallCosts": { tediId: IDS.tediMiles, period: "7d" },
 	"skills/listByOrg": { limit: 100, offset: 0, summary: true },
+	"skills/get": { id: IDS.skillRevenue },
 	"skills/listWorkflowSchedules": { limit: 100 },
 	"skills/runWorkflowHistory": { limit: 50 },
 	"skills/listWorkflowRetryCandidates": {},

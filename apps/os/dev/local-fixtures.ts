@@ -4233,6 +4233,9 @@ const handlers: Record<string, (input: never) => unknown> = {
 
 	// --- skills + workflows ---
 	"skills/listByOrg": () => ({ entries: SKILLS, total: SKILLS.length }),
+	"skills/get": (input: { id: string }) => ({
+		entry: SKILLS.find((entry) => entry.id === input.id) ?? null,
+	}),
 	"skills/listWorkflowSchedules": () => ({
 		schedules: SCHEDULES,
 		total: SCHEDULES.length,

@@ -1,10 +1,5 @@
 import { WorkActorDirectory } from "@/components/work-actor-directory";
-import {
-	CaretRight,
-	List,
-	MagnifyingGlass,
-	SquaresFour,
-} from "@phosphor-icons/react";
+import { List, MagnifyingGlass, SquaresFour } from "@phosphor-icons/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
@@ -22,9 +17,9 @@ import {
 	OS_SHELL_NAVIGATION_SECTIONS,
 	OS_SHELL_PRIMARY_NAVIGATION,
 	type OsShellNavigationItem,
-	resolveOsShellRouteContext,
 } from "@/lib/os-shell-navigation";
 import { resolveOsTenant } from "@/shared/os-tenant";
+import { OsShellBreadcrumbs } from "@/components/os-shell-breadcrumbs";
 import { OsAccountMenu } from "@/components/os-account-menu";
 import {
 	Sidebar,
@@ -306,7 +301,6 @@ export function OsShell() {
 			: tenant.kind === "tenant"
 				? tenant.slug
 				: "Tedix";
-	const routeContext = resolveOsShellRouteContext(pathname);
 	const workspaceWorkbench = shouldUseWorkspaceWorkbench(pathname);
 
 	useEffect(() => {
@@ -343,13 +337,7 @@ export function OsShell() {
 					<header className="topbar">
 						<MobileNavigationTrigger />
 						<div className="topbar-context" aria-label="Current route">
-							{routeContext.section ? (
-								<>
-									<span>{routeContext.section}</span>
-									<CaretRight aria-hidden size={11} />
-								</>
-							) : null}
-							<strong>{routeContext.label}</strong>
+							<OsShellBreadcrumbs pathname={pathname} />
 						</div>
 						<div className="topbar-actions">
 							<SupportGetHelp organization={tenantLabel} />
