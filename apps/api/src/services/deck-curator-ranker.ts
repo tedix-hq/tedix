@@ -21,6 +21,7 @@ import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-p
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { listLearningInteractions } from "@tedix/db/queries/learning-feedback";
 import { reserveDeckRankingBudget } from "@tedix/db/queries/deck-curator-budget";
+import { resolveAiGatewayTransport } from "@tedix/workers-ai/gateway-transport";
 import { requireOrgId } from "../rpc/org-scope";
 import { verifiedActiveWorkActor } from "../rpc/routers/work-items-principal";
 import { createError, ErrorCodes, type BaseContext } from "../rpc/orpc";
@@ -168,9 +169,11 @@ export async function rankCurrentDeck(
 			continue;
 		}
 		if (
-			!context.env.AI_GATEWAY_ACCOUNT_ID ||
-			!context.env.AI_GATEWAY_LLM_ID ||
-			!context.env.CF_AI_GATEWAY_TOKEN
+			!resolveAiGatewayTransport(
+				context.env,
+				context.env.AI_GATEWAY_LLM_ID ?? "",
+				"workers-ai",
+			)
 		) {
 			unchanged("model_failed");
 			continue;

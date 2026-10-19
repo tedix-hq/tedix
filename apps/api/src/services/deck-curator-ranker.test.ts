@@ -199,3 +199,30 @@ it.each([
 		expect(mocks.model).toHaveBeenCalledTimes(1);
 	},
 );
+
+it("uses the configured Workers AI Gateway binding without requiring an HTTP token", async () => {
+	const bound = {
+		...context,
+		env: {
+			...context.env,
+			AI: {},
+			AI_GATEWAY_BINDING_PROVIDERS: "workers-ai",
+			AI_GATEWAY_ACCOUNT_ID: undefined,
+			CF_AI_GATEWAY_TOKEN: undefined,
+		},
+	} as unknown as BaseContext;
+	const result = await rankCurrentDeck(bound, input);
+	expect(result.signals[0]!.reason).toBe("ranked_lower");
+	expect(mocks.model).toHaveBeenCalledTimes(1);
+});
+
+it("does not reserve or infer through an unconfigured Gateway", async () => {
+	const unconfigured = {
+		...context,
+		env: { ...context.env, AI_GATEWAY_LLM_ID: undefined },
+	} as unknown as BaseContext;
+	const result = await rankCurrentDeck(unconfigured, input);
+	expect(result.signals[0]!.reason).toBe("model_failed");
+	expect(mocks.reserve).not.toHaveBeenCalled();
+	expect(mocks.model).not.toHaveBeenCalled();
+});
