@@ -324,7 +324,9 @@ describe("resolveOrganizationId", () => {
 	});
 
 	it("throws when the requested org differs from context", () => {
-		expect(() => resolveOrganizationId(ctx("org-1"), "org-2")).toThrow();
+		expect(() => resolveOrganizationId(ctx("org-1"), "org-2")).toThrow(
+			"Use the authenticated organization UUID org-1, or omit organizationId to use the current scope. Organization slugs are not accepted here.",
+		);
 	});
 });
 

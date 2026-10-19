@@ -410,7 +410,7 @@ export function resolveOrganizationId(
 	) {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Access denied to this organization",
+			`Access denied to this organization. Use the authenticated organization UUID ${context.organizationId}, or omit organizationId to use the current scope. Organization slugs are not accepted here.`,
 		);
 	}
 	return organizationId;
