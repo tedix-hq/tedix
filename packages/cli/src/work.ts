@@ -999,14 +999,14 @@ async function boardCall(
 /** Resolve a configured canonical tool through the same tenant/schema/native checks as Work. */
 export async function callConfiguredNativeTool(
 	ctx: NativeToolContext,
-	tool: string,
+	callable: string,
 	input: Record<string, unknown>,
 ): Promise<unknown> {
 	nativeCommands.set(ctx, {
 		protocolSequence: {},
 		deadlineAt: Date.now() + ctx.client.getTimeoutMs(),
 	});
-	const result = await boardCall(ctx, `tedix.${tool}`, input);
+	const result = await boardCall(ctx, callable, input);
 	if (result.error) throw new Error(result.error.message);
 	return result.value;
 }
