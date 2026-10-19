@@ -8,6 +8,8 @@ const route = vi.hoisted(() => ({
 	pathname: "/work/admission",
 	search: {} as Record<string, unknown>,
 	defaultView: "deck" as "deck" | "feed",
+	withCount: false,
+	count: { count: 0, pending: false, failed: false },
 }));
 
 vi.mock("@/lib/use-work-apps", () => ({
@@ -15,13 +17,18 @@ vi.mock("@/lib/use-work-apps", () => ({
 		apps: ["deck", "feed"].map((role) => ({
 			role,
 			gadget: { workspaceId: "cedar-workspace" },
-			manifest: { navigation: { workDefault: role === route.defaultView } },
+			manifest: {
+				navigation: { workDefault: role === route.defaultView },
+				...(route.withCount && role === "deck"
+					? { config: { version: 1 } }
+					: {}),
+			},
 		})),
 	}),
 }));
 
 vi.mock("@/lib/use-deck-count", () => ({
-	useDeckCount: () => ({ count: 0, pending: false, failed: false }),
+	useDeckCount: () => route.count,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -113,4 +120,30 @@ it("lets the configured Work app own the landing without the legacy tab bar", ()
 	const doc = renderShell("/work");
 	expect(doc.querySelector('[role="tablist"]')).toBeNull();
 	expect(doc.querySelector('[aria-label="More Work sections"]')).toBeNull();
+});
+
+it("shows known Deck counts including zero and leaves unknown counts empty", () => {
+	route.withCount = true;
+	try {
+		for (const count of [0, 12]) {
+			route.count = { count, pending: false, failed: false };
+			expect(
+				renderShell("/work").querySelector('a[href="/work?view=deck"] span')
+					?.textContent,
+			).toBe(String(count));
+		}
+		for (const state of [
+			{ pending: true, failed: false },
+			{ pending: false, failed: true },
+		]) {
+			route.count = { count: 12, ...state };
+			expect(
+				renderShell("/work").querySelector('a[href="/work?view=deck"]')
+					?.textContent,
+			).toBe("Deck");
+		}
+	} finally {
+		route.withCount = false;
+		route.count = { count: 0, pending: false, failed: false };
+	}
 });

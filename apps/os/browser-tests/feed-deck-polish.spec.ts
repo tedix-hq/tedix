@@ -86,6 +86,29 @@ try {
 				!(await page.locator('[data-slot="card-footer"] .fd-card-why').count())
 			)
 				throw new Error("Card actions and Why this must share one surface");
+			const deckGeometry = await page.locator(".fd-card").evaluate((card) => {
+				const notice = document
+					.querySelector(".fd-practice-notice")!
+					.getBoundingClientRect();
+				const box = card.getBoundingClientRect();
+				return {
+					left: notice.left - box.left,
+					gap: box.top - notice.bottom,
+					details: getComputedStyle(card.querySelector(".fd-card-details")!)
+						.fontSize,
+					whyMargin: getComputedStyle(card.querySelector(".fd-card-why")!)
+						.marginLeft,
+				};
+			});
+			if (
+				Math.abs(deckGeometry.left) > 1 ||
+				deckGeometry.gap !== 12 ||
+				deckGeometry.details !== "13px" ||
+				deckGeometry.whyMargin !== "0px"
+			)
+				throw new Error(
+					`Deck notice and tertiary actions: ${JSON.stringify(deckGeometry)}`,
+				);
 			const rejectBefore = await page
 				.locator('[data-decision-intent="reject"]')
 				.boundingBox();
@@ -216,7 +239,12 @@ try {
 			await page.keyboard.press("j");
 			await page.keyboard.press("k");
 			const story = page.locator("article").first();
-			await story.getByRole("button", { name: "Receipt", exact: true }).click();
+			await story
+				.getByRole("button", { name: "More actions", exact: true })
+				.click();
+			await page
+				.getByRole("menuitem", { name: "Receipt", exact: true })
+				.click();
 			await story.locator(".fd-preview").waitFor();
 			const actions = story.locator("..").locator(".focus-actions");
 			const row = story.locator("..");
@@ -236,7 +264,7 @@ try {
 			if (
 				geometry.padding !== "12px 16px" ||
 				geometry.inline !== width > 640 ||
-				geometry.count !== 4 ||
+				geometry.count !== 8 ||
 				geometry.target < (width === 390 ? 44 : 32)
 			)
 				throw new Error(
@@ -245,7 +273,16 @@ try {
 			await row
 				.getByRole("button", { name: "More actions", exact: true })
 				.click();
-			for (const name of ["Pin", "Hide", "Not important", "Tell me earlier"])
+			for (const name of [
+				"Receipt",
+				"Comment",
+				"Why this update",
+				"Turn into Work",
+				"Pin",
+				"Hide",
+				"Not important",
+				"Tell me earlier",
+			])
 				await page.getByRole("menuitem", { name, exact: true }).waitFor();
 			await page.keyboard.press("Escape");
 			if (width > 640) {
@@ -271,10 +308,7 @@ try {
 						control.getBoundingClientRect().bottom,
 				};
 			});
-			if (
-				rhythm.summary !== 8 ||
-				rhythm.gap !== (width >= 1024 ? "40px" : "32px")
-			)
+			if (rhythm.summary !== 8 || rhythm.gap !== "32px")
 				throw new Error(`Feed rhythm: ${JSON.stringify(rhythm)}`);
 			const feedFilters = page.getByRole("button", {
 				name: "Filters",
@@ -290,6 +324,19 @@ try {
 				await page.getByRole("button", { name: /Handled without you:/ }).count()
 			)
 				throw new Error("Everything folded records");
+			const everythingStory = page
+				.getByRole("feed", { name: "Everything" })
+				.locator(".fd-story")
+				.first();
+			await everythingStory
+				.getByRole("button", { name: "More actions", exact: true })
+				.click();
+			await page
+				.getByRole("menuitem", { name: "Comment", exact: true })
+				.click();
+			await everythingStory
+				.getByRole("textbox", { name: "Your correction", exact: true })
+				.waitFor();
 			await page.close();
 		}
 	}
