@@ -28,7 +28,7 @@ on your behalf. A separate owner confirmation in that product remains yours.
    Encode each path segment. The URL contains no credential. Give the enrolled
    fictional agent that URL and its token through an authorized secure channel.
 3. Open the form over HTTPS. Enter the enrollment token, a stable external
-   finding ID (for example `cedar-001`), title, finding body, HTTP(S) source
+   finding ID (for example `cedar-001`), title, finding body, HTTPS source
    reference and either FYI or Proposal. Submit once. The page returns a Work
    receipt and capture time. Repeating the same external finding ID for that
    enrollment returns the original receipt without another post.

@@ -21,7 +21,7 @@ export const PersonalAgentFindingSchema = z.strictObject({
 	evidenceUrl: z
 		.url()
 		.max(2000)
-		.refine((url) => /^https?:\/\//.test(url)),
+		.refine((url) => url.startsWith("https://")),
 	kind: z.enum(["proposal", "fyi"]),
 });
 export type PersonalAgentFinding = z.infer<typeof PersonalAgentFindingSchema>;
