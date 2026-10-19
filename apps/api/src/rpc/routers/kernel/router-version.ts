@@ -53,7 +53,8 @@ import { KernelRouteGenerationObjectSchema } from "./route-generation";
  * `delegate_tedi` decision changed without a schema-shape change.
  */
 // rev 3: normalize omitted nullable fields before validating route output.
-export const ROUTER_CONTRACT_REV = 3;
+// rev 4: recovery retains the compact schema and Auto's streaming transport.
+export const ROUTER_CONTRACT_REV = 4;
 
 /**
  * Stable serialization of the internal and model-facing route shapes: the
