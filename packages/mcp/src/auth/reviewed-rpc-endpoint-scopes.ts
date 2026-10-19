@@ -10,6 +10,9 @@
  * after this MCP gate.
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
+	"personalAgentInbound/enroll": "mcp:apps.write",
+	"personalAgentInbound/list": "mcp:apps.write",
+	"personalAgentInbound/revoke": "mcp:apps.write",
 	"runtimeEntitlements/checkModelEgress": "platform:admin",
 	"workAgentSessions/getAttentionLayout": "mcp:work.read",
 	"workAgentSessions/updateAttentionLayout": "mcp:work.write",

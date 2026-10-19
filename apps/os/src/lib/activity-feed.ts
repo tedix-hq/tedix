@@ -91,6 +91,7 @@ export function workFeedItems(
 		.map((e) => ({
 			...base(`work:${e.id}`, e.createdAt, projectId, e.workItemId),
 			actor:
+				e.personalAgentContribution?.sourceAgentName ??
 				(e.authorType === "external_agent"
 					? actors[e.agentHarness ?? ""]
 					: undefined) ??
@@ -103,6 +104,8 @@ export function workFeedItems(
 				harness: e.agentHarness,
 			},
 			tediId: e.authorType === "tedi" ? e.authorId : null,
+			personalAgentContribution: e.personalAgentContribution,
+			kind: e.personalAgentContribution?.kind === "fyi" ? "signal" : "work",
 			sentence: sentence(
 				e.body !== e.eventType &&
 					e.body.length <= 180 &&
@@ -116,8 +119,15 @@ export function workFeedItems(
 			classId: `work:${e.eventType}`.slice(0, 100),
 			done: ["completed", "cancelled"].includes(e.workItemDisposition),
 			stalled: /blocked|expired|failed/.test(e.eventType),
-			importance: /blocked|failed/.test(e.eventType) ? "high" : "low",
+			importance: e.personalAgentContribution
+				? "normal"
+				: /blocked|failed/.test(e.eventType)
+					? "high"
+					: "low",
 			explanation: [
+				e.personalAgentContribution
+					? `From ${e.personalAgentContribution.sourceAgentName}, for you. ${e.personalAgentContribution.kind === "fyi" ? "FYI" : "Proposal"}; no action executed. Source: ${e.personalAgentContribution.evidenceUrl}`
+					: null,
 				e.body === e.eventType ? null : e.body,
 				OS_COPY.feed.workExplanation,
 			]

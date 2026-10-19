@@ -362,6 +362,11 @@ export const apiRouter = {
 	toolSchemaSync: lazyRouter(() =>
 		import("./tool-schema-sync").then((m) => m.toolSchemaSyncContractRouter),
 	),
+	personalAgentInbound: lazyRouter(() =>
+		import("./personal-agent-inbound").then(
+			(m) => m.personalAgentInboundContractRouter,
+		),
+	),
 	userSettings: lazyRouter(() =>
 		import("./user-settings").then((m) => m.userSettingsContractRouter),
 	),

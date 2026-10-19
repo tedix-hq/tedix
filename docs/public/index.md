@@ -49,6 +49,7 @@ is available today.
 | Build or inspect a Workspace factory             | [Factory guide for agents](./factory-agent-guide.md)                    |
 | Keep a factory producing useful work             | [Factory continuity](./factory-continuity.md)                           |
 | Get help as a person or an agent                 | [Get support](./support.md)                                             |
+| Receive findings from a personal agent           | [Personal-agent findings](./personal-agent-inbound.md)                  |
 | Install or build a workspace app                 | [Build a workspace app](./build-a-workspace-app.md)                     |
 | Connect applications and tools                   | [MCP app platform](./mcp-app-platform.md)                               |
 | Publish public or organization-only product docs | [Documentation sites](./docs-sites.md)                                  |
