@@ -13,6 +13,7 @@ vi.mock("./use-card-schedule", () => ({
 vi.mock("./use-factory-card-count", () => ({
 	useFactoryCardCount: () => ({
 		count: 0,
+		cards: [],
 		pending: false,
 		failed: false,
 		more: false,

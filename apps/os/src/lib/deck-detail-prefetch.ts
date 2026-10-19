@@ -24,7 +24,9 @@ export function prefetchDeckDetails(
 	if (!queue) queues.set(client, (queue = { jobs: new Map(), running: false }));
 	const owned = [...new Set(ids)]
 		.slice(0, DECK_DETAIL_WINDOW)
-		.filter((id) => !id.startsWith("work-approval:"))
+		.filter(
+			(id) => !id.startsWith("work-approval:") && !id.startsWith("factory:"),
+		)
 		.map((id) => {
 			let job = queue.jobs.get(id);
 			if (job) job.users++;

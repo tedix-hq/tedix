@@ -66,6 +66,7 @@ describe("Deck detail prefetch budget", () => {
 		const stop = prefetchDeckDetails(client, [
 			"approval:a",
 			"work-approval:b",
+			"factory:fictional-sheet:0",
 			"c",
 		]);
 		await vi.waitFor(() => expect(fetchDetail).toHaveBeenCalledTimes(2));

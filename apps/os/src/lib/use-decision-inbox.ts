@@ -135,6 +135,8 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 				.map((row) => row.request.id),
 		),
 		work,
+		factoryPending: factories.pending,
+		factoryCards: factories.cards,
 		factoryCount: factories.count,
 		count: requests.length + work.length + runtime.length + factories.count,
 		queuePending:

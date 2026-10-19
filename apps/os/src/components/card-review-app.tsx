@@ -1,7 +1,7 @@
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { DecisionRailContext } from "@/components/decision-context-rail";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import { useCardSchedule } from "@/lib/use-card-schedule";
-import { DeckRemainingContext } from "@/components/deck-presentation-context";
 import {
 	ArrowArcLeft,
 	ArrowSquareOut,
@@ -248,9 +248,10 @@ export function CardReviewApp({
 	);
 
 	const outputLists = useQueries({
-		queries: sources.map((source) =>
-			canvasOutputsQueryOptions(source.workspaceId),
-		),
+		queries: sources.map((source) => ({
+			...canvasOutputsQueryOptions(source.workspaceId),
+			...workRefreshOptions,
+		})),
 	});
 
 	const sheetRefs = useMemo(() => {
@@ -298,7 +299,10 @@ export function CardReviewApp({
 		[sheetRefs],
 	);
 	const details = useQueries({
-		queries: detailIds.map((id) => outputDetailQueryOptions(id)),
+		queries: detailIds.map((id) => ({
+			...outputDetailQueryOptions(id),
+			...workRefreshOptions,
+		})),
 	});
 	const sheets = useMemo(() => {
 		const map = new Map<string, SheetState>();
@@ -413,10 +417,6 @@ export function CardReviewApp({
 		(card) => activeChannel === null || card.channel === activeChannel,
 	);
 	const [departingCard, setDepartingCard] = useState<ReviewCard | null>(null);
-	const reportRemaining = useContext(DeckRemainingContext);
-	useEffect(() => {
-		if (inDeck) reportRemaining?.(queue.length);
-	}, [inDeck, queue.length, reportRemaining]);
 	const card =
 		departingCard ??
 		(focusCardKey ? queue.find((row) => row.key === focusCardKey) : queue[0]) ??

@@ -142,9 +142,6 @@ function DecisionDeckContent({
 	const [focusCard, setFocusCard] = useState(() =>
 		new URLSearchParams(globalThis.location.hash.slice(1)).get("card"),
 	);
-	const factoryFocusKey = focusCard?.startsWith("factory:")
-		? focusCard.slice("factory:".length)
-		: undefined;
 	useEffect(() => {
 		const sync = () =>
 			setFocusCard(
@@ -227,6 +224,9 @@ function DecisionDeckContent({
 			.catch(() => {});
 	}, [profile.data?.id, client]);
 	const practiceMode = mode === "practice";
+	const factoryCards = new Map(
+		decisions.factoryCards.map((card) => [`factory:${card.key}`, card]),
+	);
 	const rows = practiceMode
 		? config.examples.map((decision, i) => ({
 				id: `example:${i}`,
@@ -238,6 +238,19 @@ function DecisionDeckContent({
 				row: undefined,
 			}))
 		: [
+				...(mode === "decide"
+					? decisions.factoryCards.map((card) => ({
+							id: `factory:${card.key}`,
+							kind: "decision",
+							label: card.action || card.why || card.sourceText,
+							project:
+								config.factorySources[card.sourceIndex]?.run?.workProjectId ??
+								"Unfiled",
+							urgency: "later",
+							decision: null,
+							row: undefined,
+						}))
+					: []),
 				...(mode === "history"
 					? (history.data?.data ?? []).filter(
 							(row) => row.effectiveState === "resolved",
@@ -323,13 +336,15 @@ function DecisionDeckContent({
 			{
 				kind: mode === "decide" ? a.kind : undefined,
 				dueAt: a.row?.request.dueAt,
-				requestedAt: a.row?.request.requestedAt,
+				requestedAt:
+					a.row?.request.requestedAt ?? factoryCards.get(a.id)?.runCreatedAt,
 				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
 			},
 			{
 				kind: mode === "decide" ? b.kind : undefined,
 				dueAt: b.row?.request.dueAt,
-				requestedAt: b.row?.request.requestedAt,
+				requestedAt:
+					b.row?.request.requestedAt ?? factoryCards.get(b.id)?.runCreatedAt,
 				score: learningModel.data?.config.enabled ? rank(b).score : undefined,
 			},
 			now,
@@ -359,6 +374,7 @@ function DecisionDeckContent({
 			!!profile.data?.id &&
 			!inbox.isPending &&
 			!inbox.isError &&
+			!decisions.factoryPending &&
 			(decisions.requests.length > 0 ||
 				(!decisions.queuePending && !decisions.queueFailed)) &&
 			!learningQuery.isPending &&
@@ -385,12 +401,8 @@ function DecisionDeckContent({
 				)
 			: ranked;
 	useEffect(() => {
-		if (
-			mode === "decide" &&
-			(filtered.length > 0 || factories.sources.length === 0)
-		)
-			reportRemaining?.(filtered.length);
-	}, [mode, filtered.length, factories.sources.length, reportRemaining]);
+		if (mode === "decide") reportRemaining?.(filtered.length);
+	}, [mode, filtered.length, reportRemaining]);
 	const selected =
 		mode === "decide" && focusCard
 			? filtered.find((row) => row.id === focusCard)
@@ -841,22 +853,30 @@ function DecisionDeckContent({
 				{!practiceMode && inbox.isPending && (
 					<Text>{decisionText("Loading decisions…")}</Text>
 				)}
-				{mode === "decide" && factoryFocusKey ? (
-					<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
-						{factories.pending ? (
-							<Text>{OS_COPY.feed.loading}</Text>
-						) : (
-							<FactoryCards
-								inDeck
-								config={{ version: 1, sources: factories.sources }}
-								focusCardKey={factoryFocusKey}
-								onFocusHandled={clearFocusCard}
-							/>
-						)}
-					</Suspense>
+				{mode === "decide" &&
+				selected?.id.startsWith("factory:") &&
+				!budgetReached ? (
+					<div className="fd-deck-current">
+						<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
+							{factories.pending ? (
+								<Text>{OS_COPY.feed.loading}</Text>
+							) : (
+								<OptimisticDeckDecisionContext.Provider
+									value={optimisticDecision}
+								>
+									<FactoryCards
+										key={selected.id}
+										inDeck
+										config={{ version: 1, sources: factories.sources }}
+										focusCardKey={selected.id.slice("factory:".length)}
+									/>
+								</OptimisticDeckDecisionContext.Provider>
+							)}
+						</Suspense>
+					</div>
 				) : mode === "decide" && focusCard && !selected ? (
 					<Text>
-						{decisions.queuePending
+						{decisions.pending
 							? "Opening that decision…"
 							: "That decision is no longer available in this view."}
 					</Text>
@@ -1098,17 +1118,6 @@ function DecisionDeckContent({
 					!(decisions.failed || learningQuery.isError) &&
 					(available.length > 0 ? (
 						<Text>{OS_COPY.decisionDeck.noMatches}</Text>
-					) : !practiceMode && factories.pending ? (
-						<Text>{OS_COPY.feed.loading}</Text>
-					) : !practiceMode && factories.sources.length > 0 ? (
-						<div className="fd-deck-current">
-							<Suspense fallback={<Text>{OS_COPY.feed.loading}</Text>}>
-								<FactoryCards
-									inDeck
-									config={{ version: 1, sources: factories.sources }}
-								/>
-							</Suspense>
-						</div>
 					) : (
 						<DeckClosure
 							onHistory={() => {

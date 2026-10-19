@@ -1,3 +1,4 @@
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { cardIsDue } from "@/lib/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -25,15 +26,19 @@ export function ActivityFeedFactorySource({
 	onUpdate: (key: string, state: FeedSourceState) => void;
 }) {
 	const { now, timeZone } = useCardSchedule();
-	const outputs = useQuery(
-		canvasOutputsQueryOptions(binding.source.workspaceId),
-	);
+	const outputs = useQuery({
+		...canvasOutputsQueryOptions(binding.source.workspaceId),
+		...workRefreshOptions,
+	});
 	const sheets = useMemo(
 		() => cardSheetsForSource(binding.source, outputs.data?.items ?? []),
 		[binding.source, outputs.data],
 	);
 	const details = useQueries({
-		queries: sheets.map((s) => outputDetailQueryOptions(s.id)),
+		queries: sheets.map((s) => ({
+			...outputDetailQueryOptions(s.id),
+			...workRefreshOptions,
+		})),
 	});
 	const versionKey = details
 		.map((d) => `${d.dataUpdatedAt}:${d.status}`)
