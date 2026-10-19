@@ -1674,7 +1674,7 @@ function ChatStarterPrompts({
 	onChoose: (prompt: string) => void;
 }) {
 	return (
-		<div className="chat-starter-prompts mt-6 grid w-full gap-2">
+		<div className="chat-starter-prompts mt-6 grid w-full !max-w-none gap-2 text-wrap">
 			{CHAT_STARTER_PROMPTS.map((prompt) => (
 				<Button
 					key={prompt}
@@ -3483,7 +3483,7 @@ export function ChatThread({
 						<div className="mx-auto min-w-0 w-full max-w-3xl">
 							{conversationId === null && !hasContent ? (
 								<Empty appearance="inline">
-									<EmptyHeader>
+									<EmptyHeader className="w-full max-w-none">
 										<EmptyTitle>New conversation</EmptyTitle>
 										<EmptyDescription>
 											Ask a question, or ask for a doc, sheet or deck. The chat
@@ -3514,7 +3514,7 @@ export function ChatThread({
 							transcript.isSuccess &&
 							!hasContent ? (
 								<Empty appearance="inline">
-									<EmptyHeader>
+									<EmptyHeader className="w-full max-w-none">
 										<EmptyTitle>No messages yet</EmptyTitle>
 										<EmptyDescription>
 											Type a message below to get started.
