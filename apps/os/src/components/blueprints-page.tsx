@@ -1400,7 +1400,7 @@ function GalleryExplore() {
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<PageToolbar aria-label="Blueprint gallery controls">
+			<PageToolbar aria-label="Blueprint gallery controls" appearance="inline">
 				<SearchInput
 					aria-label="Search blueprint gallery"
 					containerClassName="w-full sm:w-64 sm:shrink-0"
@@ -1695,7 +1695,7 @@ function MyBlueprints({
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<PageToolbar aria-label="Blueprint library controls">
+			<PageToolbar aria-label="Blueprint library controls" appearance="inline">
 				<SearchInput
 					aria-label="Search blueprints"
 					containerClassName="w-full sm:w-64 sm:shrink-0"
@@ -1788,44 +1788,46 @@ export function BlueprintsPage() {
 
 	return (
 		<Page width="lg">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>{surface.description}</PageDescription>
-				</PageHeading>
-				{tab === "mine" && (
-					<PageActions>
-						<Button
-							onClick={() => {
-								setShowImport((current) => !current);
-								setShowCreate(false);
-							}}
-							variant="outline"
-						>
-							<UploadSimple size={14} />
-							Import package
-						</Button>
-						<Button
-							onClick={() => {
-								setShowCreate((current) => !current);
-								setShowImport(false);
-							}}
-						>
-							<Plus size={14} />
-							New blueprint
-						</Button>
-					</PageActions>
-				)}
-			</PageHeader>
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>{surface.label}</PageTitle>
+						<PageDescription>{surface.description}</PageDescription>
+					</PageHeading>
+					{tab === "mine" && (
+						<PageActions>
+							<Button
+								onClick={() => {
+									setShowImport((current) => !current);
+									setShowCreate(false);
+								}}
+								variant="outline"
+							>
+								<UploadSimple size={14} />
+								Import package
+							</Button>
+							<Button
+								onClick={() => {
+									setShowCreate((current) => !current);
+									setShowImport(false);
+								}}
+							>
+								<Plus size={14} />
+								New blueprint
+							</Button>
+						</PageActions>
+					)}
+				</PageHeader>
 
-			<SegmentedControl
-				ariaLabel="Blueprint views"
-				className="w-full sm:w-fit"
-				value={tab}
-				onValueChange={setTab}
-				options={BLUEPRINT_TABS}
-				compact
-			/>
+				<SegmentedControl
+					ariaLabel="Blueprint views"
+					className="w-full sm:w-fit"
+					value={tab}
+					onValueChange={setTab}
+					options={BLUEPRINT_TABS}
+					compact
+				/>
+			</div>
 
 			{tab === "mine" && showCreate && (
 				<CreateBlueprintForm

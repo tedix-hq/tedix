@@ -315,7 +315,7 @@ describe("OutputsPage", () => {
 			.mockResolvedValueOnce({ items: [libraryItem()], truncated: false });
 		const container = renderPage();
 		await flush();
-		expect(container.querySelector(".outputs-surface")).not.toBeNull();
+		expect(container.querySelector('[data-slot="page"]')).not.toBeNull();
 
 		expect(container.textContent).toContain("Outputs are unavailable");
 		expect(container.textContent).toContain(

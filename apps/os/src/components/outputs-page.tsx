@@ -675,90 +675,96 @@ export function OutputsPage() {
 	};
 
 	return (
-		<Page width="lg" className="outputs-surface">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>{surface.description}</PageDescription>
-				</PageHeading>
-				<PageActions>
-					<CreateDocumentButton
-						onCreated={(output) => {
-							if (output.workspaceId)
-								void navigate({
-									to: "/workspace/$workspaceId",
-									params: { workspaceId: output.workspaceId },
-									search: {
-										pane: "workpiece",
-										workpiece: `output:${output.id}`,
-									},
-								});
-							else
-								void navigate({
-									to: "/outputs/$outputId",
-									params: { outputId: output.id },
-								});
-						}}
-					/>
-					<SegmentedControl
-						ariaLabel="Layout"
-						className="[&_button]:size-8 [&_button]:px-0 coarse:[&_button]:size-11"
-						compact
-						value={layout}
-						onValueChange={setLayout}
-						options={[
-							{
-								value: "list",
-								label: (
-									<>
-										<ListIcon size={16} />
-										<span className="sr-only">List view</span>
-									</>
-								),
-							},
-							{
-								value: "grid",
-								label: (
-									<>
-										<SquaresFour size={16} />
-										<span className="sr-only">Grid view</span>
-									</>
-								),
-							},
-						]}
-					/>
-				</PageActions>
-			</PageHeader>
-			<PageToolbar aria-label="Output library controls">
-				<Tabs
-					className="w-full min-w-0 max-w-full shrink"
-					value={kind}
-					onValueChange={(value) => setKind(value as KindFilter)}
-				>
-					<TabsList aria-label="Filter by type" variant="filter">
-						{KIND_FILTERS.map((filter) => (
-							<TabsTrigger key={filter} value={filter} className="group">
-								<span className="flex items-center gap-1.5">
-									<span>{kindLabel(filter)} </span>
-									<span className="tabular-nums text-kumo-inactive group-aria-selected:text-kumo-subtle">
-										{kindCounts[filter]}
+		<Page width="lg">
+			<div className="grid min-w-0 gap-4">
+				<PageHeader>
+					<PageHeading>
+						<PageTitle>{surface.label}</PageTitle>
+						<PageDescription>{surface.description}</PageDescription>
+					</PageHeading>
+					<PageActions>
+						<CreateDocumentButton
+							onCreated={(output) => {
+								if (output.workspaceId)
+									void navigate({
+										to: "/workspace/$workspaceId",
+										params: { workspaceId: output.workspaceId },
+										search: {
+											pane: "workpiece",
+											workpiece: `output:${output.id}`,
+										},
+									});
+								else
+									void navigate({
+										to: "/outputs/$outputId",
+										params: { outputId: output.id },
+									});
+							}}
+						/>
+						<SegmentedControl
+							ariaLabel="Layout"
+							className="[&_button]:size-8 [&_button]:px-0 coarse:[&_button]:size-11"
+							compact
+							value={layout}
+							onValueChange={setLayout}
+							options={[
+								{
+									value: "list",
+									label: (
+										<>
+											<ListIcon size={16} />
+											<span className="sr-only">List view</span>
+										</>
+									),
+								},
+								{
+									value: "grid",
+									label: (
+										<>
+											<SquaresFour size={16} />
+											<span className="sr-only">Grid view</span>
+										</>
+									),
+								},
+							]}
+						/>
+					</PageActions>
+				</PageHeader>
+				<PageToolbar aria-label="Output library controls" appearance="inline">
+					<Tabs
+						className="w-full min-w-0 max-w-full shrink"
+						value={kind}
+						onValueChange={(value) => setKind(value as KindFilter)}
+					>
+						<TabsList aria-label="Filter by type" variant="filter">
+							{KIND_FILTERS.map((filter) => (
+								<TabsTrigger key={filter} value={filter} className="group">
+									<span className="flex items-center gap-1.5">
+										<span>{kindLabel(filter)} </span>
+										<span className="tabular-nums text-kumo-inactive group-aria-selected:text-kumo-subtle">
+											{kindCounts[filter]}
+										</span>
 									</span>
-								</span>
-							</TabsTrigger>
-						))}
-					</TabsList>
-				</Tabs>
-				<div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center lg:w-auto lg:shrink-0">
-					<ScopeSelect value={scope} counts={scopeCounts} onChange={setScope} />
-					<SearchInput
-						containerClassName="w-full min-w-0 sm:w-60"
-						aria-label="Search outputs"
-						value={query}
-						onChange={(event) => setQuery(event.target.value)}
-						placeholder="Search outputs"
-					/>
-				</div>
-			</PageToolbar>
+								</TabsTrigger>
+							))}
+						</TabsList>
+					</Tabs>
+					<div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center lg:w-auto lg:shrink-0">
+						<ScopeSelect
+							value={scope}
+							counts={scopeCounts}
+							onChange={setScope}
+						/>
+						<SearchInput
+							containerClassName="w-full min-w-0 sm:w-60"
+							aria-label="Search outputs"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							placeholder="Search outputs"
+						/>
+					</div>
+				</PageToolbar>
+			</div>
 
 			{outputs.isPending ? <ListSkeleton /> : null}
 			{outputs.isError ? (
