@@ -3588,6 +3588,13 @@ export function ChatThread({
 													message.runId ? [message.runId] : [],
 												),
 										),
+										new Map(
+											(runSet?.runs ?? []).flatMap((run) =>
+												run.status === "failed" || run.status === "canceled"
+													? [[run.id, run.status] as const]
+													: [],
+											),
+										),
 									).map((overlay) => (
 										<Fragment key={overlay.key}>
 											{/* The planner's provisional thinking line, above the

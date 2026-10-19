@@ -268,6 +268,37 @@ describe("visibleOverlays", () => {
 		expect(overlays).toHaveLength(1);
 		expect(visibleOverlays(overlays, new Set(), new Set([RUN_ID]))).toEqual([]);
 	});
+
+	it.each(["failed", "canceled"] as const)(
+		"a saved %s outcome ends stale progress and preserves partial text",
+		(status) => {
+			const state = createOverlayState();
+			applyOverlayEvent(state, delta(0, "Two checks passed."));
+			applyOverlayEvent(state, phase(1, "generating"));
+			const overlays = listOverlays(state);
+			const ended = visibleOverlays(
+				overlays,
+				new Set(),
+				new Set(),
+				new Map([[RUN_ID, status]]),
+			);
+			expect(ended[0]?.phase).toBeNull();
+			expect(ended[0]?.finalized).toBe(true);
+			expect(ended[0]?.text).toContain("Partial reply:\n\nTwo checks passed.");
+			expect(ended[0]?.text).toContain(
+				status === "failed" ? "interrupted" : "Stopped",
+			);
+			expect(overlays[0]?.finalized).toBe(false);
+			expect(
+				visibleOverlays(
+					overlays,
+					new Set(),
+					new Set([RUN_ID]),
+					new Map([[RUN_ID, status]]),
+				),
+			).toEqual([]);
+		},
+	);
 });
 
 // ---------------------------------------------------------------------------
