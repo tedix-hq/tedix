@@ -332,7 +332,10 @@ launching a model turn. Plain `session/new` is ephemeral until prompted and
 cannot be resumed. The executable's `--version` supplies the CLI release;
 ACP supplies the resolved model. Child CLI calls receive `devin:<native-id>`
 as their Agent-Session. A coding brief still needs its own verified agent
-bootstrap and Work admission. The read-only smoke uses the existing Tedix CLI
+bootstrap and Work admission. Hooks name the launcher's exact CLI executable;
+the permission profile allows its native session prefix and the selected
+profile's principal key without relying on the agent shell's PATH. The
+read-only smoke uses the existing Tedix CLI
 login; Devin MCP authorization is a separate step.
 
 Claude Code hooks report into the same lane when launched by the wrapper.

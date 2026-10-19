@@ -15,11 +15,17 @@ export function devinConfigDirectory(env = process.env) {
 	return join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "devin");
 }
 
-export function devinHooks() {
+export function devinCliCommand() {
 	const [program, prefix] = selfCommand();
-	const cli = [program, ...prefix]
-		.map((part) => `'${part.replaceAll("'", "'\\''")}'`)
+	return [program, ...prefix]
+		.map((part) =>
+			/^[\w/.:=-]+$/.test(part) ? part : `'${part.replaceAll("'", "'\\''")}'`,
+		)
 		.join(" ");
+}
+
+export function devinHooks() {
+	const cli = devinCliCommand();
 	return Object.fromEntries(
 		[
 			["SessionStart", "session-start"],
@@ -147,7 +153,10 @@ export function setupDevin(directory = devinConfigDirectory()) {
 }
 
 /** Tool approvals, not an OS sandbox: approved runtimes can execute repository code. */
-export function devinPermissionProfile(cwd: string) {
+export function devinPermissionProfile(
+	cwd: string,
+	session?: { id: string; principalKey?: string },
+) {
 	const root = resolve(cwd);
 	if (/[()\n\r*?\[\]{}]/.test(root))
 		throw new Error("Unsupported Devin workspace path");
@@ -161,6 +170,8 @@ export function devinPermissionProfile(cwd: string) {
 				`Write(${root}/**)`,
 				...[
 					"git status",
+					"git fetch",
+					"git worktree list",
 					"git diff",
 					"git log",
 					"git show",
@@ -173,14 +184,45 @@ export function devinPermissionProfile(cwd: string) {
 					"bun",
 					"bunx",
 					"node",
-					"tedix",
+					"devin --version",
+					"devin models",
 					"rg",
 					"ls",
 					"cat",
 					"sed",
+					"sleep",
+					"date",
+					"find",
+					"pwd",
+					"head",
+					"tail",
+					"echo",
+					"printf",
+					"test",
+					"curl",
+					"true",
+					"false",
 					"gh run list",
 					"gh run view",
-				].map((command) => `Exec(${command})`),
+				].flatMap((command) => [
+					`Exec(${command})`,
+					...(command.startsWith("git ")
+						? [`Exec(git -C ${root} ${command.slice(4)})`]
+						: []),
+				]),
+				...["tedix", devinCliCommand()].flatMap((cli) => [
+					`Exec(${cli})`,
+					...(session
+						? [`Exec(TEDIX_AGENT_SESSION=devin:${session.id} ${cli})`]
+						: []),
+					...(session?.principalKey
+						? [
+								`Exec(TEDIX_EXTERNAL_AGENT=${session.principalKey} ${cli})`,
+								`Exec(TEDIX_AGENT_SESSION=devin:${session.id} TEDIX_EXTERNAL_AGENT=${session.principalKey} ${cli})`,
+								`Exec(TEDIX_EXTERNAL_AGENT=${session.principalKey} TEDIX_AGENT_SESSION=devin:${session.id} ${cli})`,
+							]
+						: []),
+				]),
 				"Fetch(https://docs.tedix.dev/*)",
 				"Fetch(https://docs.devin.ai/*)",
 				"mcp__tedix__*",
@@ -204,11 +246,15 @@ export function devinPermissionProfile(cwd: string) {
 	};
 }
 
-export function writeDevinLaneConfig(path: string, cwd: string) {
+export function writeDevinLaneConfig(
+	path: string,
+	cwd: string,
+	session?: { id: string; principalKey?: string },
+) {
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 	writeFileSync(
 		path,
-		JSON.stringify(devinPermissionProfile(cwd), null, 2) + "\n",
+		JSON.stringify(devinPermissionProfile(cwd, session), null, 2) + "\n",
 		{ mode: 0o600, flag: "wx" },
 	);
 }

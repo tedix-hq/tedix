@@ -16,6 +16,7 @@ import {
 import { selfCommand } from "./shared";
 import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
 import { writeDevinLaneConfig } from "./devin-config";
+import { readExternalAgentProfile } from "./external-agent-store";
 import { AGENT_IDENTITY_ENV } from "./hooks/hook-io";
 import { laneChildEnv } from "./lane-child-env";
 import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
@@ -149,7 +150,7 @@ export async function runLaneProcess(
 		if (!value) throw new Error(`${key} needs a value`);
 		if (["-w", "--workspace", "--organization"].includes(key))
 			scope.push(key, value);
-		else options.set(key, value);
+		options.set(key, value);
 	}
 	if (args[0] === "report") {
 		const input = JSON.parse(
@@ -285,7 +286,17 @@ export async function runLaneProcess(
 		options.get("--transcript") ?? `${options.get("--brief")!}.devin.atif.json`;
 	if (devin) {
 		const config = join(dir, "devin.json");
-		writeDevinLaneConfig(config, deps.cwd ?? process.cwd());
+		const workspace =
+			deps.childScope?.workspace ??
+			options.get("--workspace") ??
+			options.get("-w") ??
+			process.env.TEDIX_WORKSPACE;
+		writeDevinLaneConfig(config, deps.cwd ?? process.cwd(), {
+			id: sessionKey,
+			principalKey: workspace
+				? readExternalAgentProfile(workspace)?.key
+				: undefined,
+		});
 		command.splice(
 			0,
 			command.length,
@@ -315,9 +326,15 @@ export async function runLaneProcess(
 					TEDIX_AGENT_SESSION: `devin:${sessionKey}`,
 				}
 			: {}),
-		TEDIX_WORKSPACE: deps.childScope?.workspace ?? process.env.TEDIX_WORKSPACE,
+		TEDIX_WORKSPACE:
+			deps.childScope?.workspace ??
+			options.get("--workspace") ??
+			options.get("-w") ??
+			process.env.TEDIX_WORKSPACE,
 		TEDIX_ORGANIZATION:
-			deps.childScope?.organization ?? process.env.TEDIX_ORGANIZATION,
+			deps.childScope?.organization ??
+			options.get("--organization") ??
+			process.env.TEDIX_ORGANIZATION,
 		TEDIX_LANE_ID: sessionKey,
 		TEDIX_LANE_TELEMETRY_PATH: receipt,
 		TEDIX_LANE_RATE_SCOPE: telemetry.rateScope ?? "",
@@ -325,6 +342,7 @@ export async function runLaneProcess(
 	let nativeId: string | undefined,
 		identityMismatch = false,
 		buffer = "";
+	let devinStderr = "";
 	const codexJson =
 		executor === "codex" &&
 		basename(command[0]!) === "codex" &&
@@ -341,10 +359,14 @@ export async function runLaneProcess(
 		stdio: [
 			"pipe",
 			codexJson || claudeJson || devin ? "pipe" : "inherit",
-			"inherit",
+			devin ? "pipe" : "inherit",
 		],
 	});
 	if (child.pid) deps.onSpawn?.(child.pid);
+	child.stderr?.on("data", (chunk) => {
+		process.stderr.write(chunk);
+		devinStderr = (devinStderr + chunk.toString()).slice(-24000);
+	});
 	child.stdin?.end(devin ? undefined : readFileSync(options.get("--brief")!));
 	child.stdout?.on("data", (chunk) => {
 		process.stdout.write(chunk);
@@ -418,6 +440,10 @@ export async function runLaneProcess(
 	}
 	if (
 		identityMismatch ||
+		(devin &&
+			devinStderr.includes(
+				"rejected a tool call that requires confirmation",
+			)) ||
 		(deps.sessionKey &&
 			(codexJson || claudeJson) &&
 			nativeId !== deps.sessionKey)

@@ -12,10 +12,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { devinPermissionProfile, setupDevin } from "./devin-config";
+import {
+	devinCliCommand,
+	devinPermissionProfile,
+	setupDevin,
+} from "./devin-config";
 import { createDevinLaneThread, devinAvailable } from "./devin-lane-thread";
 import { parseServeOptions } from "./lane-serve";
 import { runLaneProcess } from "./lane-run";
+import { writeExternalAgentProfile } from "./external-agent-store";
 import {
 	devinContextOutput,
 	devinHookEvent,
@@ -29,8 +34,11 @@ import { runSessionStart } from "./hooks/session-start";
 
 const directories: string[] = [];
 const originalPath = process.env.PATH;
+const originalConfigDir = process.env.TEDIX_CONFIG_DIR;
 afterEach(() => {
 	process.env.PATH = originalPath;
+	if (originalConfigDir === undefined) delete process.env.TEDIX_CONFIG_DIR;
+	else process.env.TEDIX_CONFIG_DIR = originalConfigDir;
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -60,7 +68,7 @@ if (args[0] === 'acp') {
 } else {
  fs.writeFileSync('persisted','quiet-river');
  const config = JSON.parse(fs.readFileSync(args[args.indexOf('--config')+1], 'utf8'));
- fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION}));
+ fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION}));
  fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'quiet-river',steps:[]}));
  console.log('Fake Devin completed the brief.');
 }
@@ -123,6 +131,19 @@ test("unsupported persistence and missing persisted identity refuse before a pro
 
 test("headless runner uses cwd, native resume, permission config, export and final stdout", async () => {
 	const dir = temporary();
+	process.env.TEDIX_CONFIG_DIR = dir;
+	writeExternalAgentProfile("fixture", {
+		organizationId: "org_example",
+		principalId: "example",
+		key: "local-example",
+		displayName: "Example",
+		apiKeyId: "example",
+		rawApiKey: "fixture",
+		scopes: [],
+		mcpUrl: "https://example.invalid/mcp",
+		createdAt: new Date().toISOString(),
+		sessions: {},
+	});
 	fakeDevin(dir);
 	process.env.PATH = `${dir}:${originalPath}`;
 	const brief = join(dir, "brief.txt");
@@ -139,6 +160,10 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 			brief,
 			"--model",
 			"model-2026-10-01",
+			"--workspace",
+			"fixture",
+			"--organization",
+			"org_example",
 		],
 		{
 			cwd: dir,
@@ -163,12 +188,56 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 	expect(invocation.inherited).toBeUndefined();
 	expect(invocation.root).toBe(dir);
 	expect(invocation.session).toBe("devin:quiet-river");
+	expect(invocation.workspace).toBe("fixture");
+	expect(invocation.organization).toBe("org_example");
+	expect(invocation.config.permissions.allow).toContain(
+		`Exec(TEDIX_AGENT_SESSION=devin:quiet-river TEDIX_EXTERNAL_AGENT=local-example ${devinCliCommand()})`,
+	);
 	expect(existsSync(`${brief}.devin.atif.json`)).toBe(true);
 	expect(reports.at(-1).sessionKey).toBe("quiet-river");
 	expect(reports.at(-1).telemetry.finalMessage).toContain(
 		"Fake Devin completed",
 	);
 	expect(reports.at(-1).telemetry.outcome).toBe("succeeded");
+});
+
+test("headless permission rejection fails the lane even when Devin exits zero", async () => {
+	const dir = temporary();
+	const binary = fakeDevin(dir);
+	writeFileSync(
+		binary,
+		readFileSync(binary, "utf8").replace(
+			"console.log('Fake Devin completed the brief.');",
+			"console.error('warning: rejected a tool call that requires confirmation. Running in non-interactive mode.');",
+		),
+	);
+	const brief = join(dir, "brief.txt");
+	writeFileSync(brief, "Read-only smoke");
+	const reports: Record<string, unknown>[] = [];
+	expect(
+		await runLaneProcess(
+			[
+				"run",
+				"--executor",
+				"devin",
+				"--project",
+				"11111111-1111-4111-8111-111111111111",
+				"--brief",
+				brief,
+				"--",
+				binary,
+			],
+			{
+				cwd: dir,
+				report: async (value) => {
+					reports.push(value);
+					return {};
+				},
+			},
+		),
+	).toBe(1);
+	expect(reports.at(-1)?.state).toBe("error");
+	expect(reports.at(-1)?.telemetry).toMatchObject({ outcome: "failed" });
 });
 
 test("setup merges idempotently and refuses a conflicting MCP endpoint without writes", () => {
@@ -251,7 +320,7 @@ test("Devin hook identity overrides inherited hosts and retains Claude-compatibl
 	expect(
 		JSON.parse(devinContextOutput(output[0]!, "quiet-river")).hookSpecificOutput
 			.additionalContext,
-	).toContain("TEDIX_AGENT_SESSION=devin:quiet-river");
+	).toContain(`TEDIX_AGENT_SESSION=devin:quiet-river ${devinCliCommand()}`);
 	expect(
 		skipInheritedDevinHook(["capture-stop"], { DEVIN_PROJECT_DIR: "/example" }),
 	).toBe(true);
@@ -288,8 +357,24 @@ test("permission fence blocks traversal, symlinks, secrets and prohibited comman
 				root,
 			),
 		).toBeDefined();
-	const profile = devinPermissionProfile(root);
+	const profile = devinPermissionProfile(root, {
+		id: "quiet-river",
+		principalKey: "local-example",
+	});
 	expect(profile.permissions.allow).toContain(`Write(${root}/**)`);
+	expect(profile.permissions.allow).toContain(`Exec(git -C ${root} fetch)`);
+	expect(profile.permissions.allow).not.toContain("Exec(git -C)");
+	for (const cli of ["tedix", devinCliCommand()]) {
+		expect(profile.permissions.allow).toContain(
+			`Exec(TEDIX_AGENT_SESSION=devin:quiet-river ${cli})`,
+		);
+		expect(profile.permissions.allow).toContain(
+			`Exec(TEDIX_AGENT_SESSION=devin:quiet-river TEDIX_EXTERNAL_AGENT=local-example ${cli})`,
+		);
+		expect(profile.permissions.allow).not.toContain(
+			`Exec(TEDIX_AGENT_SESSION=devin:other-session ${cli})`,
+		);
+	}
 	expect(profile.permissions.deny).toContain("Exec(git push)");
 	expect(profile.permissions.deny).toContain("Write(~/.ssh/**)");
 });

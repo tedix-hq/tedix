@@ -1,5 +1,6 @@
 import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { laneChildEnv } from "../lane-child-env";
+import { devinCliCommand } from "../devin-config";
 import { isObject } from "./hook-io";
 
 /** Explicit host selection keeps inherited Claude/Codex environment out of Devin events. */
@@ -41,6 +42,6 @@ export function devinContextOutput(line: string, session: string) {
 		isObject(output.hookSpecificOutput) &&
 		typeof output.hookSpecificOutput.additionalContext === "string"
 	)
-		output.hookSpecificOutput.additionalContext = `Native Devin identity: prefix Tedix CLI calls with TEDIX_AGENT_SESSION=devin:${session}. Bootstrap with --agent-harness devin and the actual CLI/model versions. This identifies the session; it grants no Work authority.\n${output.hookSpecificOutput.additionalContext}`;
+		output.hookSpecificOutput.additionalContext = `Native Devin identity: use this exact CLI command (the shell PATH may select an older install): TEDIX_AGENT_SESSION=devin:${session} ${devinCliCommand()}. For coding Work only, bootstrap with --agent-harness devin and the actual CLI/model versions before admission. Read-only tasks do not need agent start or an Attempt. This identifies the session; it grants no Work authority.\n${output.hookSpecificOutput.additionalContext}`;
 	return JSON.stringify(output);
 }
