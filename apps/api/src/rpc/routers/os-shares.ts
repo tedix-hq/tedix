@@ -133,7 +133,7 @@ async function requireShareableWorkspace(
 	await assertOsWorkspaceVisible(context, workspace);
 	throw createError(
 		ErrorCodes.BAD_REQUEST,
-		"A private workspace and its contents cannot be shared; make the workspace visible to the organization first",
+		"This is in a private workspace. Share the workspace with your organization first, then make a link.",
 	);
 }
 
@@ -238,7 +238,7 @@ async function requireShareableOutputRevision(
 	if (!revision?.accessEnvelope) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			"Output access provenance is unavailable; this revision cannot be shared",
+			"We can't tell where this version's content came from, so it can't be shared",
 		);
 	}
 	let rawEnvelope: unknown;
@@ -251,7 +251,7 @@ async function requireShareableOutputRevision(
 	if (!parsed.success) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			"Output access provenance is invalid; this revision cannot be shared",
+			"This version's source record is damaged, so it can't be shared",
 		);
 	}
 	for (const source of parsed.data.sources) {
@@ -270,7 +270,7 @@ async function requireShareableOutputRevision(
 		) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"A source resource is no longer available; this revision cannot be shared",
+				"Something this version was made from is no longer available, so it can't be shared",
 			);
 		}
 		const availability = await resolveWorkspaceResourceAvailability(context, {
@@ -280,7 +280,7 @@ async function requireShareableOutputRevision(
 		if (availability.status !== "available") {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"A source connection cannot be verified; this revision cannot be shared",
+				"An account this version was made from can't be checked right now, so it can't be shared",
 			);
 		}
 	}
