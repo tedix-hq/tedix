@@ -112,6 +112,21 @@ describe("commitment wakes", () => {
 			{ after, through },
 		]);
 	});
+	it("retains an oversized backlog instead of replaying or silently skipping it", () => {
+		const now = Date.parse(through) + 30_000;
+		expect(commitmentWakeWindows("2026-10-16T11:42:30.000Z", now)).toHaveLength(
+			10,
+		);
+		expect(() =>
+			commitmentWakeWindows("2026-10-16T11:40:30.000Z", now),
+		).toThrow("Commitment wake replay budget exceeded; checkpoint retained");
+		expect(() =>
+			commitmentWakeWindows(
+				"2026-10-17T12:18:30.000Z",
+				Date.parse("2026-10-19T15:04:40.000Z"),
+			),
+		).toThrow("Commitment wake replay budget exceeded; checkpoint retained");
+	});
 	it("suppresses self writes, completed Work, unchanged records and foreign tenants", async () => {
 		const { sqlite, db } = fixture();
 		const event = sqlite.prepare(
