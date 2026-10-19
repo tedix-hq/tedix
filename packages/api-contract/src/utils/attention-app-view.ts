@@ -52,7 +52,12 @@ export function deckDisplayCard(
 	const request = card.interaction?.request;
 	const metadata = request?.metadata ?? {};
 	const offered = AttentionOfferedChoicesSchema.safeParse(metadata).data;
-	const copy = checkedCopy(card.presentation ?? metadata.cardPresentation);
+	// Null is the prepared projection's rejection of stale or unavailable copy.
+	const copy = checkedCopy(
+		card.presentation === undefined
+			? metadata.cardPresentation
+			: card.presentation,
+	);
 	const personal =
 		request?.creatorType === "system"
 			? PersonalAgentContributionSchema.safeParse(
