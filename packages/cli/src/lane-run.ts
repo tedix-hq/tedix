@@ -309,7 +309,7 @@ export async function runLaneProcess(
 			"--respect-workspace-trust",
 			"false",
 			"--permission-mode",
-			"accept-edits",
+			"smart",
 			"--config",
 			config,
 			"--export",

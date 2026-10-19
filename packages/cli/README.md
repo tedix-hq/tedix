@@ -334,9 +334,11 @@ ACP supplies the resolved model. Child CLI calls receive `devin:<native-id>`
 as their Agent-Session. A coding brief still needs its own verified agent
 bootstrap and Work admission. Hooks name the launcher's exact CLI executable;
 the permission profile allows its native session prefix and the selected
-profile's principal key without relying on the agent shell's PATH. The
-read-only smoke uses the existing Tedix CLI
-login; Devin MCP authorization is a separate step.
+profile's principal key without relying on the agent shell's PATH. Devin's
+Smart mode judges unmatched routine commands; explicit deny rules still apply.
+Headless permission rejections fail the lane even if Devin exits zero.
+The read-only smoke uses the existing Tedix CLI login; Devin MCP authorization
+is a separate step.
 
 Claude Code hooks report into the same lane when launched by the wrapper.
 Other executors can write the common observation JSON to
