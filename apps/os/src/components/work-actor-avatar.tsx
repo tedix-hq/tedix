@@ -8,7 +8,7 @@ import {
 	PopoverContent,
 } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
-import { resolveWorkActor, type ActorDirectory } from "@/lib/work-actor";
+import { resolveWorkContributor, type ActorDirectory } from "@/lib/work-actor";
 import { cn } from "@/lib/utils";
 import "./work-actor-avatar.css";
 
@@ -58,7 +58,7 @@ export function WorkActorAvatar({
 	className?: string;
 }) {
 	const directory = useContext(WorkActorDirectoryContext);
-	const resolved = resolveWorkActor(actor, name, directory);
+	const resolved = resolveWorkContributor(actor, name, directory);
 	return (
 		<PopoverRoot>
 			<PopoverTrigger

@@ -4,8 +4,28 @@ export interface ActorProfile {
 	name: string;
 	image?: string | null;
 	for?: ActorProfile;
+	personalAgent?: boolean;
 }
 export type ActorDirectory = ReadonlyMap<string, ActorProfile>;
+
+export function resolveWorkContributor(
+	ref: WorkActorReference | undefined,
+	fallback: string,
+	directory: ActorDirectory,
+) {
+	if (!ref?.contributor) return resolveWorkActor(ref, fallback, directory);
+	const contributor = ref.contributor;
+	const represented = directory.get(
+		`user:${contributor.representedUserId}`,
+	) ?? { name: `User ${contributor.representedUserId}` };
+	return {
+		name: contributor.displayName,
+		image: contributor.imageUrl,
+		represented,
+		harness: undefined,
+		label: `${contributor.displayName} for ${represented.name}`,
+	};
+}
 
 export function sessionHarness(harness: unknown, sessionKey?: string | null) {
 	if (typeof harness === "string" && harness) return harness;
@@ -36,8 +56,12 @@ export function resolveWorkActor(
 	directory: ActorDirectory,
 ) {
 	const profile = ref?.id ? directory.get(`${ref.type}:${ref.id}`) : undefined;
+	const personalAgent =
+		ref?.type === "external_agent" && profile?.personalAgent;
 	const harness: "codex" | "claude-code" | undefined =
-		ref?.harness === "codex" || ref?.harness === "claude-code"
+		ref?.type === "external_agent" &&
+		!personalAgent &&
+		(ref.harness === "codex" || ref.harness === "claude-code")
 			? ref.harness
 			: undefined;
 	const name =
@@ -51,11 +75,7 @@ export function resolveWorkActor(
 					)
 						? "Agent"
 						: fallback));
-	const represented = harness
-		? ref?.type === "user" || ref?.type === "tedi"
-			? profile
-			: profile?.for
-		: undefined;
+	const represented = personalAgent || harness ? profile?.for : undefined;
 	return {
 		name,
 		harness,

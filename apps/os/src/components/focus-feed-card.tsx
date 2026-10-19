@@ -8,7 +8,12 @@ import {
 	DecisionRailContext,
 } from "./decision-context-rail";
 import { FeedOutcomePreview } from "./feed-outcome-preview";
-import { WorkActorAvatar } from "./work-actor-avatar";
+import {
+	WorkActorAvatar,
+	WorkActorDirectoryContext,
+} from "./work-actor-avatar";
+import { resolveWorkContributor } from "@/lib/work-actor";
+import { WorkSourceProvenance } from "./work-source-provenance";
 import { Button } from "./kumo/button";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
@@ -41,20 +46,34 @@ export function FeedCard({
 	const [text, setText] = useState("");
 	const rail = useContext(DecisionRailContext);
 	const section = `feed-${item.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+	const directory = useContext(WorkActorDirectoryContext);
+	const identity =
+		item.actorIdentity ??
+		(item.tediId ? { type: "tedi", id: item.tediId } : undefined);
+	const resolved = resolveWorkContributor(identity, actor, directory);
+	const source = {
+		channel: "Work feed",
+		capturedAt: item.at,
+		evidenceUrl: item.source,
+	};
 	return (
 		<article aria-label={item.sentence} className="fd-story min-w-0">
 			<WorkActorAvatar
-				actor={
-					item.actorIdentity ??
-					(item.tediId ? { type: "tedi", id: item.tediId } : undefined)
-				}
+				actor={identity}
 				name={actor}
 				className="ft-avatar"
 				detail={`${actor}${project ? ` · ${project}` : ""}`}
 			/>
 			<div className="fd-story-body grid gap-3">
-				<div className="ft-byline">
-					<Text weight="semibold">{project ?? actor}</Text>
+				<div className="ft-byline flex-wrap">
+					<Text as="span" weight="semibold" className="min-w-0 break-words">
+						{resolved.label}
+					</Text>
+					{project && (
+						<Text as="span" tone="secondary">
+							· {project}
+						</Text>
+					)}
 					<time dateTime={item.at} title={absoluteTime(item.at)}>
 						· {relativeTime(item.at)}
 					</time>
@@ -67,6 +86,9 @@ export function FeedCard({
 				>
 					<Text className="ft-sentence font-medium">{item.sentence}</Text>
 				</Link>
+				{(identity?.type === "external_agent" || identity?.contributor) && (
+					<WorkSourceProvenance actor={identity} name={actor} source={source} />
+				)}
 				<FocusRowActions
 					actions={[
 						{
@@ -104,6 +126,12 @@ export function FeedCard({
 				/>
 				{receipt && (
 					<div className="focus-receipt">
+						<WorkSourceProvenance
+							actor={identity}
+							name={actor}
+							source={source}
+							details
+						/>
 						<FeedOutcomePreview item={item} />
 						<Text tone="secondary">{item.explanation}</Text>
 						<Link variant="record" href={item.source}>
@@ -113,6 +141,12 @@ export function FeedCard({
 				)}
 				{rail?.activeSection === section && (
 					<DecisionContextSection sectionId={section} title="Why this update">
+						<WorkSourceProvenance
+							actor={identity}
+							name={actor}
+							source={source}
+							details
+						/>
 						<Text>{item.explanation}</Text>
 						<Text tone="secondary">
 							Ranked using urgency, importance, value, continuity, freshness and

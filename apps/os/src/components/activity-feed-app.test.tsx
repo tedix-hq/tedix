@@ -180,7 +180,7 @@ it.each(["projects", "organization"] as const)(
 				row.source,
 			);
 			expect(host.querySelector(".ft-byline")?.textContent).toMatch(
-				scope === "organization" ? /^Cedar· / : /^Pine Studio· /,
+				scope === "organization" ? /^Cedar· / : /^Cedar· Pine Studio· /,
 			);
 			expect(host.querySelector(".ft-details")).toBeNull();
 			const button = (label: string) =>

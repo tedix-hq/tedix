@@ -82,9 +82,12 @@ it("resolves people and tedis in workspace apps outside the main shell", async (
 			Array.from(host.querySelectorAll("button"), (button) =>
 				button.getAttribute("aria-label"),
 			),
-		).toEqual(["Codex for Morgan Lee", "Claude Code for Morgan Lee", "Cedar"]);
-		expect(host.querySelectorAll(".work-actor-badge")).toHaveLength(2);
-		expect(host.querySelector(".work-actor-portrait")?.textContent).toBe("🌲");
+		).toEqual(["Morgan Lee", "Morgan Lee", "Cedar"]);
+		expect(host.querySelectorAll(".work-actor-badge")).toHaveLength(0);
+		expect(
+			Array.from(host.querySelectorAll(".work-actor-portrait")).at(-1)
+				?.textContent,
+		).toBe("🌲");
 	} finally {
 		await act(async () => root.unmount());
 		host.remove();

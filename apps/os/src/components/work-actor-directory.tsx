@@ -5,6 +5,7 @@ import {
 	WorkActorOwnerContext,
 } from "@/components/work-actor-avatar";
 import type { ActorProfile } from "@/lib/work-actor";
+import { PersonalAgentIdentitySchema } from "@tedix/api-contract/schemas/os-work-actor";
 import {
 	membersListQueryOptions,
 	operationalContextQueryOptions,
@@ -57,16 +58,25 @@ export function WorkActorDirectory({ children }: { children: ReactNode }) {
 				image:
 					profile.data.avatarUrl ?? rows.get(`user:${profile.data.id}`)?.image,
 			});
-		for (const principal of external.data ?? [])
+		for (const principal of external.data ?? []) {
+			const identity = PersonalAgentIdentitySchema.safeParse(
+				principal.metadata?.personalAgent,
+			);
 			rows.set(`external_agent:${principal.id}`, {
 				name: principal.displayName,
-				for:
-					principal.credentialBindingType === "owner_user"
+				image: identity.success ? identity.data.imageUrl : undefined,
+				personalAgent: identity.success,
+				for: identity.success
+					? (rows.get(`user:${identity.data.representedUserId}`) ?? {
+							name: `User ${identity.data.representedUserId}`,
+						})
+					: principal.credentialBindingType === "owner_user"
 						? rows.get(`user:${principal.credentialBindingId}`)
 						: principal.createdByType === "user"
 							? rows.get(`user:${principal.createdById}`)
 							: undefined,
 			});
+		}
 		return rows;
 	}, [tedis.data, members.data, external.data, profile.data]);
 	return (

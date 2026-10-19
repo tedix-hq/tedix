@@ -1,4 +1,5 @@
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
+import { workActorReference } from "@/lib/work-actor";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import {
 	connectorApproval,
@@ -239,6 +240,17 @@ export function WorkInteractionDecisionCard({
 					kind={interactionCardKind(preview.request)}
 					title={interactionSubject(preview.request)}
 					askedBy={askedBy ?? preview.askedBy ?? OS_COPY.feed.actors.user}
+					actor={workActorReference(
+						preview.request.creatorType,
+						preview.request.creatorId,
+						{ agentHarness: preview.creatorHarness },
+						preview.request.creatorSessionId,
+					)}
+					source={{
+						channel: "Decision capture",
+						capturedAt: preview.request.requestedAt,
+						evidenceUrl: `/work/interactions/${preview.request.id}`,
+					}}
 					at={preview.request.requestedAt}
 					content={
 						<>
@@ -393,6 +405,17 @@ export function WorkInteractionDecisionCard({
 				}
 				title={presentation?.title ?? interactionSubject(request)}
 				askedBy={source}
+				actor={workActorReference(
+					request.creatorType,
+					request.creatorId,
+					{ agentHarness: preview?.creatorHarness },
+					request.creatorSessionId,
+				)}
+				source={{
+					channel: "Decision capture",
+					capturedAt: request.requestedAt,
+					evidenceUrl: `/work/interactions/${request.id}`,
+				}}
 				at={request.requestedAt}
 				content={
 					<div className="grid gap-3">

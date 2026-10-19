@@ -2,7 +2,10 @@ import {
 	DecisionContextSection,
 	DecisionRailContext,
 } from "@/components/decision-context-rail";
-import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
+import type {
+	WorkActorReference,
+	WorkContributionSource,
+} from "@tedix/api-contract/schemas/os-work-actor";
 import {
 	DeckFooterContext,
 	DeckNoticeContext,
@@ -33,7 +36,9 @@ import {
 	FeedDeckCard,
 	FeedDeckDisclosure,
 	ProposerChip,
+	ProposerContext,
 } from "@/components/feed-deck-primitives";
+import { WorkSourceProvenance } from "@/components/work-source-provenance";
 import { useDecisionMotion } from "@/components/use-decision-motion";
 import { Button } from "@/components/kumo/button";
 import {
@@ -95,6 +100,7 @@ export function WorkDecisionCard({
 	title,
 	askedBy,
 	actor,
+	source,
 	at,
 	why,
 	body = "",
@@ -118,6 +124,7 @@ export function WorkDecisionCard({
 	title: string;
 	askedBy: string;
 	actor?: WorkActorReference;
+	source?: WorkContributionSource;
 	at?: string;
 	why?: ReactNode;
 	body?: string;
@@ -142,6 +149,9 @@ export function WorkDecisionCard({
 	const identifiers = decisionIdentifiers(`${title} ${body}`);
 	const deckFooter = useContext(DeckFooterContext);
 	const deckNotice = useContext(DeckNoticeContext);
+	const proposer = useContext(ProposerContext);
+	const submittingActor = actor ?? proposer.actor;
+	const contributionSource = source ?? proposer.source;
 	const footer = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		const node = footer.current;
@@ -411,6 +421,29 @@ export function WorkDecisionCard({
 				<CardContent>
 					<div className="fd-card-body grid grid-cols-1 gap-4">
 						{deckNotice}
+						{submittingActor && (
+							<>
+								{(submittingActor.type === "external_agent" ||
+									submittingActor.contributor) && (
+									<WorkSourceProvenance
+										actor={submittingActor}
+										name={askedBy}
+										source={contributionSource}
+									/>
+								)}
+								<DecisionContextSection
+									sectionId="provenance"
+									title="Source provenance"
+								>
+									<WorkSourceProvenance
+										actor={submittingActor}
+										name={askedBy}
+										source={contributionSource}
+										details
+									/>
+								</DecisionContextSection>
+							</>
+						)}
 						{editing ? (
 							<div className="grid gap-3">
 								{editContent}

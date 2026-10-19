@@ -75,7 +75,7 @@ it("uses the tedi avatar and person photo data and exposes session details on ta
 			"Agent",
 			directory,
 		).label,
-	).toBe("Codex for Cedar");
+	).toBe("Cedar");
 	const host = document.createElement("div");
 	document.body.append(host);
 	const root = createRoot(host);
@@ -91,10 +91,10 @@ it("uses the tedi avatar and person photo data and exposes session details on ta
 			),
 		);
 		const trigger = host.querySelector("button")!;
-		expect(trigger.getAttribute("title")).toBe("Codex for Morgan Lee");
+		expect(trigger.getAttribute("title")).toBe("Morgan Lee");
 		await act(async () => trigger.click());
 		expect(document.body.textContent).toContain("Codex session · Pine Studio");
-		expect(document.body.textContent).toContain("Codex for Morgan Lee");
+		expect(document.body.textContent).not.toContain("Codex for Morgan Lee");
 	} finally {
 		await act(async () => root.unmount());
 		host.remove();

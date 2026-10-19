@@ -933,6 +933,13 @@ function DecisionDeckContent({
 								{" "}
 								<ProposerContext.Provider
 									value={{
+										source: selected.row
+											? {
+													channel: "Decision capture",
+													capturedAt: selected.row.request.requestedAt,
+													evidenceUrl: `/work/interactions/${selected.row.request.id}`,
+												}
+											: undefined,
 										project: selected.project
 											? projectLabel(selected.project)
 											: undefined,
