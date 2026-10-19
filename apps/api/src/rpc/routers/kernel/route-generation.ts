@@ -41,7 +41,22 @@ export const kernelRouteGenerationSchema = jsonSchema<
 	}
 >(zodSchema(KernelRouteGenerationObjectSchema).jsonSchema, {
 	validate: (value) => {
-		const candidate = normalizeRouteDecisionCandidate(value);
+		const normalized = normalizeRouteDecisionCandidate(value);
+		// Unusable self-reported confidence means no confidence. It must not
+		// invalidate an otherwise typed route or increase action authority.
+		const candidate =
+			normalized !== null &&
+			typeof normalized === "object" &&
+			!Array.isArray(normalized)
+				? {
+						...normalized,
+						confidence:
+							"confidence" in normalized &&
+							typeof normalized.confidence === "number"
+								? normalized.confidence
+								: 0,
+					}
+				: normalized;
 		const full = KernelRouteDecisionSchema.safeParse(candidate);
 		if (full.success) return { success: true, value: full.data };
 		const wire = KernelRouteGenerationObjectSchema.safeParse(
