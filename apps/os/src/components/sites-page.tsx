@@ -1241,7 +1241,7 @@ export function SitesPage() {
 						) : null}
 					</SectionHeader>
 					{sites.data ? (
-						<PageToolbar>
+						<PageToolbar appearance="inline">
 							<SearchInput
 								aria-label="Search sites"
 								placeholder="Search by site or domain"
