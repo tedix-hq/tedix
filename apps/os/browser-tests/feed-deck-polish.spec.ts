@@ -219,53 +219,63 @@ try {
 			await story.getByRole("button", { name: "Receipt", exact: true }).click();
 			await story.locator(".fd-preview").waitFor();
 			const actions = story.locator("..").locator(".focus-actions");
-			const geometry = await actions.evaluate((row) => ({
-				gap: getComputedStyle(row).gap,
-				clearance:
-					row.getBoundingClientRect().top -
-					row.previousElementSibling!.getBoundingClientRect().bottom,
-				buttons: [...row.querySelectorAll("button")].map((button) => {
-					const icon = button.querySelector("svg");
-					const style = getComputedStyle(button);
-					return {
-						height: button.getBoundingClientRect().height,
-						padding: [style.paddingLeft, style.paddingRight],
-						icon: icon ? icon.getBoundingClientRect().width : 0,
-						muted: icon && getComputedStyle(icon).color === style.color,
-					};
-				}),
-			}));
+			const row = story.locator("..");
+			await row.hover();
+			const geometry = await row.evaluate((el) => {
+				const actions = el.querySelector<HTMLElement>(".focus-actions")!;
+				const control = el.querySelector<HTMLButtonElement>(
+					'[aria-label="More actions"]',
+				)!;
+				return {
+					padding: getComputedStyle(el).padding,
+					inline: getComputedStyle(actions).display !== "none",
+					count: actions.querySelectorAll("button").length,
+					target: control.getBoundingClientRect().height,
+				};
+			});
 			if (
-				geometry.gap !== "8px" ||
-				geometry.clearance < 8 ||
-				geometry.buttons.length !== 4 ||
-				geometry.buttons.some(
-					(b) =>
-						b.height < (width === 390 ? 44 : 36) ||
-						b.padding.some((p) => parseFloat(p) < 12) ||
-						b.icon < 16 ||
-						!b.muted,
-				)
+				geometry.padding !== "12px 16px" ||
+				geometry.inline !== width > 640 ||
+				geometry.count !== 4 ||
+				geometry.target < (width === 390 ? 44 : 32)
 			)
 				throw new Error(
-					`Feed actions ${width}/${theme}: ${JSON.stringify(geometry)}`,
+					`Feed row ${width}/${theme}: ${JSON.stringify(geometry)}`,
 				);
-			const pin = actions.getByRole("button", { name: "Pin", exact: true });
-			const pinBefore = await pin.boundingBox();
-			await pin.hover();
-			const pinHover = await pin.boundingBox();
-			await pin.focus();
-			const pinFocus = await pin.boundingBox();
-			if (
-				!pinBefore ||
-				!pinHover ||
-				!pinFocus ||
-				[pinHover, pinFocus].some(
-					(box) =>
-						box.width !== pinBefore.width || box.height !== pinBefore.height,
+			await row
+				.getByRole("button", { name: "More actions", exact: true })
+				.click();
+			for (const name of ["Pin", "Hide", "Not important", "Tell me earlier"])
+				await page.getByRole("menuitem", { name, exact: true }).waitFor();
+			await page.keyboard.press("Escape");
+			if (width > 640) {
+				const pin = actions.getByRole("button", { name: "Pin", exact: true });
+				const before = await pin.boundingBox();
+				await pin.focus();
+				const after = await pin.boundingBox();
+				if (
+					!before ||
+					!after ||
+					before.width !== after.width ||
+					before.height !== after.height
 				)
+					throw new Error("Feed action focus changed its hit area");
+			}
+			const rhythm = await page.locator(".focus-feed").evaluate((el) => {
+				const control = el.querySelector('[aria-label="Feed order"]')!;
+				const summary = el.querySelector(".focus-budget")!;
+				return {
+					gap: getComputedStyle(el).gap,
+					summary:
+						summary.getBoundingClientRect().top -
+						control.getBoundingClientRect().bottom,
+				};
+			});
+			if (
+				rhythm.summary !== 8 ||
+				rhythm.gap !== (width >= 1024 ? "40px" : "32px")
 			)
-				throw new Error("Feed action hover/focus changed its hit area");
+				throw new Error(`Feed rhythm: ${JSON.stringify(rhythm)}`);
 			const feedFilters = page.getByRole("button", {
 				name: "Filters",
 				exact: true,
