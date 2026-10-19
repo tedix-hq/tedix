@@ -34,10 +34,11 @@ function isCriticalDeckCard(card: DeckCard, routing?: DeckRoutingPolicy) {
 		card.kind === "approval" ||
 		card.kind === "outbound" ||
 		Boolean(decision?.protectedEffects.length) ||
-		Boolean(request?.metadata.approvalOperation) ||
+		request?.metadata.approvalOperation !== undefined ||
 		Boolean(request?.metadata.localImport) ||
-		(Array.isArray(request?.metadata.protectedEffects) &&
-			request.metadata.protectedEffects.length > 0) ||
+		(request?.metadata.protectedEffects !== undefined &&
+			(!Array.isArray(request.metadata.protectedEffects) ||
+				request.metadata.protectedEffects.length > 0)) ||
 		humanReservedActionClasses(`${card.label}\n${request?.prompt ?? ""}`)
 			.length > 0 ||
 		classifyDeckCard(
