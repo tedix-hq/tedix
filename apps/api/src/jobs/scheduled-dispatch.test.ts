@@ -30,6 +30,7 @@ const catchup = vi.hoisted(() => ({
 	providerEvents: vi.fn().mockResolvedValue({ dispatched: 0 }),
 	ingest: vi.fn(),
 	billing: vi.fn(),
+	stall: vi.fn().mockResolvedValue(0),
 	paths: [] as string[],
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
 }));
@@ -64,6 +65,7 @@ vi.mock("./commitment-wakes", () => ({
 		.fn()
 		.mockResolvedValue({ observed: 0, dispatched: 0 }),
 }));
+vi.mock("./stall-recovery", () => ({ dispatchStallRecovery: catchup.stall }));
 vi.mock("./repository-observer", () => ({
 	maintainRepositoryObservers: vi.fn().mockResolvedValue({ overdue: 0 }),
 }));
@@ -363,4 +365,60 @@ it("maintains provider notifications without fleet authority and isolates failur
 		status: "failure",
 	});
 	expect(catchup.paths).toContain("work-attempt-lease-sweep");
+});
+
+it("keeps commitment replay and later paths live while stall recovery is pending or fails", async () => {
+	catchup.paths.length = 0;
+	catchup.outcomes.length = 0;
+	catchup.ingest.mockResolvedValue([]);
+	let rejectRecovery!: (error: Error) => void;
+	catchup.stall.mockImplementationOnce(
+		() =>
+			new Promise((_resolve, reject) => {
+				rejectRecovery = reject;
+			}),
+	);
+	const background: Promise<unknown>[] = [];
+	const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+	try {
+		await scheduled(
+			{
+				cron: "*/2 * * * *",
+				scheduledTime: Date.UTC(2026, 9, 19),
+				noRetry: () => {},
+			},
+			{
+				TEDIX_FLEET_AUTHORITY_MODE: "disabled",
+				DB: {},
+				TEDI_SERVICE: {},
+			} as unknown as CloudflareEnv,
+			{
+				waitUntil: (work: Promise<unknown>) => {
+					background.push(work);
+				},
+				passThroughOnException: () => {},
+				props: {},
+			} as unknown as ExecutionContext,
+		);
+		expect(catchup.outcomes).toContainEqual({
+			id: "commitment-wakes",
+			status: "success",
+		});
+		expect(catchup.outcomes).toContainEqual({
+			id: "repository-observer",
+			status: "success",
+		});
+		expect(catchup.outcomes).not.toContainEqual({
+			id: "stall-recovery",
+			status: "success",
+		});
+		rejectRecovery(new Error("recovery unavailable"));
+		await Promise.all(background);
+		expect(catchup.outcomes).toContainEqual({
+			id: "stall-recovery",
+			status: "failure",
+		});
+	} finally {
+		errorLog.mockRestore();
+	}
 });

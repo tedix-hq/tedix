@@ -51,56 +51,43 @@ export async function dispatchCommitmentWakes(
 	scheduledTime: number,
 ): Promise<Record<string, number>> {
 	const db = createDbClient(env.DB);
-	const { dispatchStallRecovery } = await import("./stall-recovery");
-	const recovery = dispatchStallRecovery(db, env, scheduledTime).then(
-		(value) => ({ value, error: null }),
-		(error: unknown) => ({ value: 0, error }),
-	);
-	try {
-		const checkpoint = await lastCommitmentWakeCheckpoint(db);
-		let observed = 0;
-		let dispatched = 0;
-		const windows = commitmentWakeWindows(checkpoint, scheduledTime);
-		// Preserve the initial boundary even if the very first acceptance fails.
-		if (checkpoint === null && windows[0])
-			await advanceCommitmentWakeCheckpoint(db, windows[0].after);
-		for (const window of windows) {
-			const changes = await listCommitmentChanges(
-				db,
-				window.after,
-				window.through,
-				env.ENVIRONMENT,
-			);
-			observed += changes.length;
-			const batches = new Map<string, CommitmentChange[]>();
-			for (const change of changes) {
-				const key = `${change.orgId}:${change.tediId}`;
-				const batch = batches.get(key) ?? [];
-				batch.push(change);
-				batches.set(key, batch);
-			}
-			for (const batch of batches.values()) {
-				await assertWorkApprovalWakeAccepted(
-					await env.TEDI_SERVICE.fetch(
-						buildCommitmentWakeRequest(batch, window.through, env.ENVIRONMENT),
-					),
-				);
-				dispatched++;
-			}
-			await advanceCommitmentWakeCheckpoint(db, window.through);
+	const checkpoint = await lastCommitmentWakeCheckpoint(db);
+	let observed = 0;
+	let dispatched = 0;
+	const windows = commitmentWakeWindows(checkpoint, scheduledTime);
+	// Preserve the initial boundary even if the very first acceptance fails.
+	if (checkpoint === null && windows[0])
+		await advanceCommitmentWakeCheckpoint(db, windows[0].after);
+	for (const window of windows) {
+		const changes = await listCommitmentChanges(
+			db,
+			window.after,
+			window.through,
+			env.ENVIRONMENT,
+		);
+		observed += changes.length;
+		const batches = new Map<string, CommitmentChange[]>();
+		for (const change of changes) {
+			const key = `${change.orgId}:${change.tediId}`;
+			const batch = batches.get(key) ?? [];
+			batch.push(change);
+			batches.set(key, batch);
 		}
-		const result = await recovery;
-		if (result.error) throw result.error;
-		const lastWindow = windows.at(-1);
-		return {
-			observed,
-			dispatched,
-			resumeRequested: result.value,
-			windowsProcessed: windows.length,
-			...(lastWindow ? { checkpointMs: Date.parse(lastWindow.through) } : {}),
-		};
-	} finally {
-		// Finish recovery even when a commitment acceptance or cursor write fails.
-		await recovery;
+		for (const batch of batches.values()) {
+			await assertWorkApprovalWakeAccepted(
+				await env.TEDI_SERVICE.fetch(
+					buildCommitmentWakeRequest(batch, window.through, env.ENVIRONMENT),
+				),
+			);
+			dispatched++;
+		}
+		await advanceCommitmentWakeCheckpoint(db, window.through);
 	}
+	const lastWindow = windows.at(-1);
+	return {
+		observed,
+		dispatched,
+		windowsProcessed: windows.length,
+		...(lastWindow ? { checkpointMs: Date.parse(lastWindow.through) } : {}),
+	};
 }

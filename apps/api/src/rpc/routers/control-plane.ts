@@ -51,6 +51,7 @@ import {
 } from "@tedix/db/queries/control-plane/revisions";
 import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { listPlatformCronExecutionSummaries } from "@tedix/db/queries/platform-cron-executions";
+import { lastCommitmentWakeCheckpoint } from "@tedix/db/queries/work-items/commitment-changes";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type {
 	PolicyPackDefinition,
@@ -96,10 +97,17 @@ const authedOs = controlPlaneOs.use(withAuth);
 const listPlatformCronHealthProcedure = authedOs.listPlatformCronHealth
 	.use(AUTHZ.platformAdmin)
 	.handler(async ({ context }) => {
-		const summaries = await listPlatformCronExecutionSummaries(context.db);
+		const [summaries, commitmentCheckpoint] = await Promise.all([
+			listPlatformCronExecutionSummaries(context.db),
+			lastCommitmentWakeCheckpoint(context.db),
+		]);
 		const { buildPlatformCronHealth } =
 			await import("../../jobs/platform-cron-catalog");
-		return buildPlatformCronHealth({ env: context.env, summaries });
+		return buildPlatformCronHealth({
+			env: context.env,
+			summaries,
+			replayCheckpoints: { "commitment-wakes": commitmentCheckpoint },
+		});
 	});
 
 /**

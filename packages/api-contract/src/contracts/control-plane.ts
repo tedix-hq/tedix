@@ -41,6 +41,8 @@ export const PlatformCronHealthSchema = z.object({
 	attention: z.boolean(),
 	nextExpectedAt: z.string().nullable(),
 	freshnessGraceMinutes: z.number(),
+	/** Durable replay boundary, also readable while a tick is running or failed. */
+	replayCheckpointAt: z.string().nullable().optional(),
 	latest: z
 		.object({
 			id: z.string(),

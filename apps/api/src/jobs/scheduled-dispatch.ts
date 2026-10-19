@@ -170,6 +170,18 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "work-approval-redrive", () =>
 				dispatchWorkApprovalRedrives(env, event.scheduledTime),
 			);
+			const { createDbClient } = await import("@tedix/db/client");
+			const { dispatchStallRecovery } = await import("./stall-recovery");
+			// Recovery has its own receipt and lifetime; it must not hold replay or later paths.
+			ctx.waitUntil(
+				trackPlatformCronPath(env, event, "stall-recovery", async () => ({
+					resumeRequested: await dispatchStallRecovery(
+						createDbClient(env.DB),
+						env,
+						event.scheduledTime,
+					),
+				})),
+			);
 			const { dispatchCommitmentWakes } = await import("./commitment-wakes");
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
 				dispatchCommitmentWakes(env, event.scheduledTime),

@@ -16,6 +16,7 @@ export const PLATFORM_CRON_IDS = [
 	"orphan-run-sweep",
 	"work-approval-redrive",
 	"commitment-wakes",
+	"stall-recovery",
 	"repository-observer",
 	"support-maintenance",
 	"mcp-event-webhook-delivery",
@@ -91,6 +92,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "commitment-wakes",
+		cron: "*/2 * * * *",
+		intervalMinutes: 2,
+		requiresBinding: "TEDI_SERVICE",
+	},
+	{
+		id: "stall-recovery",
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
 		requiresBinding: "TEDI_SERVICE",
@@ -227,6 +234,7 @@ const CLOUDFLARE_API_OBSERVABILITY_URL =
 export function buildPlatformCronHealth(input: {
 	env: CloudflareEnv;
 	summaries: PlatformCronExecutionSummary[];
+	replayCheckpoints?: Partial<Record<PlatformCronId, string | null>>;
 	now?: Date;
 }) {
 	const now = input.now ?? new Date();
@@ -276,6 +284,7 @@ export function buildPlatformCronHealth(input: {
 				? nextSkillScheduleFireAt(definition.cron, now)
 				: null,
 			freshnessGraceMinutes: graceMinutes,
+			replayCheckpointAt: input.replayCheckpoints?.[definition.id] ?? null,
 			latest: summary
 				? {
 						id: summary.latestId,
