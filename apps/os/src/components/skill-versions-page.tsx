@@ -4,6 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
+import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Collection } from "@/components/kumo/page";
 import {
 	Collapsible,
@@ -53,9 +54,11 @@ export function SkillVersionsPage() {
 				<Card>
 					<CardContent className="p-0">
 						{sorted.length === 0 ? (
-							<Text role="body" tone="secondary" className="m-0 p-6">
-								No revisions have observed execution yet.
-							</Text>
+							<Empty appearance="inline" className="px-tedix-card">
+								<EmptyDescription>
+									No revisions have observed execution yet.
+								</EmptyDescription>
+							</Empty>
 						) : (
 							<Collection appearance="inline">
 								{sorted.map((revision) => {

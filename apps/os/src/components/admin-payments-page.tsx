@@ -44,7 +44,7 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import { Empty } from "@/components/kumo/empty";
+import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
@@ -607,9 +607,11 @@ function BudgetPoliciesPanel({
 			</CardHeader>
 			<CardContent>
 				{policies.length === 0 ? (
-					<Text tone="secondary">
-						No managed payment policies match these filters.
-					</Text>
+					<Empty appearance="inline">
+						<EmptyDescription>
+							No managed payment policies match these filters.
+						</EmptyDescription>
+					</Empty>
 				) : (
 					<div className="space-y-3">
 						{policies.map((policy) => (
@@ -902,7 +904,11 @@ function ToolSpendBreakdown({
 
 				<div className="space-y-3">
 					{rows.length === 0 ? (
-						<Text tone="secondary">No settled spend in this window.</Text>
+						<Empty appearance="inline">
+							<EmptyDescription>
+								No settled spend in this window.
+							</EmptyDescription>
+						</Empty>
 					) : (
 						rows.map((row) => (
 							<div

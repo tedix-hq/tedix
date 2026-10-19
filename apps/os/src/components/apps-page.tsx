@@ -17,6 +17,7 @@ import { Link } from "@tanstack/react-router";
 import { getOsSurface } from "@/lib/os-navigation";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
@@ -640,14 +641,9 @@ export function ConnectionsPanel({
 				</div>
 			)}
 			{contextNote ? (
-				<Text
-					as="p"
-					role="label"
-					tone="secondary"
-					className="m-0 rounded-lg border border-kumo-line bg-kumo-tint px-3 py-2"
-				>
-					{contextNote}
-				</Text>
+				<Alert variant="info">
+					<AlertDescription>{contextNote}</AlertDescription>
+				</Alert>
 			) : null}
 			<ListQueryBoundary
 				query={connections}

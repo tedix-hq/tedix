@@ -28,6 +28,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/kumo/alert-dialog";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
@@ -310,9 +311,11 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 					</div>
 				) : assignmentsError ? (
 					<div className="space-y-3 py-4 text-center">
-						<p role="alert" className="m-0 text-kumo-danger text-sm">
-							Failed to load assignments: {assignmentsError.message}
-						</p>
+						<Alert variant="destructive">
+							<AlertDescription>
+								Failed to load assignments: {assignmentsError.message}
+							</AlertDescription>
+						</Alert>
 						<Button
 							variant="outline"
 							size="sm"
@@ -331,18 +334,22 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 							No tedis assigned to this app yet.
 						</EmptyDescription>
 						{tedisError ? (
-							<p role="alert" className="m-0 text-kumo-danger text-sm">
-								Available tedis could not be loaded.
-							</p>
+							<Alert variant="destructive">
+								<AlertDescription>
+									Available tedis could not be loaded.
+								</AlertDescription>
+							</Alert>
 						) : null}
 					</Empty>
 				) : (
 					<div className="space-y-3">
 						{tedisError ? (
-							<p role="alert" className="m-0 text-kumo-danger text-sm">
-								Tedi names could not be loaded. Assignment IDs are shown
-								instead.
-							</p>
+							<Alert variant="destructive">
+								<AlertDescription>
+									Tedi names could not be loaded. Assignment IDs are shown
+									instead.
+								</AlertDescription>
+							</Alert>
 						) : null}
 						<Table scrollLabel="Tedi assignments for this app">
 							<TableHeader>

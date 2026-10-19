@@ -1,5 +1,6 @@
 import type { BillingInferenceSpending } from "@tedix/api-contract/schemas/billing-spending";
 import { useQuery } from "@tanstack/react-query";
+import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Text } from "@/components/kumo/text";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
@@ -32,10 +33,12 @@ export function SettledSpendingRows({
 					" Only the newest receipts are shown; run subtotals are incomplete."}
 			</Text>
 			{data.rows.length === 0 ? (
-				<Text>
-					No settled monetary inference receipts in this window. Unsettled work
-					and other service charges are not included.
-				</Text>
+				<Empty appearance="inline">
+					<EmptyDescription>
+						No settled monetary inference receipts in this window. Unsettled
+						work and other service charges are not included.
+					</EmptyDescription>
+				</Empty>
 			) : (
 				<Table scrollLabel="Settled credit charges by run">
 					<TableHeader>
