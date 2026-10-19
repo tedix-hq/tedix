@@ -876,7 +876,12 @@ export function governedPiCompactionCompletion(
 						throw new Error("Compaction lost admitted run ownership");
 					await host.accounting.begin(runId);
 					const ordinal = await host.accounting.prepareStep(
-						{ messages: context.messages },
+						{
+							messages: context.messages,
+							estimatedTokens:
+								estimateInferenceTokens(context.messages) +
+								(options.maxCompletionTokens ?? 4000),
+						},
 						{},
 					);
 					return {

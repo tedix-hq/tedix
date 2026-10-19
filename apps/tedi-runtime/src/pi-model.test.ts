@@ -558,7 +558,8 @@ test("native compaction reserves canonical journal before actual dispatch and re
 			begin: async () => {
 				order.push("begin");
 			},
-			prepareStep: async () => {
+			prepareStep: async (input) => {
+				assert.ok(input.estimatedTokens! > 4000);
 				order.push("reserve");
 				return 1;
 			},

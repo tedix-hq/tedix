@@ -2,9 +2,14 @@ import { DelegationBudgetSchema } from "@tedix/api-contract/schemas/kernel-runti
 
 export interface DelegatedTurnBudget {
 	maxToolCalls?: number;
+	maxTokens?: number;
+	maxUsd?: number;
 	deadlineAt?: number;
 }
-type BudgetRecord = DelegatedTurnBudget & { calls: string[] };
+type BudgetRecord = DelegatedTurnBudget & {
+	calls: string[];
+	inference?: Record<string, number>;
+};
 type Storage = Pick<DurableObjectStorage, "get" | "put" | "transaction">;
 
 /** Abort upstream transport and stop awaiting signal-unaware tools at the same deadline. */
@@ -43,6 +48,8 @@ export function delegationBudgetForMetadata(
 	if (value === undefined) return undefined;
 	const budget = DelegationBudgetSchema.parse(value);
 	return {
+		...(budget.maxTokens === undefined ? {} : { maxTokens: budget.maxTokens }),
+		...(budget.maxUsd === undefined ? {} : { maxUsd: budget.maxUsd }),
 		...(budget.maxToolCalls === undefined
 			? {}
 			: { maxToolCalls: budget.maxToolCalls }),
@@ -65,12 +72,20 @@ export class DelegationBudgetGate {
 		runId: string,
 		budget: DelegatedTurnBudget | undefined,
 	): Promise<void> {
-		if (!budget) return;
+		if (!budget) {
+			if (await this.inspect(runId))
+				throw new Error("Delegated budget removed from an existing run");
+			return;
+		}
 		await this.storage.transaction(async (tx) => {
 			const key = this.key(runId);
 			const previous = await tx.get<BudgetRecord>(key);
 			if (previous) {
-				if (previous.maxToolCalls !== budget.maxToolCalls)
+				if (
+					previous.maxToolCalls !== budget.maxToolCalls ||
+					previous.maxTokens !== budget.maxTokens ||
+					previous.maxUsd !== budget.maxUsd
+				)
 					throw new Error("Delegated tool budget changed for an existing run");
 				return;
 			}
@@ -82,6 +97,8 @@ export class DelegationBudgetGate {
 	}
 	async stopReason(runId: string): Promise<string | null> {
 		const budget = await this.inspect(runId);
+		const inferenceStop = this.inferenceStop(budget);
+		if (inferenceStop) return inferenceStop;
 		if (budget?.deadlineAt !== undefined && this.now() >= budget.deadlineAt)
 			return "delegated wall-clock deadline reached";
 		if (
@@ -91,11 +108,83 @@ export class DelegationBudgetGate {
 			return `delegated tool-call budget reached (${budget.calls.length}/${budget.maxToolCalls})`;
 		return null;
 	}
+	private inferenceStop(budget: BudgetRecord | undefined): string | null {
+		if (budget?.maxUsd !== undefined)
+			return "delegated USD budget requires authoritative cost accounting; inference is withheld";
+		if (
+			budget?.maxTokens !== undefined &&
+			Object.values(budget.inference ?? {}).reduce(
+				(sum, tokens) => sum + tokens,
+				0,
+			) >= budget.maxTokens
+		)
+			return "delegated token budget reached";
+		return null;
+	}
+	/** Keep reservations across interruption; unknown usage never replenishes capacity. */
+	async reserveInference(
+		runId: string,
+		stepId: string,
+		tokens: number,
+	): Promise<void> {
+		await this.storage.transaction(async (tx) => {
+			const key = this.key(runId);
+			const budget = await tx.get<BudgetRecord>(key);
+			if (!budget) return;
+			if (budget.maxUsd !== undefined)
+				throw new Error(this.inferenceStop(budget)!);
+			if (budget.maxTokens === undefined) return;
+			if (!Number.isSafeInteger(tokens) || tokens <= 0)
+				throw new Error("Invalid delegated inference reservation");
+			const inference = budget.inference ?? {};
+			if (stepId in inference) {
+				if (inference[stepId] !== tokens)
+					throw new Error("Delegated inference reservation changed");
+				return;
+			}
+			if (
+				Object.values(inference).reduce((sum, value) => sum + value, 0) +
+					tokens >
+				budget.maxTokens
+			)
+				throw new Error("delegated token budget would be exceeded");
+			await tx.put(key, {
+				...budget,
+				inference: { ...inference, [stepId]: tokens },
+			});
+		});
+	}
+
+	async recordInferenceUsage(
+		runId: string,
+		stepId: string,
+		tokens: number | null,
+	): Promise<void> {
+		if (tokens === null) return;
+		if (!Number.isSafeInteger(tokens) || tokens < 0)
+			throw new Error("Invalid delegated inference usage");
+		await this.storage.transaction(async (tx) => {
+			const key = this.key(runId);
+			const budget = await tx.get<BudgetRecord>(key);
+			if (budget?.maxTokens === undefined) return;
+			const inference = budget.inference ?? {};
+			if (!(stepId in inference))
+				throw new Error("Delegated inference usage has no reservation");
+			if (tokens <= inference[stepId]!) return;
+			await tx.put(key, {
+				...budget,
+				inference: { ...inference, [stepId]: tokens },
+			});
+		});
+	}
+
 	async claim(runId: string, callId: string): Promise<string | null> {
 		return this.storage.transaction(async (tx) => {
 			const key = this.key(runId);
 			const budget = await tx.get<BudgetRecord>(key);
 			if (!budget) return null;
+			const inferenceStop = this.inferenceStop(budget);
+			if (inferenceStop) return inferenceStop;
 			if (budget.deadlineAt !== undefined && this.now() >= budget.deadlineAt)
 				return "delegated wall-clock deadline reached";
 			if (budget.calls.includes(callId))
