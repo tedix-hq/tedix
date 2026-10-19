@@ -47,17 +47,20 @@ function fakeDevin(dir: string) {
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 if (args[0] === 'auth') { console.log('Not logged in'); process.exit(1); }
-if (args[0] === 'list') { console.log(JSON.stringify([{id:'quiet-river'}])); process.exit(0); }
+if (args[0] === '--version') { console.log('devin 3000.11.92 (7f4e64980e22)'); process.exit(0); }
+if (args[0] === 'list') { console.log(JSON.stringify(fs.existsSync('persisted') ? [{id:'quiet-river'}] : [])); process.exit(0); }
 if (args[0] === 'acp') {
  require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   const m = JSON.parse(line);
   if (!['initialize','session/new'].includes(m.method)) process.exit(42);
-  const result = m.method === 'initialize' ? {protocolVersion:1,agentInfo:{name:'devin',version:'3000.11.92'}} : {sessionId:'quiet-river',models:{currentModelId:'model-2026-10-01'}};
+  if (m.method === 'session/new' && m.params._meta?.['cognition.ai/persistOnCreate'] === true) fs.writeFileSync('persisted','quiet-river');
+  const result = m.method === 'initialize' ? {protocolVersion:1,agentInfo:{name:'devin',version:'0.0.0-dev'},agentCapabilities:{_meta:{'cognition.ai/persistOnCreate':true}}} : {sessionId:'quiet-river',configOptions:[{category:'model',currentValue:'model-2026-10-01'}]};
   console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));
  });
 } else {
+ fs.writeFileSync('persisted','quiet-river');
  const config = JSON.parse(fs.readFileSync(args[args.indexOf('--config')+1], 'utf8'));
- fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT}));
+ fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION}));
  fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'quiet-river',steps:[]}));
  console.log('Fake Devin completed the brief.');
 }
@@ -90,6 +93,32 @@ test("ACP allocates a persisted native identity without any model prompt", async
 		model: "model-2026-10-01",
 		modelProvider: "devin",
 	});
+});
+
+test("unsupported persistence and missing persisted identity refuse before a prompt", async () => {
+	for (const [before, after, error] of [
+		[
+			"'cognition.ai/persistOnCreate':true",
+			"'cognition.ai/persistOnCreate':false",
+			"cannot persist",
+		],
+		[
+			"m.params._meta?.['cognition.ai/persistOnCreate'] === true",
+			"false",
+			"not persisted",
+		],
+		["currentValue:'model-2026-10-01'", "currentValue:'swe'", "resolved model"],
+		["devin 3000.11.92 (7f4e64980e22)", "unknown", "version unavailable"],
+	]) {
+		const dir = temporary();
+		const binary = fakeDevin(dir);
+		writeFileSync(
+			binary,
+			readFileSync(binary, "utf8").replace(before!, after!),
+		);
+		await expect(createDevinLaneThread(dir, binary)).rejects.toThrow(error!);
+		expect(existsSync(join(dir, "invocation.json"))).toBe(false);
+	}
 });
 
 test("headless runner uses cwd, native resume, permission config, export and final stdout", async () => {
@@ -133,6 +162,7 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 	expect(invocation.config.read_config_from.claude).toBe(false);
 	expect(invocation.inherited).toBeUndefined();
 	expect(invocation.root).toBe(dir);
+	expect(invocation.session).toBe("devin:quiet-river");
 	expect(existsSync(`${brief}.devin.atif.json`)).toBe(true);
 	expect(reports.at(-1).sessionKey).toBe("quiet-river");
 	expect(reports.at(-1).telemetry.finalMessage).toContain(

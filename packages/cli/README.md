@@ -319,6 +319,22 @@ tedix -w acme lane import --executor codex --project <project-id> \
 tedix -w acme lane report --input-file <saved-receipt>
 ```
 
+Devin supplies its own command and uses the configured model by default:
+
+```sh
+tedix -w acme --organization <org> lane run --executor devin \
+  --project <project-id> --brief packages/cli/examples/devin-smoke.txt
+```
+
+The runner requires ACP's `cognition.ai/persistOnCreate` capability, requests
+persistence on `session/new`, and verifies the native id in `devin list` before
+launching a model turn. Plain `session/new` is ephemeral until prompted and
+cannot be resumed. The executable's `--version` supplies the CLI release;
+ACP supplies the resolved model. Child CLI calls receive `devin:<native-id>`
+as their Agent-Session. A coding brief still needs its own verified agent
+bootstrap and Work admission. The read-only smoke uses the existing Tedix CLI
+login; Devin MCP authorization is a separate step.
+
 Claude Code hooks report into the same lane when launched by the wrapper.
 Other executors can write the common observation JSON to
 `TEDIX_LANE_TELEMETRY_PATH`. Missing facts stay unknown. Costs require complete

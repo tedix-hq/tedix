@@ -45,6 +45,18 @@ export async function createDevinLaneThread(
 	model?: string,
 	timeoutMs = 30_000,
 ) {
+	// ACP's agentInfo can contain a development placeholder rather than the CLI release.
+	const release = spawnSync(executable, ["--version"], {
+		cwd,
+		env: laneChildEnv(),
+		encoding: "utf8",
+		timeout: timeoutMs,
+	});
+	const version = release.stdout
+		?.trim()
+		.match(/^devin (\d+\.\d+\.\d+\S*)\b/)?.[1];
+	if (release.status !== 0 || !version)
+		throw new Error("Devin CLI version unavailable; no model turn launched");
 	const child = spawn(
 		executable,
 		["acp", ...(model ? ["--model", model] : [])],
@@ -108,7 +120,19 @@ export async function createDevinLaneThread(
 			clientCapabilities: {},
 			clientInfo: { name: "tedix-lane-dispatcher", version: "1" },
 		});
-		const session = await call("session/new", { cwd, mcpServers: [] });
+		const capabilities = asRecord(initialized.agentCapabilities);
+		if (
+			asRecord(capabilities?._meta)?.["cognition.ai/persistOnCreate"] !== true
+		)
+			throw new Error(
+				"Devin cannot persist before admission; no model turn launched",
+			);
+		// Ordinary session/new stays ephemeral until its first prompt and cannot be resumed.
+		const session = await call("session/new", {
+			cwd,
+			mcpServers: [],
+			_meta: { "cognition.ai/persistOnCreate": true },
+		});
 		const modelOption = Array.isArray(session.configOptions)
 			? session.configOptions
 					.map(asRecord)
@@ -116,11 +140,8 @@ export async function createDevinLaneThread(
 			: undefined;
 		const nativeModel =
 			asRecord(session.models)?.currentModelId ?? modelOption?.currentValue;
-		const version = asRecord(initialized.agentInfo)?.version;
 		if (
 			!isHostSessionId(session.sessionId) ||
-			typeof version !== "string" ||
-			!version ||
 			typeof nativeModel !== "string" ||
 			!nativeModel ||
 			["opus", "sonnet", "swe", "codex", "gemini"].includes(nativeModel)
