@@ -6,7 +6,6 @@ import {
 	pendingApprovalsQueryOptions,
 	userProfileQueryOptions,
 	projectListQueryOptions,
-	workInteractionDetailQueryOptions,
 } from "@/lib/os-query-options";
 
 /** Warm canonical per-viewer queries while the Work route chunk is loading. */
@@ -18,24 +17,11 @@ export function prefetchWorkDeck(client: QueryClient) {
 			input: { limit: 50, statuses: ["pending"] },
 		}),
 	);
-	void client
-		.fetchQuery(
-			osQuery.workInteractions.listInbox.queryOptions({
-				input: { limit: 50, states: ["open"] },
-			}),
-		)
-		.then((inbox) =>
-			Promise.all(
-				inbox.data
-					.slice(0, 1)
-					.map((row) =>
-						client.prefetchQuery(
-							workInteractionDetailQueryOptions(row.request.id),
-						),
-					),
-			),
-		)
-		.catch(() => {});
+	void client.prefetchQuery(
+		osQuery.workInteractions.listInbox.queryOptions({
+			input: { limit: 50, states: ["open"] },
+		}),
+	);
 	void client.prefetchQuery(userProfileQueryOptions());
 	void client.prefetchQuery(projectListQueryOptions(100));
 	void client.prefetchQuery(
@@ -69,7 +55,7 @@ export function prefetchWorkDeck(client: QueryClient) {
 			);
 			if (!config.projectId)
 				void client.prefetchQuery(pendingApprovalsQueryOptions());
-			const inbox = await client.fetchQuery(
+			await client.prefetchQuery(
 				osQuery.workInteractions.listInbox.queryOptions({
 					input: {
 						projectId: config.projectId,
@@ -77,15 +63,6 @@ export function prefetchWorkDeck(client: QueryClient) {
 						states: ["open"],
 					},
 				}),
-			);
-			await Promise.all(
-				inbox.data
-					.slice(0, 1)
-					.map((row) =>
-						client.prefetchQuery(
-							workInteractionDetailQueryOptions(row.request.id),
-						),
-					),
 			);
 		})
 		.catch(() => {});

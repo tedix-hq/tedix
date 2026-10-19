@@ -1,9 +1,5 @@
-import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-	osQuery,
-	workInteractionDetailQueryOptions,
-} from "@/lib/os-query-options";
+import { osQuery } from "@/lib/os-query-options";
 import { osApi } from "@/lib/api";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
@@ -54,15 +50,6 @@ export function WorkHome({
 			await client.invalidateQueries({ queryKey: osQuery.osWorkspaces.key() });
 		},
 	});
-	const prefetchIds = decisions.requests
-		.slice(0, 1)
-		.map((row) => row.request.id)
-		.join(",");
-	useEffect(() => {
-		if (selected?.role !== "deck" || !prefetchIds) return;
-		for (const id of prefetchIds.split(","))
-			void client.prefetchQuery(workInteractionDetailQueryOptions(id));
-	}, [client, selected?.role, prefetchIds]);
 	const copy = OS_COPY.workHome;
 	useDocumentTitle(
 		`${selected?.role === "feed" ? copy.feed : selected?.role === "deck" ? copy.deck : (selected?.gadget.name ?? copy.feed)} · Work`,

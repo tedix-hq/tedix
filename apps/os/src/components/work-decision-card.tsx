@@ -27,6 +27,7 @@ import {
 import { createPortal } from "react-dom";
 import { decisionLearningKey } from "@/lib/decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
+import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
 	FeedDeckCard,
@@ -157,6 +158,7 @@ export function WorkDecisionCard({
 	}, []);
 	const rail = useContext(DecisionRailContext);
 	const attention = useContext(DecisionAttentionContext);
+	const optimistic = useContext(OptimisticDeckDecisionContext);
 	const learnedWhy = useContext(DecisionLearningContext);
 	const shownAt = useRef(performance.now());
 	const exposureSent = useRef(false);
@@ -209,33 +211,36 @@ export function WorkDecisionCard({
 		inFlight.current = true;
 		setSaving(true);
 		setError("");
-		const departure = section.current?.closest(".fd-deck")
-			? motion.exit(action.intent)
-			: undefined;
+		const departure =
+			!optimistic && section.current?.closest(".fd-deck")
+				? motion.exit(action.intent)
+				: undefined;
 		try {
-			const result = await onDecision({
-				action: action.id,
-				signal:
-					action.id === editAction?.id
-						? "edited"
-						: action.id === feedbackAction?.id
-							? "free-text"
-							: reason
-								? "reason"
-								: action.intent === "reject"
-									? "rejected"
-									: draft !== body
-										? "edited"
-										: feedback.trim()
-											? "free-text"
-											: kind === "question"
-												? "answer"
-												: "approve-as-is",
-				body: finalBody || action.label,
-				...(draft !== body ? { originalBody: body } : {}),
-				...(reason ? { reason } : {}),
-				...(feedback.trim() ? { feedback: feedback.trim() } : {}),
-			});
+			const write = () =>
+				onDecision({
+					action: action.id,
+					signal:
+						action.id === editAction?.id
+							? "edited"
+							: action.id === feedbackAction?.id
+								? "free-text"
+								: reason
+									? "reason"
+									: action.intent === "reject"
+										? "rejected"
+										: draft !== body
+											? "edited"
+											: feedback.trim()
+												? "free-text"
+												: kind === "question"
+													? "answer"
+													: "approve-as-is",
+					body: finalBody || action.label,
+					...(draft !== body ? { originalBody: body } : {}),
+					...(reason ? { reason } : {}),
+					...(feedback.trim() ? { feedback: feedback.trim() } : {}),
+				});
+			const result = await (optimistic ? optimistic(write) : write());
 			attention?.({
 				learningClientEventId: decisionLearningKey(result),
 				action: action.id,
@@ -256,7 +261,7 @@ export function WorkDecisionCard({
 			toast.success(decisionText("Decision saved"));
 			await departure;
 			setSaved(true);
-			onNext?.();
+			if (!optimistic) onNext?.();
 		} catch (cause) {
 			motion.cancelExit();
 			setError(
@@ -298,12 +303,17 @@ export function WorkDecisionCard({
 					motion.start(event);
 			}}
 			onPointerMove={motion.move}
-			onPointerCancel={motion.reset}
+			onPointerCancel={() => {
+				touch.current = null;
+				motion.reset();
+			}}
 			onPointerLeave={motion.reset}
 			onPointerUp={(event) => {
 				const direction = motion.end(event);
-				if (event.pointerType !== "touch" && !confirmation && direction)
-					choose(direction > 0 ? approve : reject);
+				if (direction) {
+					touch.current = null;
+					if (!confirmation) choose(direction > 0 ? approve : reject);
+				}
 			}}
 			onKeyDown={(event) => {
 				if (

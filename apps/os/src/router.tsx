@@ -1,8 +1,19 @@
 import "@/lib/zod-jitless";
-import { QueryClient } from "@tanstack/react-query";
+import { focusManager, QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { OsRouteError, OsRoutePending } from "@/components/os-route-boundaries";
 import { routeTree } from "@/routeTree.gen";
+
+// Query v5 observes visibility by default; also reconcile on native window focus.
+focusManager.setEventListener((setFocused) => {
+	const update = () => setFocused(!document.hidden);
+	window.addEventListener("focus", update);
+	document.addEventListener("visibilitychange", update);
+	return () => {
+		window.removeEventListener("focus", update);
+		document.removeEventListener("visibilitychange", update);
+	};
+});
 
 export const osQueryClient = new QueryClient({
 	defaultOptions: {

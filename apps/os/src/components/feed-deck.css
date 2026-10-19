@@ -346,6 +346,10 @@
 	animation: fd-card-enter var(--fd-enter-duration) var(--fd-ease) both;
 	border-radius: var(--fd-radius);
 }
+/* A committed choice reveals the next live card without an entrance fade. */
+.fd-decision-stack[data-instant="true"] .fd-decision {
+	animation: none;
+}
 .feed-deck .fd-decision[data-dragging="true"] {
 	transition: none;
 	cursor: grabbing;

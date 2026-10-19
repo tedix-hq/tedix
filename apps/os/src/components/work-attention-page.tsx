@@ -1,3 +1,4 @@
+import { workRefreshOptions } from "@/lib/work-refresh";
 import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { buildAttentionWebMcpTools } from "@/components/attention-webmcp-tools";
@@ -85,12 +86,12 @@ export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 			return root.readAttention(new Date().getTimezoneOffset(), workspaceId);
 		},
 		enabled: OS_USES_FIXTURES || !!lease,
-		refetchInterval: 2000,
+		...workRefreshOptions,
 		retry: false,
 	});
 	const layout = useQuery({
 		...attentionLayoutQueryOptions(),
-		refetchInterval: 5000,
+		...workRefreshOptions,
 	});
 	const save = useMutation({
 		mutationFn: (value: AttentionLayout) =>

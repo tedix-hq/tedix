@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
+import { useContext, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
@@ -21,6 +22,7 @@ export function ApprovalDecisionCard({
 	onPrevious: () => void;
 }) {
 	const client = useQueryClient();
+	const optimistic = useContext(OptimisticDeckDecisionContext);
 	const query = useQuery(
 		osQuery.tediApprovals.getById.queryOptions({ input: { id } }),
 	);
@@ -42,7 +44,10 @@ export function ApprovalDecisionCard({
 	const decide = async (feedback: DecisionCardFeedback) => {
 		if (feedback.action === "always") {
 			await osApi.osApprovalRules.create({ actionKind: approval.actionType });
-			await client.invalidateQueries({ queryKey: osQueryKeys.approvalRules() });
+			if (!optimistic)
+				await client.invalidateQueries({
+					queryKey: osQueryKeys.approvalRules(),
+				});
 		}
 		await osApi.tediApprovals.resolve({
 			id,
@@ -54,10 +59,11 @@ export function ApprovalDecisionCard({
 				.filter(Boolean)
 				.join(". "),
 		});
-		await Promise.all([
-			client.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
-			client.invalidateQueries({ queryKey: osQuery.learningFeedback.key() }),
-		]);
+		if (!optimistic)
+			await Promise.all([
+				client.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
+				client.invalidateQueries({ queryKey: osQuery.learningFeedback.key() }),
+			]);
 		return {
 			learningClientEventId: `approval:${id}:${feedback.action === "reject" ? "rejected" : "approved"}`,
 		};
