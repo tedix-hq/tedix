@@ -21,6 +21,13 @@ const base = {
 };
 
 assert.equal((await nativeToolAutonomy(base)).autoApprove, true);
+const credentialRead = await nativeToolAutonomy({
+	...base,
+	tool: "read",
+	args: { path: "/workspace/.env" },
+});
+assert.equal(credentialRead.autoApprove, false);
+assert.equal(credentialRead.critical, true);
 assert.equal(observedRequest?.headers.get("X-Tedix-Org-Id"), "org-example");
 assert.equal(
 	(await nativeToolAutonomy({ ...base, tool: "browser_execute" })).autoApprove,
