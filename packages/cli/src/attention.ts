@@ -95,7 +95,7 @@ export async function runAttentionCommand(
 						? DeckCardSchema
 						: DeckProjectionSchema;
 		}
-		const raw = await callConfiguredNativeTool(ctx, tool, input);
+		const raw = await callConfiguredNativeTool(ctx, `attention.${tool}`, input);
 		const normalized = normalizeCodeResult(raw);
 		if (normalized.truncated)
 			throw new Error(truncationErrorMessage(normalized));

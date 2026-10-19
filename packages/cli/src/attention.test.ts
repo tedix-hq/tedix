@@ -21,7 +21,7 @@ function fixture(options: { endpoint?: string; organization?: string } = {}) {
 		"tedix__configured_deck_list",
 		options.endpoint ?? "attention/listDeckCards",
 	);
-	const callable = "tedix.list_deck_cards";
+	const callable = "attention.list_deck_cards";
 	const client = {
 		getTimeoutMs: () => 10000,
 		callToolWithDestructiveApproval: async () => {
@@ -97,7 +97,17 @@ describe("Deck CLI native transport", () => {
 			"configured_describe",
 			"tedix__configured_deck_list",
 		]);
-		expect(calls[1]?.input.namespace).toBe("tedix");
+		expect(calls[1]?.input.namespace).toBe("attention");
+	});
+	test("accepts an organization-scoped workspace key without treating it as an ID", async () => {
+		const { ctx } = fixture();
+		expect(
+			await runAttentionCommand("deck", {
+				...ctx,
+				workspace: JSON.stringify(["connect", "orchard"]),
+				organizationId: undefined,
+			}),
+		).toBe(0);
 	});
 	test("refuses a mismatched native endpoint without executing it", async () => {
 		const { ctx, calls } = fixture({ endpoint: "workItems/create" });

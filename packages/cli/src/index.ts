@@ -1238,9 +1238,8 @@ async function main() {
 				positionals: options.positionals ?? [],
 				projectId: options.workProject,
 				limit: options.limit,
-				workspace: workspaceName,
+				workspace: organizationContext.workspace,
 				mcpUrl: options.url,
-				organizationId: organizationContext.workspace,
 				bootstrapCache: fileNativeBootstrapCache(),
 				signal: commandAbort.signal,
 			});
