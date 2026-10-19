@@ -135,6 +135,32 @@ describe("owning raw hook child collector", () => {
 		).rejects.toThrow("deadline");
 		expect(performance.now() - t).toBeLessThan(600);
 	});
+	test("dispatcher reads retain structured exit-2 diagnostics without accepting error output as success", async () => {
+		const source = `process.stdout.write(JSON.stringify({error:{code:'BAD_REQUEST',message:'No verified executor session'}}));process.exitCode=2;`;
+		await expect(
+			readJsonChild(process.execPath, ["-e", source], 1000, undefined, {
+				includeErrorMessage: true,
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining(
+				'"message":"No verified executor session"',
+			),
+		});
+		await expect(run(source)).rejects.toThrow("Tedix CLI read failed (exit 2)");
+		await expect(
+			readJsonChild(
+				process.execPath,
+				[
+					"-e",
+					`process.stdout.write('arbitrary output');process.stderr.write('bounded stderr');process.exitCode=2;`,
+				],
+				1000,
+				undefined,
+				{ includeErrorMessage: true },
+			),
+		).rejects.toThrow("bounded stderr");
+	});
 	test("nonzero, malformed UTF8, malformed JSON and nonobject outputs refuse", async () => {
 		for (const source of [
 			`process.stdout.write('{}');process.exitCode=2;`,
