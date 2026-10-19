@@ -8,6 +8,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
+import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
@@ -80,7 +81,11 @@ export function BillingRunCosts({
 								charges.
 							</Text>
 							{ledger.data.rows.length === 0 ? (
-								<Text>No model cost records in this window.</Text>
+								<Empty appearance="inline">
+									<EmptyDescription>
+										No model cost records in this window.
+									</EmptyDescription>
+								</Empty>
 							) : (
 								<Table scrollLabel="Recorded costs by run">
 									<TableHeader>

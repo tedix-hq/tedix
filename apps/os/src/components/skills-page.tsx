@@ -739,7 +739,13 @@ export function SkillsPage({
 					/>
 					{skills.data &&
 						skillEntries.length === 0 &&
-						(search.q ? <Text>No matching skills.</Text> : <SkillsEmpty />)}
+						(search.q ? (
+							<Empty appearance="inline">
+								<EmptyDescription>No matching skills.</EmptyDescription>
+							</Empty>
+						) : (
+							<SkillsEmpty />
+						))}
 					{skills.data && skillEntries.length > 0 && (
 						<>
 							<SkillCatalogTree
@@ -790,7 +796,9 @@ export function SkillsPage({
 					{definitions.data &&
 						workflowDefinitions.length === 0 &&
 						(search.q ? (
-							<Text>No matching automations.</Text>
+							<Empty appearance="inline">
+								<EmptyDescription>No matching automations.</EmptyDescription>
+							</Empty>
 						) : (
 							<WorkflowsEmpty />
 						))}

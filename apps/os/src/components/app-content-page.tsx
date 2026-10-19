@@ -262,9 +262,12 @@ export function AppContentPage() {
 					Loading content settings...
 				</p>
 			) : detail.isError ? (
-				<p role="alert" className="m-0 text-kumo-danger text-sm">
-					Content settings could not be loaded. Sync scheduling is unavailable.
-				</p>
+				<Alert variant="destructive">
+					<AlertDescription>
+						Content settings could not be loaded. Sync scheduling is
+						unavailable.
+					</AlertDescription>
+				</Alert>
 			) : null}
 
 			{sources.isPending && <ListSkeleton />}
@@ -610,9 +613,11 @@ function AddSourceDialog({
 					</FormField>
 
 					{addMutation.isError ? (
-						<p role="alert" className="m-0 text-kumo-danger text-sm">
-							{addMutation.error.message || "Failed to add source"}
-						</p>
+						<Alert variant="destructive">
+							<AlertDescription>
+								{addMutation.error.message || "Failed to add source"}
+							</AlertDescription>
+						</Alert>
 					) : null}
 					<DialogFooter>
 						<Button

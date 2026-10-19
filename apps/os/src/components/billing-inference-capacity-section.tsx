@@ -3,6 +3,7 @@ import { ArrowUpRight, Gauge } from "@phosphor-icons/react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Loader } from "@/components/kumo/loader";
 import {
 	SectionHeader,
@@ -370,7 +371,11 @@ export function BillingInferenceCapacitySection() {
 					</summary>
 					<div className="mt-4 space-y-3 border-kumo-line border-t pt-4">
 						{allocations.length === 0 ? (
-							<Text tone="secondary">No capacity allocations recorded.</Text>
+							<Empty appearance="inline">
+								<EmptyDescription>
+									No capacity allocations recorded.
+								</EmptyDescription>
+							</Empty>
 						) : (
 							allocations.map((allocation) => (
 								<Surface

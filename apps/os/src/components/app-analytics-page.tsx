@@ -309,9 +309,11 @@ export function AppAnalyticsPage() {
 		return (
 			<Card>
 				<CardContent>
-					<p role="alert" className="m-0 text-kumo-danger text-sm">
-						Analytics could not be loaded: {error.message}
-					</p>
+					<Alert variant="destructive">
+						<AlertDescription>
+							Analytics could not be loaded: {error.message}
+						</AlertDescription>
+					</Alert>
 				</CardContent>
 			</Card>
 		);
@@ -529,14 +531,20 @@ function AnalyticsQueryState({
 }) {
 	return (
 		<Card>
-			<CardContent className="text-kumo-subtle text-sm">
-				<p role={state === "error" ? "alert" : "status"} className="m-0">
-					{state === "loading"
-						? `Loading ${label.toLowerCase()}...`
-						: state === "error"
-							? `${label} could not be loaded.`
-							: `No ${label.toLowerCase()} in this period.`}
-				</p>
+			<CardContent>
+				{state === "loading" ? (
+					<p role="status" className="m-0 text-kumo-subtle type-tedix-body">
+						{`Loading ${label.toLowerCase()}...`}
+					</p>
+				) : state === "error" ? (
+					<Alert variant="destructive">
+						<AlertDescription>{`${label} could not be loaded.`}</AlertDescription>
+					</Alert>
+				) : (
+					<Empty appearance="inline" role="status">
+						<EmptyDescription>{`No ${label.toLowerCase()} in this period.`}</EmptyDescription>
+					</Empty>
+				)}
 			</CardContent>
 		</Card>
 	);
@@ -1422,9 +1430,11 @@ function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
 
 	if (isError) {
 		return (
-			<p role="alert" className="m-0 px-4 py-3 text-kumo-danger text-xs">
-				Execution details could not be loaded.
-			</p>
+			<Alert variant="destructive" className="mx-4 my-3 w-auto">
+				<AlertDescription>
+					Execution details could not be loaded.
+				</AlertDescription>
+			</Alert>
 		);
 	}
 
@@ -2179,9 +2189,9 @@ function TraceActivityPanel({ traceId }: { traceId: string }) {
 
 	if (isError) {
 		return (
-			<p role="alert" className="m-0 px-6 py-2 text-kumo-danger text-xs">
-				Trace activity could not be loaded.
-			</p>
+			<Alert variant="destructive" className="mx-6 my-2 w-auto">
+				<AlertDescription>Trace activity could not be loaded.</AlertDescription>
+			</Alert>
 		);
 	}
 
@@ -2305,9 +2315,11 @@ function ToolCallPayloadRow({
 				<div className="space-y-2 pl-6">
 					{isPending && <Skeleton className="h-16" />}
 					{isError && (
-						<p role="alert" className="m-0 text-kumo-danger text-xs">
-							Payload details could not be loaded.
-						</p>
+						<Alert variant="destructive">
+							<AlertDescription>
+								Payload details could not be loaded.
+							</AlertDescription>
+						</Alert>
 					)}
 					{!isPending && data && data.configured === false && (
 						<Text as="p" role="label" tone="secondary" className="m-0">
