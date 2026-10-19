@@ -112,3 +112,69 @@ it("reads older recipient-scoped pages and releases their reminder on the viewer
 	await act(async () => render());
 	expect(host.textContent).toBe("ready:1:1");
 });
+
+it("retains typed message approvals and valuable proposals while routing ordinary questions to Feed", async () => {
+	const rows = [
+		{
+			...reminder,
+			request: {
+				...reminder.request,
+				id: first,
+				kind: "question",
+				dueAt: null,
+				metadata: {
+					approvalOperation: "gmail.send",
+					approvalTarget: "fictional-recipient",
+				},
+			},
+		},
+		{
+			...reminder,
+			request: {
+				...reminder.request,
+				id: second,
+				kind: "question",
+				dueAt: null,
+				metadata: { decisionClass: "opportunity.lead" },
+			},
+		},
+		{
+			...reminder,
+			request: {
+				...reminder.request,
+				id: "55555555-5555-4555-8555-555555555555",
+				kind: "question",
+				dueAt: null,
+				metadata: {},
+			},
+		},
+		{
+			...reminder,
+			request: {
+				...reminder.request,
+				id: "66666666-6666-4666-8666-666666666666",
+				kind: "input",
+				dueAt: null,
+				metadata: { schema: "tedix.outbound.v1" },
+			},
+		},
+	];
+	listInbox.mockResolvedValue({ data: rows, hasMore: false, nextCursor: null });
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<Probe />
+			</QueryClientProvider>,
+		),
+	);
+	await vi.waitFor(async () => {
+		await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+		expect(host.textContent).toBe("ready:3:0");
+	});
+});

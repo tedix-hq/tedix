@@ -106,6 +106,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	// Interaction RPCs retain the API's messaging authority through organization
 	// aliases. Their Work-prefixed names do not change the owning capability.
 	"workInteractions/create": "mcp:messaging.write",
+	"workInteractions/refreshDecisionSources": "mcp:messaging.write",
 	"workInteractions/regenerateCard": "mcp:messaging.write",
 	"workInteractions/outbound/submit": "mcp:work.write",
 	"workInteractions/outbound/review": "mcp:work.write",

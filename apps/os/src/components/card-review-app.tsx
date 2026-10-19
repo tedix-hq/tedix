@@ -1,4 +1,6 @@
 import { workRefreshOptions } from "@/lib/work-refresh";
+import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
+import { routeFactoryCard } from "@/lib/card-review";
 import { DecisionRailContext } from "@/components/decision-context-rail";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import { useCardSchedule } from "@/lib/use-card-schedule";
@@ -179,11 +181,13 @@ const RUN_FIRST_POLL_MS = 400;
 export function CardReviewApp({
 	config,
 	inDeck = false,
+	routing,
 	focusCardKey,
 	onFocusHandled,
 }: {
 	config: CardReviewConfig;
 	inDeck?: boolean;
+	routing?: DeckRoutingPolicy;
 	focusCardKey?: string;
 	onFocusHandled?: () => void;
 }) {
@@ -378,13 +382,22 @@ export function CardReviewApp({
 		setStoredSnoozes({ key: snoozeKey, value });
 	const { now, timeZone } = useCardSchedule();
 	const queue = useMemo(() => {
-		const pending = reviewQueue(cards, {
-			channel: activeChannel,
-			snoozes,
-			skipped,
-			now,
-			timeZone,
-		});
+		const pending = reviewQueue(
+			inDeck
+				? cards.filter(
+						(card) =>
+							routeFactoryCard(card, routing, now, learningModel.data)
+								.destination === "deck",
+					)
+				: cards,
+			{
+				channel: activeChannel,
+				snoozes,
+				skipped,
+				now,
+				timeZone,
+			},
+		);
 		const model = learningModel.data;
 		if (!model?.config.enabled) return pending;
 		const score = (card: ReviewCard) =>
@@ -412,6 +425,8 @@ export function CardReviewApp({
 		timeZone,
 		sources,
 		learningModel.data,
+		inDeck,
+		routing,
 	]);
 	const inChannel = cards.filter(
 		(card) => activeChannel === null || card.channel === activeChannel,

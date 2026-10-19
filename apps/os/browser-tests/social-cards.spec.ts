@@ -65,6 +65,7 @@ try {
 		maxRuns: 3,
 		columns: {
 			source: "Source",
+			type: "Type",
 			who: "Who",
 			why: "Why",
 			draft: "Draft",
@@ -83,6 +84,7 @@ try {
 				content: {
 					kind: "sheet",
 					columns: [
+						"Type",
 						"Source",
 						"Who",
 						"Why",
@@ -93,6 +95,7 @@ try {
 					],
 					rows: [
 						[
+							"opportunity",
 							`https://example.com/${source.label.toLowerCase()}`,
 							"Morgan Example",
 							`Review the fictional ${source.label.toLowerCase()} opportunity.`,
@@ -157,7 +160,7 @@ try {
 			dueAt: null,
 			expiresAt: null,
 			resolvedAt: null,
-			metadata: {},
+			metadata: { decisionClass: "opportunity.delivery" },
 			subject: "Review the fictional native question.",
 			prompt: "Choose a fictional delivery date.",
 			kind: "question",
@@ -349,12 +352,16 @@ try {
 		outputId: sheets[1].output.id,
 	});
 	assert.equal(
-		saved.currentRevision.content.rows[0][4],
+		saved.currentRevision.content.rows[0][
+			saved.currentRevision.content.columns.indexOf("Useful?")
+		],
 		"yes",
 		"Deck verdict persists in Social's original row",
 	);
 	assert.equal(
-		saved.currentRevision.content.rows[0][6],
+		saved.currentRevision.content.rows[0][
+			saved.currentRevision.content.columns.indexOf("Done?")
+		],
 		"",
 		"Useful does not authorize an action",
 	);
@@ -390,7 +397,9 @@ try {
 		outputId: sheets[0].output.id,
 	});
 	assert.equal(
-		unchanged.currentRevision.content.rows[0][4],
+		unchanged.currentRevision.content.rows[0][
+			unchanged.currentRevision.content.columns.indexOf("Useful?")
+		],
 		"",
 		"a failed verdict restores the factory card without changing its cells",
 	);

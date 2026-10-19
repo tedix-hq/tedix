@@ -19,6 +19,7 @@ it("keeps row identities across factory runs and reconciles a verdict through th
 			cardSheetPrefix: `${label} cards `,
 			columns: {
 				source: "Source",
+				type: "Type",
 				why: "Why",
 				useful: "Useful?",
 				reason: "Reason",
@@ -90,9 +91,10 @@ it("keeps row identities across factory runs and reconciles a verdict through th
 				revision: 1,
 				content: {
 					kind: "sheet" as const,
-					columns: ["Source", "Why", "Useful?", "Reason", "Done?"],
+					columns: ["Type", "Source", "Why", "Useful?", "Reason", "Done?"],
 					rows: [
 						[
+							"opportunity",
 							"https://example.com/card",
 							"Review this fictional opportunity.",
 							"",
@@ -143,9 +145,17 @@ it("keeps row identities across factory runs and reconciles a verdict through th
 								revision: 2,
 								content: {
 									kind: "sheet" as const,
-									columns: ["Source", "Why", "Useful?", "Reason", "Done?"],
+									columns: [
+										"Type",
+										"Source",
+										"Why",
+										"Useful?",
+										"Reason",
+										"Done?",
+									],
 									rows: [
 										[
+											"opportunity",
 											"https://example.com/card",
 											"Review this fictional opportunity.",
 											"yes",

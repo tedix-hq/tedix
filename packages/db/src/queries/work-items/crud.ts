@@ -878,6 +878,7 @@ export async function updateWorkItemSpecification(
 		requiredCapabilities?: string[];
 		requiredAuthorities?: string[];
 		dueDate?: string | null;
+		deadline?: string | null;
 		startAt?: string | null;
 		durationDays?: number | null;
 		updatedAt?: string;
@@ -924,6 +925,7 @@ export async function updateWorkItemSpecification(
 			requiredCapabilities: params.requiredCapabilities,
 			requiredAuthorities: params.requiredAuthorities,
 			dueDate: params.dueDate,
+			deadline: params.deadline,
 			startAt: params.startAt,
 			durationDays: params.durationDays,
 			admissionSpecRevision: sql`lower(hex(randomblob(16)))`,

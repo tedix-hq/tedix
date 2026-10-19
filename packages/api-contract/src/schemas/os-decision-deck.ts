@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { DecisionEffectSchema } from "./decision-effects";
 import { CardReviewSourceSchema } from "./os-card-review";
+import routingPolicy from "../assets/deck-routing.v1.json";
 
 export const DECISION_DECK_ENTRY = "tedix:app/decision-deck";
 export const DecisionKindSchema = z.enum([
@@ -97,6 +98,93 @@ export const DecisionClassPoliciesSchema = z.record(
 	DecisionClassPolicySchema,
 );
 
+export const DeckRoutingPolicySchema = z.strictObject({
+	version: z.literal(1),
+	deadlineWindowHours: z.number().positive().max(720),
+	criticalEffects: z.array(z.string().min(1)).max(30),
+	criticalClasses: z.array(z.string().min(1)).max(100),
+	criticalActionPatterns: z.array(z.string().min(1).max(500)).max(30),
+	criticalQuestionPatterns: z.array(z.string().min(1).max(500)).max(30),
+	learnedMinimumExamples: z.number().int().positive(),
+	learnedFeedThreshold: z.number().negative(),
+	valuableClasses: z.array(z.string().min(1)).max(100),
+	feedClasses: z.array(z.string().min(1)).max(100),
+});
+export type DeckRoutingPolicy = z.infer<typeof DeckRoutingPolicySchema>;
+export const DEFAULT_DECK_ROUTING =
+	DeckRoutingPolicySchema.parse(routingPolicy);
+
+/** Display routing never grants execution, approval, consent or permission. */
+export function classifyDeckCard(
+	card: {
+		kind: string;
+		classId: string;
+		risk?: string | null;
+		action?: string;
+		learnedUsefulness?: { value: number; examples: number };
+		protectedEffects?: readonly string[];
+		tasteOrStrategy?: boolean;
+		needsPerson: boolean;
+		dueAt?: string | null;
+	},
+	policy: DeckRoutingPolicy = DEFAULT_DECK_ROUTING,
+	now = new Date(),
+) {
+	const matches = (classes: readonly string[]) =>
+		classes.some(
+			(value) =>
+				card.classId === value ||
+				card.classId.startsWith(`${value}.`) ||
+				card.classId.startsWith(`${value}:`),
+		);
+	let reason = "routine";
+	if (card.needsPerson) {
+		if (
+			card.risk === "critical" ||
+			(card.kind === "question" &&
+				!!card.action &&
+				policy.criticalQuestionPatterns.some((pattern) =>
+					new RegExp(pattern, "i").test(card.action!),
+				)) ||
+			(card.kind === "approval" &&
+				!!card.action &&
+				policy.criticalActionPatterns.some((pattern) =>
+					new RegExp(pattern, "i").test(card.action!.replace(/[_:.]/g, " ")),
+				)) ||
+			matches(policy.criticalClasses) ||
+			card.protectedEffects?.some((effect) =>
+				policy.criticalEffects.includes(effect),
+			)
+		)
+			reason = "critical";
+		else if (matches(policy.feedClasses)) reason = "routine";
+		else if (matches(policy.valuableClasses)) reason = "valuable";
+		else if (card.tasteOrStrategy) reason = "owner_strategy";
+		else if (
+			card.dueAt &&
+			Number.isFinite(Date.parse(card.dueAt)) &&
+			Math.abs(Date.parse(card.dueAt) - now.getTime()) <=
+				policy.deadlineWindowHours * 3600000
+		)
+			reason = "owner_deadline";
+	}
+	if (
+		reason === "valuable" &&
+		card.learnedUsefulness &&
+		card.learnedUsefulness.examples >= policy.learnedMinimumExamples &&
+		card.learnedUsefulness.value <= policy.learnedFeedThreshold
+	)
+		reason = "learned_feed";
+	return {
+		destination: ["routine", "learned_feed"].includes(reason)
+			? ("feed" as const)
+			: ("deck" as const),
+		reason,
+		policyVersion: policy.version,
+		classId: card.classId,
+	};
+}
+
 export const DecisionDeckConfigSchema = z.strictObject({
 	version: z.literal(1),
 	factorySources: z.array(CardReviewSourceSchema).max(10).default([]),
@@ -114,6 +202,7 @@ export const DecisionDeckConfigSchema = z.strictObject({
 		.max(24)
 		.default(["09:00", "16:00"]),
 	classPolicies: DecisionClassPoliciesSchema.default({}),
+	routing: DeckRoutingPolicySchema.optional(),
 	examples: z.array(DecisionEnvelopeSchema).max(12).default([]),
 });
 export type DecisionDeckConfig = z.infer<typeof DecisionDeckConfigSchema>;

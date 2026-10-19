@@ -193,6 +193,10 @@ export function decisionIsDue(
 	now: Date,
 	timeZone?: string,
 ) {
+	if (request.metadata?.source === "deadline-decisions") {
+		const { dueAt: _deadline, ...scheduled } = request;
+		return cardIsDue(scheduled, now, timeZone);
+	}
 	return cardIsDue(request, now, timeZone);
 }
 

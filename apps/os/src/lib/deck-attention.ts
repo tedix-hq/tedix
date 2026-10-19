@@ -24,6 +24,7 @@ export function deckBatchWindow(times: readonly string[], now = new Date()) {
 export function attentionMetrics(
 	events: readonly LearningInteractionEvent[],
 	now = new Date(),
+	routingPolicyVersion?: number,
 ) {
 	const unique = [
 		...new Map(events.map((event) => [event.id, event])).values(),
@@ -41,7 +42,10 @@ export function attentionMetrics(
 					(event) =>
 						["decision_deck_shown", "decision_deck_action"].includes(
 							event.surface,
-						) && event.occurredAt.startsWith(today),
+						) &&
+						event.occurredAt.startsWith(today) &&
+						(routingPolicyVersion === undefined ||
+							event.metadata?.routingPolicyVersion === routingPolicyVersion),
 				)
 				.map((event) => event.targetId ?? event.id),
 		),

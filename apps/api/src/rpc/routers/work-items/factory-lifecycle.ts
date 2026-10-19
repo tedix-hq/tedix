@@ -363,6 +363,7 @@ export const updateSpecificationProcedure =
 				requiredCapabilities: input.requiredCapabilities,
 				requiredAuthorities: input.requiredAuthorities,
 				dueDate: input.dueDate,
+				deadline: input.deadline,
 				startAt: input.startAt,
 				durationDays: input.durationDays,
 				updatedAt: new Date().toISOString(),

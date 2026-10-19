@@ -1,17 +1,29 @@
+import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import type { ReviewCard } from "@/lib/card-review";
+import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
+import { useDeckRoutingAudit } from "@/lib/use-deck-routing-audit";
 import { cardIsDue } from "@/lib/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries } from "@tanstack/react-query";
 import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
-import { cardSheetsForSource, cardsFromSheet, isOpen } from "@/lib/card-review";
+import {
+	cardSheetsForSource,
+	cardsFromSheet,
+	isOpen,
+	routeFactoryCard,
+} from "@/lib/card-review";
 import {
 	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,
 } from "@/lib/os-query-options";
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
 
-export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
+export function useFactoryCardCount(
+	sources: readonly CardReviewSource[],
+	routing?: DeckRoutingPolicy,
+	model?: DecisionLearningModel,
+) {
 	const { now, timeZone } = useCardSchedule();
 	const visible = useVisibleCardSources(
 		sources,
@@ -35,6 +47,7 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 		})),
 	});
 	const cards: ReviewCard[] = [];
+	const routes: ReturnType<typeof routeFactoryCard>[] = [];
 	let invalid = false;
 	for (const [index, { source, sheet }] of sheets.entries()) {
 		const body = details[index]?.data?.currentRevision.content;
@@ -52,13 +65,18 @@ export function useFactoryCardCount(sources: readonly CardReviewSource[]) {
 			body,
 		});
 		if ("missing" in parsed) invalid = true;
-		else
-			cards.push(
-				...parsed.cards.filter(
-					(card) => isOpen(card) && cardIsDue(card, now, timeZone),
-				),
+		else {
+			const candidates = parsed.cards.filter(
+				(card) => isOpen(card) && cardIsDue(card, now, timeZone),
 			);
+			for (const card of candidates) {
+				const route = routeFactoryCard(card, routing, now, model);
+				routes.push(route);
+				if (route.destination === "deck") cards.push(card);
+			}
+		}
 	}
+	useDeckRoutingAudit(routes);
 	return {
 		cards,
 		refetch: async () => {

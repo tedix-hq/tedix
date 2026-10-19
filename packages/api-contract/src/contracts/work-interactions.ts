@@ -9,6 +9,8 @@ import { baseErrors } from "../errors";
 import { outboundContract } from "./outbound";
 import { RegenerateDecisionCardInputSchema } from "../schemas/decision-card-presentation";
 import {
+	RefreshDecisionSourcesInputSchema,
+	RefreshDecisionSourcesResultSchema,
 	AckWorkInteractionDeliveryInputSchema,
 	AckWorkInteractionDeliveryResultSchema,
 	CancelWorkInteractionInputSchema,
@@ -33,6 +35,14 @@ export const workInteractionsContract = oc
 	.errors(baseErrors)
 	.router({
 		outbound: outboundContract,
+		refreshDecisionSources: oc
+			.route({
+				method: "POST",
+				path: "/decision-sources/refresh",
+				summary: "Produce due decisions for the signed-in owner",
+			})
+			.input(RefreshDecisionSourcesInputSchema)
+			.output(RefreshDecisionSourcesResultSchema),
 		regenerateCard: oc
 			.route({
 				method: "POST",

@@ -23,22 +23,29 @@ vi.mock("@/lib/api", async (original) => {
 		...actual,
 		osApi: new Proxy(actual.osApi, {
 			get: (target, key) =>
-				key === "agentTurnTriage"
-					? { listLessons: vi.fn(async () => ({ lessons: [] })) }
-					: key === "learningFeedback"
-						? {
-								recordInteraction: vi.fn(async () => ({})),
-								recordExposure: vi.fn(async () => ({
-									id: "fictional-exposure",
-								})),
-								listInteractions: vi.fn(async () => ({ events: [] })),
-								getCalibration: actual.osApi.learningFeedback.getCalibration,
-								getInstrumentation:
-									actual.osApi.learningFeedback.getInstrumentation,
-								model: vi.fn(),
-								correct: vi.fn(),
-							}
-						: Reflect.get(target, key),
+				key === "workInteractions"
+					? new Proxy(actual.osApi.workInteractions, {
+							get: (target, key) =>
+								key === "refreshDecisionSources"
+									? async () => ({ created: 0, scanned: 0, hasMore: false })
+									: Reflect.get(target, key),
+						})
+					: key === "agentTurnTriage"
+						? { listLessons: vi.fn(async () => ({ lessons: [] })) }
+						: key === "learningFeedback"
+							? {
+									recordInteraction: vi.fn(async () => ({})),
+									recordExposure: vi.fn(async () => ({
+										id: "fictional-exposure",
+									})),
+									listInteractions: vi.fn(async () => ({ events: [] })),
+									getCalibration: actual.osApi.learningFeedback.getCalibration,
+									getInstrumentation:
+										actual.osApi.learningFeedback.getInstrumentation,
+									model: vi.fn(),
+									correct: vi.fn(),
+								}
+							: Reflect.get(target, key),
 		}),
 	};
 });
@@ -345,7 +352,7 @@ const linkedRow = (id: string, subject: string, canRespond = true) =>
 			dueAt: null,
 			expiresAt: null,
 			resolvedAt: null,
-			metadata: {},
+			metadata: { decisionClass: "opportunity.supplier" },
 			subject,
 			prompt: "Review this fictional supplier proposal.",
 			kind: "question",
@@ -412,4 +419,30 @@ it("does not substitute another card when the linked request is not actionable f
 		"That decision is no longer available in this view.",
 	);
 	expect(host.textContent).not.toContain("Live request");
+});
+
+it("keeps critical approvals outside the valuable-card batch allowance", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("No live requests in the fixture"),
+	);
+	const critical = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Allow the fictional message",
+	);
+	critical.request.metadata = {
+		approvalOperation: "gmail.send",
+		approvalTarget: "fictional-recipient",
+	};
+	const valuable = linkedRow(
+		"33333333-3333-4333-8333-333333333333",
+		"Review the fictional partnership",
+	);
+	await mount({ rows: [critical, valuable], budget: 1 });
+	expect(host.textContent).toContain("1 of 2");
+	const saved = Object.keys(sessionStorage).find((key) =>
+		key.startsWith("decision-deck:"),
+	)!;
+	expect(JSON.parse(sessionStorage.getItem(saved)!).ids).toEqual([
+		valuable.request.id,
+	]);
 });

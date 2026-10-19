@@ -59,6 +59,12 @@ it("measures all five attention signals once, counting deferred cards as attenti
 		],
 		new Date("2026-10-17T14:00:00Z"),
 	);
+	const current = event("current", "decision_deck_shown", "");
+	current.metadata = { ...current.metadata, routingPolicyVersion: 1 };
+	expect(
+		attentionMetrics([first, current], new Date("2026-10-17T14:00:00Z"), 1)
+			.cardsToday,
+	).toBe(1);
 	expect(result).toMatchObject({
 		cardsToday: 3,
 		decisionsToday: 2,

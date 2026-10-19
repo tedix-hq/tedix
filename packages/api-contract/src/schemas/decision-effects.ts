@@ -3,6 +3,12 @@ import * as z from "zod";
 /** Finite adapters reuse each product's authorization and revision fences. */
 export const DecisionEffectSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
+		kind: z.literal("create_owner_task"),
+		workItemId: z.uuid(),
+		title: z.string().trim().min(1).max(200),
+		description: z.string().trim().min(1).max(10000),
+	}),
+	z.strictObject({
 		kind: z.literal("accept_work"),
 		workItemId: z.uuid(),
 		doneLooksLike: z.string().trim().min(1).max(8000),

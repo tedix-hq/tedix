@@ -1,0 +1,54 @@
+{
+	"version": 1,
+	"deadlineWindowHours": 48,
+	"criticalEffects": ["money", "contract", "production", "consent", "message"],
+	"criticalClasses": [
+		"approval.money",
+		"approval.publish",
+		"approval.consent",
+		"approval.credentials",
+		"approval.permissions",
+		"approval.roles",
+		"approval.delete",
+		"approval.production_auth",
+		"approval.legal"
+	],
+	"valuableClasses": [
+		"opportunity",
+		"lead",
+		"partnership",
+		"customer",
+		"investor",
+		"revenue",
+		"relationship",
+		"crm.followup",
+		"crm.follow-up",
+		"personal.proposal",
+		"instinct.proposal",
+		"deadline.owner"
+	],
+	"feedClasses": [
+		"filing",
+		"delegation",
+		"tool_write",
+		"tool-write",
+		"ops",
+		"operations",
+		"wording",
+		"routine"
+	],
+	"criticalActionPatterns": [
+		"\\b(pay|payment|purchase|transfer|refund|spend|send|publish|delete|purge|destroy|consent|credentials?|oauth|mfa|permissions?|roles?|legally binding)\\b",
+		"\\b(production auth|production provider)\\b",
+		"magic[_ -]?link"
+	],
+	"learnedMinimumExamples": 3,
+	"learnedFeedThreshold": -2,
+	"criticalQuestionPatterns": [
+		"\\b(?:grant|escalate|revoke|change)\\b.{0,60}\\b(?:scopes?|permissions?|roles?|credentials?|consent)\\b",
+		"\\b(?:sign in|log in|oauth|mfa)\\b",
+		"\\b(?:replace|paste|enter|provide|rotate)\\b.{0,60}\\b(?:api[- ]?key|credentials?|secret|token)\\b",
+		"\\b(?:update|extend|expand)\\b.{0,80}\\b(?:organization|profile).{0,50}\\bconsent\\b",
+		"\\b(?:allow|let)\\b.{0,70}\\b(?:read|access)\\b.{0,50}\\b(?:your|my|private)\\b"
+	]
+}

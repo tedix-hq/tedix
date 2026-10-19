@@ -715,3 +715,12 @@ export const ListUndeliveredWorkInteractionResponsesResultSchema =
 		),
 		observedAt: z.iso.datetime(),
 	});
+
+export const RefreshDecisionSourcesInputSchema = z.strictObject({
+	projectId: z.uuid().optional(),
+});
+export const RefreshDecisionSourcesResultSchema = z.strictObject({
+	created: z.number().int().nonnegative(),
+	scanned: z.number().int().nonnegative(),
+	hasMore: z.boolean(),
+});

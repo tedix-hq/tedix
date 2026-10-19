@@ -1,3 +1,8 @@
+import {
+	getWorkItemById,
+	getWorkItemBySourceIntentId,
+} from "@tedix/db/queries/work-items/crud";
+import { requireOrgId } from "../rpc/org-scope";
 import { call } from "@orpc/server";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
@@ -20,8 +25,56 @@ async function dispatchEffect(
 	effect: Effect,
 	requestId: string,
 	proposal: string,
+	ownerId: string,
 ) {
 	switch (effect.kind) {
+		case "create_owner_task": {
+			const orgId = requireOrgId(context);
+			const source = await getWorkItemById(
+				context.db,
+				effect.workItemId,
+				orgId,
+			);
+			if (!source)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"The source task is unavailable",
+				);
+			const sourceIntentId = `decision-owner-task:${requestId}`;
+			const lookup = () =>
+				getWorkItemBySourceIntentId(context.db, { orgId, sourceIntentId });
+			let task = await lookup();
+			if (!task) {
+				const { createProcedure } =
+					await import("../rpc/routers/work-items/creation-reads");
+				try {
+					task = await call(
+						createProcedure,
+						{
+							title: effect.title,
+							description: effect.description,
+							workKind: "communication",
+							riskLevel: "low",
+							parentWorkItemId: source.id,
+							projectId: source.projectId ?? undefined,
+							accountableOwnerType: "user",
+							accountableOwnerId: ownerId,
+							sourceIntentId,
+							metadata: {
+								source: "decision-owner-task",
+								requestId,
+								sendingReservedForOwner: true,
+							},
+						},
+						{ context },
+					);
+				} catch (error) {
+					task = await lookup();
+					if (!task) throw error;
+				}
+			}
+			return { kind: effect.kind, targetId: task.id, state: task.disposition };
+		}
 		case "accept_work": {
 			const { workItemsContractRouter } =
 				await import("../rpc/routers/work-items");
@@ -270,6 +323,7 @@ export async function executeDecisionCardEffect(
 			option.effect,
 			request.id,
 			parsed.data.proposal,
+			input.responder.id,
 		);
 		return {
 			...input,

@@ -28,8 +28,10 @@ it("fences date updates, preserves omitted dates and audits clearing without lif
 		...input,
 		expectedWorkItemVersion: 1,
 		dueDate: "2026-10-20",
+		deadline: "2026-10-20",
 	});
 	expect(updated.dueDate).toBe("2026-10-20");
+	expect(updated.deadline).toBe("2026-10-20");
 	expect(updated.disposition).toBe("proposed");
 	await expect(
 		updateWorkItemSpecification(db, {
@@ -50,11 +52,14 @@ it("fences date updates, preserves omitted dates and audits clearing without lif
 		title: "Updated plan",
 	});
 	expect(preserved.dueDate).toBe("2026-10-20");
+	expect(preserved.deadline).toBe("2026-10-20");
 	const cleared = await updateWorkItemSpecification(db, {
 		...input,
 		dueDate: null,
+		deadline: null,
 	});
 	expect(cleared.dueDate).toBeNull();
+	expect(cleared.deadline).toBeNull();
 	expect(cleared.disposition).toBe("proposed");
 	expect(
 		sqlite.prepare("SELECT count(*) AS count FROM work_events").get()?.count,
