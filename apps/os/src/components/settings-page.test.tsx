@@ -28,6 +28,7 @@ vi.mock("@/lib/api", () => ({
 		userSettings: userSettingsApi,
 		runtimeEntitlements: runtimeEntitlementsApi,
 		connections: connectionsApi,
+		personalAgentInbound: { value: vi.fn(async () => []) },
 	},
 }));
 

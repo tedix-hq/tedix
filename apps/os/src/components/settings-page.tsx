@@ -54,6 +54,7 @@ import {
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
+import { PersonalAgentValue } from "@/components/personal-agent-value";
 import {
 	runtimeEntitlementsQueryOptions,
 	userConnectionsQueryOptions,
@@ -751,6 +752,7 @@ export function SettingsPage({
 				</div>
 			</PageSection>
 
+			{!localEvaluation && <PersonalAgentValue />}
 			<OperationalContextSection
 				localEvaluation={localEvaluation}
 				localInferenceEnabled={__LOCAL_INFERENCE_ENABLED__}
