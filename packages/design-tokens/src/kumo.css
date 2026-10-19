@@ -280,12 +280,7 @@
 		var(--muted-foreground) 55%,
 		var(--background)
 	);
-	/* Placeholder sits one step below subtle so it never reads as real content. */
-	--text-color-kumo-placeholder: color-mix(
-		in oklch,
-		var(--muted-foreground) 70%,
-		var(--background)
-	);
+	--text-color-kumo-placeholder: var(--muted-foreground);
 	--text-color-kumo-brand: var(--primary);
 	--text-color-kumo-link: var(--primary);
 	--text-color-kumo-info: var(--tedix-status-info);
@@ -316,18 +311,24 @@
 	 * Both app palettes provide foreground/background; deriving the solid fill
 	 * roles here prevents a local theme from accidentally aliasing all three.
 	 */
-	--color-kumo-fill: light-dark(
-		color-mix(in oklch, var(--foreground) 9%, var(--background)),
-		color-mix(in oklch, var(--foreground) 19%, var(--background))
+	--color-kumo-fill: var(
+		--tedix-fill,
+		light-dark(
+			color-mix(in oklch, var(--foreground) 9%, var(--background)),
+			color-mix(in oklch, var(--foreground) 19%, var(--background))
+		)
 	);
 	/*
 	 * Hover moves away from the resting fill in both modes: up the
 	 * ladder in dark, back toward the canvas in light. Do not "correct" the
 	 * light direction — a darker light-mode hover reads as a pressed state.
 	 */
-	--color-kumo-fill-hover: light-dark(
-		color-mix(in oklch, var(--foreground) 3%, var(--background)),
-		color-mix(in oklch, var(--foreground) 31%, var(--background))
+	--color-kumo-fill-hover: var(
+		--tedix-fill-hover,
+		light-dark(
+			color-mix(in oklch, var(--foreground) 3%, var(--background)),
+			color-mix(in oklch, var(--foreground) 31%, var(--background))
+		)
 	);
 	/* Keep shared Kumo focus/selection intent violet. Button fills are adapter-owned. */
 	--color-kumo-brand: var(--primary);
