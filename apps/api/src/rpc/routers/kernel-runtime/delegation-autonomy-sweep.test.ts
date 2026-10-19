@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 		status: string;
 		organizationId: string;
 		createdAt: string;
+		metadata?: unknown;
 	}>,
 	release: vi.fn(),
 	workstation: vi.fn(),
@@ -90,6 +91,28 @@ describe("pending delegation policy sweep", () => {
 		expect(second.dispatched).toEqual([]);
 		expect(mocks.release).toHaveBeenCalledTimes(1);
 		expect(mocks.audit).toHaveBeenCalledTimes(2);
+	});
+	it("retains operator-excluded resources and records the constraint on every sweep", async () => {
+		mocks.rows[0].metadata = {
+			workOrder: { resourceId: "protected-resource-0001" },
+		};
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const result = await client().sweep({
+				limit: 10,
+				excludeReferences: ["protected-resource-0001"],
+			});
+			expect(result.dispatched).toEqual([]);
+			expect(result.held).toContainEqual({
+				runId: "research",
+				reason: "operator-excluded reference",
+			});
+		}
+		expect(mocks.release).not.toHaveBeenCalled();
+		expect(mocks.workstation).not.toHaveBeenCalled();
+		expect(mocks.rows[0].status).toBe("requires_approval");
+		expect(mocks.audit.mock.calls[0][1].metadata.excludeReferences).toEqual([
+			"protected-resource-0001",
+		]);
 	});
 	it("rejects a non-owner and retains a hold when the resolution latch fails", async () => {
 		mocks.member.mockResolvedValueOnce({ role: "member", status: "active" });
