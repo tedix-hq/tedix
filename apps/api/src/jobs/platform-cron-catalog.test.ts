@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { PlatformCronHealthResponseSchema } from "@tedix/api-contract/contracts/control-plane";
 import {
 	buildPlatformCronHealth,
 	PLATFORM_CRON_DEFINITIONS,
@@ -71,6 +72,26 @@ describe("platform cron health", () => {
 			lastFailureAt: "2026-08-09T04:30:03.000Z",
 			nextExpectedAt: "2026-08-09T05:00:00.000Z",
 		});
+	});
+
+	it("reports the durable replay checkpoint independently of a terminal receipt", () => {
+		const checkpoint = "2026-10-17T12:38:00.000Z";
+		const health = PlatformCronHealthResponseSchema.parse(
+			buildPlatformCronHealth({
+				env,
+				now,
+				summaries: [],
+				replayCheckpoints: { "commitment-wakes": checkpoint },
+			}),
+		);
+		expect(
+			health.schedules.find((row) => row.id === "commitment-wakes")
+				?.replayCheckpointAt,
+		).toBe(checkpoint);
+		expect(
+			health.schedules.find((row) => row.id === "stall-recovery")
+				?.replayCheckpointAt,
+		).toBeNull();
 	});
 
 	it("excludes intentional fleet opt-outs from current attention", () => {

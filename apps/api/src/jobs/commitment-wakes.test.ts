@@ -34,11 +34,6 @@ import {
 	dispatchCommitmentWakes,
 } from "./commitment-wakes";
 
-vi.mock("./stall-recovery", () => ({
-	dispatchStallRecovery: vi.fn(async () => 0),
-}));
-import { dispatchStallRecovery } from "./stall-recovery";
-
 const after = "2026-10-16T12:00:00.000Z";
 const through = "2026-10-16T12:02:00.000Z";
 const changedAt = "2026-10-16T12:01:00.000Z";
@@ -197,7 +192,6 @@ describe("commitment wakes", () => {
 		const now = Date.parse("2026-10-16T12:06:30.000Z");
 		await expect(dispatchCommitmentWakes(env, now)).rejects.toThrow();
 		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
-		expect(dispatchStallRecovery).toHaveBeenCalled();
 		await dispatchCommitmentWakes(env, now);
 		expect(keys[1]).toBe(keys[2]);
 		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
