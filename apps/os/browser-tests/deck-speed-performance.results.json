@@ -1,0 +1,50 @@
+{
+	"date": "2026-10-19",
+	"baselineCommit": "ca303b3cff878b732fb09f27fd1eb60aace492da",
+	"before": {
+		"baseline": true,
+		"apiDelayMs": 500,
+		"viewport": "390x844",
+		"chromium4xMs": [
+			745.5, 765.8000000007451, 802, 750.6999999992549, 773.4000000003725
+		],
+		"pollWindowMs": 121000,
+		"workRequestsPerMinute": 12.892561983471074,
+		"workRequestsInWindow": 26,
+		"requestPaths": {
+			"/api/rpc/learningFeedback/recordExposure": 2,
+			"/api/rpc/tediApprovals/list": 8,
+			"/api/rpc/workInteractions/listInbox": 8,
+			"/api/rpc/workApprovals/listInbox": 4,
+			"/api/rpc/billing/getOverview": 2,
+			"/api/rpc/learningFeedback/model": 2
+		}
+	},
+	"after": {
+		"baseline": false,
+		"apiDelayMs": 500,
+		"viewport": "390x844",
+		"chromium4xMs": [
+			66.5, 62.20000000111759, 71.29999999888241, 67.70000000111759, 66
+		],
+		"pollWindowMs": 121000,
+		"workRequestsPerMinute": 4.958677685950414,
+		"workRequestsInWindow": 10,
+		"requestPaths": {
+			"/api/rpc/learningFeedback/recordExposure": 2,
+			"/api/rpc/billing/getOverview": 2,
+			"/api/rpc/learningFeedback/model": 2,
+			"/api/rpc/workInteractions/listInbox": 2,
+			"/api/rpc/tediApprovals/list": 1,
+			"/api/rpc/workApprovals/listInbox": 1
+		},
+		"installability": {
+			"installabilityErrors": []
+		},
+		"webkitMs": 22,
+		"webkitSwipe": "short/vertical gestures keep card; right swipe advances; failed writes restore card with toast"
+	},
+	"followupChecks": {
+		"repeatedFocusRefresh": "both window focus events refetched the inbox"
+	}
+}

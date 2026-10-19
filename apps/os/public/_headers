@@ -4,3 +4,6 @@
   X-Frame-Options: DENY
   X-Robots-Tag: noindex, nofollow, noarchive
   Referrer-Policy: strict-origin-when-cross-origin
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json

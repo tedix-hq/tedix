@@ -6,7 +6,7 @@ import { routeTree } from "@/routeTree.gen";
 
 // Query v5 observes visibility by default; also reconcile on native window focus.
 focusManager.setEventListener((setFocused) => {
-	const update = () => setFocused(!document.hidden);
+	const update = () => setFocused();
 	window.addEventListener("focus", update);
 	document.addEventListener("visibilitychange", update);
 	return () => {

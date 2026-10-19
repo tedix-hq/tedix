@@ -27,6 +27,7 @@
 		"test:browser:apps": "bun browser-tests/widget-apps.spec.ts",
 		"test:browser:viewport": "bun browser-tests/deck-viewport.spec.ts",
 		"test:browser:deck": "bun browser-tests/deck.spec.ts",
+		"test:browser:deck-speed": "bun browser-tests/deck-speed.spec.ts",
 		"test:browser:members": "bun browser-tests/members.spec.ts",
 		"test:ci": "bun run test:run && bun run test:browser:apps",
 		"type-check": "tsc --noEmit"

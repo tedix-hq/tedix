@@ -1289,6 +1289,16 @@ export async function handleOsRequest(
 		return withSecurityHeaders(Response.redirect(workRedirect, 307));
 
 	const asset = await env.ASSETS.fetch(request);
+	// authz: public Static install metadata contains no tenant data; ordinary host gates above still apply.
+	if (
+		url.pathname === "/manifest.webmanifest" &&
+		asset.ok &&
+		asset.headers.get("Content-Type")?.split(";")[0] !== "text/html"
+	) {
+		const manifest = new Response(asset.body, asset);
+		manifest.headers.set("Content-Type", "application/manifest+json");
+		return withSecurityHeaders(manifest);
+	}
 	const isSandboxProxy =
 		url.pathname === "/sandbox_proxy" || url.pathname === "/sandbox_proxy.html";
 	// The shell document gets the shared WebMCP bridge tag appended into <head>
