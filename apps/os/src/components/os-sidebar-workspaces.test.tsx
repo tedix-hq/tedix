@@ -130,6 +130,26 @@ describe("OsSidebarWorkspaces", () => {
 		).toContain("Revenue Ops");
 	});
 
+	it("announces loading until workspace shortcuts are available", async () => {
+		let finish!: (value: { items: OsWorkspace[]; truncated: boolean }) => void;
+		api.workspaces.list.mockReturnValue(
+			new Promise((resolve) => {
+				finish = resolve;
+			}),
+		);
+		const container = await renderSidebar();
+		expect(
+			container.querySelector('[role="status"]')?.getAttribute("aria-label"),
+		).toBe("Loading workspace shortcuts");
+		expect(container.textContent).not.toContain("Revenue Ops");
+		await act(async () => {
+			finish({ items: [workspace()], truncated: false });
+		});
+		await flush();
+		expect(container.querySelector('[role="status"]')).toBeNull();
+		expect(container.textContent).toContain("Revenue Ops");
+	});
+
 	it("hides empty shortcut sections", async () => {
 		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
 		const container = await renderSidebar();

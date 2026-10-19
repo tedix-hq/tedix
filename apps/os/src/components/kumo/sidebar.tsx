@@ -9,6 +9,7 @@ import {
 	SidebarGroup as KumoSidebarGroup,
 	SidebarGroupLabel as KumoSidebarGroupLabel,
 	SidebarHeader as KumoSidebarHeader,
+	SidebarLoading as KumoSidebarLoading,
 	SidebarMenu as KumoSidebarMenu,
 	SidebarMenuButton as KumoSidebarMenuButton,
 	type SidebarMenuButtonProps as KumoSidebarMenuButtonProps,
@@ -241,6 +242,21 @@ function SidebarFooter({
 	);
 }
 
+function SidebarLoading({
+	className,
+	...props
+}: ComponentProps<typeof KumoSidebarLoading>) {
+	return (
+		<KumoSidebarLoading
+			className={cn(
+				"flex-none px-0 py-2 [&>div>div:not(.skeleton-line)]:min-h-11 [&>div>div:not(.skeleton-line)]:gap-2 [&>div>div>.skeleton-line:first-child]:size-4",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
 const SidebarGroup = KumoSidebarGroup;
 
 /** Section label: 13px/500 muted, 12px inset, 16px above / 4px below. */
@@ -386,6 +402,7 @@ export {
 	SidebarGroup,
 	SidebarGroupLabel,
 	SidebarHeader,
+	SidebarLoading,
 	SidebarMenu,
 	SidebarMenuButton,
 	type SidebarMenuButtonProps,
