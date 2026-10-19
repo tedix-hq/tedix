@@ -916,17 +916,14 @@ export function ApprovalCard({
 					<ShieldWarning size={18} aria-hidden />
 				</span>
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-					<details>
-						<summary>Technical details</summary>
-						<Text
-							as="strong"
-							tone="strong"
-							weight="medium"
-							className="tracking-[-0.2px]"
-						>
-							{sanitizeUntrustedText(approval.summary)}
-						</Text>
-					</details>
+					<Text
+						as="strong"
+						tone="strong"
+						weight="medium"
+						className="tracking-[-0.2px]"
+					>
+						{sanitizeUntrustedText(approval.summary)}
+					</Text>
 					{actionable ? (
 						<ApprovalDecisionCopy
 							approval={{

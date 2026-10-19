@@ -57,7 +57,9 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 			</QueryClientProvider>,
 		),
 	);
-	const button = document.querySelector("button")!;
+	const button = [...document.querySelectorAll("button")].find(
+		(item) => item.textContent === "Set up Feed and Deck",
+	)!;
 	expect(button.textContent).toBe("Set up Feed and Deck");
 	await act(async () => {
 		button.click();
@@ -90,13 +92,16 @@ it("shows an installation failure and leaves the button available for retry", as
 			</QueryClientProvider>,
 		),
 	);
+	const button = [...document.querySelectorAll("button")].find(
+		(item) => item.textContent === "Set up Feed and Deck",
+	)!;
 	await act(async () => {
-		document.querySelector("button")!.click();
+		button.click();
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	});
 	expect(document.querySelector('[role="alert"]')?.textContent).toContain(
 		"could not be set up",
 	);
-	expect(document.querySelector("button")!.disabled).toBe(false);
+	expect(button.disabled).toBe(false);
 	await act(async () => root.unmount());
 });
