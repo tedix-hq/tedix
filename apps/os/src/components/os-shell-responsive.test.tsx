@@ -306,7 +306,7 @@ describe("OS shell chrome", () => {
 		}
 	});
 
-	it("keeps the Console rail geometry through the migration", () => {
+	it("keeps the OS rail geometry and comfortable row targets", () => {
 		const container = renderShell();
 		const wrapper = container.querySelector<HTMLElement>(
 			"[data-sidebar-wrapper]",
@@ -320,14 +320,13 @@ describe("OS shell chrome", () => {
 		const row = container.querySelector<HTMLElement>(
 			'[data-sidebar="menu-button"]',
 		);
-		// 34px rows, 8px radius, 0 12px padding, 13px/500 type.
-		expect(row?.className).toContain("min-h-8.5");
+		// 44px rows, 8px radius, 0 12px padding, 13px/500 type.
+		expect(row?.className).toContain("min-h-11");
 		expect(row?.className).toContain("rounded-lg");
 		expect(row?.className).toContain("px-3");
 		expect(row?.className).toContain("type-tedix-control");
 		expect(row?.className).toContain("font-medium");
-		// 10px icon gap.
-		expect(row?.className).toContain("[&>div]:gap-2.5");
+		expect(row?.className).toContain("[&>div]:gap-2");
 		// Console paints the selected row with the solid control step.
 		expect(row?.className).toContain(
 			"data-[active]:[--sidebar-active-bg:var(--color-kumo-control)]",

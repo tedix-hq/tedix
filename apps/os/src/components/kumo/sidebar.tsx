@@ -45,9 +45,8 @@ import { cn } from "@/lib/utils";
  * groups. Kumo's `Sidebar` owns every one of those behaviours, so this adapter
  * exists only to hold the OS geometry contract on top of it.
  *
- * That geometry is deliberate and matched against the authenticated Cloudflare
- * Console — 260px rail / 56px collapsed rail, 56px header, 52px footer, 34px
- * nav rows on an 8px radius with `0 12px` padding and a 10px icon gap, 13px/500
+ * Geometry: 260px rail / 56px collapsed rail, 56px header, 52px footer, 44px
+ * nav rows on an 8px radius with `0 12px` padding and an 8px icon gap, 13px/500
  * `type-tedix-control` type, the selected row painted with the solid
  * `--secondary` control step (Kumo paints hover and selection from one token,
  * so the OS rebinds `--sidebar-active-bg` per row state), and a 32px filled
@@ -212,7 +211,8 @@ function SidebarContent({
 	return (
 		<KumoSidebarContent
 			className={cn(
-				"[&_[data-sidebar=viewport]]:px-2! [&_[data-sidebar=viewport]]:pt-0! [&_[data-sidebar=viewport]]:pb-1.5!",
+				"[&_[data-sidebar=viewport]]:px-2! [&_[data-sidebar=viewport]]:pt-0! [&_[data-sidebar=viewport]]:pb-2!",
+				"coarse:group-data-[state=collapsed]/sidebar:[&_[data-sidebar=viewport]]:px-1!",
 				"[&_[data-sidebar=viewport]]:[mask-image:linear-gradient(to_bottom,black_calc(100%-min(24px,var(--scroll-area-overflow-y-end,24px))),transparent_100%)]!",
 				"before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-px before:bg-kumo-hairline before:opacity-0 data-[overflow-y-start]:before:opacity-100",
 				className,
@@ -230,8 +230,9 @@ function SidebarFooter({
 	return (
 		<KumoSidebarFooter
 			className={cn(
-				"h-13 gap-1 border-kumo-hairline px-2.5 group-not-data-[state=collapsed]/sidebar:px-2.5",
-				"group-data-[state=collapsed]/sidebar:h-auto group-data-[state=collapsed]/sidebar:flex-col group-data-[state=collapsed]/sidebar:gap-1.5 group-data-[state=collapsed]/sidebar:border-kumo-hairline group-data-[state=collapsed]/sidebar:py-2.5",
+				"h-13 gap-2 border-kumo-hairline px-2 group-not-data-[state=collapsed]/sidebar:px-2",
+				"group-data-[state=collapsed]/sidebar:h-auto group-data-[state=collapsed]/sidebar:flex-col group-data-[state=collapsed]/sidebar:gap-2 group-data-[state=collapsed]/sidebar:border-kumo-hairline group-data-[state=collapsed]/sidebar:py-2",
+				"coarse:group-data-[state=collapsed]/sidebar:px-1",
 				className,
 			)}
 			{...props}
@@ -241,7 +242,7 @@ function SidebarFooter({
 
 const SidebarGroup = KumoSidebarGroup;
 
-/** Section label: 13px/500 muted, 14px inset, 14px above / 4px below. */
+/** Section label: 13px/500 muted, 12px inset, 16px above / 4px below. */
 function SidebarGroupLabel({
 	className,
 	...props
@@ -249,7 +250,7 @@ function SidebarGroupLabel({
 	return (
 		<KumoSidebarGroupLabel
 			className={cn(
-				"border-kumo-hairline [&>div>div]:mt-3.5 [&>div>div]:mb-1 [&>div>div]:px-3.5 [&>div>div]:text-tedix-control",
+				"border-kumo-hairline [&>div>div]:mt-4 [&>div>div]:mb-1 [&>div>div]:px-3 [&>div>div]:text-tedix-control",
 				className,
 			)}
 			{...props}
@@ -279,24 +280,15 @@ interface SidebarMenuButtonProps extends Omit<
 }
 
 /**
- * 34px nav row, 8px radius, `0 12px` padding, 10px icon gap, 13px/500 type.
+ * 44px nav row, 8px radius, `0 12px` padding, 8px icon gap, 13px/500 type.
  *
  * Kumo paints hover and selection from one `--sidebar-active-bg` token; the OS
  * separates them (hover on the neutral tint step, selection on the solid
  * `--secondary` control step), so the row rebinds the token on `data-active`
  * instead of fighting Kumo's own background rule in the cascade.
  *
- * COLLAPSED RAIL. Kumo publishes no `display: none` for the label: its row is
- * `icon (shrink-0) + gap + label (flex-1 min-w-0 overflow-hidden)`, and the
- * collapsed rail is deliberately narrower than `icon + gap`, so the label is
- * squeezed to zero width and `tooltip` carries the name instead. That only
- * holds while the row's content box stays no wider than the icon, so the
- * collapsed padding below is load-bearing, not cosmetic: 56px rail − 2×8px
- * viewport gutter = a 40px row, minus 2×13px = a 14px content box, exactly the
- * icon. It also centres the icon (8 + 13 + 7 = 28 = half the rail), which is
- * why Kumo's own −3px nudge — tuned for its 57px rail and 16px icon — is
- * dropped rather than inherited. Do NOT give the row `px-0` when collapsed: it
- * hands the label ~8px back and the rail renders "W..", "C..", "B..".
+ * Hide the collapsed label explicitly; width-based clipping leaks text when
+ * icon geometry changes. Keep the name available before its tooltip opens.
  */
 function SidebarMenuButton({
 	className,
@@ -305,16 +297,18 @@ function SidebarMenuButton({
 }: SidebarMenuButtonProps) {
 	return (
 		<KumoSidebarMenuButton
+			aria-label={
+				props["aria-label"] ??
+				(typeof props.tooltip === "string" ? props.tooltip : undefined)
+			}
 			className={cn(
-				"type-tedix-control font-medium",
+				"min-h-11 type-tedix-control font-medium focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus",
 				"[--sidebar-active-bg:var(--color-kumo-tint)] data-[active]:[--sidebar-active-bg:var(--color-kumo-control)]",
 				// Kumo's tooltip trigger stamps `cursor-default` even while the
 				// tooltip is disabled (expanded rail); a nav row is always a link.
 				"cursor-pointer!",
-				// 10px icon gap; the collapsed nudge is replaced by the padding below.
-				"[&>div]:translate-x-0 [&>div]:gap-2.5",
-				"group-data-[state=collapsed]/sidebar:px-[13px]",
-				"coarse:min-h-11",
+				"[&>div]:translate-x-0 [&>div]:gap-2",
+				"group-data-[state=collapsed]/sidebar:px-0 group-data-[state=collapsed]/sidebar:[&>div]:justify-center group-data-[state=collapsed]/sidebar:[&>div>span:last-child]:hidden",
 				className,
 			)}
 			icon={
@@ -322,8 +316,8 @@ function SidebarMenuButton({
 					Icon
 				) : Icon ? (
 					<Icon
-						className="size-3.5 shrink-0 text-kumo-subtle transition-colors group-data-[active]/menu-button:text-kumo-brand"
-						size={14}
+						className="size-4 shrink-0 text-kumo-subtle transition-colors group-data-[active]/menu-button:text-kumo-brand"
+						size={16}
 					/>
 				) : undefined
 			}
@@ -334,7 +328,7 @@ function SidebarMenuButton({
 
 const SidebarMenuSub = KumoSidebarMenuSub;
 
-/** Indented child row. Same 34px rhythm as a top-level row, without an icon. */
+/** Indented child row. Same 44px rhythm as a top-level row. */
 function SidebarMenuSubButton({
 	className,
 	...props
@@ -342,9 +336,8 @@ function SidebarMenuSubButton({
 	return (
 		<KumoSidebarMenuSubButton
 			className={cn(
-				"type-tedix-control font-medium",
+				"min-h-11 type-tedix-control font-medium focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus",
 				"[--sidebar-active-bg:var(--color-kumo-tint)] data-[active]:[--sidebar-active-bg:var(--color-kumo-control)]",
-				"coarse:min-h-11",
 				className,
 			)}
 			{...props}
