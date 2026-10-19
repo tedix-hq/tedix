@@ -1,5 +1,10 @@
 import { resolveHomeAttachments } from "./attachment-storage";
-import { type BaseContext, ErrorCodes, createError } from "../../orpc";
+import {
+	type BaseContext,
+	ErrorCodes,
+	createError,
+	userHoldsPermission,
+} from "../../orpc";
 import type { CodemodeExecuteWritePayload } from "@tedix/api-contract/schemas/codemode-execute-write";
 import type {
 	HomePlan,
@@ -769,6 +774,15 @@ async function respondKernelToolWriteApprovalCore(
 	run: HomeRun;
 	assignments: HomePlanAssignmentApprovalResult[];
 }> {
+	if (
+		context.authType === "user" &&
+		!userHoldsPermission(context, "tedis:update")
+	) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Resolving a Home write approval requires tedis:update",
+		);
+	}
 	const { approval, organizationId } = input;
 	if (approval.orgId !== organizationId) {
 		throw createError(

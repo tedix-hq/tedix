@@ -255,7 +255,11 @@ export async function runWorkflowConfirmIntercept(
 	// turn reads this run first and finds no pending hint. A re-enqueue of the
 	// same runId also can't re-fire: the patch below moves the run off `running`,
 	// and the read excludes the current run by id.
-	if (deps.dispatchWorkflowConfirm && classifyAffirmative(content)) {
+	if (
+		input.allowWorkflowConfirmation !== false &&
+		deps.dispatchWorkflowConfirm &&
+		classifyAffirmative(content)
+	) {
 		const pendingHint = await readPendingWorkflowHint(deps.db, {
 			organizationId,
 			conversationId,
