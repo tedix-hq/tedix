@@ -168,8 +168,10 @@ function SettingRow({
 				<Icon size={18} />
 			</IconFrame>
 			<div className="min-w-0 flex-1">
-				<div className="font-medium text-kumo-default text-sm">{title}</div>
-				<div className="mt-0.5 text-kumo-subtle text-xs leading-relaxed">
+				<div className="font-medium text-kumo-default type-tedix-body">
+					{title}
+				</div>
+				<div className="mt-1 text-kumo-subtle type-tedix-label">
 					{description}
 				</div>
 			</div>
@@ -557,189 +559,196 @@ export function SettingsPage({
 
 				{query.isPending && <ListSkeleton rows={3} rowClassName="h-16" />}
 
-				<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-					<SettingRow
-						icon={UserCircle}
-						title={identity.name}
-						description={
-							localEvaluation
-								? `${identity.email} · deterministic local identity, not a signed-in Tedix account`
-								: identity.email || "Signed in Tedix member"
-						}
-					>
-						<Button
-							render={<a href={OS_LOGOUT_PATH} />}
-							size="sm"
-							variant="outline"
+				<div className="grid gap-8">
+					<Card className="divide-y divide-kumo-line overflow-hidden p-0">
+						<SettingRow
+							icon={UserCircle}
+							title={identity.name}
+							description={
+								localEvaluation
+									? `${identity.email} · deterministic local identity, not a signed-in Tedix account`
+									: identity.email || "Signed in Tedix member"
+							}
 						>
-							<SignOut size={14} />
-							Sign out
-						</Button>
-					</SettingRow>
-				</Card>
-
-				{draft && (
-					<>
-						<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-							<SettingRow
-								icon={Desktop}
-								title="Appearance"
-								description="Use the system appearance or keep Tedix OS in a fixed mode."
-							>
-								<SegmentedControl<OsUserPreferences["theme"]>
-									ariaLabel="Appearance"
-									compact
-									onValueChange={(theme) => patch({ theme })}
-									options={THEME_OPTIONS}
-									value={draft.theme}
-								/>
-							</SettingRow>
-							<SettingRow
-								icon={Rows}
-								title="Density"
-								description="Compact tightens the page rhythm. Control sizes and hit targets never shrink."
-							>
-								<SegmentedControl<OsUserPreferences["density"]>
-									ariaLabel="Density"
-									compact
-									onValueChange={(density) => patch({ density })}
-									options={DENSITY_OPTIONS}
-									value={draft.density}
-								/>
-							</SettingRow>
-							<SettingRow
-								icon={Eye}
-								title="Motion"
-								description="System follows your operating system's reduced-motion setting."
-							>
-								<SegmentedControl<OsUserPreferences["accessibility"]["motion"]>
-									ariaLabel="Motion"
-									compact
-									onValueChange={(motion) =>
-										patch({ accessibility: { ...draft.accessibility, motion } })
-									}
-									options={MOTION_OPTIONS}
-									value={draft.accessibility.motion}
-								/>
-							</SettingRow>
-							<SettingRow
-								icon={Eye}
-								title="Contrast"
-								description="High strengthens hairlines and muted text across the shell."
-							>
-								<SegmentedControl<
-									OsUserPreferences["accessibility"]["contrast"]
-								>
-									ariaLabel="Contrast"
-									compact
-									onValueChange={(contrast) =>
-										patch({
-											accessibility: { ...draft.accessibility, contrast },
-										})
-									}
-									options={CONTRAST_OPTIONS}
-									value={draft.accessibility.contrast}
-								/>
-							</SettingRow>
-						</Card>
-
-						<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-							<SettingRow
-								icon={Globe}
-								title="Language"
-								description="Selects the month names and number formatting Tedix OS renders. Dates stay month-name based."
-							>
-								<Select
-									onValueChange={(value) =>
-										patch({
-											locale: value === FOLLOW_SYSTEM ? null : String(value),
-										})
-									}
-									value={draft.locale ?? FOLLOW_SYSTEM}
-								>
-									<SelectTrigger
-										aria-label="Language"
-										className="w-56"
-										size="sm"
-									>
-										<SelectValue>
-											{(value) =>
-												value === FOLLOW_SYSTEM
-													? "Follow browser"
-													: (LOCALE_OPTIONS.find(
-															(option) => option.value === value,
-														)?.label ?? String(value))
-											}
-										</SelectValue>
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value={FOLLOW_SYSTEM}>
-											Follow browser
-										</SelectItem>
-										{LOCALE_OPTIONS.map((option) => (
-											<SelectItem key={option.value} value={option.value}>
-												{option.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</SettingRow>
-							<SettingRow
-								icon={Globe}
-								title="Time zone"
-								description="Selects the wall clock for timestamps. Date-only values stay in UTC so they never shift a day."
-							>
-								<Select
-									onValueChange={(value) =>
-										patch({
-											timezone: value === FOLLOW_SYSTEM ? null : String(value),
-										})
-									}
-									value={draft.timezone ?? FOLLOW_SYSTEM}
-								>
-									<SelectTrigger
-										aria-label="Time zone"
-										className="w-56"
-										size="sm"
-									>
-										<SelectValue>
-											{(value) =>
-												value === FOLLOW_SYSTEM
-													? "Follow browser"
-													: String(value)
-											}
-										</SelectValue>
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value={FOLLOW_SYSTEM}>
-											Follow browser
-										</SelectItem>
-										{TIMEZONE_OPTIONS.map((zone) => (
-											<SelectItem key={zone} value={zone}>
-												{zone}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</SettingRow>
-						</Card>
-
-						<div className="flex items-center justify-end gap-3">
-							{state === "clean" && (
-								<Text role="label" tone="secondary">
-									No unsaved changes
-								</Text>
-							)}
 							<Button
-								disabled={!dirty || save.isPending}
-								onClick={() => save.mutate(draft)}
+								render={<a href={OS_LOGOUT_PATH} />}
 								size="sm"
+								variant="outline"
 							>
-								{save.isPending ? "Saving…" : "Save preferences"}
+								<SignOut size={14} />
+								Sign out
 							</Button>
-						</div>
-					</>
-				)}
+						</SettingRow>
+					</Card>
+
+					{draft && (
+						<>
+							<Card className="divide-y divide-kumo-line overflow-hidden p-0">
+								<SettingRow
+									icon={Desktop}
+									title="Appearance"
+									description="Use the system appearance or keep Tedix OS in a fixed mode."
+								>
+									<SegmentedControl<OsUserPreferences["theme"]>
+										ariaLabel="Appearance"
+										compact
+										onValueChange={(theme) => patch({ theme })}
+										options={THEME_OPTIONS}
+										value={draft.theme}
+									/>
+								</SettingRow>
+								<SettingRow
+									icon={Rows}
+									title="Density"
+									description="Compact tightens the page rhythm. Control sizes and hit targets never shrink."
+								>
+									<SegmentedControl<OsUserPreferences["density"]>
+										ariaLabel="Density"
+										compact
+										onValueChange={(density) => patch({ density })}
+										options={DENSITY_OPTIONS}
+										value={draft.density}
+									/>
+								</SettingRow>
+								<SettingRow
+									icon={Eye}
+									title="Motion"
+									description="System follows your operating system's reduced-motion setting."
+								>
+									<SegmentedControl<
+										OsUserPreferences["accessibility"]["motion"]
+									>
+										ariaLabel="Motion"
+										compact
+										onValueChange={(motion) =>
+											patch({
+												accessibility: { ...draft.accessibility, motion },
+											})
+										}
+										options={MOTION_OPTIONS}
+										value={draft.accessibility.motion}
+									/>
+								</SettingRow>
+								<SettingRow
+									icon={Eye}
+									title="Contrast"
+									description="High strengthens hairlines and muted text across the shell."
+								>
+									<SegmentedControl<
+										OsUserPreferences["accessibility"]["contrast"]
+									>
+										ariaLabel="Contrast"
+										compact
+										onValueChange={(contrast) =>
+											patch({
+												accessibility: { ...draft.accessibility, contrast },
+											})
+										}
+										options={CONTRAST_OPTIONS}
+										value={draft.accessibility.contrast}
+									/>
+								</SettingRow>
+							</Card>
+
+							<Card className="divide-y divide-kumo-line overflow-hidden p-0">
+								<SettingRow
+									icon={Globe}
+									title="Language"
+									description="Selects the month names and number formatting Tedix OS renders. Dates stay month-name based."
+								>
+									<Select
+										onValueChange={(value) =>
+											patch({
+												locale: value === FOLLOW_SYSTEM ? null : String(value),
+											})
+										}
+										value={draft.locale ?? FOLLOW_SYSTEM}
+									>
+										<SelectTrigger
+											aria-label="Language"
+											className="w-56"
+											size="sm"
+										>
+											<SelectValue>
+												{(value) =>
+													value === FOLLOW_SYSTEM
+														? "Follow browser"
+														: (LOCALE_OPTIONS.find(
+																(option) => option.value === value,
+															)?.label ?? String(value))
+												}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value={FOLLOW_SYSTEM}>
+												Follow browser
+											</SelectItem>
+											{LOCALE_OPTIONS.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</SettingRow>
+								<SettingRow
+									icon={Globe}
+									title="Time zone"
+									description="Selects the wall clock for timestamps. Date-only values stay in UTC so they never shift a day."
+								>
+									<Select
+										onValueChange={(value) =>
+											patch({
+												timezone:
+													value === FOLLOW_SYSTEM ? null : String(value),
+											})
+										}
+										value={draft.timezone ?? FOLLOW_SYSTEM}
+									>
+										<SelectTrigger
+											aria-label="Time zone"
+											className="w-56"
+											size="sm"
+										>
+											<SelectValue>
+												{(value) =>
+													value === FOLLOW_SYSTEM
+														? "Follow browser"
+														: String(value)
+												}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value={FOLLOW_SYSTEM}>
+												Follow browser
+											</SelectItem>
+											{TIMEZONE_OPTIONS.map((zone) => (
+												<SelectItem key={zone} value={zone}>
+													{zone}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</SettingRow>
+							</Card>
+
+							<div className="flex items-center justify-end gap-3">
+								{state === "clean" && (
+									<Text role="label" tone="secondary">
+										No unsaved changes
+									</Text>
+								)}
+								<Button
+									disabled={!dirty || save.isPending}
+									onClick={() => save.mutate(draft)}
+									size="sm"
+								>
+									{save.isPending ? "Saving…" : "Save preferences"}
+								</Button>
+							</div>
+						</>
+					)}
+				</div>
 			</PageSection>
 
 			<OperationalContextSection
