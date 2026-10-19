@@ -197,7 +197,7 @@ export async function mountCapnChat(
 			onSendError: (error) => {
 				if (error.name === CAPN_REQUEST_ERROR_NAME) return error;
 				console.error(`capnweb session error: ${error.message}`);
-				return new Error("The Cap'n Web call failed.");
+				return new Error("The connection was interrupted. Please try again.");
 			},
 		},
 	);

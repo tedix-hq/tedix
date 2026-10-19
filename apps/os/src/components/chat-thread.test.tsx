@@ -2353,6 +2353,35 @@ describe("<ChatThread> attachment dropzone", () => {
 		transport.actions.enqueueMessage.mockReset();
 	});
 
+	it("keeps a new message separate from an unconfirmed send and retries its own request", async () => {
+		transport.actions.enqueueMessage.mockReset();
+		transport.actions.enqueueMessage.mockRejectedValue(
+			new Error("Connection dropped"),
+		);
+		const { container } = mountThread();
+		await flush();
+		typeDraft(container, "Create a test task");
+		act(() => sendButton(container).click());
+		await flush();
+		const original = transport.actions.enqueueMessage.mock.calls[0]?.[0];
+		typeDraft(container, "What happened?");
+		act(() => sendButton(container).click());
+		await flush();
+		const followup = transport.actions.enqueueMessage.mock.calls[1]?.[0];
+		expect(followup.idempotencyKey).not.toBe(original.idempotencyKey);
+		expect(container.textContent).toContain("Create a test task");
+		expect(container.textContent).toContain("What happened?");
+		const retry = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Retry",
+		);
+		act(() => retry!.click());
+		await flush();
+		expect(transport.actions.enqueueMessage.mock.calls[2]?.[0]).toEqual(
+			followup,
+		);
+		transport.actions.enqueueMessage.mockReset();
+	});
+
 	it("answers a parked write from its in-thread card", async () => {
 		kernelRuntimeApi.readRunSet.mockResolvedValue(
 			runSetPayload({
