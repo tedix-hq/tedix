@@ -19,6 +19,7 @@ import {
 	SidebarMenuSubButton as KumoSidebarMenuSubButton,
 	SidebarProvider as KumoSidebarProvider,
 	type SidebarProviderProps as KumoSidebarProviderProps,
+	SidebarResizeHandle as KumoSidebarResizeHandle,
 	SidebarRoot as KumoSidebarRoot,
 	type SidebarRootProps as KumoSidebarRootProps,
 	SidebarTrigger as KumoSidebarTrigger,
@@ -31,6 +32,7 @@ import {
 	isValidElement,
 	type ReactElement,
 	useCallback,
+	useEffect,
 	useState,
 	useSyncExternalStore,
 } from "react";
@@ -47,7 +49,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
  * groups. Kumo's `Sidebar` owns every one of those behaviours, so this adapter
  * exists only to hold the OS geometry contract on top of it.
  *
- * Geometry: 260px rail / 56px collapsed rail, 56px header, 52px footer, 44px
+ * Geometry: 220–360px rail (260px default) / 56px collapsed rail, 56px header, 52px footer, 44px
  * nav rows on an 8px radius with `0 12px` padding and an 8px icon gap, 13px/500
  * `type-tedix-control` type, the selected row painted with the solid
  * `--secondary` control step (Kumo paints hover and selection from one token,
@@ -64,8 +66,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 const OS_SIDEBAR_MOBILE_BREAKPOINT = 820;
 
 /** 260px rail / 56px collapsed rail. Kumo defaults to 16.25rem / 57px. */
+const OS_SIDEBAR_DEFAULT_WIDTH = 260;
+const OS_SIDEBAR_MIN_WIDTH = 220;
+const OS_SIDEBAR_MAX_WIDTH = 360;
 const OS_SIDEBAR_GEOMETRY = {
-	"--sidebar-width": "260px",
 	"--sidebar-width-icon": "56px",
 } as CSSProperties;
 
@@ -76,8 +80,7 @@ const OS_SIDEBAR_GEOMETRY = {
  * preference would open the drawer on load and every drawer toggle would
  * rewrite the operator's desktop preference. Mirrors Kumo's own query exactly.
  */
-function useIsMobileViewport(breakpoint: number): boolean {
-	const query = `(max-width: ${breakpoint - 1}px)`;
+function useMediaQuery(query: string): boolean {
 	return useSyncExternalStore(
 		useCallback(
 			(onChange: () => void) => {
@@ -110,6 +113,21 @@ function writeCollapsed(storageKey: string | undefined, collapsed: boolean) {
 	}
 }
 
+function readWidth(storageKey: string | undefined): number {
+	try {
+		const value = storageKey ? Number(localStorage.getItem(storageKey)) : NaN;
+		if (
+			Number.isFinite(value) &&
+			value >= OS_SIDEBAR_MIN_WIDTH &&
+			value <= OS_SIDEBAR_MAX_WIDTH
+		)
+			return value;
+	} catch {
+		// Persistence is best-effort.
+	}
+	return OS_SIDEBAR_DEFAULT_WIDTH;
+}
+
 interface SidebarProviderProps extends Omit<
 	KumoSidebarProviderProps,
 	"open" | "onOpenChange"
@@ -119,18 +137,25 @@ interface SidebarProviderProps extends Omit<
 	 * rail is persisted; the mobile sheet is transient by definition.
 	 */
 	collapsedStorageKey?: string;
+	widthStorageKey?: string;
 }
 
 function SidebarProvider({
 	className,
 	collapsedStorageKey,
+	widthStorageKey,
+	children,
+	resizable = false,
+	peekable = false,
 	collapsible = "icon",
 	defaultOpen = true,
 	mobileBreakpoint = OS_SIDEBAR_MOBILE_BREAKPOINT,
 	style,
 	...props
 }: SidebarProviderProps) {
-	const isMobile = useIsMobileViewport(mobileBreakpoint);
+	const isMobile = useMediaQuery(`(max-width: ${mobileBreakpoint - 1}px)`);
+	const finePointer = useMediaQuery("(hover: hover) and (pointer: fine)");
+	const [initialWidth] = useState(() => readWidth(widthStorageKey));
 	const [expanded, setExpanded] = useState(() =>
 		collapsedStorageKey ? !readCollapsed(collapsedStorageKey) : defaultOpen,
 	);
@@ -138,14 +163,16 @@ function SidebarProvider({
 
 	const handleOpenChange = useCallback(
 		(next: boolean) => {
-			if (isMobile) {
+			// Kumo retains callbacks until its context state changes. Read the
+			// viewport at invocation so breakpoint changes cannot persist sheet state.
+			if (window.matchMedia(`(max-width: ${mobileBreakpoint - 1}px)`).matches) {
 				setSheetOpen(next);
 				return;
 			}
 			setExpanded(next);
 			writeCollapsed(collapsedStorageKey, !next);
 		},
-		[collapsedStorageKey, isMobile],
+		[collapsedStorageKey, mobileBreakpoint],
 	);
 
 	return (
@@ -159,9 +186,28 @@ function SidebarProvider({
 			mobileBreakpoint={mobileBreakpoint}
 			onOpenChange={handleOpenChange}
 			open={isMobile ? sheetOpen : expanded}
-			style={{ ...OS_SIDEBAR_GEOMETRY, ...style }}
+			resizable={resizable && !isMobile}
+			defaultWidth={initialWidth}
+			minWidth={OS_SIDEBAR_MIN_WIDTH}
+			maxWidth={OS_SIDEBAR_MAX_WIDTH}
+			peekable={peekable && finePointer && !isMobile}
+			onWidthChange={(width) => {
+				try {
+					if (widthStorageKey)
+						localStorage.setItem(widthStorageKey, String(width));
+				} catch {
+					// Persistence is best-effort.
+				}
+			}}
+			style={{
+				...OS_SIDEBAR_GEOMETRY,
+				...(!resizable || isMobile ? { "--sidebar-width": "260px" } : {}),
+				...style,
+			}}
 			{...props}
-		/>
+		>
+			{children}
+		</KumoSidebarProvider>
 	);
 }
 
@@ -170,12 +216,58 @@ function Sidebar({
 	contentClassName,
 	...props
 }: KumoSidebarRootProps) {
+	const { stopPeek, isMobile } = useSidebar();
+	useEffect(() => {
+		const escape = (event: KeyboardEvent) => {
+			if (event.key === "Escape") stopPeek();
+		};
+		document.addEventListener("keydown", escape);
+		return () => document.removeEventListener("keydown", escape);
+	}, [stopPeek]);
 	return (
 		<KumoSidebarRoot
 			className={cn("shrink-0", className)}
 			// Console separates the rail with a hairline, not Kumo's heavier line.
-			contentClassName={cn("border-kumo-hairline", contentClassName)}
+			contentClassName={cn(
+				"border-kumo-hairline group-data-[state=peeking]/sidebar:delay-150 group-data-[state=peeking]/sidebar:shadow-tedix-overlay",
+				contentClassName,
+			)}
 			{...props}
+		>
+			{props.children}
+			{!isMobile && <SidebarResizeHandle />}
+		</KumoSidebarRoot>
+	);
+}
+
+function SidebarResizeHandle() {
+	const { width, minWidth, maxWidth, setWidth, setOpen, open, side } =
+		useSidebar();
+	return (
+		<KumoSidebarResizeHandle
+			role="separator"
+			aria-orientation="vertical"
+			aria-valuemin={minWidth}
+			aria-valuemax={maxWidth}
+			aria-valuenow={width}
+			className="z-50"
+			onDoubleClick={() => setWidth(OS_SIDEBAR_DEFAULT_WIDTH)}
+			onKeyDown={(event) => {
+				const grow = side === "left" ? "ArrowRight" : "ArrowLeft";
+				const shrink = side === "left" ? "ArrowLeft" : "ArrowRight";
+				if (![grow, shrink, "Home", "End"].includes(event.key)) return;
+				event.preventDefault();
+				setOpen(true);
+				setWidth(
+					event.key === "Home"
+						? minWidth
+						: event.key === "End"
+							? maxWidth
+							: !open
+								? minWidth
+								: width + (event.key === grow ? 10 : -10),
+				);
+			}}
 		/>
 	);
 }

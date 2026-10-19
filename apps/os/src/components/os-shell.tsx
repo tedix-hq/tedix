@@ -321,7 +321,12 @@ export function OsShell() {
 	}, []);
 
 	return (
-		<SidebarProvider collapsedStorageKey={SIDEBAR_COLLAPSED_KEY}>
+		<SidebarProvider
+			collapsedStorageKey={SIDEBAR_COLLAPSED_KEY}
+			widthStorageKey="tedix-os-sidebar-width"
+			resizable
+			peekable
+		>
 			<CloseMobileNavigationOnNavigate pathname={pathname} />
 			{workspaceWorkbench ? null : <SidebarKeyboardShortcut />}
 			{workspaceWorkbench ? null : (
