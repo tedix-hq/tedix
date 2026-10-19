@@ -123,7 +123,7 @@ afterEach(() => {
 });
 
 describe("OS shell chrome", () => {
-	it("places the workspace switcher with the organization and keeps settings in the footer", () => {
+	it("places the workspace switcher with the organization and keeps the account menu in the footer", () => {
 		const container = renderShell();
 		const header = container.querySelector('[data-sidebar="header"]')!;
 		const footer = container.querySelector('[data-sidebar="footer"]')!;
@@ -157,18 +157,10 @@ describe("OS shell chrome", () => {
 		) {
 			expect(element.className).not.toContain("sidebar:hidden");
 		}
-		for (const label of [
-			"Organization settings",
-			"Personal settings",
-			"User profile",
-		]) {
-			expect(footer.querySelector(`[aria-label="${label}"]`)).not.toBeNull();
+		expect(footer.querySelector('[aria-label="Account menu"]')).not.toBeNull();
+		for (const href of ["/admin", "/account/settings", "/account/profile"]) {
+			expect(footer.querySelector(`a[href="${href}"]`)).toBeNull();
 		}
-		expect(
-			footer
-				.querySelector<HTMLAnchorElement>('[aria-label="User profile"]')
-				?.href.endsWith("/account/profile"),
-		).toBe(true);
 		act(() => trigger.click());
 		expect(rail(container).dataset.state).toBe("expanded");
 		expect(trigger.getAttribute("aria-label")).toBe("Collapse sidebar");

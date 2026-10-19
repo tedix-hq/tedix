@@ -1,12 +1,10 @@
 import { WorkActorDirectory } from "@/components/work-actor-directory";
 import {
 	CaretRight,
-	GearSix,
 	List,
 	MagnifyingGlass,
 	SidebarSimple,
 	SquaresFour,
-	UserCircle,
 } from "@phosphor-icons/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -19,8 +17,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/kumo/avatar";
-import { buildAccountProfileUrl } from "@/shared/account-profile-routing";
 import {
 	isOsShellNavigationItemActive,
 	OS_SHELL_FOOTER_NAVIGATION,
@@ -30,7 +26,7 @@ import {
 	resolveOsShellRouteContext,
 } from "@/lib/os-shell-navigation";
 import { resolveOsTenant } from "@/shared/os-tenant";
-import { Link } from "@/components/kumo/link";
+import { OsAccountMenu } from "@/components/os-account-menu";
 import {
 	Sidebar,
 	SidebarContent,
@@ -195,26 +191,6 @@ function OsSidebar({
 						/>
 					))}
 				</SidebarMenu>
-				<SidebarMenu aria-label="Organization" className="w-full">
-					<SidebarMenuButton
-						href="/admin"
-						aria-label="Organization settings"
-						icon={GearSix}
-						tooltip="Organization settings"
-					>
-						Organization settings
-					</SidebarMenuButton>
-				</SidebarMenu>
-				<SidebarMenu aria-label="Account" className="w-full">
-					<SidebarMenuButton
-						href="/account/settings"
-						aria-label="Personal settings"
-						icon={GearSix}
-						tooltip="Personal settings"
-					>
-						Personal settings
-					</SidebarMenuButton>
-				</SidebarMenu>
 				<div className="flex items-center gap-1 self-stretch group-data-[state=collapsed]/sidebar:flex-col group-data-[state=collapsed]/sidebar:gap-1.5 group-data-[state=collapsed]/sidebar:self-auto">
 					<SidebarTrigger
 						aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -224,27 +200,7 @@ function OsSidebar({
 						<SidebarSimple size={15} />
 					</SidebarTrigger>
 				</div>
-				<Link
-					aria-label="User profile"
-					className="group/user-chip flex min-w-0 items-center gap-2 self-stretch text-kumo-subtle type-tedix-label no-underline! transition-colors hover:text-kumo-default max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11 group-data-[state=collapsed]/sidebar:self-auto"
-					href={buildAccountProfileUrl(new URL(window.location.href))}
-				>
-					<Avatar size="sm" className="size-7">
-						{identity.avatarUrl ? (
-							<AvatarImage src={identity.avatarUrl} alt="" />
-						) : null}
-						<AvatarFallback className="font-semibold uppercase">
-							{identity.name[0] || "T"}
-						</AvatarFallback>
-					</Avatar>
-					<span className="max-w-[116px] truncate group-data-[state=collapsed]/sidebar:hidden">
-						{identity.name}
-					</span>
-					<UserCircle
-						className="shrink-0 opacity-0 transition-opacity group-hover/user-chip:opacity-100 group-focus-visible/user-chip:opacity-100 group-data-[state=collapsed]/sidebar:hidden"
-						size={13}
-					/>
-				</Link>
+				<OsAccountMenu identity={identity} />
 			</SidebarFooter>
 		</Sidebar>
 	);

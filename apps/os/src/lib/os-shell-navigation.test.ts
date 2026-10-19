@@ -67,6 +67,22 @@ describe("OS shell navigation", () => {
 		});
 	});
 
+	it("keeps setup separate from account menu destinations", () => {
+		expect(OS_SHELL_FOOTER_NAVIGATION.map((item) => item.path)).toEqual([
+			"/install",
+		]);
+		for (const path of ["/admin", "/admin/billing"]) {
+			expect(resolveOsShellRouteContext(path)).toEqual({
+				section: "Manage",
+				label: "Admin",
+			});
+		}
+		expect(resolveOsShellRouteContext("/compute")).toEqual({
+			section: "Manage",
+			label: "Usage & budgets",
+		});
+	});
+
 	it("projects section and route context into the top bar", () => {
 		expect(resolveOsShellRouteContext("/workspace/workspace-1")).toEqual({
 			label: "Workspaces",
