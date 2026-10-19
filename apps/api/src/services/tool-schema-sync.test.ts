@@ -1,3 +1,4 @@
+import { ToolIdSchema } from "@tedix/api-contract/schemas/tools";
 import {
 	resolveMcpToolRequiredScopes,
 	isMcpToolVisibleToCaller,
@@ -2857,5 +2858,8 @@ it("pins headless attention names and capability kinds", () => {
 	]) {
 		expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint!]).toBe(name);
 		expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint!]).toBe(kind);
+		expect(
+			ToolIdSchema.parse(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint!]),
+		).toBe(name);
 	}
 });
