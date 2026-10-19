@@ -124,6 +124,45 @@ describe("homeRunStatusFromChildStatus", () => {
 });
 
 describe("normalizeHomeRunRecord", () => {
+	it("explains an interrupted reply while retaining its exact diagnostic separately", () => {
+		const diagnostic =
+			"runtime crash — kernel DO eviction with no terminal run status before crash-lease expiry";
+		const row = makeRunRow({
+			status: "failed",
+			progressValue: 48,
+			progressLabel: "Crashed",
+			progressDetail: diagnostic,
+			completedAt: NOW,
+		});
+		const run = normalizeHomeRunRecord(row);
+		expect(run.status).toBe("failed");
+		expect(run.progress).toEqual({
+			current: 100,
+			total: 100,
+			label: "Interrupted",
+			detail: "This reply was interrupted. Try again to continue.",
+		});
+		expect(run.metadata?.progressDiagnostic).toEqual({
+			label: "Crashed",
+			detail: diagnostic,
+		});
+		expect(row.progressDetail).toBe(diagnostic);
+	});
+
+	it("keeps a concrete failure explanation that is already plain English", () => {
+		const detail = "The imported file is missing a date column.";
+		const run = normalizeHomeRunRecord(
+			makeRunRow({
+				status: "failed",
+				progressValue: 100,
+				progressLabel: "Failed",
+				progressDetail: detail,
+			}),
+		);
+		expect(run.progress?.detail).toBe(detail);
+		expect(run.metadata?.progressDiagnostic).toBeUndefined();
+	});
+
 	it("retains the declared task failure separately from runtime completion", () => {
 		const row = makeRunRow({
 			delegatedTediId: "tedi-cto",

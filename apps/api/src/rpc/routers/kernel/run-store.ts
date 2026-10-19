@@ -594,8 +594,18 @@ export function normalizeHomeRunRecord(
 			? childRunStatus.childRunLatestActivityLabel
 			: null;
 	const useChildOutcome = hasChildStatus && row.status !== "canceled";
-	const progress =
-		!useChildOutcome && row.progressValue !== null && row.progressLabel
+	const interrupted =
+		!useChildOutcome &&
+		status === "failed" &&
+		/^runtime crash\b.*\bkernel DO eviction\b/i.test(row.progressDetail ?? "");
+	const progress = interrupted
+		? {
+				current: 100,
+				total: 100,
+				label: "Interrupted",
+				detail: "This reply was interrupted. Try again to continue.",
+			}
+		: !useChildOutcome && row.progressValue !== null && row.progressLabel
 			? {
 					current: row.progressValue,
 					total: 100,
@@ -660,6 +670,14 @@ export function normalizeHomeRunRecord(
 		...(rowUsage !== undefined ? { usage: rowUsage } : {}),
 		metadata: {
 			...nonNullRecord(row.metadata),
+			...(interrupted
+				? {
+						progressDiagnostic: {
+							label: row.progressLabel,
+							detail: row.progressDetail,
+						},
+					}
+				: {}),
 			// The delegation outcome follows parent cancellation while the child
 			// status below remains the last independent child observation.
 			delegationStatus: useChildOutcome ? childStatus : status,
