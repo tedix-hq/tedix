@@ -13,8 +13,10 @@ import {
 	recordLearningInteraction,
 	proposeLearningImprovement,
 } from "@tedix/db/queries/learning-feedback";
-import { buildTediContextWakeRequest } from "./tedi-context-wake";
-import { assertWorkApprovalWakeAccepted } from "./work-approval-redrive";
+import {
+	buildTediContextWakeRequest,
+	deliverTediContextWake,
+} from "./tedi-context-wake";
 
 export function continuityPolicy(
 	raw: string | null,
@@ -164,9 +166,12 @@ export async function recoverStall(
 	const acceptedKey = `${assessment.incidentKey}:accepted`;
 	if (!scope.tediId || (await getStallReceipt(db, scope.orgId, acceptedKey)))
 		return false;
-	const receipt = await assertWorkApprovalWakeAccepted(
-		await send(buildStallResumeRequest(scope, assessment, environment)),
-	);
+	const receipt = await deliverTediContextWake(db, {
+		orgId: scope.orgId,
+		tediId: scope.tediId,
+		request: buildStallResumeRequest(scope, assessment, environment),
+		send,
+	});
 	await recordLearningInteraction(db, {
 		...base,
 		clientEventId: acceptedKey,

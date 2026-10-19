@@ -9,6 +9,8 @@ import { tediObjectives, tediTasks } from "@tedix/db/schema/tedi-objectives";
 import { workItems, workAttempts } from "@tedix/db/schema/work-items";
 import { workAgentSessions } from "@tedix/db/schema/work-agent-sessions";
 import { skillRuns } from "@tedix/db/schema/cognitive";
+import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
+import { buildRuntimeRunId } from "@tedix/api-contract/utils/runtime-identity";
 import {
 	osGadgetExecutions,
 	osWorkspaceProjects,
@@ -53,6 +55,7 @@ function fixture() {
 			workAttempts,
 			workAgentSessions,
 			skillRuns,
+			tediRuntimeEvents,
 			osGadgetExecutions,
 			osWorkspaceProjects,
 			learningInteractionEvents,
@@ -84,6 +87,38 @@ function fixture() {
 }
 
 describe("autonomous stall recovery", () => {
+	it("records delivery from the canonical failed run without redispatching that wake", async () => {
+		const { db, scope, send, recover } = fixture();
+		const s = await scope();
+		const assessment = await assessContinuity(db, s, Date.parse(now));
+		const body = (await buildStallResumeRequest(
+			s,
+			assessment,
+			"production",
+		).json()) as { client_request_id: string };
+		await db.insert(tediRuntimeEvents).values({
+			id: "failed-recovery",
+			organizationId: s.orgId,
+			tediId: s.tediId!,
+			kind: "run.failed",
+			runId: buildRuntimeRunId({
+				tediId: s.tediId!,
+				surface: "mcp",
+				turnKey: body.client_request_id,
+			}),
+			runtimeBackend: "cloudflare-agents",
+			createdAt,
+		});
+		send.mockResolvedValueOnce(
+			Response.json({ outcome: "failed" }, { status: 500 }),
+		);
+		expect(await recover()).toBe(true);
+		expect(send).not.toHaveBeenCalled();
+		expect(
+			await getStallReceipt(db, s.orgId, `${assessment.incidentKey}:accepted`),
+		).not.toBeNull();
+		expect(await recover()).toBe(false);
+	});
 	it("counts pending Work once across retries and excludes foreign attempts", async () => {
 		const { sqlite, scope } = fixture();
 		// schemaDdl omits partial predicates; use the production active-attempt fence.

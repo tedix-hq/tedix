@@ -1,4 +1,7 @@
-import { buildTediContextWakeRequest } from "./tedi-context-wake";
+import {
+	buildTediContextWakeRequest,
+	deliverTediContextWake,
+} from "./tedi-context-wake";
 import { createDbClient } from "@tedix/db/client";
 import {
 	advanceCommitmentWakeCheckpoint,
@@ -6,7 +9,6 @@ import {
 	listCommitmentChanges,
 	type CommitmentChange,
 } from "@tedix/db/queries/work-items/commitment-changes";
-import { assertWorkApprovalWakeAccepted } from "./work-approval-redrive";
 
 const WINDOW_MS = 120_000;
 const DEBOUNCE_MS = 30_000;
@@ -54,6 +56,7 @@ export async function dispatchCommitmentWakes(
 	const checkpoint = await lastCommitmentWakeCheckpoint(db);
 	let observed = 0;
 	let dispatched = 0;
+	let deduplicated = 0;
 	const windows = commitmentWakeWindows(checkpoint, scheduledTime);
 	// Preserve the initial boundary even if the very first acceptance fails.
 	if (checkpoint === null && windows[0])
@@ -74,12 +77,19 @@ export async function dispatchCommitmentWakes(
 			batches.set(key, batch);
 		}
 		for (const batch of batches.values()) {
-			await assertWorkApprovalWakeAccepted(
-				await env.TEDI_SERVICE.fetch(
-					buildCommitmentWakeRequest(batch, window.through, env.ENVIRONMENT),
+			const first = batch[0]!;
+			const receipt = await deliverTediContextWake(db, {
+				orgId: first.orgId,
+				tediId: first.tediId,
+				request: buildCommitmentWakeRequest(
+					batch,
+					window.through,
+					env.ENVIRONMENT,
 				),
-			);
-			dispatched++;
+				send: (request) => env.TEDI_SERVICE.fetch(request),
+			});
+			if (receipt.deduplicated) deduplicated++;
+			else dispatched++;
 		}
 		await advanceCommitmentWakeCheckpoint(db, window.through);
 	}
@@ -87,6 +97,7 @@ export async function dispatchCommitmentWakes(
 	return {
 		observed,
 		dispatched,
+		deduplicated,
 		windowsProcessed: windows.length,
 		...(lastWindow ? { checkpointMs: Date.parse(lastWindow.through) } : {}),
 	};
