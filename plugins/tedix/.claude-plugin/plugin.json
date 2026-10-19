@@ -9,5 +9,6 @@
 	"homepage": "https://docs.tedix.dev",
 	"repository": "https://github.com/tedix-hq/tedix",
 	"license": "AGPL-3.0-only",
-	"keywords": ["tedix", "digital-workers", "work-items", "workspace-outputs"]
+	"keywords": ["tedix", "digital-workers", "work-items", "workspace-outputs"],
+	"hooks": "./config/host-hooks.json"
 }

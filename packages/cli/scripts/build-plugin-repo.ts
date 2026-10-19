@@ -29,6 +29,8 @@ export function pluginRepoFiles(): Map<string, string | Uint8Array> {
 	);
 	const claude = readJson(".claude-plugin/plugin.json");
 	const codex = readJson(".codex-plugin/plugin.json");
+	delete claude.hooks;
+	delete codex.hooks;
 	if (claude.version !== codex.version)
 		throw new Error(
 			`Claude ${claude.version} and Codex ${codex.version} manifests disagree`,

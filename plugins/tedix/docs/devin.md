@@ -19,6 +19,14 @@ settings separate from other hosts. Root `hooks.json` declares the six Devin
 hooks: session-start, prompt-context, capture-reply, capture-stop, status and
 devin-permission. No additional rules are bundled.
 
+Claude Code and Codex explicitly load `config/host-hooks.json`. Keep their
+wrapped event map and host-specific fields out of `hooks/hooks.json`: Devin's
+web indexer also discovers that conventional path. The root Devin file is a
+bare event map using only the events and fields in the
+[hooks reference](https://docs.devin.ai/cli/extensibility/hooks/overview#hook-format).
+The CLI plugin tests enforce that schema; Cognition's template validators
+check hook JSON syntax only.
+
 TODO(devin-mcp): add the verified CIMD `oauthClientId` from the devin-mcp lane.
 The current manifest deliberately omits it; OAuth readiness is unverified.
 Do not substitute the Tedix CLI's client ID or invent a Devin client ID.

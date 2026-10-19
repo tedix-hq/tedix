@@ -111,9 +111,9 @@ ChatGPT desktop app (ChatGPT Work) or Codex as described above.
 The OpenAI compatibility manifest is
 [`../.codex-plugin/plugin.json`](../.codex-plugin/plugin.json). It points to
 the shared [`skills/`](../skills/) directory and the bundled
-[`../.mcp.json`](../.mcp.json) connection. It does not reference hooks; the
-plugin's [`../hooks/hooks.json`](../hooks/hooks.json) sits at the default
-plugin hook location, and Codex runs those hooks only after you trust them in
+[`../.mcp.json`](../.mcp.json) connection. Both it and the portable OpenAI
+extension explicitly reference [`../config/host-hooks.json`](../config/host-hooks.json).
+Codex runs those hooks only after you trust them in
 `/hooks`. `.mcp.json` declares only the server type and URL. The connection targets
 `https://connect.mcp.tedix.dev/mcp` and offers the same optional permissions as
 ordinary `tedix login`: Tedix feature reads, changes and administration, plus
