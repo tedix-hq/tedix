@@ -998,17 +998,17 @@ export class PiConversationFixture extends ProductionConversationFacet {
 			approval?: boolean;
 			maxSteps?: number;
 			freshHistory?: boolean;
+			delegationBudget?: { maxToolCalls?: number; deadlineAt?: number };
 		} = {},
 	) {
 		return this.runConfiguredConversationTurn({
 			text: `input ${id}`,
 			durableSubmissionId: id,
 			freshHistory: input.freshHistory,
-			configuration: this.configuration(
-				id,
-				input.approval,
-				input.maxSteps ?? null,
-			),
+			configuration: {
+				...this.configuration(id, input.approval, input.maxSteps ?? null),
+				delegationBudget: input.delegationBudget,
+			},
 		});
 	}
 	async streamTurn(id: string, approval = false) {

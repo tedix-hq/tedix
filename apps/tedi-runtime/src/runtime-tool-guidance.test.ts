@@ -298,4 +298,25 @@ console.log(
 		removedScratchToolNames: Object.keys(scratchTools),
 	}),
 );
+const researchMode = repositoryModeForMetadata({
+	delegationWorkOrder: { executionRequirement: nativeRequirement },
+});
+assert.equal(researchMode, "research");
+const research = selectRepositoryToolSurface(
+	{ ...allTools, open_computer: approvedTool, code_search: approvedTool },
+	researchMode,
+);
+for (const name of [
+	"open_computer",
+	"repo_load",
+	"clone_repo",
+	"exec",
+	"code_search",
+])
+	assert.equal(research[name], undefined);
+assert.ok(research.tedix_mcp_code);
+assert.doesNotMatch(
+	workspaceToolGuidance({ supervised: true, repositoryMode: researchMode }),
+	/start with open_computer|use native read|For a full repository/,
+);
 console.log("runtime tool guidance tests passed");

@@ -88,6 +88,42 @@ describe("Production ConversationFacet on native Pi", () => {
 			{ type: "none" },
 		]);
 	});
+	it("terminalizes a delegated tool budget with one effect and no extra inference, including replay", async () => {
+		const name = crypto.randomUUID();
+		const agent = await fixture(name);
+		await agent.setup("tool");
+		await agent.enableFacetTool();
+		const input = {
+			delegationBudget: { maxToolCalls: 1, deadlineAt: Date.now() + 300000 },
+		};
+		const turn = await agent.turn("delegated-limit", input);
+		expect(turn.result.stopReason).toBe("delegation_budget");
+		expect(turn.result.assistantText).toContain(
+			"tool-call budget reached (1/1)",
+		);
+		expect((await inspect(agent)).stats).toMatchObject({
+			requests: 1,
+			effects: 1,
+			receipts: 1,
+		});
+		await abortAllDurableObjects();
+		expect(await (await fixture(name)).turn("delegated-limit", input)).toEqual(
+			turn,
+		);
+		expect((await inspect(await fixture(name))).stats.requests).toBe(1);
+	});
+	it("returns a terminal partial receipt without inference after the delegated deadline", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.setup("tool");
+		const turn = await agent.turn("expired-delegation", {
+			delegationBudget: { maxToolCalls: 8, deadlineAt: Date.now() - 1 },
+		});
+		expect(turn.result.stopReason).toBe("delegation_budget");
+		expect(turn.result.assistantText).toContain(
+			"delegated wall-clock deadline reached",
+		);
+		expect((await inspect(agent)).stats.requests).toBe(0);
+	});
 	it("pauses before effects and approval resumes exactly one native tool", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.setup("tool");

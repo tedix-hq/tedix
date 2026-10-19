@@ -14,6 +14,7 @@ for (const message of [
 	"Durable provider-call ceiling reached",
 	"Interrupted tool effects require reconciliation before recovery",
 	"Paid inference requires private native origin capture",
+	"Delegation preflight failed: work.add_comment is unauthorized; missing scopes: mcp:work.write",
 	"Chat inference denied for stopped run: persisted-run",
 	"Chat inference denied for canceled or stopped run: persisted-run",
 ]) {
