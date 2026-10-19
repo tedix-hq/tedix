@@ -237,7 +237,9 @@ function cellStyle(cell: OsWorkbookCell) {
 	return {
 		background: format?.fillColor ?? "var(--tedix-sheet-paper)",
 		color: format?.textColor,
-		textAlign: format?.horizontalAlign,
+		textAlign:
+			format?.horizontalAlign ??
+			(typeof cell.value === "number" ? "right" : undefined),
 		fontWeight: format?.bold ? 700 : undefined,
 		fontStyle: format?.italic ? "italic" : undefined,
 		textDecoration:

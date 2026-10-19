@@ -423,7 +423,11 @@ function WorkbookView({
 														fontStyle: cell?.format?.italic
 															? "italic"
 															: undefined,
-														textAlign: cell?.format?.horizontalAlign,
+														textAlign:
+															cell?.format?.horizontalAlign ??
+															(typeof cell?.value === "number"
+																? "right"
+																: undefined),
 													}}
 												>
 													{formatWorkbookValue(cell)}
