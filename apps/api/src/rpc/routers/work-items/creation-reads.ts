@@ -213,15 +213,34 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 
 export const getByIdProcedure = authOs.getById.handler(
 	async ({ input, context }) => {
-		const workItem = await assertWorkItemAccess(context, input.id);
+		let id = input.id.toLowerCase();
+		if (id.length !== 36) {
+			const matches = await listWorkItemsPage(context.db, {
+				orgId: requireOrgId(context),
+				idPrefix: id,
+				limit: 10,
+			});
+			if (matches.total === 0)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"No Work Item matches this prefix in this organization",
+				);
+			if (matches.total !== 1)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					`Ambiguous Work prefix (${matches.total} matches). Use a canonical id: ${matches.data.map((item) => item.id).join(", ")}`,
+				);
+			id = matches.data[0]!.id;
+		}
+		const workItem = await assertWorkItemAccess(context, id);
 		const [comments, evidencePage, projections, project] = await Promise.all([
-			listWorkItemComments(context.db, input.id),
+			listWorkItemComments(context.db, id),
 			listWorkItemEvidence(context.db, {
 				orgId: workItem.orgId,
-				workItemId: input.id,
+				workItemId: id,
 				limit: 100,
 			}),
-			listWorkItemProjections(context.db, input.id),
+			listWorkItemProjections(context.db, id),
 			workItem.projectId
 				? getProjectById(context.db, workItem.projectId)
 				: undefined,

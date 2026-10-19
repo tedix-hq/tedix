@@ -404,6 +404,26 @@ describe("Work Item router canonical specification reads and writes", () => {
 		expect(read.evidenceNextCursor).toBeNull();
 		expect(read.projections).toEqual([]);
 	});
+	it("resolves Work prefixes within the caller organization and returns ambiguity candidates", async () => {
+		const first = "abcdef01-0000-4000-8000-000000000001";
+		const second = "abcdef01-0000-4000-8000-000000000002";
+		seed({ id: first, orgId: ORG_ID });
+		seed({ id: second, orgId: OTHER_ORG_ID });
+		expect((await client().getById({ id: "ABCDEF01" })).workItem.id).toBe(
+			first,
+		);
+		await expect(client().getById({ id: "ffffffff" })).rejects.toThrow(
+			"No Work Item",
+		);
+		sqlite
+			.prepare("UPDATE work_items SET org_id = ? WHERE id = ?")
+			.run(ORG_ID, second);
+		await expect(client().getById({ id: "abcdef01" })).rejects.toThrow(
+			new RegExp(
+				`Ambiguous Work prefix.*(?:${first}.*${second}|${second}.*${first})`,
+			),
+		);
+	});
 	it("includes the bounded evidence ledger in the exact Work Item read", async () => {
 		const created = await client().create({
 			...PURPOSE,
