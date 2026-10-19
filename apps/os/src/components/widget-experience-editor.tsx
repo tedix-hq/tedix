@@ -242,7 +242,7 @@ function Choice({
 	disabled: boolean;
 }) {
 	return (
-		<label className="grid gap-1">
+		<label className="grid gap-1 font-medium type-tedix-body">
 			{label}
 			<Select
 				value={value}
@@ -371,7 +371,7 @@ export function ExperienceEditor({
 			| "launcherIconUrlDark",
 		label: string,
 	) => (
-		<label className="grid gap-1" key={key}>
+		<label className="grid gap-1 font-medium type-tedix-body" key={key}>
 			{label}
 			<Input
 				aria-label={label}
@@ -395,7 +395,7 @@ export function ExperienceEditor({
 		</label>
 	);
 	const color = (key: "accentColor" | "accentColorDark", label: string) => (
-		<label className="grid gap-1">
+		<label className="grid gap-1 font-medium type-tedix-body">
 			{label}
 			<div className="flex gap-2">
 				<Input
@@ -416,7 +416,7 @@ export function ExperienceEditor({
 		</label>
 	);
 	return (
-		<div className="grid gap-6 [&_input]:scroll-mt-24 [&_textarea]:scroll-mt-24 [&_button]:scroll-mt-24">
+		<div className="grid gap-8 [&_input]:scroll-mt-24 [&_textarea]:scroll-mt-24 [&_button]:scroll-mt-24">
 			<Surface
 				tier="panel"
 				className="sticky top-0 z-10 flex flex-wrap items-center gap-3 px-4 py-3"
@@ -439,7 +439,10 @@ export function ExperienceEditor({
 				>
 					Discard draft
 				</Button>
-				<span role="status" className="text-sm text-kumo-subtle">
+				<span
+					role="status"
+					className="font-normal text-kumo-subtle type-tedix-body"
+				>
 					{pending
 						? "Publishing your changes"
 						: dirty
@@ -491,16 +494,16 @@ export function ExperienceEditor({
 							onChange={(value) => edit("tediSelection", value)}
 						/>
 					)}
-					<p className="text-sm text-kumo-subtle">
+					<p className="font-normal text-kumo-subtle type-tedix-body">
 						Customer widget tedis are configured per business in Access
 						settings.
 					</p>
 				</SettingsSectionContent>
 			</SettingsSection>
-			<p className="text-sm text-kumo-subtle">
+			<p className="font-normal text-kumo-subtle type-tedix-body">
 				Applies to all your customer apps on their next widget load.
 			</p>
-			<div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+			<div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
 				<aside className="order-first lg:order-last lg:sticky lg:top-20">
 					<Button
 						variant="secondary"
@@ -514,8 +517,8 @@ export function ExperienceEditor({
 						<WidgetAppearancePreview config={candidate} />
 					)}
 				</aside>
-				<div className="grid gap-6">
-					<fieldset disabled={pending} className="grid min-w-0 gap-6">
+				<div className="grid gap-8">
+					<fieldset disabled={pending} className="grid min-w-0 gap-8">
 						<Group title="Appearance">
 							{field("title", "Assistant name")}
 							{field("product", "Product name")}
@@ -566,7 +569,10 @@ export function ExperienceEditor({
 										["zIndex", "Stacking order", 2147483000],
 									] as const
 								).map(([key, label, fallback]) => (
-									<label key={key} className="grid gap-1">
+									<label
+										key={key}
+										className="grid gap-1 font-medium type-tedix-body"
+									>
 										{label}
 										<Input
 											type="number"
@@ -599,12 +605,12 @@ export function ExperienceEditor({
 										mutation.reset();
 									}}
 								/>
-								<p className="text-sm text-kumo-subtle">
+								<p className="font-normal text-kumo-subtle type-tedix-body">
 									Your app or a visitor’s language may override this default.
 									The preview uses this language.
 								</p>
 							</div>
-							<label className="grid gap-1">
+							<label className="grid gap-1 font-medium type-tedix-body">
 								Welcome heading
 								<Input
 									aria-label="Welcome heading"
@@ -617,7 +623,7 @@ export function ExperienceEditor({
 									}
 								/>
 							</label>
-							<label className="grid gap-1 sm:col-span-2">
+							<label className="grid gap-1 font-medium type-tedix-body sm:col-span-2">
 								Welcome message
 								<Textarea
 									aria-label="Welcome message"
@@ -630,7 +636,7 @@ export function ExperienceEditor({
 									}
 								/>
 							</label>
-							<label className="grid gap-1 sm:col-span-2">
+							<label className="grid gap-1 font-medium type-tedix-body sm:col-span-2">
 								Suggested questions
 								<Textarea
 									aria-label="Suggested questions"
@@ -641,7 +647,7 @@ export function ExperienceEditor({
 										mutation.reset();
 									}}
 								/>
-								<span className="text-sm text-kumo-subtle">
+								<span className="font-normal text-kumo-subtle type-tedix-body">
 									One question per line, up to 6. All questions appear in the
 									preview.
 								</span>
@@ -726,7 +732,10 @@ export function ExperienceEditor({
 									],
 								] as const
 							).map(([key, label, fallback, help]) => (
-								<label key={key} className="grid gap-1">
+								<label
+									key={key}
+									className="grid gap-1 font-medium type-tedix-body"
+								>
 									{label}
 									<Input
 										type="number"
@@ -744,7 +753,9 @@ export function ExperienceEditor({
 											)
 										}
 									/>
-									<span className="text-sm text-kumo-subtle">{help}</span>
+									<span className="font-normal text-kumo-subtle type-tedix-body">
+										{help}
+									</span>
 								</label>
 							))}
 						</Group>
@@ -797,7 +808,7 @@ export function WidgetAppearancePreview({
 					{dark ? "Show light" : "Show dark"}
 				</Button>
 			</div>
-			<p className="text-xs text-kumo-subtle">
+			<p className="font-normal text-kumo-subtle type-tedix-label">
 				{languageName(locale)} · {dark ? "Dark" : "Light"}. Example content;
 				this preview does not start a chat.
 			</p>
@@ -833,7 +844,7 @@ export function WidgetAppearancePreview({
 						)}
 						<div>
 							<strong>{translation.title ?? config.title}</strong>
-							<p className="text-xs text-kumo-subtle">
+							<p className="font-normal text-kumo-subtle type-tedix-label">
 								{translation.subtitle ?? config.subtitle}
 							</p>
 						</div>
@@ -847,7 +858,7 @@ export function WidgetAppearancePreview({
 											{translation.welcomeHeading ??
 												t("how_can_i_help_you_in", { product: config.product })}
 										</h4>
-										<p className="mt-1 text-sm text-kumo-subtle">
+										<p className="mt-1 font-normal text-kumo-subtle type-tedix-body">
 											{translation.welcomeBody ??
 												t("i_m_connected_to_your_workspace", {
 													product: config.product,
@@ -858,25 +869,25 @@ export function WidgetAppearancePreview({
 								{previewQuestions.map((question, index) => (
 									<div
 										key={index}
-										className="rounded-lg border border-kumo-line px-3 py-2 text-sm"
+										className="rounded-lg border border-kumo-line px-3 py-2 type-tedix-body"
 									>
 										{question}
 									</div>
 								))}
 								{modules.includes("recent") && (
-									<div className="text-xs text-kumo-subtle">
+									<div className="font-normal text-kumo-subtle type-tedix-label">
 										{t("recent_chats")}
 										<span className="block">Example conversation history</span>
 									</div>
 								)}
 							</>
 						) : (
-							<p className="text-sm text-kumo-subtle">
+							<p className="font-normal text-kumo-subtle type-tedix-body">
 								{t("new_conversation")}
 							</p>
 						)}
 					</div>
-					<div className="m-3 rounded-full border border-kumo-line px-3 py-2 text-sm text-kumo-subtle">
+					<div className="m-3 rounded-full border border-kumo-line px-3 py-2 font-normal text-kumo-subtle type-tedix-body">
 						{t("ask", { assistant: translation.title ?? config.title })}
 					</div>
 				</div>
@@ -898,7 +909,7 @@ export function WidgetAppearancePreview({
 					</div>
 				)}
 				{config.launcherMode === "host" && (
-					<p className="mt-3 text-xs text-kumo-subtle">
+					<p className="mt-3 font-normal text-kumo-subtle type-tedix-label">
 						Opened by your application’s button
 					</p>
 				)}
