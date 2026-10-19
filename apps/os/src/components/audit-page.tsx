@@ -185,7 +185,7 @@ export function AuditEventRow({
 }) {
 	const actor = actorLabel(event, tediNames);
 	return (
-		<li className="flex min-w-0 items-start gap-3 px-3 py-3">
+		<li className="relative flex min-w-0 items-start gap-3 px-3 py-3 has-[button]:hover:bg-kumo-tint has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-kumo-ring">
 			<span className="flex min-w-0 flex-1 flex-col gap-1">
 				<span className="flex flex-wrap items-center gap-1.5">
 					<AuditActorChip actorType={event.actorType} />
@@ -223,7 +223,7 @@ export function AuditEventRow({
 				<Button
 					variant="ghost"
 					size="sm"
-					className="shrink-0"
+					className="shrink-0 after:absolute after:inset-0 after:content-['']"
 					onClick={() => onInspect(event)}
 					aria-label={`View details for ${event.action} event`}
 				>
@@ -266,7 +266,10 @@ export function AuditEventTable({
 					{events.map((event) => {
 						const actor = actorLabel(event, tediNames);
 						return (
-							<TableRow key={event.id}>
+							<TableRow
+								key={event.id}
+								className="relative has-[button]:hover:bg-kumo-tint has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-kumo-ring"
+							>
 								<TableCell className="max-w-52">
 									<div className="flex min-w-0 items-center gap-2">
 										<AuditActorChip actorType={event.actorType} />
@@ -329,6 +332,7 @@ export function AuditEventTable({
 										<Button
 											variant="ghost"
 											size="sm"
+											className="after:absolute after:inset-0 after:content-['']"
 											onClick={() => onInspect(event)}
 											aria-label={`View details for ${event.action} event`}
 										>
