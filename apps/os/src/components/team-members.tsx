@@ -94,6 +94,10 @@ import {
 	TooltipTrigger,
 } from "@/components/kumo/tooltip";
 import { MemberAccessDialog } from "@/components/member-access-dialog";
+import {
+	MemberIdentityDialog,
+	memberIdentityLabel,
+} from "@/components/member-identity-dialog";
 import { osApi } from "@/lib/api";
 import {
 	MEMBERS_PAGE_SIZE,
@@ -289,6 +293,7 @@ function TeamMembersPanelBody({
 	const [showInvite, setShowInvite] = useState(false);
 	const [memberToRemove, setMemberToRemove] = useState<Member | null>(null);
 	const [memberToAudit, setMemberToAudit] = useState<Member | null>(null);
+	const [memberToIdentify, setMemberToIdentify] = useState<Member | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 
 	const membersQuery = useQuery({
@@ -372,7 +377,7 @@ function TeamMembersPanelBody({
 								<CardTitle>Members ({data.pagination.total})</CardTitle>
 							</div>
 							<CardDescription className="mt-1">
-								Roles control what each person can see and manage in this
+								Roles control what each member can see and manage in this
 								workspace.
 							</CardDescription>
 						</div>
@@ -439,7 +444,7 @@ function TeamMembersPanelBody({
 						<Table aria-label="Team members">
 							<TableHeader>
 								<TableRow>
-									<TableHead>Person</TableHead>
+									<TableHead>Member</TableHead>
 									<TableHead>Status</TableHead>
 									<TableHead>Role</TableHead>
 									<TableHead>Activity</TableHead>
@@ -477,7 +482,7 @@ function TeamMembersPanelBody({
 																weight="medium"
 																className="truncate"
 															>
-																{member.name || member.email}
+																{memberIdentityLabel(member)}
 															</Text>
 															{self ? (
 																<Badge variant="outline">You</Badge>
@@ -555,6 +560,13 @@ function TeamMembersPanelBody({
 															<ShieldCheck className="size-4" />
 															View access
 														</DropdownMenuItem>
+														{canEditMember && member.status === "active" ? (
+															<DropdownMenuItem
+																onClick={() => setMemberToIdentify(member)}
+															>
+																Edit identity
+															</DropdownMenuItem>
+														) : null}
 														{canEditMember ? (
 															<DropdownMenuItem
 																onClick={() => setMemberToRemove(member)}
@@ -606,7 +618,7 @@ function TeamMembersPanelBody({
 												weight="medium"
 												className="truncate"
 											>
-												{member.name || member.email}
+												{memberIdentityLabel(member)}
 											</Text>
 											{self ? <Badge variant="outline">You</Badge> : null}
 										</div>
@@ -639,6 +651,13 @@ function TeamMembersPanelBody({
 												<ShieldCheck className="size-4" />
 												View access
 											</DropdownMenuItem>
+											{canEditMember && member.status === "active" ? (
+												<DropdownMenuItem
+													onClick={() => setMemberToIdentify(member)}
+												>
+													Edit identity
+												</DropdownMenuItem>
+											) : null}
 											{canEditMember ? (
 												<DropdownMenuItem
 													onClick={() => setMemberToRemove(member)}
@@ -739,6 +758,13 @@ function TeamMembersPanelBody({
 					permissionsMutation.mutate({ memberId, permissions })
 				}
 			/>
+			{memberToIdentify ? (
+				<MemberIdentityDialog
+					key={memberToIdentify.id}
+					member={memberToIdentify}
+					onClose={() => setMemberToIdentify(null)}
+				/>
+			) : null}
 
 			<AlertDialog
 				open={Boolean(memberToRemove)}

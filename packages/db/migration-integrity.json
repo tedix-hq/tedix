@@ -952,6 +952,10 @@
 		{
 			"name": "20261018175624_decision_instrumentation_immutable/migration.sql",
 			"sha256": "f623559e6890b25fba1569ba7dc24138e665070249239577732d7bdb72c41026"
+		},
+		{
+			"name": "20261019124437_browser_agent_membership/migration.sql",
+			"sha256": "6655662f621205c9b30a72838ecb88c20e89295ece3dbec420921a62236c23f4"
 		}
 	]
 }

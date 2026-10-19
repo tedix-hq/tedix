@@ -714,6 +714,10 @@ export const MemberSchema = z.object({
 	name: z.string().nullable(),
 	avatarUrl: z.string().nullable(),
 	role: MemberRoleSchema,
+	/** Display identity only; grants no access to the represented user's data. */
+	kind: z.enum(["human", "external_agent"]).optional(),
+	representedUserId: z.string().nullable().optional(),
+	representedUserName: z.string().nullable().optional(),
 	/**
 	 * Additive permission grants layered on top of the role. Always the
 	 * canonical vocabulary — never a separate capability model — and bounded to
