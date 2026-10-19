@@ -104,6 +104,12 @@ it("shows the authorized inbox proposal before details, without caching invented
 	const key = workInteractionDetailQueryOptions(preview.request.id).queryKey;
 	expect(client.getQueryData(key)).toBeUndefined();
 	expect(respond).not.toHaveBeenCalled();
+	const visibleBox = vi
+		.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+		.mockReturnValue(new DOMRect(0, 0, 600, 400));
+	const visibleTab = vi
+		.spyOn(document, "visibilityState", "get")
+		.mockReturnValue("visible");
 	await act(async () => {
 		client.setQueryData(key, {
 			request: preview.request,
@@ -130,6 +136,8 @@ it("shows the authorized inbox proposal before details, without caching invented
 	await act(async () => render("44444444-4444-4444-8444-444444444444"));
 	expect(host.textContent).not.toContain(preview.request.prompt);
 	expect(host.querySelector('[aria-label="Loading request"]')).not.toBeNull();
+	visibleBox.mockRestore();
+	visibleTab.mockRestore();
 });
 
 it("renders usable actions and the draft from the same authorized inbox payload while detail is stalled", async () => {

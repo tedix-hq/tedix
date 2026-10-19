@@ -49,7 +49,11 @@ export function ActionButtonComponent({
 	if (!label) return null;
 	return (
 		<Button
-			className={fullWidth ? "w-full" : undefined}
+			className={
+				[fullWidth ? "w-full" : "", tone === "ghost" ? "text-foreground" : ""]
+					.filter(Boolean)
+					.join(" ") || undefined
+			}
 			disabled={disabled ?? false}
 			onClick={onPress}
 			type="button"

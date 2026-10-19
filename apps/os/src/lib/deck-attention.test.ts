@@ -75,3 +75,68 @@ it("measures all five attention signals once, counting deferred cards as attenti
 		streak: 1,
 	});
 });
+
+it("uses first-view timings for the median, leaves unknown Details history unknown, and keeps Later separate", () => {
+	const make = (id: string, metadata: Record<string, unknown>) =>
+		LearningInteractionEventSchema.parse({
+			id,
+			organizationId: "fictional-org",
+			actorType: "user",
+			actorId: "fictional-user",
+			tediId: null,
+			clientEventId: id,
+			signalClass: "quality",
+			eventKind: "accepted",
+			scopeKind: "personal",
+			scopeId: "fictional-user",
+			issueKey: null,
+			surface: "decision_deck_action",
+			targetType: "decision",
+			targetId: id,
+			threadId: null,
+			runId: null,
+			occurredAt: "2026-10-19T12:00:00Z",
+			createdAt: "2026-10-19T12:00:00Z",
+			metadata,
+		});
+	const result = attentionMetrics([
+		make("one", {
+			decisionChoice: "approve",
+			firstViewedAt: 1000,
+			elapsedMs: 10000,
+			railOpenedBeforeDecision: false,
+		}),
+		make("two", {
+			decisionChoice: "reject",
+			firstViewedAt: 1000,
+			elapsedMs: 50000,
+			railOpenedBeforeDecision: true,
+		}),
+		make("old", {
+			decisionChoice: "approve",
+			elapsedMs: 999999,
+			railOpenedBeforeDecision: false,
+		}),
+		make("later", {
+			decisionChoice: "later",
+			firstViewedAt: 1000,
+			elapsedMs: 200000,
+		}),
+		make("changes", {
+			decisionChoice: "change",
+			cardAction: "request_changes",
+		}),
+		{
+			...make("fallback", { decisionChoice: "later", reaction: "skip" }),
+			surface: "decision_deck",
+		},
+	]);
+	expect(result).toMatchObject({
+		medianMs: 30000,
+		measuredDecisions: 2,
+		withoutDetailsRate: 0.5,
+		laterCount: 2,
+		notThisCount: 1,
+		changeRequestCount: 1,
+	});
+});

@@ -15,10 +15,12 @@ import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
+import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { useContext, useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
+import { WorkProposalMetadataSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { DecisionProposalBody } from "@/components/decision-proposal-body";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { Button } from "@/components/kumo/button";
@@ -322,6 +324,10 @@ export function WorkInteractionDecisionCard({
 		);
 	if (!detail) return readNotice;
 	const { request, effectiveState, canRespond, canCancel, responses } = detail;
+	const secureConnection = credentialCard(
+		`${request.subject} ${request.prompt}`,
+		request.metadata,
+	);
 	if (request.metadata?.schema === "tedix.outbound.v1" && request.workItemId)
 		return (
 			<OutboundCard
@@ -361,6 +367,9 @@ export function WorkInteractionDecisionCard({
 				(request.creatorType === "tedi" ? "Your tedi" : "Your agent")));
 	const draft = latestDraftOf(detail);
 	const proposal = request.kind === "handoff";
+	const plan = proposal
+		? WorkProposalMetadataSchema.safeParse(request.metadata).data?.proposal
+		: undefined;
 	const approval = connectorApproval(request.metadata);
 	const lane =
 		request.kind === "question" &&
@@ -426,6 +435,17 @@ export function WorkInteractionDecisionCard({
 			{deliveryText ? <p className="text-kumo-subtle">{deliveryText}</p> : null}
 			<WorkDecisionCard
 				autoFocus={autoFocus}
+				connectionSettings={secureConnection}
+				revisionTarget={
+					!secureConnection &&
+					!lane &&
+					!approval &&
+					(request.creatorType === "tedi" ||
+						request.creatorType === "external_agent") &&
+					(["question", "input"].includes(request.kind) || Boolean(plan))
+						? { requestId, version: request.version }
+						: undefined
+				}
 				key={`${request.id}:${effectiveState}`}
 				kind={
 					approval
@@ -487,12 +507,28 @@ export function WorkInteractionDecisionCard({
 						) : (
 							<DecisionProposalBody
 								key={request.id}
-								body={outboundBody ?? presentation?.body ?? request.prompt}
+								body={
+									typeof request.metadata.cardContent === "string"
+										? request.metadata.cardContent
+										: (outboundBody ?? presentation?.body ?? request.prompt)
+								}
 								inline={decision?.kind === "outbound"}
 							/>
 						)}
 						{presentation && (
 							<p className="fd-recommendation">{presentation.recommendation}</p>
+						)}
+						{plan && (
+							<ul className="grid gap-2">
+								{[plan.item, ...plan.children].map((item) => (
+									<li key={item.sourceIntentId}>
+										<strong>{item.title}</strong>
+										{item.description && (
+											<p className="whitespace-pre-wrap">{item.description}</p>
+										)}
+									</li>
+								))}
+							</ul>
 						)}
 						{draft ? (
 							<div className="grid gap-1 rounded-lg border border-kumo-line p-3">

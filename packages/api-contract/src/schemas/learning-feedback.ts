@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import { JsonValueSchema } from "./common";
 
 export const LEARNING_INTERACTION_KINDS = [
@@ -139,7 +140,10 @@ export const RecordLearningInteractionInputSchema = z.object({
 	targetId: z.string().trim().min(1).max(200).optional(),
 	threadId: z.string().trim().min(1).max(200).optional(),
 	runId: z.string().trim().min(1).max(200).optional(),
-	metadata: JsonMetadataSchema.optional(),
+	metadata: JsonMetadataSchema.refine(
+		(value) => !containsCardSecret(value),
+		CARD_SECRET_MESSAGE,
+	).optional(),
 	occurredAt: z.iso.datetime().optional(),
 });
 

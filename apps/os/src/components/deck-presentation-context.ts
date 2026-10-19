@@ -1,4 +1,10 @@
 import { createContext, type ReactNode } from "react";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
+
+export const CardFaceContext = createContext<{
+	presentation: DecisionCardPresentation | null;
+	confidence: number | null;
+} | null>(null);
 
 export const DeckRemainingContext = createContext<
 	((count: number) => void) | undefined

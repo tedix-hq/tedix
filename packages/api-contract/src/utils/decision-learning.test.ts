@@ -345,3 +345,20 @@ it("measures only personal rail observations and feeds weak summaries to generat
 	expect(strong.cardIntuitiveness?.percent).toBe(80);
 	expect(strong.cardIntuitiveness?.classes[0]?.needsBetterSummary).toBe(false);
 });
+
+it("treats missing context as a writing signal, never a vote against the topic or permission to act", () => {
+	const model = learn([
+		event(101, {
+			surface: "card_context",
+			eventKind: "rejected",
+			metadata: {
+				decisionClass: "relationship.followup",
+				enough: false,
+				chip: "who",
+			},
+		}),
+	]);
+	expect(model.weights.usefulness).toEqual([]);
+	expect(model.weights.personal).toEqual([]);
+	expect(model.readiness).toEqual([]);
+});

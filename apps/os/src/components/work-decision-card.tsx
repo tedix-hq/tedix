@@ -9,6 +9,7 @@ import type {
 import {
 	DeckFooterContext,
 	DeckNoticeContext,
+	CardFaceContext,
 } from "@/components/deck-presentation-context";
 import {
 	DecisionLearningContext,
@@ -28,6 +29,16 @@ import {
 	AlertDialogHeader,
 } from "@/components/kumo/alert-dialog";
 import { createPortal } from "react-dom";
+import { QueryClientContext } from "@tanstack/react-query";
+import {
+	CardRevisionPanel,
+	type CardRevisionTarget,
+} from "@/components/card-revision-panel";
+import {
+	CARD_SECRET_MESSAGE,
+	containsCardSecret,
+	credentialCard,
+} from "@tedix/api-contract/utils/card-secrets";
 import { decisionLearningKey } from "@/lib/decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
@@ -53,6 +64,7 @@ import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { relativeTime, absoluteTime } from "@/lib/time";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
+import { decisionCardActionLabel } from "@tedix/api-contract/utils/decision-card-copy";
 import {
 	DecisionProposalBody,
 	DecisionProposalHeading,
@@ -113,6 +125,8 @@ export function WorkDecisionCard({
 	hasEdits = false,
 	suggestedAnswers = [],
 	initialAnswer = "",
+	revisionTarget,
+	connectionSettings = false,
 	pending = false,
 	disabled = false,
 	onDecision,
@@ -137,6 +151,8 @@ export function WorkDecisionCard({
 	hasEdits?: boolean;
 	suggestedAnswers?: readonly string[];
 	initialAnswer?: string;
+	revisionTarget?: CardRevisionTarget;
+	connectionSettings?: boolean;
 	pending?: boolean;
 	disabled?: boolean;
 	autoFocus?: boolean;
@@ -145,7 +161,16 @@ export function WorkDecisionCard({
 	onNext?: () => void;
 	onPrevious?: () => void;
 }) {
-	const heading = decisionProposalTitle(title);
+	const faceState = useContext(CardFaceContext);
+	const face = faceState?.presentation;
+	const [sourceRead, setSourceRead] = useState(false);
+	const heading = decisionProposalTitle(
+		faceState ? (face?.title ?? "Review this request?") : title,
+	);
+	const queryClient = useContext(QueryClientContext);
+	const revision = revisionTarget;
+	const secureConnection =
+		connectionSettings || credentialCard(`${title} ${body}`);
 	const identifiers = decisionIdentifiers(`${title} ${body}`);
 	const deckFooter = useContext(DeckFooterContext);
 	const deckNotice = useContext(DeckNoticeContext);
@@ -172,17 +197,56 @@ export function WorkDecisionCard({
 	const learnedWhy = useContext(DecisionLearningContext);
 	const shownAt = useRef(performance.now());
 	const exposureSent = useRef(false);
+	const detailsOpened = useRef(false);
 	useEffect(() => {
-		if (!attention || exposureSent.current) return;
-		exposureSent.current = true;
-		attention({ action: "shown", signal: "shown", elapsedMs: 0 });
-	}, [attention]);
+		if (
+			!attention ||
+			exposureSent.current ||
+			(faceState && !face && !sourceRead)
+		)
+			return;
+		const report = () => {
+			const node = section.current;
+			if (
+				!node ||
+				exposureSent.current ||
+				document.visibilityState !== "visible"
+			)
+				return;
+			const box = node.getBoundingClientRect();
+			if (
+				box.width <= 0 ||
+				box.height <= 0 ||
+				box.bottom <= 0 ||
+				box.top >= window.innerHeight
+			)
+				return;
+			exposureSent.current = true;
+			shownAt.current = performance.now();
+			attention({ action: "shown", signal: "shown", elapsedMs: 0 });
+		};
+		const observer =
+			typeof IntersectionObserver === "undefined"
+				? null
+				: new IntersectionObserver(report);
+		if (section.current) observer?.observe(section.current);
+		document.addEventListener("visibilitychange", report);
+		report();
+		return () => {
+			observer?.disconnect();
+			document.removeEventListener("visibilitychange", report);
+		};
+	}, [attention, faceState, face, sourceRead]);
 	const motion = useDecisionMotion();
 	const section = motion.surface;
 	const [editing, setEditing] = useState(false);
 	const [whyOpen, setWhyOpen] = useState(false);
 	const [whyTarget, setWhyTarget] = useState<HTMLDivElement | null>(null);
 	const [draft, setDraft] = useState(body);
+	const [revising, setRevising] = useState(false);
+	useEffect(() => {
+		if (!editing) setDraft(body);
+	}, [body, editing]);
 	const [answer, setAnswer] = useState(initialAnswer);
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
 	const [feedback, setFeedback] = useState("");
@@ -197,7 +261,13 @@ export function WorkDecisionCard({
 	const [saved, setSaved] = useState(false);
 	const inFlight = useRef(false);
 	const touch = useRef<{ x: number; y: number } | null>(null);
-	const busy = pending || saving || disabled || saved;
+	const busy =
+		pending ||
+		saving ||
+		disabled ||
+		saved ||
+		revising ||
+		(!!faceState && !face && !sourceRead);
 	const submit = async (
 		action: DecisionCardAction,
 		reason?: string,
@@ -216,18 +286,50 @@ export function WorkDecisionCard({
 			return;
 		}
 		const finalBody = kind === "question" ? answer.trim() : draft.trim();
+		if (containsCardSecret([finalBody, feedback, reason])) {
+			setError(CARD_SECRET_MESSAGE);
+			return;
+		}
+		if (secureConnection) {
+			setError("Use connection settings to update credentials.");
+			return;
+		}
 		if (kind === "question" && !finalBody && action.id !== feedbackAction?.id)
 			return;
 		inFlight.current = true;
 		setSaving(true);
 		setError("");
+		const revisionEdit = action.id === editAction?.id;
 		const departure =
-			!optimistic && section.current?.closest(".fd-deck")
+			!revisionEdit && !optimistic && section.current?.closest(".fd-deck")
 				? motion.exit(action.intent)
 				: undefined;
 		try {
-			const write = () =>
-				onDecision({
+			const decidedAt = Date.now();
+			const readDetails = detailsOpened.current;
+			const elapsedMs = Math.max(
+				0,
+				Math.round(performance.now() - shownAt.current),
+			);
+			const write = async () => {
+				if (revisionEdit && revision && kind !== "outbound") {
+					const { osApi } = await import("@/lib/api");
+					const { osQuery } = await import("@/lib/os-query-options");
+					const history = await osApi.workInteractions.cardHistory({
+						requestId: revision.requestId,
+					});
+					const result = await osApi.workInteractions.reviseCard({
+						requestId: revision.requestId,
+						expectedRequestVersion: revision.version,
+						expectedRevision: history.revisions.at(-1)?.revision ?? 0,
+						body: finalBody,
+					});
+					await queryClient?.invalidateQueries({
+						queryKey: osQuery.workInteractions.key(),
+					});
+					return result;
+				}
+				return onDecision({
 					action: action.id,
 					signal:
 						action.id === editAction?.id
@@ -250,7 +352,15 @@ export function WorkDecisionCard({
 					...(reason ? { reason } : {}),
 					...(feedback.trim() ? { feedback: feedback.trim() } : {}),
 				});
-			const result = await (optimistic ? optimistic(write) : write());
+			};
+			const result = await (optimistic && !revisionEdit
+				? optimistic(write)
+				: write());
+			if (revisionEdit) {
+				setEditing(false);
+				toast.success("Version saved for review");
+				return;
+			}
 			attention?.({
 				learningClientEventId: decisionLearningKey(result),
 				action: action.id,
@@ -265,7 +375,9 @@ export function WorkDecisionCard({
 									answer.trim() !== initialAnswer.trim())
 							? "edited"
 							: "accepted",
-				elapsedMs: Math.max(0, Math.round(performance.now() - shownAt.current)),
+				elapsedMs,
+				decidedAt,
+				detailsOpened: readDetails,
 			});
 			setConfirmation(null);
 			toast.success(decisionText("Decision saved"));
@@ -301,7 +413,7 @@ export function WorkDecisionCard({
 	return (
 		<section
 			ref={section}
-			aria-label={title}
+			aria-label={faceState ? (face?.title ?? "Review this request?") : title}
 			tabIndex={0}
 			className="fd-decision min-w-0 rounded-xl"
 			style={motion.style}
@@ -316,6 +428,21 @@ export function WorkDecisionCard({
 			onPointerCancel={() => {
 				touch.current = null;
 				motion.reset();
+			}}
+			onClickCapture={(event) => {
+				if (
+					(event.target as HTMLElement).closest(
+						"summary, [data-slot=collapsible-trigger], .fd-card-details",
+					)
+				) {
+					detailsOpened.current = true;
+					setSourceRead(true);
+					attention?.({
+						action: "details",
+						signal: "opened_details",
+						elapsedMs: 0,
+					});
+				}
 			}}
 			onPointerLeave={motion.reset}
 			onPointerUp={(event) => {
@@ -397,7 +524,11 @@ export function WorkDecisionCard({
 			<FeedDeckCard>
 				<CardHeader>
 					<CardDescription className="flex flex-wrap items-center gap-2">
-						<ProposerChip name={askedBy} actor={actor} />
+						{faceState ? (
+							<span>Tedix</span>
+						) : (
+							<ProposerChip name={askedBy} actor={actor} />
+						)}
 						{at ? (
 							<time dateTime={at} title={absoluteTime(at)}>
 								· {relativeTime(at)}
@@ -423,14 +554,15 @@ export function WorkDecisionCard({
 						{deckNotice}
 						{submittingActor && (
 							<>
-								{(submittingActor.type === "external_agent" ||
-									submittingActor.contributor) && (
-									<WorkSourceProvenance
-										actor={submittingActor}
-										name={askedBy}
-										source={contributionSource}
-									/>
-								)}
+								{!faceState &&
+									(submittingActor.type === "external_agent" ||
+										submittingActor.contributor) && (
+										<WorkSourceProvenance
+											actor={submittingActor}
+											name={askedBy}
+											source={contributionSource}
+										/>
+									)}
 								<DecisionContextSection
 									sectionId="provenance"
 									title="Source provenance"
@@ -455,6 +587,38 @@ export function WorkDecisionCard({
 									disabled={busy}
 								/>
 							</div>
+						) : faceState ? (
+							<div className="grid gap-3">
+								{face ? (
+									<>
+										{"context" in face && <Text>{face.context}</Text>}
+										<Text className="fd-card-summary">
+											<strong>If yes:</strong> {face.body}
+										</Text>
+										<Text className="fd-recommendation">
+											{face.recommendation} ·{" "}
+											{faceState.confidence === null
+												? "Confidence not assessed"
+												: `${Math.round(faceState.confidence * 100)}% sure`}
+										</Text>
+										{"stakes" in face && face.stakes && (
+											<Text className="fd-stakes">{face.stakes}</Text>
+										)}
+									</>
+								) : (
+									<p role="status">
+										Preparing a shorter summary. Open Details to review the
+										source.
+									</p>
+								)}
+								<FeedDeckDisclosure
+									title={rail ? "Original request" : OS_COPY.feed.details}
+								>
+									<Text weight="semibold">{title}</Text>
+									{content ??
+										(body ? <DecisionProposalBody body={body} /> : null)}
+								</FeedDeckDisclosure>
+							</div>
 						) : (
 							(content ?? (body ? <DecisionProposalBody body={body} /> : null))
 						)}
@@ -472,7 +636,22 @@ export function WorkDecisionCard({
 								</div>
 							</DecisionContextSection>
 						)}
-						{kind === "question" && !disabled && !saved ? (
+						{secureConnection && (
+							<Button
+								variant="outline"
+								render={<a href="/account/connections" />}
+							>
+								Open connection settings
+							</Button>
+						)}
+						{revision && !secureConnection && (
+							<CardRevisionPanel
+								target={revision}
+								disabled={disabled || pending || saving || saved}
+								onRevising={setRevising}
+							/>
+						)}
+						{kind === "question" && !secureConnection && !disabled && !saved ? (
 							<div className="grid gap-3">
 								{suggestedAnswers.length ? (
 									<div
@@ -588,7 +767,7 @@ export function WorkDecisionCard({
 										</AlertDialogFooter>
 									</AlertDialogContent>
 								</AlertDialog>
-								{!disabled ? (
+								{!disabled && !secureConnection ? (
 									<DecisionContextSection title="Feedback">
 										<div className="fd-feedback">
 											<Button
@@ -631,7 +810,7 @@ export function WorkDecisionCard({
 						{!rail && (why || learnedWhy) && <div ref={setWhyTarget} />}
 					</div>
 				</CardContent>
-				{!saved && (
+				{!saved && !secureConnection && (
 					<CardFooter ref={footer}>
 						{" "}
 						<div
@@ -682,7 +861,12 @@ export function WorkDecisionCard({
 											) : (
 												<span className="grid min-w-0 gap-1 whitespace-normal break-words">
 													<span>
-														{action.label}
+														{decisionCardActionLabel(
+															face,
+															action.id,
+															action.intent,
+															action.label,
+														)}
 														<kbd
 															className="fd-action-key"
 															aria-hidden="true"
@@ -697,7 +881,7 @@ export function WorkDecisionCard({
 															}
 														/>
 													</span>
-													{action.description ? (
+													{action.description && !faceState ? (
 														<span
 															className={
 																action.intent === "approve"

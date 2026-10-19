@@ -50,6 +50,7 @@ export async function readDecisionLearning(
 				"work_fix",
 				"decision_learning",
 				"decision_edit_preference",
+				"card_context",
 			],
 			excludeFeedImpressions: true,
 			limit: config.historyLimit,

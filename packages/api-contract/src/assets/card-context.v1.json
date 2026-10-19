@@ -1,0 +1,34 @@
+{
+	"version": 1,
+	"sampleEvery": 5,
+	"trackedCardLimit": 5000,
+	"minimumExamples": 3,
+	"sampleableEffects": ["create_owner_task"],
+	"question": "Enough to decide?",
+	"chips": {
+		"who": {
+			"label": "Who",
+			"rule": "Say who the people are and how you know them. For follow-ups, include where you met and their company when the source gives them."
+		},
+		"why_now": {
+			"label": "Why now",
+			"rule": "Explain why this needs attention now, including any source-backed deadline."
+		},
+		"cost": {
+			"label": "Cost",
+			"rule": "State what saying yes costs in money or time. Say when the source leaves the cost unknown."
+		},
+		"risk": {
+			"label": "Risk",
+			"rule": "State what could go wrong and whether the choice can be undone, using only source facts."
+		},
+		"draft": {
+			"label": "The draft",
+			"rule": "Make the exact draft easy to open before deciding. State who receives it and whether yes sends it or only saves a task."
+		},
+		"too_long": {
+			"label": "Too long",
+			"rule": "Shorten the card's context to the facts needed for this choice; keep the full explanation in Details."
+		}
+	}
+}

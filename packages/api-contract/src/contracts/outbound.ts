@@ -2,6 +2,7 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import {
 	OutboundActionSchema,
 	OutboundDraftSchema,
@@ -56,14 +57,21 @@ export const outboundContract = oc.errors(baseErrors).router({
 	act: oc
 		.route({ tags: ["internal"] })
 		.input(
-			revision.extend({
-				action: OutboundActionSchema,
-				elapsedMs: z.number().int().min(0).max(86400000).optional(),
-				draft: OutboundDraftSchema.optional(),
-				body: z.string().trim().min(1).max(40_000).optional(),
-				feedback: z.string().trim().min(1).max(8_000).optional(),
-				connectionInstanceId: z.uuid().optional(),
-			}),
+			revision
+				.extend({
+					action: OutboundActionSchema,
+					elapsedMs: z.number().int().min(0).max(86400000).optional(),
+					draft: OutboundDraftSchema.optional(),
+					body: z.string().trim().min(1).max(40_000).optional(),
+					restoreRevision: z.number().int().positive().optional(),
+					feedback: z.string().trim().min(1).max(8_000).optional(),
+					connectionInstanceId: z.uuid().optional(),
+				})
+				.refine(
+					(value) =>
+						!containsCardSecret([value.body, value.feedback, value.draft]),
+					CARD_SECRET_MESSAGE,
+				),
 		)
 		.output(OutboundRecordSchema),
 	importSentStyle: oc

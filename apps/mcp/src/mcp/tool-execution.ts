@@ -1181,7 +1181,12 @@ async function executeWithHandler(
 								osGadgetTaskMarker,
 						}
 					: {}),
-				ui: buildWidgetUiMeta(agent, mcpAppResourceUri),
+				ui: {
+					...buildWidgetUiMeta(agent, mcpAppResourceUri),
+					toolPrefix: tool.toolId.includes("__")
+						? tool.toolId.slice(0, tool.toolId.lastIndexOf("__") + 2)
+						: "",
+				},
 			} as OpenAiWidgetMeta,
 			tokensUsed: result.tokensUsed,
 		};

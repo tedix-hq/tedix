@@ -86,6 +86,7 @@ import { decisionText } from "@/shared/os-copy";
 import { useOsLocale } from "@/lib/use-os-locale";
 import { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
 import { WorkDecisionCard } from "@/components/work-decision-card";
+import { FactoryCardRevisionPanel } from "@/components/factory-card-revision-panel";
 import { DeckClosure } from "@/components/feed-deck-primitives";
 import { OS_COPY } from "@/shared/os-copy";
 import { cn } from "@/lib/utils";
@@ -442,6 +443,7 @@ export function CardReviewApp({
 	const [selectedChips, setSelectedChips] = useState<string[]>([]);
 	const [note, setNote] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [revisionPending, setRevisionPending] = useState(false);
 	const [undo, setUndo] = useState<UndoEntry | null>(null);
 	const [running, setRunning] = useState<string | null>(null);
 	const [needsAccess, setNeedsAccess] = useState<NeedsAccess | null>(null);
@@ -920,10 +922,20 @@ export function CardReviewApp({
 						)}
 						askedBy={source.label}
 						body={card.draft}
+						pending={revisionPending || busy}
 						content={
 							<div className="grid min-w-0 gap-3">
 								<SourceLine text={card.sourceText} />
 								{card.draft && <Text>{card.draft}</Text>}
+								{inDeck && card.draft && sheets.get(card.outputId) && (
+									<FactoryCardRevisionPanel
+										key={card.key}
+										card={card}
+										source={source}
+										revision={sheets.get(card.outputId)!.revision}
+										onPending={setRevisionPending}
+									/>
+								)}
 							</div>
 						}
 						why={<Text>{plainWhy(card.why)}</Text>}

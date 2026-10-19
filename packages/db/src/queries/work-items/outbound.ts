@@ -15,7 +15,13 @@ import { workItems, workEvents } from "../../schema/work-items";
 import {
 	workInteractions,
 	workInteractionResponses,
+	workInteractionCardRevisions,
 } from "../../schema/work-factory";
+import {
+	CARD_SECRET_MESSAGE,
+	containsCardSecret,
+} from "@tedix/api-contract/utils/card-secrets";
+import { buildCardRevisionLearningStatement } from "./card-revisions";
 
 export async function getOutboundPolicy(
 	db: DbQueryClient,
@@ -110,6 +116,8 @@ export async function saveOutbound(
 	},
 ) {
 	const nextVersion = p.expectedVersion + 1;
+	if (containsCardSecret([p.state.draft, p.response]))
+		throw new Error(CARD_SECRET_MESSAGE);
 	const transitionId = crypto.randomUUID();
 	const changed = sql`EXISTS (SELECT 1 FROM work_items WHERE org_id=${p.orgId} AND id=${p.workItemId} AND version=${nextVersion} AND json_extract(metadata, '$.outboundTransitionId')=${transitionId})`;
 	const statements: BatchItem<"sqlite">[] = [
@@ -242,7 +250,7 @@ export async function saveOutbound(
 						),
 						respondedAt: sql<string>`${p.now}`.as("responded_at"),
 						metadata:
-							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, action: p.action, before: response.before, after: response.body, feedback: response.feedback ?? null, draftRevision: p.state.draftRevision, source: "os-outbound" })})`.as(
+							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, action: p.action, ...(p.action === "feedback" ? { cardAction: "ask_changes", instruction: response.feedback } : {}), before: response.before, after: response.body, feedback: response.feedback ?? null, draftRevision: p.state.draftRevision, source: "os-outbound" })})`.as(
 								"metadata",
 							),
 					})
@@ -257,6 +265,53 @@ export async function saveOutbound(
 			),
 		);
 	}
+	const revisionId = crypto.randomUUID();
+	statements.push(
+		db.insert(workInteractionCardRevisions).select(
+			db
+				.select({
+					id: sql<string>`${revisionId}`.as("id"),
+					orgId: workInteractions.orgId,
+					requestId: sql<string>`${workInteractions.id}`.as("request_id"),
+					revision:
+						sql<number>`coalesce((SELECT max(revision) FROM work_interaction_card_revisions WHERE org_id=${p.orgId} AND request_id=${p.state.interactionId}),0)+1`.as(
+							"revision",
+						),
+					body: sql<string>`${p.state.draft.body}`.as("body"),
+					cause: sql<
+						"initial" | "human_edit" | "agent_rewrite" | "restore"
+					>`CASE WHEN NOT EXISTS (SELECT 1 FROM work_interaction_card_revisions WHERE org_id=${p.orgId} AND request_id=${p.state.interactionId}) THEN 'initial' WHEN ${p.action}='restore' THEN 'restore' WHEN ${p.actor.type}='user' THEN 'human_edit' ELSE 'agent_rewrite' END`.as(
+						"cause",
+					),
+					actorType: sql<string>`${p.actor.type}`.as("actor_type"),
+					actorId: sql<string>`${p.actor.id}`.as("actor_id"),
+					actorSessionId: sql<string | null>`${p.actor.sessionId ?? null}`.as(
+						"actor_session_id",
+					),
+					instruction: sql<
+						string | null
+					>`CASE WHEN ${p.action}='restore' THEN ${p.response?.feedback ?? null} ELSE (SELECT json_extract(metadata,'$.instruction') FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.state.interactionId} AND json_extract(metadata,'$.cardAction')='ask_changes' ORDER BY resolved_request_version DESC,responded_at DESC,id DESC LIMIT 1) END`.as(
+						"instruction",
+					),
+					responseId: sql<
+						string | null
+					>`(SELECT id FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.state.interactionId} AND json_extract(metadata,'$.cardAction')='ask_changes' ORDER BY resolved_request_version DESC,responded_at DESC,id DESC LIMIT 1)`.as(
+						"response_id",
+					),
+					createdAt: sql<string>`${p.now}`.as("created_at"),
+				})
+				.from(workInteractions)
+				.where(
+					and(
+						eq(workInteractions.orgId, p.orgId),
+						eq(workInteractions.id, p.state.interactionId),
+						changed,
+						sql`coalesce((SELECT body FROM work_interaction_card_revisions WHERE org_id=${p.orgId} AND request_id=${p.state.interactionId} ORDER BY revision DESC LIMIT 1),'')<>${p.state.draft.body}`,
+					),
+				),
+		),
+	);
+	statements.push(buildCardRevisionLearningStatement(db, p.orgId, revisionId));
 	const results = await db.batch(batchNonEmpty(statements));
 	return (results[0] as Array<{ id: string }>).length === 1;
 }

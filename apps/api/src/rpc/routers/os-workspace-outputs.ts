@@ -30,6 +30,7 @@ import {
 	createOsOutputRevision,
 	getOsOutput,
 	getOsOutputRevision,
+	getOsOutputRevisionByNumber,
 	listOsOutputRevisions,
 	listOsOutputs,
 	updateOsOutput,
@@ -317,6 +318,47 @@ const outputsCreate = authorOs.outputs.create.handler(
 		return {
 			output: mapOsOutputRow(created.output),
 			revision: mapOsOutputRevisionRow(created.revision),
+		};
+	},
+);
+
+const outputsHistory = readOs.outputs.history.handler(
+	async ({ input, context }) => {
+		const output = await requireOutput(context, input.outputId);
+		const scope = {
+			organizationId: output.organizationId,
+			outputId: output.id,
+		};
+		const exact = input.revision
+			? await getOsOutputRevisionByNumber(queryDb(context), {
+					...scope,
+					revision: input.revision,
+				})
+			: null;
+		const rows = input.revision
+			? exact
+				? [exact]
+				: []
+			: await listOsOutputRevisions(queryDb(context), scope, {
+					limit: 50,
+					beforeRevision: input.beforeRevision,
+				});
+		for (const revision of rows)
+			await requireDerivedRevisionAccess(context, revision);
+		const { factoryCardRevisionRequests } =
+			await import("../../services/factory-card-revisions");
+		const pending =
+			!input.revision && !input.beforeRevision && rows[0]
+				? await factoryCardRevisionRequests(
+						context,
+						mapOsOutputRevisionRow(rows[0]),
+					)
+				: [];
+		return {
+			revisions: rows.map(mapOsOutputRevisionRow),
+			nextBeforeRevision:
+				!input.revision && rows.length === 50 ? rows.at(-1)!.revision : null,
+			pending,
 		};
 	},
 );
@@ -1067,6 +1109,7 @@ const outputsExport = authorOs.outputs.export.handler(
 );
 
 export const osOutputProcedures = {
+	history: outputsHistory,
 	list: outputsList,
 	library: outputsLibrary,
 	create: outputsCreate,

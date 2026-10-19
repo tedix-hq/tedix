@@ -21,13 +21,13 @@ export function DeckAttentionMetrics() {
 		<section aria-label={copy.title} className="grid gap-3">
 			<Text weight="semibold">{copy.title}</Text>
 			<Text tone="secondary">{copy.loaded}</Text>
-			<MetricGrid columns={5}>
+			<MetricGrid columns={3}>
 				<MetricItem
-					label={copy.time}
+					label="Median decision time"
 					value={
-						metrics.averageMs === null
+						metrics.medianMs === null
 							? "—"
-							: `${Math.round(metrics.averageMs / 1000)}s`
+							: `${Math.round(metrics.medianMs / 1000)}s`
 					}
 				/>
 				<MetricItem
@@ -35,6 +35,16 @@ export function DeckAttentionMetrics() {
 					value={percent(metrics.delegationRate)}
 				/>
 				<MetricItem label={copy.cards} value={metrics.cardsToday} />
+				<MetricItem
+					label="Decided without details"
+					value={percent(metrics.withoutDetailsRate)}
+				/>
+				<MetricItem label="Later" value={metrics.laterCount} />
+				<MetricItem label="Not this" value={metrics.notThisCount} />
+				<MetricItem
+					label="Asked for changes"
+					value={metrics.changeRequestCount}
+				/>
 				<MetricItem label={copy.visits} value={metrics.returnVisitsToday} />
 				<MetricItem
 					label={copy.corrections}

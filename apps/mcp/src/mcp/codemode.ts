@@ -1107,6 +1107,9 @@ function buildCodeModeWidgetMetadata(
 			"openai/widgetAccessible": tool.widgetAccessible ?? true,
 			ui: {
 				resourceUri,
+				toolPrefix: tool.toolId.includes("__")
+					? tool.toolId.slice(0, tool.toolId.lastIndexOf("__") + 2)
+					: "",
 				app: {
 					id: widgetApp.id,
 					slug: widgetApp.slug,
@@ -1196,6 +1199,8 @@ function codeModeResultMeta(
 	if (resourceUri?.startsWith("ui://widgets/")) {
 		return {
 			...meta,
+			// Keep complete widget data outside the model-facing result budget.
+			"tedix/widgetData": result,
 			ui: {
 				...ui,
 				resourceUri,

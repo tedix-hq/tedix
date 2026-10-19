@@ -11,6 +11,9 @@ vi.mock("@/lib/api", () => ({
 		osWorkspaces: { outputs: { get: vi.fn() } },
 		organizationPurpose: { getActive: vi.fn() },
 		attention: { listDeckCards: vi.fn() },
+		learningFeedback: {
+			listInteractions: vi.fn().mockResolvedValue({ events: [] }),
+		},
 		agentTurnTriage: {
 			listLessons: vi.fn().mockResolvedValue({ lessons: [] }),
 		},

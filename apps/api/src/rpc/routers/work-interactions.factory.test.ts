@@ -137,6 +137,9 @@ describe("Work interactions router", () => {
 		expect(Object.keys(workInteractionsContractRouter)).toEqual([
 			"outbound",
 			"refreshDecisionSources",
+			"cardHistory",
+			"reviseCard",
+			"requestCardChanges",
 			"regenerateCard",
 			"create",
 			"review",

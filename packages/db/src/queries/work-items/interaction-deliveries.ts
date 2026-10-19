@@ -37,7 +37,7 @@ function callerOwns(actor: DeliveryActor) {
 
 const sessionOf = sql<
 	string | null
->`json_extract(${workInteractions.metadata},'$.sessionId')`;
+>`coalesce(json_extract(${workInteractions.metadata},'$.sessionId'), ${workInteractions.creatorExternalSessionKey})`;
 
 export interface ListUndeliveredWorkInteractionResponsesParams {
 	orgId: string;
@@ -95,7 +95,7 @@ export async function listUndeliveredWorkInteractionResponses(
 			and(
 				eq(workInteractionResponses.orgId, p.orgId),
 				callerOwns(p.actor),
-				sql`(${workInteractionResponses.resolvesRequest}=1 OR json_extract(${workInteractionResponses.metadata},'$.corrects') IS NOT NULL)`,
+				sql`(${workInteractionResponses.resolvesRequest}=1 OR json_extract(${workInteractionResponses.metadata},'$.corrects') IS NOT NULL OR json_extract(${workInteractionResponses.metadata},'$.cardAction')='ask_changes')`,
 				eq(workInteractionResponses.responderType, "user"),
 				eq(workInteractionResponses.responderId, workInteractions.targetId),
 				isNull(workInteractionDeliveries.deliveredAt),

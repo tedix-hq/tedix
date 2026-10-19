@@ -1,3 +1,4 @@
+import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import {
 	LaneDispatchPlanSchema,
 	DelegationAutonomyFeedbackInputSchema,
@@ -979,17 +980,22 @@ export const workItemsContract = oc
 				successStatus: 201,
 			})
 			.input(
-				z.object({
-					id: z.uuid(),
-					body: z.string().min(1).max(10000),
-					requestDelegation: z
-						.boolean()
-						.optional()
-						.describe(
-							"Explicitly request executor assignment from this comment; requires specification authority. Ordinary comment text never changes assignment.",
-						),
-					metadata: JsonRecordSchema.optional(),
-				}),
+				z
+					.object({
+						id: z.uuid(),
+						body: z.string().min(1).max(10000),
+						requestDelegation: z
+							.boolean()
+							.optional()
+							.describe(
+								"Explicitly request executor assignment from this comment; requires specification authority. Ordinary comment text never changes assignment.",
+							),
+						metadata: JsonRecordSchema.optional(),
+					})
+					.refine(
+						(value) => !containsCardSecret([value.body, value.metadata]),
+						CARD_SECRET_MESSAGE,
+					),
 			)
 			.output(WorkItemCommentSchema),
 

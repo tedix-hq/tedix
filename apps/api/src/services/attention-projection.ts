@@ -439,8 +439,30 @@ export async function loadForYouProjection(
 				});
 			}
 	}
+	const faceSources = new Map(deck.cards.map((card) => [card.id, card]));
 	for (const { card, revision } of factories.cards) {
 		const binding = config.factorySources[card.sourceIndex]!;
+		faceSources.set(`factory:${card.outputId}:${card.rowIndex}`, {
+			id: `factory:${card.outputId}:${card.rowIndex}`,
+			kind: "decision",
+			label: card.action || card.why,
+			project: binding.projectId,
+			urgency: "later",
+			decision: null,
+			source: `/outputs/${card.outputId}`,
+			requestedAt: card.runCreatedAt,
+			dueAt: null,
+			score: 0,
+			factory: {
+				outputId: card.outputId,
+				sourceIndex: card.sourceIndex,
+				rowIndex: card.rowIndex,
+				revision,
+				draft: card.draft,
+				why: card.why,
+				sourceText: card.sourceText,
+			},
+		});
 		items.push({
 			id: `factory:${card.outputId}:${card.rowIndex}`,
 			actor: binding.source.label,
@@ -511,8 +533,38 @@ export async function loadForYouProjection(
 		...selection.updates.filter((item) => outcomes.has(item.id)),
 	];
 	const shownIds = new Set(shown.map((item) => item.id));
+	const { prepareDeckCardFace, displayDeckCard } =
+		await import("./deck-card-face");
+	const pending: DeckCard[] = [];
+	const visible = await Promise.all(
+		shown.slice(0, input.limit).map(async (item) => {
+			const card = faceSources.get(item.id.replace(/^decision:/, ""));
+			if (!item.needsAction || !card) return item;
+			const presentation = await prepareDeckCardFace(
+				context,
+				card,
+				false,
+				deck.model,
+			);
+			if (!presentation) pending.push(card);
+			const display = displayDeckCard(card, presentation);
+			return {
+				...item,
+				sentence: display.label,
+				presentation,
+				faceText: display.faceText,
+			};
+		}),
+	);
+	context.waitUntil?.(
+		Promise.all(
+			pending
+				.slice(0, 3)
+				.map((card) => prepareDeckCardFace(context, card, true, deck.model)),
+		).catch(() => {}),
+	);
 	return {
-		items: shown.slice(0, input.limit),
+		items: visible,
 		heldCount: ranked.filter((item) => !shownIds.has(item.id)).length,
 		used: selection.used,
 		day: selection.day,

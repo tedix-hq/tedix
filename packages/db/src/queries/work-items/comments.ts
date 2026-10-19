@@ -1,4 +1,8 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	CARD_SECRET_MESSAGE,
+	containsCardSecret,
+} from "@tedix/api-contract/utils/card-secrets";
 import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -42,6 +46,8 @@ export async function addWorkItemComment(
 	db: DbQueryClient,
 	params: AddWorkItemCommentParams,
 ): Promise<WorkItemComment> {
+	if (containsCardSecret([params.body, params.metadata]))
+		throw new Error(CARD_SECRET_MESSAGE);
 	const item = (
 		await db
 			.select({ id: workItems.id })

@@ -7,7 +7,14 @@ export function decisionEnvelope(
 	metadata: Record<string, unknown> | null | undefined,
 ) {
 	const parsed = DecisionEnvelopeSchema.safeParse(metadata?.decisionDeck);
-	return parsed.success ? parsed.data : null;
+	return parsed.success
+		? {
+				...parsed.data,
+				...(typeof metadata?.cardContent === "string"
+					? { preview: { body: metadata.cardContent } }
+					: {}),
+			}
+		: null;
 }
 
 export interface DecisionLearningReceipt {

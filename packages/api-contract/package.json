@@ -6,6 +6,10 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./utils/card-secrets": "./src/utils/card-secrets.ts",
+		"./utils/decision-card-copy": "./src/utils/decision-card-copy.ts",
+		"./utils/card-context": "./src/utils/card-context.ts",
+		"./assets/card-context.v1.json": "./src/assets/card-context.v1.json",
 		"./utils/feed-story": "./src/utils/feed-story.ts",
 		"./utils/decision-expiry": "./src/utils/decision-expiry.ts",
 		"./utils/activity-feed": "./src/utils/activity-feed.ts",
@@ -278,7 +282,12 @@
 		"./schemas/calendar-coordinator": "./src/schemas/calendar-coordinator.ts",
 		"./schemas/decision-learning": "./src/schemas/decision-learning.ts",
 		"./utils/lesson-holdout": "./src/utils/lesson-holdout.ts",
-		"./utils/decision-learning": "./src/utils/decision-learning.ts"
+		"./utils/decision-learning": "./src/utils/decision-learning.ts",
+		"./schemas/card-revisions": "./src/schemas/card-revisions.ts",
+		"./utils/deck-action-boundary": "./src/utils/deck-action-boundary.ts",
+		"./utils/attention-app-view": "./src/utils/attention-app-view.ts",
+		"./assets/attention-app-views.v1.json": "./src/assets/attention-app-views.v1.json",
+		"./assets/attention-app-views.v2.json": "./src/assets/attention-app-views.v2.json"
 	},
 	"scripts": {
 		"clean": "true",

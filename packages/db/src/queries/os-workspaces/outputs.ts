@@ -277,7 +277,7 @@ export async function getOsOutputRevisionByNumber(
 export async function listOsOutputRevisions(
 	db: DbQueryClient,
 	params: OsOutputScopeParams,
-	options: { limit?: number } = {},
+	options: { limit?: number; beforeRevision?: number } = {},
 ): Promise<OsOutputRevisionRow[]> {
 	return db
 		.select()
@@ -286,6 +286,9 @@ export async function listOsOutputRevisions(
 			and(
 				eq(osOutputRevisions.organizationId, params.organizationId),
 				eq(osOutputRevisions.outputId, params.outputId),
+				options.beforeRevision
+					? sql`${osOutputRevisions.revision}<${options.beforeRevision}`
+					: undefined,
 			),
 		)
 		.orderBy(desc(osOutputRevisions.revision))

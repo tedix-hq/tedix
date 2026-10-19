@@ -1,5 +1,8 @@
 import * as z from "zod";
+import { CardHistorySchema, CardTextSchema } from "./card-revisions";
+import { JsonValueSchema } from "./common";
 import { DecisionEnvelopeSchema } from "./os-decision-deck";
+import { DecisionCardPresentationSchema } from "./decision-card-presentation";
 import { ActivityFeedItemSchema } from "./os-activity-feed";
 import {
 	WorkInteractionInboxRowSchema,
@@ -35,9 +38,12 @@ export const AttentionViewInputSchema = z.strictObject({
 	limit: z.number().int().min(1).max(100).default(50),
 });
 export const DeckCardSchema = z.strictObject({
+	history: CardHistorySchema.optional(),
 	id: z.string().min(1),
 	kind: z.string(),
 	label: z.string(),
+	presentation: DecisionCardPresentationSchema.nullable().optional(),
+	faceText: z.string().optional(),
 	project: z.string(),
 	urgency: z.string(),
 	decision: DecisionEnvelopeSchema.nullable(),
@@ -69,13 +75,46 @@ export const DeckProjectionSchema = z.strictObject({
 });
 export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
+		kind: z.literal("factory_changes"),
+		cardId: z.string().min(1),
+		gadgetId: z.uuid().optional(),
+		timeZone: AttentionTimeZoneSchema.optional(),
+		expectedRevision: z.number().int().positive(),
+		instruction: CardTextSchema.max(8000),
+	}),
+	z.strictObject({
+		kind: z.literal("factory_restore"),
+		cardId: z.string().min(1),
+		gadgetId: z.uuid().optional(),
+		timeZone: AttentionTimeZoneSchema.optional(),
+		expectedRevision: z.number().int().positive(),
+		restoreRevision: z.number().int().positive(),
+	}),
+	z.strictObject({
+		kind: z.literal("request_changes"),
+		cardId: z.uuid(),
+		gadgetId: z.uuid().optional(),
+		timeZone: AttentionTimeZoneSchema.optional(),
+		expectedRequestVersion: z.number().int().positive(),
+		instruction: CardTextSchema.max(8000),
+	}),
+	z.strictObject({
+		kind: z.literal("restore_revision"),
+		cardId: z.uuid(),
+		gadgetId: z.uuid().optional(),
+		timeZone: AttentionTimeZoneSchema.optional(),
+		expectedRequestVersion: z.number().int().positive(),
+		expectedRevision: z.number().int().positive(),
+		restoreRevision: z.number().int().positive(),
+	}),
+	z.strictObject({
 		kind: z.literal("factory"),
 		cardId: z.string().min(1),
 		gadgetId: z.uuid().optional(),
 		timeZone: AttentionTimeZoneSchema.optional(),
 		expectedRevision: z.number().int().positive(),
 		verdict: z.enum(["useful", "not_useful"]),
-		reason: z.string().trim().min(1).max(2000),
+		reason: CardTextSchema.max(2000),
 	}),
 	z.strictObject({
 		kind: z.literal("interaction"),
@@ -121,4 +160,69 @@ export const ForYouProjectionSchema = z.strictObject({
 	day: z.string(),
 	complete: z.boolean(),
 	observedAt: z.iso.datetime(),
+});
+
+export const AttentionCardActionSchema = z.strictObject({
+	id: z.string(),
+	label: z.string(),
+	arguments: z.record(z.string(), JsonValueSchema),
+	textPath: z.string().nullable(),
+	textArgumentPath: z.string().nullable(),
+	statusPath: z.string(),
+});
+export const AttentionDisplayCardSchema = z.strictObject({
+	id: z.string(),
+	kind: z.string(),
+	ask: z.string(),
+	context: z.string().nullable().optional(),
+	confidence: z.number().min(0).max(1).nullable().optional(),
+	ifYes: z.string().nullable(),
+	why: z.string().nullable(),
+	stakes: z.string().nullable(),
+	provenance: z.string().nullable(),
+	evidenceUrl: z.string().nullable(),
+	dueAt: z.string().nullable(),
+	source: z.string(),
+	draft: z.string().nullable(),
+	recipient: z.string().nullable(),
+	subject: z.string().nullable(),
+	options: z.array(
+		z.strictObject({
+			id: z.string(),
+			label: z.string(),
+			consequence: z.string().nullable(),
+		}),
+	),
+	actions: z.array(AttentionCardActionSchema),
+	answer: z.string(),
+	needsText: z.boolean(),
+	status: z.string().nullable(),
+});
+export type AttentionDisplayCard = z.infer<typeof AttentionDisplayCardSchema>;
+export const AttentionAppViewSchema = z.strictObject({
+	cards: z.array(AttentionDisplayCardSchema),
+	needsYou: z.array(AttentionDisplayCardSchema),
+	updates: z.array(AttentionDisplayCardSchema),
+	complete: z.boolean(),
+	observedAt: z.iso.datetime(),
+	empty: z.boolean(),
+	notice: z.string(),
+	markdown: z.string(),
+});
+
+export const AttentionOfferedChoicesSchema = z.object({
+	decisionCard: z
+		.object({
+			options: z
+				.array(
+					z.object({
+						id: z.string(),
+						label: z.string(),
+						body: z.string().optional(),
+					}),
+				)
+				.max(8),
+		})
+		.optional(),
+	suggestedAnswers: z.array(z.string()).max(8).optional(),
 });

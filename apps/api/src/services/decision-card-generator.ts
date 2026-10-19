@@ -1,5 +1,6 @@
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
-import { checkDecisionCardCopy } from "./decision-card-copy-check";
+import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
+import { checkDecisionCardCopy } from "@tedix/api-contract/utils/decision-card-copy";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { BaseContext } from "../rpc/orpc";
 import { readDraftPreferences } from "./decision-learning";
@@ -30,7 +31,7 @@ function writingContext(value: string): string {
 			for (const item of parsed[key] ?? []) {
 				if (
 					key === "lessons" &&
-					!/\b(short|shorter|concise|plain|tone|writing|words?|sentences?|voice|jargon|format|titles?|body|recommendation|readability|intros?)\b/i.test(
+					!/\b(short|shorter|concise|plain|tone|writing|words?|sentences?|voice|jargon|format|titles?|body|recommendation|readability|intros?|context|cards?|company|met|cost|risk|draft|deadline)\b/i.test(
 						JSON.stringify(item),
 					)
 				)
@@ -78,12 +79,28 @@ export async function generateDecisionCard(
 	},
 	onFailure?: (reason: string) => void,
 ) {
+	if (containsCardSecret(request)) {
+		onFailure?.("unsafe_source");
+		return null;
+	}
+	const decision = request.metadata.decisionDeck;
 	const preferences = await readDraftPreferences(
 		context.db,
 		request.orgId,
 		request.targetId,
+		typeof request.metadata.decisionClass === "string"
+			? request.metadata.decisionClass
+			: decision &&
+				  typeof decision === "object" &&
+				  "classId" in decision &&
+				  typeof decision.classId === "string"
+				? decision.classId
+				: undefined,
 	);
-	const decision = request.metadata.decisionDeck;
+	if (containsCardSecret(preferences)) {
+		onFailure?.("unsafe_preferences");
+		return null;
+	}
 	const filing =
 		decision &&
 		typeof decision === "object" &&
@@ -142,6 +159,8 @@ export async function generateDecisionCard(
 					prompt: request.prompt,
 					kind: request.kind,
 					decision,
+					producerContext: request.metadata.producerContext,
+					sourceOptions: request.metadata.sourceOptions,
 				}),
 	}).replace(new RegExp(RAW_IDENTIFIER.source, "gi"), "[reference]");
 	let repair = "";
@@ -169,11 +188,20 @@ export async function generateDecisionCard(
 				JSON.stringify({ examples: copySpec.examples }),
 				filing ? copySpec.filing : "",
 				repair ? copySpec.repair : "",
+				copySpec.faceInstruction,
 			].join("\n"),
 		});
 		if (!answer) return null;
+		if (containsCardSecret(answer)) {
+			onFailure?.("unsafe_copy");
+			return null;
+		}
 		try {
 			const draft = JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+			if (containsCardSecret(draft)) {
+				onFailure?.("unsafe_copy");
+				return null;
+			}
 			for (const [field, rule] of Object.entries(copySpec.fields)) {
 				if (typeof draft?.[field] === "string")
 					draft[field] = draft[field].replace(

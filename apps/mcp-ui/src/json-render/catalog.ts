@@ -749,6 +749,70 @@ export const tedixCatalog = defineCatalog(schema, {
 				"Content/article card for content search results. Shows title, snippet, metadata, and relevance.",
 		},
 
+		DecisionCard: {
+			props: z.object({
+				ask: z.string(),
+				context: z.string().nullable().optional(),
+				confidence: z.number().min(0).max(1).nullable().optional(),
+				ifYes: z.string().nullable(),
+				why: z.string().nullable(),
+				stakes: z.string().nullable(),
+				kind: z.string().nullable(),
+				status: z.string().nullable(),
+			}),
+			slots: ["default"],
+			description:
+				"Generic decision content: ASK, IF YES, WHY and optional STAKES. Children supply provenance, preview, inputs and spec-declared actions. Status disables actions while saving or saved.",
+		},
+		SwipeStack: {
+			props: z.object({ label: z.string().nullable() }),
+			slots: ["default"],
+			description:
+				"One card at a time; native touch swipe and arrow-key navigation. Repeat children from a state array. Browsing never decides a card.",
+		},
+		DecisionDetails: {
+			props: z.object({ label: z.string().optional() }),
+			slots: ["default"],
+			description:
+				"Technical source, options and full drafts behind an accessible disclosure.",
+		},
+		ProvenanceBadge: {
+			props: z.object({
+				label: z.string().nullable(),
+				evidenceUrl: z.string().nullable(),
+			}),
+			description:
+				"Source actor attribution and safe evidence link; attribution is not authority.",
+		},
+		DeadlineChip: {
+			props: z.object({ value: z.string().nullable() }),
+			description: "Source deadline, omitted when absent.",
+		},
+		DraftPreview: {
+			props: z.object({
+				body: z.string().nullable(),
+				recipient: z.string().nullable(),
+				subject: z.string().nullable(),
+			}),
+			description:
+				"Full draft text with optional recipient and subject; never executes embedded HTML.",
+		},
+		OptionList: {
+			props: z.object({
+				items: z
+					.array(
+						z.object({
+							id: z.string(),
+							label: z.string(),
+							consequence: z.string().nullable(),
+						}),
+					)
+					.nullable(),
+			}),
+			description:
+				"Read-only option descriptions. Actions must be declared separately with ActionButton.",
+		},
+
 		ActionButton: {
 			props: z.object({
 				label: z.string().describe("Button label"),
@@ -969,6 +1033,30 @@ export const tedixCatalog = defineCatalog(schema, {
 		call_tool: {
 			params: z.object({
 				tool: z.string().describe("MCP tool name to call via the host bridge"),
+				toolPrefix: z
+					.string()
+					.nullable()
+					.optional()
+					.describe(
+						"Server-supplied sibling tool namespace prefix from /ui/toolPrefix",
+					),
+				textPath: z
+					.string()
+					.nullable()
+					.optional()
+					.describe("State path of required user input"),
+				textArgumentPath: z
+					.string()
+					.nullable()
+					.optional()
+					.describe("Argument path receiving required user input"),
+				statusPath: z
+					.string()
+					.nullable()
+					.optional()
+					.describe(
+						"State path for optimistic saving and saved status; rollback on error; prevents duplicate calls",
+					),
 				arguments: z
 					.record(z.string(), z.unknown())
 					.optional()

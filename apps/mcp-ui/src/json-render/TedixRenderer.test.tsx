@@ -12,6 +12,7 @@ const host = vi.hoisted(() => ({
 	displayMode: vi.fn(),
 	modal: vi.fn(),
 	comparison: {} as any,
+	toolInfo: { isSuccess: true } as Record<string, unknown>,
 }));
 vi.mock("@tedix/widget-ui/layouts", async (original) => ({
 	...(await original<any>()),
@@ -32,7 +33,7 @@ vi.mock("../lib/widget-host-hooks", () => ({
 	useWidgetModal: () => ({ open: host.modal }),
 	useWidgetSendFollowUp: () => host.followUp,
 	useWidgetSetOpenInAppUrl: () => vi.fn(),
-	useWidgetToolInfo: () => ({ isSuccess: true }),
+	useWidgetToolInfo: () => host.toolInfo,
 	useWidgetUser: () => ({
 		locale: "en",
 		userAgent: { device: { type: "desktop" } },
@@ -213,3 +214,37 @@ for (const bound of [true, false]) {
 		}
 	});
 }
+
+it("renders complete Code Mode widget data rather than its model envelope", async () => {
+	const node = document.createElement("div");
+	document.body.appendChild(node);
+	const root = createRoot(node);
+	const draft = "Complete draft that survives model truncation";
+	host.toolInfo = {
+		isSuccess: true,
+		output: { result: { __tedix_truncated: true } },
+		responseMetadata: { "tedix/widgetData": { draft } },
+	};
+	try {
+		await act(async () =>
+			root.render(
+				<TedixRenderer
+					spec={{
+						root: "draft",
+						elements: {
+							draft: {
+								type: "DraftPreview",
+								props: { body: { $state: "/draft" } },
+							},
+						},
+					}}
+				/>,
+			),
+		);
+		expect(node.textContent).toContain(draft);
+	} finally {
+		host.toolInfo = { isSuccess: true };
+		await act(async () => root.unmount());
+		node.remove();
+	}
+});

@@ -28,13 +28,23 @@ import {
 	DeckCardSkeleton,
 } from "@/components/deck-progress";
 import { LearnedToday } from "@/components/learned-today";
+import { DeckAttentionMetrics } from "@/components/deck-attention-metrics";
 import {
 	DeckRemainingContext,
 	DeckFooterContext,
 	DeckNoticeContext,
+	CardFaceContext,
 } from "@/components/deck-presentation-context";
 import { interactionCardKind } from "@/lib/interaction-card-kind";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
+import {
+	cardDecisionTiming,
+	cardFirstView,
+	readCardFirstView,
+	markCardDetails,
+	cardDetailsOpened,
+} from "@/lib/card-first-view";
+import { CardContextFeedback } from "@/components/card-context-feedback";
 import { useDeckViewport } from "@/lib/use-deck-viewport";
 import { useDecisionInstrumentation } from "@/lib/use-decision-instrumentation";
 import { DecisionClassCalibration } from "@/components/decision-class-calibration";
@@ -147,6 +157,7 @@ function DecisionDeckContent({
 		null,
 	);
 	const [kind, setKind] = useState("all");
+	const [contextQuestion, setContextQuestion] = useState<string | null>(null);
 	const [project, setProject] = useState("all");
 	const [urgency, setUrgency] = useState("all");
 	const [search, setSearch] = useState("");
@@ -185,7 +196,7 @@ function DecisionDeckContent({
 	const projectLabel = (id: string) =>
 		projectNames.get(id) ??
 		PROJECT_LABELS[id] ??
-		OS_COPY.decisionDeck.projectUnavailable;
+		(selectedProject.data?.id === id ? selectedProject.data.name : undefined);
 	const learningQuery = useQuery({
 		...osQuery.learningFeedback.listInteractions.queryOptions({
 			input: { scopeKind: "personal", limit: 200 },
@@ -392,6 +403,42 @@ function DecisionDeckContent({
 	const railOpenedBeforeDecision = selected
 		? (rail?.openedBefore(selected.id) ?? false)
 		: false;
+	const preparedCard = useQuery({
+		...osQuery.attention.getDeckCard.queryOptions({
+			input: {
+				cardId: selected?.id ?? "",
+				projectId: config.projectId,
+				limit: 100,
+			},
+		}),
+		enabled: mode === "decide" && !!selected,
+		staleTime: 60000,
+		refetchInterval: 30000,
+		retry: false,
+	});
+	const selectedSourceVersion =
+		selected?.row?.request.version ??
+		preparedCard.data?.factory?.revision ??
+		preparedCard.data?.workApproval?.proposal.version ??
+		null;
+	const selectedViewKey =
+		selected && profile.data?.id
+			? `${globalThis.location.host}:${profile.data.id}:${selected.id}:${selectedSourceVersion ?? "unversioned"}`
+			: null;
+	useEffect(() => {
+		if (mode === "decide" && selectedViewKey && railOpenedBeforeDecision)
+			markCardDetails(selectedViewKey);
+	}, [mode, selectedViewKey, railOpenedBeforeDecision]);
+	const selectedProject = useQuery({
+		...osQuery.projects.get.queryOptions({
+			input: { id: selected?.project ?? "" },
+		}),
+		enabled: Boolean(
+			selected?.project &&
+			/^[0-9a-f-]{36}$/i.test(selected.project) &&
+			!projectNames.has(selected.project),
+		),
+	});
 	const prefetchIds = filtered
 		.slice(
 			Math.max(
@@ -619,7 +666,21 @@ function DecisionDeckContent({
 				}
 			: null;
 
-	return createElement(
+	const preparedSourceMatches =
+		preparedCard.data?.id === selected?.id &&
+		(!selected?.row ||
+			preparedCard.data?.interaction?.request.version ===
+				selected.row.request.version);
+	const faceState =
+		mode === "decide"
+			? {
+					presentation: preparedSourceMatches
+						? (preparedCard.data?.presentation ?? null)
+						: null,
+					confidence: selected?.decision?.confidence ?? null,
+				}
+			: null;
+	const content = createElement(
 		DecisionLearningContext.Provider,
 		{
 			value:
@@ -628,66 +689,112 @@ function DecisionDeckContent({
 					: null,
 		},
 		<DecisionAttentionContext.Provider
-			value={(choice) => {
-				if (mode !== "decide" || !selected) return;
-				if (choice.learningClientEventId)
-					setSessionLearningId(choice.learningClientEventId);
-				const intent =
-					choice.intent ??
-					current?.options.find((option) => option.id === choice.action)
-						?.intent ??
-					"approve";
-				const eventKey =
-					choice.signal === "shown"
-						? crypto.subtle
-								.digest(
-									"SHA-256",
-									new TextEncoder().encode(
-										`${profile.data?.id}:${selected.id}:${now.toISOString().slice(0, 10)}`,
-									),
-								)
-								.then(
-									(hash) =>
-										`deck-shown:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
-								)
-						: Promise.resolve(`deck-action:${crypto.randomUUID()}`);
-				void eventKey
-					.then((clientEventId) =>
-						osApi.learningFeedback.recordInteraction({
-							clientEventId,
-							signalClass: choice.signal === "shown" ? "lifecycle" : "quality",
-							eventKind:
+			value={
+				profile.data?.id
+					? (choice) => {
+							if (mode !== "decide" || !selected) return;
+							const sourceVersion = selectedSourceVersion;
+							const viewKey = selectedViewKey!;
+							if (choice.signal === "opened_details") {
+								markCardDetails(viewKey);
+								return;
+							}
+							const firstViewedAt =
 								choice.signal === "shown"
-									? "delivered"
-									: choice.signal === "rejected"
-										? "rejected"
-										: choice.signal === "edited"
-											? "edited"
-											: "accepted",
-							scope: { kind: "personal" },
-							surface:
+									? cardFirstView(viewKey)
+									: readCardFirstView(viewKey);
+							if (
+								choice.signal === "shown" &&
+								faceState?.presentation?.version === 2 &&
+								faceState.presentation.sourceFingerprint
+							)
+								void osApi.learningFeedback
+									.cardContextPrompt({
+										cardId: selected.id,
+										sourceFingerprint: faceState.presentation.sourceFingerprint,
+										projectId: config.projectId,
+										limit: 100,
+									})
+									.then(({ ask }) => {
+										if (ask) setContextQuestion(viewKey);
+									})
+									.catch(() => {});
+							if (choice.learningClientEventId)
+								setSessionLearningId(choice.learningClientEventId);
+							const intent =
+								choice.intent ??
+								current?.options.find((option) => option.id === choice.action)
+									?.intent ??
+								"approve";
+							const eventKey =
 								choice.signal === "shown"
-									? "decision_deck_shown"
-									: "decision_deck_action",
-							targetType: "decision",
-							targetId: selected.id,
-							metadata: {
-								answerSource: "os-decision-card",
-								routingPolicyVersion: DEFAULT_DECK_ROUTING.version,
-								decisionClass: classId ?? selected.kind,
-								decisionChoice: intent,
-								elapsedMs: choice.elapsedMs,
-								railOpenedBeforeDecision,
-							},
-						}),
-					)
-					.then(async () => {
-						await client.invalidateQueries({
-							queryKey: osQuery.learningFeedback.key(),
-						});
-					})
-					.catch(() => {});
-			}}
+									? crypto.subtle
+											.digest(
+												"SHA-256",
+												new TextEncoder().encode(
+													`${profile.data?.id}:${selected.id}:${now.toISOString().slice(0, 10)}`,
+												),
+											)
+											.then(
+												(hash) =>
+													`deck-shown:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
+											)
+									: Promise.resolve(`deck-action:${crypto.randomUUID()}`);
+							void eventKey
+								.then((clientEventId) =>
+									osApi.learningFeedback.recordInteraction({
+										clientEventId,
+										signalClass:
+											choice.signal === "shown" ? "lifecycle" : "quality",
+										eventKind:
+											choice.signal === "shown"
+												? "delivered"
+												: choice.signal === "rejected"
+													? "rejected"
+													: choice.signal === "edited"
+														? "edited"
+														: "accepted",
+										scope: { kind: "personal" },
+										surface:
+											choice.signal === "shown"
+												? "decision_deck_shown"
+												: "decision_deck_action",
+										targetType: "decision",
+										targetId: selected.id,
+										metadata: {
+											answerSource: "os-decision-card",
+											routingPolicyVersion: DEFAULT_DECK_ROUTING.version,
+											decisionClass: classId ?? selected.kind,
+											decisionChoice: intent,
+											cardAction: choice.action,
+											elapsedMs:
+												choice.signal === "shown"
+													? 0
+													: firstViewedAt === undefined
+														? choice.elapsedMs
+														: Math.max(
+																0,
+																(choice.decidedAt ?? Date.now()) -
+																	firstViewedAt,
+															),
+											...(firstViewedAt === undefined ? {} : { firstViewedAt }),
+											sourceVersion,
+											railOpenedBeforeDecision:
+												railOpenedBeforeDecision ||
+												cardDetailsOpened(viewKey) ||
+												choice.detailsOpened === true,
+										},
+									}),
+								)
+								.then(async () => {
+									await client.invalidateQueries({
+										queryKey: osQuery.learningFeedback.key(),
+									});
+								})
+								.catch(() => {});
+						}
+					: null
+			}
 		>
 			<div
 				ref={deckRoot}
@@ -695,6 +802,11 @@ function DecisionDeckContent({
 				data-workspace-app-entry="decision-deck"
 			>
 				<DecisionLearningFeedback eventId={sessionLearningId} />
+				{mode === "decide" &&
+					selected &&
+					contextQuestion === selectedViewKey && (
+						<CardContextFeedback key={selected.id} cardId={selected.id} />
+					)}
 				<DecisionContextToolbar
 					filters={
 						<div className="fd-deck-filters">
@@ -936,7 +1048,11 @@ function DecisionDeckContent({
 															metadata: {
 																decisionClass: classId ?? selected.kind,
 																decisionChoice: "later",
-																railOpenedBeforeDecision,
+																...cardDecisionTiming(selectedViewKey),
+																sourceVersion: selectedSourceVersion,
+																railOpenedBeforeDecision:
+																	railOpenedBeforeDecision ||
+																	cardDetailsOpened(selectedViewKey),
 																reaction: "skip",
 																projectId: selected.project,
 															},
@@ -996,6 +1112,14 @@ function DecisionDeckContent({
 										>
 											{mode === "history" ? (
 												<WorkDecisionCard
+													revisionTarget={
+														selected.row
+															? {
+																	requestId: selected.row.request.id,
+																	version: selected.row.request.version,
+																}
+															: undefined
+													}
 													kind={current?.kind ?? "decision"}
 													title={selected.label}
 													askedBy={
@@ -1037,6 +1161,14 @@ function DecisionDeckContent({
 													current.kind === "decision" ||
 													current.options.some((option) => option.effect)) ? (
 												<DecisionEnvelopeCard
+													revisionTarget={
+														selected.row
+															? {
+																	requestId: selected.row.request.id,
+																	version: selected.row.request.version,
+																}
+															: undefined
+													}
 													decision={current}
 													defaultLowStakesToDelegate={
 														config.defaultLowStakesToDelegate
@@ -1163,10 +1295,8 @@ function DecisionDeckContent({
 						/>
 					))
 				)}
-				<DecisionContextSection
-					sectionId="style"
-					title="Learning your preferences"
-				>
+				<DecisionContextSection sectionId="style" title="Results and learning">
+					<DeckAttentionMetrics />
 					<LearnedToday />
 					{mode === "decide" && classId && (
 						<DecisionClassCalibration
@@ -1182,4 +1312,5 @@ function DecisionDeckContent({
 			</div>
 		</DecisionAttentionContext.Provider>,
 	);
+	return createElement(CardFaceContext.Provider, { value: faceState }, content);
 }

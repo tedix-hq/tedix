@@ -1,7 +1,8 @@
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
-import { act } from "react";
+import { act, useContext } from "react";
+import { ProposerContext } from "./feed-deck-primitives";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vite-plus/test";
@@ -9,6 +10,7 @@ import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decisio
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { DECISION_DECK_EXAMPLES } from "../../dev/decision-deck-fixture";
 import { DecisionDeckApp } from "./decision-deck-app";
+import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import {
 	osQuery,
 	pendingApprovalsQueryOptions,
@@ -60,12 +62,16 @@ vi.mock("./work-interaction-decision-card", () => ({
 	}: {
 		requestId: string;
 		onNext: () => void;
-	}) => (
-		<>
-			<p>Live request {requestId}</p>
-			<button onClick={onNext}>Skip linked preview</button>
-		</>
-	),
+	}) => {
+		const proposer = useContext(ProposerContext);
+		return (
+			<>
+				<p>Live request {requestId}</p>
+				<p>{proposer.project}</p>
+				<button onClick={onNext}>Skip linked preview</button>
+			</>
+		);
+	},
 }));
 let root: ReturnType<typeof createRoot>;
 let client: QueryClient;
@@ -83,6 +89,7 @@ async function mount(
 	input: {
 		rows?: ReturnType<typeof WorkInteractionInboxRowSchema.parse>[];
 		budget?: number;
+		project?: { id: string; name: string };
 	} = {},
 ) {
 	client = new QueryClient({
@@ -126,6 +133,29 @@ async function mount(
 			observedAt: new Date().toISOString(),
 		},
 	);
+	for (const row of input.rows ?? [])
+		client.setQueryData(
+			osQuery.attention.getDeckCard.queryOptions({
+				input: { cardId: row.request.id, projectId: undefined, limit: 100 },
+			}).queryKey,
+			{
+				id: row.request.id,
+				kind: "proposal",
+				label: row.request.subject,
+				project: row.request.projectId ?? "Unfiled",
+				urgency: "later",
+				decision: null,
+				source: "/work",
+				requestedAt: row.request.requestedAt,
+				dueAt: row.request.dueAt,
+				score: 0,
+				interaction: row,
+				presentation:
+					DecisionCardPresentationSchema.safeParse(
+						row.request.metadata.cardPresentation,
+					).data ?? null,
+			},
+		);
 	for (const state of ["open", "resolved"] as const)
 		client.setQueryData(
 			osQuery.workInteractions.listInbox.queryOptions({
@@ -157,6 +187,26 @@ async function mount(
 		data: [],
 		pagination: { limit: 100, offset: 0, total: 0, hasMore: false },
 	});
+	if (input.project)
+		client.setQueryData(
+			osQuery.projects.get.queryOptions({ input: { id: input.project.id } })
+				.queryKey,
+			{
+				...input.project,
+				orgId: "22222222-2222-4222-8222-222222222222",
+				key: "PART",
+				description: null,
+				status: "active",
+				leadTediId: null,
+				ownerUserId: null,
+				objectiveId: null,
+				targetDate: null,
+				metadata: null,
+				createdAt: "2026-10-19T00:00:00.000Z",
+				updatedAt: null,
+				archivedAt: null,
+			},
+		);
 	client.setQueryData(userProfileQueryOptions().queryKey, {
 		id: "fictional-acme-user",
 		email: "morgan@example.com",
@@ -369,7 +419,7 @@ const linkedRow = (id: string, subject: string, canRespond = true) =>
 		responseCount: 0,
 	});
 
-it("keeps the complete outbound draft inline when generated card copy summarizes it", async () => {
+it("keeps the exact outbound draft in Details when the short face summarizes it", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("No live requests in the fixture"),
 	);
@@ -396,8 +446,17 @@ it("keeps the complete outbound draft inline when generated card copy summarizes
 		},
 	};
 	await mount({ rows: [row] });
-	expect(host.textContent).toContain("Hello Morgan,");
-	expect(host.textContent).toContain(
+	expect(host.textContent).toContain("A short generated summary.");
+	expect(host.textContent).not.toContain("Hello Morgan,");
+	await act(async () =>
+		(
+			Array.from(host.querySelectorAll("button")).find(
+				(button) => button.textContent === "Details",
+			) as HTMLButtonElement
+		).click(),
+	);
+	expect(document.body.textContent).toContain("Hello Morgan,");
+	expect(document.body.textContent).toContain(
 		"The revised date is Friday. No discount has been promised.",
 	);
 	expect(host.querySelector(".fd-proposal-more")).toBeNull();
@@ -475,4 +534,33 @@ it("keeps critical and valuable cards available without browser batch state", as
 	expect(
 		Object.keys(sessionStorage).some((key) => key.startsWith("decision-deck:")),
 	).toBe(false);
+});
+
+it("resolves the selected project even when it is outside the first project-list page", async () => {
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Review the fictional proposal",
+	);
+	const project = {
+		id: "55555555-5555-4555-8555-555555555555",
+		name: "Partner research",
+	};
+	row.request.projectId = project.id;
+	await mount({ rows: [row], project });
+	expect(host.textContent).toContain("Partner research");
+	expect(host.textContent).not.toContain("Project unavailable");
+});
+
+it("omits a missing or inaccessible project instead of labelling the card unavailable", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("Project inaccessible"),
+	);
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Review the fictional proposal",
+	);
+	row.request.projectId = "55555555-5555-4555-8555-555555555555";
+	await mount({ rows: [row] });
+	expect(host.textContent).toContain(`Live request ${row.request.id}`);
+	expect(host.textContent).not.toContain("Project unavailable");
 });

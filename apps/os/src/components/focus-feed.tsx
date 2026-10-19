@@ -27,6 +27,12 @@ import { FocusRowActions } from "./focus-row-actions";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "./kumo/collapsible";
+import { decisionCardFaceText } from "@tedix/api-contract/utils/decision-card-copy";
 import { SegmentedControl } from "./kumo/segmented-control";
 import { osApi } from "@/lib/api";
 import { osQuery, userPreferencesQueryOptions } from "@/lib/os-query-options";
@@ -932,21 +938,7 @@ function FocusRow({
 			}}
 		>
 			{item.needsAction ? (
-				<article aria-label={item.sentence} className="focus-decision-row">
-					<Link
-						variant="record"
-						className="focus-story"
-						href={`/work?view=deck#card=${encodeURIComponent(item.id.replace(/^decision:/, ""))}`}
-					>
-						{item.sentence}
-					</Link>
-					<p className="focus-meta">
-						{project ?? actor} ·{" "}
-						<time dateTime={item.at} title={absoluteTime(item.at)}>
-							{relativeTime(item.at)}
-						</time>
-					</p>
-				</article>
+				<FocusDecisionRow item={item} actor={actor} project={project} />
 			) : (
 				<FeedCard
 					item={item}
@@ -961,5 +953,68 @@ function FocusRow({
 			{item.because && <p className="focus-because">{item.because}</p>}
 			{item.needsAction && <FocusRowActions actions={actions} />}
 		</div>
+	);
+}
+
+function FocusDecisionRow({
+	item,
+	actor,
+	project,
+}: {
+	item: FocusItem;
+	actor: string;
+	project?: string;
+}) {
+	const decisionCardId = ["decision", "approval"].includes(item.kind)
+		? item.id.replace(/^decision:/, "")
+		: undefined;
+	const face = useQuery({
+		...osQuery.attention.getDeckCard.queryOptions({
+			input: { cardId: item.id.replace(/^decision:/, ""), limit: 100 },
+		}),
+		enabled: item.needsAction && !!decisionCardId && !item.presentation,
+		staleTime: 60000,
+		retry: false,
+	});
+	const presentation = item.presentation ?? face.data?.presentation;
+	const faceText =
+		item.faceText ??
+		face.data?.faceText ??
+		decisionCardFaceText(presentation, face.data?.decision?.confidence ?? null);
+	return (
+		<article
+			aria-label={presentation?.title ?? "Review this request"}
+			className="focus-decision-row"
+		>
+			<Link
+				variant="record"
+				className="focus-story"
+				href={
+					decisionCardId
+						? `/work?view=deck#card=${encodeURIComponent(decisionCardId)}`
+						: item.source
+				}
+			>
+				{presentation?.title ??
+					(decisionCardId ? "Preparing a shorter summary…" : item.sentence)}
+			</Link>
+			{presentation && (
+				<p className="whitespace-pre-line">
+					{faceText.split("\n").slice(1).join("\n")}
+				</p>
+			)}
+			<p className="focus-meta">
+				<time dateTime={item.at} title={absoluteTime(item.at)}>
+					{relativeTime(item.at)}
+				</time>
+			</p>
+			<Collapsible className="relative z-1">
+				<CollapsibleTrigger>Details</CollapsibleTrigger>
+				<CollapsibleContent>
+					<p>{project ?? actor}</p>
+					<Link href={item.source}>Original request</Link>
+				</CollapsibleContent>
+			</Collapsible>
+		</article>
 	);
 }

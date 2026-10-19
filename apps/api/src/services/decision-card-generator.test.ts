@@ -34,7 +34,12 @@ it("uses the recipient's style and configured model without generating authority
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
 	).toMatchObject({ ...copy, model: copySpec.modelRef });
-	expect(mocks.preferences).toHaveBeenCalledWith({}, "fictional", "robin");
+	expect(mocks.preferences).toHaveBeenCalledWith(
+		{},
+		"fictional",
+		"robin",
+		undefined,
+	);
 	expect(mocks.model.mock.calls[0]?.[2]).toMatchObject({
 		model: copySpec.modelRef,
 		orgId: "fictional",
@@ -501,4 +506,20 @@ it("retains the model's structured unknown-effect signal without inventing an ac
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
 	).toMatchObject({ effectStatus: "unknown" });
+});
+
+it("keeps secrets out of model inputs and never resubmits secret-bearing output for repair", async () => {
+	const secret = "fc-" + "fictional".repeat(5);
+	const context = { db: {}, env: {} } as never;
+	expect(
+		await generateDecisionCard(context, { ...request, prompt: secret }),
+	).toBeNull();
+	expect(mocks.model).not.toHaveBeenCalled();
+	mocks.preferences.mockResolvedValue(secret);
+	expect(await generateDecisionCard(context, request)).toBeNull();
+	expect(mocks.model).not.toHaveBeenCalled();
+	mocks.preferences.mockResolvedValue("");
+	mocks.model.mockResolvedValue(JSON.stringify({ ...copy, body: secret }));
+	expect(await generateDecisionCard(context, request)).toBeNull();
+	expect(mocks.model).toHaveBeenCalledTimes(1);
 });

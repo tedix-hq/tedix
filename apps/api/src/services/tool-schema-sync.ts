@@ -1,3 +1,4 @@
+import attentionAppViews from "@tedix/api-contract/assets/attention-app-views.v2.json";
 import { TEDI_DURABLE_CODE_TRANSPORT_TIMEOUT_MS } from "@tedix/api-contract/schemas/tedi-durable-code";
 import type {
 	ToolSchemaSyncInput,
@@ -258,6 +259,7 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/outputs/library": "list_os_output_library",
 	"osWorkspaces/outputs/create": "create_os_output",
 	"osWorkspaces/outputs/get": "get_os_output",
+	"osWorkspaces/outputs/history": "get_os_output_history",
 	"osWorkspaces/outputs/rename": "rename_os_output",
 	"osWorkspaces/outputs/revise": "revise_os_output",
 	"osWorkspaces/outputs/patchDocument": "patch_os_document",
@@ -372,6 +374,7 @@ export const OS_KIND_OVERRIDES: Record<
 	"osWorkspaces/outputs/library": "read",
 	"osWorkspaces/outputs/create": "write",
 	"osWorkspaces/outputs/get": "read",
+	"osWorkspaces/outputs/history": "read",
 	"osWorkspaces/outputs/rename": "write",
 	"osWorkspaces/outputs/revise": "write",
 	"osWorkspaces/outputs/patchDocument": "write",
@@ -647,6 +650,8 @@ export const GRAPH_GOVERNANCE_KIND_OVERRIDES: Record<
  */
 export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"attention/listDeckCards": "list_deck_cards",
+	"attention/showDeck": "show_deck",
+	"attention/showFeed": "show_feed",
 	"attention/getDeckCard": "get_deck_card",
 	"attention/decideDeckCard": "decide_deck_card",
 	"attention/listFeedForYou": "list_feed_for_you",
@@ -712,6 +717,9 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workInteractions/create": "create_work_interaction",
 	"workInteractions/refreshDecisionSources": "refresh_decision_sources",
 	"workInteractions/regenerateCard": "regenerate_decision_card",
+	"workInteractions/cardHistory": "get_card_revision_history",
+	"workInteractions/requestCardChanges": "request_card_changes",
+	"workInteractions/reviseCard": "revise_decision_card",
 	"workInteractions/outbound/submit": "submit_outbound_draft",
 	"workInteractions/outbound/review": "review_outbound_draft",
 	"workInteractions/outbound/requestReview": "request_outbound_review",
@@ -772,6 +780,8 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"read" | "write" | "destructive"
 > = {
 	"attention/listDeckCards": "read",
+	"attention/showDeck": "read",
+	"attention/showFeed": "read",
 	"attention/getDeckCard": "read",
 	"attention/decideDeckCard": "write",
 	"attention/listFeedForYou": "read",
@@ -820,6 +830,8 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workInteractions/create": "write",
 	"workInteractions/refreshDecisionSources": "write",
 	"workInteractions/regenerateCard": "write",
+	"workInteractions/requestCardChanges": "write",
+	"workInteractions/reviseCard": "write",
 	"workInteractions/outbound/submit": "write",
 	"workInteractions/outbound/review": "write",
 	"workInteractions/outbound/requestReview": "write",
@@ -885,6 +897,8 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
  */
 export const AGENT_TURN_TRIAGE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"learningFeedback/model": "get_decision_learning",
+	"learningFeedback/cardContext": "record_card_context",
+	"learningFeedback/cardContextPrompt": "record_card_context_view",
 	"learningFeedback/configure": "configure_decision_learning",
 	"learningFeedback/correct": "correct_decision_learning",
 	"agentTurnTriage/triage": "triage_agent_turn",
@@ -914,6 +928,8 @@ export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
 	"read" | "write" | "destructive"
 > = {
 	"learningFeedback/model": "read",
+	"learningFeedback/cardContext": "write",
+	"learningFeedback/cardContextPrompt": "write",
 	"learningFeedback/configure": "write",
 	"learningFeedback/correct": "write",
 	"agentTurnTriage/triage": "read",
@@ -1322,9 +1338,15 @@ function mergeGeneratedConfig(
 			? { method: endpoint.route.method.toUpperCase() }
 			: {}),
 	};
-	// A generated projection must retain the explicitly reviewed native opt-in.
-	// Other config remains contract-derived; truthy values do not grant access.
-	if (existingConfig.nativeDirect === true) nextConfig.nativeDirect = true;
+	// Preserve stored opt-ins and the versioned attention asset’s reviewed native calls.
+	// Native dispatch still enforces the caller’s endpoint scopes.
+	if (
+		existingConfig.nativeDirect === true ||
+		attentionAppViews.nativeDirectEndpoints.includes(
+			`${endpoint.router}/${endpoint.procPath}`,
+		)
+	)
+		nextConfig.nativeDirect = true;
 
 	if (
 		endpoint.router === "tedis" &&
@@ -1359,7 +1381,13 @@ function mergeGeneratedConfig(
 	}
 
 	// Keep hand-authored widget projections attached to the tool row.
-	for (const key of ["layoutId", "layoutSpec", "responseMap", "staticOutput"]) {
+	for (const key of [
+		"layoutId",
+		"layoutSpec",
+		"responseMap",
+		"staticOutput",
+		"modelSummaryTemplate",
+	]) {
 		if (existingConfig[key] !== undefined)
 			nextConfig[key] = existingConfig[key];
 	}
@@ -1367,6 +1395,8 @@ function mergeGeneratedConfig(
 	if (widgetOverride) {
 		nextConfig.layoutId = widgetOverride.layoutId;
 		nextConfig.layoutSpec = widgetOverride.layoutSpec;
+		if (`${endpoint.router}/${endpoint.procPath}` in attentionAppViews.views)
+			nextConfig.modelSummaryTemplate = "{markdown}";
 	}
 
 	return nextConfig;
@@ -1986,6 +2016,7 @@ export function resolveEffectiveToolSchemaSyncOptions(
 				},
 				widgetOverrides: {
 					...WORKFLOW_CATALOG_WIDGET_OVERRIDES,
+					...attentionAppViews.views,
 					...options.widgetOverrides,
 				},
 			}

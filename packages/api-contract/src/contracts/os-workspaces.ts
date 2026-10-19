@@ -2,6 +2,7 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import { FactoryCardPendingRevisionSchema } from "../schemas/card-revisions";
 import {
 	WorkspaceFileMetadataSchema,
 	WorkspaceFileReferenceSchema,
@@ -1076,6 +1077,25 @@ export const osWorkspacesContract = oc
 					z.object({
 						output: OsOutputSchema,
 						revision: OsOutputRevisionSchema,
+					}),
+				),
+			history: oc
+				.route({
+					summary:
+						"Read immutable output versions with source access checked for every version",
+				})
+				.input(
+					z.strictObject({
+						outputId: z.uuid(),
+						beforeRevision: z.number().int().positive().optional(),
+						revision: z.number().int().positive().optional(),
+					}),
+				)
+				.output(
+					z.strictObject({
+						revisions: z.array(OsOutputRevisionSchema),
+						nextBeforeRevision: z.number().int().positive().nullable(),
+						pending: z.array(FactoryCardPendingRevisionSchema),
 					}),
 				),
 			get: oc

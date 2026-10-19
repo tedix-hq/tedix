@@ -71,7 +71,7 @@ try {
 					throw new Error(
 						"Work did not land on the configured Deck in the member's locale",
 					);
-				if (!text.includes("Luz · Inbox follow-up"))
+				if (!text.includes("Review Luz's inbox follow-up?"))
 					throw new Error("Member's own factory card is missing");
 				if (text.includes("PRIVATE_OWNER_SENTINEL"))
 					throw new Error("Another person's private card leaked");
@@ -127,7 +127,7 @@ try {
 					() =>
 						!document
 							.querySelector(".fd-decision")
-							?.textContent?.includes("Luz · Inbox follow-up"),
+							?.textContent?.includes("Review Luz's inbox follow-up?"),
 				);
 				const keys = await page.evaluate(() => Object.keys(localStorage));
 				if (

@@ -82,7 +82,7 @@ const envelope: DecisionEnvelope = {
 	],
 };
 
-async function fixture(decision = envelope) {
+async function fixture(decision = envelope, cardContent?: string) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
@@ -173,7 +173,10 @@ async function fixture(decision = envelope) {
 		creator: { type: "user", id: "person" },
 		targetType: "user",
 		targetId: "person",
-		metadata: { decisionDeck: decision },
+		metadata: {
+			decisionDeck: decision,
+			...(cardContent ? { cardContent } : {}),
+		},
 		now: new Date().toISOString(),
 	});
 	const input: Omit<RespondWorkInteractionParams, "id" | "now"> = {
@@ -195,6 +198,19 @@ async function fixture(decision = envelope) {
 }
 
 describe("decision card effects", () => {
+	it("refuses to execute an old effect after the written proposal is revised", async () => {
+		const f = await fixture(
+			envelope,
+			"A revised proposal that needs a source review",
+		);
+		await expect(
+			executeDecisionCardEffect(f.context, f.input),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM work_item_comments").get()?.n,
+		).toBe(0);
+		f.sqlite.close();
+	});
 	it("creates an owner task with the unsent draft and never sends a message", async () => {
 		const decision = structuredClone(envelope);
 		decision.kind = "proposal";

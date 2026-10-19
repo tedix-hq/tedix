@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import type { CardRevisionTarget } from "@/components/card-revision-panel";
 import { DecisionProposalBody } from "@/components/decision-proposal-body";
 import type { DecisionEnvelope } from "@tedix/api-contract/schemas/os-decision-deck";
 import {
@@ -12,6 +13,7 @@ import { OS_COPY, decisionText } from "@/shared/os-copy";
 export function DecisionEnvelopeCard({
 	decision,
 	askedBy,
+	revisionTarget,
 	disabled,
 	defaultLowStakesToDelegate = true,
 	onDecision,
@@ -20,6 +22,7 @@ export function DecisionEnvelopeCard({
 }: {
 	decision: DecisionEnvelope;
 	askedBy: string;
+	revisionTarget?: CardRevisionTarget;
 	disabled?: boolean;
 	defaultLowStakesToDelegate?: boolean;
 	onDecision: (
@@ -44,6 +47,7 @@ export function DecisionEnvelopeCard({
 			kind={decision.kind}
 			title={decision.proposal}
 			askedBy={askedBy}
+			revisionTarget={revisionTarget}
 			body={decision.preview?.body ?? decision.recommendation}
 			disabled={disabled}
 			allowEdits={!decision.options.some((option) => option.effect)}

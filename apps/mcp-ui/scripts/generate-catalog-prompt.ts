@@ -11,11 +11,14 @@ import { writeFileSync } from "node:fs";
 import { tedixCatalog, getTediJsonSchema } from "../src/json-render/catalog";
 import { yamlPrompt } from "@json-render/yaml";
 
-const jsonlPrompt = tedixCatalog.prompt();
-const yamlPrt = yamlPrompt(tedixCatalog, {
-	mode: "standalone",
-	editModes: ["merge", "patch", "diff"],
-});
+const decisionGuidance =
+	'\nDecision views: use DecisionCard with ASK, IF YES, WHY and optional STAKES from source copy; DraftPreview shows the complete draft. Repeat cards in SwipeStack or Stack; put OptionList and spec-declared ActionButtons in each card. Critical actions link to the OS for step-up. For call_tool, optional textPath/textArgumentPath bind required user input and statusPath provides optimistic save/rollback. toolPrefix comes from /ui/toolPrefix for sibling tool calls in aggregate hosts. In action params a direct $item expression resolves to a state path; to pass its value use { $cond: true, $then: { $item: "field" }, $else: null }. Never infer consent from provenance.\n';
+const jsonlPrompt = tedixCatalog.prompt() + decisionGuidance;
+const yamlPrt =
+	yamlPrompt(tedixCatalog, {
+		mode: "standalone",
+		editModes: ["merge", "patch", "diff"],
+	}) + decisionGuidance;
 const components = tedixCatalog.componentNames;
 const actions = tedixCatalog.actionNames;
 const jsonSchema = getTediJsonSchema();

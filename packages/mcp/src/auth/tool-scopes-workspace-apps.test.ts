@@ -8,6 +8,8 @@ import {
 // remains a floor when a catalog row loses or misreports effect metadata.
 const cases = [
 	["attention/listDeckCards", "list_deck_cards", "read", "mcp:messaging.read"],
+	["attention/showDeck", "show_deck", "read", "mcp:messaging.read"],
+	["attention/showFeed", "show_feed", "read", "mcp:messaging.read"],
 	["attention/getDeckCard", "get_deck_card", "read", "mcp:messaging.read"],
 	[
 		"attention/listFeedForYou",
