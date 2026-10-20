@@ -1,3 +1,4 @@
+import { Link } from "@/components/kumo/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { z } from "zod";
 import type { PersonalReadConsentConfigSchema } from "@tedix/api-contract/schemas/os-workspaces";
@@ -92,8 +93,8 @@ export function PersonalReadConsentApp({
 				{allow.data && allow.data.length > 0 && (
 					<Text>
 						Connect your {allow.data.join(" and ")} in{" "}
-						<a href="/account/connections">Settings → Connections</a>, then
-						return here.
+						<Link href="/account/connections">Settings → Connections</Link>,
+						then return here.
 					</Text>
 				)}
 				{(allow.error || grants.error) && (

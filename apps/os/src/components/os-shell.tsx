@@ -1,3 +1,4 @@
+import { Kbd } from "@/components/kumo/kbd";
 import { OsSettingsFrame } from "@/components/os-settings-frame";
 import { useOsLocale } from "@/lib/use-os-locale";
 import { WorkActorDirectory } from "@/components/work-actor-directory";
@@ -164,9 +165,7 @@ function OsSidebar({
 					>
 						<MagnifyingGlass size={16} />
 						<span>Quick search…</span>
-						<kbd className="ml-auto text-kumo-subtle type-tedix-caption">
-							⌘K
-						</kbd>
+						<Kbd className="ml-auto">⌘K</Kbd>
 					</Button>
 				)}
 
@@ -242,7 +241,7 @@ function TopbarSearch({ onOpenPalette }: { onOpenPalette: () => void }) {
 		>
 			<MagnifyingGlass size={15} />
 			<span>Search</span>
-			<kbd>⌘K</kbd>
+			<Kbd>⌘K</Kbd>
 		</Button>
 	);
 }

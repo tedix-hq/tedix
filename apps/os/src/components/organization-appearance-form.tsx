@@ -61,7 +61,7 @@ function PaletteField({
 				{label}
 			</span>
 			<span className="flex items-center gap-2 rounded-lg bg-kumo-control p-1 ring ring-kumo-line">
-				<input
+				<Input
 					aria-label={`${label} color`}
 					className="size-7 shrink-0 cursor-pointer rounded border-0 bg-transparent p-0 max-sm:size-11 coarse:size-11"
 					type="color"

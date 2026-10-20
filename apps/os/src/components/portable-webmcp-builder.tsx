@@ -1,3 +1,4 @@
+import { Checkbox } from "@/components/kumo/checkbox";
 import type { PortableWebMcpProfile } from "@tedix/api-contract/schemas/portable-webmcp";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -344,41 +345,40 @@ function InstallationEditor({
 									: undefined;
 							return (
 								<Surface key={tool.callable} className="grid gap-2 p-3">
-									<label className="flex gap-2">
-										<input
-											type="checkbox"
-											checked={checked}
-											disabled={
-												tool.writeCapability === "write" &&
-												(!actionDraft.prepareCallable ||
-													!actionDraft.convergeCallable)
-											}
-											onChange={(event) =>
-												updateRoute(routeIndex, (item) => ({
-													...item,
-													tools: event.target.checked
-														? [
-																...item.tools,
-																buildPortableCatalogTool(tool, action),
-															]
-														: item.tools.filter(
-																(entry) => entry.callable !== tool.callable,
-															),
-												}))
-											}
-										/>
-										<span>
-											<strong>
-												{tool.title ?? tool.toolId}
-												{tool.writeCapability === "write"
-													? " · confirmed write"
-													: ""}
-											</strong>
-											<span className="block text-kumo-subtle type-tedix-label">
-												{tool.description ?? tool.callable}
+									<Checkbox
+										label={
+											<span>
+												<strong>
+													{tool.title ?? tool.toolId}
+													{tool.writeCapability === "write"
+														? " · confirmed write"
+														: ""}
+												</strong>
+												<span className="block text-kumo-subtle type-tedix-label">
+													{tool.description ?? tool.callable}
+												</span>
 											</span>
-										</span>
-									</label>
+										}
+										checked={checked}
+										disabled={
+											tool.writeCapability === "write" &&
+											(!actionDraft.prepareCallable ||
+												!actionDraft.convergeCallable)
+										}
+										onCheckedChange={(nextChecked) =>
+											updateRoute(routeIndex, (item) => ({
+												...item,
+												tools: nextChecked
+													? [
+															...item.tools,
+															buildPortableCatalogTool(tool, action),
+														]
+													: item.tools.filter(
+															(entry) => entry.callable !== tool.callable,
+														),
+											}))
+										}
+									/>
 									{tool.writeCapability === "write" && (
 										<div className="grid gap-2">
 											<Select
@@ -489,23 +489,18 @@ function InstallationEditor({
 						(item) => item.installationId !== configuration.installationId,
 					)
 					.map((item) => (
-						<label
+						<Checkbox
 							key={item.installationId}
-							className="flex items-center gap-2"
-						>
-							<input
-								type="checkbox"
-								checked={rolloutIds.includes(item.installationId)}
-								onChange={(event) =>
-									setRolloutIds((current) =>
-										event.target.checked
-											? [...current, item.installationId]
-											: current.filter((id) => id !== item.installationId),
-									)
-								}
-							/>
-							Tenant {item.externalTenantId} · revision {item.revision}
-						</label>
+							label={`Tenant ${item.externalTenantId} · revision ${item.revision}`}
+							checked={rolloutIds.includes(item.installationId)}
+							onCheckedChange={(checked) =>
+								setRolloutIds((current) =>
+									checked
+										? [...current, item.installationId]
+										: current.filter((id) => id !== item.installationId),
+								)
+							}
+						/>
 					))}
 			</Surface>
 			<div className="flex flex-wrap gap-2">

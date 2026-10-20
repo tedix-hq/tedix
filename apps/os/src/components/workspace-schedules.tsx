@@ -208,8 +208,8 @@ function PersonalReadControl({
 		return (
 			<Text as="p" role="label" className="m-0" data-schedule-personal-read>
 				Connect your {access.providerName} first in{" "}
-				<a href="/account/connections">Settings → Connections</a>, then come
-				back here.
+				<Link href="/account/connections">Settings → Connections</Link>, then
+				come back here.
 			</Text>
 		);
 	}
