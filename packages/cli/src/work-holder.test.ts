@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderWorkItemsTable, workItemHolderLabel } from "./work";
+import { renderWorkItemsTable, workItemHolderLabel } from "./work-render";
 
 /**
  * `work list` used to print ID, KIND, DISPOSITION, RISK, PRI and TITLE — every
