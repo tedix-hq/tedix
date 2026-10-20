@@ -988,28 +988,19 @@ function DecisionDeckContent({
 							saving={saving}
 							leading={
 								mode === "decide" ? (
-									<>
-										<DeckAskStrip
-											card={selected}
-											staleDrafts={staleDrafts}
-											showingStale={kind === "drafted_not_sent"}
-											onShowStale={() => {
-												setKind(
-													kind === "drafted_not_sent"
-														? "all"
-														: "drafted_not_sent",
-												);
-												setIndex(0);
-											}}
-										/>
-										{!practiceMode && selected?.row?.request && (
-											<DeckNotUseful
-												key={`${selected.row.request.id}:${selected.row.request.version}`}
-												request={selected.row.request}
-												disabled={saving}
-											/>
-										)}
-									</>
+									<DeckAskStrip
+										card={selected}
+										staleDrafts={staleDrafts}
+										showingStale={kind === "drafted_not_sent"}
+										onShowStale={() => {
+											setKind(
+												kind === "drafted_not_sent"
+													? "all"
+													: "drafted_not_sent",
+											);
+											setIndex(0);
+										}}
+									/>
 								) : undefined
 							}
 						/>
@@ -1113,50 +1104,64 @@ function DecisionDeckContent({
 						>
 							<DeckFooterContext.Provider
 								value={
-									mode !== "history" &&
-									!current?.options.some(
-										(option) => option.intent === "later",
-									) && (
-										<ShortcutTooltip label={decisionText("Later")} shortcut="L">
-											<Button
-												variant="outline"
-												onClick={() => {
-													if (!practiceMode)
-														void osApi.learningFeedback
-															.recordInteraction({
-																clientEventId: crypto.randomUUID(),
-																eventKind: "ignored",
-																scope: { kind: "personal" },
-																surface: "decision_deck",
-																targetType: "work_interaction",
-																targetId: selected.id,
-																metadata: {
-																	decisionClass: classId ?? selected.kind,
-																	decisionChoice: "later",
-																	...cardDecisionTiming(selectedViewKey),
-																	sourceVersion: selectedSourceVersion,
-																	railOpenedBeforeDecision:
-																		railOpenedBeforeDecision ||
-																		cardDetailsOpened(selectedViewKey),
-																	reaction: "skip",
-																	projectId: selected.project,
-																},
-															})
-															.then(async (result) => {
-																if (!result.duplicate && result.event?.id)
-																	setSessionLearningId(result.event.id);
-																await client.invalidateQueries({
-																	queryKey: osQuery.learningFeedback.key(),
-																});
-															})
-															.catch(() => {});
-													next();
-												}}
-											>
-												{decisionText("Later")}
-											</Button>
-										</ShortcutTooltip>
-									)
+									<>
+										{!practiceMode &&
+											mode === "decide" &&
+											selected.row?.request && (
+												<DeckNotUseful
+													key={`${selected.row.request.id}:${selected.row.request.version}`}
+													request={selected.row.request}
+													disabled={saving}
+												/>
+											)}
+										{mode !== "history" &&
+											!current?.options.some(
+												(option) => option.intent === "later",
+											) && (
+												<ShortcutTooltip
+													label={decisionText("Later")}
+													shortcut="L"
+												>
+													<Button
+														variant="outline"
+														onClick={() => {
+															if (!practiceMode)
+																void osApi.learningFeedback
+																	.recordInteraction({
+																		clientEventId: crypto.randomUUID(),
+																		eventKind: "ignored",
+																		scope: { kind: "personal" },
+																		surface: "decision_deck",
+																		targetType: "work_interaction",
+																		targetId: selected.id,
+																		metadata: {
+																			decisionClass: classId ?? selected.kind,
+																			decisionChoice: "later",
+																			...cardDecisionTiming(selectedViewKey),
+																			sourceVersion: selectedSourceVersion,
+																			railOpenedBeforeDecision:
+																				railOpenedBeforeDecision ||
+																				cardDetailsOpened(selectedViewKey),
+																			reaction: "skip",
+																			projectId: selected.project,
+																		},
+																	})
+																	.then(async (result) => {
+																		if (!result.duplicate && result.event?.id)
+																			setSessionLearningId(result.event.id);
+																		await client.invalidateQueries({
+																			queryKey: osQuery.learningFeedback.key(),
+																		});
+																	})
+																	.catch(() => {});
+															next();
+														}}
+													>
+														{decisionText("Later")}
+													</Button>
+												</ShortcutTooltip>
+											)}
+									</>
 								}
 							>
 								{" "}

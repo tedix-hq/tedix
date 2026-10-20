@@ -14,6 +14,7 @@ import type { DelegationFyi } from "./delegation-autonomy";
 import { personalWorkFeedPredicate } from "./personal-feed";
 import {
 	type WorkItemDisposition,
+	type WorkItemKind,
 	workEvents,
 	workItems,
 } from "../../schema/work-items";
@@ -38,6 +39,7 @@ export interface WorkActivityRow {
 	id: string;
 	workItemId: string;
 	workItemTitle: string;
+	workItemKind: WorkItemKind;
 	workItemStatus: WorkItemDisposition;
 	eventType: string;
 	authorType: string;
@@ -136,6 +138,7 @@ export async function listWorkActivity(
 			id: workEvents.id,
 			workItemId: workEvents.workItemId,
 			workItemTitle: workItems.title,
+			workItemKind: workItems.workKind,
 			workItemStatus: workItems.disposition,
 			eventType: workEvents.eventType,
 			authorType: workEvents.actorType,
@@ -178,6 +181,7 @@ export async function listWorkActivity(
 			id: r.id,
 			workItemId: r.workItemId,
 			workItemTitle: r.workItemTitle,
+			workItemKind: r.workItemKind,
 			workItemStatus: r.workItemStatus,
 			eventType: r.eventType,
 			authorType: r.authorType,

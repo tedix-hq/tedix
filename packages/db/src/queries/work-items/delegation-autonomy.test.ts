@@ -14,9 +14,9 @@ import {
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(`CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, disposition TEXT NOT NULL, project_id TEXT, objective_id TEXT);
+	sqlite.exec(`CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, disposition TEXT NOT NULL, project_id TEXT, objective_id TEXT, work_kind TEXT NOT NULL);
 	CREATE TABLE work_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL, occurred_at TEXT NOT NULL);
-	INSERT INTO work_items VALUES ('research','org','Research','accepted','project',NULL);`);
+	INSERT INTO work_items VALUES ('research','org','Research','accepted','project',NULL,'coding');`);
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 const input = {

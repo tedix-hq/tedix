@@ -227,6 +227,34 @@ describe("activity feed", () => {
 	});
 });
 
+it("surfaces open incidents loudly while keeping closed incident bookkeeping quiet", async () => {
+	const { workFeedItems } =
+		await import("@tedix/api-contract/utils/activity-feed");
+	const { WorkActivityEventSchema } =
+		await import("@tedix/api-contract/schemas/work-items");
+	const event = WorkActivityEventSchema.parse({
+		id: "lag-alert",
+		workItemId: project,
+		workItemTitle: "Production is behind main",
+		workItemKind: "incident",
+		workItemDisposition: "proposed",
+		eventType: "work.created",
+		authorType: "system",
+		authorId: null,
+		agentSession: null,
+		agentHarness: null,
+		settlement: null,
+		body: "Production is behind main",
+		createdAt: now.toISOString(),
+	});
+	expect(workFeedItems([event], project)[0]?.importance).toBe("high");
+	for (const workItemDisposition of ["completed", "cancelled"] as const)
+		expect(
+			workFeedItems([{ ...event, workItemDisposition }], project)[0]
+				?.importance,
+		).toBe("low");
+});
+
 it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding authors", async () => {
 	const { workFeedItems } =
 		await import("@tedix/api-contract/utils/activity-feed");

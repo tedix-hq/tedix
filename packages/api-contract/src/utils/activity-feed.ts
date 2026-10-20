@@ -229,7 +229,9 @@ export function workFeedItems(
 			stalled: /blocked|expired|failed/.test(e.eventType),
 			importance: e.personalAgentContribution
 				? "normal"
-				: /blocked|failed/.test(e.eventType)
+				: /blocked|failed/.test(e.eventType) ||
+					  (e.workItemKind === "incident" &&
+							!["completed", "cancelled"].includes(e.workItemDisposition))
 					? "high"
 					: "low",
 			explanation: [
