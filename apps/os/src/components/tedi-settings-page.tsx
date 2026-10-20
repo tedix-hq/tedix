@@ -806,7 +806,7 @@ function IdentitySettingsForm({
 				form={form}
 				name="personality"
 				label="Personality"
-				description="Defines working style and tone; authority remains governed separately."
+				description="Defines working style and tone; what it may do is set separately."
 			>
 				{(field, meta) => <FormTextarea field={field} {...meta} rows={5} />}
 			</FormField>
@@ -934,7 +934,7 @@ function GovernanceSettingsForm({
 				</FormField>
 			))}
 			<Button type="submit" disabled={disabled}>
-				Save governance
+				Save
 			</Button>
 		</form>
 	);
@@ -1358,8 +1358,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 					Settings
 				</Text>
 				<Text role="body" tone="secondary">
-					Governed identity, runtime, credentials, devices, domains, and
-					lifecycle.
+					Identity, runtime, credentials, devices, domains, and lifecycle.
 				</Text>
 			</div>
 
@@ -1668,7 +1667,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 				</Card>
 				<Card>
 					<CardHeader>
-						<CardTitle>Governance & budgets</CardTitle>
+						<CardTitle>Spending and approvals</CardTitle>
 					</CardHeader>
 					<CardContent>
 						<BrowserConsoleSignIn

@@ -751,14 +751,14 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 	const governanceValue = eligibility.isPending
 		? "Checking readiness"
 		: eligibility.isError
-			? "Governance unavailable"
+			? "Readiness unavailable"
 			: governance?.badge === "ready"
-				? "Governance ready"
+				? "Ready to use"
 				: governance?.badge === "plan_upgrade"
 					? "Plan upgrade needed"
 					: governance
 						? "Setup needed"
-						: "Governance not evaluated";
+						: "Readiness not checked";
 	const healthValue = !serviceCheck
 		? "MCP service not checked"
 		: serviceCheck.status === "checking"
@@ -776,7 +776,7 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 					<SectionHeading>
 						<SectionTitle id="app-lifecycle-title">App lifecycle</SectionTitle>
 						<SectionDescription>
-							Installation, accounts, gateway access, governance, and health are
+							Installation, accounts, gateway access, readiness, and health are
 							independent states.
 						</SectionDescription>
 					</SectionHeading>
@@ -805,7 +805,7 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 							className="border-kumo-hairline border-t md:border-r"
 						/>
 						<LifecycleFact
-							label="Governance"
+							label="Readiness"
 							value={governanceValue}
 							detail="Readiness evaluates required connections, scopes, plans, entitlements, and tool policy."
 							className="border-kumo-hairline border-t"
@@ -827,7 +827,7 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 									? "Live inventory not checked"
 									: `${serviceCheck.toolCount.toLocaleString()} live ${serviceCheck.toolCount === 1 ? "tool" : "tools"}`
 							}
-							detail="Counts come from live gateway discovery, not stored governance inventory."
+							detail="Counts come from live gateway discovery, not a stored list."
 							className="border-kumo-hairline border-t"
 						/>
 					</dl>
