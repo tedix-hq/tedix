@@ -28,6 +28,7 @@ import {
 import {
 	WorkItemAggregateDispositionSchema,
 	WorkItemDispositionSchema,
+	WorkItemKindSchema,
 	WorkFactoryOwnerTypeSchema,
 	CredentialWorkActorTypeSchema,
 } from "../schemas/work-items";
@@ -279,6 +280,7 @@ const ProjectRollupSchema = z.object({
 	topLevelItems: z.array(
 		z.object({
 			id: z.string(),
+			workKind: WorkItemKindSchema,
 			title: z.string(),
 			disposition: WorkItemDispositionSchema,
 		}),
