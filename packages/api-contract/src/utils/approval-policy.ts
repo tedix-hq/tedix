@@ -182,16 +182,22 @@ export function nativeToolActionContent(name: string, args: unknown): string {
 		: name;
 }
 
+/**
+ * Pasted one-line commit subjects ("abc1234 fix(auth): ...") are quoted data,
+ * not instructions; action classifiers read the request without them.
+ */
+export function withoutQuotedCommitSubjects(content: string): string {
+	return content.replace(
+		/^[ \t]*[0-9a-f]{7,40}[ \t]+[a-z]+(?:\([^)\r\n]*\))?!?:[^\r\n]*$/gim,
+		" ",
+	);
+}
+
 /** Shared by Home, the runtime, and local lanes; tool names use the same vocabulary. */
 export function humanReservedActionClasses(content: string): string[] {
 	// A read-only comparison can describe a paid option without authorizing it.
 	// Strip only the cost description; positive payment/spend instructions survive.
-	// Pasted one-line commit subjects ("abc1234 fix(auth): ...") are quoted
-	// data, not instructions.
-	const unquoted = content.replace(
-		/^[ \t]*[0-9a-f]{7,40}[ \t]+[a-z]+(?:\([^)\r\n]*\))?!?:[^\r\n]*$/gim,
-		" ",
-	);
+	const unquoted = withoutQuotedCommitSubjects(content);
 	const actionContent = (
 		/^\s*(?:research|compare|evaluate)\b/i.test(unquoted) &&
 		/\bno spending\b/i.test(unquoted)
