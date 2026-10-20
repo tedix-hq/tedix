@@ -17,6 +17,7 @@ import {
 	isModernMcpRequest,
 } from "@tedix/mcp-shared/protocol";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
+import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import { normalizeCallerIdentity } from "./caller-identity";
 import {
 	buildApprovalInputRequest,
@@ -669,6 +670,9 @@ export async function requireDestructiveToolApproval(
 	const boundedNotionUpdate =
 		policy?.riskTier === "bounded_write" &&
 		policy.argumentPolicy === "notion_page_update" &&
+		tool.config?.transport === "mcp" &&
+		connectedProviderId(tool) === "notion" &&
+		tool.config.mcpToolName === "notion-update-page" &&
 		isSafeNotionPageUpdateCall(options?.args);
 	const risk =
 		policy?.argumentPolicy === "notion_page_update" && !boundedNotionUpdate

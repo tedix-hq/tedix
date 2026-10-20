@@ -620,7 +620,7 @@ export function resolveMcpToolNamespace(
 	return "tools";
 }
 
-function connectedProviderId(tool: ToolAuthShape): string | null {
+export function connectedProviderId(tool: ToolAuthShape): string | null {
 	const config = tool.config;
 	if (!config || typeof config !== "object") return null;
 	const auth = config.auth;

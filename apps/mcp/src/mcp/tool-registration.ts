@@ -28,6 +28,7 @@ import {
 	ToolAnnotationsSchema,
 } from "@tedix/api-contract/schemas/tools";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
+import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import {
 	GetSkillParamsSchema,
 	GetSkillResultSchema,
@@ -468,6 +469,15 @@ export async function registerTextOnlyTool(
 	// Tedix namespace — tool provenance metadata for the MCP plugin
 	meta["com.tedix/appSlug"] = agent.appSlug ?? "unknown";
 	meta["com.tedix/toolTypeId"] = tool.toolTypeId ?? "unknown";
+	// Provenance comes from the configured connection, never upstream _meta.
+	delete meta["com.tedix/connectedTool"];
+	const providerId = connectedProviderId(tool);
+	if (providerId && tool.config?.transport === "mcp") {
+		meta["com.tedix/connectedTool"] = {
+			providerId,
+			toolName: tool.config.mcpToolName,
+		};
+	}
 	const paymentPolicy = getToolPaymentPolicy(tool);
 	if (paymentPolicy) {
 		meta["x-tedix/paymentRequired"] = true;

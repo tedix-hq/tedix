@@ -36,6 +36,10 @@ describe("bounded Work and Notion write planning", () => {
 					...bounded["com.tedix/policy"],
 					argumentPolicy: "notion_page_update",
 				},
+				"com.tedix/connectedTool": {
+					providerId: "notion",
+					toolName: "notion-update-page",
+				},
 			},
 		};
 		expect(
@@ -53,6 +57,16 @@ describe("bounded Work and Notion write planning", () => {
 			}),
 		).toBe("high");
 		expect(classifyWriteRisk(tool)).toBe("high");
+		expect(
+			classifyWriteRisk(
+				{ ...tool, _meta: { ...tool._meta, "com.tedix/connectedTool": null } },
+				{
+					page_id: "example",
+					command: "update_properties",
+					properties: {},
+				},
+			),
+		).toBe("high");
 	});
 	it("permits reviewed page creation but keeps unclassified creation gated", () => {
 		expect(
