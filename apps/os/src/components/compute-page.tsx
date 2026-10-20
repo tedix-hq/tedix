@@ -38,6 +38,7 @@ import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { CostChip } from "@/components/cost-chip";
 import { ListSkeleton } from "@/components/list-skeleton";
+import { LimitsSection } from "@/components/limits-section";
 import { ModelCatalogSection } from "@/components/model-catalog-card";
 import {
 	formatUsd,
@@ -643,6 +644,8 @@ export function ComputePage() {
 					</Collection>
 				)}
 			</PageSection>
+
+			{posture.data && <LimitsSection posture={posture.data} />}
 
 			<PageSection>
 				<SectionHeader>
