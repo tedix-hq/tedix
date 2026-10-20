@@ -36,15 +36,10 @@ import { getFlywheelPulse } from "@tedix/db/queries/flywheel/pulse";
 import { getKnowledgeMarketReport } from "@tedix/db/queries/knowledge-market";
 import { getReferenceClassEstimate } from "@tedix/db/queries/reference-class";
 import { getStrategyMapValidation } from "@tedix/db/queries/strategy-map";
-import { getTediById, getTedisByOrganization } from "@tedix/db/queries/tedis";
+import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { requireOrgId } from "../org-scope";
-import {
-	AUTHZ,
-	type BaseContext,
-	createError,
-	ErrorCodes,
-	withAuth,
-} from "../orpc";
+import { AUTHZ, type BaseContext, withAuth } from "../orpc";
+import { requireTediAccess, type TediAccessPolicy } from "../tedi-access";
 import { getOrphanRunHealth } from "./cognitive-runtime/recovery-artifacts";
 
 // =============================================================================
@@ -58,7 +53,14 @@ const authOs = flywheelOs.use(withAuth);
 // HELPERS
 // =============================================================================
 
-async function requireTediAccess(
+/** Strictly tenant-bound: no authority reads another organization's flywheel. */
+export const FLYWHEEL_HEALTH_TEDI_ACCESS: TediAccessPolicy = {
+	scope: "organization",
+	missingOrganizationCode: "FORBIDDEN",
+	platformAuthority: "none",
+};
+
+export async function requireFlywheelTediAccess(
 	context: BaseContext,
 	tediId: string,
 ): Promise<{
@@ -67,14 +69,11 @@ async function requireTediAccess(
 	policyPackId: string | null;
 	runtimeOverrides: unknown;
 }> {
-	const orgId = requireOrgId(context);
-	const tedi = await getTediById(context.db, tediId);
-	if (!tedi) {
-		throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
-	}
-	if (tedi.organizationId !== orgId) {
-		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
-	}
+	const tedi = await requireTediAccess(
+		context,
+		tediId,
+		FLYWHEEL_HEALTH_TEDI_ACCESS,
+	);
 	return {
 		tediId: tedi.id,
 		orgId: tedi.organizationId,
@@ -90,7 +89,7 @@ async function requireTediAccess(
 const pulseProcedure = authOs.pulse
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		const pulse = await getFlywheelPulse(context.db, access);
 
 		return {
@@ -167,7 +166,7 @@ const factLifecycleProcedure = authOs.factLifecycle
 const cronsProcedure = authOs.crons
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		const db = context.db;
 		const now24hAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -214,7 +213,7 @@ const orphanRunHealthProcedure = authOs.getOrphanRunHealth
 const recordCronExecutionProcedure = authOs.recordCronExecution
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		if (input.phase === "started") {
 			await recordCronExecutionStart(context.db, access, {
 				fireKey: input.fireKey,
@@ -240,14 +239,14 @@ const recordCronExecutionProcedure = authOs.recordCronExecution
 const producerQualityProcedure = authOs.producerQuality
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		return getBrainProducerQuality(context.db, access, input.windowDays);
 	});
 
 const decisionEpisodesProcedure = authOs.decisionEpisodes
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		const episodes = await getDecisionEpisodeProjections(
 			context.db,
 			access,
@@ -259,21 +258,21 @@ const decisionEpisodesProcedure = authOs.decisionEpisodes
 const learningValidationProcedure = authOs.learningValidation
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		return getLearningReplayValidation(context.db, access, input.windowDays);
 	});
 
 const learningCurvesProcedure = authOs.learningCurves
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		return getTaskTypeLearningCurves(context.db, access, input);
 	});
 
 const getReferenceClassEstimateProcedure = authOs.getReferenceClassEstimate
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		return getReferenceClassEstimate(context.db, access, {
 			taskType: input.taskType,
 			windowDays: input.windowDays,
@@ -283,7 +282,7 @@ const getReferenceClassEstimateProcedure = authOs.getReferenceClassEstimate
 const validateStrategyMapProcedure = authOs.validateStrategyMap
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const access = await requireFlywheelTediAccess(context, input.tediId);
 		return getStrategyMapValidation(context.db, access, {
 			windowDays: input.windowDays,
 			maxLagDays: input.maxLagDays,

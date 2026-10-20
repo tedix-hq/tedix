@@ -5,9 +5,7 @@
 import { implement } from "@orpc/server";
 import { tedisContract } from "@tedix/api-contract/contracts/tedis";
 import type { TediType } from "@tedix/api-contract/schemas/tedi";
-import { isPlatformPrincipal } from "@tedix/auth/types";
 import { isLocalDemoProject } from "@tedix/auth/local-demo";
-import { getTediById } from "@tedix/db/queries/tedis";
 import type { Tedi } from "@tedix/db/schema/tedis";
 import { buildRuntimeUrl } from "@tedix/db/utils/tedi-routing";
 import {
@@ -25,6 +23,10 @@ import {
 	withAuthorization,
 	withServiceAuth,
 } from "../../orpc";
+import {
+	requireTediAccess as requireTediAccessUnderPolicy,
+	type TediAccessPolicy,
+} from "../../tedi-access";
 
 // Re-export commonly used items
 export {
@@ -280,29 +282,22 @@ export function generateSlug(name: string): string {
 }
 
 /**
+ * Tenant ownership or canonical platform-principal authority, plus the
+ * `system` service binding the MCP edge uses to resolve tedi identity before
+ * any tenant is known. A caller without organization scope is UNAUTHORIZED
+ * here (every other router answers FORBIDDEN; see rpc/org-scope.ts).
+ */
+export const TEDIS_TEDI_ACCESS: TediAccessPolicy = {
+	scope: "organization",
+	missingOrganizationCode: "UNAUTHORIZED",
+	platformAuthority: "platform-principal",
+	allowSystemServiceBinding: true,
+};
+
+/**
  * Verify tenant ownership or canonical platform-principal authority.
  * Mutation-specific policy gates remain the responsibility of each handler.
  */
-export async function requireTediAccess(context: BaseContext, tediId: string) {
-	const orgId = requireOrganizationId(context);
-	const tedi = await getTediById(context.db, tediId);
-
-	if (!tedi) {
-		throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
-	}
-
-	if (tedi.organizationId !== orgId) {
-		// Allow service-binding calls with org="system" (used by MCP edge auth to resolve tedi identity)
-		if (context.authType === "service-binding" && orgId === "system") {
-			// Trusted internal call — bypass org check
-		} else if (isPlatformPrincipal(context)) {
-			console.log(
-				`[Auth] Platform principal cross-org access: authType=${context.authType} accessing tedi=${tediId} (org=${tedi.organizationId}, caller-org=${orgId})`,
-			);
-		} else {
-			throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
-		}
-	}
-
-	return tedi;
+export function requireTediAccess(context: BaseContext, tediId: string) {
+	return requireTediAccessUnderPolicy(context, tediId, TEDIS_TEDI_ACCESS);
 }

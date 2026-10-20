@@ -560,7 +560,7 @@ export const SCOPED_BY_CONSTRUCTION: Record<string, string> = {
 	getOsOutputMutationReceiptForInstance:
 		"Resolves an output receipt only beneath the supplied OS instance; callers first validate that parent instance with requireInstance against the caller organization.",
 	requireTediAccess:
-		"Resolves the tedi AND asserts the caller's organization owns it; returns the tedi only on success.",
+		"Resolves the tedi AND asserts the caller may see it under the router's declared TediAccessPolicy (apps/api/src/rpc/tedi-access.ts); returns the tedi only on success.",
 	getApiKeyById:
 		"Callers compare the returned key's organizationId before use; the key id is not a tenant-visible handle.",
 	resolveTediTenantId:
