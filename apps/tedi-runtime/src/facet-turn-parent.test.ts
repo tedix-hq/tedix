@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
+import { FacetDispatchJournal } from "./facet-dispatch-journal";
 import {
 	chatTurnProbe,
 	facetRunnerProbe,
@@ -523,8 +524,191 @@ for (const stream of [false, true]) {
 	assert.equal((missing as { code?: string }).code, "facet_tool_unavailable");
 }
 
+// A parent reset rebuilds only the immutable admitted Home turn; retained call
+// receipts still prevent re-executing a write whose return was interrupted.
+{
+	const storage = memoryStorage();
+	const runId = "run-restore";
+	const params = {
+		runId,
+		sessionKey: "delegated",
+		userText: "Read the source",
+		userTs: 1,
+		conversationId: "conversation-restore",
+		workItemId: "work-restore",
+		homeRunId: "home-restore",
+		capabilityPlan: {
+			version: "delegation-capabilities.v1",
+			allowedToolIds: ["probe", "read"],
+			requiredCapabilities: [],
+			missingCapabilities: [],
+			urls: [],
+			outputIds: [],
+		},
+	};
+	let executions = 0,
+		preparations = 0,
+		expired = false;
+	let alwaysAsk = false;
+	const approvals: Array<Record<string, unknown>> = [];
+	const agent = tediDo({
+		ctx: { storage },
+		state: { tediId: "tedi-restore", orgId: "org-restore" },
+		env: {
+			API_SERVICE: {
+				fetch: async () =>
+					Response.json({
+						json: {
+							autonomy: {
+								version: 1,
+								maxRisk: "medium",
+								askForClasses: alwaysAsk ? ["native:read"] : [],
+							},
+						},
+					}),
+			},
+		},
+		eventOutbox: {
+			publish: async (event: Record<string, unknown>) => {
+				approvals.push(event);
+			},
+		},
+		setState(next: unknown) {
+			agent.state = next;
+		},
+		async ensureIdentity() {},
+		async armDelegatedWorkLeaseRenewal() {},
+		getPlatformClient: async () => ({
+			listWorkAttempts: async () => ({
+				data: [
+					{
+						id: "attempt-restore",
+						runId,
+						executorType: "tedi",
+						executorId: "tedi-restore",
+						runtimeState: "running",
+					},
+				],
+				nextCursor: null,
+			}),
+			heartbeatWorkAttempt: async () => {
+				if (expired) throw new Error("Lease expired");
+				return {};
+			},
+		}),
+		prepareMcpFacetTurn: async (input: Record<string, unknown>) => {
+			preparations++;
+			assert.equal(input.toolsOnly, true);
+			assert.equal(input.homeRunId, params.homeRunId);
+			assert.deepEqual(input.capabilityPlan, params.capabilityPlan);
+			return {
+				tools: {
+					read: { execute: async () => "source" },
+					probe: {
+						execute: async () => {
+							executions++;
+							return { ok: true };
+						},
+					},
+				},
+				system: "",
+				turnBinding: null,
+			};
+		},
+		facetDispatchJournal: new FacetDispatchJournal(
+			storage as unknown as ConstructorParameters<
+				typeof FacetDispatchJournal
+			>[0],
+		),
+		nativeToolLedger: {
+			observe: (_context: unknown, _call: unknown, execute: () => unknown) =>
+				execute(),
+		},
+	});
+	await agent.runtimeAdmission().beginAcceptedTurn({
+		runId,
+		sessionKey: params.sessionKey,
+		principalId: "tedi-restore",
+		input: params,
+		expectedGeneration: 1,
+	});
+	await storage.put(`runtime-admission-workflow:${runId}`, { params });
+	await agent.facetDispatchJournal.enroll(runId);
+	const approval = {
+		runId,
+		toolCallId: "approval",
+		tool: "read",
+		args: { path: "source.ts" },
+	};
+	assert.equal(
+		(await agent.facetToolApprovalDecision(approval)).autoApprove,
+		true,
+	);
+	assert.equal(approvals[0]?.conversationId, params.conversationId);
+	alwaysAsk = true;
+	assert.equal(
+		(await agent.facetToolApprovalDecision(approval)).autoApprove,
+		false,
+	);
+	alwaysAsk = false;
+	assert.equal(
+		(
+			await agent.facetToolApprovalDecision({
+				...approval,
+				args: { path: ".env" },
+			})
+		).critical,
+		true,
+	);
+	assert.equal(
+		(await agent.facetToolApprovalDecision({ ...approval, tool: "ungranted" }))
+			.autoApprove,
+		false,
+	);
+	const call = { runId, toolCallId: "first-call", tool: "probe", args: {} };
+	assert.deepEqual(await agent.executeFacetTool(call), { ok: true });
+	assert.deepEqual([preparations, executions], [1, 1]);
+	agent.activeFacetTurnTools.clear();
+	assert.equal(
+		(await agent.executeFacetTool(call)).code,
+		"facet_tool_unavailable",
+	);
+	assert.deepEqual(
+		[preparations, executions],
+		[2, 1],
+		"restoration never clears the dispatched-call fence",
+	);
+	agent.activeFacetTurnTools.clear();
+	expired = true;
+	await assert.rejects(
+		agent.executeFacetTool({ ...call, toolCallId: "after-expiry" }),
+		/Lease expired/,
+	);
+	assert.deepEqual(
+		[preparations, executions],
+		[2, 1],
+		"expired Work authority never rebuilds or executes tools",
+	);
+}
+
 // ── the shared MCP facet setup ───────────────────────────────────────────────
 {
+	const restoring = mcpFacetTurnProbe({
+		fields: {
+			cognitiveAddenda: async () => {
+				throw new Error("Tool restoration must not call cognitive retrieval");
+			},
+		},
+	});
+	assert.equal(
+		(
+			await restoring.prepareMcpFacetTurn({
+				...MCP_FACET_TURN_INPUT,
+				toolsOnly: true,
+			})
+		).system,
+		"",
+	);
 	await assert.rejects(
 		mcpFacetTurnProbe().prepareMcpFacetTurn({
 			...MCP_FACET_TURN_INPUT,

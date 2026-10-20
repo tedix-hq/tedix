@@ -3854,8 +3854,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		args: unknown;
 	}): Promise<{ autoApprove: boolean; critical: boolean }> {
 		await this.assertChatTurnActive(input.runId);
-		const binding = this.activeTurnBinding;
-		if (!binding || binding.runId !== input.runId)
+		await runtimeFacetTurns.restoreFacetTurnTools.call(
+			this.facetTurnsHost(),
+			input.runId,
+		);
+		const conversationId = this.activeFacetTurnConversations.get(input.runId);
+		if (
+			!conversationId ||
+			!this.activeFacetTurnTools.get(input.runId)?.[input.tool]?.execute
+		)
 			return { autoApprove: false, critical: true };
 		try {
 			const decision = await nativeToolAutonomy({
@@ -3870,7 +3877,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				id: `${input.runId}:autonomy:${input.toolCallId}`,
 				tediId: this.state.tediId,
 				kind: "approval.resolved",
-				conversationId: binding.conversationId,
+				conversationId,
 				runId: input.runId,
 				payload: {
 					resolvedBy: "policy",
@@ -3904,6 +3911,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		operatorConsent?: OperatorConsentAttestation;
 		/** Omitted ⇒ trusted; `untrusted` keeps the MCP read-only allowlist. */
 		trust?: SurfaceTrust;
+		toolsOnly?: boolean;
 	}): Promise<{
 		tools: ToolSet;
 		system: string;
