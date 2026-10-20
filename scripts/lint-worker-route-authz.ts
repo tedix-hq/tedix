@@ -181,12 +181,13 @@ export const WORKER_APPS: WorkerAppConfig[] = [
 	{
 		app: "apps/api",
 		honoFiles: ["apps/api/src/worker-app.ts"],
+		honoDirs: ["apps/api/src/http"],
 		guards: {
 			"\\brpcHandler\\.handle\\s*\\(":
 				"The oRPC transport constructs an authenticated request context and every authenticated procedure carries the two-plane authorization middleware.",
 			"\\bgetOpenApiHandler\\s*\\(\\s*\\)\\.handle\\s*\\(":
 				"The OpenAPI transport uses the same authenticated context and contract-first two-plane procedure middleware as RPC.",
-			"\\bhandleKernel(?:Acp|WsToken|VoiceCall)\\s*\\(":
+			"\\bhandleKernel(?:Acp|WsToken|VoiceCall|VoiceTranscription)\\s*\\(":
 				"Kernel HTTP and WebSocket handlers validate scoped tokens or Descope sessions and organization membership before dispatch.",
 			"\\bvalidateToken\\s*\\(":
 				"Custom media, event-stream, and export routes validate a Descope token before resolving organization-owned data.",
