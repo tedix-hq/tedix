@@ -393,8 +393,9 @@ try {
 					.click();
 			const sidebar = rail(page);
 			await sidebar.waitFor();
+			await sidebar.getByText("36", { exact: true }).waitFor();
 			assert.deepEqual(await sidebar.locator("a").allTextContents(), [
-				"Work",
+				"Work36",
 				"Chat",
 				"Workspaces",
 				"Documents",

@@ -23,7 +23,14 @@ const server = Bun.spawn(
 		"--host",
 		"127.0.0.1",
 	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
+	{
+		cwd,
+		stdout: "ignore",
+		stderr: "inherit",
+		detached: true,
+		// Response details need the classic fixture's saved run and cost receipt.
+		env: { ...process.env, TEDIX_OS_FIXTURE_PACK: "classic" },
+	},
 );
 const conversation = "00000060-0000-4000-8000-000000000001";
 const runId = "00000062-0000-4000-8000-000000000001";
