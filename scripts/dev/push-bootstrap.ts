@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 /** Pin the queue and its imports to one fetched main snapshot, keeping the lane's cwd. */
@@ -26,7 +26,9 @@ export function runCurrentQueue(): number {
 			);
 	}
 	const common = resolve(git("rev-parse", "--git-common-dir"));
-	const snapshot = mkdtempSync(join(common, "push-code-"));
+	const snapshots = join(common, "push-code");
+	mkdirSync(snapshots, { recursive: true });
+	const snapshot = mkdtempSync(join(snapshots, "queue-"));
 	try {
 		const archive = spawnSync("git", ["archive", sha, "scripts"], {
 			maxBuffer: 32 * 1024 * 1024,

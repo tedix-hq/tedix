@@ -63,6 +63,12 @@ export function devinPermissionBlock(
 			return "Writes must stay inside the lane worktree";
 	}
 	if (event.tool_name === "exec") {
+		// Editors and Git configuration in env can execute scripts outside command text.
+		if (
+			input.env !== undefined &&
+			(!isObject(input.env) || Object.keys(input.env).length > 0)
+		)
+			return "Exec environment overrides are outside the lane exec scope";
 		if (typeof input.command !== "string")
 			return "Exec tool did not expose its command";
 		const command = input.command.trim();
