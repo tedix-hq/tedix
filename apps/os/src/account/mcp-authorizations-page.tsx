@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -61,19 +67,26 @@ export function McpAuthorizationCard({
 						item.approvedScopes.map((name) => ({ name })),
 					)}
 				/>
-				<details>
-					<summary className="cursor-pointer text-kumo-subtle">
+				<Collapsible>
+					<CollapsibleTrigger className="group/disclosure">
+						<CaretRight
+							size={14}
+							aria-hidden
+							className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+						/>
 						Connection details
-					</summary>
-					<Text className="break-all">Application ID: {item.clientId}</Text>
-					<Text className="break-all">MCP resource: {item.mcpServerId}</Text>
-					<Text>Updated: {item.updatedAt}</Text>
-					<Text tone="secondary">
-						{item.status === "revoked"
-							? "Tedix access is off. The sign-in provider may still store this connection."
-							: "A recorded permission does not confirm that the application is currently connected."}
-					</Text>
-				</details>
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						<Text className="break-all">Application ID: {item.clientId}</Text>
+						<Text className="break-all">MCP resource: {item.mcpServerId}</Text>
+						<Text>Updated: {item.updatedAt}</Text>
+						<Text tone="secondary">
+							{item.status === "revoked"
+								? "Tedix access is off. The sign-in provider may still store this connection."
+								: "A recorded permission does not confirm that the application is currently connected."}
+						</Text>
+					</CollapsibleContent>
+				</Collapsible>
 				{item.status === "active" ? (
 					<Button variant="secondary" disabled={pending} onClick={onDisable}>
 						Disable Tedix access
@@ -127,19 +140,26 @@ export function McpAuthorizationsPage() {
 						Manage the access you gave to ChatGPT, the Tedix CLI, and other
 						applications.
 					</Text>
-					<details>
-						<summary className="cursor-pointer text-kumo-subtle">
+					<Collapsible>
+						<CollapsibleTrigger className="group/disclosure">
+							<CaretRight
+								size={14}
+								aria-hidden
+								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+							/>
 							How to change access
-						</summary>
-						<Text>
-							Reconnect in the original application to change permissions. For
-							the CLI, run tedix login.
-						</Text>
-						<Text>
-							Disabling blocks access through Tedix. It does not remove saved
-							sign-in details from other services.
-						</Text>
-					</details>
+						</CollapsibleTrigger>
+						<CollapsibleContent keepMounted>
+							<Text>
+								Reconnect in the original application to change permissions. For
+								the CLI, run tedix login.
+							</Text>
+							<Text>
+								Disabling blocks access through Tedix. It does not remove saved
+								sign-in details from other services.
+							</Text>
+						</CollapsibleContent>
+					</Collapsible>
 					<Button variant="secondary" onClick={() => void query.refetch()}>
 						Refresh
 					</Button>

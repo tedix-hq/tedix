@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { Badge } from "@/components/kumo/badge";
 import { CodeInline } from "@/components/kumo/code";
 import { Surface } from "@/components/kumo/surface";
@@ -10,12 +16,6 @@ import {
 	type ConsentPermission,
 } from "@/shared/consent-permissions";
 
-/**
- * Native `<details>` keeps the disclosure working with no JavaScript, which a
- * consent screen inside a third-party OAuth transaction genuinely wants. The
- * bounded box, dividers, and typography come from the adapters; only the
- * disclosure element itself stays native.
- */
 export function ConsentPermissionGroups({
 	permissions,
 	selectedScopes,
@@ -62,15 +62,22 @@ export function ConsentPermissionGroups({
 			<div className="grid max-h-96 auto-rows-max gap-2 overflow-y-auto pr-1">
 				{groups.map((group) => (
 					<Surface
-						key={group.name}
+						key={`${group.name}:${(expandHighRisk && group.highRisk) || Boolean(term)}`}
 						className="overflow-hidden bg-kumo-tint"
 						render={
-							<details
-								open={(expandHighRisk && group.highRisk) || Boolean(term)}
+							<Collapsible
+								defaultOpen={
+									(expandHighRisk && group.highRisk) || Boolean(term)
+								}
 							/>
 						}
 					>
-						<summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3.5 [list-style-position:inside]">
+						<CollapsibleTrigger className="group/disclosure w-full justify-between gap-3 px-4 py-3.5">
+							<CaretRight
+								size={14}
+								aria-hidden
+								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+							/>
 							<Text as="span" role="body" weight="semibold">
 								{group.name}
 							</Text>
@@ -81,62 +88,71 @@ export function ConsentPermissionGroups({
 										: group.permissions.length}
 								</Badge>
 							</span>
-						</summary>
-						<ul className="grid divide-y divide-kumo-line border-kumo-line border-t">
-							{group.permissions.map((permission) => (
-								<li
-									key={permission.name}
-									className="flex items-center justify-between gap-4 px-4 py-3 max-[560px]:items-start"
-								>
-									{onSelectionChange ? (
-										<Checkbox
-											checked={selected.has(permission.name)}
-											disabled={permission.required}
-											aria-label={`Allow ${permission.description}`}
-											onCheckedChange={(checked) => {
-												const next = new Set(selected);
-												if (checked) next.add(permission.name);
-												else next.delete(permission.name);
-												onSelectionChange(
-													permissions
-														.filter((candidate) => next.has(candidate.name))
-														.map((candidate) => candidate.name),
-												);
-											}}
-										/>
-									) : null}
-									<span className="grid min-w-0 gap-0.5">
-										<Text as="span" role="body" weight="medium">
-											{permission.description}
-										</Text>
-									</span>
-									{permission.required ? (
-										<Badge variant="secondary">Required</Badge>
-									) : null}
-									{permission.admin ? (
-										<Badge variant="destructive">Manage</Badge>
-									) : null}
-								</li>
-							))}
-						</ul>
+						</CollapsibleTrigger>
+						<CollapsibleContent keepMounted>
+							<ul className="grid divide-y divide-kumo-line border-kumo-line border-t">
+								{group.permissions.map((permission) => (
+									<li
+										key={permission.name}
+										className="flex items-center justify-between gap-4 px-4 py-3 max-[560px]:items-start"
+									>
+										{onSelectionChange ? (
+											<Checkbox
+												checked={selected.has(permission.name)}
+												disabled={permission.required}
+												aria-label={`Allow ${permission.description}`}
+												onCheckedChange={(checked) => {
+													const next = new Set(selected);
+													if (checked) next.add(permission.name);
+													else next.delete(permission.name);
+													onSelectionChange(
+														permissions
+															.filter((candidate) => next.has(candidate.name))
+															.map((candidate) => candidate.name),
+													);
+												}}
+											/>
+										) : null}
+										<span className="grid min-w-0 gap-0.5">
+											<Text as="span" role="body" weight="medium">
+												{permission.description}
+											</Text>
+										</span>
+										{permission.required ? (
+											<Badge variant="secondary">Required</Badge>
+										) : null}
+										{permission.admin ? (
+											<Badge variant="destructive">Manage</Badge>
+										) : null}
+									</li>
+								))}
+							</ul>
+						</CollapsibleContent>
 					</Surface>
 				))}
 			</div>
 			{permissions.length > 0 ? (
-				<details>
-					<summary className="cursor-pointer text-kumo-subtle">
+				<Collapsible>
+					<CollapsibleTrigger className="group/disclosure">
+						<CaretRight
+							size={14}
+							aria-hidden
+							className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+						/>
 						Permission codes
-					</summary>
-					<ul className="grid gap-1 pt-2">
-						{permissions.map((permission) => (
-							<li key={permission.name}>
-								<CodeInline tone="secondary" className="break-all">
-									{permission.name}
-								</CodeInline>
-							</li>
-						))}
-					</ul>
-				</details>
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						<ul className="grid gap-1 pt-2">
+							{permissions.map((permission) => (
+								<li key={permission.name}>
+									<CodeInline tone="secondary" className="break-all">
+										{permission.name}
+									</CodeInline>
+								</li>
+							))}
+						</ul>
+					</CollapsibleContent>
+				</Collapsible>
 			) : null}
 		</div>
 	);

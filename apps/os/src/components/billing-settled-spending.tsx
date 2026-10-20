@@ -1,9 +1,10 @@
+import { Link } from "@/components/kumo/link";
+import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleContent,
 	CollapsibleTrigger,
+	CollapsibleContent,
 } from "@/components/kumo/collapsible";
-import { Link } from "@/components/kumo/link";
 import type { BillingInferenceSpending } from "@tedix/api-contract/schemas/billing-spending";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
@@ -69,7 +70,12 @@ export function SettledSpendingRows({
 										"Charges without a linked run"
 									)}
 									<Collapsible className="mt-2">
-										<CollapsibleTrigger>
+										<CollapsibleTrigger className="group/disclosure">
+											<CaretRight
+												size={14}
+												aria-hidden
+												className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+											/>
 											{group.calls.length} call receipts
 										</CollapsibleTrigger>
 										<CollapsibleContent keepMounted>
