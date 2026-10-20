@@ -51,10 +51,8 @@ vi.mock("../../services/jev-skill-utility", () => ({
 }));
 
 import { skillsContractRouter } from "./cognitive";
-import {
-	assertExpectedSkillRevision,
-	validateConnectionRecoveryReceipt,
-} from "./cognitive-skill-runs";
+import { assertExpectedSkillRevision } from "./cognitive-skill-runs/shared";
+import { validateConnectionRecoveryReceipt } from "./cognitive-skill-runs/run-reads";
 
 describe("workflow continuation admission", () => {
 	it("rejects a stale trigger revision while preserving ordinary interactive admission", () => {

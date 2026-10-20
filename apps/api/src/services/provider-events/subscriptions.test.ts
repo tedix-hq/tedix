@@ -47,7 +47,7 @@ vi.mock("../personal-resource-delegation-authority", () => ({
 	resolvePersonalSubscriptionCredential: mocks.standing,
 	authorizePersonalResourceDelegation: mocks.authorize,
 }));
-vi.mock("../../rpc/routers/cognitive-skill-runs", () => ({
+vi.mock("../../rpc/routers/cognitive-skill-runs/run-start", () => ({
 	skillsRunWorkflow: {},
 }));
 vi.mock("../../rpc/routers/cognitive-runtime", () => ({

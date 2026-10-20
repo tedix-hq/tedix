@@ -505,7 +505,7 @@ export async function dispatchProviderEventDeliveries(context: BaseContext) {
 					{ subscriptionId: row.id, organizationId: row.organizationId },
 				);
 				const { skillsRunWorkflow } =
-					await import("../../rpc/routers/cognitive-skill-runs");
+					await import("../../rpc/routers/cognitive-skill-runs/run-start");
 				const client = createRouterClient(
 					{ runWorkflow: skillsRunWorkflow },
 					{ context: dispatchContext },

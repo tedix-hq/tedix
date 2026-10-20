@@ -53,30 +53,36 @@ import {
 } from "./cognitive-skill-governance";
 import {
 	skillsApproveWorkflow,
-	skillsCompareWorkflowRevisions,
-	skillsGetRunArtifact,
-	skillsGetWorkflowReliability,
-	skillsGetWorkflowRevision,
-	skillsInspectWorkflowRun,
-	skillsListRunArtifacts,
-	skillsListWorkflowRetryCandidates,
-	skillsListWorkflowRevisions,
-	skillsListWorkflowSchedules,
-	skillsListWorkflowSteps,
-	skillsListWorkflowToolCalls,
 	skillsPauseWorkflow,
 	skillsRejectWorkflow,
 	skillsRestartWorkflow,
 	skillsResumeWorkflow,
 	skillsRevokeSkillRun,
-	skillsRunWorkflow,
+} from "./cognitive-skill-runs/lifecycle";
+import {
+	skillsCompareWorkflowRevisions,
+	skillsGetWorkflowReliability,
+	skillsGetWorkflowRevision,
+	skillsListWorkflowRevisions,
+	skillsListWorkflowSchedules,
+} from "./cognitive-skill-runs/revisions";
+import {
+	skillsGetRunArtifact,
+	skillsListRunArtifacts,
 	skillsRecordRunEffectObservation,
 	skillsGetRunUsefulness,
+} from "./cognitive-skill-runs/artifacts";
+import {
+	skillsInspectWorkflowRun,
+	skillsListWorkflowRetryCandidates,
+	skillsListWorkflowSteps,
+	skillsListWorkflowToolCalls,
 	skillsRunWorkflowCancel,
 	skillsRunWorkflowHistory,
 	skillsRunWorkflowSendEvent,
 	skillsRunWorkflowStatus,
-} from "./cognitive-skill-runs";
+} from "./cognitive-skill-runs/run-reads";
+import { skillsRunWorkflow } from "./cognitive-skill-runs/run-start";
 import { knowledgeOs, muscleOs, skillsOs } from "./cognitive-shared";
 
 export const knowledgeContractRouter = knowledgeOs.router({
