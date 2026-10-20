@@ -256,12 +256,6 @@ async function mount(
 	);
 }
 async function click(text: string) {
-	if (["Try examples", "What you decided"].includes(text)) {
-		const chip = [...host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Kind",
-		);
-		await act(async () => chip!.click());
-	}
 	const button = [...document.querySelectorAll("button")].find(
 		(button) => button.textContent?.trim() === text,
 	);
