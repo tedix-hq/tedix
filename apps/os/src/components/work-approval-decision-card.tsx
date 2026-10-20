@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { workActorReference } from "@/lib/work-actor";
 import { useContext, useState } from "react";
@@ -47,12 +53,21 @@ export function WorkApprovalDecisionCard({
 			why={
 				<div className="grid gap-2">
 					<Link href={`/work/items/${row.workItem.id}`}>{copy.openWork}</Link>
-					<details>
-						<summary>{copy.exactProposal}</summary>
-						<pre className="overflow-x-auto whitespace-pre-wrap break-words">
-							{JSON.stringify(row.proposal.proposal, null, 2)}
-						</pre>
-					</details>
+					<Collapsible>
+						<CollapsibleTrigger className="group/disclosure">
+							<CaretRight
+								size={14}
+								aria-hidden
+								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+							/>
+							{copy.exactProposal}
+						</CollapsibleTrigger>
+						<CollapsibleContent keepMounted>
+							<pre className="overflow-x-auto whitespace-pre-wrap break-words">
+								{JSON.stringify(row.proposal.proposal, null, 2)}
+							</pre>
+						</CollapsibleContent>
+					</Collapsible>
 				</div>
 			}
 			content={

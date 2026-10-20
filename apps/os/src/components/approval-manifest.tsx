@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -82,48 +88,62 @@ export function ApprovalManifestActions({
 							</ul>
 						) : null}
 						{action.vetoCascadeApprovalRequestIds.length > 0 ? (
-							<details>
-								<summary>
+							<Collapsible>
+								<CollapsibleTrigger className="group/disclosure">
+									<CaretRight
+										size={14}
+										aria-hidden
+										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+									/>
 									Veto also cancels{" "}
 									{action.vetoCascadeApprovalRequestIds.length} pending
 									dependent requests
-								</summary>
-								<ul>
-									{action.vetoCascadeApprovalRequestIds.map((id) => (
-										<li key={id}>{id}</li>
-									))}
-								</ul>
-							</details>
+								</CollapsibleTrigger>
+								<CollapsibleContent keepMounted>
+									<ul>
+										{action.vetoCascadeApprovalRequestIds.map((id) => (
+											<li key={id}>{id}</li>
+										))}
+									</ul>
+								</CollapsibleContent>
+							</Collapsible>
 						) : null}
-						<details>
-							<summary className="cursor-pointer">
+						<Collapsible>
+							<CollapsibleTrigger className="group/disclosure">
+								<CaretRight
+									size={14}
+									aria-hidden
+									className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+								/>
 								Exact input, evidence and identity
-							</summary>
-							<CodeBlock
-								lang="json"
-								showCopyButton
-								className="mt-2 max-h-80 overflow-auto"
-								code={JSON.stringify(
-									{
-										approvalRequestId: request.id,
-										tediId: request.tediId,
-										organizationId: request.orgId,
-										workflowId: request.workflowId,
-										actionType: request.actionType,
-										description: request.description,
-										canonicalInputHash: action.canonicalInputHash,
-										expiresAt: request.expiresAt,
-										payload: request.payload,
-										evidenceRefs: request.review.evidenceRefs,
-										timeout: request.review.timeout,
-										interaction: request.review.interaction,
-										execution: action.execution,
-									},
-									null,
-									2,
-								)}
-							/>
-						</details>
+							</CollapsibleTrigger>
+							<CollapsibleContent keepMounted>
+								<CodeBlock
+									lang="json"
+									showCopyButton
+									className="mt-2 max-h-80 overflow-auto"
+									code={JSON.stringify(
+										{
+											approvalRequestId: request.id,
+											tediId: request.tediId,
+											organizationId: request.orgId,
+											workflowId: request.workflowId,
+											actionType: request.actionType,
+											description: request.description,
+											canonicalInputHash: action.canonicalInputHash,
+											expiresAt: request.expiresAt,
+											payload: request.payload,
+											evidenceRefs: request.review.evidenceRefs,
+											timeout: request.review.timeout,
+											interaction: request.review.interaction,
+											execution: action.execution,
+										},
+										null,
+										2,
+									)}
+								/>
+							</CollapsibleContent>
+						</Collapsible>
 						{request.actionType === "browser.live_view_takeover" ? (
 							<BrowserTakeoverLiveView approvalId={request.id} />
 						) : null}
