@@ -164,14 +164,18 @@ export function parseInviteRecipients(
 
 /**
  * The same avatar the Tedis tab draws: a tedi-backed member shares its tedi's
- * image and palette, a person shows their profile picture, and anyone without
- * an image falls back to initials.
+ * image and palette, a person shows their profile picture, an external agent's
+ * brand mark sits on a light tile so a bare glyph stays visible, and anyone
+ * without an image falls back to initials.
  */
 export function MemberAvatar({
 	member,
 	className,
 }: {
-	member: Pick<Member, "id" | "name" | "email" | "avatarUrl" | "tediId">;
+	member: Pick<
+		Member,
+		"id" | "name" | "email" | "avatarUrl" | "tediId" | "kind"
+	>;
 	className?: string;
 }) {
 	const displayName = member.name?.trim() || member.email;
@@ -181,6 +185,7 @@ export function MemberAvatar({
 			name={displayName}
 			kind={member.tediId ? "tedi" : "person"}
 			image={member.avatarUrl}
+			imageFit={member.kind === "external_agent" ? "contain" : "cover"}
 			alt={displayName}
 			className={className}
 		/>
