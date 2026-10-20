@@ -1,4 +1,7 @@
-import { CardRevisionSchema } from "@tedix/api-contract/schemas/card-revisions";
+import {
+	CardRevisionSchema,
+	CardStyleRuleSchema,
+} from "@tedix/api-contract/schemas/card-revisions";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
@@ -40,6 +43,8 @@ try {
 					createdAt: "2026-10-19T20:00:00.000Z",
 				}),
 			);
+			let styleRules: ReturnType<typeof CardStyleRuleSchema.parse>[] = [];
+			let remembered = 0;
 			let pending: {
 				responseId: string;
 				instruction: string;
@@ -58,7 +63,7 @@ try {
 				const input = data?.json ?? data;
 				let json: unknown;
 				if (endpoint === "cardHistory")
-					json = { revisions, pending, nextBeforeRevision: null };
+					json = { revisions, pending, styleRules, nextBeforeRevision: null };
 				else if (endpoint === "get")
 					json = {
 						request: {
@@ -82,6 +87,28 @@ try {
 					};
 					version++;
 					json = { id: requestId, version };
+				} else if (endpoint === "rememberCardStyle") {
+					remembered++;
+					assert.equal(input.expectedRevision, 2);
+					styleRules = [
+						CardStyleRuleSchema.parse({
+							id: crypto.randomUUID(),
+							text: "For all email drafts: use a short introduction. Style only; preserve facts and authorization.",
+							contentKind: "email",
+							sourceRequestId: requestId,
+							sourceRevision: 2,
+							proposalId: crypto.randomUUID(),
+							status: "active",
+						}),
+					];
+					json = styleRules[0];
+				} else if (endpoint === "reviewCardStyleRule") {
+					const rule = styleRules[0]!;
+					json = {
+						...rule,
+						status: input.decision === "not_true" ? "rejected" : "active",
+					};
+					if (input.decision === "not_true") styleRules = [];
 				} else if (endpoint === "reviseCard") {
 					version++;
 					if (!input.restoreRevision) {
@@ -98,6 +125,7 @@ try {
 						keptHunks: input.keptHunks ?? null,
 						parentRevision: input.restoreRevision ?? revisions.length,
 						summary: input.summary ?? null,
+						instruction: "Make the introduction shorter and warmer.",
 					});
 					json = revisions.at(-1);
 				} else return route.abort();
@@ -142,18 +170,30 @@ try {
 			await page
 				.getByRole("button", { name: "Show changes", exact: true })
 				.click();
+			assert.equal(remembered, 0);
+			await page
+				.getByRole("button", { name: "Yes, for all emails", exact: true })
+				.click();
 			await page
 				.getByRole("button", { name: /^Keep original change/ })
 				.first()
 				.click();
 			await page.getByText("Version 3", { exact: true }).first().waitFor();
 			await page.getByText("(Original kept)", { exact: true }).waitFor();
+			assert.equal(
+				await page
+					.getByRole("button", { name: "Yes, for all emails", exact: true })
+					.count(),
+				0,
+			);
 			if (screenshotDirectory)
 				await page.screenshot({
 					path: `${screenshotDirectory}/card-revisions-${width}-${theme}.png`,
 					fullPage: true,
 				});
+
 			await page.getByRole("button", { name: "Versions", exact: true }).click();
+			await page.getByRole("button", { name: "Keep", exact: true }).click();
 			await page.getByText("Version history", { exact: true }).click();
 			await page
 				.getByRole("spinbutton", { name: "Compare from version" })
@@ -172,6 +212,8 @@ try {
 					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-versions.png`,
 					fullPage: true,
 				});
+			await page.getByRole("button", { name: "Not true", exact: true }).click();
+			assert.equal(remembered, 1);
 			await page
 				.getByRole("button", { name: "Restore version 1", exact: true })
 				.click();

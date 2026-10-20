@@ -1365,6 +1365,20 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			beforeRevision: input.beforeRevision,
 		});
 	}),
+	rememberCardStyle: writeOs.rememberCardStyle.handler(
+		async ({ input, context }) => {
+			const { rememberCardStyle } =
+				await import("../../services/card-style-rules");
+			return rememberCardStyle(context, input);
+		},
+	),
+	reviewCardStyleRule: writeOs.reviewCardStyleRule.handler(
+		async ({ input, context }) => {
+			const { reviewCardStyleRule } =
+				await import("../../services/card-style-rules");
+			return reviewCardStyleRule(context, input);
+		},
+	),
 	reviseCard: writeOs.reviseCard.handler(async ({ input, context }) => {
 		const { reviseCardContent } = await import("../../services/card-revisions");
 		return reviseCardContent(context, input);

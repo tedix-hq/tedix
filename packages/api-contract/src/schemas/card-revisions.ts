@@ -105,8 +105,28 @@ export const ReviseCardInputSchema = CardHistoryInputSchema.extend({
 	(value) => Boolean(value.body) !== Boolean(value.restoreRevision),
 	"Provide revised text or a version to restore",
 );
+export const CardStyleRuleSchema = z.strictObject({
+	id: z.uuid(),
+	text: z.string(),
+	contentKind: z.enum(["email", "plan", "text"]),
+	sourceRequestId: z.uuid(),
+	sourceRevision: z.number().int().positive(),
+	proposalId: z.string(),
+	status: z.enum(["active", "rejected"]),
+});
+export const RememberCardStyleInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	expectedRevision: z.number().int().positive(),
+	contentKind: z.enum(["email", "plan", "text"]),
+});
+export const ReviewCardStyleRuleInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	ruleId: z.uuid(),
+	decision: z.enum(["keep", "not_true"]),
+});
 export const CardHistorySchema = z.strictObject({
 	revisions: z.array(CardRevisionSchema),
+	styleRules: z.array(CardStyleRuleSchema).default([]),
 	nextBeforeRevision: z.number().int().positive().nullable(),
 	pending: z
 		.strictObject({

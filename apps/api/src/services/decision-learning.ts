@@ -1,3 +1,7 @@
+import {
+	listPersonalCardStyleRules,
+	resolveCardStyleOwner,
+} from "@tedix/db/queries/work-items/card-style-rules";
 import type { DbClient } from "@tedix/db/client";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { listLearningInteractions } from "@tedix/db/queries/learning-feedback";
@@ -90,10 +94,40 @@ export async function readDraftPreferences(
 	classId?: string,
 ) {
 	try {
-		return draftLearningContext(
-			await readDecisionLearning(db, organizationId, personId),
-			classId,
-		);
+		const owner = personId
+			? await resolveCardStyleOwner(db, organizationId, personId)
+			: null;
+		const [model, rules] = await Promise.all([
+			readDecisionLearning(db, organizationId, owner),
+			owner ? listPersonalCardStyleRules(db, organizationId, owner) : [],
+		]);
+		const learned = draftLearningContext(model, classId);
+		if (!rules.length) return learned;
+		const context: {
+			purpose?: string;
+			preferences?: unknown[];
+			lessons?: Array<{ id: string; text: string; classId: string | null }>;
+		} = learned
+			? JSON.parse(learned)
+			: {
+					purpose:
+						"Personal writing preferences; style only. Preserve facts, recipients, consent and authority.",
+					preferences: [],
+					lessons: [],
+				};
+		context.lessons = [
+			...(context.lessons ?? []),
+			...rules
+				.filter(
+					(rule) => !context.lessons?.some((lesson) => lesson.id === rule.id),
+				)
+				.map((rule) => ({
+					id: rule.id,
+					text: rule.content,
+					classId: null,
+				})),
+		];
+		return JSON.stringify(context);
 	} catch (error) {
 		console.warn(
 			"[decision-learning] writing context unavailable",

@@ -3,9 +3,19 @@ import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { workInteractionsContractRouter } from "./work-interactions";
+
+const styleModel = vi.hoisted(() => ({
+	run: vi
+		.fn<(...args: [unknown, string, unknown]) => Promise<string | null>>()
+		.mockResolvedValue("Prefer short sentences without a sign-off."),
+}));
+vi.mock("../../services/lesson-distiller", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../services/lesson-distiller")>()),
+	runDistillModel: styleModel.run,
+}));
 
 const org = "11111111-1111-4111-8111-111111111111";
 const work = "22222222-2222-4222-8222-222222222222";
@@ -61,6 +71,7 @@ function fixture() {
 	});
 	return {
 		sqlite,
+		db,
 		target: human("person"),
 		other: human("other"),
 		owner,
@@ -320,6 +331,159 @@ it("versions a structured plan together with its visible text and restores both"
 				)
 				.run(planCard),
 		).toThrow();
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("remembers only an explicit personal style directive and removes it from future prompts on Not true", async () => {
+	const { sqlite, db, target, other, owner } = fixture();
+	try {
+		await target.requestCardChanges({
+			requestId: card,
+			expectedRequestVersion: 1,
+			instruction: "Use short sentences without a sign-off",
+		});
+		const history = await target.cardHistory({ requestId: card });
+		await owner.reviseCard({
+			requestId: card,
+			expectedRequestVersion: 2,
+			expectedRevision: 1,
+			responseId: history.pending!.responseId,
+			body: "Short draft.",
+			summary: "Shortened the sentences and removed the sign-off.",
+		});
+		const input = {
+			requestId: card,
+			expectedRevision: 2,
+			contentKind: "email" as const,
+		};
+		expect((await target.cardHistory({ requestId: card })).styleRules).toEqual(
+			[],
+		);
+		await expect(owner.rememberCardStyle(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(other.rememberCardStyle(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		styleModel.run.mockClear();
+		const rule = await target.rememberCardStyle(input);
+		expect(styleModel.run.mock.calls[0]?.[1]).toContain("Short draft.");
+		expect(styleModel.run.mock.calls[0]?.[1]).toContain("Original text");
+		expect(rule).toMatchObject({
+			contentKind: "email",
+			status: "active",
+			sourceRevision: 2,
+		});
+		expect((await target.rememberCardStyle(input)).id).toBe(rule.id);
+		expect(styleModel.run).toHaveBeenCalledTimes(1);
+		expect(
+			(await target.cardHistory({ requestId: card })).styleRules,
+		).toHaveLength(1);
+		expect((await owner.cardHistory({ requestId: card })).styleRules).toEqual(
+			[],
+		);
+		const proposal = sqlite
+			.prepare(
+				"SELECT scope_kind,scope_id,subject_kind,promotion_route,status FROM learning_improvement_proposals WHERE id=?",
+			)
+			.get(rule.proposalId);
+		expect(proposal).toMatchObject({
+			scope_kind: "personal",
+			scope_id: "person-sub",
+			subject_kind: "directive",
+			promotion_route: "directive_governance",
+			status: "approved_for_handoff",
+		});
+		const { readDraftPreferences } =
+			await import("../../services/decision-learning");
+		expect(await readDraftPreferences(db, org, "person", "email")).toContain(
+			"without a sign-off",
+		);
+		expect(await readDraftPreferences(db, org, "other", "email")).not.toContain(
+			"without a sign-off",
+		);
+		expect(
+			(
+				await target.reviewCardStyleRule({
+					requestId: card,
+					ruleId: rule.id,
+					decision: "keep",
+				})
+			).status,
+		).toBe("active");
+		await expect(
+			other.reviewCardStyleRule({
+				requestId: card,
+				ruleId: rule.id,
+				decision: "not_true",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			(
+				await target.reviewCardStyleRule({
+					requestId: card,
+					ruleId: rule.id,
+					decision: "not_true",
+				})
+			).status,
+		).toBe("rejected");
+		expect(
+			sqlite
+				.prepare("SELECT status FROM learning_improvement_proposals WHERE id=?")
+				.get(rule.proposalId)?.status,
+		).toBe("rejected");
+		expect((await target.cardHistory({ requestId: card })).styleRules).toEqual(
+			[],
+		);
+		expect(
+			await readDraftPreferences(db, org, "person", "email"),
+		).not.toContain("without a sign-off");
+		expect(
+			sqlite
+				.prepare("SELECT version FROM work_interactions WHERE id=?")
+				.get(card)?.version,
+		).toBe(3);
+		await target.reviseCard({
+			requestId: card,
+			expectedRequestVersion: 3,
+			expectedRevision: 2,
+			body: "Original text",
+			keptHunks: [
+				{
+					fromRevision: 2,
+					index: 0,
+					original: "Original text",
+					replacement: "Short draft.",
+				},
+			],
+		});
+		await expect(
+			target.rememberCardStyle({ ...input, expectedRevision: 3 }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(styleModel.run).toHaveBeenCalledTimes(1);
+		await target.reviseCard({
+			requestId: card,
+			expectedRequestVersion: 4,
+			expectedRevision: 3,
+			body: "A new short draft.",
+		});
+		styleModel.run.mockResolvedValueOnce("NONE");
+		await expect(
+			target.rememberCardStyle({ ...input, expectedRevision: 4 }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		styleModel.run.mockResolvedValueOnce("Prefer contact jamie@example.test.");
+		await expect(
+			target.rememberCardStyle({ ...input, expectedRevision: 4 }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect((await target.cardHistory({ requestId: card })).styleRules).toEqual(
+			[],
+		);
+		styleModel.run.mockResolvedValueOnce("Prefer short paragraphs.");
+		expect(
+			(await target.rememberCardStyle({ ...input, expectedRevision: 4 })).text,
+		).toContain("Prefer short paragraphs.");
 	} finally {
 		sqlite.close();
 	}

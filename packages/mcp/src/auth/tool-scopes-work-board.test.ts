@@ -35,6 +35,8 @@ describe("Interaction RPC authority through organization aliases", () => {
 		["outbound/get", "mcp:messaging.read"],
 		["outbound/list", "mcp:messaging.read"],
 		["create", "mcp:messaging.write"],
+		["rememberCardStyle", "mcp:messaging.write"],
+		["reviewCardStyleRule", "mcp:messaging.write"],
 		["respond", "mcp:messaging.write"],
 		["review", "mcp:messaging.write"],
 		["delegate", "mcp:messaging.write"],

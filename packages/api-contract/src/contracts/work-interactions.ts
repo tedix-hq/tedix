@@ -13,6 +13,9 @@ import {
 	RequestCardChangesInputSchema,
 	ReviseCardInputSchema,
 	CardRevisionSchema,
+	CardStyleRuleSchema,
+	RememberCardStyleInputSchema,
+	ReviewCardStyleRuleInputSchema,
 } from "../schemas/card-revisions";
 import { RegenerateDecisionCardInputSchema } from "../schemas/decision-card-presentation";
 import {
@@ -42,6 +45,12 @@ export const workInteractionsContract = oc
 	.errors(baseErrors)
 	.router({
 		outbound: outboundContract,
+		rememberCardStyle: oc
+			.input(RememberCardStyleInputSchema)
+			.output(CardStyleRuleSchema),
+		reviewCardStyleRule: oc
+			.input(ReviewCardStyleRuleInputSchema)
+			.output(CardStyleRuleSchema),
 		cardHistory: oc.input(CardHistoryInputSchema).output(CardHistorySchema),
 		requestCardChanges: oc
 			.route({
