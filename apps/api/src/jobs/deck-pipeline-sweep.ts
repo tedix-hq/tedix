@@ -185,6 +185,7 @@ export async function sweepOrganizationDeck(
 		merged: 0,
 		proposed: 0,
 		ranked: 0,
+		rankNotes: {},
 		hidden: 0,
 		wouldRetire: 0,
 		errors: 0,
@@ -390,6 +391,10 @@ export async function sweepOrganizationDeck(
 					limit: rankBudget,
 				});
 				receipt.ranked += ranked.ranked;
+				const { ranked: _ranked, ...notes } = ranked;
+				for (const [key, value] of Object.entries(notes))
+					if (value)
+						receipt.rankNotes[key] = (receipt.rankNotes[key] ?? 0) + value;
 				rankBudget -= ranked.ranked;
 			}
 			const weekAgo = now.getTime() - WEEK_MS;

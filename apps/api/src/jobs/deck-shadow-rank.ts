@@ -90,8 +90,19 @@ export async function shadowRankDeck(input: {
 		input.learning.deckCuratorRanker ?? {},
 	);
 	const secondKey = input.learning.deckPipeline.secondKey;
-	const counts = { ranked: 0, insufficient: 0, skipped: 0 };
-	if (!ranker.enabled || input.limit <= 0) return counts;
+	const counts = {
+		ranked: 0,
+		insufficient: 0,
+		skipped: 0,
+		disabled: 0,
+		budget: 0,
+		modelFailed: 0,
+		writeFailed: 0,
+	};
+	if (!ranker.enabled || input.limit <= 0) {
+		counts.disabled = input.cards.length;
+		return counts;
+	}
 	const cohort = input.cards.map((card) => ({
 		id: card.id,
 		title: card.subject,
@@ -118,8 +129,10 @@ export async function shadowRankDeck(input: {
 				amountMicros: ranker.perCardReservationMicros,
 				dailyLimitMicros: ranker.dailyReservationMicros,
 			}))
-		)
+		) {
+			counts.budget += 1;
 			break;
+		}
 		const text = await runDecisionCardCopyModel(
 			{ env: input.env },
 			JSON.stringify({
@@ -147,7 +160,7 @@ export async function shadowRankDeck(input: {
 		);
 		const signal = deckRankSignal(card.id, text, examples, ranker);
 		if (!signal.label) {
-			counts.skipped += 1;
+			counts.modelFailed += 1;
 			continue;
 		}
 		let secondKeyNoise: number | null = null;
@@ -213,7 +226,7 @@ export async function shadowRankDeck(input: {
 			);
 			counts.ranked += 1;
 		} catch {
-			counts.skipped += 1;
+			counts.writeFailed += 1;
 		}
 	}
 	return counts;

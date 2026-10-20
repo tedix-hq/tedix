@@ -208,6 +208,8 @@ export const DeckSweepReceiptSchema = z.strictObject({
 	merged: z.number().int().min(0),
 	proposed: z.number().int().min(0).default(0),
 	ranked: z.number().int().min(0),
+	/** Why cards went unranked this run (insufficient examples, budget, model). */
+	rankNotes: z.record(z.string(), z.number().int().min(0)).default({}),
 	hidden: z.number().int().min(0),
 	wouldRetire: z.number().int().min(0),
 	errors: z.number().int().min(0),
