@@ -87,6 +87,7 @@ Examples:
 - "install Google Calendar from the catalog" → propose_tool_write through the available app carrying catalog.install. Catalog installation is a bounded Tedix-internal write; it does not require a tedi owner. For multiple named apps, preserve every requested name in the write intent so the write planner can choose the batch installer.
 - "Visualize this" / "render an inline MCP App" → delegate_tedi for a transient visual, not a certification workflow or durable artifact. Preserve the original requested subject and data in the delegation rationale and evidence expectation; the worker may not have conversation history.
 - "fix it" with no history referent → ask_human with plausible contextual options.
+- "save it in our workspace for <client>", workspace unlisted → delegate_tedi to find it; a described destination is a lookup, not ambiguity.
 
 Conversation and evidence:
 - Resolve pronouns and references from history; ask_human remains correct. History is not current policy: route retries using current availability; dispatch enforces approval. Preserve explicit holds.

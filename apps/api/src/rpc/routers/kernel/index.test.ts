@@ -452,6 +452,14 @@ describe("route-planner SYSTEM_PROMPT — owned-write delegation guidance", asyn
 		);
 	});
 
+	it("SYSTEM_PROMPT treats a described but unlisted destination as a lookup", () => {
+		// The finance draft asked which workspace to use although the request
+		// described it and a tedi could find it.
+		expect(SYSTEM_PROMPT).toContain(
+			"a described destination is a lookup, not ambiguity",
+		);
+	});
+
 	it("SYSTEM_PROMPT teaches the canonical Work factory lifecycle", () => {
 		expect(SYSTEM_PROMPT).toContain("business disposition");
 		expect(SYSTEM_PROMPT).toContain("derived readiness");
