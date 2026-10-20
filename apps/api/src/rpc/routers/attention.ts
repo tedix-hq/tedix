@@ -452,6 +452,21 @@ export const attentionContractRouter = os.router({
 			return { saved: true as const, cardId: input.decision.requestId };
 		},
 	),
+	curationInbox: read.curationInbox.handler(async ({ input, context }) => {
+		const { curationInbox } = await import("../../services/deck-curation");
+		return curationInbox(context, input);
+	}),
+	curateDeckCard: write.curateDeckCard.handler(async ({ input, context }) => {
+		const { curateDeckCard } = await import("../../services/deck-curation");
+		return curateDeckCard(context, input);
+	}),
+	rankCurationInbox: write.rankCurationInbox.handler(
+		async ({ input, context }) => {
+			const { rankCurationInbox } =
+				await import("../../services/deck-curation");
+			return rankCurationInbox(context, input);
+		},
+	),
 	listFeedForYou: read.listFeedForYou.handler(async ({ input, context }) => {
 		const { loadForYouProjection } =
 			await import("../../services/attention-projection");

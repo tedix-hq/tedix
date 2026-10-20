@@ -1020,6 +1020,10 @@
 		{
 			"name": "20261020101432_support_draft_supersession_guard/migration.sql",
 			"sha256": "ecf00e2158116e63b1d4933fb504018f0679c7b99d2c00285783f7b8c578a483"
+		},
+		{
+			"name": "20261020032224_deck_curation_projection/migration.sql",
+			"sha256": "5cefa3976ccd78e4a4715fddfe89cabd4ffcbea2da8de698f08cdd3fad7aad18"
 		}
 	]
 }

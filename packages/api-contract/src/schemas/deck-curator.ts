@@ -54,6 +54,7 @@ export const DeckRankSignalSchema = z.strictObject({
 		"budget_exhausted",
 		"time_budget",
 		"model_failed",
+		"recently_revised",
 	]),
 	exampleIds: z.array(z.string()).max(8),
 });

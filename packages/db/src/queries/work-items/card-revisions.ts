@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import type { DeckCurationState } from "@tedix/api-contract/schemas/deck-curation";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workInteractionCardRevisions as revisions,
@@ -170,6 +171,8 @@ export async function appendCardRevision(
 		summary?: string;
 		keptHunks?: (typeof revisions.$inferInsert)["keptHunks"];
 		parentRevision?: number;
+		curation?: DeckCurationState;
+		expectedStatus?: "open" | "cancelled";
 	},
 ) {
 	if (
@@ -243,7 +246,7 @@ export async function appendCardRevision(
 						eq(workInteractions.orgId, p.orgId),
 						eq(workInteractions.id, p.requestId),
 						eq(workInteractions.version, p.expectedVersion),
-						eq(workInteractions.status, "open"),
+						eq(workInteractions.status, p.expectedStatus ?? "open"),
 						sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${new Date().toISOString()})`,
 						sql`coalesce((SELECT max(revision) FROM work_interaction_card_revisions WHERE org_id=${p.orgId} AND request_id=${p.requestId}),0)=${p.expectedRevision}`,
 					),
@@ -257,9 +260,20 @@ export async function appendCardRevision(
 		db
 			.update(workInteractions)
 			.set({
-				metadata: p.proposal
-					? sql`json_set(${workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1}, '$.proposal', json(${JSON.stringify(p.proposal)}))`
-					: sql`json_set(${workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1})`,
+				...(p.curation
+					? {
+							status: p.curation.status,
+							cancelledAt:
+								p.curation.status === "cancelled"
+									? new Date().toISOString()
+									: null,
+						}
+					: {}),
+				metadata: p.curation
+					? sql`json_set(${p.proposal ? sql`json_set(${workInteractions.metadata}, '$.proposal', json(${JSON.stringify(p.proposal)}))` : workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1}, '$.curation', json(${JSON.stringify(p.curation)}))`
+					: p.proposal
+						? sql`json_set(${workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1}, '$.proposal', json(${JSON.stringify(p.proposal)}))`
+						: sql`json_set(${workInteractions.metadata}, '$.cardContent', ${p.body}, '$.cardRevision', ${p.expectedRevision + 1})`,
 				version: sql`${workInteractions.version}+1`,
 			})
 			.where(
