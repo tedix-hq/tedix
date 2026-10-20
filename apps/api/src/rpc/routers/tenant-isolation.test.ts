@@ -27,7 +27,7 @@ import {
 	assertInvitationLinkTarget,
 } from "./members";
 import { requireBillingOrganization } from "./org-usage";
-import { requireOrganizationAccess } from "./organizations";
+import { requireOrganizationAccess } from "./organizations-base";
 
 const ORG_A = "org-aaaa";
 const ORG_B = "org-bbbb";
