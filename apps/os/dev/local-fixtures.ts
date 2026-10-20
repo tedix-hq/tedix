@@ -98,6 +98,8 @@ const GADGET_REV_DASHBOARD = fid("32", 1);
 const GADGET_REV_TRIAGE = fid("32", 2);
 const GADGET_CARD_REVIEW = fid("31", 3);
 const GADGET_REV_CARD_REVIEW = fid("32", 3);
+const GADGET_SYSTEM_MAP = fid("31", 4);
+const GADGET_REV_SYSTEM_MAP = fid("32", 4);
 const OUTPUT_CARDS = fid("40", 4);
 const OUTPUT_RULES = fid("40", 5);
 const EXEC_DASHBOARD_DONE = fid("33", 1);
@@ -411,8 +413,37 @@ const seedState = (): LocalState => ({
 			createdAt: T2,
 			updatedAt: T2,
 		},
+		{
+			id: GADGET_SYSTEM_MAP,
+			organizationId: ORG_ID,
+			workspaceId: WORKSPACE_SUPPORT,
+			name: "System map",
+			description: "How your tedis, skills and connections are wired",
+			status: "active",
+			currentRevisionId: GADGET_REV_SYSTEM_MAP,
+			sourceBlueprintRevisionId: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T2,
+			updatedAt: T2,
+		},
 	],
 	gadgetRevisions: [
+		{
+			id: GADGET_REV_SYSTEM_MAP,
+			organizationId: ORG_ID,
+			gadgetId: GADGET_SYSTEM_MAP,
+			revision: 1,
+			manifest: {
+				capabilities: [],
+				entry: "tedix:app/system-map",
+				config: { version: 1 },
+			},
+			sourceArtifactRef: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: T2,
+		},
 		{
 			id: GADGET_REV_CARD_REVIEW,
 			organizationId: ORG_ID,
@@ -1460,16 +1491,19 @@ const skillEntry = (
 });
 
 const SKILLS = [
-	skillEntry(
-		SKILL_REVENUE,
-		TEDI_MILES,
-		"Weekly revenue report",
-		"weekly-revenue-report",
-		"Assemble the weekly revenue summary sheet and narrative from order data.",
-		"proven",
-		18,
-		1,
-	),
+	{
+		...skillEntry(
+			SKILL_REVENUE,
+			TEDI_MILES,
+			"Weekly revenue report",
+			"weekly-revenue-report",
+			"Assemble the weekly revenue summary sheet and narrative from order data.",
+			"proven",
+			18,
+			1,
+		),
+		appId: APP_STOREFRONT,
+	},
 	skillEntry(
 		SKILL_TRIAGE,
 		TEDI_JUNO,

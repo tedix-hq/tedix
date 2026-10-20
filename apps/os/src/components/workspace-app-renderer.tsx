@@ -19,6 +19,10 @@ import {
 	ACTIVITY_FEED_ENTRY,
 	ActivityFeedConfigSchema,
 } from "@tedix/api-contract/schemas/os-activity-feed";
+import {
+	SYSTEM_MAP_ENTRY,
+	SystemMapConfigSchema,
+} from "@tedix/api-contract/schemas/os-system-map";
 import type { ActivityFeedNavigation } from "@/components/activity-feed-app";
 import {
 	OUTBOUND_REVIEW_ENTRY,
@@ -62,6 +66,9 @@ const AttentionApp = lazy(() =>
 );
 const ActivityFeedApp = lazy(() =>
 	import("./activity-feed-app").then((m) => ({ default: m.ActivityFeedApp })),
+);
+const SystemMapApp = lazy(() =>
+	import("./system-map-app").then((m) => ({ default: m.SystemMapApp })),
 );
 
 const Portfolio = lazy(() =>
@@ -139,6 +146,10 @@ function InstalledApp({
 		const config = ActivityFeedConfigSchema.safeParse(manifest.config);
 		if (config.success)
 			return <ActivityFeedApp config={config.data} navigation={activityFeed} />;
+	}
+	if (entry === SYSTEM_MAP_ENTRY) {
+		const config = SystemMapConfigSchema.safeParse(manifest.config);
+		if (config.success) return <SystemMapApp config={config.data} />;
 	}
 	if (entry === WORK_DISPATCH_ENTRY) {
 		const config = WorkDispatchConfigSchema.safeParse(manifest.config);
