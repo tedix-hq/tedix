@@ -43,6 +43,7 @@ import {
 	closeSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { runCurrentQueue } from "./push-bootstrap";
 import {
 	finishLane,
 	laneUnchanged,
@@ -340,4 +341,7 @@ async function main() {
 	process.exit(1);
 }
 
-if (import.meta.main) await main();
+if (import.meta.main) {
+	if (!process.env.TEDIX_PUSH_QUEUE_SNAPSHOT) process.exit(runCurrentQueue());
+	await main();
+}

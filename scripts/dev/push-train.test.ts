@@ -298,7 +298,11 @@ describe("push train with real repositories and hooks", () => {
 							[process.execPath, resolve(import.meta.dirname, "push-queue.ts")],
 							{
 								cwd: ticket.lane.cwd,
-								env: { ...env, PATH: `${bin}:${env.PATH}` },
+								env: {
+									...env,
+									PATH: `${bin}:${env.PATH}`,
+									TEDIX_PUSH_QUEUE_SNAPSHOT: "fixture",
+								},
 								stdout: "pipe",
 								stderr: "pipe",
 							},
