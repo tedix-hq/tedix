@@ -27,27 +27,39 @@ import {
 	isRecoverableWorkstationSandboxError,
 	clampTimeout,
 	shellSingleQuote,
-	workstationOperationLockedInvocation,
-	workstationOperationLockSelection,
 	repoReady,
 	repoWorkdir,
+	stringBodyValue,
+} from "./shared";
+import {
+	workstationOperationLockedInvocation,
+	workstationOperationLockSelection,
+} from "./locks";
+import {
 	readBootstrapReadiness,
 	workstationStatusForReadiness,
 	parseCwd,
+} from "./bootstrap-readiness";
+import {
 	applyRequestScopedWorkstationEgressContext,
 	parseJsonBody,
 	workstationSessionSelectionForRequest,
 	workstationOperationAuthority,
-	stringBodyValue,
 	workstationCorrelationFromBody,
+} from "./process-runtime";
+import {
 	workstationRecoveryCheckpointKeys,
 	recoveryCheckpointOperation,
 	restoreRecoveryCheckpoint,
+} from "./recovery-checkpoint";
+import {
 	prepareWorkstationFastSafe,
+	scheduleRepoSyncForExecution,
+} from "./prepare";
+import {
 	persistentWorkstationEnvelope,
 	markWorkstationBodyStatus,
-	scheduleRepoSyncForExecution,
-} from "./shared";
+} from "./envelope";
 import { errorMessage } from "@tedix/worker-kit/error-message";
 
 const workstationSessionQueues = new Map<string, Promise<void>>();

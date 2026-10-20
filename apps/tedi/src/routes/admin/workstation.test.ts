@@ -105,22 +105,32 @@ vi.mock("../../workstation/persistence", () => ({
 
 import {
 	bootstrapInstallInFlight,
+	bootstrapInstallLaunchFailedAt,
+	repoSyncInFlight,
+} from "./workstation/in-flight";
+import {
 	bootstrapProbeCommand,
 	verifiedInstallCommandForLockfile,
-	bootstrapInstallLaunchFailedAt,
+} from "./workstation/bootstrap-install";
+import {
 	probeTool,
-	repoSyncInFlight,
-	isWorkstationRequest,
-	resolveWorkstationArtifactScopeRunId,
-	workstationSourceArtifactRefs,
-	WORKSTATION_HEADER,
 	withWorkstationCommitProvenance,
-	checkpointNative,
-	stageWorkstationSpool,
-	unpreparedCheckoutProbeCommand,
-	restorePreparedBaseCommand,
+} from "./workstation/process-runtime";
+import {
+	isWorkstationRequest,
+	WORKSTATION_HEADER,
 	ensureWorkstationEgressGuard,
 } from "./workstation/shared";
+import {
+	resolveWorkstationArtifactScopeRunId,
+	workstationSourceArtifactRefs,
+	stageWorkstationSpool,
+} from "./workstation/process-evidence";
+import {
+	checkpointNative,
+	unpreparedCheckoutProbeCommand,
+	restorePreparedBaseCommand,
+} from "./workstation/recovery-checkpoint";
 import { pushGuardViolation } from "./workstation/files-exec";
 import { workstation } from "./workstation/router";
 describe("probeTool", () => {
