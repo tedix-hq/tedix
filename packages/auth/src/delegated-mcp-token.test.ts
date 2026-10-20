@@ -127,6 +127,51 @@ describe("delegated MCP token", () => {
 		}
 	});
 
+	it.each([
+		["list_work_item_evidence", "list_work_evidence", "workItems/listEvidence"],
+		["list_work_item_events", "list_work_events", "workItems/listEvents"],
+	])(
+		"allows the exact %s read without admitting mutation aliases",
+		(canonical, alias, endpoint) => {
+			expect(
+				isDelegatedWorkTool(`tedix__${canonical}`, "work", { endpoint }, "rpc"),
+			).toBe(false);
+			expect(
+				isDelegatedWorkTool(
+					`tedix__${canonical}`,
+					"work",
+					{ endpoint },
+					"code",
+				),
+			).toBe(true);
+			expect(
+				isDelegatedWorkTool(
+					`reader__${alias}`,
+					"reader",
+					{
+						endpoint,
+						_aggregateNamespace: "reader",
+						_aggregateTediRemoteName: alias,
+					},
+					"rpc",
+				),
+			).toBe(false);
+			expect(
+				isDelegatedWorkTool(
+					canonical,
+					"work",
+					{ endpoint: "workItems/complete" },
+					"rpc",
+				),
+			).toBe(true);
+			expect(
+				isDelegatedWorkTool("complete_work_item", "work", { endpoint }, "rpc"),
+			).toBe(true);
+			expect(isDelegatedWorkTool(canonical, "other", { endpoint }, "rpc")).toBe(
+				true,
+			);
+		},
+	);
 	it("classifies Work aliases and Home re-entry independently of configured scopes", () => {
 		for (const [name, namespace] of [
 			["complete_work_item", "apps"],
@@ -150,18 +195,28 @@ describe("delegated MCP token", () => {
 			}),
 		).toBe(true);
 		expect(
-			isDelegatedWorkTool("echo__work_items_list", "echo", {
-				endpoint: "workItems/list",
-				_aggregateNamespace: "echo",
-				_aggregateTediRemoteName: "work_items_list",
-			}),
+			isDelegatedWorkTool(
+				"echo__work_items_list",
+				"echo",
+				{
+					endpoint: "workItems/list",
+					_aggregateNamespace: "echo",
+					_aggregateTediRemoteName: "work_items_list",
+				},
+				"rpc",
+			),
 		).toBe(false);
 		expect(
-			isDelegatedWorkTool("cto__work_item_get", "cto", {
-				endpoint: "workItems/getById",
-				_aggregateNamespace: "cto",
-				_aggregateTediRemoteName: "work_item_get",
-			}),
+			isDelegatedWorkTool(
+				"cto__work_item_get",
+				"cto",
+				{
+					endpoint: "workItems/getById",
+					_aggregateNamespace: "cto",
+					_aggregateTediRemoteName: "work_item_get",
+				},
+				"rpc",
+			),
 		).toBe(false);
 		for (const [name, namespace, endpoint, remoteName] of [
 			["tedix__list_work_items", "work", "workItems/list", undefined],
@@ -191,15 +246,20 @@ describe("delegated MCP token", () => {
 			],
 		] as const) {
 			expect(
-				isDelegatedWorkTool(name, namespace, {
-					endpoint,
-					...(remoteName
-						? {
-								_aggregateNamespace: namespace,
-								_aggregateTediRemoteName: remoteName,
-							}
-						: {}),
-				}),
+				isDelegatedWorkTool(
+					name,
+					namespace,
+					{
+						endpoint,
+						...(remoteName
+							? {
+									_aggregateNamespace: namespace,
+									_aggregateTediRemoteName: remoteName,
+								}
+							: {}),
+					},
+					"rpc",
+				),
 			).toBe(false);
 		}
 		expect(

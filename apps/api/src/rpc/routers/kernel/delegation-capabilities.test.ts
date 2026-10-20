@@ -134,15 +134,22 @@ describe("request-derived capability plans", () => {
 			card,
 			route,
 		});
-		expect(coding.capabilityPlan?.allowedToolIds).toContain(
+		expect(coding.capabilityPlan?.allowedToolIds).not.toContain(
 			"work.start_work_item_attempt",
 		);
-		expect(coding.capabilityPlan?.allowedToolIds).toContain(
+		expect(coding.capabilityPlan?.allowedToolIds).not.toContain(
 			"work.settle_work_item_attempt",
 		);
 		expect(coding.capabilityPlan?.allowedToolIds).not.toContain(
 			"work.complete_work_item",
 		);
+		expect(
+			renderDelegationWorkOrderMessage({
+				workOrder: { ...coding, workItemId: "linked-work" },
+				fallbackContent: "",
+				fallbackWorkOrderId: "order",
+			}),
+		).toContain("Home and the native runtime manage admission");
 	});
 	it("does not treat source-code comments as a requested Work mutation", () => {
 		const result = order(
