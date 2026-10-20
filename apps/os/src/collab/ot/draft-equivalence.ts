@@ -1,3 +1,4 @@
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { CodeContent } from "./code-change";
 
 /**
@@ -45,10 +46,6 @@ function withoutViewState(text: string): string | null {
 		value = { ...value, deck };
 	}
 	return stableJson(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stableJson(value: unknown): string {

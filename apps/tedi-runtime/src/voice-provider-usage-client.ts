@@ -6,7 +6,7 @@ import type {
 import {
 	exceptionTopology,
 	type ExceptionTopology,
-} from "./exception-topology";
+} from "@tedix/worker-kit/exception-topology";
 
 export interface VoiceProviderUsageEnv {
 	API_SERVICE?: Fetcher;

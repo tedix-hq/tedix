@@ -1,4 +1,4 @@
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { FacetBudgetStopReason } from "./conversation-facet";
 
 type RuntimeFailureEvent =

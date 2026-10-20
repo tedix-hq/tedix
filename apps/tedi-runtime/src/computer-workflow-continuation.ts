@@ -11,7 +11,7 @@ import type {
 	FacetWorkflowTurnResult,
 } from "./delegated-work-lease";
 import type { FacetTurnUsage } from "./step-telemetry";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { wrapUntrustedInput } from "./untrusted-input";
 
 type Storage = Pick<DurableObjectStorage, "get" | "put" | "list" | "delete">;

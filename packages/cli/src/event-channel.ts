@@ -14,6 +14,7 @@
  * it acts; the payloads carry identifiers and enums only, never comment or
  * Interaction text. Home titles are read separately through authorized tools.
  */
+import { sleep } from "@tedix/worker-kit/sleep";
 import type { CodexDriver } from "./supervise";
 import { CLI_VERSION } from "./shared";
 
@@ -378,20 +379,6 @@ async function* lines(
 	}
 }
 
-const sleep = (ms: number, signal: AbortSignal) =>
-	new Promise<void>((resolve) => {
-		if (signal.aborted) return resolve();
-		const timer = setTimeout(resolve, ms);
-		signal.addEventListener(
-			"abort",
-			() => {
-				clearTimeout(timer);
-				resolve();
-			},
-			{ once: true },
-		);
-	});
-
 /**
  * Serve Claude Code on stdio until stdin closes. Polling starts once the
  * subscriptions resolve; each new event becomes one channel notification.
@@ -450,7 +437,7 @@ export async function runEventChannel(input: {
 					`tedix channel: poll failed (${error instanceof Error ? error.message : String(error)}); retrying in ${Math.round(waitMs / 1000)}s`,
 				);
 			}
-			await sleep(waitMs, stop.signal);
+			await sleep(waitMs, stop.signal).catch(() => {});
 		}
 	})();
 
@@ -498,9 +485,7 @@ export async function deliverToCodex(input: {
 	sleep?: (ms: number) => Promise<void>;
 }): Promise<"codex_queue" | "codex_resume" | "failed"> {
 	const { driver, thread, message } = input;
-	const wait =
-		input.sleep ??
-		((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	const wait = input.sleep ?? sleep;
 	const item = await driver.queue(thread, message);
 	if (item) {
 		const until = Date.now() + (input.pickupMs ?? CODEX_PICKUP_MS);
@@ -571,6 +556,6 @@ export async function runCodexEventChannel(input: {
 				`tedix channel: poll failed (${error instanceof Error ? error.message : String(error)}); retrying in ${Math.round(waitMs / 1000)}s`,
 			);
 		}
-		await sleep(waitMs, input.signal);
+		await sleep(waitMs, input.signal).catch(() => {});
 	}
 }

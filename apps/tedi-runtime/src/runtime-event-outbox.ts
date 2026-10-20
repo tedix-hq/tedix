@@ -31,7 +31,7 @@
  */
 
 import type { TediRuntimeEvent } from "@tedix/api-contract/schemas/cognitive-runtime";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { DerivedRuntimeEventSink } from "./k2-derived-events";
 
 /** DO-storage prefix for ledger events awaiting durable publication. */

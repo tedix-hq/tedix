@@ -10,6 +10,7 @@
 		"./crypto": "./src/crypto.ts",
 		"./error-message": "./src/error-message.ts",
 		"./errors": "./src/errors.ts",
+		"./exception-topology": "./src/exception-topology.ts",
 		"./logger": "./src/logger.ts",
 		"./request-auth": "./src/request-auth.ts",
 		"./request-correlation": "./src/request-correlation.ts",

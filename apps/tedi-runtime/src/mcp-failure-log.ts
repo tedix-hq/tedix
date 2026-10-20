@@ -1,4 +1,4 @@
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 type McpFailureEvent =
 	| "tedi.mcp.audit_execute_failed"
