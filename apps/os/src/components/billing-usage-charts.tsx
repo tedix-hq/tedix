@@ -1,7 +1,8 @@
+import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleContent,
 	CollapsibleTrigger,
+	CollapsibleContent,
 } from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import type { OrgUsageOutput } from "@tedix/api-contract/contracts/org-usage";
@@ -75,7 +76,12 @@ function ChartDataTable({
 }) {
 	return (
 		<Collapsible className="mt-4">
-			<CollapsibleTrigger>
+			<CollapsibleTrigger className="group/disclosure">
+				<CaretRight
+					size={14}
+					aria-hidden
+					className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+				/>
 				<Text as="span" weight="medium">
 					View exact data
 				</Text>

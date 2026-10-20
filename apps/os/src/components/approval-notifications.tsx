@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
@@ -180,14 +186,23 @@ export function ApprovalNotifications({
 										review: { intent: "home_request" },
 									}}
 								/>
-								<details>
-									<summary>Technical details</summary>
-									{approval.detail ? (
-										<Text role="label" tone="secondary">
-											{approval.detail}
-										</Text>
-									) : null}
-								</details>
+								<Collapsible>
+									<CollapsibleTrigger className="group/disclosure">
+										<CaretRight
+											size={14}
+											aria-hidden
+											className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+										/>
+										Technical details
+									</CollapsibleTrigger>
+									<CollapsibleContent keepMounted>
+										{approval.detail ? (
+											<Text role="label" tone="secondary">
+												{approval.detail}
+											</Text>
+										) : null}
+									</CollapsibleContent>
+								</Collapsible>
 								<div className="flex flex-wrap gap-2">
 									<Button
 										size="sm"
@@ -238,12 +253,21 @@ export function ApprovalNotifications({
 								key={approval.id}
 							>
 								<ApprovalDecisionCopy approval={approval} />
-								<details>
-									<summary>Technical details</summary>
-									<Text as="p" role="body">
-										{approval.description}
-									</Text>
-								</details>
+								<Collapsible>
+									<CollapsibleTrigger className="group/disclosure">
+										<CaretRight
+											size={14}
+											aria-hidden
+											className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+										/>
+										Technical details
+									</CollapsibleTrigger>
+									<CollapsibleContent keepMounted>
+										<Text as="p" role="body">
+											{approval.description}
+										</Text>
+									</CollapsibleContent>
+								</Collapsible>
 								{approval.review.decisionMode === "approve_or_reject" ? (
 									<div className="flex flex-wrap gap-2">
 										<Button
