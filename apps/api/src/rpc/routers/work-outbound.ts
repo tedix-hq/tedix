@@ -475,6 +475,9 @@ export const outboundRouter = os.router({
 						},
 			},
 			"reviewed",
+			undefined,
+			false,
+			{ summary: input.review.notes },
 		);
 		if (edited)
 			await dispatchReview(
@@ -646,6 +649,9 @@ export const outboundRouter = os.router({
 			input.restoreRevision ? "restore" : input.action,
 			{
 				body: nextState.draft.body,
+				chips: input.chips,
+				anchors: input.anchors,
+				fromRevision: state.draftRevision,
 				before: state.styleBefore ?? state.draft.body,
 				feedback: input.restoreRevision
 					? `Restore version ${input.restoreRevision}`
@@ -664,14 +670,19 @@ export const outboundRouter = os.router({
 		await recordObservedLearningInteraction(context, {
 			organizationId: requireOrgId(context),
 			clientEventId: learningClientEventId,
-			eventKind:
-				input.action === "edit"
-					? "edited"
-					: input.action === "reject"
-						? "rejected"
-						: approving
-							? "accepted"
-							: "answered",
+			eventKind: input.restoreRevision
+				? "undone"
+				: input.action === "feedback"
+					? "retried"
+					: input.action === "edit"
+						? input.keptHunks?.length
+							? "edited"
+							: "manually_replaced"
+						: input.action === "reject"
+							? "rejected"
+							: approving
+								? "accepted"
+								: "answered",
 			surface: "decision_capture",
 			tediId: state.reviewerTediId,
 			issueKey: `decision:outbound:${state.draft.channel}:${state.draft.topic}`,
@@ -680,6 +691,13 @@ export const outboundRouter = os.router({
 			metadata: {
 				schema: "tedix.learning-feed.decision.v1",
 				answerSource: "os-outbound-card",
+				revision: nextState.draftRevision,
+				revisionsBeforeAccept: approving ? nextState.draftRevision - 1 : null,
+				fromRevision: state.draftRevision,
+				instruction: input.feedback ?? null,
+				chips: input.chips ?? [],
+				anchors: input.anchors ?? [],
+				keptHunks: input.keptHunks ?? [],
 				feedbackText: input.feedback ?? null,
 				decisionContext: {
 					kind: "outbound",

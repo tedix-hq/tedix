@@ -248,6 +248,7 @@ export const DecisionExposureInputSchema = z.strictObject({
 export type DecisionExposureInput = z.infer<typeof DecisionExposureInputSchema>;
 
 export const DecisionSnapshotSchema = z.strictObject({
+	revision: z.number().int().positive().nullable().optional(),
 	classId: z.string(),
 	projectId: z.string().nullable(),
 	workItemId: z.string().nullable(),

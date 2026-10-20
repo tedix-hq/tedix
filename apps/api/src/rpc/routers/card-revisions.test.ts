@@ -107,6 +107,18 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 			chips: ["Shorter"],
 			anchors: [{ quote: "Original", note: "Keep the facts" }],
 		});
+		const retried = sqlite
+			.prepare(
+				"SELECT event_kind,metadata FROM learning_interaction_events WHERE event_kind='retried'",
+			)
+			.all();
+		expect(retried).toHaveLength(1);
+		expect(JSON.parse(String(retried[0]!.metadata))).toMatchObject({
+			fromRevision: 1,
+			instruction: "Shorter please",
+			chips: ["Shorter"],
+			anchors: [{ quote: "Original" }],
+		});
 		const history = await target.cardHistory({ requestId: card });
 		expect(history.pending?.instruction).toBe("Shorter please");
 		await expect(
@@ -136,6 +148,20 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 		expect(rewritten.anchorsResolved).toEqual([{ index: 0, status: "done" }]);
 		expect(rewritten.parentRevision).toBe(1);
 		expect(rewritten.learningEventId).toBeTruthy();
+		expect(
+			(await target.cardHistory({ requestId: card, beforeRevision: 2 }))
+				.pending,
+		).toBeNull();
+		const paired = sqlite
+			.prepare("SELECT metadata FROM learning_interaction_events WHERE id=?")
+			.get(rewritten.learningEventId!)!;
+		expect(JSON.parse(String(paired.metadata))).toMatchObject({
+			revision: 2,
+			fromRevision: 1,
+			parentRevision: 1,
+			summary: "Shortened the draft.",
+			anchors: [{ quote: "Original" }],
+		});
 		const kept = await target.reviseCard({
 			requestId: card,
 			expectedRequestVersion: 3,
@@ -150,6 +176,13 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 				},
 			],
 		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT event_kind FROM learning_interaction_events WHERE id=?",
+				)
+				.get(kept.learningEventId!)?.event_kind,
+		).toBe("edited");
 		expect(kept).toMatchObject({
 			revision: 3,
 			cause: "human_edit",
@@ -162,6 +195,13 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 			expectedRevision: 3,
 			restoreRevision: 1,
 		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT event_kind FROM learning_interaction_events WHERE id=?",
+				)
+				.get(restored.learningEventId!)?.event_kind,
+		).toBe("undone");
 		expect(restored).toMatchObject({
 			revision: 4,
 			body: "Original text",

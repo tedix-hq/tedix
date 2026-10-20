@@ -117,6 +117,9 @@ export async function saveOutbound(
 			feedback?: string;
 			before: string;
 			resolves: boolean;
+			anchors?: (typeof workInteractionCardRevisions.$inferInsert)["anchors"];
+			chips?: string[];
+			fromRevision?: number;
 		};
 	},
 ) {
@@ -255,7 +258,7 @@ export async function saveOutbound(
 						),
 						respondedAt: sql<string>`${p.now}`.as("responded_at"),
 						metadata:
-							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, action: p.action, ...(p.action === "feedback" ? { cardAction: "ask_changes", instruction: response.feedback } : {}), before: response.before, after: response.body, feedback: response.feedback ?? null, draftRevision: p.state.draftRevision, source: "os-outbound" })})`.as(
+							sql`json(${JSON.stringify({ schema: OUTBOUND_SCHEMA, action: p.action, ...(p.action === "feedback" ? { cardAction: "ask_changes", instruction: response.feedback, anchors: response.anchors ?? [], chips: response.chips ?? [], fromRevision: response.fromRevision ?? p.state.draftRevision } : {}), before: response.before, after: response.body, feedback: response.feedback ?? null, draftRevision: p.state.draftRevision, source: "os-outbound" })})`.as(
 								"metadata",
 							),
 					})
@@ -284,6 +287,11 @@ export async function saveOutbound(
 						),
 					body: sql<string>`${p.state.draft.body}`.as("body"),
 					field: sql<string>`'draft'`.as("field"),
+					anchors: sql<
+						(typeof workInteractionCardRevisions.$inferInsert)["anchors"]
+					>`(SELECT json_extract(metadata,'$.anchors') FROM work_interaction_responses WHERE org_id=${p.orgId} AND interaction_id=${p.state.interactionId} AND json_extract(metadata,'$.cardAction')='ask_changes' ORDER BY resolved_request_version DESC,responded_at DESC,id DESC LIMIT 1)`.as(
+						"anchors",
+					),
 					summary: sql<
 						string | null
 					>`${p.revisionFeedback?.summary ?? null}`.as("summary"),

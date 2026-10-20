@@ -1,3 +1,4 @@
+import { listCardRevisions } from "@tedix/db/queries/work-items/card-revisions";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { recordLearningInteraction } from "@tedix/db/queries/learning-feedback";
 import {
@@ -101,6 +102,10 @@ export async function recordDecisionExposure(
 		(w) => w.id === (request?.workItemId ?? proposal?.workItemId),
 	);
 	const snapshot: DecisionSnapshot = {
+		revision: request
+			? ((await listCardRevisions(db, p.organizationId, request.id)).at(-1)
+					?.revision ?? 1)
+			: null,
 		classId:
 			envelope?.classId ??
 			(typeof request?.metadata.decisionClass === "string"

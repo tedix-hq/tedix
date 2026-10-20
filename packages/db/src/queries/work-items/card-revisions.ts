@@ -38,7 +38,11 @@ export function buildCardRevisionLearningStatement(
 						"client_event_id",
 					),
 					signalClass: sql<"quality">`'quality'`.as("signal_class"),
-					eventKind: sql<"edited">`'edited'`.as("event_kind"),
+					eventKind: sql<
+						"edited" | "manually_replaced" | "undone"
+					>`CASE WHEN ${revisions.cause}='restore' THEN 'undone' WHEN ${revisions.cause}='human_edit' AND coalesce(json_array_length(${revisions.keptHunks}),0)=0 THEN 'manually_replaced' ELSE 'edited' END`.as(
+						"event_kind",
+					),
 					scopeKind: sql<"personal">`'personal'`.as("scope_kind"),
 					scopeId:
 						sql<string>`coalesce((SELECT m.descope_user_id FROM organization_members m WHERE m.organization_id=${workInteractions.orgId} AND m.user_id=${workInteractions.targetId} AND m.status='active' LIMIT 1),${workInteractions.targetId})`.as(
@@ -48,7 +52,7 @@ export function buildCardRevisionLearningStatement(
 					targetType: sql<string>`'work_interaction'`.as("target_type"),
 					targetId: revisions.requestId,
 					metadata:
-						sql`json_object('schema','tedix.card-revision-pair.v1','answerSource','card-revision','decisionClass','card-copy','before',(SELECT body FROM work_interaction_card_revisions prior WHERE prior.org_id=${revisions.orgId} AND prior.request_id=${revisions.requestId} AND prior.revision=${revisions.revision}-1),'after',${revisions.body},'instruction',${revisions.instruction},'responseId',${revisions.responseId},'revision',${revisions.revision},'cause',${revisions.cause},'actorSessionId',${revisions.actorSessionId},'serverObserved',json('true'))`.as(
+						sql`json_object('schema','tedix.card-revision-pair.v1','answerSource','card-revision','decisionClass','card-copy','before',(SELECT body FROM work_interaction_card_revisions prior WHERE prior.org_id=${revisions.orgId} AND prior.request_id=${revisions.requestId} AND prior.revision=${revisions.revision}-1),'after',${revisions.body},'instruction',${revisions.instruction},'responseId',${revisions.responseId},'revision',${revisions.revision},'cause',${revisions.cause},'fromRevision',${revisions.revision}-1,'field',${revisions.field},'anchors',json(coalesce(${revisions.anchors},'[]')),'summary',${revisions.summary},'keptHunks',json(coalesce(${revisions.keptHunks},'[]')),'learningEventId',${revisions.learningEventId},'parentRevision',${revisions.parentRevision},'actorSessionId',${revisions.actorSessionId},'serverObserved',json('true'))`.as(
 							"metadata",
 						),
 					occurredAt: sql<string>`${revisions.createdAt}`.as("occurred_at"),
@@ -269,4 +273,24 @@ export async function appendCardRevision(
 		buildCardRevisionLearningStatement(db, p.orgId, id),
 	]);
 	return rows[0] ?? null;
+}
+
+export async function cardChangeHasRevision(
+	db: DbQueryClient,
+	orgId: string,
+	requestId: string,
+	responseId: string,
+) {
+	const [row] = await db
+		.select({ id: revisions.id })
+		.from(revisions)
+		.where(
+			and(
+				eq(revisions.orgId, orgId),
+				eq(revisions.requestId, requestId),
+				eq(revisions.responseId, responseId),
+			),
+		)
+		.limit(1);
+	return Boolean(row);
 }
