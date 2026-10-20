@@ -318,6 +318,7 @@ it("does not guess ambiguous, invalid, undated or cross-year factory deadlines",
 it("applies persisted negative ranking without hiding a card or demoting critical policy", () => {
 	const state = {
 		schema: "tedix.deck-curation.v1",
+		revision: 2,
 		status: "open",
 		successorId: null,
 		penalty: -10,
@@ -350,7 +351,7 @@ it("applies persisted negative ranking without hiding a card or demoting critica
 		},
 		undefined,
 		now,
-		{ kind: "question", metadata: { curation: state } },
+		{ kind: "question", metadata: { curation: state, cardRevision: 2 } },
 	);
 	expect(lowered.score).toBe(original.score - 10);
 	const protectedRank = rankDeckCard(
@@ -364,7 +365,10 @@ it("applies persisted negative ranking without hiding a card or demoting critica
 		},
 		undefined,
 		now,
-		{ kind: "question", metadata: { riskLevel: "critical", curation: state } },
+		{
+			kind: "question",
+			metadata: { riskLevel: "critical", curation: state, cardRevision: 2 },
+		},
 	);
 	expect(protectedRank.score).toBe(original.score);
 });

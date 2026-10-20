@@ -133,6 +133,7 @@ async function append(
 		!(expectedRevision === 0 && latest.revision === 1)
 	)
 		throw createError(ErrorCodes.CONFLICT, "Reload the latest card revision");
+	const curation = { ...state, revision: latest.revision + 1 };
 	const revision = await appendCardRevision(context.db, {
 		orgId,
 		requestId: request.id,
@@ -146,8 +147,8 @@ async function append(
 		actorType: actor.type,
 		actorId: actor.id,
 		actorSessionId: actor.sessionId,
-		instruction: JSON.stringify(state),
-		curation: state,
+		instruction: JSON.stringify(curation),
+		curation,
 	});
 	if (!revision)
 		throw createError(ErrorCodes.CONFLICT, "The card changed during curation");

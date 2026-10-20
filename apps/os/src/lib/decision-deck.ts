@@ -1,5 +1,6 @@
 import { cardIsDue } from "@/lib/card-schedule";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { currentDeckCuration } from "@tedix/api-contract/utils/deck-curator";
 import type { DecisionCardFeedback } from "@/components/work-decision-card";
 import diff from "fast-diff";
 
@@ -10,7 +11,8 @@ export function decisionEnvelope(
 	return parsed.success
 		? {
 				...parsed.data,
-				...(typeof metadata?.cardContent === "string"
+				...(typeof metadata?.cardContent === "string" &&
+				!currentDeckCuration(metadata)
 					? { preview: { body: metadata.cardContent } }
 					: {}),
 			}

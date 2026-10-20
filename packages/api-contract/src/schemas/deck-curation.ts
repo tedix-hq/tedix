@@ -23,6 +23,7 @@ export const DeckCurationScopeSchema = z.strictObject({
 });
 export const DeckCurationStateSchema = z.strictObject({
 	schema: z.literal("tedix.deck-curation.v1"),
+	revision: z.number().int().positive().nullable().default(null),
 	status: z.enum(["open", "cancelled"]),
 	successorId: z.uuid().nullable(),
 	penalty: z.number().min(-100).max(0),

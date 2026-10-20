@@ -1,4 +1,5 @@
 import type { DeckCard } from "../schemas/attention";
+import { DeckCurationStateSchema } from "../schemas/deck-curation";
 import {
 	classifyDeckCard,
 	type DeckRoutingPolicy,
@@ -12,6 +13,17 @@ import type {
 
 const normalize = (value: string) =>
 	value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+
+export function currentDeckCuration(
+	metadata: Record<string, unknown> | null | undefined,
+) {
+	const parsed = DeckCurationStateSchema.safeParse(metadata?.curation);
+	return parsed.success &&
+		parsed.data.revision !== null &&
+		parsed.data.revision === metadata?.cardRevision
+		? parsed.data
+		: null;
+}
 const words = (value: string) =>
 	normalize(value).match(/[\p{L}\p{N}]+/gu) ?? [];
 
