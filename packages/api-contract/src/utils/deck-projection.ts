@@ -1,5 +1,4 @@
-import { DeckCurationStateSchema } from "../schemas/deck-curation";
-import { isCriticalDeckCard } from "./deck-curator";
+import { currentDeckCuration, isCriticalDeckCard } from "./deck-curator";
 import type * as z from "zod";
 import {
 	classifyDeckCard,
@@ -90,16 +89,16 @@ export function rankDeckCard<
 		channel: typeof m?.channel === "string" ? m.channel : undefined,
 		personIds: typeof m?.personId === "string" ? [m.personId] : [],
 	});
-	const state = DeckCurationStateSchema.safeParse(m?.curation);
+	const state = currentDeckCuration(m);
 	const penalty =
-		state.success &&
+		state &&
 		!isCriticalDeckCard({
 			...row,
 			interaction: request
 				? ({ request } as DeckCard["interaction"])
 				: undefined,
 		})
-			? state.data.penalty
+			? state.penalty
 			: 0;
 	return { ...ranked, score: ranked.score + penalty };
 }

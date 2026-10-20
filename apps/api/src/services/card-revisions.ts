@@ -312,6 +312,7 @@ export async function reviseCardContent(
 			curation = DeckCurationStateSchema.parse(
 				JSON.parse(restored.instruction ?? "null"),
 			);
+			curation.revision = latest.revision + 1;
 		} catch {
 			curation = DeckCurationStateSchema.parse({
 				schema: "tedix.deck-curation.v1",

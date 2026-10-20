@@ -123,6 +123,36 @@ describe("decision deck policy projection", () => {
 	});
 });
 
+it("preserves a draft preview during curation and accepts a later human edit", () => {
+	const metadata = {
+		decisionDeck: {
+			...DECISION_DECK_EXAMPLES[0],
+			preview: { body: "Original draft" },
+		},
+		cardContent: "Short curator recommendation",
+		cardRevision: 2,
+		curation: {
+			schema: "tedix.deck-curation.v1",
+			revision: 2,
+			status: "open",
+			successorId: null,
+			penalty: 0,
+			reason: "Summary",
+			evidenceRefs: [],
+			model: null,
+			exampleIds: [],
+		},
+	};
+	expect(decisionEnvelope(metadata)?.preview?.body).toBe("Original draft");
+	expect(
+		decisionEnvelope({
+			...metadata,
+			cardRevision: 3,
+			cardContent: "Human edited draft",
+		})?.preview?.body,
+	).toBe("Human edited draft");
+});
+
 it("distinguishes nobody carrying an outcome from a live Attempt or an unknown read", () => {
 	expect(workIsUnowned(undefined)).toBe(false);
 	expect(workIsUnowned({ accountableOwnerId: null })).toBe(false);
