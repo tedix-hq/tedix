@@ -627,7 +627,7 @@ export const NON_TENANT_BY_CONSTRUCTION: Record<string, string> = {
 export const REVIEWED_NON_TENANT_HANDLERS: Record<string, string> = {
 	"kernel-runtime/execution-proposals.ts::getRepoCommitApprovalStatusRoute":
 		"Service-binding-only runtime callback intentionally resolves the approval named by its trusted tedi caller, then requires the row tediId and repo-commit payload kind to match.",
-	"organizations.ts::syncFromDescopeContract":
+	"organizations-lifecycle.ts::syncFromDescopeContract":
 		"Service-binding-only Descope projection sync creates or updates the tenant named by the trusted auth callback.",
 	"tedis/connections.ts::initiateAppConnectionProcedure":
 		"Service-binding-only provisioning path resolves the tedi selected by the trusted control-plane caller.",
