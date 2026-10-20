@@ -79,6 +79,43 @@ describe("request-derived capability plans", () => {
 		expect(closeout.capabilityPlan?.allowedToolIds).toContain(
 			"work.complete_work_item",
 		);
+		const summary = buildDelegationWorkOrder({
+			userContent: "Summarize Work settled since yesterday in this project.",
+			card,
+			route,
+		});
+		expect(summary.capabilityPlan?.requiredCapabilities).toEqual(["work.read"]);
+		expect(summary.capabilityPlan?.allowedToolIds).toContain(
+			"work.list_work_item_events",
+		);
+		expect(summary.capabilityPlan?.allowedToolIds).not.toContain(
+			"work.complete_work_item",
+		);
+		const post = buildDelegationWorkOrder({
+			userContent:
+				"Write the Today/Feed post from Work settled since yesterday; publish it.",
+			card,
+			route,
+		});
+		expect(post.capabilityPlan?.requiredCapabilities).toEqual([
+			"work.read",
+			"today.read",
+			"today.update",
+		]);
+		expect(post.capabilityPlan?.allowedToolIds).toContain(
+			"os.revise_os_output",
+		);
+		expect(post.capabilityPlan?.allowedToolIds).not.toContain(
+			"work.complete_work_item",
+		);
+		const read = buildDelegationWorkOrder({
+			userContent: "Read the Today/Feed post",
+			card,
+			route,
+		});
+		expect(read.capabilityPlan?.allowedToolIds).not.toContain(
+			"os.revise_os_output",
+		);
 	});
 	it("preflights the requested Work comment even when page reading is available", () => {
 		const content =

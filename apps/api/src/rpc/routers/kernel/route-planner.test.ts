@@ -524,6 +524,10 @@ describe("planKernelRoute", () => {
 		expect(capturedSystem).toContain("suggest_handoff");
 		expect(capturedSystem).toContain("never auto-transferred");
 		expect(capturedSystem).toContain("prefer delegate_tedi");
+		expect(capturedSystem).toContain(
+			"route retries using current availability",
+		);
+		expect(capturedSystem).toContain("Preserve explicit holds");
 		// Body selection policy: route to the right worker, using isolate only as
 		// the tie-breaker for equivalent non-embodied targets.
 		expect(capturedSystem).toContain("choose the right tedi for the job");
