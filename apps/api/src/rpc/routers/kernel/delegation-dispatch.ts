@@ -1577,7 +1577,13 @@ function computeDispatchVerdict(input: {
 		needsWorkstation &&
 		!hasWarmEmbodiedSurface(card)
 	) {
-		if (!AVAILABLE_STATES.has(card.availability)) {
+		// "standby" is the default tier of an Agents-runtime tedi, not a dead
+		// body: its Durable Object wakes on the dispatched message and warms its
+		// own workstation on the first turn, exactly like the 3b case below.
+		if (
+			!AVAILABLE_STATES.has(card.availability) &&
+			card.availability !== "standby"
+		) {
 			return {
 				canAutoDispatch: false,
 				mode: "boot_unavailable",
@@ -1591,7 +1597,7 @@ function computeDispatchVerdict(input: {
 				mode: "needs_approval",
 				approvalRoute: "human",
 				reason:
-					"embodied work for a running isolate with a cold workstation lease; approve to dispatch, then the tedi warms its own workstation on the first turn",
+					"embodied work for an isolate with a cold workstation lease; approve to dispatch, then the tedi warms its own workstation on the first turn",
 			};
 	}
 
