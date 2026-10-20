@@ -193,7 +193,7 @@ a:focus-visible {
 	width: 24px;
 	height: 24px;
 	flex: 0 0 24px;
-	border-radius: 6px;
+	border-radius: var(--radius-md);
 	background: var(--primary);
 	color: var(--primary-foreground);
 	font-size: var(--text-tedix-control);
@@ -205,7 +205,7 @@ a:focus-visible {
 	width: 20px;
 	height: 20px;
 	flex-basis: 20px;
-	border-radius: 5px;
+	border-radius: var(--radius-md);
 	font-size: var(--text-tedix-caption);
 }
 
@@ -519,7 +519,7 @@ a:focus-visible {
 		inline-size: 44px;
 		padding-inline: 0;
 		background: color-mix(in srgb, var(--card) 88%, transparent);
-		box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+		box-shadow: var(--shadow-tedix-raised);
 		font-size: 0;
 	}
 }
@@ -557,8 +557,9 @@ a:focus-visible {
 	gap: 12px;
 	padding: 24px;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-tedix-control);
 	text-align: center;
+	line-height: var(--text-tedix-control--line-height);
 }
 
 .brand-logo {
@@ -583,7 +584,7 @@ a:focus-visible {
 	width: 40px;
 	height: 40px;
 	flex-basis: 40px;
-	border-radius: 10px;
+	border-radius: var(--radius-xl);
 	font-size: 19px;
 	/* No pulse: motion is functional feedback only, and a 1.6s infinite
 	 * scale/fade on a static brand mark is drifting ornament — 8x the largest
@@ -726,19 +727,9 @@ a:focus-visible {
 	margin: 0;
 }
 
-.product-login-panel h1 {
-	color: var(--foreground);
-	font-size: 24px;
-	font-weight: 600;
-	letter-spacing: -0.45px;
-	line-height: 32px;
-}
-
 .product-login-panel p {
 	margin-bottom: 8px;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 1.55;
 }
 
 /* Full-viewport interstitial shell for the inbound-app consent transaction.

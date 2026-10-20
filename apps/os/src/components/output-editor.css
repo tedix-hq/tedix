@@ -559,7 +559,7 @@
 }
 
 .slide-inspector-actions {
-	border-top: 1px solid oklch(0.84 0.004 95);
+	border-top: 1px solid var(--color-kumo-line);
 }
 
 .slide-inspector-caret {
@@ -578,7 +578,8 @@
 /* Hover marks an element that a press would pick up. */
 .slides-editor-canvas
 	[data-slide-element][tabindex="0"]:not([data-selected]):hover {
-	outline: 1px dashed color-mix(in srgb, #7c3aed 55%, transparent);
+	outline: 1px dashed
+		color-mix(in srgb, var(--color-kumo-focus) 55%, transparent);
 	outline-offset: 2px;
 }
 
@@ -747,9 +748,9 @@
  * black chip on light chrome is the idiom this whole rule is undoing.
  */
 .slides-editor-thumbnails [aria-current] {
-	--color-kumo-line: #7c3aed;
+	--color-kumo-line: var(--color-kumo-focus);
 
-	background: #ffffff;
+	background: var(--tedix-paper);
 }
 
 /* The rail's list is the flexible row, so the rail scrolls internally instead
@@ -776,7 +777,7 @@
 	z-index: 1;
 	height: 2px;
 	border-radius: 2px;
-	background: #7c3aed;
+	background: var(--color-kumo-brand);
 	pointer-events: none;
 }
 
@@ -799,10 +800,12 @@
  * in docs/engineering/product/design.md. The slide canvas keeps its own rounded geometry.
  */
 .slides-editor-stage {
+	--color-kumo-line: oklch(0.82 0.003 95);
+	--color-kumo-elevated: oklch(0.96 0.003 95);
 	min-height: 24rem;
 	border-radius: 0;
-	border: 1px solid oklch(0.82 0.003 95);
-	background: oklch(0.96 0.003 95);
+	border: 1px solid var(--color-kumo-line);
+	background: var(--color-kumo-elevated);
 	color-scheme: light;
 	container-type: size;
 }
@@ -920,7 +923,7 @@
 	overflow: hidden;
 	aspect-ratio: 16 / 9;
 	border-radius: 4px;
-	background: #ffffff;
+	background: var(--tedix-paper);
 }
 
 .deck-read-thumb-name {

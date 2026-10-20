@@ -546,8 +546,8 @@ describe("SlidesEditor", () => {
 			css.match(
 				/^\.slides-editor-thumbnails \[aria-current\] \{[^}]*\}/m,
 			)?.[0] ?? "";
-		expect(current).toContain("--color-kumo-line: #7c3aed");
-		expect(current).toContain("background: #ffffff");
+		expect(current).toContain("--color-kumo-line: var(--color-kumo-focus)");
+		expect(current).toContain("background: var(--tedix-paper)");
 
 		// The rail itself must stay light enough that the shared
 		// `--text-color-kumo-default` ink reads on it.

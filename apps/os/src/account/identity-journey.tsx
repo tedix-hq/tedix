@@ -89,8 +89,8 @@ export function IdentityJourneyFrame({
 				<section className="product-login-panel" aria-label={title}>
 					<TedixBrandLogo />
 					{eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
-					<h1>{title}</h1>
-					<p>{description}</p>
+					<h1 className="type-tedix-title">{title}</h1>
+					<p className="type-tedix-body">{description}</p>
 					{children}
 					{status ? <p aria-live="polite">{status}</p> : null}
 					{error ? <p role="alert">{error}</p> : null}
