@@ -1104,10 +1104,6 @@
 .canvas-workpiece-tab[data-selected] {
 	max-width: 360px;
 }
-.canvas-saved-status {
-	background: transparent !important;
-	color: var(--color-kumo-subtle) !important;
-}
 .canvas-document-identity:has(.canvas-workpiece-mode-switcher) {
 	flex: 1 1 auto;
 	min-width: 0;
