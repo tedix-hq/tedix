@@ -104,9 +104,12 @@ calling `discover.*` gets the full catalog; `get_info`, `server/discover`, and
 `tools/list` answer from app metadata without building the aggregate.
 
 Clients declaring MCP Apps (`io.modelcontextprotocol/ui`, or the older
-`io.modelcontextprotocol/apps` alias) also see enabled configured widget tools
+`io.modelcontextprotocol/apps` alias) also see enabled widget tools explicitly
+opted in through `config.nativeDirect`, such as Deck and Feed,
 with their native `ui://` resource links. Their `tools/list` hydrates the
-aggregate; callers without Apps support retain the compact surface. Modern
+aggregate, including Connect's verified selected organizations when no single
+organization header is supplied; callers without Apps support retain the
+compact surface. Modern
 clients declare capabilities in request `_meta`; legacy clients declare them
 in `initialize` and echo the returned `Mcp-Session-Id` on later exchanges.
 That stateless identifier carries only the UI declaration, never authentication

@@ -894,9 +894,13 @@ function catalogRow(
 	} as import("./server-context").AppTool;
 }
 describe("Code Mode widget declarations", () => {
-	it.each([true, false])(
-		"gates native UI declarations on client support (%s)",
-		async (supportsApps) => {
+	it.each([
+		[true, true],
+		[false, true],
+		[true, false],
+	])(
+		"gates native UI declarations on client support and row opt-in (%s, %s)",
+		async (supportsApps, nativeDirect) => {
 			vi.spyOn(
 				await import("./codemode"),
 				"registerCodeModeTools",
@@ -917,6 +921,7 @@ describe("Code Mode widget declarations", () => {
 					config: {
 						transport: "rpc",
 						endpoint: "fixture/show",
+						nativeDirect,
 						layoutId: "fixture-view",
 						layoutSpec: {
 							root: "title",
@@ -949,7 +954,7 @@ describe("Code Mode widget declarations", () => {
 					_meta?: { ui?: { resourceUri?: string } };
 				}>
 			).find((t) => t.name === "show_fixture");
-			if (!supportsApps) {
+			if (!supportsApps || !nativeDirect) {
 				expect(tool).toBeUndefined();
 				await server.close();
 				return;

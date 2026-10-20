@@ -2354,9 +2354,13 @@ async function maybeHandleCodeModeCompactMcp(
 	if (method === "tools/list") {
 		if (
 			clientSupportsMcpApps(body) &&
-			((resolvedApp.tools ?? []).some((tool) => resolveToolWidgetRoute(tool)) ||
+			((resolvedApp.tools ?? []).some(
+				(tool) =>
+					tool.config?.nativeDirect === true && resolveToolWidgetRoute(tool),
+			) ||
 				(Array.isArray(resolvedApp.metadata?.mcpConfig?.aggregateApps) &&
-					resolvedApp.metadata.mcpConfig.aggregateApps.length > 0))
+					resolvedApp.metadata.mcpConfig.aggregateApps.length > 0) ||
+				resolvedApp.metadata?.mcpConfig?.multiOrgConsent === true)
 		)
 			return null;
 		// SEP-2549 CacheableResult on this fast path: the 60s/private default
