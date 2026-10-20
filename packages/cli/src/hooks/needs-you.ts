@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DeckProjectionSchema } from "@tedix/api-contract/schemas/attention";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { scrub } from "../learn-import";
 import { cacheDir } from "./context-cache";
 import { contextHash } from "./context-delivery";
@@ -68,7 +69,7 @@ export async function needsYou(
 				[
 					...command,
 					"code",
-					`async () => { const r = await ${tool.callable}({limit:100}); const rows = Array.isArray(r) ? r : r?.data ?? []; const o = rows.find(x => x.organizationId === ${JSON.stringify(runtime.organizationId)}); return {slug:o?.organizationSlug}; }`,
+					`async () => { const r = await ${tool.callable}({limit:100}); const rows = Array.isArray(r) ? r : r?.data ?? []; const o = rows.find(x => x.organizationId === ${codeModeLiteral(runtime.organizationId)}); return {slug:o?.organizationSlug}; }`,
 				],
 				3000,
 			);

@@ -3,6 +3,7 @@ import {
 	LessonTriggersSchema,
 	GetAgentSessionLessonsResultSchema,
 } from "@tedix/api-contract/schemas/agent-session-lessons";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import {
 	briefRepository,
 	recallLessons,
@@ -103,7 +104,7 @@ export async function recallForSituation(
 		[
 			...command,
 			"code",
-			`async () => await agent.get_agent_session_lessons(${JSON.stringify({ harness, repo, catalog: true })})`,
+			`async () => await agent.get_agent_session_lessons(${codeModeLiteral({ harness, repo, catalog: true })})`,
 		],
 		5000,
 	);

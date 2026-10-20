@@ -1,4 +1,5 @@
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 
 /** MCP transports may wrap or objectify a Code Mode array. Never accept a clipped result. */
 function discoveryRows(value: unknown, depth = 0): unknown[] | null {
@@ -68,7 +69,7 @@ export async function preflightDelegationTools(
 			"Delegation preflight failed: invalid or excessive required callables",
 		);
 	const result = await execute(
-		`async () => await Promise.all(${JSON.stringify(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`,
+		`async () => await Promise.all(${codeModeLiteral(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`,
 	);
 	const rows = discoveryRows(result);
 	if (!rows)
