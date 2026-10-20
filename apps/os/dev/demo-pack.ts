@@ -1,7 +1,7 @@
 /**
  * Sample-data pack for the fixture OS: a fictional price-comparison company
  * ("PricePilot") with three focus use cases: Reddit opportunities reviewed by
- * Katja, invoice and stock reconciliation, and critical error reports.
+ * Maya, invoice and stock reconciliation, and critical error reports.
  *
  * Every name, thread, amount and address is invented. The JSON under
  * `demo-pack/` is the only source; nothing reads a tenant or sends anything.
