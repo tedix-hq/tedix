@@ -6,6 +6,7 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
 	autoDelistStaleCatalogApps,
+	autoDelistStaleCatalogAppsWithStats,
 	listEnabledCatalogAppsForVectorSync,
 } from "./scheduled-maintenance";
 
@@ -134,7 +135,7 @@ describe("autoDelistStaleCatalogApps", () => {
 		});
 		insertManualListing(sqlite, "fresh-manual");
 
-		const result = await autoDelistStaleCatalogApps(db, 21);
+		const result = await autoDelistStaleCatalogAppsWithStats(db, 21);
 
 		expect(result).toEqual({ delisted: 2, skippedProtected: 3 });
 		expect(statusOf(sqlite, "manual-stale")).toBe("ENABLED");
@@ -144,6 +145,18 @@ describe("autoDelistStaleCatalogApps", () => {
 		expect(statusOf(sqlite, "none-stale")).toBe("DELISTED");
 		expect(statusOf(sqlite, "fresh-none")).toBe("ENABLED");
 		expect(statusOf(sqlite, "fresh-manual")).toBe("ENABLED");
+	});
+
+	it("keeps the numeric result and delists an unprotected row with unknown health", async () => {
+		const { db, sqlite } = realDb();
+		insertApp(sqlite, { id: "unknown-health", lastSyncedAt: STALE });
+		sqlite
+			.prepare(
+				"UPDATE app_catalog SET health_status = NULL WHERE id = 'unknown-health'",
+			)
+			.run();
+		expect(await autoDelistStaleCatalogApps(db, 21)).toBe(1);
+		expect(statusOf(sqlite, "unknown-health")).toBe("DELISTED");
 	});
 
 	it("delists every stale enabled app when the guards are switched off", async () => {
@@ -156,7 +169,7 @@ describe("autoDelistStaleCatalogApps", () => {
 			healthStatus: "requires_auth",
 		});
 
-		const result = await autoDelistStaleCatalogApps(db, 21, {
+		const result = await autoDelistStaleCatalogAppsWithStats(db, 21, {
 			keepManual: false,
 			keepAuthGated: false,
 		});

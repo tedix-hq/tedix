@@ -140,26 +140,21 @@ export async function autoDisableDeadMcpCatalogApps(
 	};
 }
 
-/**
- * Auto-delist apps that have not been synced for more than the given number of days.
- * Sets `status = 'DELISTED'` and `is_discoverable = 0`.
- *
- * Two classes of stale row are kept ENABLED, because their `last_synced_at`
- * can never be refreshed by the scanner rather than because the app is gone:
- *
- * - `keepManual` (default true): apps carrying a `manual` store listing.
- *   `app_catalog` has no `source` column — per-source provenance lives on
- *   `app_catalog_store_listings.source`, and a manual listing is the marker
- *   that a human listed the app deliberately.
- * - `keepAuthGated` (default true): apps whose latest `health_status` is
- *   `requires_auth` (the scanner's last check got 401/403), or whose
- *   `auth_types` JSON demands an OAUTH/API_KEY credential the scanner does
- *   not hold (`scan_auth_headers` and `scan_connection_id` both NULL).
- *
- * Returns the number delisted plus `skippedProtected`, the count of stale
- * ENABLED candidates the guards kept — reported in the cron log.
- */
+/** Preserve the numeric API used by existing catalog maintenance callers. */
 export async function autoDelistStaleCatalogApps(
+	db: Database,
+	days = 21,
+	options: { keepManual?: boolean; keepAuthGated?: boolean } = {},
+): Promise<number> {
+	return (await autoDelistStaleCatalogAppsWithStats(db, days, options))
+		.delisted;
+}
+
+/**
+ * Keep manual store listings and apps the scanner cannot authenticate to enabled.
+ * Return skipped counts for the retention cron alongside the number delisted.
+ */
+export async function autoDelistStaleCatalogAppsWithStats(
 	db: Database,
 	days = 21,
 	options: { keepManual?: boolean; keepAuthGated?: boolean } = {},
@@ -171,7 +166,7 @@ export async function autoDelistStaleCatalogApps(
 			: undefined,
 		keepAuthGated
 			? or(
-					eq(appCatalog.healthStatus, "requires_auth"),
+					eq(sql`coalesce(${appCatalog.healthStatus}, '')`, "requires_auth"),
 					and(
 						sql`EXISTS (SELECT 1 FROM json_each(${appCatalog.authTypes}) WHERE json_each.value IN ('OAUTH', 'API_KEY'))`,
 						sql`${appCatalog.scanAuthHeaders} IS NULL`,
