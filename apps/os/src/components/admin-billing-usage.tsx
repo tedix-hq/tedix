@@ -1,7 +1,8 @@
+import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleContent,
 	CollapsibleTrigger,
+	CollapsibleContent,
 } from "@/components/kumo/collapsible";
 /**
  * Billing usage overview — the hero stats row of /admin/billing.
@@ -187,7 +188,12 @@ export function BillingUsageOverview({
 			)}
 			<BillingRunCosts organizationId={organizationId} />
 			<Collapsible className="space-y-4">
-				<CollapsibleTrigger>
+				<CollapsibleTrigger className="group/disclosure">
+					<CaretRight
+						size={14}
+						aria-hidden
+						className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+					/>
 					Advanced usage and billing details
 				</CollapsibleTrigger>
 				<CollapsibleContent keepMounted>
@@ -407,15 +413,24 @@ export function BillingUsageOverview({
 								not payable and do not release held usage or change customer
 								charges.
 							</Text>
-							<details>
-								<summary>Technical details</summary>
-								<Text tone="secondary">
-									{formatTokens(usageQuery.data.totals.sourceRetiredRowCount)}{" "}
-									retained records whose original source is no longer present.
-									Only the current reviewed version contributes; original usage
-									is counted once.
-								</Text>
-							</details>
+							<Collapsible>
+								<CollapsibleTrigger className="group/disclosure">
+									<CaretRight
+										size={14}
+										aria-hidden
+										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+									/>
+									Technical details
+								</CollapsibleTrigger>
+								<CollapsibleContent keepMounted>
+									<Text tone="secondary">
+										{formatTokens(usageQuery.data.totals.sourceRetiredRowCount)}{" "}
+										retained records whose original source is no longer present.
+										Only the current reviewed version contributes; original
+										usage is counted once.
+									</Text>
+								</CollapsibleContent>
+							</Collapsible>
 						</CardContent>
 					</Card>
 					<Card tone="raised">

@@ -28,11 +28,10 @@ describe("ConsentPermissionGroups", () => {
 		const html = renderToStaticMarkup(
 			<ConsentPermissionGroups permissions={permissions} />,
 		);
-		// The bounded disclosure box is a `Surface` rendered as a native
-		// `<details>`, which keeps the consent screen working with no JS.
+		// Group surfaces share the keyboard-accessible disclosure adapter.
 		expect(html).toContain('data-slot="surface"');
-		expect(html).toContain("<details");
-		expect(html).toContain("<summary");
+		expect(html).toContain('data-kumo-component="CollapsibleTrigger"');
+		expect(html).not.toContain("<details");
 		// The scope literal uses the shared inline-code adapter.
 		expect(html).toContain('data-slot="code-inline"');
 		expect(html).toContain("tedix.read");
@@ -52,7 +51,11 @@ describe("ConsentPermissionGroups", () => {
 		);
 		// The admin group is expanded on first paint so elevated authority is
 		// never hidden behind a disclosure the operator has to find.
-		expect(html).toContain('<details open=""');
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		const triggers = container.querySelectorAll("button[aria-expanded]");
+		expect(triggers[0]?.getAttribute("aria-expanded")).toBe("false");
+		expect(triggers[1]?.getAttribute("aria-expanded")).toBe("true");
 		expect(html).toContain(">Manage</");
 	});
 
@@ -68,7 +71,7 @@ describe("ConsentPermissionGroups", () => {
 				onSelectionChange={() => {}}
 			/>,
 		);
-		const summary = container.querySelector("summary");
+		const summary = container.querySelector("button[aria-expanded]");
 		expect(summary?.textContent).toContain("1 selected");
 		expect(summary?.textContent).not.toContain("Admin");
 		expect(summary?.textContent).not.toContain("Manage");
