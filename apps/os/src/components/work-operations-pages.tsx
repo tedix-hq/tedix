@@ -7,6 +7,7 @@ import {
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
+import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
 import { latestDraftOf } from "@/components/work-interaction-draft";
 import {
 	decisionCaptureSummary,
@@ -17,8 +18,20 @@ import { workInteractionsSearch } from "@/lib/work-route-search";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "@tanstack/react-form";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+	type ReactNode,
+} from "react";
 import * as z from "zod";
+import {
+	WorkActorAvatar,
+	WorkActorDirectoryContext,
+} from "@/components/work-actor-avatar";
+import { resolveWorkActor } from "@/lib/work-actor";
+import { Combobox } from "@/components/kumo/combobox";
 import { WorkInteractionDeliveryOverlaySchema } from "@tedix/api-contract/schemas/work-interactions";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
 import { BrowserTakeoverLiveView } from "@/components/browser-takeover-live-view";
@@ -97,6 +110,7 @@ import {
 	workInteractionDetailQueryOptions,
 	workInteractionsQueryOptions,
 	workItemReadinessQueryOptions,
+	workReadinessProjectionQueryOptions,
 	workItemDetailQueryOptions,
 	osQueryKeys,
 	workResourcePoolsQueryOptions,
@@ -172,6 +186,192 @@ export function useWorkPrincipalNames(organizationId?: string) {
 			names.set(`external_agent:${principal.id}`, principal.displayName);
 		return names;
 	}, [tedis.data, members.data, external.data]);
+}
+
+export function OperationActor({ type, id }: { type: string; id: string }) {
+	const directory = useContext(WorkActorDirectoryContext);
+	const actor = { type, id };
+	const resolved = resolveWorkActor(actor, "Name unavailable", directory);
+	return (
+		<span className="inline-flex min-w-0 max-w-full items-center gap-2">
+			<WorkActorAvatar
+				actor={actor}
+				name="Name unavailable"
+				detail={`${type}: ${id}`}
+				className="max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11"
+			/>
+			<span className="min-w-0">
+				<Text as="span" role="label" className="block truncate">
+					{resolved.label}
+				</Text>
+				<Text
+					as="span"
+					role="label"
+					tone="secondary"
+					className="block truncate"
+					title={`${type}: ${id}`}
+				>
+					{sentenceCase(type)} · {id.slice(0, 8)}
+				</Text>
+			</span>
+		</span>
+	);
+}
+
+function OperationPicker({
+	label,
+	options,
+	value,
+	onSelect,
+}: {
+	label: string;
+	options: { value: string; label: string }[];
+	value: string;
+	onSelect: (id: string) => void;
+}) {
+	return (
+		<Combobox
+			items={options}
+			value={options.find((option) => option.value === value) ?? null}
+			isItemEqualToValue={(a, b) => a.value === b.value}
+			onValueChange={(option) => {
+				if (option) onSelect(option.value);
+			}}
+		>
+			<Combobox.Trigger
+				render={
+					<Button
+						variant="outline"
+						className="min-h-11 max-w-full justify-start whitespace-normal text-left"
+					/>
+				}
+				aria-label={label}
+			>
+				{options.find((option) => option.value === value)?.label ?? label}
+			</Combobox.Trigger>
+			<Combobox.Content className="max-w-[calc(100vw-2rem)]">
+				<Combobox.Input
+					aria-label={label.replace(/^Choose /, "Find ")}
+					placeholder="Search by name…"
+				/>
+				<Combobox.Empty>No matches in this snapshot</Combobox.Empty>
+				<Combobox.List>
+					{(option: { value: string; label: string }) => (
+						<Combobox.Item
+							key={option.value}
+							value={option}
+							className="min-h-11 whitespace-normal"
+						>
+							{option.label}
+						</Combobox.Item>
+					)}
+				</Combobox.List>
+			</Combobox.Content>
+		</Combobox>
+	);
+}
+
+function ReadinessOverview({
+	selectedId = "",
+	onSelect,
+}: {
+	selectedId?: string;
+	onSelect?: (id: string) => void;
+}) {
+	const paging = useCursorPaging<{ at: string; id: string }>();
+	const query = useQuery(workReadinessProjectionQueryOptions(paging.cursor));
+	const rows = query.data?.data ?? [];
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Readiness and leases</CardTitle>
+				<CardDescription>
+					Read-only snapshot of Work and admission gates. Inspecting an item
+					never starts work. Readiness depends on the executor.
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				{query.isPending ? (
+					<WorkListSkeleton />
+				) : query.isError ? (
+					<WorkReadFailure
+						title="Readiness overview unavailable"
+						error={query.error}
+					/>
+				) : rows.length === 0 ? (
+					<WorkEmpty
+						title="No Work in this snapshot"
+						description="New Work will appear here when it is available."
+					/>
+				) : (
+					<>
+						{onSelect && (
+							<OperationPicker
+								label="Choose Work"
+								value={selectedId}
+								options={rows.map(({ workItem }) => ({
+									value: workItem.id,
+									label: workItem.title,
+								}))}
+								onSelect={onSelect}
+							/>
+						)}
+						<Collection appearance="inline" aria-label="Work readiness">
+							{rows.map(({ workItem, readiness }) => (
+								<li key={workItem.id} className="grid min-w-0 gap-2 py-3">
+									<div className="flex flex-wrap items-center gap-2">
+										{onSelect ? (
+											<Button
+												variant="ghost"
+												className="min-h-11 max-w-full whitespace-normal text-left"
+												onClick={() => onSelect(workItem.id)}
+											>
+												{workItem.title}
+											</Button>
+										) : (
+											<Link
+												href={`/work/items/${workItem.id}`}
+												className="min-h-11 py-3"
+											>
+												{workItem.title}
+											</Link>
+										)}
+										<Badge variant={readiness.ready ? "success" : "warning"}>
+											{sentenceCase(readiness.state)}
+										</Badge>
+									</div>
+									{readiness.gates
+										.filter(
+											(gate) =>
+												gate.gate === "attempt" || gate.evaluation !== "passed",
+										)
+										.map((gate) => (
+											<Text
+												key={gate.gate}
+												as="p"
+												role="label"
+												tone="secondary"
+											>
+												{sentenceCase(gate.gate)}: {gate.detail}
+											</Text>
+										))}
+								</li>
+							))}
+						</Collection>
+					</>
+				)}
+				<PageControls
+					hasPrevious={paging.hasPrevious}
+					hasNext={Boolean(query.data?.hasMore && query.data.nextCursor)}
+					onPrevious={paging.reset}
+					onBack={paging.previous}
+					onNext={() => {
+						if (query.data?.nextCursor) paging.next(query.data.nextCursor);
+					}}
+				/>
+			</CardContent>
+		</Card>
+	);
 }
 
 function MutationError({ error }: { error: unknown }) {
@@ -419,7 +619,10 @@ export function WorkCasesPage() {
 												title={record.accountableOwnerId}
 												data-mobile-case-owner
 											>
-												Owner: {workPrincipalLabel(record.accountableOwnerId)}
+												<OperationActor
+													type={record.accountableOwnerType}
+													id={record.accountableOwnerId}
+												/>
 											</dd>
 										</div>
 										<span aria-hidden="true">·</span>
@@ -472,7 +675,10 @@ export function WorkCasesPage() {
 											</Badge>
 										</TableCell>
 										<TableCell title={record.accountableOwnerId}>
-											{workPrincipalLabel(record.accountableOwnerId)}
+											<OperationActor
+												type={record.accountableOwnerType}
+												id={record.accountableOwnerId}
+											/>
 										</TableCell>
 										<TableCell>
 											{record.targetResolutionAt ? (
@@ -1527,7 +1733,7 @@ function useExpandedGroups() {
 	};
 }
 
-function NeedsYouNowSection() {
+export function NeedsYouNowSection() {
 	const query = useQuery(workUrgentInteractionsQueryOptions());
 	const groups = useExpandedGroups();
 	const rows = query.data?.data ?? [];
@@ -1536,45 +1742,108 @@ function NeedsYouNowSection() {
 	const renderRow = (
 		{ request, workItem }: UrgentRow,
 		earlier?: UrgentRow[],
+		mobile = false,
 	) => {
 		const summary = urgentInteractionSummary(request.metadata);
-		return (
-			<TableRow key={request.id}>
-				<TableCell className="whitespace-normal">
-					<Link variant="record" href={`/work/interactions/${request.id}`}>
-						{interactionSubject(request)}
+		const subject = interactionSubject(request);
+		const reason = markdownLineToPlainText(
+			request.prompt.split("\n").find((line) => line.trim()) ?? "",
+		).slice(0, 240);
+		const title = (
+			<>
+				<Link
+					variant="record"
+					className="inline-flex min-h-11 items-center py-2"
+					href={`/work/interactions/${request.id}`}
+				>
+					{subject}
+				</Link>
+				{workItem && workItem.title.trim() !== subject.trim() && (
+					<Text as="p" role="label" tone="secondary">
+						{workItem.title}
+					</Text>
+				)}
+				{earlier && (
+					<EarlierTurnsToggle
+						count={earlier.length}
+						expanded={groups.isExpanded(request.id)}
+						onToggle={() => groups.toggle(request.id)}
+					/>
+				)}
+			</>
+		);
+		const reasons = (
+			<div className="grid gap-2">
+				<span className="flex flex-wrap gap-1">
+					{summary.reasons.length ? (
+						summary.reasons.map((reason) => (
+							<Badge key={reason} variant="error">
+								{reason}
+							</Badge>
+						))
+					) : (
+						<Badge variant="warning">Needs you</Badge>
+					)}
+				</span>
+				{reason && reason !== subject.trim() && (
+					<Text as="p" role="label" tone="secondary" className="line-clamp-3">
+						{reason}
+					</Text>
+				)}
+			</div>
+		);
+		const origin = (
+			<div className="grid min-w-0 gap-1 break-words">
+				<OperationActor type={request.creatorType} id={request.creatorId} />
+				{summary.origin.length ? (
+					<Text as="p" role="label" tone="secondary" title={summary.sessionId}>
+						{summary.origin.join(" · ")}
+					</Text>
+				) : workItem ? (
+					<Link href={`/work/items/${workItem.id}`} className="min-h-11 py-2">
+						Open linked Work
 					</Link>
-					{workItem ? (
-						<Text as="p" role="label" tone="secondary">
-							{workItem.title}
-						</Text>
-					) : null}
-					{earlier ? (
-						<EarlierTurnsToggle
-							count={earlier.length}
-							expanded={groups.isExpanded(request.id)}
-							onToggle={() => groups.toggle(request.id)}
-						/>
-					) : null}
-				</TableCell>
-				<TableCell className="whitespace-normal">
-					<span className="flex flex-wrap gap-1">
-						{summary.reasons.length > 0 ? (
-							summary.reasons.map((reason) => (
-								<Badge key={reason} variant="error">
-									{reason}
-								</Badge>
-							))
-						) : (
-							<Badge variant="warning">Needs you</Badge>
-						)}
-					</span>
-				</TableCell>
-				<TableCell className="whitespace-normal">
-					<span title={summary.sessionId}>
-						{summary.origin.join(" · ") || "Origin not recorded"}
-					</span>
-				</TableCell>
+				) : request.caseId ? (
+					<Link
+						href={`/work/cases/${request.caseId}`}
+						className="min-h-11 py-2"
+					>
+						Linked case
+					</Link>
+				) : request.projectId ? (
+					<Link
+						href={`/work/projects/${request.projectId}`}
+						className="min-h-11 py-2"
+					>
+						Linked project
+					</Link>
+				) : request.creatorSessionId ? (
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						title={request.creatorSessionId}
+					>
+						Requesting session {request.creatorSessionId.slice(0, 8)}
+					</Text>
+				) : (
+					<Text as="p" role="label" tone="secondary">
+						Origin not recorded
+					</Text>
+				)}
+			</div>
+		);
+		return mobile ? (
+			<li key={request.id} className="grid min-w-0 gap-2 px-3 py-3">
+				<div>{title}</div>
+				{reasons}
+				{origin}
+			</li>
+		) : (
+			<TableRow key={request.id}>
+				<TableCell className="whitespace-normal">{title}</TableCell>
+				<TableCell className="whitespace-normal">{reasons}</TableCell>
+				<TableCell className="whitespace-normal">{origin}</TableCell>
 			</TableRow>
 		);
 	};
@@ -1591,7 +1860,22 @@ function NeedsYouNowSection() {
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<Table scrollLabel="Requests that need you now">
+			<Collection
+				appearance="inline"
+				aria-label="Requests that need you now"
+				className="sm:hidden"
+			>
+				{groupSessionQuestions(rows).flatMap(({ row, earlier }) => [
+					renderRow(row, earlier, true),
+					...(groups.isExpanded(row.request.id)
+						? earlier.map((older) => renderRow(older, undefined, true))
+						: []),
+				])}
+			</Collection>
+			<Table
+				scrollLabel="Requests that need you now"
+				containerClassName="hidden sm:block"
+			>
 				<TableHeader>
 					<TableRow>
 						<TableHead>Request</TableHead>
@@ -2066,6 +2350,7 @@ const caseDependencySchema = z.object({
 });
 
 export function WorkClustersPage() {
+	const tedis = useQuery(tediRosterQueryOptions(100));
 	const [executorId, setExecutorId] = useState("");
 	const clusters = useQuery({
 		...workExecutionClustersQueryOptions(
@@ -2089,28 +2374,67 @@ export function WorkClustersPage() {
 				<CardHeader>
 					<CardTitle>Executor snapshot</CardTitle>
 					<CardDescription>
-						Enter the canonical tedi id whose capabilities should be evaluated.
+						Choose an existing tedi to view advisory waves. This does not start
+						any Work.
 					</CardDescription>
 				</CardHeader>
-				<CardContent>
-					<form
-						className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void form.handleSubmit();
-						}}
-					>
-						<FormField form={form} name="tediId" label="Executor tedi id">
-							{(field, meta) => (
-								<FormInput field={field} {...meta} placeholder="Tedi UUID" />
-							)}
-						</FormField>
-						<Button type="submit" variant="outline">
-							Plan waves
-						</Button>
-					</form>
+				<CardContent className="grid gap-3">
+					{tedis.isPending ? (
+						<WorkListSkeleton />
+					) : tedis.isError ? (
+						<WorkReadFailure
+							title="Tedi roster unavailable"
+							error={tedis.error}
+						/>
+					) : tedis.data?.data.length ? (
+						<>
+							<Text as="p" role="label" tone="secondary">
+								Showing up to 100 tedis in this snapshot.
+							</Text>
+							<OperationPicker
+								label="Choose a tedi"
+								value={executorId}
+								options={tedis.data.data.map((tedi) => ({
+									value: tedi.id,
+									label: tedi.displayName || tedi.name,
+								}))}
+								onSelect={setExecutorId}
+							/>
+						</>
+					) : (
+						<WorkEmpty
+							title="No tedis available"
+							description="No executor appears in this roster snapshot."
+						/>
+					)}
+					<Collapsible>
+						<CollapsibleTrigger>Advanced: tedi UUID</CollapsibleTrigger>
+						<CollapsibleContent>
+							<form
+								className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
+								onSubmit={(event) => {
+									event.preventDefault();
+									void form.handleSubmit();
+								}}
+							>
+								<FormField form={form} name="tediId" label="Executor tedi id">
+									{(field, meta) => (
+										<FormInput
+											field={field}
+											{...meta}
+											placeholder="Tedi UUID"
+										/>
+									)}
+								</FormField>
+								<Button type="submit" variant="outline">
+									Plan waves
+								</Button>
+							</form>
+						</CollapsibleContent>
+					</Collapsible>
 				</CardContent>
 			</Card>
+			<ReadinessOverview />
 			{clusters.isPending && executorId ? <WorkListSkeleton /> : null}
 			{clusters.isError ? (
 				<WorkReadFailure
@@ -2244,10 +2568,22 @@ export function WorkAdmissionPage() {
 	});
 	const editorForm = useZodForm({
 		schema: admissionSpecificationSchema,
-		defaultValues: { rawSpec: '{"resources":[],"budget":null}' },
+		defaultValues: { rawSpec: "" },
 		validateOn: "submit",
 		onSubmit: ({ value }) => replace.mutate(value),
 	});
+	useEffect(() => {
+		editorForm.setFieldValue(
+			"rawSpec",
+			spec.data
+				? JSON.stringify(
+						{ resources: spec.data.resources, budget: spec.data.budget },
+						null,
+						2,
+					)
+				: "",
+		);
+	}, [spec.data, editorForm]);
 	const lookupForm = useZodForm({
 		schema: admissionLookupSchema,
 		defaultValues: { itemId: "" },
@@ -2263,85 +2599,109 @@ export function WorkAdmissionPage() {
 				title="Admission"
 				description="See which tasks are ready to start and what each needs. Readiness is checked again when work starts."
 			/>
-			<Card>
-				<CardHeader>
-					<CardTitle>Admission specification</CardTitle>
-					<CardDescription>
-						Resources and budget are explicit normalized requirements, not
-						metadata. Load a canonical Work Item UUID before editing.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="grid gap-3">
-					<form
-						className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void lookupForm.handleSubmit();
-						}}
-					>
-						<FormField form={lookupForm} name="itemId" label="Work Item id">
-							{(field, meta) => (
-								<FormInput
-									field={field}
-									{...meta}
-									placeholder="Work Item UUID"
-								/>
-							)}
-						</FormField>
-						<Button type="submit" variant="outline">
-							Load
-						</Button>
-					</form>
-					{spec.data ? (
-						<Button
-							size="sm"
-							variant="outline"
-							onClick={() =>
-								editorForm.setFieldValue(
-									"rawSpec",
-									JSON.stringify(
-										{
-											resources: spec.data.resources,
-											budget: spec.data.budget,
-										},
-										null,
-										2,
-									),
-								)
-							}
-						>
-							Use current specification
-						</Button>
-					) : null}
-					<form
-						className="grid gap-3"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void editorForm.handleSubmit();
-						}}
-					>
-						<FormField
-							form={editorForm}
-							name="rawSpec"
-							label="Admission specification JSON"
-						>
-							{(field, meta) => (
-								<FormTextarea
-									field={field}
-									{...meta}
-									className="min-h-48 font-mono"
-								/>
-							)}
-						</FormField>
-						<Button type="submit" disabled={!loadedId || replace.isPending}>
-							Replace specification
-						</Button>
-					</form>
-					<MutationError
-						error={readiness.error ?? spec.error ?? replace.error}
-					/>
-				</CardContent>
-			</Card>
+			<ReadinessOverview
+				selectedId={loadedId}
+				onSelect={(id) => {
+					setLoadedId(id);
+					editorForm.reset();
+				}}
+			/>
+			{loadedId && (readiness.isPending || spec.isPending) ? (
+				<WorkListSkeleton />
+			) : null}
+			{readiness.isError || spec.isError ? (
+				<WorkReadFailure
+					title="Admission unavailable"
+					error={readiness.error ?? spec.error}
+				/>
+			) : null}
+			<Collapsible>
+				<CollapsibleTrigger>
+					Advanced: IDs and specification JSON
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<Card>
+						<CardHeader>
+							<CardTitle>Admission specification</CardTitle>
+							<CardDescription>
+								Select Work above or load an exact ID here. Replacing its
+								resource and budget requirements requires an explicit save.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="grid gap-3">
+							<form
+								className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
+								onSubmit={(event) => {
+									event.preventDefault();
+									void lookupForm.handleSubmit();
+								}}
+							>
+								<FormField form={lookupForm} name="itemId" label="Work Item id">
+									{(field, meta) => (
+										<FormInput
+											field={field}
+											{...meta}
+											placeholder="Work Item UUID"
+										/>
+									)}
+								</FormField>
+								<Button type="submit" variant="outline">
+									Load
+								</Button>
+							</form>
+							{spec.data ? (
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={() =>
+										editorForm.setFieldValue(
+											"rawSpec",
+											JSON.stringify(
+												{
+													resources: spec.data.resources,
+													budget: spec.data.budget,
+												},
+												null,
+												2,
+											),
+										)
+									}
+								>
+									Use current specification
+								</Button>
+							) : null}
+							<form
+								className="grid gap-3"
+								onSubmit={(event) => {
+									event.preventDefault();
+									void editorForm.handleSubmit();
+								}}
+							>
+								<FormField
+									form={editorForm}
+									name="rawSpec"
+									label="Admission specification JSON"
+								>
+									{(field, meta) => (
+										<FormTextarea
+											field={field}
+											{...meta}
+											className="min-h-48 font-mono"
+										/>
+									)}
+								</FormField>
+								<Button
+									type="submit"
+									disabled={!spec.data || spec.isFetching || replace.isPending}
+								>
+									Replace specification
+								</Button>
+							</form>
+							<MutationError error={replace.error} />
+						</CardContent>
+					</Card>
+				</CollapsibleContent>
+			</Collapsible>
 			{readiness.data ? (
 				<Card>
 					<CardHeader>
