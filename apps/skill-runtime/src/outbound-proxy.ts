@@ -172,7 +172,7 @@ async function getGoogleAccessToken(
 }
 
 /** Suffix match — `host === suffix` or `host` ends with `.${suffix}`. */
-function hostMatches(host: string, suffix: string): boolean {
+export function hostMatches(host: string, suffix: string): boolean {
 	return host === suffix || host.endsWith(`.${suffix}`);
 }
 
@@ -198,11 +198,11 @@ function base64ToBytes(value: string): Uint8Array {
 	return bytes;
 }
 
-function videoAssetKey(organizationId: string, assetId: string): string {
+export function videoAssetKey(organizationId: string, assetId: string): string {
 	return `video-assets/${organizationId}/${assetId}/source.mp4`;
 }
 
-async function fetchHttpOnly(request: Request): Promise<Response> {
+export async function fetchHttpOnly(request: Request): Promise<Response> {
 	const response = await fetch(request);
 	if (!response.webSocket) return response;
 	try {
