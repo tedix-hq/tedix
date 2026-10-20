@@ -21,6 +21,14 @@ export async function loadDeckPipelineStatus(
 	}
 }
 
+export async function readDeckPipelineStatus(
+	context: BaseContext,
+	config: DecisionLearningConfig,
+	now = new Date(),
+) {
+	return readStatus(context, config, now);
+}
+
 async function readStatus(
 	context: BaseContext,
 	config: DecisionLearningConfig,

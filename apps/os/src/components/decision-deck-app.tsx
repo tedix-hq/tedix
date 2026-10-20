@@ -5,6 +5,8 @@ import {
 import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
 import { DECK_ASK_KINDS, deckAsk } from "@tedix/api-contract/utils/deck-ask";
 import { DeckAskStrip } from "@/components/deck-ask-strip";
+import { DeckCurationFooter } from "@/components/deck-curation-footer";
+import { DeckNotUseful } from "@/components/deck-not-useful";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { workRefreshOptions } from "@/lib/work-refresh";
@@ -986,23 +988,33 @@ function DecisionDeckContent({
 							saving={saving}
 							leading={
 								mode === "decide" ? (
-									<DeckAskStrip
-										card={selected}
-										staleDrafts={staleDrafts}
-										showingStale={kind === "drafted_not_sent"}
-										onShowStale={() => {
-											setKind(
-												kind === "drafted_not_sent"
-													? "all"
-													: "drafted_not_sent",
-											);
-											setIndex(0);
-										}}
-									/>
+									<>
+										<DeckAskStrip
+											card={selected}
+											staleDrafts={staleDrafts}
+											showingStale={kind === "drafted_not_sent"}
+											onShowStale={() => {
+												setKind(
+													kind === "drafted_not_sent"
+														? "all"
+														: "drafted_not_sent",
+												);
+												setIndex(0);
+											}}
+										/>
+										{!practiceMode && selected?.row?.request && (
+											<DeckNotUseful
+												key={`${selected.row.request.id}:${selected.row.request.version}`}
+												request={selected.row.request}
+												disabled={saving}
+											/>
+										)}
+									</>
 								) : undefined
 							}
 						/>
 					)}
+				{!practiceMode && mode === "decide" && <DeckCurationFooter />}
 				{practiceMode && (
 					<Text role="label" tone="secondary" className="fd-practice-notice">
 						Practice only. Choices below stay in this preview and never approve

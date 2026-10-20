@@ -12,8 +12,31 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { getDeckSweepReceipt } from "@tedix/db/queries/work-items/deck-sweep";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+const models = vi.hoisted(() => ({ qwen: vi.fn(), clef: vi.fn() }));
+vi.mock("../services/decision-card-copy-model", () => ({
+	runDecisionCardCopyModel: models.qwen,
+}));
+vi.mock("../lib/clef", () => ({ runClef: models.clef }));
+
 import { sweepOrganizationDeck } from "./deck-pipeline-sweep";
+
+beforeEach(() => {
+	models.qwen.mockReset().mockResolvedValue('{"label":"NOISE"}');
+	models.clef.mockReset().mockResolvedValue({
+		ok: true,
+		latencyMs: 5,
+		answers: {
+			value: {
+				type: "choice",
+				choice: "NOISE",
+				probabilities: { NOISE: 0.97, VALUABLE: 0.03 },
+				confidence: 0.97,
+			},
+		},
+	});
+});
 
 const ORG = "org-sweep";
 const USER = "user-1";
@@ -224,5 +247,90 @@ describe("deck pipeline sweep", () => {
 		const receipt = await sweepOrganizationDeck(db, ORG, now);
 		expect(receipt).toMatchObject({ wouldRetire: 1, retired: 0 });
 		expect((await status(db, expired)).status).toBe("open");
+	});
+
+	it("logs Qwen's label and the second key in shadow without hiding anything", async () => {
+		const examples = Array.from({ length: 8 }, (_, index) => ({
+			id: `example-${index}`,
+			cardId: `old-${index}`,
+			title: `Routine status ${index}`,
+			summary: "A status digest with no owner decision.",
+			label: index % 2 ? "VALUABLE" : "NOISE",
+			evidenceRef: `audit:${index}`,
+			decidedAt: "2026-10-01T00:00:00.000Z",
+		}));
+		const { db } = await fixture({
+			deckCuratorRanker: { enabled: true },
+			deckCurators: [
+				{
+					tediId: "33333333-3333-4333-8333-333333333333",
+					recipientId: USER,
+					gadgetId: "44444444-4444-4444-8444-444444444444",
+					enabled: true,
+					examples,
+				},
+			],
+		});
+		const id = await card(db, { subject: "Acknowledge the weekly status?" });
+		const receipt = await sweepOrganizationDeck(
+			db,
+			ORG,
+			now,
+			{} as CloudflareEnv,
+		);
+		expect(receipt).toMatchObject({ ranked: 1, hidden: 0 });
+		const row = await status(db, id);
+		expect(row.status).toBe("open");
+		expect(row.metadata.curation).toMatchObject({
+			status: "open",
+			penalty: -10,
+			shadow: { label: "NOISE", secondKeyNoise: 0.97, wouldHide: true },
+		});
+		expect(models.qwen).toHaveBeenCalledTimes(1);
+		await sweepOrganizationDeck(db, ORG, now, {} as CloudflareEnv);
+		expect(models.qwen).toHaveBeenCalledTimes(1);
+	});
+
+	it("hides a would-hide card only in a class that earned hiding, and counts its undo", async () => {
+		const classKey = "answer|external_agent:agent-1";
+		const { db } = await fixture({
+			deckPipeline: {
+				hidingClasses: [
+					{
+						recipientId: USER,
+						classKey,
+						state: "hiding",
+						changedAt: "2026-11-04T00:00:00.000Z",
+						reason: "earned",
+					},
+				],
+			},
+		});
+		const shadow = (wouldHide: boolean) => ({
+			curation: {
+				schema: "tedix.deck-curation.v1",
+				revision: null,
+				status: "open",
+				successorId: null,
+				penalty: -10,
+				reason: "ranked_lower",
+				evidenceRefs: [],
+				model: "qwen",
+				exampleIds: [],
+				shadow: {
+					label: "NOISE",
+					secondKeyNoise: wouldHide ? 0.99 : 0.5,
+					wouldHide,
+					classKey,
+					at: "2026-10-21T06:00:00.000Z",
+				},
+			},
+		});
+		const hidden = await card(db, { metadata: shadow(true) });
+		const kept = await card(db, { metadata: shadow(false) });
+		const receipt = await sweepOrganizationDeck(db, ORG, now);
+		expect(receipt.hidden).toBe(1);
+		expect((await status(db, hidden)).status).toBe("cancelled");
+		expect((await status(db, kept)).status).toBe("open");
 	});
 });

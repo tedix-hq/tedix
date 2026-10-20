@@ -224,6 +224,30 @@ export const SPANISH_FEED_DECK_COPY = {
 				`${count} redactado${count === 1 ? "" : "s"}, sin enviar`,
 			showAll: "Mostrar todas",
 		},
+		notUseful: {
+			button: "No es útil",
+			prompt: "¿Por qué no es útil esta tarjeta?",
+			reasons: {
+				already_decided: "Ya decidido",
+				expired: "Caducado",
+				agent_could_do: "El agente puede hacerlo",
+				duplicate: "Duplicado",
+				not_for_me: "No es para mí",
+			},
+			done: "Retirada. El Deck aprenderá de esto.",
+			rule: (sentence: string) => `A partir de ahora: ${sentence}`,
+			undo: "Deshacer",
+		},
+		pipeline: {
+			lastCleaned: (time: string) => `Última limpieza ${time}`,
+			neverCleaned: "Sin limpieza todavía",
+			stale: (hours: number) =>
+				`La limpieza del Deck no se ejecuta desde hace más de ${hours} h. Pueden quedar tarjetas caducadas o duplicadas.`,
+			rules: "Reglas aprendidas",
+			remove: "Quitar",
+			metrics: (cards: number, notUseful: string) =>
+				`${cards} tarjetas a las 08:30 · ${notUseful} no útiles`,
+		},
 		projects: {
 			Examples: "Ejemplos",
 			Unfiled: "Sin proyecto",

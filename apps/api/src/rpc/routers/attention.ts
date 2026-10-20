@@ -472,6 +472,29 @@ export const attentionContractRouter = os.router({
 		const { retireDeckCard } = await import("../../services/deck-retirement");
 		return retireDeckCard(context, input);
 	}),
+	getDeckPipelineStatus: read.getDeckPipelineStatus.handler(
+		async ({ context }) => {
+			const { getDecisionLearningConfig } =
+				await import("@tedix/db/queries/decision-learning");
+			const { readDeckPipelineStatus } =
+				await import("../../services/deck-pipeline-status");
+			return readDeckPipelineStatus(
+				context,
+				await getDecisionLearningConfig(context.db, requireOrgId(context)),
+			);
+		},
+	),
+	markDeckCardNotUseful: write.markDeckCardNotUseful.handler(
+		async ({ input, context }) => {
+			const { markDeckCardNotUseful } =
+				await import("../../services/deck-learning");
+			return markDeckCardNotUseful(context, input);
+		},
+	),
+	removeDeckRule: write.removeDeckRule.handler(async ({ input, context }) => {
+		const { removeDeckRule } = await import("../../services/deck-learning");
+		return removeDeckRule(context, input);
+	}),
 	mergeDeckCards: write.mergeDeckCards.handler(async ({ input, context }) => {
 		const { mergeDeckCards } = await import("../../services/deck-retirement");
 		return mergeDeckCards(context, input);

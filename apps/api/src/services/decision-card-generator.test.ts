@@ -683,10 +683,11 @@ it("repairs frozen relative dates and instructs both face and story writing to k
 		.mockResolvedValueOnce(
 			JSON.stringify({ ...copy, context: "The workshop is on 2026-10-20." }),
 		);
-	const result = await generateDecisionCard(
-		{ db: {}, env: {} } as never,
-		request,
-	);
+	const result = await generateDecisionCard({ db: {}, env: {} } as never, {
+		...request,
+		prompt: `${request.prompt} The workshop is tomorrow.`,
+		createdAt: "2026-10-19T09:00:00.000Z",
+	});
 	expect(result?.version === 2 && result.context).toBe(
 		"The workshop is on 2026-10-20.",
 	);
@@ -696,4 +697,31 @@ it("repairs frozen relative dates and instructs both face and story writing to k
 	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
 		"relative_date_use_absolute_source_date",
 	);
+});
+
+it("repairs, then falls back to source text, when the face invents a date or amount", async () => {
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			body: "Checks the sample profile page by 24 October for 300 euros.",
+		}),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toBeNull();
+	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
+		"unsupported_fact",
+	);
+	mocks.model.mockResolvedValue(
+		JSON.stringify({
+			...copy,
+			body: "Checks the sample profile page within 2 tries.",
+		}),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: `${request.prompt} Allow 2 tries.`,
+		}),
+	).toMatchObject({ body: "Checks the sample profile page within 2 tries." });
 });
