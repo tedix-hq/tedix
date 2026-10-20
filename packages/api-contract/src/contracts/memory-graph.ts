@@ -21,6 +21,7 @@ import {
 	GapSeveritySchema,
 	MemoryFeedbackSignalSchema,
 	MemoryHealthSchema,
+	MemoryHealthFindingsSchema,
 	MemoryReviewStatusSchema,
 	MemoryScopeSchema,
 	MemorySourceEvidenceSchema,
@@ -784,6 +785,13 @@ export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
 	health: oc
 		.route({ method: "GET", path: "/memory/health", tags: ["memory-graph"] })
 		.output(MemoryHealthSchema),
+	healthFindings: oc
+		.route({
+			method: "GET",
+			path: "/memory/health/findings",
+			tags: ["memory-graph"],
+		})
+		.output(MemoryHealthFindingsSchema),
 
 	// ---- Link ----
 	link: oc

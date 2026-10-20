@@ -229,6 +229,7 @@ const CALLS: Record<string, unknown> = {
 	"workflows/listDefinitions": { limit: 50, offset: 0 },
 	"workflows/listDefinitionHealth": { limit: 50, offset: 0 },
 	"memoryGraph/health": undefined,
+	"memoryGraph/healthFindings": undefined,
 	"memoryGraph/expertise": { tediId: IDS.tediMiles },
 	"memoryGraph/graph/visualization": {
 		view: "knowledge_map",

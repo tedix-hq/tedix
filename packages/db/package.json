@@ -77,6 +77,7 @@
 		"./queries/memory-graph/facts": "./src/queries/memory-graph/facts.ts",
 		"./queries/memory-graph/gaps": "./src/queries/memory-graph/gaps.ts",
 		"./queries/memory-graph/health": "./src/queries/memory-graph/health.ts",
+		"./queries/memory-graph/health-findings": "./src/queries/memory-graph/health-findings.ts",
 		"./queries/memory-graph/optimization-signals": "./src/queries/memory-graph/optimization-signals.ts",
 		"./queries/memory-graph/platform-facts": "./src/queries/memory-graph/platform-facts.ts",
 		"./queries/memory-graph/stats": "./src/queries/memory-graph/stats.ts",

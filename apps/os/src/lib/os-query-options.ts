@@ -765,6 +765,10 @@ export const workBudgetEnvelopesQueryOptions = (cursor?: string) =>
 export const memoryHealthQueryOptions = () =>
 	osQuery.memoryGraph.health.queryOptions({});
 
+/** Bounded, capped findings over facts/edges; declares no `.input()`. */
+export const memoryHealthFindingsQueryOptions = () =>
+	osQuery.memoryGraph.healthFindings.queryOptions({});
+
 export const knowledgeListQueryOptions = (limit: number) =>
 	osQuery.knowledge.list.queryOptions({ input: { limit } });
 
