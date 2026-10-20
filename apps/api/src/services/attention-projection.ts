@@ -48,6 +48,8 @@ import { learningFeedbackContractRouter } from "../rpc/routers/learning-feedback
 import { osWorkspacesContractRouter } from "../rpc/routers/os-workspaces";
 import { userSettingsContractRouter } from "../rpc/routers/user-settings";
 import { workItemsContractRouter } from "../rpc/routers/work-items";
+import { internalDecisionFeed } from "./internal-decision-feed";
+import { requireOrgId } from "../rpc/org-scope";
 
 type ViewInput = z.infer<typeof AttentionViewInputSchema>;
 
@@ -304,65 +306,78 @@ export async function loadForYouProjection(
 			...projectIds,
 		]),
 	];
-	const [deck, preferences, history, sourcePages, factories, today] =
-		await Promise.all([
-			loadConfiguredDeckProjection(
-				context,
-				{ ...input, limit: 100 },
-				DecisionDeckConfigSchema.parse({
-					version: 1,
-					projectId: input.projectId,
-				}),
-				"all",
-			),
-			Promise.resolve(preferenceState),
-			call(
-				learningFeedbackContractRouter.listInteractions,
-				{ scopeKind: "personal", limit: 200, surfaces: FOCUS_HISTORY_SURFACES },
-				{ context },
-			),
-			Promise.all(
-				sourceIds.map(async (projectId) => {
-					const [activity, attempts] = await Promise.all([
-						call(
-							workItemsContractRouter.listActivity,
-							{ projectId, limit: config.pageSize },
-							{ context },
-						),
-						call(
-							workItemsContractRouter.listAttemptProjection,
-							{
-								projectId,
-								limit: config.pageSize,
-								outcomes: ["succeeded", "failed", "expired", "cancelled"],
-							},
-							{ context },
-						),
-					]);
-					return {
-						items: [
-							...workFeedItems(activity.events, projectId ?? null),
-							...resultFeedItems(attempts.data),
-						],
-						complete: !activity.truncated && !attempts.hasMore,
-					};
-				}),
-			),
-			factoryCards(
-				context,
-				config.factorySources.map((binding) => binding.source),
-				now,
-				timeZone,
-			),
-			config.today
-				? call(
-						osWorkspacesContractRouter.outputs.get,
-						{ outputId: config.today.outputId },
+	const [
+		deck,
+		preferences,
+		history,
+		sourcePages,
+		factories,
+		today,
+		handledInternal,
+	] = await Promise.all([
+		loadConfiguredDeckProjection(
+			context,
+			{ ...input, limit: 100 },
+			DecisionDeckConfigSchema.parse({
+				version: 1,
+				projectId: input.projectId,
+			}),
+			"all",
+		),
+		Promise.resolve(preferenceState),
+		call(
+			learningFeedbackContractRouter.listInteractions,
+			{ scopeKind: "personal", limit: 200, surfaces: FOCUS_HISTORY_SURFACES },
+			{ context },
+		),
+		Promise.all(
+			sourceIds.map(async (projectId) => {
+				const [activity, attempts] = await Promise.all([
+					call(
+						workItemsContractRouter.listActivity,
+						{ projectId, limit: config.pageSize },
 						{ context },
-					)
-				: Promise.resolve(null),
-		]);
+					),
+					call(
+						workItemsContractRouter.listAttemptProjection,
+						{
+							projectId,
+							limit: config.pageSize,
+							outcomes: ["succeeded", "failed", "expired", "cancelled"],
+						},
+						{ context },
+					),
+				]);
+				return {
+					items: [
+						...workFeedItems(activity.events, projectId ?? null),
+						...resultFeedItems(attempts.data),
+					],
+					complete: !activity.truncated && !attempts.hasMore,
+				};
+			}),
+		),
+		factoryCards(
+			context,
+			config.factorySources.map((binding) => binding.source),
+			now,
+			timeZone,
+		),
+		config.today
+			? call(
+					osWorkspacesContractRouter.outputs.get,
+					{ outputId: config.today.outputId },
+					{ context },
+				)
+			: Promise.resolve(null),
+		internalDecisionFeed(context, requireOrgId(context), input.projectId),
+	]);
 	const items: ActivityFeedItem[] = [
+		...handledInternal.filter(
+			(item) =>
+				config.scope === "organization" ||
+				(item.projectId !== null && projectIds.includes(item.projectId)),
+		),
 		...sourcePages.flatMap((page) => page.items),
 		...correctionFeedItems(history.events),
 		...decisionFeedItems(

@@ -304,6 +304,51 @@ export async function reviseCardContent(
 		return (await listCardRevisions(context.db, orgId, request.id)).at(-1)!;
 	}
 	let curation;
+	const handled = DeckCurationStateSchema.safeParse(request.metadata.curation);
+	if (restored && recipient && handled.success && handled.data.internalTask) {
+		const task = await getWorkItemById(
+			context.db,
+			handled.data.internalTask.taskId,
+			orgId,
+		);
+		const source = DecisionEnvelopeSchema.safeParse(
+			request.metadata.decisionDeck,
+		);
+		const effect = source.success
+			? source.data.options.find((option) => option.intent === "approve")
+					?.effect
+			: undefined;
+		if (
+			!task ||
+			effect?.kind !== "create_owner_task" ||
+			task.sourceIntentId !== `decision-owner-task:${request.id}` ||
+			task.parentWorkItemId !== effect.workItemId ||
+			task.accountableOwnerType !== "user" ||
+			task.accountableOwnerId !== request.targetId ||
+			task.title !== effect.title ||
+			task.description !== effect.description ||
+			task.metadata?.source !== "decision-owner-task" ||
+			task.metadata?.requestId !== request.id ||
+			task.metadata?.sendingReservedForOwner !== true
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"The internal task receipt is unavailable",
+			);
+		if (task.disposition !== "cancelled") {
+			const { call } = await import("@orpc/server");
+			const { cancelFactoryWorkItemProcedure } =
+				await import("../rpc/routers/work-items/factory-lifecycle");
+			await call(
+				cancelFactoryWorkItemProcedure,
+				{
+					id: task.id,
+					reason: "Recipient undid the agent's internal task decision",
+				},
+				{ context },
+			);
+		}
+	}
 	if (
 		restored &&
 		DeckCurationStateSchema.safeParse(request.metadata.curation).success

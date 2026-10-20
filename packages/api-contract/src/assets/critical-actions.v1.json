@@ -54,6 +54,10 @@
 	},
 	"classes": [
 		{
+			"id": "legal",
+			"pattern": "\\b(?:legal(?:ly)?|binding[_ -]+agreements?|(?:sign|signing|accept|execute|enter)[_ -]+(?:an?[_ -]+|the[_ -]+)?(?:contracts?|agreements?))\\b"
+		},
+		{
 			"id": "money",
 			"pattern": "\\b(pay(?:ments?|ing)?|purchas(?:e|es|ing)|buy(?:ing)?|transfer(?:s|ring)?|refund(?:s|ing)?|charg(?:e|es|ing)|(?:create|issue|settle|void)[_ -]+(?:(?:an?|the)[_ -]+)?invoices?|money|bank|spend(?:ing)?|chang(?:e|ing)[_ -]+budgets?|(?:raise|increase|lower|update|set|configure|adjust|decrease|reduce|modify|allocate|add|grant|revoke|remove)[_ -]+(?:the[_ -]+)?(?:budgets?|credits?|credit[_ -]+billing))\\b|\\b(?:wire|iban|stripe|approve\\s+(?:(?:an?|the|pending)\\s+)*invoice)\\b"
 		},

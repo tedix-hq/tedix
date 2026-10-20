@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DeckCurationState } from "@tedix/api-contract/schemas/deck-curation";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@tedix/api-contract/utils/card-secrets";
 import { learningInteractionEvents } from "../../schema/learning-feedback";
 import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
+import { workItems } from "../../schema/work-items";
 
 /** The training pair commits in the same D1 batch as its immutable revision. */
 export function buildCardRevisionLearningStatement(
@@ -307,4 +308,33 @@ export async function cardChangeHasRevision(
 		)
 		.limit(1);
 	return Boolean(row);
+}
+
+/** Recipient-scoped, immutable policy receipts for the Feed; no pending decision is executed by a read. */
+export async function listHandledInternalDecisionCards(
+	db: DbQueryClient,
+	p: { orgId: string; recipientId: string; projectId?: string; limit: number },
+) {
+	const project = sql<
+		string | null
+	>`coalesce(${workInteractions.projectId}, (SELECT ${workItems.projectId} FROM ${workItems} WHERE ${workItems.orgId}=${workInteractions.orgId} AND ${workItems.id}=${workInteractions.workItemId}))`;
+	return db
+		.select({
+			...getColumns(workInteractions),
+			projectId: project.as("project_id"),
+		})
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetId, p.recipientId),
+				eq(workInteractions.status, "cancelled"),
+				p.projectId ? eq(project, p.projectId) : undefined,
+				sql`json_extract(${workInteractions.metadata}, '$.curation.internalTask.taskId') IS NOT NULL`,
+				sql`json_extract(${workInteractions.metadata}, '$.curation.revision') = json_extract(${workInteractions.metadata}, '$.cardRevision')`,
+			),
+		)
+		.orderBy(desc(workInteractions.cancelledAt), desc(workInteractions.id))
+		.limit(Math.min(Math.max(p.limit, 1), 100));
 }

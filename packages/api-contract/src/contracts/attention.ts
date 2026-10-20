@@ -89,7 +89,7 @@ export const attentionContract = oc
 		curateDeckCard: oc
 			.route({
 				summary:
-					"Revise or supersede a delegated card with immutable undo history; never answer or execute it",
+					"Revise or supersede a delegated card with immutable undo history. handleInternally creates only a reversible internal task under the active organization autonomy policy as its owning agent; never answers or sends as the recipient.",
 			})
 			.input(CurateDeckCardInputSchema)
 			.output(CardRevisionSchema),
