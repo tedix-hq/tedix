@@ -1,3 +1,4 @@
+import { IconFrame } from "@/components/kumo/icon-frame";
 import type {
 	ConnectionInventoryRow,
 	ConnectionProvider,
@@ -106,7 +107,9 @@ export function PersonalProviderAccounts({
 				<SectionHeading>
 					<div className="flex items-center gap-3">
 						{logo ? (
-							<img src={logo} alt="" className="size-8 shrink-0 rounded" />
+							<IconFrame size="sm">
+								<img src={logo} alt="" className="size-5" />
+							</IconFrame>
 						) : (
 							<Plugs aria-hidden className="size-8 shrink-0 text-kumo-subtle" />
 						)}

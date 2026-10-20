@@ -200,7 +200,14 @@ function PersonalReadControl({
 				>
 					Stop
 				</Button>
-				{error && <span role="alert"> {error.message}</span>}
+				{error && (
+					<span role="alert">
+						<Text as="span" role="label" tone="error">
+							{" "}
+							{error.message}
+						</Text>
+					</span>
+				)}
 			</Text>
 		);
 	}

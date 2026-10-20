@@ -1,5 +1,10 @@
 /** Tedix OS ownership of the governed digital-worker settings seam. */
 
+import { Alert } from "@/components/kumo/alert";
+import { ListSkeleton } from "@/components/list-skeleton";
+import { Collection } from "@/components/kumo/page";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+
 import { TediConsoleAccess } from "./tedi-console-access";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -15,22 +20,11 @@ import type {
 	ChannelsConfig,
 } from "@tedix/api-contract/schemas/tedi";
 import { ArrowsClockwise, Key, Plus, Trash } from "@phosphor-icons/react";
-import { useEffect, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/kumo/alert-dialog";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -80,6 +74,30 @@ import {
 	useCanDeleteTedis,
 	useCanManageTedis,
 } from "@/lib/tedi-permissions";
+
+export function SettingsRecordRow({
+	title,
+	description,
+	trailing,
+}: {
+	title: ReactNode;
+	description?: ReactNode;
+	trailing: ReactNode;
+}) {
+	return (
+		<li className="flex flex-wrap items-center justify-between gap-3 p-3">
+			<div className="min-w-0">
+				{title}
+				{description != null && (
+					<Text role="label" tone="secondary">
+						{description}
+					</Text>
+				)}
+			</div>
+			<div className="flex shrink-0 items-center gap-2">{trailing}</div>
+		</li>
+	);
+}
 
 const SECRET_PRESETS = [
 	"GITHUB_PAT",
@@ -625,8 +643,13 @@ function SecretSettingsForm({
 					/>
 				)}
 			</FormField>
-			<Button type="submit" disabled={disabled} className="self-end">
-				<Key className="h-4 w-4" /> Save
+			<Button
+				type="submit"
+				disabled={disabled}
+				className="self-end"
+				icon={<Key className="size-4" />}
+			>
+				Save
 			</Button>
 		</form>
 	);
@@ -680,8 +703,13 @@ function AppAssignmentForm({
 					</FormSelect>
 				)}
 			</FormField>
-			<Button type="submit" disabled={disabled} className="self-end">
-				<Plus className="h-4 w-4" /> Assign
+			<Button
+				type="submit"
+				disabled={disabled}
+				className="self-end"
+				icon={<Plus className="size-4" />}
+			>
+				Assign
 			</Button>
 		</form>
 	);
@@ -721,8 +749,14 @@ function CustomDomainForm({
 					)}
 				</FormField>
 			</div>
-			<Button type="submit" size="sm" disabled={disabled} className="self-end">
-				<Plus className="h-4 w-4" /> Add
+			<Button
+				type="submit"
+				size="sm"
+				disabled={disabled}
+				className="self-end"
+				icon={<Plus className="size-4" />}
+			>
+				Add
 			</Button>
 		</form>
 	);
@@ -921,6 +955,8 @@ function assignmentOutcomeMessage(
 
 export function TediSettingsPage({ tediId }: { tediId: string }) {
 	const queryClient = useQueryClient();
+	const [resetOpen, setResetOpen] = useState(false);
+	const [retireOpen, setRetireOpen] = useState(false);
 	const navigate = useNavigate();
 	const canManage = useCanManageTedis();
 	const authority = useOsOperationalContext().data?.authority;
@@ -1254,6 +1290,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 			}),
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({ queryKey: osQueryKeys.tedis() });
+			setResetOpen(false);
 			toast.success(
 				"Workstation sandbox reset; next wake creates a fresh lease",
 			);
@@ -1289,6 +1326,7 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 		mutationFn: () => osApi.tedis.delete({ tediId }),
 		onSuccess: async () => {
 			await invalidateTedi();
+			setRetireOpen(false);
 			toast.success("Tedi retired; cognitive history was retained");
 			navigate({ to: "/team", search: { tab: "tedis", page: 1 } });
 		},
@@ -1297,9 +1335,13 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 	});
 
 	if (tedi.isPending)
-		return <p className="text-kumo-subtle">Loading settings…</p>;
+		return (
+			<div role="status" aria-label="Loading settings…">
+				<ListSkeleton rows={3} />
+			</div>
+		);
 	if (tedi.isError) {
-		return <p className="text-kumo-danger">Tedi settings are unavailable.</p>;
+		return <Alert variant="destructive">Tedi settings are unavailable.</Alert>;
 	}
 
 	const assignedAppIds = new Set(
@@ -1322,9 +1364,11 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 			</div>
 
 			{!canManage ? (
-				<p className="text-kumo-subtle text-sm" role="note">
-					{TEDIS_MANAGE_DENIED_REASON}
-				</p>
+				<div role="note">
+					<Text role="label" tone="secondary">
+						{TEDIS_MANAGE_DENIED_REASON}
+					</Text>
+				</div>
 			) : null}
 
 			<TediConsoleAccess tediId={tediId} />
@@ -1395,8 +1439,9 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 								variant="outline"
 								disabled={!canManage || run.isPending}
 								onClick={() => run.mutate("sync")}
+								icon={<ArrowsClockwise className="size-4" />}
 							>
-								<ArrowsClockwise className="h-4 w-4" /> Sync config
+								Sync config
 							</Button>
 							<Button
 								size="sm"
@@ -1450,23 +1495,27 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 							<Text role="body" weight="medium">
 								Pending Telegram pairings
 							</Text>
-							{(pairingRequests.data?.pending ?? []).map((request) => (
-								<div
-									key={request.code}
-									className="flex items-center justify-between gap-3"
-								>
-									<Text role="body">
-										{request.senderName ?? request.senderId ?? request.code}
-									</Text>
-									<Button
-										size="sm"
-										disabled={!canManage || approvePairing.isPending}
-										onClick={() => approvePairing.mutate(request.code)}
-									>
-										Approve pairing
-									</Button>
-								</div>
-							))}
+							<Collection aria-label="Pending Telegram pairings">
+								{(pairingRequests.data?.pending ?? []).map((request) => (
+									<SettingsRecordRow
+										key={request.code}
+										title={
+											<Text role="body">
+												{request.senderName ?? request.senderId ?? request.code}
+											</Text>
+										}
+										trailing={
+											<Button
+												size="sm"
+												disabled={!canManage || approvePairing.isPending}
+												onClick={() => approvePairing.mutate(request.code)}
+											>
+												Approve pairing
+											</Button>
+										}
+									/>
+								))}
+							</Collection>
 						</Surface>
 					) : null}
 				</CardContent>
@@ -1478,13 +1527,17 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 				</CardHeader>
 				<CardContent className="space-y-4">
 					{!canReadSecrets ? (
-						<p className="text-kumo-subtle text-sm" role="note">
-							{TEDI_SECRETS_UNKNOWN_REASON}
-						</p>
+						<div role="note">
+							<Text role="label" tone="secondary">
+								{TEDI_SECRETS_UNKNOWN_REASON}
+							</Text>
+						</div>
 					) : !canManageSecrets ? (
-						<p className="text-kumo-subtle text-sm" role="note">
-							{TEDI_SECRETS_MANAGE_DENIED_REASON}
-						</p>
+						<div role="note">
+							<Text role="label" tone="secondary">
+								{TEDI_SECRETS_MANAGE_DENIED_REASON}
+							</Text>
+						</div>
 					) : null}
 					<SecretSettingsForm
 						disabled={!canManageSecrets || setSecret.isPending}
@@ -1495,32 +1548,29 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 								.catch(() => false)
 						}
 					/>
-					<Surface className="divide-y">
+					<Collection aria-label="Encrypted credentials">
 						{(secrets.data?.data ?? []).map((secret) => (
-							<div
+							<SettingsRecordRow
 								key={secret.id}
-								className="flex items-center justify-between gap-3 p-3"
-							>
-								<div>
+								title={
 									<Text as="p" role="body" tone="mono">
 										{secret.name}
 									</Text>
-									<Text role="label" tone="secondary">
-										{secret.hint}
-									</Text>
-								</div>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									aria-label={`Delete ${secret.name}`}
-									disabled={!canManageSecrets || deleteSecret.isPending}
-									onClick={() => deleteSecret.mutate(secret.id)}
-								>
-									<Trash className="h-4 w-4" />
-								</Button>
-							</div>
+								}
+								description={secret.hint}
+								trailing={
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label={`Delete ${secret.name}`}
+										disabled={!canManageSecrets || deleteSecret.isPending}
+										onClick={() => deleteSecret.mutate(secret.id)}
+										icon={<Trash className="size-4" />}
+									></Button>
+								}
+							/>
 						))}
-					</Surface>
+					</Collection>
 				</CardContent>
 			</Card>
 
@@ -1541,46 +1591,52 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 								.catch(() => false)
 						}
 					/>
-					{(assignments.data?.data ?? []).map((assignment) => (
-						<Surface
-							key={assignment.id}
-							className="flex flex-wrap items-center justify-between gap-3 p-3"
-						>
-							<Text role="body" weight="medium">
-								{appNames.get(assignment.appId) ?? assignment.appId}
-							</Text>
-							<div className="flex items-center gap-2">
-								<Select
-									value={assignment.role}
-									disabled={!canManage || updateAssignmentRole.isPending}
-									onValueChange={(value) =>
-										value &&
-										updateAssignmentRole.mutate({
-											assignmentId: assignment.id,
-											role: value as TediAppAssignmentRole,
-										})
-									}
-								>
-									<SelectTrigger className="w-32" aria-label="Assigned role">
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="operator">Operator</SelectItem>
-										<SelectItem value="observer">Observer</SelectItem>
-									</SelectContent>
-								</Select>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									aria-label="Unassign app"
-									disabled={!canManage || deleteAssignment.isPending}
-									onClick={() => deleteAssignment.mutate(assignment.id)}
-								>
-									<Trash className="h-4 w-4" />
-								</Button>
-							</div>
-						</Surface>
-					))}
+					<Collection aria-label="App assignments">
+						{(assignments.data?.data ?? []).map((assignment) => (
+							<SettingsRecordRow
+								key={assignment.id}
+								title={
+									<Text role="body" weight="medium">
+										{appNames.get(assignment.appId) ?? assignment.appId}
+									</Text>
+								}
+								trailing={
+									<div className="flex items-center gap-2">
+										<Select
+											value={assignment.role}
+											disabled={!canManage || updateAssignmentRole.isPending}
+											onValueChange={(value) =>
+												value &&
+												updateAssignmentRole.mutate({
+													assignmentId: assignment.id,
+													role: value as TediAppAssignmentRole,
+												})
+											}
+										>
+											<SelectTrigger
+												className="w-32"
+												aria-label="Assigned role"
+											>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="operator">Operator</SelectItem>
+												<SelectItem value="observer">Observer</SelectItem>
+											</SelectContent>
+										</Select>
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											aria-label="Unassign app"
+											disabled={!canManage || deleteAssignment.isPending}
+											onClick={() => deleteAssignment.mutate(assignment.id)}
+											icon={<Trash className="size-4" />}
+										></Button>
+									</div>
+								}
+							/>
+						))}
+					</Collection>
 				</CardContent>
 			</Card>
 
@@ -1650,36 +1706,40 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 						<CardTitle>Devices</CardTitle>
 					</CardHeader>
 					<CardContent className="space-y-3">
-						{[
-							...(devices.data?.pending ?? []),
-							...(devices.data?.paired ?? []),
-						].map((device) => (
-							<Surface
-								key={device.id}
-								className="flex items-center justify-between gap-3 p-3"
-							>
-								<div>
-									<Text role="body" weight="medium">
-										{device.displayName ?? device.id}
-									</Text>
-									<Badge variant="outline">{device.status}</Badge>
-								</div>
-								<Button
-									size="sm"
-									variant="outline"
-									disabled={!canManage || deviceAction.isPending}
-									onClick={() =>
-										deviceAction.mutate({
-											id: device.id,
-											action:
-												device.status === "pending" ? "approve" : "revoke",
-										})
+						<Collection aria-label="Devices">
+							{[
+								...(devices.data?.pending ?? []),
+								...(devices.data?.paired ?? []),
+							].map((device) => (
+								<SettingsRecordRow
+									key={device.id}
+									title={
+										<>
+											<Text role="body" weight="medium">
+												{device.displayName ?? device.id}
+											</Text>
+											<Badge variant="outline">{device.status}</Badge>
+										</>
 									}
-								>
-									{device.status === "pending" ? "Approve" : "Revoke"}
-								</Button>
-							</Surface>
-						))}
+									trailing={
+										<Button
+											size="sm"
+											variant="outline"
+											disabled={!canManage || deviceAction.isPending}
+											onClick={() =>
+												deviceAction.mutate({
+													id: device.id,
+													action:
+														device.status === "pending" ? "approve" : "revoke",
+												})
+											}
+										>
+											{device.status === "pending" ? "Approve" : "Revoke"}
+										</Button>
+									}
+								/>
+							))}
+						</Collection>
 						{(devices.data?.pending.length ?? 0) +
 							(devices.data?.paired.length ?? 0) ===
 						0 ? (
@@ -1707,36 +1767,43 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 									.catch(() => false)
 							}
 						/>
-						{(domains.data?.data ?? []).map((domain) => (
-							<Surface
-								key={domain.id}
-								className="flex items-center justify-between gap-3 p-3"
-							>
-								<div>
-									<Text role="body" weight="medium">
-										{domain.hostname}
-									</Text>
-									<Badge variant="outline">{domain.status ?? "pending"}</Badge>
-								</div>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									aria-label={`Remove ${domain.hostname}`}
-									disabled={!canDelete || removeDomain.isPending}
-									title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
-									onClick={() => removeDomain.mutate(domain.id)}
-								>
-									<Trash className="h-4 w-4" />
-								</Button>
-							</Surface>
-						))}
+						<Collection aria-label="Custom domains">
+							{(domains.data?.data ?? []).map((domain) => (
+								<SettingsRecordRow
+									key={domain.id}
+									title={
+										<>
+											<Text role="body" weight="medium">
+												{domain.hostname}
+											</Text>
+											<Badge variant="outline">
+												{domain.status ?? "pending"}
+											</Badge>
+										</>
+									}
+									trailing={
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											aria-label={`Remove ${domain.hostname}`}
+											disabled={!canDelete || removeDomain.isPending}
+											title={
+												!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined
+											}
+											onClick={() => removeDomain.mutate(domain.id)}
+											icon={<Trash className="size-4" />}
+										></Button>
+									}
+								/>
+							))}
+						</Collection>
 					</CardContent>
 				</Card>
 			</div>
 
 			<Card>
 				<CardHeader>
-					<CardTitle className="text-kumo-danger">Lifecycle</CardTitle>
+					<CardTitle>Lifecycle</CardTitle>
 				</CardHeader>
 				<CardContent className="flex flex-wrap gap-3">
 					<Button
@@ -1748,69 +1815,52 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 					>
 						Rotate identity access key
 					</Button>
-					<AlertDialog>
-						<AlertDialogTrigger
-							render={
-								<Button
-									variant="outline"
-									disabled={!canDelete || resetSandbox.isPending}
-									title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
-								/>
-							}
-						>
-							Reset workstation sandbox
-						</AlertDialogTrigger>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>
-									Reset this workstation sandbox?
-								</AlertDialogTitle>
-								<AlertDialogDescription>
-									This non-force recovery destroys the current workstation
-									sandbox and is blocked unless a healthy backup exists. It does
-									not force a reset or delete the tedi's cognitive history.
-								</AlertDialogDescription>
-							</AlertDialogHeader>
-							<AlertDialogFooter>
-								<AlertDialogCancel>Cancel</AlertDialogCancel>
-								<AlertDialogAction onClick={() => resetSandbox.mutate()}>
-									Reset safely
-								</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
-					<AlertDialog>
-						<AlertDialogTrigger
-							render={
-								<Button
-									variant="destructive"
-									disabled={!canDelete || retire.isPending}
-									title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
-								/>
-							}
-						>
-							Retire Tedi
-						</AlertDialogTrigger>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>Retire this tedi?</AlertDialogTitle>
-								<AlertDialogDescription>
-									The worker identity and runtime stop immediately. Memory,
-									rationale, skills, artifacts, growth history, and audit
-									evidence remain retained.
-								</AlertDialogDescription>
-							</AlertDialogHeader>
-							<AlertDialogFooter>
-								<AlertDialogCancel>Cancel</AlertDialogCancel>
-								<AlertDialogAction
-									disabled={retire.isPending}
-									onClick={() => retire.mutate()}
-								>
-									Retire tedi
-								</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
+					<Button
+						variant="outline"
+						disabled={!canDelete || resetSandbox.isPending}
+						title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
+						onClick={() => {
+							resetSandbox.reset();
+							setResetOpen(true);
+						}}
+					>
+						Reset workstation sandbox
+					</Button>
+					<ConfirmDialog
+						open={resetOpen}
+						onOpenChange={setResetOpen}
+						title="Reset this workstation sandbox?"
+						description="This non-force recovery destroys the current workstation sandbox and is blocked unless a healthy backup exists. It does not force a reset or delete the tedi's cognitive history."
+						confirmLabel="Reset safely"
+						pendingLabel="Resetting…"
+						destructive
+						isPending={resetSandbox.isPending}
+						error={resetSandbox.error}
+						onConfirm={() => resetSandbox.mutate()}
+					/>
+					<Button
+						variant="destructive"
+						disabled={!canDelete || retire.isPending}
+						title={!canDelete ? TEDIS_DELETE_DENIED_REASON : undefined}
+						onClick={() => {
+							retire.reset();
+							setRetireOpen(true);
+						}}
+					>
+						Retire Tedi
+					</Button>
+					<ConfirmDialog
+						open={retireOpen}
+						onOpenChange={setRetireOpen}
+						title="Retire this tedi?"
+						description="The worker identity and runtime stop immediately. Memory, rationale, skills, artifacts, growth history, and audit evidence remain retained."
+						confirmLabel="Retire tedi"
+						pendingLabel="Retiring…"
+						destructive
+						isPending={retire.isPending}
+						error={retire.error}
+						onConfirm={() => retire.mutate()}
+					/>
 				</CardContent>
 			</Card>
 			<RotateStepUpDialog />

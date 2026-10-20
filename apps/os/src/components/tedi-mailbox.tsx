@@ -1,3 +1,5 @@
+import { Collection } from "@/components/kumo/page";
+import { SettingsRecordRow } from "@/components/tedi-settings-page";
 import { EnvelopeSimple, Plus, Trash } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { EmailRoutingPolicy } from "@tedix/api-contract/schemas/tedi-email";
@@ -284,10 +286,11 @@ function AddressCard({
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">
-				<ul className="space-y-2" aria-label="Mailbox addresses">
+				<Collection aria-label="Mailbox addresses">
 					{sortAddresses(addresses).map((row) => (
-						<li key={row.id}>
-							<Surface className="flex flex-wrap items-center justify-between gap-2 p-3">
+						<SettingsRecordRow
+							key={row.id}
+							title={
 								<div className="flex min-w-0 flex-wrap items-center gap-2">
 									<Text role="body" tone="mono" className="break-all">
 										{row.address}
@@ -301,6 +304,8 @@ function AddressCard({
 										</Badge>
 									)}
 								</div>
+							}
+							trailing={
 								<div className="flex items-center gap-2">
 									{row.status !== "reserved" && (
 										<Button
@@ -356,10 +361,10 @@ function AddressCard({
 										</AlertDialogContent>
 									</AlertDialog>
 								</div>
-							</Surface>
-						</li>
+							}
+						/>
 					))}
-				</ul>
+				</Collection>
 
 				{primary && slug && (
 					<div className="space-y-2">

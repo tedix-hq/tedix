@@ -1,3 +1,5 @@
+import { SectionTitle } from "@/components/kumo/page";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EntityAvatar } from "@/components/entity-avatar";
 import {
 	Archive,
@@ -792,9 +794,9 @@ export function ChatSidebar({
 		>
 			<div className="grid gap-4">
 				<div className="flex items-center justify-between gap-2">
-					<h2 className="m-0 min-w-0 truncate font-semibold text-kumo-strong type-tedix-section">
+					<SectionTitle className="m-0 min-w-0 truncate">
 						Conversations
-					</h2>
+					</SectionTitle>
 					{/* Conversations have no create verb — a thread exists once its first
 					    message is enqueued, so New is a synthetic unselected state. */}
 					<div className="flex shrink-0 items-center gap-2">
@@ -865,12 +867,16 @@ export function ChatSidebar({
 						const headingId = `${groupHeadingPrefix}-${group.key}`;
 						return (
 							<section key={group.key} aria-labelledby={headingId}>
-								<h3
+								<Text
+									as="h3"
+									role="label"
+									tone="secondary"
+									weight="medium"
 									id={headingId}
-									className="m-0 mb-3 px-4 font-medium text-kumo-subtle type-tedix-label"
+									className="m-0 mb-3 px-4"
 								>
 									{group.label}
-								</h3>
+								</Text>
 								<ul className="m-0 grid list-none gap-0.5 p-0">
 									{group.conversations.map((conversation) => (
 										<ConversationRow
@@ -911,9 +917,11 @@ export function ChatSidebar({
 				</Button>
 			)}
 			{pin.isError && (
-				<p className="text-kumo-danger text-sm" role="alert">
-					Could not update the pin: {(pin.error as Error).message}
-				</p>
+				<div role="alert">
+					<Text role="label" tone="error">
+						Could not update the pin: {(pin.error as Error).message}
+					</Text>
+				</div>
 			)}
 
 			<Dialog
@@ -956,9 +964,11 @@ export function ChatSidebar({
 							)}
 						</FormField>
 						{rename.isError && (
-							<p className="m-0 text-kumo-danger text-sm" role="alert">
-								Could not rename: {(rename.error as Error).message}
-							</p>
+							<div role="alert">
+								<Text role="label" tone="error">
+									Could not rename: {(rename.error as Error).message}
+								</Text>
+							</div>
 						)}
 						<DialogFooter>
 							<Button
@@ -981,7 +991,7 @@ export function ChatSidebar({
 				</DialogContent>
 			</Dialog>
 
-			<Dialog
+			<ConfirmDialog
 				open={deleteTarget !== null}
 				onOpenChange={(open) => {
 					if (!open) {
@@ -989,57 +999,38 @@ export function ChatSidebar({
 						remove.reset();
 					}
 				}}
+				title="Delete conversation"
+				description={
+					deleteTarget
+						? `“${conversationTitle(deleteTarget)}” and its messages and run records will be permanently deleted. Active runs and delegations are stopped first. Accepted Work and external outcomes remain. You can’t undo this.`
+						: null
+				}
+				confirmLabel="Delete"
+				pendingLabel="Deleting…"
+				destructive
+				isPending={remove.isPending}
+				onConfirm={() => {
+					if (deleteTarget) remove.mutate({ conversationId: deleteTarget.id });
+				}}
 			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Delete conversation</DialogTitle>
-						<DialogDescription>
-							{deleteTarget
-								? `“${conversationTitle(deleteTarget)}” and its messages and run records will be permanently deleted. Active runs and delegations are stopped first. Accepted Work and external outcomes remain. You can’t undo this.`
-								: null}
-						</DialogDescription>
-					</DialogHeader>
-					{/* AUTHORITATIVE-ONLY. Delete is destructive: the row stays exactly
-					    where it is until the server confirms, and the wait is stated
-					    rather than implied by a spinner alone. */}
-					{remove.isPending && (
-						<p
-							className="m-0 text-kumo-subtle text-sm"
-							role="status"
-							data-slot="delete-pending"
-						>
-							Waiting for the server to confirm the delete…
-						</p>
-					)}
-					{remove.isError && (
-						<p className="m-0 text-kumo-danger text-sm" role="alert">
+				{/* Delete remains authoritative: keep the row until the server confirms. */}
+				{remove.isPending && (
+					<p
+						className="m-0 text-kumo-subtle text-sm"
+						role="status"
+						data-slot="delete-pending"
+					>
+						Waiting for the server to confirm the delete…
+					</p>
+				)}
+				{remove.isError && (
+					<div role="alert">
+						<Text role="label" tone="error">
 							Could not delete: {(remove.error as Error).message}
-						</p>
-					)}
-					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							disabled={remove.isPending}
-							onClick={() => setDeleteTarget(null)}
-						>
-							Cancel
-						</Button>
-						<Button
-							type="button"
-							variant="destructive"
-							loading={remove.isPending}
-							onClick={() => {
-								if (deleteTarget) {
-									remove.mutate({ conversationId: deleteTarget.id });
-								}
-							}}
-						>
-							Delete
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+						</Text>
+					</div>
+				)}
+			</ConfirmDialog>
 		</nav>
 	);
 }
@@ -1193,38 +1184,25 @@ export function ChatConversationHeader({
 			>
 				<Trash size={13} />
 			</Button>
-			<Dialog
-				onOpenChange={(open) => !open && setConfirmingDelete(false)}
+			<ConfirmDialog
+				onOpenChange={setConfirmingDelete}
 				open={confirmingDelete}
-			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Delete this conversation?</DialogTitle>
-						<DialogDescription>
-							"{title}" and its messages and run records are permanently
-							deleted. Active runs and delegations stop first. You can’t undo
-							this.
-						</DialogDescription>
-					</DialogHeader>
-					<DialogFooter>
-						<Button
-							onClick={() => setConfirmingDelete(false)}
-							variant="secondary"
-						>
-							Cancel
-						</Button>
-						<Button
-							disabled={remove.isPending || conversationId === null}
-							onClick={() =>
-								conversationId && remove.mutate({ conversationId })
-							}
-							variant="destructive"
-						>
-							Delete
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+				title="Delete this conversation?"
+				description={
+					<>
+						"{title}" and its messages and run records are permanently deleted.
+						Active runs and delegations stop first. You can’t undo this.
+					</>
+				}
+				confirmLabel="Delete"
+				pendingLabel="Deleting…"
+				destructive
+				isPending={remove.isPending}
+				error={remove.error}
+				onConfirm={() => {
+					if (conversationId) remove.mutate({ conversationId });
+				}}
+			/>
 		</div>
 	);
 }

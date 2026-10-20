@@ -10,7 +10,7 @@ export function OfficeReadError({
 }) {
 	return (
 		<div role="alert">
-			<Text as="p" role="body" tone="error">
+			<Text as="p" role="label" tone="error">
 				Couldn't load {resource} —{" "}
 				{errorMessage(error, "The service is unavailable. Try again shortly.")}
 			</Text>
