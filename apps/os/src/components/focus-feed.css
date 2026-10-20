@@ -8,6 +8,22 @@
 	font: 600 0.875rem/1.4 var(--font-sans);
 	margin: 0;
 }
+.focus-filter-heading {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+.focus-filter-heading > :is(button, a) {
+	min-height: 2.75rem;
+	display: inline-flex;
+	align-items: center;
+}
+.focus-source-text {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
 .focus-section-heading {
 	display: flex;
 	align-items: baseline;
