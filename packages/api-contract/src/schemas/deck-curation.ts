@@ -8,6 +8,13 @@ export const DeckCuratorGrantSchema = z.strictObject({
 	gadgetId: z.uuid(),
 	enabled: z.boolean(),
 	examples: z.array(DeckRankExampleSchema).max(100).default([]),
+	trigger: z
+		.strictObject({
+			enabled: z.boolean(),
+			skillId: z.uuid(),
+			debounceSeconds: z.number().int().min(1).max(3600).default(60),
+		})
+		.optional(),
 });
 export const DeckCurationScopeSchema = z.strictObject({
 	recipientId: z.string().min(1),
