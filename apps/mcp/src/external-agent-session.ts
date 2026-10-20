@@ -27,6 +27,8 @@ type SessionExchangeRejectionCode =
 	| "credential_issuance_in_progress"
 	| "credential_binding_mismatch"
 	| "immutable_session_conflict"
+	| "enrollment_expired"
+	| "exchange_rate_limited"
 	| "principal_inactive"
 	| "principal_not_found"
 	| "session_ended";
@@ -57,6 +59,9 @@ function sessionExchangeRejectionCode(
 		}
 	}
 	const detail = error.detail.toLowerCase();
+	if (error.status === 429) return "exchange_rate_limited";
+	if (detail.includes("enrollment_expired")) return "enrollment_expired";
+	if (detail.includes("principal_inactive")) return "principal_inactive";
 	if (
 		error.status === 409 &&
 		error.path === "externalAgentIdentity/issueMcpCredential" &&

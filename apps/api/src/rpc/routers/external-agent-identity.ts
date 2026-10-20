@@ -80,6 +80,7 @@ import {
 } from "@tedix/db/queries/external-agent-identity/review-evidence";
 import {
 	hasExternalAgentWorkAttempt,
+	consumeExternalAgentExchangeBudget,
 	heartbeatExternalAgentSession,
 	listExternalAgentSessions,
 	openExternalAgentSession,
@@ -1432,6 +1433,19 @@ async function issueMcpCredentialForOrganization(
 	if (!active) {
 		throw createError(ErrorCodes.NOT_FOUND, "Active session not found");
 	}
+	if (
+		!(await consumeExternalAgentExchangeBudget(context.db, {
+			organizationId,
+			principalId: input.principalId,
+			nowMs: Date.now(),
+		}))
+	) {
+		throw createError(
+			ErrorCodes.TOO_MANY_REQUESTS,
+			"External-agent exchange rate limit exceeded",
+		);
+	}
+
 	const aihEnv = requireAihEnv(context.env);
 	const { mcpServerId, mcpServerUrl } = await resolveMcpCredentialTarget(
 		context,

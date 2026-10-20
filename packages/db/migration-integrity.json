@@ -1008,6 +1008,10 @@
 		{
 			"name": "20261020001009_external_agent_provider_cleanup/migration.sql",
 			"sha256": "f914befe2cf7791b5aecd4c50a8f6861685fb0562afb117f61e88d540b2843c0"
+		},
+		{
+			"name": "20261020002504_external_agent_exchange_limit/migration.sql",
+			"sha256": "e86d28eda17f6cc94ee3d6fbdc1c78ae4065bceadda2f39553fca4b1a4ae6e73"
 		}
 	]
 }

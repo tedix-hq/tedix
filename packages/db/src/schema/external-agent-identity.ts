@@ -13,6 +13,7 @@ import {
 	foreignKey,
 	index,
 	integer,
+	primaryKey,
 	real,
 	sqliteTable,
 	text,
@@ -512,3 +513,27 @@ export type ExternalAgentReviewEvidence =
 	typeof externalAgentReviewEvidence.$inferSelect;
 export type NewExternalAgentReviewEvidence =
 	typeof externalAgentReviewEvidence.$inferInsert;
+
+export const externalAgentExchangeLimits = sqliteTable(
+	"external_agent_exchange_limits",
+	{
+		organizationId: text("organization_id").notNull(),
+		principalId: text("principal_id").notNull(),
+		windowStart: integer("window_start").notNull(),
+		requestCount: integer("request_count").notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.organizationId, table.principalId] }),
+		foreignKey({
+			columns: [table.organizationId, table.principalId],
+			foreignColumns: [
+				externalAgentPrincipals.organizationId,
+				externalAgentPrincipals.id,
+			],
+		}).onDelete("cascade"),
+		check(
+			"chk_external_agent_exchange_count",
+			sql`${table.requestCount} BETWEEN 1 AND 30`,
+		),
+	],
+);

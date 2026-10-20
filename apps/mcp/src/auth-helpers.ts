@@ -1196,3 +1196,15 @@ export async function validateAuth(
 		},
 	});
 }
+
+/** Keep the selected bearer without forwarding a redundant bootstrap secret. */
+export function stripRedundantApiKeyHeader(request: Request): Request {
+	if (
+		!request.headers.has("Authorization") ||
+		!request.headers.has("X-API-Key")
+	)
+		return request;
+	const headers = new Headers(request.headers);
+	headers.delete("X-API-Key");
+	return new Request(request, { headers });
+}

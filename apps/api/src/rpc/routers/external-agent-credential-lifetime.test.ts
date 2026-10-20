@@ -233,4 +233,33 @@ describe("enrollment-bounded MCP credential issuance", () => {
 		).toEqual({ total: 0 });
 		expect(mocks.remove).toHaveBeenCalledTimes(1);
 	});
+	it("limits the thirty-first authenticated exchange across sessions before provider work", async () => {
+		for (let i = 0; i < 30; i++)
+			expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(120);
+		const anotherSession = crypto.randomUUID();
+		await db.insert(agentTables.externalAgentSessions).values({
+			id: anotherSession,
+			organizationId: ORG,
+			principalId: PRINCIPAL,
+			externalSessionKey: "codex:other-session",
+			harness: "codex",
+			harnessVersion: "1",
+			modelProvider: "fixture",
+			modelId: "fixture",
+			modelVersion: "1",
+			identitySource: "explicit",
+			startedAt: NOW,
+			lastSeenAt: NOW,
+		});
+		const providerCalls = vi.mocked(fetch).mock.calls.length;
+		await expect(
+			client().issueMcpCredential({ ...INPUT, sessionId: anotherSession }),
+		).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+		expect(vi.mocked(fetch).mock.calls).toHaveLength(providerCalls);
+		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
+			code: "TOO_MANY_REQUESTS",
+		});
+		vi.setSystemTime(new Date("2030-01-01T00:01:00.000Z"));
+		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(60);
+	});
 });

@@ -40,6 +40,7 @@ const CONTEXT = {
 };
 
 const DDL = `
+CREATE TABLE external_agent_exchange_limits (organization_id TEXT NOT NULL, principal_id TEXT NOT NULL, window_start INTEGER NOT NULL, request_count INTEGER NOT NULL, PRIMARY KEY (organization_id,principal_id));
 CREATE TABLE api_keys (id TEXT PRIMARY KEY, organization_id TEXT, status TEXT, expires_at TEXT, revoked_at TEXT, revoke_reason TEXT, updated_at TEXT, previous_key_hash TEXT, previous_key_expires_at TEXT);
 CREATE TABLE external_agent_principals (
  id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, key TEXT NOT NULL,

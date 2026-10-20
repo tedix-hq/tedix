@@ -10,6 +10,7 @@ import {
 	writeAggregateActivationEpoch,
 } from "./aggregate-surface";
 import worker, { handleMcpRequest } from "./index";
+import { validateAuth } from "./auth-helpers";
 
 const { resolveGateway } = vi.hoisted(() => ({ resolveGateway: vi.fn() }));
 vi.mock("./resolution", async (importOriginal) => ({
@@ -673,6 +674,7 @@ describe("Connect compact protocol organization routing", () => {
 			const original = request("server/discover", target);
 			const headers = new Headers(original.headers);
 			headers.set("Authorization", "Bearer fixture");
+			headers.set("X-API-Key", "sk_fictional_redundant");
 			const response = await worker.fetch(
 				new Request(original, { headers }),
 				createEnv({
@@ -682,6 +684,11 @@ describe("Connect compact protocol organization routing", () => {
 				}),
 				ctx,
 			);
+			const forwardedToAuth = vi.mocked(validateAuth).mock.calls.at(-1)![0];
+			expect(forwardedToAuth.headers.get("Authorization")).toBe(
+				"Bearer fixture",
+			);
+			expect(forwardedToAuth.headers.has("X-API-Key")).toBe(false);
 			const body = await response.json();
 			expect(response.status, JSON.stringify(body)).toBe(
 				target === "tedix" ? 200 : 403,
@@ -1566,4 +1573,22 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 			}
 		},
 	);
+});
+
+it("keeps the exchange endpoint's exact-one-credential rejection at ingress", async () => {
+	const apiFetch = vi.fn();
+	const response = await worker.fetch(
+		new Request("https://example.mcp.tedix.dev/external-agents/session", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer fixture-workload",
+				"X-API-Key": "sk_fictional_bootstrap",
+			},
+			body: "{}",
+		}),
+		createEnv({ API_SERVICE: { fetch: apiFetch } }),
+		{ waitUntil: () => {} } as unknown as ExecutionContext,
+	);
+	expect(response.status).toBe(401);
+	expect(apiFetch).not.toHaveBeenCalled();
 });
