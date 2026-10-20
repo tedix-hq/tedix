@@ -7,9 +7,8 @@ code only after proving it contains freshly fetched main; rebase before using it
 Normal pushes always load the fetched main version.
 
 `full-suite-hourly.yml` runs on every main push, hourly, and manual dispatch.
-Push and hourly runs share group `main`; a newer tip cancels older certification.
-Manual runs use `main-manual-certification`, so a complete baseline can finish
-during sustained pushes. A newer manual run cancels the previous manual run.
+Each run has its own concurrency group, including its SHA and run ID. New pushes,
+scheduled runs and manual dispatches cannot cancel unfinished certification.
 The required aggregate is `Main CI`. Every discovered workspace runs its full
 `test:ci` (or `test:run`) and type-check. Repository checks retain script tests,
 public docs, generated types, migration validation, builds, licenses and lint.
