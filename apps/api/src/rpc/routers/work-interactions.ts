@@ -1365,6 +1365,22 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			beforeRevision: input.beforeRevision,
 		});
 	}),
+	listCardVersions: readOs.listCardVersions.handler(
+		async ({ input, context }) => {
+			const { readCardHistory } = await import("../../services/card-revisions");
+			const { cardVersionsText } =
+				await import("@tedix/api-contract/utils/card-version-text");
+			const history = await readCardHistory(context, {
+				orgId: requireOrgId(context),
+				requestId: input.requestId,
+				beforeRevision: input.beforeRevision,
+			});
+			return {
+				...history,
+				markdown: cardVersionsText(history.revisions, Boolean(history.pending)),
+			};
+		},
+	),
 	rememberCardStyle: writeOs.rememberCardStyle.handler(
 		async ({ input, context }) => {
 			const { rememberCardStyle } =
@@ -1442,13 +1458,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 						action: "feedback",
 						chips: input.chips,
 						anchors: input.anchors,
-						feedback: [
-							input.instruction,
-							...(input.chips ?? []),
-							...(input.anchors ?? []).map(
-								(anchor) => `${anchor.chip ?? anchor.note}: “${anchor.quote}”`,
-							),
-						].join("\n"),
+						feedback: input.instruction,
 					},
 					{ context },
 				);

@@ -576,7 +576,19 @@ export function WorkDecisionCard({
 								</DecisionContextSection>
 							</>
 						)}
-						<div data-card-feedback-content>
+						<div
+							data-card-feedback-content
+							aria-busy={revising}
+							className={revising ? "opacity-60" : undefined}
+							onPointerDown={(event) => {
+								if (
+									revision &&
+									!secureConnection &&
+									(event.pointerType === "touch" || event.pointerType === "pen")
+								)
+									event.stopPropagation();
+							}}
+						>
 							{editing ? (
 								<div className="grid gap-3">
 									{editContent}
@@ -649,6 +661,7 @@ export function WorkDecisionCard({
 						)}
 						{revision && !secureConnection && (
 							<CardRevisionPanel
+								key={revision.requestId}
 								target={revision}
 								contentKind={
 									kind === "proposal"

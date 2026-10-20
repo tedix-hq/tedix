@@ -733,7 +733,13 @@ export const outboundRouter = os.router({
 		});
 		await startIncrementalLessons(context.env, requireOrgId(context), actor.id);
 		if (input.action === "edit" || input.action === "feedback")
-			await dispatchReview(context, next, input.feedback);
+			await dispatchReview(
+				context,
+				next,
+				input.feedback
+					? `${input.feedback}${input.chips?.length ? `\nStyle requests: ${input.chips.join(", ")}` : ""}${input.anchors?.length ? `\nAnchored comments (quote and context): ${JSON.stringify(input.anchors)}` : ""}`
+					: undefined,
+			);
 		else if (context.env.AUTOMATION_EVENTS)
 			await context.env.AUTOMATION_EVENTS.send(
 				AutomationEventSchema.parse({

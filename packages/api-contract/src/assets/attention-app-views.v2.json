@@ -546,9 +546,12 @@
 			}
 		}
 	},
+	"textSummaryEndpoints": ["workInteractions/listCardVersions"],
 	"nativeDirectEndpoints": [
 		"attention/showDeck",
 		"attention/showFeed",
-		"attention/decideDeckCard"
+		"attention/decideDeckCard",
+		"workInteractions/requestCardChanges",
+		"workInteractions/listCardVersions"
 	]
 }

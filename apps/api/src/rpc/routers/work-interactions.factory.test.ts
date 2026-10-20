@@ -138,6 +138,7 @@ describe("Work interactions router", () => {
 			"outbound",
 			"refreshDecisionSources",
 			"cardHistory",
+			"listCardVersions",
 			"rememberCardStyle",
 			"reviewCardStyleRule",
 			"reviseCard",

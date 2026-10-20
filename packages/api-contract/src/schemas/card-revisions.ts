@@ -88,7 +88,15 @@ export const RequestCardChangesInputSchema = CardHistoryInputSchema.extend({
 	field: CardFeedbackFieldSchema.optional(),
 	chips: z.array(CardTextSchema.max(80)).max(3).optional(),
 	anchors: z.array(CardFeedbackAnchorSchema).max(20).optional(),
-});
+}).refine(
+	(value) =>
+		JSON.stringify({
+			instruction: value.instruction,
+			anchors: value.anchors,
+			chips: value.chips,
+		}).length <= 16000,
+	"Keep the feedback batch under 16,000 characters",
+);
 export const ReviseCardInputSchema = CardHistoryInputSchema.extend({
 	expectedRequestVersion: z.number().int().positive(),
 	expectedRevision: z.number().int().nonnegative(),
@@ -135,4 +143,8 @@ export const CardHistorySchema = z.strictObject({
 			requestedAt: z.string(),
 		})
 		.nullable(),
+});
+
+export const CardVersionsSchema = CardHistorySchema.extend({
+	markdown: z.string(),
 });

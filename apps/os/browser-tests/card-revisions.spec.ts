@@ -17,6 +17,9 @@ try {
 			const page = await browser.newPage({
 				viewport: { width, height: width === 390 ? 844 : 1000 },
 				colorScheme: theme,
+				hasTouch: width === 390,
+				isMobile: width === 390,
+				reducedMotion: "reduce",
 			});
 			let version = 2;
 			const original =
@@ -121,6 +124,7 @@ try {
 						id: crypto.randomUUID(),
 						revision: revisions.length + 1,
 						body: input.body ?? original,
+						proposal: input.proposal ?? null,
 						cause: input.restoreRevision ? "restore" : "human_edit",
 						keptHunks: input.keptHunks ?? null,
 						parentRevision: input.restoreRevision ?? revisions.length,
@@ -190,6 +194,7 @@ try {
 				await page.screenshot({
 					path: `${screenshotDirectory}/card-revisions-${width}-${theme}.png`,
 					fullPage: true,
+					animations: "disabled",
 				});
 
 			await page.getByRole("button", { name: "Versions", exact: true }).click();
@@ -211,8 +216,12 @@ try {
 				await page.screenshot({
 					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-versions.png`,
 					fullPage: true,
+					animations: "disabled",
 				});
 			await page.getByRole("button", { name: "Not true", exact: true }).click();
+			await page
+				.getByRole("button", { name: "Not true", exact: true })
+				.waitFor({ state: "detached" });
 			assert.equal(remembered, 1);
 			await page
 				.getByRole("button", { name: "Restore version 1", exact: true })
@@ -220,17 +229,28 @@ try {
 			await page
 				.getByRole("button", { name: "Close decision context", exact: true })
 				.click();
+			if (width === 390)
+				await page
+					.getByRole("dialog", { name: "Decision context", exact: true })
+					.waitFor({ state: "hidden" });
 			await page.getByText("Version 4", { exact: true }).first().waitFor();
 			const card = page.getByRole("region", {
 				name: "Send Morgan the use-case email?",
 			});
 			await card.focus();
 			await page.keyboard.press("c");
+			await page.waitForFunction(
+				() =>
+					document.activeElement?.getAttribute("aria-label") ===
+					"What should change?",
+			);
 			const selectGreeting = async () => {
 				await page
 					.locator("[data-card-feedback-content]")
 					.first()
 					.evaluate((content) => {
+						if (document.activeElement instanceof HTMLElement)
+							document.activeElement.blur();
 						const node = document
 							.createTreeWalker(content, NodeFilter.SHOW_TEXT)
 							.nextNode()!;
@@ -239,7 +259,10 @@ try {
 						range.setEnd(node, 10);
 						window.getSelection()!.removeAllRanges();
 						window.getSelection()!.addRange(range);
-						content.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+						if (!matchMedia("(pointer: coarse)").matches)
+							content.dispatchEvent(
+								new MouseEvent("mouseup", { bubbles: true }),
+							);
 					});
 			};
 			await selectGreeting();
@@ -250,6 +273,7 @@ try {
 				await page.screenshot({
 					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-selection.png`,
 					fullPage: true,
+					animations: "disabled",
 				});
 			await pill.getByRole("button", { name: "Shorter", exact: true }).click();
 			await selectGreeting();
@@ -271,6 +295,7 @@ try {
 				await page.screenshot({
 					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-batch.png`,
 					fullPage: true,
+					animations: "disabled",
 				});
 			await page
 				.getByRole("textbox", { name: "What should change?" })
@@ -293,7 +318,60 @@ try {
 				await page.screenshot({
 					path: `${screenshotDirectory}/card-revisions-${width}-${theme}-revising.png`,
 					fullPage: true,
+					animations: "disabled",
 				});
+			pending = null;
+			const plan = {
+				key: "fictional-plan",
+				item: { title: "Prepare the report", sourceIntentId: "report" },
+				children: [{ title: "Check the sources", sourceIntentId: "review" }],
+				start: {
+					kind: "delegate" as const,
+					brief: "Prepare a report for human review.",
+				},
+			};
+			revisions.splice(2);
+			revisions[0] = {
+				...revisions[0]!,
+				body: "Prepare the report",
+				proposal: plan,
+			};
+			revisions[1] = {
+				...revisions[1]!,
+				summary: "Shortened the report and review titles.",
+				body: "Draft a report",
+				proposal: {
+					...plan,
+					item: { ...plan.item, title: "Draft a report" },
+					children: [{ ...plan.children[0]!, title: "Verify every source" }],
+				},
+			};
+			await page.goto(`${origin}/browser-tests/card-revisions.html?plan=1`);
+			await page
+				.getByRole("button", { name: "Keep original change 1", exact: true })
+				.click();
+			await page.getByText("Version 3", { exact: true }).first().waitFor();
+			assert.equal(
+				revisions.at(-1)!.proposal?.item.title,
+				"Prepare the report",
+			);
+			assert.equal(
+				revisions.at(-1)!.proposal?.children[0]?.title,
+				"Verify every source",
+			);
+			assert.deepEqual(revisions.at(-1)!.proposal?.start, plan.start);
+			assert.equal(revisions.at(-1)!.cause, "human_edit");
+			if (screenshotDirectory) {
+				await page.evaluate((mode) => {
+					document.documentElement.classList.toggle("dark", mode === "dark");
+					document.documentElement.dataset.theme = mode;
+				}, theme);
+				await page.screenshot({
+					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-plan-keep.png`,
+					fullPage: true,
+					animations: "disabled",
+				});
+			}
 			await page.close();
 		}
 	console.log(

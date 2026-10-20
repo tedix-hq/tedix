@@ -183,6 +183,9 @@ export const attentionContractRouter = os.router({
 							requestId: input.cardId,
 							expectedRequestVersion: input.expectedRequestVersion,
 							instruction: input.instruction,
+							field: input.field,
+							chips: input.chips,
+							anchors: input.anchors,
 						},
 						{ context },
 					);

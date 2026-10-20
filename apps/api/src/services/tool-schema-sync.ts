@@ -719,6 +719,7 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workInteractions/refreshDecisionSources": "refresh_decision_sources",
 	"workInteractions/regenerateCard": "regenerate_decision_card",
 	"workInteractions/cardHistory": "get_card_revision_history",
+	"workInteractions/listCardVersions": "list_card_versions",
 	"workInteractions/requestCardChanges": "request_card_changes",
 	"workInteractions/reviseCard": "revise_decision_card",
 	"workInteractions/outbound/submit": "submit_outbound_draft",
@@ -833,6 +834,9 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workInteractions/refreshDecisionSources": "write",
 	"workInteractions/regenerateCard": "write",
 	"workInteractions/requestCardChanges": "write",
+	"workInteractions/listCardVersions": "read",
+	"workInteractions/rememberCardStyle": "write",
+	"workInteractions/reviewCardStyleRule": "write",
 	"workInteractions/reviseCard": "write",
 	"workInteractions/outbound/submit": "write",
 	"workInteractions/outbound/review": "write",
@@ -1401,6 +1405,12 @@ function mergeGeneratedConfig(
 			nextConfig.modelSummaryTemplate = "{markdown}";
 	}
 
+	if (
+		attentionAppViews.textSummaryEndpoints.includes(
+			`${endpoint.router}/${endpoint.procPath}`,
+		)
+	)
+		nextConfig.modelSummaryTemplate = "{markdown}";
 	return nextConfig;
 }
 

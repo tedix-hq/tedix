@@ -9,6 +9,9 @@ import {
 	cardRevisionDiff,
 	cardRevisionHunks,
 	keepOriginalHunks,
+	proposalRevisionHunks,
+	keepOriginalProposalHunks,
+	proposalRevisionBody,
 } from "@/lib/card-revision-diff";
 import { DecisionContextSection } from "@/components/decision-context-rail";
 
@@ -69,6 +72,7 @@ export function CardRevisionPanel({
 			{ ...selection.anchor, ...(chip ? { chip } : { note: comment.trim() }) },
 		]);
 		setSelection(null);
+		window.getSelection()?.removeAllRanges();
 		setComment("");
 		setOpen(true);
 	};
@@ -141,10 +145,14 @@ export function CardRevisionPanel({
 		card.addEventListener("mouseup", select);
 		card.addEventListener("keyup", select);
 		card.addEventListener("keydown", keyboard);
+		const touchSelection = window.matchMedia("(pointer: coarse)").matches;
+		if (touchSelection) document.addEventListener("selectionchange", select);
 		return () => {
 			card.removeEventListener("mouseup", select);
 			card.removeEventListener("keyup", select);
 			card.removeEventListener("keydown", keyboard);
+			if (touchSelection)
+				document.removeEventListener("selectionchange", select);
 		};
 	}, [disabled, optimistic, field, history.data]);
 	const revisions = (
@@ -161,8 +169,13 @@ export function CardRevisionPanel({
 		(revision) => revision.revision === (reviewed?.revision ?? 0) - 1,
 	);
 	const hunks =
-		reviewed && previous ? cardRevisionHunks(previous.body, reviewed.body) : [];
+		reviewed && previous
+			? reviewed.proposal && previous.proposal
+				? proposalRevisionHunks(previous.proposal, reviewed.proposal)
+				: cardRevisionHunks(previous.body, reviewed.body)
+			: [];
 	const [showClean, setShowClean] = useState(false);
+	const [historyOpen, setHistoryOpen] = useState(false);
 	const [compareBefore, setCompareBefore] = useState<number>();
 	const [compareAfter, setCompareAfter] = useState<number>();
 	const left =
@@ -202,12 +215,8 @@ export function CardRevisionPanel({
 				expectedRequestVersion: target.version,
 				instruction:
 					instruction.trim() ||
-					[
-						...chips,
-						...anchors.map(
-							(anchor) => `${anchor.chip ?? anchor.note}: “${anchor.quote}”`,
-						),
-					].join("; "),
+					chips.join(", ") ||
+					"Revise the quoted passages using the attached comments.",
 				field,
 				chips,
 				anchors,
@@ -272,14 +281,23 @@ export function CardRevisionPanel({
 					replacement: hunk.replacement,
 				},
 			];
+			const keptIndexes = kept.map((hunk) => hunk.index);
+			const proposal =
+				reviewed!.proposal && previous?.proposal
+					? keepOriginalProposalHunks(
+							previous.proposal,
+							reviewed!.proposal,
+							keptIndexes,
+						)
+					: undefined;
 			return osApi.workInteractions.reviseCard({
 				requestId: target.requestId,
 				expectedRequestVersion: target.version,
 				expectedRevision: current!.revision,
-				body: keepOriginalHunks(
-					hunks,
-					kept.map((hunk) => hunk.index),
-				),
+				body: proposal
+					? proposalRevisionBody(proposal)
+					: keepOriginalHunks(hunks, keptIndexes),
+				proposal,
 				keptHunks: kept,
 				summary: `Kept original wording in ${kept.length} ${kept.length === 1 ? "change" : "changes"}.`,
 			});
@@ -299,6 +317,9 @@ export function CardRevisionPanel({
 						aria-label="Comment on selected text"
 						className="fixed z-50 grid w-80 max-w-[calc(100vw-32px)] gap-2 rounded-xl border border-kumo-line bg-kumo-base p-3 shadow-lg"
 						style={{ top: selection.top, left: selection.left }}
+						onKeyDown={(event) => {
+							if (event.key === "Escape") setSelection(null);
+						}}
 					>
 						<p className="type-tedix-caption line-clamp-2 break-words">
 							“{selection.anchor.quote}”
@@ -506,22 +527,23 @@ export function CardRevisionPanel({
 															<span key={index}>{text}</span>
 														),
 													)}
-													{!current.proposal && (
-														<Button
-															variant="ghost"
-															size="xs"
-															aria-label={`Keep original change ${hunk.index + 1}`}
-															disabled={
-																disabled ||
-																revising ||
-																keep.isPending ||
-																restore.isPending
-															}
-															onClick={() => keep.mutate(hunk.index)}
-														>
-															Keep original
-														</Button>
-													)}
+													{hunk.canKeep !== false &&
+														(!current.proposal || previous.proposal) && (
+															<Button
+																variant="ghost"
+																size="xs"
+																aria-label={`Keep original change ${hunk.index + 1}`}
+																disabled={
+																	disabled ||
+																	revising ||
+																	keep.isPending ||
+																	restore.isPending
+																}
+																onClick={() => keep.mutate(hunk.index)}
+															>
+																Keep original
+															</Button>
+														)}
 												</>
 											)}
 										</span>
@@ -636,7 +658,10 @@ export function CardRevisionPanel({
 					trigger
 					defaultOpen
 				>
-					<details>
+					<details
+						open={historyOpen}
+						onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
+					>
 						<summary>Version history</summary>
 						{left && right && (
 							<div className="grid min-w-0 gap-3 pt-3">

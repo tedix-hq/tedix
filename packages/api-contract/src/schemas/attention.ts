@@ -1,5 +1,10 @@
 import * as z from "zod";
-import { CardHistorySchema, CardTextSchema } from "./card-revisions";
+import {
+	CardHistorySchema,
+	CardTextSchema,
+	CardFeedbackFieldSchema,
+	CardFeedbackAnchorSchema,
+} from "./card-revisions";
 import { JsonValueSchema } from "./common";
 import { DecisionEnvelopeSchema } from "./os-decision-deck";
 import { DecisionCardPresentationSchema } from "./decision-card-presentation";
@@ -98,6 +103,9 @@ export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 		timeZone: AttentionTimeZoneSchema.optional(),
 		expectedRequestVersion: z.number().int().positive(),
 		instruction: CardTextSchema.max(8000),
+		field: CardFeedbackFieldSchema.optional(),
+		chips: z.array(CardTextSchema.max(80)).max(3).optional(),
+		anchors: z.array(CardFeedbackAnchorSchema).max(20).optional(),
 	}),
 	z.strictObject({
 		kind: z.literal("restore_revision"),

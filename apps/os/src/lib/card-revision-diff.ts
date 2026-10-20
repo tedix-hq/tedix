@@ -1,4 +1,5 @@
 import diff from "fast-diff";
+import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
 
 /** Compare whole words so the review never splices letters from two drafts. */
 export function cardRevisionDiff(
@@ -38,6 +39,7 @@ export interface CardRevisionHunk {
 	unchanged: boolean;
 	original: string;
 	replacement: string;
+	canKeep?: boolean;
 }
 
 export function cardRevisionHunks(
@@ -70,4 +72,72 @@ export function keepOriginalHunks(
 			kept.includes(hunk.index) ? hunk.original : hunk.replacement,
 		)
 		.join("");
+}
+
+/** Match plan wording by stable Work identity, never by the displayed row. */
+export function proposalRevisionHunks(
+	before: WorkProposal,
+	after: WorkProposal,
+) {
+	const originals = [before.item, ...before.children];
+	const revised = [after.item, ...after.children];
+	return revised
+		.flatMap((item) => {
+			const matches = originals.filter(
+				(original) => original.sourceIntentId === item.sourceIntentId,
+			);
+			const original = matches.length === 1 ? matches[0] : undefined;
+			return (["title", "description"] as const).map((field) => ({
+				sourceIntentId: item.sourceIntentId,
+				field,
+				canKeep:
+					Boolean(original) &&
+					revised.filter((row) => row.sourceIntentId === item.sourceIntentId)
+						.length === 1,
+				original: original?.[field] ? `${original[field]}\n\n` : "",
+				replacement: item[field] ? `${item[field]}\n\n` : "",
+				unchanged: (original?.[field] ?? "") === (item[field] ?? ""),
+			}));
+		})
+		.map((hunk, index) => ({ ...hunk, index }));
+}
+
+export function keepOriginalProposalHunks(
+	before: WorkProposal,
+	after: WorkProposal,
+	kept: number[],
+): WorkProposal {
+	const hunks = proposalRevisionHunks(before, after);
+	const originals = [before.item, ...before.children];
+	const copy = (item: WorkProposal["item"]) => {
+		const result = { ...item };
+		for (const hunk of hunks) {
+			if (
+				!hunk.canKeep ||
+				!kept.includes(hunk.index) ||
+				hunk.sourceIntentId !== item.sourceIntentId
+			)
+				continue;
+			const value = originals.find(
+				(original) => original.sourceIntentId === item.sourceIntentId,
+			)![hunk.field];
+			if (value === undefined) delete result.description;
+			else result[hunk.field] = value;
+		}
+		return result;
+	};
+	return {
+		...after,
+		item: copy(after.item),
+		children: after.children.map(copy),
+	};
+}
+
+export function proposalRevisionBody(proposal: WorkProposal): string {
+	return [
+		...[proposal.item, ...proposal.children].map((item) =>
+			[item.title, item.description].filter(Boolean).join("\n"),
+		),
+		...(proposal.start ? [`First: ${proposal.start.brief}`] : []),
+	].join("\n\n");
 }
