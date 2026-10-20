@@ -43,12 +43,21 @@ import {
 import { decisionLearningKey } from "@/lib/decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
-import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+	Fragment,
+	useContext,
+	useEffect,
+	useRef,
+	useState,
+	type CSSProperties,
+	type ReactNode,
+} from "react";
 import {
 	FeedDeckCard,
 	FeedDeckDisclosure,
 	ProposerChip,
 	ProposerContext,
+	ShortcutTooltip,
 } from "@/components/feed-deck-primitives";
 import { WorkSourceProvenance } from "@/components/work-source-provenance";
 import { useDecisionMotion } from "@/components/use-decision-motion";
@@ -106,6 +115,23 @@ export interface DecisionCardFeedback {
 	reason?: string;
 	feedback?: string;
 }
+
+/** The card's keydown handler below owns these keys; the tooltips only show them. */
+const ACTION_SHORTCUTS: Record<string, { key: string; aria: string }> = {
+	approve: { key: "→", aria: "ArrowRight" },
+	reject: { key: "←", aria: "ArrowLeft" },
+	later: { key: "L", aria: "L" },
+	delegate: { key: "D", aria: "D" },
+};
+
+/*
+ * The Button adapter resolves Kumo's primary label color through an inline
+ * `--color-white`, which no stylesheet rule can outrank. A disabled action
+ * trades the accent pairing for the muted pairing feed-deck.css paints.
+ */
+const DISABLED_ACTION_LABEL = {
+	"--color-white": "var(--muted-foreground)",
+} as CSSProperties;
 
 /** Shared review surface. Callers own authorization, persistence and provider effects. */
 export function WorkDecisionCard({
@@ -861,10 +887,22 @@ export function WorkDecisionCard({
 										(!editing || !editAction || action.intent === "reject"),
 								)
 								.map((action) => {
-									const button = (
+									const label = decisionCardActionLabel(
+										face,
+										action.id,
+										action.intent,
+										action.label,
+									);
+									const shortcut = ACTION_SHORTCUTS[action.intent ?? ""];
+									const inactive =
+										busy ||
+										action.disabled ||
+										(kind === "question" && !answer.trim()) ||
+										(editing && !draft.trim());
+									const control = (
 										<Button
-											key={action.id}
 											data-decision-intent={action.intent}
+											style={inactive ? DISABLED_ACTION_LABEL : undefined}
 											className={
 												kind === "decision" ||
 												kind === "adr" ||
@@ -879,39 +917,14 @@ export function WorkDecisionCard({
 														? "outline"
 														: "ghost"
 											}
-											disabled={
-												busy ||
-												action.disabled ||
-												(kind === "question" && !answer.trim()) ||
-												(editing && !draft.trim())
-											}
+											disabled={inactive}
 											onClick={() => choose(action)}
 										>
 											{saving ? (
 												decisionText("Saving…")
 											) : (
 												<span className="grid min-w-0 gap-1 whitespace-normal break-words">
-													<span>
-														{decisionCardActionLabel(
-															face,
-															action.id,
-															action.intent,
-															action.label,
-														)}
-														<kbd
-															className="fd-action-key"
-															aria-hidden="true"
-															data-key={
-																action.intent === "approve"
-																	? "→"
-																	: action.intent === "reject"
-																		? "←"
-																		: action.intent === "later"
-																			? "L"
-																			: "D"
-															}
-														/>
-													</span>
+													<span>{label}</span>
 													{action.description && !faceState ? (
 														<span
 															className={
@@ -926,6 +939,18 @@ export function WorkDecisionCard({
 												</span>
 											)}
 										</Button>
+									);
+									const button = shortcut ? (
+										<ShortcutTooltip
+											key={action.id}
+											label={label}
+											shortcut={shortcut.key}
+											keyshortcuts={shortcut.aria}
+										>
+											{control}
+										</ShortcutTooltip>
+									) : (
+										<Fragment key={action.id}>{control}</Fragment>
 									);
 									return action.intent === "delegate" && rail ? (
 										<DecisionContextSection

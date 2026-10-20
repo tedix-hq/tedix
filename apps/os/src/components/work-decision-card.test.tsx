@@ -307,6 +307,35 @@ it("does not let keyboard shortcuts activate a disabled action", async () => {
 	expect(decide).not.toHaveBeenCalled();
 });
 
+it("keeps shortcuts out of the button label and announces them through aria-keyshortcuts", async () => {
+	await mount({
+		kind: "decision",
+		actions: [
+			{ id: "yes", label: "Approve", intent: "approve" },
+			{ id: "no", label: "Not this", intent: "reject" },
+			{ id: "later", label: "Later", intent: "later" },
+			{ id: "delegate", label: "Decide for me", intent: "delegate" },
+		],
+	});
+	const buttons = [
+		...host.querySelectorAll<HTMLButtonElement>("[data-decision-intent]"),
+	];
+	expect(
+		buttons.map((button) => [
+			button.textContent,
+			button.getAttribute("aria-keyshortcuts"),
+		]),
+	).toEqual([
+		["Approve", "ArrowRight"],
+		["Not this", "ArrowLeft"],
+		["Later", "L"],
+		["Decide for me", "D"],
+	]);
+	// No reserved key chip inside the label: the width is the text's alone.
+	expect(host.querySelector("[data-decision-intent] kbd")).toBeNull();
+	expect(host.querySelector(".fd-action-key")).toBeNull();
+});
+
 it("renders real face copy and labels pending and failed generation explicitly", async () => {
 	await mount();
 	const presentation = {

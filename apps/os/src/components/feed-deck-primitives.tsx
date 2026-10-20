@@ -6,8 +6,19 @@ import type {
 	WorkActorReference,
 	WorkContributionSource,
 } from "@tedix/api-contract/schemas/os-work-actor";
-import { createContext, useContext, type ReactNode } from "react";
+import {
+	createContext,
+	useContext,
+	type ReactElement,
+	type ReactNode,
+} from "react";
 import { FileTextIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { Kbd } from "@/components/kumo/kbd";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import {
 	WorkActorAvatar,
 	WorkActorDirectoryContext,
@@ -72,6 +83,38 @@ export function FeedDeckDisclosure({
 				{children}
 			</CollapsibleContent>
 		</Collapsible>
+	);
+}
+
+/**
+ * A control whose keyboard shortcut lives in its tooltip, not in its label.
+ * The button keeps the width of its text, so hover and focus never shift the
+ * row; the tooltip opens on hover and keyboard focus and stays away from touch.
+ */
+export function ShortcutTooltip({
+	label,
+	shortcut,
+	keyshortcuts,
+	children,
+}: {
+	label: ReactNode;
+	/** The key as people see it on the keyboard, e.g. "→" or "L". */
+	shortcut: string;
+	/** The same key in the ARIA format, e.g. "ArrowRight". */
+	keyshortcuts?: string;
+	children: ReactElement<{ "aria-keyshortcuts"?: string }>;
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={children}
+				aria-keyshortcuts={keyshortcuts ?? shortcut}
+			/>
+			<TooltipContent className="fd-shortcut-tip">
+				<span>{label}</span>
+				<Kbd>{shortcut}</Kbd>
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 

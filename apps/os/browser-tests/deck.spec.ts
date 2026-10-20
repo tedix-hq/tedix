@@ -74,7 +74,7 @@ try {
 			await card.focus();
 			await page.keyboard.press("?");
 			await page
-				.getByRole("heading", { name: "Shortcuts", exact: true })
+				.getByRole("heading", { name: "Keyboard shortcuts", exact: true })
 				.waitFor();
 			await page.keyboard.press("Escape");
 			await page.getByRole("button", { name: "Why this", exact: true }).click();
