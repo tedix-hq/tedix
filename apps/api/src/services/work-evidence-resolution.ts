@@ -29,6 +29,7 @@ import {
 } from "./os-derived-resource-access";
 import type { BaseContext } from "../rpc/orpc";
 import { readVerifiedPrivateTextArtifact } from "./artifact-immutable-publication";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 const MAX_PREVIEW_BYTES = 50 * 1024;
 const MAX_OPAQUE_ENCODED_LENGTH = 1024;
@@ -84,14 +85,6 @@ export type EvidenceReference =
 			digest: null;
 			reason: string;
 	  };
-
-async function sha256(value: string): Promise<string> {
-	const bytes = new TextEncoder().encode(value);
-	const hash = await crypto.subtle.digest("SHA-256", bytes);
-	return Array.from(new Uint8Array(hash), (byte) =>
-		byte.toString(16).padStart(2, "0"),
-	).join("");
-}
 
 type ValidBundleManifest = {
 	entrypoint: string;
@@ -162,7 +155,7 @@ async function validateImmutableArtifactBody(artifact: {
 	)
 		return null;
 	files.sort((a, b) => a.path.localeCompare(b.path));
-	const digest = await sha256(
+	const digest = await sha256Hex(
 		JSON.stringify({ version: 1, entrypoint: metadata.entrypoint, files }),
 	);
 	return digest === artifact.contentDigest
@@ -441,7 +434,7 @@ async function resolveOutput(
 		)
 			return null;
 	}
-	const digest = await sha256(revision.content);
+	const digest = await sha256Hex(revision.content);
 	const envelope = parseDerivedAccessEnvelope(revision.accessEnvelope);
 	const available = Boolean(
 		envelope &&

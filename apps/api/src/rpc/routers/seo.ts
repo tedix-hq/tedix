@@ -20,8 +20,7 @@ import { implement, ORPCError } from "@orpc/server";
 import { seoContract } from "@tedix/api-contract/contracts/seo";
 import { fetchTenantConnectionToken } from "@tedix/auth/connections";
 import { DESCOPE_DEFAULT_BASE_URL } from "@tedix/auth/types";
-import type { DbClient } from "@tedix/db/client";
-import { getAppById, updateApp } from "@tedix/db/queries/app-records";
+import { updateApp } from "@tedix/db/queries/app-records";
 import { recordBillingProviderUsage } from "@tedix/db/queries/billing/provider-usage";
 import {
 	getBillingServiceCreditSnapshot,
@@ -46,6 +45,7 @@ import {
 	getSerpResults as fetchSerpResults,
 	type SeoResearchResult,
 } from "../../integrations/dataforseo/research";
+import { requireAppForOrg } from "../app-scope";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -64,20 +64,6 @@ const authedOs = seoOs.use(withAuth);
 
 const GSC_BASE = "https://searchconsole.googleapis.com";
 const WMT_BASE = "https://www.googleapis.com/webmasters/v3";
-
-async function requireAppForOrg(db: DbClient, orgId: string, appId: string) {
-	const app = await getAppById(db, appId);
-	if (!app) {
-		throw createError(ErrorCodes.NOT_FOUND, "App not found");
-	}
-	if (!app.organizationId || app.organizationId !== orgId) {
-		throw createError(
-			ErrorCodes.FORBIDDEN,
-			"You do not have access to this app",
-		);
-	}
-	return app;
-}
 
 function getAppMetadata(app: { metadata: unknown }): AppMetadata {
 	const raw = app.metadata;

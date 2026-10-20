@@ -13,6 +13,8 @@ import {
 import type { AppMetadata } from "@tedix/db/schema/apps";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { stableStringify } from "../lib/stable-json";
 
 type JsonObject = Record<string, unknown>;
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -135,28 +137,8 @@ function requireGoogleConnectionProviderId(value: string | undefined): string {
 	);
 }
 
-function stableStringify(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-	return `{${Object.keys(value as JsonObject)
-		.sort()
-		.map(
-			(key) =>
-				`${JSON.stringify(key)}:${stableStringify((value as JsonObject)[key])}`,
-		)
-		.join(",")}}`;
-}
-
 function jsonEqual(a: unknown, b: unknown): boolean {
 	return stableStringify(a ?? null) === stableStringify(b ?? null);
-}
-
-async function sha256(value: unknown): Promise<string> {
-	const encoded = new TextEncoder().encode(stableStringify(value));
-	const digest = await crypto.subtle.digest("SHA-256", encoded);
-	return [...new Uint8Array(digest)]
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
 }
 
 function readStoredSyncConfig(
@@ -516,13 +498,15 @@ export async function runGoogleDiscoveryToolImport(
 					destructiveHint: operation.httpMethod === "DELETE",
 				};
 				const schemaSourceRef = `${discoveryUrlFor(service)}#${operation.methodId}`;
-				const schemaSourceHash = await sha256({
-					method: operation.method,
-					inputSchema,
-					outputSchema,
-					config,
-					annotations,
-				});
+				const schemaSourceHash = await sha256Hex(
+					stableStringify({
+						method: operation.method,
+						inputSchema,
+						outputSchema,
+						config,
+						annotations,
+					}),
+				);
 				const existing = existingByToolId.get(toolId);
 				const matches =
 					existing?.schemaSource === "google-discovery" &&

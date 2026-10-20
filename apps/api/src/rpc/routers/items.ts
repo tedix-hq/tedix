@@ -11,7 +11,6 @@ import {
 	type ItemResponse,
 	itemsContract,
 } from "@tedix/api-contract/contracts/items";
-import type { DbClient } from "@tedix/db/client";
 import {
 	deleteItem,
 	deleteItemsByApp,
@@ -21,8 +20,8 @@ import {
 	searchItems,
 	upsertItems,
 } from "@tedix/db/queries/items";
-import { getAppById } from "@tedix/db/queries/app-records";
 import type { NewItem } from "@tedix/db/schema/items";
+import { requireAppForOrg } from "../app-scope";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -44,24 +43,6 @@ const itemsOs = implement(itemsContract).$context<BaseContext>();
  * This ensures all items endpoints require authentication
  */
 const authedItemsOs = itemsOs.use(withAuth);
-
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-async function requireAppForOrg(db: DbClient, orgId: string, appId: string) {
-	const app = await getAppById(db, appId);
-	if (!app) {
-		throw createError(ErrorCodes.NOT_FOUND, "App not found");
-	}
-	if (!app.organizationId || app.organizationId !== orgId) {
-		throw createError(
-			ErrorCodes.FORBIDDEN,
-			"You do not have access to this app",
-		);
-	}
-	return app;
-}
 
 // =============================================================================
 // MIDDLEWARE

@@ -25,6 +25,8 @@ import type { AppMetadata } from "@tedix/db/schema/apps";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { parse as parseYaml } from "yaml";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { stableStringify } from "../lib/stable-json";
 
 type JsonObject = Record<string, unknown>;
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -69,16 +71,6 @@ const OPENAPI_CONFIG_OVERLAY_KEYS = ["layoutId", "layoutSpec"] as const;
 const DEFAULT_TABLE_COLUMN_LIMIT = 7;
 const MAX_OPENAPI_SPEC_BYTES = 5 * 1024 * 1024;
 type OpenApiWidgetDefaults = NonNullable<OpenApiImportInput["widgetDefaults"]>;
-
-function stableStringify(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-	const obj = value as JsonObject;
-	return `{${Object.keys(obj)
-		.sort()
-		.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
-		.join(",")}}`;
-}
 
 function jsonEqual(a: unknown, b: unknown): boolean {
 	return stableStringify(a ?? null) === stableStringify(b ?? null);
@@ -359,14 +351,6 @@ function writeCapabilityForMethod(
 	if (normalizedMethod === "GET") return "read";
 	if (normalizedMethod === "DELETE") return "destructive";
 	return "write";
-}
-
-async function sha256(value: unknown): Promise<string> {
-	const bytes = new TextEncoder().encode(stableStringify(value));
-	const digest = await crypto.subtle.digest("SHA-256", bytes);
-	return [...new Uint8Array(digest)]
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
 }
 
 function resolveRef(spec: JsonObject, ref: string): unknown {
@@ -1716,17 +1700,19 @@ export async function executeOpenApiToolImport(
 			const annotations = annotationsForMethod(entry.method);
 			const writeCapability = writeCapabilityForMethod(entry.method);
 			const schemaSourceRef = `${resolved.specUrl ?? "inline"}#${entry.method} ${entry.path}`;
-			const schemaSourceHash = await sha256({
-				operation: entry.operation,
-				inputSchema,
-				outputSchema,
-				config: sourceConfig,
-				annotations,
-				writeCapability,
-				authRequired,
-				visibility: authRequired ? "private" : "public",
-				fileParams,
-			});
+			const schemaSourceHash = await sha256Hex(
+				stableStringify({
+					operation: entry.operation,
+					inputSchema,
+					outputSchema,
+					config: sourceConfig,
+					annotations,
+					writeCapability,
+					authRequired,
+					visibility: authRequired ? "private" : "public",
+					fileParams,
+				}),
+			);
 			const storedFieldsMatch = existing
 				? jsonEqual(existing.inputSchema, inputSchema) &&
 					jsonEqual(existing.outputSchema, outputSchema) &&

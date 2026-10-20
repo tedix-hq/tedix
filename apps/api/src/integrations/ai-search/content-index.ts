@@ -6,6 +6,7 @@ import {
 	updateContentSourceDocumentProjection,
 	upsertContentSourceDocument,
 } from "@tedix/db/queries/content-sources";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 const CONTENT_METADATA_FIELDS = [
 	{ field_name: "canonicalUrl", data_type: "text" as const },
@@ -54,15 +55,6 @@ export function contentSearchInstanceId(appId: string): string {
 		throw new Error(`App ID cannot form an AI Search instance ID: ${appId}`);
 	}
 	return instanceId;
-}
-
-async function sha256(value: string | ArrayBuffer): Promise<string> {
-	const bytes =
-		typeof value === "string" ? new TextEncoder().encode(value) : value;
-	const digest = await crypto.subtle.digest("SHA-256", bytes);
-	return Array.from(new Uint8Array(digest), (byte) =>
-		byte.toString(16).padStart(2, "0"),
-	).join("");
 }
 
 const OCR_INDEXING_OPTIONS = { use_ocr: true } as NonNullable<
@@ -231,8 +223,8 @@ export async function indexContentDocument(
 		extension = ".md";
 	}
 	const [urlDigest, digest] = await Promise.all([
-		sha256(canonicalUrl),
-		sha256(digestInput),
+		sha256Hex(canonicalUrl),
+		sha256Hex(digestInput),
 	]);
 	const sourceRevision = input.sourceRevision ?? `sha256:${digest}`;
 	const objectKey = `${input.appSlug}/documents/${urlDigest.slice(0, 32)}${extension}`;

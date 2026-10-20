@@ -9,6 +9,7 @@ import {
 	type EvictedKernelToolResult,
 } from "@tedix/db/queries/kernel-tool-results";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 export const KERNEL_TOOL_RESULT_PREFIX = "home-tool-results/";
 export const KERNEL_TOOL_RESULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -21,18 +22,6 @@ export interface KernelToolResultReference {
 	sha256: string;
 	byteSize: number;
 	expiresAt: string;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-		"",
-	);
-}
-
-async function sha256(bytes: Uint8Array): Promise<string> {
-	return bytesToHex(
-		new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-	);
 }
 
 function serialize(value: unknown): Uint8Array | null {
@@ -97,7 +86,7 @@ async function retainKernelToolResultCore(input: {
 	).toISOString();
 	const id = crypto.randomUUID();
 	const objectKey = `${KERNEL_TOOL_RESULT_PREFIX}${input.organizationId}/${input.conversationId}/${crypto.randomUUID()}`;
-	const digest = await sha256(bytes);
+	const digest = await sha256Hex(bytes);
 	try {
 		const existing = input.freshSource
 			? undefined
@@ -232,7 +221,10 @@ export async function readKernelToolResult(input: {
 	const object = await input.bucket.get(row.objectKey);
 	if (!object) throw new Error("Retained tool result bytes are unavailable");
 	const bytes = new Uint8Array(await object.arrayBuffer());
-	if (bytes.byteLength !== row.byteSize || (await sha256(bytes)) !== row.sha256)
+	if (
+		bytes.byteLength !== row.byteSize ||
+		(await sha256Hex(bytes)) !== row.sha256
+	)
 		throw new Error("Retained tool result integrity check failed");
 	return {
 		text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
