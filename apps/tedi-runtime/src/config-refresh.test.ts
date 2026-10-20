@@ -264,7 +264,7 @@ for (const via of ["api", "storage", "storage-failure"] as const) {
 	});
 	const agent = tediDo({
 		runtimeConfigCache: cache,
-		state: { tediId: "tedi-1" },
+		state: { tediId: "tedi-1", orgId: "org-acme" },
 		env:
 			via === "api"
 				? {
