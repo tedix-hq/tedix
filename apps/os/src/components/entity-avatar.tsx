@@ -51,6 +51,9 @@ export function EntityAvatar({
 			className={cn(
 				"entity-avatar items-center justify-center overflow-hidden ring-0",
 				kind === "workspace" && "rounded-lg",
+				// A light tile on a light row needs the standard avatar outline to
+				// read as a circle at all.
+				imageFit === "contain" && "ring ring-kumo-line",
 				className,
 			)}
 			style={entityAvatarColors(id)}
