@@ -160,6 +160,59 @@
 	line-height: 1.5;
 	overflow-wrap: anywhere;
 }
+/* Only the summary line loads; the ask, age and Details are real from the first paint. */
+.focus-face-skeleton {
+	display: grid;
+	gap: 0.375rem;
+	padding-top: 0.125rem;
+}
+.focus-face-skeleton [data-slot="skeleton"] {
+	height: 0.75rem;
+	border-radius: 0.375rem;
+}
+.focus-face-writing,
+.focus-face-note {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.8125rem;
+	line-height: 1.5;
+	color: var(--muted-foreground);
+}
+.focus-face-writing [data-slot="loader"] {
+	flex: none;
+}
+.focus-face-fallback {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+	color: var(--muted-foreground);
+}
+.focus-face-note .focus-face-retry {
+	position: relative;
+	z-index: 1;
+	min-height: 2.75rem;
+	padding-inline: 0.5rem;
+	color: var(--muted-foreground);
+	font-size: inherit;
+}
+.focus-face-note .focus-face-retry:hover:not(:disabled) {
+	color: var(--foreground);
+}
+.focus-today-refreshing {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	font-size: 0.8125rem;
+	line-height: 1.5;
+	color: var(--muted-foreground);
+}
+.focus-today-skeleton {
+	display: grid;
+	gap: 0.625rem;
+}
 .focus-feed .fd-story-body > * {
 	grid-column: 1 / -1;
 }

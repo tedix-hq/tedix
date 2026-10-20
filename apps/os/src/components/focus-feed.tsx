@@ -1,4 +1,8 @@
-import { OS_COPY } from "@/shared/os-copy";
+import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
+import { OS_COPY, decisionText } from "@/shared/os-copy";
+import { FACE_WAIT_MS } from "@/components/deck-presentation-context";
+import { Loader } from "./kumo/loader";
+import { Skeleton } from "./kumo/skeleton";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadNotice } from "@/components/work-read-region";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -957,7 +961,10 @@ function FocusRow({
 	);
 }
 
-function FocusDecisionRow({
+/** A summary older than this with no checked story is not "being written": show the original request now. */
+const FEED_FACE_FRESH_MS = 3 * 60_000;
+
+export function FocusDecisionRow({
 	item,
 	actor,
 	project,
@@ -969,6 +976,9 @@ function FocusDecisionRow({
 	const decisionCardId = ["decision", "approval"].includes(item.kind)
 		? item.id.replace(/^decision:/, "")
 		: undefined;
+	const fresh = Date.now() - Date.parse(item.at) < FEED_FACE_FRESH_MS;
+	const [slow, setSlow] = useState(false);
+	const [retries, setRetries] = useState(0);
 	const face = useQuery({
 		...osQuery.attention.getDeckCard.queryOptions({
 			input: { cardId: item.id.replace(/^decision:/, ""), limit: 100 },
@@ -976,17 +986,36 @@ function FocusDecisionRow({
 		enabled: item.needsAction && !!decisionCardId && !item.presentation,
 		staleTime: 60000,
 		retry: false,
+		// A writer is still working on a fresh request; pick up its story without a reload.
+		refetchInterval: (query) =>
+			!item.presentation && !query.state.data?.presentation && fresh && !slow
+				? 10_000
+				: false,
 	});
-	const presentation = item.presentation ?? face.data?.presentation;
+	const presentation = item.presentation ?? face.data?.presentation ?? null;
+	const unavailable =
+		face.isError ||
+		item.faceText === copySpec.unavailableFace ||
+		face.data?.faceText === copySpec.unavailableFace;
+	// Only the summary line loads; the title is the real ask from the first paint.
+	const waiting =
+		!!decisionCardId && !presentation && !unavailable && fresh && !slow;
+	useEffect(() => {
+		if (!waiting) return;
+		const timer = setTimeout(() => setSlow(true), FACE_WAIT_MS);
+		return () => clearTimeout(timer);
+	}, [waiting, retries]);
 	const faceText =
 		item.faceText ??
 		face.data?.faceText ??
 		decisionCardFaceText(presentation, face.data?.decision?.confidence ?? null);
+	const title = presentation?.title ?? item.sentence;
+	const original =
+		item.explanation && item.explanation !== item.sentence
+			? item.explanation
+			: null;
 	return (
-		<article
-			aria-label={presentation?.title ?? "Review this request"}
-			className="focus-decision-row"
-		>
+		<article aria-label={title} className="focus-decision-row">
 			<Link
 				variant="record"
 				className="focus-story"
@@ -996,14 +1025,52 @@ function FocusDecisionRow({
 						: item.source
 				}
 			>
-				{presentation?.title ??
-					(decisionCardId ? "Preparing a shorter summary…" : item.sentence)}
+				{title}
 			</Link>
-			{presentation && (
-				<p className="whitespace-pre-line">
+			{presentation ? (
+				<p className="fd-face-enter whitespace-pre-line">
 					{faceText.split("\n").slice(1).join("\n")}
 				</p>
-			)}
+			) : waiting ? (
+				<div
+					role="status"
+					aria-busy="true"
+					className="focus-face-skeleton"
+					data-face-pending
+				>
+					<Skeleton aria-hidden="true" className="w-3/4" />
+					<span className="focus-face-writing">
+						<Loader aria-hidden="true" size="sm" />
+						{decisionText("Writing a short summary…")}
+					</span>
+				</div>
+			) : decisionCardId ? (
+				<div className="fd-face-enter grid gap-1">
+					{original && <p className="focus-face-fallback">{original}</p>}
+					<div role="status" className="focus-face-note" data-face-fallback>
+						<span>
+							{decisionText(
+								"Summary unavailable — showing the original request",
+							)}
+						</span>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="focus-face-retry"
+							disabled={face.isFetching}
+							onClick={() => {
+								setSlow(false);
+								setRetries((count) => count + 1);
+								void face.refetch();
+							}}
+						>
+							{face.isFetching
+								? decisionText("Retrying…")
+								: decisionText("Retry")}
+						</Button>
+					</div>
+				</div>
+			) : null}
 			<p className="focus-meta">
 				<time dateTime={item.at} title={absoluteTime(item.at)}>
 					{relativeTime(item.at)}
