@@ -131,7 +131,7 @@ export function visibilityLabel(visibility: AppListItem["visibility"]): string {
 }
 
 export const BADGE_LABELS: Record<EligibilityBadge, string> = {
-	ready: "ready to use",
+	ready: "requirements met",
 	setup_needed: "setup needed",
 	plan_upgrade: "plan upgrade",
 };

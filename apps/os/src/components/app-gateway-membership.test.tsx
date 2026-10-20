@@ -27,7 +27,7 @@ beforeEach(() => {
 	mocks.read.mockReset().mockResolvedValue(initial);
 	mocks.write.mockReset();
 });
-async function mount(canManage = true) {
+async function mount(canManage = true, appId = "app") {
 	const node = document.createElement("div");
 	document.body.appendChild(node);
 	const root = createRoot(node);
@@ -38,13 +38,13 @@ async function mount(canManage = true) {
 		},
 	});
 	client.setQueryData(
-		appGatewayMembershipQueryOptions("app").queryKey,
+		appGatewayMembershipQueryOptions(appId).queryKey,
 		initial,
 	);
 	await act(async () =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<AppGatewayMembership appId="app" canManage={canManage} />
+				<AppGatewayMembership appId={appId} canManage={canManage} />
 			</QueryClientProvider>,
 		),
 	);
@@ -58,6 +58,20 @@ async function mount(canManage = true) {
 	};
 }
 describe("gateway membership control", () => {
+	it("explains gateway self-membership without offering a membership change", async () => {
+		const view = await mount(true, "gateway");
+		try {
+			expect(view.node.textContent).toContain(
+				"This app is the unified gateway",
+			);
+			expect(view.node.textContent).toContain("Self-membership does not apply");
+			expect(view.node.textContent).not.toContain("Not included");
+			expect(view.node.querySelector('[role="switch"]')).toBeNull();
+			expect(mocks.write).not.toHaveBeenCalled();
+		} finally {
+			await view.close();
+		}
+	});
 	it("is read-only without app management permission", async () => {
 		const view = await mount(false);
 		try {
