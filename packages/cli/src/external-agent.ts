@@ -332,6 +332,12 @@ function resolveExplicitAgentSession(
 	explicit?: string,
 ): NonNullable<ReturnType<typeof resolveAgentSession>> & { derived: false } {
 	const detected = resolveAgentSession(explicit);
+	if (detected?.ambiguousNative?.length) {
+		throw new Error(
+			`Ambiguous native Agent-Session: ${detected.ambiguousNative.join(", ")}. Set TEDIX_AGENT_SESSION=<harness>:<id> or use --session to select the current session.`,
+		);
+	}
+
 	if (!detected || detected.derived) {
 		throw new Error(
 			"External-agent credit requires an explicit Agent-Session. Set TEDIX_AGENT_SESSION (or a native Codex/Claude/Cursor session id) before `tedix agent start`.",

@@ -85,6 +85,34 @@ function exchangeResponse(): Response {
 }
 
 describe("external-agent CLI session", () => {
+	test("agent finish refuses ambiguous native sessions before writing", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		writeExternalAgentProfile("connect", {
+			organizationId: ORG,
+			principalId: PRINCIPAL,
+			key: "codex-test",
+			displayName: "Test Codex",
+			apiKeyId: "22222222-2222-4222-8222-222222222222",
+			rawApiKey: "sk_external_test",
+			scopes: ["mcp:work.write"],
+			mcpUrl: "https://example.test/mcp",
+			createdAt: "2026-07-22T00:00:00.000Z",
+			sessions: {},
+		});
+		delete process.env.TEDIX_AGENT_SESSION;
+		delete process.env.CODEX_SESSION_ID;
+		delete process.env.CURSOR_TRACE_ID;
+		process.env.CLAUDE_CODE_SESSION_ID = "parent-claude";
+		process.env.CODEX_THREAD_ID = "child-codex";
+		await expect(
+			finishExternalAgentSession({ workspace: "connect" }),
+		).rejects.toThrow(
+			"Ambiguous native Agent-Session: claude-code:parent-claude, codex:child-codex. Set TEDIX_AGENT_SESSION=<harness>:<id> or use --session to select the current session.",
+		);
+	});
+
 	test("binding mismatch gives safe recovery without retrying or changing the local session", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
