@@ -5,6 +5,9 @@ import { baseErrors } from "../errors";
 import {
 	DeckCurationScopeSchema,
 	CurateDeckCardInputSchema,
+	DeckRetirementResultSchema,
+	MergeDeckCardsInputSchema,
+	RetireDeckCardInputSchema,
 } from "../schemas/deck-curation";
 import { CardRevisionSchema } from "../schemas/card-revisions";
 import { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
@@ -93,6 +96,27 @@ export const attentionContract = oc
 			})
 			.input(CurateDeckCardInputSchema)
 			.output(CardRevisionSchema),
+		retireDeckCard: oc
+			.route({
+				summary: "Retire a Deck card without answering it",
+				description:
+					"Takes a card off the recipient's Deck as expired, handled elsewhere, superseded, no longer relevant or a duplicate, with immutable undo history. Never answers, approves or executes the card. The recipient may retire any card; agents may retire non-critical cards they own or curate, and their own duplicates of a card that keeps the same protected ask.",
+			})
+			.input(RetireDeckCardInputSchema)
+			.output(DeckRetirementResultSchema),
+		mergeDeckCards: oc
+			.route({
+				summary: "Merge duplicate Deck cards into one",
+				description:
+					"Keeps one live card and retires each duplicate of the same Work Item or ask as a linked duplicate, with undo history. A protected duplicate merges only into a card that is protected too.",
+			})
+			.input(MergeDeckCardsInputSchema)
+			.output(
+				z.strictObject({
+					keptId: z.uuid(),
+					retired: z.array(DeckRetirementResultSchema),
+				}),
+			),
 		rankCurationInbox: oc
 			.route({
 				summary:

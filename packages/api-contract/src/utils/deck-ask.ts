@@ -22,7 +22,10 @@ type AskSource = {
 	kind: string;
 	decision?: DecisionEnvelope | null;
 	factory?: { draft?: string | null } | null;
-	request?: { metadata?: Record<string, unknown> | null } | null;
+	request?: {
+		metadata?: Record<string, unknown> | null;
+		expiresAt?: string | null;
+	} | null;
 };
 
 /** Derived from typed card data: card kind, decision effects and factory draft text. */
@@ -84,22 +87,56 @@ export function draftedNotSent(
 	);
 }
 
+/** The ask's own expiry passed: the event is over, so the card is expired, not overdue. */
+export function deckCardExpired(
+	card: {
+		decision?: { expiresAt?: string } | null;
+		runtimeApproval?: { expiresAt?: string | null } | null;
+		request?: { expiresAt?: string | null } | null;
+	},
+	now: Date,
+): boolean {
+	return [
+		card.decision?.expiresAt,
+		card.runtimeApproval?.expiresAt,
+		card.request?.expiresAt,
+	].some((value) => {
+		const at = Date.parse(value ?? "");
+		return Number.isFinite(at) && at <= now.getTime();
+	});
+}
+
+/** The card's Work Item finished or was cancelled, so the ask was handled. */
+export function deckCardHandled(card: {
+	workItem?: { disposition?: string | null } | null;
+}): boolean {
+	const disposition = card.workItem?.disposition;
+	return disposition === "completed" || disposition === "cancelled";
+}
+
 /** One derivation for every Deck surface: API projection, OS rows and MCP view. */
 export function deckAsk(
 	card: AskSource & {
 		dueAt?: string | null;
 		requestedAt?: string | null;
 		runtimeApproval?: { expiresAt?: string | null } | null;
+		workItem?: { disposition?: string | null } | null;
 	},
 	now: Date,
 	options: { timeZone?: string; staleDraftHours?: number } = {},
 ) {
 	const askKind = deckAskKind(card);
 	const deadline = deckCardDeadline(card);
+	const handled = deckCardHandled(card);
+	const expired = !handled && deckCardExpired(card, now);
 	return {
 		askKind,
 		deadline,
-		overdue: deadlineOverdue(deadline, now, options.timeZone),
+		// Overdue only while the ask can still be acted on.
+		overdue:
+			!handled && !expired && deadlineOverdue(deadline, now, options.timeZone),
+		...(handled ? { handled } : {}),
+		...(expired ? { expired } : {}),
 		draftedNotSent: draftedNotSent(
 			{ askKind, requestedAt: card.requestedAt },
 			now,

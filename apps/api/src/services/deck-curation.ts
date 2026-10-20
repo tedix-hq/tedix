@@ -37,7 +37,8 @@ import { runDecisionCardCopyModel } from "./decision-card-copy-model";
 
 type Scope = z.infer<typeof DeckCurationScopeSchema>;
 type Request = NonNullable<Awaited<ReturnType<typeof getWorkInteraction>>>;
-function critical(request: Request) {
+/** Cards whose protected effect or policy keeps them with the human owner. */
+export function criticalDeckRequest(request: Request) {
 	const m = request.metadata;
 	const d = DecisionEnvelopeSchema.safeParse(m.decisionDeck);
 	return (
@@ -98,11 +99,40 @@ async function append(
 	state: z.infer<typeof DeckCurationStateSchema>,
 ) {
 	const { orgId, actor } = await deckCurationAccess(context, scope);
+	return appendCuration(context, {
+		orgId,
+		actor,
+		request,
+		expectedRevision,
+		body,
+		state,
+		skipRevisedSince: scope.skipRevisedSince,
+	});
+}
+
+/** Appends one immutable revision carrying the curation state; cancelling never answers the card. */
+export async function appendCuration(
+	context: BaseContext,
+	{
+		orgId,
+		actor,
+		request,
+		expectedRevision,
+		body,
+		state,
+		skipRevisedSince,
+	}: {
+		orgId: string;
+		actor: { type: string; id: string; sessionId?: string };
+		request: Request;
+		expectedRevision: number;
+		body: string;
+		state: z.infer<typeof DeckCurationStateSchema>;
+		skipRevisedSince?: string;
+	},
+) {
 	let history = await listCardRevisions(context.db, orgId, request.id);
-	if (
-		scope.skipRevisedSince &&
-		history.some((r) => r.createdAt >= scope.skipRevisedSince!)
-	)
+	if (skipRevisedSince && history.some((r) => r.createdAt >= skipRevisedSince))
 		throw createError(
 			ErrorCodes.CONFLICT,
 			"Card was recently revised; skip it",
@@ -213,7 +243,7 @@ export async function curateDeckCard(
 			orgId,
 			interactionId: input.successorId,
 		});
-		if (critical(request))
+		if (criticalDeckRequest(request))
 			throw createError(
 				ErrorCodes.FORBIDDEN,
 				"Critical policy cards cannot be superseded by curation",
@@ -277,7 +307,7 @@ export async function rankCurationInbox(context: BaseContext, scope: Scope) {
 				reason,
 				exampleIds: [],
 			});
-		if (critical(request)) {
+		if (criticalDeckRequest(request)) {
 			retained("critical");
 			continue;
 		}

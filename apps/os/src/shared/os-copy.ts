@@ -247,6 +247,8 @@ const ENGLISH_COPY = {
 		} as Record<string, string>,
 		ask: {
 			overdue: "Overdue",
+			handled: "Handled",
+			expired: "Expired",
 			due: (when: string) => `Due ${when}`,
 			draftedNotSent: "Drafted, not sent",
 			staleDrafts: (count: number) => `${count} drafted, not sent`,

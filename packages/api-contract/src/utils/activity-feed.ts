@@ -34,6 +34,10 @@ import type {
 	WorkAttemptProjectionSchema,
 } from "../schemas/work-items";
 import type { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
+import {
+	DeckCurationStateSchema,
+	type DeckRetirementReason,
+} from "../schemas/deck-curation";
 import type { WorkApprovalInboxRowSchema } from "../schemas/work-approvals";
 import type { LearningInteractionEvent } from "../schemas/learning-feedback";
 import type { OsUserPreferences } from "../schemas/user-settings";
@@ -350,6 +354,51 @@ export function decisionFeedItems(
 				decision: decision ?? undefined,
 			};
 		});
+}
+
+const RETIREMENT_LABELS: Record<DeckRetirementReason, string> = {
+	expired: "Expired",
+	handled_elsewhere: "Handled elsewhere",
+	superseded: "Superseded",
+	no_longer_relevant: "No longer relevant",
+	duplicate: "Duplicate",
+};
+
+/** Deck cards retired without an answer in the last day, shown as handled updates. */
+export function retiredDeckFeedItems(
+	rows: z.infer<typeof WorkInteractionInboxRowSchema>[],
+	now = new Date(),
+): ActivityFeedItem[] {
+	const since = now.getTime() - 24 * 3_600_000;
+	return rows.flatMap(({ request: r, effectiveState, workItem }) => {
+		const curation = DeckCurationStateSchema.safeParse(r.metadata?.curation);
+		const at = r.resolvedAt ?? r.requestedAt;
+		if (
+			effectiveState !== "cancelled" ||
+			!curation.success ||
+			!curation.data.retirement ||
+			!(Date.parse(at) >= since)
+		)
+			return [];
+		const label = RETIREMENT_LABELS[curation.data.retirement.reason];
+		const evidence = curation.data.evidenceRefs.find(safeSource);
+		return [
+			{
+				...base(
+					`retired:${r.id}`,
+					at,
+					r.projectId ?? workItem?.projectId ?? null,
+					curation.data.retirement.workItemId ?? r.workItemId,
+				),
+				kind: "result" as const,
+				classId: "deck_retired",
+				sentence: sentence(`Retired (${label.toLowerCase()}): ${r.subject}`),
+				source: evidence ?? `/work/interactions/${r.id}`,
+				done: true,
+				explanation: `${label}. ${curation.data.reason}`,
+			},
+		];
+	});
 }
 
 export function approvalFeedItems(

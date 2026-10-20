@@ -115,6 +115,8 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"attention/rankDeckCards": "mcp:messaging.write",
 	"attention/curationInbox": "mcp:messaging.read",
 	"attention/curateDeckCard": "mcp:messaging.write",
+	"attention/retireDeckCard": "mcp:messaging.write",
+	"attention/mergeDeckCards": "mcp:messaging.write",
 	"attention/rankCurationInbox": "mcp:messaging.write",
 	"workInteractions/create": "mcp:messaging.write",
 	"workInteractions/refreshDecisionSources": "mcp:messaging.write",

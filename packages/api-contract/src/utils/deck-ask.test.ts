@@ -12,6 +12,7 @@ import {
 import { compareDecisionFreshness, projectDeckCards } from "./deck-projection";
 import { orderCuratedDeck } from "./deck-curator";
 import { attentionMarkdown, deckDisplayCard } from "./attention-app-view";
+import { retiredDeckFeedItems } from "./activity-feed";
 
 type Row = z.infer<typeof WorkInteractionInboxRowSchema>;
 const now = new Date("2026-10-20T12:00:00.000Z");
@@ -212,6 +213,71 @@ describe("projection and ranking", () => {
 		expect(cards.find((card) => card.id === "later")?.overdue).toBe(false);
 	});
 
+	it("shows handled and expired asks as such, never overdue, and ranks them last", () => {
+		const handled = row("handled", {}, "2026-10-18T09:00:00.000Z");
+		handled.workItem = {
+			id: "11111111-1111-4111-8111-111111111111",
+			title: "Fictional filing",
+			projectId: null,
+			disposition: "completed",
+		};
+		const expired = row(
+			"expired",
+			{
+				decisionDeck: envelope("decision", {
+					expiresAt: "2026-10-19T08:00:00.000Z",
+				}),
+			},
+			"2026-10-18T09:00:00.000Z",
+		);
+		const late = row("late", {}, "2026-10-19T09:00:00.000Z");
+		const cards = projectDeckCards({
+			requests: [handled, expired, late],
+			destination: "all",
+			work: [],
+			runtime: [],
+			now,
+			timeZone: "Europe/Berlin",
+		});
+		expect(cards.map((card) => card.id)).toEqual([
+			"late",
+			"handled",
+			"expired",
+		]);
+		expect(cards[0]).toMatchObject({ overdue: true });
+		expect(cards[1]).toMatchObject({ overdue: false, handled: true });
+		expect(cards[2]).toMatchObject({ overdue: false, expired: true });
+		const text = attentionMarkdown(
+			cards.map((card, index) => deckDisplayCard(card, index)),
+			true,
+		);
+		expect(text).toContain("Handled");
+		expect(text).toContain("Expired");
+		expect(text.match(/Overdue/g)).toHaveLength(1);
+	});
+
+	it("keeps a credential ask on the Deck when generated copy marks its effect unknown", () => {
+		const ask = row("credential", {
+			cardPresentation: {
+				version: 2,
+				title: "Connect the coding agent?",
+				body: "Unknown",
+				recommendation: "Unknown",
+				effectStatus: "unknown",
+			},
+		});
+		ask.request.subject = "Add the GitHub token for the coding agent";
+		ask.request.prompt =
+			"Paste a GitHub personal access token in connection settings.";
+		const cards = projectDeckCards({
+			requests: [ask],
+			work: [],
+			runtime: [],
+			now,
+		});
+		expect(cards.map((card) => card.id)).toEqual(["credential"]);
+	});
+
 	it("uses the decision deadline when the request has none", () => {
 		expect(
 			compareDecisionFreshness(
@@ -262,5 +328,46 @@ describe("projection and ranking", () => {
 		expect(markdown).toContain(
 			"[Send · Overdue · Drafted, not sent · due 2026-10-19 09:00]",
 		);
+	});
+});
+
+describe("retired cards", () => {
+	it("show in the Feed as handled updates for a day, linking the evidence", () => {
+		const retired = (id: string, resolvedAt: string) => {
+			const r = row(id, {
+				curation: {
+					schema: "tedix.deck-curation.v1",
+					revision: 2,
+					draftBody: null,
+					status: "cancelled",
+					successorId: null,
+					penalty: 0,
+					reason: "Booth tasks were done on site",
+					evidenceRefs: ["https://example.test/work/items/booth"],
+					model: null,
+					exampleIds: [],
+					retirement: { reason: "handled_elsewhere", workItemId: null },
+				},
+			});
+			r.effectiveState = "cancelled";
+			r.request.resolvedAt = resolvedAt;
+			return r;
+		};
+		const items = retiredDeckFeedItems(
+			[
+				retired("today", "2026-10-20T10:00:00.000Z"),
+				retired("old", "2026-10-18T10:00:00.000Z"),
+				row("open", {}),
+			],
+			now,
+		);
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({
+			id: "retired:today",
+			done: true,
+			needsAction: false,
+			source: "https://example.test/work/items/booth",
+			sentence: "Retired (handled elsewhere): Fictional card today?",
+		});
 	});
 });

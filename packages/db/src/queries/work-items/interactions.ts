@@ -1054,6 +1054,9 @@ export async function listWorkInteractionInbox(
 				projectId: sql`${workItems.projectId}`
 					.mapWith(workItems.projectId)
 					.as("work_interaction_item_project_id"),
+				disposition: sql`${workItems.disposition}`
+					.mapWith(workItems.disposition)
+					.as("work_interaction_item_disposition"),
 			},
 			responseCount:
 				sql<number>`(SELECT COUNT(*) FROM work_interaction_responses response_count WHERE response_count.org_id=${workInteractions.orgId} AND response_count.interaction_id=${workInteractions.id})`.as(

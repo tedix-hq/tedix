@@ -21,6 +21,20 @@ export const DeckCurationScopeSchema = z.strictObject({
 	gadgetId: z.uuid(),
 	skipRevisedSince: z.iso.datetime().optional(),
 });
+/** Why a card left the Deck without being answered. */
+export const DeckRetirementReasonSchema = z.enum([
+	"expired",
+	"handled_elsewhere",
+	"superseded",
+	"no_longer_relevant",
+	"duplicate",
+]);
+export type DeckRetirementReason = z.infer<typeof DeckRetirementReasonSchema>;
+export const DeckRetirementSchema = z.strictObject({
+	reason: DeckRetirementReasonSchema,
+	/** The Work Item that handles or supersedes the ask, when one exists. */
+	workItemId: z.uuid().nullable(),
+});
 export const DeckCurationStateSchema = z.strictObject({
 	schema: z.literal("tedix.deck-curation.v1"),
 	revision: z.number().int().positive().nullable().default(null),
@@ -44,6 +58,7 @@ export const DeckCurationStateSchema = z.strictObject({
 	evidenceRefs: z.array(z.string().min(1).max(2000)).max(20),
 	model: z.string().nullable(),
 	exampleIds: z.array(z.string()).max(8),
+	retirement: DeckRetirementSchema.optional(),
 });
 export type DeckCurationState = z.infer<typeof DeckCurationStateSchema>;
 export const CurateDeckCardInputSchema = DeckCurationScopeSchema.extend({
@@ -55,4 +70,36 @@ export const CurateDeckCardInputSchema = DeckCurationScopeSchema.extend({
 	handleInternally: z.boolean().optional(),
 	reason: CardTextSchema.max(4000),
 	evidenceRefs: z.array(z.string().min(1).max(2000)).min(1).max(20),
+});
+
+const EvidenceRefsSchema = z.array(z.string().min(1).max(2000)).max(20);
+/** Retire a card without answering it; the recipient can undo by restoring the prior revision. */
+export const RetireDeckCardInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	expectedRequestVersion: z.number().int().positive().optional(),
+	reason: DeckRetirementReasonSchema,
+	/** Required for "duplicate"; the live card that keeps the ask. */
+	successorId: z.uuid().optional(),
+	/** The Work Item that handled or superseded the ask. */
+	workItemId: z.uuid().optional(),
+	note: CardTextSchema.max(4000),
+	evidenceRefs: EvidenceRefsSchema.default([]),
+});
+export const MergeDeckCardsInputSchema = z.strictObject({
+	keepId: z.uuid(),
+	duplicateIds: z.array(z.uuid()).min(1).max(20),
+	note: CardTextSchema.max(4000),
+	evidenceRefs: EvidenceRefsSchema.default([]),
+});
+export const DeckRetirementResultSchema = z.strictObject({
+	requestId: z.uuid(),
+	reason: DeckRetirementReasonSchema,
+	revision: z.number().int().positive(),
+	/** Restore this revision with revise_decision_card to undo the retirement. */
+	undo: z.strictObject({
+		requestId: z.uuid(),
+		expectedRequestVersion: z.number().int().positive(),
+		expectedRevision: z.number().int().positive(),
+		restoreRevision: z.number().int().positive(),
+	}),
 });

@@ -324,6 +324,7 @@ function DecisionDeckContent({
 							kind: cardKind,
 							decision,
 							request: row.request,
+							workItem: row.workItem,
 							dueAt: row.request.dueAt,
 							requestedAt: row.request.requestedAt,
 						}),
