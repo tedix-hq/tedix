@@ -81,6 +81,7 @@ const row = ActivityFeedItemSchema.parse({
 	explanation: "The attempt settled with its receipt.",
 	reactions: ["more", "why", "mute", "comment", "work"],
 });
+let sourceState: FeedSourceState | undefined;
 vi.mock("./activity-feed-sources", () => ({
 	ActivityFeedSources: ({
 		onUpdate,
@@ -91,18 +92,22 @@ vi.mock("./activity-feed-sources", () => ({
 	}) => {
 		useEffect(
 			() =>
-				onUpdate(id, {
-					items: [row],
-					loading: false,
-					failed: false,
-					more: false,
-				}),
+				onUpdate(
+					id,
+					sourceState ?? {
+						items: [row],
+						loading: false,
+						failed: false,
+						more: false,
+					},
+				),
 			[id, onUpdate],
 		);
 		return null;
 	},
 }));
 afterEach(() => {
+	sourceState = undefined;
 	vi.restoreAllMocks();
 	document.body.innerHTML = "";
 });
@@ -171,8 +176,11 @@ it.each(["projects", "organization"] as const)(
 					</QueryClientProvider>,
 				),
 			);
-			await act(async () => {
-				await new Promise((resolve) => setTimeout(resolve, 50));
+			await vi.waitFor(async () => {
+				await act(async () => {
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				});
+				expect(host.textContent).toContain(row.sentence);
 			});
 			expect(host.querySelectorAll(".fd-preview")).toHaveLength(0);
 			expect(host.textContent).not.toContain("Loading your activity");
@@ -230,3 +238,121 @@ it.each(["projects", "organization"] as const)(
 		}
 	},
 );
+
+it("applies navigation filters before the attention budget, preserves scope, and updates without remounting", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+	});
+	const model = learnDecisions({
+		organizationId: "fictional-acme",
+		personId: "fictional-person",
+		events: [],
+		now: new Date(),
+	});
+	client.setQueryData(
+		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+		model,
+	);
+	client.setQueryData(userPreferencesQueryOptions().queryKey, {
+		preferences: DEFAULT_OS_USER_PREFERENCES,
+		revision: 0,
+		source: "default",
+		updatedAt: null,
+	});
+	vi.mocked(osApi.learningFeedback.listInteractions).mockResolvedValue({
+		events: [],
+	});
+	vi.mocked(osApi.userSettings.updatePreferences).mockClear();
+	const stalled = {
+		...row,
+		id: "work:stalled",
+		sentence: "The supplier review stalled.",
+		done: false,
+		stalled: true,
+	};
+	const pending = {
+		...row,
+		id: "work:pending",
+		sentence: "The supplier review is running.",
+		done: false,
+	};
+	sourceState = {
+		items: [
+			row,
+			stalled,
+			pending,
+			{
+				...row,
+				id: "other-project",
+				projectId: "22222222-2222-4222-8222-222222222222",
+			},
+		],
+		loading: false,
+		failed: false,
+		more: false,
+	};
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	const change = vi.fn();
+	const render = async (
+		filter: "history" | "stalled" | "queue",
+		day?: string,
+	) => {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<ActivityFeedApp
+						config={ActivityFeedConfigSchema.parse({
+							version: 1,
+							scope: "organization",
+							projects: [],
+						})}
+						navigation={{ filter, projectId, day, onFilterChange: change }}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		});
+	};
+	try {
+		await render("history");
+		expect(osApi.userSettings.updatePreferences).not.toHaveBeenCalled();
+		expect(
+			host.querySelector('[role="feed"]')?.getAttribute("aria-label"),
+		).toBe("Finished work");
+		expect(
+			[...host.querySelectorAll("article")].map((n) =>
+				n.getAttribute("aria-label"),
+			),
+		).toEqual([row.sentence]);
+		expect(host.textContent).not.toContain("Needs you");
+		await render("stalled");
+		expect(
+			[...host.querySelectorAll("article")].map((n) =>
+				n.getAttribute("aria-label"),
+			),
+		).toEqual([stalled.sentence]);
+		await render("queue");
+		expect(
+			[...host.querySelectorAll("article")].map((n) =>
+				n.getAttribute("aria-label"),
+			),
+		).toEqual([pending.sentence]);
+		await render("history", "2026-10-16");
+		expect(host.querySelectorAll("article")).toHaveLength(0);
+		expect(host.textContent).toContain(
+			"No finished work matches these filters.",
+		);
+		const clear = [...host.querySelectorAll("button")].find(
+			(b) => b.textContent === "Show For you",
+		)!;
+		await act(async () => clear.click());
+		expect(change).toHaveBeenCalledWith("all");
+	} finally {
+		await act(async () => root.unmount());
+		client.clear();
+	}
+});

@@ -36,7 +36,10 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "./kumo/collapsible";
-import { decisionCardFaceText } from "@tedix/api-contract/utils/decision-card-copy";
+import {
+	decisionCardFaceText,
+	decisionCardFallbackTitle,
+} from "@tedix/api-contract/utils/decision-card-copy";
 import { SegmentedControl } from "./kumo/segmented-control";
 import { osApi } from "@/lib/api";
 import { osQuery, userPreferencesQueryOptions } from "@/lib/os-query-options";
@@ -79,6 +82,21 @@ export function FocusFeed({
 	const [tab, setTab] = useState<"for_you" | "everything">(
 		navigation?.day ? "everything" : "for_you",
 	);
+	const filter = navigation?.filter ?? "all";
+	const filtered = filter !== "all";
+	const timeline = filtered || tab === "everything";
+	const filterLabel =
+		filter === "history"
+			? "Finished work"
+			: filter === "stalled"
+				? "Stalled work"
+				: OS_COPY.feed.filters[filter];
+	const emptyMessage =
+		filter === "history"
+			? "No finished work matches these filters."
+			: filter === "stalled"
+				? "No stalled work matches these filters."
+				: "No updates match these filters.";
 	const [sources, setSources] = useState<Record<string, FeedSourceState>>({});
 	const [request, setRequest] = useState(0);
 	const [now, setNow] = useState(() => new Date());
@@ -192,14 +210,30 @@ export function FocusFeed({
 		),
 		config,
 	);
-	const chronological = all.filter(
-		(i) =>
-			!navigation?.day ||
+	const chronological = all.filter((item) => {
+		if (
+			navigation?.day &&
 			focusDay(
-				i.at,
+				item.at,
 				config.today?.timeZone ?? model.data?.config.timezone ?? "UTC",
-			) === navigation.day,
-	);
+			) !== navigation.day
+		)
+			return false;
+		switch (filter) {
+			case "history":
+				return item.done;
+			case "stalled":
+				return item.stalled;
+			case "attention":
+				return item.needsAction && !item.done;
+			case "office":
+				return item.kind === "decision" || item.kind === "correction";
+			case "queue":
+				return !item.done && !item.stalled && !item.needsAction;
+			default:
+				return true;
+		}
+	});
 	const rankable = all.filter(
 		(item) =>
 			item.kind !== "work" ||
@@ -260,21 +294,20 @@ export function FocusFeed({
 		model.failureCount > 0 ||
 		decisions.queueFailed;
 	const more = states.some((s) => s?.more) || decisions.more;
-	const visible =
-		tab === "everything"
-			? chronological.map((i) => ({
-					...i,
-					score: 0,
-					unseen: false,
-					deadline: false,
-					factors: {},
-				}))
-			: [
-					...needs,
-					...updates,
-					...(heldOpen ? waiting : []),
-					...(handledOpen ? handled : []),
-				];
+	const visible = timeline
+		? chronological.map((i) => ({
+				...i,
+				score: 0,
+				unseen: false,
+				deadline: false,
+				factors: {},
+			}))
+		: [
+				...needs,
+				...updates,
+				...(heldOpen ? waiting : []),
+				...(handledOpen ? handled : []),
+			];
 	const root = useRef<HTMLDivElement>(null);
 	const counters = useRef(new Set<string>());
 	async function saveFeed(change: (p: typeof prefs) => typeof prefs) {
@@ -309,7 +342,7 @@ export function FocusFeed({
 	}
 	const budgetSignature = selection.selected.map((i) => i.id).join("|");
 	useEffect(() => {
-		if (loading || failed || budgetReady || tab !== "for_you") return;
+		if (loading || failed || budgetReady || timeline) return;
 		let active = true;
 		void saveFeed((p) => {
 			const chosen = focusSelection(
@@ -336,7 +369,7 @@ export function FocusFeed({
 		return () => {
 			active = false;
 		};
-	}, [loading, failed, budgetReady, budgetSignature, tab, selection.day]);
+	}, [loading, failed, budgetReady, budgetSignature, timeline, selection.day]);
 	const signal = useCallback(
 		async (
 			item: ActivityFeedItem,
@@ -374,7 +407,8 @@ export function FocusFeed({
 					focusSignalInput(item, reaction, {
 						sessionId: session.id,
 						openedAt: session.openedAt,
-						feedView: tab,
+						feedView: timeline ? "everything" : tab,
+						...(filtered ? { feedFilter: filter } : {}),
 						...extra,
 					}),
 				);
@@ -394,7 +428,7 @@ export function FocusFeed({
 				return false;
 			}
 		},
-		[session, cache, tab],
+		[session, cache, tab, timeline, filtered, filter],
 	);
 	const candidates = held.map((i) => ({
 		id: i.id,
@@ -418,8 +452,7 @@ export function FocusFeed({
 		policy: model.data?.config.focusFeed,
 	});
 	useEffect(() => {
-		if (tab !== "for_you" || loading || failed || !budgetReady || !held.length)
-			return;
+		if (timeline || loading || failed || !budgetReady || !held.length) return;
 		const key = `held:${inventory}`;
 		if (counters.current.has(key)) return;
 		counters.current.add(key);
@@ -452,7 +485,7 @@ export function FocusFeed({
 			setStatus("Could not save the held-item record. Try again.");
 		});
 	}, [
-		tab,
+		timeline,
 		loading,
 		failed,
 		counterfactual,
@@ -626,21 +659,40 @@ export function FocusFeed({
 				/>
 			))}
 			<DecisionContextToolbar />
-			<div className="grid gap-2">
-				<SegmentedControl
-					ariaLabel="Feed order"
-					value={tab}
-					onValueChange={setTab}
-					options={[
-						{ value: "for_you", label: "For you" },
-						{ value: "everything", label: "Everything" },
-					]}
-				/>
-				<p className="focus-budget">
-					Worth your time today: {selection.selected.length} · handled without
-					you: {handled.length}
-				</p>
-			</div>
+			{filtered ? (
+				<div className="focus-filter-heading">
+					<h2>{filterLabel}</h2>
+					{navigation?.onFilterChange ? (
+						<Button
+							variant="ghost"
+							onClick={() => {
+								setTab("for_you");
+								navigation.onFilterChange?.("all");
+							}}
+						>
+							Show For you
+						</Button>
+					) : (
+						<Link href="/work?view=feed">Show For you</Link>
+					)}
+				</div>
+			) : (
+				<div className="grid gap-2">
+					<SegmentedControl
+						ariaLabel="Feed order"
+						value={tab}
+						onValueChange={setTab}
+						options={[
+							{ value: "for_you", label: "For you" },
+							{ value: "everything", label: "Everything" },
+						]}
+					/>
+					<p className="focus-budget">
+						Worth your time today: {selection.selected.length} · handled without
+						you: {handled.length}
+					</p>
+				</div>
+			)}
 			{status && <p role="status">{status}</p>}
 			<WorkReadNotice
 				failed={failed}
@@ -664,7 +716,7 @@ export function FocusFeed({
 					})
 				}
 			/>
-			{tab === "for_you" && needs.length > 0 && (
+			{!timeline && needs.length > 0 && (
 				<section aria-label="Needs you" className="focus-needs">
 					<h2 className="focus-section-heading">
 						Needs you <span>{needs.length}</span>
@@ -675,45 +727,49 @@ export function FocusFeed({
 				</section>
 			)}
 			{config.today && (
-				<TodayPost
-					config={config.today}
-					onUpdate={onUpdate}
-					compact={tab === "for_you"}
-					changesSinceLook={
-						new Map(
-							events
-								.filter(
-									(e) =>
-										e.metadata?.reaction === "open" &&
-										typeof e.metadata?.projectId === "string",
-								)
-								.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
-								.map((e) => {
-									const projectId = String(e.metadata?.projectId);
-									const latest = all.find(
-										(i) =>
-											i.projectId === projectId &&
-											i.at > e.occurredAt &&
-											i.done,
-									);
-									return [
-										projectId,
-										latest
-											? `Since you looked: ${latest.sentence}`
-											: "No new receipts since you looked.",
-									];
-								}),
-						)
-					}
-				/>
+				<div hidden={filtered}>
+					<TodayPost
+						config={config.today}
+						onUpdate={onUpdate}
+						compact={tab === "for_you"}
+						changesSinceLook={
+							new Map(
+								events
+									.filter(
+										(e) =>
+											e.metadata?.reaction === "open" &&
+											typeof e.metadata?.projectId === "string",
+									)
+									.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+									.map((e) => {
+										const projectId = String(e.metadata?.projectId);
+										const latest = all.find(
+											(i) =>
+												i.projectId === projectId &&
+												i.at > e.occurredAt &&
+												i.done,
+										);
+										return [
+											projectId,
+											latest
+												? `Since you looked: ${latest.sentence}`
+												: "No new receipts since you looked.",
+										];
+									}),
+							)
+						}
+					/>
+				</div>
 			)}
 			<div
 				id="feed-receipts"
 				role="feed"
-				aria-label={tab === "everything" ? "Everything" : "Updates for you"}
+				aria-label={
+					filtered ? filterLabel : timeline ? "Everything" : "Updates for you"
+				}
 				aria-busy={loading}
 			>
-				{tab === "everything" ? (
+				{timeline ? (
 					<div role="list" className="focus-list">
 						{visible.map((i) => render(i))}
 					</div>
@@ -778,8 +834,10 @@ export function FocusFeed({
 				)}
 			</div>
 			{loading && <Text>Opening your feed…</Text>}
-			{!loading && !failed && !visible.length && tab === "everything" && (
-				<Text>No updates yet.</Text>
+			{!loading && !failed && !visible.length && timeline && (
+				<div role="status">
+					<Text>{filtered ? emptyMessage : "No updates yet."}</Text>
+				</div>
 			)}
 			{more && (
 				<Button
@@ -1009,7 +1067,8 @@ export function FocusDecisionRow({
 		item.faceText ??
 		face.data?.faceText ??
 		decisionCardFaceText(presentation, face.data?.decision?.confidence ?? null);
-	const title = presentation?.title ?? item.sentence;
+	const title =
+		presentation?.title ?? decisionCardFallbackTitle(item.sentence, 160);
 	const original =
 		item.explanation && item.explanation !== item.sentence
 			? item.explanation
@@ -1029,7 +1088,11 @@ export function FocusDecisionRow({
 			</Link>
 			{presentation ? (
 				<p className="fd-face-enter whitespace-pre-line">
-					{faceText.split("\n").slice(1).join("\n")}
+					{faceText
+						.split("\n")
+						.slice(1)
+						.join("\n")
+						.replace(/(\bIf yes[,:]\s*)(?:If yes[,:]\s*)+/gi, "$1")}
 				</p>
 			) : waiting ? (
 				<div
@@ -1046,11 +1109,17 @@ export function FocusDecisionRow({
 				</div>
 			) : decisionCardId ? (
 				<div className="fd-face-enter grid gap-1">
-					{original && <p className="focus-face-fallback">{original}</p>}
+					{original && (
+						<p className="focus-face-fallback">
+							{original.length > 280
+								? `${original.slice(0, 279).trimEnd()}…`
+								: original}
+						</p>
+					)}
 					<div role="status" className="focus-face-note" data-face-fallback>
 						<span>
 							{decisionText(
-								"Summary unavailable — showing the original request",
+								"Summary unavailable — request preview. Full source in Details.",
 							)}
 						</span>
 						<Button
@@ -1080,6 +1149,8 @@ export function FocusDecisionRow({
 				<CollapsibleTrigger>Details</CollapsibleTrigger>
 				<CollapsibleContent>
 					<p>{project ?? actor}</p>
+					<p className="focus-source-text">{item.sentence}</p>
+					{original && <p className="focus-source-text">{original}</p>}
 					<Link href={item.source}>Original request</Link>
 				</CollapsibleContent>
 			</Collapsible>
