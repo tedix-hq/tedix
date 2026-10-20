@@ -377,7 +377,6 @@ export function WorkInteractionDecisionCard({
 	const pastDeadline =
 		effectiveState === "open" && decisionDeadlinePassed(request, new Date());
 	const active =
-		!pastDeadline &&
 		canRespond &&
 		(effectiveState === "open" ||
 			(!approval &&

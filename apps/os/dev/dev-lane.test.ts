@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { apiProxyForOsDevLane, resolveOsDevLane } from "./dev-lane";
+import {
+	apiProxyForOsDevLane,
+	resolveOsDevLane,
+	sampleDataForOsLane,
+} from "./dev-lane";
 
 describe("OS Vite development lane selection", () => {
 	it("defaults to fixtures", () => {
@@ -33,5 +37,44 @@ describe("OS Vite development lane selection", () => {
 		expect(apiProxyForOsDevLane("remote-worker", proxy)).toBeUndefined();
 		expect(apiProxyForOsDevLane("fixtures", proxy)).toBeUndefined();
 		expect(apiProxyForOsDevLane("live-api", proxy)).toBe(proxy);
+	});
+});
+
+describe("sample data build flag", () => {
+	it("does not mistake the default fixture lane for a deployed sample pack", () => {
+		expect(sampleDataForOsLane({}, "fixtures", "build", true)).toBe(false);
+		expect(
+			sampleDataForOsLane(
+				{ TEDIX_BUILD_SAMPLE_DATA: "true" },
+				"fixtures",
+				"build",
+				true,
+			),
+		).toBe(false);
+	});
+	it("labels only an active fixture pack or an explicit local demo pack", () => {
+		expect(sampleDataForOsLane({}, "fixtures", "serve", true)).toBe(true);
+		expect(sampleDataForOsLane({}, "fixtures", "serve", false)).toBe(false);
+		expect(sampleDataForOsLane({}, "live-api", "serve", true)).toBe(false);
+		expect(sampleDataForOsLane({}, "remote-worker", "serve", true)).toBe(false);
+		expect(
+			sampleDataForOsLane(
+				{
+					TEDIX_BUILD_LOCAL_DEMO_ENABLED: "true",
+					TEDIX_BUILD_SAMPLE_DATA: "true",
+				},
+				"local-worker",
+				"build",
+				false,
+			),
+		).toBe(true);
+		expect(
+			sampleDataForOsLane(
+				{ TEDIX_BUILD_LOCAL_DEMO_ENABLED: "true" },
+				"local-worker",
+				"build",
+				false,
+			),
+		).toBe(false);
 	});
 });

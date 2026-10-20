@@ -42,12 +42,16 @@ export function FeedDeckDisclosure({
 	children,
 	className,
 	keepMounted = true,
+	open,
+	onOpenChange,
 }: {
 	title: ReactNode;
 	label?: string;
 	children: ReactNode;
 	className?: string;
 	keepMounted?: boolean;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }) {
 	const rail = useContext(DecisionRailContext);
 	if (rail)
@@ -70,7 +74,12 @@ export function FeedDeckDisclosure({
 			</DecisionContextSection>
 		);
 	return (
-		<Collapsible className={cn("fd-disclosure", className)} aria-label={label}>
+		<Collapsible
+			className={cn("fd-disclosure", className)}
+			aria-label={label}
+			open={open}
+			onOpenChange={onOpenChange}
+		>
 			<CollapsibleTrigger>
 				<CaretRightIcon
 					size={12}

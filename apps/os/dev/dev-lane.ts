@@ -26,3 +26,17 @@ export function apiProxyForOsDevLane<T>(
 ): T | undefined {
 	return lane === "live-api" ? proxy : undefined;
 }
+
+/** Production builds cannot inherit the fixture dev server's default lane. */
+export function sampleDataForOsLane(
+	environment: NodeJS.ProcessEnv,
+	lane: OsDevLane,
+	command: "build" | "serve",
+	packEnabled: boolean,
+): boolean {
+	return (
+		(command === "serve" && lane === "fixtures" && packEnabled) ||
+		(environment.TEDIX_BUILD_LOCAL_DEMO_ENABLED === "true" &&
+			environment.TEDIX_BUILD_SAMPLE_DATA === "true")
+	);
+}
