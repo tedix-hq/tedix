@@ -1456,6 +1456,12 @@
 		flex: 1;
 		border-radius: 0;
 	}
+	/* Leads the row on phones so the chat launcher (bottom-right) never covers it. */
+	.fd-work-navigation > button {
+		order: -1;
+		min-width: 3rem;
+		min-height: 3rem;
+	}
 	.fd-app-toolbar {
 		gap: 0.5rem;
 	}

@@ -1092,6 +1092,13 @@ function DecisionDeckContent({
 										project: selected.project
 											? projectLabel(selected.project)
 											: undefined,
+										projectId: projectNames.has(selected.project)
+											? selected.project
+											: undefined,
+										workItemId:
+											selected.row?.workItem?.id ??
+											selected.row?.request.workItemId ??
+											undefined,
 										actor: selected.row
 											? workActorReference(
 													selected.row.request.creatorType,

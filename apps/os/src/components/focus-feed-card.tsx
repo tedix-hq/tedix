@@ -72,7 +72,17 @@ export function FeedCard({
 					</Text>
 					{project && (
 						<Text as="span" tone="secondary">
-							· {project}
+							·{" "}
+							{item.projectId ? (
+								<Link
+									href={`/work/projects/${item.projectId}`}
+									variant="record"
+								>
+									{project}
+								</Link>
+							) : (
+								project
+							)}
 						</Text>
 					)}
 					<time dateTime={item.at} title={absoluteTime(item.at)}>

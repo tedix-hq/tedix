@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { todayShortcut } from "@/lib/today-digest";
+import { WorkMoreViewsMenu } from "@/components/work-more-views-menu";
 
 const WorkWebMcpTools = lazy(() =>
 	import("@/components/work-webmcp-tools").then((module) => ({
@@ -116,6 +117,7 @@ export function WorkShell() {
 									</span>
 								)}
 						</Link>
+						<WorkMoreViewsMenu />
 					</nav>
 					{(feed || deck) && (
 						<div ref={setToolbarTarget} className="fd-work-toolbar-slot" />

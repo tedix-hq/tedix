@@ -93,6 +93,7 @@ const ENGLISH_COPY = {
 		deck: "Deck",
 		decide: "Decide",
 		views: "Work",
+		moreViews: "More views",
 		apps: "Apps",
 		back: "Back to Feed",
 		loading: "Loading your Work apps…",
