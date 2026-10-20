@@ -3,6 +3,8 @@
  * connect/disconnect affordances.
  */
 
+import { Surface } from "@/components/kumo/surface";
+
 import type {
 	ConnectionProvider,
 	ConnectionInventoryRow,
@@ -316,7 +318,7 @@ export function ConnectionListItem({
 
 			{/* Expanded details */}
 			<CollapsibleContent>
-				<div className="mx-3 rounded-lg bg-kumo-tint p-3 sm:ml-12">
+				<Surface tier="well" className="mx-3 p-3 sm:ml-12">
 					<div className="space-y-2">
 						{connections.map((connection, idx) => {
 							const isExpired =
@@ -356,8 +358,8 @@ export function ConnectionListItem({
 									</div>
 									<Button
 										size="xs"
-										variant="ghost"
-										className="self-start text-kumo-danger max-sm:min-h-11 sm:self-auto"
+										variant="destructive"
+										className="self-start max-sm:min-h-11 sm:self-auto"
 										onClick={() => {
 											onDisconnect(provider.appId, connection.tokenScope);
 										}}
@@ -454,7 +456,7 @@ export function ConnectionListItem({
 							)}
 						</div>
 					)}
-				</div>
+				</Surface>
 			</CollapsibleContent>
 		</Collapsible>
 	);

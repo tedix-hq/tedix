@@ -1,7 +1,8 @@
+import { Pagination } from "@/components/kumo/pagination";
+import { Text } from "@/components/kumo/text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Member } from "@tedix/api-contract/schemas/organization";
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -158,11 +159,11 @@ export function MemberIdentityDialog({
 							</SelectContent>
 						</Select>
 						{people.isError ? (
-							<Alert variant="destructive">
-								<AlertDescription>
+							<div role="alert">
+								<Text role="label" tone="error">
 									The people list could not be loaded.
-								</AlertDescription>
-							</Alert>
+								</Text>
+							</div>
 						) : null}
 						<Input
 							aria-label="Agent avatar URL"
@@ -174,35 +175,25 @@ export function MemberIdentityDialog({
 							onChange={(event) => setAvatarUrl(event.target.value)}
 						/>
 						{people.data && people.data.pagination.total > MEMBERS_PAGE_SIZE ? (
-							<div className="flex gap-2">
-								<Button
-									size="sm"
-									variant="secondary"
-									disabled={page === 0}
-									onClick={() => setPage(page - 1)}
-								>
-									Previous people
-								</Button>
-								<Button
-									size="sm"
-									variant="secondary"
-									disabled={!people.data.pagination.hasMore}
-									onClick={() => setPage(page + 1)}
-								>
-									More people
-								</Button>
-							</div>
+							<Pagination
+								page={page + 1}
+								perPage={MEMBERS_PAGE_SIZE}
+								totalCount={people.data.pagination.total}
+								setPage={(next) => setPage(next - 1)}
+							>
+								<Pagination.Controls controls="simple" />
+							</Pagination>
 						) : null}
 					</>
 				) : null}
 				{save.error ? (
-					<Alert variant="destructive">
-						<AlertDescription>
+					<div role="alert">
+						<Text role="label" tone="error">
 							{save.error instanceof Error
 								? save.error.message
 								: "Identity could not be saved."}
-						</AlertDescription>
-					</Alert>
+						</Text>
+					</div>
 				) : null}
 				<DialogFooter>
 					<Button

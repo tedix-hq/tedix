@@ -1,3 +1,9 @@
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import { Progress } from "@/components/kumo/progress";
 import { ShieldCheck } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type { DelegationProfile } from "@tedix/api-contract/contracts/earned-delegation";
@@ -151,7 +157,7 @@ export function formatMinorUnits(amount: number, currency: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Descriptive career progress. The bar is a plain div width — points explain
+ * Descriptive career progress. Points explain
  * evidence breadth and authorize nothing, so the caption says exactly that
  * rather than letting a filled bar imply a granted power.
  */
@@ -184,16 +190,11 @@ export function ValidatedExperienceMeter({
 					{sentenceCase(experience.standing)}
 				</Badge>
 			</span>
-			<span
-				aria-hidden
-				className="h-1.5 overflow-hidden rounded-full bg-kumo-fill"
-			>
-				<span
-					data-filled={filled}
-					className="block h-full rounded-full bg-kumo-info"
-					style={{ width: `${filled}%` }}
-				/>
-			</span>
+			<Progress
+				value={filled}
+				aria-label="Validated experience"
+				data-filled={filled}
+			/>
 			<Text as="span" role="label" tone="secondary">
 				Descriptive only — points explain evidence breadth and never grant
 				authority.
@@ -263,27 +264,55 @@ export function EntrustmentRow({ entrustment }: { entrustment: Entrustment }) {
 					? `policy-bound (${scope.budgetPolicyId})`
 					: "none"}
 			</Text>
-			<details className="text-kumo-subtle text-xs">
-				<summary className="cursor-pointer text-kumo-default">
-					Exact authority scope
-				</summary>
-				<dl className="m-0 mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-					<dt>Actions</dt>
-					<dd className="m-0 break-words">{scope.actions.join(", ")}</dd>
-					<dt>Tools</dt>
-					<dd className="m-0 break-words">
-						{scope.toolIds.length > 0 ? scope.toolIds.join(", ") : "None"}
-					</dd>
-					<dt>Environments</dt>
-					<dd className="m-0">{scope.environments.join(", ")}</dd>
-					<dt>Constraints</dt>
-					<dd className="m-0 break-all">
-						{Object.keys(scope.constraints).length > 0
-							? JSON.stringify(scope.constraints)
-							: "None"}
-					</dd>
-				</dl>
-			</details>
+			<Collapsible>
+				<CollapsibleTrigger>Exact authority scope</CollapsibleTrigger>
+				<CollapsibleContent>
+					<dl className="m-0 mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+						<dt>
+							<Text as="span" role="label" tone="secondary">
+								Actions
+							</Text>
+						</dt>
+						<dd className="m-0 break-words">
+							<Text as="span" role="label" tone="secondary">
+								{scope.actions.join(", ")}
+							</Text>
+						</dd>
+						<dt>
+							<Text as="span" role="label" tone="secondary">
+								Tools
+							</Text>
+						</dt>
+						<dd className="m-0 break-words">
+							<Text as="span" role="label" tone="secondary">
+								{scope.toolIds.length > 0 ? scope.toolIds.join(", ") : "None"}
+							</Text>
+						</dd>
+						<dt>
+							<Text as="span" role="label" tone="secondary">
+								Environments
+							</Text>
+						</dt>
+						<dd className="m-0">
+							<Text as="span" role="label" tone="secondary">
+								{scope.environments.join(", ")}
+							</Text>
+						</dd>
+						<dt>
+							<Text as="span" role="label" tone="secondary">
+								Constraints
+							</Text>
+						</dt>
+						<dd className="m-0 break-all">
+							<Text as="span" role="label" tone="secondary">
+								{Object.keys(scope.constraints).length > 0
+									? JSON.stringify(scope.constraints)
+									: "None"}
+							</Text>
+						</dd>
+					</dl>
+				</CollapsibleContent>
+			</Collapsible>
 		</Surface>
 	);
 }
@@ -339,16 +368,18 @@ export function DelegationYieldPanel({
 				{delegationYield.truncated ? " · evidence window truncated" : ""}
 			</Text>
 			{delegationYield.limitations.length > 0 && (
-				<details className="text-kumo-subtle text-xs">
-					<summary className="cursor-pointer text-kumo-default">
-						Metric limitations
-					</summary>
-					<ul className="m-0 mt-1.5 list-disc pl-4">
-						{delegationYield.limitations.map((limitation) => (
-							<li key={limitation}>{limitation}</li>
-						))}
-					</ul>
-				</details>
+				<Collapsible>
+					<CollapsibleTrigger>Metric limitations</CollapsibleTrigger>
+					<CollapsibleContent>
+						<ul className="m-0 mt-1.5 list-disc pl-4">
+							{delegationYield.limitations.map((limitation) => (
+								<Text as="li" role="label" tone="secondary" key={limitation}>
+									{limitation}
+								</Text>
+							))}
+						</ul>
+					</CollapsibleContent>
+				</Collapsible>
 			)}
 		</Surface>
 	);
@@ -473,26 +504,31 @@ export function EarnedAuthorityPanel({
 			<PromotionGaps gaps={gaps} />
 
 			{profile.roleHistory.length > 1 && (
-				<Surface className="px-3 py-2" render={<details />}>
-					<summary className="cursor-pointer text-kumo-default text-xs">
-						{formatCount(profile.roleHistory.length)} role assignments on record
-					</summary>
-					<ul className="m-0 mt-2 grid list-none gap-1 border-kumo-hairline border-t p-0 pt-2">
-						{profile.roleHistory.map((role) => (
-							<Text as="li" role="label" tone="secondary" key={role.id}>
-								<span className="text-kumo-default">{role.roleName}</span>
-								{" · "}
-								{sentenceCase(role.careerStage)} · {humanize(role.status)} ·
-								assigned{" "}
-								<time
-									dateTime={role.assignedAt}
-									title={absoluteTime(role.assignedAt)}
-								>
-									{relativeTime(role.assignedAt)}
-								</time>
-							</Text>
-						))}
-					</ul>
+				<Surface className="px-3 py-2">
+					<Collapsible>
+						<CollapsibleTrigger>
+							{formatCount(profile.roleHistory.length)} role assignments on
+							record
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<ul className="m-0 mt-2 grid list-none gap-1 border-kumo-hairline border-t p-0 pt-2">
+								{profile.roleHistory.map((role) => (
+									<Text as="li" role="label" tone="secondary" key={role.id}>
+										<span className="text-kumo-default">{role.roleName}</span>
+										{" · "}
+										{sentenceCase(role.careerStage)} · {humanize(role.status)} ·
+										assigned{" "}
+										<time
+											dateTime={role.assignedAt}
+											title={absoluteTime(role.assignedAt)}
+										>
+											{relativeTime(role.assignedAt)}
+										</time>
+									</Text>
+								))}
+							</ul>
+						</CollapsibleContent>
+					</Collapsible>
 				</Surface>
 			)}
 		</>

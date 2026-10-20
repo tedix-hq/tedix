@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import { FolderOpen, Play } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,7 +12,6 @@ import { useState } from "react";
 import * as z from "zod";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -231,16 +231,16 @@ export function SkillDetailLayout() {
 							/>
 						</div>
 						{moveSkill.error ? (
-							<Alert variant="destructive">
-								<AlertDescription>
+							<div role="alert">
+								<Text role="label" tone="error">
 									{(moveSkill.error as Error).message}
-								</AlertDescription>
-							</Alert>
+								</Text>
+							</div>
 						) : null}
 						<DialogFooter>
 							<Button
 								type="button"
-								variant="ghost"
+								variant="outline"
 								onClick={() => setFolderDialogOpen(false)}
 							>
 								Cancel
@@ -290,16 +290,16 @@ export function SkillDetailLayout() {
 							)}
 						</FormField>
 						{runNow.error ? (
-							<Alert variant="destructive">
-								<AlertDescription>
+							<div role="alert">
+								<Text role="label" tone="error">
 									{(runNow.error as Error).message}
-								</AlertDescription>
-							</Alert>
+								</Text>
+							</div>
 						) : null}
 						<DialogFooter>
 							<Button
 								type="button"
-								variant="ghost"
+								variant="outline"
 								onClick={() => setDialogOpen(false)}
 							>
 								Cancel

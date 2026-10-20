@@ -1,3 +1,4 @@
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
 	Archive,
 	ArrowSquareOut,
@@ -505,44 +506,26 @@ function ArchiveDialog(props: {
 	onConfirm: () => void;
 }) {
 	return (
-		<Dialog
+		<ConfirmDialog
 			open={props.item !== null}
 			onOpenChange={(open) => {
-				if (!open && !props.busy) props.onClose();
+				if (!open) props.onClose();
 			}}
+			title={<>Archive “{props.item?.output.title}”?</>}
+			description="This removes it from the active library. Its immutable revisions and audit provenance remain durable."
+			confirmLabel="Archive"
+			pendingLabel="Archiving…"
+			destructive
+			isPending={props.busy}
+			onConfirm={props.onConfirm}
 		>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Archive “{props.item?.output.title}”?</DialogTitle>
-					<DialogDescription>
-						This removes it from the active library. Its immutable revisions and
-						audit provenance remain durable.
-					</DialogDescription>
-				</DialogHeader>
-				{props.error ? (
-					<Alert variant="destructive">
-						<AlertTitle>Output not archived</AlertTitle>
-						<AlertDescription>{props.error.message}</AlertDescription>
-					</Alert>
-				) : null}
-				<DialogFooter>
-					<Button
-						variant="outline"
-						disabled={props.busy}
-						onClick={props.onClose}
-					>
-						Cancel
-					</Button>
-					<Button
-						variant="destructive"
-						loading={props.busy}
-						onClick={props.onConfirm}
-					>
-						Archive
-					</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
+			{props.error ? (
+				<Alert variant="destructive">
+					<AlertTitle>Output not archived</AlertTitle>
+					<AlertDescription>{props.error.message}</AlertDescription>
+				</Alert>
+			) : null}
+		</ConfirmDialog>
 	);
 }
 

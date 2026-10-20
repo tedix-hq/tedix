@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import { Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsOutput } from "@tedix/api-contract/schemas/os-workspaces";
@@ -163,7 +164,9 @@ export function CreateDocumentDialog({
 								))}
 							</SelectContent>
 						</Select>
-						<p className="text-sm text-kumo-subtle">{template.description}</p>
+						<Text role="label" tone="secondary">
+							{template.description}
+						</Text>
 					</div>
 					{!workspaceId && (
 						<div className="grid gap-2">
@@ -194,19 +197,21 @@ export function CreateDocumentDialog({
 								</SelectContent>
 							</Select>
 							{workspaces.isError && (
-								<p role="alert" className="text-sm text-kumo-danger">
-									Workspaces could not be loaded. You can create a document
-									without a workspace or{" "}
-									<Button
-										type="button"
-										variant="link"
-										size="sm"
-										onClick={() => void workspaces.refetch()}
-									>
-										try again
-									</Button>
-									.
-								</p>
+								<div role="alert">
+									<Text role="label" tone="error">
+										Workspaces could not be loaded. You can create a document
+										without a workspace or{" "}
+										<Button
+											type="button"
+											variant="link"
+											size="sm"
+											onClick={() => void workspaces.refetch()}
+										>
+											try again
+										</Button>
+										.
+									</Text>
+								</div>
 							)}
 						</div>
 					)}
