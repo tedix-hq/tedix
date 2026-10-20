@@ -78,13 +78,11 @@ function TableRow({
 	className,
 	variant,
 	...props
-}: React.ComponentProps<typeof KumoTable.Row> & { "data-state"?: string }) {
+}: React.ComponentProps<typeof KumoTable.Row>) {
 	return (
 		<KumoTable.Row
 			data-slot="table-row"
-			variant={
-				props["data-state"] === "selected" ? "selected" : (variant ?? "default")
-			}
+			variant={variant ?? "default"}
 			className={cn(
 				"border-kumo-hairline border-b transition-colors even:bg-transparent even:[--kumo-table-row-bg:transparent] last:border-b-0 hover:bg-kumo-tint data-[state=selected]:bg-kumo-tint motion-reduce:transition-none",
 				className,

@@ -210,6 +210,8 @@ Import product controls from `@/components/kumo/*`, never raw
 `div`/Tailwind replacements and never another app's adapter directory.
 Cross-importing is a boundary violation.
 
+Single-symbol alias modules in `src/components/kumo/` (`checkbox.tsx`, `combobox.tsx`, `command-palette.tsx`, `clipboard-text.tsx`, `toolbar.tsx`, `event-chart.tsx`, `cn.ts`) are the authorised Kumo import path enforced by `bun run lint:kumo` and the one sanctioned exception to the no-re-export rule.
+
 Before adding an adapter or guessing at a Kumo API, read the package rather
 than the docs site — `@cloudflare/kumo` ships its own machine-readable
 reference:

@@ -26,6 +26,7 @@ const VARIANT_MAP = {
 	link: "primary",
 } as const satisfies Partial<Record<BadgeVariant, KumoBadgeVariant>>;
 
+// Mirrors KUMO_BADGE_VARIANTS from @cloudflare/kumo 2.15.0; Kumo does not export it. Re-diff on every bump.
 const VARIANT_CLASSES: Record<KumoBadgeVariant, string> = {
 	primary: "bg-kumo-badge-inverted text-kumo-badge-inverted",
 	secondary: "bg-kumo-fill text-kumo-badge-neutral-subtle",
@@ -35,6 +36,7 @@ const VARIANT_CLASSES: Record<KumoBadgeVariant, string> = {
 	destructive: "bg-kumo-badge-red text-white",
 	info: "bg-kumo-info-tint text-kumo-info",
 	beta: "border border-dashed border-kumo-brand bg-transparent text-kumo-link",
+	// Keep transparent for parity on shaded Apps table surfaces; Kumo 2.15.0 uses bg-kumo-base.
 	outline: "border border-kumo-fill bg-transparent text-kumo-default",
 	red: "bg-kumo-badge-red text-white",
 	green: "bg-kumo-badge-green text-white",

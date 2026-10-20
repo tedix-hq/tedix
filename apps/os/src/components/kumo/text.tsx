@@ -97,8 +97,8 @@ const TONE_CLASS: Partial<Record<TextTone, string>> = {
 	warning: "text-kumo-warning",
 	/*
 	 * `success` is composed here too, and NOT delegated upstream, because Kumo
-	 * 2.12.0's own `success` variant is mislabelled: its table reads
-	 * `success: { classes: "text-kumo-link", description: "Success state text" }`
+	 * 2.15.0 was re-verified: `KUMO_TEXT_VARIANTS.variant.success.classes`
+	 * `=== "text-kumo-link"`
 	 * — the BRAND/LINK colour, not the status green. Passing tone="success"
 	 * through would render every success state in the accent hue, which is both
 	 * wrong and invisible in review: the prop name, the description and the
