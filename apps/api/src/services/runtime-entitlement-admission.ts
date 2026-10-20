@@ -57,6 +57,15 @@ export async function authorizeRuntimeInference(
 		},
 ): Promise<AuthorizeRuntimeInferenceResponse> {
 	let phase = "validate_caller";
+	const startedAt = performance.now();
+	let phaseAt = startedAt;
+	const phases: Record<string, number> = {};
+	const enterPhase = (next: string) => {
+		const now = performance.now();
+		phases[phase] = (phases[phase] ?? 0) + now - phaseAt;
+		phaseAt = now;
+		phase = next;
+	};
 	const context: {
 		plane?: "remote_runtime" | "organization_kernel";
 		settlementMode?: "managed" | "external" | "disabled";
@@ -66,6 +75,7 @@ export async function authorizeRuntimeInference(
 		rootGeneration?: number;
 		selectedGeneration?: number;
 		hasFiniteAuthorization?: boolean;
+		executionId?: string;
 	} = {};
 	try {
 		if (
@@ -74,7 +84,7 @@ export async function authorizeRuntimeInference(
 		)
 			throw new Error("Inference requires a server-owned caller plane");
 		context.plane = input.plane;
-		phase = "validate_execution";
+		enterPhase("validate_execution");
 		input = {
 			...input,
 			request: structuredClone(input.request),
@@ -91,13 +101,13 @@ export async function authorizeRuntimeInference(
 			if (JSON.stringify(identity.autoRouting) !== JSON.stringify(configured))
 				throw Error("Deployment Auto routing mismatch");
 		}
-		phase = "resolve_settlement_mode";
+		enterPhase("resolve_settlement_mode");
 		const mode = resolveBillingSettlementMode(input.env);
 		context.settlementMode = mode;
 		if (mode !== input.request.settlementMode)
 			throw new Error("Runtime settlement mode mismatch");
 		const now = input.nowMs ?? Date.now();
-		phase = "verify_origin";
+		enterPhase("verify_origin");
 		const origin =
 			input.plane === "remote_runtime"
 				? await verifyRuntimeInferenceOrigin({
@@ -116,9 +126,18 @@ export async function authorizeRuntimeInference(
 			context.rootGeneration = origin.root.generation;
 			context.selectedGeneration = origin.selected.generation;
 		}
-		phase = "data_residency";
+		enterPhase("residency_and_replay_reads");
 		// The raw binding reads the primary rather than a caller-supplied request bookmark.
 		const residencyDb = input.env.DB ? createDbClient(input.env.DB) : input.db;
+		// Residency and grant failures take precedence over a parallel replay-read failure.
+		const existingRead = findProviderExecutionAdmission(
+			input.db,
+			input.request.organizationId,
+			input.request.idempotencyKey,
+		).then(
+			(value) => ({ ok: true, value }) as const,
+			(error: unknown) => ({ ok: false, error }) as const,
+		);
 		let residency = await authorizeDataResidency({
 			db: residencyDb,
 			organizationId: input.request.organizationId,
@@ -134,7 +153,7 @@ export async function authorizeRuntimeInference(
 		});
 		if (residency)
 			identity = freezeProviderExecutionIdentity(residency.member.execution);
-		phase = "read_latest_decision";
+		enterPhase("read_latest_decision");
 		const current = origin
 			? await latestHistoricalDecision(
 					input.db,
@@ -142,7 +161,7 @@ export async function authorizeRuntimeInference(
 					origin.root.owner.tediId,
 				)
 			: null;
-		phase = "read_authorization";
+		enterPhase("read_authorization");
 		const verified = current
 			? await getFiniteExecutionAuthorization(
 					input.db,
@@ -151,7 +170,7 @@ export async function authorizeRuntimeInference(
 					current.id,
 				)
 			: null;
-		phase = "prepare_candidate";
+		enterPhase("prepare_candidate");
 		const parsed = FiniteExecutionAuthorizationSchema.safeParse(
 			verified?.payload,
 		);
@@ -181,14 +200,12 @@ export async function authorizeRuntimeInference(
 			authorizedAt: new Date(now).toISOString(),
 			sendBefore: new Date(sendBefore).toISOString(),
 		};
-		phase = "find_existing";
-		const existing = await findProviderExecutionAdmission(
-			input.db,
-			candidate.organizationId,
-			candidate.idempotencyKey,
-		);
+		enterPhase("replay_read_result");
+		const existingResult = await existingRead;
+		if (!existingResult.ok) throw existingResult.error;
+		const existing = existingResult.value;
 		if (existing) {
-			phase = "validate_original_window";
+			enterPhase("validate_original_window");
 			// Original persisted IDs and window are the only retry authority; never renew them.
 			Object.assign(candidate, {
 				id: existing.id,
@@ -199,7 +216,7 @@ export async function authorizeRuntimeInference(
 			if (Date.parse(existing.sendBefore) <= now)
 				throw new Error("Execution admission expired");
 		}
-		phase = "prepare_native_guard";
+		enterPhase("prepare_native_guard");
 		const prepared = origin
 			? await prepareProviderExecutionAdmission(
 					input.db,
@@ -212,9 +229,9 @@ export async function authorizeRuntimeInference(
 				: null;
 		const execution = prepared?.execution ?? candidate;
 		if (existing) {
-			phase = "validate_replay_identity";
+			enterPhase("validate_replay_identity");
 			assertProviderExecutionMatches(existing, execution);
-			phase = "replay_guard_read";
+			enterPhase("replay_guard_read");
 			if (
 				prepared &&
 				!(await findProviderExecutionAdmission(
@@ -234,7 +251,7 @@ export async function authorizeRuntimeInference(
 		} = input.request as Omit<AuthorizeRuntimeInferenceInput, "originToken"> & {
 			originToken?: string;
 		};
-		phase = "budget_admission";
+		enterPhase("budget_admission");
 		const decision = await authorizeRuntimeBudget({
 			...input,
 			request: {
@@ -247,24 +264,15 @@ export async function authorizeRuntimeInference(
 		});
 		if (!decision.allowed) return decision;
 		if (!existing && mode !== "managed") {
-			phase = "unmanaged_insert";
+			enterPhase("unmanaged_insert");
 			await buildProviderExecutionInsertStatement(
 				input.db,
 				execution,
 				prepared?.guard,
 			);
 		}
-		phase = "final_guarded_read";
-		const persisted = await findProviderExecutionAdmission(
-			input.db,
-			candidate.organizationId,
-			candidate.idempotencyKey,
-			prepared?.guard,
-		);
-		if (!persisted) throw new Error("Execution admission was not persisted");
-		phase = "validate_persisted_identity";
-		assertProviderExecutionMatches(persisted, execution);
-		const currentResidency = await authorizeDataResidency({
+		enterPhase("final_execution_and_residency_reads");
+		const residencyRead = authorizeDataResidency({
 			db: residencyDb,
 			organizationId: candidate.organizationId,
 			execution: identity,
@@ -276,7 +284,23 @@ export async function authorizeRuntimeInference(
 					: input.request.metadata?.residencyModality === "text"
 						? "text"
 						: "unknown",
-		});
+		}).then(
+			(value) => ({ ok: true, value }) as const,
+			(error: unknown) => ({ ok: false, error }) as const,
+		);
+		const persisted = await findProviderExecutionAdmission(
+			input.db,
+			candidate.organizationId,
+			candidate.idempotencyKey,
+			prepared?.guard,
+		);
+		if (!persisted) throw new Error("Execution admission was not persisted");
+		enterPhase("validate_persisted_identity");
+		assertProviderExecutionMatches(persisted, execution);
+		context.executionId = persisted.id;
+		const residencyResult = await residencyRead;
+		if (!residencyResult.ok) throw residencyResult.error;
+		const currentResidency = residencyResult.value;
 		if (
 			Boolean(currentResidency) !== Boolean(residency) ||
 			(residency &&
@@ -348,5 +372,21 @@ export async function authorizeRuntimeInference(
 			// Classification and console implementations can themselves throw.
 		}
 		throw error;
+	} finally {
+		enterPhase("done");
+		try {
+			console.log(
+				JSON.stringify({
+					_tr: "inference_admission_phases",
+					runId: input.request.runId ?? null,
+					executionId: context.executionId ?? null,
+					plane: input.plane,
+					phases,
+					totalMs: performance.now() - startedAt,
+				}),
+			);
+		} catch {
+			// Telemetry must not change admission.
+		}
 	}
 }

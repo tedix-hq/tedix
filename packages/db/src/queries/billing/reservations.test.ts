@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import {
 	billingAccounts,
@@ -236,6 +236,40 @@ describe("daily reservation expiry before the reaper", () => {
 		`)
 			.run(id, status, tokens, chargeMicros, `test:${id}`, expiry, now, now);
 	}
+
+	it("batches retry and plan reads and preserves replay after a plan change", async () => {
+		const { db, sqlite } = setup();
+		const batch = vi.spyOn(db, "batch");
+		const input = {
+			id: "batched",
+			organizationId: "org-1",
+			source: "operator" as const,
+			provider: "azure-openai",
+			model: "gpt-5.6-terra",
+			estimatedInputTokens: 1,
+			estimatedOutputTokens: 0,
+			idempotencyKey: "test:batched",
+			expiresAt,
+			now,
+		};
+		const first = await reserveBillingUsage(db, input);
+		expect(first).toMatchObject({ allowed: true });
+		expect(batch).toHaveBeenCalledOnce();
+		expect(batch.mock.calls[0]![0]).toHaveLength(2);
+		sqlite.exec(
+			'UPDATE billing_plan_versions SET metadata = \'{"monetaryInference":{"version":1}}\'',
+		);
+		const replay = await reserveBillingUsage(db, input);
+		expect(replay).toMatchObject({
+			allowed: true,
+			reservation: { id: "batched" },
+		});
+		expect(
+			sqlite
+				.prepare("SELECT COUNT(*) AS n FROM billing_usage_reservations")
+				.get(),
+		).toMatchObject({ n: 1 });
+	});
 
 	it("admits against settled actuals and active holds while ignoring expired holds", async () => {
 		const { db, sqlite } = setup();

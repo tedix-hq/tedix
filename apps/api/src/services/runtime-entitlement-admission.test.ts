@@ -25,6 +25,7 @@ vi.mock("./data-residency", async (original) => ({
 	authorizeDataResidency: vi.fn().mockResolvedValue(null),
 }));
 import { authorizeRuntimeInference } from "./runtime-entitlement-admission";
+import { authorizeDataResidency, DataResidencyError } from "./data-residency";
 const now = Date.parse("2026-09-20T07:00:00.000Z");
 const execution = {
 	provider: "azure-openai" as const,
@@ -69,9 +70,126 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe("provider execution admission", () => {
+	it("overlaps the initial execution lookup with the first residency check", async () => {
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		vi.mocked(authorizeDataResidency).mockImplementationOnce(async () => {
+			await gate;
+			return null;
+		});
+		const pending = authorizeRuntimeInference({
+			plane: "organization_kernel",
+			db: {} as never,
+			env: { TEDIX_BILLING_SETTLEMENT_MODE: "external" },
+			request: request("external"),
+			nowMs: now,
+		});
+		try {
+			await vi.waitFor(() => expect(mocks.find).toHaveBeenCalledOnce());
+		} finally {
+			release();
+		}
+		expect(await pending).toMatchObject({ allowed: true });
+		expect(authorizeDataResidency).toHaveBeenCalledTimes(2);
+	});
+	it("refreshes residency while the final execution read is in flight", async () => {
+		let release: (value: unknown) => void = () => {};
+		const gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		let persisted: unknown;
+		mocks.insert.mockImplementationOnce((_db, execution) => {
+			persisted = execution;
+			mocks.find.mockImplementationOnce(() => gate);
+		});
+		const pending = authorizeRuntimeInference({
+			plane: "organization_kernel",
+			db: {} as never,
+			env: { TEDIX_BILLING_SETTLEMENT_MODE: "external" },
+			request: request("external"),
+			nowMs: now,
+		});
+		try {
+			await vi.waitFor(() =>
+				expect(authorizeDataResidency).toHaveBeenCalledTimes(2),
+			);
+		} finally {
+			release(persisted);
+		}
+		expect(await pending).toMatchObject({ allowed: true });
+	});
+	it("rejects a residency change during budget admission", async () => {
+		vi.mocked(authorizeDataResidency)
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ policy: { revision: 2 } } as never);
+		const result = await authorizeRuntimeInference({
+			plane: "organization_kernel",
+			db: {} as never,
+			env: { TEDIX_BILLING_SETTLEMENT_MODE: "external" },
+			request: request("external"),
+			nowMs: now,
+		});
+		expect(result).toMatchObject({
+			allowed: false,
+			code: "residency_policy_unavailable",
+		});
+	});
+
+	it("keeps initial residency denial ahead of a faster replay read failure", async () => {
+		const denial = new DataResidencyError(
+			"RESIDENCY_POLICY_UNAVAILABLE",
+			"unavailable",
+		);
+		vi.mocked(authorizeDataResidency).mockImplementationOnce(async () => {
+			await Promise.resolve();
+			throw denial;
+		});
+		mocks.find.mockRejectedValueOnce(new Error("replay read failed"));
+		await expect(
+			authorizeRuntimeInference({
+				plane: "organization_kernel",
+				db: {} as never,
+				env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+				request: request("managed"),
+				nowMs: now,
+			}),
+		).resolves.toMatchObject({
+			allowed: false,
+			code: "residency_policy_unavailable",
+		});
+	});
+	it("keeps final execution failure ahead of a faster residency denial", async () => {
+		const failure = new Error("final execution read failed");
+		mocks.find.mockResolvedValueOnce(null).mockImplementationOnce(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+			throw failure;
+		});
+		mocks.budget.mockResolvedValueOnce({
+			allowed: true,
+			settlementMode: "managed",
+		});
+		vi.mocked(authorizeDataResidency)
+			.mockResolvedValueOnce(null)
+			.mockRejectedValueOnce(
+				new DataResidencyError("RESIDENCY_POLICY_UNAVAILABLE", "unavailable"),
+			);
+		await expect(
+			authorizeRuntimeInference({
+				plane: "organization_kernel",
+				db: {} as never,
+				env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+				request: request("managed"),
+				nowMs: now,
+			}),
+		).rejects.toBe(failure);
+	});
 	it.each(["managed", "external", "disabled"] as const)(
 		"issues a required persisted execution in %s",
 		async (mode) => {
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
 			const result = await authorizeRuntimeInference({
 				plane: "organization_kernel" as const,
 				db: {} as never,
@@ -84,6 +202,10 @@ describe("provider execution admission", () => {
 				attributionVersion: 3,
 				executionId: expect.any(String),
 				sendBefore: "2026-09-20T07:10:00.000Z",
+			});
+			expect(JSON.parse(log.mock.calls.at(-1)![0])).toMatchObject({
+				_tr: "inference_admission_phases",
+				executionId: result.allowed ? result.executionId : null,
 			});
 			if (mode !== "managed") expect(mocks.insert).toHaveBeenCalledOnce();
 		},
@@ -680,10 +802,10 @@ it("does not select an older valid permit beneath a malformed latest decision", 
 
 describe("bounded admission failure diagnostics", () => {
 	it.each([
-		"find_existing",
+		"replay_read_result",
 		"budget_admission",
 		"unmanaged_insert",
-		"final_guarded_read",
+		"final_execution_and_residency_reads",
 	] as const)(
 		"preserves the original exception at %s without logging request or query text",
 		async (phase) => {
@@ -698,12 +820,13 @@ describe("bounded admission failure diagnostics", () => {
 			);
 			original.name = "secret-exception-name";
 			const mode = phase === "unmanaged_insert" ? "external" : "managed";
-			if (phase === "find_existing") mocks.find.mockRejectedValueOnce(original);
+			if (phase === "replay_read_result")
+				mocks.find.mockRejectedValueOnce(original);
 			if (phase === "budget_admission")
 				mocks.budget.mockRejectedValueOnce(original);
 			if (phase === "unmanaged_insert")
 				mocks.insert.mockRejectedValueOnce(original);
-			if (phase === "final_guarded_read") {
+			if (phase === "final_execution_and_residency_reads") {
 				mocks.find.mockResolvedValueOnce(null).mockRejectedValueOnce(original);
 				mocks.budget.mockResolvedValueOnce({
 					allowed: true,

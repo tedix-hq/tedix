@@ -361,7 +361,7 @@ export async function reserveBillingUsage(
 	// against A's balance — a silent cross-tenant billing bypass. With the org
 	// pinned, the same collision instead falls through to the insert and trips the
 	// unique index, which fails loudly rather than granting free usage.
-	const existing = await db
+	const existingStatement = db
 		.select()
 		.from(billingUsageReservations)
 		.where(
@@ -376,6 +376,22 @@ export async function reserveBillingUsage(
 			),
 		)
 		.limit(1);
+	const planStatement = db
+		.select({
+			id: billingPlanVersions.id,
+			currency: billingPlanVersions.currency,
+			metadata: billingPlanVersions.metadata,
+		})
+		.from(billingAccounts)
+		.innerJoin(
+			billingPlanVersions,
+			eq(billingAccounts.planVersionId, billingPlanVersions.id),
+		)
+		.where(eq(billingAccounts.organizationId, input.organizationId))
+		.limit(1);
+	// Both reads precede pricing; replay still returns before interpreting the plan.
+	const [existing, plans] = await db.batch([existingStatement, planStatement]);
+	const plan = plans[0];
 	if (existing[0]) {
 		return (existing[0].status === "reserved" &&
 			existing[0].expiresAt > input.now) ||
@@ -392,19 +408,6 @@ export async function reserveBillingUsage(
 				};
 	}
 
-	const [plan] = await db
-		.select({
-			id: billingPlanVersions.id,
-			currency: billingPlanVersions.currency,
-			metadata: billingPlanVersions.metadata,
-		})
-		.from(billingAccounts)
-		.innerJoin(
-			billingPlanVersions,
-			eq(billingAccounts.planVersionId, billingPlanVersions.id),
-		)
-		.where(eq(billingAccounts.organizationId, input.organizationId))
-		.limit(1);
 	let monetaryQuote: ReturnType<typeof estimateMonetaryInference> | null = null;
 	try {
 		const config = plan ? monetaryInferenceConfig(plan) : null;

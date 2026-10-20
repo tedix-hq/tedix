@@ -990,6 +990,7 @@ it.each(["gen0", "root", "leaf"] as const)(
 		const p = await depthAdmission(branch);
 		const queries: Array<{ sql: string; params: unknown[] }> = [];
 		const stop = new Error("captured both statements without executing them");
+		let batches = 0;
 		const client = createDbClient({
 			prepare(query: string) {
 				const statement = {
@@ -1002,6 +1003,11 @@ it.each(["gen0", "root", "leaf"] as const)(
 				return statement;
 			},
 			batch: async () => {
+				if (++batches === 1)
+					return [
+						{ results: [], success: true },
+						{ results: [], success: true },
+					];
 				throw stop;
 			},
 		} as unknown as D1Database);
