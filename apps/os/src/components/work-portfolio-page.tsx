@@ -604,7 +604,7 @@ export function PortfolioApp({
 	buckets?: readonly PortfolioBucket[];
 	isOwner?: boolean;
 }) {
-	useDocumentTitle("Portfolio · Work");
+	useDocumentTitle("Projects · Work");
 	const portfolio = useQuery(projectPortfolioQueryOptions());
 	const inbox = useQuery({
 		...workOfficeKnocksQueryOptions(),
@@ -623,13 +623,12 @@ export function PortfolioApp({
 		<Page width="full" className="gap-8">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Portfolio</PageTitle>
+					<PageTitle>Projects</PageTitle>
 					<PageDescription>
 						Your main projects, their factories, and what is open.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
-			<FactoryScoreboard />
 			{portfolio.isPending ? (
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 					<Skeleton className="h-36" />
@@ -638,7 +637,7 @@ export function PortfolioApp({
 				</div>
 			) : portfolio.isError ? (
 				<Alert variant="destructive">
-					<AlertTitle>Portfolio unavailable</AlertTitle>
+					<AlertTitle>Projects unavailable</AlertTitle>
 					<AlertDescription>
 						{errorMessage(portfolio.error, "Projects could not be loaded.")}
 					</AlertDescription>
@@ -688,6 +687,7 @@ export function PortfolioApp({
 					<OtherProjects entries={grouped.other} />
 				</>
 			)}
+			<FactoryScoreboard />
 		</Page>
 	);
 }
