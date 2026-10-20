@@ -78,6 +78,51 @@ describe("hasExplicitDelegationIntent", () => {
 	});
 });
 
+describe("explicit tedi implementation requests", () => {
+	const request =
+		"Coding trial for a coding tedi: implement the brief in the repository via your workstation and report the commit SHA.";
+	it("routes an explicit implementation past stale handoff advice without lowering risk", () => {
+		const guarded = guardKernelRouteDecision(
+			request,
+			decision({
+				routeKind: "suggest_handoff",
+				risk: "high",
+				effortClass: "embodied",
+				answer: "Open a session; an earlier run needed approval.",
+			}),
+		);
+		expect(guarded).toMatchObject({
+			routeKind: "delegate_tedi",
+			risk: "high",
+			answer: null,
+			explicitDelegationIntent: true,
+			targetTediId: "tedi-ceo",
+		});
+	});
+	it("preserves a human-session request and a delegation prohibition", () => {
+		expect(
+			guardKernelRouteDecision(
+				`${request} Open an extended session with me.`,
+				decision({ routeKind: "suggest_handoff" }),
+			).routeKind,
+		).toBe("suggest_handoff");
+		expect(
+			guardKernelRouteDecision(
+				`${request} Do not delegate.`,
+				decision({ routeKind: "suggest_handoff" }),
+			).routeKind,
+		).toBe("answer_in_home");
+	});
+	it("does not take implementation intent from quoted brief content", () => {
+		expect(
+			guardKernelRouteDecision(
+				`Explain this text. Brief: ${request}`,
+				decision({ routeKind: "suggest_handoff" }),
+			).routeKind,
+		).toBe("suggest_handoff");
+	});
+});
+
 describe("mentionsTedixInternalState", () => {
 	it("recognises the assembled-context nouns in English and Spanish", () => {
 		expect(mentionsTedixInternalState("list my work items")).toBe(true);

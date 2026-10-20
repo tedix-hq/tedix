@@ -128,16 +128,12 @@ export function deriveDelegationCapabilityPlan(input: {
 		/\bAdmission:\s*create\b/i.test(content) &&
 		/\bWork\s+item\b/i.test(content)
 	) {
-		capabilities.push("work.execution");
+		// Home owns admission and settlement below the child model.
+		capabilities.push("work.read");
 		for (const id of [
 			"list_work_items",
 			"get_work_items_by_id",
-			"create_work_items",
-			"accept_work_item",
-			"start_work_item_attempt",
-			"heartbeat_work_item_attempt",
 			"list_work_item_attempts",
-			"settle_work_item_attempt",
 		])
 			tools.add(`work.${id}`);
 	}

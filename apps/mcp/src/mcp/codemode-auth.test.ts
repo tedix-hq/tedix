@@ -317,6 +317,16 @@ describe("code-built tools/call authorization", () => {
 				annotations: { readOnlyHint: true },
 				config: { endpoint: "workItems/listAttempts" },
 			}),
+			tool({
+				toolId: "tedix__list_work_item_evidence",
+				annotations: { readOnlyHint: true },
+				config: { endpoint: "workItems/listEvidence" },
+			}),
+			tool({
+				toolId: "tedix__list_work_item_events",
+				annotations: { readOnlyHint: true },
+				config: { endpoint: "workItems/listEvents" },
+			}),
 		]) {
 			expect(
 				evaluateMcpToolScopeAuthorization(delegated, read, "work"),

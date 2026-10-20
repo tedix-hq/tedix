@@ -497,7 +497,11 @@ export function renderDelegationWorkOrderMessage(input: {
 	if (deadlineHint) lines.push(`Deadline: ${deadlineHint}`);
 	if (failurePolicy) lines.push(`Failure policy: ${failurePolicy}`);
 	if (verifyCommand) lines.push(...verificationRequirementLines(verifyCommand));
-	if (workItemId) lines.push(`Work Item: ${workItemId}`);
+	if (workItemId)
+		lines.push(
+			`Work Item: ${workItemId}`,
+			"Home and the native runtime manage admission, heartbeat, settlement and completion of this linked Work Item. Execute under that admission; do not create, start or settle another Attempt for it.",
+		);
 	const capabilityPlan = recordField(workOrder, "capabilityPlan");
 	if (capabilityPlan) {
 		lines.push(

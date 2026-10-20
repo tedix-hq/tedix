@@ -30,7 +30,10 @@ import type { KernelRouteDecision } from "./route-schema";
 // Verb-led delegation asks. `have/let/get/make <name> do|handle|…` covers the
 // "have the CTO do it" family without naming a roster (the planner already
 // resolves the target). Spanish mirrors: delega/asigna/encarga/que lo haga.
+const NAMED_TEDI_TASK_PATTERN =
+	/^(?:please\s+)?(?:coding\s+)?(?:task|trial|goal)\s+for\s+(?:(?:a|an|the)\s+)?(?:[\w-]+\s+){0,3}tedi\b/i;
 const EXPLICIT_DELEGATION_PATTERNS: readonly RegExp[] = [
+	NAMED_TEDI_TASK_PATTERN,
 	/\bdelegat(?:e|es|ed|ing|ion)\b/i,
 	/\bassign(?:s|ed|ing)?\b/i,
 	/\b(?:have|let|get|make|ask|tell)\s+(?:the\s+)?[\w-]+(?:\s+tedi)?\s+(?:do|handle|take|run|own|build|work|fetch|pull|check|verify|fix|write|draft|prepare|investigate|look)\b/i,
@@ -213,6 +216,26 @@ export function guardKernelRouteDecision<T extends KernelRouteDecision>(
 			clarifyingQuestion: null,
 			evidenceExpectation: null,
 			explicitDelegationIntent: false,
+		};
+	}
+	const outerRequest = (content.split(/\bBrief:\s*/, 1)[0] ?? content).trim();
+	if (
+		decision.routeKind === "suggest_handoff" &&
+		decision.targetTediId &&
+		explicitDelegationIntent &&
+		NAMED_TEDI_TASK_PATTERN.test(outerRequest) &&
+		/\b(?:implement|refactor|fix|build)\b/i.test(outerRequest) &&
+		!/\b(?:extended|human[ -](?:driven|guided)|interactive)\s+session\b|\b(?:with me|walk me through)\b/i.test(
+			outerRequest,
+		)
+	) {
+		return {
+			...decision,
+			routeKind: "delegate_tedi",
+			answer: null,
+			rationale: `${decision.rationale} [kernel guard: explicitly requested tedi implementation; dispatch policy still applies]`,
+			effortClass: decision.effortClass ?? "embodied",
+			explicitDelegationIntent,
 		};
 	}
 	if (

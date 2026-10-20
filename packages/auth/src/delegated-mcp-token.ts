@@ -167,11 +167,19 @@ export function isDelegatedWorkTool(
 			"list_work_item_attempts",
 			"list_work_attempts",
 		]),
+		"workitems/listevidence": new Set([
+			"list_work_item_evidence",
+			"list_work_evidence",
+		]),
+		"workitems/listevents": new Set([
+			"list_work_item_events",
+			"list_work_events",
+		]),
 	};
 	const safeNames = normalizedEndpoint
 		? safeReadNamesByEndpoint[normalizedEndpoint]
 		: undefined;
-	if (safeNames?.has(rawName)) {
+	if (toolTypeId === "rpc" && safeNames?.has(rawName)) {
 		const aggregateNamespace = config?._aggregateNamespace;
 		const aggregateRemoteName = config?._aggregateTediRemoteName;
 		if (aggregateNamespace === undefined && aggregateRemoteName === undefined) {
