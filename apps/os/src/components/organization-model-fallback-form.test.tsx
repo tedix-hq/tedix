@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { COGNITION_MODEL_CATALOG } from "@tedix/api-contract/schemas/model-catalog";
@@ -11,7 +11,10 @@ vi.mock("@/lib/api", () => ({
 	},
 }));
 describe("organization fallback settings", () => {
+	afterEach(() => vi.restoreAllMocks());
+
 	it("shows inherited policy, ordered fallbacks, cap and critical boundaries", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const client = new QueryClient();
 		client.setQueryData(modelCatalogQueryOptions().queryKey, {
 			models: COGNITION_MODEL_CATALOG.map((entry) => ({
@@ -48,5 +51,15 @@ describe("organization fallback settings", () => {
 			"Fixed-model and residency requirements still apply",
 		);
 		expect(html).toContain("fallback 1");
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		const cap = container.querySelector('input[type="number"]')!;
+		const label = container.querySelector("label")!;
+		const labelText = label.querySelector("span[id]")!;
+		expect(cap.getAttribute("aria-labelledby")).toBe(labelText.id);
+		expect(labelText.id).not.toBe("");
+		expect(label.htmlFor).toBe(cap.id);
+		expect(label.textContent).toBe("Maximum switches per model operation");
+		expect(warn).not.toHaveBeenCalled();
 	});
 });
