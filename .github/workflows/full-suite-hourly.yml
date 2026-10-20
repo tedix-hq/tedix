@@ -1,6 +1,8 @@
 name: Full suite hourly
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -10,7 +12,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: full-suite-hourly-main
+  group: main
   cancel-in-progress: true
 
 env:
@@ -73,10 +75,9 @@ jobs:
         if: matrix.test
         env:
           WORKSPACE: ${{ matrix.workspace }}
-        run: bun run --cwd "$WORKSPACE" test:run
-      - name: OS browser apps certification
-        if: matrix.workspace == 'apps/os'
-        run: bun run --cwd apps/os test:browser:apps
+        run: |
+          script="$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')"
+          bun run --cwd "$WORKSPACE" "$script"
       - name: Type-check
         if: ${{ !cancelled() && matrix.types }}
         env:
@@ -106,3 +107,30 @@ jobs:
         run: bun run type-check:scripts
       - if: ${{ !cancelled() }}
         run: bun run docs:public:check
+
+      - if: ${{ !cancelled() }}
+        run: bun run verify --all --ci-policy
+      - name: Require shellcheck
+        run: command -v shellcheck
+      - name: Lint workflows with shellcheck
+        uses: ./.github/actions/actionlint
+
+  aggregate:
+    name: Main CI
+    needs: [plan, workspace, repository]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every shard
+        env:
+          PLAN: ${{ needs.plan.result }}
+          SKIP: ${{ needs.plan.outputs.skip }}
+          WORKSPACE: ${{ needs.workspace.result }}
+          REPOSITORY: ${{ needs.repository.result }}
+        run: |
+          test "$PLAN" = success
+          if [ "$SKIP" != true ]; then
+            test "$WORKSPACE" = success
+            test "$REPOSITORY" = success
+          fi

@@ -18,10 +18,11 @@ export function workspaceMatrix(root = ".") {
 				throw error;
 			}
 			const { scripts = {} } = JSON.parse(manifest);
-			if (!scripts["test:run"] && !scripts["type-check"]) continue;
+			if (!scripts["test:run"] && !scripts["test:ci"] && !scripts["type-check"])
+				continue;
 			include.push({
 				workspace,
-				test: !!scripts["test:run"],
+				test: !!(scripts["test:ci"] || scripts["test:run"]),
 				types: !!scripts["type-check"],
 			});
 		}
@@ -35,17 +36,12 @@ export function workspaceMatrix(root = ".") {
 export async function alreadyPassed({ repository, sha, runId, request }) {
 	for (let page = 1; ; page++) {
 		const result = await request(
-			`/repos/${repository}/actions/workflows/full-suite-hourly.yml/runs?branch=main&head_sha=${sha}&status=success&per_page=100&page=${page}`,
+			`/repos/${repository}/actions/workflows/full-suite-hourly.yml/runs?branch=main&head_sha=${sha}&per_page=100&page=${page}`,
 		);
-		if (
-			result.workflow_runs.some(
-				(run) =>
-					run.head_sha === sha &&
-					run.conclusion === "success" &&
-					String(run.id) !== String(runId),
-			)
-		)
-			return true;
+		const previous = result.workflow_runs.find(
+			(run) => run.head_sha === sha && String(run.id) !== String(runId),
+		);
+		if (previous) return previous.conclusion === "success";
 		if (result.workflow_runs.length < 100) return false;
 	}
 }
