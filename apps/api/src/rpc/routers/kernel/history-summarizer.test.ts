@@ -109,13 +109,13 @@ describe("createKernelHistorySummarizer", () => {
 		});
 		const call = mockGenerateText.mock.calls[0]?.[0] as {
 			model: unknown;
-			system: string;
+			instructions: string;
 			telemetry: { functionId: string };
 			runtimeContext: Record<string, string>;
 			abortSignal?: AbortSignal;
 		};
 		expect(call.model).toBe(FAKE_MODEL);
-		expect(call.system).toBe("SYSTEM");
+		expect(call.instructions).toBe("SYSTEM");
 		expect(call.telemetry.functionId).toBe(HISTORY_SUMMARY_FUNCTION_ID);
 		expect(call.runtimeContext).toMatchObject({
 			agentId: "home-kernel",

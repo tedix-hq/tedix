@@ -200,7 +200,7 @@ export async function generateAndPersistHomeConversationTitle(
 				const { tracedAi } = await import("../../../lib/traced-ai");
 				const result = await tracedAi.generateText({
 					model: model.model,
-					system: TITLE_SYSTEM_PROMPT,
+					instructions: TITLE_SYSTEM_PROMPT,
 					runtimeContext: kernelSpanContext({
 						organizationId: input.organizationId,
 						sessionKey: input.conversationId,
