@@ -1005,7 +1005,6 @@ function DecisionDeckContent({
 							}
 						/>
 					)}
-				{!practiceMode && mode === "decide" && <DeckCurationFooter />}
 				{practiceMode && (
 					<Text role="label" tone="secondary" className="fd-practice-notice">
 						Practice only. Choices below stay in this preview and never approve
@@ -1334,6 +1333,13 @@ function DecisionDeckContent({
 								</ProposerContext.Provider>
 							</DeckFooterContext.Provider>
 						</DeckNoticeContext.Provider>
+						{mode === "decide" && !practiceMode && selected.row?.request && (
+							<DeckNotUseful
+								key={`${selected.row.request.id}:${selected.row.request.version}`}
+								request={selected.row.request}
+								disabled={saving}
+							/>
+						)}
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
 								<Button variant="ghost" onClick={previous}>
@@ -1393,6 +1399,7 @@ function DecisionDeckContent({
 					))
 				)}
 				<DecisionContextSection sectionId="style" title="Results and learning">
+					{!practiceMode && <DeckCurationFooter />}
 					<DeckAttentionMetrics />
 					<LearnedToday />
 					{mode === "decide" && classId && (
