@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { ExternalAgentPrincipalMetadataSchema } from "@tedix/api-contract/schemas/external-agent-identity";
 import { hostname, userInfo } from "node:os";
 import {
 	type ExternalAgentSessionExchangeOutput,
@@ -1240,6 +1242,289 @@ export async function listStaleExternalAgentKnowledgeSessions(options: {
 				staleBefore: options.staleBefore,
 				limit: options.limit ?? 100,
 			},
+		);
+	} finally {
+		await client.close();
+	}
+}
+
+type CloudAgentPlatform = "claude-cloud" | "codex-cloud" | "devin-cloud";
+
+export interface MintExternalAgentOptions {
+	workspace: string;
+	organization?: string;
+	workspaceCredential: WorkspaceCredential;
+	mcpUrl: string;
+	oauthBearer: string;
+	platform?: string;
+	forUser?: string;
+	scopes?: string;
+	expires?: string;
+	name?: string;
+	now?: Date;
+	listWorkspaces?: () => Promise<AvailableWorkspace[]>;
+	createClient?: GatewayClientFactory;
+}
+
+export interface MintedExternalAgent {
+	rawKey: string;
+	platform: CloudAgentPlatform;
+	organizationId: string;
+	principalId: string;
+	principalKey: string;
+	representedUserId: string;
+	allowedScopes: string[];
+	expiresAt: string;
+	setup: string;
+}
+
+export function cloudAgentSetup(
+	agent: Omit<MintedExternalAgent, "rawKey" | "setup">,
+): string {
+	const networkHost = "connect.mcp.tedix.dev";
+	const lines =
+		agent.platform === "claude-cloud"
+			? [
+					"Claude cloud setup",
+					"  Environment → Network secrets",
+					`  Host: ${networkHost}`,
+					"  Header name: X-API-Key",
+					"  Prefix: (empty)",
+					"  Value: paste the bootstrap key printed above",
+					"  Setup script: install the Tedix CLI only; secrets attach after launch.",
+				]
+			: agent.platform === "codex-cloud"
+				? [
+						"Codex cloud setup",
+						"  Environment → Network secrets",
+						"  Name: TEDIX_AGENT_KEY",
+						`  Allowed domain: ${networkHost}`,
+						"  Value: paste the bootstrap key printed above",
+						"  Use a current environment; legacy environments strip secrets before the agent phase.",
+					]
+				: [
+						"Devin cloud setup (unverified until the Phase 4 pilot)",
+						"  Secrets → add TEDIX_AGENT_KEY",
+						"  Value: paste the bootstrap key printed above",
+						"  CLI path: reference ${TEDIX_AGENT_KEY}",
+						"  Never use the MCP Auth Header for this bootstrap key.",
+					];
+	lines.push(
+		"",
+		"Environment variables:",
+		`  TEDIX_ORGANIZATION=${agent.organizationId}`,
+		`  TEDIX_EXTERNAL_AGENT=${agent.principalKey}`,
+		`  TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=${agent.principalId}`,
+	);
+	if (agent.platform === "claude-cloud")
+		lines.push(
+			"  TEDIX_AGENT_KEY=proxy-injected",
+			"  TEDIX_AGENT_SESSION=claude-cloud:<CLAUDE_CODE_REMOTE_SESSION_ID>",
+		);
+	else if (agent.platform === "codex-cloud")
+		lines.push(
+			"  TEDIX_AGENT_SESSION=codex-cloud:<run-id>",
+			"  The CLI sends the network-secret placeholder in X-API-Key; the proxy substitutes it.",
+		);
+	else lines.push("  TEDIX_AGENT_SESSION=devin-cloud:<run-id>");
+	lines.push(
+		"",
+		`Expires: ${agent.expiresAt}`,
+		`Allowed scopes: ${agent.allowedScopes.join(", ")}`,
+	);
+	return lines.join("\n");
+}
+
+export function formatMintedExternalAgent(
+	agent: MintedExternalAgent,
+	json = false,
+): string {
+	return json
+		? JSON.stringify(agent, null, 2)
+		: `Bootstrap key (shown once): ${agent.rawKey}\n\n${agent.setup}`;
+}
+
+export async function mintExternalAgent(
+	options: MintExternalAgentOptions,
+): Promise<MintedExternalAgent> {
+	if (
+		!["claude-cloud", "codex-cloud", "devin-cloud"].includes(
+			options.platform ?? "",
+		)
+	)
+		throw new Error(
+			"--platform must be claude-cloud, codex-cloud, or devin-cloud.",
+		);
+	const platform = options.platform as CloudAgentPlatform;
+	const forUser = options.forUser?.trim();
+	if (
+		!forUser ||
+		(forUser !== "me" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forUser))
+	)
+		throw new Error("--for must be an email address or me.");
+	const expiry = options.expires ?? "30d";
+	if (!/^[1-9]\d?d$/.test(expiry) || Number(expiry.slice(0, -1)) > 90)
+		throw new Error("--expires must be 1d through 90d (default 30d).");
+	const expiresAt = new Date(
+		(options.now ?? new Date()).getTime() +
+			Number(expiry.slice(0, -1)) * 86_400_000,
+	).toISOString();
+	const name = options.name?.trim() ?? `${platform} agent`;
+	if (!name || name.length > 100)
+		throw new Error("--name must be 1-100 characters.");
+	const readScopes = ["mcp:work.read", "mcp:observe.read"];
+	const requested = options.scopes ?? "read-only";
+	const allowedScopes = [
+		...new Set(
+			requested === "read-only"
+				? readScopes
+				: requested === "contributor"
+					? [...readScopes, "mcp:work.write"]
+					: requested.split(",").map((scope) => scope.trim()),
+		),
+	];
+	ExternalAgentPrincipalMetadataSchema.parse({ platform, allowedScopes });
+	if (!options.oauthBearer || !options.workspaceCredential)
+		throw new Error("A signed-in owner is required to mint a cloud agent.");
+	const target = isMultiOrganizationMcpUrl(options.mcpUrl)
+		? resolveOrganizationTarget({
+				url: options.mcpUrl,
+				command: "agent",
+				workspace: options.workspace,
+				organization: options.organization,
+				accessToken: options.oauthBearer,
+			})
+		: { headers: {}, organization: options.organization };
+	const client = createGatewayClient(
+		{
+			url: options.mcpUrl,
+			headers: {
+				Authorization: `Bearer ${options.oauthBearer}`,
+				...target.headers,
+			},
+		},
+		options.createClient,
+	);
+	let rawKey: string | undefined;
+	let mintStarted = false;
+	try {
+		const organization = await resolveOrganization({
+			...options,
+			organization: target.organization,
+			client,
+		});
+		// Resolve the canonical user id, never the provider subject or membership id.
+		const matches: Record<string, unknown>[] = [];
+		for (let offset = 0; ; offset += 100) {
+			if (offset >= 10_000)
+				throw new Error("Member inventory exceeds the mint lookup limit.");
+			const page = await callGatewayTool<{
+				data: Record<string, unknown>[];
+				pagination: { hasMore: boolean };
+			}>(client, "members", "list_members", {
+				organizationId: organization.id,
+				status: "active",
+				limit: 100,
+				offset,
+			});
+			if (
+				!Array.isArray(page.data) ||
+				typeof page.pagination?.hasMore !== "boolean"
+			)
+				throw new Error("Incomplete member inventory; no agent minted.");
+			matches.push(
+				...page.data.filter(
+					(member) =>
+						member.status === "active" &&
+						member.kind !== "external_agent" &&
+						!member.tediId &&
+						(forUser === "me"
+							? member.descopeUserId === options.workspaceCredential.loginId
+							: typeof member.email === "string" &&
+								member.email.toLowerCase() === forUser.toLowerCase()),
+				),
+			);
+			if (!page.pagination.hasMore) break;
+			if (page.data.length === 0)
+				throw new Error("Incomplete member inventory; no agent minted.");
+		}
+		if (
+			matches.length !== 1 ||
+			typeof matches[0]!.userId !== "string" ||
+			!matches[0]!.userId
+		)
+			throw new Error(
+				"--for must resolve to exactly one active human with a canonical user id in this organization.",
+			);
+		const representedUserId = matches[0]!.userId as string;
+		const principalKey = `${platform}-${randomUUID()}`;
+		mintStarted = true;
+		const createdKey = await callGatewayTool<Record<string, unknown>>(
+			client,
+			"organizations",
+			"create_api_key",
+			{
+				organizationId: organization.id,
+				name,
+				purpose: "external_agent_bootstrap",
+				scopes: [],
+				environment: "live",
+				expiresAt,
+			},
+		);
+		rawKey =
+			typeof createdKey.rawKey === "string" ? createdKey.rawKey : undefined;
+		const apiKey = isRecord(createdKey.apiKey) ? createdKey.apiKey : undefined;
+		const keyId = requiredString(apiKey?.id, "API key id", "create_api_key");
+		try {
+			requiredString(rawKey, "raw API key", "create_api_key");
+			const principal = await callGatewayTool<Record<string, unknown>>(
+				client,
+				"external",
+				"create_external_agent_principal",
+				{
+					organizationId: organization.id,
+					key: principalKey,
+					displayName: name,
+					credentialBindingType: "api_key",
+					credentialBindingId: keyId,
+					metadata: { platform, allowedScopes, representedUserId },
+				},
+			);
+			const agent = {
+				platform,
+				organizationId: organization.id,
+				principalId: requiredString(
+					principal.id,
+					"principal id",
+					"create_external_agent_principal",
+				),
+				principalKey,
+				representedUserId,
+				allowedScopes,
+				expiresAt,
+			};
+			return { ...agent, rawKey: rawKey!, setup: cloudAgentSetup(agent) };
+		} catch (error) {
+			await callGatewayTool(
+				client,
+				"organizations",
+				"revoke_api_key",
+				{ organizationId: organization.id, keyId },
+				"Compensate a failed cloud-agent mint",
+			).catch(() => {
+				throw new Error(
+					`Cloud-agent mint failed; automatic revocation of API key ${keyId} failed. Revoke that key before retrying.`,
+				);
+			});
+			throw error;
+		}
+	} catch (error) {
+		if (!mintStarted) throw error;
+		throw new Error(
+			rawKey
+				? errorText(error).split(rawKey).join("[redacted]")
+				: "Cloud-agent mint failed before a usable key was returned; no credential was printed.",
 		);
 	} finally {
 		await client.close();

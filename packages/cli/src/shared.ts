@@ -188,6 +188,13 @@ export interface CliOptions {
 	factoryMaxProposals?: string;
 	factoryWorkspaceId?: string;
 	factoryDryRun?: boolean;
+	agentMint?: {
+		platform?: string;
+		forUser?: string;
+		scopes?: string;
+		expires?: string;
+		name?: string;
+	};
 	// `tedix agent start` immutable executor/session provenance.
 	agentKey?: string;
 	agentDisplayName?: string;

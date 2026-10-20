@@ -1,0 +1,63 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`agent mint output claude-cloud setup prints one key in text and JSON: claude-cloud 1`] = `
+"Bootstrap key (shown once): [MASKED]
+
+Claude cloud setup
+  Environment → Network secrets
+  Host: connect.mcp.tedix.dev
+  Header name: X-API-Key
+  Prefix: (empty)
+  Value: paste the bootstrap key printed above
+  Setup script: install the Tedix CLI only; secrets attach after launch.
+
+Environment variables:
+  TEDIX_ORGANIZATION=org-fixture
+  TEDIX_EXTERNAL_AGENT=cloud-fixture
+  TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=principal-fixture
+  TEDIX_AGENT_KEY=proxy-injected
+  TEDIX_AGENT_SESSION=claude-cloud:<CLAUDE_CODE_REMOTE_SESSION_ID>
+
+Expires: 2026-11-19T00:00:00.000Z
+Allowed scopes: mcp:work.read, mcp:observe.read"
+`;
+
+exports[`agent mint output codex-cloud setup prints one key in text and JSON: codex-cloud 1`] = `
+"Bootstrap key (shown once): [MASKED]
+
+Codex cloud setup
+  Environment → Network secrets
+  Name: TEDIX_AGENT_KEY
+  Allowed domain: connect.mcp.tedix.dev
+  Value: paste the bootstrap key printed above
+  Use a current environment; legacy environments strip secrets before the agent phase.
+
+Environment variables:
+  TEDIX_ORGANIZATION=org-fixture
+  TEDIX_EXTERNAL_AGENT=cloud-fixture
+  TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=principal-fixture
+  TEDIX_AGENT_SESSION=codex-cloud:<run-id>
+  The CLI sends the network-secret placeholder in X-API-Key; the proxy substitutes it.
+
+Expires: 2026-11-19T00:00:00.000Z
+Allowed scopes: mcp:work.read, mcp:observe.read"
+`;
+
+exports[`agent mint output devin-cloud setup prints one key in text and JSON: devin-cloud 1`] = `
+"Bootstrap key (shown once): [MASKED]
+
+Devin cloud setup (unverified until the Phase 4 pilot)
+  Secrets → add TEDIX_AGENT_KEY
+  Value: paste the bootstrap key printed above
+  CLI path: reference \${TEDIX_AGENT_KEY}
+  Never use the MCP Auth Header for this bootstrap key.
+
+Environment variables:
+  TEDIX_ORGANIZATION=org-fixture
+  TEDIX_EXTERNAL_AGENT=cloud-fixture
+  TEDIX_EXTERNAL_AGENT_PRINCIPAL_ID=principal-fixture
+  TEDIX_AGENT_SESSION=devin-cloud:<run-id>
+
+Expires: 2026-11-19T00:00:00.000Z
+Allowed scopes: mcp:work.read, mcp:observe.read"
+`;

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CAPABILITY_SCOPES } from "@tedix/mcp-shared/auth/scopes";
 import {
+	mintExternalAgent,
 	defaultLocalPrincipal,
 	externalAgentStatus,
 	finishExternalAgentSession,
@@ -1501,4 +1502,198 @@ test("points an unconfirmed agent-named profile to agent rename, and stays quiet
 		notice: (message) => notices.push(message),
 	});
 	expect(notices).toEqual([]);
+});
+
+describe("cloud agent mint", () => {
+	const base = {
+		workspace: "acme",
+		organization: "org_acme",
+		mcpUrl: "https://example.test/mcp",
+		oauthBearer: "owner-oauth",
+		workspaceCredential: { loginId: "owner-subject", org: "org_acme" },
+		platform: "claude-cloud",
+		forUser: "me",
+		name: "Cloud review",
+		now: new Date("2026-10-20T00:00:00.000Z"),
+		listWorkspaces: async () => [
+			{
+				org: ORG,
+				slug: "acme",
+				name: "Acme",
+				gatewayUrl: null,
+				descopeTenantId: "org_acme",
+			},
+		],
+	};
+	function fixture(failPrincipal = false, failRevoke = false) {
+		const calls: Array<{ tool: string; input: Record<string, unknown> }> = [];
+		let closed = false;
+		return {
+			calls,
+			get closed() {
+				return closed;
+			},
+			createClient: () => ({
+				close: async () => {
+					closed = true;
+				},
+				runCode: async (source: string) => {
+					const match = source.match(/await ([\w.]+)\((.*)\)$/)!;
+					const tool = match[1]!;
+					const input = JSON.parse(match[2]!);
+					calls.push({ tool, input });
+					if (tool === "members.list_members")
+						return {
+							result: {
+								data: [
+									{
+										userId: "user_owner",
+										descopeUserId: "owner-subject",
+										email: "owner@example.test",
+										kind: "human",
+										status: "active",
+									},
+								],
+								pagination: { hasMore: false },
+							},
+						};
+					if (tool === "organizations.create_api_key")
+						return {
+							result: { rawKey: "sk_mint_fixture", apiKey: { id: "key-id" } },
+						};
+					if (tool === "external.create_external_agent_principal") {
+						if (failPrincipal)
+							throw new Error("provider echoed sk_mint_fixture");
+						return { result: { id: PRINCIPAL } };
+					}
+					if (tool === "organizations.revoke_api_key" && failRevoke)
+						throw new Error("revoke failed sk_mint_fixture");
+					return { result: { success: true } };
+				},
+			}),
+		};
+	}
+	test("uses a bootstrap-only expiring key and a canonical human scope ceiling without persisting", async () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-mint-"));
+		dirs.push(configDir);
+		process.env.TEDIX_CONFIG_DIR = configDir;
+		const f = fixture();
+		const result = await mintExternalAgent({
+			...base,
+			createClient: f.createClient,
+		});
+		expect(f.calls).toEqual([
+			{
+				tool: "members.list_members",
+				input: { organizationId: ORG, status: "active", limit: 100, offset: 0 },
+			},
+			{
+				tool: "organizations.create_api_key",
+				input: {
+					organizationId: ORG,
+					name: "Cloud review",
+					purpose: "external_agent_bootstrap",
+					scopes: [],
+					environment: "live",
+					expiresAt: "2026-11-19T00:00:00.000Z",
+				},
+			},
+			{
+				tool: "external.create_external_agent_principal",
+				input: {
+					organizationId: ORG,
+					key: result.principalKey,
+					displayName: "Cloud review",
+					credentialBindingType: "api_key",
+					credentialBindingId: "key-id",
+					metadata: {
+						platform: "claude-cloud",
+						allowedScopes: ["mcp:work.read", "mcp:observe.read"],
+						representedUserId: "user_owner",
+					},
+				},
+			},
+		]);
+		expect(result.rawKey).toBe("sk_mint_fixture");
+		expect(result.setup).not.toContain(result.rawKey);
+		expect(readdirSync(configDir)).toEqual([]);
+		expect(f.closed).toBe(true);
+	});
+	test.each(["0d", "91d", "365d", "-1d", "1.5d", "30", "Infinityd"])(
+		"rejects invalid expiry %s before any call",
+		async (expires) => {
+			const f = fixture();
+			await expect(
+				mintExternalAgent({ ...base, expires, createClient: f.createClient }),
+			).rejects.toThrow("1d through 90d");
+			expect(f.calls).toEqual([]);
+		},
+	);
+	test("accepts 90d, resolves email, and contributor only adds Work writes", async () => {
+		const f = fixture();
+		const result = await mintExternalAgent({
+			...base,
+			forUser: "OWNER@example.test",
+			expires: "90d",
+			scopes: "contributor",
+			createClient: f.createClient,
+		});
+		expect(result.expiresAt).toBe("2027-01-18T00:00:00.000Z");
+		expect(result.allowedScopes).toEqual([
+			"mcp:work.read",
+			"mcp:observe.read",
+			"mcp:work.write",
+		]);
+	});
+	test("revokes after principal failure and does not echo the key", async () => {
+		const f = fixture(true);
+		await expect(
+			mintExternalAgent({ ...base, createClient: f.createClient }),
+		).rejects.toThrow("provider echoed [redacted]");
+		expect(f.calls.at(-1)).toEqual({
+			tool: "organizations.revoke_api_key",
+			input: {
+				organizationId: ORG,
+				keyId: "key-id",
+				reason: "Compensate a failed cloud-agent mint",
+				confirmDestructive: true,
+			},
+		});
+		expect(f.closed).toBe(true);
+	});
+	test("reports failed compensation using only the key id", async () => {
+		const f = fixture(true, true);
+		await expect(
+			mintExternalAgent({ ...base, createClient: f.createClient }),
+		).rejects.toThrow("automatic revocation of API key key-id failed");
+		expect(f.closed).toBe(true);
+	});
+	test.each([
+		"mcp:work",
+		"platform:admin",
+		"connections.admin",
+		"mcp:settings.read",
+		"mcp:work.read,",
+		"unknown",
+	])(
+		"rejects unsafe or malformed scope list %s before mint",
+		async (scopes) => {
+			const f = fixture();
+			await expect(
+				mintExternalAgent({ ...base, scopes, createClient: f.createClient }),
+			).rejects.toThrow();
+			expect(f.calls).toEqual([]);
+		},
+	);
+	test("rejects an unknown represented human before mint", async () => {
+		const f = fixture();
+		await expect(
+			mintExternalAgent({
+				...base,
+				forUser: "missing@example.test",
+				createClient: f.createClient,
+			}),
+		).rejects.toThrow("exactly one active human");
+		expect(f.calls).toHaveLength(1);
+	});
 });

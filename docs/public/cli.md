@@ -169,6 +169,40 @@ question without delivering it to the asking session, for closures such as
 `--display-name`), so sessions on this machine no longer appear as whichever
 agent first set the profile up.
 
+Mint a bootstrap credential for a cloud agent from a signed-in owner's terminal:
+
+```sh
+tedix agent mint --platform claude-cloud --for me
+tedix agent mint --platform codex-cloud --for person@example.com \
+  --scopes contributor --expires 30d --name "Cloud contributor"
+tedix agent mint --platform devin-cloud --for me --json
+```
+
+`--platform` accepts `claude-cloud`, `codex-cloud`, or `devin-cloud`;
+`--for` accepts `me` or an active human member's email in the selected
+organization. `--scopes` defaults to `read-only` (`mcp:work.read` and
+`mcp:observe.read`); `contributor` adds `mcp:work.write`. An explicit
+comma-separated list must use the current cloud enrollment capability scopes;
+unknown scopes, broad capabilities, admin scopes, and settings scopes are refused.
+Expiry defaults to `30d` and accepts whole days from `1d` through `90d`.
+
+The command creates an expiring, bootstrap-only key with no direct API scopes
+and a principal with a separate capability ceiling. It prints the raw key once,
+followed by the platform setup block, and saves no agent credential to disk.
+`--json` puts the key only in `rawKey`; `setup` contains instructions without
+another copy. Keep the output private. A failed principal creation triggers
+revocation of the newly created key.
+
+For Claude cloud, paste the key into Network secrets for host
+`connect.mcp.tedix.dev`, header `X-API-Key`, with an empty prefix. For current
+Codex cloud environments, use network secret `TEDIX_AGENT_KEY` and allow
+`connect.mcp.tedix.dev`; legacy environments that strip secrets before the
+agent phase are unsupported. For Devin cloud, add `TEDIX_AGENT_KEY` to Secrets
+and reference `${TEDIX_AGENT_KEY}` in the CLI path; never use the MCP Auth Header.
+Devin runtime access remains unverified until its pilot. The printed variables
+are for the cloud profile consumer; minting alone does not verify a cloud
+session or install the CLI. Owner login still requires a human terminal.
+
 Undo an opt-in with `context unbind`, `disable-decision-capture`,
 `TEDIX_PLUGIN_PREFLIGHT=0` or `TEDIX_AGENT_STATUS=0`. To remove the hooks
 entirely, disable or uninstall the Tedix plugin in the host. Codex runs a
