@@ -27,7 +27,7 @@ function IntentlessLoginRedirect() {
 }
 
 export function ProductLoginPage() {
-	useDocumentTitle("Sign in · Tedix OS");
+	useDocumentTitle("Sign in");
 	const intent = resolveProductLoginIntent(window.location.href);
 	if (!intent) {
 		// A magic-link email lands on the static `/login` with only the

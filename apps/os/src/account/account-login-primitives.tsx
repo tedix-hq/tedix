@@ -69,7 +69,7 @@ export function CredentialPostLoginScreen({
 	redirectUrl: string;
 	title: string;
 }) {
-	useDocumentTitle("Sign in · Tedix OS");
+	useDocumentTitle("Sign in");
 	const [flowReady, setFlowReady] = useState(false);
 	const continueJourney = useCallback(
 		(sessionJwt: string) => {

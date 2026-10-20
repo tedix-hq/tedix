@@ -21,11 +21,7 @@ export const Route = createFileRoute("/_session/account/onboarding")({
 
 function AccountOnboardingRoute() {
 	const { new: createNew } = Route.useSearch();
-	useDocumentTitle(
-		createNew
-			? "Create a workspace · Tedix OS"
-			: "Set up your workspace · Tedix OS",
-	);
+	useDocumentTitle(createNew ? "Create a workspace" : "Set up your workspace");
 	const tenant = resolveOsTenant(window.location.hostname);
 	const localEvaluation = tenant.kind === "local";
 	const identity = useOsIdentity();

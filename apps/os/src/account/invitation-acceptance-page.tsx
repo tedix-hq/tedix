@@ -35,7 +35,7 @@ function recoveryUrl(target: InvitationTarget): string {
 }
 
 function InvitationAcceptanceContent() {
-	useDocumentTitle("Accept invitation · Tedix OS");
+	useDocumentTitle("Accept invitation");
 	const descope = useDescope();
 	const started = useRef(false);
 	const [error, setError] = useState<string | null>(null);

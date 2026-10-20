@@ -1398,7 +1398,7 @@ function SessionReadyInboundConsent() {
 }
 
 export function InboundConsentPage() {
-	useDocumentTitle("Authorize access · Tedix");
+	useDocumentTitle("Authorize access");
 	// The serialized bootstrap owns the one Descope refresh needed to hydrate
 	// consent, then the inbound-app flow owns the transaction through finish.
 	return (

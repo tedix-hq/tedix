@@ -32,7 +32,7 @@ export const Route = createFileRoute("/_session/account/organizations")({
 });
 
 function AccountOrganizationsRoute() {
-	useDocumentTitle("Choose a workspace · Tedix OS");
+	useDocumentTitle("Choose a workspace");
 	const tenant = resolveOsTenant(window.location.hostname);
 	const osPlatformDomain = resolveOsPlatformDomain(window.location.hostname);
 	const localEvaluation = tenant.kind === "local";

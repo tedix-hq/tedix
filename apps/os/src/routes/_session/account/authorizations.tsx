@@ -5,6 +5,6 @@ export const Route = createFileRoute("/_session/account/authorizations")({
 	component: AuthorizationsRoute,
 });
 function AuthorizationsRoute() {
-	useDocumentTitle("Connected applications · Tedix OS");
+	useDocumentTitle("Connected applications");
 	return <McpAuthorizationsPage />;
 }
