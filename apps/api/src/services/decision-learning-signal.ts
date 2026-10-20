@@ -138,16 +138,19 @@ export function decisionCaptureLearningSignal(input: {
 	if (!cardFeedback && response.responseKind !== "answer") return null;
 	const draft =
 		input.draft && input.draft.id === responseMeta.draftId ? input.draft : null;
-	const eventKind: LearningInteractionKind = cardFeedback
-		? responseMeta.feedbackSignal === "approve-as-is"
-			? "accepted"
-			: responseMeta.feedbackSignal === "edited"
-				? "edited"
-				: responseMeta.feedbackSignal === "rejected" ||
-					  responseMeta.feedbackSignal === "reason"
-					? "rejected"
-					: "answered"
-		: eventKindFor(responseMeta, draft);
+	const eventKind: LearningInteractionKind =
+		responseMeta.cardAction === "ask_changes"
+			? "retried"
+			: cardFeedback
+				? responseMeta.feedbackSignal === "approve-as-is"
+					? "accepted"
+					: responseMeta.feedbackSignal === "edited"
+						? "edited"
+						: responseMeta.feedbackSignal === "rejected" ||
+							  responseMeta.feedbackSignal === "reason"
+							? "rejected"
+							: "answered"
+				: eventKindFor(responseMeta, draft);
 	const repo = learningScopeSlug(str(requestMeta.repository, 80));
 	const harness = learningScopeSlug(
 		str(requestMeta.host, 40) ?? str(responseMeta.host, 40),
@@ -195,6 +198,22 @@ export function decisionCaptureLearningSignal(input: {
 			decisionClass: decision.success
 				? decision.data.classId
 				: str(responseMeta.decisionClass, 100),
+			revision:
+				typeof requestMeta.cardRevision === "number"
+					? requestMeta.cardRevision
+					: 1,
+			revisionsBeforeAccept:
+				eventKind === "accepted"
+					? Math.max(0, Number(requestMeta.cardRevision ?? 1) - 1)
+					: null,
+			...(eventKind === "retried"
+				? {
+						instruction: str(responseMeta.instruction, 8000),
+						fromRevision: responseMeta.fromRevision ?? 1,
+						chips: responseMeta.chips ?? [],
+						anchors: responseMeta.anchors ?? [],
+					}
+				: {}),
 			channel: str(requestMeta.channel, 100),
 			personId: str(requestMeta.personId, 200),
 			entityId: str(requestMeta.entityId, 200),

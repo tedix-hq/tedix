@@ -7,6 +7,7 @@ import {
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
 	appendCardRevision,
+	cardChangeHasRevision,
 	getCardRevision,
 	latestCardChangeRequest,
 	listCardRevisions,
@@ -104,7 +105,8 @@ export async function readCardHistory(
 		latestCardChangeRequest(context.db, orgId, requestId),
 	]);
 	const paired =
-		change && revisions.some((revision) => revision.responseId === change.id);
+		change &&
+		(await cardChangeHasRevision(context.db, orgId, requestId, change.id));
 	return {
 		revisions,
 		nextBeforeRevision:

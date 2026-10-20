@@ -1426,6 +1426,8 @@ export const workInteractionsContractRouter = interactionsOs.router({
 						workItemId: request.workItemId,
 						expectedVersion: current.version,
 						action: "feedback",
+						chips: input.chips,
+						anchors: input.anchors,
 						feedback: [
 							input.instruction,
 							...(input.chips ?? []),
@@ -1486,6 +1488,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 						anchors: input.anchors ?? [],
 						chips: input.chips ?? [],
 						field: input.field ?? "draft",
+						fromRevision: history.at(-1)!.revision,
 						source: "os-decision-card",
 					},
 				},

@@ -12,6 +12,7 @@ import {
 	workApprovalProposals,
 	workApprovalDecisions,
 	workInteractionCardPresentations,
+	workInteractionCardRevisions,
 } from "@tedix/db/schema/work-factory";
 import { workItems } from "@tedix/db/schema/work-items";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
@@ -42,6 +43,7 @@ function fixture() {
 			workApprovalProposals,
 			workApprovalDecisions,
 			workInteractionCardPresentations,
+			workInteractionCardRevisions,
 			tediApprovalRequests,
 			memoryFacts,
 			learningInteractionEvents,
@@ -156,6 +158,7 @@ describe("decision instrumentation", () => {
 			limit: 20,
 		});
 		expect(proof.exposures).toHaveLength(1);
+		expect(proof.exposures[0]?.snapshot.revision).toBe(1);
 		expect(proof.exposures[0]?.id).toBe(receipt.id);
 		expect(proof.exposures[0]?.snapshot.title).toBe(
 			"Approve the fictional draft",
