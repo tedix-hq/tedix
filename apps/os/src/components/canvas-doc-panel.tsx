@@ -645,7 +645,7 @@ export function CanvasDocPanel({
 						<Badge
 							className={
 								documentSaveStatus === "Saved" && !isGadget
-									? "canvas-saved-status"
+									? "bg-transparent! text-kumo-subtle!"
 									: undefined
 							}
 							variant={unsynced ? "warning" : "info"}
