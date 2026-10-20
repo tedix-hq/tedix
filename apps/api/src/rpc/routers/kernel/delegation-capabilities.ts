@@ -85,7 +85,7 @@ export function deriveDelegationCapabilityPlan(input: {
 	if (
 		card &&
 		/\bwork\b/i.test(content) &&
-		/\b(?:history|backlog|attempts)\b/i.test(content)
+		/\b(?:history|backlog|attempts|settled)\b/i.test(content)
 	) {
 		capabilities.push("work.read");
 		for (const id of [
@@ -99,6 +99,14 @@ export function deriveDelegationCapabilityPlan(input: {
 		if (/\bmark\b[^.!?\n]{0,60}\bcompleted\b/i.test(content)) {
 			capabilities.push("work.complete");
 			tools.add("work.complete_work_item");
+		}
+	}
+	if (card && /\bToday\/Feed\s+post\b/i.test(content)) {
+		capabilities.push("today.read");
+		for (const id of ["list_work_apps", "get_os_output"]) tools.add(`os.${id}`);
+		if (/\b(?:write|publish|update|refresh)\b/i.test(content)) {
+			capabilities.push("today.update");
+			tools.add("os.revise_os_output");
 		}
 	}
 	const repositoryTask =
