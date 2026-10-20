@@ -28,7 +28,7 @@ import {
 	CAPABILITY_SCOPE_METADATA,
 	CAPABILITY_SCOPES,
 } from "@tedix/mcp-shared/auth/scopes";
-import { Key, LockKey, ShieldCheck } from "@phosphor-icons/react";
+import { CaretDown, Key, LockKey, ShieldCheck } from "@phosphor-icons/react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
@@ -46,6 +46,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/kumo/table";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 
 /**
@@ -74,7 +79,13 @@ const ROLE_BADGE_VARIANTS = {
 
 /** Human labels for everything a role actually grants, in render order. */
 
-function PermissionBadges({ role }: { role: MemberRole }) {
+function PermissionBadges({
+	role,
+	expandable = false,
+}: {
+	role: MemberRole;
+	expandable?: boolean;
+}) {
 	const described = describeRolePermissions(role);
 	if (described.length === 0) {
 		return (
@@ -88,7 +99,33 @@ function PermissionBadges({ role }: { role: MemberRole }) {
 			{PERMISSION_GROUPS.map((group) => {
 				const inGroup = described.filter((entry) => entry.group === group);
 				if (inGroup.length === 0) return null;
-				return (
+				const badges = (
+					<div className="flex flex-wrap gap-2">
+						{inGroup.map((entry) => (
+							<Badge
+								key={entry.permission}
+								title={`${entry.permission} — ${entry.description}`}
+								variant="outline"
+							>
+								{entry.label}
+							</Badge>
+						))}
+					</div>
+				);
+				return expandable ? (
+					<Collapsible key={group}>
+						<CollapsibleTrigger
+							className="min-h-11 w-full justify-between"
+							aria-label={`${ROLE_METADATA[role].label}: ${GROUP_LABELS[group]} permissions`}
+						>
+							{GROUP_LABELS[group]} ({inGroup.length})
+							<CaretDown aria-hidden className="size-4" />
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							<div className="py-2">{badges}</div>
+						</CollapsibleContent>
+					</Collapsible>
+				) : (
 					<div key={group}>
 						<Text
 							className="mb-1"
@@ -98,17 +135,7 @@ function PermissionBadges({ role }: { role: MemberRole }) {
 						>
 							{GROUP_LABELS[group]}
 						</Text>
-						<div className="flex flex-wrap gap-2">
-							{inGroup.map((entry) => (
-								<Badge
-									key={entry.permission}
-									title={`${entry.permission} — ${entry.description}`}
-									variant="outline"
-								>
-									{entry.label}
-								</Badge>
-							))}
-						</div>
+						{badges}
 					</div>
 				);
 			})}
@@ -118,96 +145,159 @@ function PermissionBadges({ role }: { role: MemberRole }) {
 
 export function RolePermissionsMatrix() {
 	return (
-		<Table
-			className="min-w-[920px]"
-			scrollLabel="Organization role permissions"
-			aria-label="Organization role permissions"
-		>
-			<TableHeader>
-				<TableRow>
-					<TableHead sticky="left" className="min-w-48">
-						Role
-					</TableHead>
-					<TableHead className="min-w-44">Responsibility</TableHead>
-					<TableHead className="min-w-96">Granted permissions</TableHead>
-				</TableRow>
-			</TableHeader>
-			<TableBody>
+		<>
+			<div className="max-lg:hidden">
+				<Table
+					className="min-w-[920px]"
+					scrollLabel="Organization role permissions"
+					aria-label="Organization role permissions"
+				>
+					<TableHeader>
+						<TableRow>
+							<TableHead sticky="left" className="min-w-48">
+								Role
+							</TableHead>
+							<TableHead className="min-w-44">Responsibility</TableHead>
+							<TableHead className="min-w-96">Granted permissions</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{CANONICAL_ROLE_ORDER.map((role) => {
+							const details = ROLE_METADATA[role];
+							return (
+								<TableRow key={role}>
+									<TableCell
+										sticky="left"
+										className="whitespace-nowrap align-top"
+									>
+										<div className="space-y-2">
+											<Badge variant={ROLE_BADGE_VARIANTS[role]}>
+												{details.label}
+											</Badge>
+											<Text
+												className="max-w-64 whitespace-normal leading-relaxed"
+												role="label"
+												tone="secondary"
+											>
+												{details.description}
+											</Text>
+										</div>
+									</TableCell>
+									<TableCell className="whitespace-nowrap align-top text-kumo-default">
+										{details.responsibility}
+									</TableCell>
+									<TableCell className="whitespace-nowrap align-top">
+										<div className="max-w-xl whitespace-normal">
+											<PermissionBadges role={role} />
+										</div>
+									</TableCell>
+								</TableRow>
+							);
+						})}
+					</TableBody>
+				</Table>
+			</div>
+			<div
+				className="grid gap-4 lg:hidden"
+				aria-label="Organization role summaries"
+			>
 				{CANONICAL_ROLE_ORDER.map((role) => {
 					const details = ROLE_METADATA[role];
 					return (
-						<TableRow key={role}>
-							<TableCell sticky="left" className="whitespace-nowrap align-top">
-								<div className="space-y-2">
-									<Badge variant={ROLE_BADGE_VARIANTS[role]}>
-										{details.label}
-									</Badge>
-									<Text
-										className="max-w-64 whitespace-normal leading-relaxed"
-										role="label"
-										tone="secondary"
-									>
-										{details.description}
-									</Text>
-								</div>
-							</TableCell>
-							<TableCell className="whitespace-nowrap align-top text-kumo-default">
-								{details.responsibility}
-							</TableCell>
-							<TableCell className="whitespace-nowrap align-top">
-								<div className="max-w-xl whitespace-normal">
-									<PermissionBadges role={role} />
-								</div>
-							</TableCell>
-						</TableRow>
+						<section
+							key={role}
+							aria-label={`${details.label} role`}
+							className="min-w-0 rounded-lg border border-kumo-line p-4 space-y-3"
+						>
+							<Badge variant={ROLE_BADGE_VARIANTS[role]}>{details.label}</Badge>
+							<Text tone="secondary">{details.description}</Text>
+							<Text weight="medium">{details.responsibility}</Text>
+							<PermissionBadges role={role} expandable />
+						</section>
 					);
 				})}
-			</TableBody>
-		</Table>
+			</div>
+		</>
 	);
 }
 
 export function CapabilityScopeReference() {
 	return (
-		<Table
-			scrollLabel="MCP capability scopes"
-			aria-label="MCP capability scopes"
-		>
-			<TableHeader>
-				<TableRow>
-					<TableHead sticky="left" className="min-w-56">
-						Scope
-					</TableHead>
-					<TableHead>Permits</TableHead>
-					<TableHead className="min-w-32">Granted to</TableHead>
-				</TableRow>
-			</TableHeader>
-			<TableBody>
+		<>
+			<div className="max-lg:hidden">
+				<Table
+					scrollLabel="MCP capability scopes"
+					aria-label="MCP capability scopes"
+				>
+					<TableHeader>
+						<TableRow>
+							<TableHead sticky="left" className="min-w-56">
+								Scope
+							</TableHead>
+							<TableHead>Permits</TableHead>
+							<TableHead className="min-w-32">Granted to</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{CAPABILITY_SCOPES.map((scope) => {
+							const meta = CAPABILITY_SCOPE_METADATA[scope];
+							return (
+								<TableRow key={scope}>
+									<TableCell
+										sticky="left"
+										className="whitespace-nowrap align-top"
+									>
+										<div className="space-y-1">
+											<Text weight="medium">{meta.label}</Text>
+											<Text as="code" role="label" tone="secondary">
+												{scope}
+											</Text>
+										</div>
+									</TableCell>
+									<TableCell className="whitespace-nowrap align-top text-kumo-default">
+										{meta.description}
+									</TableCell>
+									<TableCell className="align-top">
+										<Badge variant={meta.humanOnly ? "secondary" : "outline"}>
+											{meta.humanOnly ? "People only" : "People and tedis"}
+										</Badge>
+									</TableCell>
+								</TableRow>
+							);
+						})}
+					</TableBody>
+				</Table>
+			</div>
+			<div
+				className="grid gap-4 lg:hidden"
+				aria-label="MCP capability scope summaries"
+			>
 				{CAPABILITY_SCOPES.map((scope) => {
 					const meta = CAPABILITY_SCOPE_METADATA[scope];
 					return (
-						<TableRow key={scope}>
-							<TableCell sticky="left" className="whitespace-nowrap align-top">
-								<div className="space-y-1">
-									<Text weight="medium">{meta.label}</Text>
-									<Text as="code" role="label" tone="secondary">
-										{scope}
-									</Text>
-								</div>
-							</TableCell>
-							<TableCell className="whitespace-nowrap align-top text-kumo-default">
-								{meta.description}
-							</TableCell>
-							<TableCell className="align-top">
-								<Badge variant={meta.humanOnly ? "secondary" : "outline"}>
-									{meta.humanOnly ? "People only" : "People and tedis"}
-								</Badge>
-							</TableCell>
-						</TableRow>
+						<section
+							key={scope}
+							aria-label={scope}
+							className="min-w-0 rounded-lg border border-kumo-line p-4 space-y-2"
+						>
+							<Text weight="medium">{meta.label}</Text>
+							<Text
+								as="code"
+								role="label"
+								tone="secondary"
+								className="break-all"
+							>
+								{scope}
+							</Text>
+							<Text>{meta.description}</Text>
+							<Badge variant={meta.humanOnly ? "secondary" : "outline"}>
+								{meta.humanOnly ? "People only" : "People and tedis"}
+							</Badge>
+						</section>
 					);
 				})}
-			</TableBody>
-		</Table>
+			</div>
+		</>
 	);
 }
 
