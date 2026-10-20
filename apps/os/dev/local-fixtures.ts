@@ -2163,6 +2163,115 @@ const MEMORY_HEALTH = {
 	curiosityQueue: { queued: 4, exploring: 1, completedTotal: 37 },
 };
 
+const findingSample = (
+	n: number,
+	text: string,
+	detail: string,
+	extra: {
+		tediId?: string | null;
+		source?: string | null;
+		lastVerifiedAt?: string | null;
+		lastAccessedAt?: string | null;
+	} = {},
+) => ({
+	factId: fid("73", n),
+	tediId: extra.tediId === undefined ? TEDI_NOVA : extra.tediId,
+	text,
+	detail,
+	confidence: 0.8,
+	source: extra.source ?? null,
+	sourceUrl: null,
+	sourceSessionId: null,
+	reviewStatus: "pending",
+	createdAt: "2026-05-02T09:00:00.000Z",
+	lastVerifiedAt: extra.lastVerifiedAt ?? null,
+	lastAccessedAt: extra.lastAccessedAt ?? null,
+});
+
+const MEMORY_HEALTH_FINDINGS = {
+	checkedAt: "2026-10-20T08:00:00.000Z",
+	unusedDays: 60,
+	staleDays: 90,
+	orphanWindow: 2000,
+	graphLayer: { configured: false },
+	findings: [
+		{
+			kind: "unused" as const,
+			count: 38,
+			capped: false,
+			samples: [
+				findingSample(
+					1,
+					"Acme prefers invoices sent on the first business day.",
+					"Never retrieved since it was recorded.",
+					{ source: "conversation://acme-kickoff" },
+				),
+				findingSample(
+					2,
+					"The staging gateway rejects requests without a trace header.",
+					"Last retrieved 2026-06-11T10:00:00.000Z.",
+					{ lastAccessedAt: "2026-06-11T10:00:00.000Z" },
+				),
+			],
+		},
+		{
+			kind: "stale_in_use" as const,
+			count: 6,
+			capped: false,
+			samples: [
+				findingSample(
+					3,
+					"Refunds above 500 EUR need a second approver.",
+					"Still retrieved lately but not re-checked in a long time.",
+					{
+						source: "doc://policies/refunds.md",
+						lastAccessedAt: "2026-10-18T10:00:00.000Z",
+					},
+				),
+			],
+		},
+		{
+			kind: "duplicate" as const,
+			count: 2,
+			capped: false,
+			samples: [
+				findingSample(
+					4,
+					"Support hours are 9 to 17 CET on weekdays.",
+					"2 current facts share one topic key.",
+					{ source: "doc://handbook/support.md" },
+				),
+			],
+		},
+		{
+			kind: "contradiction" as const,
+			count: 2,
+			capped: false,
+			samples: [
+				findingSample(
+					5,
+					"The trial lasts 14 days.",
+					'Contradicts: "The trial lasts 30 days."',
+					{ tediId: null },
+				),
+			],
+		},
+		{
+			kind: "orphan" as const,
+			count: 12,
+			capped: false,
+			samples: [
+				findingSample(
+					6,
+					"Weekly report goes out on Thursdays.",
+					"Not linked to any other fact.",
+					{ source: "conversation://ops-sync" },
+				),
+			],
+		},
+	],
+};
+
 const auditEvent = (
 	n: number,
 	actorId: string,
@@ -4809,6 +4918,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 
 	// --- brain ---
 	"memoryGraph/health": () => MEMORY_HEALTH,
+	"memoryGraph/healthFindings": () => MEMORY_HEALTH_FINDINGS,
 	"rationaleRecords/list": (
 		input:
 			| {

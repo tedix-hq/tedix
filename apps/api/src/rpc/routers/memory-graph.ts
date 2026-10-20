@@ -21,6 +21,7 @@ import {
 import { learn, reflect } from "./memory-graph/retrieval-learning";
 import {
 	feedback,
+	healthFindings,
 	link,
 	opine,
 	promote,
@@ -50,6 +51,7 @@ export const memoryGraphContractRouter = memoryGraphOs.router({
 	assemble: assembleRoute,
 	gaps: gapsRoute,
 	health: healthRoute,
+	healthFindings,
 	link,
 	synthesize,
 	opine,

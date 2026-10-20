@@ -29,6 +29,8 @@ import {
 	searchFactsWithVisibility,
 } from "@tedix/db/queries/memory-graph/fact-search";
 import { getMemoryHealthExtended } from "@tedix/db/queries/memory-graph/health";
+import { getMemoryHealthFindings } from "@tedix/db/queries/memory-graph/health-findings";
+import { getGraphClient } from "../../../integrations/graph-db/client";
 import {
 	getOrCreateDomain,
 	listDomains,
@@ -484,6 +486,18 @@ const health = authed.health
 	.handler(async ({ context }) => {
 		const orgId = requireOrgId(context);
 		return getMemoryHealthExtended(context.db, orgId);
+	});
+
+export const healthFindings = authed.healthFindings
+	.use(AUTHZ.tedisRead)
+	.handler(async ({ context }) => {
+		const orgId = requireOrgId(context);
+		const result = await getMemoryHealthFindings(context.db, orgId);
+		// Configuration only: no Neo4j probe. D1 stays canonical either way.
+		return {
+			...result,
+			graphLayer: { configured: getGraphClient(context.env) !== null },
+		};
 	});
 
 // =============================================================================

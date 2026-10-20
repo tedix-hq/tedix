@@ -253,3 +253,54 @@ export const MemoryHealthSchema = z.object({
 	}),
 });
 export type MemoryHealth = z.infer<typeof MemoryHealthSchema>;
+
+export const MEMORY_HEALTH_FINDING_KINDS = [
+	"unused",
+	"stale_in_use",
+	"duplicate",
+	"contradiction",
+	"orphan",
+] as const;
+
+/** One record named by a finding, with the provenance behind "why we believe this". */
+export const MemoryHealthFindingSampleSchema = z.object({
+	factId: z.string(),
+	tediId: z.string().nullable(),
+	text: z.string(),
+	/** Plain-English reason this record is in the finding. */
+	detail: z.string(),
+	confidence: z.number(),
+	source: z.string().nullable(),
+	sourceUrl: z.string().nullable(),
+	sourceSessionId: z.string().nullable(),
+	reviewStatus: z.string().nullable(),
+	createdAt: z.string().nullable(),
+	lastVerifiedAt: z.string().nullable(),
+	lastAccessedAt: z.string().nullable(),
+});
+export type MemoryHealthFindingSample = z.infer<
+	typeof MemoryHealthFindingSampleSchema
+>;
+
+export const MemoryHealthFindingSchema = z.object({
+	kind: z.enum(MEMORY_HEALTH_FINDING_KINDS),
+	/** Exact count up to `cap`; when `capped`, the true number is at least `count`. */
+	count: z.number().int().nonnegative(),
+	capped: z.boolean(),
+	samples: z.array(MemoryHealthFindingSampleSchema),
+});
+export type MemoryHealthFinding = z.infer<typeof MemoryHealthFindingSchema>;
+
+export const MemoryHealthFindingsSchema = z.object({
+	checkedAt: z.string(),
+	unusedDays: z.number().int(),
+	staleDays: z.number().int(),
+	/** Orphans are measured over this many most recently updated active facts. */
+	orphanWindow: z.number().int(),
+	findings: z.array(MemoryHealthFindingSchema),
+	graphLayer: z.object({
+		/** Whether a Neo4j projection is configured. D1 is canonical either way. */
+		configured: z.boolean(),
+	}),
+});
+export type MemoryHealthFindings = z.infer<typeof MemoryHealthFindingsSchema>;
