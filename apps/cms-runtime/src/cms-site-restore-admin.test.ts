@@ -15,7 +15,7 @@ vi.mock("./cms-recovery-workflow", async (importOriginal) => ({
 	readVerifiedCmsRecoveryCapture: dependencies.readVerifiedCmsRecoveryCapture,
 }));
 
-import { cmsSiteRestoreAdminResponse } from "./index";
+import { cmsSiteRestoreAdminResponse } from "./recovery-admin";
 
 const siteId = "13d1b0d0-2664-4006-981b-d27af4e73794";
 const captureId = "8b7637c1-39b2-41ba-9bac-33fc7e19be7b";

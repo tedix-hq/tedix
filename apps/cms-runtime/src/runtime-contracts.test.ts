@@ -18,16 +18,19 @@ import cmsRuntime, {
 	TenantEmDashDB,
 	TenantRuntimeFailureTail,
 	databaseRuntimeAdminResponse,
-	databaseDeprovisionAdminResponse,
-	databaseStorageAdminResponse,
-	databaseRecoveryBookmarkAdminResponse,
 	lookupUniqueRecoveryBundle,
-	databaseSchemaDiagnosticResponse,
-	mediaBucketAdminResponse,
-	cmsRecoveryAdminResponse,
 	detectBundleDatabaseAdapter,
 	type DatabaseRuntimeAdminDependencies,
 } from "./index";
+import {
+	databaseDeprovisionAdminResponse,
+	databaseStorageAdminResponse,
+	databaseRecoveryBookmarkAdminResponse,
+	databaseSchemaDiagnosticResponse,
+	mediaBucketAdminResponse,
+} from "./database-admin";
+import { cmsRecoveryAdminResponse } from "./recovery-admin";
+
 import {
 	canonicalizeSitemapUrls,
 	sitemapUsesTrailingSlash,
