@@ -171,6 +171,9 @@ export function parseOptions(argv: string[]): {
 			args.splice(index, 1, arg, value);
 		}
 		const consumed =
+			(command === "agent" && positional[0] === "mint"
+				? parseAgentOption(args, index, options, true)
+				: undefined) ??
 			parseWorkOption(args, index, options) ??
 			parseFlowOption(args, index, options) ??
 			parseFactoryOption(args, index, options) ??

@@ -1,4 +1,5 @@
 import { parseOptions } from "./options";
+import { cloudAgentSetup, formatMintedExternalAgent } from "./external-agent";
 import { readPositiveNumberOption } from "./option-values";
 import {
 	afterEach,
@@ -445,6 +446,32 @@ describe("parseOptions", () => {
 		expect(() => readPositiveNumberOption("--budget-usd", "0")).toThrow(
 			"positive number",
 		);
+	});
+
+	test("agent mint routes shared name and expiry flags to mint", () => {
+		const { command, options } = parseOptions([
+			"agent",
+			"mint",
+			"--platform=claude-cloud",
+			"--for",
+			"me",
+			"--scopes",
+			"contributor",
+			"--expires",
+			"30d",
+			"--name",
+			"Cloud review",
+		]);
+		expect(command).toBe("agent");
+		expect(options.prompt).toBe("mint");
+		expect(options.agentMint).toEqual({
+			platform: "claude-cloud",
+			forUser: "me",
+			scopes: "contributor",
+			expires: "30d",
+			name: "Cloud review",
+		});
+		expect(options.factoryName).toBeUndefined();
 	});
 
 	test("external-agent start parses immutable harness and model provenance", () => {
@@ -2662,4 +2689,35 @@ describe("localCommandArgs", () => {
 			"requires a workspace name",
 		);
 	});
+});
+
+describe("agent mint output", () => {
+	for (const platform of [
+		"claude-cloud",
+		"codex-cloud",
+		"devin-cloud",
+	] as const) {
+		test(`${platform} setup prints one key in text and JSON`, () => {
+			const agent = {
+				platform,
+				organizationId: "org-fixture",
+				principalId: "principal-fixture",
+				principalKey: "cloud-fixture",
+				representedUserId: "user-fixture",
+				allowedScopes: ["mcp:work.read", "mcp:observe.read"],
+				expiresAt: "2026-11-19T00:00:00.000Z",
+			};
+			const result = {
+				...agent,
+				rawKey: "sk_mint_fixture",
+				setup: cloudAgentSetup(agent),
+			};
+			const text = formatMintedExternalAgent(result);
+			const json = formatMintedExternalAgent(result, true);
+			expect(text.split(result.rawKey)).toHaveLength(2);
+			expect(json.split(result.rawKey)).toHaveLength(2);
+			expect(JSON.parse(json)).toEqual(result);
+			expect(text.replace(result.rawKey, "[MASKED]")).toMatchSnapshot(platform);
+		});
+	}
 });

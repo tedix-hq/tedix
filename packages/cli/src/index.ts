@@ -393,6 +393,37 @@ async function main() {
 			.trim()
 			.split(/\s+/);
 		const workspace = resolveWorkspaceName(options);
+		if (subcommand === "mint") {
+			if (agentArgs.length)
+				throw new Error(
+					"Unexpected positional arguments; use --platform and --for.",
+				);
+			const { mintExternalAgent, formatMintedExternalAgent } =
+				await import("./external-agent");
+			const { auth, loginError } = await resolveStoredLoginAuth(workspace);
+			const oauthTokens = await auth?.oauthProvider?.tokens();
+			const bearer =
+				auth?.headers.Authorization?.replace(/^Bearer /, "") ??
+				oauthTokens?.access_token;
+			const workspaceCredential = readWorkspaceCredentials(workspace);
+			if (!bearer || !workspaceCredential)
+				throw new Error(
+					loginError ??
+						"A signed-in owner is required to mint a cloud agent. Sign in from a human terminal.",
+				);
+			const minted = await mintExternalAgent({
+				...options.agentMint,
+				workspace,
+				organization: options.organization,
+				workspaceCredential,
+				mcpUrl: options.urlExplicit
+					? options.url
+					: (workspaceCredential.mcpUrl ?? options.url),
+				oauthBearer: bearer,
+			});
+			console.log(formatMintedExternalAgent(minted, options.json));
+			return;
+		}
 		if (subcommand === "status") {
 			const status = externalAgentStatus(workspace);
 			if (options.json) console.log(JSON.stringify(status, null, 2));

@@ -20,8 +20,21 @@ export function parseAgentOption(
 	args: string[],
 	index: number,
 	options: CliOptions,
+	mint = false,
 ): number | undefined {
 	const arg = args[index];
+	const mintFields = {
+		"--platform": "platform",
+		"--for": "forUser",
+		"--scopes": "scopes",
+		"--expires": "expires",
+		"--name": "name",
+	} as const;
+	if (mint && arg && Object.hasOwn(mintFields, arg)) {
+		const field = mintFields[arg as keyof typeof mintFields];
+		(options.agentMint ??= {})[field] = requireValue(arg, args[index + 1]);
+		return index + 1;
+	}
 	if (arg && Object.hasOwn(valueOptions, arg)) {
 		const field = valueOptions[arg as keyof typeof valueOptions];
 		options[field] = requireValue(arg, args[index + 1]);
