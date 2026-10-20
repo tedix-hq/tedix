@@ -92,6 +92,7 @@ import {
 } from "./brain-write-quality";
 import { type ClefModelId, type ClefQuestion, runClef } from "../lib/clef";
 import { DISTILL_VERSION, type LessonDistiller } from "./lesson-distiller";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 export const LEARNING_FEED_PRODUCER = "learning-feed";
 export const WORK_FIX_LEARNING_SURFACE = "work_fix";
@@ -194,16 +195,6 @@ function text(value: unknown): string {
 
 function clip(value: string, max: number): string {
 	return value.length > max ? `${value.slice(0, max - 1).trimEnd()}…` : value;
-}
-
-async function sha256(value: string): Promise<string> {
-	const digest = await crypto.subtle.digest(
-		"SHA-256",
-		new TextEncoder().encode(value),
-	);
-	return [...new Uint8Array(digest)]
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
 }
 
 export function learningFeedTopicKey(
@@ -646,7 +637,7 @@ async function writeDecisionLessons(
 					},
 				}
 			: quoted;
-		const sourceHash = await sha256(
+		const sourceHash = await sha256Hex(
 			`${ownerUserId ?? ""}\n${lesson.content.toLowerCase()}`,
 		);
 		if (!held && (await findFactBySourceHash(db, orgId, sourceHash))) continue;
@@ -877,7 +868,7 @@ async function proposeMistakeDirectives(
 			`Agents needed ${issue.negativeCount} follow-up fixes in "${topic}" between ${issue.firstOccurredAt.slice(0, 10)} and ${issue.lastOccurredAt.slice(0, 10)}. Recent fixes: ${titles.map((t) => `"${t}"`).join("; ")}. Review the pattern and approve a directive (prefer/avoid) for agents working on ${topic}.`,
 			4000,
 		);
-		const digest = (await sha256(evidence.join(","))).slice(0, 24);
+		const digest = (await sha256Hex(evidence.join(","))).slice(0, 24);
 		const { duplicate } = await proposeLearningImprovement(db, {
 			organizationId: orgId,
 			clientProposalId: `learning-feed:${issue.issueKey}:${digest}`.slice(

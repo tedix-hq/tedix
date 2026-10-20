@@ -36,11 +36,7 @@ import {
 	toDescopeConnectionScopes,
 } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import type { DbClient } from "@tedix/db/client";
-import {
-	getAppById,
-	getAppMetadataJson,
-	updateApp,
-} from "@tedix/db/queries/app-records";
+import { getAppMetadataJson, updateApp } from "@tedix/db/queries/app-records";
 import {
 	listPreviewSourceAppsByIds,
 	listPreviewSourceAppsBySlugs,
@@ -58,6 +54,7 @@ import {
 } from "@tedix/db/queries/tools";
 import type { App, McpConfig } from "@tedix/db/schema/apps";
 import { normalizeAppMetadata } from "./app-metadata";
+import { requireAppForOrgOrNotFound } from "../app-scope";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -69,14 +66,6 @@ import {
 
 const mcpServerOs = implement(mcpServerContract).$context<BaseContext>();
 const authedMcpServerOs = mcpServerOs.use(withAuth);
-
-async function requireAppForOrg(db: DbClient, orgId: string, appId: string) {
-	const app = await getAppById(db, appId);
-	if (!app || app.organizationId !== orgId) {
-		throw createError(ErrorCodes.NOT_FOUND, "App not found");
-	}
-	return app;
-}
 
 async function extractScopes(
 	db: DbClient,
@@ -386,7 +375,7 @@ export const registerProcedure = authedMcpServerOs.register
 		const { appId } = input;
 
 		const orgId = requireOrgId(context);
-		const app = await requireAppForOrg(db, orgId, appId);
+		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
 		const baseUrl = getDescopeBaseUrl(env);
@@ -507,7 +496,7 @@ export const adoptResourceProcedure = authedMcpServerOs.adoptResource
 	.handler(async ({ input, context }) => {
 		const { db, env } = context;
 		const orgId = requireOrgId(context);
-		const app = await requireAppForOrg(db, orgId, input.appId);
+		const app = await requireAppForOrgOrNotFound(db, orgId, input.appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
 		const resource = await loadDescopeMcpServer(env, input.descopeResourceId);
@@ -581,7 +570,7 @@ export const syncScopesProcedure = authedMcpServerOs.syncScopes
 		const { appId } = input;
 
 		const orgId = requireOrgId(context);
-		const app = await requireAppForOrg(db, orgId, appId);
+		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
 		const scopes = await extractScopes(db, appId, mcpConfig);
@@ -700,7 +689,7 @@ export const getStatusProcedure = authedMcpServerOs.getStatus
 		const { appId } = input;
 
 		const orgId = requireOrgId(context);
-		const app = await requireAppForOrg(db, orgId, appId);
+		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 		const metadata = getAppMetadataJson(app);
 		const mcpConfig = metadata?.mcpConfig;
 		const syncConfig = resolveDescopeMcpScopeSyncConfig(mcpConfig);
@@ -834,7 +823,7 @@ export const previewToolScopesProcedure = authedMcpServerOs.previewToolScopes
 		const { appId } = input;
 
 		const orgId = requireOrgId(context);
-		const app = await requireAppForOrg(db, orgId, appId);
+		const app = await requireAppForOrgOrNotFound(db, orgId, appId);
 
 		const preview = collectPreviewToolsForApp(
 			app,

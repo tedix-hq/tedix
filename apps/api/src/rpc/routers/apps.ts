@@ -57,6 +57,7 @@ import type { AppMetadata } from "@tedix/db/schema/apps";
 import { scrapeBrandingFromUrl } from "../../integrations/browser-run/branding";
 import { generateAppSlug, isReservedAppSlug } from "../../utils/app";
 import { getDomain } from "../../utils/url-processing";
+import { requireAppForOrg } from "../app-scope";
 import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
@@ -1907,20 +1908,6 @@ function normalizeToolCspDomains(
 			: "connect",
 		active: d.active,
 	}));
-}
-
-async function requireAppForOrg(db: DbClient, orgId: string, appId: string) {
-	const app = await getAppById(db, appId);
-	if (!app) {
-		throw createError(ErrorCodes.NOT_FOUND, "App not found");
-	}
-	if (!app.organizationId || app.organizationId !== orgId) {
-		throw createError(
-			ErrorCodes.FORBIDDEN,
-			"You do not have access to this app",
-		);
-	}
-	return app;
 }
 
 // =============================================================================

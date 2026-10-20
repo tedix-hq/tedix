@@ -12,25 +12,11 @@ import type {
 	TediApprovalRequest,
 	TediProvisionalOutcome,
 } from "@tedix/db/schema/approvals";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { stableStringify } from "../lib/stable-json";
 
-function stableStringify(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-	const object = value as Record<string, unknown>;
-	return `{${Object.keys(object)
-		.sort()
-		.map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
-		.join(",")}}`;
-}
-
-async function sha256(value: unknown): Promise<string> {
-	const digest = await crypto.subtle.digest(
-		"SHA-256",
-		new TextEncoder().encode(stableStringify(value)),
-	);
-	return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
-		byte.toString(16).padStart(2, "0"),
-	).join("")}`;
+async function recordDigest(value: unknown): Promise<string> {
+	return `sha256:${await sha256Hex(stableStringify(value))}`;
 }
 
 async function deterministicUuid(value: string): Promise<string> {
@@ -60,7 +46,7 @@ export async function provisionalOutcomeRecordHash(
 		| "createdAt"
 	>,
 ): Promise<string> {
-	return sha256({
+	return recordDigest({
 		id: outcome.id,
 		tediId: outcome.tediId,
 		orgId: outcome.orgId,
@@ -175,7 +161,7 @@ export async function executeApprovedProvisionalPromotion(
 	};
 	const receiptInput: RecordApprovalExecutionReceiptParams = {
 		...receiptBase,
-		recordHash: await sha256(receiptBase),
+		recordHash: await recordDigest(receiptBase),
 	};
 	await recordApprovalExecutionReceipt(db, receiptInput);
 	return { outcome: promoted, receiptId, replayed };
