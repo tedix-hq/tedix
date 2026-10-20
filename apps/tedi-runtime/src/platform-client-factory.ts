@@ -20,7 +20,10 @@ import {
 	TEDI_RUNTIME_API_SCOPES,
 } from "@tedix/auth/tedi-identity";
 import { HttpPlatformClient } from "./brain/platform-client";
-import { getTediRuntimeEncryptedSecret } from "@tedix/db/queries/tedi-runtime-bootstrap";
+import {
+	getTediRuntimeEncryptedSecret,
+	resolveTediRuntimeIdentity,
+} from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { decryptTediSecret } from "@tedix/db/utils/secrets-encryption";
 
 const DESCOPE_ACCESS_KEY_NAME = "DESCOPE_ACCESS_KEY";
@@ -43,10 +46,13 @@ export const TEDI_RUNTIME_SERVICE_BINDING_SCOPES = [
 export function tediRuntimeServiceBindingHeaders(
 	tediId: string,
 	scope: "apps:read" | "apps:write",
+	organizationId: string,
 ): Record<string, string> {
+	if (!organizationId || organizationId === "system")
+		throw new Error("Runtime tedi calls require the real organization");
 	return {
 		"X-Service-Binding": "true",
-		"X-Tedix-Org-Id": "system",
+		"X-Tedix-Org-Id": organizationId,
 		"X-Tedix-Tedi-Id": tediId,
 		"X-Tedix-Tedi-Scopes": scope,
 	};
@@ -200,6 +206,12 @@ async function ensureScopedAccessKey(
 	);
 
 	try {
+		const identity = await resolveTediRuntimeIdentity(env.DB, tediId, true);
+		if (identity?.id !== tediId || !identity.orgId) {
+			throw new Error(
+				"Tedi organization could not be resolved for key rotation",
+			);
+		}
 		await callRpc(
 			"tedis/rotateAccessKey",
 			{ tediId },
@@ -211,7 +223,11 @@ async function ensureScopedAccessKey(
 				// `X-Tedix-Tedi-Scopes` delegates. Hand-rolling these headers without
 				// it 403s every rotation, so a tedi whose key is missing scopes keeps
 				// replaying the stale key indefinitely.
-				headers: tediRuntimeServiceBindingHeaders(tediId, "apps:write"),
+				headers: tediRuntimeServiceBindingHeaders(
+					tediId,
+					"apps:write",
+					identity.orgId,
+				),
 			},
 		);
 	} catch (error) {

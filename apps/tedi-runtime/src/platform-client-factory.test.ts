@@ -16,20 +16,20 @@ import {
 } from "./platform-client-factory";
 
 assert.deepEqual(
-	tediRuntimeServiceBindingHeaders("tedi-acme", "apps:read"),
+	tediRuntimeServiceBindingHeaders("tedi-acme", "apps:read", "org-acme"),
 	{
 		"X-Service-Binding": "true",
-		"X-Tedix-Org-Id": "system",
+		"X-Tedix-Org-Id": "org-acme",
 		"X-Tedix-Tedi-Id": "tedi-acme",
 		"X-Tedix-Tedi-Scopes": "apps:read",
 	},
 	"model-policy reads delegate only apps:read and preserve Tedi identity",
 );
 assert.deepEqual(
-	tediRuntimeServiceBindingHeaders("tedi-acme", "apps:write"),
+	tediRuntimeServiceBindingHeaders("tedi-acme", "apps:write", "org-acme"),
 	{
 		"X-Service-Binding": "true",
-		"X-Tedix-Org-Id": "system",
+		"X-Tedix-Org-Id": "org-acme",
 		"X-Tedix-Tedi-Id": "tedi-acme",
 		"X-Tedix-Tedi-Scopes": "apps:write",
 	},
@@ -193,8 +193,13 @@ await assert.rejects(
 	const staleEnv = {
 		SECRETS_MASTER_KEY: masterKey,
 		DB: {
-			prepare: () => ({
-				bind: () => ({ first: async () => ({ encrypted_value: encrypted }) }),
+			prepare: (sql: string) => ({
+				bind: () => ({
+					first: async () =>
+						sql.includes("FROM tedis")
+							? { id: "tedi-stale", orgId: "org-acme" }
+							: { encrypted_value: encrypted },
+				}),
 			}),
 		},
 		// No Descope project: the key cannot be proven scoped, so it rotates.
@@ -218,7 +223,7 @@ await assert.rejects(
 	assert.equal(rotations.length, 1);
 	assert.match(new URL(rotations[0]!.url).pathname, /tedis\/rotateAccessKey/);
 	for (const [name, value] of Object.entries(
-		tediRuntimeServiceBindingHeaders("tedi-stale", "apps:write"),
+		tediRuntimeServiceBindingHeaders("tedi-stale", "apps:write", "org-acme"),
 	))
 		assert.equal(
 			rotations[0]!.headers.get(name),

@@ -939,9 +939,10 @@ export const runtimeParentTurns = {
 		if (this.runtimeConfigCache.modelPolicy !== undefined) return;
 		const configGeneration = this.runtimeConfigCache.generation;
 		const tediId = identityValue(this.state.tediId);
+		const orgId = identityValue(this.state.orgId);
 		// Identity not loaded yet — leave unresolved so a later call (after
 		// ensureIdentity) can still fetch the per-role policy.
-		if (!tediId) return;
+		if (!tediId || !orgId) return;
 		if (this.env.API_SERVICE) {
 			// Real-cancel guard: this fetch runs on the cold-start path before any
 			// turn-level keepAlive/idle-timeout coverage (only on a cold DO — the result
@@ -956,7 +957,11 @@ export const runtimeParentTurns = {
 					{
 						apiUrl: "https://api",
 						fetch: serviceBindingFetch(this.env.API_SERVICE),
-						headers: tediRuntimeServiceBindingHeaders(tediId, "apps:read"),
+						headers: tediRuntimeServiceBindingHeaders(
+							tediId,
+							"apps:read",
+							orgId,
+						),
 						timeoutMs: MODEL_POLICY_FETCH_TIMEOUT_MS,
 					},
 				);
