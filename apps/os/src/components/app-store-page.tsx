@@ -1,4 +1,5 @@
 import { CapabilityNavigation } from "@/components/capability-navigation";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { isLocalSession } from "@/lib/local-inference";
 import { LocalCapabilityNotice } from "@/components/local-capability-notice";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -125,41 +126,27 @@ function HealthBadge({ status }: { status: string | null }) {
 }
 
 export function CatalogAppLogo({
+	id,
 	logoUrl,
 	name,
 	size = "small",
 }: {
+	/** Stable key for the shared avatar palette: the app's slug or id. */
+	id: string;
 	logoUrl: string | null;
 	name: string;
 	size?: "small" | "large";
 }) {
-	const [failed, setFailed] = useState(false);
-	const usable =
-		logoUrl &&
-		!logoUrl.startsWith("connectors://") &&
-		(logoUrl.startsWith("http") || logoUrl.startsWith("data:"));
-	const sizeClass =
-		size === "large" ? "size-16 rounded-xl" : "size-10 rounded-lg";
-	if (usable && !failed) {
-		return (
-			<img
-				src={logoUrl}
-				alt={`${name} logo`}
-				className={`${sizeClass} object-contain`}
-				onError={() => setFailed(true)}
-				loading="lazy"
-			/>
-		);
-	}
-	const hue =
-		[...name].reduce((sum, value) => sum + value.charCodeAt(0), 0) % 360;
 	return (
-		<span
-			className={`${sizeClass} flex shrink-0 items-center justify-center font-semibold text-white`}
-			style={{ backgroundColor: `hsl(${hue}, 55%, 50%)` }}
-		>
-			{name.charAt(0).toUpperCase()}
-		</span>
+		<EntityAvatar
+			kind="workspace"
+			id={id}
+			name={name}
+			image={logoUrl}
+			imageFit="contain"
+			alt={`${name} logo`}
+			className={size === "large" ? "size-16 rounded-xl" : "size-10 rounded-lg"}
+		/>
 	);
 }
 
@@ -175,7 +162,11 @@ function AppCard({ app }: { app: CatalogApp }) {
 				className="group h-full min-w-0 shadow-none transition-[border-color] motion-reduce:transition-none hover:border-kumo-brand/40"
 			>
 				<CardHeader className="flex flex-row items-start gap-3 space-y-0">
-					<CatalogAppLogo logoUrl={app.logoUrl ?? null} name={app.name} />
+					<CatalogAppLogo
+						id={app.slug ?? app.id}
+						logoUrl={app.logoUrl ?? null}
+						name={app.name}
+					/>
 					<div className="min-w-0 flex-1">
 						<div className="flex min-w-0 flex-wrap items-center gap-2">
 							<CardTitle className="min-w-0 truncate">{app.name}</CardTitle>

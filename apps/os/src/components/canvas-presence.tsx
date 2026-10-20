@@ -1,6 +1,7 @@
 import type { CollabParticipant } from "@/collab/presence";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { Popover, PopoverContent } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { sentenceCase } from "@/lib/format";
@@ -16,16 +17,7 @@ const AVATAR_COLORS = [
 	"#0891b2",
 ] as const;
 
-function initials(name: string): string {
-	return name
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(0, 2)
-		.map((part) => part[0]?.toLocaleUpperCase())
-		.join("");
-}
-
-/** Stable per-collaborator colour, shared by avatars and document carets. */
+/** Stable per-collaborator colour for document carets and sheet selections. */
 export function collabParticipantColor(key: string): string {
 	let value = 0;
 	for (const character of key)
@@ -45,17 +37,16 @@ function locationLabel(participant: CollabParticipant): string {
 
 function avatar(participant: CollabParticipant, size: "large" | "small") {
 	return (
-		<span
+		<EntityAvatar
+			kind="person"
+			id={participant.key}
+			name={participant.displayName}
 			className={
 				size === "small"
-					? "canvas-presence-avatar canvas-presence-avatar-small"
-					: "canvas-presence-avatar"
+					? "size-6 ring-2 ring-kumo-base"
+					: "size-7 ring-2 ring-kumo-base"
 			}
-			style={{ backgroundColor: collabParticipantColor(participant.key) }}
-			aria-hidden="true"
-		>
-			{initials(participant.displayName)}
-		</span>
+		/>
 	);
 }
 
@@ -91,7 +82,9 @@ export function CanvasPresence({
 								</span>
 							))}
 							{overflow > 0 && (
-								<span className="canvas-presence-overflow">+{overflow}</span>
+								<span className="grid size-6 flex-none place-items-center rounded-full bg-kumo-fill font-semibold text-kumo-default ring-2 ring-kumo-base type-tedix-caption">
+									+{overflow}
+								</span>
 							)}
 						</span>
 						<span className="canvas-presence-online" aria-hidden="true" />

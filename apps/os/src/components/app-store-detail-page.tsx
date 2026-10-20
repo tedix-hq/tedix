@@ -582,6 +582,7 @@ export function AppStoreDetailPage({ slug }: { slug: string }) {
 			<PageHeader>
 				<div className="flex min-w-0 items-start gap-4">
 					<CatalogAppLogo
+						id={app.slug ?? app.id}
 						logoUrl={app.logoUrl ?? null}
 						name={app.name}
 						size="large"
