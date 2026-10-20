@@ -56,7 +56,8 @@ import { KernelRouteGenerationObjectSchema } from "./route-generation";
 // rev 4: recovery retains the compact schema and Auto's streaming transport.
 // rev 5: unusable self-reported confidence normalizes conservatively to zero.
 // rev 6: direct-answer details omissions and presentation-only JSON wrappers.
-export const ROUTER_CONTRACT_REV = 6;
+// rev 7: optional decision-model route selection with route-specific writer schemas.
+export const ROUTER_CONTRACT_REV = 7;
 
 /**
  * Stable serialization of the internal and model-facing route shapes: the
@@ -105,17 +106,18 @@ export async function computeRouterVersion(
 		.join("");
 }
 
-let cachedVersion: Promise<string> | null = null;
+const cachedVersions = new Map<string, Promise<string>>();
 
-/**
- * The router version for the CURRENT planner contract (prompt + schema shape
- * + contract rev). Lazily computed once per isolate and cached module-level.
- */
+/** Each writer protocol needs its own hash when both run in the same isolate. */
 export function getRouterVersion(systemPrompt: string): Promise<string> {
-	cachedVersion ??= computeRouterVersion({
-		contractRev: ROUTER_CONTRACT_REV,
-		systemPrompt,
-		schemaShape: serializeRouteSchemaShape(),
-	});
-	return cachedVersion;
+	let version = cachedVersions.get(systemPrompt);
+	if (!version) {
+		version = computeRouterVersion({
+			contractRev: ROUTER_CONTRACT_REV,
+			systemPrompt,
+			schemaShape: serializeRouteSchemaShape(),
+		});
+		cachedVersions.set(systemPrompt, version);
+	}
+	return version;
 }

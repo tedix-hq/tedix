@@ -54,6 +54,7 @@ import type { DbClient } from "@tedix/db/client";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
 	homeAttachmentContent,
+	hasHomeHistoryImages,
 	hydrateHomeHistory,
 	type HomeAttachmentResolver,
 } from "./attachment-content";
@@ -113,6 +114,7 @@ import {
 	routeExplicitOutputCreate,
 } from "./output-create-intent";
 import { planKernelRoute } from "./route-planner";
+import { decideHomeRoute, readHomeRoutePolicy } from "./route-decision";
 import type { KernelRouteDecision } from "./route-schema";
 import { readOrgDispatchPolicyLayer } from "./tedi-capabilities";
 import {
@@ -451,6 +453,7 @@ export async function runKernel(args: {
 	promptTokenBudget?: number;
 	/** Critical-path wait for the ranking wave (ms); `0` skips the reranks. */
 	rankingBudgetMs?: number;
+	holdDecisionWork?: (work: Promise<void>) => void;
 	attachments?: TediMessageAttachment[];
 	resolveAttachments?: HomeAttachmentResolver;
 	db: DbClient;
@@ -919,7 +922,33 @@ export async function runKernel(args: {
 			contextManifest,
 		};
 	}
+	const homeRoutePolicy = await readHomeRoutePolicy(
+		db,
+		organizationId,
+		contextCache,
+	);
+	// Compaction retry reuses the same immutable judgment, never another paid call.
+	let routeJudgment: ReturnType<typeof decideHomeRoute> | undefined;
 	const planArgs = {
+		...(homeRoutePolicy && homeRoutePolicy.mode !== "off"
+			? {
+					decisionMode: homeRoutePolicy.mode,
+					decisionModel: () =>
+						(routeJudgment ??= decideHomeRoute({
+							db,
+							env,
+							gatewayContext,
+							content,
+							context,
+							policy: homeRoutePolicy,
+							signal: abortSignal,
+							ineligible:
+								images.length > 0 || hasHomeHistoryImages(context.history),
+							hold: args.holdDecisionWork,
+							onExecutionAttempts: args.onExecutionAttempts,
+						})),
+				}
+			: {}),
 		onExecutionAttempts: args.onExecutionAttempts,
 		delegationCandidateRanker,
 		images,

@@ -278,3 +278,23 @@ it("preserves invalid environment transport for the provider to reject before ad
 	expect(mocks.reserve).not.toHaveBeenCalled();
 	expect(mocks.insert).not.toHaveBeenCalled();
 });
+
+it("returns the judgment before a held usage write settles, after admission", async () => {
+	let persist!: () => void;
+	mocks.insert.mockImplementationOnce(
+		() =>
+			new Promise<void>((resolve) => {
+				persist = resolve;
+			}),
+	);
+	const held: Promise<void>[] = [];
+	const result = await execute({
+		holdUsagePersistence: (work) => held.push(work),
+	});
+	expect(result).not.toBeNull();
+	expect(mocks.reserve).toHaveBeenCalledTimes(1);
+	expect(mocks.insert).toHaveBeenCalledTimes(1);
+	expect(held).toHaveLength(1);
+	persist();
+	await held[0];
+});

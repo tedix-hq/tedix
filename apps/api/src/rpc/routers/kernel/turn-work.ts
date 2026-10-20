@@ -176,6 +176,7 @@ function compactRouteDecision(
 	return {
 		routeKind: route.routeKind,
 		confidence: typeof route.confidence === "number" ? route.confidence : null,
+		...(route.routeDecision ? { routeDecision: route.routeDecision } : {}),
 		effortClass: route.effortClass ?? null,
 		...(route.targetTediId ? { targetTediId: route.targetTediId } : {}),
 		...(route.workflowHint ? { workflowHint: route.workflowHint } : {}),
@@ -767,6 +768,7 @@ export async function runKernelTurnWork(
 	let residencyDenialMessage: string | null = null;
 	const kernelResult = await deps
 		.kernel({
+			holdDecisionWork: deps.holdAfterSettle,
 			onExecutionAttempts: (attempts) => executionAttempts.push(...attempts),
 			attachments: input.attachments,
 			...(deps.relevanceCandidates
