@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
 	mkdtempSync,
 	writeFileSync,
@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { runLane } from "./lane";
-import { runLaneProcess, codexTranscript } from "./lane-run";
+import { runLaneProcess, codexTranscript, LANE_HEARTBEAT_MS } from "./lane-run";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -223,5 +223,46 @@ it("reconciles Claude output only against the admitted native identity and trans
 		expect((reports.at(-1)?.telemetry as { outcome: string }).outcome).toBe(
 			mode === "ok" ? "succeeded" : "failed",
 		);
+	}
+});
+
+it("uses a 120-second cadence and coalesces overlapping heartbeat ticks", async () => {
+	const { args } = fixture();
+	let tick!: () => void;
+	let interval: number | undefined;
+	const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+		callback: () => void,
+		ms: number,
+	) => {
+		tick = callback;
+		interval = ms;
+		return setTimeout(() => {}, 1000);
+	}) as typeof setInterval);
+	let release!: () => void;
+	const pending = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const reports: Record<string, unknown>[] = [];
+	try {
+		const running = runLaneProcess(args, {
+			report: async (input) => {
+				reports.push(input);
+				if (reports.length === 2) await pending;
+				return {};
+			},
+		});
+		while (!tick) await new Promise((resolve) => setTimeout(resolve, 1));
+		expect(interval).toBe(LANE_HEARTBEAT_MS);
+		expect(60_000 / interval!).toBe(0.5);
+		tick();
+		tick();
+		tick();
+		expect(reports).toHaveLength(2);
+		release();
+		expect(await running).toBe(0);
+		expect(reports.map((r) => r.state)).toEqual(["working", "working", "done"]);
+	} finally {
+		release?.();
+		timer.mockRestore();
 	}
 });

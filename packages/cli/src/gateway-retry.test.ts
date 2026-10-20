@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { fileGatewayCooldown } from "./gateway-cooldown";
 import { describe, expect, test } from "bun:test";
 import { retryRateLimitedPosts } from "./gateway-retry";
 
@@ -23,6 +27,7 @@ function harness(responses: Response[]) {
 			waits.push(ms);
 		},
 		random: () => 0.5,
+		cooldown: null,
 	});
 	return { wrapped, sent, waits };
 }
@@ -82,4 +87,98 @@ describe("retryRateLimitedPosts", () => {
 		).rejects.toThrow("deadline");
 		expect(sent).toHaveLength(1);
 	});
+});
+
+test("a sibling process waits on a refusal marker before sending its first request", async () => {
+	const configDir = mkdtempSync(join(tmpdir(), "gateway-cooldown-test-"));
+	try {
+		let now = 1000;
+		let release!: () => void;
+		const waiting = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let started!: () => void;
+		const published = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		let refused = false;
+		const first = retryRateLimitedPosts(
+			async () => {
+				if (!refused) {
+					refused = true;
+					return limited("60");
+				}
+				return new Response("{}");
+			},
+			{
+				cooldown: fileGatewayCooldown({ configDir }),
+				now: () => now,
+				random: () => 0,
+				sleep: () => {
+					started();
+					return waiting;
+				},
+			},
+		);
+		const original = first("https://gateway.example/mcp", post);
+		await published;
+		let calls = 0;
+		const waits: number[] = [];
+		const sibling = retryRateLimitedPosts(
+			async () => {
+				calls++;
+				return new Response("{}");
+			},
+			{
+				cooldown: fileGatewayCooldown({ configDir }),
+				now: () => now,
+				random: () => 0.5,
+				sleep: async (ms) => {
+					expect(calls).toBe(0);
+					waits.push(ms);
+					now += ms;
+				},
+			},
+		);
+		await sibling("https://gateway.example/other-route", post);
+		expect(waits).toEqual([67_500]);
+		expect(calls).toBe(1);
+		release();
+		await original;
+	} finally {
+		rmSync(configDir, { recursive: true, force: true });
+	}
+});
+
+test("cooldown extensions never shorten a sibling marker, and unrelated gateways stay independent", async () => {
+	const configDir = mkdtempSync(join(tmpdir(), "gateway-cooldown-test-"));
+	try {
+		const a = fileGatewayCooldown({ configDir });
+		const b = fileGatewayCooldown({ configDir });
+		a.extend("https://one.example/mcp", 61_000);
+		b.extend("https://one.example/mcp", 11_000);
+		expect(a.read("https://one.example/mcp")).toBe(61_000);
+		expect(b.read("https://two.example/mcp")).toBe(0);
+		const controller = new AbortController();
+		let sent = 0;
+		const call = retryRateLimitedPosts(
+			async () => {
+				sent++;
+				return new Response("{}");
+			},
+			{
+				cooldown: b,
+				now: () => 1000,
+				sleep: async () => {
+					controller.abort(new Error("deadline"));
+				},
+			},
+		);
+		await expect(
+			call("https://one.example/mcp", { ...post, signal: controller.signal }),
+		).rejects.toThrow("deadline");
+		expect(sent).toBe(0);
+	} finally {
+		rmSync(configDir, { recursive: true, force: true });
+	}
 });

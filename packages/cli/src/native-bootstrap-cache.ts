@@ -6,8 +6,8 @@
  * Every `tedix work` verb is a new process, so without it each verb pays a
  * `get_info` round trip (about 1-1.5 s on Connect) before its catalog checks.
  * The cached bootstrap passes the same checks as a fresh one, and the catalog
- * search/describe still run on every call; the CLI drops the entry only when
- * that resolution fails, so a changed gateway costs one retry.
+ * descriptors expire independently after five minutes. Server authorization
+ * and mutation state checks still run on every invocation.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,11 +19,21 @@ import {
 /** How long a bootstrap answer is reused. */
 export const NATIVE_BOOTSTRAP_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
+export const NATIVE_DESCRIPTOR_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface NativeResolution {
+	at: number;
+	catalogHash: string;
+	row: unknown;
+	detail: unknown;
+}
+
 export interface NativeBootstrapEntry {
 	/** Raw `get_info` fields; re-validated on every read. */
 	bootstrap: { nativeContext: unknown; nativeCatalog: unknown };
 	/** Native tool name per Work callable, from the last verified resolution. */
 	tools: Record<string, string>;
+	resolutions?: Record<string, NativeResolution>;
 }
 
 export interface NativeBootstrapCache {
@@ -78,7 +88,11 @@ export function fileNativeBootstrapCache(
 					(pair): pair is [string, string] => typeof pair[1] === "string",
 				),
 			);
-			return { bootstrap: entry.bootstrap, tools };
+			return {
+				bootstrap: entry.bootstrap,
+				tools,
+				resolutions: entry.resolutions,
+			};
 		},
 		write(key, entry) {
 			const entries = load();

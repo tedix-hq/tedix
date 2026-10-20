@@ -1,4 +1,9 @@
+import { fileDiscoveryCache, type DiscoveryCache } from "./discovery-cache";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+	fileNativeBootstrapCache,
+	NATIVE_DESCRIPTOR_CACHE_TTL_MS,
+} from "./native-bootstrap-cache";
 import type {
 	NativeBootstrapCache,
 	NativeBootstrapEntry,
@@ -12,6 +17,7 @@ import { TedixHomeClient } from "./home-client";
 import { parseOptions } from "./options";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import {
+	callConfiguredNativeTool,
 	attemptSessionLabel,
 	boardErrorFromValue,
 	contextBriefJson,
@@ -2684,6 +2690,7 @@ describe("heartbeat watch rate-pressure recovery", () => {
 function modernContext(
 	work: WorkOptions = {},
 	response?: (source: string) => unknown,
+	discoveryCache?: DiscoveryCache,
 ) {
 	const fixture = makeContext(work, ATTEMPT, response);
 	const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
@@ -2693,6 +2700,7 @@ function modernContext(
 		args?: Record<string, unknown>;
 	}> = [];
 	const client = new TedixHomeClient({
+		discoveryCache,
 		url: fixture.ctx.mcpUrl!,
 		headers: { Authorization: "Bearer fictional-fixture" },
 		timeoutMs: 60_000,
@@ -2751,13 +2759,9 @@ describe("native Work bootstrap cache", () => {
 		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
 			0,
 		);
-		expect(names(fixture.nativeCalls).sort()).toEqual(
-			[
-				"catalog_describe",
-				"catalog_search",
-				"configured_work__list_undelivered_work_interaction_responses",
-			].sort(),
-		);
+		expect(names(fixture.nativeCalls)).toEqual([
+			"configured_work__list_undelivered_work_interaction_responses",
+		]);
 	});
 
 	test("a stale cached tool name is discarded and the resolved tool is called", async () => {
@@ -2774,10 +2778,139 @@ describe("native Work bootstrap cache", () => {
 		expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
 			0,
 		);
-		expect(names(fixture.nativeCalls)).toContain("configured_retired");
+		expect(names(fixture.nativeCalls)).not.toContain("configured_retired");
 		expect(names(fixture.nativeCalls).at(-1)).toBe(
 			"configured_work__list_undelivered_work_interaction_responses",
 		);
+	});
+
+	test("fresh command contexts reuse disk descriptors: 3 requests become 1", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "work-descriptor-count-"));
+		const fixture = modernContext(
+			{},
+			() => ({ data: [] }),
+			fileDiscoveryCache({ configDir: dir }),
+		);
+		try {
+			for (const expected of [5, 1, 1]) {
+				fixture.ctx.bootstrapCache = fileNativeBootstrapCache({
+					configDir: dir,
+				});
+				fixture.wire.length = 0;
+				expect(
+					(await capture("interaction-undelivered", { ...fixture.ctx })).code,
+				).toBe(0);
+				expect(fixture.wire).toHaveLength(expected);
+			}
+			// A bootstrap-only cache reproduces the pre-change discovery cost.
+			const disk = fileNativeBootstrapCache({ configDir: dir });
+			const bootstrapOnly: NativeBootstrapCache = {
+				...disk,
+				read(key) {
+					const entry = disk.read(key);
+					return entry ? { ...entry, resolutions: {} } : undefined;
+				},
+			};
+			fixture.wire.length = 0;
+			expect(
+				(
+					await capture("interaction-undelivered", {
+						...fixture.ctx,
+						bootstrapCache: bootstrapOnly,
+					})
+				).code,
+			).toBe(0);
+			expect(fixture.wire).toHaveLength(3);
+		} finally {
+			await fixture.client.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("expired descriptors and changed catalog hashes force discovery", async () => {
+		for (const change of ["ttl", "hash"]) {
+			const { cache, entries } = memoryCache();
+			const fixture = makeContext({}, undefined, () => ({ data: [] }));
+			fixture.ctx.bootstrapCache = cache;
+			await capture("interaction-undelivered", fixture.ctx);
+			for (const entry of entries.values()) {
+				if (change === "ttl") {
+					for (const resolution of Object.values(entry.resolutions!))
+						resolution.at -= NATIVE_DESCRIPTOR_CACHE_TTL_MS;
+				} else {
+					const catalog = entry.bootstrap.nativeCatalog as {
+						search: { schemaFreshness: { sourceHash: string } };
+					};
+					catalog.search.schemaFreshness.sourceHash = "new-catalog-hash";
+				}
+			}
+			fixture.nativeCalls.length = 0;
+			expect((await capture("interaction-undelivered", fixture.ctx)).code).toBe(
+				0,
+			);
+			expect(names(fixture.nativeCalls)).toEqual([
+				"catalog_search",
+				"catalog_describe",
+				"configured_work__list_undelivered_work_interaction_responses",
+			]);
+		}
+	});
+
+	test("schema 4xx invalidates a mutation descriptor without replaying the write", async () => {
+		const { cache } = memoryCache();
+		let refusal = false;
+		const fixture = makeContext({}, undefined, () =>
+			refusal
+				? {
+						code: "BAD_REQUEST",
+						status: 400,
+						defined: true,
+						message: "schema changed",
+					}
+				: { id: ITEM },
+		);
+		fixture.ctx.bootstrapCache = cache;
+		const invoke = () =>
+			callConfiguredNativeTool(fixture.ctx, "work.accept_work_item", {
+				id: ITEM,
+			});
+		await invoke();
+		refusal = true;
+		fixture.nativeCalls.length = 0;
+		await expect(invoke()).rejects.toThrow("schema changed");
+		expect(names(fixture.nativeCalls)).toEqual([
+			"configured_work__accept_work_item",
+		]);
+		refusal = false;
+		fixture.nativeCalls.length = 0;
+		await invoke();
+		expect(names(fixture.nativeCalls)).toEqual([
+			"catalog_search",
+			"catalog_describe",
+			"configured_work__accept_work_item",
+		]);
+	});
+
+	test("profile and selected organization each fence descriptors", async () => {
+		const { cache } = memoryCache();
+		const fixture = makeContext({}, undefined, () => ({ data: [] }));
+		fixture.ctx.bootstrapCache = cache;
+		for (const nativeCacheScope of [
+			"profile-a|org-a",
+			"profile-a|org-b",
+			"profile-b|org-a",
+		]) {
+			fixture.nativeCalls.length = 0;
+			expect(
+				(
+					await capture("interaction-undelivered", {
+						...fixture.ctx,
+						nativeCacheScope,
+					})
+				).code,
+			).toBe(0);
+			expect(names(fixture.nativeCalls)).toContain("get_info");
+		}
 	});
 
 	test("a cached bootstrap that fails to resolve is refetched once", async () => {

@@ -13,7 +13,7 @@ import {
 	ReportWorkAgentSessionStatusInputSchema,
 	LaneTelemetryInputSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
-import { selfCommand } from "./shared";
+import { createLaneReporter } from "./lane-reporter";
 import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
 import { writeDevinLaneConfig } from "./devin-config";
 import {
@@ -21,7 +21,6 @@ import {
 	writeDevinGitIdentity,
 } from "./devin-lane-security";
 import { readExternalAgentProfile } from "./external-agent-store";
-import { AGENT_IDENTITY_ENV } from "./hooks/hook-io";
 import { laneChildEnv } from "./lane-child-env";
 import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
 import { parseLaneTranscript, type LaneObservation } from "./lane-telemetry";
@@ -42,42 +41,15 @@ export async function reportLaneObservation(
 	input: Record<string, unknown>,
 	scope: string[],
 ) {
-	const [command, prefix] = selfCommand();
-	const env = { ...process.env };
-	for (const key of AGENT_IDENTITY_ENV) delete env[key];
-	const child = spawn(
-		command,
-		[
-			...prefix,
-			...scope,
-			"work",
-			"agent-session-report",
-			"--input",
-			JSON.stringify(input),
-			"--json",
-		],
-		{ env, stdio: ["ignore", "pipe", "pipe"] },
-	);
-	let stdout = "",
-		stderr = "";
-	child.stdout.on("data", (chunk) => {
-		stdout += chunk.toString();
-	});
-	child.stderr.on("data", (chunk) => {
-		stderr += chunk.toString();
-	});
-	const timer = setTimeout(() => child.kill("SIGTERM"), 60_000);
+	const reporter = createLaneReporter();
 	try {
-		const status = await new Promise<number | null>((resolve, reject) => {
-			child.once("error", reject);
-			child.once("exit", resolve);
-		});
-		if (status !== 0) throw new Error(stderr || stdout || "Lane report failed");
-		return JSON.parse(stdout);
+		return await reporter.report(input, scope);
 	} finally {
-		clearTimeout(timer);
+		await reporter.close();
 	}
 }
+
+export const LANE_HEARTBEAT_MS = 120_000;
 
 export function codexTranscript(
 	sessionKey: string,
@@ -104,7 +76,7 @@ export function codexTranscript(
 	}
 }
 
-export async function runLaneProcess(
+async function runLaneProcessWithReporter(
 	args: string[],
 	deps: {
 		report?: typeof reportLaneObservation;
@@ -415,7 +387,7 @@ export async function runLaneProcess(
 			.finally(() => {
 				heartbeat = undefined;
 			});
-	}, deps.heartbeatMs ?? 30_000);
+	}, deps.heartbeatMs ?? LANE_HEARTBEAT_MS);
 	const forward = (signal: NodeJS.Signals) => {
 		try {
 			if (deps.detachedChild && child.pid) process.kill(-child.pid, signal);
@@ -557,4 +529,19 @@ export async function runLaneProcess(
 		process.stderr.write(`Devin transcript retained at ${devinTranscript}\n`);
 	} else rmSync(dir, { recursive: true, force: true });
 	return exitCode;
+}
+
+export async function runLaneProcess(
+	args: string[],
+	deps: Parameters<typeof runLaneProcessWithReporter>[1] = {},
+): Promise<number> {
+	const reporter = deps.report ? undefined : createLaneReporter();
+	try {
+		return await runLaneProcessWithReporter(args, {
+			...deps,
+			report: deps.report ?? reporter!.report,
+		});
+	} finally {
+		await reporter?.close();
+	}
 }

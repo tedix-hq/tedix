@@ -1,3 +1,4 @@
+import { fileGatewayCooldown, type GatewayCooldown } from "./gateway-cooldown";
 type FetchLike = (
 	...args: Parameters<typeof fetch>
 ) => ReturnType<typeof fetch>;
@@ -10,6 +11,8 @@ export interface GatewayRetryDeps {
 	/** Waits `ms`; rejects with the signal's reason when it aborts. */
 	sleep?: (ms: number, signal?: AbortSignal | null) => Promise<void>;
 	random?: () => number;
+	now?: () => number;
+	cooldown?: GatewayCooldown | null;
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal | null) {
@@ -49,19 +52,45 @@ export function retryRateLimitedPosts(
 ): FetchLike {
 	const sleep = deps.sleep ?? abortableSleep;
 	const random = deps.random ?? Math.random;
+	const now = deps.now ?? Date.now;
+	const cooldown =
+		deps.cooldown === undefined ? fileGatewayCooldown() : deps.cooldown;
 	return async (input, init) => {
 		const resendable =
 			init?.method?.toUpperCase() === "POST" && typeof init.body === "string";
-		let response = await fetchFn(input, init);
-		for (let retry = 0; resendable && retry < MAX_RETRIES; retry++) {
+		const url = input instanceof Request ? input.url : String(input);
+		const signal =
+			init?.signal ?? (input instanceof Request ? input.signal : undefined);
+		const wait = async (baseMs: number) => {
+			const jitterMs = random() * Math.min(baseMs / 4, MAX_JITTER_MS);
+			await sleep(Math.round(baseMs + jitterMs), signal);
+			signal?.throwIfAborted();
+		};
+		const send = async () => {
+			let remaining: number;
+			while ((remaining = (cooldown?.read(url) ?? 0) - now()) > 0) {
+				await wait(Math.min(remaining, MAX_RETRY_AFTER_SECONDS * 1000));
+			}
+			return fetchFn(input, init);
+		};
+		let response = await send();
+		for (let retry = 0; ; retry++) {
 			if (response.status !== 429) break;
+			const raw = response.headers.get("retry-after")?.trim();
+			const until =
+				raw && /^\d+$/.test(raw)
+					? now() + Math.max(1, Number(raw)) * 1000
+					: raw
+						? Date.parse(raw)
+						: NaN;
+			if (Number.isFinite(until) && until > now()) cooldown?.extend(url, until);
 			const seconds = retryAfterSeconds(response);
 			if (seconds === undefined) break;
 			const baseMs = Math.max(1, seconds) * 1_000;
-			const jitterMs = random() * Math.min(baseMs / 4, MAX_JITTER_MS);
+			if (!resendable || retry >= MAX_RETRIES) break;
 			await response.body?.cancel().catch(() => {});
-			await sleep(Math.round(baseMs + jitterMs), init?.signal);
-			response = await fetchFn(input, init);
+			await wait(baseMs);
+			response = await send();
 		}
 		return response;
 	};

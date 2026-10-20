@@ -1241,6 +1241,10 @@ async function main() {
 				workspace: organizationContext.workspace,
 				mcpUrl: options.url,
 				bootstrapCache: fileNativeBootstrapCache(),
+				nativeCacheScope: JSON.stringify([
+					organizationContext.workspace,
+					auth.source,
+				]),
 				signal: commandAbort.signal,
 			});
 			return;
@@ -1315,6 +1319,10 @@ async function main() {
 				authSource: auth.source,
 				mcpUrl: options.url,
 				bootstrapCache: fileNativeBootstrapCache(),
+				nativeCacheScope: JSON.stringify([
+					organizationContext.workspace,
+					auth.source,
+				]),
 				signal: commandAbort.signal,
 				attemptStore: organizationScopedAttemptStore(
 					createFileWorkAttemptStore(),
