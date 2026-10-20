@@ -1297,7 +1297,10 @@ describe("decideDelegationDispatch", () => {
 		expect(d.reason.toLowerCase()).toContain("cold");
 	});
 
-	it("REFUSES (boot_unavailable) an embodied-effort route to an embodied target in 'standby' (no warm lease)", () => {
+	it("HOLDS (not boot_unavailable) an embodied-effort route to a 'standby' Agents-runtime target without autonomy", () => {
+		// Standby is the default tier of an Agents-runtime tedi; its Durable
+		// Object wakes on the dispatched message. Without standing autonomy the
+		// wake still needs a human decision, but it is not a refusal.
 		const d = decideDelegationDispatch({
 			route: makeRoute({ risk: "low", effortClass: "embodied" }),
 			card: makeCard({
@@ -1307,8 +1310,11 @@ describe("decideDelegationDispatch", () => {
 			}),
 			speaker: AUTHORIZED_SPEAKER,
 		});
-		expect(d.mode).toBe("boot_unavailable");
-		expect(d.canAutoDispatch).toBe(false);
+		expect(d).toMatchObject({
+			mode: "needs_approval",
+			approvalRoute: "human",
+			canAutoDispatch: false,
+		});
 	});
 
 	it("does NOT REFUSE a read-only route to a cold-bodied embodied target — degrades, never boot_unavailable (CTO 'introduce yourself')", () => {
@@ -2451,6 +2457,31 @@ describe("organization critical-only delegation autonomy", () => {
 			).toBe(false);
 		},
 	);
+
+	it("wakes a standby coding tedi for low-risk embodied work instead of refusing a cold target", () => {
+		// Replay of the coding trial: Home picked a standby coding reviewer with a
+		// configured repository and no warm workstation lease.
+		const d = decideDelegationDispatch({
+			...base(),
+			route: makeRoute({
+				risk: "medium",
+				effortClass: "embodied",
+				plannedToolIds: ["open_computer", "exec", "files"],
+			}),
+			card: makeCard({
+				requiresApproval: false,
+				embodied: true,
+				availability: "standby",
+				hasRepository: true,
+				hasWarmWorkstationLease: false,
+				environmentReady: false,
+			}),
+			workOrderContent:
+				"Coding trial (low risk refactor): implement the brief in the repository via your workstation, push through the normal guarded path, report the commit SHA.",
+		});
+		expect(d.mode).not.toBe("boot_unavailable");
+		expect(d).toMatchObject({ mode: "auto", canAutoDispatch: true });
+	});
 
 	it("org autonomy cannot override the target's requiresApproval", () => {
 		expect(
