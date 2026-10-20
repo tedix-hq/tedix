@@ -126,9 +126,27 @@ if (demo) {
 		"The collaboration-ready local output was not available through the OS Worker",
 	);
 } else if (restartPhase !== "read") {
+	// Onboarding installs the tenant-owned Feed/Deck blueprint, without demo data.
+	const work = workspaces.items[0];
 	assert(
-		workspaces.items.length === 0,
-		"Blank-start onboarding imported or seeded a workspace",
+		workspaces.items.length === 1 &&
+			work?.name === "Work" &&
+			work.sourceBlueprintRevisionNumber === 1 &&
+			work.sourceBlueprintId !== null &&
+			work.sourceBlueprintRevisionId !== null,
+		"Blank-start onboarding must contain only the pinned default Work workspace",
+	);
+	const defaults = await osClient.osWorkspaces.gadgets.workApps({ limit: 50 });
+	assert(
+		!defaults.truncated &&
+			defaults.items.length === 2 &&
+			defaults.items.every((item) => item.gadget.workspaceId === work.id) &&
+			["feed", "deck"].every((role) =>
+				defaults.items.some(
+					(item) => item.currentRevision.manifest.navigation?.work === role,
+				),
+			),
+		"Blank-start onboarding must install exactly the default Feed and Deck apps",
 	);
 }
 
