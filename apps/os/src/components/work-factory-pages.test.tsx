@@ -6,10 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	userProfileQueryOptions,
-	workReadinessProjectionQueryOptions,
-	workAttemptProjectionQueryOptions,
 	workItemDetailQueryOptions,
-	workItemListQueryOptions,
 	workItemAttemptsQueryOptions,
 	workItemEvidenceQueryOptions,
 	workItemEventsQueryOptions,
@@ -32,12 +29,7 @@ import {
 	recordedSettlementCommits,
 	WorkItemInspectorPage,
 	WorkItemReadOnlyLedgers,
-	WorkQueuePage,
 	WorkGraphLedger,
-	WorkRecoveryLedger,
-	WorkAttemptsLedger,
-	WorkAttemptsPage,
-	WorkCompletedPage,
 	workAttemptSessionLabel,
 	WorkItemsTable,
 	workOwnerName,
@@ -45,7 +37,6 @@ import {
 	workEventActorLabel,
 	evidenceTrustLabel,
 } from "./work-factory-pages";
-import { workActivitySearch, workQueueSearch } from "@/lib/work-route-search";
 import { workPrincipalLabel } from "@/lib/work-display";
 
 /** Seeds the accountable-name reads so a mounted page never reaches the network. */
@@ -304,56 +295,6 @@ describe("Work factory queue", () => {
 		expect(html).toContain("Evaluation required");
 		expect(html).not.toContain(">Ready<");
 	});
-
-	it("renders one bounded readiness projection page and its continuation without an attention panel", () => {
-		const queryClient = new QueryClient({
-			defaultOptions: { queries: { retry: false } },
-		});
-		queryClient.setQueryData(workReadinessProjectionQueryOptions().queryKey, {
-			data: [
-				{
-					workItem: {
-						id: item.id,
-						title: item.title,
-						disposition: item.disposition,
-						workKind: item.workKind,
-						riskLevel: item.riskLevel,
-						priority: item.priority,
-						projectId: item.projectId,
-						accountableOwnerType: item.accountableOwnerType,
-						accountableOwnerId: item.accountableOwnerId,
-						createdAt: item.createdAt,
-						updatedAt: item.updatedAt,
-					},
-					readiness: {
-						workItemId: item.id,
-						state: "evaluation_required",
-						ready: false,
-						reasons: [],
-						derivedAt: "2026-08-21T00:00:00.000Z",
-						gates: [],
-					},
-				},
-			],
-			nextCursor: { at: item.createdAt, id: item.id },
-			hasMore: true,
-			observedAt: "2026-08-21T00:00:00.000Z",
-		});
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={queryClient}>
-				<WorkQueuePage />
-			</QueryClientProvider>,
-		);
-		// Attention lives in Work › Needs you, not above the queue.
-		expect(html).not.toContain("Work attention");
-		expect(html).toContain("Verify the customer export");
-		expect(html).toContain("Evaluation required");
-		expect(html).not.toContain(">Disposition<");
-		expect(html).not.toContain(">Accepted<");
-		expect(html).toContain("Next page");
-		expect(html).toContain('aria-label="Work queue"');
-		expect(html).toContain('data-appearance="inline"');
-	});
 });
 
 describe("Work graph collection", () => {
@@ -405,42 +346,6 @@ describe("Work graph collection", () => {
 		expect(html).toContain("References");
 		expect(html).toContain("Dependency view is truncated");
 		expect(html).toContain("first 5,000 returned edges");
-	});
-});
-
-describe("Work recovery collection", () => {
-	it("renders one bounded responsive signal ledger instead of record cards", () => {
-		const html = renderToStaticMarkup(
-			<WorkRecoveryLedger
-				records={[
-					{
-						id: ITEM_ID,
-						title: "Recover the customer export",
-						signals: ["dependencies_blocked"],
-						blockingDependencyCount: 2,
-						latestAttemptState: "finished",
-						latestAttemptOutcome: "failed",
-					},
-				]}
-			/>,
-		);
-
-		expect(html).toContain('aria-label="Work recovery signals"');
-		expect(html).toContain('data-slot="collection"');
-		expect(html).toContain('data-appearance="inline"');
-		expect(html).toContain("max-h-[min(65vh,40rem)]");
-		expect(html).toContain("overflow-y-auto");
-		expect(html).toContain("overscroll-y-contain");
-		expect(html).toContain("lg:hidden");
-		expect(html).toContain("hidden overflow-visible lg:block");
-		expect(html).toContain("sticky top-0");
-		expect(html).toContain("min-h-11");
-		expect(html).toContain("flex-col items-start");
-		expect(html).toContain("text-left");
-		expect(html).toContain(`href="/work/items/${ITEM_ID}"`);
-		expect(html).toContain("Dependencies blocked");
-		expect(html).toContain("2 blocked · Finished · Failed");
-		expect(html).not.toContain('data-slot="card"');
 	});
 });
 
@@ -725,48 +630,6 @@ describe("Work evidence links", () => {
 	});
 });
 
-describe("Work attempt records", () => {
-	it("uses a compact narrow-width summary while preserving the desktop table", () => {
-		const executorId = "5eed0046-0000-4000-8000-000000000046";
-		const html = renderToStaticMarkup(
-			<WorkAttemptsLedger
-				records={[
-					{
-						attempt: {
-							id: "77777777-7777-4777-8777-777777777777",
-							runtimeState: "finished",
-							executorType: "external_agent",
-							executorId,
-							outcome: "succeeded",
-							executorSessionId: "codex:customer-export-chat",
-							heartbeatAt: "2026-10-03T09:00:00.000Z",
-							finishedAt: "2026-10-03T09:15:00.000Z",
-						},
-						workItem: { id: ITEM_ID, title: "Verify the customer export" },
-					},
-				]}
-			/>,
-		);
-
-		expect(html).toContain('aria-label="Work session records"');
-		expect(html).toContain('data-slot="collection"');
-		expect(html).toContain('data-appearance="inline"');
-		expect(html).toContain("lg:hidden");
-		expect(html).toContain("hidden lg:block");
-		expect(html).toContain("min-h-11 w-full min-w-0 items-center");
-		expect(html).toContain("Finished · Succeeded · ");
-		expect(html.match(/Session codex:customer-export-chat/g)).toHaveLength(2);
-		expect(html.match(/dateTime="2026-10-03T09:15:00.000Z"/g)).toHaveLength(2);
-		expect(html).not.toContain("Last heartbeat");
-		expect(html.match(/external_agent:5eed0046…/g)).toHaveLength(2);
-		expect(
-			html.match(new RegExp(`title="external_agent:${executorId}"`, "g")),
-		).toHaveLength(2);
-		expect(html).not.toContain(`>external_agent:${executorId}<`);
-		expect(html).toContain(`href="/work/items/${ITEM_ID}"`);
-	});
-});
-
 describe("Project milestone updates", () => {
 	it("includes trimmed proof only for the guarded Done transition", () => {
 		const common = {
@@ -834,29 +697,6 @@ describe("Recorded Work outcomes and activity", () => {
 		expect(html).not.toContain("99999999");
 		expect(workAttemptSessionLabel("codex:customer-export-chat")).toBe(
 			"Session codex:customer-export-chat",
-		);
-	});
-	it("makes historical Attempts distinguishable from live harness state", () => {
-		const queryClient = new QueryClient({
-			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-		});
-		queryClient.setQueryData(
-			workAttemptProjectionQueryOptions(undefined, "history").queryKey,
-			{
-				data: [{ attempt, workItem: item }],
-				nextCursor: null,
-				hasMore: false,
-			},
-		);
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={queryClient}>
-				<WorkAttemptsPage view="history" />
-			</QueryClientProvider>,
-		);
-		expect(html).toContain("Activity");
-		expect(html).toContain("Recorded activity that has ended");
-		expect(html).toContain(
-			"does not by itself mean the work is completed or deployed",
 		);
 	});
 	it("shows recorded result, finish time and commits without converting them into live verification", () => {
@@ -1020,21 +860,6 @@ describe("Recorded Work outcomes and activity", () => {
 });
 
 describe("lean activity navigation", () => {
-	it("uses canonical server states and keeps active/history query caches distinct", () => {
-		expect(workActivitySearch({ view: "invalid" })).toEqual({ view: "active" });
-		expect(workActivitySearch({ view: "history" })).toEqual({
-			view: "history",
-		});
-		const active = workAttemptProjectionQueryOptions(undefined, "active");
-		const history = workAttemptProjectionQueryOptions(undefined, "history");
-		expect(active.queryKey).not.toEqual(history.queryKey);
-		expect(JSON.stringify(active.queryKey)).toContain(
-			'"runtimeStates":["queued","running","waiting","retrying"]',
-		);
-		expect(JSON.stringify(history.queryKey)).toContain(
-			'"runtimeStates":["finished","failed","expired","cancelled"]',
-		);
-	});
 	it("flags overdue recorded activity without calling the harness offline", () => {
 		const html = renderToStaticMarkup(
 			<WorkAttemptActivity
@@ -1055,32 +880,6 @@ describe("lean activity navigation", () => {
 			/>,
 		);
 		expect(ended).not.toContain("Update overdue");
-	});
-	it("lists business-completed work separately from ended activity", () => {
-		expect(workQueueSearch({ disposition: "finished" })).toEqual({});
-		const queryClient = new QueryClient({
-			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-		});
-		queryClient.setQueryData(
-			workItemListQueryOptions({
-				disposition: "completed",
-				limit: 25,
-				offset: 0,
-			}).queryKey,
-			{
-				data: [{ ...item, disposition: "completed" }],
-				pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
-			},
-		);
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={queryClient}>
-				<WorkCompletedPage />
-			</QueryClientProvider>,
-		);
-		expect(html).toContain("Completed work");
-		expect(html).not.toContain("Readiness");
-		expect(html).toContain(item.title);
-		expect(html).toContain("does not by itself prove deployment");
 	});
 });
 

@@ -1,5 +1,5 @@
 import { DEFAULT_ATTENTION_LAYOUT } from "@tedix/api-contract/schemas/attention-layout";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("@/lib/api", () => ({ osApi: {} }));
 vi.mock("@/lib/os-query-options", () => ({

@@ -4,18 +4,9 @@ import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import { buildAttentionWebMcpTools } from "@/components/attention-webmcp-tools";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { SupportAttention } from "@/components/support-attention";
 import { AttentionBoard } from "@/components/attention-live-view";
 import { Alert, AlertTitle, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import { Link } from "@/components/kumo/link";
-import {
-	Page,
-	PageHeader,
-	PageHeading,
-	PageTitle,
-	PageDescription,
-} from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { osApi, OS_USES_FIXTURES } from "@/lib/api";
 import {
@@ -28,7 +19,6 @@ import {
 	type CapnSessionLeaseHandle,
 } from "@/lib/capn-session-hub";
 import { connectCapnSocket } from "@/lib/capn-chat-machine";
-import { useDocumentTitle } from "@/lib/use-document-title";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 
 export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
@@ -169,21 +159,5 @@ export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 				<Text>{ATTENTION_COPY.loading}</Text>
 			)}
 		</div>
-	);
-}
-export function WorkAttentionPage() {
-	useDocumentTitle(ATTENTION_COPY.documentTitle);
-	return (
-		<Page width="xl">
-			<PageHeader>
-				<PageHeading>
-					<PageTitle>{ATTENTION_COPY.pageTitle}</PageTitle>
-					<PageDescription>{ATTENTION_COPY.description}</PageDescription>
-				</PageHeading>
-				<Link href="#attention-unfiled">{ATTENTION_COPY.reviewUnfiled}</Link>
-			</PageHeader>
-			<AttentionApp />
-			<SupportAttention />
-		</Page>
 	);
 }

@@ -14,7 +14,7 @@ import type {
 } from "@tedix/api-contract/schemas/work-items";
 import type { Project } from "@tedix/api-contract/contracts/projects";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import * as z from "zod";
 import { WorkItemDescription } from "@/components/work-item-description";
 import { WorkItemCommentComposer } from "@/components/work-item-comment-composer";
@@ -40,7 +40,6 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import type { WorkActivityView } from "@/lib/os-query-options";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
 import {
 	Card,
@@ -81,9 +80,7 @@ import {
 	projectRollupQueryOptions,
 	projectHealthJudgmentsQueryOptions,
 	projectMilestonesQueryOptions,
-	operationalContextQueryOptions,
 	osQueryKeys,
-	workAttemptProjectionQueryOptions,
 	workGraphItemsQueryOptions,
 	workItemAttemptsQueryOptions,
 	workItemDetailQueryOptions,
@@ -93,12 +90,9 @@ import {
 	workItemListQueryOptions,
 	workItemReadinessQueryOptions,
 	workItemRelationsQueryOptions,
-	workRecoveryProjectionQueryOptions,
-	workReadinessProjectionQueryOptions,
 } from "@/lib/os-query-options";
 import { osApi } from "@/lib/api";
 import { absoluteDate, absoluteTime } from "@/lib/time";
-import { errorMessage } from "@/lib/orpc-error";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { workPrincipalLabel } from "@/lib/work-display";
 import {
@@ -835,105 +829,6 @@ export function WorkItemsTable({
 				</TableBody>
 			</Table>
 		</>
-	);
-}
-
-export function WorkCompletedPage() {
-	const [offset, setOffset] = useState(0);
-	const query = useQuery(
-		workItemListQueryOptions({ disposition: "completed", limit: 25, offset }),
-	);
-	const principalNames = useWorkPrincipalNames(query.data?.data[0]?.orgId);
-	return (
-		<Page width="full">
-			<WorkPageHeader
-				title="Completed work"
-				description="Work recorded as completed. Open a record to inspect its outcome; completion does not by itself prove deployment."
-			/>
-			{query.isPending ? (
-				<WorkListSkeleton />
-			) : query.isError ? (
-				<WorkReadFailure
-					fallback={PROJECTION_FAILURE_FALLBACK}
-					title="Completed work unavailable"
-					error={query.error}
-				/>
-			) : query.data.data.length ? (
-				<WorkItemsTable
-					items={query.data.data}
-					principalNames={principalNames}
-					showReadiness={false}
-				/>
-			) : (
-				<WorkEmpty
-					title="No completed work on this page"
-					description="Completed Work records will appear here."
-				/>
-			)}
-			<PageControls
-				hasPrevious={offset > 0}
-				hasNext={Boolean(query.data?.pagination.hasMore)}
-				onPrevious={() => setOffset(0)}
-				onBack={() => setOffset(Math.max(0, offset - 25))}
-				onNext={() => setOffset(offset + 25)}
-			/>
-		</Page>
-	);
-}
-
-export function WorkQueuePage() {
-	const paging = useCursorPaging<{ at: string; id: string }>();
-	const queueQuery = useQuery(
-		workReadinessProjectionQueryOptions(paging.cursor),
-	);
-	const entries = queueQuery.data?.data ?? [];
-	const items = entries.map((entry) => entry.workItem);
-	const context = useQuery(operationalContextQueryOptions());
-	const principalNames = useWorkPrincipalNames(context.data?.organization.id);
-	const readiness = new Map(
-		entries.map((entry) => [
-			entry.workItem.id,
-			{ status: "evaluated" as const, ...entry.readiness },
-		]),
-	);
-	return (
-		<Page width="full">
-			<WorkPageHeader
-				title="Queue"
-				description="Accepted work and whether it is ready to start."
-			/>
-			{queueQuery.isPending ? (
-				<WorkListSkeleton />
-			) : queueQuery.isError ? (
-				<WorkReadFailure
-					fallback={PROJECTION_FAILURE_FALLBACK}
-					title="Work queue unavailable"
-					error={queueQuery.error}
-				/>
-			) : items.length === 0 ? (
-				<WorkEmpty
-					title="No accepted work"
-					description="Create a proposed Work Item, define its acceptance contract, and accept it before admission gates are evaluated."
-				/>
-			) : (
-				<WorkItemsTable
-					items={items}
-					principalNames={principalNames}
-					readiness={readiness}
-					showDisposition={false}
-				/>
-			)}
-			<PageControls
-				hasPrevious={paging.hasPrevious}
-				hasNext={Boolean(queueQuery.data?.nextCursor)}
-				onPrevious={paging.reset}
-				onBack={paging.previous}
-				onNext={() => {
-					if (queueQuery.data?.nextCursor)
-						paging.next(queueQuery.data.nextCursor);
-				}}
-			/>
-		</Page>
 	);
 }
 
@@ -1915,314 +1810,11 @@ export function WorkRecordedOutcome({
 	);
 }
 
-type WorkAttemptSummary = {
-	attempt: {
-		id: string;
-		runtimeState: string;
-		executorType: string;
-		executorId: string;
-		outcome: string | null;
-	} & WorkAttemptActivityFields;
-	workItem: { id: string; title: string };
-};
-
 function evidenceDispositionVariant(disposition: string) {
 	if (disposition === "accepted") return "success" as const;
 	if (disposition === "rejected") return "error" as const;
 	if (disposition === "superseded") return "outline" as const;
 	return "warning" as const;
-}
-
-export function WorkAttemptsLedger({
-	records,
-}: {
-	records: WorkAttemptSummary[];
-}) {
-	return (
-		<>
-			<Collection
-				appearance="inline"
-				aria-label="Work session records"
-				className="border-kumo-line border-y lg:hidden"
-			>
-				{records.map(({ attempt, workItem }) => (
-					<li className="min-w-0 py-1" key={attempt.id}>
-						<Link
-							variant="record"
-							href={`/work/items/${workItem.id}`}
-							className="flex min-h-11 w-full min-w-0 items-center coarse:min-h-11"
-						>
-							<span className="min-w-0 flex-1">
-								<span className="block truncate font-medium leading-snug">
-									{workItem.title}
-								</span>
-								<span className="block truncate text-kumo-subtle text-xs">
-									{sentenceCase(attempt.runtimeState)} ·{" "}
-									{attemptOutcomeLabel(attempt)} ·{" "}
-									<span title={`${attempt.executorType}:${attempt.executorId}`}>
-										{workPrincipalLabel(
-											attempt.executorId,
-											attempt.executorType,
-										)}
-									</span>
-								</span>
-							</span>
-						</Link>
-						<WorkAttemptActivity attempt={attempt} />
-					</li>
-				))}
-			</Collection>
-			<Table scrollLabel="Work sessions" containerClassName="hidden lg:block">
-				<TableHeader>
-					<TableRow>
-						<TableHead>Work</TableHead>
-						<TableHead>Status</TableHead>
-						<TableHead>Worker</TableHead>
-						<TableHead>Last update</TableHead>
-						<TableHead>Recorded outcome</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{records.map(({ attempt, workItem }) => (
-						<TableRow key={attempt.id}>
-							<TableCell className="whitespace-normal">
-								<Link variant="record" href={`/work/items/${workItem.id}`}>
-									{workItem.title}
-								</Link>
-							</TableCell>
-							<TableCell>{sentenceCase(attempt.runtimeState)}</TableCell>
-							<TableCell
-								title={`${attempt.executorType}:${attempt.executorId}`}
-							>
-								{workPrincipalLabel(attempt.executorId, attempt.executorType)}
-							</TableCell>
-							<TableCell>
-								<WorkAttemptActivity attempt={attempt} />
-							</TableCell>
-							<TableCell>{attemptOutcomeLabel(attempt)}</TableCell>
-						</TableRow>
-					))}
-				</TableBody>
-			</Table>
-		</>
-	);
-}
-
-export function WorkAttemptsPage({
-	view = "active",
-}: {
-	view?: WorkActivityView;
-}) {
-	const paging = useCursorPaging<{ at: string; id: string }>();
-	const query = useQuery(
-		workAttemptProjectionQueryOptions(paging.cursor, view),
-	);
-	const description =
-		view === "history"
-			? "Recorded activity that has ended. A finished run does not by itself mean the work is completed or deployed."
-			: "Recorded work in progress, including waiting work and overdue updates. This does not show every local chat.";
-	return (
-		<Page width="full">
-			<WorkPageHeader title="Activity" description={description} />
-			<Text as="p" role="body">
-				<Link
-					href="/work/attempts?view=active"
-					aria-current={view === "active" ? "page" : undefined}
-				>
-					In progress
-				</Link>
-				{" · "}
-				<Link
-					href="/work/attempts?view=history"
-					aria-current={view === "history" ? "page" : undefined}
-				>
-					History
-				</Link>
-			</Text>
-			{query.isError ? (
-				<WorkReadFailure
-					fallback={PROJECTION_FAILURE_FALLBACK}
-					title="Activity unavailable"
-				/>
-			) : query.isPending ? (
-				<WorkListSkeleton />
-			) : query.data.data.length === 0 ? (
-				<WorkEmpty
-					title={
-						view === "active"
-							? "No work in progress recorded"
-							: "No activity history recorded"
-					}
-					description={description}
-				/>
-			) : (
-				<WorkAttemptsLedger records={query.data.data} />
-			)}
-			<PageControls
-				hasPrevious={paging.hasPrevious}
-				hasNext={Boolean(query.data?.nextCursor)}
-				onPrevious={paging.reset}
-				onBack={paging.previous}
-				onNext={() => {
-					if (query.data?.nextCursor) paging.next(query.data.nextCursor);
-				}}
-			/>
-		</Page>
-	);
-}
-
-export function WorkRecoveryPage() {
-	const paging = useCursorPaging<{ at: string; id: string }>();
-	const query = useQuery(workRecoveryProjectionQueryOptions(paging.cursor));
-	return (
-		<Page width="full">
-			<WorkPageHeader
-				title="Recovery"
-				description="Blocked admission, stale authority, rejected proof, and exhausted execution are diagnosed before retry. Repeating an unchanged plan is not progress."
-			/>
-			{query.isError ? (
-				<WorkReadFailure
-					fallback={PROJECTION_FAILURE_FALLBACK}
-					title="Recovery queue unavailable"
-				/>
-			) : query.isPending ? (
-				<WorkListSkeleton />
-			) : query.data.data.length === 0 ? (
-				<WorkEmpty
-					title="No accepted work needs recovery"
-					description="No factual recovery signals were observed for accepted work."
-				/>
-			) : (
-				<WorkRecoveryLedger records={query.data.data} />
-			)}
-			<PageControls
-				hasPrevious={paging.hasPrevious}
-				hasNext={Boolean(query.data?.nextCursor)}
-				onPrevious={paging.reset}
-				onBack={paging.previous}
-				onNext={() => {
-					if (query.data?.nextCursor) paging.next(query.data.nextCursor);
-				}}
-			/>
-		</Page>
-	);
-}
-
-type WorkRecoverySummary = {
-	id: string;
-	title: string;
-	signals: string[];
-	blockingDependencyCount: number;
-	latestAttemptState: string | null;
-	latestAttemptOutcome: string | null;
-};
-
-function recoverySignalVariant(signal: string) {
-	if (signal === "latest_attempt_failed" || signal === "latest_attempt_expired")
-		return "error" as const;
-	return "warning" as const;
-}
-
-function latestAttemptLabel(record: WorkRecoverySummary) {
-	if (!record.latestAttemptState) return "Not started";
-	return [record.latestAttemptState, record.latestAttemptOutcome]
-		.filter((value): value is string => Boolean(value))
-		.map(sentenceCase)
-		.join(" · ");
-}
-
-export function WorkRecoveryLedger({
-	records,
-}: {
-	records: WorkRecoverySummary[];
-}) {
-	return (
-		<div
-			role="region"
-			aria-label="Work recovery signals"
-			tabIndex={0}
-			className="max-h-[min(65vh,40rem)] overflow-y-auto overscroll-y-contain border-y border-kumo-hairline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus"
-		>
-			<Collection
-				appearance="inline"
-				aria-label="Work recovery signals"
-				className="lg:hidden"
-			>
-				{records.map((record) => (
-					<li key={record.id} className="min-w-0 px-3 py-1.5">
-						<Link
-							variant="record"
-							href={`/work/items/${record.id}`}
-							className="flex min-h-11 min-w-0 flex-col items-start justify-center text-left font-medium leading-snug"
-						>
-							<span className="line-clamp-2">{record.title}</span>
-						</Link>
-						<div className="flex min-h-11 min-w-0 flex-wrap content-center gap-1 overflow-hidden py-1">
-							<div className="flex min-w-0 flex-wrap gap-1">
-								{record.signals.map((signal) => (
-									<Badge key={signal} variant={recoverySignalVariant(signal)}>
-										{sentenceCase(signal)}
-									</Badge>
-								))}
-							</div>
-							<Text
-								as="span"
-								role="label"
-								tone="secondary"
-								className="w-full min-w-0 truncate"
-							>
-								{record.blockingDependencyCount} blocked ·{" "}
-								{latestAttemptLabel(record)}
-							</Text>
-						</div>
-					</li>
-				))}
-			</Collection>
-			<Table
-				containerClassName="hidden overflow-visible lg:block"
-				className="table-fixed"
-			>
-				<TableHeader className="sticky top-0 z-10 bg-kumo-base">
-					<TableRow>
-						<TableHead className="w-[32%]">Work</TableHead>
-						<TableHead className="w-[26%]">Signals</TableHead>
-						<TableHead className="w-[12%] text-right">Dependencies</TableHead>
-						<TableHead className="w-[16%]">Latest attempt</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{records.map((record) => (
-						<TableRow key={record.id}>
-							<TableCell className="whitespace-normal">
-								<Link
-									variant="record"
-									href={`/work/items/${record.id}`}
-									className="font-medium"
-								>
-									<span className="line-clamp-2">{record.title}</span>
-								</Link>
-							</TableCell>
-							<TableCell className="whitespace-normal">
-								<div className="flex flex-wrap gap-1">
-									{record.signals.map((signal) => (
-										<Badge key={signal} variant={recoverySignalVariant(signal)}>
-											{sentenceCase(signal)}
-										</Badge>
-									))}
-								</div>
-							</TableCell>
-							<TableCell className="text-right tabular-nums">
-								{record.blockingDependencyCount}
-							</TableCell>
-							<TableCell className="whitespace-normal">
-								{latestAttemptLabel(record)}
-							</TableCell>
-						</TableRow>
-					))}
-				</TableBody>
-			</Table>
-		</div>
-	);
 }
 
 export function WorkItemPage({ itemId }: { itemId: string }) {
