@@ -12,7 +12,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: main
+  group: ${{ github.event_name == 'workflow_dispatch' && 'main-manual-certification' || 'main' }}
   cancel-in-progress: true
 
 env:

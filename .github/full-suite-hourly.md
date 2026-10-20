@@ -7,7 +7,9 @@ code only after proving it contains freshly fetched main; rebase before using it
 Normal pushes always load the fetched main version.
 
 `full-suite-hourly.yml` runs on every main push, hourly, and manual dispatch.
-Runs share concurrency group `main`; a newer tip cancels older certification.
+Push and hourly runs share group `main`; a newer tip cancels older certification.
+Manual runs use `main-manual-certification`, so a complete baseline can finish
+during sustained pushes. A newer manual run cancels the previous manual run.
 The required aggregate is `Main CI`. Every discovered workspace runs its full
 `test:ci` (or `test:run`) and type-check. Repository checks retain script tests,
 public docs, generated types, migration validation, builds, licenses and lint.
@@ -23,17 +25,17 @@ certification remain in `oss-public-ci.yml`.
 
 The local hook defaults to owner types, changed formatting, Oxlint,
 architecture/dependency lint, and the fail-closed private secret scan. Operators
-must prove main certification, failure reporting, and green-only deployment
-before publishing this default. `git config tedix.pushGateProfile full` retains
+must enforce green-only deployment before enabling this default. During initial
+cutover, keep Ship paused until the first full certification passes.
+`git config tedix.pushGateProfile full` retains
 complete local proof; unsetting it restores the fast default.
 The other checks stay in CI. `bun run verify` retains the complete profile;
 `--ci-policy --all` runs the repository checks in CI. Full workspace suites cover
 the consumer checks previously selected by `vitest related`.
 
 For the initial CI bootstrap, operations can pause new deployment plans while
-one push uses a process-scoped fast profile to install this workflow. Restore
-planning only after certification passes and green-only selection is enforced;
-keep other lanes on the full profile until then.
+fast pushes install this workflow and its fixes. Restore planning only after
+certification passes and green-only selection is enforced.
 
 `bun run push` starts a detached completion observer using the
 existing `gh` session. It checks every 15 seconds for up to 30 minutes and wakes
