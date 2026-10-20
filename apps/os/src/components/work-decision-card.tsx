@@ -1,4 +1,3 @@
-import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import {
 	DecisionContextSection,
 	DecisionRailContext,
@@ -62,6 +61,8 @@ import {
 import { WorkSourceProvenance } from "@/components/work-source-provenance";
 import { useDecisionMotion } from "@/components/use-decision-motion";
 import { Button } from "@/components/kumo/button";
+import { Loader } from "@/components/kumo/loader";
+import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	CardContent,
 	CardFooter,
@@ -133,6 +134,9 @@ const DISABLED_ACTION_LABEL = {
 	"--color-white": "var(--muted-foreground)",
 } as CSSProperties;
 
+/** After this long without a short summary, the card shows the original request instead of a skeleton. */
+export const FACE_WAIT_MS = 8000;
+
 /** Shared review surface. Callers own authorization, persistence and provider effects. */
 export function WorkDecisionCard({
 	kind,
@@ -191,14 +195,23 @@ export function WorkDecisionCard({
 	const faceState = useContext(CardFaceContext);
 	const face = faceState?.presentation;
 	const [sourceRead, setSourceRead] = useState(false);
-	const heading = decisionProposalTitle(
-		faceState
-			? (face?.title ??
-					(faceState.unavailable
-						? copySpec.unavailableTitle
-						: copySpec.pendingTitle))
-			: title,
-	);
+	// The headline is always real text: the short summary's ask when it exists,
+	// otherwise the original request title. Never a status word.
+	const heading = decisionProposalTitle(face?.title ?? title);
+	const faceWaiting = !!faceState && !face && !faceState.unavailable;
+	const [faceSlow, setFaceSlow] = useState(false);
+	const [faceRetries, setFaceRetries] = useState(0);
+	// The wait restarts per card (title) and per retry.
+	useEffect(() => {
+		if (!faceWaiting) return;
+		setFaceSlow(false);
+		const timer = setTimeout(() => setFaceSlow(true), FACE_WAIT_MS);
+		return () => clearTimeout(timer);
+	}, [faceWaiting, faceRetries, title]);
+	// Only the summary is loading; everything else on the card is real now.
+	const faceFallback =
+		!!faceState && !face && (!!faceState.unavailable || faceSlow);
+	const faceSkeleton = faceWaiting && !faceSlow;
 	const queryClient = useContext(QueryClientContext);
 	const revision = revisionTarget;
 	const secureConnection =
@@ -231,11 +244,7 @@ export function WorkDecisionCard({
 	const exposureSent = useRef(false);
 	const detailsOpened = useRef(false);
 	useEffect(() => {
-		if (
-			!attention ||
-			exposureSent.current ||
-			(faceState && !face && !sourceRead)
-		)
+		if (!attention || exposureSent.current || (faceSkeleton && !sourceRead))
 			return;
 		const report = () => {
 			const node = section.current;
@@ -268,7 +277,7 @@ export function WorkDecisionCard({
 			observer?.disconnect();
 			document.removeEventListener("visibilitychange", report);
 		};
-	}, [attention, faceState, face, sourceRead]);
+	}, [attention, faceSkeleton, sourceRead]);
 	const motion = useDecisionMotion();
 	const section = motion.surface;
 	const [editing, setEditing] = useState(false);
@@ -293,13 +302,9 @@ export function WorkDecisionCard({
 	const [saved, setSaved] = useState(false);
 	const inFlight = useRef(false);
 	const touch = useRef<{ x: number; y: number } | null>(null);
-	const busy =
-		pending ||
-		saving ||
-		disabled ||
-		saved ||
-		revising ||
-		(!!faceState && !face && !sourceRead);
+	// A loading summary never blocks the decision: the headline and original
+	// request are real now, so actions stay live until a choice is submitted.
+	const busy = pending || saving || disabled || saved || revising;
 	const submit = async (
 		action: DecisionCardAction,
 		reason?: string,
@@ -635,7 +640,7 @@ export function WorkDecisionCard({
 							) : faceState ? (
 								<div className="grid gap-3">
 									{face ? (
-										<>
+										<div className="fd-face-enter grid gap-3">
 											{"context" in face && <Text>{face.context}</Text>}
 											<Text className="fd-card-summary">
 												<strong>If yes:</strong> {face.body}
@@ -649,21 +654,68 @@ export function WorkDecisionCard({
 											{"stakes" in face && face.stakes && (
 												<Text className="fd-stakes">{face.stakes}</Text>
 											)}
-										</>
+										</div>
+									) : faceFallback ? (
+										<div className="fd-face-enter fd-face-fallback grid gap-2">
+											{content ?? <DecisionProposalBody body={body || title} />}
+											<div
+												role="status"
+												className="fd-face-note"
+												data-face-fallback
+											>
+												<span>
+													{decisionText(
+														"Summary unavailable — showing the original request",
+													)}
+												</span>
+												{faceState.retry && (
+													<Button
+														variant="ghost"
+														size="sm"
+														className="fd-face-retry"
+														disabled={faceState.retrying}
+														onClick={() => {
+															setFaceRetries((count) => count + 1);
+															faceState.retry?.();
+														}}
+													>
+														{faceState.retrying ? (
+															<>
+																<Loader aria-hidden="true" size="sm" />
+																{decisionText("Retrying…")}
+															</>
+														) : (
+															decisionText("Retry")
+														)}
+													</Button>
+												)}
+											</div>
+										</div>
 									) : (
-										<p role="status">
-											{faceState.unavailable
-												? copySpec.unavailableFace
-												: copySpec.pendingFace}
-										</p>
+										<div
+											role="status"
+											aria-busy="true"
+											className="fd-face-skeleton"
+											data-face-pending
+										>
+											<Skeleton aria-hidden="true" className="w-full" />
+											<Skeleton aria-hidden="true" className="w-11/12" />
+											<Skeleton aria-hidden="true" className="w-3/5" />
+											<span className="fd-face-writing">
+												<Loader aria-hidden="true" size="sm" />
+												{decisionText("Writing a short summary…")}
+											</span>
+										</div>
 									)}
-									<FeedDeckDisclosure
-										title={rail ? "Original request" : OS_COPY.feed.details}
-									>
-										<Text weight="semibold">{title}</Text>
-										{content ??
-											(body ? <DecisionProposalBody body={body} /> : null)}
-									</FeedDeckDisclosure>
+									{!faceFallback && (
+										<FeedDeckDisclosure
+											title={rail ? "Original request" : OS_COPY.feed.details}
+										>
+											<Text weight="semibold">{title}</Text>
+											{content ??
+												(body ? <DecisionProposalBody body={body} /> : null)}
+										</FeedDeckDisclosure>
+									)}
 								</div>
 							) : (
 								(content ??

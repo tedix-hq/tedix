@@ -368,25 +368,34 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 				responseCount: 0,
 				askedBy: "Codex session",
 			},
-			presentation: {
-				version: 2,
-				title:
-					params.get("surface") === "question"
-						? request.subject
-						: "Approve fictional test login?",
-				context:
-					params.get("surface") === "question"
-						? "Your supplier needs a delivery date."
-						: "The reported fix needs a check with a test account.",
-				body:
-					params.get("surface") === "question"
-						? "Saves your date for the draft reply; sends nothing."
-						: "Checks the fix with the test account; sends no email.",
-				recommendation:
-					params.get("surface") === "question"
-						? "Friday leaves time to check the order before dispatch."
-						: "Recommend yes because the test account and operation are specified.",
-			},
+			// `face=pending` seeds no short summary (skeleton, then the original
+			// request after the wait); `face=unavailable` is a failed writer.
+			...(params.get("face") === "unavailable"
+				? {
+						faceText: "Summary unavailable. Open Details to review the source.",
+					}
+				: {}),
+			presentation: params.has("face")
+				? null
+				: {
+						version: 2,
+						title:
+							params.get("surface") === "question"
+								? request.subject
+								: "Approve fictional test login?",
+						context:
+							params.get("surface") === "question"
+								? "Your supplier needs a delivery date."
+								: "The reported fix needs a check with a test account.",
+						body:
+							params.get("surface") === "question"
+								? "Saves your date for the draft reply; sends nothing."
+								: "Checks the fix with the test account; sends no email.",
+						recommendation:
+							params.get("surface") === "question"
+								? "Friday leaves time to check the order before dispatch."
+								: "Recommend yes because the test account and operation are specified.",
+					},
 		}),
 	);
 }

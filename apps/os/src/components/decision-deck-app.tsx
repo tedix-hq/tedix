@@ -686,6 +686,8 @@ function DecisionDeckContent({
 						preparedCard.isError ||
 						(preparedSourceMatches &&
 							preparedCard.data?.faceText === copySpec.unavailableFace),
+					retry: () => void preparedCard.refetch(),
+					retrying: preparedCard.isFetching,
 				}
 			: null;
 	const content = createElement(
