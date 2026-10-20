@@ -52,6 +52,10 @@ import {
 	relatedTestTargetsByWorkspace,
 	testRunnerFor,
 } from "./preflight-test-targets.mjs";
+import {
+	fsBunSelectionIo,
+	selectBunTestFiles,
+} from "./preflight-bun-test-selection.mjs";
 import { typeCheckTargets } from "./preflight-typecheck-targets.mjs";
 import { formatCheckCommand } from "./preflight-format-targets.mjs";
 import {
@@ -239,6 +243,9 @@ const readWorkspaceManifest = (workspaceDir) => {
 			name: raw.name,
 			deps,
 			testScript: raw.scripts?.["test:run"] ?? raw.scripts?.test ?? "",
+			// A bun workspace whose runner takes test files as arguments; the
+			// gate then passes the files whose import graph reaches the change.
+			relatedScript: raw.scripts?.["test:related"] ?? "",
 		};
 	} catch {
 		// A workspace without a readable package.json simply never matches.
@@ -305,6 +312,43 @@ const licenseInputsTouched = touched(
 
 const TYPE_ERROR_FIX =
 	"adapt the code to the type error — after a dependency bump, to the new API";
+const TEST_FIX =
+	"fix the failing test, or the code it covers — never delete the assertion to go green";
+
+/**
+ * The test gate for a bun-runner workspace. bun:test has no `related` query,
+ * so a workspace that only exposes `test:run` runs its whole suite — the
+ * smallest honest unit. A workspace exposing `test:related` takes test files
+ * as arguments, and gets the files whose import graph reaches the changed
+ * files (preflight-bun-test-selection.mjs), or the whole suite when the
+ * selection names a reason it cannot be trusted. Either way the command is the
+ * workspace's own script, never one reconstructed here.
+ */
+const bunSelectionIo = fsBunSelectionIo(repoRoot, workspaceDirs);
+function bunSuiteGate(workspace) {
+	const whole = (suffix = "") => ({
+		name: `tests (${workspace}${suffix})`,
+		when: true,
+		cwd: repoRoot,
+		cmd: ["bun", "run", "--cwd", workspace, "test:run"],
+		fix: TEST_FIX,
+	});
+	if (!readWorkspaceManifest(workspace)?.relatedScript) return whole();
+	const selection = selectBunTestFiles({
+		workspaceDir: workspace,
+		changedFiles: files ?? [],
+		io: bunSelectionIo,
+	});
+	if (selection.mode === "all")
+		return whole(`, whole suite: ${selection.reason}`);
+	return {
+		name: `tests reaching the changed files (${workspace}, ${selection.files.length} of ${selection.total} files)`,
+		when: selection.files.length > 0,
+		cwd: repoRoot,
+		cmd: ["bun", "run", "--cwd", workspace, "test:related", ...selection.files],
+		fix: TEST_FIX,
+	};
+}
 
 /**
  * `fix` is the ONE command that resolves the gate when the gate knows it (a
@@ -424,16 +468,7 @@ const gates = [
 	},
 	...[...relatedByWorkspace.entries()]
 		.filter(([workspace]) => workspaceTestRunner(workspace) === "bun")
-		.map(([workspace]) => ({
-			name: `tests (${workspace})`,
-			when: true,
-			cwd: repoRoot,
-			// bun:test has no `related` query, so the workspace's own suite is the
-			// smallest honest unit. Its test:run script is what the workspace says
-			// runs it — never a command reconstructed here.
-			cmd: ["bun", "run", "--cwd", workspace, "test:run"],
-			fix: "fix the failing test, or the code it covers — never delete the assertion to go green",
-		})),
+		.map(([workspace]) => bunSuiteGate(workspace)),
 	...[...relatedByWorkspace.entries()]
 		.filter(([workspace]) => workspaceTestRunner(workspace) === "vitest")
 		.map(([workspace, targets]) => ({

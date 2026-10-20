@@ -13,6 +13,7 @@
 		"type-check": "tsc --noEmit",
 		"test": "bun test",
 		"test:run": "bun test --max-concurrency=1",
+		"test:related": "bun test --max-concurrency=1",
 		"test:ci": "bun run test:run",
 		"test:protocol": "bun test --max-concurrency=1 src/protocol-certification.test.ts",
 		"certify:protocol:live": "bun scripts/certify-protocol-live.ts",

@@ -114,10 +114,13 @@ None of these announce themselves when broken.
 
 ## Validation
 
-`test:run` iterates `src/*.test.ts` with
-`bun run <file>`, using `node:assert`. Run the individual file you touched
-first — the loop stops at the first failure, so one unrelated red test hides
-every result after it.
+`test:run` (`scripts/run-tests.ts`) iterates `src/*.test.ts` with
+`bun run <file>`, using `node:assert`, then runs the `src/brain/` bun:test
+suites and the email and provider Vitest lanes. Run the individual file you
+touched first — the loop stops at the first failure, so one unrelated red test
+hides every result after it. `test:related <file>...` runs only the named
+files; the pre-push gate passes it the test files whose import graph reaches
+the changed files.
 
 `test:workers` runs the isolated native Pi recovery and boundary suites under Vitest/workerd;
 `type-check:workers` checks its fixture. Run both when changing Pi lifecycle,
