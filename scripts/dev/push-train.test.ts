@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
@@ -62,6 +62,7 @@ if (existsSync("secret-marker")) process.exit(1);
 		hook,
 		`#!/bin/sh
 cat >> '${root}/pushes'
+pwd >> '${root}/checkouts'
 printf '%s\\n' "$TEDIX_PUSH_TRAIN_RANGES" >> '${root}/ranges'
 if test -f '${root}/kill'; then kill -9 "$(cat '${root}/kill')"; rm '${root}/kill'; fi
 sleep 0.04
@@ -105,34 +106,53 @@ function amend(ticket: TrainTicket, file: string, content: string) {
 }
 
 describe("push train with real repositories and hooks", () => {
-	test("six green lanes use one gate and retain each lane's trailers and SHA", () => {
-		const f = fixture(6);
-		const before = performance.now();
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
-		const elapsed = performance.now() - before;
-		expect(f.gates()).toBe(1);
-		for (const [i, ticket] of f.tickets.entries()) {
-			const result = readResult(ticket.result)!;
-			expect(result.code).toBe(0);
-			expect(git(f.repo, "show", "-s", "--format=%B", result.sha!)).toContain(
-				`Work-Item: work-${i}\nAgent-Session: session-${i}`,
+	describe("batched reference", () => {
+		let f: ReturnType<typeof fixture>;
+		beforeAll(() => {
+			f = fixture(6);
+		});
+		test("six green lanes use one gate and retain each lane's trailers and SHA", () => {
+			const before = performance.now();
+			expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+			const elapsed = performance.now() - before;
+			expect(f.gates()).toBe(1);
+			const checkouts = readFileSync(join(f.root, "checkouts"), "utf8")
+				.trim()
+				.split("\n");
+			expect(checkouts.every((path) => !path.includes("/.git/"))).toBe(true);
+			for (const [i, ticket] of f.tickets.entries()) {
+				const result = readResult(ticket.result)!;
+				expect(result.code).toBe(0);
+				expect(git(f.repo, "show", "-s", "--format=%B", result.sha!)).toContain(
+					`Work-Item: work-${i}\nAgent-Session: session-${i}`,
+				);
+				expect(finishLane(ticket.lane, result, false)).toBe(0);
+				expect(git(ticket.lane.cwd, "rev-parse", "HEAD")).toBe(result.sha!);
+			}
+			expect(git(f.remote, "rev-parse", "main")).toBe(
+				readResult(f.tickets[5]!.result)!.sha!,
 			);
-			expect(finishLane(ticket.lane, result, false)).toBe(0);
-			expect(git(ticket.lane.cwd, "rev-parse", "HEAD")).toBe(result.sha!);
-		}
-		expect(git(f.remote, "rev-parse", "main")).toBe(
-			readResult(f.tickets[5]!.result)!.sha!,
-		);
-		expect(git(f.repo, "worktree", "list")).not.toContain("/.git/push-train-");
-		const serial = fixture(6);
-		const serialStart = performance.now();
-		for (const ticket of serial.tickets)
-			runTrain(serial.repo, serial.common, [ticket]);
-		const serialElapsed = performance.now() - serialStart;
-		expect(serial.gates()).toBe(6);
-		console.log(
-			`six-lane fixture: serial ${serialElapsed.toFixed(0)}ms (6 gates), train ${elapsed.toFixed(0)}ms (1 gate); at 4.5min/gate: 27min -> 4.5min`,
-		);
+			expect(git(f.repo, "worktree", "list")).not.toContain(
+				"/.worktrees/push-train-",
+			);
+			console.log(`six-lane batch fixture: ${elapsed.toFixed(0)}ms (1 gate)`);
+		});
+	});
+	describe("serial reference", () => {
+		let serial: ReturnType<typeof fixture>;
+		beforeAll(() => {
+			serial = fixture(6);
+		});
+		test("six serial lanes retain six gate invocations", () => {
+			const serialStart = performance.now();
+			for (const ticket of serial.tickets)
+				runTrain(serial.repo, serial.common, [ticket]);
+			const serialElapsed = performance.now() - serialStart;
+			expect(serial.gates()).toBe(6);
+			console.log(
+				`six-lane serial fixture: ${serialElapsed.toFixed(0)}ms (6 gates)`,
+			);
+		});
 	});
 
 	test("one red lane fails individually while the others publish in order", () => {

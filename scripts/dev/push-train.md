@@ -3,8 +3,9 @@
 `bun run push` keeps the machine-wide queue. One waiting ticket still fetches,
 rebases and pushes through the normal pre-push hook. With multiple clean,
 compatible tickets, the oldest process builds one candidate in a temporary
-integration worktree under the common Git directory. Commits are cherry-picked
-in arrival order, retaining their messages, authors and provenance trailers.
+integration worktree under the repository's `.worktrees/`. Recovery
+journals stay in the common Git directory. Commits are cherry-picked in arrival
+order, retaining their messages, authors and provenance trailers.
 
 Each intermediate commit gets the existing secret scan, including private
 rules for the canonical remote. The final normal Git push runs the full hook
