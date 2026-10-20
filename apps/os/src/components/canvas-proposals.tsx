@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import type {
 	OsCollaborationDocumentType,
 	OsCollaborationProposal,
@@ -201,24 +207,31 @@ function ProposalDiff({
 					before applying it.
 				</Text>
 			)}
-			<details className="type-tedix-control">
-				<summary className="cursor-pointer py-1 text-kumo-link">
+			<Collapsible className="type-tedix-control">
+				<CollapsibleTrigger className="group/disclosure">
+					<CaretRight
+						size={14}
+						aria-hidden
+						className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+					/>
 					Compare changes
-				</summary>
-				<div
-					aria-label="Proposed change"
-					className="max-h-80 overflow-auto rounded-lg border border-kumo-line bg-kumo-base font-mono text-xs leading-5"
-				>
-					{collapsed.hunks.map((hunk) => (
-						<DiffHunkBlock hunk={hunk} key={hunk.key} />
-					))}
-				</div>
-				{collapsed.hiddenLines > 0 && (
-					<Button onClick={() => setExpanded(true)} size="sm" variant="ghost">
-						{`Show ${collapsed.hiddenLines} more lines`}
-					</Button>
-				)}
-			</details>
+				</CollapsibleTrigger>
+				<CollapsibleContent keepMounted>
+					<div
+						aria-label="Proposed change"
+						className="max-h-80 overflow-auto rounded-lg border border-kumo-line bg-kumo-base font-mono text-xs leading-5"
+					>
+						{collapsed.hunks.map((hunk) => (
+							<DiffHunkBlock hunk={hunk} key={hunk.key} />
+						))}
+					</div>
+					{collapsed.hiddenLines > 0 && (
+						<Button onClick={() => setExpanded(true)} size="sm" variant="ghost">
+							{`Show ${collapsed.hiddenLines} more lines`}
+						</Button>
+					)}
+				</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }
@@ -377,19 +390,28 @@ export function CanvasProposals({
 							{proposal.resultRevision !== null &&
 								` · applied as version ${proposal.resultRevision}`}
 						</Text>
-						<details className="text-kumo-subtle type-tedix-control">
-							<summary className="cursor-pointer">Technical details</summary>
-							<dl className="mt-2 grid gap-1 break-all">
-								<dt>Source</dt>
-								<dd className="m-0">
-									{proposal.sourceKind} · {proposal.sourceId}
-								</dd>
-								<dt>Suggestion ID</dt>
-								<dd className="m-0">{proposal.id}</dd>
-								<dt>Preview number</dt>
-								<dd className="m-0">{proposal.sequence}</dd>
-							</dl>
-						</details>
+						<Collapsible className="text-kumo-subtle type-tedix-control">
+							<CollapsibleTrigger className="group/disclosure">
+								<CaretRight
+									size={14}
+									aria-hidden
+									className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+								/>
+								Technical details
+							</CollapsibleTrigger>
+							<CollapsibleContent keepMounted>
+								<dl className="mt-2 grid gap-1 break-all">
+									<dt>Source</dt>
+									<dd className="m-0">
+										{proposal.sourceKind} · {proposal.sourceId}
+									</dd>
+									<dt>Suggestion ID</dt>
+									<dd className="m-0">{proposal.id}</dd>
+									<dt>Preview number</dt>
+									<dd className="m-0">{proposal.sequence}</dd>
+								</dl>
+							</CollapsibleContent>
+						</Collapsible>
 						{baseText === null ? (
 							/*
 							 * No canonical base to diff against: a Gadget with no recorded
@@ -397,17 +419,24 @@ export function CanvasProposals({
 							 * raw payload is all there is to show, still clamped and
 							 * truncated — the copy button is how an operator gets it out.
 							 */
-							<details className="type-tedix-control">
-								<summary className="cursor-pointer">
+							<Collapsible className="type-tedix-control">
+								<CollapsibleTrigger className="group/disclosure">
+									<CaretRight
+										size={14}
+										aria-hidden
+										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+									/>
 									View suggested content
-								</summary>
-								<CodeBlock
-									className="max-h-56 overflow-auto"
-									code={previewText(proposal)}
-									lang="json"
-									showCopyButton
-								/>
-							</details>
+								</CollapsibleTrigger>
+								<CollapsibleContent keepMounted>
+									<CodeBlock
+										className="max-h-56 overflow-auto"
+										code={previewText(proposal)}
+										lang="json"
+										showCopyButton
+									/>
+								</CollapsibleContent>
+							</Collapsible>
 						) : (
 							<ProposalDiff
 								baseMoved={

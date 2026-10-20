@@ -267,7 +267,7 @@ export function EntrustmentRow({ entrustment }: { entrustment: Entrustment }) {
 			</Text>
 			<Collapsible>
 				<CollapsibleTrigger>Exact authority scope</CollapsibleTrigger>
-				<CollapsibleContent>
+				<CollapsibleContent keepMounted>
 					<dl className="m-0 mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
 						<dt>
 							<Text as="span" role="label" tone="secondary">
@@ -371,7 +371,7 @@ export function DelegationYieldPanel({
 			{delegationYield.limitations.length > 0 && (
 				<Collapsible>
 					<CollapsibleTrigger>Metric limitations</CollapsibleTrigger>
-					<CollapsibleContent>
+					<CollapsibleContent keepMounted>
 						<ul className="m-0 mt-1.5 list-disc pl-4">
 							{delegationYield.limitations.map((limitation) => (
 								<Text as="li" role="label" tone="secondary" key={limitation}>
@@ -529,7 +529,7 @@ export function EarnedAuthorityPanel({
 							{formatCount(profile.roleHistory.length)} role assignments on
 							record
 						</CollapsibleTrigger>
-						<CollapsibleContent>
+						<CollapsibleContent keepMounted>
 							<ul className="m-0 mt-2 grid list-none gap-1 border-kumo-hairline border-t p-0 pt-2">
 								{profile.roleHistory.map((role) => (
 									<Text as="li" role="label" tone="secondary" key={role.id}>
