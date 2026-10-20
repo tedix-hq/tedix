@@ -6,6 +6,9 @@ on:
   # Automatic runs are skipped in a private repository.
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   pull_request:
   workflow_call:
     inputs:
@@ -19,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: oss-public-ci-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  group: oss-public-ci-${{ github.event_name }}-${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request') && github.run_id || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -28,6 +31,9 @@ env:
 jobs:
   verify:
     name: Contributor verify
+    concurrency:
+      group: oss-verify-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     # The same change-scoped gates the pre-push hook runs.
     if: >-
       github.event.repository.private == false &&

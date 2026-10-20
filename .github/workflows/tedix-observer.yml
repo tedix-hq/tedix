@@ -3,10 +3,18 @@ name: Repository observer
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".changeset/**"
 
 permissions:
   contents: read
   id-token: write
+
+concurrency:
+  group: repository-observer-${{ github.sha }}
+  cancel-in-progress: true
 
 jobs:
   notify:

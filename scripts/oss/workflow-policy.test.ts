@@ -41,7 +41,10 @@ describe("public CI policy", () => {
 		expect(workflow).toContain("  push:\n    branches: [main]\n");
 		expect(workflow).not.toMatch(/^\s+schedule:/m);
 		expect(workflow).toContain("permissions:\n  contents: read\n");
-		expect(workflow).not.toContain("cancel-in-progress: true");
+		expect(job(workflow, "verify")).toContain("cancel-in-progress: true");
+		expect(workflow.slice(0, workflow.indexOf("\njobs:"))).toContain(
+			"cancel-in-progress: false",
+		);
 		expect(workflow).not.toContain("${{ secrets.");
 		expect(workflow).not.toMatch(/^[ \t]+permissions:/m);
 
