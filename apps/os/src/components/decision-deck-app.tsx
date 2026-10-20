@@ -67,7 +67,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	DecisionKindSchema,
 	DEFAULT_DECK_ROUTING,
@@ -423,6 +423,16 @@ function DecisionDeckContent({
 		refetchInterval: 30000,
 		retry: false,
 	});
+	const retrySummary = useMutation({
+		mutationFn: () =>
+			osApi.attention.getDeckCard({
+				cardId: selected!.id,
+				projectId: config.projectId,
+				limit: 100,
+				retrySummary: true,
+			}),
+		onSuccess: () => preparedCard.refetch(),
+	});
 	const selectedSourceVersion =
 		selected?.row?.request.version ??
 		preparedCard.data?.factory?.revision ??
@@ -686,8 +696,8 @@ function DecisionDeckContent({
 						preparedCard.isError ||
 						(preparedSourceMatches &&
 							preparedCard.data?.faceText === copySpec.unavailableFace),
-					retry: () => void preparedCard.refetch(),
-					retrying: preparedCard.isFetching,
+					retry: () => retrySummary.mutate(),
+					retrying: retrySummary.isPending || preparedCard.isFetching,
 				}
 			: null;
 	const content = createElement(

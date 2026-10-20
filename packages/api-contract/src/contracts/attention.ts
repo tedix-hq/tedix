@@ -59,7 +59,12 @@ export const attentionContract = oc
 			.input(AttentionViewInputSchema)
 			.output(DeckProjectionSchema),
 		getDeckCard: oc
-			.input(AttentionViewInputSchema.extend({ cardId: z.string().min(1) }))
+			.input(
+				AttentionViewInputSchema.extend({
+					cardId: z.string().min(1),
+					retrySummary: z.boolean().optional(),
+				}),
+			)
 			.output(DeckCardSchema),
 		decideDeckCard: oc
 			.route({

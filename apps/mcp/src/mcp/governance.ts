@@ -4,6 +4,7 @@ import {
 	humanReservedActionClasses,
 	type DelegationAutonomyPolicy,
 } from "@tedix/api-contract/utils/approval-policy";
+import { AgentLifecycleEndpointSchema } from "@tedix/api-contract/schemas/mcp-governance";
 import type { ToolAnnotations } from "@tedix/api-contract/schemas/tools";
 import {
 	checkAnnotationAssertion,
@@ -690,6 +691,50 @@ export async function requireDestructiveToolApproval(
 			(!risk && annotations?.readOnlyHint === true))
 	)
 		return null;
+	const lifecycleEndpoint = AgentLifecycleEndpointSchema.safeParse(
+		tool.config?.endpoint,
+	);
+	// Check admission before org autonomy so an admitted session can keep its lease
+	// and record its result even when the organization has no standing consent.
+	if (
+		!humanBoundary &&
+		!isOwnedChannelBoundary &&
+		!configuredApproval &&
+		risk === "bounded_write" &&
+		lifecycleEndpoint.success &&
+		tool.config?.transport === "rpc" &&
+		agent.callerIdentity?.authType === "external_agent" &&
+		agent.callerIdentity.externalAgentPrincipalId &&
+		agent.callerIdentity.externalAgentSessionId &&
+		agent.app?.organizationId &&
+		options?.args &&
+		agent.apiClient?.mcpGovernance?.resolveAgentLifecycleAuthorization
+	) {
+		try {
+			const resolution =
+				await agent.apiClient.mcpGovernance.resolveAgentLifecycleAuthorization({
+					organizationId: agent.app.organizationId,
+					principalId: agent.callerIdentity.externalAgentPrincipalId,
+					sessionId: agent.callerIdentity.externalAgentSessionId,
+					endpoint: lifecycleEndpoint.data,
+					args: options.args,
+				});
+			if (resolution.approved) {
+				emitGovernanceAuditEvent(
+					agent,
+					tool,
+					"destructive_approved",
+					"admitted_lifecycle_write",
+					{ resolvedBy: "attempt" },
+				);
+				return null;
+			}
+		} catch {
+			return approvalFailure(
+				"Attempt authorization is unavailable; no side effect was executed.",
+			);
+		}
+	}
 	let autonomy: DelegationAutonomyPolicy | undefined;
 	if (
 		callerIsAgent(agent, options?.extra) &&
@@ -731,6 +776,7 @@ export async function requireDestructiveToolApproval(
 		!isOwnedChannelBoundary &&
 		annotations?.destructiveHint !== true &&
 		configuredApproval !== "always" &&
+		configuredApproval !== "once" &&
 		configuredApproval !== "work_item"
 	) {
 		emitGovernanceAuditEvent(

@@ -18,6 +18,8 @@ import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision
 import { draftLearningContext } from "@tedix/api-contract/utils/decision-learning";
 import { saveDecisionCardPresentation } from "@tedix/db/queries/work-items/card-presentation";
 
+const RETRY_DELAYS = [60000, 300000, 1800000] as const;
+
 export function displayDeckCard(
 	card: DeckCard,
 	presentation: DeckCard["presentation"],
@@ -38,6 +40,7 @@ export async function prepareDeckCardFaces(
 	context: BaseContext,
 	cards: DeckCard[],
 	model?: DecisionLearningModel,
+	retry = false,
 ) {
 	const unavailable = new Set<string>();
 	const deferred = new Set<string>();
@@ -50,6 +53,7 @@ export async function prepareDeckCardFaces(
 				model,
 				() => unavailable.add(card.id),
 				() => deferred.add(card.id),
+				retry,
 			),
 		),
 	);
@@ -58,7 +62,17 @@ export async function prepareDeckCardFaces(
 			cards
 				.filter((card, index) => !faces[index] && !deferred.has(card.id))
 				.slice(0, 3)
-				.map((card) => prepareDeckCardFace(context, card, true, model)),
+				.map((card) =>
+					prepareDeckCardFace(
+						context,
+						card,
+						true,
+						model,
+						undefined,
+						undefined,
+						retry,
+					),
+				),
 		).catch(() => {}),
 	);
 	return cards.map((card, index) =>
@@ -122,6 +136,7 @@ export async function prepareDeckCardFace(
 	model?: DecisionLearningModel,
 	onUnavailable?: () => void,
 	onDeferred?: () => void,
+	retry = false,
 ) {
 	if (!context.userId) return null;
 	const orgId = requireOrgId(context);
@@ -164,6 +179,15 @@ export async function prepareDeckCardFace(
 		key: `${orgId}:${card.id}`,
 	};
 	const stored = await getUserConfig(context.db, key);
+	const sameSource = stored?.value.fingerprint === fingerprint;
+	const previousAttempts =
+		sameSource && typeof stored.value.attempts === "number"
+			? stored.value.attempts
+			: sameSource && stored.value.failed
+				? 1
+				: 0;
+	// A user retry resets failed work, but never steals an in-flight claim.
+	const manualRetry = retry && sameSource && stored.value.failed === true;
 	if (stored?.value.fingerprint === fingerprint) {
 		if (stored.value.failed) onUnavailable?.();
 		const copy = DecisionCardPresentationSchema.safeParse(
@@ -176,18 +200,21 @@ export async function prepareDeckCardFace(
 		)
 			return copy;
 		if (
-			typeof stored.value.retryAt === "number" &&
-			stored.value.retryAt > Date.now()
+			!manualRetry &&
+			(previousAttempts > RETRY_DELAYS.length ||
+				(typeof stored.value.retryAt === "number" &&
+					stored.value.retryAt > Date.now()))
 		) {
 			onDeferred?.();
 			return null;
 		}
 	}
 	if (!generate) return null;
+	const attempts = (manualRetry ? 0 : previousAttempts) + 1;
 	const claim = await putUserConfig(context.db, {
 		...key,
 		expectedRevision: stored?.revision ?? 0,
-		value: { fingerprint, retryAt: Date.now() + 60000 },
+		value: { fingerprint, attempts, retryAt: Date.now() + 60000 },
 	});
 	if (!claim.ok) return null;
 	const presentation = await generateDecisionCard(
@@ -214,7 +241,14 @@ export async function prepareDeckCardFace(
 		await putUserConfig(context.db, {
 			...key,
 			expectedRevision: claim.row.revision,
-			value: { fingerprint, retryAt: Date.now() + 60000, failed: true },
+			value: {
+				fingerprint,
+				attempts,
+				retryAt: RETRY_DELAYS[attempts - 1]
+					? Date.now() + RETRY_DELAYS[attempts - 1]!
+					: 0,
+				failed: true,
+			},
 		});
 		return null;
 	}

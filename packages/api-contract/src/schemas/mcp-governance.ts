@@ -108,3 +108,23 @@ export const ResolveWorkItemAuthorizationResponseSchema = z.object({
 export type ResolveWorkItemAuthorizationResponse = z.infer<
 	typeof ResolveWorkItemAuthorizationResponseSchema
 >;
+
+export const AgentLifecycleEndpointSchema = z.enum([
+	"workItems/addComment",
+	"workItems/heartbeatAttempt",
+	"workItems/settleAttempt",
+	"externalAgentIdentity/recordKnowledgeCheckpoint",
+	"osWorkspaces/outputs/create",
+	"osWorkspaces/outputs/revise",
+]);
+
+export const ResolveAgentLifecycleAuthorizationInputSchema = z.object({
+	organizationId: z.string().min(1),
+	principalId: z.string().min(1),
+	sessionId: z.string().min(1),
+	endpoint: AgentLifecycleEndpointSchema,
+	args: z.record(z.string(), JsonValueSchema),
+});
+export const ResolveAgentLifecycleAuthorizationResponseSchema = z.object({
+	approved: z.boolean(),
+});

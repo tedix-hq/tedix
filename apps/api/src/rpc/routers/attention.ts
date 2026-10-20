@@ -125,7 +125,12 @@ export const attentionContractRouter = os.router({
 		const { prepareDeckCardFaces } =
 			await import("../../services/deck-card-face");
 		const display = (
-			await prepareDeckCardFaces(context, [card], projection.model)
+			await prepareDeckCardFaces(
+				context,
+				[card],
+				projection.model,
+				input.retrySummary,
+			)
 		)[0]!;
 		if (card.interaction)
 			return {

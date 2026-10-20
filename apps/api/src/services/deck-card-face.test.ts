@@ -302,3 +302,57 @@ it("returns pending copy while a registered background writer finishes and persi
 	await Promise.all(jobs);
 	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);
 });
+
+it("backs off automatic retries for one, five and thirty minutes, then stops until the source changes", async () => {
+	const now = vi.spyOn(Date, "now").mockReturnValue(1000000);
+	try {
+		mocks.generate.mockResolvedValue(null);
+		await prepareDeckCardFace(context, card);
+		for (const [index, delay] of [60000, 300000, 1800000].entries()) {
+			const start = Date.now();
+			now.mockReturnValue(start + delay - 1);
+			await prepareDeckCardFace(context, card);
+			expect(mocks.generate).toHaveBeenCalledTimes(index + 1);
+			now.mockReturnValue(start + delay);
+			await prepareDeckCardFace(context, card);
+			expect(mocks.generate).toHaveBeenCalledTimes(index + 2);
+		}
+		now.mockReturnValue(Date.now() + 86400000);
+		const jobs: Promise<unknown>[] = [];
+		const [failed] = await prepareDeckCardFaces(
+			{ ...context, waitUntil: (job) => jobs.push(job) },
+			[card],
+		);
+		await Promise.all(jobs);
+		expect(failed?.label).toBe("Summary unavailable");
+		expect(mocks.generate).toHaveBeenCalledTimes(4);
+		await prepareDeckCardFace(context, { ...card, label: "Changed source" });
+		expect(mocks.generate).toHaveBeenCalledTimes(5);
+	} finally {
+		now.mockRestore();
+	}
+});
+
+it("lets an explicit Retry recover an exhausted face while concurrent retries share a claim", async () => {
+	mocks.generate.mockResolvedValue(null);
+	await prepareDeckCardFace(context, card);
+	for (const row of store.values()) {
+		row.value.attempts = 4;
+		row.value.retryAt = 0;
+	}
+	mocks.generate.mockResolvedValue(copy);
+	const jobs: Promise<unknown>[] = [];
+	await Promise.all(
+		[0, 1].map(() =>
+			prepareDeckCardFaces(
+				{ ...context, waitUntil: (job) => jobs.push(job) },
+				[card],
+				undefined,
+				true,
+			),
+		),
+	);
+	await Promise.all(jobs);
+	expect(mocks.generate).toHaveBeenCalledTimes(2);
+	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);
+});
