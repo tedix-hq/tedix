@@ -67,7 +67,9 @@ export function deckCardWritingSource(card: DeckCard) {
 	return {
 		subject: request?.subject ?? card.label,
 		prompt:
-			request?.prompt ??
+			(typeof request?.metadata.cardContent === "string"
+				? request.metadata.cardContent
+				: request?.prompt) ??
 			(card.factory
 				? `${card.factory.why}\nDraft: ${card.factory.draft}\nSource: ${card.factory.sourceText}`
 				: card.workApproval
