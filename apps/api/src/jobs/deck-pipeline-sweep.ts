@@ -389,9 +389,15 @@ export async function sweepOrganizationDeck(
 					pool: await deckRankPool(db, orgId, recipientIds, supplied),
 					now,
 					limit: rankBudget,
+					timeZone: learning.timezone,
 				});
 				receipt.ranked += ranked.ranked;
-				const { ranked: _ranked, ...notes } = ranked;
+				const {
+					ranked: _ranked,
+					ruleOrder: _ruleOrder,
+					modelOrder: _modelOrder,
+					...notes
+				} = ranked;
 				for (const [key, value] of Object.entries(notes))
 					if (value)
 						receipt.rankNotes[key] = (receipt.rankNotes[key] ?? 0) + value;
