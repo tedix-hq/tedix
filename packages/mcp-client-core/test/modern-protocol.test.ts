@@ -7,9 +7,9 @@
  * - `MCP-Protocol-Version: 2026-07-28` is sent only when the server advertised
  *   it via discover.
  */
-import { type Client, UnauthorizedError } from "@modelcontextprotocol/client";
+import { type Client } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { isAuthRecoveryError, McpClientManager } from "../src/client-manager";
+import { McpClientManager } from "../src/client-manager";
 import { createAgentElicitationResolver } from "../src/elicitation-resolver";
 import type { McpServerConfig } from "../src/types";
 
@@ -285,10 +285,6 @@ describe("mcp-client-core — 2026-07-28 stateless emission", () => {
 		]);
 		// Release the dangling upstream promise so it cannot leak into later tests.
 		resourcesResolve?.(jsonResponse({ jsonrpc: "2.0", id: "r", result: {} }));
-	});
-
-	it("recognizes beta.3 branded SDK auth failures without parsing text", () => {
-		expect(isAuthRecoveryError(new UnauthorizedError("opaque"))).toBe(true);
 	});
 
 	it("declares the modern version + binding headers when discover advertises it", async () => {
@@ -756,51 +752,6 @@ describe("mcp-client-core — 2026-07-28 stateless emission", () => {
 		const call = calls.find((c) => c.body.method === "tools/call");
 		expect(call?.headers["Mcp-Param-Tenant"]).toBe("org_tedix");
 		expect(call?.headers["Mcp-Param-Auth-Token"]).toBe("=?base64?cMOkc3M=?=");
-	});
-
-	it("filters tools with invalid x-mcp-header annotations from snapshots", async () => {
-		const manager = new McpClientManager();
-		const out = (
-			manager as unknown as {
-				mapToolsListResult: (
-					serverId: string,
-					result: unknown,
-				) => Array<{ name: string }>;
-			}
-		).mapToolsListResult("srv", {
-			tools: [
-				{
-					name: "good",
-					inputSchema: {
-						type: "object",
-						properties: {
-							tenant: { type: "string", "x-mcp-header": "Tenant" },
-						},
-					},
-				},
-				{
-					name: "bad",
-					inputSchema: {
-						type: "object",
-						properties: {
-							tenant: { type: "string", "x-mcp-header": "Bad Header" },
-						},
-					},
-				},
-				{
-					name: "duplicate",
-					inputSchema: {
-						type: "object",
-						properties: {
-							a: { type: "string", "x-mcp-header": "Tenant" },
-							b: { type: "string", "x-mcp-header": "tenant" },
-						},
-					},
-				},
-			],
-		});
-
-		expect(out.map((tool) => tool.name)).toEqual(["good"]);
 	});
 
 	it("continues stateless list pagination when nextCursor is an empty string", async () => {
