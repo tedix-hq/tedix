@@ -374,3 +374,39 @@ it("applies persisted negative ranking without hiding a card or demoting critica
 	);
 	expect(protectedRank.score).toBe(original.score);
 });
+
+it("orders overdue, critical, due today, then the ranker's label ahead of score", () => {
+	const ranked = (penalty: number) => ({
+		interaction: {
+			request: {
+				metadata: {
+					cardRevision: 2,
+					curation: {
+						schema: "tedix.deck-curation.v1",
+						revision: 2,
+						status: "open",
+						successorId: null,
+						penalty,
+						reason: penalty ? "ranked_lower" : "valuable",
+						evidenceRefs: [],
+						model: "qwen",
+						exampleIds: [],
+					},
+				},
+			},
+		},
+	});
+	const now = new Date("2026-10-20T07:00:00Z");
+	const cards = [
+		{ id: "noise-high-score", score: 500, ...ranked(-10) },
+		{ id: "valuable", score: 5, ...ranked(0) },
+		{ id: "today", dueAt: "2026-10-20T15:00:00Z", score: 1 },
+		{ id: "critical", kind: "approval", score: 0 },
+		{ id: "overdue", dueAt: "2026-10-19T15:00:00Z", score: 0 },
+	] as unknown as Parameters<typeof compareDecisionFreshness>[0][];
+	expect(
+		cards
+			.sort((a, b) => compareDecisionFreshness(a, b, now, "UTC"))
+			.map((card) => (card as { id: string }).id),
+	).toEqual(["overdue", "critical", "today", "valuable", "noise-high-score"]);
+});

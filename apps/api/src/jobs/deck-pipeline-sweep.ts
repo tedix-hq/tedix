@@ -9,6 +9,7 @@ import {
 	listRecipientCards,
 	listWorkItemDispositions,
 	recordDeckSweepReceipt,
+	setDeckPipelineLearned,
 } from "@tedix/db/queries/work-items/deck-sweep";
 import { DeckCurationStateSchema } from "@tedix/api-contract/schemas/deck-curation";
 import type {
@@ -21,6 +22,7 @@ import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { deckAskKind } from "@tedix/api-contract/utils/deck-ask";
 import {
 	deckSourceKey,
+	nextHidingClasses,
 	planDeckSweep,
 	type SweepAction,
 	type SweepCard,
@@ -135,6 +137,7 @@ export async function sweepOrganizationDeck(
 	db: DbClient,
 	orgId: string,
 	now: Date,
+	env?: CloudflareEnv,
 ) {
 	const learning = await getDecisionLearningConfig(db, orgId);
 	const config: DeckPipelineConfig = learning.deckPipeline;
@@ -167,6 +170,8 @@ export async function sweepOrganizationDeck(
 	);
 	const clock = localClock(now, learning.timezone);
 	let budget = config.sweep.maxRetirementsPerRun;
+	let hidingClasses = config.hidingClasses;
+	let rankBudget = config.secondKey.maxPerRun;
 	for (const { recipientIds } of members) {
 		for (const recipientId of recipientIds) {
 			const open = await listRecipientCards(db, {
@@ -240,6 +245,119 @@ export async function sweepOrganizationDeck(
 				}
 			}
 			budget = Math.max(0, budget - retiredHere);
+			const retiredIds = new Set(receipt.removed.map((entry) => entry.id));
+			const remaining = cards.filter((card) => !retiredIds.has(card.id));
+			// Earned hiding: per (ask kind x source) class, measured on shadow labels.
+			const shadowOf = (row: CardRow) =>
+				DeckCurationStateSchema.safeParse(row.metadata.curation).data?.shadow;
+			const swipes = [
+				...resolved.flatMap((row) => {
+					const shadow = shadowOf(row);
+					return shadow
+						? [
+								{
+									classKey: shadow.classKey,
+									valuable: true,
+									wouldHide: shadow.wouldHide,
+								},
+							]
+						: [];
+				}),
+				...cancelled.flatMap((row) => {
+					const state = DeckCurationStateSchema.safeParse(
+						row.metadata.curation,
+					).data;
+					return state?.notUseful && state.shadow
+						? [
+								{
+									classKey: state.shadow.classKey,
+									valuable: false,
+									wouldHide: state.shadow.wouldHide,
+								},
+							]
+						: [];
+				}),
+			];
+			const hideStatuses = await listCardStatuses(
+				db,
+				orgId,
+				hidingClasses
+					.filter((entry) => entry.recipientId === recipientId)
+					.flatMap((entry) => entry.recentHides),
+			);
+			const nextClasses = nextHidingClasses({
+				recipientId,
+				classes: hidingClasses,
+				swipes,
+				undone: new Set(
+					[...hideStatuses].flatMap(([id, state]) =>
+						state === "open" ? [id] : [],
+					),
+				),
+				config: config.earnedHiding,
+				now,
+			});
+			for (const card of remaining) {
+				const shadow = DeckCurationStateSchema.safeParse(card.metadata.curation)
+					.data?.shadow;
+				const entry = nextClasses.find(
+					(item) =>
+						item.recipientId === recipientId &&
+						item.classKey === shadow?.classKey &&
+						item.state === "hiding",
+				);
+				if (
+					!shadow?.wouldHide ||
+					!entry ||
+					card.protected ||
+					mode !== "enforce"
+				)
+					continue;
+				try {
+					if (
+						await applyRetirement(db, orgId, {
+							cardId: card.id,
+							reason: "no_longer_relevant",
+							cause: "rule",
+							note: "Hidden: the ranker and its second key both judged it not worth your minute, and this kind of card has earned hiding. Undo puts it back.",
+							evidenceRefs: [`deck-hiding:${entry.classKey}`],
+						})
+					) {
+						receipt.hidden += 1;
+						retiredHere += 1;
+						entry.recentHides = [...entry.recentHides, card.id].slice(-50);
+						receipt.removed.push({
+							id: card.id,
+							recipientId,
+							protected: false,
+						});
+					}
+				} catch {
+					receipt.errors += 1;
+				}
+			}
+			hidingClasses = nextClasses;
+			if (env && rankBudget > 0 && mode === "enforce") {
+				const { deckRankPool, shadowRankDeck } =
+					await import("./deck-shadow-rank");
+				const supplied = learning.deckCurators
+					.filter((grant) => grant.enabled && grant.recipientId === recipientId)
+					.flatMap((grant) => grant.examples);
+				const ranked = await shadowRankDeck({
+					db,
+					env,
+					orgId,
+					learning,
+					cards: remaining.filter(
+						(card) => !receipt.removed.some((r) => r.id === card.id),
+					),
+					pool: await deckRankPool(db, orgId, recipientIds, supplied),
+					now,
+					limit: rankBudget,
+				});
+				receipt.ranked += ranked.ranked;
+				rankBudget -= ranked.ranked;
+			}
 			const weekAgo = now.getTime() - WEEK_MS;
 			const notUseful = cancelled.filter(
 				(row) =>
@@ -283,6 +401,11 @@ export async function sweepOrganizationDeck(
 			);
 		}
 	}
+	if (JSON.stringify(hidingClasses) !== JSON.stringify(config.hidingClasses))
+		await setDeckPipelineLearned(db, orgId, {
+			rules: config.rules,
+			hidingClasses,
+		});
 	receipt.removed = receipt.removed.slice(-200);
 	receipt.metrics = receipt.metrics.slice(0, 50);
 	await recordDeckSweepReceipt(db, orgId, receipt);
@@ -299,7 +422,7 @@ export async function sweepDeckPipeline(
 	const totals = { organizations: 0, retired: 0, merged: 0, errors: 0 };
 	for (const orgId of await listDeckSweepOrganizations(db)) {
 		try {
-			const receipt = await sweepOrganizationDeck(db, orgId, now);
+			const receipt = await sweepOrganizationDeck(db, orgId, now, env);
 			totals.organizations += 1;
 			totals.retired += receipt.retired;
 			totals.merged += receipt.merged;

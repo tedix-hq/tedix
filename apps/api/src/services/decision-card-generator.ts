@@ -3,6 +3,7 @@ import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
 import {
 	checkDecisionCardCopy,
 	hasRelativeCardDates,
+	unsupportedCopyFacts,
 } from "@tedix/api-contract/utils/decision-card-copy";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { BaseContext } from "../rpc/orpc";
@@ -114,6 +115,7 @@ export async function generateDecisionCard(
 		prompt: string;
 		kind: string;
 		metadata: Record<string, unknown>;
+		createdAt?: string;
 	},
 	onFailure?: (reason: string) => void,
 	options?: { timeoutMs?: number; requireContext?: boolean },
@@ -306,6 +308,16 @@ export async function generateDecisionCard(
 				const issues = checkDecisionCardCopy(parsed.data);
 				if (hasRelativeCardDates(JSON.stringify(parsed.data)))
 					issues.push("relative_date_use_absolute_source_date");
+				// A face may only restate dates, amounts and addresses from its source.
+				if (
+					unsupportedCopyFacts(parsed.data, source, {
+						writtenOn: (request.createdAt ?? new Date().toISOString()).slice(
+							0,
+							10,
+						),
+					}).length
+				)
+					issues.push("unsupported_fact");
 				if (options?.requireContext && !parsed.data.context)
 					issues.push("context");
 				if (issues.length || parsed.data.version !== copySpec.version) {

@@ -37,7 +37,17 @@ vi.mock("@/lib/api", async (original) => {
 									: Reflect.get(target, key),
 						})
 					: key === "attention"
-						? { getDeckCard: writes.getCard }
+						? {
+								getDeckCard: writes.getCard,
+								getDeckPipelineStatus: vi.fn(async () => ({
+									lastCleanedAt: null,
+									stale: false,
+									staleAfterHours: 2,
+									lastSweep: null,
+									metrics: null,
+									rules: [],
+								})),
+							}
 						: key === "agentTurnTriage"
 							? { listLessons: vi.fn(async () => ({ lessons: [] })) }
 							: key === "learningFeedback"

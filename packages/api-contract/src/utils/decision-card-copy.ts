@@ -243,3 +243,41 @@ export function decisionCardFallbackTitle(
 	const atWord = cut.lastIndexOf(" ");
 	return `${(atWord > limit / 2 ? cut.slice(0, atWord) : cut).replace(/[\s,;:.!?-]+$/, "")}…`;
 }
+
+/**
+ * Dates, amounts, counts and addresses on a generated face must appear in the
+ * card's source; anything else is a fact the copy model invented.
+ */
+export function unsupportedCopyFacts(
+	copy: CardCopy,
+	source: string,
+	options: { writtenOn?: string } = {},
+) {
+	const text = [
+		copy.title,
+		copy.body,
+		copy.recommendation,
+		copy.stakes ?? "",
+		copy.context ?? "",
+	].join(" ");
+	const facts = text.match(/[\w.+-]+@[\w-]+\.[\w.]+|\d[\d.,:/-]*\d|\d/g) ?? [];
+	const haystack = source.toLowerCase();
+	const bare = haystack.replace(/[,\s]/g, "");
+	// A relative date in the source ("tomorrow") may become an absolute date
+	// within a week of the day the card was written.
+	const written = Date.parse(options.writtenOn ?? "");
+	const resolvable = (fact: string) =>
+		/^\d{4}-\d{2}-\d{2}$/.test(fact) &&
+		Number.isFinite(written) &&
+		hasRelativeCardDates(source) &&
+		Date.parse(fact) >= written - 86_400_000 &&
+		Date.parse(fact) <= written + 8 * 86_400_000;
+	return [...new Set(facts)].filter((fact) => {
+		const value = fact.toLowerCase();
+		return (
+			!haystack.includes(value) &&
+			!bare.includes(value.replace(/,/g, "")) &&
+			!resolvable(fact)
+		);
+	});
+}

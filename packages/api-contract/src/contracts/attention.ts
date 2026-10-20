@@ -10,6 +10,13 @@ import {
 	RetireDeckCardInputSchema,
 } from "../schemas/deck-curation";
 import { CardRevisionSchema } from "../schemas/card-revisions";
+import {
+	DeckPipelineStatusSchema,
+	MarkDeckCardNotUsefulInputSchema,
+	MarkDeckCardNotUsefulResultSchema,
+	RemoveDeckRuleInputSchema,
+	RemoveDeckRuleResultSchema,
+} from "../schemas/deck-pipeline";
 import { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
 import { DeckRankSignalSchema } from "../schemas/deck-curator";
 import {
@@ -117,6 +124,30 @@ export const attentionContract = oc
 					retired: z.array(DeckRetirementResultSchema),
 				}),
 			),
+		getDeckPipelineStatus: oc
+			.route({
+				summary: "Read how the Deck is being cleaned",
+				description:
+					"When the Deck sweep last ran (and whether it is overdue), the rules learned from the person's Not useful reasons, and week-1 metrics: cards at 08:30, share marked not useful and undone removals.",
+			})
+			.input(z.strictObject({}))
+			.output(DeckPipelineStatusSchema),
+		markDeckCardNotUseful: oc
+			.route({
+				summary: "Mark a Deck card not useful, with the reason",
+				description:
+					"The recipient's own feedback: already decided, expired, agent could do this, duplicate or not for me. Retires the card without answering it (undo restores it), teaches the Deck ranker immediately, and three identical reasons from one source become a learned rule the person can remove. Declining a card is a different action.",
+			})
+			.input(MarkDeckCardNotUsefulInputSchema)
+			.output(MarkDeckCardNotUsefulResultSchema),
+		removeDeckRule: oc
+			.route({
+				summary: "Remove a learned Deck rule",
+				description:
+					"Removes one rule the Deck learned from the person's repeated Not useful reasons. Only the person the rule serves can remove it.",
+			})
+			.input(RemoveDeckRuleInputSchema)
+			.output(RemoveDeckRuleResultSchema),
 		rankCurationInbox: oc
 			.route({
 				summary:

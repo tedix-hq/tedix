@@ -105,6 +105,12 @@ export function rankDeckCard<
 	return { ...ranked, score: ranked.score + penalty };
 }
 
+function rankedNoise(card: { interaction?: DeckCard["interaction"] }) {
+	const state = currentDeckCuration(card.interaction?.request?.metadata);
+	return Boolean(state && state.status === "open" && state.penalty < 0);
+}
+
+/** Deck order: actionable overdue, critical, due today, ranker label, then score and age. */
 export function compareDecisionFreshness(
 	a: {
 		kind?: string;
@@ -162,6 +168,8 @@ export function compareDecisionFreshness(
 		(dueToday(aDeadline, aDue) && dueToday(bDeadline, bDue)
 			? aDue - bDue
 			: 0) ||
+		// Then the ranker's label: a card it called NOISE follows the rest.
+		Number(rankedNoise(a)) - Number(rankedNoise(b)) ||
 		(b.score ?? 0) - (a.score ?? 0) ||
 		(aDue !== bDue ? aDue - bDue : 0) ||
 		(Date.parse(b.requestedAt ?? "") || 0) -

@@ -254,6 +254,30 @@ const ENGLISH_COPY = {
 			staleDrafts: (count: number) => `${count} drafted, not sent`,
 			showAll: "Show all cards",
 		},
+		notUseful: {
+			button: "Not useful",
+			prompt: "Why is this card not useful?",
+			reasons: {
+				already_decided: "Already decided",
+				expired: "Expired",
+				agent_could_do: "Agent could do this",
+				duplicate: "Duplicate",
+				not_for_me: "Not for me",
+			},
+			done: "Removed. The Deck will learn from this.",
+			rule: (sentence: string) => `From now on: ${sentence}`,
+			undo: "Undo",
+		},
+		pipeline: {
+			lastCleaned: (time: string) => `Last cleaned ${time}`,
+			neverCleaned: "Not cleaned yet",
+			stale: (hours: number) =>
+				`Deck cleaning has not run for over ${hours} h. Expired and duplicate cards may still show.`,
+			rules: "Learned rules",
+			remove: "Remove",
+			metrics: (cards: number, notUseful: string) =>
+				`${cards} cards at 08:30 · ${notUseful} not useful`,
+		},
 		projects: {
 			Examples: "Examples",
 			Unfiled: "Unfiled",
