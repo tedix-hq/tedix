@@ -471,16 +471,16 @@ try {
 				);
 			await capture(page, `settings-rail-${width}-${theme}`);
 			await capture(page, `breadcrumb-${width}-${theme}`);
-			for (const [label, path] of [
-				["Templates", "/blueprints"],
-				["Website chat", "/widget"],
-				["Activity log", "/audit"],
-				["Usage & billing", "/compute"],
+			for (const [label, path, heading] of [
+				["Templates", "/blueprints", "Templates"],
+				["Website chat", "/widget", "Website chat"],
+				["Activity log", "/audit", "Activity log"],
+				["Usage & billing", "/compute", "Usage diagnostics"],
 			]) {
 				await settings.getByRole("link", { name: label, exact: true }).click();
 				await page.waitForURL((url) => url.pathname === path);
 				await page
-					.getByRole("heading", { name: label, exact: true, level: 1 })
+					.getByRole("heading", { name: heading, exact: true, level: 1 })
 					.waitFor();
 				assert.equal(
 					await settings
