@@ -8,6 +8,7 @@ import {
 	DecisionRailContext,
 } from "./decision-context-rail";
 import { FeedOutcomePreview } from "./feed-outcome-preview";
+import { InternalDecisionUndo } from "./internal-decision-undo";
 import {
 	WorkActorAvatar,
 	WorkActorDirectoryContext,
@@ -113,6 +114,13 @@ export function FeedCard({
 							? "I'll ask next time"
 							: "This should have asked me"}
 					</Button>
+				)}
+				{item.internalDecisionUndo && (
+					<InternalDecisionUndo
+						key={`${item.internalDecisionUndo.requestId}:${item.internalDecisionUndo.expectedRevision}`}
+						target={item.internalDecisionUndo}
+						disabled={busy}
+					/>
 				)}
 				<FocusRowActions
 					actions={[

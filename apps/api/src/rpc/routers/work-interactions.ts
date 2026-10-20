@@ -278,6 +278,11 @@ function effectiveState(row: InteractionRow, observedAt: string) {
 const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
+	const {
+		curation: _untrustedCuration,
+		internalRouting: _untrustedRouting,
+		...creationMetadata
+	} = input.metadata ?? {};
 	const capturedWithoutTriage =
 		input.metadata?.schema === "tedix.decision-capture.v1" &&
 		(input.metadata.triage as { status?: string } | undefined)?.status !== "ok";
@@ -286,7 +291,14 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			ErrorCodes.UNPROCESSABLE_CONTENT,
 			"Unclassified agent turns must stay on the agent's Work",
 		);
-	const target = capturedWithoutTriage ? actor : input.requestedFrom;
+	const { internalDecisionRouting } =
+		await import("../../services/internal-decision-routing");
+	const internalRoute =
+		input.requestedFrom.type === "user"
+			? await internalDecisionRouting(context, orgId, actor, input)
+			: null;
+	const target =
+		capturedWithoutTriage || internalRoute ? actor : input.requestedFrom;
 	const requestedAt = new Date().toISOString();
 	const decision = DecisionEnvelopeSchema.safeParse(
 		input.metadata?.decisionDeck,
@@ -376,7 +388,16 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			dueAt: input.dueAt,
 			expiresAt,
 			metadata: {
-				...input.metadata,
+				...creationMetadata,
+				// Client metadata cannot forge a server-owned autonomy receipt.
+				internalRouting: internalRoute
+					? {
+							...internalRoute,
+							recipientId: input.requestedFrom.id,
+							ownerType: actor.type,
+							ownerId: actor.id,
+						}
+					: null,
 				...(lessonRecall ? { lessonRecall } : {}),
 				...(actor.type === "external_agent"
 					? {
@@ -433,6 +454,29 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			);
 		const { queueDeckCuration } =
 			await import("../../services/deck-curation-trigger");
+		if (
+			actor.type !== "user" &&
+			decision?.options.some(
+				(option) => option.effect?.kind === "create_owner_task",
+			)
+		) {
+			try {
+				const { handleInternalDecision } =
+					await import("../../services/internal-decision-handling");
+				await handleInternalDecision(context, created, 0);
+				const handled = await getWorkInteraction(context.db, {
+					orgId,
+					interactionId: created.id,
+				});
+				if (handled) return requestOutput(handled);
+			} catch (error) {
+				// A denied or unavailable policy leaves the original ask answerable.
+				console.warn("internal decision handling deferred", {
+					requestId: created.id,
+					error: String(error),
+				});
+			}
+		}
 		await queueDeckCuration(context, created, actor);
 		return requestOutput(created);
 	} catch (error) {

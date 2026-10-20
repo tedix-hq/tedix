@@ -37,6 +37,9 @@ vi.mock("../rpc/routers/learning-feedback", () => ({
 vi.mock("../rpc/routers/user-settings", () => ({
 	userSettingsContractRouter: { getPreferences: "preferences" },
 }));
+vi.mock("./internal-decision-feed", () => ({
+	internalDecisionFeed: vi.fn(async () => []),
+}));
 vi.mock("../rpc/routers/work-items", () => ({
 	workItemsContractRouter: {
 		listActivity: "activity",
@@ -61,7 +64,7 @@ const source = {
 		done: "Done",
 	},
 };
-const context = {} as BaseContext;
+const context = { organizationId: "fictional-orchard" } as BaseContext;
 let model: ReturnType<typeof learnDecisions>;
 let routing = DEFAULT_DECK_ROUTING;
 beforeEach(() => {

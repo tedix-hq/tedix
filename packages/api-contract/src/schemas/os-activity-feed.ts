@@ -46,6 +46,14 @@ export const ActivityFeedItemSchema = z.strictObject({
 	autonomyFeedback: z
 		.object({ eventId: z.string(), classId: z.string() })
 		.optional(),
+	internalDecisionUndo: z
+		.strictObject({
+			requestId: z.uuid(),
+			expectedRequestVersion: z.number().int().positive(),
+			expectedRevision: z.number().int().positive(),
+			restoreRevision: z.number().int().positive(),
+		})
+		.optional(),
 	attachment: z
 		.strictObject({
 			title: z.string().min(1).max(200),

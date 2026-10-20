@@ -26,6 +26,18 @@ export const DeckCurationStateSchema = z.strictObject({
 	revision: z.number().int().positive().nullable().default(null),
 	draftBody: z.string().max(40000).nullable().default(null),
 	status: z.enum(["open", "cancelled"]),
+	internalTask: z
+		.strictObject({
+			taskId: z.uuid(),
+			classId: z.string().min(1).max(100),
+			actorType: z.enum(["tedi", "external_agent"]),
+			actorId: z.string().min(1),
+			handledAt: z.iso.datetime(),
+			policyPack: z
+				.strictObject({ id: z.string(), version: z.number() })
+				.optional(),
+		})
+		.optional(),
 	successorId: z.uuid().nullable(),
 	penalty: z.number().min(-100).max(0),
 	reason: z.string().max(4000),
@@ -40,6 +52,7 @@ export const CurateDeckCardInputSchema = DeckCurationScopeSchema.extend({
 	expectedRevision: z.number().int().nonnegative(),
 	body: CardTextSchema.optional(),
 	successorId: z.uuid().optional(),
+	handleInternally: z.boolean().optional(),
 	reason: CardTextSchema.max(4000),
 	evidenceRefs: z.array(z.string().min(1).max(2000)).min(1).max(20),
 });

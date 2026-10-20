@@ -198,6 +198,16 @@ export async function curateDeckCard(
 			ErrorCodes.BAD_REQUEST,
 			"The curated story must contain at most 60 words",
 		);
+	if (input.handleInternally) {
+		if (input.successorId || input.body)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Internal handling uses the stored action without rewriting it",
+			);
+		const { handleInternalDecision } =
+			await import("./internal-decision-handling");
+		return handleInternalDecision(context, request, input.expectedRevision);
+	}
 	if (input.successorId) {
 		const successor = await getWorkInteraction(context.db, {
 			orgId,
