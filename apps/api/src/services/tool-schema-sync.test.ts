@@ -15,12 +15,12 @@ import type { DbClient } from "@tedix/db/client";
 import type { AppTool } from "@tedix/db/schema";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
-	runToolSchemaSync,
-	OS_TOOL_ID_OVERRIDES,
-	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
-	WORK_HIERARCHY_KIND_OVERRIDES,
 	OS_KIND_OVERRIDES,
-} from "./tool-schema-sync";
+	OS_TOOL_ID_OVERRIDES,
+	WORK_HIERARCHY_KIND_OVERRIDES,
+	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
+} from "./tool-schema-overrides";
+import { runToolSchemaSync } from "./tool-schema-sync";
 
 const TEST_ADMIN_APP_ID = "5eed0020-0000-4000-8000-000000000020";
 
