@@ -102,6 +102,14 @@
 	],
 	"ratelimits": [
 		{
+			"name": "AGENT_REVIEW_RATE_LIMITER",
+			"namespace_id": "1002",
+			"simple": {
+				"limit": 5,
+				"period": 60
+			}
+		},
+		{
 			"name": "API_RATE_LIMITER",
 			"namespace_id": "1001",
 			"simple": {

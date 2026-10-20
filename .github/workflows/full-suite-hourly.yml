@@ -20,7 +20,7 @@ env:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/main'
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -45,7 +45,7 @@ jobs:
   workspace:
     name: Workspace ${{ matrix.workspace }}
     needs: plan
-    if: needs.plan.outputs.skip != 'true'
+    if: ${{ !cancelled() && needs.plan.outputs.skip != 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
     timeout-minutes: 60
     strategy:
@@ -86,7 +86,7 @@ jobs:
 
   repository:
     needs: plan
-    if: needs.plan.outputs.skip != 'true'
+    if: ${{ !cancelled() && needs.plan.outputs.skip != 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
     timeout-minutes: 30
     steps:
@@ -118,7 +118,7 @@ jobs:
   aggregate:
     name: Main CI
     needs: [plan, workspace, repository]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
