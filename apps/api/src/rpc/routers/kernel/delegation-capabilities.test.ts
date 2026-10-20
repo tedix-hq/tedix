@@ -32,6 +32,65 @@ function order(content: string, plannedToolIds: string[] = []) {
 	});
 }
 
+const readerCard: TediCapabilityCard = {
+	tediId: "acme-reader",
+	slug: "reader",
+	name: "Reader",
+	apps: [],
+	scopeGroups: ["mcp:work"],
+	skills: [],
+	runtimeKind: "isolate",
+	embodied: false,
+	availability: "running",
+	hasWarmWorkstationLease: false,
+	hasRepository: false,
+	depsReady: false,
+	environmentReady: false,
+	requiresApproval: false,
+	delegationEntrustments: [],
+	dispatchPolicy: null,
+	mcpCapabilityProfile: null,
+};
+
+describe("read-only Work sweeps", () => {
+	it("does not derive Work writes from pasted commit subjects in a read-only reconciliation", () => {
+		const result = buildDelegationWorkOrder({
+			userContent: [
+				'Please reconcile the "accepted" Work items in project 11111111-1111-4111-8111-111111111111 against the commits below and give me a settle-or-keep table. Read-only: do not settle, complete or edit any Work item.',
+				"Commits on main:",
+				"1a2b3c4 fix(db): batch Work completion with its closing comment",
+				"5d6e7f8 fix(home): distinguish source comments from Work writes",
+				"Save the table as a document in the internal project. Low risk; drafts only.",
+			].join("\n"),
+			card: readerCard,
+			route,
+		});
+		const tools = result.capabilityPlan?.allowedToolIds ?? [];
+		expect(tools).not.toContain("work.add_comment");
+		expect(tools).not.toContain("work.complete_work_item");
+		expect(tools).toContain("work.list_work_items");
+		expect(tools).toContain("os.create_os_output");
+		expect(result.capabilityPlan?.missingCapabilities).toEqual([]);
+	});
+
+	it("maps a read-only blocker sweep to Work reads and a saved document", () => {
+		const result = buildDelegationWorkOrder({
+			userContent:
+				'Please sweep stale "night shift blocker" items on the Tedix Work board and give me a table of what can be closed. Read-only on the board; do not cancel, complete or edit anything. Look each up in project 11111111-1111-4111-8111-111111111111. Save it as a document in the internal project.',
+			card: readerCard,
+			route,
+		});
+		expect(result.capabilityPlan).toBeDefined();
+		expect(result.capabilityPlan?.allowedToolIds).toEqual(
+			expect.arrayContaining([
+				"work.get_work_items_by_id",
+				"work.list_work_item_events",
+				"os.create_os_output",
+			]),
+		);
+	});
+});
+
 describe("request-derived capability plans", () => {
 	it("maps a platform Work comment omitted by the planner without granting unrelated tools", () => {
 		const card: TediCapabilityCard = {

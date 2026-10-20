@@ -1,4 +1,5 @@
 import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution-evidence";
+import { withoutQuotedCommitSubjects } from "@tedix/api-contract/utils/approval-policy";
 import { delegatedCloseoutProjects } from "@tedix/api-contract/utils/delegated-work-closeout";
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { KernelRouteDecision } from "./route-schema";
@@ -17,7 +18,11 @@ export function deriveDelegationCapabilityPlan(input: {
 	card: TediCapabilityCard | null;
 }): DelegationCapabilityPlan | undefined {
 	const { route, requirement, card } = input;
-	const content = delegationRequestContent(input.content);
+	const content = withoutQuotedCommitSubjects(
+		delegationRequestContent(input.content),
+	);
+	// An explicitly read-only request never derives a Work write capability.
+	const readOnly = /\bread-only\b/i.test(content);
 	const scopedCloseout = Boolean(
 		card && delegatedCloseoutProjects(content).length,
 	);
@@ -75,6 +80,7 @@ export function deriveDelegationCapabilityPlan(input: {
 	}
 	if (
 		!scopedCloseout &&
+		!readOnly &&
 		/\bwork(?:\s+item)?\b/i.test(content) &&
 		/\b(?:add|post|write|leave)\s+(?:(?:a|an|the|one-line|closing|brief|short)\s+){0,4}comment\b|\bclosing\s+comment\b|\bwork(?:\s+item)?\s+comment\b/i.test(
 			content,
@@ -95,7 +101,8 @@ export function deriveDelegationCapabilityPlan(input: {
 	if (
 		card &&
 		/\bwork\b/i.test(content) &&
-		/\b(?:history|backlog|attempts|settled)\b/i.test(content)
+		(/\b(?:history|backlog|attempts|settled)\b/i.test(content) ||
+			/\bwork\s+(?:items?|board)\b/i.test(content))
 	) {
 		capabilities.push("work.read");
 		for (const id of [
@@ -110,7 +117,10 @@ export function deriveDelegationCapabilityPlan(input: {
 		if (scopedCloseout) {
 			capabilities.push("work.closeout");
 			tools.add("close_completed_work_item");
-		} else if (/\bmark\b[^.!?\n]{0,60}\bcompleted\b/i.test(content)) {
+		} else if (
+			!readOnly &&
+			/\bmark\b[^.!?\n]{0,60}\bcompleted\b/i.test(content)
+		) {
 			capabilities.push("work.complete");
 			tools.add("work.complete_work_item");
 		}
@@ -123,7 +133,10 @@ export function deriveDelegationCapabilityPlan(input: {
 			tools.add("os.revise_os_output");
 		}
 	}
-	if (card && /\b(?:save|create)\b[^.!?\n]{0,60}\bOutput\b/i.test(content)) {
+	if (
+		card &&
+		/\b(?:save|create)\b[^.!?\n]{0,60}\b(?:Output|document)\b/i.test(content)
+	) {
 		capabilities.push("output.create");
 		for (const id of [
 			"list_os_workspaces",
