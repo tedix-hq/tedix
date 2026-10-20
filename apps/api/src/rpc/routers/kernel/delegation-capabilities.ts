@@ -99,6 +99,7 @@ export function deriveDelegationCapabilityPlan(input: {
 	) {
 		capabilities.push("work.read");
 		for (const id of [
+			"list_attempt_projection",
 			"list_work_items",
 			"get_work_items_by_id",
 			"list_work_item_attempts",

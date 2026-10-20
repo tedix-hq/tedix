@@ -128,6 +128,11 @@ describe("delegated MCP token", () => {
 	});
 
 	it.each([
+		[
+			"list_attempt_projection",
+			"list_attempt_projection",
+			"workItems/listAttemptProjection",
+		],
 		["list_work_item_evidence", "list_work_evidence", "workItems/listEvidence"],
 		["list_work_item_events", "list_work_events", "workItems/listEvents"],
 	])(

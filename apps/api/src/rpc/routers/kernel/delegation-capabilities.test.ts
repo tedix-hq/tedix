@@ -92,6 +92,9 @@ describe("request-derived capability plans", () => {
 		});
 		expect(summary.capabilityPlan?.requiredCapabilities).toEqual(["work.read"]);
 		expect(summary.capabilityPlan?.allowedToolIds).toContain(
+			"work.list_attempt_projection",
+		);
+		expect(summary.capabilityPlan?.allowedToolIds).toContain(
 			"work.list_work_item_events",
 		);
 		expect(summary.capabilityPlan?.allowedToolIds).not.toContain(
