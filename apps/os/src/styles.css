@@ -795,42 +795,6 @@ a:focus-visible {
 	}
 }
 
-/* Keep the modal's chrome visible while its contents scroll, including forms. */
-.os-dialog-scroll {
-	--dialog-padding: 1rem;
-	min-height: 0;
-	width: 100%;
-	overflow-y: auto;
-	overscroll-behavior: contain;
-	scrollbar-gutter: stable;
-	scroll-padding-block: 8rem;
-	padding: var(--dialog-padding);
-	display: grid;
-	gap: 1rem;
-}
-
-.os-dialog-scroll
-	:is([data-slot="dialog-header"], [data-slot="alert-dialog-header"]) {
-	position: sticky;
-	top: calc(-1 * var(--dialog-padding));
-	z-index: 10;
-	margin: calc(-1 * var(--dialog-padding)) calc(-1 * var(--dialog-padding)) 0;
-	padding: var(--dialog-padding);
-	padding-right: 3rem;
-	background: var(--color-kumo-base);
-}
-
-.os-dialog-scroll
-	:is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"]) {
-	position: sticky;
-	bottom: calc(-1 * var(--dialog-padding));
-	z-index: 10;
-	margin: 0 calc(-1 * var(--dialog-padding)) calc(-1 * var(--dialog-padding));
-	padding: var(--dialog-padding);
-	background: var(--color-kumo-base);
-	border-top: 1px solid var(--color-kumo-line);
-}
-
 .os-sheet [data-slot="sheet-header"] {
 	position: sticky;
 	top: 0;
@@ -843,53 +807,6 @@ a:focus-visible {
 @media (min-width: 900px) {
 	.support-report-fields {
 		grid-template-columns: 1fr 1fr;
-	}
-}
-
-/*
- * Dialogs are bottom sheets on phones and short windows.
- *
- * Kumo pins its popup to the viewport centre (`fixed top-1/2 left-1/2` plus a
- * translate pair); these overrides re-anchor it to the keyboard-safe bottom edge
- * and reuse the `side="bottom"` geometry the Sheet adapter already ships —
- * full-bleed between the safe areas, square bottom corners. The class is applied
- * by the `DialogContent` adapter itself, so this is a default every dialog gets
- * rather than one call sites have to remember.
- *
- * `!important` and the `body` prefix are load-bearing: Kumo's positioning ships as
- * ordinary Tailwind utilities, which an unlayered important declaration outranks
- * outright. They apply only inside this query — desktop is untouched. A call site
- * that needs a different small-viewport shape must therefore reach for Tailwind's
- * own `!` modifier (an important utility, which does win here), not a plain class.
- *
- * The enter/exit stays Kumo's scale+opacity rather than the Sheet's slide: Kumo
- * sets `transition-property` as an INLINE style, which no class can override.
- */
-@media (max-width: 767px), (max-height: 520px) {
-	body .os-dialog-sheet {
-		top: auto !important;
-		right: env(safe-area-inset-right, 0px) !important;
-		bottom: calc(
-			var(--viewport-tedix-bottom) + env(safe-area-inset-bottom, 0px)
-		) !important;
-		left: env(safe-area-inset-left, 0px) !important;
-		width: auto !important;
-		max-width: none !important;
-		max-height: calc(
-			min(100dvh, var(--viewport-tedix-height)) -
-				env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px)
-		) !important;
-		border-bottom-right-radius: 0 !important;
-		border-bottom-left-radius: 0 !important;
-		/*
-		 * Kumo centres with Tailwind's `translate` PROPERTY (`-translate-x-1/2`
-		 * compiles to `translate: var(--tw-translate-x) …`), so cancelling it is
-		 * the whole re-anchoring. Do not add a neighbouring `transform: none`:
-		 * Lightning CSS folds the two into one `transform` declaration and drops
-		 * the `translate` override entirely, which cancels nothing — they are
-		 * independent properties, set here and in Kumo's rule respectively.
-		 */
-		translate: 0 0 !important;
 	}
 }
 

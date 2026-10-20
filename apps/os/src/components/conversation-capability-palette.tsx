@@ -181,7 +181,7 @@ export function ConversationCapabilityPalette({
 				{attached.length > 0 ? <Badge>{attached.length}</Badge> : null}
 			</Button>
 			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent className="sm:max-w-xl">
+				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Chat context</DialogTitle>
 						<DialogDescription>

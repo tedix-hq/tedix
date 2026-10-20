@@ -114,7 +114,7 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 				<span className="max-sm:sr-only">Get help</span>
 			</Button>
 			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent size="xl" className="min-[900px]:w-[52rem]">
+				<DialogContent size="xl">
 					<DialogHeader>
 						<DialogTitle>Get help</DialogTitle>
 						<DialogDescription>

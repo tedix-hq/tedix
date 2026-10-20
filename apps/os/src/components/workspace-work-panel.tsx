@@ -166,7 +166,7 @@ function ScheduleDialog({
 				if (!open) close();
 			}}
 		>
-			<DialogContent className="max-w-md">
+			<DialogContent size="sm">
 				<DialogHeader>
 					<DialogTitle>Schedule work</DialogTitle>
 					<DialogDescription>{item.title}</DialogDescription>
@@ -743,7 +743,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 				) : null}
 			</div>
 			<Dialog open={manage} onOpenChange={setManage}>
-				<DialogContent className="max-w-lg">
+				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Manage projects</DialogTitle>
 						<DialogDescription>
