@@ -100,10 +100,13 @@ export function OrganizationModelFallbackForm({
 					{inherited ? "Using the platform default" : "Organization policy"}
 				</Text>
 				<Label htmlFor={`${id}-cap`}>
-					Maximum switches per model operation
+					<span id={`${id}-cap-label`}>
+						Maximum switches per model operation
+					</span>
 				</Label>
 				<Input
 					id={`${id}-cap`}
+					aria-labelledby={`${id}-cap-label`}
 					type="number"
 					min={0}
 					max={5}
