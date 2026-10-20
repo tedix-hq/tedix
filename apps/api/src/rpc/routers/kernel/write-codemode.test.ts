@@ -139,3 +139,39 @@ describe("write discovery contracts", () => {
 		expect(result).toEqual([{ callable: "os.create_os_output", parameters }]);
 	});
 });
+
+it.each([
+	codeModeDiscoveryParams("notion update"),
+	codeModeDescribeParams("notion.notion_update_page"),
+	codeModeCanonicalDescribeParams("notion_update_page"),
+	codeModeCanonicalDescribeParams("notion.notion_update_page"),
+])(
+	"preserves approval facts across generated discovery and catalog parsing",
+	async (params) => {
+		const metadata = {
+			"com.tedix/policy": {
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+				argumentPolicy: "notion_page_update",
+			},
+			"com.tedix/connectedTool": {
+				providerId: "notion",
+				toolName: "notion-update-page",
+			},
+		};
+		const hit = {
+			callable: "notion.notion_update_page",
+			annotations: { readOnlyHint: false, destructiveHint: true },
+			_meta: metadata,
+		};
+		const result = await runGenerated(params, {
+			search: async () => [hit],
+			describe: async () => hit,
+		});
+		expect(
+			parseCodeModeCatalog({
+				content: [{ type: "text", text: JSON.stringify(result) }],
+			})[0]?._meta,
+		).toEqual(metadata);
+	},
+);

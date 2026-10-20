@@ -150,6 +150,7 @@ import { executeTool } from "./tool-execution";
 import { resolveToolRequestMeta } from "./tool-registration";
 import {
 	enforceToolRiskRateLimit,
+	toolApprovalMetadata,
 	toolRiskAuditMetadata,
 } from "./tool-risk-policy";
 import {
@@ -964,6 +965,7 @@ interface CatalogToolEntry {
 	description: string;
 	parameters?: Record<string, unknown>;
 	annotations?: CatalogToolAnnotations;
+	_meta?: Record<string, unknown>;
 	outputSchema?: Record<string, unknown>;
 	schemaFreshness?: CatalogSchemaFreshness;
 	native?: NativeZ.infer<typeof McpNativeDescriptorSchema>;
@@ -2168,6 +2170,7 @@ export function buildCatalogProvider(
 				description: `${humanizeWeakDescription(tool.description, safeName)}${paymentDescription}`,
 				parameters: withDestructiveApprovalSchema(tool, wireAnnotations),
 				annotations: wireAnnotations,
+				_meta: toolApprovalMetadata(tool),
 				outputSchema: tool.outputSchema as
 					| Record<string, unknown>
 					| null
@@ -2588,6 +2591,7 @@ function createCatalogToolEntry(
 		description: string;
 		parameters: Record<string, unknown>;
 		annotations?: unknown;
+		_meta?: Record<string, unknown>;
 		outputSchema?: Record<string, unknown> | null;
 		schemaFreshness?: CatalogSchemaFreshness;
 	},
@@ -2611,6 +2615,9 @@ function createCatalogToolEntry(
 		description: meta.description,
 		parameters: meta.parameters,
 		...(annotations && { annotations }),
+		...(meta._meta && Object.keys(meta._meta).length > 0
+			? { _meta: meta._meta }
+			: {}),
 		...(outputSchema && { outputSchema }),
 		...(schemaFreshness && { schemaFreshness }),
 	};
