@@ -7,6 +7,7 @@ import type {
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { CodeBlock } from "@/components/kumo/code";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
@@ -40,25 +41,21 @@ function ApprovalHistoryRequests() {
 				Inspect past requests and their recorded predictions or execution
 				receipts. History is read-only; approval alone does not prove execution.
 			</Text>
-			<Surface
-				className="flex flex-wrap gap-2"
-				role="group"
-				aria-label="History status"
-			>
-				{(["approved", "rejected", "cancelled", "expired"] as const).map(
-					(status) => (
-						<Button
-							key={status}
-							variant="outline"
-							aria-label={`Show ${status} requests`}
-							aria-pressed={page.status === status}
-							onClick={() => setPage({ status, offset: 0 })}
-						>
+			<SegmentedControl
+				ariaLabel="History status"
+				value={page.status}
+				options={(
+					["approved", "rejected", "cancelled", "expired"] as const
+				).map((status) => ({
+					value: status,
+					label: (
+						<span aria-label={`Show ${status} requests`}>
 							{status.charAt(0).toUpperCase() + status.slice(1)}
-						</Button>
+						</span>
 					),
-				)}
-			</Surface>
+				}))}
+				onValueChange={(status) => setPage({ status, offset: 0 })}
+			/>
 			{query.isError ? (
 				<Alert variant="destructive">
 					<AlertTitle>Approval history unavailable</AlertTitle>

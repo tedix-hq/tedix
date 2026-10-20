@@ -915,24 +915,23 @@ function CardDetail({
 					/>
 				</section>
 
-				<fieldset className="m-0 grid gap-2 border-0 p-0">
+				<fieldset
+					disabled={busy}
+					className="m-0 grid min-w-0 gap-2 border-0 p-0"
+				>
 					<legend className="mb-1 p-0 text-sm font-semibold text-kumo-default">
 						Your decision
 					</legend>
-					<div className="flex flex-wrap gap-2">
-						{DECISIONS.map(({ value, label }) => (
-							<Button
-								key={value}
-								aria-pressed={draft.decision === value}
-								variant={draft.decision === value ? "default" : "outline"}
-								size="sm"
-								disabled={busy}
-								onClick={() => onChange({ decision: value })}
-							>
-								{label}
-							</Button>
-						))}
-					</div>
+					<SegmentedControl
+						ariaLabel="Your decision"
+						compact
+						fill
+						value={draft.decision}
+						options={DECISIONS}
+						onValueChange={(decision) => {
+							if (!busy) onChange({ decision });
+						}}
+					/>
 					<p className="m-0 text-xs text-kumo-subtle">
 						“Looks good” records your opinion only. It does not post anything or
 						start any research.
