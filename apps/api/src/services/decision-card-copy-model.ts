@@ -39,7 +39,7 @@ export async function runDecisionCardCopyModel(
 		const rewritten = await tracedAi.generateText({
 			maxOutputTokens: options.maxTokens,
 			maxRetries: 0,
-			system: options.system,
+			instructions: options.system,
 			runtimeContext: {
 				orgId: options.orgId,
 				source: options.source ?? "decision_card_copy",

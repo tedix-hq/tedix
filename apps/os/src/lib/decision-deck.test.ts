@@ -150,7 +150,7 @@ it("demotes elapsed deadlines even when learning would boost the old ask", () =>
 	expect(compareDecisionFreshness(stale, fresh, now)).toBeGreaterThan(0);
 	expect(compareDecisionFreshness(fresh, stale, now)).toBeLessThan(0);
 });
-it("uses deadline then recency without learning and preserves learned ranking for fresh cards", () => {
+it("puts today's deadline before learned preference, then uses recency", () => {
 	const now = new Date("2026-10-18T00:30:00Z");
 	const due = {
 		dueAt: "2026-10-18T06:30:00Z",
@@ -171,7 +171,7 @@ it("uses deadline then recency without learning and preserves learned ranking fo
 			{ ...due, score: 5 },
 			now,
 		),
-	).toBeLessThan(0);
+	).toBeGreaterThan(0);
 });
 
 it("correlates only canonical effect receipts, including Outbound's pre-send revision", () => {

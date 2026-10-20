@@ -323,3 +323,14 @@ it("keeps an explicitly pending projection from reviving stale saved copy", () =
 	expect(view.actions).toEqual([]);
 	expect(attentionMarkdown([view], true)).not.toContain(copy.title);
 });
+
+it("keeps generation failure distinct from pending copy in MCP and Markdown faces", () => {
+	const card = raw();
+	card.presentation = null;
+	card.faceText = "Summary unavailable. Open Details to review the source.";
+	const view = deckDisplayCard(card, 0);
+	expect(view.ask).toBe("Summary unavailable");
+	expect(view.ifYes).toBe(card.faceText);
+	expect(attentionMarkdown([view], true)).toContain("Summary unavailable");
+	expect(view.actions).toEqual([]);
+});

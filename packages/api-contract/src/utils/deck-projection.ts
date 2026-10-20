@@ -11,7 +11,7 @@ import type { ApprovalRequest } from "../contracts/tedi-approvals";
 import type { DecisionLearningModel } from "../schemas/decision-learning";
 import { DecisionCardPresentationSchema } from "../schemas/decision-card-presentation";
 import type { DeckCard } from "../schemas/attention";
-import { cardIsDue } from "./card-schedule";
+import { calendarDay, cardIsDue } from "./card-schedule";
 import { scoreLearning, type LearningCandidate } from "./decision-learning";
 
 type Request = z.infer<typeof WorkInteractionInboxRowSchema>;
@@ -104,14 +104,28 @@ export function compareDecisionFreshness(
 		score?: number;
 	},
 	now: Date,
+	timeZone?: string,
 ) {
 	const due = (value?: string | null) =>
 		value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : Infinity;
 	const aDue = due(a.dueAt);
 	const bDue = due(b.dueAt);
+	const today = calendarDay(now, timeZone);
+	const elapsed = (value: string | null | undefined, timestamp: number) =>
+		value && /^\d{4}-\d{2}-\d{2}$/.test(value)
+			? value < today
+			: timestamp < now.getTime();
+	const dueToday = (value: string | null | undefined, timestamp: number) =>
+		Boolean(value) &&
+		Number.isFinite(timestamp) &&
+		(value!.length === 10
+			? value === today
+			: calendarDay(new Date(timestamp), timeZone) === today);
 	return (
-		Number(aDue < now.getTime()) - Number(bDue < now.getTime()) ||
+		Number(elapsed(a.dueAt, aDue)) - Number(elapsed(b.dueAt, bDue)) ||
 		Number(b.kind === "approval") - Number(a.kind === "approval") ||
+		Number(dueToday(b.dueAt, bDue)) - Number(dueToday(a.dueAt, aDue)) ||
+		(dueToday(a.dueAt, aDue) && dueToday(b.dueAt, bDue) ? aDue - bDue : 0) ||
 		(b.score ?? 0) - (a.score ?? 0) ||
 		(aDue !== bDue ? aDue - bDue : 0) ||
 		(Date.parse(b.requestedAt ?? "") || 0) -
@@ -308,5 +322,5 @@ export function projectDeckCards(input: {
 			now,
 			card.interaction?.request,
 		).score;
-	return cards.sort((a, b) => compareDecisionFreshness(a, b, now));
+	return cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));
 }

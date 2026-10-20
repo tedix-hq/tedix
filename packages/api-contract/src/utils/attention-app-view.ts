@@ -90,10 +90,18 @@ export function deckDisplayCard(
 	const view: AttentionDisplayCard = {
 		id: card.id,
 		kind: card.kind,
-		ask: copy?.title ?? copySpec.pendingTitle,
+		ask:
+			copy?.title ??
+			(card.faceText === copySpec.unavailableFace
+				? copySpec.unavailableTitle
+				: copySpec.pendingTitle),
 		context: copy?.context ?? null,
 		confidence: card.decision?.confidence ?? null,
-		ifYes: copy?.body ?? copySpec.pendingFace,
+		ifYes:
+			copy?.body ??
+			(card.faceText === copySpec.unavailableFace
+				? copySpec.unavailableFace
+				: copySpec.pendingFace),
 		why: copy?.recommendation ?? null,
 		stakes: copy && "stakes" in copy ? (copy.stakes ?? null) : null,
 		provenance: personal

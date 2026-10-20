@@ -85,7 +85,8 @@ it("keeps validation feedback separate from source facts and system instructions
 		validationFeedback,
 	});
 	const call = mocks.generate.mock.calls[0]?.[0];
-	expect(call.system).toBe(options.system);
+	expect(call.instructions).toBe(options.system);
+	expect(call).not.toHaveProperty("system");
 	expect(JSON.parse(call.prompt)).toEqual({
 		source: "Fictional source",
 		validationFeedback,

@@ -20,15 +20,18 @@ import { saveDecisionCardPresentation } from "@tedix/db/queries/work-items/card-
 export function displayDeckCard(
 	card: DeckCard,
 	presentation: DeckCard["presentation"],
+	unavailable = false,
 ): DeckCard {
 	return {
 		...card,
 		presentation: presentation ?? null,
-		label: presentation?.title ?? copySpec.pendingTitle,
-		faceText: decisionCardFaceText(
-			presentation,
-			card.decision?.confidence ?? null,
-		),
+		label:
+			presentation?.title ??
+			(unavailable ? copySpec.unavailableTitle : copySpec.pendingTitle),
+		faceText:
+			!presentation && unavailable
+				? copySpec.unavailableFace
+				: decisionCardFaceText(presentation, card.decision?.confidence ?? null),
 	};
 }
 
@@ -37,8 +40,13 @@ export async function prepareDeckCardFaces(
 	cards: DeckCard[],
 	model?: DecisionLearningModel,
 ) {
+	const unavailable = new Set<string>();
 	const faces = await Promise.all(
-		cards.map((card) => prepareDeckCardFace(context, card, false, model)),
+		cards.map((card) =>
+			prepareDeckCardFace(context, card, false, model, () =>
+				unavailable.add(card.id),
+			),
+		),
 	);
 	context.waitUntil?.(
 		Promise.all(
@@ -48,7 +56,9 @@ export async function prepareDeckCardFaces(
 				.map((card) => prepareDeckCardFace(context, card, true, model)),
 		).catch(() => {}),
 	);
-	return cards.map((card, index) => displayDeckCard(card, faces[index]));
+	return cards.map((card, index) =>
+		displayDeckCard(card, faces[index], unavailable.has(card.id)),
+	);
 }
 
 /** Display-only source. Never send saved tool arguments or executable effects to the writer. */
@@ -103,11 +113,15 @@ export async function prepareDeckCardFace(
 	card: DeckCard,
 	generate = true,
 	model?: DecisionLearningModel,
+	onUnavailable?: () => void,
 ) {
 	if (!context.userId) return null;
 	const orgId = requireOrgId(context);
 	const source = deckCardWritingSource(card);
-	if (containsCardSecret(source)) return null;
+	if (containsCardSecret(source)) {
+		onUnavailable?.();
+		return null;
+	}
 	const preferences = model
 		? draftLearningContext(model, card.decision?.classId)
 		: await readDraftPreferences(
@@ -142,6 +156,7 @@ export async function prepareDeckCardFace(
 	};
 	const stored = await getUserConfig(context.db, key);
 	if (stored?.value.fingerprint === fingerprint) {
+		if (stored.value.failed) onUnavailable?.();
 		const copy = DecisionCardPresentationSchema.safeParse(
 			stored.value.presentation,
 		).data;
@@ -164,21 +179,33 @@ export async function prepareDeckCardFace(
 		value: { fingerprint, retryAt: Date.now() + 60000 },
 	});
 	if (!claim.ok) return null;
-	const presentation = await generateDecisionCard(context, {
-		...source,
-		orgId,
-		targetId:
-			card.interaction?.request.requestedFromId ??
-			context.descopeUserId ??
-			null,
-	});
+	const presentation = await generateDecisionCard(
+		context,
+		{
+			...source,
+			orgId,
+			targetId:
+				card.interaction?.request.requestedFromId ??
+				context.descopeUserId ??
+				null,
+		},
+		(reason) =>
+			console.warn("[decision-card-face] generation failed", { reason }),
+	);
 	if (
 		!presentation ||
 		presentation.version !== 2 ||
 		!presentation.context ||
 		checkDecisionCardCopy(presentation).length
-	)
+	) {
+		onUnavailable?.();
+		await putUserConfig(context.db, {
+			...key,
+			expectedRevision: claim.row.revision,
+			value: { fingerprint, retryAt: Date.now() + 60000, failed: true },
+		});
 		return null;
+	}
 	if (card.interaction) {
 		const request = card.interaction.request;
 		const saved = await saveDecisionCardPresentation(context.db, {

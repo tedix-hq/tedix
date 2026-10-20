@@ -3,7 +3,12 @@ import { DecisionLearningConfigSchema } from "../schemas/decision-learning";
 import { describe, expect, it } from "vite-plus/test";
 import type * as z from "zod";
 import type { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
-import { rankDeckCard, projectDeckCards } from "./deck-projection";
+import {
+	rankDeckCard,
+	projectDeckCards,
+	compareDecisionFreshness,
+} from "./deck-projection";
+import { factoryCardDeadline } from "./card-schedule";
 
 type Row = z.infer<typeof WorkInteractionInboxRowSchema>;
 const now = new Date("2026-10-19T12:00:00.000Z");
@@ -252,4 +257,60 @@ it("retains feed-routed questions and non-critical approvals in the full attenti
 		]),
 	);
 	expect(full).toHaveLength(3);
+});
+
+it("puts a dated factory deadline ahead of learned noise and keeps date-only deadlines current all day", () => {
+	const dueAt = factoryCardDeadline({
+		action: "Review invoice corrections by Tuesday 14:00?",
+		why: "The buyer asks for updates by Tuesday 20 October at 14:00; timezone unstated.",
+		runCreatedAt: "2026-10-19T16:00:00Z",
+	});
+	expect(dueAt).toBe("2026-10-20");
+	const cards = [
+		{ id: "noise", score: 1000 },
+		{ id: "booth", dueAt: "2026-10-20T11:59:00Z", score: 24 },
+		{ id: "invoice", dueAt, score: 15 },
+		{ id: "expired", dueAt: "2026-10-18", score: 2000 },
+	];
+	const morning = new Date("2026-10-20T07:00:00Z");
+	expect(
+		cards
+			.sort((a, b) => compareDecisionFreshness(a, b, morning, "Europe/Berlin"))
+			.map((c) => c.id),
+	).toEqual(["invoice", "booth", "noise", "expired"]);
+	expect(
+		compareDecisionFreshness(
+			cards[0]!,
+			{ score: 9999 },
+			new Date("2026-10-20T21:59:00Z"),
+			"Europe/Berlin",
+		),
+	).toBeLessThan(0);
+	expect(
+		compareDecisionFreshness(
+			cards[0]!,
+			{ score: 0 },
+			new Date("2026-10-20T22:01:00Z"),
+			"Europe/Berlin",
+		),
+	).toBeGreaterThan(0);
+});
+
+it("does not guess ambiguous, invalid, undated or cross-year factory deadlines", () => {
+	const card = {
+		action: "Review?",
+		why: "",
+		runCreatedAt: "2026-10-19T16:00:00Z",
+	};
+	for (const why of [
+		"Meet on 20 October",
+		"Due today",
+		"Update by 31 February 2026",
+		"Send by 1 January",
+		"Send by 20 October or by 21 October",
+	])
+		expect(factoryCardDeadline({ ...card, why })).toBeNull();
+	expect(
+		factoryCardDeadline({ ...card, scheduleDates: ["2026-10-20T12:00:00Z"] }),
+	).toBe("2026-10-20T12:00:00Z");
 });

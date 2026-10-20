@@ -1,4 +1,5 @@
 import { DecisionLearningContext } from "./decision-learning-context";
+import { CardFaceContext } from "./deck-presentation-context";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -304,6 +305,46 @@ it("does not let keyboard shortcuts activate a disabled action", async () => {
 			),
 	);
 	expect(decide).not.toHaveBeenCalled();
+});
+
+it("renders real face copy and labels pending and failed generation explicitly", async () => {
+	await mount();
+	const presentation = {
+		version: 2 as const,
+		title: "Review the workshop plan?",
+		context: "Morgan needs the room choice today.",
+		body: "Saves the proposed room for review.",
+		recommendation: "Review first because the group size changed.",
+	};
+	for (const state of [
+		{ presentation, confidence: null },
+		{ presentation: null, confidence: null },
+		{ presentation: null, confidence: null, unavailable: true },
+	]) {
+		await act(async () =>
+			root.render(
+				<CardFaceContext.Provider value={state}>
+					<WorkDecisionCard
+						kind="decision"
+						askedBy="Robin"
+						title="Original source"
+						body="Full source text"
+						actions={[]}
+						onDecision={async () => {}}
+					/>
+				</CardFaceContext.Provider>,
+			),
+		);
+		if (state.presentation) {
+			expect(host.textContent).toContain(presentation.context);
+			expect(host.textContent).toContain(presentation.body);
+			expect(host.textContent).not.toContain("Summary pending");
+		} else {
+			expect(host.querySelector('[role="status"]')?.textContent).toContain(
+				"unavailable" in state ? "Summary unavailable" : "Summary pending",
+			);
+		}
+	}
 });
 
 it("leaves focus alone on mount and supports Enter after keyboard focus", async () => {

@@ -2,6 +2,9 @@ import {
 	rankDeckCard,
 	compareDecisionFreshness,
 } from "@tedix/api-contract/utils/deck-projection";
+import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
+import { useCardSchedule } from "@/lib/use-card-schedule";
+import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { matchQuery } from "@tanstack/react-query";
 import {
@@ -227,11 +230,7 @@ function DecisionDeckContent({
 		new Date(),
 		DEFAULT_DECK_ROUTING.version,
 	);
-	const [now, setNow] = useState(() => new Date());
-	useEffect(() => {
-		const timer = setInterval(() => setNow(new Date()), 30_000);
-		return () => clearInterval(timer);
-	}, []);
+	const { now, timeZone } = useCardSchedule();
 	const visitId = useRef(crypto.randomUUID());
 	useEffect(() => {
 		if (!profile.data?.id) return;
@@ -267,6 +266,7 @@ function DecisionDeckContent({
 					? decisions.factoryCards.map((card) => ({
 							id: `factory:${card.key}`,
 							requestedAt: card.runCreatedAt,
+							dueAt: factoryCardDeadline(card),
 							kind: "decision",
 							label: card.action || card.why || card.sourceText,
 							project:
@@ -340,17 +340,24 @@ function DecisionDeckContent({
 		compareDecisionFreshness(
 			{
 				kind: mode === "decide" ? a.kind : undefined,
-				dueAt: a.row?.request.dueAt,
+				dueAt:
+					"dueAt" in a && typeof a.dueAt === "string"
+						? a.dueAt
+						: a.row?.request.dueAt,
 				requestedAt: a.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
 			},
 			{
 				kind: mode === "decide" ? b.kind : undefined,
-				dueAt: b.row?.request.dueAt,
+				dueAt:
+					"dueAt" in b && typeof b.dueAt === "string"
+						? b.dueAt
+						: b.row?.request.dueAt,
 				requestedAt: b.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(b).score : undefined,
 			},
 			now,
+			timeZone,
 		);
 	const matchesFilters = (row: {
 		kind: string;
@@ -675,6 +682,10 @@ function DecisionDeckContent({
 						? (preparedCard.data?.presentation ?? null)
 						: null,
 					confidence: selected?.decision?.confidence ?? null,
+					unavailable:
+						preparedCard.isError ||
+						(preparedSourceMatches &&
+							preparedCard.data?.faceText === copySpec.unavailableFace),
 				}
 			: null;
 	const content = createElement(
