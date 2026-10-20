@@ -555,7 +555,9 @@
 	grid-auto-rows: min-content;
 	overflow: hidden;
 	padding: 0 0 1rem;
-	--fd-space: 2rem;
+	/* Scale with the Deck column, not the window, so an open rail never squeezes the card. */
+	--fd-space: clamp(1.25rem, 0.5rem + 3.5cqw, 2rem);
+	--fd-proposal: clamp(1.375rem, 1rem + 2.2cqw, 2.125rem);
 }
 .fd-deck:has(.fd-deck-current) {
 	display: flex;
@@ -588,7 +590,7 @@
 	flex: none;
 }
 .fd-deck > .fd-deck-current {
-	flex: 1 1 0;
+	flex: 0 1 auto;
 }
 .fd-deck-current {
 	justify-content: flex-start;
@@ -727,8 +729,13 @@
 	}
 }
 
+/* The Deck column is the container: the rail and card respond to the room they have. */
+.fd-context-frame {
+	container: fd-context / inline-size;
+	width: 100%;
+	min-width: 0;
+}
 .fd-context-layout {
-	--fd-context-width: clamp(300px, 24vw, 360px);
 	position: relative;
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
@@ -743,8 +750,8 @@
 	border-radius: 0;
 }
 .fd-context-layout[data-context-open="true"] {
-	max-width: calc(44rem + 2rem + var(--fd-context-width));
-	grid-template-columns: minmax(0, 1fr) var(--fd-context-width);
+	max-width: calc(44rem + 2rem + 25rem);
+	grid-template-columns: minmax(0, 1fr) clamp(20rem, 30cqw, 25rem);
 	gap: 2rem;
 }
 .fd-context-main {
@@ -754,9 +761,9 @@
 	position: sticky;
 	top: 1rem;
 	align-self: start;
-	width: var(--fd-context-width);
+	width: 100%;
 	min-width: 0;
-	max-height: calc(100dvh - 10rem);
+	max-height: calc(100dvh - 8rem);
 	overflow-y: auto;
 	border-left: 1px solid var(--color-kumo-line);
 	padding: 1.5rem;
@@ -770,7 +777,7 @@
 	gap: 2rem;
 	padding: 0;
 	min-width: 0;
-	max-width: 20rem;
+	max-width: 26rem;
 	width: 100%;
 	margin-inline: auto;
 	overflow-wrap: anywhere;
@@ -996,11 +1003,6 @@
 .fd-context-layout[data-context-open="true"] .fd-context-sections {
 	animation: fd-closure-enter 120ms 80ms both;
 }
-@media (max-width: 640px) {
-	.fd-deck {
-		--fd-space: 1.25rem;
-	}
-}
 [data-motion="reduced"] .fd-decision {
 	transform: none;
 }
@@ -1105,16 +1107,22 @@
 	background: none;
 	display: flex;
 	align-items: center;
-	gap: 1rem;
+	gap: 0.25rem 1rem;
 	min-height: 3rem;
 	width: 100%;
 }
+@media (min-width: 640px) {
+	.fd-app-toolbar {
+		flex-wrap: wrap;
+	}
+}
 .fd-toolbar-filters {
 	min-width: 0;
-	flex: 1;
+	flex: 1 1 18rem;
 }
 .fd-toolbar-filters .fd-deck-filters > div {
-	flex-wrap: nowrap;
+	flex-wrap: wrap;
+	justify-content: flex-end;
 	align-items: center;
 	gap: 0.25rem;
 }

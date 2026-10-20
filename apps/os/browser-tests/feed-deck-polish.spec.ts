@@ -206,6 +206,11 @@ try {
 				});
 				await trigger.waitFor();
 				const before = (await page.locator(".fd-context-main").boundingBox())!;
+				// The rail sits beside the card only when the Deck column has room.
+				const frameWidth = (await page
+					.locator(".fd-context-frame")
+					.boundingBox())!.width;
+				const inline = frameWidth >= 880;
 				const target = (await trigger.boundingBox())!;
 				if (width === 390 && (target.width < 44 || target.height < 44))
 					throw new Error("Context entry is below the mobile touch floor");
@@ -216,20 +221,18 @@ try {
 				await settleAnimations(page);
 				const after = (await page.locator(".fd-context-main").boundingBox())!;
 				if (
-					width < 1200 &&
+					!inline &&
 					(Math.abs(before.width - after.width) > 1 ||
 						Math.abs(before.x - after.x) > 1)
 				)
 					throw new Error("Opening context changed the main column geometry");
 				const rail = (await dialog.boundingBox())!;
-				if (width >= 1200) {
-					const expected = Math.min(360, Math.max(300, width * 0.24));
-					if (rail.width > 360 || Math.abs(rail.width - expected) > 1)
+				if (inline) {
+					const expected = Math.min(400, Math.max(320, frameWidth * 0.3));
+					if (rail.width > 400 || Math.abs(rail.width - expected) > 1)
 						throw new Error(`Context rail width ${rail.width} at ${width}`);
 					if (Math.abs(rail.x - after.x - after.width - 32) > 1)
 						throw new Error("Card and rail gap is not 32px");
-					if (Math.abs(after.x - (width - rail.x - rail.width)) > 1)
-						throw new Error("Card and rail group is not centered");
 				} else if ((await dialog.getAttribute("role")) !== "dialog") {
 					throw new Error("Narrow context did not use the topbar Sheet");
 				}
@@ -239,14 +242,14 @@ try {
 						width,
 						theme,
 						railWidth: rail.width,
-						gap: width >= 1200 ? rail.x - after.x - after.width : null,
+						gap: inline ? rail.x - after.x - after.width : null,
 					}),
 				);
 				if (process.env.TEDIX_SCREENSHOT_DIR && width !== 1199)
 					await page.screenshot({
 						path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-rail-${surface === "question" ? "deck" : "feed"}-${width}-${theme}.png`,
 					});
-				for (let i = 0; width < 1200 && i < 8; i++) {
+				for (let i = 0; !inline && i < 8; i++) {
 					await page.keyboard.press("Tab");
 					await page.waitForFunction(() =>
 						document.activeElement?.closest("[data-decision-context]"),
