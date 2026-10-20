@@ -6,7 +6,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 const DB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MIGRATIONS_DIR = join(DB_ROOT, "drizzle");
-const MIGRATION_PREFIX = "20261008210408_";
 const migrationNames = readdirSync(MIGRATIONS_DIR)
 	.filter((name) => /^\d{14}_/.test(name))
 	.sort();
@@ -20,9 +19,9 @@ function applyMigration(sqlite: DatabaseSync, name: string): void {
 	);
 }
 
-function migrationName(): string {
-	const name = migrationNames.find((n) => n.startsWith(MIGRATION_PREFIX));
-	if (!name) throw new Error(`Migration ${MIGRATION_PREFIX} not found`);
+function migrationName(suffix = "_sanitize-tool-annotations"): string {
+	const name = migrationNames.find((n) => n.endsWith(suffix));
+	if (!name) throw new Error(`Migration ${suffix} not found`);
 	return name;
 }
 
@@ -112,7 +111,37 @@ describe("sanitize tool annotations migration", () => {
 			insertTool(sqlite, table, "array", JSON.stringify(["x"]), null);
 			insertTool(sqlite, table, "absent", null, null);
 
-			applyMigration(sqlite, migrationName());
+			const preservedMeta = [
+				'{"audience":["user"],"tedix/upstreamAnnotations":{"cost":2}}',
+				'{"tedix/upstreamAnnotations":"not json"}',
+				'{"tedix/upstreamAnnotations":"[1,2]"}',
+				'{"tedix/upstreamAnnotations":"true"}',
+				'{"tedix/upstreamAnnotations":null}',
+				'{"audience":["user"]}',
+				'["unrelated"]',
+				'"scalar"',
+				"malformed json",
+			];
+			for (const [index, meta] of preservedMeta.entries()) {
+				insertTool(sqlite, table, `preserved-${index}`, null, meta);
+			}
+			insertTool(
+				sqlite,
+				table,
+				"already-sanitized",
+				JSON.stringify({ readOnlyHint: true }),
+				JSON.stringify({
+					audience: ["user"],
+					"tedix/upstreamAnnotations": JSON.stringify({ cost: 2 }),
+				}),
+			);
+
+			const repair = migrationName("_repair-tool-annotation-metadata");
+			for (const name of migrationNames) {
+				if (name < migrationName()) continue;
+				applyMigration(sqlite, name);
+				if (name === repair) break;
+			}
 
 			expect(readTool(sqlite, table, "slides")).toEqual({
 				annotations: { title: "Render slides", readOnlyHint: false },
@@ -148,11 +177,26 @@ describe("sanitize tool annotations migration", () => {
 				annotations: null,
 				meta: null,
 			});
+			expect(readTool(sqlite, table, "already-sanitized")).toEqual({
+				annotations: { readOnlyHint: true },
+				meta: {
+					audience: ["user"],
+					"tedix/upstreamAnnotations": { cost: 2 },
+				},
+			});
+			for (const [index, meta] of preservedMeta.entries()) {
+				expect(
+					sqlite
+						.prepare(`SELECT meta FROM ${table} WHERE id = ?`)
+						.get(`preserved-${index}`)!.meta,
+				).toBe(meta);
+			}
 
 			const snapshot = sqlite
 				.prepare(`SELECT id, annotations, meta FROM ${table} ORDER BY id`)
 				.all();
 			applyMigration(sqlite, migrationName());
+			applyMigration(sqlite, repair);
 			expect(
 				sqlite
 					.prepare(`SELECT id, annotations, meta FROM ${table} ORDER BY id`)
