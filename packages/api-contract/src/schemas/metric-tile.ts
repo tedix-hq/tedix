@@ -5,7 +5,7 @@ import * as z from "zod";
  *
  * A tile is either MEASURED — a value that must state the window it covers and
  * the source the number came from — or EMPTY, which names why no number
- * exists and optionally links to the setup path. There is no third state:
+ * exists and links to the setup path. There is no third state:
  * the schema cannot express a bare figure with no provenance, so a renderer
  * that honours this contract can never show a made-up or zero-as-unknown
  * number.
@@ -28,8 +28,8 @@ export const MetricTileEmptySchema = z.strictObject({
 	label: z.string().min(1).max(160),
 	/** Why no number exists — stated, never implied by a zero or a dash. */
 	emptyReason: z.string().min(1).max(500),
-	/** Where to go to start measuring; absent when nothing is setup-shaped. */
-	setupHref: z.string().min(1).max(500).optional(),
+	/** Where to go to start measuring. */
+	setupHref: z.string().min(1).max(500),
 	setupLabel: z.string().min(1).max(160).optional(),
 });
 export const MetricTileSchema = z.discriminatedUnion("state", [

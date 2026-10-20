@@ -26,14 +26,14 @@ describe("MetricTile contract", () => {
 		).toBe(false);
 	});
 
-	it("accepts an empty tile with a reason and an optional setup path", () => {
+	it("requires an empty tile to have a reason and setup path", () => {
 		expect(
 			MetricTileSchema.safeParse({
 				state: "empty",
 				label: "Delegation rate",
 				emptyReason: "No decisions recorded yet",
 			}).success,
-		).toBe(true);
+		).toBe(false);
 		expect(
 			MetricTileSchema.safeParse({
 				state: "empty",

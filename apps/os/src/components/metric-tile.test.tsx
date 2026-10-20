@@ -82,7 +82,7 @@ describe("MetricTile", () => {
 		expect(html).not.toContain('data-slot="metric-provenance"');
 	});
 
-	it("labels the setup link 'Set up' when none is given and omits it without a href", () => {
+	it("labels the setup link 'Set up' when no label is given", () => {
 		const withDefault = renderToStaticMarkup(
 			<MetricTile
 				tile={{
@@ -95,17 +95,6 @@ describe("MetricTile", () => {
 		);
 		expect(withDefault).toContain("Set up");
 		expect(withDefault).toContain('href="/work/deck"');
-		const noLink = renderToStaticMarkup(
-			<MetricTile
-				tile={{
-					state: "empty",
-					label: "Delegation rate",
-					emptyReason: "Not measured yet",
-				}}
-			/>,
-		);
-		expect(noLink).not.toContain("<a");
-		expect(noLink).toContain("Not measured yet");
 	});
 
 	it("links the measured value when the tile carries a drill-down href", () => {
