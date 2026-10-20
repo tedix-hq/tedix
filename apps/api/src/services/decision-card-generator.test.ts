@@ -196,6 +196,73 @@ it("keeps repairs within the native call budget", async () => {
 		clock.mockRestore();
 	}
 });
+it("reserves a full repair call for background faces and repairs missing context", async () => {
+	const clock = vi
+		.spyOn(Date, "now")
+		.mockReturnValueOnce(0)
+		.mockReturnValueOnce(0)
+		.mockReturnValueOnce(8000);
+	const face = { ...copy, context: "A separate test account is ready." };
+	mocks.model
+		.mockResolvedValueOnce(JSON.stringify(copy))
+		.mockResolvedValueOnce(JSON.stringify(face));
+	try {
+		expect(
+			await generateDecisionCard(
+				{ db: {}, env: {} } as never,
+				request,
+				undefined,
+				{ timeoutMs: 20000, requireContext: true },
+			),
+		).toMatchObject(face);
+		expect(mocks.model.mock.calls[1]?.[2].timeoutMs).toBe(10000);
+		expect(
+			JSON.parse(mocks.model.mock.calls[1]?.[2].validationFeedback)
+				.failedChecks,
+		).toContain("context");
+	} finally {
+		clock.mockRestore();
+	}
+});
+it("treats null optional fields as omitted without changing checked copy", async () => {
+	mocks.model.mockResolvedValueOnce(
+		JSON.stringify({
+			...copy,
+			stakes: null,
+			actionLabels: null,
+			effectStatus: null,
+		}),
+	);
+	const result = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		request,
+	);
+	expect(result).toMatchObject(copy);
+	expect(result).not.toHaveProperty("actionLabels");
+	expect(result).not.toHaveProperty("stakes");
+	expect(result).not.toHaveProperty("effectStatus");
+	expect(mocks.model).toHaveBeenCalledTimes(1);
+});
+it("repairs malformed action labels with the actual schema type error", async () => {
+	mocks.model.mockResolvedValueOnce(
+		JSON.stringify({ ...copy, actionLabels: [] }),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject(copy);
+	const feedback = JSON.parse(
+		mocks.model.mock.calls[1]?.[2].validationFeedback,
+	);
+	expect(feedback.schemaIssues).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				code: "invalid_type",
+				path: "actionLabels",
+				message: expect.stringContaining("record"),
+			}),
+		]),
+	);
+});
 it("keeps filing facts separate from executing the task and repairs a wrong topic", async () => {
 	const filingCopy = {
 		...copy,

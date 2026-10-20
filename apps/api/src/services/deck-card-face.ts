@@ -203,6 +203,7 @@ export async function prepareDeckCardFace(
 		},
 		(reason) =>
 			console.warn("[decision-card-face] generation failed", { reason }),
+		{ timeoutMs: 20000, requireContext: true },
 	);
 	if (
 		!presentation ||
