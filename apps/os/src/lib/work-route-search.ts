@@ -1,15 +1,7 @@
-import type { WorkActivityView } from "@/lib/os-query-options";
-
 export function workQueueSearch(search: Record<string, unknown>): {
 	disposition?: "completed";
 } {
 	return search.disposition === "completed" ? { disposition: "completed" } : {};
-}
-
-export function workActivitySearch(search: Record<string, unknown>): {
-	view: WorkActivityView;
-} {
-	return { view: search.view === "history" ? "history" : "active" };
 }
 
 export function workCapacitySearch(search: Record<string, unknown>) {
