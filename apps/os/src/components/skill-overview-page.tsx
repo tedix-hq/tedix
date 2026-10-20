@@ -1,6 +1,7 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link as RouterLink, useParams } from "@tanstack/react-router";
+import { Link } from "@/components/kumo/link";
 import { RunStatusChip } from "@/components/activity-runs";
 import { DetailUnavailable } from "@/components/detail-unavailable";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -61,7 +62,9 @@ export function SkillOverviewPage() {
 					<Button
 						variant="ghost"
 						size="sm"
-						render={<Link to="/skills/$skillId/runs" params={{ skillId }} />}
+						render={
+							<RouterLink to="/skills/$skillId/runs" params={{ skillId }} />
+						}
 					>
 						View all
 					</Button>
@@ -83,9 +86,9 @@ export function SkillOverviewPage() {
 							{recentRuns.map((run) => (
 								<li key={run.id}>
 									<Link
-										to="/work/runs/$runId"
-										params={{ runId: run.id }}
-										className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-kumo-tint"
+										variant="collection"
+										href={`/work/runs/${run.id}`}
+										className="flex w-full gap-3! px-3 py-2"
 									>
 										<RunStatusChip status={run.status} />
 										<Text as="span" role="body">

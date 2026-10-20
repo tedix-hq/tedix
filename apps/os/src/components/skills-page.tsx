@@ -20,7 +20,7 @@ import type {
 	WorkflowDefinitionHealthStatus,
 } from "@tedix/api-contract/contracts/workflows";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link } from "@/components/kumo/link";
 import { getOsSurface } from "@/lib/os-navigation";
 import type { ComponentType, ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -346,10 +346,10 @@ export function SkillRow({
 	return (
 		<li className="min-w-0">
 			<Link
-				to="/skills/$skillId"
-				params={{ skillId: skill.id }}
+				variant="collection"
+				href={`/skills/${skill.id}`}
 				title={skillDetailLabel(skill)}
-				className="flex min-h-16 min-w-0 items-start gap-3 px-4 py-3 text-inherit no-underline hover:bg-kumo-tint focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-kumo-focus"
+				className="flex min-h-16 w-full min-w-0 items-start gap-3! px-4 py-3"
 			>
 				<IconFrame aria-hidden>
 					<BookOpenText size={18} />
@@ -450,13 +450,7 @@ export function SkillCatalogTree({
 				</SectionHeader>
 			) : null}
 			{node.skills.length > 0 ? (
-				<Collection
-					className={
-						node.path
-							? "ml-6 [&>li]:transition-colors [&>li]:duration-tedix-standard [&>li]:hover:bg-kumo-tint [&>li]:motion-reduce:transition-none"
-							: "[&>li]:transition-colors [&>li]:duration-tedix-standard [&>li]:hover:bg-kumo-tint [&>li]:motion-reduce:transition-none"
-					}
-				>
+				<Collection className={node.path ? "ml-6" : undefined}>
 					{node.skills.map((skill) => (
 						<SkillRow
 							key={skill.id}

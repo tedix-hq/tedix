@@ -36,6 +36,7 @@ import {
 	EmptyTitle,
 } from "@/components/kumo/empty";
 import { KumoTabs } from "@/components/kumo/tabs";
+import { Link } from "@/components/kumo/link";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text, type TextTone } from "@/components/kumo/text";
@@ -318,15 +319,20 @@ export function RationaleRow({
 	return (
 		<li data-slot="brain-decision-row" className="min-w-0">
 			{workflowRunId ? (
-				<LinkComponent
-					to="/work/runs/$runId"
-					params={{ runId: workflowRunId }}
+				<Link
+					variant="collection"
+					render={
+						<LinkComponent
+							to="/work/runs/$runId"
+							params={{ runId: workflowRunId }}
+						/>
+					}
 					title={`Open run ${workflowRunId}`}
 					aria-label={`Open run details for ${record.action}`}
-					className={`${rowClassName} no-underline transition-colors hover:bg-kumo-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus`}
+					className={`${rowClassName} w-full gap-3!`}
 				>
 					{content}
-				</LinkComponent>
+				</Link>
 			) : (
 				<span className={rowClassName}>{content}</span>
 			)}
