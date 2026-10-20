@@ -20,13 +20,12 @@ import {
 	osOutputs,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
-import { createDbClient } from "@tedix/db/client";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";
 import { canonicalDigest } from "../../lib/blueprint-digest";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts, type UserContextOptions } from "../test-context";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
 const WORKSPACE_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
@@ -63,67 +62,26 @@ function createEnv(): CloudflareEnv {
 	} as CloudflareEnv;
 }
 
-function userContext(
-	env: CloudflareEnv,
-	permissions: string[],
-	options: {
-		sub?: string;
-		userRole?: string;
-		crossTenantOverrideActive?: boolean;
-	} = {},
-): BaseContext {
-	return {
-		authType: "user",
-		crossTenantOverrideActive: options.crossTenantOverrideActive,
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId: "org-1",
-		url: new URL("https://api.tedix.test/rpc/os-workspaces"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions,
-			roles: [],
-			sub: options.sub ?? "user-1",
-		},
-		userRole: options.userRole,
-	} as BaseContext;
-}
-
-function apiKeyContext(env: CloudflareEnv, scopes: string[]): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId: "org-1",
-			scopes,
-		},
-		authType: "apikey",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId: "org-1",
-		url: new URL("https://api.tedix.test/rpc/os-workspaces"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/os-workspaces",
+});
 
 function userClient(
 	env: CloudflareEnv,
 	permissions: string[],
-	options?: Parameters<typeof userContext>[2],
+	options?: Pick<
+		UserContextOptions,
+		"sub" | "userRole" | "crossTenantOverrideActive"
+	>,
 ) {
 	return createRouterClient(osWorkspacesContractRouter, {
-		context: userContext(env, permissions, options),
+		context: userContext({ env, permissions, ...options }),
 	});
 }
 
 function apiKeyClient(env: CloudflareEnv, scopes: string[]) {
 	return createRouterClient(osWorkspacesContractRouter, {
-		context: apiKeyContext(env, scopes),
+		context: apiKeyContext({ env, scopes }),
 	});
 }
 

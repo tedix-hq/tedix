@@ -12,7 +12,7 @@ import {
 } from "@tedix/auth/rbac";
 import { describe, expect, it } from "vite-plus/test";
 import { userHoldsPermission } from "../orpc";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import {
 	__organizationsTest,
 	organizationsContractRouter,
@@ -20,52 +20,15 @@ import {
 
 const ORGANIZATION_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
 
-function userContext(
-	permissions: string[],
-	options: { roles?: string[]; userRole?: BaseContext["userRole"] } = {},
-): BaseContext {
-	return {
-		authType: "user",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: ORGANIZATION_ID,
-		url: new URL("https://api.tedix.test/rpc/organizations"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions,
-			roles: options.roles ?? [],
-			sub: "user-1",
-		},
-		userRole: options.userRole,
-	} as BaseContext;
-}
-
-function apiKeyContext(scopes: string[]): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId: ORGANIZATION_ID,
-			scopes,
-		},
-		authType: "apikey",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: ORGANIZATION_ID,
-		url: new URL("https://api.tedix.test/rpc/organizations"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	organizationId: ORGANIZATION_ID,
+	url: "https://api.tedix.test/rpc/organizations",
+});
 
 describe("organizations authorization-plane composition", () => {
 	it("rejects ordinary users from the cross-organization inventory", async () => {
 		const client = createRouterClient(organizationsContractRouter, {
-			context: userContext(["apps:read"]),
+			context: userContext({ permissions: ["apps:read"] }),
 		});
 
 		await expect(client.list({})).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -73,7 +36,7 @@ describe("organizations authorization-plane composition", () => {
 
 	it("requires apps:read machine scope for organization-bound reads", async () => {
 		const client = createRouterClient(organizationsContractRouter, {
-			context: apiKeyContext([]),
+			context: apiKeyContext({ scopes: [] }),
 		});
 
 		await expect(
@@ -90,7 +53,7 @@ describe("organizations authorization-plane composition", () => {
 
 	it("does not let ordinary application scopes administer organizations", async () => {
 		const client = createRouterClient(organizationsContractRouter, {
-			context: apiKeyContext(["apps:read", "apps:write"]),
+			context: apiKeyContext({ scopes: ["apps:read", "apps:write"] }),
 		});
 
 		await expect(
@@ -165,10 +128,14 @@ describe("organizations privilege invariants", () => {
 	});
 
 	it("reserves force-delete for platform authority", () => {
-		const ordinaryOwner = userContext(["settings:manage"], {
+		const ordinaryOwner = userContext({
+			permissions: ["settings:manage"],
 			userRole: "owner",
 		});
-		const platformAdmin = userContext([], { roles: ["platform-admin"] });
+		const platformAdmin = userContext({
+			permissions: [],
+			roles: ["platform-admin"],
+		});
 
 		expect(() =>
 			__organizationsTest.requireForceDeleteAuthority(ordinaryOwner, true),
@@ -182,10 +149,14 @@ describe("organizations privilege invariants", () => {
 	});
 
 	it("reserves fleet-runner key minting for platform authority", () => {
-		const ordinaryOwner = userContext(["api_keys:manage"], {
+		const ordinaryOwner = userContext({
+			permissions: ["api_keys:manage"],
 			userRole: "owner",
 		});
-		const platformAdmin = userContext([], { roles: ["platform-admin"] });
+		const platformAdmin = userContext({
+			permissions: [],
+			roles: ["platform-admin"],
+		});
 
 		expect(() =>
 			__organizationsTest.assertDelegatableApiKeyScopes(ordinaryOwner, [
@@ -208,7 +179,8 @@ describe("organizations privilege invariants", () => {
 	 * key at all), or it hides a scope a tenant is entitled to.
 	 */
 	it("lets a tenant admin delegate every scope the picker offers", () => {
-		const ordinaryOwner = userContext(["api_keys:manage"], {
+		const ordinaryOwner = userContext({
+			permissions: ["api_keys:manage"],
 			userRole: "owner",
 		});
 		expect(TENANT_DELEGABLE_API_KEY_SCOPES.length).toBeGreaterThan(0);
@@ -228,10 +200,14 @@ describe("organizations privilege invariants", () => {
 	});
 
 	it("refuses every platform-only scope from a tenant admin", () => {
-		const ordinaryOwner = userContext(["api_keys:manage"], {
+		const ordinaryOwner = userContext({
+			permissions: ["api_keys:manage"],
 			userRole: "owner",
 		});
-		const platformAdmin = userContext([], { roles: ["platform-admin"] });
+		const platformAdmin = userContext({
+			permissions: [],
+			roles: ["platform-admin"],
+		});
 		for (const scope of PLATFORM_ONLY_API_KEY_SCOPES) {
 			expect(() =>
 				__organizationsTest.assertDelegatableApiKeyScopes(ordinaryOwner, [
@@ -247,7 +223,8 @@ describe("organizations privilege invariants", () => {
 	});
 
 	it("names the offending scope so the caller can fix the request", () => {
-		const ordinaryOwner = userContext(["api_keys:manage"], {
+		const ordinaryOwner = userContext({
+			permissions: ["api_keys:manage"],
 			userRole: "owner",
 		});
 		expect(() =>

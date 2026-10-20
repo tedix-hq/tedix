@@ -19,7 +19,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 
 const mocks = vi.hoisted(() => ({
 	settleHomeToolWriteApproval: vi.fn(async () => {}),
@@ -74,46 +74,10 @@ function createFixture() {
 
 type Fixture = ReturnType<typeof createFixture>;
 
-function userContext(
-	fixture: Fixture,
-	organizationId: string,
-	permissions: string[] = ["settings:manage", "tedis:read"],
-): BaseContext {
-	return {
-		authType: "user",
-		db: fixture.db as BaseContext["db"],
-		env: fixture.env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/approvalRules"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions,
-			roles: [],
-			sub: "user-1",
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(
-	fixture: Fixture,
-	organizationId: string,
-	scopes: string[],
-): BaseContext {
-	return {
-		apiKey: { id: "key-1", name: "test", organizationId, scopes },
-		authType: "apikey",
-		db: fixture.db as BaseContext["db"],
-		env: fixture.env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/approvalRules"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/approvalRules",
+	user: { permissions: ["settings:manage", "tedis:read"] },
+});
 
 async function seedApproval(
 	fixture: Fixture,
@@ -147,10 +111,18 @@ async function approvalRow(fixture: Fixture, id: string) {
 function clients(fixture: Fixture) {
 	return {
 		org1: createRouterClient(osApprovalRulesContractRouter, {
-			context: userContext(fixture, "org-1"),
+			context: userContext({
+				db: fixture.db,
+				env: fixture.env,
+				organizationId: "org-1",
+			}),
 		}),
 		org2: createRouterClient(osApprovalRulesContractRouter, {
-			context: userContext(fixture, "org-2"),
+			context: userContext({
+				db: fixture.db,
+				env: fixture.env,
+				organizationId: "org-2",
+			}),
 		}),
 	};
 }
@@ -239,7 +211,12 @@ describe("rule lifecycle", () => {
 	it("enforces the machine scope plane", async () => {
 		const fixture = createFixture();
 		const admin = createRouterClient(osApprovalRulesContractRouter, {
-			context: apiKeyContext(fixture, "org-1", ["mcp:memory.admin"]),
+			context: apiKeyContext({
+				db: fixture.db,
+				env: fixture.env,
+				organizationId: "org-1",
+				scopes: ["mcp:memory.admin"],
+			}),
 		});
 		const { rule } = await admin.create({ actionKind: "deploy" });
 		expect(rule).toMatchObject({
@@ -249,7 +226,12 @@ describe("rule lifecycle", () => {
 		await expect(admin.apply()).resolves.toMatchObject({ resolved: 0 });
 
 		const underScoped = createRouterClient(osApprovalRulesContractRouter, {
-			context: apiKeyContext(fixture, "org-1", ["apps:write"]),
+			context: apiKeyContext({
+				db: fixture.db,
+				env: fixture.env,
+				organizationId: "org-1",
+				scopes: ["apps:write"],
+			}),
 		});
 		await expect(
 			underScoped.create({ actionKind: "deploy" }),
@@ -264,7 +246,12 @@ describe("verb matrix", () => {
 	it("os:approve creates, toggles, and applies rules through the canonical resolve path", async () => {
 		const fixture = createFixture();
 		const approver = createRouterClient(osApprovalRulesContractRouter, {
-			context: userContext(fixture, "org-1", ["os:approve"]),
+			context: userContext({
+				db: fixture.db,
+				env: fixture.env,
+				organizationId: "org-1",
+				permissions: ["os:approve"],
+			}),
 		});
 		await seedApproval(fixture, { id: "11111111-1111-4111-8111-111111111111" });
 
@@ -292,7 +279,12 @@ describe("verb matrix", () => {
 	it("os:read lists rules but cannot manage or sweep them", async () => {
 		const fixture = createFixture();
 		const reader = createRouterClient(osApprovalRulesContractRouter, {
-			context: userContext(fixture, "org-1", ["os:read"]),
+			context: userContext({
+				db: fixture.db,
+				env: fixture.env,
+				organizationId: "org-1",
+				permissions: ["os:read"],
+			}),
 		});
 
 		await expect(reader.list()).resolves.toEqual({ items: [] });

@@ -7,7 +7,6 @@
 import { organizations } from "@tedix/db/schema/organizations";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
-import { createDbClient } from "@tedix/db/client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import {
 	osShareLinks,
@@ -32,7 +31,7 @@ import {
 	handleOsShareSessionRead,
 	hashOsShareToken,
 } from "../../lib/os-share-redemption";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { osSharesContractRouter } from "./os-shares";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
@@ -63,51 +62,11 @@ function createEnv(): CloudflareEnv {
 	} as CloudflareEnv;
 }
 
-function userContext(
-	env: CloudflareEnv,
-	organizationId: string,
-	permissions: string[] = ["settings:manage"],
-): BaseContext {
-	return {
-		authType: "user",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/os-shares"),
-		userRole: "owner",
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions,
-			roles: [],
-			sub: "user-1",
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(
-	env: CloudflareEnv,
-	organizationId: string,
-): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId,
-			scopes: ["apps:read", "apps:write"],
-		},
-		authType: "apikey",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/os-shares"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/os-shares",
+	user: { permissions: ["settings:manage"], userRole: "owner" },
+	apiKey: { scopes: ["apps:read", "apps:write"] },
+});
 
 async function fixture() {
 	const env = createEnv();
@@ -166,7 +125,7 @@ async function fixture() {
 		createdById: "user-1",
 	});
 	const owner = createRouterClient(osSharesContractRouter, {
-		context: userContext(env, "org-1"),
+		context: userContext({ env, organizationId: "org-1" }),
 	});
 	const { share, token } = await owner.shares.create({
 		resourceType: "gadget",
@@ -192,7 +151,11 @@ async function fixture() {
 			},
 		],
 	};
-	const readerContext = userContext(env, "org-1", ["os:read"]);
+	const readerContext = userContext({
+		env,
+		organizationId: "org-1",
+		permissions: ["os:read"],
+	});
 	readerContext.userRole = "viewer";
 	readerContext.user!.sub = "reader";
 	const reader = createRouterClient(osSharesContractRouter, {
@@ -207,7 +170,7 @@ async function fixture() {
 		session: { shareId: share.id, sessionToken },
 		gadget: { workspaceId, gadgetId },
 		machine: createRouterClient(osSharesContractRouter, {
-			context: apiKeyContext(env, "org-1"),
+			context: apiKeyContext({ env, organizationId: "org-1" }),
 		}),
 	};
 }
@@ -262,7 +225,7 @@ describe("bounded share reviews", () => {
 			code: "FORBIDDEN",
 		});
 		const foreign = createRouterClient(osSharesContractRouter, {
-			context: userContext(h.env, "org-2"),
+			context: userContext({ env: h.env, organizationId: "org-2" }),
 		});
 		await expect(foreign.reviews.get(h.session)).rejects.toMatchObject({
 			code: "NOT_FOUND",
@@ -341,7 +304,7 @@ describe("bounded share reviews", () => {
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 		const foreign = createRouterClient(osSharesContractRouter, {
-			context: userContext(h.env, "org-2"),
+			context: userContext({ env: h.env, organizationId: "org-2" }),
 		});
 		await expect(foreign.reviews.getForGadget(h.gadget)).rejects.toMatchObject({
 			code: "NOT_FOUND",

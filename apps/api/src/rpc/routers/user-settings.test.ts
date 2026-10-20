@@ -13,7 +13,6 @@ import { createRouterClient } from "@orpc/server";
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
 import type { OsUserPreferences } from "@tedix/api-contract/schemas/user-settings";
 import { DEFAULT_ORGANIZATION_OS_THEME } from "@tedix/api-contract/schemas/os-theme";
-import { createDbClient } from "@tedix/db/client";
 import { organizationPurposeCharters } from "@tedix/db/schema/organization-purpose";
 import { organizations } from "@tedix/db/schema/organizations";
 import { userConfigs } from "@tedix/db/schema/user-configs";
@@ -21,6 +20,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { userSettingsContractRouter } from "./user-settings";
 
 const ORG_1 = "00000000-0000-4000-8000-000000000001";
@@ -77,54 +77,14 @@ function seedActiveCharter(sqlite: DatabaseSync, orgId: string): void {
 		);
 }
 
-function userContext(
-	env: CloudflareEnv,
-	options: {
-		organizationId: string;
-		userId?: string;
-		permissions?: string[];
-		role?: string;
-		crossTenantOverrideActive?: boolean;
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/userSettings",
+	user: {
+		permissions: ["settings:manage"],
+		sub: "descope-user-1",
+		userId: "tedix-user-1",
 	},
-): BaseContext {
-	return {
-		authType: "user",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId: options.organizationId,
-		userId: options.userId ?? "tedix-user-1",
-		userRole: options.role,
-		crossTenantOverrideActive: options.crossTenantOverrideActive,
-		url: new URL("https://api.tedix.test/rpc/userSettings"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions: options.permissions ?? ["settings:manage"],
-			roles: [],
-			sub: "descope-user-1",
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(
-	env: CloudflareEnv,
-	organizationId: string,
-	scopes: string[],
-): BaseContext {
-	return {
-		apiKey: { id: "key-1", name: "test", organizationId, scopes },
-		authType: "apikey",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/userSettings"),
-	} as BaseContext;
-}
+});
 
 function client(context: BaseContext) {
 	return createRouterClient(userSettingsContractRouter, { context });
@@ -165,7 +125,7 @@ describe("preferences", () => {
 
 	it("keeps feed mutes and followed projects private to the person and organization", async () => {
 		const owner = client(
-			userContext(env, { organizationId: ORG_1, userId: "pine" }),
+			userContext({ env, organizationId: ORG_1, userId: "pine" }),
 		);
 		await owner.updatePreferences({
 			expectedRevision: 0,
@@ -185,14 +145,14 @@ describe("preferences", () => {
 		expect(
 			(
 				await client(
-					userContext(env, { organizationId: ORG_1, userId: "birch" }),
+					userContext({ env, organizationId: ORG_1, userId: "birch" }),
 				).getPreferences({})
 			).preferences.activityFeed,
 		).toBeUndefined();
 		expect(
 			(
 				await client(
-					userContext(env, { organizationId: ORG_2, userId: "pine" }),
+					userContext({ env, organizationId: ORG_2, userId: "pine" }),
 				).getPreferences({})
 			).preferences.activityFeed,
 		).toBeUndefined();
@@ -200,7 +160,7 @@ describe("preferences", () => {
 
 	it("reports defaults as `default` at revision 0 before anything is stored", async () => {
 		const result = await client(
-			userContext(env, { organizationId: ORG_1 }),
+			userContext({ env, organizationId: ORG_1 }),
 		).getPreferences({});
 		expect(result).toEqual({
 			preferences: DEFAULT_OS_USER_PREFERENCES,
@@ -212,7 +172,7 @@ describe("preferences", () => {
 	});
 
 	it("persists the exact preference object and reads it back as `stored`", async () => {
-		const c = client(userContext(env, { organizationId: ORG_1 }));
+		const c = client(userContext({ env, organizationId: ORG_1 }));
 		const saved = await c.updatePreferences({
 			preferences: CUSTOM,
 			expectedRevision: 0,
@@ -234,7 +194,7 @@ describe("preferences", () => {
 	});
 
 	it("fails a stale write with CONFLICT and leaves the stored row intact", async () => {
-		const c = client(userContext(env, { organizationId: ORG_1 }));
+		const c = client(userContext({ env, organizationId: ORG_1 }));
 		await c.updatePreferences({ preferences: CUSTOM, expectedRevision: 0 });
 		await c.updatePreferences({
 			preferences: { ...CUSTOM, theme: "light" },
@@ -261,10 +221,10 @@ describe("preferences", () => {
 	it("keeps a member's preferences separate per organization", async () => {
 		// The row key is the credential-resolved organization, never input, so
 		// the same human in two tenants cannot read or clobber across them.
-		await client(userContext(env, { organizationId: ORG_1 })).updatePreferences(
+		await client(userContext({ env, organizationId: ORG_1 })).updatePreferences(
 			{ preferences: CUSTOM, expectedRevision: 0 },
 		);
-		const org2 = client(userContext(env, { organizationId: ORG_2 }));
+		const org2 = client(userContext({ env, organizationId: ORG_2 }));
 		await expect(org2.getPreferences({})).resolves.toMatchObject({
 			source: "default",
 			revision: 0,
@@ -299,7 +259,7 @@ describe("preferences", () => {
 			);
 
 		const result = await client(
-			userContext(env, { organizationId: ORG_1 }),
+			userContext({ env, organizationId: ORG_1 }),
 		).getPreferences({});
 		// `default` is the honest source — nothing usable is stored — but the
 		// revision is still the row's, so the next save is a real CAS against it.
@@ -313,10 +273,14 @@ describe("preferences", () => {
 
 	it("refuses a machine principal that resolves no Tedix user identity", async () => {
 		await expect(
-			client(apiKeyContext(env, ORG_1, ["apps:read"])).getPreferences({}),
+			client(
+				apiKeyContext({ env, organizationId: ORG_1, scopes: ["apps:read"] }),
+			).getPreferences({}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		await expect(
-			client(apiKeyContext(env, ORG_1, ["apps:read"])).updatePreferences({
+			client(
+				apiKeyContext({ env, organizationId: ORG_1, scopes: ["apps:read"] }),
+			).updatePreferences({
 				preferences: CUSTOM,
 				expectedRevision: 0,
 			}),
@@ -326,7 +290,7 @@ describe("preferences", () => {
 
 	it("rejects an off-catalog conversational model ref at the contract boundary", async () => {
 		await expect(
-			client(userContext(env, { organizationId: ORG_1 })).updatePreferences({
+			client(userContext({ env, organizationId: ORG_1 })).updatePreferences({
 				preferences: {
 					...CUSTOM,
 					conversationModelRef: "acme-labs/whatever",
@@ -338,7 +302,7 @@ describe("preferences", () => {
 	});
 
 	it("rejects an unresolvable timezone and a malformed locale", async () => {
-		const c = client(userContext(env, { organizationId: ORG_1 }));
+		const c = client(userContext({ env, organizationId: ORG_1 }));
 		await expect(
 			c.updatePreferences({
 				preferences: { ...CUSTOM, timezone: "Mars/Olympus" },
@@ -364,7 +328,7 @@ describe("operational context", () => {
 
 	it("projects the credential's organization, not a hostname's", async () => {
 		const result = await client(
-			userContext(env, { organizationId: ORG_2 }),
+			userContext({ env, organizationId: ORG_2 }),
 		).getContext({});
 		expect(result.organization).toEqual({
 			id: ORG_2,
@@ -382,7 +346,7 @@ describe("operational context", () => {
 			.prepare("UPDATE organizations SET metadata = ? WHERE id = ?")
 			.run(JSON.stringify({ osTheme: DEFAULT_ORGANIZATION_OS_THEME }), ORG_1);
 		const published = await client(
-			userContext(env, { organizationId: ORG_1 }),
+			userContext({ env, organizationId: ORG_1 }),
 		).getContext({});
 		expect(published.organization.appearance).toEqual(
 			DEFAULT_ORGANIZATION_OS_THEME,
@@ -395,7 +359,7 @@ describe("operational context", () => {
 				ORG_1,
 			);
 		const invalid = await client(
-			userContext(env, { organizationId: ORG_1 }),
+			userContext({ env, organizationId: ORG_1 }),
 		).getContext({});
 		expect(invalid.organization.appearance).toBeNull();
 	});
@@ -404,10 +368,11 @@ describe("operational context", () => {
 		// `member` implies more than the token lists; the projection must match
 		// what the guards actually admit, which is the union.
 		const result = await client(
-			userContext(env, {
+			userContext({
+				env,
 				organizationId: ORG_1,
 				permissions: ["apps:read"],
-				role: "member",
+				userRole: "member",
 			}),
 		).getContext({});
 		expect(result.authority.role).toBe("member");
@@ -416,10 +381,11 @@ describe("operational context", () => {
 		expect(result.authority.machineScopes).toEqual([]);
 		expect(result.authority.crossTenantOverrideActive).toBe(false);
 		const browserAuthorization = await client(
-			userContext(env, {
+			userContext({
+				env,
 				organizationId: ORG_1,
 				permissions: ["apps:read"],
-				role: "member",
+				userRole: "member",
 			}),
 		).getBrowserMcpAuthorization({});
 		expect(browserAuthorization).toEqual({
@@ -438,10 +404,11 @@ describe("operational context", () => {
 		// The token's claims belong to a different tenant; only the membership
 		// role may authorize, and the projection must say the same.
 		const result = await client(
-			userContext(env, {
+			userContext({
+				env,
 				organizationId: ORG_1,
 				permissions: ["settings:manage", "platform:admin"],
-				role: "viewer",
+				userRole: "viewer",
 				crossTenantOverrideActive: true,
 			}),
 		).getContext({});
@@ -452,10 +419,11 @@ describe("operational context", () => {
 			expect.arrayContaining(["apps:read", "os:read"]),
 		);
 		const browserAuthorization = await client(
-			userContext(env, {
+			userContext({
+				env,
 				organizationId: ORG_1,
 				permissions: ["settings:manage", "platform:admin"],
-				role: "viewer",
+				userRole: "viewer",
 				crossTenantOverrideActive: true,
 			}),
 		).getBrowserMcpAuthorization({});
@@ -465,7 +433,11 @@ describe("operational context", () => {
 
 	it("reports machine scopes on the machine plane and no permissions", async () => {
 		const result = await client(
-			apiKeyContext(env, ORG_1, ["apps:read", "tools:read"]),
+			apiKeyContext({
+				env,
+				organizationId: ORG_1,
+				scopes: ["apps:read", "tools:read"],
+			}),
 		).getContext({});
 		expect(result.authority.authType).toBe("apikey");
 		expect(result.authority.permissions).toEqual([]);
@@ -477,7 +449,8 @@ describe("operational context", () => {
 		seedActiveCharter(sqlite, ORG_1);
 
 		const admin = await client(
-			userContext(env, {
+			userContext({
+				env,
 				organizationId: ORG_1,
 				permissions: ["settings:manage"],
 			}),
@@ -493,16 +466,18 @@ describe("operational context", () => {
 		});
 
 		const member = await client(
-			userContext(env, {
+			userContext({
+				env,
 				organizationId: ORG_1,
 				permissions: ["apps:read"],
-				role: "member",
+				userRole: "member",
 			}),
 		).getContext({});
 		expect(member.purpose).toEqual({ access: "restricted", charter: null });
 
 		const emptyOrg = await client(
-			userContext(env, {
+			userContext({
+				env,
 				organizationId: ORG_2,
 				permissions: ["settings:manage"],
 			}),

@@ -4,7 +4,7 @@ import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import * as instanceQueries from "@tedix/db/queries/connection-instances";
 import * as connectionAuth from "@tedix/auth/connections";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { connectionsContractRouter } from "./connections";
 import {
 	adoptDefaultPersonalConnection,
@@ -13,48 +13,14 @@ import {
 
 const TEDI_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
 
-function userContext(permissions: string[]): BaseContext {
-	return {
-		authType: "user",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: "org-1",
-		url: new URL("https://api.tedix.test/rpc/connections"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions,
-			roles: [],
-			sub: "user-1",
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(scopes: string[]): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId: "org-1",
-			scopes,
-		},
-		authType: "apikey",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: "org-1",
-		url: new URL("https://api.tedix.test/rpc/connections"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/connections",
+});
 
 describe("connections authorization-plane composition", () => {
 	it("requires a human owner for named personal account lifecycle", async () => {
 		const client = createRouterClient(connectionsContractRouter, {
-			context: apiKeyContext(["apps:read"]),
+			context: apiKeyContext({ scopes: ["apps:read"] }),
 		});
 		await expect(
 			client.createConnectionInstance({
@@ -65,7 +31,7 @@ describe("connections authorization-plane composition", () => {
 	});
 	it("does not allow app-read users to bind a shared installed app", async () => {
 		const client = createRouterClient(connectionsContractRouter, {
-			context: userContext(["apps:read"]),
+			context: userContext({ permissions: ["apps:read"] }),
 		});
 		await expect(
 			client.bindConnectionInstance({
@@ -84,7 +50,7 @@ describe("connections authorization-plane composition", () => {
 		"requires integration management for tenant %s",
 		async (method) => {
 			const client = createRouterClient(connectionsContractRouter, {
-				context: userContext(["apps:read"]),
+				context: userContext({ permissions: ["apps:read"] }),
 			});
 			const input = {
 				id: TEDI_ID,
@@ -104,7 +70,9 @@ describe("connections authorization-plane composition", () => {
 			.mockResolvedValue(undefined);
 		try {
 			const client = createRouterClient(connectionsContractRouter, {
-				context: userContext(["apps:read", "integrations:manage"]),
+				context: userContext({
+					permissions: ["apps:read", "integrations:manage"],
+				}),
 			});
 			await expect(
 				client.preparePersonalConnection({
@@ -129,7 +97,7 @@ describe("connections authorization-plane composition", () => {
 			.mockResolvedValue(undefined);
 		try {
 			const client = createRouterClient(connectionsContractRouter, {
-				context: userContext(["apps:read"]),
+				context: userContext({ permissions: ["apps:read"] }),
 			});
 			await expect(
 				client.preparePersonalConnection({
@@ -210,7 +178,9 @@ describe("connections authorization-plane composition", () => {
 					return Response.json({});
 				});
 			try {
-				const context = userContext(["apps:read", "integrations:manage"]);
+				const context = userContext({
+					permissions: ["apps:read", "integrations:manage"],
+				});
 				context.env = {
 					DESCOPE_PROJECT_ID: "test-project",
 					DESCOPE_MANAGEMENT_KEY: "test-key",
@@ -270,7 +240,9 @@ describe("connections authorization-plane composition", () => {
 				.spyOn(appRecords, "updateAppMetadata")
 				.mockResolvedValue(undefined);
 			const requests: string[] = [];
-			const context = userContext(["apps:update", "integrations:manage"]);
+			const context = userContext({
+				permissions: ["apps:update", "integrations:manage"],
+			});
 			context.env = {
 				MCP_SERVICE: {
 					fetch: vi.fn(async (request: Request) => {
@@ -328,10 +300,10 @@ describe("connections authorization-plane composition", () => {
 	);
 	it("requires apps:read on both planes for public connection discovery", async () => {
 		const userClient = createRouterClient(connectionsContractRouter, {
-			context: userContext([]),
+			context: userContext({ permissions: [] }),
 		});
 		const apiKeyClient = createRouterClient(connectionsContractRouter, {
-			context: apiKeyContext([]),
+			context: apiKeyContext({ scopes: [] }),
 		});
 
 		await expect(userClient.listProviders({})).rejects.toMatchObject({
@@ -344,10 +316,10 @@ describe("connections authorization-plane composition", () => {
 
 	it("does not treat ordinary app-read authority as tedi-read authority", async () => {
 		const userClient = createRouterClient(connectionsContractRouter, {
-			context: userContext(["apps:read"]),
+			context: userContext({ permissions: ["apps:read"] }),
 		});
 		const apiKeyClient = createRouterClient(connectionsContractRouter, {
-			context: apiKeyContext(["apps:read"]),
+			context: apiKeyContext({ scopes: ["apps:read"] }),
 		});
 
 		await expect(
@@ -364,7 +336,7 @@ describe("connections authorization-plane composition", () => {
 
 	it("allows a member to manage only their own OAuth credential", async () => {
 		const memberClient = createRouterClient(connectionsContractRouter, {
-			context: userContext(["apps:read"]),
+			context: userContext({ permissions: ["apps:read"] }),
 		});
 
 		// The test context has no Descope management key, so reaching the
@@ -388,10 +360,12 @@ describe("connections authorization-plane composition", () => {
 
 	it("reserves raw provider tokens for platform-authorized principals", async () => {
 		const userClient = createRouterClient(connectionsContractRouter, {
-			context: userContext(["apps:read", "integrations:manage"]),
+			context: userContext({
+				permissions: ["apps:read", "integrations:manage"],
+			}),
 		});
 		const apiKeyClient = createRouterClient(connectionsContractRouter, {
-			context: apiKeyContext(["apps:read"]),
+			context: apiKeyContext({ scopes: ["apps:read"] }),
 		});
 
 		await expect(
@@ -415,10 +389,10 @@ describe("connections authorization-plane composition", () => {
 
 	it("reserves the project-wide provider audit for platform authority", async () => {
 		const userClient = createRouterClient(connectionsContractRouter, {
-			context: userContext(["apps:read"]),
+			context: userContext({ permissions: ["apps:read"] }),
 		});
 		const apiKeyClient = createRouterClient(connectionsContractRouter, {
-			context: apiKeyContext(["apps:read"]),
+			context: apiKeyContext({ scopes: ["apps:read"] }),
 		});
 
 		await expect(userClient.auditProviderSettings({})).rejects.toMatchObject({
@@ -468,7 +442,7 @@ describe("named credential identity evidence", () => {
 				scope === "user"
 					? { userId: "user-1" }
 					: { organizationId: "org-1", tenantId: "org_descope_1" };
-			const context = userContext(["integrations:manage"]);
+			const context = userContext({ permissions: ["integrations:manage"] });
 			try {
 				expect(
 					await fetchNamedConnection(
@@ -544,7 +518,7 @@ describe("adopted default personal account", () => {
 		updatedAt: "now",
 	};
 	function adoptedContext() {
-		const context = userContext(["integrations:manage"]);
+		const context = userContext({ permissions: ["integrations:manage"] });
 		context.env = {
 			ENVIRONMENT: "test",
 			DESCOPE_PROJECT_ID: "P-test",

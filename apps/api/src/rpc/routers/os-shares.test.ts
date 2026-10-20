@@ -7,7 +7,6 @@
 import { organizations } from "@tedix/db/schema/organizations";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
-import { createDbClient } from "@tedix/db/client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
@@ -27,7 +26,7 @@ import {
 	handleOsShareSessionRead,
 	hashOsShareToken,
 } from "../../lib/os-share-redemption";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { osSharesContractRouter } from "./os-shares";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
@@ -56,66 +55,27 @@ function createEnv(): CloudflareEnv {
 	} as CloudflareEnv;
 }
 
-function userContext(
-	env: CloudflareEnv,
-	organizationId: string,
-	permissions: string[] = ["settings:manage"],
-): BaseContext {
-	return {
-		authType: "user",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/os-shares"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions,
-			roles: [],
-			sub: "user-1",
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(
-	env: CloudflareEnv,
-	organizationId: string,
-): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId,
-			scopes: ["apps:read", "apps:write"],
-		},
-		authType: "apikey",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/os-shares"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/os-shares",
+	user: { permissions: ["settings:manage"] },
+	apiKey: { scopes: ["apps:read", "apps:write"] },
+});
 
 function harness() {
 	const env = createEnv();
 	return {
 		env,
 		org1: createRouterClient(osSharesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		}),
 		org2: createRouterClient(osSharesContractRouter, {
-			context: userContext(env, "org-2"),
+			context: userContext({ env, organizationId: "org-2" }),
 		}),
 		machine: createRouterClient(osSharesContractRouter, {
-			context: apiKeyContext(env, "org-1"),
+			context: apiKeyContext({ env, organizationId: "org-1" }),
 		}),
 		outputs: createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		}),
 	};
 }
@@ -138,10 +98,18 @@ describe("verb matrix", () => {
 		const h = harness();
 		const outputId = await seedOutput(h);
 		const author = createRouterClient(osSharesContractRouter, {
-			context: userContext(h.env, "org-1", ["os:author"]),
+			context: userContext({
+				env: h.env,
+				organizationId: "org-1",
+				permissions: ["os:author"],
+			}),
 		});
 		const reader = createRouterClient(osSharesContractRouter, {
-			context: userContext(h.env, "org-1", ["os:read"]),
+			context: userContext({
+				env: h.env,
+				organizationId: "org-1",
+				permissions: ["os:read"],
+			}),
 		});
 
 		const { share } = await author.shares.create(outputShareInput(outputId));
