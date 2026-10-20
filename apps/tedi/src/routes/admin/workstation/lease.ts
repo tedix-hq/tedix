@@ -36,25 +36,32 @@ import {
 	assertCheckoutAuthority,
 	shellSingleQuote,
 	repoReady,
+	stringBodyValue,
+	REPO_SYNC_OPTIONS,
+} from "./shared";
+import {
 	readBootstrapReadiness,
 	workstationStatusForReadiness,
+} from "./bootstrap-readiness";
+import {
 	parseJsonBody,
 	workstationSessionSelectionForRequest,
 	traceIdFromRequest,
-	stringBodyValue,
 	workstationCorrelationFromBody,
+} from "./process-runtime";
+import {
 	workstationRecoveryCheckpointKeys,
 	preparedPreflight,
 	immutableLeasePreflight,
 	checkpointNative,
 	recoveryCheckpointOperation,
 	restoreRecoveryCheckpoint,
-	scheduleRepoSync,
-	prepareWorkstationFastSafe,
+} from "./recovery-checkpoint";
+import { scheduleRepoSync, prepareWorkstationFastSafe } from "./prepare";
+import {
 	persistentWorkstationEnvelope,
 	markWorkstationBodyStatus,
-	REPO_SYNC_OPTIONS,
-} from "./shared";
+} from "./envelope";
 import { errorMessage } from "@tedix/worker-kit/error-message";
 
 function isTransientWorkstationProvisioningError(error: unknown): boolean {

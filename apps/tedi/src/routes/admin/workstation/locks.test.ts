@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { detectedWorkstationOperationLock } from "./shared";
+import { detectedWorkstationOperationLock } from "./locks";
 
 describe("workstation deploy lock", () => {
 	it.each([
