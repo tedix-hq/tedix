@@ -11,18 +11,11 @@
  * deletes/day. Nothing drained them: the issuance path deletes a client only on
  * its own error, and `revokeMcpCredential` fires only on explicit revocation.
  *
- * This job is the safety net. It deletes clients whose access token has already
- * expired (`expires_at < now`) — those cannot be serving live traffic, so they
- * are pure orphans — and flips their ledger row to `revoked`. It deliberately
- * KEEPS clients with an unexpired token so an in-flight session is never cut
- * off. It does not fix the over-minting (that needs the reuse path repaired);
- * it keeps the standing pool bounded to roughly one token-lifetime of mints.
- *
- * SAFETY / ORDERING. Descope's batch delete is idempotent, and the ledger is
- * only flipped for chunks whose Descope delete succeeded. A transient Descope
- * failure leaves the rows `active` so a later tick retries the same expired
- * clients, rather than marking them revoked-but-live. A delete that lands but
- * whose ledger flip fails is re-listed next tick and re-deleted harmlessly.
+ * This job deletes expired active clients and retries unfinished deletions for
+ * disabled principals. Local revocation denies disabled credentials before any
+ * provider call. Unexpired credentials on active principals stay untouched.
+ * Provider deletion is idempotent; a cleanup timestamp is recorded only after
+ * deletion succeeds, so failed deletes or ledger writes retry on a later tick.
  */
 
 const MAX_REAP_PER_TICK = 500;
@@ -92,7 +85,7 @@ export async function runExternalAgentMcpClientReaperTick(
 				});
 				deletedClientRecordIds.push(...chunk);
 			} catch (error) {
-				// Leave these rows active so a later tick retries them.
+				// Leave cleanup unfinished so a later tick retries these clients.
 				deleteFailures += chunk.length;
 				console.error(
 					`[external-agent-mcp-client-reaper] batch delete failed for server ${mcpServerId} (${chunk.length} ids)`,

@@ -45,6 +45,9 @@ import {
 } from "@tedix/db/queries/external-agent-identity/knowledge-lifecycle";
 import {
 	acquireExternalAgentMcpIssuanceLease,
+	listPendingExternalAgentProviderCleanup,
+	finishExternalAgentProviderCleanup,
+	markExternalAgentMcpCredentialsReaped,
 	findFederatedWorkloadCredential,
 	recordExternalAgentMcpCredential,
 	listActiveExternalAgentMcpCredentials,
@@ -62,6 +65,7 @@ import {
 } from "@tedix/db/queries/external-agent-identity/owner-host-sessions";
 import {
 	createExternalAgentPrincipal,
+	disableExternalAgentPrincipal,
 	ExternalAgentIdentityError,
 	getExternalAgentPrincipal,
 	getExternalAgentPrincipalById,
@@ -448,6 +452,57 @@ const setPrincipalStatus = authed.setPrincipalStatus.handler(
 				principalId: input.principalId,
 				status: input.status,
 				updatedAt: new Date().toISOString(),
+			});
+		} catch (error) {
+			rethrowIdentityError(error);
+		}
+	},
+);
+
+const disablePrincipal = authed.disablePrincipal.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrganization(context, input.organizationId);
+		requireGovernance(context);
+		try {
+			const params = { organizationId, principalId: input.principalId };
+			await disableExternalAgentPrincipal(context.db, {
+				...params,
+				reason: input.reason,
+				now: new Date().toISOString(),
+			});
+			const pending = await listPendingExternalAgentProviderCleanup(
+				context.db,
+				params,
+			);
+			const groups = new Map<string, string[]>();
+			for (const row of pending) {
+				const ids = groups.get(row.mcpServerId) ?? [];
+				ids.push(row.clientRecordId);
+				groups.set(row.mcpServerId, ids);
+			}
+			let failed = false;
+			for (const [mcpServerId, ids] of groups) {
+				for (let i = 0; i < ids.length; i += 100) {
+					const chunk = ids.slice(i, i + 100);
+					try {
+						const remoteIds = chunk.filter((id) => !id.startsWith("wif:"));
+						if (remoteIds.length)
+							await deleteDescopeMcpServerClients(requireAihEnv(context.env), {
+								mcpServerId,
+								ids: remoteIds,
+							});
+						await markExternalAgentMcpCredentialsReaped(context.db, {
+							clientRecordIds: chunk,
+							revokedAt: new Date().toISOString(),
+						});
+					} catch {
+						failed = true;
+					}
+				}
+			}
+			return await finishExternalAgentProviderCleanup(context.db, {
+				...params,
+				failed,
 			});
 		} catch (error) {
 			rethrowIdentityError(error);
@@ -1738,6 +1793,7 @@ const listStaleKnowledgeSessions = authed.listStaleKnowledgeSessions.handler(
 export const externalAgentIdentityContractRouter = identityOs.router({
 	createPrincipal,
 	setPrincipalStatus,
+	disablePrincipal,
 	renamePrincipal,
 	openSession,
 	openOwnerHostSession,
