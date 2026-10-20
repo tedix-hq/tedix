@@ -24,6 +24,7 @@ import {
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { OsShellBreadcrumbs } from "@/components/os-shell-breadcrumbs";
 import { OsAccountMenu } from "@/components/os-account-menu";
+import { SampleDataBadge } from "@/components/sample-data-badge";
 import {
 	Sidebar,
 	SidebarContent,
@@ -337,6 +338,7 @@ export function OsShell() {
 								ref={setTopbarActions}
 								className="flex shrink-0 items-center empty:hidden"
 							/>
+							<SampleDataBadge />
 							<SupportGetHelp organization={tenantLabel} />
 							<ApprovalNotifications />
 							<TopbarSearch onOpenPalette={() => setPaletteOpen(true)} />

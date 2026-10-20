@@ -1,0 +1,56 @@
+[
+	{
+		"title": "Reddit Scout prepared Katja’s daily review",
+		"body": "Reddit Scout prepared Katja’s daily review. 20 English drafts across six subreddits; affiliation disclosed; nothing posted.",
+		"tag": "Needs Katja’s review",
+		"agent": "Reddit Scout",
+		"icon": "Chat",
+		"detail": "Checked six English-language subreddits and prepared 20 buying questions, price corrections, support referrals and trends. Reply Writer drafted concise replies with affiliation disclosed. Nothing has been posted.",
+		"createdAt": "2026-10-20T11:58:53.852735Z"
+	},
+	{
+		"title": "Reconciler found an €840 quantity mismatch",
+		"body": "Reconciler found an €840 quantity mismatch. 500 invoiced, 480 received at €42; credit-note request ready for Alex.",
+		"tag": "Needs your decision",
+		"agent": "Reconciler",
+		"icon": "Documents",
+		"detail": "Matched invoice F-241, PO LQ-081 and the signed receipt: 500 invoiced, 480 received at €42. A credit-note request is ready for Alex.",
+		"createdAt": "2026-10-20T11:57:53.853027Z"
+	},
+	{
+		"title": "On-call contained the checkout incident",
+		"body": "On-call contained the checkout incident. Fictional MC-42 rollback: errors 6% to 0.2%; Alex reviews the next release.",
+		"tag": "Simulated incident contained",
+		"agent": "On-call",
+		"icon": "Connections",
+		"detail": "In the fictional Morrowcart scenario, MC-42 was rolled back and errors fell from 6% to 0.2%. INC-042 remains open; Alex decides when to release the fix.",
+		"createdAt": "2026-10-20T11:56:53.853039Z"
+	},
+	{
+		"title": "Reconciler completed routine matches",
+		"body": "Reconciler completed routine matches. €2,400 matched; €0.80 rounding within €2 tolerance; no payment sent.",
+		"tag": "Handled within policy",
+		"agent": "Reconciler",
+		"icon": "Documents",
+		"detail": "The €2,400 invoice matched exactly. A separate €0.80 rounding difference was within the agreed €2 tolerance. Evidence was filed; no payment was initiated.",
+		"createdAt": "2026-10-20T11:55:53.853042Z"
+	},
+	{
+		"title": "Reddit Scout checked quiet threads",
+		"body": "Reddit Scout checked quiet threads. Meme and resolved kettle thread need no reply; Katja can teach a noise rule.",
+		"tag": "No public response needed",
+		"agent": "Reddit Scout",
+		"icon": "Chat",
+		"detail": "A pure meme and an already-answered kettle question need no reply. Katja can teach the separate Reddit noise rule with two dismissals.",
+		"createdAt": "2026-10-20T11:54:53.853044Z"
+	},
+	{
+		"title": "On-call verified recovered alerts",
+		"body": "On-call verified recovered alerts. Fictional retry and flaky probe recovered; critical incidents stay visible.",
+		"tag": "Synthetic health check",
+		"agent": "On-call",
+		"icon": "Connections",
+		"detail": "A transient retry and known flaky sandbox probe recovered in the fictional scenario. Critical customer-impact incidents stay available for Alex.",
+		"createdAt": "2026-10-20T11:53:53.853045Z"
+	}
+]

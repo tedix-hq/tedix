@@ -8,6 +8,8 @@ import {
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 import { LOCAL_OUTBOUND } from "./outbound-fixture";
+import { applyDemoPack, demoPackIsStale } from "./demo-pack";
+import { demoSendingBlock } from "@tedix/api-contract/utils/demo-sending-gate";
 import {
 	documentContent,
 	sheetContent,
@@ -133,10 +135,11 @@ const nextId = (): string => fid("9e", ++seq);
 // Error envelope
 // ---------------------------------------------------------------------------
 
-type RpcErrorCode = "BAD_REQUEST" | "NOT_FOUND" | "CONFLICT";
+type RpcErrorCode = "BAD_REQUEST" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT";
 
 const RPC_ERROR_STATUS: Record<RpcErrorCode, number> = {
 	BAD_REQUEST: 400,
+	FORBIDDEN: 403,
 	NOT_FOUND: 404,
 	CONFLICT: 409,
 };
@@ -1066,11 +1069,22 @@ const seedState = (): LocalState => ({
 
 let state = seedState();
 
+/** Set once by the dev server: the sample company replaces the classic fixtures. */
+let demoPackBuiltAt: number | null = null;
+
 export function resetLocalFixtures(): void {
 	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
+	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
 }
+
+/** Serve the sample company (Feed, Deck, tedis, memory) with sending switched off. */
+export function enableDemoPack(): void {
+	demoPackBuiltAt = installDemoPack();
+}
+
+export const isDemoPackEnabled = (): boolean => demoPackBuiltAt !== null;
 
 // ---------------------------------------------------------------------------
 // Read-only fixtures
@@ -7286,6 +7300,20 @@ const handlers: Record<string, (input: never) => unknown> = {
 
 export const LOCAL_RPC_PROCEDURES: readonly string[] = Object.keys(handlers);
 
+function installDemoPack(): number {
+	return applyDemoPack({
+		state: state as unknown as Record<string, unknown>,
+		handlers,
+		tedis: TEDIS,
+		skills: SKILLS,
+		knowledge: KNOWLEDGE,
+		projects: PROJECTS,
+		orgMembership: ORG_MEMBERSHIP,
+		rationales: RATIONALES,
+		memoryHealth: MEMORY_HEALTH,
+	} as unknown as Parameters<typeof applyDemoPack>[0]).builtAt;
+}
+
 /** Fixture ids the unit tests (and curl probes) address directly. */
 export const LOCAL_FIXTURE_IDS = {
 	orgId: ORG_ID,
@@ -7387,6 +7415,14 @@ export function handleLocalRpc(
 	const match = cleanPath.match(/^\/api\/rpc\/(.+)$/);
 	if (!match?.[1]) return null;
 	const key = match[1].split("/").map(decodeURIComponent).join("/");
+	// A sample company older than a week is rebuilt so it still reads as today.
+	if (demoPackBuiltAt !== null && demoPackIsStale(demoPackBuiltAt, Date.now()))
+		resetLocalFixtures();
+	// Sending and scheduling are refused before any handler, covered or not.
+	if (demoPackBuiltAt !== null) {
+		const block = demoSendingBlock(key, decodeRpcInput(body));
+		if (block) return errorEnvelope(new RpcError("FORBIDDEN", block.message));
+	}
 	const handler = handlers[key];
 	if (!handler) return null;
 	if (method !== "POST" && method !== "GET") {

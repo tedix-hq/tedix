@@ -1,0 +1,518 @@
+{
+	"000000a7-0000-4000-8000-000000000001": {
+		"version": 1,
+		"title": "Katja, a buying question is ready for your reply",
+		"body": "Reddit Scout found u/fable_kettle asking in r/BuyItForLife for a quiet dishwasher under €500. It checked PricePilot’s listings and drafted a reply with two options and a clear affiliation disclosure.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000002": {
+		"version": 1,
+		"title": "Correct a €90 price claim before it spreads",
+		"body": "Reddit Scout checked u/fable_cedar’s claim that PricePilot hides €90 delivery charges. The cited fictional listing includes delivery; a different seller does not.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000003": {
+		"version": 1,
+		"title": "Join a deal thread with the full delivered price",
+		"body": "Reddit Scout found u/fable_mallow’s blender deal thread. It compared six PricePilot offers and checked stock: a €12 delivery fee changes the cheapest seller.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000004": {
+		"version": 1,
+		"title": "Route a broken price alert to support",
+		"body": "Reddit Scout found u/fable_bracken reporting three broken PricePilot price alerts. It reproduced the alert failure and drafted a public acknowledgement without personal data.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000005": {
+		"version": 1,
+		"title": "Air fryer questions are up 40% this week",
+		"body": "Reddit Scout grouped 70 fictional buying questions versus 50 last week: air fryer interest rose 40%. It removed duplicate threads and drafted a PricePilot buying guide outline.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000006": {
+		"version": 1,
+		"title": "Approve a repair-first answer, with no sales pitch",
+		"body": "Reddit Scout found u/fable_orbit asking whether to replace a noisy vacuum. It checked the described symptoms and drafted a repair-first reply, with replacement comparisons only if repair fails.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000007": {
+		"version": 1,
+		"title": "A shopping meme needs no reply",
+		"body": "Reddit Scout checked u/fable_puddle’s shopping-cart meme. There is no buying question, complaint or factual claim to address.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000008": {
+		"version": 1,
+		"title": "This buying question is already answered",
+		"body": "Reddit Scout rechecked u/fable_moss’s kettle thread. The author marked a complete answer accepted; no correction or support issue remains.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000009": {
+		"version": 1,
+		"title": "500 invoiced, 480 received: request €840 back",
+		"body": "Reconciler matched Lindenquay’s supplier invoice to its purchase order and signed goods receipt: 500 units billed, 480 received at €42 each. It checked for split deliveries; none remain.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000000a": {
+		"version": 1,
+		"title": "The invoice price drifted €1,200 above contract",
+		"body": "Reconciler checked Lindenquay’s signed contract, order and receipt for 600 valves. Delivery matches, but the supplier billed €22 instead of €20.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000000b": {
+		"version": 1,
+		"title": "Block a duplicate €6,480 supplier invoice",
+		"body": "Reconciler matched two Lindenquay invoice PDFs to one purchase order and one goods receipt. Supplier, bank details and €6,480 amount match; the second reference differs by a suffix.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000000c": {
+		"version": 1,
+		"title": "Warehouse B is 36 units short: €1,080 at risk",
+		"body": "Reconciler compared Lindenquay’s Warehouse B count with receipts, dispatches and transfers: 36 fittings are missing, worth €1,080. It excluded pending transfers and booked a second count; the gap persists.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000000d": {
+		"version": 1,
+		"title": "The promised €560 credit note never arrived",
+		"body": "Reconciler matched Lindenquay’s return receipt for 14 damaged units to the supplier’s written credit promise. It checked the credit ledger and incoming documents: no €560 note arrived.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000000e": {
+		"version": 1,
+		"title": "Clear a €720 stock timing gap before close",
+		"body": "Reconciler traced Lindenquay’s 24-unit stock gap to a receipt posted in Warehouse A while the goods are in B. It matched the signed transfer and checked both bin counts; nothing is missing.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000000f": {
+		"version": 1,
+		"title": "Three-way match complete: €2,400 cleared",
+		"body": "Reconciler matched Lindenquay’s €2,400 supplier invoice, purchase order and goods receipt: 120 units at €20, with no duplicate or stock gap. Everything is within delegated policy.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000010": {
+		"version": 1,
+		"title": "A €0.80 rounding difference is within tolerance",
+		"body": "Reconciler checked Lindenquay’s invoice, order, receipt and tax rounding. 80 difference on €1,600 is below the agreed €2 tolerance; quantities and stock agree.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000011": {
+		"version": 1,
+		"title": "132 orders are waiting on a failed payment batch",
+		"body": "On-call detected Morrowcart’s payment batch failure for 132 orders. It paused automatic retries, opened incident INC-132 and checked the ledger: no captures completed.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000012": {
+		"version": 1,
+		"title": "Checkout errors hit 6% after the deploy",
+		"body": "On-call correlated Morrowcart’s 6% checkout error rate with release MC-42. 2%.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000013": {
+		"version": 1,
+		"title": "The checkout certificate expires in three days",
+		"body": "On-call checked Morrowcart’s checkout certificate and renewal job: expiry is in three days and the DNS challenge failed. It opened INC-303, prepared corrected records and verified the replacement configuration in a sandbox.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000014": {
+		"version": 1,
+		"title": "A customer’s order history shows the wrong totals",
+		"body": "On-call reproduced fictional customer Elin Voss’s report of incorrect Morrowcart order totals. It disabled the affected export, opened INC-204 and verified the payment ledger is correct.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000015": {
+		"version": 1,
+		"title": "Choose the recovery window for a delayed stock feed",
+		"body": "On-call found Morrowcart’s stock feed stalled for 47 minutes. It isolated a malformed supplier row, opened INC-047 and validated a replay excluding that row.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000016": {
+		"version": 1,
+		"title": "Stop duplicate dispatch emails before the next batch",
+		"body": "On-call confirmed Morrowcart’s email worker sends duplicate dispatch notices. It paused the worker, opened INC-022 and checked that orders and payments are unaffected.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000017": {
+		"version": 1,
+		"title": "A transient timeout recovered on retry",
+		"body": "On-call checked Morrowcart’s single stock lookup timeout. The automatic retry succeeded in 180 ms; error rate and customer journeys stayed normal.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000018": {
+		"version": 1,
+		"title": "The known flaky probe recovered again",
+		"body": "On-call matched Morrowcart’s sandbox probe alert to the documented flaky check. Production probes and checkout traces are healthy; the sandbox retry passed.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000019": {
+		"version": 1,
+		"title": "Headphone deal: is 30% off actually good value?",
+		"body": "Discounts often use the recommended retail price as a baseline. Compare price history, the exact model and the full delivered price.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000001a": {
+		"version": 1,
+		"title": "Power supply for an efficient gaming build",
+		"body": "Check the graphics card manufacturer’s recommendation, connector requirements and independent reviews. A reliable power supply with proper protection matters more than an unnecessarily high wattage.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000001b": {
+		"version": 1,
+		"title": "Price comparison lists an out-of-stock item",
+		"body": "Thanks for flagging this. We will pass the availability mismatch to the team.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000001c": {
+		"version": 1,
+		"title": "Compare lifetime costs, not teaser prices",
+		"body": "Include purchase price, delivery, energy use and expected lifespan in the comparison. A short checklist would help more than a blanket product recommendation.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000001d": {
+		"version": 1,
+		"title": "Phone with a good camera under €400",
+		"body": "At this budget, look at daylight and low-light photos in independent reviews. Also check promised software updates and storage.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000001e": {
+		"version": 1,
+		"title": "“Delivery is free on every offer” — is that true?",
+		"body": "It depends on the seller. 90 for delivery, so compare the full price and delivery terms each time.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000001f": {
+		"version": 1,
+		"title": "SSD deal: 1 TB or 2 TB?",
+		"body": "Compare price per TB, warranty and write endurance. For games, extra capacity often helps more than peak benchmark speeds you rarely notice in everyday use.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000020": {
+		"version": 1,
+		"title": "A returns question turns into an argument",
+		"body": "I would link the retailer’s terms calmly and move the individual case to private support. Order and payment details should stay out of the public thread.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000021": {
+		"version": 1,
+		"title": "Used or new: more questions about warranty coverage",
+		"body": "Trend brief: shoppers are mixing up manufacturer warranties and statutory consumer rights. A plain-language explanation linking to the applicable terms would help.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000022": {
+		"version": 1,
+		"title": "Quiet vacuum cleaner for a home with a cat",
+		"body": "Look for an easy-to-clean brush, good filters and affordable spare parts. For pet hair, maintenance matters at least as much as the advertised suction power.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000023": {
+		"version": 1,
+		"title": "The deal only applies to a different colour",
+		"body": "Good find, but the price in this demo only applies to the blue version. The reply should clearly state the model, colour and availability.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000024": {
+		"version": 1,
+		"title": "Gaming keyboard in the weekly sale",
+		"body": "Check the keyboard layout, switch type and return policy. A deal only fits if the noise level and typing feel work for your daily use.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000025": {
+		"version": 1,
+		"title": "Quiet student laptop under €700?",
+		"body": "A quiet laptop with 16 GB RAM, a matte display and good battery life matters more here than a dedicated graphics card. Compare the full delivered price and try the keyboard before buying.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000026": {
+		"version": 1,
+		"title": "Price claim: “This robot vacuum costs €499 everywhere”",
+		"body": "One detail: in this fictional PricePilot example, a comparable model costs €429 including delivery. Check the model number and included accessories; prices can change daily.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000027": {
+		"version": 1,
+		"title": "1440p monitor deal: will it fit my setup?",
+		"body": "For 1440p at 165 Hz, check your ports and graphics card performance first. A low sticker price only helps if delivery and return terms work for you too.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000028": {
+		"version": 1,
+		"title": "My retailer delivery is late — who can help?",
+		"body": "That sounds frustrating. PricePilot compares prices; the retailer handles your order.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000029": {
+		"version": 1,
+		"title": "More shoppers are asking about repairable appliances",
+		"body": "Trend brief: repairability is becoming a buying criterion alongside price. Katja could prepare a neutral checklist covering spare parts, warranty terms and total cost.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000002a": {
+		"version": 1,
+		"title": "Looking for a washing machine for a small flat",
+		"body": "Measure the space, doorway and connections first. For a small flat, consider spin noise, energy use and your actual laundry loads rather than choosing the largest drum.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000002b": {
+		"version": 1,
+		"title": "Headphone deal: is 30% off actually good value?",
+		"body": "Discounts often use the recommended retail price as a baseline. Compare price history, the exact model and the full delivered price.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000002c": {
+		"version": 1,
+		"title": "Power supply for an efficient gaming build",
+		"body": "Check the graphics card manufacturer’s recommendation, connector requirements and independent reviews. A reliable power supply with proper protection matters more than an unnecessarily high wattage.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000002d": {
+		"version": 1,
+		"title": "Price comparison lists an out-of-stock item",
+		"body": "Thanks for flagging this. We will pass the availability mismatch to the team.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000002e": {
+		"version": 1,
+		"title": "Compare lifetime costs, not teaser prices",
+		"body": "Include purchase price, delivery, energy use and expected lifespan in the comparison. A short checklist would help more than a blanket product recommendation.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000002f": {
+		"version": 1,
+		"title": "Phone with a good camera under €400",
+		"body": "At this budget, look at daylight and low-light photos in independent reviews. Also check promised software updates and storage.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000030": {
+		"version": 1,
+		"title": "“Delivery is free on every offer” — is that true?",
+		"body": "It depends on the seller. 90 for delivery, so compare the full price and delivery terms each time.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000031": {
+		"version": 1,
+		"title": "SSD deal: 1 TB or 2 TB?",
+		"body": "Compare price per TB, warranty and write endurance. For games, extra capacity often helps more than peak benchmark speeds you rarely notice in everyday use.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000032": {
+		"version": 1,
+		"title": "A returns question turns into an argument",
+		"body": "I would link the retailer’s terms calmly and move the individual case to private support. Order and payment details should stay out of the public thread.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000033": {
+		"version": 1,
+		"title": "Used or new: more questions about warranty coverage",
+		"body": "Trend brief: shoppers are mixing up manufacturer warranties and statutory consumer rights. A plain-language explanation linking to the applicable terms would help.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000034": {
+		"version": 1,
+		"title": "Quiet vacuum cleaner for a home with a cat",
+		"body": "Look for an easy-to-clean brush, good filters and affordable spare parts. For pet hair, maintenance matters at least as much as the advertised suction power.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000035": {
+		"version": 1,
+		"title": "The deal only applies to a different colour",
+		"body": "Good find, but the price in this demo only applies to the blue version. The reply should clearly state the model, colour and availability.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000036": {
+		"version": 1,
+		"title": "Gaming keyboard in the weekly sale",
+		"body": "Check the keyboard layout, switch type and return policy. A deal only fits if the noise level and typing feel work for your daily use.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000037": {
+		"version": 1,
+		"title": "Sale meme — no buying question",
+		"body": "Not useful: this is a meme with no buying intent. Katja’s rule keeps posts like this out of the next review round.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000038": {
+		"version": 1,
+		"title": "More buyers compare electricity costs before purchasing",
+		"body": "Trend brief: four synthetic threads discuss refrigerator energy use. A table with example running costs could make the next reply more useful.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000039": {
+		"version": 1,
+		"title": "Quiet student laptop under €700?",
+		"body": "A quiet laptop with 16 GB RAM, a matte display and good battery life matters more here than a dedicated graphics card. Compare the full delivered price and try the keyboard before buying.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000003a": {
+		"version": 1,
+		"title": "Price claim: “This robot vacuum costs €499 everywhere”",
+		"body": "One detail: in this fictional PricePilot example, a comparable model costs €429 including delivery. Check the model number and included accessories; prices can change daily.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000003b": {
+		"version": 1,
+		"title": "1440p monitor deal: will it fit my setup?",
+		"body": "For 1440p at 165 Hz, check your ports and graphics card performance first. A low sticker price only helps if delivery and return terms work for you too.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000003c": {
+		"version": 1,
+		"title": "My retailer delivery is late — who can help?",
+		"body": "That sounds frustrating. PricePilot compares prices; the retailer handles your order.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000003d": {
+		"version": 1,
+		"title": "More shoppers are asking about repairable appliances",
+		"body": "Trend brief: repairability is becoming a buying criterion alongside price. Katja could prepare a neutral checklist covering spare parts, warranty terms and total cost.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000003e": {
+		"version": 1,
+		"title": "Looking for a washing machine for a small flat",
+		"body": "Measure the space, doorway and connections first. For a small flat, consider spin noise, energy use and your actual laundry loads rather than choosing the largest drum.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000003f": {
+		"version": 1,
+		"title": "Headphone deal: is 30% off actually good value?",
+		"body": "Discounts often use the recommended retail price as a baseline. Compare price history, the exact model and the full delivered price.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000040": {
+		"version": 1,
+		"title": "Power supply for an efficient gaming build",
+		"body": "Check the graphics card manufacturer’s recommendation, connector requirements and independent reviews. A reliable power supply with proper protection matters more than an unnecessarily high wattage.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000041": {
+		"version": 1,
+		"title": "Price comparison lists an out-of-stock item",
+		"body": "Thanks for flagging this. We will pass the availability mismatch to the team.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000042": {
+		"version": 1,
+		"title": "Compare lifetime costs, not teaser prices",
+		"body": "Include purchase price, delivery, energy use and expected lifespan in the comparison. A short checklist would help more than a blanket product recommendation.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000043": {
+		"version": 1,
+		"title": "Phone with a good camera under €400",
+		"body": "At this budget, look at daylight and low-light photos in independent reviews. Also check promised software updates and storage.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000044": {
+		"version": 1,
+		"title": "“Delivery is free on every offer” — is that true?",
+		"body": "It depends on the seller. 90 for delivery, so compare the full price and delivery terms each time.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000045": {
+		"version": 1,
+		"title": "SSD deal: 1 TB or 2 TB?",
+		"body": "Compare price per TB, warranty and write endurance. For games, extra capacity often helps more than peak benchmark speeds you rarely notice in everyday use.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000046": {
+		"version": 1,
+		"title": "A returns question turns into an argument",
+		"body": "I would link the retailer’s terms calmly and move the individual case to private support. Order and payment details should stay out of the public thread.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000047": {
+		"version": 1,
+		"title": "Used or new: more questions about warranty coverage",
+		"body": "Trend brief: shoppers are mixing up manufacturer warranties and statutory consumer rights. A plain-language explanation linking to the applicable terms would help.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000048": {
+		"version": 1,
+		"title": "Quiet vacuum cleaner for a home with a cat",
+		"body": "Look for an easy-to-clean brush, good filters and affordable spare parts. For pet hair, maintenance matters at least as much as the advertised suction power.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000049": {
+		"version": 1,
+		"title": "The deal only applies to a different colour",
+		"body": "Good find, but the price in this demo only applies to the blue version. The reply should clearly state the model, colour and availability.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000004a": {
+		"version": 1,
+		"title": "Gaming keyboard in the weekly sale",
+		"body": "Check the keyboard layout, switch type and return policy. A deal only fits if the noise level and typing feel work for your daily use.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000004b": {
+		"version": 1,
+		"title": "Sale meme — no buying question",
+		"body": "Not useful: this is a meme with no buying intent. Katja’s rule keeps posts like this out of the next review round.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000004c": {
+		"version": 1,
+		"title": "More buyers compare electricity costs before purchasing",
+		"body": "Trend brief: four synthetic threads discuss refrigerator energy use. A table with example running costs could make the next reply more useful.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000004d": {
+		"version": 1,
+		"title": "Freight charges differ by €38",
+		"body": "The order includes free delivery, but the invoice adds €38 freight. Recommendation: request a correction.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000004e": {
+		"version": 1,
+		"title": "Docking station price mismatch",
+		"body": "Order price €89; invoice price €94 for 20 units. Difference: €100.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-00000000004f": {
+		"version": 1,
+		"title": "Credit note matches the return",
+		"body": "20 credit note. Recommendation: mark the return as reconciled.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000050": {
+		"version": 1,
+		"title": "Partial delivery correctly matched",
+		"body": "40 of 60 keyboards have arrived. The remaining 20 are still open; do not record a full delivery.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000051": {
+		"version": 1,
+		"title": "Check the tax amount",
+		"body": "Net amount €2,000; stated tax €360. Recommendation: review the invoice tax details manually.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000052": {
+		"version": 1,
+		"title": "API latency: p95 reaches 2.8 seconds",
+		"body": "The fictional catalogue service exceeds its 800 ms target. Recommendation: inspect slow queries and cache hits.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000053": {
+		"version": 1,
+		"title": "Duplicate errors grouped after release",
+		"body": "18 identical stack traces have been grouped into one report. Recommendation: one diagnosis instead of 18 separate alerts.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000054": {
+		"version": 1,
+		"title": "Demo certificate expires soon",
+		"body": "example. Recommendation: review renewal through the established process.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000055": {
+		"version": 1,
+		"title": "Import job healthy after diagnosis",
+		"body": "Synthetic run: 800 rows validated with no errors. Recommendation: close the report; no live system was checked.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	},
+	"000000a7-0000-4000-8000-000000000056": {
+		"version": 1,
+		"title": "Error report is missing trace IDs",
+		"body": "Four synthetic reports lack correlation IDs. Recommendation: improve instrumentation to connect follow-up errors.",
+		"recommendation": "Review the prepared evidence because this scenario needs your judgment."
+	}
+}

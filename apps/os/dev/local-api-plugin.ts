@@ -8,6 +8,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
 import {
+	enableDemoPack,
 	handleLocalRpc,
 	LOCAL_WIDGET_APP_SLUG,
 	LOCAL_WIDGET_RESOURCE_URI,
@@ -154,11 +155,17 @@ async function serveLocalApi(
 	});
 }
 
+/** `TEDIX_OS_FIXTURE_PACK=classic` keeps the original Solstice fixtures for debugging. */
+export const fixturePackEnabled = (
+	environment: NodeJS.ProcessEnv = process.env,
+): boolean => environment.TEDIX_OS_FIXTURE_PACK !== "classic";
+
 export function localApiPlugin(): Plugin {
 	return {
 		name: "tedix-os-local-api",
 		apply: "serve",
 		configureServer(server) {
+			if (fixturePackEnabled()) enableDemoPack();
 			server.middlewares.use((req, res, next) => {
 				const url = req.url ?? "";
 				if (url.split("?")[0] === "/health") {

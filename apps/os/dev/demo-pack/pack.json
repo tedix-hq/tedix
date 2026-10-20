@@ -1,0 +1,9 @@
+{
+	"version": "pricepilot-1",
+	"fictional": true,
+	"language": "en",
+	"organization": "PricePilot",
+	"slug": "pricepilot",
+	"description": "Fictional price comparison company. Every record is sample data; nothing is sent.",
+	"anchor": "2026-10-20T12:00:00.000Z"
+}

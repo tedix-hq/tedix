@@ -73,6 +73,15 @@ bun run --cwd apps/os build
 `bun run --cwd apps/os dev` is the fixture-backed, no-login UI loop. Use
 `tenant.localhost:3010` to exercise tenant host resolution without cloud data.
 
+Fixture mode serves a fictional sample company ("PricePilot") from
+`dev/demo-pack/`: Feed, a Deck of 36 pending cards with decided history, tedis,
+workspaces and memory facts. Dates are shifted onto today when the server
+starts, and a pack older than a week is rebuilt. The shell shows a **Sample
+data** badge, and sending or scheduling is refused with a clear message
+(`@tedix/api-contract/utils/demo-sending-gate`). `bun run-local --demo` seeds
+the same pack into local D1 and sets `TEDIX_DEMO_SENDING_OFF` on the API. Set
+`TEDIX_OS_FIXTURE_PACK=classic` to get the original fixtures back.
+
 For isolated API and D1 behavior, run `bun run-local` from the repository root.
 Its default mode uses local state and no model credentials.
 

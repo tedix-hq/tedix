@@ -154,6 +154,26 @@ describe("local Wrangler config", () => {
 		}
 	});
 
+	test("switches sending off only for the sample-company demo", () => {
+		const directory = mkdtempSync(join(tmpdir(), "tedix-dev-local-"));
+		const path = join(directory, "wrangler.jsonc");
+		writeFileSync(path, `{ "vars": { "ENVIRONMENT": "production" } }`);
+		const before = process.env.TEDIX_LOCAL_RUN_MODE;
+		try {
+			process.env.TEDIX_LOCAL_RUN_MODE = "start";
+			expect(createLocalWranglerConfig(path).vars).not.toHaveProperty(
+				"TEDIX_DEMO_SENDING_OFF",
+			);
+			process.env.TEDIX_LOCAL_RUN_MODE = "demo";
+			expect(createLocalWranglerConfig(path).vars).toMatchObject({
+				TEDIX_DEMO_SENDING_OFF: "true",
+			});
+		} finally {
+			if (before === undefined) delete process.env.TEDIX_LOCAL_RUN_MODE;
+			else process.env.TEDIX_LOCAL_RUN_MODE = before;
+		}
+	});
+
 	test("removes account-bound surfaces and rewrites remote bindings", () => {
 		const directory = mkdtempSync(join(tmpdir(), "tedix-dev-local-"));
 		const path = join(directory, "wrangler.jsonc");

@@ -1,7 +1,14 @@
 #!/usr/bin/env bun
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createWriteStream, mkdirSync, mkdtempSync } from "node:fs";
+import {
+	createWriteStream,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -20,7 +27,7 @@ Requires Bun and genuine Node.js 22+ on PATH for Wrangler.
   --inference                       Enable paid Workers AI using your Wrangler login
   --workers-ai-account=<account-id>  Explicit 32-character Cloudflare billing account
   --inference=workers-ai            Explicit spelling of --inference
-  --demo                            Seed optional demo data in a separate directory
+  --demo                            Seed a fictional sample company, sending off, in a separate directory
   --smoke                           Run bounded validation with temporary state
   --restart-smoke                   Validate persistence across two offline boots
   --ai-gateway=<id>                 Use a named gateway instead of Cloudflare's default
@@ -280,6 +287,8 @@ async function assertLauncherPortsAvailable(): Promise<void> {
 	}
 }
 
+const DEMO_STATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function waitForLocalDemo(
 	timeoutMs = READY_TIMEOUT_MS,
 ): Promise<void> {
@@ -366,11 +375,30 @@ async function main(): Promise<void> {
 			`⚠ Paid remote Workers AI enabled for Cloudflare account ${options.workersAiAccountId}; Wrangler login authorizes model calls, while API and D1 remain local.`,
 		);
 	}
+	// The sample company is dated relative to when it was seeded, so a demo
+	// state older than a week is rebuilt (the default directory only).
+	if (
+		options.demo &&
+		!explicitState &&
+		!temporarySmokeState &&
+		existsSync(statePath) &&
+		Date.now() - statSync(statePath).birthtimeMs > DEMO_STATE_MAX_AGE_MS
+	) {
+		console.log("→ Rebuilding the sample company (older than a week)");
+		rmSync(statePath, { recursive: true, force: true });
+	}
 	console.log("→ Applying isolated local database migrations");
 	await run("bun", ["run", "dev:local:seed"], false, localEnvironment);
 	if (options.demo) {
 		console.log("→ Seeding the optional deterministic demo workspace and tedi");
 		await run("bun", ["run", "dev:local:demo-seed"], false, localEnvironment);
+		console.log("→ Seeding the sample company: Feed, Deck and decided history");
+		await run(
+			"bun",
+			["run", "dev:local:demo-pack-seed"],
+			false,
+			localEnvironment,
+		);
 	} else {
 		console.log("→ Keeping product state blank for first-run onboarding");
 	}
@@ -388,6 +416,7 @@ async function main(): Promise<void> {
 				LOCAL_OS_BUILD_SENTINELS.DESCOPE_PROJECT_ID,
 			TEDIX_BUILD_DESCOPE_BASE_URL: LOCAL_OS_BUILD_SENTINELS.DESCOPE_BASE_URL,
 			TEDIX_BUILD_LOCAL_DEMO_ENABLED: "true",
+			TEDIX_BUILD_SAMPLE_DATA: options.demo ? "true" : "false",
 			TEDIX_BUILD_LOCAL_FIRST_RUN_ENABLED: options.demo ? "false" : "true",
 			TEDIX_BUILD_LOCAL_INFERENCE_ENABLED: options.inference ? "true" : "false",
 		},

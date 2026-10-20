@@ -11,7 +11,7 @@ import {
 	resolveOsBuildConfig,
 } from "./dev/build-config";
 import { apiProxyForOsDevLane, resolveOsDevLane } from "./dev/dev-lane";
-import { localApiPlugin } from "./dev/local-api-plugin";
+import { fixturePackEnabled, localApiPlugin } from "./dev/local-api-plugin";
 import { localApiProxyOptions } from "./dev/local-api-proxy";
 
 const optionalPublicValue = (name: string) =>
@@ -80,6 +80,11 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 			),
 			__LOCAL_DEMO_ENABLED__: JSON.stringify(
 				process.env.TEDIX_BUILD_LOCAL_DEMO_ENABLED === "true",
+			),
+			// Sample data: the fixture pack, or the seeded `bun run-local --demo` company.
+			__SAMPLE_DATA__: JSON.stringify(
+				(useLocalFixtures && fixturePackEnabled()) ||
+					process.env.TEDIX_BUILD_SAMPLE_DATA === "true",
 			),
 			__LOCAL_FIRST_RUN_ENABLED__: JSON.stringify(
 				process.env.TEDIX_BUILD_LOCAL_FIRST_RUN_ENABLED === "true",
