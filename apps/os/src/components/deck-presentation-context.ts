@@ -7,6 +7,9 @@ import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decis
 export const CardFaceContext = createContext<{
 	presentation: DecisionCardPresentation | null;
 	confidence: number | null;
+	dates?: readonly string[];
+	now?: Date;
+	timeZone?: string;
 	/** Generation failed or the read errored; the card shows the original request instead. */
 	unavailable?: boolean;
 	/** Re-reads the face. Offered as a quiet text button next to the fallback note. */

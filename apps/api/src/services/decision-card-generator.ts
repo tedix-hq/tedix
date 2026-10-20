@@ -1,6 +1,9 @@
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
-import { checkDecisionCardCopy } from "@tedix/api-contract/utils/decision-card-copy";
+import {
+	checkDecisionCardCopy,
+	hasRelativeCardDates,
+} from "@tedix/api-contract/utils/decision-card-copy";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { BaseContext } from "../rpc/orpc";
 import { readDraftPreferences } from "./decision-learning";
@@ -197,6 +200,7 @@ export async function generateDecisionCard(
 					decision,
 					producerContext: request.metadata.producerContext,
 					sourceOptions: request.metadata.sourceOptions,
+					absoluteDates: request.metadata.absoluteDates,
 				}),
 	}).replace(new RegExp(RAW_IDENTIFIER.source, "gi"), "[reference]");
 	let repair = "";
@@ -300,6 +304,8 @@ export async function generateDecisionCard(
 			}
 			if (parsed.success) {
 				const issues = checkDecisionCardCopy(parsed.data);
+				if (hasRelativeCardDates(JSON.stringify(parsed.data)))
+					issues.push("relative_date_use_absolute_source_date");
 				if (options?.requireContext && !parsed.data.context)
 					issues.push("context");
 				if (issues.length || parsed.data.version !== copySpec.version) {

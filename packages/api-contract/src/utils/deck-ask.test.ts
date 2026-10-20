@@ -371,3 +371,46 @@ describe("retired cards", () => {
 		});
 	});
 });
+it.each(["send", "decide", "approve_draft", "answer", "consent"])(
+	"supplies an effect-free decline for %s asks whose writer omitted it",
+	(ask) => {
+		const decision = envelope(
+			ask === "send"
+				? "outbound"
+				: ask === "consent"
+					? "approval"
+					: ask === "answer"
+						? "question"
+						: "decision",
+			{
+				...(ask === "approve_draft"
+					? { preview: { body: "Prepared draft" } }
+					: {}),
+				options: [
+					{
+						id: "yes",
+						label: "Yes",
+						intent: "approve",
+						consequence: "Creates a task",
+						cost: "None",
+					},
+					{
+						id: "later",
+						label: "Later",
+						intent: "later",
+						consequence: "Waits",
+						cost: "None",
+					},
+				],
+			},
+		);
+		expect(deckAskKind({ kind: decision.kind, decision })).toBe(ask);
+		expect(
+			decision.options.find((option) => option.intent === "reject"),
+		).toMatchObject({ label: "No / Not needed" });
+		expect(
+			decision.options.find((option) => option.intent === "reject")?.effect,
+		).toBeUndefined();
+		expect(DecisionEnvelopeSchema.parse(decision)).toEqual(decision);
+	},
+);

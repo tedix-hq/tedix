@@ -1,5 +1,6 @@
 import copySpec from "../assets/decision-card-copy.v2.json";
 import { containsCardSecret } from "./card-secrets";
+import { calendarDay } from "./card-schedule";
 
 type CardCopy = {
 	title: string;
@@ -8,7 +9,114 @@ type CardCopy = {
 	stakes?: string;
 	context?: string;
 	actionLabels?: Record<string, string>;
+	generatedAt?: string;
 };
+
+const relativeDatePattern =
+	/\b(?:today|tomorrow|yesterday|in \d+ days?|\d+ days? ago)\b/gi;
+
+export function hasRelativeCardDates(text: string): boolean {
+	return new RegExp(relativeDatePattern.source, "i").test(text);
+}
+
+/** Legacy relative copy needs both a writing date and a matching stored date. Otherwise omit the sentence. */
+export function renderCardDateText(
+	text: string,
+	options: {
+		generatedAt?: string;
+		dates?: readonly string[];
+		now?: Date;
+		timeZone?: string;
+	} = {},
+): string {
+	if (!hasRelativeCardDates(text)) return text;
+	const dayNumber = (value: string) => {
+		const date = new Date(value);
+		if (!Number.isFinite(date.getTime())) return NaN;
+		return (
+			Date.parse(
+				/^\d{4}-\d{2}-\d{2}$/.test(value)
+					? value
+					: calendarDay(date, options.timeZone),
+			) / 86_400_000
+		);
+	};
+	const written = dayNumber(options.generatedAt ?? "");
+	const today = dayNumber((options.now ?? new Date()).toISOString());
+	const dates = new Set(
+		(options.dates ?? []).map(dayNumber).filter(Number.isFinite),
+	);
+	return (text.match(/[^.!?]+[.!?]*/g) ?? [])
+		.flatMap((sentence) => {
+			let unbound = false;
+			const rendered = sentence.replace(relativeDatePattern, (phrase) => {
+				const lower = phrase.toLowerCase();
+				const offset =
+					lower === "today"
+						? 0
+						: lower === "tomorrow"
+							? 1
+							: lower === "yesterday"
+								? -1
+								: Number(lower.match(/\d+/)?.[0]) *
+									(lower.endsWith("ago") ? -1 : 1);
+				const target = written + offset;
+				if (!dates.has(target)) {
+					unbound = true;
+					return "";
+				}
+				const days = target - today;
+				return days === 0
+					? "today"
+					: days === 1
+						? "tomorrow"
+						: days === -1
+							? "yesterday"
+							: days > 0
+								? `in ${days} days`
+								: `${-days} days ago`;
+			});
+			return unbound ? [] : [rendered.trim()];
+		})
+		.join(" ");
+}
+
+export function renderDecisionCardDates<T extends CardCopy>(
+	copy: T,
+	dates: readonly string[] = [],
+	now = new Date(),
+	timeZone?: string,
+): T {
+	const render = (text: string) =>
+		renderCardDateText(text, {
+			generatedAt: copy.generatedAt,
+			dates,
+			now,
+			timeZone,
+		});
+	return {
+		...copy,
+		title: render(copy.title) || "Review this request?",
+		body: render(copy.body) || "Review the source before deciding.",
+		recommendation:
+			render(copy.recommendation) || "Check the source in Details.",
+		...(copy.context
+			? { context: render(copy.context) || "Open Details for the source." }
+			: {}),
+		...(copy.stakes ? { stakes: render(copy.stakes) } : {}),
+		...(copy.actionLabels
+			? {
+					actionLabels: Object.fromEntries(
+						Object.entries(copy.actionLabels).flatMap(([id, label]) => {
+							const value = render(label);
+							return value ? [[id, value]] : [];
+						}),
+					),
+				}
+			: {}),
+	};
+}
+
 const rawIdentifier = new RegExp(copySpec.rawIdentifierPattern, "i");
 const banned = new RegExp(`\\b(?:${copySpec.bannedWords.join("|")})\\b`, "i");
 const stopWords = new Set(copySpec.stopWords);
@@ -88,7 +196,7 @@ export function decisionCardFaceText(
 		copy.title,
 		copy.context,
 		`If yes: ${copy.body}`,
-		`${copy.recommendation} ${confidence === null ? "Confidence not assessed" : `${Math.round(confidence * 100)}% sure`}`,
+		`${copy.recommendation}${confidence === null ? "" : ` · ${Math.round(confidence * 100)}% sure`}`,
 		copy.stakes,
 		...Object.values(copy.actionLabels ?? {}),
 	]
@@ -102,6 +210,7 @@ export function decisionCardActionLabel(
 	intent: string | undefined,
 	fallback: string,
 ): string {
+	if (intent === "reject" && fallback === "No / Not needed") return fallback;
 	const labels = copy?.actionLabels;
 	for (const key of [id, intent])
 		if (

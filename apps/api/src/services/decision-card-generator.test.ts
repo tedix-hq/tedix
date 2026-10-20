@@ -674,3 +674,26 @@ it("keeps secrets out of model inputs and never resubmits secret-bearing output 
 	expect(await generateDecisionCard(context, request)).toBeNull();
 	expect(mocks.model).toHaveBeenCalledTimes(1);
 });
+
+it("repairs frozen relative dates and instructs both face and story writing to keep absolute dates", async () => {
+	mocks.model
+		.mockResolvedValueOnce(
+			JSON.stringify({ ...copy, context: "The workshop is tomorrow." }),
+		)
+		.mockResolvedValueOnce(
+			JSON.stringify({ ...copy, context: "The workshop is on 2026-10-20." }),
+		);
+	const result = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		request,
+	);
+	expect(result?.version === 2 && result.context).toBe(
+		"The workshop is on 2026-10-20.",
+	);
+	expect(mocks.model.mock.calls[0]?.[2].rewriteInstruction).toContain(
+		"Store dates as absolute YYYY-MM-DD",
+	);
+	expect(mocks.model.mock.calls[1]?.[2].validationFeedback).toContain(
+		"relative_date_use_absolute_source_date",
+	);
+});

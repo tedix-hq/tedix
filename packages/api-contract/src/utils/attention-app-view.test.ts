@@ -64,7 +64,7 @@ describe("headless attention view adaptation", () => {
 				ask: copy.title,
 				ifYes: copy.body,
 				why: copy.recommendation,
-				stakes: copy.stakes,
+				stakes: "",
 				needsText: true,
 			});
 			const args = structuredClone(view.actions[0]!.arguments) as {
@@ -145,8 +145,12 @@ describe("headless attention view adaptation", () => {
 			],
 		});
 		const view = deckDisplayCard(card, 0);
-		expect(view.actions.map((a) => a.id)).toEqual(["adopt", "wait"]);
-		expect(payload(view.actions[1]!.arguments)).toMatchObject({
+		expect(view.actions.map((a) => a.id)).toEqual([
+			"adopt",
+			"not-needed",
+			"wait",
+		]);
+		expect(payload(view.actions[2]!.arguments)).toMatchObject({
 			decision: {
 				resolvesRequest: false,
 				metadata: { cardAction: "wait", decisionChoice: "later" },
@@ -366,4 +370,14 @@ it("never shows a placeholder headline: the original request is the ask until co
 		"Update the connect profile’s organization consent to include the fictional…",
 	);
 	expect(decisionCardFallbackTitle("  ")).toBe("Review this request?");
+});
+
+it("hides unknown confidence in the terminal card view", () => {
+	const view = deckDisplayCard(raw("question", { cardPresentation: copy }), 0);
+	expect(attentionMarkdown([view], true)).not.toContain(
+		"Confidence not assessed",
+	);
+	expect(attentionMarkdown([{ ...view, confidence: 0.8 }], true)).toContain(
+		"80% sure",
+	);
 });

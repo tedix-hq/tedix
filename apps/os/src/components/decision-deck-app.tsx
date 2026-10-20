@@ -727,6 +727,12 @@ function DecisionDeckContent({
 						? (preparedCard.data?.presentation ?? null)
 						: null,
 					confidence: selected?.decision?.confidence ?? null,
+					now,
+					timeZone,
+					dates: [
+						selected?.row?.request.dueAt,
+						selected?.decision?.expiresAt,
+					].filter((date): date is string => Boolean(date)),
 					unavailable:
 						preparedCard.isError ||
 						(preparedSourceMatches &&
