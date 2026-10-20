@@ -27,7 +27,10 @@ import {
 	type SweepAction,
 	type SweepCard,
 } from "@tedix/api-contract/utils/deck-pipeline";
-import { deckInteractionKind } from "@tedix/api-contract/utils/deck-projection";
+import {
+	deckInteractionKind,
+	projectDeckCards,
+} from "@tedix/api-contract/utils/deck-projection";
 import { cardOriginalBody } from "../services/card-revisions";
 import { appendCuration, criticalDeckRequest } from "../services/deck-curation";
 
@@ -112,6 +115,37 @@ async function applyRetirement(
 		},
 	);
 	return true;
+}
+
+/** Open interactions that the default Deck routing would show (Feed-routed ones excluded). */
+export function deckCardCount(
+	rows: readonly CardRow[],
+	now: Date,
+	timeZone: string,
+) {
+	try {
+		return projectDeckCards({
+			requests: rows.map((row) => ({
+				request: {
+					...row,
+					requestedAt: row.createdAt,
+					requestedFromType: "user",
+					state: row.status,
+				},
+				effectiveState: "open",
+				canRespond: true,
+				canCancel: false,
+				workItem: null,
+				responseCount: 0,
+			})) as unknown as Parameters<typeof projectDeckCards>[0]["requests"],
+			work: [],
+			runtime: [],
+			now,
+			timeZone,
+		}).length;
+	} catch {
+		return rows.length;
+	}
 }
 
 function localClock(now: Date, timeZone: string) {
@@ -374,12 +408,20 @@ export async function sweepOrganizationDeck(
 			const prior = previous?.metrics.find(
 				(entry) => entry.recipientId === recipientId,
 			);
-			const liveCards = live.length - retiredHere;
+			const liveCards = deckCardCount(
+				live.filter(
+					(row) => !receipt.removed.some((entry) => entry.id === row.id),
+				),
+				now,
+				learning.timezone,
+			);
 			const metrics: DeckPipelineMetrics = {
 				recipientId,
 				liveCards,
 				morning:
-					clock.minutes >= 8 * 60 + 30 && prior?.morning?.date !== clock.date
+					clock.minutes >= 8 * 60 + 30 &&
+					clock.minutes < 10 * 60 &&
+					prior?.morning?.date !== clock.date
 						? { date: clock.date, liveCards }
 						: (prior?.morning ?? null),
 				notUseful,
