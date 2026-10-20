@@ -232,6 +232,22 @@ export const EmbeddedSessionFailureReasonSchema = z.enum([
 	"worker_unavailable",
 ]);
 
+export const TediSetupSchema = z.object({
+	tediId: z.string(),
+	observedAt: z.string(),
+	items: z.array(
+		z.object({
+			id: z.string(),
+			kind: z.enum(["tool", "connection", "human", "build"]),
+			state: z.enum(["ready", "missing", "needs_you"]),
+			label: z.string(),
+			detail: z.string(),
+			href: z.string().regex(/^\/(?!\/)/),
+		}),
+	),
+});
+export type TediSetup = z.infer<typeof TediSetupSchema>;
+
 export const tedisContract = oc
 	.route({ tags: ["tedis"], prefix: "/tedis" })
 	.errors({
@@ -250,6 +266,13 @@ export const tedisContract = oc
 		},
 	})
 	.router({
+		getSetup: oc
+			.route({
+				method: "GET",
+				summary: "Read a tedi's configuration-derived setup checklist",
+			})
+			.input(TediIdParamSchema)
+			.output(TediSetupSchema),
 		runTediDurableCode: oc
 			.route({ method: "POST", summary: "Run durable code on a tedi" })
 			.input(RunTediDurableCodeInputSchema)

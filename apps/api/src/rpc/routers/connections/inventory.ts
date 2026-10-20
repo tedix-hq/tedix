@@ -93,9 +93,10 @@ export function summarizeCredential(
 	};
 }
 
-async function readConnectionsOverview(
+export async function readConnectionsOverview(
 	context: BaseContext,
 	input: ConnectionInventoryInput,
+	providerIds?: ReadonlySet<string>,
 ): Promise<ConnectionInventory> {
 	const organizationId = requireOrgId(context);
 	const userId =
@@ -114,6 +115,7 @@ async function readConnectionsOverview(
 		.filter(
 			(p) =>
 				(!input.providerId || p.appId === input.providerId) &&
+				(!providerIds || providerIds.has(p.appId)) &&
 				p.supportedScopes.includes(scope),
 		);
 	const rows: ConnectionInventoryRow[] = [];
@@ -171,7 +173,7 @@ async function readConnectionsOverview(
 					!isInventoryProviderVisible(
 						credential.state,
 						appReferences.length > 0,
-						!!input.providerId,
+						!!input.providerId || !!providerIds?.has(provider.appId),
 					)
 				)
 					continue;
