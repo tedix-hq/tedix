@@ -36,13 +36,15 @@ export function AppGatewayMembership({
 		},
 	});
 	const state = membership.data;
+	const isGateway = state?.gateway?.id === appId;
 	return (
 		<Card>
 			<CardHeader>
 				<CardTitle>Unified gateway</CardTitle>
 				<CardDescription>
-					Choose whether connected AI clients can discover this app through your
-					organization’s gateway.
+					{isGateway
+						? "This app is the unified gateway for your organization."
+						: "Choose whether connected AI clients can discover this app through your organization’s gateway."}
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">
@@ -57,6 +59,11 @@ export function AppGatewayMembership({
 							</Button>
 						</AlertDescription>
 					</Alert>
+				) : isGateway ? (
+					<Text as="p" role="body" tone="secondary">
+						Self-membership does not apply. Manage availability from each
+						installed app. Client permissions and account access still apply.
+					</Text>
 				) : state ? (
 					<>
 						<div className="flex items-center justify-between gap-4">

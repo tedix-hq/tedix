@@ -308,7 +308,8 @@ describe("AppRowMain", () => {
 				eligibility={{ badge: "ready", result: readyResult }}
 			/>,
 		);
-		expect(html).toContain("Ready to use");
+		expect(html).toContain("Requirements met");
+		expect(html).not.toContain("Ready to use");
 		expect(html).toContain("3 tools listed");
 		expect(html).toContain("acme · acme.mcp.tedix.dev");
 		expect(html.match(/data-slot="badge"/g)).toHaveLength(2);
