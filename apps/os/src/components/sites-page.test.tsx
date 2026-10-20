@@ -302,6 +302,44 @@ function enterConfirmation(slug: string) {
 }
 
 describe("SitesPage owned-site actions", () => {
+	it("opens management from the mobile card without mutating the site", () => {
+		authorityPermissions.current = [];
+		siteCustomDomain.current = null;
+		const host = renderPage();
+		const card = host.querySelector('ul[aria-label="Owned sites"] li');
+		expect(card?.textContent).toContain("Acme");
+		expect(card?.textContent).toContain("active");
+		expect(card?.textContent).toContain("blog.acme.example");
+		expect(card?.textContent).not.toContain("https://");
+		expect(
+			card?.querySelector('[aria-label="More actions for Acme"]'),
+		).not.toBeNull();
+		const manage = [...(card?.querySelectorAll("button") ?? [])].find(
+			(button) => button.textContent === "Manage",
+		);
+		if (!manage) throw new Error("Mobile manage action missing");
+		act(() => manage.click());
+		expect(host.textContent).toContain(
+			"Manage the domain and deployment for this CMS site.",
+		);
+		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
+	});
+
+	it("requires typed confirmation for the mobile archive action", () => {
+		const host = renderPage();
+		const card = host.querySelector('ul[aria-label="Owned sites"] li');
+		const archive = [...(card?.querySelectorAll("button") ?? [])].find(
+			(button) => button.textContent === "Archive site",
+		);
+		if (!archive) throw new Error("Mobile archive action missing");
+		act(() => archive.click());
+		expect(document.body.textContent).toContain("Archive Acme?");
+		expect(
+			document.querySelector('input[aria-labelledby*="confirmation"]'),
+		).not.toBeNull();
+		expect(lifecycleMutation.mutate).not.toHaveBeenCalled();
+	});
+
 	it("lets an owner manage a legacy active domain after a plan downgrade", () => {
 		customDomainEntitlement.enabled = false;
 		const host = renderPage();
