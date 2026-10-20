@@ -23,6 +23,14 @@ The other checks stay in CI. `bun run verify` retains the complete profile;
 `--ci-policy --all` runs the repository checks in CI. Full workspace suites cover
 the consumer checks previously selected by `vitest related`.
 
+In fast mode, `bun run push` starts a detached completion observer using the
+existing `gh` session. It checks every 15 seconds for up to 30 minutes and wakes
+ops only after this push, or a main descendant containing it, passes CI. Ops
+independently resolves and verifies the newest green main commit. No Actions
+secret is added. Logs are in the common Git directory's `ci-completion.log`.
+An unavailable `gh` session or an expired observer leaves the scheduled fallback
+active; immediate notification requires the pushing host to remain running.
+
 The repository observer reports only failed runs that still match main's tip,
 using the exact workflow attempt's failed shards. One `ci_red` Work observation
 is deduplicated by repository, SHA and surface; it carries the pushing commit's
