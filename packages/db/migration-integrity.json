@@ -1016,6 +1016,10 @@
 		{
 			"name": "20261020011144_card-revision-feedback/migration.sql",
 			"sha256": "e88669d7ea3290f51fe8d8df117d408f810a1215b5eb7163ab145eca79f66942"
+		},
+		{
+			"name": "20261020101432_support_draft_supersession_guard/migration.sql",
+			"sha256": "ecf00e2158116e63b1d4933fb504018f0679c7b99d2c00285783f7b8c578a483"
 		}
 	]
 }
