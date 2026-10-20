@@ -256,7 +256,7 @@ describe("TediDetailPage", () => {
 		await flush();
 		expect(
 			container.querySelector(
-				'[role="tablist"][aria-label="Tedi detail sections"]',
+				'[role="group"][aria-label="Tedi detail sections"] [role="tablist"]',
 			),
 		).not.toBeNull();
 		expect(

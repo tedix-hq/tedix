@@ -27,7 +27,7 @@ import {
 	PageTitle,
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
+import { KumoTabs } from "@/components/kumo/tabs";
 import { mcpEndpointHost } from "@/components/app-detail";
 import { appDetailQueryOptions } from "@/lib/os-query-options";
 
@@ -66,26 +66,23 @@ function AppTabStrip({ appId }: { appId: string }) {
 	const activeTab = resolveAppDetailTab(pathname, appId);
 
 	return (
-		<Tabs value={activeTab}>
-			<TabsList aria-label="App sections" variant="line">
-				{APP_DETAIL_TABS.map((tab) => (
-					<TabsTrigger
-						key={tab.value}
-						nativeButton={false}
-						value={tab.value}
-						render={
-							<Link
-								to={`/apps/$appId${tab.suffix}`}
-								params={params}
-								preload="intent"
-							/>
-						}
-					>
-						{tab.label}
-					</TabsTrigger>
-				))}
-			</TabsList>
-		</Tabs>
+		<KumoTabs
+			aria-label="App sections"
+			variant="underline"
+			value={activeTab}
+			tabs={APP_DETAIL_TABS.map((tab) => ({
+				value: tab.value,
+				label: tab.label,
+				nativeButton: false,
+				render: (
+					<Link
+						to={`/apps/$appId${tab.suffix}`}
+						params={params}
+						preload="intent"
+					/>
+				),
+			}))}
+		/>
 	);
 }
 

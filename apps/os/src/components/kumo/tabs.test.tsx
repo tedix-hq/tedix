@@ -42,6 +42,39 @@ describe("Kumo Tabs adapter", () => {
 		expect(controlled).toContain("Done");
 	});
 
+	it("renders routed underline tabs as anchors inside a labelled group", () => {
+		const doc = new DOMParser().parseFromString(
+			renderToStaticMarkup(
+				<KumoTabs
+					aria-label="Sections"
+					variant="underline"
+					value="overview"
+					listClassName="custom-list"
+					indicatorClassName="custom-indicator"
+					labels={{ scrollEnd: "More sections" }}
+					tabs={[
+						{
+							value: "overview",
+							label: "Overview",
+							nativeButton: false,
+							render: <a href="/overview" />,
+						},
+					]}
+				/>,
+			),
+			"text/html",
+		);
+		const group = doc.querySelector('[role="group"][aria-label="Sections"]');
+		const tab = group?.querySelector('a[role="tab"]');
+		expect(tab?.getAttribute("href")).toBe("/overview");
+		expect(tab?.getAttribute("aria-selected")).toBe("true");
+		const rail = group?.querySelector('[role="tablist"]');
+		expect(rail?.classList.contains("h-9")).toBe(true);
+		expect(rail?.classList.contains("border-b")).toBe(true);
+		expect(rail?.classList.contains("custom-list")).toBe(true);
+		expect(group?.querySelector('[aria-label="More sections"]')).not.toBeNull();
+	});
+
 	it("derives both routed-tab overflow directions from the scroll viewport", () => {
 		const current = {
 			isOverflowing: false,
