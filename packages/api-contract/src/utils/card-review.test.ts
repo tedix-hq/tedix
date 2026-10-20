@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import { firstLink, sourceParts } from "./card-review";
+import {
+	firstLink,
+	sourceParts,
+	cardsFromSheet,
+	reviewQueue,
+} from "./card-review";
+import { factoryCardDeadline } from "./card-schedule";
+import { CardReviewSourceSchema } from "../schemas/os-card-review";
 
 describe("firstLink", () => {
 	it("returns the first link without trailing punctuation", () => {
@@ -52,4 +59,64 @@ describe("sourceParts", () => {
 		expect(parts.links).toEqual([link]);
 		expect(parts.label).toBe("");
 	});
+});
+
+it("preserves deadline and visibility column meanings through the review queue", () => {
+	const source = CardReviewSourceSchema.parse({
+		label: "Pine",
+		workspaceId: "11111111-1111-4111-8111-111111111111",
+		cardSheetPrefix: "Cards",
+		columns: {
+			source: "Source",
+			why: "Why",
+			useful: "Useful",
+			reason: "Reason",
+			done: "Done",
+		},
+		doIt: "approve",
+	});
+	const parsed = cardsFromSheet({
+		source,
+		sourceIndex: 0,
+		outputId: "fictional-sheet",
+		sheetTitle: "Cards",
+		runCreatedAt: "2026-10-20T12:00:00Z",
+		body: {
+			kind: "sheet",
+			columns: [
+				"Source",
+				"Why",
+				"Useful",
+				"Reason",
+				"Done",
+				"Due",
+				"Show from",
+			],
+			rows: [
+				["Visible", "Review", "", "", "", "2026-10-22", ""],
+				["Hidden", "Wait", "", "", "", "2026-10-22", "2026-10-21"],
+			],
+		},
+	});
+	if ("missing" in parsed) throw new Error("Missing fixture columns");
+	const options = {
+		channel: null,
+		snoozes: {},
+		skipped: [],
+		timeZone: "Europe/Berlin",
+		now: new Date("2026-10-20T12:00:00Z"),
+	};
+	expect(
+		reviewQueue(parsed.cards, options).map((card) => card.sourceText),
+	).toEqual(["Visible"]);
+	expect(
+		reviewQueue(parsed.cards, {
+			...options,
+			now: new Date("2026-10-20T22:00:00Z"),
+		}),
+	).toHaveLength(2);
+	expect(parsed.cards.map((card) => factoryCardDeadline(card))).toEqual([
+		"2026-10-22",
+		"2026-10-22",
+	]);
 });

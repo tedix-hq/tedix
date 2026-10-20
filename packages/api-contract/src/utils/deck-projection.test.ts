@@ -410,3 +410,21 @@ it("orders overdue, critical, due today, then the ranker's label ahead of score"
 			.map((card) => (card as { id: string }).id),
 	).toEqual(["overdue", "critical", "today", "valuable", "noise-high-score"]);
 });
+
+it("keeps future deadlines visible in nearest-deadline order while respecting show-from", () => {
+	const later = row("later", { decisionClass: "opportunity.new" });
+	later.request.dueAt = "2026-10-23";
+	const nearer = row("nearer", {
+		decisionClass: "opportunity.new",
+		showFrom: "2026-10-19",
+	});
+	nearer.request.dueAt = "2026-10-20";
+	const hidden = row("hidden", {
+		decisionClass: "opportunity.new",
+		showFrom: "2026-10-20",
+	});
+	hidden.request.dueAt = "2026-10-21";
+	const cards = project([later, hidden, nearer]);
+	expect(cards.map((card) => card.id)).toEqual(["nearer", "later"]);
+	expect(cards.map((card) => card.dueAt)).toEqual(["2026-10-20", "2026-10-23"]);
+});

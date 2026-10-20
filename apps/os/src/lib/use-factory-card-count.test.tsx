@@ -91,7 +91,15 @@ it("keeps row identities across factory runs and reconciles a verdict through th
 				revision: 1,
 				content: {
 					kind: "sheet" as const,
-					columns: ["Type", "Source", "Why", "Useful?", "Reason", "Done?"],
+					columns: [
+						"Type",
+						"Source",
+						"Why",
+						"Useful?",
+						"Reason",
+						"Done?",
+						"Due at",
+					],
 					rows: [
 						[
 							"opportunity",
@@ -100,6 +108,7 @@ it("keeps row identities across factory runs and reconciles a verdict through th
 							"",
 							"",
 							"",
+							"2099-10-22",
 						],
 					],
 				},

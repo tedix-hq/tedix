@@ -232,9 +232,12 @@ it("correlates only canonical effect receipts, including Outbound's pre-send rev
 });
 
 it("holds every future decision until its scheduled calendar date", () => {
-	const request = { kind: "coordination", dueAt: "2026-10-28T08:00:00Z" };
+	const request = {
+		kind: "coordination",
+		scheduledFor: "2026-10-28T08:00:00Z",
+	};
 	expect(decisionIsDue(request, new Date("2026-10-18T10:09:00Z"))).toBe(false);
-	expect(decisionIsDue(request, new Date(request.dueAt))).toBe(true);
+	expect(decisionIsDue(request, new Date(request.scheduledFor))).toBe(true);
 	expect(decisionIsDue(request, new Date("2026-10-29T10:09:00Z"))).toBe(true);
 	expect(
 		decisionIsDue(
@@ -284,9 +287,18 @@ it("shows an owned deadline decision before its deadline while preserving explic
 	expect(decisionIsDue(request, now, "Europe/Berlin")).toBe(true);
 	expect(
 		decisionIsDue(
-			{ ...request, metadata: { source: "reminder" } },
+			{ ...request, metadata: { source: "reminder", remindAt: "2026-10-20" } },
 			now,
 			"Europe/Berlin",
 		),
 	).toBe(false);
+});
+
+it("keeps a future deadline visible", () => {
+	expect(
+		decisionIsDue(
+			{ kind: "question", dueAt: "2026-10-28" },
+			new Date("2026-10-18T12:00:00Z"),
+		),
+	).toBe(true);
 });

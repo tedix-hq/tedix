@@ -1,6 +1,6 @@
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadReporter } from "@/components/work-read-region";
-import { cardIsDue } from "@/lib/card-schedule";
+import { cardIsDue } from "@tedix/api-contract/utils/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";

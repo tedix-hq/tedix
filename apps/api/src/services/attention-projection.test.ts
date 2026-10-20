@@ -338,3 +338,44 @@ it("includes ordinary owner questions and non-critical approvals routed to Feed"
 		]),
 	);
 });
+
+it("separates factory deadlines from show-from in Deck and Feed", async () => {
+	const implementation = mocks.call.getMockImplementation()!;
+	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {
+		const result = await implementation(procedure, input);
+		if (procedure !== "output") return result;
+		result.currentRevision.content.columns.push("Due at", "Show from");
+		result.currentRevision.content.rows = [
+			[
+				"opportunity",
+				"Visible deadline",
+				"Review tomorrow's deadline",
+				"",
+				"",
+				"",
+				"2099-10-22",
+				"",
+			],
+			[
+				"opportunity",
+				"Hidden schedule",
+				"Wait until shown",
+				"",
+				"",
+				"",
+				"2099-10-22",
+				"2099-10-21",
+			],
+		];
+		return result;
+	});
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.cards.map((card) => card.id)).toEqual([`factory:${outputId}:0`]);
+	expect(deck.cards[0]?.dueAt).toBe("2099-10-22");
+	const feed = await loadForYouProjection(context, { limit: 100 });
+	expect(
+		feed.items
+			.filter((item) => item.id.startsWith("factory:"))
+			.map((item) => item.id),
+	).toEqual([`factory:${outputId}:0`]);
+});

@@ -64,7 +64,15 @@ it("projects an existing fictional factory sheet with its revision and the same 
 			revision: 3,
 			content: {
 				kind: "sheet",
-				columns: ["Source", "Why", "Useful", "Reason", "Done", "Result"],
+				columns: [
+					"Source",
+					"Why",
+					"Useful",
+					"Reason",
+					"Done",
+					"Result",
+					"Due at",
+				],
 				rows: [
 					[
 						"https://supplier.example/receipt",
@@ -81,6 +89,7 @@ it("projects an existing fictional factory sheet with its revision and the same 
 						"",
 						"",
 						"Review the supplier reply.",
+						"2099-10-22",
 					],
 					[
 						"https://supplier.example/question",
