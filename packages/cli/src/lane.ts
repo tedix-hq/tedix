@@ -1,6 +1,7 @@
 import { runLaneProcess, laneRunUsage } from "./lane-run";
 import { createHash } from "node:crypto";
 import { briefRepository } from "@tedix/context-core/situational-recall";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { repoSlug } from "./hooks/prompt-context";
 import { spawnSync } from "node:child_process";
 import {
@@ -327,7 +328,7 @@ export async function runLane(args: string[]): Promise<number> {
 				[
 					...lane.scope,
 					"code",
-					`async () => await agent.record_lesson_incident(${JSON.stringify(input)})`,
+					`async () => await agent.record_lesson_incident(${codeModeLiteral(input)})`,
 				],
 				{ ...process.env, TEDIX_AGENT_SESSION: lane.session },
 			);

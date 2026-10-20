@@ -14,6 +14,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { join } from "node:path";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 
 export const fixtures = [
 	{
@@ -172,7 +173,7 @@ export function unwrap(value) {
 }
 /** Project before Code Mode serializes: full proposal metadata can exceed its output budget. */
 export function runReadbackCode(runId) {
-	return `const detail = await home.read_home_run(${JSON.stringify({ runId })});
+	return `const detail = await home.read_home_run(${codeModeLiteral({ runId })});
 const { id, status, completedAt, metadata: m } = detail.run;
 return { run: { id, status, completedAt, metadata: {
   kernelTurnTimings: m.kernelTurnTimings,
@@ -454,11 +455,11 @@ async function main() {
 				await archive(
 					() =>
 						code(
-							`return await home.archive_conversation(${JSON.stringify({ conversationId: row.conversation, archived: true })});`,
+							`return await home.archive_conversation(${codeModeLiteral({ conversationId: row.conversation, archived: true })});`,
 						),
 					() =>
 						code(
-							`return await home.list_conversations(${JSON.stringify({ search: row.conversation, includeArchived: true, limit: 500 })});`,
+							`return await home.list_conversations(${codeModeLiteral({ search: row.conversation, includeArchived: true, limit: 500 })});`,
 						),
 					(state) =>
 						state?.conversations?.some(
@@ -468,7 +469,7 @@ async function main() {
 			}
 			const listed = await readScratchWithBackoff(() =>
 				code(
-					`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+					`return await os.list_os_outputs(${codeModeLiteral({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
 				),
 			);
 			if (!listed?.items || listed.truncated)
@@ -477,11 +478,11 @@ async function main() {
 				await archive(
 					() =>
 						code(
-							`return await os.archive_os_output(${JSON.stringify({ outputId: output.id })});`,
+							`return await os.archive_os_output(${codeModeLiteral({ outputId: output.id })});`,
 						),
 					() =>
 						code(
-							`return await os.get_os_output(${JSON.stringify({ outputId: output.id })});`,
+							`return await os.get_os_output(${codeModeLiteral({ outputId: output.id })});`,
 						),
 					(state) => state?.output?.status === "archived",
 				);
@@ -489,17 +490,17 @@ async function main() {
 			const archived = await archive(
 				() =>
 					code(
-						`return await os.archive_os_workspace(${JSON.stringify({ workspaceId: workspace.id })});`,
+						`return await os.archive_os_workspace(${codeModeLiteral({ workspaceId: workspace.id })});`,
 					),
 				() =>
 					code(
-						`return await os.get_os_workspace(${JSON.stringify({ workspaceId: workspace.id })});`,
+						`return await os.get_os_workspace(${codeModeLiteral({ workspaceId: workspace.id })});`,
 					),
 				(state) => state?.workspace?.status === "archived",
 			);
 			const remaining = await readScratchWithBackoff(() =>
 				code(
-					`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+					`return await os.list_os_outputs(${codeModeLiteral({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
 				),
 			);
 			if (!remaining?.items || remaining.items.length || remaining.truncated)
@@ -606,7 +607,7 @@ async function main() {
 					});
 					if (f.kind) {
 						const listed = await code(
-							`return await os.list_os_outputs(${JSON.stringify({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
+							`return await os.list_os_outputs(${codeModeLiteral({ workspaceId: workspace.id, status: "active", limit: 200 })});`,
 						);
 						const matches = (listed.items ?? []).filter(
 							(o) => o.title === title && o.kind === f.kind,
@@ -619,7 +620,7 @@ async function main() {
 								`No ${f.kind} with exact title in scratch workspace (run ${run.status})`,
 							);
 						const detail = await code(
-							`return await os.get_os_output(${JSON.stringify({ outputId: output.id })});`,
+							`return await os.get_os_output(${codeModeLiteral({ outputId: output.id })});`,
 						);
 						await writeFile(
 							join(values.out, `${round}-${f.id}-output.json`),

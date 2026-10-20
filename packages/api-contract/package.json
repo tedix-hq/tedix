@@ -28,6 +28,7 @@
 		"./schemas/personal-agent-inbound": "./src/schemas/personal-agent-inbound.ts",
 		"./contracts/personal-agent-inbound": "./src/contracts/personal-agent-inbound.ts",
 		"./utils/host-session-id": "./src/utils/host-session-id.ts",
+		"./utils/code-mode-literal": "./src/utils/code-mode-literal.ts",
 		"./schemas/agent-session-feedback": "./src/schemas/agent-session-feedback.ts",
 		"./assets/decision-card-copy.v2.json": "./src/assets/decision-card-copy.v2.json",
 		"./schemas/memory-observations": "./src/schemas/memory-observations.ts",

@@ -8,6 +8,7 @@ import { cliRead } from "./hooks/hook-io";
 import { redact } from "./hooks/decision-capture";
 import { scrub, type LearnDeps } from "./learn-import";
 import type { SessionFeedbackCandidate } from "@tedix/api-contract/schemas/agent-session-feedback";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 
 export function memoryCandidates(
 	directory: string,
@@ -205,7 +206,7 @@ export async function runMemoryImport(
 		};
 		results.push(
 			await call(
-				`async () => await agent.record_session_feedback(${JSON.stringify({ candidates: [extracted] })})`,
+				`async () => await agent.record_session_feedback(${codeModeLiteral({ candidates: [extracted] })})`,
 			),
 		);
 	}

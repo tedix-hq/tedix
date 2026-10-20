@@ -10,6 +10,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SessionFeedbackCandidateSchema } from "@tedix/api-contract/schemas/agent-session-feedback";
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { humanText, scrub } from "../learn-import";
 import { localFeedbackModel } from "../learn-analyze";
 import { harnessOf } from "./agent-status";
@@ -202,7 +203,7 @@ export async function runSessionFeedback(
 				queued.find((item) => !item.pending)?.candidate.repository,
 	);
 	if (!ready.length) return;
-	const code = `async () => await agent.record_session_feedback(${JSON.stringify({ candidates: ready.map((row) => row.candidate) })})`;
+	const code = `async () => await agent.record_session_feedback(${codeModeLiteral({ candidates: ready.map((row) => row.candidate) })})`;
 	const result = await deps.read([...binding.command, "code"], 10_000, code, {
 		env: userEnv,
 	});
