@@ -201,6 +201,38 @@ it.each([
 	},
 );
 
+it("pins critical factory policy even when the normalized label is neutral", async () => {
+	mocks.projection.mockResolvedValue({
+		cards: [
+			card("routine"),
+			{
+				...card("factory"),
+				score: -100,
+				factory: {
+					outputId: "11111111-1111-4111-8111-111111111111",
+					sourceIndex: 0,
+					rowIndex: 0,
+					revision: 1,
+					policyCritical: true,
+					draft: "",
+					why: "",
+					sourceText: "Review the proposal.",
+				},
+			},
+		],
+		config: {},
+		complete: true,
+		observedAt: "2026-10-19T10:00:00.000Z",
+	});
+	const result = await rankCurrentDeck(context, input);
+	expect(result.cards[0]!.id).toBe("factory");
+	expect(result.signals.find((row) => row.cardId === "factory")).toMatchObject({
+		reason: "critical",
+		penalty: 0,
+	});
+	expect(mocks.model).toHaveBeenCalledTimes(1);
+});
+
 it("uses the configured Workers AI Gateway binding without requiring an HTTP token", async () => {
 	const bound = {
 		...context,

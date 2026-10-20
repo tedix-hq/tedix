@@ -182,6 +182,15 @@ it("gates factory Deck cards with the shared policy while Feed retains withheld 
 		]),
 	);
 });
+it("retains the routing policy's critical classification on factory snapshots", async () => {
+	routing = {
+		...DEFAULT_DECK_ROUTING,
+		criticalClasses: ["opportunity"],
+	};
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.cards[0]?.factory?.policyCritical).toBe(true);
+});
+
 it("uses learned factory usefulness and an explicit routing policy without mutating source rows", async () => {
 	model.weights.usefulness.push({
 		key: "class:factory:Inbox:opportunity",
