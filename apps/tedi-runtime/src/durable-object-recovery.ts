@@ -32,6 +32,8 @@ const RUNTIME_LOSS_TRANSIENT_PATTERNS = [
 	// parent rebuilds the turn on a fresh isolate.
 	/\bnetwork connection lost\b/i,
 	/FACET_TOOL_REGISTRY_UNAVAILABLE/,
+	// The gateway dropped the MCP session before the turn could start.
+	/version negotiation probe failed: connection closed/i,
 ];
 
 /**
