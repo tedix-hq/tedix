@@ -28,6 +28,10 @@ const RUNTIME_LOSS_TRANSIENT_PATTERNS = [
 	/storage.*(?:reset|reset because)/i,
 	// Cloudflare's own Workflows engine failed the attempt; the turn did not.
 	/attempt failed due to internal workflows? error/i,
+	// A deploy dropped the parent DO connection or its facet tool registry; the
+	// parent rebuilds the turn on a fresh isolate.
+	/\bnetwork connection lost\b/i,
+	/FACET_TOOL_REGISTRY_UNAVAILABLE/,
 ];
 
 /**
