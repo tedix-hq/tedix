@@ -237,6 +237,29 @@ describe("Portfolio grouping", () => {
 });
 
 describe("WorkPortfolioPage", () => {
+	it("leads with Projects and keeps every project group ahead of factories", () => {
+		const doc = new DOMParser().parseFromString(
+			render(seededClient()),
+			"text/html",
+		);
+		expect(doc.querySelector("h1")?.textContent).toBe("Projects");
+		const factories = doc.querySelector(
+			'[aria-labelledby="portfolio-factories-title"]',
+		);
+		expect(factories).not.toBeNull();
+		for (const section of doc.querySelectorAll("[data-portfolio-bucket]")) {
+			expect(section.compareDocumentPosition(factories!) & 4).toBe(4);
+		}
+		const unsorted = [...doc.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Unsorted (2)"),
+		);
+		expect(unsorted).toBeDefined();
+		expect(unsorted!.compareDocumentPosition(factories!) & 4).toBe(4);
+		expect(doc.querySelectorAll("[data-factory]")).toHaveLength(
+			FACTORIES.length,
+		);
+	});
+
 	it("renders only populated configured sections", () => {
 		const doc = new DOMParser().parseFromString(
 			render(seededClient()),
@@ -461,7 +484,7 @@ describe("WorkPortfolioPage", () => {
 			error: { message: "Project access denied. Sign in again." } as Error,
 		});
 		const html = render(queryClient);
-		expect(html).toContain("Portfolio unavailable");
+		expect(html).toContain("Projects unavailable");
 		expect(html).toContain("Project access denied. Sign in again.");
 	});
 });
