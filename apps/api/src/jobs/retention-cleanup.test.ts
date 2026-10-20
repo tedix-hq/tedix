@@ -85,7 +85,9 @@ vi.mock("@tedix/db/queries/catalog/scheduled-maintenance", () => ({
 	getStaleUnhealthyAppCount: vi.fn().mockResolvedValue(0),
 	autoDisableDeadMcpCatalogApps: vi.fn().mockResolvedValue({ disabled: 0 }),
 	autoHideUnhealthyCatalogApps: vi.fn().mockResolvedValue(0),
-	autoDelistStaleCatalogApps: vi.fn().mockResolvedValue(0),
+	autoDelistStaleCatalogApps: vi
+		.fn()
+		.mockResolvedValue({ delisted: 0, skippedProtected: 0 }),
 }));
 vi.mock("@tedix/db/queries/rationale-records", () => ({
 	closeStalePendingRationaleRecords: vi.fn().mockResolvedValue(0),

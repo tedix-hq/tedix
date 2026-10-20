@@ -3,7 +3,7 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
-import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, not, or, sql } from "drizzle-orm";
 import { appCatalog } from "../../schema/catalog";
 import { chunkForBoundParams } from "../../utils/batch";
 import { getAffectedRows } from "../../utils/d1-result";
@@ -142,12 +142,60 @@ export async function autoDisableDeadMcpCatalogApps(
 
 /**
  * Auto-delist apps that have not been synced for more than the given number of days.
- * Sets `status = 'DELISTED'` and `is_discoverable = 0`. Returns the number of apps delisted.
+ * Sets `status = 'DELISTED'` and `is_discoverable = 0`.
+ *
+ * Two classes of stale row are kept ENABLED, because their `last_synced_at`
+ * can never be refreshed by the scanner rather than because the app is gone:
+ *
+ * - `keepManual` (default true): apps carrying a `manual` store listing.
+ *   `app_catalog` has no `source` column — per-source provenance lives on
+ *   `app_catalog_store_listings.source`, and a manual listing is the marker
+ *   that a human listed the app deliberately.
+ * - `keepAuthGated` (default true): apps whose latest `health_status` is
+ *   `requires_auth` (the scanner's last check got 401/403), or whose
+ *   `auth_types` JSON demands an OAUTH/API_KEY credential the scanner does
+ *   not hold (`scan_auth_headers` and `scan_connection_id` both NULL).
+ *
+ * Returns the number delisted plus `skippedProtected`, the count of stale
+ * ENABLED candidates the guards kept — reported in the cron log.
  */
 export async function autoDelistStaleCatalogApps(
 	db: Database,
 	days = 21,
-): Promise<number> {
+	options: { keepManual?: boolean; keepAuthGated?: boolean } = {},
+): Promise<{ delisted: number; skippedProtected: number }> {
+	const { keepManual = true, keepAuthGated = true } = options;
+	const protection = or(
+		keepManual
+			? sql`EXISTS (SELECT 1 FROM app_catalog_store_listings WHERE catalog_app_id = ${appCatalog.id} AND source = 'manual')`
+			: undefined,
+		keepAuthGated
+			? or(
+					eq(appCatalog.healthStatus, "requires_auth"),
+					and(
+						sql`EXISTS (SELECT 1 FROM json_each(${appCatalog.authTypes}) WHERE json_each.value IN ('OAUTH', 'API_KEY'))`,
+						sql`${appCatalog.scanAuthHeaders} IS NULL`,
+						sql`${appCatalog.scanConnectionId} IS NULL`,
+					),
+				)
+			: undefined,
+	);
+	const staleEnabled = () =>
+		and(
+			sql`${appCatalog.lastSyncedAt} < datetime('now', ${`-${days} days`})`,
+			eq(appCatalog.status, "ENABLED"),
+		);
+
+	let skippedProtected = 0;
+	if (protection) {
+		const row = await db
+			.select({ skipped: sql<number>`COUNT(*)` })
+			.from(appCatalog)
+			.where(and(staleEnabled(), protection))
+			.then((rows) => rows[0]);
+		skippedProtected = row?.skipped ?? 0;
+	}
+
 	const result = await db
 		.update(appCatalog)
 		// Lifecycle status transition — the clearest "this catalog record changed"
@@ -159,14 +207,9 @@ export async function autoDelistStaleCatalogApps(
 			isDiscoverable: false,
 			updatedAt: sql`datetime('now')`,
 		})
-		.where(
-			and(
-				sql`${appCatalog.lastSyncedAt} < datetime('now', ${`-${days} days`})`,
-				eq(appCatalog.status, "ENABLED"),
-			),
-		);
+		.where(and(staleEnabled(), protection ? not(protection) : undefined));
 
-	return getAffectedRows(result);
+	return { delisted: getAffectedRows(result), skippedProtected };
 }
 
 /**
