@@ -56,7 +56,11 @@ vi.mock("@/lib/api", () => ({
 	},
 }));
 
-import { TediDetailHeader, TediDetailPage } from "./tedi-detail";
+import {
+	TediDetailHeader,
+	TediDetailPage,
+	TediWiringView,
+} from "./tedi-detail";
 import * as localInference from "@/lib/local-inference";
 
 (
@@ -278,5 +282,17 @@ describe("TediDetailPage", () => {
 		await flush();
 		expect(container.textContent).toContain("The tedi roster is unavailable");
 		expect(container.textContent).toContain("Nested tedi route");
+	});
+});
+
+describe("TediWiringView", () => {
+	it("shows the wiring sections and a copy button, without ids", () => {
+		const html = renderToStaticMarkup(
+			<TediWiringView tedi={tedi({ installedSkills: ["close-the-month"] })} />,
+		);
+		expect(html).toContain("Wiring");
+		expect(html).toContain("Copy as Markdown");
+		expect(html).toContain("close-the-month");
+		expect(html).not.toContain(TEDI_ID);
 	});
 });
