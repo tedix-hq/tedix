@@ -18,6 +18,7 @@
 		"./schemas/deck-pipeline": "./src/schemas/deck-pipeline.ts",
 		"./utils/deck-pipeline": "./src/utils/deck-pipeline.ts",
 		"./utils/deck-curator": "./src/utils/deck-curator.ts",
+		"./utils/deck-rule-rank": "./src/utils/deck-rule-rank.ts",
 		"./utils/feed-story": "./src/utils/feed-story.ts",
 		"./utils/decision-expiry": "./src/utils/decision-expiry.ts",
 		"./utils/activity-feed": "./src/utils/activity-feed.ts",

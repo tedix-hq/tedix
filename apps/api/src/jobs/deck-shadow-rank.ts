@@ -9,8 +9,13 @@ import {
 import {
 	currentDeckCuration,
 	deckRankSignal,
+	orderCuratedDeck,
 	retrieveDeckExamples,
 } from "@tedix/api-contract/utils/deck-curator";
+import {
+	compareDeckOrders,
+	ruleRankDeck,
+} from "@tedix/api-contract/utils/deck-rule-rank";
 import {
 	deckHidingClassKey,
 	deckSourceKey,
@@ -72,9 +77,43 @@ export async function deckRankPool(
 }
 
 /**
+ * Model order as the live Deck applies it (penalties only, protected first)
+ * beside the deterministic rule order, so the model ranker has a baseline to beat.
+ */
+export function compareShadowRanking(
+	cards: readonly SweepCard[],
+	penalties: ReadonlyMap<string, number>,
+	now: Date,
+	timeZone: string,
+) {
+	const ruleOrder = ruleRankDeck(
+		cards.map((card) => ({ ...card, critical: card.protected })),
+		now,
+		timeZone,
+	).map(({ card }) => card.id);
+	const modelOrder = orderCuratedDeck(
+		cards.map((card) => ({
+			id: card.id,
+			score: 0,
+			overdue: !!card.dueAt && Date.parse(card.dueAt) < now.getTime(),
+		})),
+		[...penalties].map(([cardId, penalty]) => ({
+			cardId,
+			label: null,
+			penalty,
+			reason: "valuable" as const,
+			exampleIds: [],
+		})),
+		new Set(cards.filter((card) => card.protected).map((card) => card.id)),
+	).map((card) => card.id);
+	return { ruleOrder, modelOrder, ...compareDeckOrders(ruleOrder, modelOrder) };
+}
+
+/**
  * S3 in shadow: Qwen's label (never its probability) lowers rank only; Clef's
  * NOISE probability is logged as the second key. Nothing is hidden here.
  * Each card is labelled once per revision, within the organization's budget.
+ * The result also carries the rule order and its distance from the model order.
  */
 export async function shadowRankDeck(input: {
 	db: DbClient;
@@ -85,6 +124,7 @@ export async function shadowRankDeck(input: {
 	pool: readonly DeckRankExample[];
 	now: Date;
 	limit: number;
+	timeZone?: string;
 }) {
 	const ranker = DeckCuratorRankerConfigSchema.parse(
 		input.learning.deckCuratorRanker ?? {},
@@ -98,10 +138,21 @@ export async function shadowRankDeck(input: {
 		budget: 0,
 		modelFailed: 0,
 		writeFailed: 0,
+		// Rule-baseline comparison; integer sums stay meaningful across recipients.
+		ruleCompared: 0,
+		ruleTopOverlap: 0,
+		ruleTopSize: 0,
+		ruleDiscordantPairs: 0,
+		rulePairs: 0,
 	};
 	if (!ranker.enabled || input.limit <= 0) {
 		counts.disabled = input.cards.length;
-		return counts;
+		return { ...counts, ruleOrder: [], modelOrder: [] };
+	}
+	const penalties = new Map<string, number>();
+	for (const card of input.cards) {
+		const penalty = currentDeckCuration(card.metadata)?.penalty;
+		if (penalty) penalties.set(card.id, penalty);
 	}
 	const cohort = input.cards.map((card) => ({
 		id: card.id,
@@ -163,6 +214,7 @@ export async function shadowRankDeck(input: {
 			counts.modelFailed += 1;
 			continue;
 		}
+		penalties.set(card.id, signal.penalty);
 		let secondKeyNoise: number | null = null;
 		if (signal.label === "NOISE") {
 			const clef = await runClef(input.env, {
@@ -229,5 +281,22 @@ export async function shadowRankDeck(input: {
 			counts.writeFailed += 1;
 		}
 	}
-	return counts;
+	const comparison = compareShadowRanking(
+		input.cards,
+		penalties,
+		input.now,
+		input.timeZone ?? "UTC",
+	);
+	if (comparison.ruleOrder.length > 1) {
+		counts.ruleCompared = 1;
+		counts.ruleTopOverlap = comparison.topOverlap;
+		counts.ruleTopSize = comparison.topK;
+		counts.ruleDiscordantPairs = comparison.discordant;
+		counts.rulePairs = comparison.pairs;
+	}
+	return {
+		...counts,
+		ruleOrder: comparison.ruleOrder,
+		modelOrder: comparison.modelOrder,
+	};
 }

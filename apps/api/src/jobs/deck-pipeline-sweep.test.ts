@@ -291,6 +291,45 @@ describe("deck pipeline sweep", () => {
 		expect(models.qwen).toHaveBeenCalledTimes(1);
 	});
 
+	it("reports the rule-baseline comparison without reordering the Deck", async () => {
+		const examples = Array.from({ length: 8 }, (_, index) => ({
+			id: `example-${index}`,
+			cardId: `old-${index}`,
+			title: `Routine status ${index}`,
+			summary: "A status digest with no owner decision.",
+			label: index % 2 ? "VALUABLE" : "NOISE",
+			evidenceRef: `audit:${index}`,
+			decidedAt: "2026-10-01T00:00:00.000Z",
+		}));
+		const { db } = await fixture({
+			deckCuratorRanker: { enabled: true },
+			deckCurators: [
+				{
+					tediId: "33333333-3333-4333-8333-333333333333",
+					recipientId: USER,
+					gadgetId: "44444444-4444-4444-8444-444444444444",
+					enabled: true,
+					examples,
+				},
+			],
+		});
+		await card(db, { subject: "Acknowledge the weekly status?" });
+		await card(db, { subject: "Confirm the venue for Friday?" });
+		const receipt = await sweepOrganizationDeck(
+			db,
+			ORG,
+			now,
+			{} as CloudflareEnv,
+		);
+		expect(receipt.rankNotes).toMatchObject({
+			ruleCompared: 1,
+			rulePairs: 1,
+			ruleTopSize: 2,
+			ruleTopOverlap: 2,
+		});
+		expect(receipt).toMatchObject({ hidden: 0, retired: 0 });
+	});
+
 	it("hides a would-hide card only in a class that earned hiding, and counts its undo", async () => {
 		const classKey = "answer|external_agent:agent-1";
 		const { db } = await fixture({
