@@ -1156,7 +1156,7 @@ export function CanvasPage({
 				/>
 				{workspaceId !== null ? (
 					<Dialog open={addSourceOpen} onOpenChange={setAddSourceOpen}>
-						<DialogContent className="sm:max-w-2xl">
+						<DialogContent size="lg">
 							<DialogHeader>
 								<DialogTitle>Add a connected source</DialogTitle>
 								<DialogDescription>

@@ -346,7 +346,7 @@ export function WidgetContacts({
 					if (!open) setProfile(null);
 				}}
 			>
-				<DialogContent className="sm:max-w-2xl">
+				<DialogContent size="lg">
 					<DialogHeader>
 						<DialogTitle>
 							{person

@@ -1,76 +1,86 @@
 // @vitest-environment happy-dom
 
-import { act, type ReactElement, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
-vi.mock("@cloudflare/kumo/components/dialog", () => {
-	type PartProps = {
-		children?: ReactNode;
-		className?: string;
-		render?: ReactElement;
-		size?: "sm" | "base" | "lg" | "xl";
-	};
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "./dialog";
 
-	function Part({ children, className }: PartProps) {
-		return <div className={className}>{children}</div>;
-	}
+let root: Root | null = null;
+let host: HTMLElement | null = null;
 
-	function DialogContent({
-		children,
-		className,
-		size,
-		...props
-	}: PartProps & { container?: HTMLElement | null }) {
-		return (
-			<section
-				className={className}
-				data-kumo-dialog-size={size}
-				data-portal-layer={props.container?.dataset.tedixLayer}
-			>
-				{children}
-			</section>
-		);
-	}
-
-	const Dialog = Object.assign(DialogContent, {
-		Root: Part,
-		Trigger: Part,
-		Title: Part,
-		Description: Part,
-		Close: Part,
-	});
-
-	return { Dialog };
+afterEach(async () => {
+	await act(async () => root?.unmount());
+	host?.remove();
+	root = null;
+	host = null;
 });
 
-import { DialogContent } from "./dialog";
+async function render(node: React.ReactNode) {
+	host = document.createElement("div");
+	document.body.appendChild(host);
+	root = createRoot(host);
+	await act(async () => root?.render(node));
+}
 
-describe("Kumo Dialog adapter", () => {
-	it("forwards Kumo's size variant and portals through the semantic overlay layer for exactly its lifetime", async () => {
-		const host = document.createElement("div");
-		document.body.appendChild(host);
-		const root = createRoot(host);
+describe("Kumo LayerDialog adapter", () => {
+	it("labels the dialog from its title and description and portals on the overlay rung", async () => {
+		await render(
+			<Dialog open>
+				<DialogContent size="lg">
+					<DialogHeader>
+						<DialogTitle>Rename conversation</DialogTitle>
+						<DialogDescription>Pick a short name.</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>footer</DialogFooter>
+				</DialogContent>
+			</Dialog>,
+		);
 
-		await act(async () => {
-			root.render(
-				<DialogContent size="lg" showCloseButton={false}>
-					Content
-				</DialogContent>,
-			);
-		});
-
-		const section = host.querySelector("section");
-		expect(section?.dataset.kumoDialogSize).toBe("lg");
-		expect(section?.dataset.portalLayer).toBe("overlay");
+		const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+		expect(dialog).not.toBeNull();
+		const title = document.getElementById(
+			dialog?.getAttribute("aria-labelledby") ?? "",
+		);
+		expect(title?.textContent).toBe("Rename conversation");
+		const description = document.getElementById(
+			dialog?.getAttribute("aria-describedby") ?? "",
+		);
+		expect(description?.textContent).toBe("Pick a short name.");
+		expect(dialog?.className).toContain("sm:max-w-2xl");
 		expect(
-			document.body.querySelector('[data-tedix-layer="overlay"]'),
+			document.querySelector('[data-slot="dialog-backdrop"]')?.className,
+		).toContain("z-(--tedix-layer-overlay)");
+		expect(
+			document.querySelector('[role="dialog"] button[aria-label="Close"]'),
 		).not.toBeNull();
+	});
 
-		await act(async () => root.unmount());
+	it("omits the close button on request and opens from a trigger", async () => {
+		await render(
+			<Dialog>
+				<DialogTrigger>Open</DialogTrigger>
+				<DialogContent showCloseButton={false}>
+					<DialogTitle>Plain</DialogTitle>
+				</DialogContent>
+			</Dialog>,
+		);
+
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		await act(async () => {
+			document.querySelector<HTMLButtonElement>("button")?.click();
+		});
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 		expect(
-			document.body.querySelector('[data-tedix-layer="overlay"]'),
+			document.querySelector('[role="dialog"] button[aria-label="Close"]'),
 		).toBeNull();
-		host.remove();
 	});
 });

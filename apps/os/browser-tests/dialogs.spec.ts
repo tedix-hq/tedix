@@ -135,7 +135,7 @@ try {
 		await page
 			.getByRole("button", { name: "Preview report", exact: true })
 			.click();
-		const scroller = dialog.locator(".os-dialog-scroll");
+		const scroller = dialog.locator('[data-slot="dialog-body"]');
 		assert(
 			await scroller.evaluate((el) => el.scrollHeight > el.clientHeight),
 			"long report scrolls internally",
@@ -160,6 +160,94 @@ try {
 		await dialog.waitFor({ state: "hidden" });
 		await page.close();
 		console.log(`Dialog viewport passed: ${viewport.width}x${viewport.height}`);
+	}
+
+	const settled = (page: import("playwright").Page) =>
+		page.waitForFunction(() =>
+			document.getAnimations().every((a) => a.playState !== "running"),
+		);
+	for (const viewport of [
+		{ width: 1280, height: 720 },
+		{ width: 390, height: 844 },
+	]) {
+		const phone = viewport.width < 640;
+
+		// Focus return + Escape on a plain form dialog.
+		const page = await browser.newPage({ viewport });
+		await page.goto(`${origin}/browser-tests/dialogs.html?view=identity`);
+		const opener = page.getByRole("button", { name: "Edit identity" });
+		await opener.click();
+		const dialog = page.getByRole("dialog");
+		await dialog.waitFor();
+		await settled(page);
+		const box = await dialog.boundingBox();
+		assert(box, "dialog has a box");
+		if (phone) {
+			assert(
+				box.x === 0 &&
+					box.width === viewport.width &&
+					Math.abs(box.y + box.height - viewport.height) <= 1,
+				`phone dialog is a full-width bottom drawer ${JSON.stringify(box)}`,
+			);
+		} else {
+			assert(
+				Math.abs(box.x + box.width / 2 - viewport.width / 2) <= 1 &&
+					box.y > 0 &&
+					box.y + box.height < viewport.height,
+				`desktop dialog is a centred card ${JSON.stringify(box)}`,
+			);
+		}
+		await page.keyboard.press("Escape");
+		await dialog.waitFor({ state: "hidden" });
+		assert(
+			await opener.evaluate((el) => el === document.activeElement),
+			"focus returns to the opener after Escape",
+		);
+		await page.close();
+
+		// A confirm opened from inside a Sheet stacks above it; Escape closes
+		// only the confirm and focus returns into the sheet.
+		const nested = await browser.newPage({ viewport });
+		await nested.goto(`${origin}/browser-tests/dialogs.html?view=sheet`);
+		await nested.getByRole("button", { name: "Open details" }).click();
+		const sheet = nested.getByRole("dialog", { name: "Source details" });
+		await sheet.waitFor();
+		await settled(nested);
+		const removeSource = sheet.getByRole("button", { name: "Remove source" });
+		await removeSource.click();
+		const confirm = nested.getByRole("alertdialog");
+		await confirm.waitFor();
+		await settled(nested);
+		const confirmButton = confirm.getByRole("button", {
+			name: "Remove source",
+		});
+		// The phone drawer slides in, so poll until its button is hit-testable.
+		await nested.waitForFunction(
+			(el) => {
+				const r = el.getBoundingClientRect();
+				return el.contains(
+					document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2),
+				);
+			},
+			await confirmButton.elementHandle(),
+			{ timeout: 3000 },
+		);
+		await nested.keyboard.press("Tab");
+		assert(
+			await confirm.evaluate((el) => el.contains(document.activeElement)),
+			"focus is trapped in the top dialog",
+		);
+		await nested.keyboard.press("Escape");
+		await confirm.waitFor({ state: "hidden" });
+		assert(await sheet.isVisible(), "Escape leaves the sheet open");
+		assert(
+			await removeSource.evaluate((el) => el === document.activeElement),
+			"focus returns to the sheet control",
+		);
+		await nested.close();
+		console.log(
+			`Dialog behaviour passed: ${viewport.width}x${viewport.height}`,
+		);
 	}
 } finally {
 	await browser?.close();
