@@ -218,11 +218,10 @@ async function loadConfiguredDeckProjection(
 		timeZone,
 		routing: config.routing,
 	});
-	for (const { card, revision } of factories.cards.filter(
-		({ card }) =>
-			isOpen(card) &&
-			routeFactoryCard(card, config.routing, now, model).destination === "deck",
-	)) {
+	for (const { card, revision } of factories.cards) {
+		if (!isOpen(card)) continue;
+		const route = routeFactoryCard(card, config.routing, now, model);
+		if (route.destination !== "deck") continue;
 		const project =
 			config.factorySources[card.sourceIndex]?.run?.workProjectId ?? "Unfiled";
 		cards.push({
@@ -241,6 +240,7 @@ async function loadConfiguredDeckProjection(
 				sourceIndex: card.sourceIndex,
 				rowIndex: card.rowIndex,
 				revision,
+				policyCritical: route.reason === "critical",
 				draft: card.draft,
 				why: card.why,
 				sourceText: card.sourceText,

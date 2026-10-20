@@ -34,6 +34,7 @@ function isCriticalDeckCard(card: DeckCard, routing?: DeckRoutingPolicy) {
 	return (
 		card.kind === "approval" ||
 		card.kind === "outbound" ||
+		card.factory?.policyCritical === true ||
 		Boolean(decision?.protectedEffects.length) ||
 		request?.metadata.approvalOperation !== undefined ||
 		Boolean(request?.metadata.localImport) ||

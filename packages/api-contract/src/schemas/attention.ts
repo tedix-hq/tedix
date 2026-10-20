@@ -60,6 +60,7 @@ export const DeckCardSchema = z.strictObject({
 			sourceIndex: z.number().int().min(0),
 			rowIndex: z.number().int().min(0),
 			revision: z.number().int(),
+			policyCritical: z.boolean().optional(),
 			draft: z.string(),
 			why: z.string(),
 			sourceText: z.string(),
