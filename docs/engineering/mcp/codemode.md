@@ -114,7 +114,11 @@ clients declare capabilities in request `_meta`; legacy clients declare them
 in `initialize` and echo the returned `Mcp-Session-Id` on later exchanges.
 That stateless identifier carries only the UI declaration, never authentication
 or tool authority. An explicit modern capability declaration takes precedence.
-Layout resource metadata, including `prefersBorder`, is unchanged.
+`prefersBorder` retains the layout resource's existing value.
+
+MCP-App resources leave `ui.domain` unset so each host chooses its sandbox
+origin. The widget asset origin remains in CSP; it must not be used as the
+host-specific sandbox domain. Legacy Apps SDK domain metadata is separate.
 
 ## Result Bounds and Prompt Budget
 

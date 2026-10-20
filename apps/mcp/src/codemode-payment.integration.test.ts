@@ -1431,7 +1431,6 @@ describe("Code Mode payment-gated tools", () => {
 						uri: string;
 						_meta: {
 							ui: {
-								domain: string;
 								prefersBorder: boolean;
 								csp: {
 									baseUriDomains: string[];
@@ -1458,7 +1457,6 @@ describe("Code Mode payment-gated tools", () => {
 				uri: "ui://widgets/mcp-app/paymesh-demo/r/catalog-health-summary.html",
 				_meta: {
 					ui: {
-						domain: "https://widget.tedi.club",
 						prefersBorder: false,
 						csp: {
 							baseUriDomains: ["https://widget.tedi.club"],
@@ -1474,6 +1472,7 @@ describe("Code Mode payment-gated tools", () => {
 					},
 				},
 			});
+			expect(body.result.contents[0]?._meta.ui).not.toHaveProperty("domain");
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

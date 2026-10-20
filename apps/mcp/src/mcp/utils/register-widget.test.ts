@@ -168,7 +168,7 @@ describe("register-widget MCP Apps ui/ dialect parity", () => {
 			frameDomains: sampleCsp.frame_domains,
 			resourceDomains: sampleCsp.resource_domains,
 		});
-		expect(parsed.domain).toBe(WIDGET_DOMAIN);
+		expect(resourceMeta.ui).not.toHaveProperty("domain");
 		expect(parsed.prefersBorder).toBe(true);
 		expect(parsed.permissions).toEqual({});
 	});
@@ -234,7 +234,7 @@ describe("register-widget MCP Apps ui/ dialect parity", () => {
 		expect(ui.csp).toHaveProperty("baseUriDomains");
 	});
 
-	it("falls back to the passed widget domain when the tool omits one", () => {
+	it("keeps the fallback asset origin in CSP while the host chooses its sandbox", () => {
 		const toolWithoutDomain: AppTool = {
 			...sampleTool,
 			widgetDomain: null,
@@ -247,7 +247,7 @@ describe("register-widget MCP Apps ui/ dialect parity", () => {
 		);
 		const parsed = McpUiResourceMetaSchema.parse(resourceMeta.ui);
 
-		expect(parsed.domain).toBe(WIDGET_DOMAIN);
+		expect(resourceMeta.ui).not.toHaveProperty("domain");
 		expect(parsed.csp?.baseUriDomains).toEqual([WIDGET_DOMAIN]);
 		// widgetPrefersBorder defaults to true when the column is null.
 		expect(parsed.prefersBorder).toBe(true);

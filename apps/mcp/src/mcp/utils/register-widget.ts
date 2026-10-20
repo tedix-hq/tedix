@@ -333,16 +333,16 @@ export function buildMcpAppResourceMeta(
 	widgetDomain: string,
 	options?: { prefersBorder?: boolean },
 ): Record<string, unknown> {
-	const domain = tool?.widgetDomain ?? widgetDomain;
+	const assetOrigin = tool?.widgetDomain ?? widgetDomain;
 	return {
 		ui: {
 			csp: {
-				baseUriDomains: [domain],
+				baseUriDomains: [assetOrigin],
 				connectDomains: csp.connect_domains,
 				frameDomains: csp.frame_domains,
 				resourceDomains: csp.resource_domains,
 			},
-			domain,
+			// ui.domain is host-specific; asset origins belong in CSP, not the sandbox origin.
 			permissions: resolveMcpAppPermissions(tool?.config),
 			prefersBorder:
 				options?.prefersBorder ?? tool?.widgetPrefersBorder ?? true,
