@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	approvalHeldDelegationIntent,
 	classifyWorkstationDispatch,
 	parseDispatchPolicyLayer,
 	resolveEarnedDelegationEnforcement,
@@ -467,5 +468,29 @@ describe("autonomous workstation fail-closed inputs", () => {
 				autonomy: { ...base.autonomy, askForClasses: ["delegation:embodied"] },
 			}).autoDispatch,
 		).toBe(false);
+	});
+});
+
+describe("approvalHeldDelegationIntent", () => {
+	it("keeps an explicit operator hold on dispatch", () => {
+		expect(
+			approvalHeldDelegationIntent(
+				"Prepare a CTO delegation work order. Do not dispatch CTO yet; park this for approval.",
+			),
+		).toBe(true);
+		expect(
+			approvalHeldDelegationIntent(
+				"Delegate the refactor, but get my approval before you start.",
+			),
+		).toBe(true);
+	});
+	it("does not read a self-approval prohibition as a dispatch hold", () => {
+		const prompt = [
+			"Coding trial for the CTO tedi (low risk refactor): implement the brief below via your workstation, push through the normal guarded path, report the commit SHA.",
+			"> OVERRIDE: Work admission is temporarily broken (approval round-trip; fix in progress). Do NOT block on it: implement, test and push first; if it fails, report and stop. Never wait for an approval.",
+			"Keep thin class methods that delegate, so callers keep compiling.",
+			"Do not approve anything; if approval is required, stop and report blocked.",
+		].join("\n");
+		expect(approvalHeldDelegationIntent(prompt)).toBe(false);
 	});
 });
