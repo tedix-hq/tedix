@@ -1,3 +1,4 @@
+import { LedgerRow, RelativeTime } from "@/components/work-ledger-row";
 import { WorkDecisionStack } from "@/components/work-decision-stack";
 import type { FactoryScoreboardEntry } from "@tedix/api-contract/contracts/projects";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
@@ -39,7 +40,7 @@ import {
 	workFleetQueryOptions,
 	workAttentionQueryOptions,
 } from "@/lib/os-query-options";
-import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
+import { normalizeD1Timestamp } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { osApi } from "@/lib/api";
 
@@ -571,58 +572,41 @@ export function NeedsYouList({
 	return (
 		<Collection aria-label="Needs you">
 			{items.map((item) => (
-				<li
+				<LedgerRow
 					key={item.key}
 					data-needs-you={item.kind}
-					className="flex min-w-0 flex-wrap items-start gap-3 px-4 py-3 sm:flex-nowrap"
-				>
-					<div className="grid min-w-0 flex-1 gap-1">
-						<Text
-							as="p"
-							role="body"
-							className="m-0 flex min-w-0 flex-wrap items-center gap-2"
-						>
-							<Badge variant={KIND_BADGE[item.kind]}>{item.kind}</Badge>
+					badge={<Badge variant={KIND_BADGE[item.kind]}>{item.kind}</Badge>}
+					title={
+						<>
 							<Link variant="record" href={item.href} className="min-w-0">
 								{item.label}
 							</Link>
 							{item.count !== undefined ? (
 								<Badge variant="outline">{item.count}</Badge>
 							) : null}
-						</Text>
-						{item.askedBy || item.detail || item.at ? (
-							<Text
-								as="p"
-								role="label"
-								tone="secondary"
-								className="m-0 line-clamp-2"
-							>
+						</>
+					}
+					meta={
+						item.askedBy || item.detail || item.at ? (
+							<>
 								{item.askedBy ? `From ${fromWhom(item.askedBy)}` : null}
 								{item.askedBy && (item.detail || item.at) ? " · " : null}
 								{item.detail}
 								{item.detail && item.at ? " · " : null}
-								{item.at ? (
-									<time dateTime={item.at} title={absoluteTime(item.at)}>
-										{relativeTime(item.at)}
-									</time>
-								) : null}
-							</Text>
-						) : null}
-						{item.hint ? (
-							<Text as="p" role="label" tone="secondary" className="m-0">
-								{item.hint}
-							</Text>
-						) : null}
-					</div>
-					<div className="shrink-0">
+								{item.at ? <RelativeTime at={item.at} /> : null}
+							</>
+						) : null
+					}
+					hint={item.hint}
+					actions={
 						<RowAction
 							action={item.action}
 							onApprove={onApprove}
 							onHandoff={onHandoff}
 							busy={busy}
 						/>
-					</div>
-				</li>
+					}
+				/>
 			))}
 		</Collection>
 	);

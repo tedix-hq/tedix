@@ -18,7 +18,8 @@ import { Text } from "@/components/kumo/text";
 import { isRequestWaitingOnYou } from "@/components/work-needs-you-count";
 import { osApi } from "@/lib/api";
 import { osQueryKeys } from "@/lib/os-query-options";
-import { absoluteTime, relativeTime } from "@/lib/time";
+import { LedgerRow, RelativeTime } from "@/components/work-ledger-row";
+import { Empty } from "@/components/kumo/empty";
 
 /*
  * Your requests: the private request ledger of what you asked your own local
@@ -138,33 +139,20 @@ export function SessionRequestsSection({
 						const status = STATUS[row.status];
 						const open = ACTIVE.has(row.status);
 						return (
-							<li
+							<LedgerRow
 								key={row.id}
 								data-request-status={row.status}
-								className="flex min-w-0 flex-wrap items-start gap-3 px-4 py-3 sm:flex-nowrap"
-							>
-								<div className="grid min-w-0 flex-1 gap-1">
-									<Text
-										as="p"
-										role="body"
-										className="m-0 flex min-w-0 flex-wrap items-center gap-2"
-									>
-										<Badge variant={status.variant}>{status.label}</Badge>
-										<span className="min-w-0 break-words">{row.text}</span>
-									</Text>
-									<Text as="p" role="label" tone="secondary" className="m-0">
+								badge={<Badge variant={status.variant}>{status.label}</Badge>}
+								title={<span className="min-w-0 break-words">{row.text}</span>}
+								meta={
+									<>
 										{sessionRequestSource(row)} ·{" "}
-										<time
-											dateTime={row.sourceAt}
-											title={absoluteTime(row.sourceAt)}
-										>
-											{relativeTime(row.sourceAt)}
-										</time>
+										<RelativeTime at={row.sourceAt} />
 										{row.evidence ? ` · ${row.evidence}` : null}
-									</Text>
-								</div>
-								<div className="flex shrink-0 gap-2">
-									{open ? (
+									</>
+								}
+								actions={
+									open ? (
 										<>
 											<Button
 												size="sm"
@@ -202,18 +190,24 @@ export function SessionRequestsSection({
 										>
 											Reopen
 										</Button>
-									)}
-								</div>
-							</li>
+									)
+								}
+							/>
 						);
 					})}
 				</Collection>
 			) : (
-				<Text as="p" role="body" tone="secondary">
-					{rows.length
-						? "No requests match this filter."
-						: "No requests yet. They appear here once the Tedix plugin records your messages (decision capture on)."}
-				</Text>
+				<Empty
+					appearance="inline"
+					title={
+						rows.length ? "No requests match this filter" : "No requests yet"
+					}
+					description={
+						rows.length
+							? "No requests match this filter."
+							: "No requests yet. They appear here once the Tedix plugin records your messages (decision capture on)."
+					}
+				/>
 			)}
 		</PageSection>
 	);
