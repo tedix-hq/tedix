@@ -7,7 +7,10 @@ import {
 } from "@tanstack/react-query";
 import { cardRevisionDiff } from "@/lib/card-revision-diff";
 import { Button } from "@/components/kumo/button";
-import { Textarea } from "@/components/kumo/textarea";
+import { OS_COPY } from "@/shared/os-copy";
+import { Input } from "@/components/kumo/input";
+import { createPortal } from "react-dom";
+import type { CardFeedbackAnchor } from "@tedix/api-contract/schemas/card-revisions";
 import { osApi } from "@/lib/api";
 import { osQuery, workAttentionQueryOptions } from "@/lib/os-query-options";
 import { workRefreshOptions } from "@/lib/work-refresh";
@@ -25,10 +28,14 @@ export function CardRevisionPanel({
 	target,
 	disabled = false,
 	onRevising,
+	contentKind = "text",
+	agentName = "owning agent",
 }: {
 	target: CardRevisionTarget;
 	disabled?: boolean;
 	onRevising?: (pending: boolean) => void;
+	contentKind?: "email" | "plan" | "text";
+	agentName?: string;
 }) {
 	const client = useQueryClient();
 	const attention = useContext(DecisionAttentionContext);
@@ -36,6 +43,30 @@ export function CardRevisionPanel({
 	const [open, setOpen] = useState(false);
 	const [instruction, setInstruction] = useState("");
 	const [optimistic, setOptimistic] = useState(false);
+	const panel = useRef<HTMLElement>(null);
+	const input = useRef<HTMLInputElement>(null);
+	const [anchors, setAnchors] = useState<CardFeedbackAnchor[]>([]);
+	const [chips, setChips] = useState<string[]>([]);
+	const [selection, setSelection] = useState<{
+		anchor: CardFeedbackAnchor;
+		top: number;
+		left: number;
+	} | null>(null);
+	const [comment, setComment] = useState("");
+	const field = contentKind === "plan" ? "plan" : "draft";
+	const options = OS_COPY.cardRevisionChips[contentKind];
+	const addComment = (chip?: string) => {
+		if (!selection || (!chip && !comment.trim()) || anchors.length >= 20)
+			return;
+		setAnchors([
+			...anchors,
+			{ ...selection.anchor, ...(chip ? { chip } : { note: comment.trim() }) },
+		]);
+		setSelection(null);
+		setComment("");
+		setOpen(true);
+	};
+
 	const history = useInfiniteQuery({
 		...osQuery.workInteractions.cardHistory.infiniteOptions({
 			input: (beforeRevision: number | undefined) => ({
@@ -49,6 +80,67 @@ export function CardRevisionPanel({
 		refetchInterval: (query) =>
 			!document.hidden && query.state.data?.pages[0]?.pending ? 2000 : 120000,
 	});
+	useEffect(() => {
+		const card = panel.current?.parentElement?.closest("section");
+		if (!card) return;
+		const select = () => {
+			if (disabled || optimistic || history.data?.pages[0]?.pending) return;
+			const selected = window.getSelection();
+			if (!selected || selected.isCollapsed || !selected.rangeCount) return;
+			const range = selected.getRangeAt(0);
+			const content = card.querySelector("[data-card-feedback-content]");
+			if (!content?.contains(range.commonAncestorContainer)) return;
+			const quote = selected.toString();
+			if (!quote.trim() || quote.length > 8000) return;
+			const before = range.cloneRange();
+			before.selectNodeContents(content);
+			before.setEnd(range.startContainer, range.startOffset);
+			const after = range.cloneRange();
+			after.selectNodeContents(content);
+			after.setStart(range.endContainer, range.endOffset);
+			const rect = range.getBoundingClientRect();
+			setSelection({
+				anchor: {
+					quote,
+					prefix: before.toString().slice(-200),
+					suffix: after.toString().slice(0, 200),
+					field,
+				},
+				top: Math.min(rect.bottom + 8, window.innerHeight - 200),
+				left: Math.max(16, Math.min(rect.left, window.innerWidth - 336)),
+			});
+		};
+		const keyboard = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				setSelection(null);
+				return;
+			}
+			if (
+				event.key.toLowerCase() !== "c" ||
+				event.ctrlKey ||
+				event.metaKey ||
+				event.altKey ||
+				disabled ||
+				optimistic ||
+				history.data?.pages[0]?.pending ||
+				(event.target as Element).closest(
+					"input,textarea,button,a,[contenteditable=true]",
+				)
+			)
+				return;
+			event.preventDefault();
+			setOpen(true);
+			requestAnimationFrame(() => input.current?.focus());
+		};
+		card.addEventListener("mouseup", select);
+		card.addEventListener("keyup", select);
+		card.addEventListener("keydown", keyboard);
+		return () => {
+			card.removeEventListener("mouseup", select);
+			card.removeEventListener("keyup", select);
+			card.removeEventListener("keydown", keyboard);
+		};
+	}, [disabled, optimistic, field, history.data]);
 	const revisions = (
 		history.data?.pages.flatMap((page) => page.revisions) ?? []
 	).sort((a, b) => a.revision - b.revision);
@@ -74,13 +166,24 @@ export function CardRevisionPanel({
 		]);
 	const changes = useMutation({
 		mutationFn: async () => {
-			if (containsCardSecret(instruction)) throw new Error(CARD_SECRET_MESSAGE);
+			if (containsCardSecret([instruction, anchors, chips]))
+				throw new Error(CARD_SECRET_MESSAGE);
 			setOptimistic(true);
 			const decidedAt = Date.now();
 			await osApi.workInteractions.requestCardChanges({
 				requestId: target.requestId,
 				expectedRequestVersion: target.version,
-				instruction: instruction.trim(),
+				instruction:
+					instruction.trim() ||
+					[
+						...chips,
+						...anchors.map(
+							(anchor) => `${anchor.chip ?? anchor.note}: “${anchor.quote}”`,
+						),
+					].join("; "),
+				field,
+				chips,
+				anchors,
 			});
 			attention?.({
 				action: "request_changes",
@@ -93,6 +196,9 @@ export function CardRevisionPanel({
 		onSuccess: async () => {
 			setOpen(false);
 			setInstruction("");
+			setAnchors([]);
+			setChips([]);
+			setSelection(null);
 			await refresh();
 			setOptimistic(false);
 		},
@@ -109,7 +215,65 @@ export function CardRevisionPanel({
 		onSuccess: refresh,
 	});
 	return (
-		<section className="grid min-w-0 gap-3" aria-label="Card revisions">
+		<section
+			ref={panel}
+			className="grid min-w-0 gap-3"
+			aria-label="Card revisions"
+		>
+			{selection &&
+				createPortal(
+					<div
+						role="dialog"
+						aria-label="Comment on selected text"
+						className="fixed z-50 grid w-80 max-w-[calc(100vw-32px)] gap-2 rounded-xl border border-kumo-line bg-kumo-base p-3 shadow-lg"
+						style={{ top: selection.top, left: selection.left }}
+					>
+						<p className="type-tedix-caption line-clamp-2 break-words">
+							“{selection.anchor.quote}”
+						</p>
+						<div className="flex flex-wrap gap-2">
+							{options.map((chip) => (
+								<Button
+									key={chip}
+									variant="outline"
+									size="sm"
+									onClick={() => addComment(chip)}
+								>
+									{chip}
+								</Button>
+							))}
+						</div>
+						<Input
+							aria-label="Comment on selection"
+							placeholder="Comment…"
+							value={comment}
+							onChange={(event) => setComment(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && comment.trim()) {
+									event.preventDefault();
+									addComment();
+								}
+							}}
+						/>
+						<div className="flex gap-2">
+							<Button
+								size="sm"
+								disabled={!comment.trim() || anchors.length >= 20}
+								onClick={() => addComment()}
+							>
+								Add comment
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								onClick={() => setSelection(null)}
+							>
+								Close
+							</Button>
+						</div>
+					</div>,
+					document.body,
+				)}
 			<div className="flex flex-wrap items-center gap-2">
 				<Button
 					variant="outline"
@@ -129,20 +293,78 @@ export function CardRevisionPanel({
 			</div>
 			{open && (
 				<div className="grid gap-2">
-					<Textarea
+					<ol className="grid gap-2" aria-label="Comments to send">
+						{anchors.map((anchor, index) => (
+							<li
+								key={index}
+								className="rounded-lg border border-kumo-line p-3"
+							>
+								<p className="type-tedix-caption break-words">
+									{index + 1}. “{anchor.quote}”
+								</p>
+								<div className="flex items-center justify-between gap-2">
+									<span>{anchor.chip ?? anchor.note}</span>
+									<Button
+										variant="ghost"
+										size="sm"
+										aria-label={`Remove comment ${index + 1}`}
+										onClick={() =>
+											setAnchors(anchors.filter((_, i) => i !== index))
+										}
+									>
+										Remove
+									</Button>
+								</div>
+							</li>
+						))}
+					</ol>
+					<div className="flex flex-wrap gap-2" aria-label="Suggested changes">
+						{options.map((chip) => (
+							<Button
+								key={chip}
+								variant={chips.includes(chip) ? "secondary" : "outline"}
+								aria-pressed={chips.includes(chip)}
+								disabled={changes.isPending}
+								onClick={() =>
+									setChips(
+										chips.includes(chip)
+											? chips.filter((value) => value !== chip)
+											: [...chips, chip],
+									)
+								}
+							>
+								{chip}
+							</Button>
+						))}
+					</div>
+					<Input
+						ref={input}
 						aria-label="What should change?"
-						placeholder="Tell the agent what to improve…"
+						placeholder="What should change?"
 						value={instruction}
-						rows={3}
 						disabled={changes.isPending}
 						onChange={(event) => setInstruction(event.target.value)}
+						onKeyDown={(event) => {
+							if (
+								event.key === "Enter" &&
+								(event.metaKey || event.ctrlKey) &&
+								(instruction.trim() || anchors.length || chips.length) &&
+								!changes.isPending
+							) {
+								event.preventDefault();
+								changes.mutate();
+							}
+						}}
 					/>
 					<div className="flex gap-2">
 						<Button
-							disabled={!instruction.trim() || changes.isPending}
+							disabled={
+								(!instruction.trim() && !anchors.length && !chips.length) ||
+								changes.isPending
+							}
 							onClick={() => changes.mutate()}
 						>
-							Request changes
+							Send to {agentName}
 						</Button>
 						<Button
 							variant="ghost"

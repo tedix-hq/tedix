@@ -576,52 +576,55 @@ export function WorkDecisionCard({
 								</DecisionContextSection>
 							</>
 						)}
-						{editing ? (
-							<div className="grid gap-3">
-								{editContent}
-								<Textarea
-									aria-label={decisionText("Edit draft")}
-									rows={8}
-									value={draft}
-									onChange={(event) => setDraft(event.target.value)}
-									disabled={busy}
-								/>
-							</div>
-						) : faceState ? (
-							<div className="grid gap-3">
-								{face ? (
-									<>
-										{"context" in face && <Text>{face.context}</Text>}
-										<Text className="fd-card-summary">
-											<strong>If yes:</strong> {face.body}
-										</Text>
-										<Text className="fd-recommendation">
-											{face.recommendation} ·{" "}
-											{faceState.confidence === null
-												? "Confidence not assessed"
-												: `${Math.round(faceState.confidence * 100)}% sure`}
-										</Text>
-										{"stakes" in face && face.stakes && (
-											<Text className="fd-stakes">{face.stakes}</Text>
-										)}
-									</>
-								) : (
-									<p role="status">
-										Preparing a shorter summary. Open Details to review the
-										source.
-									</p>
-								)}
-								<FeedDeckDisclosure
-									title={rail ? "Original request" : OS_COPY.feed.details}
-								>
-									<Text weight="semibold">{title}</Text>
-									{content ??
-										(body ? <DecisionProposalBody body={body} /> : null)}
-								</FeedDeckDisclosure>
-							</div>
-						) : (
-							(content ?? (body ? <DecisionProposalBody body={body} /> : null))
-						)}
+						<div data-card-feedback-content>
+							{editing ? (
+								<div className="grid gap-3">
+									{editContent}
+									<Textarea
+										aria-label={decisionText("Edit draft")}
+										rows={8}
+										value={draft}
+										onChange={(event) => setDraft(event.target.value)}
+										disabled={busy}
+									/>
+								</div>
+							) : faceState ? (
+								<div className="grid gap-3">
+									{face ? (
+										<>
+											{"context" in face && <Text>{face.context}</Text>}
+											<Text className="fd-card-summary">
+												<strong>If yes:</strong> {face.body}
+											</Text>
+											<Text className="fd-recommendation">
+												{face.recommendation} ·{" "}
+												{faceState.confidence === null
+													? "Confidence not assessed"
+													: `${Math.round(faceState.confidence * 100)}% sure`}
+											</Text>
+											{"stakes" in face && face.stakes && (
+												<Text className="fd-stakes">{face.stakes}</Text>
+											)}
+										</>
+									) : (
+										<p role="status">
+											Preparing a shorter summary. Open Details to review the
+											source.
+										</p>
+									)}
+									<FeedDeckDisclosure
+										title={rail ? "Original request" : OS_COPY.feed.details}
+									>
+										<Text weight="semibold">{title}</Text>
+										{content ??
+											(body ? <DecisionProposalBody body={body} /> : null)}
+									</FeedDeckDisclosure>
+								</div>
+							) : (
+								(content ??
+								(body ? <DecisionProposalBody body={body} /> : null))
+							)}
+						</div>
 						{identifiers.length > 0 && (
 							<DecisionContextSection
 								sectionId="source"
@@ -647,6 +650,14 @@ export function WorkDecisionCard({
 						{revision && !secureConnection && (
 							<CardRevisionPanel
 								target={revision}
+								contentKind={
+									kind === "proposal"
+										? "plan"
+										: kind === "outbound"
+											? "email"
+											: "text"
+								}
+								agentName={askedBy}
 								disabled={disabled || pending || saving || saved}
 								onRevising={setRevising}
 							/>

@@ -8,6 +8,28 @@ export const CardTextSchema = z
 	.min(1)
 	.max(40000)
 	.refine((value) => !containsCardSecret(value), CARD_SECRET_MESSAGE);
+export const CardFeedbackFieldSchema = z.enum([
+	"draft",
+	"title",
+	"body",
+	"recommendation",
+	"plan",
+]);
+export const CardFeedbackAnchorSchema = z.strictObject({
+	quote: CardTextSchema.max(8000),
+	prefix: z
+		.string()
+		.max(200)
+		.refine((value) => !containsCardSecret(value), CARD_SECRET_MESSAGE),
+	suffix: z
+		.string()
+		.max(200)
+		.refine((value) => !containsCardSecret(value), CARD_SECRET_MESSAGE),
+	field: CardFeedbackFieldSchema,
+	chip: CardTextSchema.max(80).optional(),
+	note: CardTextSchema.max(2000).optional(),
+});
+export type CardFeedbackAnchor = z.infer<typeof CardFeedbackAnchorSchema>;
 export const CardRevisionSchema = z.strictObject({
 	id: z.uuid(),
 	orgId: z.string().min(1),
@@ -37,6 +59,9 @@ export const CardHistoryInputSchema = z.strictObject({
 export const RequestCardChangesInputSchema = CardHistoryInputSchema.extend({
 	expectedRequestVersion: z.number().int().positive(),
 	instruction: CardTextSchema.max(8000),
+	field: CardFeedbackFieldSchema.optional(),
+	chips: z.array(CardTextSchema.max(80)).max(3).optional(),
+	anchors: z.array(CardFeedbackAnchorSchema).max(20).optional(),
 });
 export const ReviseCardInputSchema = CardHistoryInputSchema.extend({
 	expectedRequestVersion: z.number().int().positive(),

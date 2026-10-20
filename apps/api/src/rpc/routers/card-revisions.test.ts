@@ -81,9 +81,32 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 			requestId: card,
 			expectedRequestVersion: 1,
 			instruction: "Shorter please",
+			chips: ["Shorter"],
+			anchors: [
+				{
+					quote: "Original",
+					prefix: "",
+					suffix: " text",
+					field: "draft",
+					note: "Keep the facts",
+				},
+			],
 		});
 		expect(asked).toMatchObject({ id: card, state: "open", version: 2 });
 		expect(sent).toHaveLength(1);
+		expect(JSON.stringify(sent)).toContain("Keep the facts");
+		expect(JSON.stringify(sent)).toContain(
+			"facts, recipients, dates, amounts or the ASK",
+		);
+		const responseMetadata = sqlite
+			.prepare(
+				"SELECT metadata FROM work_interaction_responses WHERE interaction_id=?",
+			)
+			.get(card)!;
+		expect(JSON.parse(String(responseMetadata.metadata))).toMatchObject({
+			chips: ["Shorter"],
+			anchors: [{ quote: "Original", note: "Keep the facts" }],
+		});
 		const history = await target.cardHistory({ requestId: card });
 		expect(history.pending?.instruction).toBe("Shorter please");
 		await expect(

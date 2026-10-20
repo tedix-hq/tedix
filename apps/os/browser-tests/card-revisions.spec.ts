@@ -63,6 +63,12 @@ try {
 					};
 				else if (endpoint === "requestCardChanges") {
 					assert.equal(input.instruction, "Use a friendlier closing.");
+					assert.deepEqual(input.chips, ["Warmer"]);
+					assert.equal(input.anchors.length, 2);
+					assert.equal(input.anchors[0].quote, "Hi Morgan,");
+					assert.equal(input.anchors[0].chip, "Shorter");
+					assert.equal(input.anchors[1].note, "Keep the greeting");
+					assert.equal(input.anchors[0].field, "draft");
 					pending = {
 						responseId: "22222222-2222-4222-8222-222222222222",
 						instruction: input.instruction,
@@ -120,14 +126,62 @@ try {
 				.getByRole("button", { name: "Restore version 1", exact: true })
 				.click();
 			await page.getByText("Version 3", { exact: true }).waitFor();
-			await page
-				.getByRole("button", { name: "Ask for changes", exact: true })
+			const card = page.getByRole("region", {
+				name: "Send Morgan the use-case email?",
+			});
+			await card.focus();
+			await page.keyboard.press("c");
+			const selectGreeting = async () => {
+				await page
+					.locator("[data-card-feedback-content]")
+					.first()
+					.evaluate((content) => {
+						const node = document
+							.createTreeWalker(content, NodeFilter.SHOW_TEXT)
+							.nextNode()!;
+						const range = document.createRange();
+						range.setStart(node, 0);
+						range.setEnd(node, 10);
+						window.getSelection()!.removeAllRanges();
+						window.getSelection()!.addRange(range);
+						content.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+					});
+			};
+			await selectGreeting();
+			const pill = page.getByRole("dialog", {
+				name: "Comment on selected text",
+			});
+			if (screenshotDirectory)
+				await page.screenshot({
+					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-selection.png`,
+					fullPage: true,
+				});
+			await pill.getByRole("button", { name: "Shorter", exact: true }).click();
+			await selectGreeting();
+			await pill
+				.getByRole("textbox", { name: "Comment on selection" })
+				.fill("Keep the greeting");
+			await pill
+				.getByRole("button", { name: "Add comment", exact: true })
 				.click();
+			assert.equal(
+				await page.getByLabel("Comments to send").locator("li").count(),
+				2,
+			);
+			await page
+				.getByLabel("Suggested changes")
+				.getByRole("button", { name: "Warmer", exact: true })
+				.click();
+			if (screenshotDirectory)
+				await page.screenshot({
+					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-batch.png`,
+					fullPage: true,
+				});
 			await page
 				.getByRole("textbox", { name: "What should change?" })
 				.fill("Use a friendlier closing.");
 			await page
-				.getByRole("button", { name: "Request changes", exact: true })
+				.getByRole("button", { name: "Send to Draft author", exact: true })
 				.click();
 			await page.getByRole("status").filter({ hasText: "Revising…" }).waitFor();
 			await page.waitForFunction(() =>

@@ -24,6 +24,11 @@ export function navigationDescription(
 
 /** Generic OS wording. Names and tenant-specific content come from records. */
 const ENGLISH_COPY = {
+	cardRevisionChips: {
+		plan: ["Fewer steps", "Name owners", "Add dates"],
+		email: ["Shorter", "Warmer", "More concrete"],
+		text: ["Shorter", "Clearer", "More concrete"],
+	},
 	navigation: {
 		work: "Work",
 		chat: "Chat",
