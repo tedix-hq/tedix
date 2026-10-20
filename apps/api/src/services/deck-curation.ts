@@ -18,6 +18,7 @@ import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-p
 import {
 	retrieveDeckExamples,
 	deckRankSignal,
+	currentDeckCuration,
 } from "@tedix/api-contract/utils/deck-curator";
 import {
 	getWorkInteraction,
@@ -133,7 +134,13 @@ async function append(
 		!(expectedRevision === 0 && latest.revision === 1)
 	)
 		throw createError(ErrorCodes.CONFLICT, "Reload the latest card revision");
-	const curation = { ...state, revision: latest.revision + 1 };
+	const curation = {
+		...state,
+		revision: latest.revision + 1,
+		draftBody:
+			currentDeckCuration(request.metadata)?.draftBody ??
+			cardOriginalBody(request),
+	};
 	const revision = await appendCardRevision(context.db, {
 		orgId,
 		requestId: request.id,
