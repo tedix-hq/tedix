@@ -176,6 +176,10 @@ describe("members pure helpers", () => {
 		expect(agent).toContain('data-image-fit="contain"');
 		expect(agent).toContain("object-contain");
 		expect(agent).toContain("bg-white");
+		// The tile keeps the standard avatar outline; photos stay outline-free.
+		expect(agent).toMatch(/class="[^"]*\bring\b(?!-)/);
+		expect(tediBacked).not.toMatch(/class="[^"]*\bring\b(?!-)/);
+		expect(tediBacked).toContain("ring-0");
 		const initials = renderToStaticMarkup(
 			<MemberAvatar
 				member={{
