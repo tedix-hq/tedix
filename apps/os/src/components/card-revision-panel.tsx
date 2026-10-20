@@ -10,6 +10,8 @@ import {
 	cardRevisionHunks,
 	keepOriginalHunks,
 } from "@/lib/card-revision-diff";
+import { DecisionContextSection } from "@/components/decision-context-rail";
+
 import { Button } from "@/components/kumo/button";
 import { OS_COPY } from "@/shared/os-copy";
 import { Input } from "@/components/kumo/input";
@@ -161,6 +163,16 @@ export function CardRevisionPanel({
 	const hunks =
 		reviewed && previous ? cardRevisionHunks(previous.body, reviewed.body) : [];
 	const [showClean, setShowClean] = useState(false);
+	const [compareBefore, setCompareBefore] = useState<number>();
+	const [compareAfter, setCompareAfter] = useState<number>();
+	const left =
+		revisions.find((revision) => revision.revision === compareBefore) ??
+		revisions.at(-2);
+	const right =
+		revisions.find((revision) => revision.revision === compareAfter) ?? current;
+	const comparison =
+		left && right ? cardRevisionDiff(left.body, right.body) : [];
+
 	const revising = Boolean(history.data?.pages[0]?.pending) || optimistic;
 	useEffect(() => {
 		if (current && current.revision > 1)
@@ -527,69 +539,153 @@ export function CardRevisionPanel({
 				</details>
 			)}
 			{revisions.length > 0 && (
-				<details>
-					<summary>Version history</summary>
-					<div className="grid gap-4 pt-3">
-						{[...revisions].reverse().map((revision) => (
-							<article key={revision.id} className="grid gap-2">
-								<p>
-									Version {revision.revision} ·{" "}
-									{revision.cause === "agent_rewrite"
-										? "Agent rewrite"
-										: revision.cause === "human_edit"
-											? "Your edit"
-											: revision.cause === "restore"
-												? "Restored"
-												: "Original"}
-								</p>
-								{revision.instruction && (
-									<p className="text-kumo-subtle">
-										Requested: {revision.instruction}
-									</p>
-								)}
-								<p className="whitespace-pre-wrap break-words">
-									{revision.body}
-								</p>
-								{revision.proposal && (
-									<ul className="grid gap-2">
-										{[
-											revision.proposal.item,
-											...revision.proposal.children,
-										].map((item) => (
-											<li key={item.sourceIntentId}>
-												<strong>{item.title}</strong>
-												{item.description && (
-													<p className="whitespace-pre-wrap">
-														{item.description}
-													</p>
-												)}
-											</li>
-										))}
-									</ul>
-								)}
-								{revision.revision !== current?.revision && (
-									<Button
-										variant="outline"
-										className="w-fit"
-										disabled={disabled || restore.isPending || revising}
-										onClick={() => restore.mutate(revision.revision)}
-									>
-										Restore version {revision.revision}
-									</Button>
-								)}
-							</article>
-						))}
-					</div>
-				</details>
-			)}
-			{history.hasNextPage && (
-				<Button
-					variant="ghost"
-					disabled={history.isFetchingNextPage}
-					onClick={() => void history.fetchNextPage()}
+				<DecisionContextSection
+					title="Versions"
+					sectionId="why"
+					trigger
+					defaultOpen
 				>
-					Load older versions
-				</Button>
+					<details>
+						<summary>Version history</summary>
+						{left && right && (
+							<div className="grid min-w-0 gap-3 pt-3">
+								<div className="grid grid-cols-2 gap-2">
+									<label className="grid min-w-0 gap-2 type-tedix-control">
+										From version
+										<Input
+											type="number"
+											min={revisions[0]!.revision}
+											max={current!.revision}
+											value={left.revision}
+											aria-label="Compare from version"
+											onChange={(event) =>
+												setCompareBefore(Number(event.target.value))
+											}
+										/>
+									</label>
+									<label className="grid min-w-0 gap-2 type-tedix-control">
+										To version
+										<Input
+											type="number"
+											min={revisions[0]!.revision}
+											max={current!.revision}
+											value={right.revision}
+											aria-label="Compare to version"
+											onChange={(event) =>
+												setCompareAfter(Number(event.target.value))
+											}
+										/>
+									</label>
+								</div>
+								<div
+									className="grid min-w-0 gap-3 sm:grid-cols-2"
+									aria-label="Version comparison"
+								>
+									<div className="min-w-0 rounded-lg border border-kumo-line p-3">
+										<h4 className="type-tedix-control mb-3">
+											Version {left.revision}
+										</h4>
+										<p className="whitespace-pre-wrap break-words">
+											{comparison
+												.filter(([kind]) => kind <= 0)
+												.map(([kind, text], index) =>
+													kind < 0 ? (
+														<del key={index} className="text-kumo-subtle">
+															{text}
+														</del>
+													) : (
+														<span key={index}>{text}</span>
+													),
+												)}
+										</p>
+									</div>
+									<div className="min-w-0 rounded-lg border border-kumo-line p-3">
+										<h4 className="type-tedix-control mb-3">
+											Version {right.revision}
+										</h4>
+										<p className="whitespace-pre-wrap break-words">
+											{comparison
+												.filter(([kind]) => kind >= 0)
+												.map(([kind, text], index) =>
+													kind > 0 ? (
+														<ins
+															key={index}
+															className="rounded bg-kumo-tint font-medium no-underline"
+														>
+															{text}
+														</ins>
+													) : (
+														<span key={index}>{text}</span>
+													),
+												)}
+										</p>
+									</div>
+								</div>
+							</div>
+						)}
+
+						<div className="grid gap-4 pt-3">
+							{[...revisions].reverse().map((revision) => (
+								<article key={revision.id} className="grid gap-2">
+									<p>
+										Version {revision.revision} ·{" "}
+										{revision.cause === "agent_rewrite"
+											? "Agent rewrite"
+											: revision.cause === "human_edit"
+												? "Your edit"
+												: revision.cause === "restore"
+													? "Restored"
+													: "Original"}
+									</p>
+									{revision.instruction && (
+										<p className="text-kumo-subtle">
+											Requested: {revision.instruction}
+										</p>
+									)}
+									<p className="whitespace-pre-wrap break-words">
+										{revision.body}
+									</p>
+									{revision.proposal && (
+										<ul className="grid gap-2">
+											{[
+												revision.proposal.item,
+												...revision.proposal.children,
+											].map((item) => (
+												<li key={item.sourceIntentId}>
+													<strong>{item.title}</strong>
+													{item.description && (
+														<p className="whitespace-pre-wrap">
+															{item.description}
+														</p>
+													)}
+												</li>
+											))}
+										</ul>
+									)}
+									{revision.revision !== current?.revision && (
+										<Button
+											variant="outline"
+											className="w-fit"
+											disabled={disabled || restore.isPending || revising}
+											onClick={() => restore.mutate(revision.revision)}
+										>
+											Restore version {revision.revision}
+										</Button>
+									)}
+								</article>
+							))}
+						</div>
+					</details>
+					{history.hasNextPage && (
+						<Button
+							variant="ghost"
+							disabled={history.isFetchingNextPage}
+							onClick={() => void history.fetchNextPage()}
+						>
+							Load older versions
+						</Button>
+					)}
+				</DecisionContextSection>
 			)}
 			{(changes.error || restore.error || keep.error || history.error) && (
 				<p role="alert">

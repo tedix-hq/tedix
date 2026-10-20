@@ -4,6 +4,7 @@ import {
 	useQuery,
 } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
+import { DecisionContextRail } from "../src/components/decision-context-rail";
 import { WorkDecisionCard } from "../src/components/work-decision-card";
 import { osQuery } from "../src/lib/os-query-options";
 import "../src/styles.css";
@@ -46,6 +47,8 @@ function Example() {
 }
 createRoot(document.getElementById("root")!).render(
 	<QueryClientProvider client={client}>
-		<Example />
+		<DecisionContextRail surface="deck">
+			<Example />
+		</DecisionContextRail>
 	</QueryClientProvider>,
 );
