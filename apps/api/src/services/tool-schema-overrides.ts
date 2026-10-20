@@ -845,7 +845,7 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workItems/listEvidence": "read",
 	"workItems/listEvents": "read",
 	"workItems/complete": "write",
-	"workItems/cancel": "destructive",
+	"workItems/cancel": "write",
 	// Steward: the health report is a read; running the steward can transition
 	// items to stale + write links/flags org-wide, so it is `destructive`
 	// (mirroring run_skill_workflow) to trip the destructive-tool approval gate

@@ -44,7 +44,11 @@ const approval = buildHomeSurfaceTools().find(
 const notion = {
 	toolId: "notion_update_page",
 	title: "Update page",
-	config: { transport: "mcp" },
+	config: {
+		transport: "mcp",
+		mcpToolName: "notion-update-page",
+		auth: { type: "connection", connectionId: "notion" },
+	},
 	meta: {
 		"com.tedix/policy": {
 			riskTier: "bounded_write",
@@ -161,6 +165,27 @@ describe("authorized bounded writes", () => {
 			expect(callToolResultText(result!)).toContain("Human approval required");
 		},
 	);
+	it("does not apply a Notion policy to another configured provider", async () => {
+		const result = await requireDestructiveToolApproval(
+			context(),
+			{
+				...notion,
+				config: {
+					...notion.config,
+					auth: { type: "connection", connectionId: "other" },
+				},
+			},
+			{ destructiveHint: true },
+			{
+				args: {
+					page_id: "example",
+					command: "update_properties",
+					properties: {},
+				},
+			},
+		);
+		expect(result?.isError).toBe(true);
+	});
 	it("leaves unreviewed Notion writes gated", async () => {
 		expect(
 			(

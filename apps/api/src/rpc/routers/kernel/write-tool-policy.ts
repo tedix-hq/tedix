@@ -183,8 +183,13 @@ export function classifyWriteRisk(
 ): KernelWriteRiskTier {
 	if (humanReservedActionClasses(tool.name).length) return "high";
 	const policy = parseToolPolicyMetadata(tool._meta);
+	const connected = tool._meta?.["com.tedix/connectedTool"] as
+		| { providerId?: unknown; toolName?: unknown }
+		| undefined;
 	if (policy?.argumentPolicy === "notion_page_update")
 		return policy.riskTier === "bounded_write" &&
+			connected?.providerId === "notion" &&
+			connected.toolName === "notion-update-page" &&
 			isSafeNotionPageUpdateCall(args)
 			? "low"
 			: "high";

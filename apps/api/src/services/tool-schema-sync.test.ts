@@ -1674,7 +1674,7 @@ describe("oRPC tool projection sync", () => {
 			inserts.find((tool) => tool.toolId === "cancel_work_item")?.annotations,
 		).toMatchObject({
 			readOnlyHint: false,
-			destructiveHint: true,
+			destructiveHint: false,
 		});
 	});
 
