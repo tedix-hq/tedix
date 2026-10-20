@@ -33,7 +33,8 @@ async function trackPlatformCronPath(
  * branch with no trigger never fires.
  * (Cron literals containing a slash-star are spelled in words below: inside a
  * block comment they would close it.)
- * - Every 2 minutes → due skill schedules, always-on keepalive, orphan-run
+ * - Every 2 minutes → Deck pipeline sweep (in the first two minutes of each
+ *   quarter hour: retire expired, finished-Work and duplicate cards), due skill schedules, always-on keepalive, orphan-run
  *   sweep, work-attempt lease sweep, work approval redrive, MCP event webhook
  *   delivery. The Neo4j graph projection drain and GDS redrive are turned off
  *   (2026-10-16, Aura instance paused); see integrations/graph-db/client.ts.
@@ -66,7 +67,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 	ctx,
 ) => {
 	const hour = new Date(event.scheduledTime).getUTCHours();
-	const _minute = new Date(event.scheduledTime).getUTCMinutes();
+	const minute = new Date(event.scheduledTime).getUTCMinutes();
 	const cron = event.cron;
 	const runId = `cron-${event.scheduledTime}`;
 	const fleetEnabled = fleetAuthorityIsEnabled(env);
@@ -205,6 +206,14 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				event,
 				"mcp-event-webhook-delivery",
 				() => runMcpEventWebhookDelivery(env),
+			);
+		}
+
+		// Deck sweep: every 15 minutes on the installation tick (not fleet-commercial).
+		if (cron === "*/2 * * * *" && minute % 15 < 2) {
+			const { sweepDeckPipeline } = await import("./deck-pipeline-sweep");
+			await trackPlatformCronPath(env, event, "deck-pipeline-sweep", () =>
+				sweepDeckPipeline(env, event.scheduledTime),
 			);
 		}
 

@@ -1,0 +1,32 @@
+{
+	"version": 1,
+	"createGate": {
+		"mode": "enforce",
+		"requirements": ["ask", "recommendation", "evidence"],
+		"askPattern": "\\?|\\b(?:approve|decide|choose|confirm|reply|respond|provide|sign|review|attend|name|link|verify|revoke|join|publish|send|keep|delete|remove|retire|pick|select|allow|grant|accept|reject|answer|tell|let|import|push|add|book|pay|meet|call)\\b",
+		"recommendationPattern": "\\b(?:recommend(?:s|ed|ation)?|suggest(?:s|ed)?|propos(?:e|ed|al)|we should|best option|default is)\\b"
+	},
+	"sweep": {
+		"mode": "enforce",
+		"duplicateSimilarity": 1,
+		"maxCardsPerRecipient": 200,
+		"maxRetirementsPerRun": 40,
+		"maxRecipients": 20,
+		"staleAfterHours": 2
+	},
+	"secondKey": {
+		"model": "@cf/cloudflare/clef-flash",
+		"threshold": 0.95,
+		"timeoutMs": 2500,
+		"maxPerRun": 20
+	},
+	"earnedHiding": {
+		"notBefore": "2026-11-03T00:00:00Z",
+		"minUsefulCards": 50,
+		"maxValuableHidden": 0,
+		"maxKeptNotUsefulRate": 0.15,
+		"demoteUndos": 2,
+		"demoteWindow": 20
+	},
+	"ruleAfterReasons": 3
+}

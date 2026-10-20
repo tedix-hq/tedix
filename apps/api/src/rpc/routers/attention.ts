@@ -100,6 +100,8 @@ export const attentionContractRouter = os.router({
 			await loadDeckProjection(context, input);
 		const { prepareDeckCardFaces } =
 			await import("../../services/deck-card-face");
+		const { loadDeckPipelineStatus } =
+			await import("../../services/deck-pipeline-status");
 		return {
 			cards: await prepareDeckCardFaces(
 				context,
@@ -109,6 +111,7 @@ export const attentionContractRouter = os.router({
 			count,
 			complete,
 			observedAt,
+			pipeline: await loadDeckPipelineStatus(context, model?.config),
 		};
 	}),
 	getDeckCard: read.getDeckCard.handler(async ({ input, context, errors }) => {

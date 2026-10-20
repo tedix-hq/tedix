@@ -27,7 +27,7 @@ export function currentDeckCuration(
 const words = (value: string) =>
 	normalize(value).match(/[\p{L}\p{N}]+/gu) ?? [];
 
-/** Latest explicit verdict wins; retrieval excludes the entire current cohort. */
+/** Latest explicit verdict wins; the recipient's own labels rank first; retrieval excludes the entire current cohort. */
 export function retrieveDeckExamples(
 	card: { title: string; summary: string },
 	pool: readonly DeckRankExample[],
@@ -91,7 +91,10 @@ export function retrieveDeckExamples(
 		})
 		.sort(
 			(a, b) =>
-				b.similarity - a.similarity || a.example.id.localeCompare(b.example.id),
+				Number(b.example.labelSource === "recipient") -
+					Number(a.example.labelSource === "recipient") ||
+				b.similarity - a.similarity ||
+				a.example.id.localeCompare(b.example.id),
 		)
 		.slice(0, 8)
 		.map(({ example }) => example);

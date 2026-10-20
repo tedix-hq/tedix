@@ -191,6 +191,29 @@ export function annotateDeckAsk(
 	return cards;
 }
 
+/** The Deck kind of a work interaction, from its typed metadata. */
+export function deckInteractionKind(
+	requestKind: string,
+	m: Record<string, unknown>,
+) {
+	const decision = DecisionEnvelopeSchema.safeParse(m.decisionDeck).data;
+	const connector =
+		typeof m.approvalOperation === "string" &&
+		!!m.approvalOperation.trim() &&
+		typeof m.approvalTarget === "string" &&
+		!!m.approvalTarget.trim();
+	return connector
+		? "approval"
+		: (decision?.kind ??
+				(m.schema === "tedix.outbound.v1"
+					? "outbound"
+					: requestKind === "handoff"
+						? "proposal"
+						: m.decisionCard
+							? "decision"
+							: "question"));
+}
+
 /** Pure projection shared by the authenticated headless reader and trusted recipient summaries. */
 export function projectDeckCards(input: {
 	requests: readonly Request[];
@@ -230,21 +253,7 @@ export function projectDeckCards(input: {
 			continue;
 		const decision =
 			DecisionEnvelopeSchema.safeParse(m.decisionDeck).data ?? null;
-		const connector =
-			typeof m.approvalOperation === "string" &&
-			!!m.approvalOperation.trim() &&
-			typeof m.approvalTarget === "string" &&
-			!!m.approvalTarget.trim();
-		const kind = connector
-			? "approval"
-			: (decision?.kind ??
-				(m.schema === "tedix.outbound.v1"
-					? "outbound"
-					: r.kind === "handoff"
-						? "proposal"
-						: m.decisionCard
-							? "decision"
-							: "question"));
+		const kind = deckInteractionKind(r.kind, m);
 		const presentation = DecisionCardPresentationSchema.safeParse(
 			m.cardPresentation,
 		).data;

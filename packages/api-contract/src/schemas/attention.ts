@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { DeckPipelineStatusSchema } from "./deck-pipeline";
 import {
 	CardHistorySchema,
 	CardTextSchema,
@@ -97,6 +98,8 @@ export const DeckProjectionSchema = z.strictObject({
 	count: z.number().int().min(0),
 	complete: z.boolean(),
 	observedAt: z.iso.datetime(),
+	/** Last sweep, staleness alarm, learned rules and week-1 metrics. */
+	pipeline: DeckPipelineStatusSchema.optional(),
 });
 export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
