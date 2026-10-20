@@ -45,6 +45,83 @@ describe("validate_skill schedule parity with the scheduler", () => {
 		);
 	});
 
+	it.each([
+		"export default { async run(event, step, env) { return 1; } };",
+		"export default { async run(event, step, env) { /* async eligibility() {} */ return 1; } };",
+		"export default { async run(event, step, env) { const hint = 'eligibility(event, step, env)'; return 1; } };",
+		"export default { async run(event, step, env) { const helper = { eligibility() {} }; return 1; } };",
+	])(
+		"rejects inference workflows without an exported eligibility method: %s",
+		async (source) => {
+			const result = await validateSkillInput({} as never, {
+				...base,
+				content: skillDoc("0 9 * * *").replace(
+					'cron: "0 9 * * *"',
+					'cron: "0 9 * * *"\n    executionKind: inference',
+				),
+				files: { "scripts/workflow.ts": source },
+			});
+			expect(result.errors).toContainEqual(
+				expect.objectContaining({
+					code: "BACKGROUND_ELIGIBILITY_REQUIRED",
+					path: 'files["scripts/workflow.ts"]',
+				}),
+			);
+		},
+	);
+
+	it.each([
+		"async eligibility(event, step, env) { return {}; },",
+		"eligibility: async (event, step, env) => ({}),",
+		"eligibility: async function(event, step, env) { return {}; },",
+		"eligibility: checkEligibility,",
+		"...eligibilityHooks,",
+	])(
+		"accepts an inference workflow with an exported eligibility callable: %s",
+		async (member) => {
+			const result = await validateSkillInput({} as never, {
+				...base,
+				content: skillDoc("0 9 * * *").replace(
+					'cron: "0 9 * * *"',
+					'cron: "0 9 * * *"\n    executionKind: inference',
+				),
+				files: {
+					"scripts/workflow.ts": `const checkEligibility = async () => ({}); const eligibilityHooks = { eligibility: checkEligibility }; export default { ${member} async run(event, step, env) { return 1; } };`,
+				},
+			});
+			expect(result.errors).toEqual([]);
+		},
+	);
+
+	it("leaves identifier default exports to existing workflow shape validation", async () => {
+		const result = await validateSkillInput({} as never, {
+			...base,
+			content: skillDoc("0 9 * * *").replace(
+				'cron: "0 9 * * *"',
+				'cron: "0 9 * * *"\n    executionKind: inference',
+			),
+			files: {
+				"scripts/workflow.ts":
+					"const workflow = { async run(event, step, env) { return 1; }, async eligibility(event, step, env) { return {}; } }; export default workflow;",
+			},
+		});
+		expect(result.errors.map((issue) => issue.code)).not.toContain(
+			"BACKGROUND_ELIGIBILITY_REQUIRED",
+		);
+	});
+
+	it("keeps deterministic workflows free of the inference eligibility requirement", async () => {
+		const result = await validateSkillInput({} as never, {
+			...base,
+			content: skillDoc("0 9 * * *"),
+			files: {
+				"scripts/workflow.ts":
+					"export default { async run(event, step, env) { return 1; } };",
+			},
+		});
+		expect(result.errors).toEqual([]);
+	});
+
 	it("warns when frontmatter is invalid YAML instead of silently dropping it", async () => {
 		const result = await validateSkillInput({} as never, {
 			...base,

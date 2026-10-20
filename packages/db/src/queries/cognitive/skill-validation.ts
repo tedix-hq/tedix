@@ -688,6 +688,32 @@ async function lintCapabilityManifest(
 	return issues;
 }
 
+function hasWorkflowEligibility(source: string): boolean | null {
+	if (!source.trim()) return false;
+	const stripped = stripCommentsAndStrings(source);
+	const object = /\bexport\s+default\s*\{/.exec(stripped);
+	if (!object) return null;
+	const body = stripped.slice(object.index + object[0].length);
+	const member = /^\s*(?:async\s+)?eligibility\s*(?:\(|:|,|})/;
+	let depth = 0;
+	let memberStart = true;
+	for (let index = 0; index < body.length; index++) {
+		if (memberStart) {
+			const candidate = body.slice(index);
+			if (member.test(candidate)) return true;
+			// Spreads/computed keys can supply the hook; leave uncertain shapes to runtime.
+			if (/^\s*(?:\.\.\.|\[)/.test(candidate)) return null;
+		}
+		memberStart = false;
+		const character = body[index];
+		if (character === "{" || character === "(" || character === "[") depth++;
+		if (character === "}" || character === ")" || character === "]") depth--;
+		if (depth < 0) break;
+		if (depth === 0 && character === ",") memberStart = true;
+	}
+	return false;
+}
+
 /**
  * Validate skill input shape (used by both contract validate endpoint and pre-mutation gate).
  * `appId` is optional — if provided, runs app-scoped checks (toolSlug resolution, stale upstream-without-tools).
@@ -893,6 +919,18 @@ export async function validateSkillInput(
 		});
 	}
 	if (scheduleCheck.schedule) {
+		if (
+			scheduleCheck.schedule.executionKind === "inference" &&
+			hasWorkflowEligibility(input.files?.["scripts/workflow.ts"] ?? "") ===
+				false
+		) {
+			errors.push({
+				code: "BACKGROUND_ELIGIBILITY_REQUIRED",
+				message:
+					"Inference schedules must export eligibility(event, step, env) on the default workflow object. Return status (eligible, no_work or unavailable), a non-empty inputWatermark and non-empty evidenceRefs; run must return backgroundOutcome after eligible work.",
+				path: 'files["scripts/workflow.ts"]',
+			});
+		}
 		warnings.push({
 			code: "SKILL_SCHEDULE_PROJECTED_WHEN_ACTIVE",
 			message:
