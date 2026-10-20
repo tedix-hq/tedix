@@ -119,6 +119,38 @@ it("claims generation once when two tabs ask for the same card", async () => {
 	expect(results.filter(Boolean)).toContainEqual(copy);
 	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);
 });
+
+it("uses revised card text and invalidates the previous face", async () => {
+	const original: DeckCard = {
+		...card,
+		interaction: {
+			request: {
+				id: "fictional-card",
+				subject: "Review the draft?",
+				prompt: "Original source",
+				metadata: {},
+			},
+		} as DeckCard["interaction"],
+	};
+	await prepareDeckCardFace(context, original);
+	const revised: DeckCard = {
+		...original,
+		interaction: {
+			...original.interaction!,
+			request: {
+				...original.interaction!.request,
+				metadata: { cardContent: "The recipient needs the revised story." },
+			},
+		},
+	};
+	expect(deckCardWritingSource(revised).prompt).toBe(
+		"The recipient needs the revised story.",
+	);
+	expect(await prepareDeckCardFace(context, revised, false)).toBeNull();
+	await prepareDeckCardFace(context, revised);
+	expect(mocks.generate).toHaveBeenCalledTimes(2);
+	expect(deckCardWritingSource(original).prompt).toBe("Original source");
+});
 it("withholds failed readability output from every display and fallback", async () => {
 	mocks.generate.mockResolvedValue({
 		...copy,
