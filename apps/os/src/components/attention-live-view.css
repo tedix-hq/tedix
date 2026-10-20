@@ -1,11 +1,13 @@
 .attention-card {
-	animation: attention-enter 240ms ease-out both;
+	animation: attention-enter var(--duration-tedix-structural)
+		var(--ease-tedix-enter) both;
 }
 .attention-heartbeat {
 	animation: attention-beat 2s ease-in-out infinite;
 }
 .attention-note {
-	animation: attention-enter 180ms ease-out;
+	animation: attention-enter var(--duration-tedix-structural)
+		var(--ease-tedix-enter);
 }
 .attention-timeline {
 	background-image: linear-gradient(

@@ -20,6 +20,8 @@ import {
 } from "@tedix/api-contract/schemas/attention-layout";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { Empty } from "@/components/kumo/empty";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/kumo/input";
 import {
 	Card,
@@ -106,7 +108,12 @@ function LiveCard({
 			: attentionTimestamp(card.heartbeatAt || ""));
 	return (
 		<Card
-			className={`attention-card min-w-0 ${stale ? "opacity-65" : ""} ${card.column === "waiting" ? "border-kumo-warning" : ""}`}
+			className={cn(
+				"attention-card min-w-0",
+				card.column === "waiting" && "border-kumo-warning",
+			)}
+			data-stale={stale || undefined}
+			data-column={card.column}
 			size={compact ? "sm" : "default"}
 		>
 			<CardHeader>
@@ -138,10 +145,10 @@ function LiveCard({
 						/>
 					)}
 				</div>
-				<CardTitle
-					className={`break-words ${card.column === "waiting" ? "text-lg" : ""}`}
-				>
-					<Link href={card.href}>{card.title}</Link>
+				<CardTitle className={cn("break-words", stale && "text-kumo-subtle")}>
+					<Link href={card.href} className={stale ? "text-inherit" : undefined}>
+						{card.title}
+					</Link>
 				</CardTitle>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-2 break-words">
@@ -234,14 +241,16 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 							>
 								<Link
 									href={c.href}
-									className="truncate text-xs"
+									className="truncate"
 									title={`${sourceLabel} · ${c.title}`}
 								>
-									{sourceLabel} · {c.title}
+									<Text as="span" role="label" className="text-inherit">
+										{sourceLabel} · {c.title}
+									</Text>
 								</Link>
 								<div className="attention-timeline relative h-5 rounded bg-kumo-control">
 									<div
-										className="absolute inset-y-1 rounded transition-all duration-1000"
+										className="absolute inset-y-1 rounded transition-[left,width] duration-tedix-structural ease-tedix-standard motion-reduce:transition-none"
 										style={{
 											left: `${left}%`,
 											width: `${width}%`,
@@ -257,11 +266,16 @@ function NowStrip({ cards, now }: { cards: AttentionCard[]; now: number }) {
 				{!lanes.length && (
 					<Text tone="secondary">{ATTENTION_COPY.noRecentActivity}</Text>
 				)}
-				<div className="mt-2 flex justify-between text-xs text-kumo-subtle">
+				<Text
+					as="p"
+					role="label"
+					tone="secondary"
+					className="mt-2 flex justify-between"
+				>
 					<span>{ATTENTION_COPY.twoHoursAgo}</span>
 					<span>{ATTENTION_COPY.oneHourAgo}</span>
 					<span>{ATTENTION_COPY.now}</span>
-				</div>
+				</Text>
 				<Text role="label" tone="secondary">
 					{ATTENTION_COPY.timelineHelp}
 				</Text>
@@ -460,16 +474,18 @@ export function AttentionBoard({
 								))}
 							</div>
 							{!group.length && (
-								<Text tone="secondary">
+								<Empty appearance="inline">
 									{key === "waiting"
 										? ATTENTION_COPY.noReplyNeeded
 										: ATTENTION_COPY.nothingHere}
-								</Text>
+								</Empty>
 							)}
 						</section>
 					);
 				})}
-				{!cards.length && <Text>{ATTENTION_COPY.noFocusMatches}</Text>}
+				{!cards.length && (
+					<Empty appearance="inline">{ATTENTION_COPY.noFocusMatches}</Empty>
+				)}
 			</div>
 		),
 		gaps: (

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	WorkExecutorSchema,
@@ -6,6 +6,7 @@ import {
 	type WorkItem,
 } from "@tedix/api-contract/schemas/work-items";
 import { Button } from "@/components/kumo/button";
+import { Label } from "@/components/kumo/label";
 import { Input } from "@/components/kumo/input";
 import { Textarea } from "@/components/kumo/textarea";
 import {
@@ -30,28 +31,35 @@ function ExecutorChoice({
 	value,
 	onChange,
 	disabled,
+	id: providedId,
 }: {
 	value: WorkExecutor;
 	onChange: (value: WorkExecutor) => void;
 	disabled?: boolean;
+	id?: string;
 }) {
+	const generatedId = useId();
+	const id = providedId ?? generatedId;
 	return (
-		<Select
-			value={value}
-			onValueChange={(next) => onChange(WorkExecutorSchema.parse(next))}
-			disabled={disabled}
-		>
-			<SelectTrigger aria-label="Executor">
-				<SelectValue />
-			</SelectTrigger>
-			<SelectContent>
-				{WorkExecutorSchema.options.map((executor) => (
-					<SelectItem key={executor} value={executor}>
-						{labels[executor]}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
+		<>
+			<Label htmlFor={id}>Executor</Label>
+			<Select
+				value={value}
+				onValueChange={(next) => onChange(WorkExecutorSchema.parse(next))}
+				disabled={disabled}
+			>
+				<SelectTrigger id={id} aria-label="Executor">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{WorkExecutorSchema.options.map((executor) => (
+						<SelectItem key={executor} value={executor}>
+							{labels[executor]}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</>
 	);
 }
 
@@ -104,7 +112,6 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 		["proposed", "accepted"].includes(item.disposition);
 	return (
 		<div className="grid gap-2">
-			<Text weight="semibold">Executor</Text>
 			<ExecutorChoice
 				value={executor}
 				onChange={(value) => update.mutate(value)}
@@ -237,8 +244,11 @@ export function WorkDispatchApp({ projectId }: { projectId: string }) {
 					maxLength={10000}
 					onChange={(event) => setDescription(event.target.value)}
 				/>
-				<Text weight="semibold">Executor</Text>
-				<ExecutorChoice value={executor} onChange={setExecutor} />
+				<ExecutorChoice
+					id="work-executor"
+					value={executor}
+					onChange={setExecutor}
+				/>
 				<Button
 					type="submit"
 					disabled={!title.trim() || create.isPending || !viewer.data?.id}

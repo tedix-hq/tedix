@@ -17,6 +17,8 @@ import {
 	DialogTitle,
 	DialogDescription,
 } from "@/components/kumo/dialog";
+import { Label } from "@/components/kumo/label";
+import { Collection, SectionTitle } from "@/components/kumo/page";
 import { Input } from "@/components/kumo/input";
 import { Link } from "@/components/kumo/link";
 import {
@@ -176,17 +178,19 @@ function ScheduleDialog({
 						save.mutate();
 					}}
 				>
-					<label className="grid gap-1 text-sm">
-						Start date
+					<div className="grid gap-1">
+						<Label htmlFor="work-start-date">Start date</Label>
 						<Input
+							id="work-start-date"
 							type="date"
 							value={start}
 							onChange={(event) => setStart(event.target.value)}
 						/>
-					</label>
-					<label className="grid gap-1 text-sm">
-						Duration in days
+					</div>
+					<div className="grid gap-1">
+						<Label htmlFor="work-duration-days">Duration in days</Label>
 						<Input
+							id="work-duration-days"
 							type="number"
 							min={1}
 							max={3650}
@@ -194,7 +198,7 @@ function ScheduleDialog({
 							value={duration}
 							onChange={(event) => setDuration(event.target.value)}
 						/>
-					</label>
+					</div>
 					{save.isError ? (
 						<div className="grid gap-2">
 							<Text tone="error">{save.error.message}</Text>
@@ -390,19 +394,19 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 	const row = (item: WorkItem) => (
 		<li
 			key={item.id}
-			className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5"
+			className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3"
 		>
 			<div className="min-w-0 flex-1 basis-48">
 				<ItemLink item={item} />
 				{effectiveProjectId === "all" && visibleIds.length > 1 ? (
-					<p className="mt-0.5 text-xs text-kumo-subtle">
+					<Text role="label" tone="secondary" className="mt-0.5">
 						{projectName(item.projectId)}
-					</p>
+					</Text>
 				) : null}
 			</div>
-			<span className="w-16 text-xs text-kumo-subtle">
+			<Text role="label" tone="secondary" className="w-16">
 				{label(item.priority)}
-			</span>
+			</Text>
 			{canSchedule(item) ? (
 				<Button
 					size="sm"
@@ -541,15 +545,20 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 								key={group.disposition}
 								aria-label={label(group.disposition)}
 							>
-								<h3 className="mb-2 text-sm font-medium">
+								<SectionTitle className="mb-2">
 									{label(group.disposition)}{" "}
-									<span className="ml-1 text-kumo-subtle">
+									<Text
+										as="span"
+										role="label"
+										tone="secondary"
+										className="ml-1"
+									>
 										{group.items.length}
-									</span>
-								</h3>
-								<ul className="divide-y divide-kumo-line rounded-lg border border-kumo-line">
+									</Text>
+								</SectionTitle>
+								<Collection aria-label={label(group.disposition)}>
 									{group.items.map(row)}
-								</ul>
+								</Collection>
 							</section>
 						))
 				) : view === "board" ? (
@@ -563,21 +572,26 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 										className="w-72 shrink-0"
 										aria-label={label(group.disposition)}
 									>
-										<h3 className="mb-3 text-sm font-medium">
+										<SectionTitle className="mb-3">
 											{label(group.disposition)}{" "}
-											<span className="ml-1 text-kumo-subtle">
+											<Text
+												as="span"
+												role="label"
+												tone="secondary"
+												className="ml-1"
+											>
 												{group.items.length}
-											</span>
-										</h3>
+											</Text>
+										</SectionTitle>
 										<div className="grid gap-2">
 											{group.items.map((item) => (
-												<Card key={item.id}>
-													<CardContent className="grid gap-3 p-3">
+												<Card key={item.id} size="sm">
+													<CardContent className="grid gap-3">
 														<ItemLink item={item} />
 														<div className="flex items-center justify-between gap-2">
-															<span className="text-xs text-kumo-subtle">
+															<Text role="label" tone="secondary">
 																{label(item.priority)}
-															</span>
+															</Text>
 															{canSchedule(item) ? (
 																<Button
 																	size="sm"
@@ -615,16 +629,20 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 						{scheduled.length ? (
 							<div className="min-w-0 overflow-x-auto rounded-lg border border-kumo-line">
 								<div className="min-w-[52rem]">
-									<div className="grid grid-cols-[16rem_1fr] border-b border-kumo-line text-xs text-kumo-subtle">
-										<div className="p-3">Scheduled work</div>
+									<div className="grid grid-cols-[16rem_1fr] border-b border-kumo-line">
+										<Text role="label" tone="secondary" className="p-3">
+											Scheduled work
+										</Text>
 										<div className="grid grid-cols-7 border-l border-kumo-line">
 											{Array.from({ length: 7 }, (_, index) => (
-												<div
+												<Text
+													role="label"
+													tone="secondary"
 													key={index}
 													className="border-l border-kumo-line px-2 py-3 first:border-l-0"
 												>
 													{dateLabel(rangeStart + (span * index) / 7)}
-												</div>
+												</Text>
 											))}
 										</div>
 									</div>
@@ -655,7 +673,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 													</Button>
 												) : (
 													<span
-														className="absolute top-2 overflow-hidden rounded-md bg-kumo-tint px-2 py-1 text-xs"
+														className="absolute top-2 overflow-hidden rounded-md bg-kumo-tint px-2 py-1"
 														style={{
 															left: `${((Date.parse(item.startAt!) - rangeStart) / span) * 100}%`,
 															width: `${(((item.durationDays ?? 1) * DAY) / span) * 100}%`,
@@ -663,7 +681,9 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 														}}
 														title={`${item.title}: ${dateLabel(item.startAt!)} · ${item.durationDays ?? 1} days`}
 													>
-														{item.durationDays ?? 1}d
+														<Text as="span" role="label" tone="secondary">
+															{item.durationDays ?? 1}d
+														</Text>
 													</span>
 												)}
 											</div>
@@ -678,15 +698,20 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 						)}
 						{unscheduled.length ? (
 							<section aria-label="Unscheduled work">
-								<h3 className="mb-2 text-sm font-medium">
+								<SectionTitle className="mb-2">
 									Unscheduled{" "}
-									<span className="ml-1 text-kumo-subtle">
+									<Text
+										as="span"
+										role="label"
+										tone="secondary"
+										className="ml-1"
+									>
 										{unscheduled.length}
-									</span>
-								</h3>
-								<ul className="divide-y divide-kumo-line rounded-lg border border-kumo-line">
+									</Text>
+								</SectionTitle>
+								<Collection aria-label="Unscheduled work">
 									{unscheduled.map(row)}
-								</ul>
+								</Collection>
 							</section>
 						) : null}
 						{milestoneQueries.flatMap((query) => query.data?.data ?? [])
@@ -750,16 +775,21 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 							Showing the first 100 projects.
 						</Text>
 					) : null}
-					<ul className="max-h-80 divide-y divide-kumo-line overflow-y-auto">
+					<Collection appearance="inline" className="max-h-80 overflow-y-auto">
 						{managerProjects.map((project) => {
 							const isLinked = linked.some(
 								(link) => link.projectId === project.id,
 							);
 							return (
-								<li key={project.id} className="flex items-center gap-3 py-3">
+								<li
+									key={project.id}
+									className="flex items-center gap-3 px-4 py-3"
+								>
 									<div className="min-w-0 flex-1">
-										<p className="text-sm font-medium">{project.name}</p>
-										<p className="text-xs text-kumo-subtle">{project.key}</p>
+										<Text weight="medium">{project.name}</Text>
+										<Text role="label" tone="secondary">
+											{project.key}
+										</Text>
 									</div>
 									<Button
 										size="sm"
@@ -777,7 +807,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 								</li>
 							);
 						})}
-					</ul>
+					</Collection>
 				</DialogContent>
 			</Dialog>
 			{scheduledItem ? (
