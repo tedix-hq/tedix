@@ -46,6 +46,7 @@ import { Text } from "./kumo/text";
 import { Alert, AlertTitle, AlertDescription } from "./kumo/alert";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "./kumo/empty";
 import { ListSkeleton } from "./list-skeleton";
+import { MemoryHealthFindingsSection } from "./memory-health-findings";
 import { ObservationEvidence } from "./memory-observations";
 
 type Row = MemoryTableRow & { details: ReactNode };
@@ -403,257 +404,272 @@ export function MemoryBrowser({
 					))}
 				</TabsList>
 			</Tabs>
-			<div className="grid gap-3">
-				<div className="flex flex-wrap items-baseline justify-between gap-2">
-					<Text as="h2" role="section" className="sr-only">
-						{label}
-					</Text>
-					<Text role="caption" tone="secondary">
-						20 rows per page
-					</Text>
-				</div>
-				<Text tone="secondary" className="m-0">
-					{description}
-				</Text>
-				<div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
-					<div className="col-span-2 sm:col-span-1">
-						<Input
-							aria-label={`Search ${label.toLowerCase()}`}
-							placeholder="Search memories…"
-							value={search.q}
-							onChange={(event) => change({ q: event.target.value })}
-						/>
-					</div>
-					{factView ? (
-						<Choice
-							label="Domain"
-							value={search.domain}
-							choices={[
-								{ value: "", label: "All domains" },
-								...(domains.data?.domains ?? []).map((domain) => ({
-									value: domain.id,
-									label: domain.name,
-								})),
-							]}
-							onChange={(domain) => change({ domain })}
-						/>
-					) : (
-						<Choice
-							label={sourceLabel}
-							value={search.source}
-							choices={[
-								{
-									value: "",
-									label: `All ${sourceLabel === "Status" ? "statuses" : `${sourceLabel.toLowerCase()}s`}`,
-								},
-								...sources.map((source) => ({
-									value: source,
-									label: source.replaceAll("_", " "),
-								})),
-							]}
-							onChange={(source) => change({ source })}
-						/>
-					)}
-					<Choice
-						label="Confidence"
-						disabled={search.tab === "rules" || search.tab === "curiosity"}
-						value={confidenceAvailable ? search.confidence : "all"}
-						choices={[
-							{ value: "all", label: "Any confidence" },
-							{ value: "80", label: "80% or higher" },
-							{ value: "50", label: "50% or higher" },
-						]}
-						onChange={(confidence) =>
-							change({ confidence: confidence as MemorySearch["confidence"] })
-						}
-					/>
-					<Choice
-						label="Sort memories"
-						value={confidenceAvailable ? search.sort : "updated"}
-						choices={[
-							{ value: "updated", label: "Updated: newest" },
-							...(confidenceAvailable
-								? [{ value: "confidence", label: "Confidence: highest" }]
-								: []),
-						]}
-						onChange={(sort) => change({ sort: sort as MemorySearch["sort"] })}
-					/>
-				</div>
-				{(search.q ||
-					search.domain ||
-					search.source ||
-					search.confidence !== "all") && (
-					<div>
-						<Button
-							variant="ghost"
-							onClick={() =>
-								change({ q: "", domain: "", source: "", confidence: "all" })
-							}
-						>
-							Clear filters
-						</Button>
-					</div>
-				)}
-			</div>
-			{activeQuery.isPending ? (
-				<ListSkeleton rows={5} />
-			) : activeQuery.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>{label} is unavailable</AlertTitle>
-					<AlertDescription>
-						{activeQuery.error.message}
-						<Button
-							variant="outline"
-							onClick={() => void activeQuery.refetch()}
-						>
-							Try again
-						</Button>
-					</AlertDescription>
-				</Alert>
-			) : pageRows.length === 0 ? (
-				<Empty appearance="quiet">
-					<EmptyHeader>
-						<EmptyTitle>No memories to show</EmptyTitle>
-						<EmptyDescription>
-							{search.q ||
+			{search.tab === "health" ? (
+				<MemoryHealthFindingsSection />
+			) : (
+				<>
+					<div className="grid gap-3">
+						<div className="flex flex-wrap items-baseline justify-between gap-2">
+							<Text as="h2" role="section" className="sr-only">
+								{label}
+							</Text>
+							<Text role="caption" tone="secondary">
+								20 rows per page
+							</Text>
+						</div>
+						<Text tone="secondary" className="m-0">
+							{description}
+						</Text>
+						<div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
+							<div className="col-span-2 sm:col-span-1">
+								<Input
+									aria-label={`Search ${label.toLowerCase()}`}
+									placeholder="Search memories…"
+									value={search.q}
+									onChange={(event) => change({ q: event.target.value })}
+								/>
+							</div>
+							{factView ? (
+								<Choice
+									label="Domain"
+									value={search.domain}
+									choices={[
+										{ value: "", label: "All domains" },
+										...(domains.data?.domains ?? []).map((domain) => ({
+											value: domain.id,
+											label: domain.name,
+										})),
+									]}
+									onChange={(domain) => change({ domain })}
+								/>
+							) : (
+								<Choice
+									label={sourceLabel}
+									value={search.source}
+									choices={[
+										{
+											value: "",
+											label: `All ${sourceLabel === "Status" ? "statuses" : `${sourceLabel.toLowerCase()}s`}`,
+										},
+										...sources.map((source) => ({
+											value: source,
+											label: source.replaceAll("_", " "),
+										})),
+									]}
+									onChange={(source) => change({ source })}
+								/>
+							)}
+							<Choice
+								label="Confidence"
+								disabled={search.tab === "rules" || search.tab === "curiosity"}
+								value={confidenceAvailable ? search.confidence : "all"}
+								choices={[
+									{ value: "all", label: "Any confidence" },
+									{ value: "80", label: "80% or higher" },
+									{ value: "50", label: "50% or higher" },
+								]}
+								onChange={(confidence) =>
+									change({
+										confidence: confidence as MemorySearch["confidence"],
+									})
+								}
+							/>
+							<Choice
+								label="Sort memories"
+								value={confidenceAvailable ? search.sort : "updated"}
+								choices={[
+									{ value: "updated", label: "Updated: newest" },
+									...(confidenceAvailable
+										? [{ value: "confidence", label: "Confidence: highest" }]
+										: []),
+								]}
+								onChange={(sort) =>
+									change({ sort: sort as MemorySearch["sort"] })
+								}
+							/>
+						</div>
+						{(search.q ||
 							search.domain ||
 							search.source ||
-							search.confidence !== "all"
-								? "Try another search or clear the filters."
-								: "Memories appear here as your tedis learn."}
-						</EmptyDescription>
-					</EmptyHeader>
-				</Empty>
-			) : (
-				<Table className="w-full table-fixed" aria-label={label}>
-					<TableHeader>
-						<TableRow>
-							<TableHead className="w-full sm:w-1/2">Memory</TableHead>
-							<TableHead className="hidden sm:table-cell">
-								{sourceLabel}
-							</TableHead>
-							<TableHead className="hidden sm:table-cell">Updated</TableHead>
-							<TableHead className="hidden text-right sm:table-cell">
-								Confidence
-							</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{pageRows.map((row) => (
-							<TableRow
-								key={row.id}
-								className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus"
-								tabIndex={0}
-								aria-label={`Details: ${memoryText(row.title, row.body).line}`}
-								onClick={() => onSearch({ detail: row.id })}
-								onKeyDown={(event) => {
-									if (event.key === "Enter" || event.key === " ") {
-										event.preventDefault();
-										onSearch({ detail: row.id });
+							search.confidence !== "all") && (
+							<div>
+								<Button
+									variant="ghost"
+									onClick={() =>
+										change({ q: "", domain: "", source: "", confidence: "all" })
 									}
-								}}
-							>
-								<TableCell className="!whitespace-normal">
-									<span className="block truncate py-2">
-										{memoryText(row.title, row.body).line}
-									</span>
-									<span className="block truncate pb-2 text-kumo-subtle type-tedix-caption sm:hidden">
-										{row.source} ·{" "}
-										{row.updated ? relativeTime(row.updated) : "Date unknown"} ·{" "}
-										{row.confidence === null
-											? "Confidence not recorded"
-											: `${Math.round(row.confidence * 100)}%`}
-									</span>
-								</TableCell>
-								<TableCell className="hidden truncate text-kumo-subtle sm:table-cell">
-									{row.source.replaceAll("_", " ")}
-								</TableCell>
-								<TableCell className="hidden text-kumo-subtle sm:table-cell">
-									{row.updated ? (
-										<time
-											dateTime={row.updated}
-											title={absoluteTime(row.updated)}
-										>
-											{relativeTime(row.updated)}
-										</time>
-									) : (
-										"—"
-									)}
-								</TableCell>
-								<TableCell className="hidden text-right tabular-nums sm:table-cell">
-									{row.confidence === null
-										? "—"
-										: `${Math.round(row.confidence * 100)}%`}
-								</TableCell>
-							</TableRow>
-						))}
-					</TableBody>
-				</Table>
-			)}
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<Text role="caption" tone="secondary" aria-live="polite">
-					Page {search.page + 1} · {pageRows.length} memories
-					{factView ? "" : ` of ${filtered.length} in this recent window`}
-				</Text>
-				<div className="flex gap-2">
-					<Button
-						variant="outline"
-						disabled={search.page === 0}
-						onClick={() => onSearch({ page: search.page - 1, detail: "" })}
-					>
-						Previous
-					</Button>
-					<Button
-						variant="outline"
-						disabled={!hasNext || activeQuery.isFetching}
-						onClick={() => onSearch({ page: search.page + 1, detail: "" })}
-					>
-						Next
-					</Button>
-				</div>
-			</div>
-			<Sheet
-				open={selected !== null}
-				onOpenChange={(open) => {
-					if (!open) onSearch({ detail: "" });
-				}}
-			>
-				<SheetContent size="lg" showCloseButton={false}>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						aria-label="Close memory details"
-						title="Close memory details"
-						className="absolute top-4 right-4 z-20"
-						onClick={() => onSearch({ detail: "" })}
-					>
-						<X aria-hidden size={16} />
-					</Button>
-					<SheetHeader>
-						<SheetTitle>Memory details</SheetTitle>
-						<SheetDescription className="pr-8 wrap-anywhere">
-							{selected
-								? (memoryText(selected.title, selected.body).title ??
-									"Full text, evidence and history")
-								: ""}
-						</SheetDescription>
-					</SheetHeader>
-					<div className="grid gap-4 px-4 pb-6 sm:px-6">
-						{selected && (
-							<Text tone="secondary" className="wrap-anywhere">
-								{selected.source} ·{" "}
-								{selected.updated
-									? absoluteTime(selected.updated)
-									: "Date not recorded"}
-								{selected.confidence !== null
-									? ` · ${Math.round(selected.confidence * 100)}% confidence`
-									: ""}
-							</Text>
+								>
+									Clear filters
+								</Button>
+							</div>
 						)}
-						{selected?.details}
 					</div>
-				</SheetContent>
-			</Sheet>
+					{activeQuery.isPending ? (
+						<ListSkeleton rows={5} />
+					) : activeQuery.isError ? (
+						<Alert variant="destructive">
+							<AlertTitle>{label} is unavailable</AlertTitle>
+							<AlertDescription>
+								{activeQuery.error.message}
+								<Button
+									variant="outline"
+									onClick={() => void activeQuery.refetch()}
+								>
+									Try again
+								</Button>
+							</AlertDescription>
+						</Alert>
+					) : pageRows.length === 0 ? (
+						<Empty appearance="quiet">
+							<EmptyHeader>
+								<EmptyTitle>No memories to show</EmptyTitle>
+								<EmptyDescription>
+									{search.q ||
+									search.domain ||
+									search.source ||
+									search.confidence !== "all"
+										? "Try another search or clear the filters."
+										: "Memories appear here as your tedis learn."}
+								</EmptyDescription>
+							</EmptyHeader>
+						</Empty>
+					) : (
+						<Table className="w-full table-fixed" aria-label={label}>
+							<TableHeader>
+								<TableRow>
+									<TableHead className="w-full sm:w-1/2">Memory</TableHead>
+									<TableHead className="hidden sm:table-cell">
+										{sourceLabel}
+									</TableHead>
+									<TableHead className="hidden sm:table-cell">
+										Updated
+									</TableHead>
+									<TableHead className="hidden text-right sm:table-cell">
+										Confidence
+									</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{pageRows.map((row) => (
+									<TableRow
+										key={row.id}
+										className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus"
+										tabIndex={0}
+										aria-label={`Details: ${memoryText(row.title, row.body).line}`}
+										onClick={() => onSearch({ detail: row.id })}
+										onKeyDown={(event) => {
+											if (event.key === "Enter" || event.key === " ") {
+												event.preventDefault();
+												onSearch({ detail: row.id });
+											}
+										}}
+									>
+										<TableCell className="!whitespace-normal">
+											<span className="block truncate py-2">
+												{memoryText(row.title, row.body).line}
+											</span>
+											<span className="block truncate pb-2 text-kumo-subtle type-tedix-caption sm:hidden">
+												{row.source} ·{" "}
+												{row.updated
+													? relativeTime(row.updated)
+													: "Date unknown"}{" "}
+												·{" "}
+												{row.confidence === null
+													? "Confidence not recorded"
+													: `${Math.round(row.confidence * 100)}%`}
+											</span>
+										</TableCell>
+										<TableCell className="hidden truncate text-kumo-subtle sm:table-cell">
+											{row.source.replaceAll("_", " ")}
+										</TableCell>
+										<TableCell className="hidden text-kumo-subtle sm:table-cell">
+											{row.updated ? (
+												<time
+													dateTime={row.updated}
+													title={absoluteTime(row.updated)}
+												>
+													{relativeTime(row.updated)}
+												</time>
+											) : (
+												"—"
+											)}
+										</TableCell>
+										<TableCell className="hidden text-right tabular-nums sm:table-cell">
+											{row.confidence === null
+												? "—"
+												: `${Math.round(row.confidence * 100)}%`}
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					)}
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<Text role="caption" tone="secondary" aria-live="polite">
+							Page {search.page + 1} · {pageRows.length} memories
+							{factView ? "" : ` of ${filtered.length} in this recent window`}
+						</Text>
+						<div className="flex gap-2">
+							<Button
+								variant="outline"
+								disabled={search.page === 0}
+								onClick={() => onSearch({ page: search.page - 1, detail: "" })}
+							>
+								Previous
+							</Button>
+							<Button
+								variant="outline"
+								disabled={!hasNext || activeQuery.isFetching}
+								onClick={() => onSearch({ page: search.page + 1, detail: "" })}
+							>
+								Next
+							</Button>
+						</div>
+					</div>
+					<Sheet
+						open={selected !== null}
+						onOpenChange={(open) => {
+							if (!open) onSearch({ detail: "" });
+						}}
+					>
+						<SheetContent size="lg" showCloseButton={false}>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								aria-label="Close memory details"
+								title="Close memory details"
+								className="absolute top-4 right-4 z-20"
+								onClick={() => onSearch({ detail: "" })}
+							>
+								<X aria-hidden size={16} />
+							</Button>
+							<SheetHeader>
+								<SheetTitle>Memory details</SheetTitle>
+								<SheetDescription className="pr-8 wrap-anywhere">
+									{selected
+										? (memoryText(selected.title, selected.body).title ??
+											"Full text, evidence and history")
+										: ""}
+								</SheetDescription>
+							</SheetHeader>
+							<div className="grid gap-4 px-4 pb-6 sm:px-6">
+								{selected && (
+									<Text tone="secondary" className="wrap-anywhere">
+										{selected.source} ·{" "}
+										{selected.updated
+											? absoluteTime(selected.updated)
+											: "Date not recorded"}
+										{selected.confidence !== null
+											? ` · ${Math.round(selected.confidence * 100)}% confidence`
+											: ""}
+									</Text>
+								)}
+								{selected?.details}
+							</div>
+						</SheetContent>
+					</Sheet>
+				</>
+			)}
 		</section>
 	);
 }

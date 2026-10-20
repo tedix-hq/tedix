@@ -20,6 +20,7 @@ export const MEMORY_TABS = [
 	{ id: "gaps", label: "Gaps" },
 	{ id: "stale", label: "Stale" },
 	{ id: "curiosity", label: "Curiosity queue" },
+	{ id: "health", label: "Health" },
 ] as const;
 export const MEMORY_PAGE_SIZE = 20;
 export const MEMORY_RECENT_LIMIT = 100;
@@ -35,6 +36,7 @@ export const memorySearchSchema = z.object({
 			"gaps",
 			"stale",
 			"curiosity",
+			"health",
 		])
 		.catch("observations"),
 	q: z.string().max(500).catch(""),
