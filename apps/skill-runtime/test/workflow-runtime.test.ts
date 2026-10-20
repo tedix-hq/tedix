@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import "./runner-shims.test";
 import "./workflow-connection-recovery.test";
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
