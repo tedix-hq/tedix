@@ -383,6 +383,11 @@ export const SPANISH_DECISION_CONTROLS: Record<string, string> = {
 	"Your answer…": "Tu respuesta…",
 	"Decision saved": "Decisión guardada",
 	"Saving…": "Guardando…",
+	"Writing a short summary…": "Escribiendo un resumen corto…",
+	"Summary unavailable — showing the original request":
+		"Resumen no disponible — se muestra la solicitud original",
+	Retry: "Reintentar",
+	"Retrying…": "Reintentando…",
 	Preview: "Vista previa",
 	Change: "Cambiar",
 	"Why not this?": "¿Por qué esta no?",

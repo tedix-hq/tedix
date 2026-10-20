@@ -1,6 +1,6 @@
 import { DecisionLearningContext } from "./decision-learning-context";
 import { CardFaceContext } from "./deck-presentation-context";
-import { act } from "react";
+import { act, type ContextType } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
@@ -336,43 +336,121 @@ it("keeps shortcuts out of the button label and announces them through aria-keys
 	expect(host.querySelector(".fd-action-key")).toBeNull();
 });
 
-it("renders real face copy and labels pending and failed generation explicitly", async () => {
-	await mount();
-	const presentation = {
-		version: 2 as const,
-		title: "Review the workshop plan?",
-		context: "Morgan needs the room choice today.",
-		body: "Saves the proposed room for review.",
-		recommendation: "Review first because the group size changed.",
-	};
-	for (const state of [
-		{ presentation, confidence: null },
-		{ presentation: null, confidence: null },
-		{ presentation: null, confidence: null, unavailable: true },
-	]) {
-		await act(async () =>
-			root.render(
-				<CardFaceContext.Provider value={state}>
-					<WorkDecisionCard
-						kind="decision"
-						askedBy="Robin"
-						title="Original source"
-						body="Full source text"
-						actions={[]}
-						onDecision={async () => {}}
-					/>
-				</CardFaceContext.Provider>,
-			),
-		);
-		if (state.presentation) {
-			expect(host.textContent).toContain(presentation.context);
-			expect(host.textContent).toContain(presentation.body);
-			expect(host.textContent).not.toContain("Summary pending");
-		} else {
-			expect(host.querySelector('[role="status"]')?.textContent).toContain(
-				"unavailable" in state ? "Summary unavailable" : "Summary pending",
-			);
-		}
+const FACE = {
+	version: 2 as const,
+	title: "Review the workshop plan?",
+	context: "Morgan needs the room choice today.",
+	body: "Saves the proposed room for review.",
+	recommendation: "Review first because the group size changed.",
+};
+const FACE_ACTIONS = [
+	{ id: "yes", label: "Yes", intent: "approve" as const },
+	{ id: "later", label: "Later", intent: "later" as const },
+];
+async function mountFace(
+	state: NonNullable<ContextType<typeof CardFaceContext>>,
+	decide = vi.fn(async (_feedback: DecisionCardFeedback) => {}),
+) {
+	if (!host?.isConnected) {
+		host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+	}
+	await act(async () =>
+		root.render(
+			<CardFaceContext.Provider value={state}>
+				<WorkDecisionCard
+					kind="decision"
+					askedBy="Robin"
+					title="Confirm who staffs the booth?"
+					body="Confirm who staffs the booth and send the guest list yourself for the Demo Day on 20 October. Booth setup must finish by 13:59 Berlin."
+					actions={FACE_ACTIONS}
+					onDecision={decide}
+				/>
+			</CardFaceContext.Provider>,
+		),
+	);
+	return decide;
+}
+const heading = () => host.querySelector("h2")?.textContent ?? "";
+const actionButtons = () => [
+	...host.querySelectorAll<HTMLButtonElement>("[data-decision-intent]"),
+];
+
+it("renders real face copy with a cross-fade and never a status word as the headline", async () => {
+	await mountFace({ presentation: null, confidence: null });
+	expect(heading()).toBe("Confirm who staffs the booth?");
+	await mountFace({ presentation: FACE, confidence: null });
+	expect(heading()).toBe(FACE.title);
+	expect(host.querySelector(".fd-face-enter")?.textContent).toContain(
+		FACE.body,
+	);
+	expect(host.querySelector("[data-face-pending]")).toBeNull();
+	await mountFace({ presentation: null, confidence: null, unavailable: true });
+	expect(heading()).toBe("Confirm who staffs the booth?");
+	for (const word of ["Summary pending", "Summary unavailable."])
+		expect(host.textContent).not.toContain(word);
+});
+
+it("shows a skeleton with a writing label only while the summary is pending, and keeps actions live", async () => {
+	const decide = await mountFace({ presentation: null, confidence: null });
+	const skeleton = host.querySelector("[data-face-pending]")!;
+	expect(skeleton.getAttribute("role")).toBe("status");
+	expect(skeleton.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
+	expect(skeleton.textContent).toContain("Writing a short summary…");
+	expect(host.querySelector("[data-face-fallback]")).toBeNull();
+	expect(actionButtons().map((button) => button.disabled)).toEqual([
+		false,
+		false,
+	]);
+	await click("Yes");
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({ action: "yes", signal: "approve-as-is" }),
+	);
+});
+
+it("falls back to the original request with a retry when the summary fails", async () => {
+	const retry = vi.fn();
+	await mountFace({
+		presentation: null,
+		confidence: null,
+		unavailable: true,
+		retry,
+	});
+	expect(host.querySelector("[data-face-pending]")).toBeNull();
+	const note = host.querySelector("[data-face-fallback]")!;
+	expect(note.textContent).toContain(
+		"Summary unavailable — showing the original request",
+	);
+	expect(
+		host.querySelector(".fd-face-fallback .fd-proposal-preview")?.textContent,
+	).toContain("Confirm who staffs the booth and send the guest list yourself");
+	expect(actionButtons().every((button) => !button.disabled)).toBe(true);
+	await click("Retry");
+	expect(retry).toHaveBeenCalledTimes(1);
+});
+
+it("replaces the skeleton with the original request once the summary takes too long", async () => {
+	vi.useFakeTimers();
+	try {
+		await mountFace({ presentation: null, confidence: null });
+		expect(host.querySelector("[data-face-pending]")).not.toBeNull();
+		await act(async () => {
+			vi.advanceTimersByTime(7999);
+		});
+		expect(host.querySelector("[data-face-pending]")).not.toBeNull();
+		await act(async () => {
+			vi.advanceTimersByTime(1);
+		});
+		expect(host.querySelector("[data-face-pending]")).toBeNull();
+		expect(host.querySelector("[data-face-fallback]")).not.toBeNull();
+		expect(heading()).toBe("Confirm who staffs the booth?");
+		// A late summary still replaces the fallback.
+		await mountFace({ presentation: FACE, confidence: null });
+		expect(host.querySelector("[data-face-fallback]")).toBeNull();
+		expect(host.textContent).toContain(FACE.body);
+	} finally {
+		vi.useRealTimers();
 	}
 });
 
