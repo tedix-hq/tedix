@@ -680,6 +680,8 @@ const UNPROJECTABLE_ROUTERS = new Set([
 	"mcpGovernance",
 ]);
 const UNPROJECTABLE_ENDPOINTS = new Set([
+	// Home-bound native runtime action; an MCP mount cannot carry its authority.
+	"workItems/closeoutDelegated",
 	"workInteractions/outbound/act",
 	"workInteractions/outbound/accounts",
 	"workInteractions/outbound/checkOutcome",
