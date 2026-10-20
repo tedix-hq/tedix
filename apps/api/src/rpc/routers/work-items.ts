@@ -34,6 +34,7 @@ import {
 } from "./work-items/coordination-git";
 import { createProcedure } from "./work-items/creation-reads";
 import { addCommentProcedure } from "./work-items/lifecycle-marketing";
+import { closeoutDelegatedProcedure } from "./work-items/delegated-closeout";
 import {
 	acceptProcedure,
 	cancelFactoryWorkItemProcedure,
@@ -115,6 +116,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	getReadiness: getReadinessProcedure,
 	cancel: cancelFactoryWorkItemProcedure,
 	complete: completeProcedure,
+	closeoutDelegated: closeoutDelegatedProcedure,
 	addComment: addCommentProcedure,
 	corroborate: corroborateProcedure,
 	listCorroborations: listCorroborationsProcedure,

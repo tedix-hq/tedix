@@ -71,12 +71,18 @@ describe("request-derived capability plans", () => {
 		);
 		const closeout = buildDelegationWorkOrder({
 			userContent:
-				"Work backlog hygiene: verify SHAs on origin/main. Mark each completed with a closing comment.",
+				"Work backlog hygiene for project 11111111-1111-4111-8111-111111111111: verify SHAs on origin/main. Mark each completed with a closing comment.",
 			card,
 			route,
 		});
 		expect(closeout.executionRequirement.surface).toBe("workstation");
 		expect(closeout.capabilityPlan?.allowedToolIds).toContain(
+			"close_completed_work_item",
+		);
+		expect(closeout.capabilityPlan?.allowedToolIds).not.toContain(
+			"work.add_comment",
+		);
+		expect(closeout.capabilityPlan?.allowedToolIds).not.toContain(
 			"work.complete_work_item",
 		);
 		const summary = buildDelegationWorkOrder({

@@ -963,6 +963,24 @@ export const workItemsContract = oc
 			)
 			.output(WorkItemSchema),
 
+		closeoutDelegated: oc
+			.route({
+				method: "POST",
+				path: "/{id}/delegated-closeout",
+				tags: ["internal"],
+				summary: "Close a settled Work Item within a persisted Home request",
+			})
+			.input(
+				z.object({
+					id: z.uuid(),
+					homeRunId: z.uuid(),
+					runId: z.string().min(1).max(500),
+					linkedWorkItemId: z.uuid(),
+					sha: z.string().regex(/^[a-f\d]{40}$/i),
+				}),
+			)
+			.output(WorkItemSchema),
+
 		complete: oc
 			.route({
 				method: "POST",
