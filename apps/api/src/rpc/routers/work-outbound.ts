@@ -108,6 +108,7 @@ async function save(
 	action: string,
 	response?: Parameters<typeof saveOutbound>[1]["response"],
 	createInteraction = false,
+	revisionFeedback?: Parameters<typeof saveOutbound>[1]["revisionFeedback"],
 ) {
 	const actor = await verifiedActiveWorkActor(context, requireOrgId(context));
 	if (!createInteraction) {
@@ -149,6 +150,7 @@ async function save(
 			now: new Date().toISOString(),
 			response,
 			createInteraction,
+			revisionFeedback,
 		}))
 	)
 		throw createError(
@@ -650,6 +652,12 @@ export const outboundRouter = os.router({
 					: input.feedback,
 				resolves:
 					input.action === "approve_manual" || input.action === "reject",
+			},
+			false,
+			{
+				summary: input.summary,
+				keptHunks: input.keptHunks,
+				parentRevision: input.restoreRevision,
 			},
 		);
 		const learningClientEventId = `outbound:${current.workItemId}:${next.version}`;

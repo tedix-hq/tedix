@@ -1,3 +1,4 @@
+import { CardRevisionSchema } from "@tedix/api-contract/schemas/card-revisions";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
@@ -20,20 +21,25 @@ try {
 			const revised =
 				"Hi Morgan,\n\nHere is the use case we discussed. Would a short call next week work?\n\nBest, Robin";
 			const requestId = "44444444-4444-4444-8444-444444444444";
-			const revisions = [original, revised].map((body, index) => ({
-				id: `11111111-1111-4111-8111-11111111111${index}`,
-				orgId: "org",
-				requestId,
-				revision: index + 1,
-				body,
-				cause: index ? "agent_rewrite" : "initial",
-				actorType: "tedi",
-				actorId: "author",
-				actorSessionId: null,
-				instruction: index ? "Make the introduction shorter and warmer." : null,
-				responseId: null,
-				createdAt: "2026-10-19T20:00:00.000Z",
-			}));
+			const revisions = [original, revised].map((body, index) =>
+				CardRevisionSchema.parse({
+					id: `11111111-1111-4111-8111-11111111111${index}`,
+					orgId: "org",
+					requestId,
+					revision: index + 1,
+					body,
+					cause: index ? "agent_rewrite" : "initial",
+					actorType: "tedi",
+					actorId: "author",
+					actorSessionId: null,
+					instruction: index
+						? "Make the introduction shorter and warmer."
+						: null,
+					responseId: null,
+					summary: index ? "Shortened the introduction." : null,
+					createdAt: "2026-10-19T20:00:00.000Z",
+				}),
+			);
 			let pending: {
 				responseId: string;
 				instruction: string;
@@ -77,13 +83,21 @@ try {
 					version++;
 					json = { id: requestId, version };
 				} else if (endpoint === "reviseCard") {
-					assert.equal(input.restoreRevision, 1);
 					version++;
+					if (!input.restoreRevision) {
+						assert.equal(input.keptHunks.length, 1);
+						assert.equal(input.keptHunks[0].fromRevision, 2);
+						assert.notEqual(input.body, revised);
+					}
 					revisions.push({
 						...revisions[0]!,
-						id: "33333333-3333-4333-8333-333333333333",
-						revision: 3,
-						cause: "restore",
+						id: crypto.randomUUID(),
+						revision: revisions.length + 1,
+						body: input.body ?? original,
+						cause: input.restoreRevision ? "restore" : "human_edit",
+						keptHunks: input.keptHunks ?? null,
+						parentRevision: input.restoreRevision ?? revisions.length,
+						summary: input.summary ?? null,
 					});
 					json = revisions.at(-1);
 				} else return route.abort();
@@ -115,7 +129,25 @@ try {
 					() => document.documentElement.scrollWidth <= innerWidth,
 				),
 			);
-			await page.getByText("What changed", { exact: true }).click();
+			await page
+				.getByText("Shortened the introduction.", { exact: true })
+				.waitFor();
+			await page
+				.getByRole("button", { name: "Show clean", exact: true })
+				.click();
+			assert.equal(
+				await page.getByLabel("Revision diff").textContent(),
+				revised,
+			);
+			await page
+				.getByRole("button", { name: "Show changes", exact: true })
+				.click();
+			await page
+				.getByRole("button", { name: /^Keep original change/ })
+				.first()
+				.click();
+			await page.getByText("Version 3", { exact: true }).waitFor();
+			await page.getByText("(Original kept)", { exact: true }).waitFor();
 			if (screenshotDirectory)
 				await page.screenshot({
 					path: `${screenshotDirectory}/card-revisions-${width}-${theme}.png`,
@@ -125,7 +157,7 @@ try {
 			await page
 				.getByRole("button", { name: "Restore version 1", exact: true })
 				.click();
-			await page.getByText("Version 3", { exact: true }).waitFor();
+			await page.getByText("Version 4", { exact: true }).waitFor();
 			const card = page.getByRole("region", {
 				name: "Send Morgan the use-case email?",
 			});

@@ -1012,6 +1012,10 @@
 		{
 			"name": "20261020002504_external_agent_exchange_limit/migration.sql",
 			"sha256": "e86d28eda17f6cc94ee3d6fbdc1c78ae4065bceadda2f39553fca4b1a4ae6e73"
+		},
+		{
+			"name": "20261020011144_card-revision-feedback/migration.sql",
+			"sha256": "e88669d7ea3290f51fe8d8df117d408f810a1215b5eb7163ab145eca79f66942"
 		}
 	]
 }

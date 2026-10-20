@@ -1,6 +1,7 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
+import { CardTextSchema, KeptCardHunkSchema } from "../schemas/card-revisions";
 import { baseErrors } from "../errors";
 import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import {
@@ -63,6 +64,8 @@ export const outboundContract = oc.errors(baseErrors).router({
 					elapsedMs: z.number().int().min(0).max(86400000).optional(),
 					draft: OutboundDraftSchema.optional(),
 					body: z.string().trim().min(1).max(40_000).optional(),
+					summary: CardTextSchema.max(1000).optional(),
+					keptHunks: z.array(KeptCardHunkSchema).max(100).optional(),
 					restoreRevision: z.number().int().positive().optional(),
 					feedback: z.string().trim().min(1).max(8_000).optional(),
 					connectionInstanceId: z.uuid().optional(),

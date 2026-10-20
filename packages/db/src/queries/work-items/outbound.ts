@@ -107,6 +107,11 @@ export async function saveOutbound(
 		action: string;
 		now: string;
 		createInteraction?: boolean;
+		revisionFeedback?: {
+			summary?: string;
+			keptHunks?: (typeof workInteractionCardRevisions.$inferInsert)["keptHunks"];
+			parentRevision?: number;
+		};
 		response?: {
 			body: string;
 			feedback?: string;
@@ -116,7 +121,7 @@ export async function saveOutbound(
 	},
 ) {
 	const nextVersion = p.expectedVersion + 1;
-	if (containsCardSecret([p.state.draft, p.response]))
+	if (containsCardSecret([p.state.draft, p.response, p.revisionFeedback]))
 		throw new Error(CARD_SECRET_MESSAGE);
 	const transitionId = crypto.randomUUID();
 	const changed = sql`EXISTS (SELECT 1 FROM work_items WHERE org_id=${p.orgId} AND id=${p.workItemId} AND version=${nextVersion} AND json_extract(metadata, '$.outboundTransitionId')=${transitionId})`;
@@ -278,6 +283,23 @@ export async function saveOutbound(
 							"revision",
 						),
 					body: sql<string>`${p.state.draft.body}`.as("body"),
+					field: sql<string>`'draft'`.as("field"),
+					summary: sql<
+						string | null
+					>`${p.revisionFeedback?.summary ?? null}`.as("summary"),
+					keptHunks: sql<
+						(typeof workInteractionCardRevisions.$inferInsert)["keptHunks"]
+					>`${p.revisionFeedback?.keptHunks ? JSON.stringify(p.revisionFeedback.keptHunks) : null}`.as(
+						"kept_hunks",
+					),
+					learningEventId: sql<string>`${crypto.randomUUID()}`.as(
+						"learning_event_id",
+					),
+					parentRevision: sql<
+						number | null
+					>`coalesce(${p.revisionFeedback?.parentRevision ?? null}, (SELECT max(revision) FROM work_interaction_card_revisions WHERE org_id=${p.orgId} AND request_id=${p.state.interactionId}))`.as(
+						"parent_revision",
+					),
 					cause: sql<
 						"initial" | "human_edit" | "agent_rewrite" | "restore"
 					>`CASE WHEN NOT EXISTS (SELECT 1 FROM work_interaction_card_revisions WHERE org_id=${p.orgId} AND request_id=${p.state.interactionId}) THEN 'initial' WHEN ${p.action}='restore' THEN 'restore' WHEN ${p.actor.type}='user' THEN 'human_edit' ELSE 'agent_rewrite' END`.as(
