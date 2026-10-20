@@ -344,6 +344,10 @@ use its single-lane path; train integration and automatic worktree cleanup
 require access to peer worktrees and stay outside the sandbox grant.
 On macOS, the sanitized Git config uses the fixed GitHub Keychain helper;
 credential files and inherited helper scripts remain excluded.
+Only the exact `.env.example` and `.dev.vars.example` filenames are readable
+for repository checks; other environment variants and all environment-file writes
+remain denied. Temporary files and Bun caches stay under the lane's ignored
+`node_modules/.cache/tedix-devin` directory.
 The read-only smoke uses the existing Tedix CLI login; Devin MCP authorization
 is a separate step.
 

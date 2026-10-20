@@ -11,7 +11,11 @@ import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { TEDIX_DEVIN_OAUTH_CLIENT_ID } from "@tedix/auth/oauth-client-registration";
 import { withFileLockSync } from "./local-file-lock";
 import { selfCommand } from "./shared";
-import { devinGitWritePaths, devinSecretPaths } from "./devin-lane-security";
+import {
+	devinEnvironmentReadDenials,
+	devinGitWritePaths,
+	devinSecretPaths,
+} from "./devin-lane-security";
 
 export function devinConfigDirectory(env = process.env) {
 	return join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "devin");
@@ -236,11 +240,18 @@ export function devinPermissionProfile(
 					`${root}/.claude/**`,
 					"~/.ssh/**",
 					"~/.config/**",
-					"**/.env",
-					"**/.env.*",
-					"**/.dev.vars",
-					"**/.dev.vars.*",
 				].flatMap((path) => [`Read(${path})`, `Write(${path})`]),
+				...devinEnvironmentReadDenials().map((path) => `Read(${path})`),
+				...[
+					"**/.env",
+					"**/.env/**",
+					"**/.env.*",
+					"**/.env.*/**",
+					"**/.dev.vars",
+					"**/.dev.vars/**",
+					"**/.dev.vars.*",
+					"**/.dev.vars.*/**",
+				].map((path) => `Write(${path})`),
 			],
 			ask: [],
 		},

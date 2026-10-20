@@ -74,7 +74,7 @@ if (args[0] === 'acp') {
 } else {
  fs.writeFileSync('persisted','quiet-river');
  const config = JSON.parse(fs.readFileSync(args[args.indexOf('--config')+1], 'utf8'));
- fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION}));
+ fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION,tmpdir:process.env.TMPDIR,bunCache:process.env.BUN_INSTALL_CACHE_DIR}));
  fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'quiet-river',steps:[]}));
  console.log('Fake Devin completed the brief.');
 }
@@ -208,6 +208,8 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 	expect(existsSync(exported)).toBe(true);
 	directories.push(dirname(exported));
 	expect(invocation.args).toContain("--sandbox");
+	expect(invocation.tmpdir).toBe(join(dir, "node_modules/.cache/tedix-devin"));
+	expect(invocation.bunCache).toBe(join(invocation.tmpdir, "bun-cache"));
 	expect(invocation.config.sandbox.excluded).toEqual({
 		allow: [],
 		ask: [],
@@ -380,6 +382,54 @@ test("Devin hook identity overrides inherited hosts and retains Claude-compatibl
 			DEVIN_PROJECT_DIR: "/example",
 		}),
 	).toBe(false);
+});
+
+test("only exact environment examples are readable and no environment files are writable", () => {
+	const root = temporary();
+	const block = (tool_name: string, name: string) =>
+		devinPermissionBlock(
+			JSON.stringify({ tool_name, tool_input: { path: join(root, name) } }),
+			root,
+		);
+	const deny = devinPermissionProfile(root).permissions.deny;
+	const read = deny
+		.filter((rule) => rule.startsWith("Read(**/"))
+		.map((rule) => new Bun.Glob(rule.slice(5, -1)));
+	const write = deny
+		.filter((rule) => rule.startsWith("Write(**/"))
+		.map((rule) => new Bun.Glob(rule.slice(6, -1)));
+	for (const prefix of [".env", ".dev.vars"]) {
+		expect(block("read", `${prefix}.example`)).toBeUndefined();
+		expect(block("write", `${prefix}.example`)).toBeDefined();
+		const suffix = "example";
+		const secrets = [
+			prefix,
+			`${prefix}.local`,
+			`${prefix}.production`,
+			`${prefix}.example.local`,
+			`${prefix}.examples`,
+			`${prefix}.example/child`,
+			`${prefix}.local/child`,
+		];
+		for (let i = 0; i < suffix.length; i++) {
+			secrets.push(`${prefix}.${suffix.slice(0, i)}`);
+			for (const letter of "abcdefghijklmnopqrstuvwxyz0123456789._-")
+				if (letter !== suffix[i])
+					secrets.push(
+						`${prefix}.${suffix.slice(0, i)}${letter}${suffix.slice(i + 1)}`,
+					);
+		}
+		for (const name of secrets) {
+			expect(
+				read.some((glob) => glob.match(join(root, name))),
+				name,
+			).toBe(true);
+			expect(
+				write.some((glob) => glob.match(join(root, name))),
+				name,
+			).toBe(true);
+		}
+	}
 });
 
 test("exec environment cannot hide editor scripts or disable guarded push fences", () => {

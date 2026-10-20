@@ -73,6 +73,24 @@ export function devinGitWritePaths(cwd: string): string[] {
 	return paths;
 }
 
+/** Deny-first globs exclude only the literal example filename, not real env variants. */
+export function devinEnvironmentReadDenials(): string[] {
+	return [".env", ".dev.vars"].flatMap((name) => {
+		const suffix = "example";
+		const prefix = `**/${name}.`;
+		return [
+			`**/${name}`,
+			`**/${name}/**`,
+			`**/${name}.*/**`,
+			...Array.from(suffix, (character, index) => [
+				prefix + suffix.slice(0, index),
+				`${prefix}${suffix.slice(0, index)}[!${character}]*`,
+			]).flat(),
+			`${prefix}${suffix}?*`,
+		];
+	});
+}
+
 /** Keep dispatcher worktrees readable; deny the credential stores, not ~/.tedix/**. */
 export function devinSecretPaths(env = process.env) {
 	const stores = [

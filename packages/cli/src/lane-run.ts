@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	mkdtempSync,
+	mkdirSync,
 	readFileSync,
 	readdirSync,
 	writeFileSync,
@@ -259,6 +260,11 @@ async function runLaneProcessWithReporter(
 	await report(sessionKey, telemetry);
 	const dir = mkdtempSync(join(tmpdir(), "tedix-lane-"));
 	const receipt = join(dir, "telemetry.json");
+	const sandboxTemp = join(
+		deps.cwd ?? process.cwd(),
+		"node_modules/.cache/tedix-devin",
+	);
+	if (devin) mkdirSync(sandboxTemp, { recursive: true, mode: 0o700 });
 	const devinTranscript =
 		options.get("--transcript") ?? join(dir, "transcript.devin.atif.json");
 	if (devin) {
@@ -300,6 +306,11 @@ async function runLaneProcessWithReporter(
 			? {
 					TEDIX_DEVIN_LANE_ROOT: deps.cwd ?? process.cwd(),
 					TEDIX_DEVIN_HEADLESS: "1",
+					TMPDIR: sandboxTemp,
+					TMP: sandboxTemp,
+					TEMP: sandboxTemp,
+					BUN_INSTALL_CACHE_DIR: join(sandboxTemp, "bun-cache"),
+					XDG_CACHE_HOME: join(sandboxTemp, "cache"),
 					GIT_CONFIG_GLOBAL: join(dir, "gitconfig"),
 					GIT_CONFIG_NOSYSTEM: "1",
 					TEDIX_AGENT_SESSION: `devin:${sessionKey}`,
