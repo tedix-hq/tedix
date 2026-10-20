@@ -243,9 +243,24 @@ it("treats null optional fields as omitted without changing checked copy", async
 	expect(result).not.toHaveProperty("effectStatus");
 	expect(mocks.model).toHaveBeenCalledTimes(1);
 });
-it("repairs malformed action labels with the actual schema type error", async () => {
+it.each([[], "Approve", { approve: 123 }, { approve: "x".repeat(51) }])(
+	"omits malformed optional labels while preserving valid summary text",
+	async (actionLabels) => {
+		mocks.model.mockResolvedValueOnce(
+			JSON.stringify({ ...copy, actionLabels }),
+		);
+		const result = await generateDecisionCard(
+			{ db: {}, env: {} } as never,
+			request,
+		);
+		expect(result).toMatchObject(copy);
+		expect(result).not.toHaveProperty("actionLabels");
+		expect(mocks.model).toHaveBeenCalledTimes(1);
+	},
+);
+it("repairs a malformed required field with the actual schema type error", async () => {
 	mocks.model.mockResolvedValueOnce(
-		JSON.stringify({ ...copy, actionLabels: [] }),
+		JSON.stringify({ ...copy, body: 123, actionLabels: [] }),
 	);
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),
@@ -257,8 +272,8 @@ it("repairs malformed action labels with the actual schema type error", async ()
 		expect.arrayContaining([
 			expect.objectContaining({
 				code: "invalid_type",
-				path: "actionLabels",
-				message: expect.stringContaining("record"),
+				path: "body",
+				message: expect.stringContaining("string"),
 			}),
 		]),
 	);
