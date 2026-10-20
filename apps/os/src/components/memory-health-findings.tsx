@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "./kumo/collapsible";
 import { Info } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -127,15 +132,19 @@ export function provenanceLines(sample: MemoryHealthFindingSample): string[] {
 /** The evidence a fact carries, or the plain statement that it has none. */
 export function ProvenanceDetails({
 	sample,
+	showText = true,
 }: {
 	sample: MemoryHealthFindingSample;
+	showText?: boolean;
 }) {
 	const lines = provenanceLines(sample);
 	return (
 		<>
-			<Text role="body" tone="strong" className="m-0 break-words">
-				{sample.text}
-			</Text>
+			{showText && (
+				<Text role="body" tone="strong" className="m-0 break-words">
+					{sample.text}
+				</Text>
+			)}
 			{lines.length > 0 ? (
 				lines.map((line) => (
 					<Text
@@ -239,6 +248,52 @@ function SampleRow({ sample }: { sample: MemoryHealthFindingSample }) {
 	);
 }
 
+function SampleGroup({ samples }: { samples: MemoryHealthFindingSample[] }) {
+	if (samples.length === 1) return <SampleRow sample={samples[0]!} />;
+	return (
+		<li data-slot="memory-health-sample" className="grid min-w-0 gap-1 py-2">
+			<Text role="body" tone="strong" className="m-0 break-words">
+				{samples[0]!.text}
+			</Text>
+			<Collapsible>
+				<CollapsibleTrigger className="min-h-11">
+					{samples.length} sources
+				</CollapsibleTrigger>
+				<CollapsibleContent keepMounted>
+					<ul className="m-0 list-none divide-y divide-kumo-hairline p-0">
+						{samples.map((sample) => (
+							<li key={sample.factId} className="grid gap-1 py-2">
+								<Text
+									role="label"
+									tone="secondary"
+									className="m-0 wrap-anywhere"
+								>
+									Fact: {sample.factId}
+								</Text>
+								<Text className="m-0 break-words">{sample.detail}</Text>
+								<ProvenanceDetails sample={sample} showText={false} />
+								{sample.tediId && (
+									<Link
+										render={
+											<OsRouterLink
+												to="/team/$tediId/memory"
+												params={{ tediId: sample.tediId }}
+											/>
+										}
+										className="min-h-11"
+									>
+										Review in this tedi&apos;s memory
+									</Link>
+								)}
+							</li>
+						))}
+					</ul>
+				</CollapsibleContent>
+			</Collapsible>
+		</li>
+	);
+}
+
 export function MemoryHealthFindingItem({
 	finding,
 	context,
@@ -246,6 +301,14 @@ export function MemoryHealthFindingItem({
 	finding: MemoryHealthFinding;
 	context: FindingContext;
 }) {
+	const groups = new Map<string, MemoryHealthFindingSample[]>();
+	for (const sample of finding.samples) {
+		const key = sample.text.trim().replace(/\s+/g, " ");
+		const group = groups.get(key);
+		if (group) group.push(sample);
+		else groups.set(key, [sample]);
+	}
+
 	return (
 		<li
 			data-slot="memory-health-finding"
@@ -275,10 +338,10 @@ export function MemoryHealthFindingItem({
 							: ""}
 					</Text>
 					<ul className="m-0 list-none divide-y divide-kumo-hairline p-0">
-						{finding.samples.map((sample) => (
-							<SampleRow
-								key={`${finding.kind}:${sample.factId}`}
-								sample={sample}
+						{[...groups.values()].map((samples) => (
+							<SampleGroup
+								key={`${finding.kind}:${samples[0]!.factId}`}
+								samples={samples}
 							/>
 						))}
 					</ul>
