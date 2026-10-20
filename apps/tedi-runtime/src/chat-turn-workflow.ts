@@ -140,6 +140,7 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 	): Promise<ChatTurnStepResult> {
 		const params = { ...event.payload, workflowInstanceId: event.instanceId };
 		return driveChatTurnSteps(step, {
+			supervised: Boolean(params.workItemId && params.homeRunId),
 			// First durable callback: proves the Workflow instance progressed beyond
 			// admission/queueing and reached user code. The Agent-side watchdog
 			// restarts the same instance id only when this checkpoint never lands.
