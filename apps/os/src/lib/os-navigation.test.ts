@@ -1,5 +1,12 @@
+import routeSource from "../routeTree.gen.ts?raw";
 import { describe, expect, test } from "vite-plus/test";
-import { OS_NAVIGATION, OS_SURFACE_IDS } from "./os-navigation";
+import {
+	OS_NAVIGATION,
+	OS_SURFACE_IDS,
+	OS_PAGES,
+	osPageParents,
+	matchOsPage,
+} from "./os-navigation";
 import { resolveOsTenant } from "@/shared/os-tenant";
 
 describe("Tedix OS navigation", () => {
@@ -45,5 +52,46 @@ describe("Tedix OS tenant routing", () => {
 			kind: "invalid",
 		});
 		expect(resolveOsTenant("os.attacker.tech")).toEqual({ kind: "invalid" });
+	});
+});
+
+const routePaths = [
+	...new Set(
+		[...routeSource.matchAll(/fullPath: '([^']+)'/g)].map(
+			(match) => match[1]!.replace(/\/$/, "") || "/",
+		),
+	),
+];
+
+describe("OS page table integrity", () => {
+	test("uses unique ids and paths with valid, acyclic parents", () => {
+		expect(new Set(OS_PAGES.map((page) => page.id)).size).toBe(OS_PAGES.length);
+		expect(new Set(OS_PAGES.map((page) => page.path)).size).toBe(
+			OS_PAGES.length,
+		);
+		for (const page of OS_PAGES) {
+			const seen = new Set([page.id]);
+			let parentId = page.parentId;
+			while (parentId) {
+				expect(seen.has(parentId), page.id).toBe(false);
+				seen.add(parentId);
+				const parent = OS_PAGES.find((candidate) => candidate.id === parentId);
+				expect(parent, page.id).toBeDefined();
+				parentId = parent?.parentId;
+			}
+			expect(osPageParents(page).at(-1)).toBe(page);
+		}
+	});
+	test("matches real file routes in both directions", () => {
+		for (const page of OS_PAGES)
+			expect(routePaths, page.id).toContain(page.path);
+		for (const path of routePaths) {
+			expect(
+				OS_PAGES.some((page) => page.path === path),
+				path,
+			).toBe(true);
+			const sample = path.replace(/\$[A-Za-z]+/g, "sample-id");
+			expect(matchOsPage(sample)?.page.path, path).toBe(path);
+		}
 	});
 });

@@ -5,15 +5,19 @@ import {
 	Lightning,
 	MagnifyingGlass,
 	Pulse,
-	ShieldCheck,
 	SquaresFour,
 	Stack,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { OS_COPY } from "@/shared/os-copy";
 import { useOsLocale } from "@/lib/use-os-locale";
-import { OS_NAVIGATION } from "@/lib/os-navigation";
+import {
+	OS_PAGES,
+	matchOsPage,
+	osPageParents,
+	osPagePath,
+} from "@/lib/os-navigation";
 import type { ComponentType } from "react";
 import { useMemo, useState } from "react";
 import { CommandPalette } from "@/components/kumo/command-palette";
@@ -59,6 +63,34 @@ function workViewCommands(open: (view: WorkView) => void): PaletteCommand[] {
 	}));
 }
 
+function pageCommands(
+	open: (path: string) => void,
+	pathname: string,
+): PaletteCommand[] {
+	const params = matchOsPage(pathname)?.params ?? {};
+	return OS_PAGES.flatMap((page) => {
+		if (!page.palette) return [];
+		const path = osPagePath(page, params);
+		if (!path) return [];
+		const chain = osPageParents(page);
+		const surface = chain.find((parent) => parent.surfaceId)?.surfaceId;
+		return [
+			{
+				id: `page-${page.id}`,
+				title: `Go to ${page.label}`,
+				description: [
+					chain.map((parent) => parent.label).join(" · "),
+					page.description,
+				]
+					.filter(Boolean)
+					.join(" · "),
+				icon: surface ? SURFACE_ICONS[surface] : GearSix,
+				run: () => open(path),
+			},
+		];
+	});
+}
+
 function matchesCommand(command: PaletteCommand, query: string): boolean {
 	const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0) return true;
@@ -75,6 +107,7 @@ export function OsCommandPalette({
 }) {
 	const locale = useOsLocale();
 	const navigate = useNavigate();
+	const pathname = useLocation({ select: (location) => location.pathname });
 	const [query, setQuery] = useState("");
 	const workspaces = useQuery({
 		...commandPaletteWorkspacesQueryOptions(PALETTE_LIST_LIMIT),
@@ -109,29 +142,7 @@ export function OsCommandPalette({
 		const go = (to: string) => () => {
 			void navigate({ to });
 		};
-		const pageCommands: PaletteCommand[] = OS_NAVIGATION.map((item) => ({
-			id: `page-${item.id}`,
-			title: item.label,
-			description: item.description,
-			icon: SURFACE_ICONS[item.id],
-			run: go(item.path),
-		}));
-		pageCommands.push(
-			{
-				id: "page-settings",
-				title: OS_COPY.navigation.personalSettings,
-				description: "Choose your appearance and personal preferences.",
-				icon: GearSix,
-				run: go("/account/settings"),
-			},
-			{
-				id: "page-admin",
-				title: OS_COPY.navigation.settings,
-				description: "Manage your organization, access and billing.",
-				icon: ShieldCheck,
-				run: go("/admin"),
-			},
-		);
+		const pages = pageCommands((path) => void navigate({ to: path }), pathname);
 
 		const workspaceCommands: PaletteCommand[] = (
 			workspaces.data?.items ?? []
@@ -220,7 +231,7 @@ export function OsCommandPalette({
 		});
 
 		return [
-			{ id: "pages", label: "OS", items: pageCommands },
+			{ id: "pages", label: "OS", items: pages },
 			{ id: "work-views", label: "Work views", items: workViewItems },
 			{
 				id: "workspaces",
@@ -239,6 +250,7 @@ export function OsCommandPalette({
 	}, [
 		apps.data,
 		navigate,
+		pathname,
 		locale,
 		outputs.data,
 		runs.data,
@@ -363,4 +375,4 @@ export function OsCommandPalette({
 	);
 }
 
-export { matchesCommand, workViewCommands };
+export { matchesCommand, pageCommands, workViewCommands };

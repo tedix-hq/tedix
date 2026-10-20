@@ -1,6 +1,10 @@
 import { afterEach } from "vite-plus/test";
 import { setOsLocale } from "@/shared/os-locale";
-import { OS_SETTINGS_NAVIGATION, getOsSurface } from "./os-navigation";
+import {
+	OS_PAGES,
+	OS_SETTINGS_NAVIGATION,
+	getOsSurface,
+} from "./os-navigation";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	isOsShellNavigationItemActive,
@@ -155,5 +159,54 @@ describe("navigation translations", () => {
 				{ label: "Settings", href: "/admin" },
 				{ label: item.label },
 			]);
+	});
+});
+
+describe("deep page breadcrumbs", () => {
+	it.each([
+		[
+			"/admin/organization",
+			{
+				crumbs: [
+					{ label: "Settings", href: "/admin" },
+					{ label: "Organization" },
+				],
+			},
+		],
+		[
+			"/admin/api-keys",
+			{
+				crumbs: [{ label: "Settings", href: "/admin" }, { label: "API keys" }],
+			},
+		],
+		[
+			"/account/profile",
+			{ section: "Account", crumbs: [{ label: "Profile" }] },
+		],
+		[
+			"/account/connections",
+			{ section: "Account", crumbs: [{ label: "Connected applications" }] },
+		],
+		["/team/tedi-1/memory", { crumbs: [{ label: "Team" }] }],
+		["/team/tedi-1/authority", { crumbs: [{ label: "Team" }] }],
+	])("resolves %s without changing established labels", (path, expected) => {
+		expect(resolveOsShellRouteContext(path)).toEqual(expected);
+	});
+	it("has no OS fallback for registered routes, including trailing slashes", () => {
+		for (const page of OS_PAGES) {
+			const sample = page.path.replace(/\$[A-Za-z]+/g, "sample-id");
+			for (const path of [sample, sample === "/" ? "/" : `${sample}/`]) {
+				expect(
+					resolveOsShellRouteContext(path).crumbs.length,
+					path,
+				).toBeGreaterThan(0);
+				expect(
+					resolveOsShellRouteContext(path).crumbs.some(
+						(crumb) => crumb.label === "OS",
+					),
+					path,
+				).toBe(false);
+			}
+		}
 	});
 });

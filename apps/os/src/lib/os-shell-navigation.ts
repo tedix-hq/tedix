@@ -1,6 +1,7 @@
-import { OS_COPY } from "@/shared/os-copy";
 import {
-	OS_SETTINGS_NAVIGATION,
+	matchOsPage,
+	osPageParents,
+	osPagePath,
 	getOsSurface,
 	type OsNavigationItem,
 } from "./os-navigation";
@@ -59,84 +60,23 @@ export function resolveOsShellRouteContext(
 	section?: string;
 	crumbs: RouteCrumb[];
 } {
-	const resources = [
-		{
-			prefix: "/outputs/",
-			parent: "/outputs",
-			label: getOsSurface("outputs").label,
-			title: titles.output ?? "Document",
-		},
-		{
-			prefix: "/skills/",
-			parent: "/skills",
-			label: getOsSurface("skills").label,
-			title: titles.skill ?? "Skill",
-		},
-		{
-			prefix: "/apps/",
-			parent: "/gateways",
-			label: getOsSurface("gateways").label,
-			title: titles.app ?? "App",
-		},
-		{
-			prefix: "/workspace/",
-			parent: "/workspaces",
-			label: getOsSurface("workspaces").label,
-			title: titles.workspace ?? "Workspace",
-		},
-	];
-	const resource = resources.find(({ prefix }) => pathname.startsWith(prefix));
-	if (resource)
-		return {
-			crumbs: [
-				{ label: resource.label, href: resource.parent },
-				{ label: resource.title },
-			],
-		};
-	if (pathname.startsWith("/account/settings")) {
-		return {
-			section: "Account",
-			crumbs: [{ label: OS_COPY.navigation.personalSettings }],
-		};
-	}
-	if (pathname === "/admin" || pathname.startsWith("/admin/")) {
-		const destination = {
-			"/admin/billing": OS_COPY.navigation.compute,
-			"/admin/organization": "Organization",
-			"/admin/connections": "Connections",
-			"/admin/api-keys": "API keys",
-			"/admin/payments": "Payments",
-		}[pathname];
-		return {
-			crumbs: destination
-				? [
-						{ label: OS_COPY.navigation.settings, href: "/admin" },
-						{ label: destination },
-					]
-				: [{ label: OS_COPY.navigation.settings }],
-		};
-	}
-	const settingsItem = OS_SETTINGS_NAVIGATION.find((item) =>
-		isOsShellNavigationItemActive(item, pathname),
+	const match = matchOsPage(pathname);
+	if (!match) return { crumbs: [{ label: "OS" }] };
+	const chain = osPageParents(match.page);
+	const visible = chain.filter(
+		(page) =>
+			!page.breadcrumb ||
+			(page.breadcrumb === "section" && page === match.page),
 	);
-	if (settingsItem)
-		return {
-			crumbs: [
-				{ label: OS_COPY.navigation.settings, href: "/admin" },
-				{ label: settingsItem.label },
-			],
-		};
-	if (pathname === "/install")
-		return { crumbs: [{ label: getOsSurface("install").label }] };
-	for (const item of OS_SHELL_PRIMARY_NAVIGATION) {
-		if (isOsShellNavigationItemActive(item, pathname))
-			return { crumbs: [{ label: item.label }] };
-	}
-	for (const section of OS_SHELL_NAVIGATION_SECTIONS) {
-		const activeItem = section.items.find((item) =>
-			isOsShellNavigationItemActive(item, pathname),
-		);
-		if (activeItem) return { crumbs: [{ label: activeItem.label }] };
-	}
-	return { crumbs: [{ label: "OS" }] };
+	const section = chain.find(
+		(page) => page.breadcrumb === "section" && page !== match.page,
+	)?.label;
+	const crumbs = visible.map((page, index): RouteCrumb => {
+		const label =
+			(page.titleKey ? titles[page.titleKey] : undefined) ?? page.label;
+		return index === visible.length - 1
+			? { label }
+			: { label, href: osPagePath(page, match.params) };
+	});
+	return section ? { section, crumbs } : { crumbs };
 }
