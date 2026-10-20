@@ -1,4 +1,8 @@
 import { createObjectStoreTools } from "./object-store-tools";
+import {
+	ModelFallbackStepSchema,
+	type ModelFallbackStep,
+} from "@tedix/api-contract/schemas/model-fallback";
 import { nativeToolAutonomy } from "./native-tool-autonomy";
 import { createR2SqlTools } from "./r2-sql-tools";
 import {
@@ -1999,6 +2003,30 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 
 	async recordPiStep(input: PiStepReceipt) {
 		return runtimeParentTurns.recordPiStep.call(this.parentTurnsHost(), input);
+	}
+
+	/** A model switch requires a confirmed ledger write, including when the outbox is full. */
+	async recordModelFallback(input: {
+		runId: string;
+		step: ModelFallbackStep;
+	}): Promise<void> {
+		await this.assertChatTurnActive(input.runId);
+		const step = ModelFallbackStepSchema.parse(input.step);
+		const conversationId = this.activeFacetTurnConversations.get(input.runId);
+		if (!conversationId || !this.state.tediId)
+			throw new Error("Model fallback has no admitted conversation");
+		const platform = await this.getPlatformClient();
+		if (!platform) throw new Error("Model fallback ledger is unavailable");
+		await platform.recordRuntimeEvent({
+			id: crypto.randomUUID(),
+			tediId: this.state.tediId,
+			conversationId,
+			runId: input.runId,
+			kind: "step.retry",
+			payload: { operation: "model_fallback", ...step },
+			runtime: { backend: "cloudflare-agents" },
+			createdAt: new Date().toISOString(),
+		});
 	}
 
 	private getRationaleStore(): DoRationaleStateStore {

@@ -64,6 +64,7 @@ import {
 	type WorkflowImageRef,
 } from "./workflow-image-handoff";
 import { selectChatModelForTurn } from "./turn-model-selection";
+import { loadTediModelFallback } from "./model-fallback";
 import {
 	attributableConversationModel,
 	type SelectedConversationModelIdentity,
@@ -248,6 +249,7 @@ export type ConversationParentPort = Pick<
 	| "assertChatTurnActive"
 	| "reservePiStep"
 	| "recordPiStep"
+	| "recordModelFallback"
 	| "enrollFacetDispatchRun"
 	| "recordFacetModelStep"
 	| "executeFacetTool"
@@ -415,6 +417,30 @@ export class ConversationFacet extends PiAgent<
 			this.state.adaptiveRouting,
 			this.facetBeforeDispatch(),
 			this.state.promptCacheKey,
+			{
+				load: () =>
+					loadTediModelFallback(this.env.DB, this.state.aigMetadata?.tediId),
+				record: async (step) => {
+					await (
+						await this.parent()
+					).recordModelFallback({ runId: this.requireRunId(), step });
+					const slash = step.to.indexOf("/");
+					this.setState({
+						...this.state,
+						selectedTurnModels: [
+							...(this.state.selectedTurnModels ?? []).slice(0, -1),
+							{
+								provider: step.to.startsWith("azure-openai/")
+									? "azure-openai"
+									: "workers-ai",
+								model: step.to.startsWith("cloudflare/")
+									? step.to
+									: step.to.slice(slash + 1),
+							},
+						],
+					});
+				},
+			},
 		);
 		return {
 			model: selected.model as TedixSdkModel,

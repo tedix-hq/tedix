@@ -354,3 +354,88 @@ function fixtureOriginGuard(orgId = "org", recheck: () => void = () => {}) {
 		recheck,
 	);
 }
+
+// Both adapter versions must re-enter billing/dispatch admission for the fallback.
+for (const { primaryRef, fixed } of [
+	{ primaryRef: "azure-openai/gpt-6.1-sol", fixed: false },
+	{ primaryRef: "azure-openai/gpt-6.1-sol", fixed: true },
+	{ primaryRef: "cloudflare/auto", fixed: false },
+]) {
+	const primaryWire = primaryRef.replace(/^azure-openai\//, "");
+	const saved = globalThis.fetch;
+	const requests: string[] = [];
+	const receipts: unknown[] = [];
+	let admissions = 0;
+	globalThis.fetch = async (_input, init) => {
+		const body = JSON.parse(String(init?.body)) as { model: string };
+		requests.push(body.model);
+		if (body.model === primaryWire)
+			return new Response(
+				JSON.stringify({
+					error: {
+						message: "out of credits",
+						type: "billing_error",
+						code: "insufficient_credits",
+					},
+				}),
+				{ status: 402, headers: { "content-type": "application/json" } },
+			);
+		throw new Error("fallback-wire-reached");
+	};
+	try {
+		const chosen = selectChatModelForTurn(
+			{
+				...azureEnv,
+				API_SERVICE: {
+					fetch: async () => {
+						admissions++;
+						return wireGuardAdmission();
+					},
+				},
+				SECRETS_MASTER_KEY: "fixture-signing-secret",
+				TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
+			} as never,
+			{ modelRef: primaryRef },
+			{ orgId: "org", tediId: "fixture-tedi" },
+			undefined,
+			{
+				surface: "chat",
+				authority: "ordinary",
+				reproducibility: fixed ? "fixed-model-required" : "adaptive",
+				sovereignty: "unconstrained",
+			},
+			fixtureOriginGuard(),
+			undefined,
+			{
+				load: async () => ({
+					version: 1,
+					maxTransitions: 2,
+					ladder: { [primaryRef]: ["azure-openai/gpt-6-luna"] },
+				}),
+				record: async (step) => {
+					receipts.push(step);
+				},
+			},
+		);
+		await assert.rejects(
+			generateText({
+				model: chosen.model,
+				prompt: "fictional fixture",
+				maxRetries: 0,
+			}),
+			fixed ? /out of credits/ : /fallback-wire-reached/,
+		);
+		assert.deepEqual(
+			requests,
+			fixed ? [primaryWire] : [primaryWire, "gpt-6-luna"],
+		);
+		assert.equal(receipts.length, fixed ? 0 : 1);
+		assert.equal(admissions, fixed ? 1 : 2);
+		assert.equal(chosen.identity.model, fixed ? primaryWire : "gpt-6-luna");
+	} finally {
+		globalThis.fetch = saved;
+	}
+}
+console.log(
+	"turn-model-selection fallback billing, identity and fixed-model fencing OK",
+);

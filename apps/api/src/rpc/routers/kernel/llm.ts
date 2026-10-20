@@ -1,4 +1,6 @@
 import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
+import { withModelFallback } from "@tedix/workers-ai/model-fallback";
+import { kernelFallbackHooks } from "./model-fallback";
 import {
 	azureExecutionIdentity,
 	type ProviderExecutionIdentity,
@@ -369,13 +371,57 @@ export function kernelModel(
 	override?: ModelOverride | { modelRef?: unknown } | null,
 	gatewayContext?: KernelGatewayContext | string,
 ): SelectedKernelModel | null {
+	const selected = selectKernelModel(env, override, gatewayContext);
+	if (
+		!selected ||
+		typeof selected.model === "string" ||
+		!env.DB ||
+		typeof gatewayContext !== "object" ||
+		!gatewayContext?.runId ||
+		!gatewayContext.organizationId
+	)
+		return selected;
+	const primaryRef =
+		typeof override?.modelRef === "string"
+			? override.modelRef
+			: env.KERNEL_MODEL_REF?.trim() || CLOUDFLARE_AUTO_MODEL_REF;
+	selected.model = withModelFallback(
+		wrapLanguageModel({ model: selected.model, middleware: [] }),
+		{
+			primaryRef,
+			...kernelFallbackHooks(env.DB, {
+				organizationId: gatewayContext.organizationId,
+				runId: gatewayContext.runId,
+			}),
+			resolve: (modelRef) => {
+				const candidate = selectKernelModel(
+					env,
+					{ modelRef },
+					gatewayContext,
+					selected.attempts,
+				);
+				return candidate && typeof candidate.model !== "string"
+					? wrapLanguageModel({ model: candidate.model, middleware: [] })
+					: null;
+			},
+		},
+	);
+	return selected;
+}
+
+function selectKernelModel(
+	env: KernelEnv,
+	override?: ModelOverride | { modelRef?: unknown } | null,
+	gatewayContext?: KernelGatewayContext | string,
+	executionAttempts?: SelectedKernelModel["attempts"],
+): SelectedKernelModel | null {
 	const operationContext = gatewayContext;
 	const forOperation = () => {
 		const operation = kernelModel(env, override, operationContext);
 		if (!operation) throw new Error("Kernel model became unavailable");
 		return operation;
 	};
-	const attempts: SelectedKernelModel["attempts"] = [];
+	const attempts: SelectedKernelModel["attempts"] = executionAttempts ?? [];
 	gatewayContext = {
 		...(typeof gatewayContext === "string"
 			? { organizationId: gatewayContext }
