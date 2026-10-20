@@ -2,6 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { ciObservation, githubRequest } from "./full-suite-hourly.mjs";
 
 const git = (...args) =>
 	execFileSync("git", args, { encoding: "utf8", maxBuffer: 2_000_000 }).trim();
@@ -90,14 +91,33 @@ if (
 	if (!url) throw new Error("TEDIX_OBSERVER_URL required");
 	const projectId = new URL(url).pathname.split("/").at(-1);
 	const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
-	const payload = pushObservation({
-		projectId,
-		repository: env.GITHUB_REPOSITORY,
-		branch: env.GITHUB_REF_NAME,
-		sha: env.GITHUB_SHA,
-		before: event.before,
-		runUrl: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`,
-	});
+	let payload;
+	if (env.GITHUB_EVENT_NAME === "workflow_run") {
+		const run = event.workflow_run;
+		const jobs = [];
+		for (let page = 1; ; page++) {
+			const result = await githubRequest(
+				`/repos/${env.GITHUB_REPOSITORY}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100&page=${page}`,
+			);
+			jobs.push(...result.jobs);
+			if (result.jobs.length < 100) break;
+		}
+		payload = ciObservation({
+			projectId,
+			repository: env.GITHUB_REPOSITORY,
+			run,
+			jobs,
+		});
+	} else {
+		payload = pushObservation({
+			projectId,
+			repository: env.GITHUB_REPOSITORY,
+			branch: env.GITHUB_REF_NAME,
+			sha: env.GITHUB_SHA,
+			before: event.before,
+			runUrl: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`,
+		});
+	}
 	const receipt = await notifyObserver(url, payload);
 	console.log(JSON.stringify(receipt));
 }

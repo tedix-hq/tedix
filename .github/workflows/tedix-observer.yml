@@ -7,9 +7,14 @@ on:
       - "**/*.md"
       - "docs/**"
       - ".changeset/**"
+  workflow_run:
+    workflows: [Full suite hourly]
+    branches: [main]
+    types: [completed]
 
 permissions:
   contents: read
+  actions: read
   id-token: write
 
 concurrency:
@@ -18,7 +23,9 @@ concurrency:
 
 jobs:
   notify:
-    if: vars.TEDIX_OBSERVER_URL != ''
+    if: >-
+      vars.TEDIX_OBSERVER_URL != '' &&
+      (github.event_name == 'push' || github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -33,4 +40,5 @@ jobs:
       - name: Wake the configured observer
         env:
           TEDIX_OBSERVER_URL: ${{ vars.TEDIX_OBSERVER_URL }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/ci/notify-repository-observer.mjs

@@ -49,7 +49,7 @@ export const RepositoryEventSchema = z.strictObject({
 	sha,
 	beforeSha: sha.optional(),
 	occurredAt: z.iso.datetime().optional(),
-	kind: z.enum(["push", "ship_red", "ship_green"]),
+	kind: z.enum(["push", "ship_red", "ship_green", "ci_red"]),
 	// Same incident across retries: a new run ID is evidence, not a new repair budget.
 	surface: z.string().max(100).default("all"),
 	paths: z.array(z.string().min(1).max(500)).max(500).default([]),

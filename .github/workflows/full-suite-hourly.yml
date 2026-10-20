@@ -1,0 +1,108 @@
+name: Full suite hourly
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: full-suite-hourly-main
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      runners: ${{ steps.plan.outputs.runners }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FULL_SUITE_RUNNER_LABELS: ${{ vars.FULL_SUITE_RUNNER_LABELS }}
+        run: node scripts/ci/full-suite-hourly.mjs
+
+  workspace:
+    name: Workspace ${{ matrix.workspace }}
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - name: Frozen install
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install ripgrep
+        if: matrix.workspace == 'apps/tedi-runtime'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+      - name: Install Playwright Chromium
+        if: matrix.workspace == 'apps/os'
+        run: bun run --cwd apps/os test:browser:install
+      - name: Full test suite
+        if: matrix.test
+        env:
+          WORKSPACE: ${{ matrix.workspace }}
+        run: bun run --cwd "$WORKSPACE" test:run
+      - name: OS browser apps certification
+        if: matrix.workspace == 'apps/os'
+        run: bun run --cwd apps/os test:browser:apps
+      - name: Type-check
+        if: ${{ !cancelled() && matrix.types }}
+        env:
+          WORKSPACE: ${{ matrix.workspace }}
+        run: bun run --cwd "$WORKSPACE" type-check
+
+  repository:
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run test:scripts
+      - if: ${{ !cancelled() }}
+        run: bun run type-check:scripts
+      - if: ${{ !cancelled() }}
+        run: bun run docs:public:check
