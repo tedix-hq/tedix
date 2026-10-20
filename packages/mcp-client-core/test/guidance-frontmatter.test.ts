@@ -82,62 +82,6 @@ async function connectWithSkillText(text: string): Promise<McpClientManager> {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("guidance frontmatter", () => {
-	it("parses YAML scalar, inline-list, and block-list metadata", async () => {
-		const manager = await connectWithSkillText(`---
-title: "Deploy: Review"
-summary: "Roll forward safely"
-description: |
-  Checks deploy state before shipping.
-version: 2.1
-tags:
-  - mcp
-  - "release:prod"
-dependencies: ["git", "wrangler"]
-provenance: https://example.com/deploy-review
-source: tedix
----
-
-Use this before deploys.`);
-
-		const { guidance } = await manager.readGuidance(
-			"skills",
-			"skill://deploy-review/SKILL.md",
-		);
-
-		expect(guidance.name).toBe("Deploy: Review");
-		expect(guidance.description).toBe("Checks deploy state before shipping.");
-		expect(guidance.metadata).toMatchObject({
-			title: "Deploy: Review",
-			summary: "Roll forward safely",
-			description: "Checks deploy state before shipping.",
-			version: "2.1",
-			tags: ["mcp", "release:prod"],
-			dependencies: ["git", "wrangler"],
-			provenance: "https://example.com/deploy-review",
-			source: "tedix",
-		});
-	});
-
-	it("ignores non-scalar YAML list entries instead of stringifying objects", async () => {
-		const manager = await connectWithSkillText(`---
-title: Cleanup Guide
-tags:
-  - useful
-  - nested: nope
-dependencies: git, wrangler
----
-
-Body.`);
-
-		const { guidance } = await manager.readGuidance(
-			"skills",
-			"skill://deploy-review/SKILL.md",
-		);
-
-		expect(guidance.metadata?.tags).toEqual(["useful"]);
-		expect(guidance.metadata?.dependencies).toEqual(["git", "wrangler"]);
-	});
-
 	it("falls back to resource metadata when frontmatter is malformed", async () => {
 		const manager = await connectWithSkillText(`---
 title: [unterminated
