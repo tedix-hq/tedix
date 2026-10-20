@@ -80,11 +80,9 @@ describe("isPrivateOrLoopbackUrl", () => {
 		expect(isPrivateOrLoopbackUrl("https://api.tedix.dev/")).toBe(false);
 	});
 
-	// The trailing-dot FQDN spelling `localhost.` resolves to loopback as well
-	// but is not refused today (the guard matches `localhost` exactly and the
-	// `.localhost` suffix only). Reported as a suspected gap; pinned here as a
-	// todo rather than silently changed in a refactor.
-	it.todo("blocks the trailing-dot FQDN form http://localhost./x");
+	it("blocks the trailing-dot FQDN form http://localhost./x", () => {
+		expect(isPrivateOrLoopbackUrl("http://localhost./x")).toBe(true);
+	});
 });
 
 describe("scope parsing", () => {

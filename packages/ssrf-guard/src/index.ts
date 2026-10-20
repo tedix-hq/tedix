@@ -287,7 +287,8 @@ export function validateUrl(
 			return "URL must use HTTP(S)";
 		}
 
-		const hostname = url.hostname.toLowerCase();
+		// URL handles IDNA; a single terminal dot denotes the same DNS host.
+		const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
 
 		// Internal tedix hosts — blocked in prod; allowed in dev (allowInternalHosts)
 		// so external tools can reach our own tunnel'd dev services. Private/
