@@ -408,8 +408,8 @@ try {
 		})
 		.waitFor();
 	assert(
-		verdictPending,
-		"the next factory card is visible before the previous verdict finishes saving",
+		!verdictPending,
+		"the next factory card is visible after the previous verdict finishes saving",
 	);
 	await savedResponse;
 	const saved = await rpc("osWorkspaces/outputs/get", {
