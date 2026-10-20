@@ -794,12 +794,14 @@ describe("Work Item router collaboration ledgers", () => {
 			authorType: "system",
 			authorId: "apikey:key-1",
 		});
-		const count = sqlite
+		const events = sqlite
 			.prepare(
-				"SELECT count(*) AS count FROM work_events WHERE work_item_id = ?",
+				"SELECT event_type, actor_type, actor_id FROM work_events WHERE work_item_id = ?",
 			)
-			.get(created.id) as { count: number };
-		expect(Number(count.count)).toBe(0);
+			.all(created.id);
+		expect(events).toEqual([
+			{ event_type: "comment", actor_type: "system", actor_id: "apikey:key-1" },
+		]);
 	});
 	it("rejects a bound external-agent API key without immutable gateway session identity", async () => {
 		const created = await client().create({
@@ -918,6 +920,16 @@ describe("Work Item router collaboration ledgers", () => {
 		expect((await client().getById({ id: created.id })).comments).toHaveLength(
 			1,
 		);
+		const activity = await client().listActivity({ workItemId: created.id });
+		expect(activity.events).toEqual([
+			expect.objectContaining({
+				id: comment.id,
+				eventType: "comment",
+				body: "Needs legal review",
+				authorType: "system",
+				authorId: "apikey:key-1",
+			}),
+		]);
 	});
 	it("turns an authorized delegation mention into executor data and a dispatch receipt", async () => {
 		const created = await client().create({
