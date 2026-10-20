@@ -212,6 +212,7 @@
 		"./schemas/memory-graph": "./src/schemas/memory-graph.ts",
 		"./schemas/model-generation": "./src/schemas/model-generation.ts",
 		"./schemas/model-catalog": "./src/schemas/model-catalog.ts",
+		"./schemas/model-fallback": "./src/schemas/model-fallback.ts",
 		"./schemas/model-catalog-projection": "./src/schemas/model-catalog-projection.ts",
 		"./schemas/organization": "./src/schemas/organization.ts",
 		"./schemas/work-stewardship": "./src/schemas/work-stewardship.ts",
