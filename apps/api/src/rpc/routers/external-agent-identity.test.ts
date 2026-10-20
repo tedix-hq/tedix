@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createRouterClient } from "@orpc/server";
 import {
 	createDescopeMcpServerClient,
@@ -112,54 +113,6 @@ CREATE UNIQUE INDEX uniq_external_agent_review_principal_execution
   reviewer_principal_id);
 `;
 
-function d1Facade(db: DatabaseSync): D1Database {
-	const wrap = (sql: string) => {
-		const stmt = db.prepare(sql);
-		let bound: Array<null | number | bigint | string | Uint8Array> = [];
-		const prepared = {
-			bind: (...values: unknown[]) => {
-				bound = values as typeof bound;
-				return prepared;
-			},
-			all: async () => ({
-				results: stmt.all(...bound),
-				success: true,
-				meta: {},
-			}),
-			run: async () => {
-				const result = stmt.run(...bound);
-				return {
-					success: true,
-					meta: {
-						changes: Number(result.changes),
-						last_row_id: Number(result.lastInsertRowid),
-						duration: 0,
-					},
-				};
-			},
-			first: async (column?: string) => {
-				const row = stmt.get(...bound) as Record<string, unknown> | undefined;
-				return column ? (row?.[column] ?? null) : (row ?? null);
-			},
-			raw: async () =>
-				(stmt.all(...bound) as Array<Record<string, unknown>>).map((row) =>
-					Object.values(row),
-				),
-		};
-		return prepared;
-	};
-	return {
-		prepare: wrap,
-		batch: async (statements: Array<{ all: () => Promise<unknown> }>) =>
-			Promise.all(statements.map((statement) => statement.all())),
-		exec: async (sql: string) => {
-			db.exec(sql);
-			return { count: 0, duration: 0 };
-		},
-		dump: async () => new ArrayBuffer(0),
-	} as unknown as D1Database;
-}
-
 let sqlite: DatabaseSync;
 
 function seedIdentity(): void {
@@ -253,7 +206,7 @@ function context(
 		user: auth.type === "user" ? ({ sub: auth.id } as never) : undefined,
 		userRole: auth.type === "user" ? "admin" : undefined,
 		organizationId: ORG,
-		db: createDbClient(d1Facade(sqlite)) as BaseContext["db"],
+		db: createDbClient(createD1Facade(sqlite)) as BaseContext["db"],
 		env: { ENVIRONMENT: "test" } as CloudflareEnv,
 		headers: new Headers(),
 		rateLimiter: { limit: async () => ({ success: true }) } as RateLimit,

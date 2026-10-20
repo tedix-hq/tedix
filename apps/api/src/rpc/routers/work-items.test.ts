@@ -53,54 +53,11 @@ CREATE UNIQUE INDEX uniq_work_budget_envelope_scope ON work_budget_envelopes(org
 CREATE TABLE work_budget_reservations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, admission_id TEXT NOT NULL, work_item_id TEXT NOT NULL, envelope_id TEXT NOT NULL, envelope_version INTEGER NOT NULL, amount_micros INTEGER NOT NULL, consumed_micros INTEGER, state TEXT NOT NULL, reserved_at TEXT NOT NULL, expires_at TEXT NOT NULL, settled_at TEXT, version INTEGER NOT NULL DEFAULT 1);
 `;
 
-function d1Facade(db: DatabaseSync): D1Database {
-	const prepare = (sql: string) => {
-		const statement = db.prepare(sql);
-		let values: unknown[] = [];
-		const wrapped = {
-			bind: (...next: unknown[]) => {
-				values = next;
-				return wrapped;
-			},
-			all: async () => ({
-				results: statement.all(...(values as [])),
-				success: true,
-				meta: {},
-			}),
-			run: async () => ({
-				success: true,
-				meta: { changes: Number(statement.run(...(values as [])).changes) },
-			}),
-			first: async (column?: string) => {
-				const row = statement.get(...(values as [])) as
-					| Record<string, unknown>
-					| undefined;
-				return column ? (row?.[column] ?? null) : (row ?? null);
-			},
-			raw: async () =>
-				(
-					statement.all(...(values as [])) as Array<Record<string, unknown>>
-				).map(Object.values),
-		};
-		return wrapped;
-	};
-	return {
-		prepare,
-		batch: async (statements: Array<{ all: () => Promise<unknown> }>) =>
-			Promise.all(statements.map((statement) => statement.all())),
-		exec: async (sql: string) => {
-			db.exec(sql);
-			return { count: 0, duration: 0 };
-		},
-		dump: async () => new ArrayBuffer(0),
-	} as unknown as D1Database;
-}
-
 let sqlite: DatabaseSync;
 function context(kind: "api" | "owner" | "tedi" = "api"): BaseContext {
 	const base = {
-		db: createDbClient(d1Facade(sqlite)),
-		env: { DB: d1Facade(sqlite) } as CloudflareEnv,
+		db: createDbClient(createD1Facade(sqlite)),
+		env: { DB: createD1Facade(sqlite) } as CloudflareEnv,
 		organizationId: ORG_ID,
 		headers: new Headers(),
 		url: new URL("https://api.test/rpc"),

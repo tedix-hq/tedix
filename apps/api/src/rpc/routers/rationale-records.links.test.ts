@@ -13,6 +13,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -62,55 +63,6 @@ CREATE TABLE tedi_rationale_records (
 );
 `;
 
-function d1Facade(db: DatabaseSync): D1Database {
-	const wrap = (sql: string) => {
-		const stmt = db.prepare(sql);
-		let bound: Array<null | number | bigint | string | Uint8Array> = [];
-		const prepared = {
-			bind: (...vals: unknown[]) => {
-				bound = vals as Array<null | number | bigint | string | Uint8Array>;
-				return prepared;
-			},
-			all: async () => ({
-				results: stmt.all(...bound),
-				success: true,
-				meta: {},
-			}),
-			run: async () => {
-				const result = stmt.run(...bound);
-				return {
-					success: true,
-					meta: {
-						changes: Number(result.changes),
-						last_row_id: Number(result.lastInsertRowid),
-						duration: 0,
-					},
-				};
-			},
-			first: async (col?: string) => {
-				const row = stmt.get(...bound) as Record<string, unknown> | undefined;
-				return col ? (row?.[col] ?? null) : (row ?? null);
-			},
-			raw: async () =>
-				(stmt.all(...bound) as Array<Record<string, unknown>>).map((row) =>
-					Object.values(row),
-				),
-		};
-		return prepared;
-	};
-
-	return {
-		prepare: wrap,
-		batch: async (stmts: Array<{ all: () => Promise<unknown> }>) =>
-			Promise.all(stmts.map((stmt) => stmt.all())),
-		exec: async (sql: string) => {
-			db.exec(sql);
-			return { count: 0, duration: 0 };
-		},
-		dump: async () => new ArrayBuffer(0),
-	} as unknown as D1Database;
-}
-
 let sqlite: DatabaseSync;
 let client: ReturnType<typeof makeClient>;
 
@@ -123,7 +75,7 @@ function makeContext(): BaseContext {
 			scopes: ["*"],
 		},
 		authType: "apikey",
-		db: createDbClient(d1Facade(sqlite)) as BaseContext["db"],
+		db: createDbClient(createD1Facade(sqlite)) as BaseContext["db"],
 		env: { ENVIRONMENT: "test" } as CloudflareEnv,
 		headers: new Headers(),
 		organizationId: ORG_ID,
