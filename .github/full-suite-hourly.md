@@ -23,6 +23,11 @@ The other checks stay in CI. `bun run verify` retains the complete profile;
 `--ci-policy --all` runs the repository checks in CI. Full workspace suites cover
 the consumer checks previously selected by `vitest related`.
 
+For the initial CI bootstrap, operations can pause new deployment plans while
+one push uses a process-scoped fast profile to install this workflow. Restore
+planning only after certification passes and green-only selection is enforced;
+keep the shared fast-profile setting disabled until then.
+
 In fast mode, `bun run push` starts a detached completion observer using the
 existing `gh` session. It checks every 15 seconds for up to 30 minutes and wakes
 ops only after this push, or a main descendant containing it, passes CI. Ops
