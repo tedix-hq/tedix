@@ -69,9 +69,14 @@ function SetupItems({ items }: { items: TediSetup["items"] }) {
 	return (
 		<Collection>
 			{items.map((item) => (
-				<li key={item.id} className="grid gap-1 px-4 py-3">
+				<li key={item.id} className="grid min-w-0 gap-1 break-words px-4 py-3">
 					<div className="flex flex-wrap items-center gap-2">
-						<Link href={item.href}>{item.label}</Link>
+						<Link
+							className="inline-flex min-h-11 items-center break-all"
+							href={item.href}
+						>
+							{item.label}
+						</Link>
 						<Badge
 							variant={
 								item.state === "ready"
@@ -91,6 +96,9 @@ function SetupItems({ items }: { items: TediSetup["items"] }) {
 					<Text role="label" tone="secondary">
 						{item.detail}
 					</Text>
+					<Text role="label" tone="secondary" className="break-all">
+						Requirement ID: {item.id}
+					</Text>
 					<ConnectionCapabilities capabilities={item.capabilities} />
 				</li>
 			))}
@@ -98,9 +106,94 @@ function SetupItems({ items }: { items: TediSetup["items"] }) {
 	);
 }
 
+function SetupGroups({ groups }: { groups: TediSetup["items"][] }) {
+	return (
+		<Collection>
+			{groups.map((items) => {
+				const first = items[0]!;
+				const skill = first.href.startsWith("/skills/");
+				const app = first.href.startsWith("/apps/");
+				// The checklist contract has no owner title; use the service's explanatory text.
+				const title = skill
+					? (items
+							.map(
+								(item) =>
+									item.detail.match(
+										/^(?:Required by |Prerequisite declared by )(.+);/s,
+									)?.[1],
+							)
+							.find(Boolean) ?? "Skill requirements")
+					: app && items.length > 1
+						? "App tools"
+						: first.label;
+				const missing = items.filter((item) => item.state === "missing").length;
+				const needsYou = items.filter(
+					(item) => item.state === "needs_you",
+				).length;
+				return (
+					<li
+						key={first.href}
+						className="grid min-w-0 gap-2 break-words px-4 py-3"
+					>
+						<Text>{title}</Text>
+						<div className="flex flex-wrap gap-2">
+							{missing > 0 && (
+								<Badge variant="destructive">{missing} missing</Badge>
+							)}
+							{needsYou > 0 && (
+								<Badge variant="warning">{needsYou} need you</Badge>
+							)}
+						</div>
+						<Text role="label" tone="secondary">
+							{items.some((item) => item.kind === "build")
+								? "Review this skill’s unregistered tools with its maintainer."
+								: first.detail}
+						</Text>
+						<Link
+							href={first.href}
+							className="inline-flex min-h-11 items-center"
+							aria-label={`${skill ? "Review skill" : app ? "Review app tools" : "Review setup"}: ${title}`}
+						>
+							{skill
+								? "Review skill"
+								: app
+									? "Review app tools"
+									: "Review setup"}
+						</Link>
+						{items.map((item) => (
+							<ConnectionCapabilities
+								key={item.id}
+								capabilities={item.capabilities}
+							/>
+						))}
+						<Collapsible>
+							<CollapsibleTrigger>
+								View {items.length}{" "}
+								{items.length === 1 ? "requirement" : "requirements"} in
+								diagnostics
+							</CollapsibleTrigger>
+							<CollapsibleContent>
+								<SetupItems items={items} />
+							</CollapsibleContent>
+						</Collapsible>
+					</li>
+				);
+			})}
+		</Collection>
+	);
+}
+
 export function SetupChecklist({ setup }: { setup: TediSetup }) {
 	const outstanding = setup.items.filter((item) => item.state !== "ready");
 	const ready = setup.items.filter((item) => item.state === "ready");
+	// Keep exact destinations (including credential scope and instance) separate.
+	const byDestination = new Map<string, TediSetup["items"]>();
+	for (const item of outstanding) {
+		const group = byDestination.get(item.href) ?? [];
+		group.push(item);
+		byDestination.set(item.href, group);
+	}
+	const groups = [...byDestination.values()];
 	return (
 		<div className="grid gap-3">
 			{setup.items.length === 0 ? (
@@ -108,7 +201,27 @@ export function SetupChecklist({ setup }: { setup: TediSetup }) {
 					No setup requirements are declared in this tedi’s configuration.
 				</Text>
 			) : outstanding.length > 0 ? (
-				<SetupItems items={outstanding} />
+				<>
+					<Text>
+						{outstanding.length}{" "}
+						{outstanding.length === 1 ? "requirement" : "requirements"} to
+						resolve across {groups.length} setup{" "}
+						{groups.length === 1 ? "group" : "groups"}. Start with the first
+						review below.
+					</Text>
+					<SetupGroups groups={groups.slice(0, 3)} />
+					{groups.length > 3 && (
+						<Collapsible>
+							<CollapsibleTrigger>
+								{groups.length - 3} more setup{" "}
+								{groups.length === 4 ? "group" : "groups"}
+							</CollapsibleTrigger>
+							<CollapsibleContent>
+								<SetupGroups groups={groups.slice(3)} />
+							</CollapsibleContent>
+						</Collapsible>
+					)}
+				</>
 			) : (
 				<Text>All declared setup requirements are ready.</Text>
 			)}
