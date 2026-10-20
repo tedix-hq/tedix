@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import {
 	CalendarResourcePicker,
 	calendarResourceSelection,
@@ -416,19 +422,26 @@ export function WorkspaceResourcesPanel({
 										? "Shared account"
 										: "Your account"}
 								</Text>
-								<details className="mt-1 text-kumo-subtle type-tedix-control">
-									<summary className="cursor-pointer">
+								<Collapsible className="mt-1 text-kumo-subtle type-tedix-control">
+									<CollapsibleTrigger className="group/disclosure">
+										<CaretRight
+											size={14}
+											aria-hidden
+											className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+										/>
 										Technical details
-									</summary>
-									<dl className="mt-2 grid gap-1 break-all">
-										<dt>App identifier</dt>
-										<dd className="m-0">{resource.providerId}</dd>
-										<dt>Resource type</dt>
-										<dd className="m-0">{resource.resourceType}</dd>
-										<dt>Resource ID</dt>
-										<dd className="m-0">{resource.providerResourceId}</dd>
-									</dl>
-								</details>
+									</CollapsibleTrigger>
+									<CollapsibleContent keepMounted>
+										<dl className="mt-2 grid gap-1 break-all">
+											<dt>App identifier</dt>
+											<dd className="m-0">{resource.providerId}</dd>
+											<dt>Resource type</dt>
+											<dd className="m-0">{resource.resourceType}</dd>
+											<dt>Resource ID</dt>
+											<dd className="m-0">{resource.providerResourceId}</dd>
+										</dl>
+									</CollapsibleContent>
+								</Collapsible>
 								{resource.availability?.status !== "available" &&
 								resource.availability?.reason ? (
 									<Text
@@ -806,41 +819,48 @@ export function WorkspaceResourcesPanel({
 							{([providerKey, resourceType]) =>
 								providerKey?.startsWith("github:") &&
 								resourceType === "repository" ? (
-									<details className="grid gap-3 type-tedix-control">
-										<summary className="cursor-pointer">
+									<Collapsible className="type-tedix-control">
+										<CollapsibleTrigger className="group/disclosure">
+											<CaretRight
+												size={14}
+												aria-hidden
+												className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+											/>
 											Repository work setup (optional)
-										</summary>
-										<Text as="p" role="label" tone="secondary">
-											To start repository work, add both values from your GitHub
-											App settings.
-										</Text>
-										<FormField
-											form={form}
-											name="githubFullName"
-											label="Repository name"
-										>
-											{(field, meta) => (
-												<FormInput
-													field={field}
-													{...meta}
-													placeholder="tedix-hq/tedix"
-												/>
-											)}
-										</FormField>
-										<FormField
-											form={form}
-											name="githubInstallationId"
-											label="GitHub App installation ID"
-										>
-											{(field, meta) => (
-												<FormInput
-													field={field}
-													{...meta}
-													inputMode="numeric"
-												/>
-											)}
-										</FormField>
-									</details>
+										</CollapsibleTrigger>
+										<CollapsibleContent keepMounted className="grid gap-3">
+											<Text as="p" role="label" tone="secondary">
+												To start repository work, add both values from your
+												GitHub App settings.
+											</Text>
+											<FormField
+												form={form}
+												name="githubFullName"
+												label="Repository name"
+											>
+												{(field, meta) => (
+													<FormInput
+														field={field}
+														{...meta}
+														placeholder="tedix-hq/tedix"
+													/>
+												)}
+											</FormField>
+											<FormField
+												form={form}
+												name="githubInstallationId"
+												label="GitHub App installation ID"
+											>
+												{(field, meta) => (
+													<FormInput
+														field={field}
+														{...meta}
+														inputMode="numeric"
+													/>
+												)}
+											</FormField>
+										</CollapsibleContent>
+									</Collapsible>
 								) : null
 							}
 						</form.Subscribe>

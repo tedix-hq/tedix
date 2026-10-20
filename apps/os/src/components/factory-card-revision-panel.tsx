@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { useEffect, useState, useContext, useRef } from "react";
 import { DecisionAttentionContext } from "./decision-attention-context";
 import {
@@ -171,58 +177,81 @@ export function FactoryCardRevisionPanel({
 				</div>
 			)}
 			{previous && current && (
-				<details>
-					<summary>What changed</summary>
-					<p className="whitespace-pre-wrap break-words">
-						{cardRevisionDiff(previous.body, current.body).map(
-							([kind, text], index) =>
-								kind > 0 ? (
-									<ins
-										key={index}
-										className="rounded bg-kumo-tint px-1 font-medium no-underline"
-									>
-										{text}
-									</ins>
-								) : kind < 0 ? (
-									<del key={index} className="px-1 text-kumo-subtle">
-										{text}
-									</del>
-								) : (
-									<span key={index}>{text}</span>
-								),
-						)}
-					</p>
-				</details>
+				<Collapsible>
+					<CollapsibleTrigger className="group/disclosure">
+						<CaretRight
+							size={14}
+							aria-hidden
+							className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+						/>
+						What changed
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						<p className="whitespace-pre-wrap break-words">
+							{cardRevisionDiff(previous.body, current.body).map(
+								([kind, text], index) =>
+									kind > 0 ? (
+										<ins
+											key={index}
+											className="rounded bg-kumo-tint px-1 font-medium no-underline"
+										>
+											{text}
+										</ins>
+									) : kind < 0 ? (
+										<del key={index} className="px-1 text-kumo-subtle">
+											{text}
+										</del>
+									) : (
+										<span key={index}>{text}</span>
+									),
+							)}
+						</p>
+					</CollapsibleContent>
+				</Collapsible>
 			)}
-			<details>
-				<summary>Version history</summary>
-				<div className="grid gap-4 pt-3">
-					{versions.map((version) => (
-						<article key={version.revision} className="grid gap-2">
-							<p>Version {version.revision}</p>
-							<p className="whitespace-pre-wrap break-words">{version.body}</p>
-							{version.note && (
-								<p className="text-kumo-subtle">{version.note}</p>
-							)}
-							{version.revision !== revision && (
-								<Button
-									variant="outline"
-									className="w-fit"
-									disabled={pending || mutate.isPending}
-									onClick={() => mutate.mutate(version.revision)}
-								>
-									Restore version {version.revision}
-								</Button>
-							)}
-						</article>
-					))}
-				</div>
-				{history.hasNextPage && (
-					<Button variant="ghost" onClick={() => void history.fetchNextPage()}>
-						Load older versions
-					</Button>
-				)}
-			</details>
+			<Collapsible>
+				<CollapsibleTrigger className="group/disclosure">
+					<CaretRight
+						size={14}
+						aria-hidden
+						className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+					/>
+					Version history
+				</CollapsibleTrigger>
+				<CollapsibleContent keepMounted>
+					<div className="grid gap-4 pt-3">
+						{versions.map((version) => (
+							<article key={version.revision} className="grid gap-2">
+								<p>Version {version.revision}</p>
+								<p className="whitespace-pre-wrap break-words">
+									{version.body}
+								</p>
+								{version.note && (
+									<p className="text-kumo-subtle">{version.note}</p>
+								)}
+								{version.revision !== revision && (
+									<Button
+										variant="outline"
+										className="w-fit"
+										disabled={pending || mutate.isPending}
+										onClick={() => mutate.mutate(version.revision)}
+									>
+										Restore version {version.revision}
+									</Button>
+								)}
+							</article>
+						))}
+					</div>
+					{history.hasNextPage && (
+						<Button
+							variant="ghost"
+							onClick={() => void history.fetchNextPage()}
+						>
+							Load older versions
+						</Button>
+					)}
+				</CollapsibleContent>
+			</Collapsible>
 			{(mutate.error || history.error) && (
 				<p role="alert">{(mutate.error || history.error)?.message}</p>
 			)}
