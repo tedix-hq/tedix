@@ -411,7 +411,7 @@ export async function runInboxWakeIntercept(
 					try {
 						const synthResult = await tracedAi.generateText({
 							model: model.model,
-							system: DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
+							instructions: DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
 							runtimeContext: kernelSpanContext({
 								organizationId,
 								source: "delegation_synthesis",

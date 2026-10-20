@@ -258,7 +258,7 @@ export async function planWriteCall(args: {
 						},
 					},
 				),
-				system: args.selectionOnly
+				instructions: args.selectionOnly
 					? `${SYSTEM_PROMPT}\nThis pass selects the tool only. Return its toolName (or NONE), args: {}, and one short reason. Do not construct arguments yet; a separate pass uses the selected tool's complete schema.`
 					: SYSTEM_PROMPT,
 				telemetry: objectSpanTelemetry(

@@ -223,7 +223,7 @@ export async function planTediAssignments(args: {
 		const result = await generateObject({
 			model: operation.model,
 			schema: PlanDecompositionSchema,
-			system: SYSTEM_PROMPT,
+			instructions: SYSTEM_PROMPT,
 			prompt: buildPrompt({ content, targets }),
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			// GPT-5 reasoning models do not support temperature; omit.
