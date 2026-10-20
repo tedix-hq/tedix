@@ -29,8 +29,12 @@ vi.mock("../services/tool-schema-overrides", () => ({
 vi.mock("@tedix/db/queries/app-records", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/app-records")>()),
 	createApp: mocks.createApp,
-	getAppBySlug: mocks.getAppBySlug,
 	updateApp: mocks.updateApp,
+}));
+
+vi.mock("@tedix/db/queries/apps", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/apps")>()),
+	getAppBySlug: mocks.getAppBySlug,
 }));
 
 vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({

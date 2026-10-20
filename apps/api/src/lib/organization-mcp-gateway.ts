@@ -24,10 +24,10 @@ import {
 import type { DbClient } from "@tedix/db/client";
 import {
 	createApp,
-	getAppBySlug,
 	getAppMetadataJson,
 	updateApp,
 } from "@tedix/db/queries/app-records";
+import { getAppBySlug } from "@tedix/db/queries/apps";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import type { AppMetadata } from "@tedix/db/schema/apps";
 import { syncTediAihClientForAssignment } from "../services/tedi-mcp-access";
@@ -336,23 +336,24 @@ export async function ensureOrganizationUnifiedGateway(
 
 	if (!app) {
 		try {
-			app = await createApp(db, {
-				organizationId: input.organizationId,
-				name: gatewayName,
-				slug: gatewaySlug,
-				primaryDomain: null,
-				description: gatewayDescription,
-				logoUrl: null,
-				visibility: "private",
-				discoveryStatus: "pending",
-				metadata: {
-					mcpConfig: {
-						serverName: gatewayName,
-						expectedAudience: mcpUrl,
-						provisioningStatus: "pending",
-					},
-				} as AppMetadata,
-			});
+			app =
+				(await createApp(db, {
+					organizationId: input.organizationId,
+					name: gatewayName,
+					slug: gatewaySlug,
+					primaryDomain: null,
+					description: gatewayDescription,
+					logoUrl: null,
+					visibility: "private",
+					discoveryStatus: "pending",
+					metadata: {
+						mcpConfig: {
+							serverName: gatewayName,
+							expectedAudience: mcpUrl,
+							provisioningStatus: "pending",
+						},
+					} as AppMetadata,
+				})) ?? null;
 		} catch (error) {
 			// A concurrent retry may have won the unique slug insert. Reload and
 			// continue only when it created the same organization's gateway shell.

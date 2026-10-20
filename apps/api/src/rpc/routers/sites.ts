@@ -5,17 +5,13 @@ import { implement } from "@orpc/server";
 import { sitesContract } from "@tedix/api-contract/contracts/sites";
 import { buildTedixMcpResourceUri } from "@tedix/auth/aih-audiences";
 import { isPlatformPrincipal } from "@tedix/auth/types";
-import {
-	createApp,
-	getAppBySlug,
-	getAppMetadataJson,
-} from "@tedix/db/queries/app-records";
+import { createApp, getAppMetadataJson } from "@tedix/db/queries/app-records";
 import {
 	aggregateAppEntryMatches,
 	aggregateAppLink,
 	getAggregateAppLinkTargets,
 } from "@tedix/db/queries/aggregate-app-links";
-import { getAppsByOrganization } from "@tedix/db/queries/apps";
+import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
 import {
 	activateCmsDomainClaim,
 	activateCmsWwwAliasClaim,
@@ -541,25 +537,26 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 			);
 		if (!authoringApp) {
 			try {
-				authoringApp = await createApp(context.db, {
-					organizationId,
-					slug: appSlug,
-					name: `${input.name} CMS authoring`,
-					description: `Authoring tools for ${input.name}`,
-					visibility: "private",
-					discoveryStatus: "pending",
-					metadata: {
-						mcpConfig: {
-							authMode: "authenticated",
-							codeMode: true,
-							expectedAudience: buildTedixMcpResourceUri(appSlug),
-							connectionLabel: input.slug,
-							aggregateApps: [
-								cmsApp ? aggregateAppLink(cmsApp) : { slug: "cms" },
-							],
-						},
-					} as AppMetadata,
-				});
+				authoringApp =
+					(await createApp(context.db, {
+						organizationId,
+						slug: appSlug,
+						name: `${input.name} CMS authoring`,
+						description: `Authoring tools for ${input.name}`,
+						visibility: "private",
+						discoveryStatus: "pending",
+						metadata: {
+							mcpConfig: {
+								authMode: "authenticated",
+								codeMode: true,
+								expectedAudience: buildTedixMcpResourceUri(appSlug),
+								connectionLabel: input.slug,
+								aggregateApps: [
+									cmsApp ? aggregateAppLink(cmsApp) : { slug: "cms" },
+								],
+							},
+						} as AppMetadata,
+					})) ?? null;
 			} catch (error) {
 				// A concurrent request may have won the global app-slug constraint.
 				authoringApp = await getAppBySlug(context.db, appSlug);

@@ -357,13 +357,6 @@ export async function getAppByIdWithToolsForOrganization(
 }
 
 /**
- * Get app by slug
- */
-export async function getAppBySlug(db: DbClient, slug: string) {
-	return db.query.apps.findFirst({ where: { slug } });
-}
-
-/**
  * Collapse CONCURRENT identical app-surface reads onto one in-flight promise.
  *
  * This is a memory fix, not a latency one. `getAppBySlugWithTools` hydrates every

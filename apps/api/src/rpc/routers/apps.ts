@@ -41,7 +41,6 @@ import {
 	getAppByDomain,
 	getAppById,
 	getAppByIdWithToolsForOrganization,
-	getAppBySlug,
 	getAppBySlugWithTools,
 	getAppMetadataJson,
 	getAppsBySlugsWithTools,
@@ -49,7 +48,7 @@ import {
 } from "@tedix/db/queries/app-records";
 import { listAppSecrets } from "@tedix/db/queries/app-secrets";
 import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
-import { getAppsByOrganization } from "@tedix/db/queries/apps";
+import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
 import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getToolsByAppId } from "@tedix/db/queries/tools";

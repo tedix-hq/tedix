@@ -127,7 +127,6 @@ vi.mock("@tedix/db/queries/cms-sites", () => ({
 }));
 vi.mock("@tedix/db/queries/app-records", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/app-records")>()),
-	getAppBySlug: mocks.getAppBySlug,
 	createApp: mocks.createApp,
 }));
 // The platform CMS app every authoring proxy links to by id.
@@ -151,6 +150,7 @@ vi.mock("@tedix/db/queries/docs-sites/builds", () => ({
 	listDocsBuilds: mocks.listDocsBuilds,
 }));
 vi.mock("@tedix/db/queries/apps", () => ({
+	getAppBySlug: mocks.getAppBySlug,
 	getAppsByOrganization: mocks.getAppsByOrganization,
 }));
 vi.mock("@tedix/db/queries/organizations", () => ({
