@@ -277,7 +277,9 @@ async function main() {
 	const queueDir = join(commonDir, "push-queue");
 	const lockFile = join(commonDir, "push-queue.lock");
 	mkdirSync(queueDir, { recursive: true });
-	const ticket = join(queueDir, `${Date.now()}-${process.pid}`);
+	// Zero is understood by existing clients; priority never preempts the holder.
+	const arrival = process.argv.includes("--priority") ? 0 : Date.now();
+	const ticket = join(queueDir, `${arrival}-${process.pid}`);
 	const lane = expectedMain ? null : snapshotLane(process.cwd(), dryRun);
 	const resultsDir = join(commonDir, "push-results");
 	mkdirSync(resultsDir, { recursive: true });

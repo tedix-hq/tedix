@@ -1,5 +1,11 @@
 # Main certification
 
+For an urgent pipeline cutover, `bun run push --priority` waits for the current
+holder, then precedes ordinary waiting tickets without changing validation.
+When upgrading the queue itself, `--queue-candidate` pins committed local queue
+code only after proving it contains freshly fetched main; rebase before using it.
+Normal pushes always load the fetched main version.
+
 `full-suite-hourly.yml` runs on every main push, hourly, and manual dispatch.
 Runs share concurrency group `main`; a newer tip cancels older certification.
 The required aggregate is `Main CI`. Every discovered workspace runs its full
