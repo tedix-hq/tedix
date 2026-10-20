@@ -1,3 +1,9 @@
+import {
+	CardFeedbackAnchorSchema,
+	CardFeedbackFieldSchema,
+	type KeptCardHunk,
+	type CardAnchorResolution,
+} from "@tedix/api-contract/schemas/card-revisions";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
 	appendCardRevision,
@@ -156,6 +162,9 @@ export async function reviseCardContent(
 		proposal?: WorkProposal;
 		responseId?: string;
 		restoreRevision?: number;
+		summary?: string;
+		keptHunks?: KeptCardHunk[];
+		anchorsResolved?: CardAnchorResolution[];
 	},
 ) {
 	const access = await cardRevisionAccess(context, input.requestId);
@@ -181,6 +190,23 @@ export async function reviseCardContent(
 			"A newer revision is available; reload the card",
 		);
 	const change = await latestCardChangeRequest(context.db, orgId, request.id);
+	if (!recipient && input.keptHunks?.length)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only the recipient can keep original wording",
+		);
+	const anchors = CardFeedbackAnchorSchema.array().safeParse(
+		change?.metadata.anchors,
+	).data;
+	if (
+		input.anchorsResolved?.some(
+			(resolution) => resolution.index >= (anchors?.length ?? 0),
+		)
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Comment resolution refers to an unavailable comment",
+		);
 	if (
 		!recipient &&
 		(!owner ||
@@ -241,6 +267,8 @@ export async function reviseCardContent(
 				action: "edit",
 				body,
 				restoreRevision: input.restoreRevision,
+				summary: input.summary,
+				keptHunks: input.keptHunks,
 			},
 			{ context },
 		);
@@ -267,6 +295,13 @@ export async function reviseCardContent(
 				? change.metadata.instruction
 				: undefined,
 		responseId: change?.id,
+		field:
+			CardFeedbackFieldSchema.safeParse(change?.metadata.field).data ?? "draft",
+		anchors,
+		anchorsResolved: input.anchorsResolved,
+		summary: input.summary,
+		keptHunks: input.keptHunks,
+		parentRevision: restored?.revision ?? latest.revision,
 	});
 	if (!revision)
 		throw createError(

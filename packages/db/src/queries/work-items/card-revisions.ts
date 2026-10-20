@@ -23,7 +23,7 @@ export function buildCardRevisionLearningStatement(
 		.select(
 			db
 				.select({
-					id: sql<string>`${crypto.randomUUID()}`.as("id"),
+					id: sql<string>`${revisions.learningEventId}`.as("id"),
 					organizationId: revisions.orgId,
 					actorType: sql<
 						"user" | "tedi" | "service"
@@ -160,11 +160,28 @@ export async function appendCardRevision(
 		actorSessionId?: string;
 		instruction?: string;
 		responseId?: string;
+		field?: (typeof revisions.$inferInsert)["field"];
+		anchors?: (typeof revisions.$inferInsert)["anchors"];
+		anchorsResolved?: (typeof revisions.$inferInsert)["anchorsResolved"];
+		summary?: string;
+		keptHunks?: (typeof revisions.$inferInsert)["keptHunks"];
+		parentRevision?: number;
 	},
 ) {
-	if (containsCardSecret([p.body, p.instruction, p.proposal]))
+	if (
+		containsCardSecret([
+			p.body,
+			p.instruction,
+			p.proposal,
+			p.anchors,
+			p.anchorsResolved,
+			p.summary,
+			p.keptHunks,
+		])
+	)
 		throw new Error(CARD_SECRET_MESSAGE);
 	const id = crypto.randomUUID();
+	const learningEventId = p.cause === "initial" ? null : crypto.randomUUID();
 	const insert = db
 		.insert(revisions)
 		.select(
@@ -179,6 +196,29 @@ export async function appendCardRevision(
 						sql<WorkProposal | null>`${p.proposal ? JSON.stringify(p.proposal) : null}`.as(
 							"proposal",
 						),
+					field: sql<typeof p.field>`${p.field ?? "draft"}`.as("field"),
+					anchors: sql<
+						typeof p.anchors
+					>`${p.anchors ? JSON.stringify(p.anchors) : null}`.as("anchors"),
+					anchorsResolved: sql<
+						typeof p.anchorsResolved
+					>`${p.anchorsResolved ? JSON.stringify(p.anchorsResolved) : null}`.as(
+						"anchors_resolved",
+					),
+					summary: sql<string | null>`${p.summary ?? null}`.as("summary"),
+					keptHunks: sql<
+						typeof p.keptHunks
+					>`${p.keptHunks ? JSON.stringify(p.keptHunks) : null}`.as(
+						"kept_hunks",
+					),
+					learningEventId: sql<string | null>`${learningEventId}`.as(
+						"learning_event_id",
+					),
+					parentRevision: sql<
+						number | null
+					>`${p.parentRevision ?? (p.expectedRevision || null)}`.as(
+						"parent_revision",
+					),
 					cause: sql<typeof p.cause>`${p.cause}`.as("cause"),
 					actorType: sql<string>`${p.actorType}`.as("actor_type"),
 					actorId: sql<string>`${p.actorId}`.as("actor_id"),

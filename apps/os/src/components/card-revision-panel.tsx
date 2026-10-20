@@ -5,7 +5,11 @@ import {
 	useInfiniteQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { cardRevisionDiff } from "@/lib/card-revision-diff";
+import {
+	cardRevisionDiff,
+	cardRevisionHunks,
+	keepOriginalHunks,
+} from "@/lib/card-revision-diff";
 import { Button } from "@/components/kumo/button";
 import { OS_COPY } from "@/shared/os-copy";
 import { Input } from "@/components/kumo/input";
@@ -106,7 +110,7 @@ export function CardRevisionPanel({
 					suffix: after.toString().slice(0, 200),
 					field,
 				},
-				top: Math.min(rect.bottom + 8, window.innerHeight - 200),
+				top: Math.max(16, Math.min(rect.bottom + 8, window.innerHeight - 200)),
 				left: Math.max(16, Math.min(rect.left, window.innerWidth - 336)),
 			});
 		};
@@ -145,7 +149,18 @@ export function CardRevisionPanel({
 		history.data?.pages.flatMap((page) => page.revisions) ?? []
 	).sort((a, b) => a.revision - b.revision);
 	const current = revisions.at(-1);
-	const previous = revisions.at(-2);
+	const keptHunks = current?.keptHunks ?? [];
+	const reviewed = keptHunks.length
+		? revisions.find(
+				(revision) => revision.revision === keptHunks[0]!.fromRevision,
+			)
+		: current;
+	const previous = revisions.find(
+		(revision) => revision.revision === (reviewed?.revision ?? 0) - 1,
+	);
+	const hunks =
+		reviewed && previous ? cardRevisionHunks(previous.body, reviewed.body) : [];
+	const [showClean, setShowClean] = useState(false);
 	const revising = Boolean(history.data?.pages[0]?.pending) || optimistic;
 	useEffect(() => {
 		if (current && current.revision > 1)
@@ -212,6 +227,32 @@ export function CardRevisionPanel({
 				expectedRevision: current?.revision ?? 0,
 				restoreRevision: revision,
 			}),
+		onSuccess: refresh,
+	});
+	const keep = useMutation({
+		mutationFn: async (index: number) => {
+			const hunk = hunks.find((hunk) => hunk.index === index)!;
+			const kept = [
+				...keptHunks,
+				{
+					fromRevision: reviewed!.revision,
+					index,
+					original: hunk.original,
+					replacement: hunk.replacement,
+				},
+			];
+			return osApi.workInteractions.reviseCard({
+				requestId: target.requestId,
+				expectedRequestVersion: target.version,
+				expectedRevision: current!.revision,
+				body: keepOriginalHunks(
+					hunks,
+					kept.map((hunk) => hunk.index),
+				),
+				keptHunks: kept,
+				summary: `Kept original wording in ${kept.length} ${kept.length === 1 ? "change" : "changes"}.`,
+			});
+		},
 		onSuccess: refresh,
 	});
 	return (
@@ -376,28 +417,113 @@ export function CardRevisionPanel({
 					</div>
 				</div>
 			)}
-			{previous && current && (
-				<details>
+
+			{previous && current && reviewed && (
+				<details open>
 					<summary>What changed</summary>
-					<p className="whitespace-pre-wrap break-words">
-						{cardRevisionDiff(previous.body, current.body).map(
-							([kind, text], index) =>
-								kind === 1 ? (
-									<ins
+					{reviewed.summary && <p className="py-2">{reviewed.summary}</p>}
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={() => setShowClean(!showClean)}
+					>
+						{showClean ? "Show changes" : "Show clean"}
+					</Button>
+					<div
+						className="whitespace-pre-wrap break-words"
+						aria-label="Revision diff"
+					>
+						{showClean
+							? current.body
+							: hunks.map((hunk) =>
+									hunk.unchanged ? (
+										<span key={hunk.index}>{hunk.replacement}</span>
+									) : (
+										<span
+											key={hunk.index}
+											className="block rounded-lg border border-kumo-line p-3"
+										>
+											{keptHunks.some((kept) => kept.index === hunk.index) ? (
+												<span>
+													{hunk.original}
+													<span className="type-tedix-caption text-kumo-subtle">
+														{" "}
+														(Original kept)
+													</span>
+												</span>
+											) : (
+												<>
+													{cardRevisionDiff(
+														hunk.original,
+														hunk.replacement,
+													).map(([kind, text], index) =>
+														kind < 0 ? (
+															<del
+																key={index}
+																className="px-1 text-kumo-subtle"
+															>
+																{text}
+															</del>
+														) : kind > 0 ? (
+															<ins
+																key={index}
+																className="rounded bg-kumo-tint px-1 font-medium no-underline"
+															>
+																{text}
+															</ins>
+														) : (
+															<span key={index}>{text}</span>
+														),
+													)}
+													{!current.proposal && (
+														<Button
+															variant="ghost"
+															size="xs"
+															aria-label={`Keep original change ${hunk.index + 1}`}
+															disabled={
+																disabled ||
+																revising ||
+																keep.isPending ||
+																restore.isPending
+															}
+															onClick={() => keep.mutate(hunk.index)}
+														>
+															Keep original
+														</Button>
+													)}
+												</>
+											)}
+										</span>
+									),
+								)}
+					</div>
+					{reviewed.anchors?.length ? (
+						<ol className="grid gap-2 pt-3" aria-label="Comment results">
+							{reviewed.anchors.map((anchor, index) => {
+								const resolution = reviewed.anchorsResolved?.find(
+									(item) => item.index === index,
+								);
+								return (
+									<li
 										key={index}
-										className="rounded bg-kumo-tint px-1 font-medium no-underline"
+										className={
+											resolution?.status === "done"
+												? "text-kumo-subtle"
+												: "text-kumo-default"
+										}
 									>
-										{text}
-									</ins>
-								) : kind === -1 ? (
-									<del key={index} className="px-1 text-kumo-subtle">
-										{text}
-									</del>
-								) : (
-									<span key={index}>{text}</span>
-								),
-						)}
-					</p>
+										{index + 1}. {anchor.chip ?? anchor.note} —{" "}
+										{resolution?.status === "done"
+											? "Done"
+											: resolution?.status === "kept"
+												? "Kept"
+												: "Still open"}
+										{resolution?.note ? `: ${resolution.note}` : ""}
+									</li>
+								);
+							})}
+						</ol>
+					) : null}
 				</details>
 			)}
 			{revisions.length > 0 && (
@@ -465,9 +591,12 @@ export function CardRevisionPanel({
 					Load older versions
 				</Button>
 			)}
-			{(changes.error || restore.error || history.error) && (
+			{(changes.error || restore.error || keep.error || history.error) && (
 				<p role="alert">
-					{(changes.error || restore.error || history.error)?.message}
+					{
+						(changes.error || restore.error || keep.error || history.error)
+							?.message
+					}
 				</p>
 			)}
 		</section>

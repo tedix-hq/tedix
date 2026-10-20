@@ -7,6 +7,12 @@
  * by D1 triggers in the owning migration.
  */
 
+import type {
+	CardFeedbackAnchor,
+	CardAnchorResolution,
+	KeptCardHunk,
+	CardRevision,
+} from "@tedix/api-contract/schemas/card-revisions";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
@@ -617,6 +623,15 @@ export const workInteractionCardRevisions = sqliteTable(
 		actorSessionId: text("actor_session_id"),
 		instruction: text("instruction"),
 		responseId: text("response_id"),
+		field: text("field").$type<CardRevision["field"]>(),
+		anchors: text("anchors", { mode: "json" }).$type<CardFeedbackAnchor[]>(),
+		anchorsResolved: text("anchors_resolved", { mode: "json" }).$type<
+			CardAnchorResolution[]
+		>(),
+		summary: text("summary"),
+		keptHunks: text("kept_hunks", { mode: "json" }).$type<KeptCardHunk[]>(),
+		learningEventId: text("learning_event_id"),
+		parentRevision: integer("parent_revision"),
 		createdAt: text("created_at").notNull(),
 	},
 	(table) => [

@@ -123,6 +123,8 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 			expectedRevision: 1,
 			responseId: history.pending!.responseId,
 			body: "Short text",
+			summary: "Shortened the draft.",
+			anchorsResolved: [{ index: 0, status: "done" }],
 		});
 		expect(rewritten).toMatchObject({
 			revision: 2,
@@ -130,16 +132,41 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 			instruction: "Shorter please",
 		});
 		expect((await target.cardHistory({ requestId: card })).pending).toBeNull();
-		const restored = await target.reviseCard({
+		expect(rewritten.summary).toBe("Shortened the draft.");
+		expect(rewritten.anchorsResolved).toEqual([{ index: 0, status: "done" }]);
+		expect(rewritten.parentRevision).toBe(1);
+		expect(rewritten.learningEventId).toBeTruthy();
+		const kept = await target.reviseCard({
 			requestId: card,
 			expectedRequestVersion: 3,
 			expectedRevision: 2,
+			body: "Original text",
+			keptHunks: [
+				{
+					fromRevision: 2,
+					index: 0,
+					original: "Original",
+					replacement: "Short",
+				},
+			],
+		});
+		expect(kept).toMatchObject({
+			revision: 3,
+			cause: "human_edit",
+			keptHunks: [{ fromRevision: 2, index: 0 }],
+			parentRevision: 2,
+		});
+		const restored = await target.reviseCard({
+			requestId: card,
+			expectedRequestVersion: 4,
+			expectedRevision: 3,
 			restoreRevision: 1,
 		});
 		expect(restored).toMatchObject({
-			revision: 3,
+			revision: 4,
 			body: "Original text",
 			cause: "restore",
+			parentRevision: 1,
 		});
 		expect(
 			sqlite.prepare("SELECT count(*) AS n FROM work_interactions").get()?.n,
@@ -150,7 +177,7 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 					"SELECT count(*) AS n FROM learning_interaction_events WHERE client_event_id LIKE 'card-revision:%'",
 				)
 				.get()?.n,
-		).toBe(2);
+		).toBe(3);
 		expect(
 			sqlite
 				.prepare(

@@ -30,6 +30,25 @@ export const CardFeedbackAnchorSchema = z.strictObject({
 	note: CardTextSchema.max(2000).optional(),
 });
 export type CardFeedbackAnchor = z.infer<typeof CardFeedbackAnchorSchema>;
+export const KeptCardHunkSchema = z.strictObject({
+	fromRevision: z.number().int().positive(),
+	index: z.number().int().nonnegative(),
+	original: z
+		.string()
+		.max(40000)
+		.refine((value) => !containsCardSecret(value), CARD_SECRET_MESSAGE),
+	replacement: z
+		.string()
+		.max(40000)
+		.refine((value) => !containsCardSecret(value), CARD_SECRET_MESSAGE),
+});
+export const CardAnchorResolutionSchema = z.strictObject({
+	index: z.number().int().nonnegative(),
+	status: z.enum(["done", "kept", "declined"]),
+	note: CardTextSchema.max(2000).optional(),
+});
+export type KeptCardHunk = z.infer<typeof KeptCardHunkSchema>;
+export type CardAnchorResolution = z.infer<typeof CardAnchorResolutionSchema>;
 export const CardRevisionSchema = z.strictObject({
 	id: z.uuid(),
 	orgId: z.string().min(1),
@@ -43,6 +62,13 @@ export const CardRevisionSchema = z.strictObject({
 	actorSessionId: z.string().nullable(),
 	instruction: z.string().nullable(),
 	responseId: z.uuid().nullable(),
+	field: CardFeedbackFieldSchema.nullable().default(null),
+	anchors: z.array(CardFeedbackAnchorSchema).nullable().default(null),
+	anchorsResolved: z.array(CardAnchorResolutionSchema).nullable().default(null),
+	summary: z.string().nullable().default(null),
+	keptHunks: z.array(KeptCardHunkSchema).nullable().default(null),
+	learningEventId: z.uuid().nullable().default(null),
+	parentRevision: z.number().int().positive().nullable().default(null),
 	createdAt: z.iso.datetime(),
 });
 export type CardRevision = z.infer<typeof CardRevisionSchema>;
@@ -67,6 +93,9 @@ export const ReviseCardInputSchema = CardHistoryInputSchema.extend({
 	expectedRequestVersion: z.number().int().positive(),
 	expectedRevision: z.number().int().nonnegative(),
 	body: CardTextSchema.optional(),
+	summary: CardTextSchema.max(1000).optional(),
+	anchorsResolved: z.array(CardAnchorResolutionSchema).max(20).optional(),
+	keptHunks: z.array(KeptCardHunkSchema).max(100).optional(),
 	proposal: WorkProposalMetadataSchema.shape.proposal
 		.refine((value) => !containsCardSecret(value), CARD_SECRET_MESSAGE)
 		.optional(),
