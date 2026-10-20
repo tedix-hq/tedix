@@ -41,17 +41,23 @@ export async function prepareDeckCardFaces(
 	model?: DecisionLearningModel,
 ) {
 	const unavailable = new Set<string>();
+	const deferred = new Set<string>();
 	const faces = await Promise.all(
 		cards.map((card) =>
-			prepareDeckCardFace(context, card, false, model, () =>
-				unavailable.add(card.id),
+			prepareDeckCardFace(
+				context,
+				card,
+				false,
+				model,
+				() => unavailable.add(card.id),
+				() => deferred.add(card.id),
 			),
 		),
 	);
 	context.waitUntil?.(
 		Promise.all(
 			cards
-				.filter((_, index) => !faces[index])
+				.filter((card, index) => !faces[index] && !deferred.has(card.id))
 				.slice(0, 3)
 				.map((card) => prepareDeckCardFace(context, card, true, model)),
 		).catch(() => {}),
@@ -116,12 +122,14 @@ export async function prepareDeckCardFace(
 	generate = true,
 	model?: DecisionLearningModel,
 	onUnavailable?: () => void,
+	onDeferred?: () => void,
 ) {
 	if (!context.userId) return null;
 	const orgId = requireOrgId(context);
 	const source = deckCardWritingSource(card);
 	if (containsCardSecret(source)) {
 		onUnavailable?.();
+		onDeferred?.();
 		return null;
 	}
 	const preferences = model
@@ -171,8 +179,10 @@ export async function prepareDeckCardFace(
 		if (
 			typeof stored.value.retryAt === "number" &&
 			stored.value.retryAt > Date.now()
-		)
+		) {
+			onDeferred?.();
 			return null;
+		}
 	}
 	if (!generate) return null;
 	const claim = await putUserConfig(context.db, {

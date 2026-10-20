@@ -206,6 +206,36 @@ it("distinguishes failed generation from a pending job during the retry window",
 	expect(mocks.generate).toHaveBeenCalledTimes(1);
 });
 
+it.each([true, false])(
+	"does not let three deferred writers starve a later card (failed: %s)",
+	async (failed) => {
+		const earlier = [0, 1, 2].map((index) => ({
+			...card,
+			id: `factory:earlier:${index}`,
+		}));
+		mocks.generate.mockResolvedValue(null);
+		await Promise.all(
+			earlier.map((entry) => prepareDeckCardFace(context, entry)),
+		);
+		for (const row of store.values()) row.value.failed = failed;
+		mocks.generate.mockClear();
+		mocks.generate.mockResolvedValue(copy);
+		const jobs: Promise<unknown>[] = [];
+		const displayed = await prepareDeckCardFaces(
+			{ ...context, waitUntil: (job) => jobs.push(job) },
+			[...earlier, card],
+		);
+		await Promise.all(jobs);
+		expect(mocks.generate).toHaveBeenCalledTimes(1);
+		expect(displayed[0]?.label).toBe(
+			failed ? "Summary unavailable" : "Summary pending",
+		);
+		expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);
+		for (const entry of earlier)
+			expect(await prepareDeckCardFace(context, entry, false)).toBeNull();
+	},
+);
+
 it("returns pending copy while a registered background writer finishes and persists its result", async () => {
 	let finish!: (value: typeof copy) => void;
 	mocks.generate.mockReturnValue(
