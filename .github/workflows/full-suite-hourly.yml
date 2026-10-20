@@ -12,7 +12,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && 'main-manual-certification' || 'main' }}
+  # A delayed scheduled run must not cancel the latest push's certification.
+  group: main-certification-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -126,7 +127,7 @@ jobs:
   aggregate:
     name: Main CI
     needs: [plan, workspace, repository]
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
