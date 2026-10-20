@@ -141,7 +141,33 @@ describe("Focus feed", () => {
 			),
 		).toHaveLength(4);
 	});
-	it("uses durable daily reservations, never adds a fourth item, and resets by configured day", () => {
+	it("shows incident alerts after the ordinary daily budget is exhausted without charging them to that budget", () => {
+		const ranked = rankFocusFeed(
+			[
+				row("incident", { importance: "critical" }),
+				...Array.from({ length: 6 }, (_, i) => row(String(i))),
+			],
+			config,
+			EMPTY_FEED_PREFERENCES,
+			now,
+			model(),
+		);
+		const prefs = {
+			...EMPTY_FEED_PREFERENCES,
+			budgetDay: "2030-01-01",
+			shownIds: ["old1", "old2", "old3", "incident"],
+		};
+		const exhausted = focusSelection(ranked, [], now, model(), true, prefs);
+		expect(exhausted.selected.map((item) => item.id)).toEqual(["incident"]);
+		expect(exhausted.used).toBe(3);
+		const fresh = focusSelection(ranked, [], now, model(), true);
+		expect(
+			fresh.selected.filter((item) => item.importance !== "critical"),
+		).toHaveLength(3);
+		expect(fresh.selected).toHaveLength(4);
+	});
+
+	it("uses durable daily reservations, never adds a fourth ordinary item, and resets by configured day", () => {
 		const ranked = rankFocusFeed(
 			Array.from({ length: 12 }, (_, i) => row(String(i))),
 			config,
