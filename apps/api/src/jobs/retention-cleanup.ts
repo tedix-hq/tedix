@@ -242,10 +242,10 @@ export async function runRetentionCleanupCron(
 			);
 		}
 
-		const delistedCount = await autoDelistStaleCatalogApps(db, 21);
-		if (delistedCount > 0) {
+		const delisted = await autoDelistStaleCatalogApps(db, 21);
+		if (delisted.delisted > 0 || delisted.skippedProtected > 0) {
 			console.log(
-				`[Scheduled] Auto-delisted ${delistedCount} apps (not seen in 21+ days)`,
+				`[Scheduled] Auto-delisted ${delisted.delisted} apps (not seen in 21+ days; skipped ${delisted.skippedProtected} manual/auth-gated)`,
 			);
 		}
 	} catch (catalogLifecycleError) {
