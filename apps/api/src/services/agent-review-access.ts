@@ -5,6 +5,7 @@ import {
 } from "@tedix/db/queries/organization-members";
 import { getProjectById } from "@tedix/db/queries/projects";
 import { hasProjectWorkItemReference } from "@tedix/db/queries/work-items/project-access";
+import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import type { BaseContext } from "../rpc/context";
 import { agentReviewProjectId } from "./agent-review-config";
 
@@ -64,8 +65,83 @@ export async function guardAgentReviewAccess<T extends { output: unknown }>(
 	context: BaseContext,
 	input: unknown,
 	next: () => Promise<T>,
+	path?: readonly string[],
 ): Promise<T> {
 	const scope = await agentReviewProjectScope(context);
+	const policy = scope?.project.metadata?.agentReviewTriage;
+	if (
+		scope &&
+		policy &&
+		typeof policy === "object" &&
+		!Array.isArray(policy) &&
+		typeof policy.tediId === "string" &&
+		context.tediId === policy.tediId &&
+		(context.authType === "tedi" || context.authType === "service-binding")
+	) {
+		const denied = () =>
+			new ORPCError("FORBIDDEN", {
+				message:
+					"Review triage is restricted to proposed Work and comments in its project",
+			});
+		const endpoint = path?.join("/");
+		if (
+			context.organizationId !== scope.project.orgId ||
+			![
+				"workItems/list",
+				"workItems/getById",
+				"workItems/create",
+				"workItems/addComment",
+			].includes(endpoint ?? "")
+		)
+			throw denied();
+		const args = input as Record<string, unknown>;
+		if (!args || typeof args !== "object") throw denied();
+		if (endpoint === "workItems/list" || endpoint === "workItems/create") {
+			if (args.projectId !== scope.project.id) throw denied();
+		}
+		if (endpoint === "workItems/create") {
+			const allowed = new Set([
+				"title",
+				"description",
+				"projectId",
+				"parentWorkItemId",
+				"workKind",
+				"riskLevel",
+				"priority",
+				"requiredCapabilities",
+				"requiredAuthorities",
+			]);
+			if (Object.keys(args).some((key) => !allowed.has(key))) throw denied();
+			if (
+				(Array.isArray(args.requiredCapabilities) &&
+					args.requiredCapabilities.length) ||
+				(Array.isArray(args.requiredAuthorities) &&
+					args.requiredAuthorities.length)
+			)
+				throw denied();
+		}
+		if (
+			endpoint === "workItems/addComment" &&
+			(args.requestDelegation ||
+				(args.metadata &&
+					Object.keys(args.metadata as object).some(
+						(key) => key !== "agentReviewTriageResult",
+					)))
+		)
+			throw denied();
+		for (const key of ["id", "parentWorkItemId"]) {
+			if (args[key] !== undefined) {
+				if (typeof args[key] !== "string") throw denied();
+				const item = await getWorkItemById(
+					context.db,
+					args[key] as string,
+					scope.project.orgId,
+				);
+				if (item?.projectId !== scope.project.id) throw denied();
+			}
+		}
+		return next();
+	}
 	if (!scope || scope.allowed) return next();
 	const projectId = scope.project.id;
 	const orgId = scope.project.orgId;

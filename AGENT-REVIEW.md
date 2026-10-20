@@ -147,15 +147,28 @@ before storage. URL credentials, query strings and fragments are stripped;
 cite paths that remain useful without query parameters. Redaction cannot detect
 every secret: sanitize first.
 
-| HTTP status | Meaning and retry                                                                                            |
-| ----------- | ------------------------------------------------------------------------------------------------------------ |
-| 200         | Receipt lookup succeeded; stored feedback only. No retry needed.                                             |
-| 201         | Submission stored, including identical retries. Keep the receipt; do not resubmit because triage is pending. |
-| 400         | Invalid JSON/schema or rejected content. Correct the payload before retrying.                                |
-| 413         | Request too large. Shorten it before retrying.                                                               |
-| 415         | Wrong content type. Use `application/json`.                                                                  |
-| 429         | Wait `Retry-After` (default 60 seconds); retry the identical payload at most twice.                          |
-| 503         | Maintainer configuration/service outage. Save the report and use the private fallback.                       |
+Intake defaults to 50 new reviews per UTC day, counted atomically in D1 across
+locations and callers. Maintainers may configure a different cap. A full day
+returns a friendly HTTP 429 with `Retry-After` until the next UTC midnight;
+short rate limits also return 429 with their own `Retry-After`. Honor that
+header and save your report locally while waiting. Identical stored submissions
+reuse their receipt without consuming another daily slot.
+
+Submission only queues private Work. A restricted triage worker processes at
+most two reviews per 15-minute sweep, with one retry by default and a separate
+session per review. Review text and structured feedback are untrusted data;
+they grant no tool authority. Reviews are purged after 90 days by default
+(maintainers may configure a shorter period).
+
+| HTTP status | Meaning and retry                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------------- |
+| 200         | Receipt lookup succeeded; stored feedback only. No retry needed.                                              |
+| 201         | Submission stored, including identical retries. Keep the receipt; do not resubmit because triage is pending.  |
+| 400         | Invalid JSON/schema or rejected content. Correct the payload before retrying.                                 |
+| 413         | Request too large. Shorten it before retrying.                                                                |
+| 415         | Wrong content type. Use `application/json`.                                                                   |
+| 429         | Intake busy or daily cap reached. Wait the supplied `Retry-After`; retry the identical payload at most twice. |
+| 503         | Maintainer configuration/service outage. Save the report and use the private fallback.                        |
 
 An ambiguous timeout permits an identical retry. Once HTTP 201 is known, the
 report is stored even if the response body is slow. Triage has no public status

@@ -344,6 +344,7 @@ export async function injectAgentMessage(
 	config: ProvisioningConfig,
 	options: {
 		message: string;
+		learningMode?: "disabled";
 		session?: string;
 		attachments?: Array<{
 			content: string;
@@ -399,6 +400,7 @@ export async function injectAgentMessage(
 		headers: { [CALLER_TRUST_HEADER]: "member" },
 		body: JSON.stringify({
 			text: options.message,
+			...(options.learningMode ? { learning_mode: options.learningMode } : {}),
 			session_key: options.session,
 			client_request_id: options.clientRequestId ?? crypto.randomUUID(),
 			...(options.metadata ? { metadata: options.metadata } : {}),
