@@ -61,13 +61,13 @@
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@descope/node-sdk": "^2.19.0",
+		"@descope/node-sdk": "^2.20.0",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/ssrf-guard": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
-		"jose": "^6.2.12"
+		"jose": "^6.2.13"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",

@@ -23,7 +23,7 @@
 		"type-check": "MCP_UI_INSPECTOR_PORT=0 astro sync && tsc --noEmit"
 	},
 	"dependencies": {
-		"@astrojs/cloudflare": "^14.4.0",
+		"@astrojs/cloudflare": "^14.4.1",
 		"@astrojs/react": "^7.1.0",
 		"@json-render/core": "catalog:",
 		"@json-render/devtools-react": "^0.21.1",
@@ -36,7 +36,7 @@
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/auth": "workspace:*",
 		"@tedix/widget-ui": "workspace:*",
-		"astro": "^7.4.0",
+		"astro": "^7.4.1",
 		"react": "catalog:",
 		"react-dom": "catalog:",
 		"recharts": "^3.10.1",
