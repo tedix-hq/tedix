@@ -1,7 +1,7 @@
 import { isMarketingHost, marketingResponse } from "./marketing";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { createDbQueryClient } from "@tedix/db/query-client";
-import type { Env } from "./index";
+import type { Env } from "./env";
 import {
 	CmsRestoreFenceUnavailableError,
 	withCmsRestorePermit,

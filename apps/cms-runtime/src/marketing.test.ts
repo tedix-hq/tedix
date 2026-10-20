@@ -13,7 +13,8 @@ import {
 	marketingResponse,
 	type MarketingEnv,
 } from "./marketing";
-import { patchReverseProxyHtml, tenantMediaKeyFromHref } from "./index";
+import { patchReverseProxyHtml } from "./public-proxy";
+import { tenantMediaKeyFromHref } from "./tenant-media";
 const env = {
 	MARKETING_DOMAINS: "landing.tedix.dev",
 	CLI_DOWNLOAD_HOST: "downloads.tedix.dev",

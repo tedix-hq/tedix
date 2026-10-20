@@ -17,7 +17,8 @@ import {
 	reconcileCmsRestoreOuterPermits,
 } from "@tedix/db/queries/cms-restore-fences";
 
-import { EmDashDB, TenantEmDashDB, TenantR2, TenantSession } from "./index";
+import { EmDashDB } from "./emdash-db";
+import { TenantEmDashDB, TenantR2, TenantSession } from "./index";
 import { CmsRestoreFenceUnavailableError } from "./tenant-restore-fence";
 
 const platformD1 = (env as unknown as { PLATFORM_DB: D1Database }).PLATFORM_DB;

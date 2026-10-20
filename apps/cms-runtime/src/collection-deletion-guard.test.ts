@@ -5,7 +5,8 @@ import { runInDurableObject } from "cloudflare:test";
 import { createDialect } from "@emdash-cms/cloudflare/db/do-sql";
 import { Kysely, sql } from "../../cms/templates/tedix/node_modules/kysely";
 
-import { EmDashDB, TenantEmDashDB } from "./index";
+import { EmDashDB } from "./emdash-db";
+import { TenantEmDashDB } from "./index";
 
 const input = {
 	action: "fence" as const,

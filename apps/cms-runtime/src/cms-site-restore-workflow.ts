@@ -35,7 +35,7 @@ import {
 	restoreSourceMediaObject,
 	type VerifiedMediaObject,
 } from "./tenant-media-backup";
-import type { Env } from "./index";
+import type { Env } from "./env";
 
 export interface CmsSiteRestoreParams extends CmsSiteRestoreIdentity {
 	/** A disposable proof may exercise the symmetric undo before reopening. */
