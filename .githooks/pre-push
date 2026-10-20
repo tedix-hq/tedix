@@ -25,10 +25,10 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_COMMON_DIR \
 	GIT_WORK_TREE
 
 status=0
-profile_args=()
+preflight=(bun "$root/scripts/ci/preflight-gates.mjs")
 # Activated only after the main CI runner pool and green-only Ship are proven.
 if [[ "$(git config --get tedix.pushGateProfile || true)" == "fast" ]]; then
-	profile_args+=("--local-fast")
+	preflight+=("--local-fast")
 fi
 preflight_ranges=()
 while read -r _localRef localSha remoteRef remoteSha; do
@@ -59,9 +59,9 @@ while read -r _localRef localSha remoteRef remoteSha; do
 	preflight_ranges+=("--base" "$remoteSha" "--head" "$localSha")
 done
 
-if ((${#preflight_ranges[@]})) && ! bun "$root/scripts/ci/preflight-gates.mjs" "${profile_args[@]}" --remote-url "${2:-}" "${preflight_ranges[@]}"; then
+if ((${#preflight_ranges[@]})) && ! "${preflight[@]}" --remote-url "${2:-}" "${preflight_ranges[@]}"; then
 	status=1
-elif ((${#preflight_ranges[@]} == 0)) && ! bun "$root/scripts/ci/preflight-gates.mjs" "${profile_args[@]}"; then
+elif ((${#preflight_ranges[@]} == 0)) && ! "${preflight[@]}"; then
 	status=1
 fi
 
