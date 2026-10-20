@@ -42,7 +42,7 @@ test("opt-in matrix covers every leaf and runs owner types once", () => {
 		writeFileSync(
 			join(root, "apps/os/package.json"),
 			JSON.stringify({
-				tedixCi: { splitTestScripts: true },
+				tedixCi: { splitTestScripts: true, testScriptShards: { unit: 2 } },
 				scripts: {
 					"test:ci": "bun run unit && bun run browser",
 					unit: "vp test run",
@@ -52,7 +52,20 @@ test("opt-in matrix covers every leaf and runs owner types once", () => {
 			}),
 		);
 		expect(workspaceMatrix(root).include).toEqual([
-			{ workspace: "apps/os", test: true, testScript: "unit", types: true },
+			{
+				workspace: "apps/os",
+				test: true,
+				testScript: "unit",
+				shard: "1/2",
+				types: true,
+			},
+			{
+				workspace: "apps/os",
+				test: true,
+				testScript: "unit",
+				shard: "2/2",
+				types: false,
+			},
 			{ workspace: "apps/os", test: true, testScript: "browser", types: false },
 		]);
 	} finally {
