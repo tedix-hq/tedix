@@ -24,7 +24,7 @@ describe("Work surface primitives", () => {
 					/>,
 				),
 			);
-			expect(document.title).toBe("Queue · Work");
+			expect(document.title).toBe("Queue · Work · Tedix OS");
 			expect(host.querySelector("h1")?.textContent).toBe("Queue");
 			expect(host.textContent).toContain("Accepted work");
 			expect(host.querySelector("button")?.textContent).toBe("Refresh");

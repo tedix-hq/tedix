@@ -7,6 +7,6 @@ export const Route = createFileRoute("/_session/account/profile")({
 });
 
 function AccountProfileRoute() {
-	useDocumentTitle("Your profile · Tedix OS");
+	useDocumentTitle("Your profile");
 	return <ProfilePage />;
 }
