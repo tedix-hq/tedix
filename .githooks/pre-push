@@ -26,8 +26,8 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_COMMON_DIR \
 
 status=0
 preflight=(bun "$root/scripts/ci/preflight-gates.mjs")
-# Activated only after the main CI runner pool and green-only Ship are proven.
-if [[ "$(git config --get tedix.pushGateProfile || true)" == "fast" ]]; then
+profile="$(git config --get tedix.pushGateProfile || true)"
+if [[ -z "$profile" || "$profile" == "fast" ]]; then
 	preflight+=("--local-fast")
 fi
 preflight_ranges=()
