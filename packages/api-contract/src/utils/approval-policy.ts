@@ -107,7 +107,19 @@ export function humanReservedActionClasses(content: string): string[] {
 		/\bno spending\b/i.test(content)
 			? content.replace(/\bcosts? money\b/gi, "costs")
 			: content;
-	const actionable = actionContent
+	// An explicitly internal Today/Feed post is not a public-channel publication.
+	// An external destination or a different publication instruction stays gated.
+	const publicationContent =
+		/\bToday\s*\/\s*Feed\s+post\b/i.test(actionContent) &&
+		!/\b(?:public|publicly|external|social|linkedin|reddit|facebook|instagram|twitter|tweet|blog)\b/i.test(
+			actionContent,
+		)
+			? actionContent.replace(
+					/\bpublish it(?=\s*(?:[.!?;]|$))/gi,
+					"save the internal post",
+				)
+			: actionContent;
+	const actionable = publicationContent
 		.replace(/\b(?:do not|don't|don’t|never)\s+`[^`\r\n]+`/gi, " ")
 		.replace(
 			/\bcredential(?:\/token)?\s+(?:code|lane|cache band)\b/gi,
