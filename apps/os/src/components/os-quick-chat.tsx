@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react";
 import { osApi } from "@/lib/api";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import {
+	defaultTediWidgetConfig,
 	resolveTediWidgetConfig,
 	type TediWidgetConfig,
 } from "@/lib/tedi-widget-config";
@@ -314,6 +315,35 @@ export function OsQuickChat() {
 	}, [pathname]);
 
 	useEffect(() => {
+		// Keep the shadow host mounted so dialog focus isolation never discards
+		// the widget's in-memory thread. Base UI keeps data-open through nesting.
+		let suppressedHost: HTMLElement | null = null;
+		const applyModalSuppression = () => {
+			const host = document.querySelector<HTMLElement>("[data-tedix-widget]");
+			if (!host) return;
+			const modalOpen = Boolean(
+				document.querySelector(
+					'[role="dialog"][data-open], [role="alertdialog"][data-open]',
+				),
+			);
+			if (!modalOpen && suppressedHost !== host) return;
+			suppressedHost = modalOpen ? host : null;
+			host.toggleAttribute("inert", modalOpen);
+			if (modalOpen) host.setAttribute("aria-hidden", "true");
+			else host.removeAttribute("aria-hidden");
+		};
+		const observer = new MutationObserver(applyModalSuppression);
+		observer.observe(document.body, {
+			childList: true,
+			subtree: true,
+			attributes: true,
+			attributeFilter: ["data-open"],
+		});
+		applyModalSuppression();
+		return () => observer.disconnect();
+	}, []);
+
+	useEffect(() => {
 		if (import.meta.env.MODE === "test") return;
 		// Local Workers AI powers Home, not the embedded tedi runtime.
 		if (
@@ -470,7 +500,8 @@ export function OsQuickChat() {
 					launcherPosition: config.launcherPosition,
 					horizontalOffset: config.horizontalOffset,
 					bottomOffset: config.bottomOffset,
-					zIndex: config.zIndex,
+					// Published widget settings also serve external hosts; OS owns its layers.
+					zIndex: defaultTediWidgetConfig(organization).zIndex,
 					launcherMode: config.launcherMode,
 					startMode: config.startMode,
 					homeModules: config.homeModules,
