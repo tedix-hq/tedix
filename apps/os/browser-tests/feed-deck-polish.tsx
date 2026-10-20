@@ -441,6 +441,167 @@ if (params.has("retry")) {
 	});
 }
 
+// `surface=feed&face=<pending|stale|unavailable>` seeds one open decision whose
+// short summary is still being written (fresh), stuck for hours (stale) or failed.
+const feedFace = params.get("surface") === "feed" ? params.get("face") : null;
+const feedRequestId = "44444444-4444-4444-8444-444444444444";
+if (feedFace) {
+	const requestedAt = new Date(
+		today.getTime() - (feedFace === "stale" ? 6 * 3600000 : 30000),
+	).toISOString();
+	const row = {
+		request: {
+			id: feedRequestId,
+			orgId: projectId,
+			workItemId: null,
+			caseId: null,
+			projectId: null,
+			kind: "question" as const,
+			subject: "Confirm who staffs the booth?",
+			prompt:
+				"Confirm who staffs the booth and send the guest list yourself for the Demo Day on 20 October. Booth setup must finish by 13:59 Berlin.",
+			requestedFromType: "user" as const,
+			requestedFromId: "fictional-person",
+			creatorType: "tedi" as const,
+			creatorId: "fictional-tedi",
+			creatorSessionId: null,
+			state: "open" as const,
+			requestedAt,
+			dueAt: null,
+			expiresAt: null,
+			resolvedAt: null,
+			version: 1,
+			metadata: { decisionClass: "event.booth" },
+		},
+		effectiveState: "open" as const,
+		canRespond: true,
+		canCancel: false,
+		workItem: null,
+		responseCount: 0,
+		askedBy: "Robin",
+	};
+	client.setQueryData(
+		osQuery.workInteractions.listInbox.queryOptions({
+			input: { projectId: undefined, limit: 50, states: ["open"] },
+		}).queryKey,
+		{
+			data: [row],
+			hasMore: false,
+			nextCursor: null,
+			observedAt: today.toISOString(),
+		},
+	);
+	client.setQueryData(
+		osQuery.attention.getDeckCard.queryOptions({
+			input: { cardId: feedRequestId, limit: 100 },
+		}).queryKey,
+		DeckCardSchema.parse({
+			id: feedRequestId,
+			kind: "question",
+			label: row.request.subject,
+			project: "Unfiled",
+			urgency: "later",
+			source: "/work",
+			score: 0,
+			requestedAt,
+			dueAt: null,
+			decision: null,
+			interaction: row,
+			presentation: null,
+			...(feedFace === "unavailable"
+				? {
+						faceText: "Summary unavailable. Open Details to review the source.",
+					}
+				: {}),
+		}),
+	);
+	const prefsKey = userPreferencesQueryOptions().queryKey;
+	const prefs = client.getQueryData(prefsKey)!;
+	client.setQueryData(prefsKey, {
+		...prefs,
+		preferences: {
+			...prefs.preferences,
+			activityFeed: {
+				...prefs.preferences.activityFeed,
+				shownIds: [
+					...(prefs.preferences.activityFeed?.shownIds ?? []),
+					`decision:${feedRequestId}`,
+				],
+			},
+		},
+	});
+}
+// `surface=feed&today=<saved|loading|empty>` adds the Today card in that state.
+const todayMode = params.get("surface") === "feed" ? params.get("today") : null;
+const todayOutputId = "55555555-5555-4555-8555-555555555555";
+if (todayMode) {
+	client.setQueryData(
+		osQuery.attention.listDeckCards.queryOptions({ input: { limit: 100 } })
+			.queryKey,
+		{ cards: [], count: 3, complete: true, observedAt: today.toISOString() },
+	);
+	if (todayMode !== "loading")
+		client.setQueryData<unknown>(
+			osQuery.osWorkspaces.outputs.get.queryOptions({
+				input: { outputId: todayOutputId },
+			}).queryKey,
+			{
+				currentRevision:
+					todayMode === "empty"
+						? null
+						: {
+								id: "66666666-6666-4666-8666-666666666666",
+								content: {
+									kind: "document",
+									blocks: [
+										{ type: "paragraph", text: "Fictional purpose." },
+										{
+											type: "paragraph",
+											text: "Updated 20 October at 14:47. Refreshes every two hours.",
+										},
+										{ type: "paragraph", text: "2 projects quiet" },
+										{
+											type: "table",
+											headers: [
+												"Project",
+												"Goal",
+												"Progress",
+												"Running",
+												"Needs you",
+												"Project link",
+												"Receipts link",
+												"Deck link",
+											],
+											rows: [
+												[
+													"External Agent Board",
+													"Keep every agent's work visible.",
+													"9 tasks finished, 5 documents updated.",
+													"Codex is verifying the Office fix.",
+													"1",
+													`/work/projects/${projectId}`,
+													"/work?view=feed",
+													"/work?view=deck",
+												],
+												[
+													"Pine Studio",
+													"Ship the supplier review.",
+													"2 tasks finished.",
+													"Nothing running now.",
+													"0",
+													"/work/projects/22222222-2222-4222-8222-222222222222",
+													"/work?view=feed",
+													"/work?view=deck",
+												],
+											],
+										},
+									],
+								},
+							},
+			},
+		);
+}
+
 if (params.get("motion") === "reduced")
 	document.documentElement.dataset.motion = "reduced";
 if (params.has("resilience")) {
@@ -485,6 +646,17 @@ const manifest = OsGadgetManifestSchema.parse({
 				config: ActivityFeedConfigSchema.parse({
 					version: 1,
 					projects: [{ id: projectId, label: "Pine Studio" }],
+					...(todayMode
+						? {
+								today: {
+									outputId: todayOutputId,
+									skillId: "77777777-7777-4777-8777-777777777777",
+									tediId: "88888888-8888-4888-8888-888888888888",
+									personId: "fictional-person",
+									timeZone: "Europe/Berlin",
+								},
+							}
+						: {}),
 				}),
 			}
 		: {

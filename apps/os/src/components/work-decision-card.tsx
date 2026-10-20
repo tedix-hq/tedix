@@ -10,6 +10,7 @@ import {
 	DeckFooterContext,
 	DeckNoticeContext,
 	CardFaceContext,
+	FACE_WAIT_MS,
 } from "@/components/deck-presentation-context";
 import {
 	DecisionLearningContext,
@@ -133,9 +134,6 @@ const ACTION_SHORTCUTS: Record<string, { key: string; aria: string }> = {
 const DISABLED_ACTION_LABEL = {
 	"--color-white": "var(--muted-foreground)",
 } as CSSProperties;
-
-/** After this long without a short summary, the card shows the original request instead of a skeleton. */
-export const FACE_WAIT_MS = 8000;
 
 /** Shared review surface. Callers own authorization, persistence and provider effects. */
 export function WorkDecisionCard({

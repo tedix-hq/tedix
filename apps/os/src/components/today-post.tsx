@@ -20,8 +20,13 @@ import {
 } from "@/components/kumo/card";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
+import { Loader } from "@/components/kumo/loader";
+import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import type { FeedSourceState } from "@/components/activity-feed-sources";
+
+/** A requested refresh that has not produced a new revision by then stops being shown as in progress. */
+const TODAY_REFRESH_WAIT_MS = 10 * 60_000;
 
 export function TodayPost({
 	config,
@@ -38,18 +43,37 @@ export function TodayPost({
 	const options = osQuery.osWorkspaces.outputs.get.queryOptions({
 		input: { outputId: config.outputId },
 	});
-	const output = useQuery({ ...options, refetchInterval: 60_000 });
+	// The revision a manual refresh started from; the chip stays until a newer one lands.
+	const [awaiting, setAwaiting] = useState<{
+		revisionId: string | null;
+		at: number;
+	} | null>(null);
+	const output = useQuery({
+		...options,
+		refetchInterval: awaiting ? 10_000 : 60_000,
+	});
 	const deck = useQuery({
 		...osQuery.attention.listDeckCards.queryOptions({
 			input: { limit: 100 },
 		}),
 		refetchInterval: 30_000,
 	});
-	const purpose = useQuery({
-		...osQuery.organizationPurpose.getActive.queryOptions({ input: {} }),
-		refetchInterval: 60_000,
-		retry: false,
-	});
+	const revisionId = output.data?.currentRevision?.id ?? null;
+	useEffect(() => {
+		if (!awaiting) return;
+		if (
+			(output.data && revisionId !== awaiting.revisionId) ||
+			Date.now() - awaiting.at > TODAY_REFRESH_WAIT_MS
+		) {
+			setAwaiting(null);
+			return;
+		}
+		const timer = setTimeout(
+			() => setAwaiting(null),
+			Math.max(0, TODAY_REFRESH_WAIT_MS - (Date.now() - awaiting.at)),
+		);
+		return () => clearTimeout(timer);
+	}, [awaiting, output.data, revisionId]);
 	const content = output.data?.currentRevision?.content;
 	const digest = useMemo(() => content && readToday(content), [content]);
 	useEffect(
@@ -63,7 +87,7 @@ export function TodayPost({
 		[digest, output.isPending, output.isError, onUpdate],
 	);
 	const heading = useRef<HTMLHeadingElement>(null);
-	const [refreshing, setRefreshing] = useState(false);
+	const [requesting, setRequesting] = useState(false);
 	const [message, setMessage] = useState("");
 	const [expanded, setExpanded] = useState(false);
 	useEffect(() => {
@@ -80,8 +104,9 @@ export function TodayPost({
 		document.addEventListener("keydown", jump);
 		return () => document.removeEventListener("keydown", jump);
 	}, []);
+	const refreshing = requesting || !!awaiting;
 	async function refresh() {
-		setRefreshing(true);
+		setRequesting(true);
 		setMessage("");
 		try {
 			await osApi.skills.runWorkflow({
@@ -97,23 +122,33 @@ export function TodayPost({
 				reason: "Refresh the saved Today post",
 				idempotencyKey: `today:${config.outputId}:${Math.floor(Date.now() / 60_000)}`,
 			});
+			setAwaiting({ revisionId, at: Date.now() });
 			await cache.invalidateQueries({ queryKey: options.queryKey });
-			setMessage(
-				"Refresh requested. The saved post will update when it finishes.",
-			);
 		} catch {
 			setMessage("Could not refresh Today. Try again.");
 		} finally {
-			setRefreshing(false);
+			setRequesting(false);
 		}
 	}
 	return (
 		<Card aria-labelledby="today-heading" className="focus-today">
 			<CardHeader>
 				<div className="focus-today-heading flex items-baseline justify-between gap-3">
-					<CardTitle id="today-heading" ref={heading} tabIndex={-1}>
-						Today
-					</CardTitle>
+					<div className="flex min-w-0 flex-wrap items-baseline gap-3">
+						<CardTitle id="today-heading" ref={heading} tabIndex={-1}>
+							Today
+						</CardTitle>
+						{awaiting && (
+							<span
+								role="status"
+								className="focus-today-refreshing"
+								data-today-refreshing
+							>
+								<Loader aria-hidden="true" size="sm" />
+								Refreshing…
+							</span>
+						)}
+					</div>
 					<Button
 						variant="ghost"
 						size="sm"
@@ -121,31 +156,50 @@ export function TodayPost({
 						onClick={() => void refresh()}
 					>
 						<span className="inline-flex items-center gap-2">
-							<span>{refreshing ? "Refreshing…" : "Refresh"}</span>
+							<span>Refresh</span>
 							<ArrowsClockwise size={16} aria-hidden />
 						</span>
 					</Button>
 				</div>
 			</CardHeader>
 			<CardContent className="grid gap-4">
-				<Link variant="record" href="/work?view=deck">
-					{deck.data?.complete && !deck.isError
-						? `Needs you ${deck.data.count}`
-						: deck.isPending
-							? "Checking Deck…"
+				{deck.isPending ? (
+					<Skeleton
+						role="status"
+						aria-label="Checking Deck"
+						className="h-5 w-28"
+						data-today-deck-pending
+					/>
+				) : (
+					<Link variant="record" href="/work?view=deck">
+						{deck.data?.complete && !deck.isError
+							? `Needs you ${deck.data.count}`
 							: "Open Deck · count unavailable"}
-				</Link>
+					</Link>
+				)}
 				{(!compact || expanded) && <LearnedToday timeZone={config.timeZone} />}
 				<WeeklyCardContext />
 				{output.isPending ? (
-					<Text>Opening Today…</Text>
+					<div
+						role="status"
+						aria-busy="true"
+						aria-label="Opening Today"
+						className="focus-today-skeleton"
+						data-today-pending
+					>
+						<Skeleton aria-hidden="true" className="h-3.5 w-2/5" />
+						<Skeleton aria-hidden="true" className="h-4 w-full" />
+						<Skeleton aria-hidden="true" className="h-4 w-11/12" />
+						<Skeleton aria-hidden="true" className="h-4 w-3/5" />
+					</div>
 				) : !digest ? (
-					<Text>Today is unavailable. Try Refresh.</Text>
+					<Text tone="secondary" data-today-empty>
+						{output.isError
+							? "Today could not be opened. Try Refresh."
+							: "Your first summary of today arrives after the next refresh."}
+					</Text>
 				) : (
 					<>
-						{purpose.data?.charter?.purpose && (
-							<Text>{purpose.data.charter.purpose}</Text>
-						)}
 						<Text tone="secondary" className="type-tedix-caption">
 							{digest.updated}
 						</Text>

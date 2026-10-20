@@ -1,4 +1,7 @@
 import { createContext, type ReactNode } from "react";
+
+/** After this long without a short summary, a card or row shows the original request instead of a skeleton. */
+export const FACE_WAIT_MS = 8000;
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 
 export const CardFaceContext = createContext<{
