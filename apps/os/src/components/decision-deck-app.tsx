@@ -448,6 +448,7 @@ function DecisionDeckContent({
 		? (rail?.openedBefore(selected.id) ?? false)
 		: false;
 	const preparedCard = useQuery({
+		...workRefreshOptions,
 		...osQuery.attention.getDeckCard.queryOptions({
 			input: {
 				cardId: selected?.id ?? "",
@@ -458,7 +459,6 @@ function DecisionDeckContent({
 		enabled: mode === "decide" && !!selected,
 		staleTime: 60000,
 		refetchInterval: 30000,
-		retry: false,
 	});
 	const retrySummary = useMutation({
 		mutationFn: () =>
