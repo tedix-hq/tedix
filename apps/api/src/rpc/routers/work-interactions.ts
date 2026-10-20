@@ -1369,7 +1369,7 @@ export const workInteractionsContractRouter = interactionsOs.router({
 	}),
 	requestCardChanges: writeOs.requestCardChanges.handler(
 		async ({ input, context }) => {
-			const { cardRevisionAccess, ensureCardInitialRevision } =
+			const { cardRevisionAccess, ensureCardInitialRevision, readCardHistory } =
 				await import("../../services/card-revisions");
 			const { credentialCard } =
 				await import("@tedix/api-contract/utils/card-secrets");
@@ -1399,6 +1399,14 @@ export const workInteractionsContractRouter = interactionsOs.router({
 					ErrorCodes.CONFLICT,
 					"Reload this card before asking for changes",
 				);
+			if (
+				(await readCardHistory(context, { orgId, requestId: request.id }))
+					.pending
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"This card is already being revised",
+				);
 			if (request.metadata.schema === "tedix.outbound.v1") {
 				if (!request.workItemId)
 					throw createError(
@@ -1416,7 +1424,13 @@ export const workInteractionsContractRouter = interactionsOs.router({
 						workItemId: request.workItemId,
 						expectedVersion: current.version,
 						action: "feedback",
-						feedback: input.instruction,
+						feedback: [
+							input.instruction,
+							...(input.chips ?? []),
+							...(input.anchors ?? []).map(
+								(anchor) => `${anchor.chip ?? anchor.note}: “${anchor.quote}”`,
+							),
+						].join("\n"),
 					},
 					{ context },
 				);
@@ -1462,11 +1476,14 @@ export const workInteractionsContractRouter = interactionsOs.router({
 								? "input_provided"
 								: "answer",
 					resolvesRequest: false,
-					body: `Please revise this card's written content: ${input.instruction}\n\nKeep the same card (${request.id}). Read its current request version and cardHistory, then call workInteractions.reviseCard with the revised body, expectedRevision=${history.at(-1)!.revision}, and this change request's responseId from the response history. ${request.kind === "handoff" ? "Include the complete revised structured proposal with the same proposal.key; approval must create exactly those revised tasks." : ""} Do not approve, send or execute the card.`,
+					body: `Please revise this card's written content: ${input.instruction}${input.anchors?.length ? `\nAnchored comments (quoted source, context and instruction): ${JSON.stringify(input.anchors)}` : ""}${input.chips?.length ? `\nStyle requests: ${input.chips.join(", ")}` : ""}\n\nStyle feedback never changes facts, recipients, dates, amounts or the ASK. Keep the same card (${request.id}). Read its current request version and cardHistory, then call workInteractions.reviseCard with the revised body, expectedRevision=${history.at(-1)!.revision}, and this change request's responseId from the response history. ${request.kind === "handoff" ? "Include the complete revised structured proposal with the same proposal.key; approval must create exactly those revised tasks." : ""} Do not approve, send or execute the card.`,
 					metadata: {
 						cardAction: "ask_changes",
 						decisionChoice: "change",
 						instruction: input.instruction,
+						anchors: input.anchors ?? [],
+						chips: input.chips ?? [],
+						field: input.field ?? "draft",
 						source: "os-decision-card",
 					},
 				},
