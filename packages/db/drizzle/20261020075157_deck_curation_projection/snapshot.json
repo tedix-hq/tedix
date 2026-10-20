@@ -1,8 +1,8 @@
 {
-  "id": "6baa6f6b-20d5-437d-8707-2e3a6aff51b1",
+  "id": "80157785-9b54-4b6b-b78d-71d451f0268f",
   "prevIds": [
-    "dbaaeeea-792e-4886-9aab-9125e607b4ad",
-    "eed2521a-7db6-41bd-8077-238f58214ca9"
+    "0ee4b71d-6155-4618-8110-b1c0f948d3e4",
+    "dbaaeeea-792e-4886-9aab-9125e607b4ad"
   ],
   "version": "7",
   "dialect": "sqlite",
@@ -68021,103 +68021,6 @@
       "entityType": "checks"
     },
     {
-      "name": "external_agent_exchange_limits",
-      "entityType": "tables"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "organization_id",
-      "table": "external_agent_exchange_limits",
-      "entityType": "columns"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "principal_id",
-      "table": "external_agent_exchange_limits",
-      "entityType": "columns"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "window_start",
-      "table": "external_agent_exchange_limits",
-      "entityType": "columns"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "request_count",
-      "table": "external_agent_exchange_limits",
-      "entityType": "columns"
-    },
-    {
-      "columns": [
-        "organization_id",
-        "principal_id"
-      ],
-      "nameExplicit": false,
-      "name": "external_agent_exchange_limits_pk",
-      "table": "external_agent_exchange_limits",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "organization_id",
-        "principal_id"
-      ],
-      "tableTo": "external_agent_principals",
-      "columnsTo": [
-        "organization_id",
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "nameExplicit": false,
-      "name": "fk_external_agent_exchange_limits_organization_id_principal_id_external_agent_principals_organization_id_id_fk",
-      "table": "external_agent_exchange_limits",
-      "entityType": "fks"
-    },
-    {
-      "value": "\"request_count\" BETWEEN 1 AND 30",
-      "name": "chk_external_agent_exchange_count",
-      "table": "external_agent_exchange_limits",
-      "entityType": "checks"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "'general'",
-      "generated": null,
-      "name": "purpose",
-      "entityType": "columns",
-      "table": "api_keys"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "provider_cleanup_at",
-      "entityType": "columns",
-      "table": "external_agent_mcp_credentials"
-    },
-    {
       "name": "work_interaction_card_revisions",
       "entityType": "tables"
     },
@@ -68243,6 +68146,76 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "field",
+      "table": "work_interaction_card_revisions",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "anchors",
+      "table": "work_interaction_card_revisions",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "anchors_resolved",
+      "table": "work_interaction_card_revisions",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "summary",
+      "table": "work_interaction_card_revisions",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kept_hunks",
+      "table": "work_interaction_card_revisions",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "learning_event_id",
+      "table": "work_interaction_card_revisions",
+      "entityType": "columns"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parent_revision",
+      "table": "work_interaction_card_revisions",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -68304,6 +68277,103 @@
       "name": "chk_card_revision_positive",
       "table": "work_interaction_card_revisions",
       "entityType": "checks"
+    },
+    {
+      "name": "external_agent_exchange_limits",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "organization_id",
+      "table": "external_agent_exchange_limits",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "principal_id",
+      "table": "external_agent_exchange_limits",
+      "entityType": "columns"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "window_start",
+      "table": "external_agent_exchange_limits",
+      "entityType": "columns"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "request_count",
+      "table": "external_agent_exchange_limits",
+      "entityType": "columns"
+    },
+    {
+      "columns": [
+        "organization_id",
+        "principal_id"
+      ],
+      "nameExplicit": false,
+      "name": "external_agent_exchange_limits_pk",
+      "table": "external_agent_exchange_limits",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "organization_id",
+        "principal_id"
+      ],
+      "tableTo": "external_agent_principals",
+      "columnsTo": [
+        "organization_id",
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_external_agent_exchange_limits_organization_id_principal_id_external_agent_principals_organization_id_id_fk",
+      "table": "external_agent_exchange_limits",
+      "entityType": "fks"
+    },
+    {
+      "value": "\"request_count\" BETWEEN 1 AND 30",
+      "name": "chk_external_agent_exchange_count",
+      "table": "external_agent_exchange_limits",
+      "entityType": "checks"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'general'",
+      "generated": null,
+      "name": "purpose",
+      "entityType": "columns",
+      "table": "api_keys"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider_cleanup_at",
+      "entityType": "columns",
+      "table": "external_agent_mcp_credentials"
     }
   ],
   "renames": []
