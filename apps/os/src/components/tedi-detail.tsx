@@ -1,3 +1,4 @@
+import { TediSetupChecklist } from "./tedi-setup";
 import { TediRecoveryDiagnostic } from "./tedi-recovery-diagnostic";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -236,6 +237,7 @@ export function TediDetailPage() {
 export function TediOverview({ tediId }: { tediId: string }) {
 	return (
 		<div className="grid gap-4 md:grid-cols-2">
+			<TediSetupChecklist tediId={tediId} />
 			<Alert>
 				<AlertTitle>Operational identity</AlertTitle>
 				<AlertDescription>

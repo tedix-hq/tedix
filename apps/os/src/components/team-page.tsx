@@ -1,3 +1,4 @@
+import { TediSetupChip } from "@/components/tedi-setup";
 import { tediDescription } from "@/lib/tedi-description";
 import { EntityAvatar } from "@/components/entity-avatar";
 import {
@@ -403,6 +404,7 @@ export function TediRow({
 	expanded = false,
 	onToggle,
 	LinkComponent,
+	setupChip,
 }: {
 	tedi: TediType;
 	summary?: TediOperationsDetail;
@@ -411,6 +413,7 @@ export function TediRow({
 	expanded?: boolean;
 	onToggle?: () => void;
 	LinkComponent?: ComponentType<TediDetailLinkProps>;
+	setupChip?: ReactNode;
 }) {
 	const hint = roleHint(tedi, summary?.delegationProfile.activeRole);
 	const seenAt = tedi.lastActivityAt ?? tedi.lastSeenAt;
@@ -470,7 +473,8 @@ export function TediRow({
 						{expanded ? <CaretDown size={14} /> : <CaretRight size={14} />}
 					</span>
 				</Button>
-				<div className="self-end px-4 pb-3 sm:self-center sm:p-0 sm:pr-4">
+				<div className="flex flex-wrap items-center gap-2 self-end px-4 pb-3 sm:self-center sm:p-0 sm:pr-4">
+					{setupChip}
 					<TediDetailLink
 						tediId={tedi.id}
 						tediName={tedi.displayName ?? tedi.name}
@@ -727,6 +731,7 @@ export function TediRosterPanel({
 								<TediRow
 									key={tedi.id}
 									tedi={tedi}
+									setupChip={<TediSetupChip tediId={tedi.id} />}
 									summary={summariesByTediId[tedi.id]}
 									summaryPending={summaryIds.length > 0 && summaries.isPending}
 									summaryFailed={summaries.isError}
