@@ -25,14 +25,25 @@ import {
 } from "@tedix/api-contract/utils/approval-policy";
 
 export function approvalHeldDelegationIntent(content: string): boolean {
-	const text = content.toLowerCase();
+	// Prohibitions on waiting for or granting approval forbid self-approval;
+	// they do not ask Home to hold an otherwise authorized dispatch.
+	const text = content
+		.toLowerCase()
+		.replace(
+			/\b(?:never|do not|don't|don’t)\s+(?:wait\s+for|block\s+on|approve)\s+(?:an?\s+|any\s+)?(?:approvals?|anything|it)\b/g,
+			" ",
+		)
+		.replace(
+			/\bif\s+(?:an?\s+)?approval\s+is\s+required,?\s+stop\s+and\s+report(?:\s+(?:it\s+)?blocked)?\b/g,
+			" ",
+		);
 	const asksForDelegation =
 		/\b(delegat(?:e|ion|ing)|handoff|hand-off|work\s*order)\b/.test(text);
 	const asksForApproval = /\b(approval|approve|sign[ -]?off)\b/.test(text);
 	const holdsDispatch =
 		/\b(?:do not|don't|not)\s+(?:dispatch|delegate|send|start)\b/.test(text) ||
 		/\bpark(?:ed)?\b.{0,80}\bapproval\b/.test(text) ||
-		/\bapproval\b.{0,80}\b(?:before|first|then wait|wait)\b/.test(text);
+		/\bapproval\b[^.!?\n]{0,80}\b(?:before|first|then wait|wait)\b/.test(text);
 	return asksForDelegation && asksForApproval && holdsDispatch;
 }
 
