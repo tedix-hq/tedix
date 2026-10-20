@@ -186,15 +186,37 @@ export function nativeToolActionContent(name: string, args: unknown): string {
 export function humanReservedActionClasses(content: string): string[] {
 	// A read-only comparison can describe a paid option without authorizing it.
 	// Strip only the cost description; positive payment/spend instructions survive.
-	const actionContent = (
-		/^\s*(?:research|compare|evaluate)\b/i.test(content) &&
-		/\bno spending\b/i.test(content)
-			? content.replace(/\bcosts? money\b/gi, "costs")
-			: content
-	).replace(
-		/\bno\s+(?:(?:external\s+)?(?:messages?|emails?|publication|money|spending|credentials?|permissions?|deletions?)\b\s*(?:,\s*|\b(?:or|and)\b\s*)?)+/gi,
+	// Pasted one-line commit subjects ("abc1234 fix(auth): ...") are quoted
+	// data, not instructions.
+	const unquoted = content.replace(
+		/^[ \t]*[0-9a-f]{7,40}[ \t]+[a-z]+(?:\([^)\r\n]*\))?!?:[^\r\n]*$/gim,
 		" ",
 	);
+	const actionContent = (
+		/^\s*(?:research|compare|evaluate)\b/i.test(unquoted) &&
+		/\bno spending\b/i.test(unquoted)
+			? unquoted.replace(/\bcosts? money\b/gi, "costs")
+			: unquoted
+	)
+		.replace(
+			/\bno\s+(?:(?:external\s+)?(?:messages?|emails?|sends?|publication|money|spending|credentials?|permissions?|deletions?)\b\s*(?:,\s*|\b(?:or|and)\b\s*)?)+/gi,
+			" ",
+		)
+		// Statement rows and charges named as records to analyse are not payments.
+		.replace(
+			/\b(?:bank|card)(?:\s+or\s+(?:bank|card))?\s+(?:statements?|transactions?|exports?)\b/gi,
+			"statement",
+		)
+		.replace(
+			/\b(?:identical|duplicate|duplicated|same-amount)\s+(?:\w+\s+)?charges\b/gi,
+			"rows",
+		)
+		// A keep rule names protected subjects ("anything whose blocker involves a
+		// client, money or credentials stays keep"); it asks for no such action.
+		.replace(
+			/\b(?:involv(?:e|es|ing)|mention(?:s|ing)?|concern(?:s|ing)|about)\s+(?:(?:an?|the)\s+)?(?:clients?|customers?|money|credentials?|secrets?|passwords?)(?:\s*,\s*(?:(?:an?|the)\s+)?(?:clients?|customers?|money|credentials?|secrets?|passwords?))*(?=[^.;!?\n]*\b(?:stays?|remains?|kept|keep)\b)/gi,
+			" ",
+		);
 	// An explicitly internal Today/Feed post is not a public-channel publication.
 	// An external destination or a different publication instruction stays gated.
 	const publicationContent =
