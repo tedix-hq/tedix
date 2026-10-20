@@ -36,6 +36,7 @@ import { Text } from "@/components/kumo/text";
 import { Surface } from "@/components/kumo/surface";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { OutputEditor } from "@/components/output-editor";
+import { OutputContentView } from "@/components/output-content";
 import { OutputExportButtons } from "@/components/output-export-buttons";
 import {
 	OutputWorkshopActions,
@@ -269,6 +270,7 @@ export function CanvasDocPanel({
 		commitBasis,
 		groundCommit,
 		setSelection,
+		retry,
 	} = useCollabDoc({
 		workspaceId,
 		docKey: canvasDocKey(doc),
@@ -715,6 +717,29 @@ export function CanvasDocPanel({
 					<AlertDescription>{(detail.error as Error).message}</AlertDescription>
 				</Alert>
 			)}
+			{!isGadget && detail.data && !live && (
+				<Alert variant="warning">
+					<AlertTitle>
+						{status === "connecting"
+							? "Connecting to the shared draft"
+							: "Collaboration is unavailable"}
+					</AlertTitle>
+					<AlertDescription>
+						{roomCanonical === null
+							? `Showing saved version ${canonicalDoc?.revision} read-only. The shared draft may contain newer unsaved changes.`
+							: "Your shared draft remains read-only while disconnected."}{" "}
+						Editing and saving require a ready room. The connection retries
+						automatically.
+					</AlertDescription>
+					<Button
+						variant="outline"
+						className="min-h-11 min-w-11"
+						onClick={retry}
+					>
+						Retry connection
+					</Button>
+				</Alert>
+			)}
 			{blocked && (
 				<Alert variant="warning">
 					<AlertTitle>Editing is paused</AlertTitle>
@@ -905,6 +930,15 @@ export function CanvasDocPanel({
 						</Surface>
 					)}
 				</div>
+			) : !isGadget && roomCanonical === null && outputDetail.data ? (
+				<section
+					aria-label="Saved document (read-only)"
+					data-canonical-document-view
+				>
+					<OutputContentView
+						content={outputDetail.data.currentRevision.content}
+					/>
+				</section>
 			) : session && !isGadget && outputDraft ? (
 				<OutputEditor
 					value={outputDraft}

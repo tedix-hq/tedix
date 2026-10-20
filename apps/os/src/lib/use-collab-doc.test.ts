@@ -267,6 +267,59 @@ describe("useCollabDoc", () => {
 		rendered.unmount();
 	});
 
+	it.each([false, true])(
+		"bounds readiness when socket open is %s",
+		async (opened) => {
+			vi.useFakeTimers();
+			const rendered = renderCollabDoc(input());
+			try {
+				const first = lastSocket();
+				const session = rendered.result.current?.session;
+				if (opened)
+					await act(async () => {
+						first.open();
+					});
+				await act(async () => {
+					vi.advanceTimersByTime(10_000);
+				});
+				expect(first.closed).toBe(true);
+				expect(rendered.result.current?.status).toBe("disconnected");
+				expect(rendered.result.current?.commitBasis()).toBeNull();
+				if (opened) {
+					const request = first.requestsOf("base").at(-1)!;
+					act(() =>
+						first.deliver({
+							t: "base",
+							id: request.id,
+							generation: 0,
+							revision: 0,
+							files: [[COLLAB_DOC_PATH, "stale"]],
+							canonical: { revision: 1, revisionId: "rev-1" },
+						}),
+					);
+					expect(rendered.result.current?.canonical).toBeNull();
+					act(() => rendered.result.current?.retry());
+				} else {
+					await act(async () => {
+						vi.advanceTimersByTime(1_000);
+					});
+				}
+				expect(sockets).toHaveLength(2);
+				await handshake(lastSocket(), "hello");
+				expect(rendered.result.current?.session).toBe(session);
+				expect(rendered.result.current?.status).toBe("connected");
+				await act(async () => {
+					vi.advanceTimersByTime(20_000);
+				});
+				expect(lastSocket().closed).toBe(false);
+				expect(sockets).toHaveLength(2);
+			} finally {
+				rendered.unmount();
+				vi.useRealTimers();
+			}
+		},
+	);
+
 	it("opens no socket while the surface is disabled, and closes one when it is", async () => {
 		const rendered = renderCollabDoc(input({ enabled: false }));
 		expect(sockets).toHaveLength(0);
