@@ -3179,6 +3179,128 @@ describe("firstSendConfirmPollMs", () => {
 });
 
 describe("<ChatThread> first-send reveal", () => {
+	it.each(["refused", "failed"])(
+		"bounds a stalled bootstrap and restores its exact request after a %s retry",
+		async (outcome) => {
+			transport.actions.enqueueMessage.mockReset();
+			transport.actions.enqueueMessage.mockReturnValue(new Promise(() => {}));
+			const recoveryKey =
+				"tedix-os:chat-bootstrap:44444444-4444-4444-8444-444444444444";
+			const earlier = {
+				conversationId: "home:os:earlier",
+				idempotencyKey: "earlier-key",
+				draftContent: "Earlier request",
+				content: "Earlier request",
+			};
+			window.localStorage.setItem(recoveryKey, JSON.stringify([earlier]));
+			const props: Partial<ComponentProps<typeof ChatThread>> = {
+				conversationId: null,
+				recoverPendingSend: false,
+				onConversationCreated: vi.fn(),
+				workspaceId: "44444444-4444-4444-8444-444444444444",
+				context: {
+					kind: "workspace",
+					id: "44444444-4444-4444-8444-444444444444",
+					label: "Local recovery",
+				},
+			};
+			const first = mountThread(props);
+			await flush();
+			pickFiles(first.container, [
+				new File(["Saved evidence"], "evidence.txt", { type: "text/plain" }),
+			]);
+			await flush();
+			typeDraft(first.container, "Recover this local request");
+			vi.useFakeTimers();
+			try {
+				act(() => sendButton(first.container).click());
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(15_100);
+				});
+			} finally {
+				vi.useRealTimers();
+			}
+			await flush();
+			expect(first.container.textContent).toContain(
+				"Confirmation is taking longer than expected",
+			);
+			const original = transport.actions.enqueueMessage.mock.calls[0]![0];
+			cleanups.pop()?.();
+			expect(original.attachments).toHaveLength(1);
+			expect(original.metadata).toEqual({ chatContext: props.context });
+			props.recoverPendingSend = true;
+			const restored = mountThread(props);
+			await flush();
+			expect(transport.actions.enqueueMessage).toHaveBeenCalledOnce();
+			expect(
+				restored.container.querySelector<HTMLTextAreaElement>(
+					'textarea[aria-label="Message"]',
+				)?.value,
+			).toBe("");
+			expect(restored.container.textContent).toContain(
+				"Recover this local request",
+			);
+			const retry = [...restored.container.querySelectorAll("button")].find(
+				(button) => button.textContent?.trim() === "Retry",
+			);
+			expect(retry).toBeDefined();
+			if (outcome === "refused")
+				transport.actions.enqueueMessage.mockRejectedValueOnce(
+					Object.assign(new Error("Retry refused"), { code: "FORBIDDEN" }),
+				);
+			else
+				transport.actions.enqueueMessage.mockResolvedValueOnce({
+					status: "failed",
+					error: "Retry refused",
+				});
+			act(() => retry!.click());
+			await flush();
+			expect(
+				restored.container.querySelector(
+					'[data-provisional-state="outcome_unknown"]',
+				),
+			).not.toBeNull();
+			expect(
+				restored.container.querySelector<HTMLTextAreaElement>(
+					'textarea[aria-label="Message"]',
+				)?.value,
+			).toBe("");
+			expect(
+				JSON.parse(window.localStorage.getItem(recoveryKey)!),
+			).toHaveLength(2);
+			expect(transport.actions.enqueueMessage).toHaveBeenCalledTimes(2);
+			expect(transport.actions.enqueueMessage.mock.calls[1]![0]).toEqual(
+				original,
+			);
+			kernelRuntimeApi.readMessages.mockResolvedValue({
+				messages: [
+					message({
+						id: `${original.idempotencyKey}:input`,
+						conversationId: original.conversationId,
+						role: "user",
+						content: original.content,
+						runId: original.idempotencyKey,
+					}),
+				],
+				nextCursor: null,
+			});
+			await act(async () => {
+				await restored.client.invalidateQueries({
+					queryKey: homeMessagesQueryKey(original.conversationId),
+				});
+			});
+			await flush();
+			expect(props.onConversationCreated).toHaveBeenCalledWith(
+				original.conversationId,
+				props.workspaceId,
+			);
+			expect(JSON.parse(window.localStorage.getItem(recoveryKey)!)).toEqual([
+				earlier,
+			]);
+			expect(transport.actions.enqueueMessage).toHaveBeenCalledTimes(2);
+			transport.actions.enqueueMessage.mockReset();
+		},
+	);
 	it("keeps the pressed-send transport and ignores its response after selection changes", async () => {
 		const originalActions = transport.actions;
 		const nextEnqueue = vi.fn();
@@ -3291,7 +3413,10 @@ describe("<ChatThread> first-send reveal", () => {
 		expect(
 			container.querySelector('[data-slot="running-indicator"]'),
 		).not.toBeNull();
-		expect(props.onConversationCreated).not.toHaveBeenCalled();
+		expect(props.onConversationCreated).toHaveBeenCalledWith(
+			input.conversationId,
+			undefined,
+		);
 
 		act(() =>
 			resolveSend({
@@ -3308,7 +3433,8 @@ describe("<ChatThread> first-send reveal", () => {
 			}),
 		);
 		await flush();
-		// The conversation id is attached when it arrives.
+		// A later enqueue receipt must not navigate a second time.
+		expect(props.onConversationCreated).toHaveBeenCalledOnce();
 		expect(props.onConversationCreated).toHaveBeenCalledWith(
 			input.conversationId,
 			undefined,
