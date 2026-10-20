@@ -150,3 +150,31 @@ A follow-up card's `create_owner_task` choice creates a proposed task assigned
 to the person who answered. The draft and source stay on that task; sending
 remains that person's next step. Source creation, a saved answer, task creation
 and an external send are separate outcomes.
+
+## Card feedback
+
+Select draft text to add quote-anchored comments, or press `C` for whole-card
+feedback. Three wording chips and one free line form a batch; sending the
+batch requests a rewrite from the card's owner and leaves the decision open.
+Review the agent's summary and inline diff, use **Keep original** per paragraph,
+and open **Versions** in **Why this** to compare or restore versions. Restore
+appends a version. Approval and sending remain separate actions.
+
+**Always do it this way** saves a personal wording rule. **Not true** removes
+that rule from future writing context; **Keep** confirms it. Style preferences
+cannot change facts, recipients, dates, amounts, consent or authorization.
+
+From workspace chat, ask "Make this card shorter, keep the dates, and show the
+versions before I decide." Discover `request_card_changes`
+(`workInteractions.requestCardChanges`, messaging write scope) and
+`list_card_versions` (`workInteractions.listCardVersions`, messaging read scope).
+The former accepts one instruction with optional chips and quote anchors; the
+latter returns saved versions, the agent's summary, a plain-text unified diff
+and unresolved comments. The addressed person owns feedback and personal
+rules; only the producing agent can submit its rewrite with the matching
+response id. No tool approval implies an external send.
+
+The fixture browser check is `bun browser-tests/card-revisions.spec.ts` with
+`CARD_REVISIONS_TEST_ORIGIN` pointing to the fixture server. It exercises the
+selection batch, partial keep, comparison, restore, personal rule controls,
+secret-card boundary and pending approval hold at 1280/390 in light/dark.

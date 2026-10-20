@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./utils/card-version-text": "./src/utils/card-version-text.ts",
 		"./utils/card-secrets": "./src/utils/card-secrets.ts",
 		"./utils/decision-card-copy": "./src/utils/decision-card-copy.ts",
 		"./utils/card-context": "./src/utils/card-context.ts",

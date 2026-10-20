@@ -155,6 +155,16 @@ it("delivers feedback without deciding, accepts only the owning rewrite, preserv
 			instruction: "Shorter please",
 		});
 		expect((await target.cardHistory({ requestId: card })).pending).toBeNull();
+		const listed = await target.listCardVersions({ requestId: card });
+		expect(listed.markdown).toContain("What changed: Shortened the draft.");
+		expect(listed.markdown).toContain("-Original text");
+		expect(listed.markdown).toContain("+Short text");
+		await expect(
+			other.listCardVersions({ requestId: card }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			(await owner.listCardVersions({ requestId: card })).revisions,
+		).toHaveLength(2);
 		expect(rewritten.summary).toBe("Shortened the draft.");
 		expect(rewritten.anchorsResolved).toEqual([{ index: 0, status: "done" }]);
 		expect(rewritten.parentRevision).toBe(1);

@@ -10,6 +10,7 @@ import { outboundContract } from "./outbound";
 import {
 	CardHistoryInputSchema,
 	CardHistorySchema,
+	CardVersionsSchema,
 	RequestCardChangesInputSchema,
 	ReviseCardInputSchema,
 	CardRevisionSchema,
@@ -52,6 +53,13 @@ export const workInteractionsContract = oc
 			.input(ReviewCardStyleRuleInputSchema)
 			.output(CardStyleRuleSchema),
 		cardHistory: oc.input(CardHistoryInputSchema).output(CardHistorySchema),
+		listCardVersions: oc
+			.route({
+				summary:
+					"List card versions and a plain-text diff without deciding, restoring or sending",
+			})
+			.input(CardHistoryInputSchema)
+			.output(CardVersionsSchema),
 		requestCardChanges: oc
 			.route({
 				summary:

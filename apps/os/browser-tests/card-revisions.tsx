@@ -10,6 +10,7 @@ import { osQuery } from "../src/lib/os-query-options";
 import "../src/styles.css";
 
 const requestId = "44444444-4444-4444-8444-444444444444";
+const plan = new URLSearchParams(window.location.search).has("plan");
 const client = new QueryClient({
 	defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 });
@@ -21,18 +22,27 @@ function Example() {
 	if (!request) return <p>Loading card…</p>;
 	return (
 		<main className="feed-deck mx-auto grid max-w-3xl gap-8 p-4 sm:p-6">
-			<h1 className="type-tedix-page-title">Review a draft</h1>
+			<h1 className="type-tedix-page-title">
+				{plan ? "Review a plan" : "Review a draft"}
+			</h1>
 			<WorkDecisionCard
-				kind="outbound"
-				title="Send Morgan the use-case email?"
+				kind={plan ? "proposal" : "outbound"}
+				title={plan ? "Prepare the report?" : "Send Morgan the use-case email?"}
 				askedBy="Draft author"
 				body={String(request.metadata.cardContent)}
 				revisionTarget={{ requestId, version: request.version }}
-				actions={[
-					{ id: "send", label: "Send", intent: "approve" },
-					{ id: "manual", label: "Approve, I'll send" },
-					{ id: "reject", label: "Not this", intent: "reject" },
-				]}
+				actions={
+					plan
+						? [
+								{ id: "approve", label: "Approve plan", intent: "approve" },
+								{ id: "reject", label: "Not this", intent: "reject" },
+							]
+						: [
+								{ id: "send", label: "Send", intent: "approve" },
+								{ id: "manual", label: "Approve, I'll send" },
+								{ id: "reject", label: "Not this", intent: "reject" },
+							]
+				}
 				onDecision={async () => {}}
 			/>
 			<WorkDecisionCard

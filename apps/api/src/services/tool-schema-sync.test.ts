@@ -2857,6 +2857,8 @@ it("pins headless attention names and capability kinds", () => {
 		["attention/getDeckCard", "get_deck_card", "read"],
 		["attention/decideDeckCard", "decide_deck_card", "write"],
 		["attention/listFeedForYou", "list_feed_for_you", "read"],
+		["workInteractions/listCardVersions", "list_card_versions", "read"],
+		["workInteractions/requestCardChanges", "request_card_changes", "write"],
 	]) {
 		expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES[endpoint!]).toBe(name);
 		expect(WORK_HIERARCHY_KIND_OVERRIDES[endpoint!]).toBe(kind);
@@ -2891,5 +2893,27 @@ it("projects bounded Deck feedback through the real object-envelope converter", 
 			destructiveHint: false,
 			openWorldHint: false,
 		},
+	});
+});
+
+it("projects the version list as a native read with a plain-text summary and keeps the original history verb", async () => {
+	expect(WORK_HIERARCHY_TOOL_ID_OVERRIDES["workInteractions/cardHistory"]).toBe(
+		"get_card_revision_history",
+	);
+	const fixture = makeDb([
+		makeRpcTool({
+			toolId: "list_card_versions",
+			endpoint: "workInteractions/listCardVersions",
+		}),
+	]);
+	await runToolSchemaSync(fixture.db, {
+		mode: "projection",
+		apply: true,
+		endpoints: ["workInteractions/listCardVersions"],
+	});
+	expect(fixture.updates[0]?.patch).toMatchObject({
+		config: { nativeDirect: true, modelSummaryTemplate: "{markdown}" },
+		annotations: { readOnlyHint: true },
+		outputSchema: { properties: { markdown: { type: "string" } } },
 	});
 });
