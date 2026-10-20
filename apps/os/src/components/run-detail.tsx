@@ -681,9 +681,11 @@ export function RunDetailPage() {
 					</PageHeader>
 
 					{mutationError != null && (
-						<p className="text-kumo-danger text-sm" role="alert">
-							{(mutationError as Error).message}
-						</p>
+						<Alert variant="destructive">
+							<AlertDescription>
+								{(mutationError as Error).message}
+							</AlertDescription>
+						</Alert>
 					)}
 
 					{run.error && <RunErrorAlert error={run.error} />}
@@ -764,9 +766,15 @@ export function RunDetailPage() {
 											}}
 										/>
 										{eventPayloadError ? (
-											<p className="m-0 text-kumo-danger text-xs" role="alert">
+											<Text
+												as="p"
+												role="label"
+												tone="error"
+												aria-live="polite"
+												className="m-0"
+											>
 												{eventPayloadError}
-											</p>
+											</Text>
 										) : null}
 										<AlertDialog>
 											<AlertDialogTrigger
@@ -924,9 +932,11 @@ export function RunDetailPage() {
 							</Text>
 						)}
 						{artifacts.isError && (
-							<p className="text-kumo-danger text-sm" role="alert">
-								{(artifacts.error as Error).message}
-							</p>
+							<Alert variant="destructive">
+								<AlertDescription>
+									{(artifacts.error as Error).message}
+								</AlertDescription>
+							</Alert>
 						)}
 						{artifacts.data && artifacts.data.artifacts.length === 0 && (
 							<Text role="body" tone="secondary">
@@ -957,9 +967,11 @@ export function RunDetailPage() {
 							</Text>
 						)}
 						{rationale.isError && (
-							<p className="text-kumo-danger text-sm" role="alert">
-								{(rationale.error as Error).message}
-							</p>
+							<Alert variant="destructive">
+								<AlertDescription>
+									{(rationale.error as Error).message}
+								</AlertDescription>
+							</Alert>
 						)}
 						{rationale.data && runRationale.length > 0 && (
 							<RunEvidenceList label="Run rationale">
@@ -1055,10 +1067,15 @@ export function RunDetailPage() {
 										}
 									/>
 									{definitionHealth.isError && (
-										<p className="text-kumo-subtle text-xs" role="alert">
+										<Text
+											as="p"
+											role="label"
+											tone="secondary"
+											aria-live="polite"
+										>
 											The skill's version check is unavailable:{" "}
 											{(definitionHealth.error as Error).message}
-										</p>
+										</Text>
 									)}
 								</div>
 							</CollapsibleContent>

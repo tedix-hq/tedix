@@ -82,10 +82,6 @@ const BillingInferenceCapacitySection = lazy(() =>
 	})),
 );
 
-function SectionSkeleton() {
-	return <Skeleton className="h-32 w-full" />;
-}
-
 function BillingPagePending() {
 	return (
 		<div aria-busy="true" aria-label="Loading billing" className="space-y-3">
@@ -257,26 +253,26 @@ function AdminBillingBody({
 				</TabsList>
 
 				<TabsContent value="usage" className="space-y-8 pt-4">
-					<Suspense fallback={<SectionSkeleton />}>
+					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
 						<BillingUsageOverview organizationId={organizationId} />
 					</Suspense>
-					<Suspense fallback={<SectionSkeleton />}>
+					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
 						<BillingInferenceCapacitySection />
 					</Suspense>
 				</TabsContent>
 
 				<TabsContent value="subscription" className="space-y-8 pt-4">
 					{/* Checkout CONFLICTs render inside the section's mutation error. */}
-					<Suspense fallback={<SectionSkeleton />}>
+					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
 						<SubscriptionSection />
 					</Suspense>
-					<Suspense fallback={<SectionSkeleton />}>
+					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
 						<BillingOverageSection />
 					</Suspense>
 				</TabsContent>
 
 				<TabsContent value="invoices" className="pt-4">
-					<Suspense fallback={<SectionSkeleton />}>
+					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
 						<BillingDocumentsSection />
 					</Suspense>
 				</TabsContent>

@@ -17,6 +17,9 @@ import {
 	CardDescription,
 } from "@/components/kumo/card";
 import { Input } from "@/components/kumo/input";
+import { SectionTitle } from "@/components/kumo/page";
+import { Text } from "@/components/kumo/text";
+import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	Dialog,
 	DialogContent,
@@ -178,7 +181,7 @@ export function WidgetContacts({
 						</div>
 					)}
 					{directory.isPending ? (
-						<p role="status">Loading customers…</p>
+						<ListSkeleton rows={5} rowClassName="h-12" />
 					) : directory.isError ? (
 						<Alert variant="destructive">
 							<AlertTitle>Customers unavailable</AlertTitle>
@@ -307,7 +310,9 @@ export function WidgetContacts({
 								</Table>
 							)}
 							{(kind === "people" ? people.length : companies.length) === 0 && (
-								<p role="status">No matching customers.</p>
+								<Text as="p" role="label" tone="secondary" aria-live="polite">
+									No matching customers.
+								</Text>
 							)}
 							<nav
 								className="flex items-center gap-3"
@@ -356,9 +361,13 @@ export function WidgetContacts({
 								: "Company details supplied by your application."}
 						</DialogDescription>
 					</DialogHeader>
-					{detail.isPending && <p role="status">Loading profile…</p>}
+					{detail.isPending && <ListSkeleton rows={4} rowClassName="h-5" />}
 					{detail.isError && (
-						<p role="alert">This profile could not be loaded.</p>
+						<Alert variant="destructive">
+							<AlertDescription>
+								This profile could not be loaded.
+							</AlertDescription>
+						</Alert>
 					)}
 					{detail.data && company && (
 						<>
@@ -437,8 +446,10 @@ export function WidgetContacts({
 								className="grid gap-2"
 								aria-label="Recent profile activity"
 							>
-								<h3 className="font-medium">Activity in the last 30 days</h3>
-								{history.isPending && <p role="status">Loading activity…</p>}
+								<SectionTitle>Activity in the last 30 days</SectionTitle>
+								{history.isPending && (
+									<ListSkeleton rows={3} rowClassName="h-5" />
+								)}
 								{history.isError && (
 									<p>
 										Activity is unavailable. Profile details are still

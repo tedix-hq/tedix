@@ -11,6 +11,7 @@ import { useState } from "react";
 import * as z from "zod";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/components/kumo/dialog";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { Input } from "@/components/kumo/input";
+import { Label } from "@/components/kumo/label";
 import { jsonTextSchema } from "@/components/kumo/forms/json-text-schema";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import {
@@ -217,20 +219,23 @@ export function SkillDetailLayout() {
 							moveSkill.mutate(folderDraft.trim() || null);
 						}}
 					>
-						<label className="grid gap-1.5 type-tedix-label">
-							Folder path
+						<div className="grid gap-1.5">
+							<Label htmlFor="skill-folder-path">Folder path</Label>
 							<Input
+								id="skill-folder-path"
 								value={folderDraft}
 								onChange={(event) => setFolderDraft(event.target.value)}
 								placeholder="operations/reports"
 								pattern="[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*"
 								maxLength={255}
 							/>
-						</label>
+						</div>
 						{moveSkill.error ? (
-							<p role="alert" className="m-0 text-kumo-danger text-xs">
-								{(moveSkill.error as Error).message}
-							</p>
+							<Alert variant="destructive">
+								<AlertDescription>
+									{(moveSkill.error as Error).message}
+								</AlertDescription>
+							</Alert>
 						) : null}
 						<DialogFooter>
 							<Button
@@ -285,9 +290,11 @@ export function SkillDetailLayout() {
 							)}
 						</FormField>
 						{runNow.error ? (
-							<p role="alert" className="m-0 text-kumo-danger text-xs">
-								{(runNow.error as Error).message}
-							</p>
+							<Alert variant="destructive">
+								<AlertDescription>
+									{(runNow.error as Error).message}
+								</AlertDescription>
+							</Alert>
 						) : null}
 						<DialogFooter>
 							<Button

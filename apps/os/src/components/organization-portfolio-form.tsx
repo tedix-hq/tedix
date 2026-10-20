@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	PortfolioBucketsSchema,
 	type PortfolioBucket,
 } from "@tedix/api-contract/schemas/organization";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
+import { Label } from "@/components/kumo/label";
 import {
 	SettingsSection,
 	SettingsSectionContent,
@@ -14,6 +16,7 @@ import {
 	SectionTitle,
 	SectionDescription,
 } from "@/components/kumo/page";
+import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { osQueryKeys } from "@/lib/os-query-options";
 import { errorMessage } from "@/lib/orpc-error";
@@ -29,6 +32,7 @@ export function OrganizationPortfolioForm({
 		initialBuckets.map((bucket) => ({ ...bucket })),
 	);
 	const queryClient = useQueryClient();
+	const id = useId();
 	const validation = PortfolioBucketsSchema.safeParse(buckets);
 	const save = useMutation({
 		mutationFn: (next: PortfolioBucket[]) =>
@@ -82,38 +86,35 @@ export function OrganizationPortfolioForm({
 						key={index}
 						className="space-y-2 rounded border border-kumo-line p-3"
 					>
-						<label className="block">
-							Section name
-							<Input
-								value={bucket.label}
-								disabled={save.isPending}
-								onChange={(event) =>
-									patch(index, { label: event.target.value })
-								}
-							/>
-						</label>
-						<label className="block">
-							Section key
-							<Input
-								value={bucket.key}
-								disabled={save.isPending}
-								onChange={(event) => patch(index, { key: event.target.value })}
-							/>
-						</label>
+						<Label htmlFor={`${id}-${index}-label`}>Section name</Label>
+						<Input
+							id={`${id}-${index}-label`}
+							value={bucket.label}
+							disabled={save.isPending}
+							onChange={(event) => patch(index, { label: event.target.value })}
+						/>
+						<Label htmlFor={`${id}-${index}-key`}>Section key</Label>
+						<Input
+							id={`${id}-${index}-key`}
+							value={bucket.key}
+							disabled={save.isPending}
+							onChange={(event) => patch(index, { key: event.target.value })}
+						/>
 						<p className="type-tedix-caption text-kumo-subtle">
 							Keep this key when renaming. Projects refer to it; changing it
 							moves them to Unsorted.
 						</p>
-						<label className="block">
+						<Label htmlFor={`${id}-${index}-description`}>
 							Description (optional)
-							<Input
-								value={bucket.description ?? ""}
-								disabled={save.isPending}
-								onChange={(event) =>
-									patch(index, { description: event.target.value })
-								}
-							/>
-						</label>
+						</Label>
+						<Input
+							id={`${id}-${index}-description`}
+							value={bucket.description ?? ""}
+							disabled={save.isPending}
+							onChange={(event) =>
+								patch(index, { description: event.target.value })
+							}
+						/>
 						<div className="flex gap-2">
 							<Button
 								variant="secondary"
@@ -171,14 +172,22 @@ export function OrganizationPortfolioForm({
 					</Button>
 				</div>
 				{!validation.success && (
-					<p role="alert">{validation.error.issues[0]?.message}</p>
+					<Text as="p" role="label" tone="error" aria-live="polite">
+						{validation.error.issues[0]?.message}
+					</Text>
 				)}
 				{save.isError && (
-					<p role="alert">
-						{errorMessage(save.error, "Sections could not be saved.")}
-					</p>
+					<Alert variant="destructive">
+						<AlertDescription>
+							{errorMessage(save.error, "Sections could not be saved.")}
+						</AlertDescription>
+					</Alert>
 				)}
-				{save.isSuccess && <p role="status">Sections saved.</p>}
+				{save.isSuccess && (
+					<Text as="p" role="label" tone="secondary" aria-live="polite">
+						Sections saved.
+					</Text>
+				)}
 			</SettingsSectionContent>
 		</SettingsSection>
 	);

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Combobox } from "@/components/kumo/combobox";
 import { Button } from "@/components/kumo/button";
 export type AudiencePerson = { value: string; label: string };
@@ -131,9 +132,11 @@ export function WidgetAudiencePicker({
 				</Combobox.Content>
 			</Combobox>
 			{(query.isError || saved.some((page) => page.isError)) && (
-				<p role="alert">
-					Some names are unavailable. Your selected user IDs are preserved.
-				</p>
+				<Alert variant="destructive">
+					<AlertDescription>
+						Some names are unavailable. Your selected user IDs are preserved.
+					</AlertDescription>
+				</Alert>
 			)}
 		</section>
 	);

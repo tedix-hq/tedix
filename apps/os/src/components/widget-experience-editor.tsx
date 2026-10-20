@@ -1,5 +1,11 @@
 import { WidgetTediSelection } from "@/components/widget-tedi-selection";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+	useEffect,
+	useId,
+	useState,
+	type CSSProperties,
+	type ReactNode,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	OrganizationMetadataSchema,
@@ -25,6 +31,7 @@ import {
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
+import { Label } from "@/components/kumo/label";
 import { Textarea } from "@/components/kumo/textarea";
 import { Switch } from "@/components/kumo/switch";
 import {
@@ -241,15 +248,16 @@ function Choice({
 	onChange(value: string): void;
 	disabled: boolean;
 }) {
+	const id = useId();
 	return (
-		<label className="grid gap-1 font-medium type-tedix-body">
-			{label}
+		<div className="grid gap-1">
+			<Label htmlFor={id}>{label}</Label>
 			<Select
 				value={value}
 				disabled={disabled}
 				onValueChange={(next) => next && onChange(next)}
 			>
-				<SelectTrigger aria-label={label}>
+				<SelectTrigger id={id} aria-label={label}>
 					<SelectValue>
 						{options.find(([key]) => key === value)?.[1] ?? value}
 					</SelectValue>
@@ -262,7 +270,7 @@ function Choice({
 					))}
 				</SelectContent>
 			</Select>
-		</label>
+		</div>
 	);
 }
 
@@ -274,6 +282,7 @@ export function ExperienceEditor({
 	config: TediWidgetConfig;
 }) {
 	const client = useQueryClient();
+	const ids = useId();
 	const tedis = useQuery(
 		osQuery.tedis.list.queryOptions({ input: { limit: 100, offset: 0 } }),
 	);
@@ -371,9 +380,10 @@ export function ExperienceEditor({
 			| "launcherIconUrlDark",
 		label: string,
 	) => (
-		<label className="grid gap-1 font-medium type-tedix-body" key={key}>
-			{label}
+		<div className="grid gap-1" key={key}>
+			<Label htmlFor={`${ids}-${key}`}>{label}</Label>
 			<Input
+				id={`${ids}-${key}`}
 				aria-label={label}
 				value={
 					(key === "title" || key === "subtitle" ? copy[key] : undefined) ??
@@ -392,11 +402,11 @@ export function ExperienceEditor({
 							)
 				}
 			/>
-		</label>
+		</div>
 	);
 	const color = (key: "accentColor" | "accentColorDark", label: string) => (
-		<label className="grid gap-1 font-medium type-tedix-body">
-			{label}
+		<div className="grid gap-1">
+			<Label htmlFor={`${ids}-${key}`}>{label}</Label>
 			<div className="flex gap-2">
 				<Input
 					className="w-12"
@@ -408,12 +418,13 @@ export function ExperienceEditor({
 					onChange={(event) => edit(key, event.target.value)}
 				/>
 				<Input
+					id={`${ids}-${key}`}
 					aria-label={label}
 					value={draft[key] ?? ""}
 					onChange={(event) => edit(key, event.target.value || undefined)}
 				/>
 			</div>
-		</label>
+		</div>
 	);
 	return (
 		<div className="grid gap-8 [&_input]:scroll-mt-24 [&_textarea]:scroll-mt-24 [&_button]:scroll-mt-24">
@@ -453,7 +464,7 @@ export function ExperienceEditor({
 				</span>
 			</Surface>
 			{!validation.success && (
-				<Alert variant="destructive" role="alert">
+				<Alert variant="destructive">
 					<AlertTitle>Check your draft</AlertTitle>
 					<AlertDescription>
 						<ul>
@@ -465,7 +476,7 @@ export function ExperienceEditor({
 				</Alert>
 			)}
 			{mutation.isError && (
-				<Alert variant="destructive" role="alert">
+				<Alert variant="destructive">
 					<AlertTitle>Could not publish</AlertTitle>
 					<AlertDescription>
 						{mutation.error instanceof Error
@@ -480,7 +491,9 @@ export function ExperienceEditor({
 				</SectionHeader>
 				<SettingsSectionContent>
 					{tedis.isError ? (
-						<p role="alert">Could not load tedis.</p>
+						<Alert variant="destructive">
+							<AlertDescription>Could not load tedis.</AlertDescription>
+						</Alert>
 					) : (
 						<WidgetTediSelection
 							disabled={pending}
@@ -569,12 +582,10 @@ export function ExperienceEditor({
 										["zIndex", "Stacking order", 2147483000],
 									] as const
 								).map(([key, label, fallback]) => (
-									<label
-										key={key}
-										className="grid gap-1 font-medium type-tedix-body"
-									>
-										{label}
+									<div key={key} className="grid gap-1">
+										<Label htmlFor={`${ids}-${key}`}>{label}</Label>
 										<Input
+											id={`${ids}-${key}`}
 											type="number"
 											aria-label={label}
 											value={draft[key] ?? fallback}
@@ -587,7 +598,7 @@ export function ExperienceEditor({
 												)
 											}
 										/>
-									</label>
+									</div>
 								))}
 							</CollapsibleContent>
 						</Collapsible>
@@ -610,9 +621,10 @@ export function ExperienceEditor({
 									The preview uses this language.
 								</p>
 							</div>
-							<label className="grid gap-1 font-medium type-tedix-body">
-								Welcome heading
+							<div className="grid gap-1">
+								<Label htmlFor={`${ids}-welcomeHeading`}>Welcome heading</Label>
 								<Input
+									id={`${ids}-welcomeHeading`}
 									aria-label="Welcome heading"
 									value={copy.welcomeHeading ?? ""}
 									placeholder={t("how_can_i_help_you_in", {
@@ -622,10 +634,11 @@ export function ExperienceEditor({
 										setCopy("welcomeHeading", event.target.value)
 									}
 								/>
-							</label>
-							<label className="grid gap-1 font-medium type-tedix-body sm:col-span-2">
-								Welcome message
+							</div>
+							<div className="grid gap-1 sm:col-span-2">
+								<Label htmlFor={`${ids}-welcomeBody`}>Welcome message</Label>
 								<Textarea
+									id={`${ids}-welcomeBody`}
 									aria-label="Welcome message"
 									value={copy.welcomeBody ?? ""}
 									placeholder={t("i_m_connected_to_your_workspace", {
@@ -635,10 +648,11 @@ export function ExperienceEditor({
 										setCopy("welcomeBody", event.target.value)
 									}
 								/>
-							</label>
-							<label className="grid gap-1 font-medium type-tedix-body sm:col-span-2">
-								Suggested questions
+							</div>
+							<div className="grid gap-1 sm:col-span-2">
+								<Label htmlFor={`${ids}-starters`}>Suggested questions</Label>
 								<Textarea
+									id={`${ids}-starters`}
 									aria-label="Suggested questions"
 									rows={4}
 									value={starters}
@@ -651,7 +665,7 @@ export function ExperienceEditor({
 									One question per line, up to 6. All questions appear in the
 									preview.
 								</span>
-							</label>
+							</div>
 						</Group>
 						<Group title="Behavior">
 							<Choice
@@ -732,12 +746,10 @@ export function ExperienceEditor({
 									],
 								] as const
 							).map(([key, label, fallback, help]) => (
-								<label
-									key={key}
-									className="grid gap-1 font-medium type-tedix-body"
-								>
-									{label}
+								<div key={key} className="grid gap-1">
+									<Label htmlFor={`${ids}-${key}`}>{label}</Label>
 									<Input
+										id={`${ids}-${key}`}
 										type="number"
 										aria-label={label}
 										placeholder={String(fallback)}
@@ -756,7 +768,7 @@ export function ExperienceEditor({
 									<span className="font-normal text-kumo-subtle type-tedix-body">
 										{help}
 									</span>
-								</label>
+								</div>
 							))}
 						</Group>
 					</fieldset>

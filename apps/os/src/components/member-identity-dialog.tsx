@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Member } from "@tedix/api-contract/schemas/organization";
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -157,7 +158,11 @@ export function MemberIdentityDialog({
 							</SelectContent>
 						</Select>
 						{people.isError ? (
-							<p role="alert">The people list could not be loaded.</p>
+							<Alert variant="destructive">
+								<AlertDescription>
+									The people list could not be loaded.
+								</AlertDescription>
+							</Alert>
 						) : null}
 						<Input
 							aria-label="Agent avatar URL"
@@ -191,11 +196,13 @@ export function MemberIdentityDialog({
 					</>
 				) : null}
 				{save.error ? (
-					<p role="alert">
-						{save.error instanceof Error
-							? save.error.message
-							: "Identity could not be saved."}
-					</p>
+					<Alert variant="destructive">
+						<AlertDescription>
+							{save.error instanceof Error
+								? save.error.message
+								: "Identity could not be saved."}
+						</AlertDescription>
+					</Alert>
 				) : null}
 				<DialogFooter>
 					<Button
