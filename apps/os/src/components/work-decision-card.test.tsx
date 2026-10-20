@@ -589,9 +589,11 @@ it("keeps ranking evidence inside the selected card's single explanation drawer"
 	expect(host.textContent).toContain(
 		"Applicable lesson: confirm the time before promising delivery",
 	);
-	expect(host.querySelector("details")?.textContent).toContain(
-		"fictional-choice-1",
-	);
+	expect(
+		[...host.querySelectorAll("button[aria-expanded]")].find(
+			(button) => button.textContent === "Evidence",
+		)?.parentElement?.textContent,
+	).toContain("fictional-choice-1");
 	await act(async () =>
 		root.render(
 			<DecisionLearningContext.Provider value={null}>

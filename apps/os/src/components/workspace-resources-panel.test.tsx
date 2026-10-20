@@ -113,7 +113,13 @@ describe("WorkspaceResourcesPanel", () => {
 		expect(html).toContain("Tedix repository");
 		expect(html).toContain("GitHub · Repository · Shared account");
 		expect(html).not.toContain("MCP gateway");
-		expect(html).toContain("Technical details</summary>");
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		expect(
+			[...container.querySelectorAll("button[aria-expanded]")]
+				.find((button) => button.textContent === "Technical details")
+				?.getAttribute("aria-expanded"),
+		).toBe("false");
 		expect(html).toContain("App connected");
 		expect(html).toContain(
 			"access to this resource is checked when it is used",
