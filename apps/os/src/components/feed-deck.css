@@ -1342,15 +1342,6 @@
 	white-space: nowrap;
 	color: var(--fd-muted);
 }
-.fd-filter-options {
-	max-width: min(32rem, calc(100vw - 2rem));
-	gap: 1rem;
-}
-.fd-filter-options [data-kumo-component="SegmentedControl"] {
-	flex-wrap: wrap;
-	background: transparent;
-	box-shadow: none;
-}
 .fd-deck .fd-app-toolbar {
 	flex: none;
 }

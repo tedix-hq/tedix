@@ -1,3 +1,4 @@
+import { DecisionFilterChip } from "../src/components/decision-context-rail";
 import { useState, type ReactNode } from "react";
 import { WorkToolbarTargetContext } from "../src/components/deck-presentation-context";
 import { OsTopbarActionsTargetContext } from "../src/components/os-topbar-actions-context";
@@ -543,10 +544,32 @@ function ProofFrame({ children }: { children: ReactNode }) {
 		</WorkToolbarTargetContext.Provider>
 	);
 }
+function ProjectFilterProof() {
+	const [value, setValue] = useState("all");
+	const options = [
+		{ value: "all", label: "All projects" },
+		...Array.from({ length: 20 }, (_, i) => ({
+			value: `project-${i}`,
+			label: `Project ${i}`,
+		})),
+	];
+	return (
+		<DecisionFilterChip
+			label={options.find((option) => option.value === value)?.label}
+			ariaLabel="Decision project"
+			value={value}
+			onValueChange={setValue}
+			options={options}
+			searchable
+		/>
+	);
+}
 createRoot(document.getElementById("root")!).render(
 	<QueryClientProvider client={client}>
 		<ProofFrame>
-			{params.get("surface") === "motion-failure" ? (
+			{params.get("surface") === "filters" ? (
+				<ProjectFilterProof />
+			) : params.get("surface") === "motion-failure" ? (
 				<div className="feed-deck fd-deck">
 					<WorkDecisionCard
 						kind="decision"

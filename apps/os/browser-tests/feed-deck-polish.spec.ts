@@ -48,6 +48,33 @@ try {
 	}
 	if (!ready) throw new Error("Visual test server did not start");
 	browser = await chromium.launch({ headless: true });
+	for (const width of [1280, 390]) {
+		const page = await browser.newPage({ viewport: { width, height: 844 } });
+		await page.goto(
+			`${origin}/browser-tests/feed-deck-polish.html?surface=filters`,
+		);
+		const project = page.getByRole("combobox", { name: "Decision project" });
+		await project.click();
+		const input = page.getByRole("combobox", { name: "Find a project" });
+		await input.fill("Project 17");
+		await page
+			.getByRole("option", { name: "Project 17", exact: true })
+			.waitFor();
+		if ((await page.getByRole("option").count()) !== 1)
+			throw new Error("Project search did not filter long list");
+		await page.keyboard.press("ArrowDown");
+		await page.keyboard.press("Enter");
+		await page.waitForFunction(() =>
+			document
+				.querySelector('[aria-label="Decision project"]')
+				?.textContent?.includes("Project 17"),
+		);
+		await project.click();
+		await input.fill("No such project");
+		await page.getByText("No projects found", { exact: true }).waitFor();
+		await page.keyboard.press("Escape");
+		await page.close();
+	}
 	for (const width of [390, 1199, 1280, 1600, 2000]) {
 		for (const theme of ["light", "dark"] as const) {
 			for (const surface of ["feed", "question"]) {
@@ -58,6 +85,121 @@ try {
 				await page.goto(
 					`${origin}/browser-tests/feed-deck-polish.html?shell&surface=${surface}&theme=${theme}`,
 				);
+				if (surface === "question") {
+					const filters = page.getByRole("button", {
+						name: "Filters",
+						exact: true,
+					});
+					const kind = page.getByRole("combobox", { name: "Decision kind" });
+					if (width === 390) await filters.click();
+					await kind.focus();
+					await page.keyboard.press("Enter");
+					const popup = page.locator(".fd-filter-options:visible");
+					await popup.waitFor();
+					await settleAnimations(page);
+					await page.waitForFunction(
+						() => document.activeElement?.getAttribute("role") === "option",
+					);
+					const geometry = await popup.evaluate((node) => ({
+						width: (node as HTMLElement).offsetWidth,
+						padding: getComputedStyle(node).padding,
+						rowHeight:
+							node.querySelector<HTMLElement>('[role="option"]')!.offsetHeight,
+					}));
+					if (
+						geometry.width < 200 ||
+						geometry.width > 260 ||
+						geometry.padding !== "4px" ||
+						geometry.rowHeight !== (width < 640 ? 44 : 32)
+					)
+						throw new Error(`Filter geometry: ${JSON.stringify(geometry)}`);
+					if (
+						await popup
+							.getByRole("button", { name: "What you decided" })
+							.count()
+					)
+						throw new Error("Deck view toggle is inside the Kind filter");
+					await page.keyboard.type("Questions");
+					await page.keyboard.press("Enter");
+					await popup.waitFor({ state: "hidden" });
+					await page.waitForFunction(() =>
+						document
+							.querySelector('[aria-label="Decision kind"]')
+							?.textContent?.includes("Questions"),
+					);
+					await page.waitForFunction(
+						() =>
+							document.activeElement?.getAttribute("aria-label") ===
+							"Decision kind",
+					);
+					await kind.click();
+					await settleAnimations(page);
+					await page.waitForFunction(
+						() => document.activeElement?.getAttribute("role") === "option",
+					);
+					if (
+						(await page
+							.getByRole("option", { name: "Questions", exact: true })
+							.getAttribute("aria-selected")) !== "true"
+					)
+						throw new Error("Kind selection was not retained");
+					await page.keyboard.press("Home");
+					await page.keyboard.press("Enter");
+					await popup.waitFor({ state: "hidden" });
+					const project = page.getByRole("combobox", {
+						name: "Decision project",
+					});
+					await project.click();
+					await settleAnimations(page);
+					await page.waitForFunction(
+						() => document.activeElement?.getAttribute("role") === "option",
+					);
+					await page.keyboard.type("All projects");
+					await page.keyboard.press("Enter");
+					await popup.waitFor({ state: "hidden" });
+					const urgency = page.getByRole("combobox", {
+						name: "Decision urgency",
+					});
+					await urgency.click();
+					await settleAnimations(page);
+					await page.waitForFunction(
+						() => document.activeElement?.getAttribute("role") === "option",
+					);
+					await page.keyboard.press("Home");
+					await page.keyboard.press("ArrowDown");
+					await page.keyboard.press("Enter");
+					await popup.waitFor({ state: "hidden" });
+					await page.waitForFunction(() =>
+						document
+							.querySelector('[aria-label="Decision urgency"]')
+							?.textContent?.includes("Needs you now"),
+					);
+					await urgency.click();
+					await settleAnimations(page);
+					await page.waitForFunction(
+						() => document.activeElement?.getAttribute("role") === "option",
+					);
+					await page.keyboard.press("Home");
+					await page.keyboard.press("Enter");
+					await popup.waitFor({ state: "hidden" });
+					await kind.click();
+					await settleAnimations(page);
+					await page.waitForFunction(
+						() => document.activeElement?.getAttribute("role") === "option",
+					);
+					await page.keyboard.press("Escape");
+					await popup.waitFor({ state: "hidden" });
+					if (width === 390) await page.keyboard.press("Escape");
+					const url = page.url();
+					await page
+						.getByRole("button", { name: "What you decided", exact: true })
+						.click();
+					if (page.url() !== url)
+						throw new Error("View toggle changed route state");
+					await page
+						.getByRole("button", { name: "For you", exact: true })
+						.click();
+				}
 				const trigger = page.locator("header").getByRole("button", {
 					name: "Decision context",
 					exact: true,

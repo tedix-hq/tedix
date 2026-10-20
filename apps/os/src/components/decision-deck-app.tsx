@@ -81,7 +81,6 @@ import { WorkDecisionCard } from "@/components/work-decision-card";
 import { Button } from "@/components/kumo/button";
 import { WorkReadRegion, WorkReadNotice } from "@/components/work-read-region";
 import { Input } from "@/components/kumo/input";
-import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 
@@ -817,72 +816,69 @@ function DecisionDeckContent({
 						<CardContextFeedback key={selected.id} cardId={selected.id} />
 					)}
 				<DecisionContextToolbar
+					children={
+						<div
+							className="fd-deck-toolbar"
+							aria-label={decisionText("Deck view")}
+						>
+							{[
+								"decide",
+								"history",
+								...(config.examples.length ? ["practice"] : []),
+							].map((value) => (
+								<Button
+									key={value}
+									aria-pressed={mode === value}
+									variant="ghost"
+									onClick={() => {
+										setMode(value);
+										setIndex(0);
+									}}
+								>
+									{value === "decide"
+										? decisionText("For you")
+										: value === "history"
+											? decisionText("What you decided")
+											: decisionText("Try examples")}
+								</Button>
+							))}
+						</div>
+					}
 					filters={
 						<div className="fd-deck-filters">
 							<div className="flex flex-wrap gap-2">
 								<DecisionFilterChip
 									label={kind === "all" ? "Kind" : KIND_LABELS[kind]}
-								>
-									<SegmentedControl
-										ariaLabel={decisionText("Decision kind")}
-										value={kind}
-										onValueChange={(value) => {
-											setKind(value);
-											setIndex(0);
-										}}
-										options={["all", ...DecisionKindSchema.options].map(
-											(value) => ({ value, label: KIND_LABELS[value] }),
-										)}
-									/>
-									<div
-										className="fd-deck-toolbar"
-										aria-label={decisionText("Deck view")}
-									>
-										{[
-											"decide",
-											"history",
-											...(config.examples.length ? ["practice"] : []),
-										].map((value) => (
-											<Button
-												key={value}
-												aria-pressed={mode === value}
-												variant="ghost"
-												onClick={() => {
-													setMode(value);
-													setIndex(0);
-												}}
-											>
-												{value === "decide"
-													? decisionText("For you")
-													: value === "history"
-														? decisionText("What you decided")
-														: decisionText("Try examples")}
-											</Button>
-										))}
-									</div>
-								</DecisionFilterChip>
+									ariaLabel={decisionText("Decision kind")}
+									value={kind}
+									onValueChange={(value) => {
+										setKind(value);
+										setIndex(0);
+									}}
+									options={["all", ...DecisionKindSchema.options].map(
+										(value) => ({ value, label: KIND_LABELS[value] }),
+									)}
+								/>
 								<DecisionFilterChip
 									label={project === "all" ? "Project" : projectLabel(project)}
-								>
-									<SegmentedControl
-										ariaLabel={decisionText("Decision project")}
-										value={project}
-										onValueChange={(value) => {
-											setProject(value);
-											setIndex(0);
-										}}
-										options={[
-											"all",
-											...new Set(rows.map((row) => row.project)),
-										].map((value) => ({
-											value,
-											label:
-												value === "all"
-													? decisionText("All projects")
-													: projectLabel(value),
-										}))}
-									/>
-								</DecisionFilterChip>
+									ariaLabel={decisionText("Decision project")}
+									searchable
+									value={project}
+									onValueChange={(value) => {
+										setProject(value);
+										setIndex(0);
+									}}
+									options={[
+										"all",
+										...new Set(rows.map((row) => row.project)),
+									].map((value) => ({
+										value,
+										label:
+											value === "all"
+												? decisionText("All projects")
+												: projectLabel(value),
+									}))}
+								/>
 								<DecisionFilterChip
 									label={
 										urgency === "all"
@@ -891,21 +887,18 @@ function DecisionDeckContent({
 												? "Needs you now"
 												: "Can wait"
 									}
-								>
-									<SegmentedControl
-										ariaLabel={decisionText("Decision urgency")}
-										value={urgency}
-										onValueChange={(value) => {
-											setUrgency(value);
-											setIndex(0);
-										}}
-										options={[
-											{ value: "all", label: decisionText("Any urgency") },
-											{ value: "now", label: decisionText("Needs you now") },
-											{ value: "later", label: decisionText("Can wait") },
-										]}
-									/>
-								</DecisionFilterChip>
+									ariaLabel={decisionText("Decision urgency")}
+									value={urgency}
+									onValueChange={(value) => {
+										setUrgency(value);
+										setIndex(0);
+									}}
+									options={[
+										{ value: "all", label: decisionText("Any urgency") },
+										{ value: "now", label: decisionText("Needs you now") },
+										{ value: "later", label: decisionText("Can wait") },
+									]}
+								/>
 
 								<Input
 									aria-label={decisionText("Find decisions")}

@@ -15,11 +15,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-	InfoIcon,
-	SlidersHorizontalIcon,
-	CaretDownIcon,
-} from "@phosphor-icons/react";
+import { InfoIcon, SlidersHorizontalIcon } from "@phosphor-icons/react";
 import { OS_COPY } from "@/shared/os-copy";
 import { Button } from "@/components/kumo/button";
 import { Kbd } from "@/components/kumo/kbd";
@@ -41,6 +37,13 @@ import {
 	PopoverTrigger,
 	PopoverContent,
 } from "@/components/kumo/popover";
+import {
+	Select,
+	SelectTrigger,
+	SelectContent,
+	SelectItem,
+} from "@/components/kumo/select";
+import { Combobox } from "@/components/kumo/combobox";
 import { userProfileQueryOptions } from "@/lib/os-query-options";
 
 const RAIL_SECTIONS = [
@@ -329,7 +332,7 @@ export function DecisionContextToolbar({
 						>
 							<SlidersHorizontalIcon size={20} />
 						</PopoverTrigger>
-						<PopoverContent align="end" className="feed-deck fd-mobile-filters">
+						<PopoverContent align="end" className="fd-mobile-filters p-1">
 							{filters}
 						</PopoverContent>
 					</PopoverRoot>
@@ -343,23 +346,91 @@ export function DecisionContextToolbar({
 
 export function DecisionFilterChip({
 	label,
-	children,
+	ariaLabel,
+	value,
+	onValueChange,
+	options,
+	searchable = false,
 }: {
 	label: ReactNode;
-	children: ReactNode;
+	ariaLabel: string;
+	value: string;
+	onValueChange: (value: string) => void;
+	options: { value: string; label: string | undefined }[];
+	searchable?: boolean;
 }) {
+	if (searchable && options.length > 8) {
+		return (
+			<Combobox
+				items={options}
+				value={options.find((option) => option.value === value)}
+				isItemEqualToValue={(a, b) => a.value === b.value}
+				onValueChange={(option) => {
+					if (option) onValueChange(option.value);
+				}}
+			>
+				<Combobox.Trigger
+					render={
+						<Button variant="ghost" size="sm" className="fd-filter-chip" />
+					}
+					aria-label={ariaLabel}
+				>
+					{label}
+				</Combobox.Trigger>
+				<Combobox.Content className="fd-filter-options w-56 max-w-[calc(100vw-2rem)] p-1 z-(--tedix-layer-dropdown)">
+					<Combobox.Input
+						aria-label="Find a project"
+						placeholder="Find a project…"
+						className="mt-0 px-2 first:mb-1"
+					/>
+					<Combobox.Empty>No projects found</Combobox.Empty>
+					<Combobox.List>
+						{(option: (typeof options)[number]) => (
+							<Combobox.Item
+								key={option.value}
+								value={option}
+								className="mx-0 min-h-8 items-center px-2 py-1 type-tedix-control max-sm:min-h-11 coarse:min-h-11"
+							>
+								{option.label}
+							</Combobox.Item>
+						)}
+					</Combobox.List>
+				</Combobox.Content>
+			</Combobox>
+		);
+	}
 	return (
-		<PopoverRoot>
-			<PopoverTrigger
-				render={<Button variant="ghost" size="sm" className="fd-filter-chip" />}
+		<Select
+			value={value}
+			onValueChange={(next) => {
+				if (next !== null) onValueChange(next);
+			}}
+			items={options}
+		>
+			<SelectTrigger
+				size="sm"
+				aria-label={ariaLabel}
+				className="fd-filter-chip border-0 bg-transparent ring-0"
 			>
 				{label}
-				<CaretDownIcon size={12} />
-			</PopoverTrigger>
-			<PopoverContent align="start" className="feed-deck fd-filter-options">
-				{children}
-			</PopoverContent>
-		</PopoverRoot>
+			</SelectTrigger>
+			<SelectContent
+				align="start"
+				alignItemWithTrigger={false}
+				aria-label={ariaLabel}
+				className="fd-filter-options w-56 max-w-[calc(100vw-2rem)] p-1"
+			>
+				{options.map((option) => (
+					<SelectItem
+						key={option.value}
+						value={option.value}
+						className="mx-0 min-h-8 px-2 py-1"
+					>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }
 
