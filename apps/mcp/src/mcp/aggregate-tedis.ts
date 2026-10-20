@@ -2,6 +2,7 @@
 // sibling aggregate-tedis-*.ts files (mechanical split along domain seams);
 // this module remains the stable aggregation point and public surface:
 // entry/spec assembly, buildTediTool, and buildAggregateTediTools.
+import { builtinToolPolicyMetadata } from "@tedix/api-contract/utils/approval-policy";
 import { BROWSER_TOOLS } from "./aggregate-tedis-browser";
 import { CAPABILITY_MAP_TOOLS } from "./aggregate-tedis-capabilities";
 import {
@@ -113,6 +114,7 @@ function buildTediTool(
 	env: CloudflareEnv,
 ): AppTool {
 	const namespace = sanitizeTediNamespace(entry);
+	const riskPolicy = builtinToolPolicyMetadata(spec.remoteName);
 	const isRpcProxy = typeof spec.rpcEndpoint === "string";
 	const directMcpTool = spec.directMcpTool === true;
 	const allowExplicitTediId =
@@ -209,7 +211,11 @@ function buildTediTool(
 						: { _aggregateTediRemoteName: spec.remoteName }),
 				},
 		annotations: spec.annotations ?? null,
-		meta: { source: "aggregateTedis", tediSlug: entry.slug },
+		meta: {
+			source: "aggregateTedis",
+			tediSlug: entry.slug,
+			...(riskPolicy ? { "com.tedix/policy": riskPolicy } : {}),
+		},
 		icons: null,
 		executionTaskSupport: null,
 		invocationStatus: null,

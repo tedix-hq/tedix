@@ -4,6 +4,7 @@ export interface DelegationAutonomyPolicy {
 	version: 1;
 	maxRisk: "medium";
 	askForClasses?: string[];
+	policyPack?: { id: string; version: number };
 }
 
 export function parseDelegationAutonomyPolicy(
@@ -15,6 +16,19 @@ export function parseDelegationAutonomyPolicy(
 		? {
 				version: 1,
 				maxRisk: "medium",
+				...(value.policyPack &&
+				typeof value.policyPack === "object" &&
+				"id" in value.policyPack &&
+				typeof value.policyPack.id === "string" &&
+				"version" in value.policyPack &&
+				typeof value.policyPack.version === "number"
+					? {
+							policyPack: {
+								id: value.policyPack.id,
+								version: value.policyPack.version,
+							},
+						}
+					: {}),
 				...(Array.isArray(value.askForClasses)
 					? {
 							askForClasses: value.askForClasses.filter(
@@ -23,6 +37,17 @@ export function parseDelegationAutonomyPolicy(
 						}
 					: {}),
 			}
+		: undefined;
+}
+
+const builtinToolPolicies: Record<
+	string,
+	{ riskTier: string; blastRadius: string }
+> = criticalActions.builtinToolPolicies;
+
+export function builtinToolPolicyMetadata(name: string) {
+	return Object.hasOwn(builtinToolPolicies, name)
+		? builtinToolPolicies[name]
 		: undefined;
 }
 
@@ -361,11 +386,23 @@ export function decideKernelWriteApproval(input: {
 }): KernelWriteApprovalDecision {
 	const { appSlug, toolName, riskTier } = input.proposal;
 	if (input.policy?.autonomy) {
+		const trusted = writeToolMatchesAllowlist(
+			appSlug,
+			toolName,
+			input.policy.writeTier?.trustedTools,
+		);
 		const decision = decideAutonomousAction({
 			policy: input.policy.autonomy,
 			risk: riskTier,
 			content: `${appSlug}:${toolName}`,
 		});
+		if (!trusted || input.policy.writeTier?.autoApproveLowRisk === false)
+			return {
+				autoResolve: false,
+				source: null,
+				reason:
+					"autonomy requires an enabled write-tier trusted-tool allowlist",
+			};
 		return {
 			autoResolve: decision.autoApprove,
 			source: decision.autoApprove ? "policy" : null,

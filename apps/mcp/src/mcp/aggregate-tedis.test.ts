@@ -14,6 +14,7 @@ import {
 	getTediMcpServerUrl,
 } from "./aggregate-tedis";
 import { SKILL_WORKFLOW_TOOLS } from "./aggregate-tedis-skill-workflows";
+import { resolveToolRiskPolicy } from "./tool-risk-policy";
 import {
 	isMcpToolVisibleToCaller,
 	resolveMcpToolRequiredScopes,
@@ -775,6 +776,18 @@ describe("aggregate tedis", () => {
 			},
 			_aggregateTediSlug: "echo",
 		});
+		expect(
+			resolveToolRiskPolicy(
+				isolateTools.find((tool) => tool.toolId === "echo__work_item_comment")!,
+			),
+		).toEqual({ riskTier: "bounded_write", blastRadius: "single_resource" });
+		expect(
+			resolveToolRiskPolicy(
+				isolateTools.find(
+					(tool) => tool.toolId === "echo__reconcile_work_item_sources",
+				)!,
+			),
+		).toBeNull();
 		expect(
 			isolateTools.find(
 				(tool) => tool.toolId === "echo__heartbeat_work_attempt",

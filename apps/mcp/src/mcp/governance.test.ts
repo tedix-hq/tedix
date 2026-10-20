@@ -136,9 +136,10 @@ describe("destructive tool approval", () => {
 
 		const result = await requireDestructiveToolApproval(
 			approvalContext(elicitInput),
-			tool,
+			{ ...tool, toolId: "get_app" },
 			{
 				destructiveHint: false,
+				readOnlyHint: true,
 			},
 		);
 
@@ -257,9 +258,9 @@ describe("destructive tool approval", () => {
 		warn.mockRestore();
 	});
 
-	it("allows explicit dryRun previews without destructive approval", async () => {
+	it("does not accept a caller-supplied dryRun as proof that a destructive tool is a preview", async () => {
 		const elicitInput = vi.fn(async () => {
-			throw new Error("should not prompt for dryRun");
+			throw new Error("interactive approval is unavailable");
 		});
 
 		const result = await requireDestructiveToolApproval(
@@ -269,8 +270,8 @@ describe("destructive tool approval", () => {
 			{ args: { dryRun: true } },
 		);
 
-		expect(result).toBeNull();
-		expect(elicitInput).not.toHaveBeenCalled();
+		expect(result?.isError).toBe(true);
+		expect(elicitInput).toHaveBeenCalledTimes(1);
 	});
 
 	it("allows an explicit stateless confirmation only with a reason", async () => {
@@ -1228,7 +1229,7 @@ describe("destructive tool approval — Work Item authorization", () => {
 		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
-	it("does not impose the Tedix Work Item policy on sibling CMS tenants", async () => {
+	it("requires ordinary approval for sibling CMS publishing without imposing the Tedix Work Item policy", async () => {
 		const elicitInput = vi.fn();
 		const resolveWorkItemAuthorization = vi.fn();
 		const result = await requireDestructiveToolApproval(
@@ -1254,9 +1255,9 @@ describe("destructive tool approval — Work Item authorization", () => {
 				args: publishArgs,
 			},
 		);
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 		expect(resolveWorkItemAuthorization).not.toHaveBeenCalled();
-		expect(elicitInput).not.toHaveBeenCalled();
+		expect(elicitInput).toHaveBeenCalledTimes(1);
 	});
 
 	it("denies before agent auto-confirm when the receipt is absent", async () => {
@@ -1448,11 +1449,9 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 			expect(elicitInput).not.toHaveBeenCalled();
 		});
 	}
-	it("auto-approves a destructive tool for an agent caller, with no elicitation", async () => {
+	it("does not self-approve destructive agent calls", async () => {
 		const elicitInput = vi.fn(async () => {
-			throw new Error(
-				"must not prompt: agent auto-confirm should approve first",
-			);
+			throw new Error("interactive approval is unavailable");
 		});
 		const result = await requireDestructiveToolApproval(
 			agentApprovalContext(elicitInput, "tedi"),
@@ -1460,18 +1459,18 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 			{ destructiveHint: true },
 			{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
 		);
-		expect(result).toBeNull();
-		expect(elicitInput).not.toHaveBeenCalled();
+		expect(result?.isError).toBe(true);
+		expect(elicitInput).toHaveBeenCalledTimes(1);
 	});
 
-	it("auto-approves for a service (kernel) agent caller too", async () => {
+	it("does not self-approve destructive service calls", async () => {
 		const result = await requireDestructiveToolApproval(
 			agentApprovalContext(vi.fn(), "service"),
 			tool,
 			{ destructiveHint: true },
 			{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
 		);
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 	});
 
 	it("denies an unconfigured external-transport write before agent auto-confirm", async () => {
@@ -1493,7 +1492,7 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 		expect(elicitInput).not.toHaveBeenCalled();
 	});
 
-	it("preserves the rollout default for an unconfigured external transport", async () => {
+	it("retains a human hold for destructive external calls even before rollout", async () => {
 		const result = await requireDestructiveToolApproval(
 			agentApprovalContext(vi.fn(), "tedi", false),
 			{ ...tool, config: { transport: "external" } },
@@ -1501,7 +1500,7 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 			{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 	});
 
 	it("denies an unconfigured third-party MCP write before agent auto-confirm", async () => {
@@ -1524,7 +1523,7 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 		);
 	});
 
-	it("keeps first-party RPC and Tedix-managed MCP writes on the existing auto-confirm path", async () => {
+	it("keeps destructive first-party and managed MCP writes behind approval", async () => {
 		const configs: Array<Record<string, JsonValue>> = [
 			{ transport: "rpc" },
 			{
@@ -1539,11 +1538,11 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 				{ destructiveHint: true },
 				{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
 			);
-			expect(result).toBeNull();
+			expect(result?.isError).toBe(true);
 		}
 	});
 
-	it("lets an explicit D1 policy opt a third-party transport into the established path", async () => {
+	it("never approval policy cannot override an explicit destructive hint", async () => {
 		const result = await requireDestructiveToolApproval(
 			agentApprovalContext(vi.fn(), "tedi", true),
 			{
@@ -1554,7 +1553,7 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 			{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
 		);
 
-		expect(result).toBeNull();
+		expect(result?.isError).toBe(true);
 	});
 
 	it("does NOT auto-approve a human operator — they fall through and fail closed", async () => {
@@ -1592,8 +1591,8 @@ describe("destructive tool approval — autonomous agent auto-confirm (Code Mode
 	it("still skips entirely for a non-destructive tool", async () => {
 		const result = await requireDestructiveToolApproval(
 			agentApprovalContext(vi.fn(), "tedi"),
-			tool,
-			{ destructiveHint: false },
+			{ ...tool, toolId: "get_app" },
+			{ destructiveHint: false, readOnlyHint: true },
 			{ allowSyncMrtr: false, autoConfirmAgent: true, args: {} },
 		);
 		expect(result).toBeNull();

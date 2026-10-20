@@ -5,8 +5,9 @@ import {
 	callToolResultText,
 } from "./governance";
 import type { ServerContext } from "./server-context";
+import { buildAggregateTediTools } from "./aggregate-tedis";
 
-function context() {
+function context(autonomy = true) {
 	return {
 		server: { server: { elicitInput: vi.fn() } },
 		callerIdentity: { authType: "tedi", tediId: "tedi" },
@@ -16,7 +17,7 @@ function context() {
 			mcpGovernance: {
 				resolveAgentTransportPolicy: vi.fn(async () => ({
 					requireExplicitApprovalPolicy: false,
-					autonomy: { version: 1, maxRisk: "medium" },
+					...(autonomy ? { autonomy: { version: 1, maxRisk: "medium" } } : {}),
 				})),
 				resolveToolApprovalGrant: vi.fn(async () => ({
 					approved: false,
@@ -28,7 +29,7 @@ function context() {
 }
 describe("tedi autonomous actions", () => {
 	it.each([true, false])(
-		"auto-resolves bounded writes with Code Mode auto-confirm=%s",
+		"applies standing consent to bounded comments with Code Mode auto-confirm=%s",
 		async (autoConfirmAgent) => {
 			const result = await requireDestructiveToolApproval(
 				context(),
@@ -43,7 +44,7 @@ describe("tedi autonomous actions", () => {
 						},
 					},
 				},
-				{ destructiveHint: true },
+				{ destructiveHint: false },
 				{ autoConfirmAgent },
 			);
 			expect(result).toBeNull();
@@ -106,4 +107,218 @@ describe("tedi autonomous actions", () => {
 			expect(result?.isError).toBe(true);
 		}
 	});
+});
+
+it.each<{
+	destructiveHint: boolean;
+	config: Record<string, JsonValue>;
+	meta: Record<string, JsonValue>;
+}>([
+	{
+		destructiveHint: true,
+		config: { transport: "rpc" as const },
+		meta: {
+			"com.tedix/policy": {
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+		},
+	},
+	{ destructiveHint: false, config: { transport: "rpc" as const }, meta: {} },
+	{
+		destructiveHint: false,
+		config: { transport: "rpc" as const, approvalPolicy: "work_item" as const },
+		meta: {
+			"com.tedix/policy": {
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+		},
+	},
+])(
+	"never lets org autonomy bypass destructive, unknown or Work-authorization gates",
+	async ({ destructiveHint, config, meta }) => {
+		const result = await requireDestructiveToolApproval(
+			context(),
+			{ toolId: "add_comment", title: "Comment", config, meta },
+			{ readOnlyHint: false, destructiveHint },
+			{ autoConfirmAgent: true },
+		);
+		expect(result?.isError).toBe(true);
+	},
+);
+it("auto-approves explicitly classified bounded writes without a stricter gate", async () => {
+	expect(
+		await requireDestructiveToolApproval(
+			context(),
+			{
+				toolId: "add_comment",
+				title: "Comment",
+				config: { transport: "rpc" },
+				meta: {
+					"com.tedix/policy": {
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
+			},
+			{ destructiveHint: false },
+			{ autoConfirmAgent: true },
+		),
+	).toBeNull();
+});
+
+describe("generated tools under org standing consent", () => {
+	const tools = buildAggregateTediTools(
+		[
+			{
+				slug: "echo",
+				runtimeKind: "agent",
+				tediId: "tedi",
+				organizationId: "org",
+			},
+		],
+		{ MCP_URL: "https://mcp.example.test" } as CloudflareEnv,
+	);
+	it("auto-approves the real bounded Work-comment binding", async () => {
+		const tool = tools.find(
+			(candidate) => candidate.toolId === "echo__work_item_comment",
+		)!;
+		expect(tool).toBeDefined();
+		expect(
+			await requireDestructiveToolApproval(context(), tool, tool.annotations),
+		).toBeNull();
+	});
+	it.each(["email_send", "reconcile_work_item_sources"])(
+		"does not let preview or confirmation arguments authorize %s",
+		async (name) => {
+			const tool = tools.find(
+				(candidate) => candidate.toolId === `echo__${name}`,
+			)!;
+			expect(tool).toBeDefined();
+			const result = await requireDestructiveToolApproval(
+				context(),
+				tool,
+				tool.annotations,
+				{
+					autoConfirmAgent: true,
+					allowSyncMrtr: false,
+					args: {
+						dryRun: true,
+						confirmDestructive: true,
+						reason: "agent request",
+					},
+				},
+			);
+			expect(result?.isError).toBe(true);
+		},
+	);
+});
+
+it.each([true, false])(
+	"dryRun and confirmation arguments cannot bypass explicit or critical holds (autonomy=%s)",
+	async (autonomy) => {
+		for (const [toolId, config] of [
+			["add_comment", { transport: "rpc", approvalPolicy: "always" }],
+			["stripe:create_checkout_session", { transport: "rpc" }],
+			["linkedin:create_post", { transport: "rpc" }],
+		] as Array<[string, Record<string, JsonValue>]>) {
+			const result = await requireDestructiveToolApproval(
+				context(autonomy),
+				{
+					toolId,
+					title: toolId,
+					config,
+					meta: {
+						"com.tedix/policy": {
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+					},
+				},
+				{ destructiveHint: false, readOnlyHint: false },
+				{
+					autoConfirmAgent: true,
+					args: {
+						dryRun: true,
+						confirmDestructive: true,
+						reason: "agent-supplied preview claim",
+					},
+				},
+			);
+			if (config.approvalPolicy === "always" && autonomy) {
+				expect(result).toBeNull();
+			} else {
+				expect(result).not.toBeNull();
+				if (config.approvalPolicy === "always")
+					expect(result?.isError).toBe(true);
+			}
+		}
+	},
+);
+
+it("never approval policy still allows a classified, non-destructive bounded write", async () => {
+	expect(
+		await requireDestructiveToolApproval(
+			context(),
+			{
+				toolId: "add_comment",
+				title: "Comment",
+				config: { transport: "rpc", approvalPolicy: "never" },
+				meta: {
+					"com.tedix/policy": {
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
+			},
+			{ destructiveHint: false },
+			{ autoConfirmAgent: true },
+		),
+	).toBeNull();
+});
+
+it.each([true, false])(
+	"unknown write risk cannot self-confirm (autonomy=%s)",
+	async (autonomy) => {
+		const result = await requireDestructiveToolApproval(
+			context(autonomy),
+			{
+				toolId: "run_operation",
+				title: "Operation",
+				config: { transport: "rpc" },
+			},
+			{ destructiveHint: false, readOnlyHint: false },
+			{
+				allowSyncMrtr: false,
+				autoConfirmAgent: true,
+				args: {
+					dryRun: true,
+					confirmDestructive: true,
+					reason: "agent assertion",
+				},
+			},
+		);
+		expect(result?.isError).toBe(true);
+	},
+);
+it("retains bounded legacy writes with explicit risk metadata", async () => {
+	expect(
+		await requireDestructiveToolApproval(
+			context(false),
+			{
+				toolId: "add_comment",
+				title: "Comment",
+				config: { transport: "rpc" },
+				meta: {
+					"com.tedix/policy": {
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
+			},
+			{ destructiveHint: false, readOnlyHint: false },
+			{ autoConfirmAgent: true },
+		),
+	).toBeNull();
 });

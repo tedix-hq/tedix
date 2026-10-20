@@ -153,14 +153,14 @@ describe("critical-only autonomy v1", () => {
 		).toBe(false);
 		expect(
 			decideKernelWriteApproval({
-				policy: { autonomy: policy },
+				policy: { autonomy: policy, writeTier: { trustedTools: ["*"] } },
 				sessionAllowlist: ["*"],
 				proposal: { appSlug: "mail", toolName: "send_email", riskTier: "low" },
 			}).autoResolve,
 		).toBe(false);
 		expect(
 			decideKernelWriteApproval({
-				policy: { autonomy: policy },
+				policy: { autonomy: policy, writeTier: { trustedTools: ["*"] } },
 				proposal: {
 					appSlug: "work",
 					toolName: "add_comment",

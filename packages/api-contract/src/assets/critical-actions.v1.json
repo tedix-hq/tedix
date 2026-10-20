@@ -45,18 +45,24 @@
 		"directory",
 		"glob"
 	],
+	"builtinToolPolicies": {
+		"work_item_comment": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		}
+	},
 	"classes": [
 		{
 			"id": "money",
-			"pattern": "\\b(pay(?:ments?|ing)?|purchas(?:e|es|ing)|buy(?:ing)?|transfer(?:s|ring)?|refund(?:s|ing)?|charg(?:e|es|ing)|(?:create|issue|settle|void)[_ -]+(?:(?:an?|the)[_ -]+)?invoices?|money|bank|spend(?:ing)?|chang(?:e|ing)[_ -]+budgets?|(?:raise|increase|lower|update|set|configure|adjust|decrease|reduce|modify|allocate|add|grant|revoke|remove)[_ -]+(?:the[_ -]+)?(?:budgets?|credits?|credit[_ -]+billing))\\b"
+			"pattern": "\\b(pay(?:ments?|ing)?|purchas(?:e|es|ing)|buy(?:ing)?|transfer(?:s|ring)?|refund(?:s|ing)?|charg(?:e|es|ing)|(?:create|issue|settle|void)[_ -]+(?:(?:an?|the)[_ -]+)?invoices?|money|bank|spend(?:ing)?|chang(?:e|ing)[_ -]+budgets?|(?:raise|increase|lower|update|set|configure|adjust|decrease|reduce|modify|allocate|add|grant|revoke|remove)[_ -]+(?:the[_ -]+)?(?:budgets?|credits?|credit[_ -]+billing))\\b|\\b(?:wire|iban|stripe|approve\\s+(?:(?:an?|the|pending)\\s+)*invoice)\\b"
 		},
 		{
 			"id": "external_message",
-			"pattern": "\\b(send(?:ing|s)?|whatsapp|impersonat\\w*)\\b|\\b(?:email|message)[_ -]+(?:a[_ -]+|the[_ -]+|our[_ -]+)?(?:customer|client|person|people|external|recipient|them|him|her)\\b|^\\s*(?:please\\s+)?email\\b|\\b(?:(?:slack|discord|teams)[_ -]+(?:\\w+[_ -]+){0,2}(?:post|reply)|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:slack|discord|teams))\\b"
+			"pattern": "\\b(send(?:ing|s)?|whatsapp|impersonat\\w*)\\b|\\b(?:email|message)[_ -]+(?:a[_ -]+|the[_ -]+|our[_ -]+)?(?:customer|client|person|people|external|recipient|them|him|her)\\b|^\\s*(?:please\\s+)?email\\b|\\b(?:(?:slack|discord|teams)[_ -]+(?:\\w+[_ -]+){0,2}(?:post|reply)|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:slack|discord|teams))\\b|\\b(?:resend\\s+emails\\s+create|twilio\\s+messages\\s+create|reply\\s+(?:\\w+\\s+){0,5}(?:customer|zendesk))\\b"
 		},
 		{
 			"id": "public_publish",
-			"pattern": "\\b(publish(?:ing|ed|es)?|post[_ -]+as|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:public|social|linkedin|reddit|tweet|blog))\\b"
+			"pattern": "\\b(publish(?:ing|ed|es)?|post[_ -]+as|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:public|social|linked\\s*in|reddit|tweet|blog))\\b|\\b(?:tweet|(?:linked\\s*in|reddit|facebook|instagram|social)\\s+(?:\\w+\\s+){0,3}post|github\\s+merge\\s+pull\\s+request)\\b"
 		},
 		{
 			"id": "credentials",

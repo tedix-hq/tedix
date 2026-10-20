@@ -285,7 +285,12 @@ function tool(overrides: Partial<AppTool> = {}): AppTool {
 		icons: null,
 		executionTaskSupport: null,
 		annotations: null,
-		meta: null,
+		meta: {
+			"com.tedix/policy":
+				overrides.annotations?.readOnlyHint === true
+					? { riskTier: "read", blastRadius: "none" }
+					: { riskTier: "bounded_write", blastRadius: "single_resource" },
+		},
 		invocationStatus: null,
 		fileParams: null,
 		adapterScope: null,

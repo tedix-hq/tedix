@@ -631,7 +631,7 @@ export interface DestructiveApprovalOptions {
 	requestBinding?: string;
 	/** Retry metadata. Canonical params are adapted by the stateless transport. */
 	extra?: { _meta?: Record<string, unknown> };
-	/** Parsed tool arguments; explicit dryRun=true previews are non-mutating. */
+	/** Parsed tool arguments bound to this approval request. */
 	args?: Record<string, unknown>;
 	/**
 	 * Allow synchronous MRTR. Code Mode enables it only before any dispatch,
@@ -639,19 +639,8 @@ export interface DestructiveApprovalOptions {
 	 */
 	allowSyncMrtr?: boolean;
 	/**
-	 * Auto-confirm a destructive action for an AGENT (tedi) caller with a
-	 * reasoned, audited justification, instead of failing closed on the
-	 * unreachable elicitation prompt. Passed by the Code Mode inner-tool path,
-	 * where a tedi runs its own scope-permitted tools with no protocol channel
-	 * to answer an `input_required` round-trip (see `allowSyncMrtr`). This is the
-	 * autonomous-workflow posture: a tedi self-approves destructive tools it
-	 * already has SCOPE for. It is not a scope grant and does not touch the
-	 * crown-jewel gates — capability-tier mutations (apps/api's
-	 * `agentUnreachableCapabilityFieldsTouched` allowlist) and cross-tedi/cross-org
-	 * access (the runtime self-binding guard) stay blocked at a separate layer
-	 * regardless. Only fires when the caller is actually an agent
-	 * (`callerIsAgent`) — a human operator via Code Mode still confirms explicitly
-	 * (or is denied), never auto-approved.
+	 * Legacy agent confirmation for non-critical tools only. Critical actions,
+	 * destructive hints, and explicit tool approval policies remain gated.
 	 */
 	autoConfirmAgent?: boolean;
 }
@@ -667,12 +656,20 @@ export async function requireDestructiveToolApproval(
 		tool,
 	);
 	const risk = resolveToolRiskPolicy({ meta: tool.meta ?? null })?.riskTier;
+	const configuredApproval = readApprovalPolicy(agent, tool);
+	const humanBoundary =
+		annotations?.destructiveHint === true ||
+		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`).length >
+			0 ||
+		risk === "high_impact_write" ||
+		risk === "external_side_effect";
 	if (
-		annotations?.destructiveHint !== true &&
+		!humanBoundary &&
 		!isOwnedChannelBoundary &&
-		!humanReservedActionClasses(tool.toolId).length &&
-		risk !== "high_impact_write" &&
-		risk !== "external_side_effect"
+		!configuredApproval &&
+		(!callerIsAgent(agent, options?.extra) ||
+			risk === "read" ||
+			(!risk && annotations?.readOnlyHint === true))
 	)
 		return null;
 	let autonomy: DelegationAutonomyPolicy | undefined;
@@ -699,39 +696,44 @@ export async function requireDestructiveToolApproval(
 		policy: autonomy,
 		classId: `tool:${agent.appSlug ?? ""}:${tool.toolId}`,
 		risk:
-			risk === "read" || (!risk && annotations?.readOnlyHint === true)
+			risk === "read"
 				? "low"
-				: risk === "bounded_write" ||
-					  (!risk &&
-							annotations?.readOnlyHint === false &&
-							annotations.destructiveHint !== true &&
-							tool.config?.transport === "rpc")
+				: risk === "bounded_write"
 					? "medium"
 					: risk
 						? "high"
 						: "unknown",
 		content: `${agent.appSlug ?? ""}:${tool.toolId}`,
 	});
-	if (autonomy && autonomousDecision.autoApprove && !isOwnedChannelBoundary) {
+	if (
+		autonomy &&
+		autonomousDecision.autoApprove &&
+		!isOwnedChannelBoundary &&
+		annotations?.destructiveHint !== true &&
+		configuredApproval !== "work_item"
+	) {
 		emitGovernanceAuditEvent(
 			agent,
 			tool,
 			"destructive_approved",
 			autonomousDecision.reason,
-			{ policyVersion: autonomy.version, resolvedBy: "policy" },
+			{
+				policyVersion: autonomy.version,
+				resolvedBy: "policy",
+				policyPack: autonomy.policyPack,
+			},
 		);
 		return null;
 	}
 	if (
-		annotations?.destructiveHint !== true &&
+		!humanBoundary &&
 		!isOwnedChannelBoundary &&
-		!autonomy
+		!configuredApproval &&
+		!autonomy &&
+		!callerIsAgent(agent, options?.extra)
 	)
 		return null;
-	// `content_publish` has no preview contract. Unknown arguments can be
-	// stripped downstream, so a caller-supplied dryRun=true must never bypass
-	// the exact owned-channel gate while the real publish still executes.
-	if (options?.args?.dryRun === true && !isOwnedChannelBoundary) return null;
+	// Arguments cannot certify a preview: downstream schemas may discard dryRun.
 
 	// Grant fast path (Batch 4). Runs before confirmDestructive/MRTR/elicitInput
 	// and works identically in the Code Mode inner-sandbox path (no
@@ -812,14 +814,12 @@ export async function requireDestructiveToolApproval(
 	}
 
 	if (autonomy) {
-		emitGovernanceAuditEvent(
-			agent,
-			tool,
-			"destructive_denied",
-			autonomousDecision.reason,
-		);
+		const reason = humanBoundary
+			? "critical or destructive action requires human approval"
+			: autonomousDecision.reason;
+		emitGovernanceAuditEvent(agent, tool, "destructive_denied", reason);
 		return approvalFailure(
-			`Human approval required: ${autonomousDecision.reason}. Route this action through Home's approval flow. No side effect was executed.`,
+			`Human approval required: ${reason}. Route this action through Home's approval flow. No side effect was executed.`,
 		);
 	}
 
@@ -857,7 +857,11 @@ export async function requireDestructiveToolApproval(
 	// declaring `confirmDestructive` in its own schema and sending it alongside a
 	// non-empty reason. This is still explicit, auditable consent; omitted/false
 	// values continue through MRTR/elicitation and fail closed when unavailable.
-	if (options?.args?.confirmDestructive === true) {
+	if (
+		options?.args?.confirmDestructive === true &&
+		!configuredApproval &&
+		!callerIsAgent(agent, options.extra)
+	) {
 		const reason = approvalReason({ reason: options.args.reason });
 		if (!reason) {
 			emitGovernanceAuditEvent(
@@ -877,16 +881,14 @@ export async function requireDestructiveToolApproval(
 		return null;
 	}
 
-	// Autonomous agent self-approval (Code Mode inner path). A tedi runs all its
-	// tools through Code Mode, whose sandbox cannot answer an elicitation
-	// round-trip (allowSyncMrtr is false there), so without this a tedi could not
-	// execute any destructive tool it has scope for — breaking autonomous
-	// workflows. Auto-approve for a genuine AGENT caller with an audited reason;
-	// a human operator (not callerIsAgent) still falls through to the explicit
-	// confirmation / elicitation paths below and is never auto-approved. See the
-	// autoConfirmAgent doc on DestructiveApprovalOptions for the security envelope
-	// (scope-permitted only; crown-jewel gates unaffected).
-	if (options?.autoConfirmAgent && callerIsAgent(agent, options?.extra)) {
+	// Legacy confirmation cannot override a critical or destructive boundary.
+	if (
+		options?.autoConfirmAgent &&
+		callerIsAgent(agent, options?.extra) &&
+		!humanBoundary &&
+		!configuredApproval &&
+		risk === "bounded_write"
+	) {
 		const actorType = normalizeCallerIdentity(
 			agent.callerIdentity ?? { authType: "tedi" },
 		).actorType;
