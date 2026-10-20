@@ -42,6 +42,17 @@ import {
 	repairRouteDecisionText,
 } from "./route-generation";
 import { getRouterVersion } from "./router-version";
+import {
+	compareRouteDecision,
+	type RouteChoice,
+	type RouteDecisionObservation,
+} from "./route-decision";
+import {
+	routeDetailsSchema,
+	routeDetailsInstruction,
+	routeWriterContext,
+	ROUTE_DETAILS_PROMPT_VERSION,
+} from "./route-decision-writer";
 
 // Modest bounds — the planner emits a small typed object plus a short message.
 const MAX_OUTPUT_TOKENS = 3000;
@@ -269,7 +280,7 @@ export type PlanKernelRouteResult = StampedKernelRouteDecision & {
 	 * `generateObject` path). Stamped into run metadata as `kernelRouteHedge`.
 	 */
 	hedge: KernelRouteHedge | null;
-	recovery?: "invalid_route_decision";
+	recovery?: "invalid_route_decision" | "invalid_route_details";
 };
 
 /**
@@ -462,6 +473,10 @@ export type PlanKernelRouteArgs = {
 	/** Original operator text, before attachment content is added to the prompt. */
 	operatorContent?: string;
 	context: KernelContext;
+	decisionMode?: "shadow" | "enforce";
+	decisionModel?: () => Promise<RouteDecisionObservation>;
+	/** Server-selected choice; never sourced from writer output. */
+	routeChoice?: RouteChoice;
 	/** Jev fit over already visible, capable delegation targets. Advisory only. */
 	delegationCandidateRanker?: ContextCandidateRanker;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
@@ -527,6 +542,52 @@ export type PlanKernelRouteArgs = {
  * (preserving `answer`). Applied to streamed and nonstreamed decisions from the selected model. `null` (no route) passes through untouched.
  */
 export async function planKernelRoute(
+	args: PlanKernelRouteArgs,
+): Promise<PlanKernelRouteResult | null> {
+	if (!args.decisionModel || args.abortSignal?.aborted)
+		return planKernelRouteWithRecovery(args);
+	const judgment = args.decisionModel();
+	let observation: RouteDecisionObservation | undefined;
+	let route: PlanKernelRouteResult | null = null;
+	let routerStarted = Date.now();
+	try {
+		if (args.decisionMode === "enforce") observation = await judgment;
+		const choice =
+			observation?.status === "selected" ? observation.choice : null;
+		routerStarted = Date.now();
+		route = await planKernelRouteWithRecovery(
+			choice
+				? {
+						...args,
+						routeChoice: choice,
+						context: routeWriterContext(args.context, choice),
+						delegationCandidateRanker: undefined,
+					}
+				: args,
+		);
+		return route;
+	} finally {
+		observation ??= await judgment;
+		const compared = {
+			...compareRouteDecision(observation, route),
+			routerLatencyMs: Date.now() - routerStarted,
+			...(route?.recovery === "invalid_route_details"
+				? { writerFailed: true }
+				: {}),
+		};
+		compared.applied =
+			args.decisionMode === "enforce" && observation.status === "selected";
+		if (route) route.routeDecision = compared;
+		console.info({
+			component: "kernel.route_decision",
+			runId: args.gatewayContext?.runId ?? null,
+			organizationId: args.organizationId ?? null,
+			...compared,
+		});
+	}
+}
+
+async function planKernelRouteWithRecovery(
 	args: PlanKernelRouteArgs,
 ): Promise<PlanKernelRouteResult | null> {
 	const model = args.model?.forOperation() ?? null;
@@ -662,7 +723,11 @@ export async function planKernelRoute(
 				workflowHint: null,
 				clarifyingQuestion: null,
 				evidenceExpectation: null,
-				routerVersion: await getRouterVersion(SYSTEM_PROMPT),
+				routerVersion: await getRouterVersion(
+					args.routeChoice
+						? `${SYSTEM_PROMPT}\n${ROUTE_DETAILS_PROMPT_VERSION}`
+						: SYSTEM_PROMPT,
+				),
 				usage: shapeRouteUsage(undefined, model),
 				traceInput: azureTraceInput(
 					model,
@@ -677,23 +742,40 @@ export async function planKernelRoute(
 			};
 			const answerModel = model.forOperation();
 			try {
-				await streamHomeAnswer(
-					{
-						...args,
-						// The final message includes the notice once, after the answer settles.
-						onAnswerDelta: undefined,
-						abortSignal: flatAbortSignal(
-							Math.max(1, Math.min(20_000, remainingMs())),
-							args.abortSignal,
-						),
-					},
-					answerModel,
-					fallback,
-				);
+				if (
+					!args.routeChoice ||
+					args.routeChoice.routeKind === "answer_in_home"
+				)
+					await streamHomeAnswer(
+						{
+							...args,
+							// The final message includes the notice once, after the answer settles.
+							onAnswerDelta: undefined,
+							abortSignal: flatAbortSignal(
+								Math.max(1, Math.min(20_000, remainingMs())),
+								args.abortSignal,
+							),
+						},
+						answerModel,
+						fallback,
+					);
 			} finally {
 				attempts.push(...answerModel.attempts);
 			}
-			fallback.answer = `Routing had trouble; answering directly.\n\n${fallback.answer}`;
+			if (args.routeChoice) {
+				fallback.confidence = args.routeChoice.confidence;
+				fallback.recovery = "invalid_route_details";
+				if (args.routeChoice.routeKind !== "answer_in_home") {
+					fallback.routeKind = "ask_human";
+					fallback.answer = null;
+					fallback.clarifyingQuestion =
+						"I found where this belongs, but couldn't prepare the request. Please try again.";
+					fallback.rationale =
+						"The selected route needs valid details before it can run.";
+				}
+			} else {
+				fallback.answer = `Routing had trouble; answering directly.\n\n${fallback.answer}`;
+			}
 			return fallback;
 		});
 		if (!planned) return null;
@@ -710,7 +792,7 @@ export async function planKernelRoute(
 			signal: args.abortSignal,
 		});
 		if (
-			(autoRouter || retried) &&
+			(autoRouter || retried || args.routeChoice) &&
 			guarded.routeKind === "answer_in_home" &&
 			model
 		) {
@@ -791,7 +873,9 @@ async function planKernelRouteUnguarded(
 			streamIdleMs,
 			abortSignal,
 			span,
-			hedgeAfterMs: retry ? 0 : resolveRouteHedgeAfterMs(args.env),
+			routeChoice: args.routeChoice,
+			hedgeAfterMs:
+				retry || args.routeChoice ? 0 : resolveRouteHedgeAfterMs(args.env),
 			organizationId: gatewayContext?.organizationId ?? organizationId,
 		});
 		try {
@@ -810,7 +894,11 @@ async function planKernelRouteUnguarded(
 			buildUserPrompt(
 				content,
 				context,
-				retry ? ROUTE_RETRY_INSTRUCTION : ROUTE_INSTRUCTION,
+				args.routeChoice
+					? routeDetailsInstruction(args.routeChoice)
+					: retry
+						? ROUTE_RETRY_INSTRUCTION
+						: ROUTE_INSTRUCTION,
 			),
 			args.images,
 			context.history,
@@ -818,7 +906,9 @@ async function planKernelRouteUnguarded(
 		const requestTrace = azureTraceInput(model, modelPrompt);
 		const result = await tracedAi.generateObject({
 			model: model.model,
-			schema: kernelRouteGenerationSchema,
+			schema: args.routeChoice
+				? routeDetailsSchema(args.routeChoice)
+				: kernelRouteGenerationSchema,
 			repairText: repairRouteDecisionText,
 			system: SYSTEM_PROMPT,
 			telemetry: objectSpanTelemetry("kernel.route_plan", span),
@@ -837,7 +927,11 @@ async function planKernelRouteUnguarded(
 		});
 		return {
 			...result.object,
-			routerVersion: await getRouterVersion(SYSTEM_PROMPT),
+			routerVersion: await getRouterVersion(
+				args.routeChoice
+					? `${SYSTEM_PROMPT}\n${ROUTE_DETAILS_PROMPT_VERSION}`
+					: SYSTEM_PROMPT,
+			),
 			usage: shapeRouteUsage(result.usage, model),
 			traceInput: requestTrace,
 			hedge: null,
@@ -930,6 +1024,7 @@ interface HedgeLaneState {
  * other aborted call.
  */
 function hedgedRouteStream(input: {
+	routeChoice?: RouteChoice;
 	images?: string[];
 	content: string;
 	context: KernelContext;
@@ -983,6 +1078,7 @@ function hedgedRouteStream(input: {
 			content: input.content,
 			context: input.context,
 			retry: input.retry,
+			routeChoice: input.routeChoice,
 			model: laneModel,
 			idle,
 			signal: AbortSignal.any([
@@ -1110,6 +1206,7 @@ function hedgedRouteStream(input: {
 }
 
 async function streamRoutePlan(args: {
+	routeChoice?: RouteChoice;
 	images?: string[];
 	content: string;
 	/** Original operator text, before attachment content is added to the prompt. */
@@ -1154,7 +1251,11 @@ async function streamRoutePlan(args: {
 		buildUserPrompt(
 			content,
 			context,
-			args.retry ? ROUTE_RETRY_INSTRUCTION : ROUTE_INSTRUCTION,
+			args.routeChoice
+				? routeDetailsInstruction(args.routeChoice)
+				: args.retry
+					? ROUTE_RETRY_INSTRUCTION
+					: ROUTE_INSTRUCTION,
 		),
 		args.images,
 		context.history,
@@ -1162,7 +1263,9 @@ async function streamRoutePlan(args: {
 	const requestTrace = azureTraceInput(model, modelPrompt);
 	const result = tracedAi.streamObject({
 		model: model.model,
-		schema: kernelRouteGenerationSchema,
+		schema: args.routeChoice
+			? routeDetailsSchema(args.routeChoice)
+			: kernelRouteGenerationSchema,
 		repairText: repairRouteDecisionText,
 		system: SYSTEM_PROMPT,
 		telemetry: objectSpanTelemetry("kernel.route_plan.stream", args.span),
@@ -1221,7 +1324,7 @@ async function streamRoutePlan(args: {
 		// partial and flushes as one suffix once the route is known, and a
 		// delegation preview never reaches the operator.
 		const answer =
-			partial.routeKind === "answer_in_home" &&
+			(args.routeChoice?.routeKind ?? partial.routeKind) === "answer_in_home" &&
 			typeof partial.answer === "string"
 				? partial.answer
 				: null;
@@ -1261,7 +1364,11 @@ async function streamRoutePlan(args: {
 	// undefined (shapeRouteUsage tolerates it) rather than discarding the plan.
 	const [usage, routerVersion] = await Promise.all([
 		awaitWithSettleBound<unknown>(result.usage, "usage").catch(() => undefined),
-		getRouterVersion(SYSTEM_PROMPT),
+		getRouterVersion(
+			args.routeChoice
+				? `${SYSTEM_PROMPT}\n${ROUTE_DETAILS_PROMPT_VERSION}`
+				: SYSTEM_PROMPT,
+		),
 	]);
 	return {
 		...object,

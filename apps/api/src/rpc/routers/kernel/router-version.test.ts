@@ -110,3 +110,12 @@ describe("getRouterVersion", () => {
 		expect(first).toBe(await computeRouterVersion(BASE_INPUTS));
 	});
 });
+
+it("keeps legacy and selected-route writer hashes distinct in one isolate", async () => {
+	const legacy = await getRouterVersion(SYSTEM_PROMPT);
+	const details = await getRouterVersion(
+		`${SYSTEM_PROMPT}\nhome-route-details-v1`,
+	);
+	expect(details).not.toBe(legacy);
+	expect(await getRouterVersion(SYSTEM_PROMPT)).toBe(legacy);
+});

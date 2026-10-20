@@ -66,6 +66,17 @@ export const JevSettingsSchema = z.strictObject({
 				.prefault({}),
 			memoryQuality: memoryJudgmentPolicy("enforce"),
 			graphLinking: MemoryJudgmentPolicySchema,
+			homeRoute: z
+				.strictObject({
+					mode: z.enum(["off", "shadow", "enforce"]).default("shadow"),
+					model: z
+						.enum(["@cf/cloudflare/clef", "@cf/cloudflare/clef-flash"])
+						.default("@cf/cloudflare/clef-flash"),
+					minConfidence: z.number().min(0.5).max(1).default(0.85),
+					timeoutMs: z.number().int().min(100).max(2000).default(1500),
+					shadowTurns: z.number().int().min(1).max(100000).default(100),
+				})
+				.prefault({}),
 		})
 		.prefault({}),
 });

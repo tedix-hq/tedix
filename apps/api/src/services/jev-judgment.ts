@@ -40,6 +40,8 @@ export interface JevJudgmentInput<
 	model?: DecisionModel;
 	transport?: "cloudflare" | "direct";
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
+	/** A real Worker/DO lifetime holder; admission remains awaited. */
+	holdUsagePersistence?: (work: Promise<void>) => void;
 }
 
 /** One admitted dispatch; receipt retries never replay inference or switch providers.
@@ -220,13 +222,19 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 			timeoutMs,
 		});
 		callDurationMs = Math.max(0, performance.now() - callStartedAt);
-		await recordUsage(result.usage, result.model, callDurationMs);
+		const persistence = recordUsage(result.usage, result.model, callDurationMs);
+		if (input.holdUsagePersistence)
+			input.holdUsagePersistence(persistence.catch(() => undefined));
+		else await persistence;
 		return result;
 	} catch (error) {
 		if (error instanceof JevUsagePersistenceError) throw error;
 		if (error instanceof JevResponseError && error.usage) {
 			callDurationMs ??= Math.max(0, performance.now() - callStartedAt);
-			await recordUsage(error.usage, undefined, callDurationMs);
+			const persistence = recordUsage(error.usage, undefined, callDurationMs);
+			if (input.holdUsagePersistence)
+				input.holdUsagePersistence(persistence.catch(() => undefined));
+			else await persistence;
 		}
 		console.warn("[jev-judgment] judgment unavailable", {
 			executionId: admitted?.executionId ?? null,

@@ -191,5 +191,6 @@ export function normalizeRouteDecisionCandidate(value: unknown): unknown {
  */
 export type KernelRouteDecision = z.infer<typeof KernelRouteDecisionSchema> & {
 	explicitDelegationIntent?: boolean;
+	routeDecision?: import("./route-decision").RouteDecisionObservation;
 };
 export type HomeEffortClass = (typeof HOME_EFFORT_CLASSES)[number];
