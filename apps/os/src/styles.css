@@ -184,7 +184,7 @@ a:focus-visible {
  * icon-only collapsed rows and their tooltips all live in Kumo's `Sidebar`
  * (see `components/kumo/sidebar.tsx`). What remains here is only the chrome
  * Kumo has no home for: the brand mark (shared with the Canvas workspace
- * header) and the shared ghost icon action.
+ * header).
  */
 
 .brand-mark {
@@ -217,51 +217,6 @@ a:focus-visible {
 	background: var(--card);
 	outline: 1px solid var(--border);
 	outline-offset: -1px;
-}
-
-.ghost-icon-button {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 28px;
-	height: 28px;
-	padding: 0;
-	border: none;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--muted-foreground);
-	cursor: pointer;
-	transition:
-		background-color var(--duration-tedix-standard) var(--ease-tedix-standard),
-		color var(--duration-tedix-standard) var(--ease-tedix-standard);
-}
-
-.ghost-icon-button:hover {
-	background: var(--accent);
-	color: var(--foreground);
-}
-
-.ghost-icon-button:active {
-	transform: translateY(0.5px) scale(0.99);
-}
-
-.ghost-icon-button:disabled {
-	cursor: not-allowed;
-	opacity: 0.55;
-}
-
-/*
- * Not-yet-wired controls stay in the tab order with `aria-disabled` so their
- * `title` hint remains reachable by assistive tech (native `disabled` hides it).
- */
-.ghost-icon-button[aria-disabled="true"] {
-	cursor: not-allowed;
-	opacity: 0.55;
-}
-
-.ghost-icon-button[aria-disabled="true"]:hover {
-	background: transparent;
-	color: var(--muted-foreground);
 }
 
 /*
@@ -323,31 +278,6 @@ a:focus-visible {
 	white-space: nowrap;
 }
 
-.topbar-search {
-	display: inline-flex;
-	align-items: center;
-	gap: 8px;
-	height: 32px;
-	padding: 0 8px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--background-lighter);
-	color: var(--muted-foreground);
-	font-size: var(--text-tedix-control) !important;
-	line-height: var(--text-tedix-control--line-height) !important;
-	cursor: pointer;
-	transition:
-		border-color var(--duration-tedix-standard) var(--ease-tedix-standard),
-		background-color var(--duration-tedix-standard) var(--ease-tedix-standard),
-		color var(--duration-tedix-standard) var(--ease-tedix-standard);
-}
-
-.topbar-search kbd {
-	color: var(--muted-foreground);
-	font-size: var(--text-tedix-caption);
-	line-height: var(--text-tedix-caption--line-height);
-}
-
 .topbar-actions {
 	display: flex;
 	align-items: center;
@@ -357,12 +287,6 @@ a:focus-visible {
 
 .topbar-actions .transport-status {
 	margin-left: 0;
-}
-
-.topbar-search:hover {
-	border-color: color-mix(in srgb, var(--foreground) 18%, transparent);
-	background: var(--accent);
-	color: var(--foreground);
 }
 
 .governed-status {
@@ -847,24 +771,7 @@ a:focus-visible {
 	background: var(--background);
 }
 
-/*
- * The shell's plain-CSS ghost affordance follows the same two-part contract as
- * the Kumo adapters: a deterministic 44px floor on narrow product layouts and
- * the same floor on coarse pointers at any width. Desktop geometry stays 28px.
- */
-@media (max-width: 639px) {
-	.ghost-icon-button {
-		min-width: 44px;
-		min-height: 44px;
-	}
-}
-
 @media (pointer: coarse) {
-	.ghost-icon-button {
-		min-width: 44px;
-		min-height: 44px;
-	}
-
 	/*
 	 * 16px is the iOS Safari focus-zoom threshold: focus a field rendered below
 	 * it and the page zooms in — and never zooms back out, leaving the shell
