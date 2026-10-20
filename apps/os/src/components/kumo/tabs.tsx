@@ -18,33 +18,96 @@ import { cn } from "@/lib/utils";
 
 import { Button } from "./button";
 
-/**
- * Kumo's public tabs API is ideal for controlled filter groups. It currently
- * does not forward an accessible name to its tablist, so retain the existing
- * labelled group while delegating all interaction and rendering to Kumo.
- */
+// Kumo does not forward an accessible name to its tablist.
+// Keep the labelled group around its items-array API.
 function KumoTabs({
 	"aria-label": ariaLabel,
 	className,
+	variant = "segmented",
+	listClassName,
+	indicatorClassName,
+	labels,
+	tabs,
 	...props
 }: KumoTabsProps & { "aria-label": string }) {
+	const groupRef = useRef<HTMLDivElement>(null);
+	const scroll = (direction: -1 | 1) => {
+		const list = groupRef.current?.querySelector('[role="tablist"]');
+		if (!list) return;
+		list.scrollBy({
+			behavior: "smooth",
+			left: direction * Math.max(list.clientWidth * 0.75, 160),
+		});
+	};
 	return (
 		<div
+			ref={groupRef}
 			role="group"
 			aria-label={ariaLabel}
 			className={cn(
-				"min-w-0 max-w-full [&_[role=tablist]]:!h-8 [&_[role=tablist]]:max-w-full [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:text-tedix-control [&_[role=tablist]]:leading-[1.125rem] [&_[role=tab]]:!h-7 [&_[role=tab]]:px-2.5 [&_[role=tab]]:py-0 max-sm:[&_[role=tablist]]:!h-11 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tab]]:min-w-11 max-sm:[&_[role=tab]]:px-3 max-sm:[&_[data-kumo-part=overflow-control]]:min-h-11 max-sm:[&_[data-kumo-part=overflow-control]]:min-w-11 coarse:[&_[role=tablist]]:!h-11 coarse:[&_[role=tab]]:!h-11 coarse:[&_[role=tab]]:min-w-11 coarse:[&_[role=tab]]:px-3 coarse:[&_[data-kumo-part=overflow-control]]:min-h-11 coarse:[&_[data-kumo-part=overflow-control]]:min-w-11",
+				"group/routed-tabs relative min-w-0 max-w-full [&_[role=tablist]]:max-w-full max-sm:[&_[role=tablist]]:!h-11 max-sm:[&_[role=tab]]:!h-11 max-sm:[&_[role=tab]]:min-w-11 max-sm:[&_[role=tab]]:px-3 max-sm:[&_[data-kumo-part=overflow-control]]:min-h-11 max-sm:[&_[data-kumo-part=overflow-control]]:min-w-11 coarse:[&_[role=tablist]]:!h-11 coarse:[&_[role=tab]]:!h-11 coarse:[&_[role=tab]]:min-w-11 coarse:[&_[role=tab]]:px-3 coarse:[&_[data-kumo-part=overflow-control]]:min-h-11 coarse:[&_[data-kumo-part=overflow-control]]:min-w-11",
+				variant === "segmented"
+					? "[&_[role=tablist]]:!h-8 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:text-tedix-control [&_[role=tablist]]:leading-[1.125rem] [&_[role=tab]]:!h-7 [&_[role=tab]]:px-2.5 [&_[role=tab]]:py-0"
+					: "[&_[role=tab]]:h-full [&_[role=tab]]:shrink-0 [&_[role=tab]]:justify-center [&_[role=tab]]:rounded-none [&_[role=tab]]:px-3 [&_[role=tab]]:py-0 [&_[role=tab]]:text-kumo-subtle [&_[role=tab]]:hover:bg-transparent [&_[role=tab]]:hover:text-kumo-default [&_[role=tab]]:aria-selected:text-kumo-default",
 				className,
 			)}
 		>
-			<KumoTabsPrimitive className="max-w-full" {...props} />
+			<KumoTabsPrimitive
+				className="max-w-full"
+				variant={variant}
+				listClassName={cn(
+					variant === "underline" &&
+						"box-content h-9 w-full gap-0 border-kumo-hairline border-b pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+					listClassName,
+				)}
+				indicatorClassName={cn(
+					variant === "underline" && "h-0.5 bg-kumo-brand",
+					indicatorClassName,
+				)}
+				labels={labels}
+				tabs={
+					variant === "underline"
+						? tabs?.map((tab) => ({
+								...tab,
+								className: cn("type-tedix-control", tab.className),
+							}))
+						: tabs
+				}
+				{...props}
+			/>
+			{/* Kumo 2.15 only renders overflow controls for segmented tabs. */}
+			{variant === "underline" && (
+				<>
+					<Button
+						type="button"
+						data-kumo-part="overflow-control"
+						aria-label={labels?.scrollStart ?? `Scroll ${ariaLabel} left`}
+						className="absolute top-0 left-0 z-10 hidden bg-kumo-base group-has-[[role=tablist][data-overflow-start]]/routed-tabs:flex"
+						size="icon-sm"
+						variant="outline"
+						onClick={() => scroll(-1)}
+					>
+						<CaretLeft aria-hidden size={14} />
+					</Button>
+					<Button
+						type="button"
+						data-kumo-part="overflow-control"
+						aria-label={labels?.scrollEnd ?? `Scroll ${ariaLabel} right`}
+						className="absolute top-0 right-0 z-10 hidden bg-kumo-base group-has-[[role=tablist][data-overflow-end]]/routed-tabs:flex"
+						size="icon-sm"
+						variant="outline"
+						onClick={() => scroll(1)}
+					>
+						<CaretRight aria-hidden size={14} />
+					</Button>
+				</>
+			)}
 		</div>
 	);
 }
 
-// Kumo's public Tabs accepts an items array. OS composes tab panels as children,
-// so this adapter uses the same Base UI primitive as Kumo
-// and carries Kumo's segmented/underline styling onto the compound API.
+// Panel composition and the quiet Outputs filter still use the compound API.
+// Routed bars use KumoTabs variant="underline".
 function Tabs({
 	className,
 	orientation = "horizontal",
@@ -230,8 +293,4 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
 	);
 }
 
-// Prefer KumoTabs for compact segmented choices. Use the compound adapter for
-// panels, routed sections, and a scrollable filter browsing axis whose quiet
-// peer chips must not inherit the public segmented container or overflow
-// controls.
 export { KumoTabs, Tabs, TabsContent, TabsList, TabsTrigger };

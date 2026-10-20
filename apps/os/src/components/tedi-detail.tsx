@@ -17,7 +17,7 @@ import {
 	PageMeta,
 	PageTitle,
 } from "@/components/kumo/page";
-import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
+import { KumoTabs } from "@/components/kumo/tabs";
 import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	type EntrustmentEffectiveStatus,
@@ -213,22 +213,19 @@ export function TediDetailPage() {
 			<div className="grid min-w-0 gap-4">
 				{tedi && <TediDetailHeader tedi={tedi} summary={summary} />}
 
-				<Tabs value={activeTab}>
-					<TabsList aria-label="Tedi detail sections" variant="line">
-						{DETAIL_NAV.map((item) => (
-							<TabsTrigger
-								key={item.value}
-								nativeButton={false}
-								value={item.value}
-								render={
-									<Link to={item.path} params={{ tediId }} preload="intent" />
-								}
-							>
-								{item.label}
-							</TabsTrigger>
-						))}
-					</TabsList>
-				</Tabs>
+				<KumoTabs
+					aria-label="Tedi detail sections"
+					variant="underline"
+					value={activeTab}
+					tabs={DETAIL_NAV.map((item) => ({
+						value: item.value,
+						label: item.label,
+						nativeButton: false,
+						render: (
+							<Link to={item.path} params={{ tediId }} preload="intent" />
+						),
+					}))}
+				/>
 			</div>
 
 			<Outlet />

@@ -35,7 +35,7 @@ import {
 	PageTitle,
 } from "@/components/kumo/page";
 import { SelectItem } from "@/components/kumo/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
+import { KumoTabs } from "@/components/kumo/tabs";
 import { useSkillsWebMcpTools } from "@/components/skills-webmcp-tools";
 import { osApi } from "@/lib/api";
 import {
@@ -173,33 +173,31 @@ export function SkillDetailLayout() {
 						</PageActions>
 					) : null}
 				</PageHeader>
-				<Tabs value={activeTab}>
-					<TabsList aria-label="Skill detail sections" variant="line">
-						{(["overview", "runs", "versions", "schedule"] as const).map(
-							(tab) => (
-								<TabsTrigger
-									key={tab}
-									nativeButton={false}
-									value={tab}
-									render={
-										<Link
-											to={
-												tab === "overview"
-													? "/skills/$skillId"
-													: `/skills/$skillId/${tab}`
-											}
-											params={{ skillId }}
-										/>
+				<KumoTabs
+					aria-label="Skill detail sections"
+					variant="underline"
+					value={activeTab}
+					tabs={(["overview", "runs", "versions", "schedule"] as const).map(
+						(tab) => ({
+							value: tab,
+							label:
+								tab === "overview"
+									? "Overview"
+									: tab[0]?.toUpperCase() + tab.slice(1),
+							nativeButton: false,
+							render: (
+								<Link
+									to={
+										tab === "overview"
+											? "/skills/$skillId"
+											: `/skills/$skillId/${tab}`
 									}
-								>
-									{tab === "overview"
-										? "Overview"
-										: tab[0]?.toUpperCase() + tab.slice(1)}
-								</TabsTrigger>
+									params={{ skillId }}
+								/>
 							),
-						)}
-					</TabsList>
-				</Tabs>
+						}),
+					)}
+				/>
 			</div>
 			<Outlet />
 
