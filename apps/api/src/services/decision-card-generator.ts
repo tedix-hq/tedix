@@ -46,7 +46,15 @@ function writingContext(value: string): string {
 	}
 }
 
-function copyRepairFeedback(draft: unknown, failures: string[]) {
+function copyRepairFeedback(
+	draft: unknown,
+	failures: string[],
+	schemaIssues?: readonly {
+		code: string;
+		path: PropertyKey[];
+		message: string;
+	}[],
+) {
 	const record =
 		draft && typeof draft === "object"
 			? (draft as Record<string, unknown>)
@@ -65,6 +73,11 @@ function copyRepairFeedback(draft: unknown, failures: string[]) {
 		copySpec.faceWordLimit - (record.context ? copySpec.faceChromeWords : 0);
 	return JSON.stringify({
 		failedChecks: failures,
+		schemaIssues: schemaIssues?.map(({ code, path, message }) => ({
+			code,
+			path: path.map(String).join("."),
+			message,
+		})),
 		bannedTerms: copySpec.bannedWords.filter((term) =>
 			new RegExp(`\\b${term}\\b`, "i").test(text),
 		),
@@ -100,6 +113,7 @@ export async function generateDecisionCard(
 		metadata: Record<string, unknown>;
 	},
 	onFailure?: (reason: string) => void,
+	options?: { timeoutMs?: number; requireContext?: boolean },
 ) {
 	if (containsCardSecret(request)) {
 		onFailure?.("unsafe_source");
@@ -186,7 +200,7 @@ export async function generateDecisionCard(
 				}),
 	}).replace(new RegExp(RAW_IDENTIFIER.source, "gi"), "[reference]");
 	let repair = "";
-	const deadline = Date.now() + 12000;
+	const deadline = Date.now() + Math.min(options?.timeoutMs ?? 12000, 20000);
 	for (let attempt = 0; attempt < 2; attempt++) {
 		const timeoutMs = Math.min(10000, deadline - Date.now());
 		if (timeoutMs <= 0) {
@@ -225,6 +239,11 @@ export async function generateDecisionCard(
 			if (containsCardSecret(draft)) {
 				onFailure?.("unsafe_copy");
 				return null;
+			}
+			if (draft && typeof draft === "object" && !Array.isArray(draft)) {
+				for (const field of ["stakes", "actionLabels", "effectStatus"]) {
+					if (draft[field] === null) delete draft[field];
+				}
 			}
 			for (const [field, rule] of Object.entries(copySpec.fields)) {
 				if (typeof draft?.[field] === "string")
@@ -273,6 +292,8 @@ export async function generateDecisionCard(
 			}
 			if (parsed.success) {
 				const issues = checkDecisionCardCopy(parsed.data);
+				if (options?.requireContext && !parsed.data.context)
+					issues.push("context");
 				if (issues.length || parsed.data.version !== copySpec.version) {
 					const failures = issues.length ? issues : ["version"];
 					onFailure?.(`invalid_copy:${failures.join(",")}`);
@@ -326,7 +347,11 @@ export async function generateDecisionCard(
 				)
 				.join(",");
 			onFailure?.(`invalid_copy:${fields}`);
-			repair = copyRepairFeedback(draft, fields.split(","));
+			repair = copyRepairFeedback(
+				draft,
+				fields.split(","),
+				parsed.error.issues,
+			);
 		} catch {
 			onFailure?.("invalid_copy:json");
 			repair =
