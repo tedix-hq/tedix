@@ -1,3 +1,5 @@
+import { DeckCurationStateSchema } from "../schemas/deck-curation";
+import { isCriticalDeckCard } from "./deck-curator";
 import type * as z from "zod";
 import {
 	classifyDeckCard,
@@ -75,7 +77,7 @@ export function rankDeckCard<
 	},
 ) {
 	const m = request?.metadata;
-	return rankDecision(row, model, now, {
+	const ranked = rankDecision(row, model, now, {
 		classId:
 			row.decision?.classId ??
 			(typeof m?.decisionClass === "string"
@@ -88,6 +90,18 @@ export function rankDeckCard<
 		channel: typeof m?.channel === "string" ? m.channel : undefined,
 		personIds: typeof m?.personId === "string" ? [m.personId] : [],
 	});
+	const state = DeckCurationStateSchema.safeParse(m?.curation);
+	const penalty =
+		state.success &&
+		!isCriticalDeckCard({
+			...row,
+			interaction: request
+				? ({ request } as DeckCard["interaction"])
+				: undefined,
+		})
+			? state.data.penalty
+			: 0;
+	return { ...ranked, score: ranked.score + penalty };
 }
 
 export function compareDecisionFreshness(
@@ -96,12 +110,18 @@ export function compareDecisionFreshness(
 		dueAt?: string | null;
 		requestedAt?: string;
 		score?: number;
+		decision?: DeckCard["decision"];
+		interaction?: DeckCard["interaction"];
+		factory?: DeckCard["factory"];
 	},
 	b: {
 		kind?: string;
 		dueAt?: string | null;
 		requestedAt?: string;
 		score?: number;
+		decision?: DeckCard["decision"];
+		interaction?: DeckCard["interaction"];
+		factory?: DeckCard["factory"];
 	},
 	now: Date,
 	timeZone?: string,
@@ -122,6 +142,7 @@ export function compareDecisionFreshness(
 			? value === today
 			: calendarDay(new Date(timestamp), timeZone) === today);
 	return (
+		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
 		Number(elapsed(a.dueAt, aDue)) - Number(elapsed(b.dueAt, bDue)) ||
 		Number(b.kind === "approval") - Number(a.kind === "approval") ||
 		Number(dueToday(b.dueAt, bDue)) - Number(dueToday(a.dueAt, aDue)) ||

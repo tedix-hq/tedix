@@ -1,8 +1,5 @@
 import type * as z from "zod";
-import type {
-	AttentionViewInputSchema,
-	DeckCard,
-} from "@tedix/api-contract/schemas/attention";
+import type { AttentionViewInputSchema } from "@tedix/api-contract/schemas/attention";
 import {
 	DeckCuratorRankerConfigSchema,
 	DeckRankExampleSchema,
@@ -12,12 +9,8 @@ import {
 	retrieveDeckExamples,
 	deckRankSignal,
 	orderCuratedDeck,
+	isCriticalDeckCard,
 } from "@tedix/api-contract/utils/deck-curator";
-import {
-	classifyDeckCard,
-	type DeckRoutingPolicy,
-} from "@tedix/api-contract/schemas/os-decision-deck";
-import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { listLearningInteractions } from "@tedix/db/queries/learning-feedback";
 import { reserveDeckRankingBudget } from "@tedix/db/queries/deck-curator-budget";
@@ -27,37 +20,6 @@ import { verifiedActiveWorkActor } from "../rpc/routers/work-items-principal";
 import { createError, ErrorCodes, type BaseContext } from "../rpc/orpc";
 import { loadDeckProjection } from "./attention-projection";
 import { runDecisionCardCopyModel } from "./decision-card-copy-model";
-
-function isCriticalDeckCard(card: DeckCard, routing?: DeckRoutingPolicy) {
-	const request = card.interaction?.request;
-	const decision = card.decision;
-	return (
-		card.kind === "approval" ||
-		card.kind === "outbound" ||
-		card.factory?.policyCritical === true ||
-		Boolean(decision?.protectedEffects.length) ||
-		request?.metadata.approvalOperation !== undefined ||
-		Boolean(request?.metadata.localImport) ||
-		(request?.metadata.protectedEffects !== undefined &&
-			(!Array.isArray(request.metadata.protectedEffects) ||
-				request.metadata.protectedEffects.length > 0)) ||
-		humanReservedActionClasses(`${card.label}\n${request?.prompt ?? ""}`)
-			.length > 0 ||
-		classifyDeckCard(
-			{
-				kind: card.kind,
-				classId:
-					decision?.classId ??
-					String(request?.metadata.decisionClass ?? card.kind),
-				risk: String(request?.metadata.riskLevel ?? ""),
-				action: request?.prompt ?? card.label,
-				protectedEffects: decision?.protectedEffects,
-				needsPerson: true,
-			},
-			routing,
-		).reason === "critical"
-	);
-}
 
 /** Explicit paid operation. Ordinary Deck reads do not trigger model calls. */
 export async function rankCurrentDeck(

@@ -2,6 +2,12 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import {
+	DeckCurationScopeSchema,
+	CurateDeckCardInputSchema,
+} from "../schemas/deck-curation";
+import { CardRevisionSchema } from "../schemas/card-revisions";
+import { WorkInteractionInboxRowSchema } from "../schemas/work-interactions";
 import { DeckRankSignalSchema } from "../schemas/deck-curator";
 import {
 	AttentionViewInputSchema,
@@ -63,6 +69,37 @@ export const attentionContract = oc
 			})
 			.input(DecideDeckCardRequestSchema)
 			.output(z.strictObject({ saved: z.literal(true), cardId: z.string() })),
+		curationInbox: oc
+			.route({
+				summary: "Read the explicitly delegated recipient curation inbox",
+			})
+			.input(DeckCurationScopeSchema)
+			.output(
+				z.strictObject({
+					items: z.array(WorkInteractionInboxRowSchema),
+					complete: z.boolean(),
+					observedAt: z.iso.datetime(),
+				}),
+			),
+		curateDeckCard: oc
+			.route({
+				summary:
+					"Revise or supersede a delegated card with immutable undo history; never answer or execute it",
+			})
+			.input(CurateDeckCardInputSchema)
+			.output(CardRevisionSchema),
+		rankCurationInbox: oc
+			.route({
+				summary:
+					"Persist negative-only rank signals for a delegated recipient inbox",
+			})
+			.input(DeckCurationScopeSchema)
+			.output(
+				z.strictObject({
+					signals: z.array(DeckRankSignalSchema),
+					reservedMicros: z.number().int().nonnegative(),
+				}),
+			),
 		listFeedForYou: oc
 			.input(AttentionViewInputSchema)
 			.output(ForYouProjectionSchema),

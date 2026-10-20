@@ -164,7 +164,7 @@ export function deliveryOverlay(
 	};
 }
 
-function requestOutput(
+export function requestOutput(
 	row: InteractionRow,
 	attention?: AttentionOverlay,
 	resolution?: ResolutionDelivery | null,

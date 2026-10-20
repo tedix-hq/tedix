@@ -4,6 +4,8 @@ import {
 	type KeptCardHunk,
 	type CardAnchorResolution,
 } from "@tedix/api-contract/schemas/card-revisions";
+import { DeckCurationStateSchema } from "@tedix/api-contract/schemas/deck-curation";
+import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import {
 	appendCardRevision,
@@ -65,12 +67,21 @@ export async function cardRevisionAccess(
 				request.creatorId === actor.id &&
 				(actor.type !== "external_agent" ||
 					request.creatorSessionId === actor.sessionId);
-	if (!request || (!recipient && !owner))
+	const curator =
+		actor.type === "tedi" &&
+		request?.targetType === "user" &&
+		(await getDecisionLearningConfig(context.db, orgId)).deckCurators.some(
+			(g) =>
+				g.enabled &&
+				g.tediId === actor.id &&
+				g.recipientId === request.targetId,
+		);
+	if (!request || (!recipient && !owner && !curator))
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"Only this card's recipient and owning agent can read its revisions",
 		);
-	return { orgId, actor, request, recipient, owner, ownerTediId };
+	return { orgId, actor, request, recipient, owner, ownerTediId, curator };
 }
 
 export function cardOriginalBody(
@@ -180,11 +191,25 @@ export async function reviseCardContent(
 		);
 	if (
 		request.version !== input.expectedRequestVersion ||
-		request.status !== "open"
+		(request.status !== "open" &&
+			!(
+				recipient &&
+				input.restoreRevision &&
+				request.status === "cancelled" &&
+				DeckCurationStateSchema.safeParse(request.metadata.curation).success
+			))
 	)
 		throw createError(ErrorCodes.CONFLICT, "The card changed; reload it");
 	const history = await ensureCardInitialRevision(context, access);
 	const latest = history.at(-1)!;
+	if (
+		request.status === "cancelled" &&
+		latest.instruction !== JSON.stringify(request.metadata.curation)
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only an immutable curator supersession can be restored",
+		);
 	if (
 		latest.revision !== input.expectedRevision &&
 		!(input.expectedRevision === 0 && latest.revision === 1)
@@ -278,6 +303,28 @@ export async function reviseCardContent(
 		);
 		return (await listCardRevisions(context.db, orgId, request.id)).at(-1)!;
 	}
+	let curation;
+	if (
+		restored &&
+		DeckCurationStateSchema.safeParse(request.metadata.curation).success
+	) {
+		try {
+			curation = DeckCurationStateSchema.parse(
+				JSON.parse(restored.instruction ?? "null"),
+			);
+		} catch {
+			curation = DeckCurationStateSchema.parse({
+				schema: "tedix.deck-curation.v1",
+				status: "open",
+				successorId: null,
+				penalty: 0,
+				reason: "Restored original card",
+				evidenceRefs: [],
+				model: null,
+				exampleIds: [],
+			});
+		}
+	}
 	const cause = restored
 		? "restore"
 		: recipient
@@ -288,14 +335,18 @@ export async function reviseCardContent(
 		requestId: request.id,
 		expectedVersion: request.version,
 		expectedRevision: latest.revision,
+		...(curation
+			? { curation, expectedStatus: request.status as "open" | "cancelled" }
+			: {}),
 		body,
 		cause,
 		proposal: proposal ?? null,
 		actorType: actor.type,
 		actorId: actor.id,
 		actorSessionId: actor.sessionId,
-		instruction:
-			typeof change?.metadata.instruction === "string"
+		instruction: curation
+			? JSON.stringify(curation)
+			: typeof change?.metadata.instruction === "string"
 				? change.metadata.instruction
 				: undefined,
 		responseId: change?.id,

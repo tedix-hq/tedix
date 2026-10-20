@@ -1,3 +1,9 @@
+import type { DeckCard } from "../schemas/attention";
+import {
+	classifyDeckCard,
+	type DeckRoutingPolicy,
+} from "../schemas/os-decision-deck";
+import { humanReservedActionClasses } from "./approval-policy";
 import type {
 	DeckCuratorRankerConfig,
 	DeckRankExample,
@@ -134,4 +140,38 @@ export function orderCuratedDeck<T extends { id: string; score: number }>(
 				a.index - b.index,
 		)
 		.map(({ card, score }) => ({ ...card, score }));
+}
+
+export function isCriticalDeckCard(
+	card: Partial<DeckCard>,
+	routing?: DeckRoutingPolicy,
+) {
+	const request = card.interaction?.request;
+	const decision = card.decision;
+	return (
+		card.kind === "approval" ||
+		card.kind === "outbound" ||
+		card.factory?.policyCritical === true ||
+		Boolean(decision?.protectedEffects.length) ||
+		request?.metadata.approvalOperation !== undefined ||
+		Boolean(request?.metadata.localImport) ||
+		(request?.metadata.protectedEffects !== undefined &&
+			(!Array.isArray(request.metadata.protectedEffects) ||
+				request.metadata.protectedEffects.length > 0)) ||
+		humanReservedActionClasses(`${card.label}\n${request?.prompt ?? ""}`)
+			.length > 0 ||
+		classifyDeckCard(
+			{
+				kind: card.kind ?? "question",
+				classId:
+					decision?.classId ??
+					String(request?.metadata.decisionClass ?? card.kind),
+				risk: String(request?.metadata.riskLevel ?? ""),
+				action: request?.prompt ?? card.label ?? "",
+				protectedEffects: decision?.protectedEffects,
+				needsPerson: true,
+			},
+			routing,
+		).reason === "critical"
+	);
 }

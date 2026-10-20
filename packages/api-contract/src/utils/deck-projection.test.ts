@@ -90,7 +90,7 @@ describe("canonical Deck projection", () => {
 				row("opportunity", { decisionClass: "opportunity.new" }),
 				row("critical", { riskLevel: "critical" }),
 			]).map((card) => card.id),
-		).toEqual(["customer", "opportunity", "critical"]);
+		).toEqual(["customer", "critical", "opportunity"]);
 	});
 	it("preserves the complete draft and the canonical response version", () => {
 		const original = row("customer", { decisionDeck: decision });
@@ -313,4 +313,58 @@ it("does not guess ambiguous, invalid, undated or cross-year factory deadlines",
 	expect(
 		factoryCardDeadline({ ...card, scheduleDates: ["2026-10-20T12:00:00Z"] }),
 	).toBe("2026-10-20T12:00:00Z");
+});
+
+it("applies persisted negative ranking without hiding a card or demoting critical policy", () => {
+	const state = {
+		schema: "tedix.deck-curation.v1",
+		status: "open",
+		successorId: null,
+		penalty: -10,
+		reason: "ranked_lower",
+		evidenceRefs: [],
+		model: "fictional-model",
+		exampleIds: [],
+	};
+	const original = rankDeckCard(
+		{
+			id: "ordinary",
+			kind: "question",
+			project: "",
+			urgency: "later",
+			label: "Template choice?",
+			decision: null,
+		},
+		undefined,
+		now,
+		{ kind: "question", metadata: {} },
+	);
+	const lowered = rankDeckCard(
+		{
+			id: "ordinary",
+			kind: "question",
+			project: "",
+			urgency: "later",
+			label: "Template choice?",
+			decision: null,
+		},
+		undefined,
+		now,
+		{ kind: "question", metadata: { curation: state } },
+	);
+	expect(lowered.score).toBe(original.score - 10);
+	const protectedRank = rankDeckCard(
+		{
+			id: "critical",
+			kind: "question",
+			project: "",
+			urgency: "later",
+			label: "Template choice?",
+			decision: null,
+		},
+		undefined,
+		now,
+		{ kind: "question", metadata: { riskLevel: "critical", curation: state } },
+	);
+	expect(protectedRank.score).toBe(original.score);
 });
