@@ -869,6 +869,24 @@ export function applyDemoPack(
 			},
 		});
 	}
+	// The read-only System map, reachable from the workspace like any app.
+	list(state, "gadgets").push({
+		...gadgetTemplate,
+		id: uid(49, 12),
+		name: "System map",
+		workspaceId: workspaces[0]!.id,
+		currentRevisionId: uid(50, 12),
+	});
+	list(state, "gadgetRevisions").push({
+		...gadgetRevisionTemplate,
+		id: uid(50, 12),
+		gadgetId: uid(49, 12),
+		manifest: {
+			entry: "tedix:app/system-map",
+			capabilities: [],
+			config: { version: 1 },
+		},
+	});
 	h["osWorkspaces/gadgets/installWorkDefaults"] = () => ({
 		workspaceId: workspaces[0]!.id,
 	});

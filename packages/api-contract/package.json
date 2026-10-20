@@ -74,6 +74,7 @@
 		"./schemas/os-work-actor": "./src/schemas/os-work-actor.ts",
 		"./schemas/os-outbound-review": "./src/schemas/os-outbound-review.ts",
 		"./schemas/os-session-apps": "./src/schemas/os-session-apps.ts",
+		"./schemas/os-system-map": "./src/schemas/os-system-map.ts",
 		"./schemas/os-workspace-schedules": "./src/schemas/os-workspace-schedules.ts",
 		"./constants/enums": "./src/constants/enums.ts",
 		"./constants/workflow-definition-keys": "./src/constants/workflow-definition-keys.ts",
