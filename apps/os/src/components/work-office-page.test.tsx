@@ -77,6 +77,21 @@ describe("Office ledger rendering", () => {
 			),
 			"text/html",
 		);
+		const app = doc.querySelector('[data-workspace-app-entry="office"]')!;
+		expect(app.firstElementChild?.querySelector("h1")?.textContent).toBe(
+			"Office",
+		);
+		const activity = app.querySelector("#office-activity-title")!;
+		const today = app.querySelector('[aria-label="Loading today"]')!;
+		expect(
+			activity.compareDocumentPosition(today) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		const context = [...app.querySelectorAll("button")].find(
+			(button) => button.textContent === "Decision context",
+		)!;
+		expect(context.getAttribute("aria-expanded")).toBe("false");
+		expect(app.querySelector('[aria-label="Decision attention"]')).toBeNull();
 		expect(doc.querySelector('[aria-label="For you"] li')).not.toBeNull();
 		const answered = doc.querySelector(
 			'[aria-labelledby="office-answered-title"]',
