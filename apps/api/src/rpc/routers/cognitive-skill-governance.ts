@@ -62,7 +62,7 @@ import { requireOrgId } from "../org-scope";
 import {
 	getSkillRunForEnvironment,
 	requireOwnedTedi,
-} from "./cognitive-skill-runs";
+} from "./cognitive-skill-runs/shared";
 import {
 	applyValidationGate,
 	coerceArrayOptional,
