@@ -263,17 +263,3 @@
 		gap: 0;
 	}
 }
-@media (prefers-reduced-motion: reduce) {
-	.focus-feed *,
-	.focus-feed *::before,
-	.focus-feed *::after {
-		animation: none !important;
-		transition: none !important;
-		scroll-behavior: auto !important;
-	}
-}
-[data-motion="reduced"] .focus-feed * {
-	animation: none !important;
-	transition: none !important;
-	scroll-behavior: auto !important;
-}
