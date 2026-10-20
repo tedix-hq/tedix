@@ -89,6 +89,7 @@ export async function resolveStoredLoginAuth(
 	workspace: string,
 	options: {
 		credential?: ReturnType<typeof readWorkspaceCredentials>;
+		consentPrompt?: boolean;
 		refreshSession?: typeof renewStoredSession;
 	} = {},
 ): Promise<{
@@ -128,7 +129,7 @@ export async function resolveStoredLoginAuth(
 		credential: cred,
 		// Stored-login commands are not `tedix login`: without a person at a
 		// terminal, a scope challenge fails fast with the login command to run.
-		consentPrompt: canPromptForConsent(),
+		consentPrompt: options.consentPrompt ?? canPromptForConsent(),
 		...(isTedixHostedMcpUrl(mcpUrl)
 			? { staticClientId: expectedClientId }
 			: {}),

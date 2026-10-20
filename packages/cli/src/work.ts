@@ -73,7 +73,10 @@ import {
 	isRateLimitError,
 	rateLimitRetryAfterMs,
 } from "./home-client";
-import type { NativeBootstrapCache } from "./native-bootstrap-cache";
+import {
+	NATIVE_DESCRIPTOR_CACHE_TTL_MS,
+	type NativeBootstrapCache,
+} from "./native-bootstrap-cache";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import {
 	cleanupAttemptWorktrees,
@@ -189,6 +192,8 @@ export interface WorkContext {
 	/** Effective authenticated gateway/tenant, supplied by CLI routing. */
 	mcpUrl?: string;
 	organizationId?: string;
+	/** Profile, selected organization and credential source fence for discovery. */
+	nativeCacheScope?: string;
 	/** Local resolver injection for checkpoint isolation tests. */
 	resolveContext?: (sessionId?: string) => AgentContextResult;
 	/** Clock injection for deterministic heartbeat-loop tests. */
@@ -578,6 +583,7 @@ export type NativeToolContext = Pick<
 	| "workspace"
 	| "mcpUrl"
 	| "organizationId"
+	| "nativeCacheScope"
 	| "bootstrapCache"
 	| "signal"
 >;
@@ -731,7 +737,11 @@ function usableDescriptor(value: unknown) {
 
 function bootstrapCacheKey(ctx: NativeToolContext): string | undefined {
 	if (!ctx.bootstrapCache || !ctx.mcpUrl) return undefined;
-	return [ctx.mcpUrl, ctx.workspace, ctx.organizationId ?? ""].join("|");
+	return [
+		ctx.mcpUrl,
+		ctx.nativeCacheScope ?? ctx.workspace,
+		ctx.organizationId ?? "",
+	].join("|");
 }
 
 /** Validate a gateway bootstrap answer, fresh or cached, for this command. */
@@ -859,6 +869,30 @@ function catalogRowRefusal(
 	return `Native Work callable ${callable}${needs}${lacks}; ${login}`;
 }
 
+function isNativeSchemaError(error: unknown): boolean {
+	const message =
+		isRecord(error) && typeof error.message === "string"
+			? error.message
+			: errorText(error);
+	const status = isRecord(error) ? error.status : undefined;
+	return (
+		/schema|invalid.?params|validation|unknown tool|tool.*not found|method not found/i.test(
+			message,
+		) &&
+		(status === undefined ||
+			(typeof status === "number" && status >= 400 && status < 500))
+	);
+}
+
+function invalidateNativeResolution(ctx: NativeToolContext, callable: string) {
+	const key = bootstrapCacheKey(ctx);
+	const entry = key ? ctx.bootstrapCache!.read(key) : undefined;
+	if (!key || !entry) return;
+	const resolutions = { ...entry.resolutions };
+	delete resolutions[callable];
+	ctx.bootstrapCache!.write(key, { ...entry, resolutions });
+}
+
 /** Resolve an exact configured callable; the catalog's native name is the wire identity. */
 async function boardCall(
 	ctx: NativeToolContext,
@@ -879,41 +913,40 @@ async function boardCall(
 		const projectionSchema = CLI_PROJECTION_SCHEMAS[expectedEndpoint];
 		projectionSchema?.input.parse(input);
 		const dot = callable.indexOf(".");
-		// A read can start with the tool name this callable resolved to last
-		// time. Its answer is used only if the checks below resolve the same
-		// tool; the catalog checks never move after a mutation.
-		const readOnly =
-			!destructiveApprovalReason &&
-			/^(get|list)_/.test(callable.slice(dot + 1));
-		let early: Promise<{ value?: unknown; error?: unknown }> | undefined;
-		let earlyName: string | undefined;
 		const resolve = async () => {
 			const bootstrap = await nativeBootstrap(ctx);
-			const guess = readOnly ? state.tools?.[callable] : undefined;
-			if (guess && !early) {
-				earlyName = guess;
-				early = ctx.client.callTool(guess, input, nativeOptions(ctx)).then(
-					(value) => ({ value }),
-					(error: unknown) => ({ error }),
-				);
-			}
+			const key = bootstrapCacheKey(ctx);
+			const entry = key ? ctx.bootstrapCache!.read(key) : undefined;
+			const cached = entry?.resolutions?.[callable];
+			const catalogHash = JSON.stringify(bootstrap.nativeCatalog);
+			const cachedResolution =
+				!!cached &&
+				cached.catalogHash === catalogHash &&
+				cached.at <= Date.now() &&
+				Date.now() - cached.at < NATIVE_DESCRIPTOR_CACHE_TTL_MS;
 			const search = usableDescriptor(bootstrap.nativeCatalog.search);
 			const describe = usableDescriptor(bootstrap.nativeCatalog.describe);
 			// Search and describe are independent reads; the checks below still
 			// require both to agree before the call.
-			const [result, detail] = await Promise.all([
-				ctx.client.callTool(
-					search.name,
-					{
-						query: callable.slice(dot + 1),
-						namespace: callable.slice(0, dot),
-						limit: 100,
-						includeOutputSchema: true,
-					},
-					nativeOptions(ctx),
-				),
-				ctx.client.callTool(describe.name, { callable }, nativeOptions(ctx)),
-			]);
+			const [result, detail] = cachedResolution
+				? [{ results: [cached!.row] }, cached!.detail]
+				: await Promise.all([
+						ctx.client.callTool(
+							search.name,
+							{
+								query: callable.slice(dot + 1),
+								namespace: callable.slice(0, dot),
+								limit: 100,
+								includeOutputSchema: true,
+							},
+							nativeOptions(ctx),
+						),
+						ctx.client.callTool(
+							describe.name,
+							{ callable },
+							nativeOptions(ctx),
+						),
+					]);
 			if (!isRecord(result) || !Array.isArray(result.results))
 				throw new Error("Malformed native Work catalog search");
 			const matches = result.results.filter(
@@ -963,6 +996,20 @@ async function boardCall(
 			if (!isRecord(row.outputSchema))
 				throw new Error("Native Work output schema is absent");
 			z.fromJSONSchema(row.outputSchema);
+			if (!cachedResolution && key && entry) {
+				ctx.bootstrapCache!.write(key, {
+					...entry,
+					resolutions: {
+						...entry.resolutions,
+						[callable]: {
+							at: Date.now(),
+							catalogHash,
+							row,
+							detail,
+						},
+					},
+				});
+			}
 			return {
 				descriptor,
 				detail: { ...detail, outputSchema: row.outputSchema },
@@ -978,19 +1025,14 @@ async function boardCall(
 		}
 		const { descriptor, detail } = resolved;
 		recordNativeTool(ctx, callable, descriptor.name);
-		const reused =
-			early && earlyName === descriptor.name ? await early : undefined;
-		if (reused && "error" in reused) throw reused.error;
-		const value = reused
-			? reused.value
-			: destructiveApprovalReason
-				? await ctx.client.callToolWithDestructiveApproval(
-						descriptor.name,
-						input,
-						destructiveApprovalReason,
-						nativeOptions(ctx),
-					)
-				: await ctx.client.callTool(descriptor.name, input, nativeOptions(ctx));
+		const value = destructiveApprovalReason
+			? await ctx.client.callToolWithDestructiveApproval(
+					descriptor.name,
+					input,
+					destructiveApprovalReason,
+					nativeOptions(ctx),
+				)
+			: await ctx.client.callTool(descriptor.name, input, nativeOptions(ctx));
 		if (isRecord(value) && value.__tedix_truncated === true)
 			return {
 				value: undefined,
@@ -1000,12 +1042,16 @@ async function boardCall(
 				},
 			};
 		const error = boardErrorFromValue(value);
-		if (error) return { value, error };
+		if (error) {
+			if (isNativeSchemaError(error)) invalidateNativeResolution(ctx, callable);
+			return { value, error };
+		}
 		nativeOptions(ctx);
 		validateNativeSchema(detail.outputSchema, value);
 		projectionSchema?.output.parse(value);
 		return { value };
 	} catch (error) {
+		if (isNativeSchemaError(error)) invalidateNativeResolution(ctx, callable);
 		return {
 			value: undefined,
 			error: {
