@@ -33,7 +33,6 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarProvider,
-	SidebarTrigger,
 	useSidebar,
 } from "@/components/kumo/sidebar";
 import { ApprovalNotifications } from "@/components/approval-notifications";
@@ -218,11 +217,10 @@ function TopbarSearch({ onOpenPalette }: { onOpenPalette: () => void }) {
 			<Button
 				aria-label="Search"
 				aria-keyshortcuts="Meta+K Control+K"
-				className="topbar-search"
 				onClick={onOpenPalette}
 				size="icon-sm"
 				title="Search (⌘/Ctrl+K)"
-				variant="ghost"
+				variant="outline"
 			>
 				<MagnifyingGlass size={15} />
 			</Button>
@@ -233,11 +231,10 @@ function TopbarSearch({ onOpenPalette }: { onOpenPalette: () => void }) {
 		<Button
 			aria-label="Search"
 			aria-keyshortcuts="Meta+K Control+K"
-			className="topbar-search"
 			onClick={onOpenPalette}
 			size="sm"
 			title="Search (⌘/Ctrl+K)"
-			variant="ghost"
+			variant="outline"
 		>
 			<MagnifyingGlass size={15} />
 			<span>Search</span>
@@ -248,16 +245,21 @@ function TopbarSearch({ onOpenPalette }: { onOpenPalette: () => void }) {
 
 /** Only the mobile sheet needs a hamburger; the rail owns its own trigger. */
 function MobileNavigationTrigger() {
-	const { isMobile } = useSidebar();
+	const { isMobile, openMobile, toggleSidebar } = useSidebar();
 	if (!isMobile) return null;
 	return (
-		<SidebarTrigger
+		<Button
 			aria-label="Toggle navigation"
-			className="ghost-icon-button"
+			aria-expanded={openMobile}
+			aria-keyshortcuts="Meta+B Control+B"
+			data-sidebar="trigger"
+			onClick={toggleSidebar}
+			size="icon-sm"
+			variant="ghost"
 			title="Toggle navigation"
 		>
 			<List size={18} />
-		</SidebarTrigger>
+		</Button>
 	);
 }
 

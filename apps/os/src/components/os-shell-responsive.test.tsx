@@ -331,6 +331,22 @@ describe("OS shell chrome", () => {
 			const trigger = container.querySelector<HTMLButtonElement>(
 				'[aria-label="Toggle navigation"]',
 			)!;
+			expect(trigger.dataset.kumoComponent).toBe("Button");
+			expect(trigger.className).toContain("!size-8");
+			const search = container.querySelector<HTMLButtonElement>(
+				'[aria-label="Search"]',
+			)!;
+			expect(search.className).toContain("!size-8");
+			expect(search.className).toContain("ring-kumo-line");
+			expect(search.querySelector("kbd")).toBeNull();
+			for (const button of [trigger, search])
+				for (const floor of [
+					"max-sm:min-h-11",
+					"max-sm:min-w-11",
+					"coarse:min-h-11",
+					"coarse:min-w-11",
+				])
+					expect(button.className).toContain(floor);
 			act(() => trigger.click());
 			expect(rail(container).dataset.state).toBe("expanded");
 			route.pathname = "/apps";
@@ -470,8 +486,6 @@ describe("OS shell chrome", () => {
 		for (const selector of [
 			".brand-mark",
 			".topbar-context",
-			".topbar-search",
-			".topbar-search kbd",
 			".governed-status",
 			".transport-status",
 		]) {
@@ -488,14 +502,6 @@ describe("OS shell chrome", () => {
 		}
 	});
 
-	/*
-	 * Shared controls carry both halves of the touch contract: `max-sm:` makes
-	 * the documented 390px product viewport deterministic under fine-pointer
-	 * browser emulation, while `coarse:` still protects tablets and touch laptops
-	 * above that breakpoint. The one plain CSS affordance left
-	 * (`.ghost-icon-button`, shared with the workspace switcher) retains its
-	 * capability floor independently of the mobile shell layout.
-	 */
 	it("keeps navigation targets touch-friendly by viewport and pointer", () => {
 		const container = renderShell();
 		const railMarkup = rail(container).outerHTML;
@@ -506,20 +512,25 @@ describe("OS shell chrome", () => {
 		expect(railMarkup).toContain("coarse:min-h-11");
 		expect(railMarkup).toMatch(/coarse:min-w-11/);
 
-		const coarsePointer = styles.match(
-			/@media \(pointer: coarse\) \{[\s\S]*?\n\}\n/,
-		)?.[0];
-		const mobileShell = [
-			...styles.matchAll(/@media \(max-width: 639px\) \{[\s\S]*?\n\}/g),
-		].find(([rule]) => rule.includes(".ghost-icon-button"))?.[0];
+		const trigger = rail(container).querySelector<HTMLButtonElement>(
+			'[aria-label="Collapse sidebar"]',
+		)!;
+		act(() => trigger.click());
+		const search = container.querySelector<HTMLButtonElement>(
+			'[aria-label="Search"]',
+		)!;
+		expect(container.querySelectorAll('[aria-label="Search"]')).toHaveLength(1);
+		expect(search.querySelector('[data-slot="kbd"]')?.textContent).toBe("⌘K");
+		expect(search.className).toContain("ring-kumo-line");
+		expect(search.className).toContain("!h-7");
+		for (const floor of [
+			"max-sm:min-h-11",
+			"max-sm:min-w-11",
+			"coarse:min-h-11",
+			"coarse:min-w-11",
+		])
+			expect(search.className).toContain(floor);
 
-		expect(coarsePointer).toContain(".ghost-icon-button");
-		expect(coarsePointer).toContain("min-height: 44px");
-		expect(coarsePointer).toContain("min-width: 44px");
-		expect(mobileShell).toBeDefined();
-		expect(mobileShell).toContain(".ghost-icon-button");
-		expect(mobileShell).toContain("min-height: 44px");
-		expect(mobileShell).toContain("min-width: 44px");
 		expect(styles).toContain(
 			"@custom-variant coarse (@media (pointer: coarse))",
 		);
