@@ -187,6 +187,25 @@ describe("push train with real repositories and hooks", () => {
 		).not.toContain("file-0");
 	});
 
+	test("a stale ticket does not reapply an upstream patch that was later reverted", () => {
+		const f = fixture(2);
+		git(
+			f.repo,
+			"-c",
+			"user.name=Upstream Test",
+			"cherry-pick",
+			f.tickets[0]!.lane.head,
+		);
+		git(f.repo, "revert", "--no-edit", "HEAD");
+		git(f.repo, "push", "origin", "HEAD:main");
+		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+		const files = git(f.remote, "ls-tree", "--name-only", "main").split("\n");
+		expect(files).not.toContain("file-0");
+		expect(files).toContain("file-1");
+		for (const ticket of f.tickets)
+			expect(readResult(ticket.result)!.code).toBe(0);
+	});
+
 	test("holder recovery after publication does not duplicate commits", () => {
 		const f = fixture(2);
 		runTrain(f.repo, f.common, f.tickets);

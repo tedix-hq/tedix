@@ -195,7 +195,10 @@ export function runTrain(
 					const commits = git(integration, [
 						"rev-list",
 						"--reverse",
-						`${ticket.lane.base}..${ticket.lane.head}`,
+						"--cherry-pick",
+						"--right-only",
+						`HEAD...${ticket.lane.head}`,
+						`^${ticket.lane.base}`,
 					]);
 					if (!commits.ok) return false;
 					let ok = true;
