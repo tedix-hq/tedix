@@ -421,13 +421,12 @@ try {
 		name: "Review card 1?",
 		exact: true,
 	});
+	const original = await first.elementHandle();
 	await first.getByRole("button", { name: /^Approve/ }).click();
-	await page
-		.getByRole("region", { name: "Review card 2?", exact: true })
-		.waitFor();
 	assert.equal(
 		await page.locator("[data-deck-progress] p").innerText(),
-		"2 of 20",
+		"1 of 20",
+		"pending saves keep the deciding card mounted",
 	);
 	await page
 		.getByText("Fictional save failed", { exact: true })
@@ -437,7 +436,11 @@ try {
 	assert.equal(
 		await page.locator("[data-deck-progress] p").innerText(),
 		"1 of 20",
-		"failed save restores progress and card",
+		"failed save preserves progress and card",
+	);
+	assert(
+		await original!.evaluate((element) => element.isConnected),
+		"failed save preserves the editor instance",
 	);
 	await page.close();
 } finally {
