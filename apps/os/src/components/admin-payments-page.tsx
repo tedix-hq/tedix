@@ -14,19 +14,15 @@
  * check, mirroring (not replacing) the API's guards.
  */
 
+import { ListSkeleton } from "@/components/list-skeleton";
+import { ResponsiveFormSurface } from "@/components/kumo/responsive-form-surface";
+import { RestrictedNotice } from "@/components/restricted-notice";
 import { useQuery } from "@tanstack/react-query";
 import type {
 	McpPaymentEvent,
 	McpPaymentPolicy,
 } from "@tedix/api-contract/schemas/mcp-payments";
-import {
-	CaretDown,
-	CheckCircle,
-	Clock,
-	Receipt,
-	ShieldCheck,
-	XCircle,
-} from "@phosphor-icons/react";
+import { CheckCircle, Clock, Receipt, XCircle } from "@phosphor-icons/react";
 import { type ReactNode, useMemo, useState } from "react";
 import { isImeComposing } from "@/lib/keyboard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -39,11 +35,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
@@ -112,21 +103,10 @@ const PAYMENT_EVENTS_PAGE_SIZE = 15;
 
 function PaymentsRestricted() {
 	return (
-		<Card size="sm">
-			<CardContent className="flex items-center gap-3">
-				<ShieldCheck className="size-5 shrink-0" aria-hidden />
-				<div>
-					<Text role="body" weight="medium">
-						Payments needs the billing:manage grant
-					</Text>
-					<Text tone="secondary">
-						Your credential resolves administrative access but not
-						billing:manage, which only owners hold. Ask an owner to review paid
-						tool spend or receipts.
-					</Text>
-				</div>
-			</CardContent>
-		</Card>
+		<RestrictedNotice
+			title="Payments needs the billing:manage grant"
+			description="Your credential resolves administrative access but not billing:manage, which only owners hold. Ask an owner to review paid tool spend or receipts."
+		/>
 	);
 }
 
@@ -143,10 +123,10 @@ function PaymentsPending() {
 					/>
 				))}
 			</MetricGrid>
-			<Skeleton className="h-24" />
+			<ListSkeleton rows={1} rowClassName="h-24" />
 			<div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_18rem]">
-				<Skeleton className="h-96" />
-				<Skeleton className="h-96" />
+				<ListSkeleton rows={1} rowClassName="h-96" />
+				<ListSkeleton rows={1} rowClassName="h-96" />
 			</div>
 		</div>
 	);
@@ -387,38 +367,21 @@ function PaymentsFilters({
 
 	return (
 		<PageSection>
-			<Surface
+			<ResponsiveFormSurface
+				collapse="mobile"
 				className="md:hidden"
-				render={
-					<Collapsible
-						open={mobileFiltersOpen}
-						onOpenChange={setMobileFiltersOpen}
-					/>
-				}
+				title="Filters"
+				description={filterSummary}
+				mobileOpen={mobileFiltersOpen}
+				onMobileOpenChange={setMobileFiltersOpen}
 			>
-				<CollapsibleTrigger className="w-full justify-between rounded-lg px-3 py-2 text-left hover:bg-kumo-tint">
-					<span className="min-w-0">
-						<span className="block font-medium text-kumo-default">Filters</span>
-						<span className="block truncate text-kumo-subtle type-tedix-label">
-							{filterSummary}
-						</span>
-					</span>
-					<CaretDown
-						aria-hidden
-						className={`size-4 shrink-0 transition-transform duration-tedix-standard motion-reduce:transition-none ${mobileFiltersOpen ? "rotate-180" : ""}`}
-					/>
-				</CollapsibleTrigger>
-				<CollapsibleContent>
-					<div className="border-kumo-line border-t p-3">
-						<PaymentFilterControls
-							idPrefix="mobile-"
-							search={search}
-							onSearchChange={onSearchChange}
-							droppedTediFilter={droppedTediFilter}
-						/>
-					</div>
-				</CollapsibleContent>
-			</Surface>
+				<PaymentFilterControls
+					idPrefix="mobile-"
+					search={search}
+					onSearchChange={onSearchChange}
+					droppedTediFilter={droppedTediFilter}
+				/>
+			</ResponsiveFormSurface>
 
 			<SectionHeader className="max-md:hidden">
 				<SectionHeading>

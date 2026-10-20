@@ -1,3 +1,4 @@
+import { Link } from "@/components/kumo/link";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CostChip } from "@/components/cost-chip";
@@ -103,12 +104,11 @@ export function BillingRunCosts({
 											<TableRow key={group.runId ?? "unlinked"}>
 												<TableCell>
 													{group.runId ? (
-														<a
-															className="text-kumo-brand underline underline-offset-2"
+														<Link
 															href={`/work/runs/${encodeURIComponent(group.runId)}`}
 														>
 															Open run · {group.runId.slice(0, 8)}
-														</a>
+														</Link>
 													) : (
 														"Calls without a linked run"
 													)}

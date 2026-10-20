@@ -1,10 +1,14 @@
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Gauge } from "@phosphor-icons/react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
-import { Loader } from "@/components/kumo/loader";
 import {
 	SectionHeader,
 	SectionDescription,
@@ -280,21 +284,16 @@ export function BillingInferenceCapacitySection() {
 										provider spend capacity
 									</Text>
 									<Button
+										loading={
+											checkoutMutation.isPending &&
+											checkoutMutation.variables === pack.packKey
+										}
+										icon={<ArrowUpRight size={16} />}
 										className="mt-4 w-full"
 										disabled={checkoutMutation.isPending}
 										onClick={() => checkoutMutation.mutate(pack.packKey)}
 										variant="outline"
 									>
-										{checkoutMutation.isPending &&
-										checkoutMutation.variables === pack.packKey ? (
-											<Loader
-												aria-label="Starting checkout"
-												className="mr-2"
-												size={16}
-											/>
-										) : (
-											<ArrowUpRight className="mr-2 size-4" />
-										)}
 										{isTest ? "Test top-up" : "Buy capacity"} ·{" "}
 										{formatBillingAmount(pack.priceMicros, pack.currency)}
 									</Button>
@@ -341,6 +340,7 @@ export function BillingInferenceCapacitySection() {
 										</Text>
 									</div>
 									<Button
+										loading={pending}
 										disabled={pending}
 										onClick={() =>
 											sponsorshipMutation.mutate({
@@ -351,7 +351,6 @@ export function BillingInferenceCapacitySection() {
 										}
 										variant={enabled ? "outline" : "default"}
 									>
-										{pending && <Loader className="mr-2" size={16} />}
 										{enabled ? "Disable sponsorship" : "Enable sponsorship"}
 									</Button>
 								</Surface>
@@ -360,8 +359,8 @@ export function BillingInferenceCapacitySection() {
 					</div>
 				)}
 
-				<Surface as="details" className="p-4">
-					<summary className="cursor-pointer list-none">
+				<Surface render={<Collapsible />} className="p-4">
+					<CollapsibleTrigger>
 						<div className="flex items-center justify-between gap-3">
 							<div>
 								<Text weight="medium">Capacity history</Text>
@@ -372,45 +371,52 @@ export function BillingInferenceCapacitySection() {
 							</div>
 							<Badge variant="outline">View ledger</Badge>
 						</div>
-					</summary>
-					<div className="mt-4 space-y-3 border-kumo-line border-t pt-4">
-						{allocations.length === 0 ? (
-							<Empty appearance="inline">
-								<EmptyDescription>
-									No capacity allocations recorded.
-								</EmptyDescription>
-							</Empty>
-						) : (
-							allocations.map((allocation) => (
-								<Surface
-									className="flex flex-wrap items-center justify-between gap-3 p-3"
-									key={allocation.id}
-								>
-									<div>
-										<Text weight="medium">
-											{allocation.packName ?? allocation.sourceType}
-										</Text>
-										<Text role="label" tone="secondary">
-											{allocation.stripeEnvironment} allocation
-										</Text>
-									</div>
-									<div className="text-right text-sm">
-										<Badge
-											variant={
-												allocation.state === "active" ? "secondary" : "outline"
-											}
-										>
-											{allocation.state}
-										</Badge>
-										<Text role="label" tone="secondary" className="mt-1">
-											{allocation.tokenAmount.toLocaleString()} tokens ·{" "}
-											{formatBillingAmount(allocation.spendAmountMicros, "usd")}
-										</Text>
-									</div>
-								</Surface>
-							))
-						)}
-					</div>
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted>
+						<div className="mt-4 space-y-3 border-kumo-line border-t pt-4">
+							{allocations.length === 0 ? (
+								<Empty appearance="inline">
+									<EmptyDescription>
+										No capacity allocations recorded.
+									</EmptyDescription>
+								</Empty>
+							) : (
+								allocations.map((allocation) => (
+									<Surface
+										className="flex flex-wrap items-center justify-between gap-3 p-3"
+										key={allocation.id}
+									>
+										<div>
+											<Text weight="medium">
+												{allocation.packName ?? allocation.sourceType}
+											</Text>
+											<Text role="label" tone="secondary">
+												{allocation.stripeEnvironment} allocation
+											</Text>
+										</div>
+										<div className="text-right text-sm">
+											<Badge
+												variant={
+													allocation.state === "active"
+														? "secondary"
+														: "outline"
+												}
+											>
+												{allocation.state}
+											</Badge>
+											<Text role="label" tone="secondary" className="mt-1">
+												{allocation.tokenAmount.toLocaleString()} tokens ·{" "}
+												{formatBillingAmount(
+													allocation.spendAmountMicros,
+													"usd",
+												)}
+											</Text>
+										</div>
+									</Surface>
+								))
+							)}
+						</div>
+					</CollapsibleContent>
 				</Surface>
 
 				{showDailyCapacity && overflow.length > 0 && (

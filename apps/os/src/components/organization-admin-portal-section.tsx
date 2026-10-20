@@ -4,6 +4,7 @@
  * embed) the Descope tenant administration portal.
  */
 
+import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { ArrowSquareOut, CaretDown } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
@@ -40,12 +41,12 @@ export function AdminPortalSection({
 					<SectionTitle>SSO and authentication</SectionTitle>
 				</SectionHeader>
 				<SettingsSectionContent>
-					<Surface tier="panel" className="border-dashed p-6 text-center">
-						<Text tone="secondary">
+					<Empty appearance="quiet">
+						<EmptyDescription>
 							SSO and enterprise authentication features are available on the
 							Enterprise plan.
-						</Text>
-					</Surface>
+						</EmptyDescription>
+					</Empty>
 				</SettingsSectionContent>
 			</SettingsSection>
 		);
@@ -80,7 +81,7 @@ export function AdminPortalSection({
 								/>
 							}
 						>
-							<ArrowSquareOut className="mr-2 h-4 w-4" />
+							<ArrowSquareOut size={16} />
 							Open administration portal
 						</Button>
 					)}
@@ -110,15 +111,12 @@ export function AdminPortalSection({
 								/>
 							</Surface>
 						) : (
-							<Surface
-								tier="panel"
-								className="mt-4 border-dashed p-6 text-center"
-							>
-								<Text tone="secondary">
+							<Empty appearance="quiet" className="mt-4">
+								<EmptyDescription>
 									Identity administration is not linked. Contact support to
 									enable SSO features.
-								</Text>
-							</Surface>
+								</EmptyDescription>
+							</Empty>
 						)}
 					</CollapsibleContent>
 				</Collapsible>

@@ -28,7 +28,7 @@ import {
 	PageHeading,
 	PageTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { SettingsSectionNavigation } from "@/components/settings-section-navigation";
 import {
 	organizationDetailQueryOptions,
@@ -99,9 +99,7 @@ function OrganizationPagePending() {
 			aria-label="Loading organization settings"
 			className="space-y-3"
 		>
-			{Array.from({ length: 3 }).map((_, index) => (
-				<Skeleton className="h-24 w-full" key={index} />
-			))}
+			<ListSkeleton rows={3} rowClassName="h-24" />
 		</div>
 	);
 }
@@ -184,7 +182,7 @@ function AdminOrganizationBody({
 			/>
 
 			<div id="organization-profile" className="scroll-mt-24">
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 					<OrganizationProfileForm
 						organizationId={organization.id}
 						defaultValues={{
@@ -200,7 +198,7 @@ function AdminOrganizationBody({
 			</div>
 
 			<div id="organization-appearance" className="scroll-mt-24">
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 					<OrganizationAppearanceForm
 						organizationId={organization.id}
 						initialTheme={organization.metadata?.osTheme}
@@ -209,7 +207,7 @@ function AdminOrganizationBody({
 			</div>
 
 			<div id="organization-billing" className="scroll-mt-24 space-y-8">
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 					<SubscriptionSection />
 				</Suspense>
 
@@ -221,16 +219,16 @@ function AdminOrganizationBody({
 						</AlertDescription>
 					</Alert>
 				) : featuresQuery.data ? (
-					<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 						<FeaturesSection features={features} />
 					</Suspense>
 				) : (
-					<Skeleton className="h-24 w-full" />
+					<ListSkeleton rows={1} rowClassName="h-24" />
 				)}
 			</div>
 
 			<div id="organization-authentication" className="scroll-mt-24 space-y-8">
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 					<AdminPortalSection
 						descopeTenantId={organization.descopeTenantId}
 						ssoEnabled={ssoEnabled}
@@ -238,7 +236,7 @@ function AdminOrganizationBody({
 				</Suspense>
 
 				{ssoEnabled && (
-					<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 						<SsoSection
 							organizationId={organization.id}
 							descopeTenantId={organization.descopeTenantId}
@@ -259,7 +257,7 @@ function AdminOrganizationBody({
 			)}
 
 			{isOwner && (
-				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 					<div id="organization-danger" className="scroll-mt-24">
 						<DangerZone
 							organizationId={organization.id}

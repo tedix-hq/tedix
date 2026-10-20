@@ -277,10 +277,11 @@ export function OrganizationProfileForm({
 									Saved
 								</Text>
 							) : null}
-							<Button type="submit" disabled={updateOrganization.isPending}>
-								{updateOrganization.isPending && (
-									<Loader className="mr-2" size="sm" />
-								)}
+							<Button
+								loading={updateOrganization.isPending}
+								type="submit"
+								disabled={updateOrganization.isPending}
+							>
 								Save changes
 							</Button>
 						</div>

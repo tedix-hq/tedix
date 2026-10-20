@@ -1,8 +1,7 @@
+import { RestrictedNotice } from "@/components/restricted-notice";
 import type { Permission } from "@tedix/auth/rbac";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { Outlet } from "@tanstack/react-router";
-import { ShieldCheck } from "@phosphor-icons/react";
-import { Card, CardContent } from "@/components/kumo/card";
 import {
 	Page,
 	PageDescription,
@@ -10,7 +9,6 @@ import {
 	PageHeading,
 	PageTitle,
 } from "@/components/kumo/page";
-import { Text } from "@/components/kumo/text";
 import { OsRoutePending } from "@/components/os-route-boundaries";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
@@ -48,19 +46,10 @@ function AdminRestricted() {
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
-			<Card size="sm">
-				<CardContent className="flex items-center gap-3">
-					<ShieldCheck size={20} aria-hidden />
-					<div>
-						<Text role="body" weight="medium">
-							Only organization owners and admins can open these settings
-						</Text>
-						<Text tone="secondary">
-							Ask an owner or admin if you need access to these settings.
-						</Text>
-					</div>
-				</CardContent>
-			</Card>
+			<RestrictedNotice
+				title="Only organization owners and admins can open these settings"
+				description="Ask an owner or admin if you need access to these settings."
+			/>
 		</Page>
 	);
 }

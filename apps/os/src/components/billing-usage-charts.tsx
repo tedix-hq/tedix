@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import type { OrgUsageOutput } from "@tedix/api-contract/contracts/org-usage";
 import * as echarts from "echarts";
@@ -69,35 +74,37 @@ function ChartDataTable({
 	rows: ReadonlyArray<ReadonlyArray<string>>;
 }) {
 	return (
-		<details className="mt-4">
-			<summary className="cursor-pointer">
+		<Collapsible className="mt-4">
+			<CollapsibleTrigger>
 				<Text as="span" weight="medium">
 					View exact data
 				</Text>
-			</summary>
-			<div className="mt-3">
-				<Table scrollLabel={`${label} exact data`}>
-					<TableHeader>
-						<TableRow>
-							{headers.map((header) => (
-								<TableHead key={header}>{header}</TableHead>
-							))}
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{rows.map((row) => (
-							<TableRow key={row.join("\u0000")}>
-								{row.map((value, index) => (
-									<TableCell key={`${headers[index]}:${value}`}>
-										{value}
-									</TableCell>
+			</CollapsibleTrigger>
+			<CollapsibleContent keepMounted>
+				<div className="mt-3">
+					<Table scrollLabel={`${label} exact data`}>
+						<TableHeader>
+							<TableRow>
+								{headers.map((header) => (
+									<TableHead key={header}>{header}</TableHead>
 								))}
 							</TableRow>
-						))}
-					</TableBody>
-				</Table>
-			</div>
-		</details>
+						</TableHeader>
+						<TableBody>
+							{rows.map((row) => (
+								<TableRow key={row.join("\u0000")}>
+									{row.map((value, index) => (
+										<TableCell key={`${headers[index]}:${value}`}>
+											{value}
+										</TableCell>
+									))}
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				</div>
+			</CollapsibleContent>
+		</Collapsible>
 	);
 }
 
