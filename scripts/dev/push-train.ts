@@ -1,13 +1,14 @@
 import { spawnSync } from "node:child_process";
 import {
 	mkdtempSync,
+	mkdirSync,
 	readFileSync,
 	readdirSync,
 	renameSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { detachedGitEnv } from "../oss/git-env";
 import { pushesToCanonicalRepo } from "../ci/push-range-selection.mjs";
 
@@ -160,8 +161,11 @@ export function runTrain(
 	commonDir: string,
 	tickets: TrainTicket[],
 ): boolean {
-	const integration = mkdtempSync(join(commonDir, "push-train-"));
-	const journal = `${integration}.json`;
+	// Vite cannot load workspace tests from Git's metadata directory.
+	const worktreeRoot = join(commonDir, "..", ".worktrees");
+	mkdirSync(worktreeRoot, { recursive: true });
+	const integration = mkdtempSync(join(worktreeRoot, "push-train-"));
+	const journal = join(commonDir, `${basename(integration)}.json`);
 	let published = false;
 	const complete = (ticket: TrainTicket, result: TrainResult) => {
 		// Results are outside the ticket directory: old queue binaries must not
