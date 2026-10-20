@@ -31,6 +31,7 @@ import {
 	shouldBypassCodeModeForCaller,
 } from "./caller-identity";
 import { ToolHandler } from "./handler";
+import { resolveToolWidgetRoute } from "./utils/render-widget";
 import { registerResourceTemplates } from "./registration/resource-templates";
 import type {
 	AppTool,
@@ -909,6 +910,7 @@ export async function buildMcpServer(
 	requestMeta?: Record<string, unknown>,
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
 	connectionAppSlug?: string,
+	clientAppsSupported = false,
 ): Promise<McpServer> {
 	const startTime = Date.now();
 
@@ -1057,6 +1059,11 @@ export async function buildMcpServer(
 		for (const tool of serverCtx.loadedTools.values()) {
 			if (
 				!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) &&
+				!(
+					clientAppsSupported &&
+					tool.enabled &&
+					resolveToolWidgetRoute(tool)
+				) &&
 				((tool.meta as Record<string, unknown> | null | undefined)?.source !==
 					"homeSurface" ||
 					!SESSION_NATIVE_HOME_TOOL_IDS.includes(

@@ -631,6 +631,116 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
 
+	it.each(["io.modelcontextprotocol/ui", "io.modelcontextprotocol/apps"])(
+		"hydrates widget discovery only for a client declaring %s",
+		async (extension) => {
+			installFixtures([
+				{
+					slug: "apps-client-host",
+					mcpConfig: {
+						authMode: "public",
+						codeMode: true,
+						aggregateApps: [{ slug: "fixture" }],
+					},
+				},
+				{
+					slug: "fixture",
+					tools: [connectionTool("show_deck", "fixture-provider")],
+				},
+			]);
+			const response = await worker.fetch(
+				new Request("https://apps-client-host.mcp.tedix.tech/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"MCP-Protocol-Version": "2026-07-28",
+						"Mcp-Method": "tools/list",
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "tools/list",
+						params: {
+							_meta: {
+								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+								"io.modelcontextprotocol/clientCapabilities": {
+									extensions: {
+										[extension]: { mimeTypes: ["text/html;profile=mcp-app"] },
+									},
+								},
+							},
+						},
+					}),
+				}),
+				createEnv(),
+				createExecutionContext(),
+			);
+			expect(response.status).toBe(200);
+			expect(buildMcpServer).toHaveBeenCalledOnce();
+			expect((buildMcpServer.mock.calls[0] as unknown[])[13]).toBe(true);
+		},
+	);
+
+	it.each([true, false])(
+		"preserves legacy initialize negotiation across requests (%s)",
+		async (supportsApps) => {
+			installFixtures([
+				{
+					slug: "legacy-apps-host",
+					mcpConfig: { authMode: "public", codeMode: true },
+				},
+			]);
+			const init = await worker.fetch(
+				new Request("https://legacy-apps-host.mcp.tedix.tech/mcp", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "initialize",
+						params: {
+							protocolVersion: "2025-11-25",
+							clientInfo: { name: "claude-desktop", version: "test" },
+							capabilities: supportsApps
+								? {
+										extensions: {
+											"io.modelcontextprotocol/ui": {
+												mimeTypes: ["text/html;profile=mcp-app"],
+											},
+										},
+									}
+								: {},
+						},
+					}),
+				}),
+				createEnv(),
+				createExecutionContext(),
+			);
+			expect(init.status).toBe(200);
+			const sessionId = init.headers.get("Mcp-Session-Id");
+			if (supportsApps) expect(sessionId).toMatch(/^tedix-ui-v1-/);
+			else expect(sessionId).toBeNull();
+			buildMcpServer.mockClear();
+			const list = await worker.fetch(
+				new Request("https://legacy-apps-host.mcp.tedix.tech/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"MCP-Protocol-Version": "2025-11-25",
+						...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+					},
+					body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+				}),
+				createEnv(),
+				createExecutionContext(),
+			);
+			expect(list.status).toBe(200);
+			expect((buildMcpServer.mock.calls[0] as unknown[])[13]).toBe(
+				supportsApps,
+			);
+		},
+	);
+
 	it("does not advertise Tasks on a single-purpose compact Code Mode surface", async () => {
 		installFixtures([
 			{

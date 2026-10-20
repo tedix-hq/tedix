@@ -1,5 +1,10 @@
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { ATTENTION_GUIDANCE } from "./mcp/attention-guidance";
+import {
+	clientSupportsMcpApps,
+	LEGACY_APPS_SESSION_PREFIX,
+} from "./mcp/client-apps-capability";
+import { resolveToolWidgetRoute } from "./mcp/utils/render-widget";
 import { z } from "zod";
 import {
 	AGGREGATE_SURFACE_CACHE_TTL_MS,
@@ -1134,6 +1139,11 @@ export async function handleMcpRequest(
 			}),
 		);
 	}
+	const requestBody = await readJsonRpcBody(request);
+	const clientAppsSupported = clientSupportsMcpApps(
+		requestBody,
+		request.headers,
+	);
 	const server = await buildMcpServer(
 		cachedData,
 		callerIdentity,
@@ -1148,6 +1158,7 @@ export async function handleMcpRequest(
 		inboundTraceMeta,
 		requestedCodeModeNamespaces,
 		connectionAppSlug,
+		clientAppsSupported,
 	);
 	const directoryReadHandler = (
 		server as unknown as {
@@ -1294,6 +1305,17 @@ export async function handleMcpRequest(
 	});
 	const headers = new Headers(response.headers);
 	headers.set("X-Tedix-Trace-Id", traceId);
+	if (
+		requestBody?.method === "initialize" &&
+		clientAppsSupported &&
+		response.ok
+	) {
+		headers.set(
+			"Mcp-Session-Id",
+			`${LEGACY_APPS_SESSION_PREFIX}${crypto.randomUUID()}`,
+		);
+		headers.append("Access-Control-Expose-Headers", "Mcp-Session-Id");
+	}
 	return new Response(response.body, {
 		status: response.status,
 		statusText: response.statusText,
@@ -2330,6 +2352,13 @@ async function maybeHandleCodeModeCompactMcp(
 	}
 
 	if (method === "tools/list") {
+		if (
+			clientSupportsMcpApps(body) &&
+			((resolvedApp.tools ?? []).some((tool) => resolveToolWidgetRoute(tool)) ||
+				(Array.isArray(resolvedApp.metadata?.mcpConfig?.aggregateApps) &&
+					resolvedApp.metadata.mcpConfig.aggregateApps.length > 0))
+		)
+			return null;
 		// SEP-2549 CacheableResult on this fast path: the 60s/private default
 		// mirrors the app-resolution cache backing the compact tool list
 		// (APP_RESOLUTION_TTL_MS in resolution.ts).
@@ -2732,6 +2761,7 @@ const worker = {
 				"Accept",
 				"Authorization",
 				"MCP-Protocol-Version",
+				"Mcp-Session-Id",
 				"Mcp-Method",
 				"Mcp-Name",
 				"X-API-Key",

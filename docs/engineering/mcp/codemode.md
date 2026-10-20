@@ -103,6 +103,16 @@ program naming explicit providers hydrates only those namespaces, while one
 calling `discover.*` gets the full catalog; `get_info`, `server/discover`, and
 `tools/list` answer from app metadata without building the aggregate.
 
+Clients declaring MCP Apps (`io.modelcontextprotocol/ui`, or the older
+`io.modelcontextprotocol/apps` alias) also see enabled configured widget tools
+with their native `ui://` resource links. Their `tools/list` hydrates the
+aggregate; callers without Apps support retain the compact surface. Modern
+clients declare capabilities in request `_meta`; legacy clients declare them
+in `initialize` and echo the returned `Mcp-Session-Id` on later exchanges.
+That stateless identifier carries only the UI declaration, never authentication
+or tool authority. An explicit modern capability declaration takes precedence.
+Layout resource metadata, including `prefersBorder`, is unchanged.
+
 ## Result Bounds and Prompt Budget
 
 `shapeBoundedCodeModeResult()` passes results through up to 6,000 tokens

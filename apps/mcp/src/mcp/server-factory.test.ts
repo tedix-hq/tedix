@@ -893,6 +893,90 @@ function catalogRow(
 		...overrides,
 	} as import("./server-context").AppTool;
 }
+describe("Code Mode widget declarations", () => {
+	it.each([true, false])(
+		"gates native UI declarations on client support (%s)",
+		async (supportsApps) => {
+			vi.spyOn(
+				await import("./codemode"),
+				"registerCodeModeTools",
+			).mockResolvedValue(true);
+			listByApp.mockResolvedValue({ skills: [] });
+			vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response("<!DOCTYPE html><title>Fixture view</title>"),
+			);
+			const cached = createCachedData();
+			cached.metadata = {
+				mcpConfig: { codeMode: true },
+			} as CachedAppData["metadata"];
+			cached.tools = [
+				catalogRow({
+					toolId: "show_fixture",
+					inputSchema: { type: "object", properties: {} },
+					widgetKey: "render",
+					config: {
+						transport: "rpc",
+						endpoint: "fixture/show",
+						layoutId: "fixture-view",
+						layoutSpec: {
+							root: "title",
+							elements: { title: { type: "Text", props: { text: "Fixture" } } },
+						},
+					},
+				}),
+			];
+			const server = await buildMcpServer(
+				cached,
+				undefined,
+				createEnv(),
+				createExecutionContext(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				supportsApps,
+			);
+			const { request } = await connectLegacyClient(server);
+			const listed = await request("tools/list");
+			const tool = (
+				listed.result?.tools as Array<{
+					name: string;
+					_meta?: { ui?: { resourceUri?: string } };
+				}>
+			).find((t) => t.name === "show_fixture");
+			if (!supportsApps) {
+				expect(tool).toBeUndefined();
+				await server.close();
+				return;
+			}
+			expect(tool?._meta?.ui?.resourceUri).toBe(
+				"ui://widgets/mcp-app/tedix/r/fixture-view.html",
+			);
+			const resource = await request("resources/read", {
+				uri: tool!._meta!.ui!.resourceUri,
+			});
+			expect(resource.error).toBeUndefined();
+			expect(resource.result?.contents).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						mimeType: "text/html;profile=mcp-app",
+						text: expect.stringContaining("Fixture view"),
+						_meta: expect.objectContaining({
+							ui: expect.objectContaining({ prefersBorder: false }),
+						}),
+					}),
+				]),
+			);
+			await server.close();
+		},
+	);
+});
+
 describe("configured native catalog registration", () => {
 	it("requires the exact valid nonempty capability map and preserves canonical binding refusals", () => {
 		const row = catalogRow();
