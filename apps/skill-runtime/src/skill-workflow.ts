@@ -39,17 +39,21 @@ import {
 } from "./evidence-core";
 import {
 	COMPATIBILITY_DATE,
+	DYNAMIC_WORKFLOWS_VERSION,
+	type SkillRuntimeExportFactories,
+	TENANT_WORKER_LIMITS,
+} from "./runner-context";
+import {
 	DISPATCH_SHIM,
 	DISPATCH_SHIM_VERSION,
-	DYNAMIC_WORKFLOWS_VERSION,
-	loadSkillRuntime,
-	type SkillRuntimeExportFactories,
 	TENANT_COMPATIBILITY_FLAGS,
-	TENANT_WORKER_LIMITS,
+	loadSkillRuntime,
 	WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
+} from "./runner";
+import {
 	WORKFLOW_CONTEXT_MODULE,
 	WORKFLOW_FETCH_GATE_MODULE,
-} from "./runner";
+} from "./runner-sandbox";
 import { withWorkflowEvidenceRetry } from "./workflow-evidence";
 import {
 	fingerprintWorkflowError,

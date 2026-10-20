@@ -22,18 +22,22 @@ import {
 import {
 	assertTenantRuntimeImports,
 	DISPATCH_SHIM,
-	DYNAMIC_WORKFLOWS_VERSION,
-	MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE,
-	MCP_PROVIDER_CONFIRMATION_INSPECTOR_SOURCE,
-	SENSITIVE_WORKFLOW_ERROR_FACTORY_SOURCE,
 	skillRuntimeStubKey,
 	TENANT_COMPATIBILITY_FLAGS,
 	tenantWorkflowModuleSource,
 	WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
+} from "../src/runner";
+import { DYNAMIC_WORKFLOWS_VERSION } from "../src/runner-context";
+import {
+	MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE,
+	MCP_PROVIDER_CONFIRMATION_INSPECTOR_SOURCE,
+} from "../src/runner-rpc";
+import {
+	SENSITIVE_WORKFLOW_ERROR_FACTORY_SOURCE,
 	WORKFLOW_CONTEXT_MODULE,
 	WORKFLOW_FETCH_GATE_FACTORY_SOURCE,
 	WORKFLOW_FETCH_GATE_MODULE,
-} from "../src/runner";
+} from "../src/runner-sandbox";
 import {
 	claimImplicitWorkflowAdmission,
 	deriveIdempotentRunId,

@@ -22,7 +22,8 @@ import {
 	readBoundedMcpResponseText,
 	unwrapMcpResponseBody,
 } from "../src/mcp-response-reader";
-import { buildTenantRunContext, DISPATCH_SHIM } from "../src/runner";
+import { buildTenantRunContext } from "../src/runner-context";
+import { DISPATCH_SHIM } from "../src/runner";
 
 const pinnedContext = buildTenantRunContext({
 	skillId: "skill-1",

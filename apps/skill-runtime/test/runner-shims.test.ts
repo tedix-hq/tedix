@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { WORKFLOW_FETCH_GATE_MODULE } from "../src/runner";
+import { WORKFLOW_FETCH_GATE_MODULE } from "../src/runner-sandbox";
 
 // Evaluate the captured intrinsics and shims without installing the global gate.
 const shimSource = WORKFLOW_FETCH_GATE_MODULE.slice(

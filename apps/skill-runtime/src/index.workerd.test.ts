@@ -41,12 +41,12 @@ describe("skill runtime Worker boundary", () => {
 	});
 });
 
+import { loadSkillRuntime } from "./runner";
 import {
-	loadSkillRuntime,
 	type LoadSkillRuntimeInput,
 	type SkillRuntimeEnv,
 	type SkillRuntimeExportFactories,
-} from "./runner";
+} from "./runner-context";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 
 // Local test persistence for the production ArtifactBridge called by dispatch.
