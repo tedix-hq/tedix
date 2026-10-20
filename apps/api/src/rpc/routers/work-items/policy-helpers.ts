@@ -24,8 +24,15 @@ export const authOs = workItemsOs.use(withAuth);
 export async function assertWorkItemAccess(context: BaseContext, id: string) {
 	const workItem = await getWorkItemById(context.db, id);
 	if (!workItem) throw createError(ErrorCodes.NOT_FOUND, "Work Item not found");
-	if (workItem.orgId !== requireOrgId(context))
-		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this Work Item");
+	const callerOrgId = requireOrgId(context);
+	// Names only the CALLER's organization so an agent on the wrong
+	// `--organization` can correct itself. The item's org, title or any other
+	// field must never appear: that would confirm another tenant's data exists.
+	if (workItem.orgId !== callerOrgId)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			`Access denied to this Work Item: it is not in organization ${callerOrgId}; select the owning organization (tedix --organization <org>) or check the id`,
+		);
 	return workItem;
 }
 
