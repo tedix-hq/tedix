@@ -13,6 +13,7 @@ import {
 const WINDOW_MS = 120_000;
 const DEBOUNCE_MS = 30_000;
 const MAX_REPLAY_WINDOWS = 10;
+const MAX_WAKE_AGE_MS = 15 * 60_000;
 
 export function commitmentWakeWindows(
 	checkpoint: string | null,
@@ -57,11 +58,19 @@ export async function dispatchCommitmentWakes(
 	let observed = 0;
 	let dispatched = 0;
 	let deduplicated = 0;
+	let windowsSkippedMaxAge = 0;
+	const oldestWakeMs = Math.max(scheduledTime, Date.now()) - MAX_WAKE_AGE_MS;
 	const windows = commitmentWakeWindows(checkpoint, scheduledTime);
 	// Preserve the initial boundary even if the very first acceptance fails.
 	if (checkpoint === null && windows[0])
 		await advanceCommitmentWakeCheckpoint(db, windows[0].after);
 	for (const window of windows) {
+		// Historical notifications start model turns even when the prompt says to stop quietly.
+		if (Date.parse(window.through) < oldestWakeMs) {
+			await advanceCommitmentWakeCheckpoint(db, window.through);
+			windowsSkippedMaxAge++;
+			continue;
+		}
 		const changes = await listCommitmentChanges(
 			db,
 			window.after,
@@ -98,6 +107,8 @@ export async function dispatchCommitmentWakes(
 		observed,
 		dispatched,
 		deduplicated,
+		windowsSkippedMaxAge,
+		maxWakeAgeMs: MAX_WAKE_AGE_MS,
 		windowsProcessed: windows.length,
 		...(lastWindow ? { checkpointMs: Date.parse(lastWindow.through) } : {}),
 	};

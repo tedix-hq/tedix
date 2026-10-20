@@ -1,5 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -83,6 +90,87 @@ function fixture(plans: string[] = []) {
 }
 
 describe("commitment wakes", () => {
+	beforeEach(() => {
+		vi.spyOn(Date, "now").mockReturnValue(Date.parse(through) + 30_000);
+	});
+	afterEach(() => vi.restoreAllMocks());
+
+	it("skips stale windows without ingesting even completed lane successes", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(`UPDATE work_items SET disposition='completed';
+			INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at)
+			VALUES ('old-success','org-1','work-1','attempt.settled','external_agent','agent','{"outcome":"succeeded"}','${changedAt}');`);
+		const fetch = vi.fn();
+		const counts = await dispatchCommitmentWakes(
+			{
+				DB: binding,
+				ENVIRONMENT: "test",
+				TEDI_SERVICE: { fetch },
+			} as unknown as CloudflareEnv,
+			Date.parse("2026-10-19T12:00:30.000Z"),
+		);
+		expect(counts).toMatchObject({
+			windowsSkippedMaxAge: 10,
+			observed: 0,
+			dispatched: 0,
+			windowsProcessed: 10,
+		});
+		expect(fetch).not.toHaveBeenCalled();
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-16T12:20:00.000Z",
+		);
+	});
+
+	it("uses execution time to suppress an old delayed cron fire", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at)
+			VALUES ('old','org-1','work-1','work.accepted','user','owner','${changedAt}')`);
+		vi.mocked(Date.now).mockReturnValue(Date.parse(through) + 15 * 60_000 + 1);
+		const fetch = vi.fn();
+		const counts = await dispatchCommitmentWakes(
+			{
+				DB: binding,
+				ENVIRONMENT: "test",
+				TEDI_SERVICE: { fetch },
+			} as unknown as CloudflareEnv,
+			Date.parse(through) + 30_000,
+		);
+		expect(counts).toMatchObject({ windowsSkippedMaxAge: 1, dispatched: 0 });
+		expect(fetch).not.toHaveBeenCalled();
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(through);
+	});
+
+	it("delivers at the age boundary and only skips older windows in a mixed tick", async () => {
+		const { sqlite, db, binding } = fixture();
+		await advanceCommitmentWakeCheckpoint(db, after);
+		sqlite.exec(`INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,occurred_at) VALUES
+			('old','org-1','work-1','work.accepted','user','owner','${changedAt}'),
+			('recent','org-1','work-1','work.accepted','user','owner','2026-10-16T12:03:00.000Z')`);
+		vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-16T12:19:00.000Z"));
+		const fetch = vi.fn(async () =>
+			Response.json({ run_id: "run", accepted: true }),
+		);
+		const counts = await dispatchCommitmentWakes(
+			{
+				DB: binding,
+				ENVIRONMENT: "test",
+				TEDI_SERVICE: { fetch },
+			} as unknown as CloudflareEnv,
+			Date.parse("2026-10-16T12:06:30.000Z"),
+		);
+		expect(counts).toMatchObject({
+			windowsSkippedMaxAge: 1,
+			dispatched: 1,
+			observed: 1,
+			windowsProcessed: 3,
+		});
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(await lastCommitmentWakeCheckpoint(db)).toBe(
+			"2026-10-16T12:06:00.000Z",
+		);
+	});
 	it("seeks the polling time window before joining Work ownership", async () => {
 		const plans: string[] = [];
 		const { db } = fixture(plans);
