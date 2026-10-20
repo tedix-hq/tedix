@@ -88,6 +88,7 @@ describe("buildWorkWebMcpTools", () => {
 		expect(byName.get("create_work_item")?.annotations).toEqual({
 			readOnlyHint: false,
 			untrustedContentHint: false,
+			consequentialHint: true,
 		});
 	});
 

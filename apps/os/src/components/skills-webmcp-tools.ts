@@ -326,9 +326,9 @@ export function buildSkillsWebMcpTools(
 		},
 		{
 			name: "run_skill_workflow",
-			annotations: { consequentialHint: true },
+			annotations: { readOnlyHint: false, consequentialHint: true },
 			description:
-				"Run a skill's workflow — one of the org's saved automations — executed by the tedi (digital worker) named by tediSlug; the human can watch the run live at the returned deep link. A destructive skill may require confirm: true.",
+				"Run a saved skill workflow when delegating its execution to the tedi named by tediSlug; follow the returned run link. Each call uses a fresh dispatch key, so inspect runs before retrying an uncertain dispatch; destructive skills may require confirm: true.",
 			inputSchema: runSkillWorkflowSchema(currentSkillId),
 			execute: async (args, executeOptions) => {
 				try {
@@ -394,7 +394,7 @@ export function buildSkillsWebMcpTools(
 		},
 		{
 			name: "get_skill_run_status",
-			annotations: { readOnlyHint: true, untrustedContentHint: false },
+			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			description:
 				"Get the current status of a skill workflow run; the human can watch the run live at the deep link.",
 			inputSchema: {

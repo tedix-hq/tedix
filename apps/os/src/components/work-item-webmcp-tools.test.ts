@@ -68,6 +68,7 @@ describe("buildWorkItemWebMcpTools", () => {
 		expect(byName.get("comment_current_work_item")?.annotations).toEqual({
 			readOnlyHint: false,
 			untrustedContentHint: false,
+			consequentialHint: true,
 		});
 	});
 
@@ -85,9 +86,9 @@ describe("buildWorkItemWebMcpTools", () => {
 		expect(webMcpRegisteredToolNames()).toEqual([
 			"get_current_work_item",
 			"comment_current_work_item",
-			"list_current_work_item_evidence",
+			"list_current_work_evidence",
 			"list_current_work_item_events",
-			"list_current_work_item_attempts",
+			"list_current_work_attempts",
 		]);
 		dispose();
 	});
@@ -184,7 +185,7 @@ describe("buildWorkItemWebMcpTools", () => {
 		expect(invalidateQueries).not.toHaveBeenCalled();
 	});
 
-	it("list_current_work_item_evidence maps ledger rows", async () => {
+	it("list_current_work_evidence maps ledger rows", async () => {
 		workItemsApi.listEvidence.mockResolvedValue({
 			data: [
 				{
@@ -204,9 +205,7 @@ describe("buildWorkItemWebMcpTools", () => {
 			nextCursor: null,
 		});
 		const { byName } = tools();
-		const result = await byName
-			.get("list_current_work_item_evidence")!
-			.execute({});
+		const result = await byName.get("list_current_work_evidence")!.execute({});
 		expect(workItemsApi.listEvidence).toHaveBeenCalledWith({
 			id: ITEM_ID,
 			limit: 50,
@@ -272,7 +271,7 @@ describe("buildWorkItemWebMcpTools", () => {
 		expect(summary.endsWith("…")).toBe(true);
 	});
 
-	it("list_current_work_item_attempts maps attempt rows", async () => {
+	it("list_current_work_attempts maps attempt rows", async () => {
 		workItemsApi.listAttempts.mockResolvedValue({
 			data: [
 				{
@@ -293,9 +292,7 @@ describe("buildWorkItemWebMcpTools", () => {
 			nextCursor: null,
 		});
 		const { byName } = tools();
-		const result = await byName
-			.get("list_current_work_item_attempts")!
-			.execute({});
+		const result = await byName.get("list_current_work_attempts")!.execute({});
 		expect(workItemsApi.listAttempts).toHaveBeenCalledWith({
 			id: ITEM_ID,
 			limit: 50,
@@ -342,7 +339,7 @@ describe("buildWorkItemWebMcpTools", () => {
 		});
 		const { byName } = tools();
 		const result = await byName
-			.get("list_current_work_item_attempts")!
+			.get("list_current_work_attempts")!
 			.execute({ cursor });
 		expect(workItemsApi.listAttempts).toHaveBeenCalledWith({
 			id: ITEM_ID,
@@ -365,7 +362,7 @@ describe("buildWorkItemWebMcpTools", () => {
 	it("rejects malformed continuation cursors without an API call", async () => {
 		const { byName } = tools();
 		const result = await byName
-			.get("list_current_work_item_attempts")!
+			.get("list_current_work_attempts")!
 			.execute({ cursor: { at: "yesterday", id: "not-a-uuid" } });
 		expect(result.isError).toBe(true);
 		expect(workItemsApi.listAttempts).not.toHaveBeenCalled();
@@ -393,7 +390,7 @@ describe("WebMCP execution cancellation", () => {
 		const controller = new AbortController();
 		const { byName } = tools();
 		await byName
-			.get("list_current_work_item_evidence")!
+			.get("list_current_work_evidence")!
 			.execute({}, { signal: controller.signal });
 		expect(workItemsApi.listEvidence).toHaveBeenCalledWith(
 			{ id: ITEM_ID, limit: 50 },

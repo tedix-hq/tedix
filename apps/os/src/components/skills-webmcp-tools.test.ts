@@ -128,6 +128,7 @@ describe("buildSkillsWebMcpTools", () => {
 			untrustedContentHint: true,
 		});
 		expect(tool("run_skill_workflow").annotations).toEqual({
+			readOnlyHint: false,
 			consequentialHint: true,
 		});
 	});

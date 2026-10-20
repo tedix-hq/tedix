@@ -395,16 +395,21 @@ function contentProjection(content: OsOutputContent): Record<string, unknown> {
  * description does not.
  */
 const EXPECTED_REVISION_DESCRIPTION =
-	"The saved revision number returned by read_output. A concurrent saved version makes this stale and the write fails as a conflict. This guard does not include unsaved workspace draft edits." as const;
+	"Saved revision from read_output; concurrent saves cause a conflict, so reread before retrying; excludes unsaved shared drafts." as const;
 
 const WORKSPACE_DRAFT_GUIDANCE =
-	"For workspace documents, prefer the existing collaboration proposal tools discovered through Tedix Code Mode so the user can review the edit. This direct API writes a saved version; it does not merge the live shared draft. A shared draft with edits remains preserved and requires comparison with the updated version.";
+	"For reviewable workspace edits prefer collaboration proposals via Tedix Code Mode; direct saves preserve unsaved shared drafts separately for comparison.";
 
 /** Mirrors OsPresentationSlideOutlineSchema: the semantic slide the router lays out. */
 const SLIDE_OUTLINE_SCHEMA = {
 	type: "object",
 	properties: {
-		title: { type: "string", minLength: 1, maxLength: 300 },
+		title: {
+			type: "string",
+			minLength: 1,
+			maxLength: 300,
+			description: "Slide heading, for example Supplier update.",
+		},
 		bullets: {
 			type: "array",
 			maxItems: 30,
@@ -421,19 +426,54 @@ const SLIDE_OUTLINE_SCHEMA = {
 	required: ["title"],
 } as const;
 
+const BLOCK_PARAMETER_DESCRIPTIONS: Record<string, string> = {
+	kind: "Block kind selected from the declared constants, for example paragraph or heading.",
+	level: "Heading depth from 1 to 4; for example 2 for a section heading.",
+	text: "Block or checklist text, for example Supplier replied.",
+	language:
+		"Optional code language, for example typescript for a TypeScript code block.",
+	ordered: "true creates a numbered list; false creates bullet points.",
+	items:
+		"List entries in display order; checklist entries contain text and checked.",
+	headers: "Table column headings in order, for example [Supplier, Status].",
+	rows: "Table body rows, each containing cells in header order.",
+	align: "Optional column alignments from the item enum, one per column.",
+	widths: "Optional column widths in pixels, one per column.",
+	summary: "Visible details heading, for example Supporting notes.",
+	checked: "true marks a checklist entry complete; false leaves it open.",
+};
+
+function describeBlockParameters(node: Record<string, unknown>): void {
+	for (const [key, value] of Object.entries(node.properties ?? {})) {
+		const property = value as Record<string, unknown>;
+		property.description = BLOCK_PARAMETER_DESCRIPTIONS[key];
+	}
+	for (const value of Object.values(node)) {
+		if (Array.isArray(value)) {
+			for (const entry of value) {
+				if (entry && typeof entry === "object") describeBlockParameters(entry);
+			}
+		} else if (value && typeof value === "object") {
+			describeBlockParameters(value as Record<string, unknown>);
+		}
+	}
+}
+
 /** The simplified block vocabulary patch_document accepts (kind + text/items). */
 const DOCUMENT_BLOCK_SCHEMA = {
 	oneOf: OsDocumentBlockSchema.options.map((option) => {
 		const schema = z.toJSONSchema(option, { io: "input" });
 		const { type, ...properties } = schema.properties ?? {};
 		delete schema.$schema;
-		return {
+		const projected = {
 			...schema,
 			properties: { kind: type, ...properties },
 			required: (schema.required ?? []).map((key) =>
 				key === "type" ? "kind" : key,
 			),
 		};
+		describeBlockParameters(projected);
+		return projected;
 	}),
 };
 
@@ -466,7 +506,7 @@ const REVISE_OUTPUT_SCHEMA = deriveToolSchema(
 				type: "string",
 				maxLength: 200_000,
 				description:
-					"Full replacement body as Markdown (headings, GFM tables, checklists, nested lists, code fences, quotes and links). This replaces the whole document, so include unchanged sections.",
+					"Full replacement Markdown, including unchanged sections; supports headings, GFM tables, checklists, nested lists, code, quotes and links.",
 			},
 		},
 	},
@@ -490,32 +530,66 @@ const PATCH_DOCUMENT_SCHEMA = deriveToolSchema(
 				minItems: 1,
 				maxItems: MAX_PATCH_OPS,
 				description:
-					"Applied in order against the evolving block list: insert accepts indices 0..length (appending at length); replace and delete require an existing index.",
+					"Ordered edits to the evolving block list: insert at 0..length; replace or delete at existing indices, for example index 0 for the first block.",
 				items: {
 					oneOf: [
 						{
 							type: "object",
 							properties: {
-								op: { const: "insert" },
-								index: { type: "integer", minimum: 0 },
-								block: DOCUMENT_BLOCK_SCHEMA,
+								op: {
+									const: "insert",
+									description:
+										"insert adds a new entry at index, shifting later entries forward.",
+								},
+								index: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Zero-based index in the evolving list, for example 0 for the first entry; insert also accepts the list length.",
+								},
+								block: {
+									...DOCUMENT_BLOCK_SCHEMA,
+									description:
+										"Complete block to insert or replace, selected by kind; for example {kind: paragraph, text: Supplier replied}.",
+								},
 							},
 							required: ["op", "index", "block"],
 						},
 						{
 							type: "object",
 							properties: {
-								op: { const: "replace" },
-								index: { type: "integer", minimum: 0 },
-								block: DOCUMENT_BLOCK_SCHEMA,
+								op: {
+									const: "replace",
+									description:
+										"replace overwrites the existing entry at index.",
+								},
+								index: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Zero-based index in the evolving list, for example 0 for the first entry; insert also accepts the list length.",
+								},
+								block: {
+									...DOCUMENT_BLOCK_SCHEMA,
+									description:
+										"Complete block to insert or replace, selected by kind; for example {kind: paragraph, text: Supplier replied}.",
+								},
 							},
 							required: ["op", "index", "block"],
 						},
 						{
 							type: "object",
 							properties: {
-								op: { const: "delete" },
-								index: { type: "integer", minimum: 0 },
+								op: {
+									const: "delete",
+									description: "delete removes the existing entry at index.",
+								},
+								index: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Zero-based index in the evolving list, for example 0 for the first entry; insert also accepts the list length.",
+								},
 							},
 							required: ["op", "index"],
 						},
@@ -544,41 +618,89 @@ const PATCH_SLIDES_SCHEMA = deriveToolSchema(
 				minItems: 1,
 				maxItems: MAX_PATCH_OPS,
 				description:
-					"Applied in order against the evolving slide list: insert accepts indices 0..length (appending at length); replace, delete, and move require existing indices.",
+					"Ordered edits to the evolving slide list: insert at 0..length; replace, delete and move at existing indices, for example index 0 for the first slide.",
 				items: {
 					oneOf: [
 						{
 							type: "object",
 							properties: {
-								op: { const: "insert" },
-								index: { type: "integer", minimum: 0 },
-								slide: SLIDE_OUTLINE_SCHEMA,
+								op: {
+									const: "insert",
+									description:
+										"insert adds a new entry at index, shifting later entries forward.",
+								},
+								index: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Zero-based index in the evolving list, for example 0 for the first entry; insert also accepts the list length.",
+								},
+								slide: {
+									...SLIDE_OUTLINE_SCHEMA,
+									description:
+										"Complete slide outline to insert or replace; omitted notes clear existing notes on replacement.",
+								},
 							},
 							required: ["op", "index", "slide"],
 						},
 						{
 							type: "object",
 							properties: {
-								op: { const: "replace" },
-								index: { type: "integer", minimum: 0 },
-								slide: SLIDE_OUTLINE_SCHEMA,
+								op: {
+									const: "replace",
+									description:
+										"replace overwrites the existing entry at index.",
+								},
+								index: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Zero-based index in the evolving list, for example 0 for the first entry; insert also accepts the list length.",
+								},
+								slide: {
+									...SLIDE_OUTLINE_SCHEMA,
+									description:
+										"Complete slide outline to insert or replace; omitted notes clear existing notes on replacement.",
+								},
 							},
 							required: ["op", "index", "slide"],
 						},
 						{
 							type: "object",
 							properties: {
-								op: { const: "delete" },
-								index: { type: "integer", minimum: 0 },
+								op: {
+									const: "delete",
+									description: "delete removes the existing entry at index.",
+								},
+								index: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Zero-based index in the evolving list, for example 0 for the first entry; insert also accepts the list length.",
+								},
 							},
 							required: ["op", "index"],
 						},
 						{
 							type: "object",
 							properties: {
-								op: { const: "move" },
-								from: { type: "integer", minimum: 0 },
-								to: { type: "integer", minimum: 0 },
+								op: {
+									const: "move",
+									description:
+										"move relocates the entry from one existing index to another.",
+								},
+								from: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Existing zero-based slide index to move, for example 0 for the first slide.",
+								},
+								to: {
+									type: "integer",
+									minimum: 0,
+									description:
+										"Existing zero-based destination index, for example 2 to move to the third slide.",
+								},
 							},
 							required: ["op", "from", "to"],
 						},
@@ -689,7 +811,7 @@ export function buildOutputsWebMcpTools(
 		name: "read_output",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"Read one Tedix OS output with its current revision: documents return an editable markdown projection, presentations their indexed slide outlines (title/bullets/notes), sheets their columns plus a bounded row preview with zero-based coordinates — pass the returned `revision` as `expectedRevision` when writing.",
+			"Read one Tedix OS output with its current revision: documents return an editable markdown projection, presentations their indexed slide outlines (title/bullets/notes), sheets their columns plus a preview of up to 50 rows with zero-based coordinates — pass the returned `revision` as `expectedRevision` when writing.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -733,8 +855,12 @@ export function buildOutputsWebMcpTools(
 
 	const reviseOutput: WebMcpToolDef = {
 		name: "revise_output",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
-		description: `Replace a document output's body with the given markdown as a new saved compare-and-swap revision; read_output first and pass its revision as expectedRevision. Markdown replacement may discard rich formatting. ${WORKSPACE_DRAFT_GUIDANCE}`,
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
+		description: `Replace a document with Markdown when rewriting its saved body; read_output first for expectedRevision, and include unchanged sections because replacement may discard rich formatting. ${WORKSPACE_DRAFT_GUIDANCE}`,
 		inputSchema: REVISE_OUTPUT_SCHEMA,
 		execute: async (args, executeOptions): Promise<WebMcpToolResult> => {
 			try {
@@ -781,8 +907,12 @@ export function buildOutputsWebMcpTools(
 
 	const patchDocument: WebMcpToolDef = {
 		name: "patch_document",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
-		description: `Edit a document output block-by-block with ordered insert/replace/delete operations as one saved compare-and-swap revision; read_output first and pass its revision as expectedRevision. ${WORKSPACE_DRAFT_GUIDANCE}`,
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
+		description: `Edit selected document blocks with ordered insert/replace/delete operations in one saved revision; read_output first for block indices and expectedRevision. ${WORKSPACE_DRAFT_GUIDANCE}`,
 		inputSchema: PATCH_DOCUMENT_SCHEMA,
 		execute: async (args, executeOptions): Promise<WebMcpToolResult> => {
 			try {
@@ -826,7 +956,11 @@ export function buildOutputsWebMcpTools(
 
 	const patchSlides: WebMcpToolDef = {
 		name: "patch_slides",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
 			"Edit a presentation output slide-by-slide with ordered insert/replace/delete/move operations over the slide indexes read_output returns, as one saved compare-and-swap revision (this does not merge a live shared draft); pass read_output's `revision` as `expectedRevision`.",
 		inputSchema: PATCH_SLIDES_SCHEMA,
@@ -883,7 +1017,11 @@ export function buildOutputsWebMcpTools(
 
 	const setSheetRange: WebMcpToolDef = {
 		name: "set_sheet_range",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
 			"Write a rectangle of cells into a sheet output at zero-based numeric coordinates (startRow, startColumn — no A1 notation) as one saved compare-and-swap revision (this does not merge a live shared draft); the rectangle must fit the sheet's existing columns (max 64), at most 200 rows per call within the 1000-row sheet cap, and pass read_output's `revision` as `expectedRevision`.",
 		inputSchema: SET_SHEET_RANGE_SCHEMA,

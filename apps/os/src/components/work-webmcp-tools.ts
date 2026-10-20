@@ -261,9 +261,13 @@ export function buildWorkWebMcpTools(deps: WorkWebMcpDeps): WebMcpToolDef[] {
 
 	const createWorkItem: WebMcpToolDef = {
 		name: "create_work_item",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
-			"Propose a new Tedix work item that appears on the human's Work queue as `proposed` and waits for a human to accept it before any digital worker can execute it.",
+			"Propose a Tedix work item for human acceptance when adding a task to the Work queue. Each call creates a separate proposal; inspect the queue before retrying an uncertain write.",
 		inputSchema: CREATE_WORK_ITEM_SCHEMA,
 		execute: async (args, executeOptions): Promise<WebMcpToolResult> => {
 			try {
@@ -312,9 +316,13 @@ export function buildWorkWebMcpTools(deps: WorkWebMcpDeps): WebMcpToolDef[] {
 
 	const commentWorkItem: WebMcpToolDef = {
 		name: "comment_work_item",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
-			"Add a comment to a Tedix work item; it appears immediately in the comment thread the human sees on the item's Work board page.",
+			"Add a comment when recording context on a Tedix work item's visible thread. Each call appends a separate comment; inspect the thread before retrying an uncertain write.",
 		inputSchema: {
 			type: "object",
 			properties: {
