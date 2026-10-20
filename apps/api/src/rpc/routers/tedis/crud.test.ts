@@ -274,28 +274,25 @@ describe("resolveTediDeleteAccess", () => {
 	// apps/api as authType "service-binding" (that is how the MCP->API hop works),
 	// carrying its own tenant's org id. If the transport alone conferred authority,
 	// any `standard` tedi in any tenant could delete any tedi in any org. Authority
-	// must come from the PRINCIPAL, never the binding. Only the internal `system`
-	// caller gets the narrow bypass (mirrors requireTediAccess).
+	// must come from the PRINCIPAL, never the binding.
 	it("refuses a non-system service binding deleting cross-org", () => {
 		expect(
 			resolveTediDeleteAccess({
 				callerOrgId: CALLER,
 				tediOrgId: OTHER,
 				isPlatformPrincipal: false,
-				isSystemServiceBinding: false,
 			}),
 		).toEqual({ allowed: false, crossOrg: true });
 	});
 
-	it("allows the internal system service binding to delete cross-org", () => {
+	it("refuses system identity lookup authority for a cross-org delete", () => {
 		expect(
 			resolveTediDeleteAccess({
 				callerOrgId: "system",
 				tediOrgId: OTHER,
 				isPlatformPrincipal: false,
-				isSystemServiceBinding: true,
 			}),
-		).toEqual({ allowed: true, crossOrg: true });
+		).toEqual({ allowed: false, crossOrg: true });
 	});
 
 	// A service binding scoped to the caller's own org gains nothing extra, and

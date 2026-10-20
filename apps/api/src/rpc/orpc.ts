@@ -410,6 +410,9 @@ async function resolveServiceBindingOrganizationId(
 ): Promise<string | undefined> {
 	const serviceOrgId = getServiceBindingOrganizationHeader(context.headers);
 	if (!serviceOrgId) return undefined;
+	// Bootstrap marker for service-owned billing/voice calls, not tenant or
+	// cross-org authority. Resource guards require a configured principal.
+	if (serviceOrgId === "system") return serviceOrgId;
 
 	try {
 		const org = isDescopeTenantId(serviceOrgId)

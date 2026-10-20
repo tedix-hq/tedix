@@ -23,6 +23,8 @@
  * `orpc.ts` re-exports both symbols, so existing call sites are unaffected.
  */
 
+import { getServiceBindingPrincipal } from "../service-principal";
+
 // Type-only: erased at compile time, so it costs the eager graph nothing.
 import type { ApiKeyPurpose } from "@tedix/api-contract/schemas/organization";
 import type { JWTPayload } from "@tedix/auth/types";
@@ -104,6 +106,8 @@ export interface BaseContext {
 	 * - "service-binding": Authenticated Worker service binding
 	 */
 	authType?: ApiAuthType;
+	/** Set by named service ingress, never by request headers. */
+	serviceBindingPrincipal?: "mcp-edge";
 	/** Tedi ID when authenticated via tedi access key */
 	tediId?: string;
 	/** Descope user ID when authenticated via tedi access key (V2 identity) */
@@ -221,6 +225,7 @@ export function createContext(
 		dbBookmark: session.getBookmark,
 		dbMetrics: session.metrics,
 		headers: request.headers,
+		serviceBindingPrincipal: getServiceBindingPrincipal(request),
 		url: new URL(request.url),
 		rateLimiter: env.API_RATE_LIMITER,
 		waitUntil,

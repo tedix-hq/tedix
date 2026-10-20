@@ -25,6 +25,7 @@ function context(overrides: Partial<BaseContext> = {}): BaseContext {
 	getTediById.mockResolvedValue(target);
 	return {
 		organizationId: "provider-org",
+		url: new URL("https://api.test/rpc/tedis/get"),
 		db: {},
 		...overrides,
 	} as BaseContext;
@@ -66,13 +67,17 @@ describe("Tedi access uses canonical platform authority", () => {
 			).rejects.toMatchObject({ code: "FORBIDDEN" });
 		},
 	);
-	it("preserves same-organization and system service binding access", async () => {
+	it("preserves same-organization and verified MCP edge access", async () => {
 		await expect(
 			requireTediAccess(context({ organizationId: "customer-org" }), target.id),
 		).resolves.toEqual(target);
 		await expect(
 			requireTediAccess(
-				context({ organizationId: "system", authType: "service-binding" }),
+				context({
+					organizationId: "system",
+					authType: "service-binding",
+					serviceBindingPrincipal: "mcp-edge",
+				}),
 				target.id,
 			),
 		).resolves.toEqual(target);
@@ -99,7 +104,11 @@ describe("Tedi access uses canonical platform authority", () => {
 	it.each(["tedi", "m2m", "service-binding"] as const)(
 		"platform %s access cannot bypass the autonomous budget mutation gate",
 		async (authType) => {
-			const actor = context({ authType, tediScopes: ["platform:admin"] });
+			const actor = context({
+				authType,
+				tediScopes: ["platform:admin"],
+				serviceBindingPrincipal: "mcp-edge",
+			});
 			await expect(requireTediAccess(actor, target.id)).resolves.toEqual(
 				target,
 			);
@@ -115,6 +124,7 @@ describe("Tedi access uses canonical platform authority", () => {
 it("rejects an actual cross-org platform tedi budget update before persistence", async () => {
 	const actor = context({
 		authType: undefined,
+		serviceBindingPrincipal: "mcp-edge",
 		organizationId: "provider-org",
 		headers: new Headers({
 			"X-Service-Binding": "true",
@@ -141,9 +151,9 @@ it("rejects an actual cross-org platform tedi budget update before persistence",
 });
 
 /**
- * Tedis router: the caller must carry an organization (UNAUTHORIZED
- * otherwise). Any platform principal crosses the tenant boundary, as does the
- * internal `system` service binding; the tedi identity on the context is not
+ * Tedis router: the caller must carry an organization (FORBIDDEN
+ * otherwise). Platform principals cross the tenant boundary. The configured
+ * MCP principal may resolve identity through tedis.get; the tedi identity on the context is not
  * consulted, so a tedi reaches every tedi in its own organization.
  */
 const EXPECTED: Record<TediAccessCaseName, TediAccessOutcome> = {
@@ -155,25 +165,30 @@ const EXPECTED: Record<TediAccessCaseName, TediAccessOutcome> = {
 	"cross-org api key with wildcard scope": "allow",
 	"cross-org api key with tenant scopes": "FORBIDDEN",
 	"cross-org m2m with platform:admin": "allow",
-	"system service binding": "allow",
+	"system service binding": "FORBIDDEN",
+	"verified MCP edge identity lookup": "allow",
+	"missing sibling tedi": "NOT_FOUND",
 	"system organization on a user call": "FORBIDDEN",
 	"cross-org service binding": "FORBIDDEN",
+	"tenant tedi forwarded by verified MCP binding": "FORBIDDEN",
+	"untrusted binding forwarding platform headers": "FORBIDDEN",
+	"untrusted binding forwarding operator app headers": "FORBIDDEN",
 	"cross-org service binding forwarding a platform tedi": "allow",
 	"cross-org service binding from the operator MCP app": "FORBIDDEN",
 	"operator MCP app slug on a user call": "FORBIDDEN",
 	"self tedi": "allow",
-	"self tedi without organization": "UNAUTHORIZED",
+	"self tedi without organization": "FORBIDDEN",
 	"self tedi with a cross-org context": "FORBIDDEN",
 	"sibling tedi in the same org": "allow",
 	"sibling platform tedi in the same org": "allow",
 	"cross-org tedi": "FORBIDDEN",
-	"user without organization": "UNAUTHORIZED",
-	"platform-admin user without organization": "UNAUTHORIZED",
-	"platform api key without organization": "UNAUTHORIZED",
+	"user without organization": "FORBIDDEN",
+	"platform-admin user without organization": "FORBIDDEN",
+	"platform api key without organization": "FORBIDDEN",
 	"missing tedi for a same-org user": "NOT_FOUND",
 	"missing tedi for a cross-org user": "NOT_FOUND",
-	"missing tedi for a user without organization": "UNAUTHORIZED",
-	"missing tedi for a platform api key without organization": "UNAUTHORIZED",
+	"missing tedi for a user without organization": "FORBIDDEN",
+	"missing tedi for a platform api key without organization": "FORBIDDEN",
 };
 
 describe("tedis requireTediAccess matrix", () => {
@@ -190,4 +205,18 @@ describe("tedis requireTediAccess matrix", () => {
 			await expect(call).rejects.toMatchObject({ code: outcome });
 		}
 	});
+});
+
+it("does not extend MCP identity authority to other tedi procedures", async () => {
+	await expect(
+		requireTediAccess(
+			context({
+				authType: "service-binding",
+				organizationId: "system",
+				serviceBindingPrincipal: "mcp-edge",
+				url: new URL("https://api.test/rpc/tedis/update"),
+			}),
+			target.id,
+		),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });

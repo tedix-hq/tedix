@@ -1261,26 +1261,11 @@ export function resolveTediDeleteAccess(params: {
 	callerOrgId: string;
 	tediOrgId: string;
 	isPlatformPrincipal: boolean;
-	/**
-	 * Only the internal `system` service-binding caller — not "any service
-	 * binding". Mirrors the deliberately narrow `authType === "service-binding" &&
-	 * orgId === "system"` bypass in `requireTediAccess`.
-	 *
-	 * Trusting the transport alone here would be a privilege escalation: every
-	 * tenant tedi's tool call reaches apps/api as `authType: "service-binding"`
-	 * (that is how the MCP→API hop works), carrying its own tenant's org id. So a
-	 * bare service-binding check would let any `standard` tedi in any tenant
-	 * delete any tedi in any org. Authority must come from the principal
-	 * (`isPlatformPrincipal` — platform-admin role, `platform:admin` API key/M2M,
-	 * or an `platform:admin` tedi), never from the binding.
-	 */
-	isSystemServiceBinding?: boolean;
 }): { allowed: boolean; crossOrg: boolean } {
 	const crossOrg = params.tediOrgId !== params.callerOrgId;
 	if (!crossOrg) return { allowed: true, crossOrg: false };
 	return {
-		allowed:
-			params.isPlatformPrincipal || params.isSystemServiceBinding === true,
+		allowed: params.isPlatformPrincipal,
 		crossOrg: true,
 	};
 }
@@ -1303,8 +1288,6 @@ async function requireTediDeleteAccess(context: BaseContext, tediId: string) {
 		callerOrgId,
 		tediOrgId: tedi.organizationId,
 		isPlatformPrincipal: isPlatformPrincipal(context),
-		isSystemServiceBinding:
-			context.authType === "service-binding" && callerOrgId === "system",
 	});
 
 	if (!allowed) {

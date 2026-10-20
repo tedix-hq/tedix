@@ -67,8 +67,9 @@ export function getApiClient(options?: {
  * Read a tedi's identity/capability projection by globally unique id.
  *
  * The API's service-binding auth requires an explicit organization header.
- * This projection is intentionally cross-org, so it uses the API's reviewed
- * `system` scope rather than inheriting a tenant from the incoming MCP request.
+ * This projection is intentionally cross-org. API_SERVICE must bind to the
+ * API's McpEntrypoint; the `system` header selects bootstrap scope but grants
+ * no authority by itself.
  */
 export function getTediProfileApiClient(serviceFetch: Fetcher): ApiClient {
 	return getApiClient({

@@ -283,15 +283,14 @@ export function generateSlug(name: string): string {
 
 /**
  * Tenant ownership or canonical platform-principal authority, plus the
- * `system` service binding the MCP edge uses to resolve tedi identity before
- * any tenant is known. A caller without organization scope is UNAUTHORIZED
- * here (every other router answers FORBIDDEN; see rpc/org-scope.ts).
+ * configured MCP service principal for tedis.get identity resolution before
+ * any tenant is known. Missing organization scope is FORBIDDEN.
  */
 export const TEDIS_TEDI_ACCESS: TediAccessPolicy = {
 	scope: "organization",
-	missingOrganizationCode: "UNAUTHORIZED",
+	missingOrganizationCode: "FORBIDDEN",
 	platformAuthority: "platform-principal",
-	allowSystemServiceBinding: true,
+	allowMcpIdentityResolve: true,
 };
 
 /**

@@ -27,7 +27,9 @@ vi.mock("cloudflare:workflows", () => ({
  */
 const h = vi.hoisted(() => ({ evaluations: 0 }));
 
-vi.mock("./worker-app", () => {
+vi.mock("./worker-app", async () => {
+	const { getServiceBindingPrincipal, correlatedServiceRequest } =
+		await import("./service-principal");
 	h.evaluations++;
 	return {
 		default: {
@@ -35,6 +37,10 @@ vi.mock("./worker-app", () => {
 				new Response("from worker-app", {
 					status: 418,
 					headers: {
+						"X-Seen-Principal":
+							getServiceBindingPrincipal(
+								correlatedServiceRequest(request).request,
+							) ?? "absent",
 						"X-Seen-Service-Binding":
 							request.headers.get("X-Service-Binding") ?? "absent",
 					},
@@ -51,7 +57,7 @@ vi.mock("./kernel/kernel-voice-input-do", () => ({
 	KernelVoiceInputDO: class {},
 }));
 
-import worker, { InternalEntrypoint } from "./index";
+import worker, { InternalEntrypoint, McpEntrypoint } from "./index";
 
 const env = {} as CloudflareEnv;
 const ctx = {} as ExecutionContext;
@@ -134,4 +140,23 @@ describe("apps/api service-binding trust boundary", () => {
 		const res = await internal.fetch(spoofed());
 		expect(res.headers.get("X-Seen-Service-Binding")).toBe("true");
 	});
+});
+
+it("derives MCP authority from the configured entrypoint, never headers", async () => {
+	const request = () =>
+		new Request("https://api.test/rpc/tedis/get", {
+			headers: {
+				"X-Service-Binding": "true",
+				"X-Tedix-Org-Id": "system",
+				"X-Tedix-Service-Principal": "mcp-edge",
+			},
+		});
+	const publicResult = await worker.fetch(request(), env, ctx);
+	expect(publicResult.headers.get("X-Seen-Principal")).toBe("absent");
+	const internalResult = await new InternalEntrypoint(ctx, env).fetch(
+		request(),
+	);
+	expect(internalResult.headers.get("X-Seen-Principal")).toBe("absent");
+	const mcpResult = await new McpEntrypoint(ctx, env).fetch(request());
+	expect(mcpResult.headers.get("X-Seen-Principal")).toBe("mcp-edge");
 });

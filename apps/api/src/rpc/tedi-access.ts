@@ -1,21 +1,19 @@
 /**
  * Tedi ownership resolution for oRPC handlers.
  *
- * Six routers used to define their own `requireTediAccess`, and they disagreed
- * on who may reach a tedi outside the caller's organization (nobody, the human
- * `platform-admin` role only, any platform principal, the `system` service
- * binding, the operator MCP host app), on whether a tedi principal is pinned
- * to its own id, and on the status code for a caller without organization
- * scope (FORBIDDEN or UNAUTHORIZED, before or after the row is read). Each
- * difference is now a named `TediAccessPolicy` field declared next to the
- * router that owns it; the matrix tests beside each router pin its outcomes.
+ * Router policies select platform authority and tedi identity boundaries.
+ * Missing organization scope is FORBIDDEN; principal policies check caller
+ * scope before reading and conceal absent or inaccessible tenant rows.
  *
  * This helper only answers "may this caller see this tedi". Mutation-specific
  * gates (capability fields, delete reach, budget writes) stay in the handlers.
  */
 
 import { isPlatformAdmin, isPlatformPrincipal } from "@tedix/auth/types";
-import { getTediById } from "@tedix/db/queries/tedis";
+import {
+	getTediById,
+	getTediByIdForOrganization,
+} from "@tedix/db/queries/tedis";
 import { getTrustedMcpHostAppContext } from "./mcp-host-context";
 import { requireOrgId } from "./org-scope";
 import { type BaseContext, createError, ErrorCodes } from "./orpc";
@@ -47,19 +45,17 @@ export type TediAccessPolicy = {
 			 */
 			scope: "organization";
 			/** Status code for a caller without organization scope. */
-			missingOrganizationCode: "FORBIDDEN" | "UNAUTHORIZED";
+			missingOrganizationCode: "FORBIDDEN";
 			/**
-			 * A service-binding call whose organization resolved to the literal
-			 * `system` (the MCP edge resolving tedi identity before any tenant is
-			 * known) bypasses the tenant check without platform authority.
+			 * The configured MCP service principal may resolve identity through
+			 * tedis.get before a tenant is known. No other procedure inherits it.
 			 */
-			allowSystemServiceBinding?: boolean;
+			allowMcpIdentityResolve?: boolean;
 	  }
 	| {
 			/**
-			 * The tedi is read first (a missing id is NOT_FOUND for every caller),
-			 * then the caller is matched by tedi identity, organization or platform
-			 * authority. A caller with none of the three is UNAUTHORIZED.
+			 * Caller scope is checked before reading. Tenant reads conceal absent
+			 * and foreign ids behind the same FORBIDDEN denial.
 			 */
 			scope: "principal";
 			/**
@@ -78,6 +74,12 @@ function hasPlatformAuthority(
 	context: BaseContext,
 	policy: TediAccessPolicy,
 ): boolean {
+	// Only the configured MCP gateway may forward cross-org principal claims.
+	if (
+		context.authType === "service-binding" &&
+		context.serviceBindingPrincipal !== "mcp-edge"
+	)
+		return false;
 	if (
 		policy.platformOperatorMcpAppSlug !== undefined &&
 		getTrustedMcpHostAppContext(context).appSlug ===
@@ -95,74 +97,67 @@ function hasPlatformAuthority(
 	}
 }
 
-function requireCallerOrganization(
-	context: BaseContext,
-	missingOrganizationCode: "FORBIDDEN" | "UNAUTHORIZED",
-): string {
-	if (missingOrganizationCode === "FORBIDDEN") return requireOrgId(context);
-	const orgId = context.organizationId;
-	if (!orgId) {
-		throw createError(ErrorCodes.UNAUTHORIZED, "Organization context required");
-	}
-	return orgId;
-}
-
 /**
  * Resolve a caller-supplied tedi id and prove the caller may see it under
- * `policy`. Returns the tedi row; throws NOT_FOUND, FORBIDDEN or UNAUTHORIZED.
+ * `policy`. Returns the tedi row; throws NOT_FOUND or FORBIDDEN.
  */
 export async function requireTediAccess(
 	context: BaseContext,
 	tediId: string,
 	policy: TediAccessPolicy,
 ) {
+	const identityResolve =
+		policy.scope === "organization" &&
+		policy.allowMcpIdentityResolve === true &&
+		context.authType === "service-binding" &&
+		context.serviceBindingPrincipal === "mcp-edge" &&
+		context.organizationId === "system" &&
+		!context.tediId &&
+		!context.externalAgentPrincipalId &&
+		!context.serviceBindingAuthorization &&
+		context.url?.pathname === "/rpc/tedis/get";
 	const callerOrgId =
-		policy.scope === "organization"
-			? requireCallerOrganization(context, policy.missingOrganizationCode)
+		policy.scope === "organization" && !identityResolve
+			? requireOrgId(context)
 			: context.organizationId;
-
-	const tedi = await getTediById(context.db, tediId);
-	if (!tedi) {
-		throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
-	}
-
-	if (policy.scope === "organization") {
-		if (tedi.organizationId === callerOrgId) return tedi;
-		if (
-			policy.allowSystemServiceBinding &&
-			context.authType === "service-binding" &&
-			callerOrgId === "system"
-		) {
-			return tedi;
-		}
-		if (hasPlatformAuthority(context, policy)) {
-			console.log(
-				`[Auth] Platform principal cross-org access: authType=${context.authType} accessing tedi=${tediId} (org=${tedi.organizationId}, caller-org=${callerOrgId})`,
-			);
-			return tedi;
-		}
+	const platform = hasPlatformAuthority(context, policy);
+	if (callerOrgId === "system" && !identityResolve && !platform) {
 		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
 	}
 
-	const platform = hasPlatformAuthority(context, policy);
-	if (context.tediId) {
-		const self = context.tediId === tedi.id;
-		if (policy.tediIdentity === "exclusive") {
-			if (self) return tedi;
+	if (policy.scope === "principal") {
+		const self = context.tediId === tediId;
+		if (
+			context.tediId &&
+			!self &&
+			(policy.tediIdentity === "exclusive" || !platform)
+		) {
 			throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
 		}
-		if (!self && !platform) {
-			throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
+		if (!callerOrgId && !context.tediId && !platform) {
+			throw createError(ErrorCodes.FORBIDDEN, "Organization context required");
 		}
-	}
-	if (callerOrgId) {
-		if (tedi.organizationId !== callerOrgId && !platform) {
-			throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
+		// Self-only harness authority is independent of org scope. Every other
+		// tenant read includes ownership in the query, hiding absent/foreign ids.
+		const exclusiveSelf = policy.tediIdentity === "exclusive" && self;
+		const tedi =
+			callerOrgId && !platform && !exclusiveSelf
+				? await getTediByIdForOrganization(context.db, tediId, callerOrgId)
+				: await getTediById(context.db, tediId);
+		if (!tedi) {
+			throw createError(
+				platform && !exclusiveSelf
+					? ErrorCodes.NOT_FOUND
+					: ErrorCodes.FORBIDDEN,
+				"Access denied to this tedi",
+			);
 		}
 		return tedi;
 	}
-	if (!context.tediId && !platform) {
-		throw createError(ErrorCodes.UNAUTHORIZED, "Organization context required");
-	}
-	return tedi;
+
+	const tedi = await getTediById(context.db, tediId);
+	if (!tedi) throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
+	if (tedi.organizationId === callerOrgId || identityResolve || platform)
+		return tedi;
+	throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
 }
