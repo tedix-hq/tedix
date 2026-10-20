@@ -15,11 +15,17 @@ const principalScopeCatalog = new Set<string>([
 	"*",
 ]);
 
+export const ExternalAgentPlatformSchema = z.enum([
+	"claude-cloud",
+	"codex-cloud",
+	"devin-cloud",
+	"other",
+]);
+
 export const ExternalAgentPrincipalMetadataSchema = z
 	.object({
-		platform: z
-			.enum(["claude-cloud", "codex-cloud", "devin-cloud", "other"])
-			.optional(),
+		platform: ExternalAgentPlatformSchema.optional(),
+		representedUserId: z.string().trim().min(1).max(200).optional(),
 		allowedScopes: z
 			.array(
 				z
@@ -162,6 +168,15 @@ export const ExternalAgentPrincipalSchema = z.object({
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
+
+export const ExternalAgentPrincipalSummarySchema =
+	ExternalAgentPrincipalSchema.extend({
+		platform: ExternalAgentPlatformSchema.nullable(),
+		representedUserId: z.string().nullable(),
+		allowedScopes: z.array(z.string()).nullable(),
+		expiresAt: z.string().nullable(),
+		lastSeenAt: z.string().nullable(),
+	});
 
 export const ExternalAgentSessionSchema = z
 	.object({
