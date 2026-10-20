@@ -35,6 +35,7 @@ const initechInventory: ConnectionInventory = {
 			scope: "tenant",
 			accountState: "present",
 			accountLabel: null,
+			capabilities: [],
 			connection: null,
 			references: [{ appId: "app", appSlug: "initech-globex", source: "app" }],
 			referencesComplete: true,

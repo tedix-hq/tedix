@@ -4,6 +4,7 @@ import {
 	isNamedConnectionExternalIdentifier,
 } from "@tedix/auth/connections";
 import { ConnectionProviderSchema } from "@tedix/api-contract/schemas/connections";
+import { projectConnectionCapabilities } from "@tedix/api-contract/utils/connection-capabilities";
 import type {
 	ConnectionInventory,
 	ConnectionInventoryInput,
@@ -118,7 +119,7 @@ export async function readConnectionsOverview(
 				(!providerIds || providerIds.has(p.appId)) &&
 				p.supportedScopes.includes(scope),
 		);
-	const rows: ConnectionInventoryRow[] = [];
+	const rows: Omit<ConnectionInventoryRow, "capabilities">[] = [];
 	let verificationComplete = true;
 	// Bound concurrency without serializing every provider request. Each request has a deadline.
 	let cursor = 0;
@@ -311,6 +312,10 @@ export async function readConnectionsOverview(
 		);
 	}
 	const filtered = rows
+		.map((row) => ({
+			...row,
+			capabilities: projectConnectionCapabilities(row),
+		}))
 		.filter(
 			(row) =>
 				`${row.provider.name} ${row.instanceLabel ?? ""}`

@@ -26,6 +26,7 @@ import {
 	SectionTitle,
 } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
+import { ConnectionCapabilities } from "@/components/connection-capabilities";
 import {
 	usableLogoUrl,
 	connectionServiceSummary,
@@ -222,6 +223,7 @@ export function PersonalProviderAccounts({
 									</DropdownMenu>
 								</div>
 							</div>
+							<ConnectionCapabilities capabilities={row.capabilities} />
 							{uncertain && (
 								<Text role="label" tone="secondary" className="mt-2">
 									Account verification is unavailable. This does not mean the

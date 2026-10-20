@@ -235,6 +235,7 @@ export async function startOauthConnect(input: {
 	effectiveScope: "tenant" | "user";
 	registrationMode?: ConnectionProvider["registrationMode"];
 	connectionInstanceId?: string;
+	scopes?: string[];
 }): Promise<void> {
 	const flow: ConnectionFlow = { ...input, nonce: crypto.randomUUID() };
 	const popup = openConnectPopup(flow);
@@ -330,6 +331,7 @@ async function resolveAuthorizeUrl(input: {
 	effectiveScope: "tenant" | "user";
 	registrationMode?: ConnectionProvider["registrationMode"];
 	connectionInstanceId?: string;
+	scopes?: string[];
 }): Promise<string> {
 	const callbackTarget = new URL(`${window.location.origin}/oauth/callback`);
 	if (input.registrationMode === "cimd") {
@@ -341,6 +343,7 @@ async function resolveAuthorizeUrl(input: {
 		const result = await osApi.connections.initiateConnection({
 			appId: input.appId,
 			redirectUri: callbackTarget.toString(),
+			...(input.scopes?.length ? { scopes: input.scopes } : {}),
 		});
 		return result.redirectUrl;
 	}
@@ -375,7 +378,10 @@ async function resolveAuthorizeUrl(input: {
 				...(tenantConnect
 					? { tenantId: status.tenantId as string, tenantLevel: true }
 					: {}),
-				options: { redirectUrl: callbackTarget.toString() },
+				options: {
+					redirectUrl: callbackTarget.toString(),
+					...(input.scopes?.length ? { scopes: input.scopes } : {}),
+				},
 			}),
 		},
 	);

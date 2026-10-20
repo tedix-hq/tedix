@@ -142,6 +142,7 @@ const connectedInventory: ConnectionInventoryRow = {
 	accountState: "present",
 	accountLabel: "Initech",
 	connection: baseConnection,
+	capabilities: [],
 	references: [{ appId: baseApp.id, appSlug: baseApp.slug, source: "app" }],
 	referencesComplete: true,
 	access: "not_evaluated",

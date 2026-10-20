@@ -3,6 +3,7 @@ import {
 	EmbeddedTediSelectionSchema,
 } from "../schemas/embedded-widget-access";
 import { HostDelegationSchema } from "../schemas/host-delegation";
+import { ConnectionCapabilitySchema } from "../schemas/connections";
 import {
 	EmbeddedContactProfilePatchSchema,
 	EmbeddedContactIdentitySchema,
@@ -243,6 +244,7 @@ export const TediSetupSchema = z.object({
 			label: z.string(),
 			detail: z.string(),
 			href: z.string().regex(/^\/(?!\/)/),
+			capabilities: z.array(ConnectionCapabilitySchema).optional(),
 		}),
 	),
 });

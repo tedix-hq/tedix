@@ -196,6 +196,7 @@ export const getSetupProcedure = authedTedisOs.getSetup
 						state: row.accountState,
 						connected: row.connection?.status === "connected",
 						scopes: row.connection?.scopes ?? [],
+						capabilities: row.capabilities,
 					})),
 				);
 				incomplete = inventory.hasMore || !inventory.verificationComplete;

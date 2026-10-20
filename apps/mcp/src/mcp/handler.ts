@@ -49,6 +49,8 @@ import { OWNER_HOST_SESSION_HEADER } from "@tedix/api-contract/contracts/externa
  * @module @tedix/mcp/handler
  */
 
+import { buildConnectionSetupUrl } from "@tedix/api-contract/utils/connection-capabilities";
+import type { ConnectionCapability } from "@tedix/api-contract/schemas/connections";
 import type { AppCapabilities } from "@tedix/api-contract/schemas/app";
 import {
 	DOCS_TOOL_SCOPES,
@@ -391,6 +393,42 @@ function buildCredentialErrorMessage(result: CredentialFetchResult): string {
 		return `${genericMessage} (${result.detail})`;
 	}
 	return genericMessage;
+}
+
+/** Missing credentials expose the same capability/setup shape as Connections. */
+export function buildCredentialErrorData(
+	result: CredentialFetchResult,
+	selection: {
+		providerId: string;
+		connectionInstanceId?: string;
+		scope?: string;
+		preference?: "user-first" | "tenant-first";
+		scopes?: string[];
+	},
+) {
+	const error = buildCredentialErrorMessage(result);
+	if (result.status !== 404 || result.token) return { error };
+	const scopes = selection.scopes ?? [];
+	const setupUrl = buildConnectionSetupUrl({
+		...selection,
+		scope:
+			selection.scope === "user" ||
+			(selection.scope === "hybrid" && selection.preference !== "tenant-first")
+				? "user"
+				: "tenant",
+		scopes,
+	});
+	return {
+		error: `${error} Set up: ${setupUrl}`,
+		capability: {
+			id: selection.providerId,
+			label: "Required access",
+			state: "not_configured",
+			requiredScopes: scopes,
+			verified: true,
+			setupUrl,
+		} satisfies ConnectionCapability,
+	};
 }
 
 /**
@@ -1795,7 +1833,13 @@ export class ToolHandler {
 				);
 				if (!credentialResult.token) {
 					return {
-						data: { error: buildCredentialErrorMessage(credentialResult) },
+						data: buildCredentialErrorData(credentialResult, {
+							preference: config.auth.credentialPreference,
+							providerId: config.auth.connectionId,
+							connectionInstanceId: selectedConnectionInstanceId(ctx),
+							scope: config.auth.credentialScope ?? config.auth.scope,
+							scopes: config.auth.scopes,
+						}),
 						status: 401,
 						connectionRecovery: buildCredentialRecovery(credentialResult, {
 							providerId: config.auth.connectionId,
@@ -2622,7 +2666,13 @@ export class ToolHandler {
 				);
 				if (!credentialResult.token) {
 					return {
-						data: { error: buildCredentialErrorMessage(credentialResult) },
+						data: buildCredentialErrorData(credentialResult, {
+							preference: config.auth.credentialPreference,
+							providerId: config.auth.connectionId,
+							connectionInstanceId: selectedConnectionInstanceId(ctx),
+							scope: config.auth.credentialScope ?? config.auth.scope,
+							scopes: config.auth.scopes,
+						}),
 						status: 401,
 						connectionRecovery: buildCredentialRecovery(credentialResult, {
 							providerId: config.auth.connectionId,
@@ -2661,7 +2711,13 @@ export class ToolHandler {
 				);
 				if (!credentialResult.token) {
 					return {
-						data: { error: buildCredentialErrorMessage(credentialResult) },
+						data: buildCredentialErrorData(credentialResult, {
+							preference: config.auth.credentialPreference,
+							providerId: config.auth.connectionId,
+							connectionInstanceId: selectedConnectionInstanceId(ctx),
+							scope: config.auth.credentialScope ?? config.auth.scope,
+							scopes: config.auth.scopes,
+						}),
 						status: 401,
 						connectionRecovery: buildCredentialRecovery(credentialResult, {
 							providerId: config.auth.connectionId,

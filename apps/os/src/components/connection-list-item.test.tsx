@@ -41,6 +41,7 @@ const inventory: ConnectionInventoryRow = {
 	accountLabel: null,
 	connection,
 	references: [{ appId: "app", appSlug: "initech-globex", source: "app" }],
+	capabilities: [],
 	referencesComplete: true,
 	access: "not_evaluated",
 	health: "not_checked",
