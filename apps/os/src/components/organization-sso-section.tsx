@@ -12,6 +12,8 @@
  * generated key namespace.
  */
 
+import { SettingsRow, SettingsRows } from "@/components/settings-row";
+import { errorMessage } from "@/lib/orpc-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowSquareOut, Lock, ShieldCheck } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -72,10 +74,6 @@ const FEATURE_TOGGLES: Array<{
 	},
 ];
 
-function mutationErrorMessage(error: unknown, fallback: string): string {
-	return error instanceof Error && error.message ? error.message : fallback;
-}
-
 function SsoCard({ children }: { children: React.ReactNode }) {
 	return (
 		<Card>
@@ -116,7 +114,7 @@ export function SsoSection({
 			});
 		},
 		onError: (error) =>
-			setActionFailure(mutationErrorMessage(error, "Failed to update SSO")),
+			setActionFailure(errorMessage(error, "Failed to update SSO")),
 	});
 
 	const setupLinkMutation = useMutation({
@@ -132,7 +130,7 @@ export function SsoSection({
 		},
 		onError: (error) =>
 			setActionFailure(
-				mutationErrorMessage(error, "Failed to generate SSO setup link"),
+				errorMessage(error, "Failed to generate SSO setup link"),
 			),
 	});
 
@@ -162,10 +160,7 @@ export function SsoSection({
 					<AlertTitle>Could not load SSO status</AlertTitle>
 					<AlertDescription className="space-y-2">
 						<p>
-							{mutationErrorMessage(
-								statusQuery.error,
-								"The SSO status read failed.",
-							)}
+							{errorMessage(statusQuery.error, "The SSO status read failed.")}
 						</p>
 						<Button
 							size="sm"
@@ -230,21 +225,17 @@ export function SsoSection({
 					</Alert>
 				) : null}
 
-				<div className="flex items-start justify-between gap-4">
-					<div className="space-y-1">
-						<Label htmlFor="sso-enabled">Enable SSO setup</Label>
-						<Text tone="secondary">
-							Lets your IT administrator configure SAML or OIDC for your
-							corporate identity provider.
-						</Text>
-					</div>
+				<SettingsRow
+					title={<Label htmlFor="sso-enabled">Enable SSO setup</Label>}
+					description="Lets your IT administrator configure SAML or OIDC for your corporate identity provider."
+				>
 					<Switch
 						id="sso-enabled"
 						checked={status.enabled}
 						disabled={configureMutation.isPending}
 						onCheckedChange={setEnabled}
 					/>
-				</div>
+				</SettingsRow>
 
 				{status.enabled && (
 					<>
@@ -280,22 +271,21 @@ export function SsoSection({
 									useful for staged rollouts.
 								</Text>
 							</div>
-							<div className="grid gap-3 sm:grid-cols-2">
+							<SettingsRows>
 								{FEATURE_TOGGLES.map((feature) => (
-									<Surface
+									<SettingsRow
 										key={feature.key}
-										className="flex items-start justify-between gap-3 p-3"
-									>
-										<div className="space-y-0.5">
+										title={
 											<Label htmlFor={`feature-${feature.key}`}>
 												{feature.label}
 											</Label>
-											{/* leading-snug would be defeated by the role's
-											!important line-height, so this stays a raw utility. */}
-											<p className="text-kumo-subtle text-xs leading-snug">
+										}
+										description={
+											<Text role="label" tone="secondary">
 												{feature.hint}
-											</p>
-										</div>
+											</Text>
+										}
+									>
 										<Switch
 											id={`feature-${feature.key}`}
 											checked={!disabled[feature.key]}
@@ -304,9 +294,9 @@ export function SsoSection({
 												setFeatureDisabled(feature.key, !checked)
 											}
 										/>
-									</Surface>
+									</SettingsRow>
 								))}
-							</div>
+							</SettingsRows>
 						</div>
 					</>
 				)}

@@ -4,6 +4,7 @@
  * same way it stops at an exhausted allowance.
  */
 
+import { SettingsRow } from "@/components/settings-row";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BillingOverageSettings } from "@tedix/api-contract/schemas/billing";
 import { Warning } from "@phosphor-icons/react";
@@ -142,15 +143,16 @@ function OverageForm({
 					</Alert>
 				)}
 				<Surface className="space-y-4 p-4">
-					<div className="flex items-center justify-between gap-4">
-						<Label htmlFor="overage-enabled">Allow overage</Label>
+					<SettingsRow
+						title={<Label htmlFor="overage-enabled">Allow overage</Label>}
+					>
 						<Switch
 							id="overage-enabled"
 							checked={enabled}
 							disabled={!settings.planSellsOverage || mutation.isPending}
 							onCheckedChange={setEnabled}
 						/>
-					</div>
+					</SettingsRow>
 					<div className="space-y-1">
 						<Label htmlFor="overage-cap">
 							Monthly cap ({currency.toUpperCase()})

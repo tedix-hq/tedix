@@ -20,7 +20,6 @@ import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import { Loader } from "@/components/kumo/loader";
 import {
 	SectionHeader,
 	SectionDescription,
@@ -249,6 +248,11 @@ export function SubscriptionSection() {
 											))}
 										</ul>
 										<Button
+											loading={
+												checkoutMutation.isPending &&
+												checkoutMutation.variables === plan.planKey
+											}
+											icon={<ArrowUpRight size={16} />}
 											className="w-full"
 											variant={
 												isCurrent ? "outline" : popular ? "default" : "outline"
@@ -256,16 +260,6 @@ export function SubscriptionSection() {
 											disabled={isCurrent || checkoutMutation.isPending}
 											onClick={() => checkoutMutation.mutate(plan.planKey)}
 										>
-											{checkoutMutation.isPending &&
-											checkoutMutation.variables === plan.planKey ? (
-												<Loader
-													aria-label="Starting checkout"
-													className="mr-2"
-													size={16}
-												/>
-											) : (
-												<ArrowUpRight className="mr-2 h-4 w-4" />
-											)}
 											{isCurrent
 												? "Current plan"
 												: isStripeTestMode
@@ -357,19 +351,12 @@ export function BillingDocumentsSection() {
 					</div>
 					{hasStripeCustomer && (
 						<Button
+							loading={portalMutation.isPending}
+							icon={<ArrowUpRight size={16} />}
 							variant="outline"
 							disabled={portalMutation.isPending}
 							onClick={() => portalMutation.mutate()}
 						>
-							{portalMutation.isPending ? (
-								<Loader
-									aria-label="Opening invoices"
-									className="mr-2"
-									size={16}
-								/>
-							) : (
-								<ArrowUpRight className="mr-2 size-4" aria-hidden />
-							)}
 							Open invoices
 						</Button>
 					)}

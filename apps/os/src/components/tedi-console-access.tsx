@@ -1,3 +1,6 @@
+import { SettingsRow } from "@/components/settings-row";
+import { Label } from "@/components/kumo/label";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { osQuery, activeWorkspacesQueryOptions } from "@/lib/os-query-options";
@@ -51,16 +54,21 @@ export function TediConsoleAccess({ tediId }: { tediId: string }) {
 				<CardTitle>Console access</CardTitle>
 			</CardHeader>
 			<CardContent className="space-y-4">
-				<Switch
-					label="Allow console access (read-only)"
-					checked={enabled}
-					disabled={!grant.data || save.isPending}
-					onCheckedChange={setEnabled}
-				/>
-				<p className="text-sm text-kumo-subtle">
-					The tedi signs in as itself. Choose the Workspaces it may read.
-					Console sessions cannot write or approve changes.
-				</p>
+				<SettingsRow
+					title={
+						<Label htmlFor="console-access-enabled">
+							Allow console access (read-only)
+						</Label>
+					}
+					description="The tedi signs in as itself. Choose the Workspaces it may read. Console sessions cannot write or approve changes."
+				>
+					<Switch
+						id="console-access-enabled"
+						checked={enabled}
+						disabled={!grant.data || save.isPending}
+						onCheckedChange={setEnabled}
+					/>
+				</SettingsRow>
 				{workspaces.data?.items.map((workspace) => (
 					<Checkbox
 						key={workspace.id}
@@ -77,7 +85,11 @@ export function TediConsoleAccess({ tediId }: { tediId: string }) {
 					/>
 				))}
 				{grant.isError || workspaces.isError ? (
-					<p role="alert">Console access settings are unavailable.</p>
+					<Alert variant="destructive">
+						<AlertDescription>
+							Console access settings are unavailable.
+						</AlertDescription>
+					</Alert>
 				) : null}
 				<Button
 					disabled={

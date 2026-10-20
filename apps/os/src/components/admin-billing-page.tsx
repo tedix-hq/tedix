@@ -21,12 +21,12 @@
  * with a replace navigation so refresh/back does not replay it.
  */
 
+import { RestrictedNotice } from "@/components/restricted-notice";
 import { OS_COPY } from "@/shared/os-copy";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, Info, ShieldCheck } from "@phosphor-icons/react";
+import { CheckCircle, Info } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Card, CardContent } from "@/components/kumo/card";
 import {
 	Page,
 	PageDescription,
@@ -34,14 +34,13 @@ import {
 	PageHeading,
 	PageTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	Tabs,
 	TabsContent,
 	TabsList,
 	TabsTrigger,
 } from "@/components/kumo/tabs";
-import { Text } from "@/components/kumo/text";
 import type {
 	AdminBillingSection,
 	BillingCheckoutState,
@@ -85,30 +84,17 @@ const BillingInferenceCapacitySection = lazy(() =>
 function BillingPagePending() {
 	return (
 		<div aria-busy="true" aria-label="Loading billing" className="space-y-3">
-			{Array.from({ length: 3 }).map((_, index) => (
-				<Skeleton className="h-32 w-full" key={index} />
-			))}
+			<ListSkeleton rows={3} rowClassName="h-32" />
 		</div>
 	);
 }
 
 function BillingRestricted() {
 	return (
-		<Card size="sm">
-			<CardContent className="flex items-center gap-3">
-				<ShieldCheck className="size-5 shrink-0" aria-hidden />
-				<div>
-					<Text role="body" weight="medium">
-						Billing needs the billing:manage grant
-					</Text>
-					<Text tone="secondary">
-						Your credential resolves administrative access but not
-						billing:manage, which only owners hold. Ask an owner to review
-						usage, plans, or the subscription.
-					</Text>
-				</div>
-			</CardContent>
-		</Card>
+		<RestrictedNotice
+			title="Billing needs the billing:manage grant"
+			description="Your credential resolves administrative access but not billing:manage, which only owners hold. Ask an owner to review usage, plans, or the subscription."
+		/>
 	);
 }
 
@@ -253,26 +239,26 @@ function AdminBillingBody({
 				</TabsList>
 
 				<TabsContent value="usage" className="space-y-8 pt-4">
-					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
+					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
 						<BillingUsageOverview organizationId={organizationId} />
 					</Suspense>
-					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
+					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
 						<BillingInferenceCapacitySection />
 					</Suspense>
 				</TabsContent>
 
 				<TabsContent value="subscription" className="space-y-8 pt-4">
 					{/* Checkout CONFLICTs render inside the section's mutation error. */}
-					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
+					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
 						<SubscriptionSection />
 					</Suspense>
-					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
+					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
 						<BillingOverageSection />
 					</Suspense>
 				</TabsContent>
 
 				<TabsContent value="invoices" className="pt-4">
-					<Suspense fallback={<Skeleton className="h-32 w-full" />}>
+					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-32" />}>
 						<BillingDocumentsSection />
 					</Suspense>
 				</TabsContent>

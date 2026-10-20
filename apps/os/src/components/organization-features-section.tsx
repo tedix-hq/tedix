@@ -16,15 +16,14 @@ import {
 	X,
 } from "@phosphor-icons/react";
 import {
+	Collection,
 	SectionHeader,
 	SectionTitle,
 	SettingsSection,
 	SettingsSectionContent,
-	Collection,
 } from "@/components/kumo/page";
 import { Badge } from "@/components/kumo/badge";
-import { IconFrame } from "@/components/kumo/icon-frame";
-import { Text } from "@/components/kumo/text";
+import { SettingsRow, SettingsRows } from "@/components/settings-row";
 
 interface Feature {
 	name: string;
@@ -101,39 +100,31 @@ export function FeaturesSection({
 				<SectionTitle>Plan features</SectionTitle>
 			</SectionHeader>
 			<SettingsSectionContent>
-				<Collection aria-label="Plan features">
-					{featuresList.map((feature) => (
-						<li
-							key={feature.name}
-							className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
-						>
-							<IconFrame
-								appearance="fill"
-								size="sm"
-								className="row-span-2 sm:row-span-1"
-							>
-								<feature.icon className="h-4 w-4" />
-							</IconFrame>
-							<div className="min-w-0 space-y-0.5">
-								<Text weight="medium">{feature.name}</Text>
-								<Text role="label" tone="secondary">
-									{feature.description}
-								</Text>
-							</div>
-							<Badge
-								variant={feature.enabled ? "success" : "secondary"}
-								className="col-start-2 w-fit gap-1 sm:col-start-3 sm:row-start-1"
-							>
-								{feature.enabled ? (
-									<Check className="size-3" aria-hidden />
-								) : (
-									<X className="size-3" aria-hidden />
-								)}
-								{feature.enabled ? "Included" : "Not included"}
-							</Badge>
-						</li>
-					))}
-				</Collection>
+				<SettingsRows>
+					<Collection appearance="inline" aria-label="Plan features">
+						{featuresList.map((feature) => (
+							<li key={feature.name}>
+								<SettingsRow
+									icon={feature.icon}
+									title={feature.name}
+									description={feature.description}
+								>
+									<Badge
+										variant={feature.enabled ? "success" : "secondary"}
+										className="w-fit gap-1"
+									>
+										{feature.enabled ? (
+											<Check className="size-3" aria-hidden />
+										) : (
+											<X className="size-3" aria-hidden />
+										)}
+										{feature.enabled ? "Included" : "Not included"}
+									</Badge>
+								</SettingsRow>
+							</li>
+						))}
+					</Collection>
+				</SettingsRows>
 			</SettingsSectionContent>
 		</SettingsSection>
 	);

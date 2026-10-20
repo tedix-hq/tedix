@@ -1,3 +1,9 @@
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import { Link } from "@/components/kumo/link";
 import type { BillingInferenceSpending } from "@tedix/api-contract/schemas/billing-spending";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
@@ -54,40 +60,42 @@ export function SettledSpendingRows({
 							<TableRow key={group.runId ?? "unlinked"}>
 								<TableCell className="max-w-md whitespace-normal">
 									{group.runId ? (
-										<a
-											className="text-kumo-brand underline underline-offset-2"
+										<Link
 											href={`/work/runs/${encodeURIComponent(group.runId)}`}
 										>
 											Open run · {group.runId.slice(0, 8)}
-										</a>
+										</Link>
 									) : (
 										"Charges without a linked run"
 									)}
-									<details className="mt-2">
-										<summary className="cursor-pointer">
+									<Collapsible className="mt-2">
+										<CollapsibleTrigger>
 											{group.calls.length} call receipts
-										</summary>
-										{group.calls.map((call) => (
-											<div
-												key={call.id}
-												className="mt-2 break-words text-xs text-kumo-subtle"
-											>
-												{call.model} · {call.occurredAt} ·{" "}
-												{Number.isSafeInteger(
-													call.creditAppliedMicros + call.customerChargeMicros,
-												)
-													? formatCreditWorth(
-															call.creditAppliedMicros +
-																call.customerChargeMicros,
-															"eur",
-														)
-													: "Amount unavailable"}{" "}
-												· receipt {call.id}
-												{call.traceId && ` · step trace ${call.traceId}`} ·
-												price {call.rateVersionId ?? "unavailable"}
-											</div>
-										))}
-									</details>
+										</CollapsibleTrigger>
+										<CollapsibleContent keepMounted>
+											{group.calls.map((call) => (
+												<div
+													key={call.id}
+													className="mt-2 break-words text-xs text-kumo-subtle"
+												>
+													{call.model} · {call.occurredAt} ·{" "}
+													{Number.isSafeInteger(
+														call.creditAppliedMicros +
+															call.customerChargeMicros,
+													)
+														? formatCreditWorth(
+																call.creditAppliedMicros +
+																	call.customerChargeMicros,
+																"eur",
+															)
+														: "Amount unavailable"}{" "}
+													· receipt {call.id}
+													{call.traceId && ` · step trace ${call.traceId}`} ·
+													price {call.rateVersionId ?? "unavailable"}
+												</div>
+											))}
+										</CollapsibleContent>
+									</Collapsible>
 								</TableCell>
 								<TableCell>
 									{group.chargeMicros === null ? (

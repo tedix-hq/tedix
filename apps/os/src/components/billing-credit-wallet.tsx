@@ -1,3 +1,4 @@
+import { Link } from "@/components/kumo/link";
 import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -197,8 +198,7 @@ export function BillingCreditWallet({
 						? "You can spend the credits available. Automatic cash overage stays off."
 						: "Credit display does not replace your current token allowance or change historical charges."}
 				</Text>
-				<a
-					className="text-kumo-brand underline underline-offset-2"
+				<Link
 					href={
 						monetary
 							? "/admin/billing?section=subscription#credit-budget"
@@ -206,7 +206,7 @@ export function BillingCreditWallet({
 					}
 				>
 					{monetary ? "Manage spending cap" : "Manage plan and limits"}
-				</a>
+				</Link>
 			</CardContent>
 		</Card>
 	);

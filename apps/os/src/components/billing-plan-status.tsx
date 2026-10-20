@@ -4,7 +4,6 @@ import { CreditCard, Warning } from "@phosphor-icons/react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import { Loader } from "@/components/kumo/loader";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -84,19 +83,12 @@ export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
 				</div>
 				{selectedStripeCustomerId ? (
 					<Button
+						loading={portalMutation.isPending}
+						icon={<CreditCard size={16} />}
 						variant="outline"
 						onClick={() => portalMutation.mutate()}
 						disabled={portalMutation.isPending}
 					>
-						{portalMutation.isPending ? (
-							<Loader
-								aria-label="Opening billing portal"
-								className="mr-2"
-								size={16}
-							/>
-						) : (
-							<CreditCard className="mr-2 h-4 w-4" />
-						)}
 						Manage or upgrade plan
 					</Button>
 				) : (

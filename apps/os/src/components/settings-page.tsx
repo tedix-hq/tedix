@@ -22,7 +22,9 @@ import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { CodeInline } from "@/components/kumo/code";
 import { IconFrame } from "@/components/kumo/icon-frame";
+import { SettingsRow, SettingsRows } from "@/components/settings-row";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
 	Card,
@@ -148,45 +150,6 @@ const TIMEZONE_OPTIONS = [
 ] as const;
 
 const FOLLOW_SYSTEM = "__system__";
-
-function SettingRow({
-	icon: Icon,
-	title,
-	description,
-	children,
-}: {
-	icon: ComponentType<{ size?: number }>;
-	title: string;
-	description: string;
-	children?: ReactNode;
-}) {
-	return (
-		<div
-			className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-4 sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center"
-			data-slot="setting-row"
-		>
-			<IconFrame appearance="fill">
-				<Icon size={18} />
-			</IconFrame>
-			<div className="min-w-0 flex-1">
-				<div className="font-medium text-kumo-default type-tedix-body">
-					{title}
-				</div>
-				<div className="mt-1 text-kumo-subtle type-tedix-label">
-					{description}
-				</div>
-			</div>
-			{children ? (
-				<div
-					className="col-span-2 min-w-0 justify-self-start sm:col-span-1 sm:shrink-0"
-					data-slot="setting-row-control"
-				>
-					{children}
-				</div>
-			) : null}
-		</div>
-	);
-}
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -327,8 +290,8 @@ function OperationalContextSection({
 			)}
 
 			{context.data && (
-				<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-					<SettingRow
+				<SettingsRows>
+					<SettingsRow
 						icon={UserCircle}
 						title={context.data.organization.name}
 						description={`${context.data.organization.slug} · ${
@@ -340,9 +303,9 @@ function OperationalContextSection({
 						<Badge variant={context.data.authority.role ? "info" : "outline"}>
 							{context.data.authority.role ?? "No membership role"}
 						</Badge>
-					</SettingRow>
+					</SettingsRow>
 
-					<SettingRow
+					<SettingsRow
 						icon={Key}
 						title={
 							localEvaluation
@@ -360,9 +323,9 @@ function OperationalContextSection({
 						{context.data.authority.crossTenantOverrideActive && (
 							<Badge variant="warning">Tenant override</Badge>
 						)}
-					</SettingRow>
+					</SettingsRow>
 
-					<SettingRow
+					<SettingsRow
 						icon={Eye}
 						title="Purpose charter"
 						description={
@@ -382,9 +345,9 @@ function OperationalContextSection({
 						>
 							Manage
 						</Button>
-					</SettingRow>
+					</SettingsRow>
 
-					<SettingRow
+					<SettingsRow
 						icon={Globe}
 						title="Runtime budgets and model policy"
 						description={
@@ -410,9 +373,9 @@ function OperationalContextSection({
 						>
 							Billing
 						</Button>
-					</SettingRow>
+					</SettingsRow>
 
-					<SettingRow
+					<SettingsRow
 						icon={Plug}
 						title="Connections"
 						description={
@@ -436,9 +399,9 @@ function OperationalContextSection({
 						>
 							Manage
 						</Button>
-					</SettingRow>
+					</SettingsRow>
 
-					<SettingRow
+					<SettingsRow
 						icon={UserCircle}
 						title="Members and roles"
 						description="Invite people, assign roles, and manage permission overrides on the Team page. Sessions and secrets stay in the control plane."
@@ -452,8 +415,8 @@ function OperationalContextSection({
 						>
 							Members
 						</Button>
-					</SettingRow>
-				</Card>
+					</SettingsRow>
+				</SettingsRows>
 			)}
 		</PageSection>
 	);
@@ -498,7 +461,7 @@ export function SettingsPage({
 	}
 
 	return (
-		<Page width="md" className="os-settings-page">
+		<Page width="md">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>Settings</PageTitle>
@@ -561,8 +524,8 @@ export function SettingsPage({
 				{query.isPending && <ListSkeleton rows={3} rowClassName="h-16" />}
 
 				<div className="grid gap-8">
-					<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-						<SettingRow
+					<SettingsRows>
+						<SettingsRow
 							icon={UserCircle}
 							title={identity.name}
 							description={
@@ -579,13 +542,13 @@ export function SettingsPage({
 								<SignOut size={14} />
 								Sign out
 							</Button>
-						</SettingRow>
-					</Card>
+						</SettingsRow>
+					</SettingsRows>
 
 					{draft && (
 						<>
-							<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-								<SettingRow
+							<SettingsRows>
+								<SettingsRow
 									icon={Desktop}
 									title="Appearance"
 									description="Use the system appearance or keep Tedix OS in a fixed mode."
@@ -597,8 +560,8 @@ export function SettingsPage({
 										options={THEME_OPTIONS}
 										value={draft.theme}
 									/>
-								</SettingRow>
-								<SettingRow
+								</SettingsRow>
+								<SettingsRow
 									icon={Rows}
 									title="Density"
 									description="Compact tightens the page rhythm. Control sizes and hit targets never shrink."
@@ -610,8 +573,8 @@ export function SettingsPage({
 										options={DENSITY_OPTIONS}
 										value={draft.density}
 									/>
-								</SettingRow>
-								<SettingRow
+								</SettingsRow>
+								<SettingsRow
 									icon={Eye}
 									title="Motion"
 									description="System follows your operating system's reduced-motion setting."
@@ -629,8 +592,8 @@ export function SettingsPage({
 										options={MOTION_OPTIONS}
 										value={draft.accessibility.motion}
 									/>
-								</SettingRow>
-								<SettingRow
+								</SettingsRow>
+								<SettingsRow
 									icon={Eye}
 									title="Contrast"
 									description="High strengthens hairlines and muted text across the shell."
@@ -648,11 +611,11 @@ export function SettingsPage({
 										options={CONTRAST_OPTIONS}
 										value={draft.accessibility.contrast}
 									/>
-								</SettingRow>
-							</Card>
+								</SettingsRow>
+							</SettingsRows>
 
-							<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-								<SettingRow
+							<SettingsRows>
+								<SettingsRow
 									icon={Globe}
 									title="Language"
 									description="Selects the month names and number formatting Tedix OS renders. Dates stay month-name based."
@@ -691,8 +654,8 @@ export function SettingsPage({
 											))}
 										</SelectContent>
 									</Select>
-								</SettingRow>
-								<SettingRow
+								</SettingsRow>
+								<SettingsRow
 									icon={Globe}
 									title="Time zone"
 									description="Selects the wall clock for timestamps. Date-only values stay in UTC so they never shift a day."
@@ -730,8 +693,8 @@ export function SettingsPage({
 											))}
 										</SelectContent>
 									</Select>
-								</SettingRow>
-							</Card>
+								</SettingsRow>
+							</SettingsRows>
 
 							<div className="flex items-center justify-end gap-3">
 								{state === "clean" && (
@@ -788,22 +751,16 @@ export function SettingsPage({
 						<Text role="label" tone="secondary">
 							{localEvaluation ? (
 								<>
-									Run{" "}
-									<code className="rounded bg-kumo-fill px-1.5 py-1 text-kumo-default">
-										tedix auth status
-									</code>{" "}
-									to inspect a separate live CLI session. Its workspace and
-									credentials are not inherited by this local evaluation.
+									Run <CodeInline>tedix auth status</CodeInline> to inspect a
+									separate live CLI session. Its workspace and credentials are
+									not inherited by this local evaluation.
 								</>
 							) : (
 								<>
-									Run{" "}
-									<code className="rounded bg-kumo-fill px-1.5 py-1 text-kumo-default">
-										tedix auth status
-									</code>{" "}
-									to see the selected workspace, credential source, and gateway.
-									This page does not probe the gateway, so it reports no status
-									of its own.
+									Run <CodeInline>tedix auth status</CodeInline> to see the
+									selected workspace, credential source, and gateway. This page
+									does not probe the gateway, so it reports no status of its
+									own.
 								</>
 							)}
 						</Text>

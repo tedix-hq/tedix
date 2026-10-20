@@ -1,5 +1,4 @@
 import {
-	WorkListSkeleton,
 	WorkReadFailure,
 	WorkEmpty,
 } from "@/components/work-surface-primitives";
@@ -41,10 +40,12 @@ import {
 import {
 	Collection,
 	PageSection,
+	PageToolbar,
 	SectionHeader,
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	projectListQueryOptions,
@@ -519,7 +520,7 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 	return (
 		<div className="grid min-w-0 gap-4" data-workspace-app-entry="agents">
 			<DeckAttentionMetrics />
-			<div className="flex flex-wrap gap-3">
+			<PageToolbar appearance="inline">
 				<Select
 					value={project}
 					onValueChange={(value) => setProject(value ?? "all")}
@@ -591,7 +592,7 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 						)}
 					</SelectContent>
 				</Select>
-			</div>
+			</PageToolbar>
 			{data ? (
 				<WorkAgentsBoard
 					data={data}
@@ -604,7 +605,9 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 					error={query.error}
 				/>
 			) : (
-				<WorkListSkeleton />
+				<div aria-busy="true" aria-label="Loading">
+					<ListSkeleton rows={3} rowClassName="h-10" />
+				</div>
 			)}
 		</div>
 	);
