@@ -142,6 +142,12 @@ export async function observeRepositoryEvent(
 			config.instructions,
 			event,
 		);
+		await observations.settleRecoveredRepositoryObservation(
+			context.db,
+			orgId,
+			id,
+			new Date().toISOString(),
+		);
 		return { observationId: id, workItemId: id, status: "recovery_queued" };
 	}
 	const now = new Date().toISOString();

@@ -4,7 +4,11 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { workItems, workItemComments } from "../schema/work-items";
+import {
+	workItems,
+	workItemComments,
+	workAttempts,
+} from "../schema/work-items";
 import {
 	createRepositoryObservation,
 	getRepositoryObservation,
@@ -12,11 +16,14 @@ import {
 	claimRepositoryRepair,
 	claimRepositoryRetryDelivery,
 	overdueRepositoryObservations,
+	settleAgedRepositoryPushObservations,
+	settleRecoveredRepositoryObservation,
+	pendingRepositoryObservations,
 } from "./repository-observer";
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
-	for (const table of [workItems, workItemComments])
+	for (const table of [workItems, workItemComments, workAttempts])
 		sqlite.exec(schemaDdl(table));
 	const migration = readFileSync(
 		new URL(
@@ -170,4 +177,192 @@ it("delivers a diagnosed retry once, and a changed recipe cannot acquire another
 	expect(
 		await claimRepositoryRetryDelivery(db, event.orgId, event.id),
 	).toBeNull();
+});
+
+const pushMetadata = {
+	repositoryObserver: 1,
+	event: {
+		kind: "push",
+		repository: "example/repo",
+		branch: "main",
+		sha: "a".repeat(40),
+	},
+};
+const reportInput = (id: string, report: { stillRed?: boolean }) => ({
+	orgId: event.orgId,
+	id,
+	workItemId: id,
+	authorId: event.ownerTediId,
+	body: "Diagnosis",
+	report,
+	now: event.now,
+});
+it.each(["push", "ship_red", "ci_red"])(
+	"settles %s only on a clear report and preserves first diagnosis",
+	async (kind) => {
+		const { db } = fixture();
+		await createRepositoryObservation(db, {
+			...event,
+			metadata: { ...pushMetadata, event: { ...pushMetadata.event, kind } },
+		});
+		await reportRepositoryObservation(
+			db,
+			reportInput(event.id, { stillRed: true }),
+		);
+		expect(
+			(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+		).toBe("proposed");
+		if (kind !== "push") {
+			await reportRepositoryObservation(db, reportInput(event.id, {}));
+			expect(
+				(await getRepositoryObservation(db, event.orgId, event.id))
+					?.disposition,
+			).toBe("proposed");
+		}
+		await reportRepositoryObservation(
+			db,
+			reportInput(event.id, { stillRed: false }),
+		);
+		const settled = await getRepositoryObservation(db, event.orgId, event.id);
+		expect(settled?.disposition).toBe("cancelled");
+		expect(settled?.cancelledAt).toBe(event.now);
+		expect(settled?.metadata?.settleReason).toContain("no action needed");
+		expect(settled?.metadata?.report).toEqual({ stillRed: true });
+		await reportRepositoryObservation(
+			db,
+			reportInput(event.id, { stillRed: false }),
+		);
+		expect(
+			(await getRepositoryObservation(db, event.orgId, event.id))?.version,
+		).toBe(settled?.version);
+	},
+);
+it("settles a push report with omitted stillRed", async () => {
+	const { db } = fixture();
+	await createRepositoryObservation(db, { ...event, metadata: pushMetadata });
+	await reportRepositoryObservation(db, reportInput(event.id, {}));
+	expect(
+		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+	).toBe("cancelled");
+});
+it("settles recovery idempotently and scopes it to the observer tenant", async () => {
+	const { db } = fixture();
+	await createRepositoryObservation(db, event);
+	await settleRecoveredRepositoryObservation(
+		db,
+		"other-org",
+		event.id,
+		event.now,
+	);
+	expect(
+		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+	).toBe("proposed");
+	await settleRecoveredRepositoryObservation(
+		db,
+		event.orgId,
+		event.id,
+		event.now,
+	);
+	await settleRecoveredRepositoryObservation(
+		db,
+		event.orgId,
+		event.id,
+		event.now,
+	);
+	const row = await getRepositoryObservation(db, event.orgId, event.id);
+	expect(row?.disposition).toBe("cancelled");
+	expect(row?.version).toBe(2);
+});
+it("ages reported and unreported pushes, excludes red follow-ups and other work, and caps each tick at 100", async () => {
+	const { db, sqlite } = fixture();
+	for (let i = 0; i < 102; i++)
+		await createRepositoryObservation(db, {
+			...event,
+			id: `push-${i}`,
+			metadata: pushMetadata,
+		});
+	// Legacy reports predate settlement and must drain too.
+	sqlite
+		.prepare(
+			"UPDATE work_items SET metadata = json_set(metadata, '$.report', json('{}')) WHERE id = ?",
+		)
+		.run("push-1");
+	await reportRepositoryObservation(
+		db,
+		reportInput("push-0", { stillRed: true }),
+	);
+	await createRepositoryObservation(db, {
+		...event,
+		id: "blocked",
+		metadata: {
+			...pushMetadata,
+			event: { ...pushMetadata.event, sha: "b".repeat(40) },
+		},
+	});
+	await createRepositoryObservation(db, {
+		...event,
+		id: "red",
+		metadata: {
+			...pushMetadata,
+			event: { ...pushMetadata.event, kind: "ci_red", sha: "b".repeat(40) },
+		},
+	});
+	await createRepositoryObservation(db, {
+		...event,
+		id: "foreign-red",
+		orgId: "other-org",
+		metadata: {
+			...pushMetadata,
+			event: { ...pushMetadata.event, kind: "ship_red" },
+		},
+	});
+	await createRepositoryObservation(db, {
+		...event,
+		id: "ordinary",
+		metadata: {},
+	});
+	await createRepositoryObservation(db, {
+		...event,
+		id: "active",
+		metadata: pushMetadata,
+	});
+	sqlite
+		.prepare(
+			"INSERT INTO work_attempts (id, org_id, work_item_id, attempt_number, runtime_state, started_at, heartbeat_at, executor_type, executor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		)
+		.run(
+			"attempt",
+			event.orgId,
+			"active",
+			1,
+			"running",
+			event.now,
+			event.now,
+			"tedi",
+			event.ownerTediId,
+		);
+	expect(
+		await settleAgedRepositoryPushObservations(db, "2026-10-18T11:59:59Z"),
+	).toHaveLength(0);
+	expect(
+		await settleAgedRepositoryPushObservations(db, "2026-10-18T12:00:01Z"),
+	).toHaveLength(100);
+	expect(
+		await settleAgedRepositoryPushObservations(db, "2026-10-18T12:00:01Z"),
+	).toHaveLength(1);
+	expect(
+		await settleAgedRepositoryPushObservations(db, "2026-10-18T12:00:01Z"),
+	).toHaveLength(0);
+	for (const id of ["push-0", "blocked", "red", "ordinary", "active"])
+		expect(
+			(await getRepositoryObservation(db, event.orgId, id))?.disposition ??
+				"proposed",
+		).toBe("proposed");
+	const row = await getRepositoryObservation(db, event.orgId, "push-1");
+	expect(row?.metadata?.settleReason).toContain("24 hours");
+	expect(
+		(await pendingRepositoryObservations(db, event.orgId, event.projectId)).map(
+			(r) => r.id,
+		),
+	).not.toContain("push-1");
 });

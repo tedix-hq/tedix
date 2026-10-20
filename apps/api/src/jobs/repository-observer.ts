@@ -1,4 +1,7 @@
-import { overdueRepositoryObservations } from "@tedix/db/queries/repository-observer";
+import {
+	overdueRepositoryObservations,
+	settleAgedRepositoryPushObservations,
+} from "@tedix/db/queries/repository-observer";
 import { createContext } from "../rpc/orpc";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
@@ -47,9 +50,13 @@ export async function maintainRepositoryObservers(env: CloudflareEnv) {
 
 		overdue++;
 	}
+	const settled = await settleAgedRepositoryPushObservations(
+		context.db,
+		new Date().toISOString(),
+	);
 	if (failed)
 		throw new Error(
 			`${failed} repository observer escalations failed; other incidents were processed`,
 		);
-	return { overdue };
+	return { overdue, settled: settled.length };
 }
