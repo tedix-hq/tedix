@@ -223,6 +223,32 @@ it("supersedes without responding and restores through immutable card history", 
 		sqlite.close();
 	}
 });
+it("preserves the latest human draft when curation resumes after an edit", async () => {
+	const { sqlite, context, humanContext } = fixture();
+	try {
+		const first = await curateDeckCard(context, {
+			...input,
+			body: "First summary.",
+		});
+		expect(JSON.parse(first.instruction!).draftBody).toBe("Original text");
+		await reviseCardContent(humanContext, {
+			requestId: card,
+			expectedRequestVersion: 2,
+			expectedRevision: 2,
+			body: "Human edited draft",
+		});
+		const next = await curateDeckCard(context, {
+			...input,
+			expectedRequestVersion: 3,
+			expectedRevision: 3,
+			body: "New summary.",
+		});
+		expect(JSON.parse(next.instruction!).draftBody).toBe("Human edited draft");
+	} finally {
+		sqlite.close();
+	}
+});
+
 it("refuses critical supersession and long stories", async () => {
 	const { sqlite, context } = fixture({ protectedEffects: ["money"] });
 	try {
