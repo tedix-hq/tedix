@@ -31,10 +31,9 @@ export function tediPlanningLabel(target: HomePlanningTarget): string {
 
 export function detectsHomePlanningRequest(content: string): boolean {
 	// OS workspace references precede the operator's request on follow-up turns.
-	const operatorContent = content.replace(
-		/^(?:\s*\[\[tedix-context:[^\]\r\n]*\]\])+\s*/,
-		"",
-	);
+	const operatorContent = content
+		.split(/\bBrief:\s*/, 1)[0]!
+		.replace(/^(?:\s*\[\[tedix-context:[^\]\r\n]*\]\])+\s*/, "");
 	// Creating a board record is a tool write. Its description can contain plans
 	// and tedi names without asking Home to dispatch those owners.
 	if (
@@ -145,9 +144,10 @@ function contentNamesTargetStrongly(
 ): boolean {
 	return (
 		(slugPhrasePattern(target)?.test(normalized) ?? false) ||
-		Array.from(slugTokens(target)).some((tok) =>
-			new RegExp(`\\b${tok}\\b`).test(normalized),
-		)
+		(slugPhrasePattern(target) === null &&
+			Array.from(slugTokens(target)).some((tok) =>
+				new RegExp(`\\b${tok}\\b`).test(normalized),
+			))
 	);
 }
 
@@ -155,7 +155,7 @@ export function selectedHomePlanTargets(input: {
 	content: string;
 	targets: HomePlanningTarget[];
 }): HomePlanningTarget[] {
-	const normalized = input.content.toLowerCase();
+	const normalized = input.content.split(/\bBrief:\s*/, 1)[0]!.toLowerCase();
 	// Generalized from the original hardcoded cpo/echo match: select EVERY reachable
 	// roster tedi the operator explicitly named. No arbitrary slice fallback — if
 	// fewer than 2 are named, maybeBuildHomePlan declines to fabricate a plan.

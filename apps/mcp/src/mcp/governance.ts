@@ -689,14 +689,15 @@ export async function requireDestructiveToolApproval(
 	if (
 		callerIsAgent(agent, options?.extra) &&
 		agent.apiClient?.mcpGovernance?.resolveAgentTransportPolicy &&
-		agent.app?.organizationId &&
-		agent.callerIdentity?.tediId
+		agent.app?.organizationId
 	) {
 		try {
 			const policy =
 				await agent.apiClient.mcpGovernance.resolveAgentTransportPolicy({
 					organizationId: agent.app.organizationId,
-					tediId: agent.callerIdentity.tediId,
+					...(agent.callerIdentity?.tediId
+						? { tediId: agent.callerIdentity.tediId }
+						: {}),
 				});
 			autonomy = policy.autonomy;
 		} catch {
