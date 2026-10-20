@@ -10,6 +10,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
+import { Text } from "@/components/kumo/text";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import { workViewsByGroup, type WorkView } from "@/lib/work-views";
 import { OS_COPY } from "@/shared/os-copy";
@@ -63,12 +64,12 @@ export function WorkMoreViewsMenu() {
 									className="items-start py-2"
 								>
 									<span className="grid min-w-0 gap-0.5">
-										<span className="font-medium text-kumo-default">
+										<Text as="span" weight="medium">
 											{view.label}
-										</span>
-										<span className="type-tedix-caption text-kumo-subtle">
+										</Text>
+										<Text as="span" role="caption" tone="secondary">
 											{view.description}
-										</span>
+										</Text>
 									</span>
 								</DropdownMenuLinkItem>
 							))}
