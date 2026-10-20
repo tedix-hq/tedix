@@ -34,7 +34,7 @@ describe("tedi autonomous actions", () => {
 		[false, "once", true],
 		[false, "always", false],
 	] as const)(
-		"bounded writes use standing consent=%s over %s, independently of self-confirm=%s",
+		"bounded writes with standing consent=%s preserve %s policy, independently of self-confirm=%s",
 		async (autonomy, approvalPolicy, autoConfirmAgent) => {
 			const result = await requireDestructiveToolApproval(
 				context(autonomy),
@@ -52,7 +52,7 @@ describe("tedi autonomous actions", () => {
 				{ destructiveHint: false },
 				{ autoConfirmAgent },
 			);
-			if (autonomy) expect(result).toBeNull();
+			if (autonomy && approvalPolicy !== "always") expect(result).toBeNull();
 			else expect(result?.isError).toBe(true);
 		},
 	);
@@ -252,12 +252,9 @@ it.each([true, false])(
 					},
 				},
 			);
-			if (autonomy && toolId === "add_comment") expect(result).toBeNull();
-			else {
-				expect(result).not.toBeNull();
-				if (config.approvalPolicy === "always")
-					expect(result?.isError).toBe(true);
-			}
+			expect(result).not.toBeNull();
+			if (config.approvalPolicy === "always")
+				expect(result?.isError).toBe(true);
 		}
 	},
 );
