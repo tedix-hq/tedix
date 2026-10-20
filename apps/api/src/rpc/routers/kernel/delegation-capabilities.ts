@@ -109,6 +109,33 @@ export function deriveDelegationCapabilityPlan(input: {
 			tools.add("os.revise_os_output");
 		}
 	}
+	if (card && /\b(?:save|create)\b[^.!?\n]{0,60}\bOutput\b/i.test(content)) {
+		capabilities.push("output.create");
+		for (const id of [
+			"list_os_workspaces",
+			"create_os_output",
+			"get_os_output",
+		])
+			tools.add(`os.${id}`);
+	}
+	if (
+		card &&
+		/\bAdmission:\s*create\b/i.test(content) &&
+		/\bWork\s+item\b/i.test(content)
+	) {
+		capabilities.push("work.execution");
+		for (const id of [
+			"list_work_items",
+			"get_work_items_by_id",
+			"create_work_items",
+			"accept_work_item",
+			"start_work_item_attempt",
+			"heartbeat_work_item_attempt",
+			"list_work_item_attempts",
+			"settle_work_item_attempt",
+		])
+			tools.add(`work.${id}`);
+	}
 	const repositoryTask =
 		(capabilities.length === 0 ||
 			/\b(?:repo(?:sitory)?|codebase|source code)\b/i.test(
