@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { admitSubmission } from "@tedix/db/queries/runtime-submissions/admission";
 import { startAttempt } from "@tedix/db/queries/runtime-submissions/attempts";
@@ -911,58 +912,10 @@ CREATE TABLE tedi_runtime_events (
 );
 `;
 
-function d1Facade(db: DatabaseSync): D1Database {
-	const wrap = (sql: string) => {
-		const stmt = db.prepare(sql);
-		let bound: Array<null | number | bigint | string | Uint8Array> = [];
-		const ps = {
-			bind: (...vals: unknown[]) => {
-				bound = vals as Array<null | number | bigint | string | Uint8Array>;
-				return ps;
-			},
-			all: async () => ({
-				results: stmt.all(...bound),
-				success: true,
-				meta: {},
-			}),
-			run: async () => {
-				const r = stmt.run(...bound);
-				return {
-					success: true,
-					meta: {
-						changes: Number(r.changes),
-						last_row_id: Number(r.lastInsertRowid),
-						duration: 0,
-					},
-				};
-			},
-			first: async (col?: string) => {
-				const row = stmt.get(...bound) as Record<string, unknown> | undefined;
-				return col ? (row?.[col] ?? null) : (row ?? null);
-			},
-			raw: async () =>
-				(stmt.all(...bound) as Array<Record<string, unknown>>).map((r) =>
-					Object.values(r),
-				),
-		};
-		return ps;
-	};
-	return {
-		prepare: wrap,
-		batch: async (stmts: Array<{ all: () => Promise<unknown> }>) =>
-			Promise.all(stmts.map((s) => s.all())),
-		exec: async (sql: string) => {
-			db.exec(sql);
-			return { count: 0, duration: 0 };
-		},
-		dump: async () => new ArrayBuffer(0),
-	} as unknown as D1Database;
-}
-
 function executorDb(): { db: DbClient; sqlite: DatabaseSync } {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(EXECUTOR_DDL);
-	return { db: createDbClient(d1Facade(sqlite)), sqlite };
+	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
 }
 
 describe("requeueTediSubmissionInPlace (real sqlite + faked runtime deps)", () => {

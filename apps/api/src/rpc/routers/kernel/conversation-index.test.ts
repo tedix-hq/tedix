@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import {
 	type KernelConversation,
@@ -70,58 +71,10 @@ CREATE INDEX idx_kernel_conversations_org_workspace_last_message
 	ON kernel_conversations (organization_id, workspace_id, last_message_at, conversation_id);
 `;
 
-function d1Facade(db: DatabaseSync): D1Database {
-	const wrap = (sql: string) => {
-		const stmt = db.prepare(sql);
-		let bound: Array<null | number | bigint | string | Uint8Array> = [];
-		const ps = {
-			bind: (...vals: unknown[]) => {
-				bound = vals as Array<null | number | bigint | string | Uint8Array>;
-				return ps;
-			},
-			all: async () => ({
-				results: stmt.all(...bound),
-				success: true,
-				meta: {},
-			}),
-			run: async () => {
-				const r = stmt.run(...bound);
-				return {
-					success: true,
-					meta: {
-						changes: Number(r.changes),
-						last_row_id: Number(r.lastInsertRowid),
-						duration: 0,
-					},
-				};
-			},
-			first: async (col?: string) => {
-				const row = stmt.get(...bound) as Record<string, unknown> | undefined;
-				return col ? (row?.[col] ?? null) : (row ?? null);
-			},
-			raw: async () =>
-				(stmt.all(...bound) as Array<Record<string, unknown>>).map((r) =>
-					Object.values(r),
-				),
-		};
-		return ps;
-	};
-	return {
-		prepare: wrap,
-		batch: async (stmts: Array<{ all: () => Promise<unknown> }>) =>
-			Promise.all(stmts.map((s) => s.all())),
-		exec: async (sql: string) => {
-			db.exec(sql);
-			return { count: 0, duration: 0 };
-		},
-		dump: async () => new ArrayBuffer(0),
-	} as unknown as D1Database;
-}
-
 function realDb(): DbClient {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(REAL_DDL);
-	return createDbClient(d1Facade(sqlite));
+	return createDbClient(createD1Facade(sqlite));
 }
 
 const ORG = "org-1";
@@ -512,7 +465,7 @@ describe("applyKernelConversationEvent (write-through)", () => {
 		sqlite.exec(
 			"CREATE TABLE kernel_runtime_events (id TEXT PRIMARY KEY NOT NULL);",
 		);
-		const db = createDbClient(d1Facade(sqlite));
+		const db = createDbClient(createD1Facade(sqlite));
 		await expect(
 			applyKernelConversationEvent(db, makeEvent({ id: "e1" })),
 		).resolves.toBeUndefined();
