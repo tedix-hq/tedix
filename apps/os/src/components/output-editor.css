@@ -1,0 +1,1137 @@
+.output-workshop-command-bar {
+	display: flex;
+	min-width: 0;
+	min-height: 40px;
+	max-width: 100%;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	overscroll-behavior-inline: contain;
+	scrollbar-width: thin;
+}
+
+.output-workshop-identity,
+.output-workshop-status,
+.output-workshop-actions {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+}
+
+.output-workshop-identity {
+	flex: 1 1 18rem;
+}
+
+.output-workshop-status,
+.output-workshop-actions {
+	flex: none;
+}
+
+.output-workshop-actions {
+	margin-left: auto;
+}
+
+.output-detail-workshop {
+	gap: 0;
+	padding: 0;
+}
+
+.output-detail-workshop > .output-workshop-command-bar {
+	flex: none;
+	padding: 4px 12px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.output-detail-workshop .output-workshop-identity h1 {
+	min-width: 8rem;
+	max-width: 32rem;
+	margin: 0;
+	overflow: hidden;
+	color: var(--foreground);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.output-detail-workshop-feedback {
+	flex: none;
+	padding: 8px 12px 0;
+}
+
+.output-workshop-stage {
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+	padding: 8px;
+}
+
+.output-detail-workshop[data-output-kind="sheet"] .output-workshop-stage,
+.output-detail-workshop[data-output-kind="presentation"]
+	.output-workshop-stage {
+	overflow: hidden;
+}
+
+.output-workshop-stage > [data-editor] {
+	min-width: 0;
+	min-height: 100%;
+}
+
+.output-detail-workshop[data-output-kind="sheet"]
+	.output-workshop-stage
+	> .sheet-editor {
+	height: 100%;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.output-detail-workshop[data-output-kind="sheet"] .sheet-editor-grid {
+	min-height: 0;
+	max-height: none;
+}
+
+.output-detail-workshop[data-output-kind="presentation"]
+	.output-workshop-stage
+	> .slides-editor {
+	height: 100%;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.output-detail-workshop[data-output-kind="presentation"] .slides-editor-layout {
+	height: 100%;
+	min-height: 0;
+}
+
+/* Inside the workshop the stage is height-driven by the layout's 1fr track, so
+   the standalone min-height must not force the deck past a short viewport. */
+.output-detail-workshop[data-output-kind="presentation"] .slides-editor-stage {
+	min-height: 0;
+}
+
+.output-workshop-footer {
+	display: flex;
+	min-width: 0;
+	min-height: 48px;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	overflow-x: auto;
+	padding: 6px 12px;
+	border-top: 1px solid var(--border);
+	background: var(--background-lighter);
+	overscroll-behavior-inline: contain;
+	scrollbar-width: thin;
+}
+
+.output-detail-revision-note {
+	min-width: 11rem;
+	max-width: 24rem;
+	flex: 1 1 20rem;
+}
+
+@media (max-width: 639px) {
+	.output-workshop-command-bar {
+		display: grid;
+		grid-template-areas:
+			"identity actions"
+			"status status";
+		grid-template-columns: minmax(0, 1fr) max-content;
+		align-content: center;
+		column-gap: 8px;
+		row-gap: 4px;
+		overflow-x: clip;
+	}
+
+	.output-workshop-identity {
+		grid-area: identity;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.output-workshop-status {
+		grid-area: status;
+		max-width: 100%;
+		overflow-x: auto;
+		overscroll-behavior-inline: contain;
+		scrollbar-width: none;
+	}
+
+	.output-workshop-actions {
+		grid-area: actions;
+		margin-left: 0;
+	}
+
+	.output-detail-workshop .output-workshop-identity h1 {
+		min-width: 0;
+	}
+
+	.output-detail-workshop .output-workshop-identity [data-slot="badge"],
+	.canvas-document-identity [data-slot="badge"] {
+		display: none;
+	}
+
+	.output-detail-revision-note,
+	.output-workshop-footer > input {
+		min-width: 0;
+		max-width: none;
+	}
+}
+
+.output-editor-toolbar {
+	min-height: 48px;
+	max-width: 100%;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	padding: 8px 16px;
+	border-radius: 0;
+	overscroll-behavior-inline: contain;
+	scrollbar-width: thin;
+}
+
+.output-editor-toolbar > * {
+	flex: none;
+}
+
+.output-editor-toolbar > [data-kumo-component="Toolbar"] {
+	gap: 8px;
+}
+
+@media (min-width: 640px) {
+	/*
+	 * Square icon targets only. The paragraph-style and font-family Selects are
+	 * also direct `button` children of the Toolbar, so an unscoped rule crushed
+	 * them to 28x28 and hid their labels, leaving two bare carets in the row.
+	 */
+	/*
+	 * Descendant, not direct child: Kumo wraps a DISABLED toolbar button in a
+	 * tooltip <span>, which dropped it out of a `>` selector and left disabled
+	 * icons at the 26px Kumo default beside 28px enabled ones in all three
+	 * editors. The `data-toolbar-control` attribute is what keeps a Select
+	 * trigger out of this rule, so the child combinator was never the guard.
+	 */
+	.output-editor-toolbar
+		[data-kumo-component="Toolbar"]
+		button[data-toolbar-control="icon"] {
+		width: 28px;
+		height: 28px;
+		border-radius: 6px;
+	}
+}
+
+/*
+ * A page on a desk, not a card in an app. The desk is the recessed ground the
+ * page floats above; it carries the vertical air that used to be missing
+ * between the toolbar and the top of the document.
+ */
+.document-editor-desk {
+	min-width: 0;
+	padding: 16px;
+	background: var(--tedix-desk);
+}
+
+@media (min-width: 640px) {
+	.document-editor-desk {
+		padding: 24px;
+	}
+}
+
+.document-editor-paper {
+	min-height: min(52rem, calc(100dvh - 12rem));
+}
+
+/*
+ * Page chrome, shared by the editing surface and the committed-revision
+ * preview so reading and editing a document are the same object. Square
+ * corners and a page shadow: paper has edges, not a border radius.
+ */
+.document-page {
+	border-radius: 0;
+	box-shadow: var(--tedix-document-page-shadow);
+}
+
+/*
+ * Document prose measure. The paper keeps its 72rem maximum (see
+ * docs/engineering/product/design.md) so desktop Canvas does not become a narrow card, but
+ * the text inside it holds a readable column instead of running the full paper
+ * width. 48rem matches the preview column (a 52rem paper less its 2 x 2.5rem
+ * padding), so editing and reading do not reflow against each other.
+ */
+.document-editor-paper .document-prose {
+	margin-inline: auto;
+	max-width: 48rem;
+}
+
+/*
+ * Block rhythm. TipTap ships no block spacing of its own, so headings sat
+ * flush against the paragraph above them and every block ran together at one
+ * line height.
+ */
+.document-prose [data-resize-wrapper] {
+	max-width: 100%;
+}
+.document-prose img {
+	max-width: 100%;
+	height: auto;
+}
+.document-prose [data-resize-handle="bottom-right"] {
+	width: 14px;
+	height: 14px;
+	border: 2px solid var(--tedix-document-paper);
+	background: var(--tedix-document-link);
+	border-radius: 3px;
+	cursor: nwse-resize;
+}
+
+.document-prose > * + * {
+	margin-block-start: 0.85em;
+}
+
+.document-prose > :is(h1, h2, h3) + * {
+	margin-block-start: 0.5em;
+}
+
+.document-prose > * + :is(h1, h2, h3) {
+	margin-block-start: 1.25em;
+}
+
+.document-prose > :first-child {
+	margin-block-start: 0;
+}
+
+.document-prose :is(ul, ol) > li + li {
+	margin-block-start: 0.3em;
+}
+
+/* The Title paragraph style: a level-1 heading, set larger. */
+.document-page.document-prose h1.doc-title,
+.document-page .document-prose h1.doc-title {
+	font-size: 30px;
+	letter-spacing: -0.02em;
+}
+
+/* An empty page invites writing. Only a single empty paragraph qualifies. */
+.document-prose
+	> p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+	content: "Start writing…";
+	color: var(--tedix-document-ink);
+	opacity: 0.4;
+	pointer-events: none;
+	float: left;
+	height: 0;
+}
+
+/*
+ * Printing an open document prints the page alone: every element that is
+ * neither the paper, inside it, nor one of its ancestors is removed, and the
+ * ancestors lose the scroll boxes and grid tracks that would clip it.
+ */
+@page {
+	margin: 0.65in;
+}
+
+@media print {
+	html,
+	body {
+		height: auto !important;
+		overflow: visible !important;
+		background: #fff !important;
+	}
+	body:has(.document-editor-paper)
+		*:not(:has(.document-editor-paper)):not(.document-editor-paper):not(
+			.document-editor-paper *
+		) {
+		display: none !important;
+	}
+	body:has(.document-editor-paper) *:has(.document-editor-paper) {
+		display: block !important;
+		position: static !important;
+		overflow: visible !important;
+		height: auto !important;
+		min-height: 0 !important;
+		max-height: none !important;
+		width: auto !important;
+		padding: 0 !important;
+		margin: 0 !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		background: #fff !important;
+	}
+	.document-editor-paper {
+		max-width: none !important;
+		min-height: 0 !important;
+		padding: 0 !important;
+		box-shadow: none !important;
+		background: #fff !important;
+	}
+	.document-editor-paper .document-prose {
+		min-height: 0 !important;
+		max-width: none;
+	}
+	.document-prose :is(h1, h2, h3) {
+		break-after: avoid-page;
+	}
+	.document-prose :is(img, pre, blockquote, [data-resize-wrapper]) {
+		break-inside: avoid-page;
+	}
+	.document-prose
+		> p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before,
+	.document-prose [data-resize-handle] {
+		display: none;
+		content: none;
+	}
+}
+
+/*
+ * The sheet's fixed-light polarity is declared on the page -- formula bar, grid
+ * and tabs together -- and NOT on the `.sheet-editor` root or its toolbar.
+ *
+ * Two reasons it has to be exactly this element. `color-scheme: light` changes
+ * how every `light-dark()` token resolves for descendants, so a root-level
+ * scope silently forced `--tedix-desk` onto its light branch and the
+ * desk vanished in a dark shell. And scoping the individual rows instead left
+ * the desk as a dark band sandwiched between a light formula bar and a light
+ * grid, which reads as a rendering bug. The toolbar is app chrome and follows
+ * the shell like the document toolbar; everything below it is the artifact.
+ */
+/*
+ * The sheet page, in both lanes. `.sheet-editor-page` is the editable stack
+ * (formula bar, grid, tabs); `.sheet-read-page` is the committed revision. They
+ * share `.sheet-page` because reading a sheet and editing one should not look
+ * like two different products -- the read view used to be a shell-themed
+ * `rounded-xl` card while the editor was a square white page on a desk.
+ *
+ * The fixed-light scope lives here and nowhere above it: `--tedix-desk` is a
+ * light-dark() token, so a desk nested inside a `color-scheme: light` ancestor
+ * would resolve to its light branch and the recess would vanish in a dark
+ * shell.
+ */
+.sheet-page {
+	min-width: 0;
+	min-height: 0;
+	/* Page chrome, matching `.document-page`: square corners and the artifact
+	 * page shadow, so the sheet reads as one object lifted off the desk rather
+	 * than a stack of cards. */
+	border-radius: 0;
+	background: var(--tedix-sheet-paper);
+	box-shadow: var(--tedix-document-page-shadow);
+	color: var(--tedix-sheet-ink);
+	color-scheme: light;
+	--color-kumo-base: var(--tedix-sheet-paper);
+	--color-kumo-canvas: var(--tedix-sheet-paper);
+	--color-kumo-control: var(--tedix-sheet-paper);
+	--color-kumo-elevated: var(--tedix-sheet-header);
+	--color-kumo-interact: var(--tedix-sheet-rule);
+	--color-kumo-line: var(--tedix-sheet-rule);
+	--color-kumo-hairline: var(--tedix-sheet-rule);
+	--color-kumo-tint: var(--tedix-sheet-header);
+	--text-color-kumo-default: var(--tedix-sheet-ink);
+	--text-color-kumo-strong: var(--tedix-sheet-ink);
+	--text-color-kumo-subtle: var(--tedix-sheet-muted);
+}
+
+.sheet-editor-page {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+/* The committed sheet sits on the same desk the editor uses. */
+.sheet-read-desk {
+	min-width: 0;
+	padding: 16px;
+	background: var(--tedix-desk);
+}
+
+@media (min-width: 640px) {
+	.sheet-read-desk {
+		padding: 24px;
+	}
+}
+
+.sheet-read-page {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
+	max-height: 64vh;
+}
+
+.sheet-read-grid {
+	min-height: 0;
+	overflow: auto;
+}
+
+.sheet-read-tabs {
+	padding: 4px 6px;
+	border-top: 1px solid var(--tedix-sheet-rule);
+}
+
+/*
+ * A sheet on a desk, the same grammar `.document-editor-desk` gives a document
+ * page: recessed ground, page-scale air, then the artifact. The grid used to be
+ * a bare slab butted straight against the toolbar with no framing at all. The
+ * desk reuses `--tedix-desk` deliberately -- one desk tone across
+ * output editors is the point; a sheet-specific value would only restate it.
+ */
+.sheet-editor-desk {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
+	min-width: 0;
+	min-height: 0;
+	padding: 12px;
+	background: var(--tedix-desk);
+}
+
+@media (min-width: 640px) {
+	.sheet-editor-desk {
+		padding: 20px 24px;
+	}
+}
+
+.sheet-editor-formula,
+.sheet-editor-tabs {
+	padding: 4px 6px;
+	border-right: 1px solid var(--tedix-sheet-rule);
+	border-bottom: 1px solid var(--tedix-sheet-rule);
+	border-left: 1px solid var(--tedix-sheet-rule);
+	background: var(--tedix-sheet-paper);
+}
+
+.sheet-editor-formula {
+	min-height: 40px;
+	border-top: 1px solid var(--tedix-sheet-rule);
+	border-radius: 0;
+}
+
+.sheet-editor-grid {
+	min-height: 0;
+	border-top: 0;
+	border-radius: 0;
+}
+
+.sheet-editor-column-button {
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.sheet-editor-tabs {
+	min-height: 40px;
+	border-radius: 0;
+}
+
+.slides-editor-layout {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
+}
+
+/* Stacked (narrow) layout: the open side pane keeps its intrinsic size and the
+   stage absorbs the rest, so the 16:9 slide is never squeezed out of the box. */
+.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector]) {
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails]) {
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.slides-editor-layout[data-show-thumbnails][data-show-inspector] {
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.slides-editor-thumbnails[hidden],
+.slides-editor-inspector[hidden] {
+	display: none;
+}
+
+/* The inspector's fields scroll inside the panel; the element action row sits
+   below the scroll area, so it is reachable however long the field list is. */
+.slides-editor-inspector {
+	min-height: 0;
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails])
+	.slides-editor-inspector,
+.slides-editor-layout[data-show-thumbnails][data-show-inspector]
+	.slides-editor-inspector {
+	max-height: 40vh;
+}
+
+.slide-inspector-actions {
+	border-top: 1px solid oklch(0.84 0.004 95);
+}
+
+.slide-inspector-caret {
+	transition: transform 160ms ease;
+}
+
+.slide-inspector-caret[data-open] {
+	transform: rotate(90deg);
+}
+
+.slide-inspector-code {
+	font-family: ui-monospace, monospace;
+	font-size: 12px;
+}
+
+/* Hover marks an element that a press would pick up. */
+.slides-editor-canvas
+	[data-slide-element][tabindex="0"]:not([data-selected]):hover {
+	outline: 1px dashed color-mix(in srgb, #7c3aed 55%, transparent);
+	outline-offset: 2px;
+}
+
+/* Press feedback: controls shrink slightly while held. */
+@media (prefers-reduced-motion: no-preference) {
+	.slides-editor button,
+	.slides-present button,
+	.deck-read-thumb {
+		transition: transform 100ms ease;
+	}
+
+	.slides-editor button:not(:disabled):active,
+	.slides-present button:not(:disabled):active,
+	.deck-read-thumb:active {
+		transform: scale(0.96);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.slide-inspector-caret {
+		transition: none;
+	}
+}
+
+.slides-present-body {
+	display: grid;
+	min-height: 0;
+	grid-template-rows: minmax(0, 1fr);
+	gap: 1rem;
+}
+
+.slides-present[data-show-notes] .slides-present-body {
+	grid-template-rows: minmax(0, 1fr) minmax(6rem, 28%);
+}
+
+.slides-present-notes,
+.slides-present-jump {
+	background: color-mix(in srgb, currentColor 8%, transparent);
+	font-size: 1.125rem;
+	line-height: 1.5;
+}
+
+.slides-present-jump {
+	width: min(24rem, calc(100vw - 2rem));
+	backdrop-filter: blur(8px);
+}
+
+/*
+ * Fixed-light neutral sidebars keep slide artwork visually dominant. The rail
+ * and inspector share the stage's neutral family without radius or shadow.
+ *
+ * As with `.sheet-editor-page`, restating only `--foreground`, `--background`,
+ * and `--border` is insufficient: custom-property references resolve where
+ * they are declared. `--text-color-kumo-default: var(--foreground)` declared
+ * on `:root` is inherited as an already-computed color; redefining
+ * `--foreground` on a descendant cannot re-resolve it. Restate the
+ * `--color-kumo-*` and `--text-color-kumo-*` leaves directly so controls remain
+ * readable in a dark shell.
+ *
+ * The controls in these sidebars resolve these Kumo color utilities from the
+ * package (`@cloudflare/kumo/dist/chunks/{button,input}*.js`):
+ *   Button secondary -> bg-kumo-base, text-kumo-default, hover:bg-kumo-tint,
+ *                       ring-kumo-line          (the ACTIVE slide chip)
+ *   Button outline   -> bg-transparent, text-kumo-default, ring-kumo-line,
+ *                       hover:text-kumo-strong  (the INACTIVE slide chips)
+ *   Button ghost     -> text-kumo-default, hover:bg-kumo-tint
+ *                                               (reorder/duplicate/delete)
+ *   Button destructive -> text-kumo-danger, ring-kumo-danger
+ *   Input / Textarea -> bg-kumo-control, text-kumo-default, ring-kumo-line,
+ *                       focus:ring-kumo-focus, placeholder, scrollbar
+ *                       [scrollbar-color: var(--color-kumo-line)]
+ *   This file's own markup -> text-kumo-subtle (every label and caption),
+ *                       ring-kumo-focus, bg-kumo-focus.
+ * The remaining leaves (canvas/elevated/recessed/interact/fill/hairline/
+ * overlay/contrast/brand/shadow) are restated too, so a control added here
+ * later cannot fall back through a root-baked dark value.
+ *
+ * `color-scheme: light` still matters, but only for what the ENGINE paints:
+ * the colour-input swatches, number-field spinners and scrollbars.
+ *
+ * The shell palette is restated as well, below the leaves. That is not
+ * derivation -- it is for the declarations that genuinely do re-resolve per
+ * element, above all the base-layer `* { border-color: var(--border) }`.
+ *
+ * Tone: the sidebars sit a half step BELOW the stage (0.94 against the stage's
+ * 0.96) rather than above it. Recessed chrome, lighter stage, white canvas is
+ * a ladder that ends at the artifact, which is the whole point of the rule --
+ * and it gives the white controls (search field, selected slide chip) a real
+ * step to stand on. All values are fixed light neutrals on the stage's hue;
+ * nothing here may reference a shell token, or the dark shell leaks back in.
+ */
+.slides-editor-chrome {
+	color-scheme: light;
+
+	/* Surfaces */
+	--color-kumo-canvas: oklch(0.94 0.003 95);
+	--color-kumo-elevated: oklch(0.96 0.003 95);
+	--color-kumo-recessed: oklch(0.92 0.003 95);
+	--color-kumo-base: #ffffff;
+	--color-kumo-control: #ffffff;
+	--color-kumo-overlay: #ffffff;
+	--color-kumo-tint: oklch(0.9 0.003 95);
+	--color-kumo-fill: oklch(0.9 0.003 95);
+	--color-kumo-fill-hover: oklch(0.93 0.003 95);
+	--color-kumo-contrast: #171717;
+
+	/* Lines */
+	--color-kumo-line: oklch(0.84 0.004 95);
+	--color-kumo-hairline: oklch(0.88 0.003 95);
+	--color-kumo-interact: oklch(0.82 0.004 95);
+
+	/* Intent */
+	--color-kumo-focus: #7c3aed;
+	--color-kumo-brand: #7c3aed;
+	--color-kumo-brand-hover: #6d28d9;
+	--color-kumo-danger: #b42318;
+	--color-kumo-danger-tint: color-mix(in srgb, #b42318 12%, transparent);
+	--color-kumo-shadow-edge: color-mix(in srgb, #171717 12%, transparent);
+	--color-kumo-shadow-drop: color-mix(in srgb, #171717 8%, transparent);
+
+	/* Text */
+	--text-color-kumo-default: #171717;
+	--text-color-kumo-strong: #0a0a0a;
+	--text-color-kumo-subtle: #5f6368;
+	--text-color-kumo-inverse: #ffffff;
+	--text-color-kumo-inactive: #9aa0a6;
+	--text-color-kumo-placeholder: #80868b;
+	--text-color-kumo-brand: #7c3aed;
+	--text-color-kumo-link: #7c3aed;
+	--text-color-kumo-danger: #b42318;
+
+	/* Shell palette, for the declarations that DO re-resolve per element. */
+	--background: oklch(0.94 0.003 95);
+	--foreground: #171717;
+	--background-lighter: oklch(0.96 0.003 95);
+	--background-base: oklch(0.92 0.003 95);
+	--card: #ffffff;
+	--card-foreground: #171717;
+	--popover: #ffffff;
+	--popover-foreground: #171717;
+	--primary: #7c3aed;
+	--primary-foreground: #ffffff;
+	--secondary: #ffffff;
+	--secondary-foreground: #404040;
+	--muted: oklch(0.92 0.003 95);
+	--muted-foreground: #5f6368;
+	--accent: oklch(0.9 0.003 95);
+	--accent-foreground: #171717;
+	--destructive: #b42318;
+	--border: oklch(0.84 0.004 95);
+	--input: oklch(0.82 0.004 95);
+	--ring: #7c3aed;
+	--accent-forest: #12815c;
+	--accent-honey: #9a6a05;
+	--accent-amethyst: #9061ff;
+	--accent-bluetron: #2a6dfb;
+
+	/* Chrome, not a card: square, unshadowed, separated by a hairline only. */
+	border: 1px solid oklch(0.84 0.004 95);
+	border-radius: 0;
+	background: oklch(0.94 0.003 95);
+	box-shadow: none;
+	color: #171717;
+}
+
+/*
+ * Selected slide. `Button variant="secondary"` paints `bg-kumo-base` (white),
+ * which on the 0.94 rail is a real but slight step. The rail is a list of
+ * pictures, so selection has to survive being read at a glance beside twenty
+ * thumbnails: give the current item the focus hue as a ring rather than a
+ * heavier fill. A filled chip would have to go dark to read as selected, and a
+ * black chip on light chrome is the idiom this whole rule is undoing.
+ */
+.slides-editor-thumbnails [aria-current] {
+	--color-kumo-line: #7c3aed;
+
+	background: #ffffff;
+}
+
+/* The rail's list is the flexible row, so the rail scrolls internally instead
+   of growing without bound and starving the stage. */
+.slides-editor-thumbnails {
+	min-height: 0;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.slides-editor-thumbnails > ol {
+	max-height: 100%;
+}
+
+/* Drag-reorder in the rail: the dragged row dims and a line marks the drop. */
+.slide-list-row[data-dragging] {
+	opacity: 0.4;
+}
+
+.slide-list-row[data-drop]::before {
+	content: "";
+	position: absolute;
+	right: 2px;
+	left: 2px;
+	z-index: 1;
+	height: 2px;
+	border-radius: 2px;
+	background: #7c3aed;
+	pointer-events: none;
+}
+
+.slide-list-row[data-drop="before"]::before {
+	top: -4px;
+}
+
+.slide-list-row[data-drop="after"]::before {
+	bottom: -4px;
+}
+
+/* Narrow/stacked: the rail sits above the stage, so cap it. */
+.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector])
+	.slides-editor-thumbnails {
+	max-height: 35vh;
+}
+
+/*
+ * The square stage stays fixed-light neutral in either shell theme, as defined
+ * in docs/engineering/product/design.md. The slide canvas keeps its own rounded geometry.
+ */
+.slides-editor-stage {
+	min-height: 24rem;
+	border-radius: 0;
+	border: 1px solid oklch(0.82 0.003 95);
+	background: oklch(0.96 0.003 95);
+	color-scheme: light;
+	container-type: size;
+}
+
+.slides-present-stage {
+	display: grid;
+	min-width: 0;
+	min-height: 0;
+	place-content: center;
+	container-type: size;
+}
+
+/* The rounded slide canvas separates white content from its pale stage without
+ * a border, outline, or shadow. Documents and sheets retain square paper edges.
+ * Present mode squares the corners so the slide meets the screen edge.
+ *
+ * Fit-to-stage: the slide stays exactly 16:9 and is bounded by BOTH axes of its
+ * stage. Width is the smaller of the stage's width and the width a 16:9 box may
+ * have at the stage's height, so whichever axis binds first letterboxes the
+ * other. Never clipped, never overflowing. `aspect-video w-full` was
+ * width-driven only and overflowed the stage vertically.
+ */
+.slides-editor-canvas {
+	border-radius: 6px;
+	width: min(100cqw, 100cqh * 16 / 9);
+	max-width: 100%;
+	aspect-ratio: 16 / 9;
+}
+
+.slides-present-stage > .slides-editor-canvas {
+	border-radius: 0;
+}
+
+@container (min-width: 52rem) {
+	.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector]) {
+		grid-template-columns: 13rem minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr);
+	}
+
+	.slides-editor-layout[data-show-thumbnails]:not([data-show-inspector])
+		.slides-editor-thumbnails {
+		max-height: none;
+	}
+
+	.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails]) {
+		grid-template-columns: minmax(0, 1fr) 14rem;
+		grid-template-rows: minmax(0, 1fr);
+	}
+
+	/* Rail and inspector side by side with the stage between them. */
+	.slides-editor-layout[data-show-thumbnails][data-show-inspector] {
+		grid-template-columns: 11rem minmax(0, 1fr) 15rem;
+		grid-template-rows: minmax(0, 1fr);
+	}
+
+	.slides-editor-layout[data-show-inspector]:not([data-show-thumbnails])
+		.slides-editor-inspector,
+	.slides-editor-layout[data-show-thumbnails][data-show-inspector]
+		.slides-editor-inspector {
+		max-height: none;
+	}
+}
+
+/* --- Deck READ view (`/outputs/{id}` before Edit) -------------------------
+ * Owned by output-content.tsx's DeckView only; the `.slides-editor-*` rules
+ * above belong to the editor.
+ *
+ * The committed revision gets the same fit-to-stage rule the editor canvas
+ * earned: the stage is a size container, and the slide is the smaller of the
+ * stage's width and the width a 16:9 box may have at the stage's height, so
+ * whichever axis binds first letterboxes the other. Never clipped, never
+ * overflowing. `aspect-video w-full` was width-driven only.
+ *
+ * The `height` below is LOAD-BEARING, and a `min-height` cannot replace it.
+ * Chrome resolves `cqh` to 0 inside a `container-type: size` element whose
+ * block size is INDEFINITE — an auto-height box clamped only by `min-height`
+ * renders at that min-height but reports `100cqh` as 0, so `min()` collapses
+ * and the canvas lays out 0x0 with every absolutely positioned slide element
+ * inside it invisible. Measured in Chrome: stage 628x384, cqw 602, cqh 0,
+ * canvas 0x0. The editor's stage escapes this only because
+ * `.slides-editor-layout` hands it a definite track height (measured 759px,
+ * with `min-height: 0`), which is why the identical rule works there. This
+ * stage is a plain block in the read view's document flow and has no such
+ * track, so it must state its own height.
+ *
+ * The stage keeps the deliberate fixed-light neutral documented above for
+ * `.slides-editor-stage` (design.md: the Slides stage stays a fixed-light
+ * neutral in either shell theme) — a deck read view is not dark.
+ *
+ * Radius is not set here: the read canvas keeps its own `rounded-md` utility.
+ */
+/*
+ * Slide rail thumbnails, in BOTH rails. The canvas is an inline-size container
+ * so the shared `ReadOnlyElement` -- which sizes type in `cqw` against a 1200px
+ * reference -- scales into it untouched. Without the container the type would
+ * resolve against whichever ancestor is one instead, and render at the main
+ * canvas's scale.
+ */
+/* Layout only: the Kumo Button variant owns selection, hover and focus, exactly
+ * as it does in the editor rail. */
+.deck-read-thumb {
+	height: auto;
+}
+
+.slide-thumb-canvas,
+.deck-read-thumb-canvas {
+	container-type: inline-size;
+	/* Every child is absolutely positioned, so without an explicit width this
+	 * shrink-fits to zero inside a flex button -- and a zero-width container
+	 * makes `cqw` resolve against an ancestor instead, rendering thumbnail type
+	 * at the main canvas's scale. */
+	width: 100%;
+	position: relative;
+	display: block;
+	overflow: hidden;
+	aspect-ratio: 16 / 9;
+	border-radius: 4px;
+	background: #ffffff;
+}
+
+.deck-read-thumb-name {
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--text-color-kumo-subtle);
+}
+
+/*
+ * The read view hugs the slide. The slide's width is bounded by its column and
+ * by a viewport-height budget (the page chrome above, the Present row below),
+ * and its height follows from 16:9 -- there is no fixed-height stage to
+ * letterbox it. Notes and Present share that width so they sit right under it.
+ */
+.deck-read {
+	--deck-read-width: min(100%, max(16rem, 100dvh - 17rem) * 16 / 9);
+	display: grid;
+	gap: 12px;
+	grid-template-columns: minmax(0, 1fr);
+}
+
+/* Narrow: a horizontal strip of miniatures above the slide. */
+.deck-read-rail {
+	display: grid;
+	grid-auto-columns: 9rem;
+	grid-auto-flow: column;
+	gap: 8px;
+	overflow-x: auto;
+}
+
+@media (min-width: 1024px) {
+	.deck-read {
+		grid-template-columns: 11rem minmax(0, 1fr);
+	}
+
+	/* `contain: size` keeps the rail out of the row's height, so the row is
+	 * exactly the slide's height and the rail scrolls inside it. */
+	.deck-read-rail {
+		grid-row: 1;
+		grid-auto-columns: auto;
+		grid-auto-flow: row;
+		align-content: start;
+		contain: size;
+		overflow-x: hidden;
+		overflow-y: auto;
+	}
+
+	.deck-read-stage,
+	.deck-read-footer {
+		grid-column: 2;
+	}
+}
+
+.deck-read-stage,
+.deck-read-footer {
+	width: var(--deck-read-width);
+	min-width: 0;
+}
+
+.deck-read-canvas {
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	/* An outline, not a border: it frames a white slide on a light page without
+	 * shrinking the inline-size container the slide type is measured against. */
+	outline: 1px solid var(--color-kumo-line);
+	color-scheme: light;
+}
+
+/* The editor stage's text input. It must draw exactly what the read-only
+ * element draws, so it drops every control style and inherits the shared
+ * element style (type, line height, alignment, colour) from its box. */
+.slide-element-input {
+	all: unset;
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	resize: none;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+	font: inherit;
+	letter-spacing: inherit;
+	text-align: inherit;
+	color: inherit;
+	caret-color: currentColor;
+	cursor: text;
+}
+
+.slide-element-input:disabled {
+	cursor: default;
+}
+
+/* A press on an element drags it; a click on the selected one edits its text. */
+[data-slide-element]:not([data-selected]),
+[data-slide-element]:not([data-selected]) .slide-element-input:not(:disabled) {
+	cursor: move;
+}
+
+.document-table-scroll,
+.document-prose .tableWrapper {
+	max-width: 100%;
+	overflow-x: auto;
+	margin-block: 1rem;
+}
+.document-prose table {
+	border-collapse: collapse;
+	table-layout: fixed;
+	width: 100%;
+	min-width: 36rem;
+	font-size: 0.875em;
+}
+.document-prose :is(th, td) {
+	border: 1px solid var(--tedix-document-rule);
+	padding: 0.6rem 0.75rem;
+	min-width: 5rem;
+	vertical-align: top;
+	overflow-wrap: anywhere;
+	position: relative;
+}
+.document-prose th {
+	background: color-mix(
+		in srgb,
+		var(--tedix-document-ink) 5%,
+		var(--tedix-document-paper)
+	);
+	font-weight: 600;
+	text-align: left;
+}
+.document-prose :is(th, td) > p {
+	margin: 0;
+}
+.document-prose .selectedCell::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: color-mix(in srgb, var(--tedix-document-link) 18%, transparent);
+	pointer-events: none;
+}
+.document-prose .column-resize-handle {
+	position: absolute;
+	right: -2px;
+	top: 0;
+	bottom: 0;
+	width: 4px;
+	background: var(--tedix-document-link);
+	pointer-events: none;
+}
+.document-prose.resize-cursor {
+	cursor: col-resize;
+}
+.document-prose [data-type="callout"] {
+	border: 1px solid var(--tedix-document-rule);
+	border-left: 4px solid var(--tedix-document-link);
+	border-radius: 0.5rem;
+	padding: 1rem;
+	background: color-mix(
+		in srgb,
+		var(--tedix-document-ink) 5%,
+		var(--tedix-document-paper)
+	);
+}
+.document-prose :is(details, [data-type="details"]) {
+	border: 1px solid var(--tedix-document-rule);
+	border-radius: 0.5rem;
+	padding: 0.75rem;
+}
+.document-prose summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+.document-prose [data-type="details"] {
+	display: flex;
+	gap: 0.5rem;
+}
+.document-prose [data-type="details"] > button {
+	cursor: pointer;
+}
+.document-prose [data-type="details"] > button::before {
+	content: "▶";
+}
+.document-prose [data-type="details"].is-open > button::before {
+	content: "▼";
+}
+.document-prose ul[data-type="taskList"] {
+	list-style: none;
+	padding-left: 0;
+}
+.document-prose li[data-type="taskItem"] {
+	display: flex;
+	gap: 0.65rem;
+	align-items: baseline;
+}
+.document-prose li[data-type="taskItem"] > div {
+	flex: 1;
+	min-width: 0;
+}
+.document-prose li[data-type="taskItem"] p {
+	margin: 0;
+}
+.document-prose input[type="checkbox"] {
+	accent-color: var(--tedix-document-link);
+}
+.document-prose hr {
+	border: 0;
+	border-top: 1px solid var(--tedix-document-rule);
+	margin-block: 1.5rem;
+}

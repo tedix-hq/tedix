@@ -43,7 +43,7 @@ describe("Output workshop composition", () => {
 	});
 
 	it("keeps compact chrome internal and prioritizes editor identity on phone", () => {
-		const styles = readFileSync("src/styles.css", "utf8");
+		const styles = readFileSync("src/components/output-editor.css", "utf8");
 
 		expect(styles).toContain(".output-workshop-command-bar");
 		expect(styles).toContain("flex-wrap: nowrap");

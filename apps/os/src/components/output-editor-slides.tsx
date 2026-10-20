@@ -1,3 +1,4 @@
+import "./output-editor.css";
 import { SlideCanvas } from "@/components/slide-editor-canvas";
 import { createElement } from "@/components/slide-element-defaults";
 import { slideElementGeometry } from "@tedix/api-contract/utils/presentation-style";

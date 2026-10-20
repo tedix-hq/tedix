@@ -1,3 +1,4 @@
+import "./canvas-page.css";
 import { isHomeRouteRetryable } from "@tedix/api-contract/utils/home-route-retry";
 import { OS_COPY } from "@/shared/os-copy";
 import {

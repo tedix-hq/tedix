@@ -239,7 +239,7 @@ describe("OutputContentView", () => {
 		// The editor canvas dropped its drop shadow; the read view matches.
 		expect(canvasClass).not.toMatch(/\bshadow-/);
 
-		const styles = readFileSync("src/styles.css", "utf8");
+		const styles = readFileSync("src/components/output-editor.css", "utf8");
 		const rule = (selector: string) => {
 			const start = styles.indexOf(`${selector} {`);
 			return styles.slice(start, styles.indexOf("}", start));
@@ -306,7 +306,7 @@ describe("OutputContentView", () => {
 		expect(html).toContain("sheet-read-desk");
 		expect(html).toContain("sheet-page sheet-read-page");
 		expect(html).not.toContain("rounded-xl border border-kumo-line");
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		const page = css.match(/^\.sheet-page \{[^}]*\}/m)?.[0] ?? "";
 		expect(page).toContain("color-scheme: light");
 		expect(page).toContain("var(--tedix-sheet-paper)");
@@ -332,7 +332,7 @@ describe("OutputContentView", () => {
 		// slide -- the editor rail uses the same adapter.
 		expect(html).toContain('data-kumo-component="Button"');
 		expect(html.split('aria-current="true"').length - 1).toBe(1);
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		const thumb = css.match(/^\.deck-read-thumb-canvas \{[^}]*\}/m)?.[0] ?? "";
 		// ReadOnlyElement sizes type in cqw against a 1200px reference, so the
 		// thumbnail must be its own inline-size container or the text renders at

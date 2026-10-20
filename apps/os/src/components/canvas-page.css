@@ -69,3 +69,1153 @@
 		padding-inline: 16px;
 	}
 }
+
+/*
+ * MCP Apps may report an intrinsic width larger than the chat column. AppFrame
+ * applies that value directly to its iframe, so the host remains the final
+ * layout authority. Inline-size containment prevents transcript expansion;
+ * max-width preserves smaller requested sizes without stretching them.
+ */
+[data-slot="mcp-app-widget"] {
+	contain: inline-size;
+}
+
+[data-slot="mcp-app-widget"] [data-slot="mcp-widget-frame"] iframe {
+	display: block;
+	box-sizing: border-box;
+	min-width: 0;
+	max-width: 100%;
+	max-height: min(70vh, 40rem);
+}
+
+.canvas-workbench {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	/* Not a scroll container: focusing a control near the bottom (the revision
+	 * note) must not scroll the chat and stage up and leave a blank band. */
+	overflow: clip;
+	border: 0;
+	border-radius: 0;
+	background: var(--card);
+	box-shadow: none;
+}
+
+.canvas-surface {
+	min-height: 0;
+	gap: 0;
+	padding: 0;
+}
+
+.canvas-workspace-header {
+	height: 56px;
+	min-height: 56px;
+	flex: none;
+	flex-direction: row;
+	align-items: center;
+	gap: 12px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--border);
+}
+
+.canvas-workspace-identity {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	align-items: center;
+	gap: 8px;
+}
+
+.canvas-workspace-back {
+	flex: none;
+	color: var(--muted-foreground);
+}
+
+.canvas-workspace-mark {
+	width: 22px;
+	height: 22px;
+	flex-basis: 22px;
+	font-size: 12px;
+}
+
+.canvas-workspace-separator {
+	color: var(--muted-foreground);
+	font-size: 14px;
+}
+
+.canvas-workspace-title {
+	min-width: 0;
+}
+
+.canvas-workspace-title h1 {
+	overflow: hidden;
+	margin: 0;
+	font-size: 14px;
+	font-weight: 500;
+	letter-spacing: -0.25px;
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.canvas-workspace-actions {
+	width: auto;
+	flex: none;
+	margin-left: auto;
+}
+
+/* The workspace workbench replaces the whole shell, so it owns the same
+   keyboard-aware height and bottom inset `.os-main` does. */
+.canvas-route-shell {
+	display: flex;
+	width: 100%;
+	height: var(--viewport-tedix-height);
+	min-height: 0;
+	overflow: hidden;
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.canvas-resource-rail {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	overflow: auto;
+	padding: 24px;
+	background: var(--background-lighter);
+}
+
+.canvas-resource-library {
+	display: grid;
+	width: min(100%, 72rem);
+	margin-inline: auto;
+	gap: 24px;
+}
+
+.canvas-resource-library-header {
+	display: flex;
+	min-width: 0;
+	align-items: end;
+	justify-content: space-between;
+	gap: 24px;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--border);
+}
+
+.canvas-resource-library-header h2,
+.canvas-resource-library-header p,
+.canvas-resource-group-label {
+	margin: 0;
+}
+
+.canvas-resource-library-header h2 {
+	color: var(--text-color-kumo-strong);
+	font-size: 20px;
+	font-weight: 600;
+	line-height: 28px;
+}
+
+.canvas-resource-library-header p {
+	max-width: 34rem;
+	color: var(--text-color-kumo-subtle);
+	font-size: 13px;
+	line-height: 20px;
+}
+
+.canvas-resource-search {
+	position: relative;
+	display: flex;
+	width: min(100%, 20rem);
+	flex: none;
+	align-items: center;
+}
+
+.canvas-resource-search > svg {
+	position: absolute;
+	left: 10px;
+	z-index: 1;
+	color: var(--text-color-kumo-subtle);
+}
+
+.canvas-resource-search input {
+	padding-left: 32px;
+}
+
+.canvas-resource-library-sections {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+}
+
+.canvas-resource-section {
+	display: grid;
+	min-width: 0;
+	align-content: start;
+	gap: 10px;
+	padding: 16px;
+	border: 1px solid var(--border);
+	/* Bounded surface, so it carries the card tier (--radius-xl, 12px), not
+	 * the --radius control token. See docs/engineering/product/design.md ("Radii"). */
+	border-radius: var(--radius-xl);
+	background: var(--background);
+}
+
+.canvas-resource-outputs {
+	grid-column: 1 / -1;
+}
+
+.canvas-resource-group-label {
+	padding-top: 4px;
+	color: var(--text-color-kumo-subtle);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.canvas-resource-state-filter {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding-bottom: 2px;
+}
+
+.canvas-resource-state-filter button {
+	gap: 6px;
+}
+
+.canvas-resource-apps,
+.canvas-resource-schedules {
+	grid-column: 1 / -1;
+}
+
+/* One app spans the row; several sit side by side, each a full card. */
+.workspace-app-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+	gap: 12px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.workspace-app-card {
+	display: grid;
+	min-width: 0;
+	grid-template-columns: minmax(0, 1fr);
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-xl);
+	background: var(--background);
+}
+
+.workspace-app-cards[data-count="1"] .workspace-app-card {
+	grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+}
+
+.workspace-app-preview.workspace-app-preview {
+	display: flex;
+	width: 100%;
+	height: 11rem;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	border-radius: 0;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+	cursor: pointer;
+}
+
+.workspace-app-cards[data-count="1"]
+	.workspace-app-preview.workspace-app-preview {
+	height: 100%;
+	min-height: 11rem;
+	border-right: 1px solid var(--border);
+	border-bottom: 0;
+}
+
+.workspace-app-preview-card {
+	display: grid;
+	width: min(100%, 18rem);
+	gap: 8px;
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-xl);
+	background: var(--background);
+	box-shadow:
+		6px 6px 0 -1px var(--background),
+		6px 6px 0 0 var(--border);
+	text-align: left;
+	white-space: normal;
+}
+
+.workspace-app-preview-actions {
+	display: flex;
+	gap: 6px;
+}
+
+.workspace-app-preview-actions > span {
+	flex: 1;
+	padding: 3px 0;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	color: var(--text-color-kumo-subtle);
+	font-size: 11px;
+	line-height: 16px;
+	text-align: center;
+}
+
+.workspace-app-preview-empty {
+	display: grid;
+	justify-items: center;
+	gap: 6px;
+	color: var(--text-color-kumo-subtle);
+}
+
+.workspace-app-body {
+	display: grid;
+	min-width: 0;
+	align-content: start;
+	gap: 6px;
+	padding: 16px;
+}
+
+.workspace-app-footer {
+	display: flex;
+	min-width: 0;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding-top: 6px;
+}
+
+@media (max-width: 719px) {
+	.workspace-app-cards[data-count="1"] .workspace-app-card {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.workspace-app-cards[data-count="1"]
+		.workspace-app-preview.workspace-app-preview {
+		height: 11rem;
+		min-height: 0;
+		border-right: 0;
+		border-bottom: 1px solid var(--border);
+	}
+}
+
+.canvas-chat-pane {
+	display: flex;
+	min-height: 0;
+	min-width: 300px;
+	max-width: 480px;
+	flex: none;
+	flex-direction: column;
+	background: var(--background);
+}
+
+/*
+ * Chat-first layout of a workspace with no document yet (`simpleMode` in
+ * canvas-page.tsx): the thread takes the whole workbench, reads at a
+ * comfortable measure, and the stage is collapsed rather than showing an
+ * empty "Pick a document" state for a project that has nothing to pick.
+ */
+.canvas-chat-pane[data-simple-mode="true"] {
+	min-width: 0;
+	max-width: none;
+}
+
+.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-thread > *,
+.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-conversations > *,
+.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-list-composer > * {
+	width: 100%;
+	max-width: 920px;
+	margin-inline: auto;
+}
+
+/*
+ * Motion is reserved for the LATER reveal of the stage — never the first
+ * paint. `data-canvas-transition` arms on the first document or the first
+ * manual pane change and drops while a pointer resize is tracking the cursor.
+ */
+.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
+.canvas-surface[data-canvas-transition="true"] .canvas-stage {
+	transition:
+		width 200ms ease-out,
+		opacity 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
+	.canvas-surface[data-canvas-transition="true"] .canvas-stage {
+		transition: none;
+	}
+}
+
+.canvas-stage[data-simple-mode="true"] {
+	min-width: 0;
+	pointer-events: none;
+}
+
+.canvas-chat-header {
+	display: flex;
+	height: 48px;
+	min-height: 48px;
+	box-sizing: border-box;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.canvas-chat-header strong,
+.canvas-chat-header p {
+	display: block;
+	margin: 0;
+}
+
+/*
+ * Product copy, so it goes through the semantic scale. The subtitle sat at
+ * 10px, below the 11px caption tier and off the scale entirely — a raw CSS
+ * literal, so the `type-literal` lint (which scans Tailwind `text-[Npx]`
+ * utilities) never saw it.
+ */
+.canvas-chat-header strong {
+	font-size: var(--text-tedix-label);
+	line-height: var(--text-tedix-label--line-height);
+}
+
+.canvas-chat-header p {
+	color: var(--muted-foreground);
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+}
+
+.canvas-chat-thread {
+	min-height: 0;
+	flex: 1 1 auto;
+	padding: 16px;
+}
+
+.chat-starter-prompts {
+	max-width: 32rem;
+}
+
+.chat-composer {
+	flex: none;
+	/*
+	 * The composer sizes itself by ITS width, not the viewport's: it lives in
+	 * a 300–480px workspace pane on a wide desktop, where a viewport media
+	 * query would still think there is room for the keyboard hint.
+	 */
+	container-type: inline-size;
+	container-name: chat-composer;
+}
+
+/*
+ * One row that can never overlap: the context chip and the hint give way
+ * (truncate, then hide) and the mic / model / send group keeps its width.
+ */
+.chat-composer-context {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.chat-composer-chip,
+.chat-composer-hint {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+.chat-composer-submit {
+	flex: 0 0 auto;
+}
+
+@container chat-composer (max-width: 520px) {
+	.chat-composer-hint {
+		display: none;
+	}
+}
+
+.chat-voice-wave {
+	display: flex;
+	width: min(100%, 420px);
+	height: 34px;
+	flex: 1 1 420px;
+	min-width: 0;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+}
+
+.chat-voice-wave > i {
+	display: block;
+	width: 3px;
+	height: 4px;
+	flex: 0 1 3px;
+	border-radius: 999px;
+	background: currentColor;
+	opacity: 0.78;
+	transition:
+		height 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 160ms ease-out;
+}
+
+/*
+ * The always-live composer starts a conversation by sending. The conversation
+ * list scrolls; the composer stays fixed beneath it.
+ */
+.canvas-chat-list-composer {
+	flex: none;
+	padding: 12px 16px 16px;
+}
+
+.canvas-chat-conversations {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding: 16px;
+}
+
+.canvas-chat-conversations [aria-label="Conversations"] > :first-child {
+	background: var(--background);
+}
+
+.canvas-chat-thread [data-slot="conversation-transcript"] {
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.canvas-chat-resizer {
+	position: relative;
+	width: 1px;
+	flex: none;
+	cursor: col-resize;
+	background: var(--border);
+	touch-action: none;
+}
+
+.canvas-chat-resizer::after {
+	position: absolute;
+	top: 0;
+	right: -6px;
+	bottom: 0;
+	left: -6px;
+	content: "";
+}
+
+.canvas-chat-resizer:hover,
+.canvas-chat-resizer:focus-visible,
+.canvas-surface[data-resizing-chat] .canvas-chat-resizer {
+	background: var(--tedix-action-primary);
+	outline: none;
+}
+
+.canvas-surface[data-resizing-chat] {
+	user-select: none;
+}
+
+.canvas-stage {
+	display: flex;
+	min-height: 0;
+	min-width: 0;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--background);
+}
+
+.canvas-stage-content {
+	min-height: 0;
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+	padding: 8px;
+}
+
+.canvas-stage-content[data-has-workpiece] {
+	padding: 0;
+}
+
+.canvas-secondary-view {
+	display: grid;
+	width: 100%;
+	max-width: 1024px;
+	margin-inline: auto;
+	gap: 24px;
+	padding: 20px 16px 32px;
+}
+
+@media (min-width: 640px) {
+	.canvas-secondary-view {
+		padding: 24px 40px 40px;
+	}
+}
+
+.canvas-workpiece-bar {
+	display: flex;
+	height: 48px;
+	min-width: 0;
+	min-height: 48px;
+	box-sizing: border-box;
+	align-items: center;
+	gap: 12px;
+	padding-inline: 16px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.canvas-chat-toggle {
+	flex: none;
+}
+
+.canvas-workpiece-tabs {
+	display: flex;
+	min-width: 0;
+	min-height: 48px;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 4px;
+	overflow-x: auto;
+	padding: 3px 0;
+	border-bottom: 0;
+	background: transparent;
+	scrollbar-width: thin;
+}
+
+.canvas-workpiece-mode-switcher {
+	min-height: 32px;
+	flex: none;
+	width: auto;
+	margin: 4px 8px;
+}
+
+.canvas-workpiece-mode-switcher > * {
+	flex: 1 1 0;
+	justify-content: center;
+}
+
+.canvas-workpiece-tab {
+	display: flex;
+	min-width: 148px;
+	max-width: 240px;
+	align-items: center;
+	flex: none;
+	border-radius: var(--radius-md);
+	background: transparent;
+}
+
+.canvas-workpiece-tab[data-selected] {
+	background: var(--color-kumo-tint);
+}
+
+.canvas-document-header {
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--border);
+	background: var(--background-lighter);
+}
+
+.canvas-document-identity {
+	min-width: 9rem;
+	flex: 1 1 18rem;
+}
+
+.canvas-document-title {
+	min-width: 0;
+	max-width: 32rem;
+}
+
+/* The open output's name reads as a title until it is clicked to rename. */
+.canvas-document-title-input {
+	min-width: 6rem;
+	max-width: 24rem;
+	flex: 1 1 12rem;
+	font-weight: 600;
+}
+.canvas-document-title-input:not(:hover, :focus) {
+	border-color: transparent;
+	background: transparent;
+	box-shadow: none;
+}
+
+.canvas-document-status,
+.canvas-document-actions {
+	flex: none;
+}
+
+.canvas-document-footer {
+	margin-top: 4px;
+}
+
+/* The workspace canvas hosts the same editor inside a scrolling stage. Without
+   a definite height the rail's full thumbnail list set the layout row (measured
+   1378px in a 763px pane), so the fitted slide was centred far below the fold.
+   Bound the shell to the pane, as the output workshop does above. A column,
+   not a fixed row template: review and error banners render between the
+   header and the editor, so the editor's position in the shell varies. */
+.canvas-document-shell:has(> .slides-editor) {
+	display: flex;
+	height: 100%;
+	min-height: 0;
+	flex-direction: column;
+}
+
+.canvas-document-shell:has(> .slides-editor) > * {
+	flex: none;
+}
+
+.canvas-document-shell > .slides-editor {
+	min-height: 0;
+	flex: 1 1 0;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.canvas-document-header > span,
+.canvas-document-header [data-kumo-component="Badge"] {
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.canvas-pane-switcher {
+	display: flex;
+	width: 100%;
+	min-height: 40px;
+	flex: none;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--border);
+	border-radius: 0;
+	background: var(--background-lighter);
+}
+
+.canvas-pane-switcher > * {
+	flex: 0 1 9rem;
+	justify-content: center;
+}
+
+.canvas-mobile-pane-switcher {
+	display: none;
+}
+
+.canvas-mobile-resources-button {
+	display: none;
+}
+
+/* Resources is a full library pane, not a third column competing with Chat and
+ * the active workpiece. Selecting an item returns to the chat + workpiece split;
+ * the persistent pane switch restores the library without discarding the draft. */
+@media (min-width: 960px) {
+	.canvas-surface[data-resource-rail-open="false"] .canvas-resource-rail {
+		display: none;
+	}
+
+	.canvas-surface[data-resource-rail-open="true"] .canvas-chat-pane,
+	.canvas-surface[data-resource-rail-open="true"] .canvas-chat-resizer,
+	.canvas-surface[data-resource-rail-open="true"] .canvas-stage {
+		display: none;
+	}
+
+	.canvas-surface[data-resource-rail-open="false"]
+		.canvas-mobile-resources-button {
+		display: inline-flex;
+	}
+}
+
+.canvas-presence-trigger {
+	position: relative;
+	display: inline-flex;
+	cursor: pointer;
+	align-items: center;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--card) 80%, transparent);
+	padding: 2px;
+	transition:
+		background-color var(--duration-tedix-standard) var(--ease-tedix-standard),
+		transform var(--duration-tedix-standard) var(--ease-tedix-standard);
+}
+
+.canvas-presence-trigger:hover,
+.canvas-presence-trigger:focus-visible {
+	background: var(--background-lighter);
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+.canvas-presence-trigger:active {
+	transform: scale(0.97);
+}
+
+.canvas-presence-stack {
+	display: flex;
+	padding-right: 1px;
+}
+
+.canvas-presence-stack > * + * {
+	margin-left: -7px;
+}
+
+/* Collaborators' carets and selections in the rich document editor. Each
+ * caret is recreated when it moves, which restarts the idle fade. */
+.collab-caret {
+	position: relative;
+	margin-inline: -1px;
+	border-inline-start: 2px solid var(--collab-color);
+	pointer-events: none;
+	animation: collab-caret-idle 400ms ease 8s forwards;
+}
+
+.collab-caret-label {
+	position: absolute;
+	bottom: 100%;
+	left: -2px;
+	padding: 1px 5px;
+	border-radius: 4px 4px 4px 0;
+	background: var(--collab-color);
+	color: var(--text-color-kumo-inverse);
+	font: 600 11px/1.4 var(--font-sans, system-ui, sans-serif);
+	white-space: nowrap;
+	user-select: none;
+	animation: collab-caret-label-idle 400ms ease 3s forwards;
+}
+
+/* The caret hue is arbitrary; pick the readable ink where the browser can. */
+@supports (color: contrast-color(red)) {
+	.collab-caret-label {
+		color: contrast-color(var(--collab-color));
+	}
+}
+
+.collab-selection {
+	background-color: color-mix(in srgb, var(--collab-color) 22%, transparent);
+	animation: collab-selection-idle 400ms ease 8s forwards;
+}
+
+@keyframes collab-caret-idle {
+	to {
+		border-inline-start-color: color-mix(
+			in srgb,
+			var(--collab-color) 35%,
+			transparent
+		);
+	}
+}
+
+@keyframes collab-caret-label-idle {
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes collab-selection-idle {
+	to {
+		background-color: color-mix(in srgb, var(--collab-color) 10%, transparent);
+	}
+}
+
+.canvas-presence-online {
+	position: absolute;
+	right: -1px;
+	bottom: -1px;
+	height: 10px;
+	width: 10px;
+	border: 2px solid var(--card);
+	border-radius: 999px;
+	background: var(--color-kumo-success);
+}
+
+.canvas-presence-pop {
+	display: inline-flex;
+	animation: canvas-presence-pop-in var(--duration-tedix-structural)
+		var(--ease-tedix-enter);
+}
+
+/* A new knock in the office settles into its lane once; no loop. */
+.office-knock-arrive {
+	animation: office-knock-arrive var(--duration-tedix-structural)
+		var(--ease-tedix-enter);
+}
+
+@keyframes office-knock-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(-6px);
+	}
+}
+
+@keyframes canvas-presence-pop-in {
+	from {
+		opacity: 0;
+		transform: scale(0.75);
+	}
+}
+
+.canvas-surface[data-canvas-focus] {
+	gap: 0;
+}
+
+.canvas-surface[data-canvas-focus] > [data-slot="page-header"],
+.canvas-surface[data-canvas-focus] .canvas-resource-rail,
+.canvas-surface[data-canvas-focus] .canvas-chat-pane,
+.canvas-surface[data-canvas-focus] .canvas-chat-resizer,
+.canvas-surface[data-canvas-focus] > .canvas-pane-switcher {
+	display: none;
+}
+
+.canvas-surface[data-canvas-focus] .canvas-workbench {
+	min-height: 0;
+	flex: 1 1 auto;
+	/* Focus-mode workbench is a bounded surface, not a control. */
+	border-radius: var(--radius-xl);
+}
+
+@media (max-width: 959px) {
+	.canvas-mobile-pane-switcher {
+		display: flex;
+		width: 100%;
+	}
+
+	.canvas-desktop-pane-switcher {
+		display: none;
+	}
+
+	.canvas-mobile-pane-switcher > * {
+		flex: 1 1 0;
+		justify-content: center;
+	}
+
+	.canvas-mobile-resources-button {
+		display: inline-flex;
+	}
+
+	.canvas-workbench {
+		display: block;
+	}
+
+	.canvas-resource-rail {
+		width: 100%;
+		height: 100%;
+		border-right: 0;
+	}
+
+	.canvas-chat-pane {
+		width: 100% !important;
+		height: 100%;
+		min-width: 0;
+		max-width: none;
+	}
+
+	.canvas-chat-resizer {
+		display: none;
+	}
+
+	.canvas-stage {
+		height: 100%;
+	}
+
+	.canvas-stage-content {
+		padding: 12px;
+	}
+
+	.canvas-stage-content > *,
+	.canvas-stage-content [data-editor] {
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.canvas-surface[data-mobile-pane="resources"] .canvas-chat-pane,
+	.canvas-surface[data-mobile-pane="resources"] .canvas-stage,
+	.canvas-surface[data-mobile-pane="chat"] .canvas-resource-rail,
+	.canvas-surface[data-mobile-pane="chat"] .canvas-stage,
+	.canvas-surface[data-mobile-pane="workpiece"] .canvas-resource-rail,
+	.canvas-surface[data-mobile-pane="workpiece"] .canvas-chat-pane {
+		display: none;
+	}
+}
+
+@media (max-width: 719px) {
+	.canvas-resource-rail {
+		padding: 16px;
+	}
+
+	.canvas-resource-library-header {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.canvas-resource-search {
+		width: 100%;
+	}
+
+	.canvas-resource-library-sections {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.canvas-resource-outputs {
+		grid-row: auto;
+	}
+}
+
+@media (max-width: 639px) {
+	.canvas-workspace-header {
+		padding-inline: 10px;
+	}
+
+	.canvas-workspace-actions [data-slot="badge"],
+	.canvas-workspace-actions .transport-status {
+		display: none;
+	}
+
+	.canvas-workpiece-bar {
+		height: 48px;
+		align-items: stretch;
+		flex-direction: row;
+		overflow-x: auto;
+	}
+
+	.canvas-workpiece-mode-switcher {
+		width: max-content;
+		min-width: max-content;
+		margin: 4px 8px;
+	}
+
+	.canvas-workpiece-tabs {
+		min-width: 9rem;
+	}
+
+	.chat-composer-actions {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+	}
+
+	.chat-composer-context {
+		overflow: hidden;
+	}
+
+	.chat-composer-hint {
+		display: none;
+	}
+
+	.chat-composer-submit {
+		max-width: min(12rem, 48vw);
+	}
+
+	.chat-starter-prompts {
+		margin-top: 16px;
+	}
+}
+
+/* Keep command bars aligned with the stage; inset the content in every mode. */
+.canvas-document-shell {
+	padding: 16px;
+	gap: 16px;
+}
+.canvas-document-shell > .canvas-document-header {
+	margin: -16px -16px 0;
+}
+.canvas-code-workbench {
+	display: grid;
+	grid-template-columns: 200px minmax(0, 1fr);
+	min-height: 480px;
+	height: clamp(480px, 65vh, 900px);
+	overflow: hidden;
+}
+.canvas-code-files {
+	min-width: 0;
+	padding: 12px;
+	border-right: 1px solid var(--border);
+}
+.canvas-code-file {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+}
+.canvas-code-file-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border);
+}
+.canvas-code-file > :last-child {
+	min-height: 0;
+	flex: 1;
+}
+.canvas-account-connections > summary {
+	cursor: pointer;
+	padding-block: 12px;
+	color: var(--text-color-kumo-subtle);
+}
+@media (max-width: 639px) {
+	.canvas-code-workbench {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+	.canvas-code-files {
+		border-right: 0;
+		border-bottom: 1px solid var(--border);
+	}
+	.canvas-code-files p {
+		display: none;
+	}
+}
+
+/* Keep resource identity in the tab strip; normal save state stays quiet. */
+.canvas-workpiece-tab[data-selected] {
+	max-width: 360px;
+}
+.canvas-saved-status {
+	background: transparent !important;
+	color: var(--color-kumo-subtle) !important;
+}
+.canvas-document-identity:has(.canvas-workpiece-mode-switcher) {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.canvas-document-identity .canvas-workpiece-mode-switcher {
+	margin: 0;
+}
+
+.canvas-surface[data-canvas-focus] .canvas-workpiece-bar {
+	display: none;
+}
+@media (min-width: 960px) {
+	.canvas-surface[data-chat-collapsed] .canvas-chat-pane,
+	.canvas-surface[data-chat-collapsed] .canvas-chat-resizer {
+		display: none;
+	}
+}
+@media (max-width: 959px) {
+	.canvas-chat-toggle {
+		display: none;
+	}
+}
+
+/* Card review: each new card arrives with a short rise; reduced motion keeps it still. */
+@keyframes card-review-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.card-review-card {
+	animation: card-review-arrive 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.card-review-card {
+		animation: none;
+		transition: none !important;
+	}
+}
