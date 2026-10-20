@@ -136,3 +136,17 @@ describe("resolveToolAnnotations", () => {
 		}
 	});
 });
+
+it("bounded operational metadata cannot clear an explicit destructive hint", () => {
+	expect(
+		resolveToolAnnotations({
+			annotations: { destructiveHint: true },
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+			},
+		})?.destructiveHint,
+	).toBe(true);
+});

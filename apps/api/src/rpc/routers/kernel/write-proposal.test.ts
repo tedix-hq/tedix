@@ -450,6 +450,12 @@ describe("isWriteCapable", () => {
 		expect(
 			classifyWriteRisk({
 				name: "billing__submit_thing",
+				_meta: {
+					"com.tedix/policy": {
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
 				annotations: { destructiveHint: false },
 			}),
 		).toBe("low");
@@ -469,7 +475,7 @@ describe("write/destructive verb sets", () => {
 		}
 	});
 
-	it("every write-only verb requires an explicit safe annotation for low risk", () => {
+	it("every write-only verb requires bounded operational metadata for low risk", () => {
 		for (const verb of WRITE_ONLY_VERBS) {
 			const name = `app__${verb}_record`;
 			expect(isWriteCapable({ name })).toBe(true);
@@ -477,6 +483,12 @@ describe("write/destructive verb sets", () => {
 			expect(
 				classifyWriteRisk({
 					name,
+					_meta: {
+						"com.tedix/policy": {
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+					},
 					annotations: { destructiveHint: false },
 				}),
 			).toBe(verb === "send" || verb === "publish" ? "high" : "low");
@@ -511,7 +523,7 @@ describe("classifyWriteRisk", () => {
 			expect(classifyWriteRisk({ name })).toBe("high");
 		}
 	});
-	it("constructive verbs need an explicit safe hint and must be non-critical", () => {
+	it("constructive verbs need bounded operational metadata and must be non-critical", () => {
 		for (const name of [
 			"create_invoice",
 			"add_contact",
@@ -522,6 +534,12 @@ describe("classifyWriteRisk", () => {
 			expect(
 				classifyWriteRisk({
 					name,
+					_meta: {
+						"com.tedix/policy": {
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+					},
 					annotations: { destructiveHint: false },
 				}),
 			).toBe(name === "create_invoice" ? "high" : "low");
@@ -542,6 +560,12 @@ describe("classifyWriteRisk fail-closed boundary", () => {
 		expect(
 			classifyWriteRisk({
 				name: "create_note",
+				_meta: {
+					"com.tedix/policy": {
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
 				annotations: { destructiveHint: false },
 			}),
 		).toBe("low");
@@ -2803,3 +2827,26 @@ describe("explicit document create", () => {
 		expect(model.doGenerateCalls).toHaveLength(1);
 	});
 });
+
+it.each([undefined, "external_side_effect", "high_impact_write"])(
+	"annotations cannot lower configured or missing operational risk: %s",
+	(riskTier) => {
+		expect(
+			classifyWriteRisk({
+				name: "run_operation",
+				annotations: { destructiveHint: false },
+				_meta: riskTier
+					? {
+							"com.tedix/policy": {
+								riskTier,
+								blastRadius:
+									riskTier === "external_side_effect"
+										? "external_system"
+										: "tenant",
+							},
+						}
+					: undefined,
+			}),
+		).toBe("high");
+	},
+);

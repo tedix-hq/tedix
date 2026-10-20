@@ -330,6 +330,7 @@ export function resolveToolAnnotations(tool: {
 			...stored,
 			readOnlyHint: policy.riskTier === "read",
 			destructiveHint:
+				stored?.destructiveHint === true ||
 				policy.riskTier === "high_impact_write" ||
 				policy.riskTier === "external_side_effect",
 			...(policy.riskTier === "external_side_effect"

@@ -753,7 +753,7 @@ function createCachedData(): CachedAppData {
 				icons: null,
 				executionTaskSupport: null,
 				annotations: null,
-				meta: null,
+				meta: { "com.tedix/policy": { riskTier: "read", blastRadius: "none" } },
 				invocationStatus: null,
 				fileParams: null,
 				widgetDescription: null,

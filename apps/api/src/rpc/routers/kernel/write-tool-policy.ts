@@ -1,3 +1,4 @@
+import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import {
 	humanReservedActionClasses,
 	type KernelWriteRiskTier,
@@ -6,6 +7,7 @@ import {
 export interface McpTool {
 	name: string;
 	description?: string;
+	_meta?: Record<string, unknown>;
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
 	inputSchema?: { properties?: Record<string, unknown>; required?: string[] };
 }
@@ -169,17 +171,18 @@ export function isWriteCapable(tool: McpTool): boolean {
 const DESTRUCTIVE_VERB_RE = verbMatcher(DESTRUCTIVE_VERBS);
 
 /**
- * Classify a write tool's risk fail-closed. Low requires positive provider
- * evidence (`destructiveHint:false`) and no destructive verb. Missing or
- * ambiguous hints stay high. This deliberately does not require
- * `idempotentHint`: Tedix uses that hint for reads, so importing Cloudflare's
- * own open-source dashboard project's extra requirement would incorrectly
- * make every write high.
+ * Classify writes from configured operational risk metadata. Annotations and
+ * critical-action text can raise the risk, but cannot lower a missing or
+ * higher-impact classification.
  */
 export function classifyWriteRisk(tool: McpTool): KernelWriteRiskTier {
 	if (humanReservedActionClasses(tool.name).length) return "high";
 	if (DESTRUCTIVE_VERB_RE.test(tool.name)) return "high";
-	return tool.annotations?.destructiveHint === false ? "low" : "high";
+	if (tool.annotations?.destructiveHint === true) return "high";
+	const policy = parseToolPolicyMetadata(tool._meta);
+	return policy?.riskTier === "bounded_write" && policy.blastRadius
+		? "low"
+		: "high";
 }
 
 export const MAX_CATALOG_TOOLS = 40;
