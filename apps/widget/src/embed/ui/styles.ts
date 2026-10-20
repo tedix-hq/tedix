@@ -59,8 +59,11 @@ export function embeddedTediStyles(
 				.tedix-header { display: flex; min-height: 66px; align-items: center; gap: 11px; padding: 10px 12px 10px 18px; border-bottom: 1px solid var(--tedix-border); background: color-mix(in srgb, var(--tedix-bg) 94%, transparent); }
 				.tedix-avatar { position: relative; display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: var(--tedix-radius-xl); background: color-mix(in srgb, var(--tedix-accent) 12%, var(--tedix-bg)); color: var(--tedix-accent); font-weight: 750; letter-spacing: -.03em; }
 				.tedix-presence { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--tedix-bg); border-radius: 50%; background: #22a06b; }
-				.tedix-model-select,.tedix-effort-select,.tedix-tedi-select{font:inherit;color:inherit;background:var(--tedix-panel-bg,transparent);border:1px solid currentColor;border-radius:6px;max-width:100%;padding:3px 6px}.tedix-model-select,.tedix-effort-select{font-size:11px;padding:2px 4px;max-width:44%}.tedix-model-select[hidden],.tedix-effort-select[hidden],.tedix-tedi-select[hidden]{display:none}
-.tedix-heading { min-width: 0; flex: 1; }
+				.tedix-model-select, .tedix-effort-select, .tedix-tedi-select { font: inherit; font-size: 14px; line-height: 20px; color: var(--tedix-text); background: var(--tedix-bg); border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-lg); min-width: 44px; max-width: 100%; height: 36px; padding: 0 12px; }
+				.tedix-model-select:focus-visible, .tedix-effort-select:focus-visible, .tedix-tedi-select:focus-visible { outline: 3px solid color-mix(in srgb, var(--tedix-accent) 28%, transparent); outline-offset: 2px; }
+				.tedix-model-select:disabled, .tedix-effort-select:disabled, .tedix-tedi-select:disabled { cursor: not-allowed; opacity: .5; }
+				.tedix-model-select[hidden], .tedix-effort-select[hidden], .tedix-tedi-select[hidden] { display: none; }
+				.tedix-heading { min-width: 0; flex: 1; }
 				.tedix-history-bar { display: none; min-width: 0; flex: 1; align-items: center; gap: 4px; }
 				.tedix-history-bar strong { font-size: 16px; font-weight: 620; letter-spacing: -.01em; }
 				.tedix-panel[data-history] .tedix-history-bar { display: flex; }
@@ -176,7 +179,7 @@ export function embeddedTediStyles(
 				.tedix-widget-frame { width: 100%; min-height: 180px; margin: -7px 0 20px; overflow: hidden; border: 1px solid var(--tedix-border); border-radius: 18px; background: var(--tedix-bg); }
 				.tedix-widget-frame iframe { display: block; width: 100%; min-height: 260px; border: 0; }
 				.tedix-composer-wrap { padding: 10px 12px 13px; border-top: 1px solid var(--tedix-border); background: var(--tedix-bg); }
-				.tedix-context { display: flex; align-items: center; gap: 6px; min-height: 20px; padding: 0 8px 7px; color: var(--tedix-muted); font-size: 11px; }
+				.tedix-context { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 20px; padding: 0 8px 7px; color: var(--tedix-muted); font-size: 11px; }
 				.tedix-context .tedix-status { margin-left: auto; }
 				.tedix-context strong { min-width: 0; overflow: hidden; max-width: 220px; color: var(--tedix-text); font-weight: 590; text-overflow: ellipsis; white-space: nowrap; }
 				.tedix-session-recovery { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 8px 8px; padding: 9px 10px; border: 1px solid var(--tedix-border); border-radius: 12px; background: var(--tedix-canvas); color: var(--tedix-muted); font-size: 11px; line-height: 1.35; }
@@ -214,6 +217,7 @@ export function embeddedTediStyles(
 				:host([data-theme="dark"]) .tedix-brand-image[data-theme-dark] { display: block; }
 				:host([data-theme="light"]) { --tedix-bg: #fff; --tedix-canvas: #fafafa; --tedix-text: #18181b; --tedix-muted: #71717a; --tedix-border: rgba(24,24,27,.12); --tedix-soft: rgba(24,24,27,.055); color-scheme: light; }
 				@media (max-width: 600px) { .tedix-launcher { bottom: calc(14px + var(--tedix-host-bottom-inset, 0px)); ${appearance.position === "bottom-left" ? "left: 14px; right: auto;" : "right: 14px; left: auto;"} } .tedix-panel, .tedix-panel[data-expanded] { top: var(--tedix-viewport-top); right: auto; bottom: auto; left: 0; width: var(--tedix-viewport-width); height: var(--tedix-viewport-height); border: 0; border-radius: 0; } :host([data-keyboard-open]) .tedix-composer-wrap { padding-bottom: 0; } :host([data-keyboard-open]) .tedix-footer { display: none; } .tedix-expand { display: none; } .tedix-thread { padding-inline: 16px; } .tedix-header { padding-left: 14px; } }
+				@media (max-width: 639px), (pointer: coarse) { .tedix-model-select, .tedix-effort-select, .tedix-tedi-select { min-height: var(--tedix-touch-target); } }
 				@media (pointer: coarse) { .tedix-input { font-size: 16px; } }
 				@media (prefers-reduced-motion: reduce) { .tedix-panel[data-open] { animation: none; } .tedix-launcher, .tedix-send, .tedix-activity-chevron { transition: none; } .tedix-thinking-label, .tedix-skeleton::after { animation: none; } .tedix-worklog-step[data-streaming="true"] { background: none; color: inherit; animation: none; } }
 	`;
