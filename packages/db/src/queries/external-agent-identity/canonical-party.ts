@@ -10,7 +10,7 @@
  * never makes an owner independent of their own agent.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { externalAgentPrincipals } from "../../schema/external-agent-identity";
 
@@ -45,8 +45,8 @@ export function isSameCanonicalParty(
 const MAX_RESOLVED_EXTERNAL_PRINCIPALS = 50;
 
 /**
- * One bounded statement: map every supplied owner-host external-agent
- * principal to `user:<owner canonical user id>`. Other refs map to themselves.
+ * One bounded statement maps owner-host and represented API-key principals to
+ * their canonical human party. Other refs map to themselves.
  */
 export async function resolveCanonicalWorkParties(
 	db: DbQueryClient,
@@ -68,18 +68,24 @@ export async function resolveCanonicalWorkParties(
 	const rows = await db
 		.select({
 			principalId: externalAgentPrincipals.id,
-			ownerUserId: externalAgentPrincipals.credentialBindingId,
+			ownerUserId: sql<string | null>`CASE
+				WHEN ${externalAgentPrincipals.credentialBindingType} = 'owner_user' THEN ${externalAgentPrincipals.credentialBindingId}
+				WHEN ${externalAgentPrincipals.credentialBindingType} = 'api_key'
+					AND json_type(${externalAgentPrincipals.metadata}, '$.representedUserId') = 'text'
+					AND length(trim(json_extract(${externalAgentPrincipals.metadata}, '$.representedUserId'))) > 0
+				THEN json_extract(${externalAgentPrincipals.metadata}, '$.representedUserId')
+				ELSE NULL END`,
 		})
 		.from(externalAgentPrincipals)
 		.where(
 			and(
 				eq(externalAgentPrincipals.organizationId, params.organizationId),
-				eq(externalAgentPrincipals.credentialBindingType, "owner_user"),
 				// bound-params: capped to 50 distinct principal ids above.
 				inArray(externalAgentPrincipals.id, principalIds),
 			),
 		);
 	for (const row of rows) {
+		if (!row.ownerUserId) continue;
 		map.set(
 			workPartyKey({ type: "external_agent", id: row.principalId }),
 			workPartyKey({ type: "user", id: row.ownerUserId }),

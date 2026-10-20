@@ -9,6 +9,7 @@ import {
 	ExternalAgentKnowledgeCheckpointSchema,
 	ExternalAgentKnowledgeDispositionSchema,
 	ExternalAgentPrincipalSchema,
+	ExternalAgentPrincipalSummarySchema,
 	ExternalAgentPrincipalMetadataSchema,
 	ExternalAgentPrincipalStatusSchema,
 	ExternalAgentReputationContextSchema,
@@ -578,7 +579,7 @@ export const externalAgentIdentityContract = oc
 					limit: z.number().int().min(1).max(500).default(100),
 				}),
 			)
-			.output(z.array(ExternalAgentPrincipalSchema)),
+			.output(z.array(ExternalAgentPrincipalSummarySchema)),
 
 		listSessions: oc
 			.route({

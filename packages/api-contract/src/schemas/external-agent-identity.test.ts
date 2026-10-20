@@ -130,3 +130,30 @@ describe("external-agent enrollment ceiling", () => {
 		).toThrow();
 	});
 });
+
+describe("external-agent represented identity metadata", () => {
+	it.each([null, 42, "", " ", "x".repeat(201)])(
+		"rejects malformed representedUserId %j",
+		(representedUserId) => {
+			expect(
+				ExternalAgentPrincipalMetadataSchema.safeParse({ representedUserId })
+					.success,
+			).toBe(false);
+		},
+	);
+	it("retains a canonical opaque user id and typed platform", () => {
+		expect(
+			ExternalAgentPrincipalMetadataSchema.parse({
+				platform: "codex-cloud",
+				allowedScopes: [],
+				representedUserId: "canonical-human",
+			}),
+		).toMatchObject({ representedUserId: "canonical-human" });
+		expect(
+			ExternalAgentPrincipalMetadataSchema.safeParse({
+				platform: "invented",
+				allowedScopes: [],
+			}).success,
+		).toBe(false);
+	});
+});
