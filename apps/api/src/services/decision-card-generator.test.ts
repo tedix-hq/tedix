@@ -499,6 +499,43 @@ it("reports actual field lengths separately from source facts when repairing", a
 	).toEqual({ actual: 121, limit: 120 });
 });
 
+it("reports the rejected field and forbidden keys instead of an empty union error", async () => {
+	mocks.model.mockResolvedValueOnce(
+		JSON.stringify({ ...copy, body: "x".repeat(121), options: [] }),
+	);
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, request),
+	).toMatchObject(copy);
+	const feedback = JSON.parse(
+		mocks.model.mock.calls[1]?.[2].validationFeedback,
+	);
+	expect(feedback.failedChecks).toContain("body");
+	expect(feedback.failedChecks).toContain("unknown_field:options");
+	expect(feedback.failedChecks).not.toContain("");
+});
+
+it("identifies rejected vocabulary and gives the writer the complete face budget", async () => {
+	mocks.model.mockResolvedValueOnce(
+		JSON.stringify({ ...copy, body: "Review the member session." }),
+	);
+	await generateDecisionCard({ db: {}, env: {} } as never, request);
+	const repair = mocks.model.mock.calls[1]?.[2];
+	expect(JSON.parse(repair.validationFeedback).bannedTerms).toEqual([
+		"session",
+	]);
+	expect(repair.rewriteInstruction).toContain(copySpec.faceInstruction);
+	for (const instruction of [
+		copySpec.system,
+		copySpec.repair,
+		copySpec.rewritePass,
+	]) {
+		expect(instruction).toContain("context");
+		expect(instruction).not.toMatch(
+			/exactly (?:these|the) three (?:distinct )?texts|as three distinct card lines/i,
+		);
+	}
+});
+
 it("reports the full word count and reserved chrome when repairing an overlong face", async () => {
 	const draft = {
 		...copy,
