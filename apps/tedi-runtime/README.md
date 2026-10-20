@@ -115,7 +115,8 @@ route through a governed workstation lease.
 ## Running it
 
 ```sh
-bun run test:run           # runs every src/*.test.ts standalone (not `bun test`)
+bun run test:run           # every src/*.test.ts standalone (not `bun test`), then brain, email, provider lanes
+bun run test:related <file>...  # only the named test files, each in its lane
 bun run type-check
 ```
 
