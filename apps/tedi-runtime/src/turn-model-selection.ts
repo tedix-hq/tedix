@@ -19,6 +19,12 @@
  */
 
 import type { ModelRequestTelemetry } from "./model-request-telemetry";
+import { wrapLanguageModel, type LanguageModel } from "ai";
+import type { SelectedConversationModelIdentity } from "./turn-model-attribution";
+import {
+	withModelFallback,
+	type ModelFallbackOptions,
+} from "@tedix/workers-ai/model-fallback";
 import type { ProviderBeforeDispatch } from "@tedix/workers-ai/gateway-transport";
 import {
 	findCatalogEntry,
@@ -48,7 +54,7 @@ import {
  */
 export const FINAL_STEP_STOP_RULE = "toolChoice:none";
 
-/** Select the configured model; errors never change provider authority. */
+/** Select the configured model and apply recorded availability fallback when supplied. */
 export function selectChatModelForTurn(
 	env: AzureChatEnv,
 	modelOverride?: ModelOverride | { modelRef?: unknown } | null,
@@ -57,7 +63,8 @@ export function selectChatModelForTurn(
 	adaptiveRouting?: AdaptiveRoutingContext | null,
 	beforeDispatch?: ProviderBeforeDispatch,
 	promptCacheKey?: string | null,
-) {
+	fallback?: Pick<ModelFallbackOptions<object>, "load" | "record">,
+): { model: LanguageModel; identity: SelectedConversationModelIdentity } {
 	const deployment = selectAzureDeployment(env, modelOverride);
 	const overrideRef =
 		modelOverride && typeof modelOverride === "object"
@@ -114,7 +121,48 @@ export function selectChatModelForTurn(
 		: useWorkersAI
 			? ({ provider: "workers-ai", model: workersAiId } as const)
 			: ({ provider: "azure-openai", model: deployment } as const);
-	return { model, identity };
+	if (
+		typeof model === "string" ||
+		!fallback ||
+		adaptiveRouting?.reproducibility === "fixed-model-required" ||
+		adaptiveRouting?.sovereignty === "residency-bound"
+	)
+		return { model, identity };
+	const primaryRef = useAuto
+		? CLOUDFLARE_AUTO_MODEL_REF
+		: useWorkersAI
+			? `workers-ai/${workersAiId}`
+			: `azure-openai/${deployment}`;
+	return {
+		model: withModelFallback(wrapLanguageModel({ model, middleware: [] }), {
+			primaryRef,
+			load: fallback.load,
+			resolve: (modelRef) => {
+				const candidate = selectChatModelForTurn(
+					env,
+					{ modelRef },
+					metadata,
+					onRequest,
+					adaptiveRouting,
+					beforeDispatch,
+					promptCacheKey,
+				).model;
+				return typeof candidate === "string"
+					? null
+					: wrapLanguageModel({ model: candidate, middleware: [] });
+			},
+			record: async (step) => {
+				await fallback.record(step);
+				const next = findCatalogEntry(step.to)!;
+				Object.assign(identity, {
+					provider:
+						next.provider === "cloudflare" ? "workers-ai" : next.provider,
+					model: next.provider === "cloudflare" ? step.to : next.modelId,
+				});
+			},
+		}),
+		identity,
+	};
 }
 
 /**

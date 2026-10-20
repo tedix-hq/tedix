@@ -314,6 +314,9 @@ export class PiConversationFixture extends ProductionConversationFacet {
 	}
 	protected async parent(): Promise<ConversationParentPort> {
 		return {
+			recordModelFallback: async () => {
+				throw new Error("Fixture model fallback requires an explicit ledger");
+			},
 			facetToolApprovalDecision: async () => ({
 				autoApprove: false,
 				critical: false,
