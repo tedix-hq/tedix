@@ -387,8 +387,9 @@ export async function ensureOrganizationUnifiedGateway(
 	if (localDemo) {
 		// A fresh local database has no shared platform catalog. Project the
 		// canonical workspace tools into this tenant's own gateway instead.
-		const { runToolSchemaSync, OS_TOOL_ID_OVERRIDES, OS_KIND_OVERRIDES } =
-			await import("../services/tool-schema-sync");
+		const { runToolSchemaSync } = await import("../services/tool-schema-sync");
+		const { OS_TOOL_ID_OVERRIDES, OS_KIND_OVERRIDES } =
+			await import("../services/tool-schema-overrides");
 		const result = await runToolSchemaSync(db, {
 			appId: app.id,
 			mode: "projection",

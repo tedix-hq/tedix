@@ -16,11 +16,13 @@ import {
 	TOOL_SCHEMA_SYNC_BATCH_SIZE,
 } from "../workflows/tool-schema-sync-batching";
 import {
+	WORK_HIERARCHY_KIND_OVERRIDES,
+	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
+} from "./tool-schema-overrides";
+import {
 	planToolSchemaSyncProjection,
 	planToolSchemaSyncRows,
 	runToolSchemaSync,
-	WORK_HIERARCHY_KIND_OVERRIDES,
-	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 } from "./tool-schema-sync";
 
 const TEDIX_ADMIN_APP_ID = "5eed0020-0000-4000-8000-000000000020";

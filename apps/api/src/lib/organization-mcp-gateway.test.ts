@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../services/tool-schema-sync", () => ({
 	runToolSchemaSync: mocks.runToolSchemaSync,
+}));
+
+vi.mock("../services/tool-schema-overrides", () => ({
 	OS_TOOL_ID_OVERRIDES: { "osWorkspaces/outputs/create": "create_os_output" },
 	OS_KIND_OVERRIDES: { "osWorkspaces/outputs/create": "write" },
 }));
