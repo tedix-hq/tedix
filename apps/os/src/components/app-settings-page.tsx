@@ -95,10 +95,6 @@ const AppTediAssignments = lazy(() =>
 	})),
 );
 
-function SectionSkeleton() {
-	return <Skeleton className="h-24 w-full rounded-lg" />;
-}
-
 const APP_SETTINGS_SECTION_ITEMS = [
 	["Gateway", "app-settings-gateway"],
 	["Details", "app-settings-details"],
@@ -131,9 +127,9 @@ export function AppSettingsPage() {
 				aria-label="Loading app settings"
 				className="grid gap-4"
 			>
-				<SectionSkeleton />
-				<SectionSkeleton />
-				<SectionSkeleton />
+				<Skeleton className="h-24 w-full" />
+				<Skeleton className="h-24 w-full" />
+				<Skeleton className="h-24 w-full" />
 			</div>
 		);
 	}
@@ -162,7 +158,7 @@ export function AppSettingsPage() {
 			<Separator />
 			<div id="app-settings-mcp" className="scroll-mt-24 space-y-6">
 				<McpConfigDisplay app={app} />
-				<Suspense fallback={<SectionSkeleton />}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<McpOAuthSettings
 						appId={appId}
 						mcpConfig={app.metadata?.mcpConfig}
@@ -174,7 +170,7 @@ export function AppSettingsPage() {
 			</div>
 			<Separator />
 			<div id="app-settings-tedis" className="scroll-mt-24">
-				<Suspense fallback={<SectionSkeleton />}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<AppTediAssignments appId={appId} />
 				</Suspense>
 			</div>
@@ -489,7 +485,7 @@ function SecretsSection({ appId }: { appId: string }) {
 				</Text>
 			</div>
 
-			{secrets.isPending && <SectionSkeleton />}
+			{secrets.isPending && <Skeleton className="h-24 w-full" />}
 			{secrets.isError && (
 				<Alert variant="destructive">
 					<AlertTitle>Secrets are unavailable</AlertTitle>

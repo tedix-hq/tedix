@@ -1,12 +1,13 @@
 import { Question } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { SupportReport } from "@tedix/api-contract/schemas/support";
 import {
 	redactSupportReport,
 	redactSupportText,
 	supportPayloadDigest,
 } from "@tedix/api-contract/utils/support-report";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Checkbox } from "@/components/kumo/checkbox";
 import {
@@ -18,11 +19,14 @@ import {
 	DialogFooter,
 } from "@/components/kumo/dialog";
 import { Input } from "@/components/kumo/input";
+import { Label } from "@/components/kumo/label";
+import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { Link } from "@/components/kumo/link";
 
 export function SupportGetHelp({ organization }: { organization: string }) {
 	const client = useQueryClient();
+	const id = useId();
 	const [open, setOpen] = useState(false);
 	const [report, setReport] = useState<SupportReport | null>(null);
 	const [preview, setPreview] = useState<SupportReport | null>(null);
@@ -119,82 +123,93 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 						</DialogDescription>
 					</DialogHeader>
 					{receipt ? (
-						<p role="status">
+						<Text as="p" role="body" tone="secondary" aria-live="polite">
 							Request filed:{" "}
 							<Link href={receipt.statusUrl}>{receipt.ticketId}</Link>. Support
 							will review it; this receipt is not an answer.
-						</p>
+						</Text>
 					) : report ? (
 						<>
 							<p>Organization: {organization}</p>
 							<div className="support-report-fields grid gap-4">
 								<div className="grid content-start gap-3">
-									<label>
-										Summary
+									<div className="grid gap-1">
+										<Label htmlFor={`${id}-title`}>Summary</Label>
 										<Input
+											id={`${id}-title`}
 											autoFocus
 											value={report.title}
 											aria-label="Summary"
 											maxLength={200}
 											onChange={(e) => update("title", e.target.value)}
 										/>
-									</label>
-									<label>
-										What did you expect?
+									</div>
+									<div className="grid gap-1">
+										<Label htmlFor={`${id}-expected`}>
+											What did you expect?
+										</Label>
 										<Textarea
+											id={`${id}-expected`}
 											value={report.expected}
 											aria-label="What did you expect?"
 											maxLength={2000}
 											onChange={(e) => update("expected", e.target.value)}
 										/>
-									</label>
-									<label>
-										What happened?
+									</div>
+									<div className="grid gap-1">
+										<Label htmlFor={`${id}-actual`}>What happened?</Label>
 										<Textarea
+											id={`${id}-actual`}
 											value={report.actual}
 											aria-label="What happened?"
 											maxLength={2000}
 											onChange={(e) => update("actual", e.target.value)}
 										/>
-									</label>
+									</div>
 								</div>
 								<div className="grid content-start gap-3">
-									<label>
-										Steps to reproduce
+									<div className="grid gap-1">
+										<Label htmlFor={`${id}-steps`}>Steps to reproduce</Label>
 										<Textarea
+											id={`${id}-steps`}
 											value={report.steps}
 											aria-label="Steps to reproduce"
 											maxLength={2000}
 											onChange={(e) => update("steps", e.target.value)}
 										/>
-									</label>
-									<label>
-										Impact
+									</div>
+									<div className="grid gap-1">
+										<Label htmlFor={`${id}-impact`}>Impact</Label>
 										<Input
+											id={`${id}-impact`}
 											value={report.impact}
 											aria-label="Impact"
 											maxLength={500}
 											onChange={(e) => update("impact", e.target.value)}
 										/>
-									</label>
-									<label>
-										Page
+									</div>
+									<div className="grid gap-1">
+										<Label htmlFor={`${id}-page`}>Page</Label>
 										<Input
+											id={`${id}-page`}
 											value={report.page}
 											aria-label="Page"
 											maxLength={500}
 											onChange={(e) => update("page", e.target.value)}
 										/>
-									</label>
-									<label>
-										Last error, if known
+									</div>
+									<div className="grid gap-1">
+										<Label htmlFor={`${id}-lastError`}>
+											Last error, if known
+										</Label>
 										<Input
+											id={`${id}-lastError`}
 											value={report.lastError}
 											aria-label="Last error, if known"
 											maxLength={500}
 											onChange={(e) => update("lastError", e.target.value)}
 										/>
-									</label>
+									</div>
 								</div>
 							</div>
 							{preview ? (
@@ -209,7 +224,11 @@ export function SupportGetHelp({ organization }: { organization: string }) {
 									/>
 								</>
 							) : null}
-							{error ? <p role="alert">{error}</p> : null}
+							{error ? (
+								<Alert variant="destructive">
+									<AlertDescription>{error}</AlertDescription>
+								</Alert>
+							) : null}
 							<DialogFooter className="flex-col sm:flex-col">
 								<p className="text-kumo-subtle type-tedix-caption">
 									Leave out private messages, customer data and credentials.

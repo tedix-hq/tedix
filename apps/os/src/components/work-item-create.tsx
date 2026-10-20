@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
@@ -18,6 +19,7 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi } from "@/lib/api";
 import { osQuery, projectListQueryOptions } from "@/lib/os-query-options";
 
@@ -114,11 +116,11 @@ export function WorkItemCreateForm({
 					))}
 				</SelectContent>
 			</Select>
-			{projects.isPending && <Text>Loading projects…</Text>}
+			{projects.isPending && <ListSkeleton rows={3} rowClassName="h-9" />}
 			{projects.error && (
-				<div role="alert">
-					<Text tone="error">{projects.error.message}</Text>
-				</div>
+				<Alert variant="destructive">
+					<AlertDescription>{projects.error.message}</AlertDescription>
+				</Alert>
 			)}
 			{projects.data?.pagination.hasMore && (
 				<Text tone="secondary">Search to find more projects.</Text>
@@ -144,12 +146,12 @@ export function WorkItemCreateForm({
 				Creates proposed Work for review before execution.
 			</Text>
 			{create.error && (
-				<div role="alert">
-					<Text tone="error">
+				<Alert variant="destructive">
+					<AlertDescription>
 						{create.error.message} Check the project for an existing item before
 						trying again.
-					</Text>
-				</div>
+					</AlertDescription>
+				</Alert>
 			)}
 			<Button
 				type="submit"

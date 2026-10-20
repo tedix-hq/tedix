@@ -92,10 +92,6 @@ const DangerZone = lazy(() =>
 	})),
 );
 
-function SectionSkeleton() {
-	return <Skeleton className="h-24 w-full" />;
-}
-
 function OrganizationPagePending() {
 	return (
 		<div
@@ -188,7 +184,7 @@ function AdminOrganizationBody({
 			/>
 
 			<div id="organization-profile" className="scroll-mt-24">
-				<Suspense fallback={<SectionSkeleton />}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<OrganizationProfileForm
 						organizationId={organization.id}
 						defaultValues={{
@@ -204,7 +200,7 @@ function AdminOrganizationBody({
 			</div>
 
 			<div id="organization-appearance" className="scroll-mt-24">
-				<Suspense fallback={<SectionSkeleton />}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<OrganizationAppearanceForm
 						organizationId={organization.id}
 						initialTheme={organization.metadata?.osTheme}
@@ -213,7 +209,7 @@ function AdminOrganizationBody({
 			</div>
 
 			<div id="organization-billing" className="scroll-mt-24 space-y-8">
-				<Suspense fallback={<SectionSkeleton />}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<SubscriptionSection />
 				</Suspense>
 
@@ -225,16 +221,16 @@ function AdminOrganizationBody({
 						</AlertDescription>
 					</Alert>
 				) : featuresQuery.data ? (
-					<Suspense fallback={<SectionSkeleton />}>
+					<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 						<FeaturesSection features={features} />
 					</Suspense>
 				) : (
-					<SectionSkeleton />
+					<Skeleton className="h-24 w-full" />
 				)}
 			</div>
 
 			<div id="organization-authentication" className="scroll-mt-24 space-y-8">
-				<Suspense fallback={<SectionSkeleton />}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<AdminPortalSection
 						descopeTenantId={organization.descopeTenantId}
 						ssoEnabled={ssoEnabled}
@@ -242,7 +238,7 @@ function AdminOrganizationBody({
 				</Suspense>
 
 				{ssoEnabled && (
-					<Suspense fallback={<SectionSkeleton />}>
+					<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 						<SsoSection
 							organizationId={organization.id}
 							descopeTenantId={organization.descopeTenantId}
@@ -263,7 +259,7 @@ function AdminOrganizationBody({
 			)}
 
 			{isOwner && (
-				<Suspense fallback={<SectionSkeleton />}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
 					<div id="organization-danger" className="scroll-mt-24">
 						<DangerZone
 							organizationId={organization.id}

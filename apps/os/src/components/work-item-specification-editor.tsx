@@ -1,6 +1,7 @@
 import type { WorkItem } from "@tedix/api-contract/schemas/work-items";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
@@ -16,6 +17,7 @@ import {
 	SelectContent,
 	SelectItem,
 } from "@/components/kumo/select";
+import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
@@ -86,8 +88,16 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 							))}
 						</SelectContent>
 					</Select>
-					{save.error ? <p role="alert">{save.error.message}</p> : null}
-					{save.isSuccess ? <p role="status">Task details saved.</p> : null}
+					{save.error ? (
+						<Alert variant="destructive">
+							<AlertDescription>{save.error.message}</AlertDescription>
+						</Alert>
+					) : null}
+					{save.isSuccess ? (
+						<Text as="p" role="label" tone="secondary" aria-live="polite">
+							Task details saved.
+						</Text>
+					) : null}
 					<Button type="submit" disabled={!title.trim() || save.isPending}>
 						{save.isPending ? "Saving…" : "Save task details"}
 					</Button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { TediRuntimeRecoveryDiagnosticResponse } from "@tedix/api-contract/schemas/tedi";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
@@ -9,6 +10,7 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { Input } from "@/components/kumo/input";
+import { Loader } from "@/components/kumo/loader";
 import { osQuery } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
@@ -21,13 +23,21 @@ export function RecoveryDiagnosticResult({
 	error?: boolean;
 	pending?: boolean;
 }) {
-	if (pending) return <p role="status">Reading recovery state…</p>;
+	if (pending)
+		return (
+			<div className="flex items-center" aria-live="polite">
+				<Loader size="sm" aria-hidden="true" />
+				<span className="sr-only">Reading recovery state…</span>
+			</div>
+		);
 	if (error)
 		return (
-			<p role="alert">
-				Recovery state unavailable. Session state is unknown; try inspecting
-				again.
-			</p>
+			<Alert variant="destructive">
+				<AlertDescription>
+					Recovery state unavailable. Session state is unknown; try inspecting
+					again.
+				</AlertDescription>
+			</Alert>
 		);
 	if (!data)
 		return (

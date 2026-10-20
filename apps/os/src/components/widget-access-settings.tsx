@@ -20,9 +20,17 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
+import { Label } from "@/components/kumo/label";
 import { Switch } from "@/components/kumo/switch";
+import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	Select,
 	SelectContent,
@@ -63,7 +71,7 @@ export function WidgetAccessSettings({
 		osQuery.tedis.listWidgetAccessConfigurations.queryOptions({ input: {} }),
 	);
 	if (query.isPending || companies.isPending)
-		return <p role="status">Loading access settings…</p>;
+		return <ListSkeleton rows={2} rowClassName="h-40" />;
 	if (query.isError || companies.isError)
 		return (
 			<Alert variant="destructive">
@@ -131,7 +139,9 @@ export function WidgetAccessSettings({
 				) : null;
 			})}
 			{companies.data.companies.length === 0 && (
-				<p role="status">No matching companies.</p>
+				<Text as="p" role="label" tone="secondary" aria-live="polite">
+					No matching companies.
+				</Text>
 			)}
 			<nav className="flex gap-2" aria-label="Audience company pages">
 				<Button
@@ -170,6 +180,7 @@ function InstallationAccess({
 		}),
 	);
 	const users = contacts.data?.people ?? [];
+	const id = `access-${row.installationId}`;
 	const client = useQueryClient();
 	const [draft, setDraft] = useState<EmbeddedWidgetAccessPolicy>(row.policy);
 	const [allowedText, setAllowedText] = useState(
@@ -250,16 +261,14 @@ function InstallationAccess({
 						will not resume the installation.
 					</p>
 				)}
-				<label className="flex items-center gap-3">
-					<Switch
-						aria-label={`Assistant access for business ${row.externalTenantId}`}
-						checked={draft.enabled}
-						onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
-					/>
-					Allow embedded assistant
-				</label>
-				<label className="grid gap-2">
-					Who can use it?
+				<Switch
+					label="Allow embedded assistant"
+					aria-label={`Assistant access for business ${row.externalTenantId}`}
+					checked={draft.enabled}
+					onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
+				/>
+				<div className="grid gap-2">
+					<Label htmlFor={`${id}-users`}>Who can use it?</Label>
 					<Select
 						value={draft.users}
 						onValueChange={(users) =>
@@ -267,6 +276,7 @@ function InstallationAccess({
 						}
 					>
 						<SelectTrigger
+							id={`${id}-users`}
 							aria-label={`User audience for business ${row.externalTenantId}`}
 						>
 							<SelectValue>
@@ -280,7 +290,7 @@ function InstallationAccess({
 							<SelectItem value="selected">Selected users</SelectItem>
 						</SelectContent>
 					</Select>
-				</label>
+				</div>
 				{draft.users === "selected" && (
 					<WidgetAudiencePicker
 						label="Included people"
@@ -295,37 +305,39 @@ function InstallationAccess({
 					selected={parseIds(deniedText)}
 					onChange={(ids) => setDeniedText(ids.join("\n"))}
 				/>
-				<details>
-					<summary className="cursor-pointer text-sm">
+				<Collapsible>
+					<CollapsibleTrigger>
 						Advanced: manage stable user IDs
-					</summary>
-					<p>
-						For people not yet identified by your application. Excluded people
-						cannot use the assistant, even if included above.
-					</p>
-					<label>
-						Included IDs
+					</CollapsibleTrigger>
+					<CollapsibleContent className="grid gap-2 pt-2">
+						<p>
+							For people not yet identified by your application. Excluded people
+							cannot use the assistant, even if included above.
+						</p>
+						<Label htmlFor={`${id}-included`}>Included IDs</Label>
 						<Textarea
+							id={`${id}-included`}
 							aria-label="Advanced included user IDs"
 							value={allowedText}
 							onChange={(event) => setAllowedText(event.target.value)}
 						/>
-					</label>
-					<label>
-						Excluded IDs
+						<Label htmlFor={`${id}-excluded`}>Excluded IDs</Label>
 						<Textarea
+							id={`${id}-excluded`}
 							aria-label="Advanced excluded user IDs"
 							value={deniedText}
 							onChange={(event) => setDeniedText(event.target.value)}
 						/>
-					</label>
-				</details>
+					</CollapsibleContent>
+				</Collapsible>
 				<section aria-label="Draft audience preview" className="grid gap-2">
 					<h3 className="font-medium">Preview before saving</h3>
 					{contacts.isError && (
-						<p role="alert">
-							Contact preview unavailable. Saved selections are preserved.
-						</p>
+						<Alert variant="destructive">
+							<AlertDescription>
+								Contact preview unavailable. Saved selections are preserved.
+							</AlertDescription>
+						</Alert>
 					)}
 					<p>
 						{
@@ -350,27 +362,29 @@ function InstallationAccess({
 						Previewing up to 50 saved contacts. Search included or excluded
 						people above to find other customers.
 					</p>
-					<details>
-						<summary className="cursor-pointer">View matching people</summary>
-						{users.map((user) => (
-							<p key={user.hostUserId}>
-								{user.name || user.email || `User ${user.hostUserId}`} ·{" "}
-								{evaluateEmbeddedWidgetAccess(
-									{
-										...row,
-										policy: {
-											...draft,
-											allowedUserIds: parseIds(allowedText),
-											deniedUserIds: parseIds(deniedText),
+					<Collapsible>
+						<CollapsibleTrigger>View matching people</CollapsibleTrigger>
+						<CollapsibleContent className="grid gap-1 pt-2">
+							{users.map((user) => (
+								<p key={user.hostUserId}>
+									{user.name || user.email || `User ${user.hostUserId}`} ·{" "}
+									{evaluateEmbeddedWidgetAccess(
+										{
+											...row,
+											policy: {
+												...draft,
+												allowedUserIds: parseIds(allowedText),
+												deniedUserIds: parseIds(deniedText),
+											},
 										},
-									},
-									user.hostUserId,
-								).allowed
-									? "Allowed"
-									: "Not allowed"}
-							</p>
-						))}
-					</details>
+										user.hostUserId,
+									).allowed
+										? "Allowed"
+										: "Not allowed"}
+								</p>
+							))}
+						</CollapsibleContent>
+					</Collapsible>
 				</section>
 
 				<Button
@@ -380,7 +394,11 @@ function InstallationAccess({
 				>
 					{save.isPending ? "Saving…" : "Save access settings"}
 				</Button>
-				{save.isError && <p role="alert">{save.error.message}</p>}
+				{save.isError && (
+					<Alert variant="destructive">
+						<AlertDescription>{save.error.message}</AlertDescription>
+					</Alert>
+				)}
 				<p className="text-sm text-kumo-subtle">
 					{row.revision
 						? row.updatedAt
@@ -388,9 +406,12 @@ function InstallationAccess({
 							: "Saved"
 						: "No audience restrictions saved"}
 				</p>
-				<label className="grid gap-2">
-					Test a user against saved settings
+				<div className="grid gap-2">
+					<Label htmlFor={`${id}-test-user`}>
+						Test a user against saved settings
+					</Label>
 					<Input
+						id={`${id}-test-user`}
 						aria-label={`Test user ID for business ${row.externalTenantId}`}
 						value={user}
 						onChange={(event) => {
@@ -399,7 +420,7 @@ function InstallationAccess({
 						}}
 						placeholder="User ID"
 					/>
-				</label>
+				</div>
 				<Button
 					className="w-fit"
 					variant="secondary"
@@ -409,12 +430,16 @@ function InstallationAccess({
 					Test access
 				</Button>
 				{preview.data && (
-					<p role="status">
+					<Text as="p" role="label" tone="secondary" aria-live="polite">
 						{preview.data.allowed ? "Allowed" : "Denied"}:{" "}
 						{reasons[preview.data.reason]} Checked against saved settings.
-					</p>
+					</Text>
 				)}
-				{preview.isError && <p role="alert">{preview.error.message}</p>}
+				{preview.isError && (
+					<Alert variant="destructive">
+						<AlertDescription>{preview.error.message}</AlertDescription>
+					</Alert>
+				)}
 			</CardContent>
 		</Card>
 	);
