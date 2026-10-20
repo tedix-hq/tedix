@@ -129,6 +129,10 @@ describe("selectBunTestFiles", () => {
 		expect(
 			select(["packages/tool/tsconfig.json", "packages/tool/src/b.ts"]),
 		).toEqual({ mode: "all", reason: "packages/tool/tsconfig.json changed" });
+		expect(select(["packages/tool/scripts/run-tests.ts"])).toEqual({
+			mode: "all",
+			reason: "packages/tool/scripts/run-tests.ts changed",
+		});
 	});
 
 	test("more than the limit of changed code files runs the whole suite", () => {
@@ -227,6 +231,7 @@ describe("isBunSuiteInfrastructure", () => {
 			"package.json",
 			"packages/cli/package.json",
 			"packages/cli/bunfig.toml",
+			"packages/cli/scripts/run-tests.ts",
 			"packages/cli/tsconfig.json",
 			"packages/cli/tsconfig.build.json",
 			"packages/cli/vitest.config.ts",
