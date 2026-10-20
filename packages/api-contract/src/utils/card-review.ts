@@ -74,25 +74,72 @@ export function cellText(value: Cell | undefined): string {
 	return String(value).trim();
 }
 
-const URL_PATTERN = /https?:\/\/[^\s<>"')]+/;
+const LINK_SCAN_CAP = 2_048;
+
+function isLinkStop(character: string): boolean {
+	return (
+		character === "<" ||
+		character === ">" ||
+		character === '"' ||
+		character === "'" ||
+		character === ")" ||
+		/\s/.test(character)
+	);
+}
+
+/**
+ * [start, end) of the next `http(s)://` run at or after `from`, matched like
+ * /https?:\/\/[^\s<>"')]+/ but scanned by hand: the unbounded class followed
+ * by the trailing-punctuation trim is a polynomial-ReDoS pattern.
+ */
+function nextLinkSpan(text: string, from: number): [number, number] | null {
+	for (let index = from; index < text.length; index++) {
+		if (text[index] !== "h") continue;
+		const head = text.startsWith("https://", index)
+			? "https://"
+			: text.startsWith("http://", index)
+				? "http://"
+				: null;
+		if (head === null) continue;
+		const body = index + head.length;
+		if (body === text.length || isLinkStop(text[body]!)) continue;
+		let end = body + 1;
+		while (end < text.length && !isLinkStop(text[end]!)) end++;
+		return [index, end];
+	}
+	return null;
+}
+
+/** A link run's kept form: capped, without trailing `.,;:` punctuation. */
+function linkText(text: string, start: number, end: number): string {
+	let limit = Math.min(end, start + LINK_SCAN_CAP);
+	while (limit > start && ".,;:".includes(text[limit - 1]!)) limit--;
+	return text.slice(start, limit);
+}
 
 /** The first link in a cell, without trailing punctuation. */
 export function firstLink(text: string): string | null {
-	const match = URL_PATTERN.exec(text);
-	if (!match) return null;
-	return match[0].replace(/[.,;:]+$/, "");
+	const span = nextLinkSpan(text, 0);
+	return span === null ? null : linkText(text, span[0], span[1]);
 }
 
 /** A source cell split into readable text and its links (at most three). */
 export function sourceParts(text: string): { label: string; links: string[] } {
-	const links = [
-		...new Set(
-			(text.match(new RegExp(URL_PATTERN.source, "g")) ?? []).map((link) =>
-				link.replace(/[.,;:]+$/, ""),
-			),
-		),
-	].slice(0, 3);
-	const withoutLinks = text.replace(new RegExp(URL_PATTERN.source, "g"), "");
+	const unique = new Set<string>();
+	const pieces: string[] = [];
+	let cursor = 0;
+	for (
+		let span = nextLinkSpan(text, cursor);
+		span !== null;
+		span = nextLinkSpan(text, cursor)
+	) {
+		pieces.push(text.slice(cursor, span[0]));
+		unique.add(linkText(text, span[0], span[1]));
+		cursor = span[1];
+	}
+	pieces.push(text.slice(cursor));
+	const links = [...unique].slice(0, 3);
+	const withoutLinks = pieces.join("");
 	// Scan each separator/whitespace run once; nested regex repetition backtracks.
 	const parts: string[] = [];
 	let kept = 0;
