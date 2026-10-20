@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { osApi } from "@/lib/api";
 
 type Routing = {
@@ -9,9 +10,13 @@ type Routing = {
 	classId: string;
 };
 
+const receipts = new WeakMap<QueryClient, Set<string>>();
+
 /** Record both admitted and withheld cards without treating routing as a human vote. */
 export function useDeckRoutingAudit(rows: readonly Routing[]) {
-	const recorded = useRef(new Set<string>());
+	const client = useQueryClient();
+	const recorded = receipts.get(client) ?? new Set<string>();
+	receipts.set(client, recorded);
 	const decisions = JSON.stringify(
 		rows.map(({ id, destination, reason, policyVersion, classId }) => ({
 			id,
@@ -27,8 +32,8 @@ export function useDeckRoutingAudit(rows: readonly Routing[]) {
 			for (const row of JSON.parse(decisions) as Routing[]) {
 				if (!active) break;
 				const key = JSON.stringify(row);
-				if (recorded.current.has(key)) continue;
-				recorded.current.add(key);
+				if (recorded.has(key)) continue;
+				recorded.add(key);
 				try {
 					const digest = await crypto.subtle.digest(
 						"SHA-256",
@@ -54,12 +59,12 @@ export function useDeckRoutingAudit(rows: readonly Routing[]) {
 						},
 					});
 				} catch {
-					recorded.current.delete(key);
+					recorded.delete(key);
 				}
 			}
 		})();
 		return () => {
 			active = false;
 		};
-	}, [decisions]);
+	}, [decisions, recorded]);
 }

@@ -5,6 +5,7 @@ import { useDecisionInbox } from "@/lib/use-decision-inbox";
 export function useDeckCount(
 	config?: DecisionDeckConfig,
 	_workspaceId?: string,
+	destination: "deck" | "all" = "deck",
 ) {
-	return useDecisionInbox(config);
+	return useDecisionInbox(config, destination);
 }

@@ -617,25 +617,22 @@ function DecisionDeckContent({
 					const id = selected.id;
 					inFlightDecisions.current++;
 					setSaving(true);
-					setOptimisticIds((ids) => [...ids, id]);
-					clearFocusCard();
-					setIndex(0);
-					const undo = removeOptimisticDeckCard(
-						client,
-						[
-							osQuery.workInteractions.listInbox.key(),
-							osQuery.workApprovals.listInbox.key(),
-							pendingApprovalsQueryOptions().queryKey,
-						],
-						id.replace(/^(work-approval:|approval:)/, ""),
-					);
 					try {
 						const result = await write();
+						setOptimisticIds((ids) => [...ids, id]);
+						clearFocusCard();
+						setIndex(0);
+						removeOptimisticDeckCard(
+							client,
+							[
+								osQuery.workInteractions.listInbox.key(),
+								osQuery.workApprovals.listInbox.key(),
+								pendingApprovalsQueryOptions().queryKey,
+							],
+							id.replace(/^(work-approval:|approval:)/, ""),
+						);
 						return result;
 					} catch (error) {
-						undo();
-						setOptimisticIds((ids) => ids.filter((pending) => pending !== id));
-						setFocusCard(id);
 						toast.error(
 							error instanceof Error
 								? error.message

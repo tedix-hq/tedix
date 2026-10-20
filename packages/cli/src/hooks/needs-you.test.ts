@@ -36,7 +36,7 @@ const card = (n: number): DeckCard => ({
 	project: "Example",
 	urgency: "today",
 	decision: null,
-	source: "Example source",
+	source: `/work?view=deck#card=${encodeURIComponent(`factory:${organizationId}:${n}`)}`,
 	requestedAt: "2026-10-19T12:00:00Z",
 	dueAt: null,
 	score: 100 - n,
@@ -73,6 +73,18 @@ function fixture() {
 			if (args.includes("show")) return { ...binding };
 			if (args.includes("auth")) return auth;
 			if (args.includes(ORGANIZATION_PROBE)) return { organizationId: org };
+			if (args.some((arg) => arg.includes("discover.search")))
+				return {
+					tools: [
+						{
+							authorized: true,
+							callable: "fictional.list_all_mine",
+							schemaFreshness: { sourceRef: "organizations/listAllMine" },
+						},
+					],
+				};
+			if (args.some((arg) => arg.includes("fictional.list_all_mine")))
+				return { slug: org === organizationId ? "fictional" : "other" };
 			if (args.includes("deck"))
 				return {
 					cards,
@@ -187,7 +199,7 @@ test("fresh active org and user scope isolate dedupe, including switching back",
 });
 
 test.each(["claude-code", "codex", "devin"])(
-	"%s startup and prompt share receipts; quiet startup is silent",
+	"%s reads Needs-you only at startup; prompts never project the Deck",
 	async (host) => {
 		const f = fixture();
 		if (host === "codex") f.deps.env.CODEX_THREAD_ID = session;
@@ -198,7 +210,8 @@ test.each(["claude-code", "codex", "devin"])(
 		expect(f.outputs.at(-1)).not.toContain("Needs you");
 		f.cards([card(2)]);
 		await runPromptContext(f.deps);
-		expect(f.outputs.at(-1)).toContain("Needs you");
+		expect(f.outputs.at(-1)).not.toContain("Needs you");
+		expect(f.calls.filter((args) => args.includes("deck"))).toHaveLength(1);
 		const quiet = fixture();
 		quiet.deps.env.TEDIX_PLUGIN_PREFLIGHT = "0";
 		await runSessionStart(quiet.deps);
@@ -206,3 +219,21 @@ test.each(["claude-code", "codex", "devin"])(
 		expect(quiet.outputs).toHaveLength(0);
 	},
 );
+
+test("uses the active tenant and canonical card source, including a configured installation origin", async () => {
+	const f = fixture();
+	f.cards([{ ...card(1), source: "/work/interactions/fictional-question" }]);
+	expect((await f.read())?.text).toContain(
+		"https://fictional.os.tedix.dev/work/interactions/fictional-question",
+	);
+	f.org("33333333-3333-4333-8333-333333333333");
+	expect((await f.read())?.text).toContain(
+		"https://other.os.tedix.dev/work/interactions/fictional-question",
+	);
+	f.deps.env.TEDIX_OS_URL = "https://desk.example.invalid";
+	expect((await f.read())?.text).toContain(
+		"https://desk.example.invalid/work/interactions/fictional-question",
+	);
+	f.cards([{ ...card(1), source: "//attacker.example.invalid/path" }]);
+	expect(await f.read()).toBeUndefined();
+});

@@ -212,5 +212,5 @@ it("invalidates the inbox after a refresh retires support cards without creating
 	expect(invalidate).toHaveBeenCalledWith({
 		queryKey: osQuery.attention.listDeckCards.key(),
 	});
-	expect(refreshDecisionSources).toHaveBeenCalledWith({ projectId: undefined });
+	expect(refreshDecisionSources).toHaveBeenCalledWith({});
 });

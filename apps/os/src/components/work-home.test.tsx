@@ -261,3 +261,12 @@ it("waits for the configured default instead of flashing the Feed during discove
 			?.getAttribute("data-entry"),
 	).toBeUndefined();
 });
+
+it("opens the Deck without a New Work item form above it", () => {
+	for (const view of ["deck", "feed"] as const) {
+		const page = render({ view });
+		expect(page.querySelector("article")).not.toBeNull();
+		expect(page.body.textContent).not.toContain("New Work item");
+		expect(page.querySelector("form")).toBeNull();
+	}
+});

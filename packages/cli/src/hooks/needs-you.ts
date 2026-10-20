@@ -44,6 +44,56 @@ export async function needsYou(
 			3000,
 		);
 		if (!UUID.test(String(runtime.organizationId ?? ""))) return undefined;
+		let origin = deps.env.TEDIX_OS_URL;
+		if (!origin) {
+			const discovery = await deps.read(
+				[
+					...command,
+					"code",
+					'async () => ({tools: await discover.search({query:"list_all_mine",limit:3,includeParameters:true})})',
+				],
+				3000,
+			);
+			const tool = Array.isArray(discovery.tools)
+				? discovery.tools.find(
+						(entry: JsonObject) =>
+							entry.authorized === true &&
+							entry.schemaFreshness?.sourceRef ===
+								"organizations/listAllMine" &&
+							/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/.test(entry.callable),
+					)
+				: undefined;
+			if (!tool) return undefined;
+			const organization = await deps.read(
+				[
+					...command,
+					"code",
+					`async () => { const r = await ${tool.callable}({limit:100}); const rows = Array.isArray(r) ? r : r?.data ?? []; const o = rows.find(x => x.organizationId === ${JSON.stringify(runtime.organizationId)}); return {slug:o?.organizationSlug}; }`,
+				],
+				3000,
+			);
+			if (
+				typeof organization.slug !== "string" ||
+				!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(organization.slug)
+			)
+				return undefined;
+			origin = `https://${organization.slug}.os.tedix.dev`;
+		}
+		const host = new URL(origin);
+		if (
+			host.username ||
+			host.password ||
+			host.pathname !== "/" ||
+			host.search ||
+			host.hash ||
+			!(
+				host.protocol === "https:" ||
+				(host.protocol === "http:" &&
+					["localhost", "127.0.0.1", "[::1]"].includes(host.hostname))
+			)
+		)
+			return undefined;
+
 		const scope = contextHash([
 			session,
 			binding.workspace,
@@ -102,7 +152,11 @@ export async function needsYou(
 						? `Work is waiting for your ${card.workApproval.proposal.authorityKey} approval`
 						: card.interaction?.request.prompt));
 			if (!why || hashes.has(contextHash(card.id))) continue;
-			const line = `- Ask: ${text(ask)}; why now: ${text(why)}; https://tedix.os.tedix.dev/work?view=deck#card=${encodeURIComponent(card.id)}`;
+			if (!card.source.startsWith("/") || card.source.startsWith("//"))
+				continue;
+			const link = new URL(card.source, host.origin);
+			if (link.origin !== host.origin) continue;
+			const line = `- Ask: ${text(ask)}; why now: ${text(why)}; ${link.href}`;
 			if (
 				Buffer.byteLength([heading, ...lines, line, hint].join("\n"), "utf8") >
 				1800

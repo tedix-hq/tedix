@@ -167,6 +167,7 @@ async function loadConfiguredDeckProjection(
 	context: BaseContext,
 	input: ViewInput,
 	config: z.infer<typeof DecisionDeckConfigSchema>,
+	destination: "deck" | "all" = "deck",
 ) {
 	const preferences = await call(
 		userSettingsContractRouter.getPreferences,
@@ -217,6 +218,7 @@ async function loadConfiguredDeckProjection(
 		now,
 		timeZone,
 		routing: config.routing,
+		destination,
 	});
 	for (const { card, revision } of factories.cards) {
 		if (!isOpen(card)) continue;
@@ -302,6 +304,7 @@ export async function loadForYouProjection(
 					version: 1,
 					projectId: input.projectId,
 				}),
+				"all",
 			),
 			Promise.resolve(preferenceState),
 			call(

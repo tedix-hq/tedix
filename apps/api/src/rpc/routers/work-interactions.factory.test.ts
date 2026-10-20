@@ -549,3 +549,22 @@ it("refreshes only the signed-in recipient's obsolete support cards and reports 
 			?.count,
 	).toBe(4);
 });
+
+it("leaves ordinary user questions and handoffs open unless expiry is explicitly requested", async () => {
+	const { owner } = fixture();
+	for (const kind of ["question", "handoff"] as const) {
+		const input = {
+			workItemId: WORK_ITEM_ID,
+			kind,
+			reason: "Choose a supplier for the fictional orchard.",
+			subject: "Which supplier?",
+			prompt: "Choose Cedar or Pine.",
+			requestedFrom: { type: "user" as const, id: "target-id" },
+		};
+		expect((await owner.create(input)).expiresAt).toBeNull();
+		const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+		expect((await owner.create({ ...input, expiresAt })).expiresAt).toBe(
+			expiresAt,
+		);
+	}
+});

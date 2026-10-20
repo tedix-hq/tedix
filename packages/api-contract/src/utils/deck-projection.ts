@@ -129,6 +129,7 @@ export function projectDeckCards(input: {
 	timeZone?: string;
 	routing?: DeckRoutingPolicy;
 	onRoute?: (route: DeckRoutingReceipt) => void;
+	destination?: "deck" | "all";
 }): DeckCard[] {
 	const { now, timeZone, model, routing } = input;
 	const cards: DeckCard[] = [];
@@ -208,7 +209,7 @@ export function projectDeckCards(input: {
 			now,
 		);
 		input.onRoute?.({ id: r.id, ...route });
-		if (route.destination !== "deck") continue;
+		if (route.destination !== "deck" && input.destination !== "all") continue;
 		const project = row.workItem?.projectId ?? r.projectId ?? "Unfiled";
 		const urgency =
 			m.triage &&
@@ -251,7 +252,7 @@ export function projectDeckCards(input: {
 			now,
 		);
 		input.onRoute?.({ id: `work-approval:${row.proposal.id}`, ...route });
-		if (route.destination !== "deck") continue;
+		if (route.destination !== "deck" && input.destination !== "all") continue;
 		cards.push({
 			id: `work-approval:${row.proposal.id}`,
 			kind: "approval",
@@ -285,7 +286,7 @@ export function projectDeckCards(input: {
 			now,
 		);
 		input.onRoute?.({ id: `approval:${row.id}`, ...route });
-		if (route.destination !== "deck") continue;
+		if (route.destination !== "deck" && input.destination !== "all") continue;
 		cards.push({
 			id: `approval:${row.id}`,
 			kind: "approval",

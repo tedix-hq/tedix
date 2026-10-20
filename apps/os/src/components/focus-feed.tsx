@@ -122,6 +122,7 @@ export function FocusFeed({
 			version: 1,
 			projectId: navigation?.projectId,
 		}),
+		"all",
 	);
 	const factories = useVisibleCardSources(
 		config.factorySources,
