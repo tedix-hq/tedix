@@ -244,6 +244,14 @@ export async function generateDecisionCard(
 				for (const field of ["stakes", "actionLabels", "effectStatus"]) {
 					if (draft[field] === null) delete draft[field];
 				}
+				if (
+					!DecisionCardPresentationSchema.options[1].shape.actionLabels.safeParse(
+						draft.actionLabels,
+					).success
+				) {
+					// Canonical buttons remain usable when optional display labels are malformed.
+					delete draft.actionLabels;
+				}
 			}
 			for (const [field, rule] of Object.entries(copySpec.fields)) {
 				if (typeof draft?.[field] === "string")
