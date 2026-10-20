@@ -8,12 +8,13 @@ export function decisionEnvelope(
 	metadata: Record<string, unknown> | null | undefined,
 ) {
 	const parsed = DecisionEnvelopeSchema.safeParse(metadata?.decisionDeck);
+	const curation = currentDeckCuration(metadata);
+	const previewBody = curation ? curation.draftBody : metadata?.cardContent;
 	return parsed.success
 		? {
 				...parsed.data,
-				...(typeof metadata?.cardContent === "string" &&
-				!currentDeckCuration(metadata)
-					? { preview: { body: metadata.cardContent } }
+				...(typeof previewBody === "string"
+					? { preview: { ...parsed.data.preview, body: previewBody } }
 					: {}),
 			}
 		: null;

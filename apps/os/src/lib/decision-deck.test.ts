@@ -151,6 +151,17 @@ it("preserves a draft preview during curation and accepts a later human edit", (
 			cardContent: "Human edited draft",
 		})?.preview?.body,
 	).toBe("Human edited draft");
+	expect(
+		decisionEnvelope({
+			...metadata,
+			cardRevision: 4,
+			curation: {
+				...metadata.curation,
+				revision: 4,
+				draftBody: "Human edited draft",
+			},
+		})?.preview?.body,
+	).toBe("Human edited draft");
 });
 
 it("distinguishes nobody carrying an outcome from a live Attempt or an unknown read", () => {
