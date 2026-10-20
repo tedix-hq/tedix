@@ -20,7 +20,15 @@ export function defaultTediWidgetConfig(
 		launcherPosition: "bottom-right",
 		horizontalOffset: 22,
 		bottomOffset: 22,
-		zIndex: 2_147_483_000,
+		zIndex:
+			typeof document === "undefined"
+				? 50
+				: Number.parseInt(
+						getComputedStyle(document.documentElement).getPropertyValue(
+							"--tedix-layer-launcher",
+						),
+						10,
+					) || 50,
 		launcherMode: "default",
 		startMode: "home",
 		homeModules: ["welcome", "attention", "recent"],

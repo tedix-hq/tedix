@@ -141,6 +141,7 @@
  * context, so a small local `z-10` is correct there.
  *
  * CURRENT WIRING (keep honest as adapters adopt rungs):
+ *   launcher  — OS Quick Chat; above page/sidebar chrome, below modal overlays.
  *   overlay   — Sheet backdrop + popup only. Dialog carries no z-index yet.
  *   dropdown  — Select positioner only. Popover and dropdown-menu carry none.
  *   tooltip   — Tooltip positioner.
@@ -149,6 +150,7 @@
  */
 :root,
 [data-theme="tedix"] {
+	--tedix-layer-launcher: 50;
 	--tedix-layer-overlay: 100;
 	--tedix-layer-dropdown: 200;
 	--tedix-layer-tooltip: 300;

@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { PortableRouteContext } from "@tedix/webmcp-core/portable-profile";
+import { Sheet, SheetContent, SheetTitle } from "./kumo/sheet";
+import { defaultTediWidgetConfig } from "@/lib/tedi-widget-config";
 
 const calls: Array<{ path: string; input: unknown }> = [];
 // The portable tool caller captures `fetch` when the module loads.
@@ -229,12 +232,17 @@ describe("OsQuickChat mount", () => {
 		calls.length = 0;
 		reported.length = 0;
 		api.handlers = {};
+		document.documentElement.style.removeProperty("--tedix-layer-launcher");
 		vi.unstubAllEnvs();
 		vi.unstubAllGlobals();
 	});
 
 	async function mount(
-		options: { analytics?: boolean; defaultTediId?: string | null } = {},
+		options: {
+			analytics?: boolean;
+			defaultTediId?: string | null;
+			zIndex?: number;
+		} = {},
 	) {
 		vi.stubEnv("MODE", "development");
 		vi.stubGlobal("__LOCAL_DEMO_ENABLED__", false);
@@ -258,6 +266,7 @@ describe("OsQuickChat mount", () => {
 						product: "Acme OS",
 						conversationStarters: ["What changed?"],
 						analyticsEnabled: options.analytics === true,
+						...(options.zIndex === undefined ? {} : { zIndex: options.zIndex }),
 						...(selection ? { tediSelection: selection } : {}),
 					},
 				},
@@ -331,6 +340,107 @@ describe("OsQuickChat mount", () => {
 		// OS must not hand the widget native history either.
 		expect(options).not.toHaveProperty("history");
 		expect(options).not.toHaveProperty("transcript");
+	});
+
+	it("reads the OS launcher layer as a numeric widget default", async () => {
+		const kumoCss = readFileSync(
+			"../../packages/design-tokens/src/kumo.css",
+			"utf8",
+		);
+		const layer = Number(/--tedix-layer-launcher:\s*(\d+)/.exec(kumoCss)?.[1]);
+		const overlay = Number(/--tedix-layer-overlay:\s*(\d+)/.exec(kumoCss)?.[1]);
+		expect(layer).toBeGreaterThan(40);
+		expect(layer).toBeLessThan(overlay);
+		document.documentElement.style.setProperty(
+			"--tedix-layer-launcher",
+			String(layer),
+		);
+		expect(defaultTediWidgetConfig({ name: "Acme" }).zIndex).toBe(layer);
+		const { initOptions } = await mount();
+		expect(initOptions().zIndex).toBe(layer);
+		document.documentElement.style.setProperty("--tedix-layer-launcher", "60");
+		expect(defaultTediWidgetConfig({ name: "Acme" }).zIndex).toBe(60);
+	});
+
+	it("uses the OS layer even when published external-widget settings request a higher layer", async () => {
+		const { initOptions } = await mount({ zIndex: 2_147_483_000 });
+		expect(initOptions().zIndex).toBe(
+			defaultTediWidgetConfig({ name: "Acme" }).zIndex,
+		);
+	});
+
+	it("leaves accessibility state owned by other overlays alone outside dialogs", async () => {
+		await mount();
+		const host = document.createElement("div");
+		host.setAttribute("data-tedix-widget", "");
+		host.setAttribute("inert", "");
+		host.setAttribute("aria-hidden", "true");
+		document.body.append(host);
+		cleanups.push(async () => {
+			host.remove();
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(host.hasAttribute("inert")).toBe(true);
+		expect(host.getAttribute("aria-hidden")).toBe("true");
+	});
+
+	it("keeps the same widget inert through a modal Sheet and restores it on close", async () => {
+		const { widget } = await mount();
+		const widgetHost = document.createElement("div");
+		widgetHost.setAttribute("data-tedix-widget", "");
+		const input = document.createElement("input");
+		input.value = "Unsent thread draft";
+		widgetHost.attachShadow({ mode: "open" }).append(input);
+		document.body.append(widgetHost);
+		const sheetHost = document.createElement("div");
+		document.body.append(sheetHost);
+		const sheetRoot = createRoot(sheetHost);
+		cleanups.push(async () => {
+			await act(async () => sheetRoot.unmount());
+			sheetHost.remove();
+			widgetHost.remove();
+		});
+		const renderSheet = async (open: boolean, nested = false) => {
+			await act(async () => {
+				sheetRoot.render(
+					createElement(
+						Sheet,
+						{ open },
+						createElement(
+							SheetContent,
+							null,
+							createElement(SheetTitle, null, "Context"),
+							createElement(
+								Sheet,
+								{ open: nested },
+								createElement(
+									SheetContent,
+									null,
+									createElement(SheetTitle, null, "Nested context"),
+								),
+							),
+						),
+					),
+				);
+			});
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		};
+		await renderSheet(true);
+		expect(widgetHost.hasAttribute("inert")).toBe(true);
+		expect(widgetHost.getAttribute("aria-hidden")).toBe("true");
+		await renderSheet(true, true);
+		expect(widgetHost.hasAttribute("inert")).toBe(true);
+		await renderSheet(true, false);
+		expect(widgetHost.hasAttribute("inert")).toBe(true);
+		await renderSheet(false);
+		expect(widgetHost.hasAttribute("inert")).toBe(false);
+		expect(widgetHost.hasAttribute("aria-hidden")).toBe(false);
+		expect(document.querySelector("[data-tedix-widget]")).toBe(widgetHost);
+		expect(widgetHost.shadowRoot?.querySelector("input")?.value).toBe(
+			"Unsent thread draft",
+		);
+		expect(widget.init).toHaveBeenCalledTimes(1);
+		expect(widget.shutdown).not.toHaveBeenCalled();
 	});
 
 	it("mints an OS-authenticated embedded session for the configured tedi", async () => {
