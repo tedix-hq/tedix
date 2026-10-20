@@ -280,6 +280,9 @@ function sanitize(value: unknown): unknown {
 		output.vars.DESCOPE_PROJECT_ID = LOCAL_VARS.DESCOPE_PROJECT_ID;
 		output.vars.DESCOPE_BASE_URL = LOCAL_VARS.DESCOPE_BASE_URL;
 		output.vars.TEDIX_LOCAL_DEMO_ENABLED = LOCAL_VARS.TEDIX_LOCAL_DEMO_ENABLED;
+		// The seeded sample-data demo must never send or schedule anything.
+		if (process.env.TEDIX_LOCAL_RUN_MODE === "demo")
+			output.vars.TEDIX_DEMO_SENDING_OFF = "true";
 	}
 	return output;
 }

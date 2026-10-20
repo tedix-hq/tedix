@@ -88,6 +88,11 @@ const ENGLISH_COPY = {
 		initial: "I’ll learn from your next choice.",
 		lessons: "Lessons used",
 	},
+	sampleData: {
+		label: "Sample data",
+		description:
+			"Fictional company for trials and demos. Sending and scheduling are switched off.",
+	},
 	workHome: {
 		feed: "Feed",
 		deck: "Deck",

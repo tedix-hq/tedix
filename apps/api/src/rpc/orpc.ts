@@ -26,6 +26,7 @@ import {
 	validateToken,
 } from "@tedix/auth/jwt";
 import { resolveLocalDemoUser } from "@tedix/auth/local-demo";
+import { demoSendingBlock } from "@tedix/api-contract/utils/demo-sending-gate";
 import {
 	descopeServiceIdentity,
 	descopeProjectUserIdentity,
@@ -678,6 +679,14 @@ export function resolveForwardedMcpUserTenantContext({
  */
 export const withAuth = base.middleware(async (options, input) => {
 	const { context } = options;
+	// `bun run-local --demo` serves sample data: sending and scheduling stay off.
+	if (
+		(context.env as CloudflareEnv & { TEDIX_DEMO_SENDING_OFF?: string })
+			.TEDIX_DEMO_SENDING_OFF === "true"
+	) {
+		const block = demoSendingBlock(options.path.join("/"), input);
+		if (block) throw createError(ErrorCodes.FORBIDDEN, block.message);
+	}
 	const next: typeof options.next = async (...args) => {
 		if (
 			context.apiKey?.purpose === "external_agent_bootstrap" &&

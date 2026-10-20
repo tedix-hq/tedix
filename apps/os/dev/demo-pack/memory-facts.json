@@ -1,0 +1,42 @@
+[
+	[
+		"Hide memes with no buying intent",
+		"Katja marked memes as not useful. Reddit Scout filters entertainment with no concrete buying intent before the next round."
+	],
+	[
+		"Help first, then mention the brand",
+		"Reply in clear English in no more than three sentences. Disclose the PricePilot affiliation when relevant; avoid promotional language."
+	],
+	[
+		"Compare total price, not discount claims",
+		"Check model number, availability, delivery and price history. Never claim a guaranteed lowest price."
+	],
+	[
+		"Route complaints to private support",
+		"Do not ask for order numbers or personal details in public. Route complaints to support without promising a refund."
+	],
+	[
+		"Avoid repeat suggestions",
+		"Suggest each thread only once within 48 hours. Group similar posts into a trend brief."
+	],
+	[
+		"Never pay invoices automatically",
+		"Lindenquay Distribution is fictional. Send quantity, tax or bank-detail mismatches to Alex; record the review result only."
+	],
+	[
+		"Diagnose errors first",
+		"Group critical error reports and show the evidence. No automatic restart, rollback or production access."
+	],
+	[
+		"invoices within tolerance → handled automatically",
+		"Auto-matched invoices and differences within the agreed €2 tolerance stay handled under existing policy."
+	],
+	[
+		"Reddit memes and resolved threads → hidden automatically",
+		"Pure memes and already-answered buying questions no longer interrupt Katja."
+	],
+	[
+		"flaky alerts and recovered retries → hidden automatically",
+		"Known flaky probes and successful transient retries stay quiet only when health checks agree."
+	]
+]

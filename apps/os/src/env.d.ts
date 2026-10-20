@@ -7,3 +7,4 @@ declare const __OS_URL__: string;
 declare const __SESSION_BROKER_URL__: string;
 declare const __DESCOPE_STYLE_ID__: string;
 declare const __LOCAL_FIRST_RUN_ENABLED__: boolean;
+declare const __SAMPLE_DATA__: boolean;

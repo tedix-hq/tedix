@@ -31,6 +31,7 @@
 		"dev:health:os": "./scripts/dev-health.sh --os",
 		"dev:local:demo-acceptance": "bun scripts/local-demo-acceptance.ts",
 		"dev:local:demo-seed": "cd apps/api && bun ../../scripts/dev-local.ts -- wrangler d1 execute DB --file ../../scripts/local-demo-seed.sql",
+		"dev:local:demo-pack-seed": "bun scripts/local-demo-pack-seed.ts",
 		"dev:local:demo-stack": "vp run --parallel --filter @tedix/api --filter @tedix/mcp --filter @tedix/os dev:local-launcher",
 		"dev:local:seed": "cd packages/db && bun ../../scripts/dev-local.ts -- wrangler d1 migrations apply DB",
 		"dev:local:test": "bun test scripts/dev-local.test.ts",

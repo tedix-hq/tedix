@@ -1701,3 +1701,35 @@ describe("service bootstrap marker is not a global privilege", () => {
 		},
 	);
 });
+
+describe("sample-data demo sending gate", () => {
+	const reached = vi.fn(() => "ok");
+	const act = os
+		.$context<BaseContext>()
+		.use(withAuth)
+		.input(z.object({ action: z.string() }))
+		.handler(reached);
+	const path = ["workInteractions", "outbound", "act"];
+	const context = (off: boolean) =>
+		({
+			url: new URL("https://api/rpc/workInteractions/outbound/act"),
+			env: off ? { TEDIX_DEMO_SENDING_OFF: "true" } : {},
+			headers: new Headers(),
+			db: {},
+		}) as unknown as BaseContext;
+
+	afterEach(() => reached.mockClear());
+
+	it("refuses to send before authentication or any handler runs", async () => {
+		await expect(
+			call(act, { action: "approve_send" }, { context: context(true), path }),
+		).rejects.toThrow(/Sending is switched off/);
+		expect(reached).not.toHaveBeenCalled();
+	});
+
+	it("does not interfere when the demo flag is off", async () => {
+		await expect(
+			call(act, { action: "approve_send" }, { context: context(false), path }),
+		).rejects.not.toThrow(/Sending is switched off/);
+	});
+});

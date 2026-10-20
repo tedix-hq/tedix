@@ -38,14 +38,14 @@ creates the organization, your owner account, and a first tedi through the
 same API contracts Cloud uses. State persists in `.wrangler/run-local`; nothing
 contacts a Cloudflare account.
 
-| Option                                | What it does                                                            |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| `--smoke`                             | Onboards into a temporary database, checks the result persists, exits.  |
-| `--demo`                              | Loads sample data, kept separately in `.wrangler/run-local-demo`.       |
-| `--inference --workers-ai-account=ID` | Turns on model calls through Workers AI on your own Cloudflare account. |
-| `--ai-gateway=ID`                     | Uses a named AI Gateway instead of your account's default gateway.      |
-| `--verbose`                           | Streams every server log to the terminal instead of `server.log`.       |
-| `--help`                              | Lists every option without starting anything.                           |
+| Option                                | What it does                                                                           |
+| ------------------------------------- | -------------------------------------------------------------------------------------- |
+| `--smoke`                             | Onboards into a temporary database, checks the result persists, exits.                 |
+| `--demo`                              | Loads a fictional sample company with sending off, kept in `.wrangler/run-local-demo`. |
+| `--inference --workers-ai-account=ID` | Turns on model calls through Workers AI on your own Cloudflare account.                |
+| `--ai-gateway=ID`                     | Uses a named AI Gateway instead of your account's default gateway.                     |
+| `--verbose`                           | Streams every server log to the terminal instead of `server.log`.                      |
+| `--help`                              | Lists every option without starting anything.                                          |
 
 The [Tedix CLI](./cli.md) wraps this launcher: `tedix setup` runs it in a
 checkout, or clones the source release matching your CLI version when one is
