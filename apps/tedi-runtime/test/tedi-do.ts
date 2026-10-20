@@ -1,6 +1,7 @@
 import { ChatStreamHub } from "../src/chat-stream-hub";
 import { AgentTediDO } from "../src/do";
 import { ActionReceiptJournal } from "../src/action-receipts";
+import { KeyedFacetTurnGate } from "../src/facet-turn-gate";
 
 /**
  * An `AgentTediDO` for plain-bun behaviour tests, built without the Agents SDK
@@ -228,6 +229,10 @@ export function tediDo(fields: Record<string, unknown> = {}): TediDoProbe {
 		// A unit label only; no canonical tenant or physical custody is asserted.
 		state: fixtureState,
 		runtimeAdmission: () => admission,
+		activeFacetTurnTools: new Map(),
+		activeFacetTurnAuthorities: new Map(),
+		activeFacetTurnConversations: new Map(),
+		facetWorkflowTurns: new KeyedFacetTurnGate(),
 		...fields,
 		ctx:
 			fields.ctx && (fields.ctx as { storage?: unknown }).storage

@@ -687,6 +687,66 @@ export const runtimeFacetTurns = {
 			rejected
 		);
 	},
+	/** Rebuild closures after a parent reset from the immutable admitted dispatch.
+	 * Never re-enroll a call or clear its durable dispatch receipt. */
+	async restoreFacetTurnTools(
+		this: RuntimeFacetTurnsHost,
+		runId: string,
+	): Promise<void> {
+		if (this.activeFacetTurnTools.has(runId)) return;
+		await this.facetWorkflowTurns.run(`restore-tools:${runId}`, async () => {
+			if (this.activeFacetTurnTools.has(runId)) return;
+			await this.assertChatTurnActive(runId);
+			const dispatch = await this.ctx.storage.get<{ params: ChatTurnParams }>(
+				`runtime-admission-workflow:${runId}`,
+			);
+			const params = dispatch?.params;
+			if (
+				!params ||
+				params.runId !== runId ||
+				!params.workItemId ||
+				!params.homeRunId
+			)
+				return;
+			await this.ensureIdentity();
+			await withDelegatedWorkLease(
+				params,
+				{
+					storage: this.ctx.storage,
+					getClient: () => this.getPlatformClient(),
+					tediId: this.state.tediId,
+					isSettled: () => false,
+					assertActive: () => this.assertChatTurnActive(runId),
+					arm: () => this.armDelegatedWorkLeaseRenewal(runId),
+					requireActiveAttempt: true,
+					keepRenewal: () => true,
+				},
+				async () => {
+					const setup = await this.prepareMcpFacetTurn({
+						...params,
+						userMessage: params.userText,
+						trust: mcpTurnSurfaceTrust(params),
+						toolsOnly: true,
+					});
+					await this.assertChatTurnActive(runId);
+					this.activeFacetTurnTools.set(
+						runId,
+						configuredRuntimeTools(
+							setup.tools,
+							this.state.toolPolicy?.runtimeTools,
+						),
+					);
+					this.activeFacetTurnConversations.set(runId, params.conversationId);
+					const authority = delegatedTurnAuthority({
+						delegated: true,
+						envelope: params.authorityEnvelope,
+						mode: params.authorityMode,
+					});
+					if (authority) this.activeFacetTurnAuthorities.set(runId, authority);
+				},
+			);
+		});
+	},
 	/** Facet tool proxy: authorize, dispatch, and record one live tool call. */
 	async executeFacetTool(
 		this: RuntimeFacetTurnsHost,
@@ -707,6 +767,7 @@ export const runtimeFacetTurns = {
 		let executeMs = 0;
 		// Retain failed and evicted calls for post-turn rationale.
 		const stepNumber = this.bufferFacetToolCall(input.runId, input.tool);
+		await runtimeFacetTurns.restoreFacetTurnTools.call(this, input.runId);
 		const tools = this.activeFacetTurnTools.get(input.runId);
 		const definition = tools?.[input.tool];
 		let result: unknown;
@@ -875,6 +936,8 @@ export const runtimeFacetTurns = {
 			operatorConsent?: OperatorConsentAttestation;
 			/** Omitted ⇒ trusted; `untrusted` keeps the MCP read-only allowlist. */
 			trust?: SurfaceTrust;
+			/** Restore closures without invoking cognitive retrieval or inference. */
+			toolsOnly?: boolean;
 		},
 	): Promise<{
 		tools: ToolSet;
@@ -1052,6 +1115,12 @@ export const runtimeFacetTurns = {
 				input.authorityMode,
 			),
 		});
+		if (input.toolsOnly)
+			return {
+				tools: noFundsTurnTools(tools, input.noFunds),
+				system: "",
+				turnBinding,
+			};
 		const addenda = await this.cognitiveAddenda(
 			input.sessionKey,
 			input.userMessage,
