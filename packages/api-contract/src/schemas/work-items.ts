@@ -2192,6 +2192,7 @@ export const WorkActivityEventSchema = z.object({
 	workItemId: z.string(),
 	workItemTitle: z.string(),
 	workItemDisposition: WorkItemDispositionSchema,
+	workItemKind: WorkItemKindSchema.optional(),
 	eventType: z.string(),
 	authorType: z.string(),
 	authorId: z.string().nullable(),
