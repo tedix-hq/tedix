@@ -69,7 +69,12 @@ export function deriveDelegationCapabilityPlan(input: {
 			/\.(?:create_draft|drafts_create|create_email_draft)$/,
 		);
 	}
-	if (/\bwork(?:\s+item)?\b/i.test(content) && /\bcomment\b/i.test(content)) {
+	if (
+		/\bwork(?:\s+item)?\b/i.test(content) &&
+		/\b(?:add|post|write|leave)\s+(?:(?:a|an|the|one-line|closing|brief|short)\s+){0,4}comment\b|\bclosing\s+comment\b|\bwork(?:\s+item)?\s+comment\b/i.test(
+			content,
+		)
+	) {
 		const mapped = [...route.plannedToolIds, ...activityTools].some((id) =>
 			/\.(?:add_comment|work_item_comment)$/.test(id),
 		);
