@@ -321,3 +321,56 @@ it("shows the complete outbound envelope draft inline before and after details a
 	).toContain("The exact proposed reply.");
 	expect(host.querySelector(".fd-proposal-more")).toBeNull();
 });
+
+it("keeps an overdue open Answer card answerable after a curator revision", async () => {
+	client = new QueryClient({
+		defaultOptions: {
+			queries: { enabled: false, retry: false, staleTime: Infinity },
+		},
+	});
+	const row = structuredClone(preview);
+	row.request.dueAt = "2026-01-01T08:30:00Z";
+	row.request.version = 2;
+	row.request.subject = "Retire the expired test sign-in request?";
+	row.request.metadata = {
+		cardContent:
+			"The test request is obsolete. Retiring it approves no sign-in.",
+	};
+	client.setQueryData(
+		workInteractionDetailQueryOptions(row.request.id).queryKey,
+		{
+			request: row.request,
+			effectiveState: "open",
+			canRespond: true,
+			canCancel: false,
+			latestDraft: null,
+			responses: { data: [], nextCursor: null, hasMore: false },
+		},
+	);
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkInteractionDecisionCard requestId={row.request.id} />
+			</QueryClientProvider>,
+		),
+	);
+	const answer = host.querySelector("textarea");
+	expect(answer).not.toBeNull();
+	expect(answer?.disabled).toBe(false);
+	const button = host.querySelector<HTMLButtonElement>(
+		"[data-decision-actions] button",
+	);
+	expect(button?.textContent).toContain("Answer");
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(
+			HTMLTextAreaElement.prototype,
+			"value",
+		)!.set!.call(answer, "Retire this request.");
+		answer!.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	expect(button?.disabled).toBe(false);
+	expect(respond).not.toHaveBeenCalled();
+});

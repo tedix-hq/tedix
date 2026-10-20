@@ -283,6 +283,7 @@ export function WorkDecisionCard({
 	const [whyTarget, setWhyTarget] = useState<HTMLDivElement | null>(null);
 	const [draft, setDraft] = useState(body);
 	const [revising, setRevising] = useState(false);
+	const [revisionsOpen, setRevisionsOpen] = useState(false);
 	useEffect(() => {
 		if (!editing) setDraft(body);
 	}, [body, editing]);
@@ -644,10 +645,9 @@ export function WorkDecisionCard({
 												<strong>If yes:</strong> {face.body}
 											</Text>
 											<Text className="fd-recommendation">
-												{face.recommendation} ·{" "}
-												{faceState.confidence === null
-													? "Confidence not assessed"
-													: `${Math.round(faceState.confidence * 100)}% sure`}
+												{face.recommendation}
+												{faceState.confidence !== null &&
+													` · ${Math.round(faceState.confidence * 100)}% sure`}
 											</Text>
 											{"stakes" in face && face.stakes && (
 												<Text className="fd-stakes">{face.stakes}</Text>
@@ -743,20 +743,31 @@ export function WorkDecisionCard({
 							</Button>
 						)}
 						{revision && !secureConnection && (
-							<CardRevisionPanel
-								key={revision.requestId}
-								target={revision}
-								contentKind={
-									kind === "proposal"
-										? "plan"
-										: kind === "outbound"
-											? "email"
-											: "text"
-								}
-								agentName={askedBy}
-								disabled={disabled || pending || saving || saved}
-								onRevising={setRevising}
-							/>
+							<FeedDeckDisclosure
+								title="Card revisions"
+								open={revisionsOpen}
+								onOpenChange={setRevisionsOpen}
+							>
+								<CardRevisionPanel
+									key={revision.requestId}
+									target={revision}
+									contentKind={
+										kind === "proposal"
+											? "plan"
+											: kind === "outbound"
+												? "email"
+												: "text"
+									}
+									agentName={askedBy}
+									disabled={disabled || pending || saving || saved}
+									onRevising={setRevising}
+									cardRef={section}
+									onOpen={() => {
+										if (rail) rail.openSection("details");
+										else setRevisionsOpen(true);
+									}}
+								/>
+							</FeedDeckDisclosure>
 						)}
 						{kind === "question" && !secureConnection && !disabled && !saved ? (
 							<div className="grid gap-3">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useRef } from "react";
+import { useState, useEffect, useContext, useRef, type RefObject } from "react";
 import { DecisionAttentionContext } from "./decision-attention-context";
 import {
 	useMutation,
@@ -37,12 +37,16 @@ export function CardRevisionPanel({
 	target,
 	disabled = false,
 	onRevising,
+	cardRef,
+	onOpen,
 	contentKind = "text",
 	agentName = "owning agent",
 }: {
 	target: CardRevisionTarget;
 	disabled?: boolean;
 	onRevising?: (pending: boolean) => void;
+	cardRef?: RefObject<HTMLElement | null>;
+	onOpen?: () => void;
 	contentKind?: "email" | "plan" | "text";
 	agentName?: string;
 }) {
@@ -75,6 +79,7 @@ export function CardRevisionPanel({
 		window.getSelection()?.removeAllRanges();
 		setComment("");
 		setOpen(true);
+		onOpen?.();
 	};
 
 	const history = useInfiniteQuery({
@@ -91,7 +96,8 @@ export function CardRevisionPanel({
 			!document.hidden && query.state.data?.pages[0]?.pending ? 2000 : 120000,
 	});
 	useEffect(() => {
-		const card = panel.current?.parentElement?.closest("section");
+		const card =
+			cardRef?.current ?? panel.current?.parentElement?.closest("section");
 		if (!card) return;
 		const select = () => {
 			if (disabled || optimistic || history.data?.pages[0]?.pending) return;
@@ -140,6 +146,7 @@ export function CardRevisionPanel({
 				return;
 			event.preventDefault();
 			setOpen(true);
+			onOpen?.();
 			requestAnimationFrame(() => input.current?.focus());
 		};
 		card.addEventListener("mouseup", select);
@@ -154,7 +161,7 @@ export function CardRevisionPanel({
 			if (touchSelection)
 				document.removeEventListener("selectionchange", select);
 		};
-	}, [disabled, optimistic, field, history.data]);
+	}, [disabled, optimistic, field, history.data, cardRef, onOpen]);
 	const revisions = (
 		history.data?.pages.flatMap((page) => page.revisions) ?? []
 	).sort((a, b) => a.revision - b.revision);
@@ -471,7 +478,7 @@ export function CardRevisionPanel({
 			)}
 
 			{previous && current && reviewed && (
-				<details open>
+				<details>
 					<summary>What changed</summary>
 					{reviewed.summary && <p className="py-2">{reviewed.summary}</p>}
 					<Button

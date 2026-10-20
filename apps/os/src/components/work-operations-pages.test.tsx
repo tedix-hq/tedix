@@ -509,20 +509,37 @@ describe("Decision-capture questions", () => {
 		expect(container.textContent).not.toContain("Blocked");
 	});
 
-	it("withholds answer controls after the request deadline until source revalidation", async () => {
+	it("keeps overdue questions answerable when the server permits a response", async () => {
 		const container = await renderDetail(
 			{},
 			{ canRespond: true, dueAt: "2026-10-01T00:00:00Z" },
 		);
 		expect(container.textContent).toContain("This deadline has passed");
 		expect(
+			container.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label="Your answer"]',
+			)?.disabled,
+		).toBe(false);
+		expect(
+			[...container.querySelectorAll("button")].some(
+				(button) => button.textContent === "Answer",
+			),
+		).toBe(true);
+	});
+
+	it("withholds overdue answer controls when the server denies a response", async () => {
+		const container = await renderDetail(
+			{},
+			{ canRespond: false, dueAt: "2026-10-01T00:00:00Z" },
+		);
+		expect(
 			container.querySelector('textarea[aria-label="Your answer"]'),
 		).toBeNull();
 		expect(
-			[...container.querySelectorAll("button")].find(
+			[...container.querySelectorAll("button")].some(
 				(button) => button.textContent === "Answer",
 			),
-		).toBeUndefined();
+		).toBe(false);
 	});
 
 	it("keeps the existing source label and plain prompt for other questions", async () => {

@@ -1254,8 +1254,7 @@ function DecisionDeckContent({
 																decisionText("Your tedi"))
 													}
 													disabled={
-														mode === "history" ||
-														(!practiceMode && (pastDeadline || expired))
+														mode === "history" || (!practiceMode && expired)
 													}
 													onNext={next}
 													onPrevious={previous}

@@ -144,10 +144,32 @@ try {
 				document.documentElement.dataset.theme = mode;
 			}, theme);
 			await page
+				.getByRole("button", { name: "Details", exact: true })
+				.first()
+				.waitFor();
+			assert.equal(
+				await page
+					.getByRole("button", { name: "Ask for changes", exact: true })
+					.isVisible(),
+				false,
+			);
+			await page
+				.getByRole("button", { name: "Details", exact: true })
+				.first()
+				.click();
+			await page
 				.getByRole("button", { name: "Ask for changes", exact: true })
 				.waitFor();
+			assert.equal(
+				await page
+					.getByText("Shortened the introduction.", { exact: true })
+					.isVisible(),
+				false,
+			);
+			await page.getByText("What changed", { exact: true }).click();
 			const credential = page.getByRole("region", {
 				name: "Replace the Firecrawl key for the radar?",
+				includeHidden: true,
 			});
 			assert.equal(await credential.locator("textarea").count(), 0);
 			assert.equal(
@@ -182,7 +204,11 @@ try {
 				.getByRole("button", { name: /^Keep original change/ })
 				.first()
 				.click();
-			await page.getByText("Version 3", { exact: true }).first().waitFor();
+			await page
+				.getByText("Version 3", { exact: true })
+				.filter({ visible: true })
+				.first()
+				.waitFor();
 			await page.getByText("(Original kept)", { exact: true }).waitFor();
 			assert.equal(
 				await page
@@ -233,7 +259,22 @@ try {
 				await page
 					.getByRole("dialog", { name: "Decision context", exact: true })
 					.waitFor({ state: "hidden" });
-			await page.getByText("Version 4", { exact: true }).first().waitFor();
+			await page
+				.getByRole("button", { name: "Details", exact: true })
+				.first()
+				.click();
+			await page
+				.getByText("Version 4", { exact: true })
+				.filter({ visible: true })
+				.first()
+				.waitFor();
+			await page
+				.getByRole("button", { name: "Close decision context", exact: true })
+				.click();
+			if (width === 390)
+				await page
+					.getByRole("dialog", { name: "Decision context", exact: true })
+					.waitFor({ state: "hidden" });
 			const card = page.getByRole("region", {
 				name: "Send Morgan the use-case email?",
 			});
@@ -244,6 +285,13 @@ try {
 					document.activeElement?.getAttribute("aria-label") ===
 					"What should change?",
 			);
+			await page
+				.getByRole("button", { name: "Close decision context", exact: true })
+				.click();
+			if (width === 390)
+				await page
+					.getByRole("dialog", { name: "Decision context", exact: true })
+					.waitFor({ state: "hidden" });
 			const selectGreeting = async () => {
 				await page
 					.locator("[data-card-feedback-content]")
@@ -276,6 +324,13 @@ try {
 					animations: "disabled",
 				});
 			await pill.getByRole("button", { name: "Shorter", exact: true }).click();
+			await page
+				.getByRole("button", { name: "Close decision context", exact: true })
+				.click();
+			if (width === 390)
+				await page
+					.getByRole("dialog", { name: "Decision context", exact: true })
+					.waitFor({ state: "hidden" });
 			await selectGreeting();
 			await pill
 				.getByRole("textbox", { name: "Comment on selection" })
@@ -311,7 +366,11 @@ try {
 			);
 			assert(
 				await page
-					.getByRole("button", { name: "Send", exact: true })
+					.getByRole("button", {
+						name: "Send",
+						exact: true,
+						includeHidden: true,
+					})
 					.isDisabled(),
 			);
 			if (screenshotDirectory)
@@ -346,11 +405,23 @@ try {
 					children: [{ ...plan.children[0]!, title: "Verify every source" }],
 				},
 			};
+			await page
+				.getByRole("button", { name: "Close decision context", exact: true })
+				.click();
 			await page.goto(`${origin}/browser-tests/card-revisions.html?plan=1`);
+			await page
+				.getByRole("button", { name: "Details", exact: true })
+				.first()
+				.click();
+			await page.getByText("What changed", { exact: true }).click();
 			await page
 				.getByRole("button", { name: "Keep original change 1", exact: true })
 				.click();
-			await page.getByText("Version 3", { exact: true }).first().waitFor();
+			await page
+				.getByText("Version 3", { exact: true })
+				.filter({ visible: true })
+				.first()
+				.waitFor();
 			assert.equal(
 				revisions.at(-1)!.proposal?.item.title,
 				"Prepare the report",

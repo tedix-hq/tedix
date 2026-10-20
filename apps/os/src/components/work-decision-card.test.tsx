@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DecisionLearningContext } from "./decision-learning-context";
 import { CardFaceContext } from "./deck-presentation-context";
 import { act, type ContextType } from "react";
@@ -650,4 +651,75 @@ it("refuses a secret-like answer before invoking any card mutation", async () =>
 		"use connection settings",
 	);
 	expect(decide).not.toHaveBeenCalled();
+});
+
+it("omits unknown confidence and retains assessed confidence", async () => {
+	await mountFace({ presentation: FACE, confidence: null });
+	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
+		FACE.recommendation,
+	);
+	await mountFace({ presentation: FACE, confidence: 0.8 });
+	expect(host.querySelector(".fd-recommendation")?.textContent).toContain(
+		"80% sure",
+	);
+});
+
+it.each([
+	["send", "outbound", "Send"],
+	["decide", "decision", "Yes"],
+	["approve_draft", "proposal", "Approve draft"],
+	["answer", "question", "Answer"],
+	["consent", "approval", "Approve"],
+] as const)(
+	"renders an enabled primary control for %s",
+	async (_ask, kind, label) => {
+		await mount({
+			kind,
+			initialAnswer: kind === "question" ? "Friday" : "",
+			actions: [{ id: "primary", label, intent: "approve" }],
+		});
+		const button = host.querySelector<HTMLButtonElement>(
+			"[data-decision-intent=approve]",
+		);
+		expect(button?.textContent).toBe(label);
+		expect(button?.disabled).toBe(false);
+	},
+);
+
+it("keeps revision controls behind collapsed Details", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { enabled: false } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkDecisionCard
+					kind="decision"
+					title="Review?"
+					askedBy="Robin"
+					revisionTarget={{
+						requestId: "11111111-1111-4111-8111-111111111111",
+						version: 2,
+					}}
+					onDecision={vi.fn()}
+				/>
+			</QueryClientProvider>,
+		),
+	);
+	const trigger = [...host.querySelectorAll("button")].find(
+		(button) => button.textContent === "Card revisions",
+	);
+	expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+	expect(
+		host.querySelector('[aria-label="Card revisions"]')?.closest("[hidden]"),
+	).not.toBeNull();
+	await act(async () => {
+		host
+			.querySelector("section")!
+			.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }));
+	});
+	expect(trigger?.getAttribute("aria-expanded")).toBe("true");
 });
