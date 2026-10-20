@@ -954,6 +954,9 @@ export const tediPairingRequestsQueryOptions = (tediId: string) =>
 export const tediDetailQueryOptions = (tediId: string) =>
 	osQuery.tedis.get.queryOptions({ input: { tediId } });
 
+export const tediSetupQueryOptions = (tediId: string) =>
+	osQuery.tedis.getSetup.queryOptions({ input: { tediId }, staleTime: 60_000 });
+
 /**
  * Inbox pages are keyed by status so the loader and the filtered surface read
  * the identical cache entry.

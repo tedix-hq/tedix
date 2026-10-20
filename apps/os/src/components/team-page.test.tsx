@@ -14,6 +14,11 @@ import {
 } from "vite-plus/test";
 
 const tedisApi = vi.hoisted(() => ({
+	getSetup: vi.fn().mockResolvedValue({
+		tediId: "worker",
+		observedAt: "2026-10-20T17:00:00Z",
+		items: [],
+	}),
 	list: vi.fn(),
 	listOperationsSummaries: vi.fn(),
 }));
