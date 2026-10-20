@@ -100,9 +100,21 @@ export function nativeToolActionContent(name: string, args: unknown): string {
 
 /** Shared by Home, the runtime, and local lanes; tool names use the same vocabulary. */
 export function humanReservedActionClasses(content: string): string[] {
-	const actionable = content
+	// A read-only comparison can describe a paid option without authorizing it.
+	// Strip only the cost description; positive payment/spend instructions survive.
+	const actionContent =
+		/^\s*(?:research|compare|evaluate)\b/i.test(content) &&
+		/\bno spending\b/i.test(content)
+			? content.replace(/\bcosts? money\b/gi, "costs")
+			: content;
+	const actionable = actionContent
+		.replace(/\b(?:do not|don't|don’t|never)\s+`[^`\r\n]+`/gi, " ")
 		.replace(
-			/\bno\s+(?:(?:external\s+)?(?:messages?|emails?|publication|money|credentials?|permissions?|deletions?)\b\s*(?:,\s*|\b(?:or|and)\b\s*)?)+/gi,
+			/\bcredential(?:\/token)?\s+(?:code|lane|cache band)\b/gi,
+			"source module",
+		)
+		.replace(
+			/\bno\s+(?:(?:external\s+)?(?:messages?|emails?|publication|money|spending|credentials?|permissions?|deletions?)\b\s*(?:,\s*|\b(?:or|and)\b\s*)?)+/gi,
 			" ",
 		)
 		.replace(

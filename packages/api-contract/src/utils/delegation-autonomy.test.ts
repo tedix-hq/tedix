@@ -53,6 +53,8 @@ describe("critical-only autonomy v1", () => {
 	);
 	it.each([
 		"Research the caching algorithms",
+		"Refactor the parser. Leave the credential/token cache band in place; the credential lane is active. Do not touch credential code. Never `tedix login`.",
+		"Research (low risk, no spending): compare a database (paused, costs money to resume) with the existing store; save an Output.",
 		"Add a comment to the target Work",
 		"Write research notes and save an Output",
 		"Fix the parser and push through normal gates",
@@ -71,6 +73,10 @@ describe("critical-only autonomy v1", () => {
 	});
 	it.each([
 		"Do not read /workspace/.env and pay the invoice",
+		"Never `tedix login` and read /workspace/.env",
+		"Refactor credential code and read the secrets file",
+		"Research (no spending): compare a database that costs money; then pay the invoice",
+		"Research (no spending): compare options; spend 20 EUR to resume the database",
 		"Do not read /workspace/.env while reading /workspace/secrets.txt",
 		"Never delete anything and transfer the funds to the vendor",
 		"Do not send spam and pay the invoice now",

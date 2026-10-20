@@ -6,6 +6,7 @@ import {
 	renderDelegationWorkOrderMessage,
 } from "./delegation-dispatch";
 import type { KernelRouteDecision } from "./route-schema";
+import type { TediCapabilityCard } from "./tedi-capabilities";
 
 const route: KernelRouteDecision = {
 	routeKind: "delegate_tedi",
@@ -32,6 +33,53 @@ function order(content: string, plannedToolIds: string[] = []) {
 }
 
 describe("request-derived capability plans", () => {
+	it("maps a platform Work comment omitted by the planner without granting unrelated tools", () => {
+		const card: TediCapabilityCard = {
+			tediId: "acme-reader",
+			slug: "reader",
+			name: "Reader",
+			apps: [],
+			scopeGroups: ["mcp:work"],
+			skills: [],
+			runtimeKind: "isolate",
+			embodied: false,
+			availability: "running",
+			hasWarmWorkstationLease: false,
+			hasRepository: false,
+			depsReady: false,
+			environmentReady: false,
+			requiresApproval: false,
+			delegationEntrustments: [],
+			dispatchPolicy: null,
+			mcpCapabilityProfile: null,
+		};
+		const result = buildDelegationWorkOrder({
+			userContent: "Read Work history and add a closing comment",
+			card,
+			route,
+		});
+		expect(result.capabilityPlan).toMatchObject({
+			requiredCapabilities: ["work.comment", "work.read"],
+			missingCapabilities: [],
+		});
+		expect(result.capabilityPlan?.allowedToolIds).toContain("work.add_comment");
+		expect(result.capabilityPlan?.allowedToolIds).toContain(
+			"work.list_work_item_attempts",
+		);
+		expect(result.capabilityPlan?.allowedToolIds).not.toContain(
+			"work.complete_work_item",
+		);
+		const closeout = buildDelegationWorkOrder({
+			userContent:
+				"Work backlog hygiene: verify SHAs on origin/main. Mark each completed with a closing comment.",
+			card,
+			route,
+		});
+		expect(closeout.executionRequirement.surface).toBe("workstation");
+		expect(closeout.capabilityPlan?.allowedToolIds).toContain(
+			"work.complete_work_item",
+		);
+	});
 	it("preflights the requested Work comment even when page reading is available", () => {
 		const content =
 			"Research https://example.com and post a comment on Work abcdef01";

@@ -27,12 +27,15 @@ const serviceOs = mcpGovernanceOs.use(withServiceAuth);
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	resolveAgentTransportPolicy: serviceOs.resolveAgentTransportPolicy.handler(
 		async ({ input, context }) => {
-			const tedi = await getTediByIdForOrganization(
-				context.db,
-				input.tediId,
-				input.organizationId,
-			);
-			if (!tedi) return { requireExplicitApprovalPolicy: false };
+			const tedi = input.tediId
+				? await getTediByIdForOrganization(
+						context.db,
+						input.tediId,
+						input.organizationId,
+					)
+				: null;
+			if (input.tediId && !tedi)
+				return { requireExplicitApprovalPolicy: false };
 			const organizationPolicy = await getActivePolicyPackDefinition(
 				context.db,
 				input.organizationId,
@@ -48,7 +51,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						input.organizationId,
 					)),
 				];
-			if (!tedi.policyPackId) {
+			if (!tedi?.policyPackId) {
 				return {
 					requireExplicitApprovalPolicy: false,
 					...(autonomy ? { autonomy } : {}),

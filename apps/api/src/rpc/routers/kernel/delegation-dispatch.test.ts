@@ -2461,13 +2461,13 @@ describe("organization critical-only delegation autonomy", () => {
 		).toBe(false);
 	});
 
-	it("uses standing organization authorization for a scoped member's non-critical delegation", () => {
+	it("keeps members gated even with standing organization autonomy", () => {
 		expect(
 			decideDelegationDispatch({
 				...base(),
 				speaker: { approvalAuthority: false },
 			}).mode,
-		).toBe("auto");
+		).toBe("needs_approval");
 		expect(
 			decideDelegationDispatch({
 				...base(),

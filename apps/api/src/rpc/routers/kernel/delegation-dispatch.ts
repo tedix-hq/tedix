@@ -138,7 +138,8 @@ const CAPABILITY_SIGNALS: ReadonlyArray<{
 	},
 	{
 		capability: "git_network",
-		pattern: /\b(?:git (?:push|pull|fetch)|rebase|bisect|merge conflict)\b/i,
+		pattern:
+			/\b(?:git (?:push|pull|fetch)|rebase|bisect|merge conflict|origin\/main)\b/i,
 	},
 	{
 		capability: "process",
@@ -1663,8 +1664,8 @@ function computeDispatchVerdict(input: {
 		};
 	}
 
-	// Without standing organization authorization, the speaker must authorize dispatch.
-	if (!autonomy.autoApprove && !speaker?.approvalAuthority) {
+	// Organization autonomy never grants a member dispatch authority.
+	if (!speaker?.approvalAuthority) {
 		return {
 			canAutoDispatch: false,
 			mode: "needs_approval",

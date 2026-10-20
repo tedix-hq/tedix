@@ -1,7 +1,44 @@
 import { describe, expect, it } from "vite-plus/test";
-import { detectsHomePlanningRequest } from "./plan-dispatch";
+import {
+	detectsHomePlanningRequest,
+	selectedHomePlanTargets,
+	type HomePlanningTarget,
+} from "./plan-dispatch";
 
 describe("Home planning request intent", () => {
+	it("keeps a single coding owner despite plan keywords and code in the attached brief", () => {
+		const content =
+			"Coding trial for the CTO tedi: implement this refactor. Brief: split code into multiple helpers and coordinate validation.";
+		expect(detectsHomePlanningRequest(content)).toBe(false);
+		const target = (id: string, slug: string): HomePlanningTarget => ({
+			id,
+			slug,
+			displayName: slug,
+			name: slug,
+			runtimeKind: "isolate",
+			runtimeState: "active",
+			status: "healthy",
+		});
+		const targets = [
+			target("coding-owner", "cto"),
+			target("review-owner", "code-reviewer"),
+		];
+		expect(
+			selectedHomePlanTargets({ content, targets }).map((t) => t.id),
+		).toEqual(["coding-owner"]);
+		expect(
+			selectedHomePlanTargets({
+				content: "Plan with CTO to split code into helpers",
+				targets,
+			}).map((t) => t.id),
+		).toEqual(["coding-owner"]);
+		expect(
+			selectedHomePlanTargets({
+				content: "Plan across CTO and Code Reviewer",
+				targets,
+			}).map((t) => t.id),
+		).toEqual(["coding-owner", "review-owner"]);
+	});
 	it.each([
 		"",
 		"[[tedix-context:workspace:launch:Plan%20across%20owners]]\n\n",

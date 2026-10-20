@@ -70,7 +70,36 @@ export function deriveDelegationCapabilityPlan(input: {
 		);
 	}
 	if (/\bwork(?:\s+item)?\b/i.test(content) && /\bcomment\b/i.test(content)) {
-		providerTool("work.comment", /\.(?:add_comment|work_item_comment)$/);
+		const mapped = [...route.plannedToolIds, ...activityTools].some((id) =>
+			/\.(?:add_comment|work_item_comment)$/.test(id),
+		);
+		if (!mapped && card) {
+			// Canonical platform callable; the child still verifies its own grant
+			// with discover.describe before inference. No scopes are added here.
+			capabilities.push("work.comment");
+			tools.add("work.add_comment");
+		} else {
+			providerTool("work.comment", /\.(?:add_comment|work_item_comment)$/);
+		}
+	}
+	if (
+		card &&
+		/\bwork\b/i.test(content) &&
+		/\b(?:history|backlog|attempts)\b/i.test(content)
+	) {
+		capabilities.push("work.read");
+		for (const id of [
+			"list_work_items",
+			"get_work_items_by_id",
+			"list_work_item_attempts",
+			"list_work_item_evidence",
+			"list_work_item_events",
+		])
+			tools.add(`work.${id}`);
+		if (/\bmark\b[^.!?\n]{0,60}\bcompleted\b/i.test(content)) {
+			capabilities.push("work.complete");
+			tools.add("work.complete_work_item");
+		}
 	}
 	const repositoryTask =
 		(capabilities.length === 0 ||

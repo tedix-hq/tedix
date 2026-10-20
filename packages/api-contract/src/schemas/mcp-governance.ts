@@ -44,7 +44,7 @@ export type ResolveMcpToolApprovalGrantResponse = z.infer<
 
 export const ResolveAgentTransportPolicyInputSchema = z.object({
 	organizationId: z.string().min(1),
-	tediId: z.string().min(1),
+	tediId: z.string().min(1).optional(),
 });
 export const ResolveAgentTransportPolicyResponseSchema = z.object({
 	requireExplicitApprovalPolicy: z.boolean(),

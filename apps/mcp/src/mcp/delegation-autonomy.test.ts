@@ -6,6 +6,10 @@ import {
 } from "./governance";
 import type { ServerContext } from "./server-context";
 import { buildAggregateTediTools } from "./aggregate-tedis";
+import {
+	MCP_CLIENT_CAPABILITIES_META_KEY,
+	MCP_TASKS_EXTENSION,
+} from "@tedix/mcp-shared/protocol";
 
 function context(autonomy = true) {
 	return {
@@ -28,6 +32,48 @@ function context(autonomy = true) {
 	} as unknown as Pick<ServerContext, "server">;
 }
 describe("tedi autonomous actions", () => {
+	it.each([undefined, "always"] as const)(
+		"loads org autonomy for a CLI Work admission while preserving policy=%s",
+		async (approvalPolicy) => {
+			const ctx = {
+				...context(),
+				callerIdentity: { authType: "oauth", userId: "owner" },
+			} as ServerContext;
+			const result = await requireDestructiveToolApproval(
+				ctx,
+				{
+					toolId: "start_work_item_attempt",
+					title: "Start Work attempt",
+					meta: {
+						"com.tedix/policy": {
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+					},
+					config: {
+						transport: "rpc",
+						endpoint: "workItems/startAttempt",
+						...(approvalPolicy ? { approvalPolicy } : {}),
+					},
+				},
+				{ readOnlyHint: false, destructiveHint: false },
+				{
+					extra: {
+						_meta: {
+							[MCP_CLIENT_CAPABILITIES_META_KEY]: {
+								extensions: { [MCP_TASKS_EXTENSION]: {} },
+							},
+						},
+					},
+				},
+			);
+			if (approvalPolicy) expect(result?.isError).toBe(true);
+			else expect(result).toBeNull();
+			expect(
+				ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+			).toHaveBeenCalledWith({ organizationId: "org" });
+		},
+	);
 	it.each([
 		[true, "once", true],
 		[true, "always", false],
