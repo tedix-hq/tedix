@@ -26,6 +26,27 @@ export function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 	});
 }
 
+const ERROR_MESSAGE_LIMIT = 200;
+
+/** Failure body for an internal admin route. The caller only ever sees a
+ * stable code and a truncated `Error.message`; a non-Error throw yields the
+ * code itself. Stack traces and raw thrown values go to the Worker log. */
+export function errorResponse(
+	status: number,
+	code: string,
+	cause: unknown,
+): Response {
+	console.error(`cms-runtime internal admin ${code}`, cause);
+	const message =
+		cause instanceof Error
+			? cause.message.slice(0, ERROR_MESSAGE_LIMIT) || code
+			: code;
+	return jsonResponse(
+		{ ok: false, success: false, code, error: message },
+		{ status },
+	);
+}
+
 export function isInternalCmsRequest(request: Request, env: Env): boolean {
 	const token = env.CMS_INTERNAL_AUTH_TOKEN;
 	if (!token) return false;
