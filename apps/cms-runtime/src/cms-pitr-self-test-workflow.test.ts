@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { EmDashDB } from "./index";
+import { EmDashDB } from "./emdash-db";
 import {
 	CMS_PITR_SELF_TEST_DO_NAME,
 	CMS_PITR_SELF_TEST_INSTANCE_ID,

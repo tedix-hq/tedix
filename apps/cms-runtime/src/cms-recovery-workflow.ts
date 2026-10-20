@@ -22,7 +22,7 @@ import {
 	listMediaPage,
 	type VerifiedMediaObject,
 } from "./tenant-media-backup";
-import type { Env } from "./index";
+import type { Env } from "./env";
 
 const CAPTURE_MEDIA_PAGE_SIZE = 10;
 const MAX_CAPTURE_MEDIA_PAGES = 1000;

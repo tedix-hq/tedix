@@ -15,11 +15,8 @@ import {
 } from "@tedix/db/queries/cms-restore-fences";
 
 import cmsRuntime, {
-	canonicalizeSitemapUrls,
-	sitemapUsesTrailingSlash,
 	TenantEmDashDB,
 	TenantRuntimeFailureTail,
-	EmDashDB,
 	databaseRuntimeAdminResponse,
 	databaseDeprovisionAdminResponse,
 	databaseStorageAdminResponse,
@@ -29,11 +26,16 @@ import cmsRuntime, {
 	mediaBucketAdminResponse,
 	cmsRecoveryAdminResponse,
 	detectBundleDatabaseAdapter,
+	type DatabaseRuntimeAdminDependencies,
+} from "./index";
+import {
+	canonicalizeSitemapUrls,
+	sitemapUsesTrailingSlash,
 	isOriginRedirectablePath,
 	shouldRedirectCmsOriginRequest,
 	isSoftNotFound,
-	type DatabaseRuntimeAdminDependencies,
-} from "./index";
+} from "./public-proxy";
+import { EmDashDB } from "./emdash-db";
 
 afterEach(() => {
 	vi.restoreAllMocks();

@@ -15,7 +15,7 @@ import {
 	restoreSourceMediaObject,
 	type VerifiedMediaObject,
 } from "./tenant-media-backup";
-import type { Env } from "./index";
+import type { Env } from "./env";
 
 export const CMS_SITE_DRILL_SITE_ID = "13d1b0d0-2664-4006-981b-d27af4e73794";
 export const CMS_SITE_DRILL_SLUG = "emdash1rc-src-20260928";

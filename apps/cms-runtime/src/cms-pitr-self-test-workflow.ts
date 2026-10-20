@@ -3,7 +3,7 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import type { Env } from "./index";
+import type { Env } from "./env";
 
 // The underscores make this name impossible for a CMS site slug or hostname.
 export const CMS_PITR_SELF_TEST_DO_NAME = "__tedix_cms_pitr_self_test__";
