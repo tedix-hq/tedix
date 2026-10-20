@@ -161,6 +161,7 @@ export function isDelegatedWorkTool(
 	// aggregate-tedi tools carry provenance stamps that must agree exactly.
 	const safeReadNamesByEndpoint: Record<string, ReadonlySet<string>> = {
 		"workitems/list": new Set(["list_work_items", "work_items_list"]),
+		"workitems/listattemptprojection": new Set(["list_attempt_projection"]),
 		"workitems/getbyid": new Set(["get_work_items_by_id", "work_item_get"]),
 		"workitems/getreadiness": new Set(["get_work_item_readiness"]),
 		"workitems/listattempts": new Set([

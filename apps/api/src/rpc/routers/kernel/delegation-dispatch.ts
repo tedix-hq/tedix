@@ -511,6 +511,14 @@ export function renderDelegationWorkOrderMessage(input: {
 			`Granted tools (subject to executor policy): ${stringListField(capabilityPlan, "allowedToolIds").join(", ") || "none"}.`,
 		);
 		const missing = stringListField(capabilityPlan, "missingCapabilities");
+		if (
+			stringListField(capabilityPlan, "allowedToolIds").includes(
+				"work.list_attempt_projection",
+			)
+		)
+			lines.push(
+				"Work history: start with list_attempt_projection filtered to the requested project and settled outcomes, using limit 5 and its cursor. Read individual Work items or evidence only for details. A clipped page is incomplete evidence; narrow or paginate it before drawing conclusions.",
+			);
 		if (missing.length)
 			lines.push(
 				`Capability gap: ${missing.join(", ")}; stop and return to Home for rerouting.`,

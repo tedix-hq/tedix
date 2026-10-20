@@ -323,6 +323,11 @@ describe("code-built tools/call authorization", () => {
 				config: { endpoint: "workItems/listEvidence" },
 			}),
 			tool({
+				toolId: "tedix__list_attempt_projection",
+				annotations: { readOnlyHint: true },
+				config: { endpoint: "workItems/listAttemptProjection" },
+			}),
+			tool({
 				toolId: "tedix__list_work_item_events",
 				annotations: { readOnlyHint: true },
 				config: { endpoint: "workItems/listEvents" },
