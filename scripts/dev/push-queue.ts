@@ -194,7 +194,41 @@ export function gcDue(stampFile: string, now = Date.now()): boolean {
 
 function requestShip() {
 	if (git(["config", "--get", "tedix.pushGateProfile"]).out === "fast") {
-		console.log("push: main CI will request Ship after certification.");
+		const commonDir = resolve(git(["rev-parse", "--git-common-dir"]).out);
+		const log = openSync(join(commonDir, "ci-completion.log"), "a");
+		try {
+			// The bootstrap removes its source snapshot when this push exits.
+			const source = readFileSync(
+				new URL("./watch-main-ci.mjs", import.meta.url),
+				"utf8",
+			);
+			const child = spawn(process.execPath, ["--eval", source], {
+				detached: true,
+				stdio: ["ignore", log, log],
+				env: {
+					...process.env,
+					TEDIX_CI_PUSHED_SHA: git(["rev-parse", "origin/main"]).out,
+				},
+			});
+			child
+				.on("error", (error) =>
+					console.error(
+						`push: CI observer could not start: ${error.message}; scheduled fallback remains active.`,
+					),
+				)
+				.unref();
+			console.log(
+				child.pid
+					? "push: observing main CI; ops will verify green before Ship."
+					: "push: CI observer could not start; scheduled fallback remains active.",
+			);
+		} catch (error) {
+			console.error(
+				`push: CI observer could not start: ${String(error)}; scheduled fallback remains active.`,
+			);
+		} finally {
+			closeSync(log);
+		}
 		return;
 	}
 	const run = spawnSync(
