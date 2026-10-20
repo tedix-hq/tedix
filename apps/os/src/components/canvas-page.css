@@ -181,8 +181,6 @@
 	gap: 12px;
 	padding: 0;
 	border: 0;
-	/* Bounded surface, so it carries the card tier (--radius-xl, 12px), not
-	 * the --radius control token. See docs/engineering/product/design.md ("Radii"). */
 	border-radius: 0;
 	background: transparent;
 }
