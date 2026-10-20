@@ -32,6 +32,31 @@ export function redactRateLimitKey(
 }
 
 /**
+ * Key for the per-app request limiter (`MCP_RATE_LIMITER`).
+ *
+ * Authenticated callers are keyed by their verified principal, so one budget
+ * follows one accountable actor: a registered external agent, a tedi, or a
+ * user. Every lane on one machine no longer shares a single NAT address, and a
+ * caller cannot widen its budget by rotating addresses. Only anonymous callers
+ * fall back to the client address. The identity headers read here are set by
+ * the gateway after authentication; inbound copies are stripped at ingress.
+ */
+export function mcpRateLimitKey(
+	appId: string,
+	headers: Headers,
+	clientIp: string,
+): string {
+	const header = (name: string) => headers.get(name)?.trim() || undefined;
+	const externalPrincipal = header("x-tedix-auth-external-principal-id");
+	if (externalPrincipal) return `${appId}:agent:${externalPrincipal}`;
+	const tedi = header("x-tedix-auth-tedi-id");
+	if (tedi) return `${appId}:tedi:${tedi}`;
+	const user = header("x-tedix-auth-user-id");
+	if (user) return `${appId}:user:${user}`;
+	return `${appId}:ip:${clientIp}`;
+}
+
+/**
  * Cloudflare Rate Limiter Binding interface
  */
 export interface RateLimiter {

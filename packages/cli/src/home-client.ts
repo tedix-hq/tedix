@@ -40,6 +40,7 @@ import type { McpTaskState } from "@tedix/mcp-shared/tasks";
 import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
 import { type DiscoveryCache, isStaleDiscoveryError } from "./discovery-cache";
 import { isConnectionError } from "./operator/runtime-errors";
+import { retryRateLimitedPosts } from "./gateway-retry";
 import type { SessionRefreshOutcome } from "./oauth-provider";
 import { CLI_VERSION } from "./shared";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -1249,7 +1250,7 @@ export class TedixHomeClient {
 			timeoutMs: options.timeoutMs ?? 180_000,
 			url: options.url,
 		};
-		this.#fetch = options.fetch ?? fetch;
+		this.#fetch = retryRateLimitedPosts(options.fetch ?? fetch);
 		this.#discoveryCache = options.discoveryCache;
 		this.#oauthProvider = options.oauthProvider;
 		this.#transport = options.oauthProvider

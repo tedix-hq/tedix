@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { checkRateLimit } from "./rate-limit";
+import { checkRateLimit, mcpRateLimitKey } from "./rate-limit";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -56,5 +56,37 @@ describe("checkRateLimit logging", () => {
 			},
 		]);
 		expect(JSON.stringify(errorLog.mock.calls)).not.toContain(key);
+	});
+});
+
+describe("mcpRateLimitKey", () => {
+	const key = (headers: Record<string, string>, ip = "203.0.113.7") =>
+		mcpRateLimitKey("app-1", new Headers(headers), ip);
+
+	it("gives each verified principal its own budget behind one address", () => {
+		const owner = key({ "x-tedix-auth-user-id": "user-owner" });
+		const lane = key({
+			"x-tedix-auth-user-id": "user-owner",
+			"x-tedix-auth-external-principal-id": "principal-lane",
+		});
+		const tedi = key({
+			"x-tedix-auth-user-id": "client-record",
+			"x-tedix-auth-tedi-id": "tedi-1",
+		});
+
+		expect(owner).toBe("app-1:user:user-owner");
+		expect(lane).toBe("app-1:agent:principal-lane");
+		expect(tedi).toBe("app-1:tedi:tedi-1");
+		expect(new Set([owner, lane, tedi]).size).toBe(3);
+	});
+
+	it("keeps one principal on one budget across addresses", () => {
+		const headers = { "x-tedix-auth-user-id": "user-owner" };
+		expect(key(headers, "198.51.100.1")).toBe(key(headers, "198.51.100.2"));
+	});
+
+	it("falls back to the client address for anonymous callers", () => {
+		expect(key({})).toBe("app-1:ip:203.0.113.7");
+		expect(key({ "x-tedix-auth-user-id": "  " })).toBe("app-1:ip:203.0.113.7");
 	});
 });
