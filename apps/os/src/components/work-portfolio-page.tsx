@@ -1,3 +1,8 @@
+import {
+	LedgerRow,
+	LedgerRowMeta,
+	RelativeTime,
+} from "@/components/work-ledger-row";
 import type { PortfolioBucket } from "@tedix/api-contract/schemas/organization";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { factoryHref } from "@/lib/work-display";
@@ -42,7 +47,7 @@ import {
 	projectPortfolioQueryOptions,
 	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
-import { absoluteTime, normalizeD1Timestamp, relativeTime } from "@/lib/time";
+import { normalizeD1Timestamp } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
@@ -198,22 +203,6 @@ type InboxRow = {
 	workItem: { id: string; title: string; projectId: string | null } | null;
 };
 
-function Time({ at }: { at: string }) {
-	return (
-		<time dateTime={at} title={absoluteTime(at)}>
-			{relativeTime(at)}
-		</time>
-	);
-}
-
-function Muted({ children }: { children: string }) {
-	return (
-		<Text as="p" role="label" tone="secondary">
-			{children}
-		</Text>
-	);
-}
-
 export type FactoryGroup = {
 	tedi: string;
 	factories: FactoryScoreboardEntry[];
@@ -288,11 +277,9 @@ export function factoryFailureHref(row: FactoryScoreboardEntry): string {
 function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 	const status = factoryStatus(row);
 	return (
-		<li
-			className="grid min-w-0 gap-1 px-4 py-3"
+		<LedgerRow
 			data-factory={`${row.kind}:${row.id}`}
-		>
-			<div className="flex min-w-0 items-start justify-between gap-2">
+			title={
 				<Link
 					variant="record"
 					href={factoryHref(row)}
@@ -300,6 +287,8 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 				>
 					{row.name}
 				</Link>
+			}
+			actions={
 				<div className="flex shrink-0 flex-wrap justify-end gap-1">
 					{status ? (
 						<Badge
@@ -315,45 +304,47 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 						{row.kind === "blueprint" ? "Template" : "Loop"}
 					</Badge>
 				</div>
-			</div>
-			<Text
-				as="p"
-				role="label"
-				className="truncate whitespace-nowrap tabular-nums"
-			>
-				{counted(row.runs, "run")} · {counted(row.outputs, "result")} ·{" "}
-				{row.workClosed} closed
-			</Text>
-			{isBroken(row) && row.verdictReason ? (
-				<Text as="p" role="label" tone="error" className="line-clamp-2">
-					<Link variant="record" href={factoryFailureHref(row)}>
-						{plainWorkText(row.verdictReason)}
-					</Link>
-				</Text>
-			) : null}
-			{row.lastResult ? (
-				<Text
-					as="p"
-					role="label"
-					tone="secondary"
-					className="flex min-w-0 items-baseline gap-1"
-				>
-					<span className="shrink-0">Last result:</span>
-					<Link
-						variant="record"
-						href={resultHref(row.lastResult)}
-						className="min-w-0 truncate"
-					>
-						{row.lastResult.title}
-					</Link>
-					<span className="shrink-0">
-						· <Time at={normalizeD1Timestamp(row.lastResult.at)} />
-					</span>
-				</Text>
-			) : (
-				<Muted>{OS_COPY.work.nothingProduced}</Muted>
-			)}
-		</li>
+			}
+			meta={
+				<span className="tabular-nums">
+					{counted(row.runs, "run")} · {counted(row.outputs, "result")} ·{" "}
+					{row.workClosed} closed
+				</span>
+			}
+			hint={
+				<>
+					{isBroken(row) && row.verdictReason ? (
+						<Text
+							as="span"
+							role="label"
+							tone="error"
+							className="block line-clamp-2"
+						>
+							<Link variant="record" href={factoryFailureHref(row)}>
+								{plainWorkText(row.verdictReason)}
+							</Link>
+						</Text>
+					) : null}
+					{row.lastResult ? (
+						<span className="flex min-w-0 items-baseline gap-1">
+							<span className="shrink-0">Last result:</span>
+							<Link
+								variant="record"
+								href={resultHref(row.lastResult)}
+								className="min-w-0 truncate"
+							>
+								{row.lastResult.title}
+							</Link>
+							<span className="shrink-0">
+								· <RelativeTime at={normalizeD1Timestamp(row.lastResult.at)} />
+							</span>
+						</span>
+					) : (
+						OS_COPY.work.nothingProduced
+					)}
+				</>
+			}
+		/>
 	);
 }
 
@@ -425,11 +416,11 @@ function FactoryScoreboard() {
 					))}
 				</div>
 			) : (
-				<Muted>
+				<Text as="p" role="label" tone="secondary">
 					{unusedTemplates
 						? "No loop or Template ran in the last 7 days"
 						: "No scheduled loops or published Templates yet"}
-				</Muted>
+				</Text>
 			)}
 		</PageSection>
 	);
@@ -502,7 +493,9 @@ function PortfolioCard({
 			</CardHeader>
 			<CardContent className="grid gap-1.5">
 				{row.total === 0 ? (
-					<Muted>No records yet</Muted>
+					<Text as="p" role="label" tone="secondary">
+						No records yet
+					</Text>
 				) : (
 					<Text
 						as="p"
@@ -530,19 +523,33 @@ function PortfolioCard({
 						</Link>
 					</Text>
 				) : null}
-				<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-					{row.leadTediName ? (
-						<Text as="span" role="label" tone="secondary">
-							Coordinator: {row.leadTediName}
-						</Text>
-					) : null}
-					{lastActivity ? (
-						<Text as="span" role="label" tone="secondary">
-							Active <Time at={lastActivity} />
-						</Text>
-					) : null}
-					{org ? <CrossOrgLink slug={org} /> : null}
-				</div>
+				<LedgerRowMeta
+					items={[
+						...(row.leadTediName
+							? [
+									{
+										term: "Coordinator",
+										value: `Coordinator: ${row.leadTediName}`,
+									},
+								]
+							: []),
+						...(lastActivity
+							? [
+									{
+										term: "Activity",
+										value: (
+											<>
+												Active <RelativeTime at={lastActivity} />
+											</>
+										),
+									},
+								]
+							: []),
+						...(org
+							? [{ term: "Organization", value: <CrossOrgLink slug={org} /> }]
+							: []),
+					]}
+				/>
 			</CardContent>
 		</Card>
 	);
@@ -558,21 +565,23 @@ function OtherProjects({ entries }: { entries: PortfolioEntry[] }) {
 			<CollapsibleContent>
 				<Collection aria-label="Unsorted projects" className="mt-2">
 					{entries.map(({ project, title }) => (
-						<li
+						<LedgerRow
 							key={project.id}
-							className="flex min-w-0 items-center justify-between gap-2 px-4 py-2"
-						>
-							<Link
-								variant="record"
-								href={`/work/projects/${project.id}`}
-								className="min-w-0 truncate"
-							>
-								{title}
-							</Link>
-							<Badge variant={projectStatusVariant(project.status)}>
-								{sentenceCase(project.status)}
-							</Badge>
-						</li>
+							title={
+								<Link
+									variant="record"
+									href={`/work/projects/${project.id}`}
+									className="min-w-0 truncate"
+								>
+									{title}
+								</Link>
+							}
+							actions={
+								<Badge variant={projectStatusVariant(project.status)}>
+									{sentenceCase(project.status)}
+								</Badge>
+							}
+						/>
 					))}
 				</Collection>
 			</CollapsibleContent>

@@ -1,3 +1,4 @@
+import { LedgerRow, RelativeTime } from "@/components/work-ledger-row";
 import { WeeklyDecisionDigest } from "@/components/weekly-decision-digest";
 import { DeckAttentionMetrics } from "@/components/deck-attention-metrics";
 import { OS_COPY } from "@/shared/os-copy";
@@ -11,6 +12,7 @@ import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardHeader,
 	CardTitle,
@@ -54,12 +56,7 @@ import {
 	workOfficeKnocksQueryOptions,
 	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
-import {
-	absoluteTime,
-	normalizeD1Timestamp,
-	relativeTime,
-	startOfToday,
-} from "@/lib/time";
+import { normalizeD1Timestamp, relativeTime, startOfToday } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** Knocks whose answer is looked up (one detail read each). */
@@ -326,14 +323,6 @@ function TodayMetrics({
 	);
 }
 
-function Time({ at }: { at: string }) {
-	return (
-		<time dateTime={at} title={absoluteTime(at)}>
-			{relativeTime(at)}
-		</time>
-	);
-}
-
 function Knocks({ since }: { since: string }) {
 	const { knocks, rows: today } = useTodayKnocks(since);
 	const tedis = useQuery({ ...tediRosterQueryOptions(100), retry: false });
@@ -448,14 +437,10 @@ function Knocks({ since }: { since: string }) {
 				{forYou.length ? (
 					<Collection aria-label="For you">
 						{forYou.map(({ row, urgent, outcome, arriving }) => (
-							<li
+							<LedgerRow
 								key={row.request.id}
-								className={cn(
-									"grid gap-1 px-4 py-3",
-									arriving && "office-knock-arrive",
-								)}
-							>
-								<div className="flex min-w-0 items-start gap-2">
+								className={arriving ? "office-knock-arrive" : undefined}
+								title={
 									<Link
 										variant="record"
 										href={`/work/interactions/${row.request.id}`}
@@ -463,16 +448,21 @@ function Knocks({ since }: { since: string }) {
 									>
 										{officeAsk(row.request)}
 									</Link>
-									{urgent ? (
+								}
+								actions={
+									urgent ? (
 										<Badge variant="warning" className="shrink-0">
 											Important
 										</Badge>
-									) : null}
-								</div>
-								<Text as="p" role="label" tone="secondary">
-									{outcome.text} · <Time at={row.request.requestedAt} />
-								</Text>
-							</li>
+									) : null
+								}
+								meta={
+									<>
+										{outcome.text} ·{" "}
+										<RelativeTime at={row.request.requestedAt} />
+									</>
+								}
+							/>
 						))}
 					</Collection>
 				) : (
@@ -501,59 +491,50 @@ function Knocks({ since }: { since: string }) {
 					<div className="grid gap-3">
 						{[...byTedi].map(([tedi, list]) => (
 							<Card key={tedi} size="sm">
-								<CardHeader className="flex items-center gap-3">
-									<EntityAvatar
-										id={list[0]?.drafterId ?? "chief-of-staff"}
-										name={tedi}
-										image={
-											tedis.data?.data.find(
-												(row) => row.id === list[0]?.drafterId,
-											)?.avatar
-										}
-										kind="tedi"
-										className="size-6"
-									/>
-									<CardTitle className="min-w-0 flex-1 truncate">
-										{tedi}
+								<CardHeader>
+									<CardTitle className="flex min-w-0 items-center gap-3">
+										<EntityAvatar
+											id={list[0]?.drafterId ?? "chief-of-staff"}
+											name={tedi}
+											image={
+												tedis.data?.data.find(
+													(row) => row.id === list[0]?.drafterId,
+												)?.avatar
+											}
+											kind="tedi"
+											className="size-6"
+										/>
+										<span className="truncate">{tedi}</span>
 									</CardTitle>
-									<Badge variant="secondary">{list.length}</Badge>
+									<CardAction>
+										<Badge variant="secondary">{list.length}</Badge>
+									</CardAction>
 								</CardHeader>
 								<CardContent>
-									<ul className="m-0 grid list-none gap-2 p-0">
+									<Collection appearance="inline">
 										{list.map(({ row, arriving }) => (
-											<li
+											<LedgerRow
 												key={row.request.id}
-												className={cn(
-													"flex min-w-0 items-baseline gap-3",
-													arriving && "office-knock-arrive",
-												)}
-											>
-												<Link
-													variant="record"
-													href={`/work/interactions/${row.request.id}`}
-													className="min-w-0 flex-1 truncate"
-												>
-													{officeAsk(row.request)}
-												</Link>
-												<Text
-													as="span"
-													role="label"
-													tone="secondary"
-													className="shrink-0"
-												>
-													<Time at={row.request.requestedAt} />
-												</Text>
-											</li>
+												className={arriving ? "office-knock-arrive" : undefined}
+												title={
+													<Link
+														variant="record"
+														href={`/work/interactions/${row.request.id}`}
+														className="min-w-0 flex-1 truncate"
+													>
+														{officeAsk(row.request)}
+													</Link>
+												}
+												meta={<RelativeTime at={row.request.requestedAt} />}
+											/>
 										))}
-									</ul>
+									</Collection>
 								</CardContent>
 							</Card>
 						))}
 					</div>
 				) : (
-					<Text as="p" role="body" tone="secondary">
-						None yet today.
-					</Text>
+					<Empty appearance="inline" title="None yet today." />
 				)}
 			</PageSection>
 		</>
@@ -816,42 +797,41 @@ function Notebook({ since }: { since: string }) {
 				<div className="grid gap-3">
 					{groups.map(([subject, list]) => (
 						<Card key={subject} size="sm">
-							<CardHeader className="flex items-center gap-2">
-								<CardTitle className="flex-1">{subject}</CardTitle>
-								<Text as="span" role="label" tone="secondary">
-									{list.length}
-								</Text>
+							<CardHeader>
+								<CardTitle>{subject}</CardTitle>
+								<CardAction>
+									<Text as="span" role="label" tone="secondary">
+										{list.length}
+									</Text>
+								</CardAction>
 							</CardHeader>
 							<CardContent>
-								<ul className="m-0 grid list-none divide-y divide-kumo-hairline p-0">
+								<Collection appearance="inline">
 									{list.map((lesson) => {
 										const source = learnedFromLine(lesson.learnedFrom);
 										const fresh = isToday(lesson.addedAt, since);
 										return (
-											<li
+											<LedgerRow
 												key={lesson.id}
-												title={lesson.id}
-												className="grid gap-1 py-2.5 first:pt-0 last:pb-0"
-											>
-												<Text as="p" role="body" className="line-clamp-4">
-													{lesson.text}
-												</Text>
-												{source || fresh ? (
-													<div className="flex flex-wrap items-center gap-2">
-														{source ? (
-															<Text as="span" role="label" tone="secondary">
-																{source}
-															</Text>
-														) : null}
-														{fresh ? (
-															<Badge variant="success">New today</Badge>
-														) : null}
-													</div>
-												) : null}
-											</li>
+												title={
+													<span title={lesson.id} className="line-clamp-4">
+														{lesson.text}
+													</span>
+												}
+												meta={
+													source || fresh ? (
+														<span className="flex flex-wrap items-center gap-2">
+															{source}
+															{fresh ? (
+																<Badge variant="success">New today</Badge>
+															) : null}
+														</span>
+													) : null
+												}
+											/>
 										);
 									})}
-								</ul>
+								</Collection>
 							</CardContent>
 						</Card>
 					))}
