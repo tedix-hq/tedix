@@ -498,7 +498,9 @@ function trackedFiles(pathspecs: readonly string[]): SourceFile[] {
 		throw new Error(result.stderr || "git ls-files failed");
 	return result.stdout
 		.split("\n")
-		.filter(Boolean)
+		.filter(
+			(path) => path && !/(?:^|\/)\.(?:env|dev\.vars)\.example$/.test(path),
+		)
 		.filter((path) => {
 			const absolutePath = join(REPO_ROOT, path);
 			return existsSync(absolutePath) && statSync(absolutePath).isFile();

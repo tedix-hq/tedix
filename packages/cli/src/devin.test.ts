@@ -382,6 +382,29 @@ test("Devin hook identity overrides inherited hosts and retains Claude-compatibl
 	).toBe(false);
 });
 
+test("exec environment cannot hide editor scripts or disable guarded push fences", () => {
+	const root = temporary();
+	for (const env of [
+		{ GIT_EDITOR: "printf hidden >" },
+		{
+			GIT_CONFIG_COUNT: "1",
+			GIT_CONFIG_KEY_0: "core.hooksPath",
+			GIT_CONFIG_VALUE_0: "/dev/null",
+		},
+		{ TEDIX_DEVIN_HEADLESS: "0" },
+	]) {
+		expect(
+			devinPermissionBlock(
+				JSON.stringify({
+					tool_name: "exec",
+					tool_input: { command: "git commit --amend", env },
+				}),
+				root,
+			),
+		).toBeDefined();
+	}
+});
+
 test("permission fence blocks traversal, symlinks, secrets and prohibited commands", () => {
 	const dir = temporary();
 	const root = join(dir, "repo");
@@ -601,7 +624,7 @@ function gitFixture() {
 	return { dir, git };
 }
 
-test("linked worktree Git grants cover only its metadata, objects and current branch", () => {
+test("linked worktree Git grants cover its metadata and guarded single-lane push paths", () => {
 	const { dir, git } = gitFixture();
 	const lane = join(dir, "lane");
 	const peer = join(dir, "peer");
@@ -609,9 +632,20 @@ test("linked worktree Git grants cover only its metadata, objects and current br
 	git("worktree", "add", "--detach", peer);
 	const paths = devinGitWritePaths(lane);
 	const common = realpathSync(join(dir, ".git"));
+	const pushPaths = [
+		`${common}/push-code/**`,
+		`${common}/push-queue/**`,
+		`${common}/push-queue.lock`,
+		`${common}/push-results/**`,
+		`${common}/refs/remotes/origin/main`,
+		`${common}/refs/remotes/origin/main.lock`,
+		`${common}/logs/refs/remotes/origin/main`,
+		`${common}/ci-completion.log`,
+	];
 	expect(paths).toEqual([
 		`${common}/worktrees/lane/**`,
 		`${common}/objects/**`,
+		...pushPaths,
 		`${common}/refs/heads/lane`,
 		`${common}/refs/heads/lane.lock`,
 		`${common}/logs/refs/heads/lane`,
@@ -623,11 +657,14 @@ test("linked worktree Git grants cover only its metadata, objects and current br
 		`${common}/worktrees/peer`,
 		`${common}/hooks`,
 		`${common}/refs`,
+		`${common}/config`,
+		`${common}/packed-refs`,
 	])
 		expect(allows).not.toContain(`Write(${path}/**)`);
 	expect(devinGitWritePaths(peer)).toEqual([
 		`${common}/worktrees/peer/**`,
 		`${common}/objects/**`,
+		...pushPaths,
 	]);
 	expect(devinGitWritePaths(dir)).toEqual([]);
 	const block = (command: string, workdir = lane) =>
@@ -751,7 +788,7 @@ test("Devin conversation exports are ignored even beside a tracked brief", () =>
 	git("check-ignore", "example.devin.atif.json");
 });
 
-test("sandbox Git identity excludes credential helpers and keeps ordinary Git commands usable", () => {
+test("sandbox Git identity excludes inherited helper scripts and uses only the macOS Keychain helper", () => {
 	const { dir, git } = gitFixture();
 	git("config", "user.name", "Example Author");
 	git("config", "user.email", "author@example.invalid");
@@ -761,7 +798,10 @@ test("sandbox Git identity excludes credential helpers and keeps ordinary Git co
 	const text = readFileSync(config, "utf8");
 	expect(text).toContain("Example Author");
 	expect(text).toContain("author@example.invalid");
-	expect(text).not.toContain("credential");
+	if (process.platform === "darwin") {
+		expect(text).toContain('[credential "https://github.com"]');
+		expect(text).toContain("helper = osxkeychain");
+	} else expect(text).not.toContain("credential");
 	expect(text).not.toContain("fictional-secret");
 	const status = spawnSync("git", ["status", "--short"], {
 		cwd: dir,

@@ -337,6 +337,13 @@ the permission profile allows its native session prefix and the selected
 profile's principal key without relying on the agent shell's PATH. Devin's
 Smart mode judges unmatched routine commands; explicit deny rules still apply.
 Headless permission rejections fail the lane even if Devin exits zero.
+Exec tool environment overrides are rejected; editor scripts and Git configuration
+cannot bypass the command-text fence through a separate environment field.
+Sandboxed lanes publish with `bun run push` through the shared queue. They
+use its single-lane path; train integration and automatic worktree cleanup
+require access to peer worktrees and stay outside the sandbox grant.
+On macOS, the sanitized Git config uses the fixed GitHub Keychain helper;
+credential files and inherited helper scripts remain excluded.
 The read-only smoke uses the existing Tedix CLI login; Devin MCP authorization
 is a separate step.
 

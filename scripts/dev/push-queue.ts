@@ -231,6 +231,7 @@ function requestShip() {
 }
 
 function startWeeklyWorktreeGc(commonDir: string) {
+	if (process.env.TEDIX_DEVIN_HEADLESS === "1") return;
 	const stamp = join(commonDir, "worktree-gc.stamp");
 	if (!gcDue(stamp)) return;
 	writeFileSync(stamp, `${new Date().toISOString()}\n`);
@@ -264,7 +265,11 @@ async function main() {
 	// Zero is understood by existing clients; priority never preempts the holder.
 	const arrival = process.argv.includes("--priority") ? 0 : Date.now();
 	const ticket = join(queueDir, `${arrival}-${process.pid}`);
-	const lane = expectedMain ? null : snapshotLane(process.cwd(), dryRun);
+	// A sandboxed lane cannot integrate or clean peer worktrees.
+	const lane =
+		expectedMain || process.env.TEDIX_DEVIN_HEADLESS === "1"
+			? null
+			: snapshotLane(process.cwd(), dryRun);
 	const resultsDir = join(commonDir, "push-results");
 	mkdirSync(resultsDir, { recursive: true });
 	const resultTicket = join(resultsDir, ticket.slice(queueDir.length + 1));
@@ -296,7 +301,7 @@ async function main() {
 		await Bun.sleep(POLL_MS);
 	}
 	held = true;
-	recoverTrainResults(process.cwd(), commonDir);
+	if (lane) recoverTrainResults(process.cwd(), commonDir);
 	const recovered = readResult(resultTicket);
 	if (recovered) {
 		rmSync(resultFile(resultTicket), { force: true });

@@ -38,7 +38,18 @@ export function devinGitWritePaths(cwd: string): string[] {
 			realpathSync(join(cwd, ".git"))
 	)
 		throw new Error("Cannot verify Devin worktree Git metadata");
-	const paths = [`${gitDir}/**`, `${commonDir}/objects/**`];
+	const paths = [
+		`${gitDir}/**`,
+		`${commonDir}/objects/**`,
+		`${commonDir}/push-code/**`,
+		`${commonDir}/push-queue/**`,
+		`${commonDir}/push-queue.lock`,
+		`${commonDir}/push-results/**`,
+		`${commonDir}/refs/remotes/origin/main`,
+		`${commonDir}/refs/remotes/origin/main.lock`,
+		`${commonDir}/logs/refs/remotes/origin/main`,
+		`${commonDir}/ci-completion.log`,
+	];
 	const branch = spawnSync("git", ["symbolic-ref", "-q", "HEAD"], {
 		cwd,
 		encoding: "utf8",
@@ -203,7 +214,7 @@ export function assertDevinProjectHooks(cwd: string) {
 	}
 }
 
-/** Keep Git usable without exposing credential helpers, includes or token-bearing config. */
+/** Keep Git usable without copying helper scripts, includes or token-bearing config. */
 export function writeDevinGitIdentity(path: string, cwd: string) {
 	writeFileSync(path, "", { mode: 0o600, flag: "wx" });
 	for (const key of ["user.name", "user.email"]) {
@@ -222,5 +233,21 @@ export function writeDevinGitIdentity(path: string, cwd: string) {
 		);
 		if (saved.status !== 0)
 			throw new Error("Cannot prepare Devin Git author identity");
+	}
+	// The macOS helper uses the existing Keychain; no credential file is exposed.
+	if (process.platform === "darwin") {
+		const saved = spawnSync(
+			"git",
+			[
+				"config",
+				"--file",
+				path,
+				"credential.https://github.com.helper",
+				"osxkeychain",
+			],
+			{ cwd, encoding: "utf8", timeout: 10_000 },
+		);
+		if (saved.status !== 0)
+			throw new Error("Cannot configure Devin Git Keychain access");
 	}
 }

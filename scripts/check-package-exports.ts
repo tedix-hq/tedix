@@ -75,7 +75,7 @@ function gitLsFiles(): string[] {
 		throw new Error(result.stderr || "git ls-files failed");
 	return result.stdout
 		.split("\n")
-		.filter(Boolean)
+		.filter(isSourceTextFile)
 		.filter((path) => existsSync(path) && statSync(path).isFile())
 		.sort();
 }
