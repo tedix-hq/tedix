@@ -20,7 +20,10 @@ import {
 	WORK_HIERARCHY_KIND_OVERRIDES,
 	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 } from "./tool-schema-overrides";
-import { runToolSchemaSync } from "./tool-schema-sync";
+import {
+	runToolSchemaSync,
+	planToolSchemaSyncProjection,
+} from "./tool-schema-sync";
 
 const TEST_ADMIN_APP_ID = "5eed0020-0000-4000-8000-000000000020";
 
@@ -1520,6 +1523,17 @@ describe("oRPC tool projection sync", () => {
 				readOnlyHint: false,
 				destructiveHint: false,
 			});
+		}
+	});
+
+	it("never projects Home-bound native closeout, including explicit repair", () => {
+		for (const options of [
+			{},
+			{ router: "workItems" },
+			{ endpoints: ["workItems/closeoutDelegated"] },
+		]) {
+			const plan = planToolSchemaSyncProjection(options, TEST_ADMIN_APP_ID);
+			expect(plan.endpoints).not.toContain("workItems/closeoutDelegated");
 		}
 	});
 
