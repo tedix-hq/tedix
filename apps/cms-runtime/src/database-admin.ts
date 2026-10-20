@@ -30,6 +30,7 @@ import {
 	MEDIA_BUCKET_ADMIN_PATH,
 	MEDIA_BUCKET_INTENT_HEADER,
 	CMS_SITE_ID_HEADER,
+	errorResponse,
 	jsonResponse,
 	isInternalCmsRequest,
 } from "./internal-admin-http";
@@ -153,13 +154,7 @@ export async function databaseStorageAdminResponse(args: {
 			storageState: result.rows.length > 0 ? "present" : "missing",
 		});
 	} catch (error) {
-		return jsonResponse(
-			{
-				ok: false,
-				error: error instanceof Error ? error.message : String(error),
-			},
-			{ status: 502 },
-		);
+		return errorResponse(502, "cms_storage_query_failed", error);
 	}
 }
 
@@ -315,13 +310,7 @@ export async function databaseSchemaDiagnosticResponse(args: {
 			].every((name) => coverageColumnNames.has(name)),
 		});
 	} catch (error) {
-		return jsonResponse(
-			{
-				ok: false,
-				error: error instanceof Error ? error.message : String(error),
-			},
-			{ status: 502 },
-		);
+		return errorResponse(502, "cms_schema_diagnostic_failed", error);
 	}
 }
 
@@ -439,13 +428,7 @@ export async function mediaBucketAdminResponse(args: {
 		} catch (error) {
 			if (error instanceof CmsRestoreFenceUnavailableError)
 				return cmsRestoreFenceResponse();
-			return jsonResponse(
-				{
-					success: false,
-					error: error instanceof Error ? error.message : String(error),
-				},
-				{ status: 502 },
-			);
+			return errorResponse(502, "cms_media_bucket_provision_failed", error);
 		}
 	}
 	try {
@@ -459,12 +442,6 @@ export async function mediaBucketAdminResponse(args: {
 		const result = await inspectCmsMediaBucket(config, slug);
 		return jsonResponse({ success: true, ...result });
 	} catch (error) {
-		return jsonResponse(
-			{
-				success: false,
-				error: error instanceof Error ? error.message : String(error),
-			},
-			{ status: 502 },
-		);
+		return errorResponse(502, "cms_media_bucket_request_failed", error);
 	}
 }
