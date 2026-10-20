@@ -30,7 +30,49 @@ WHEN (NEW.`target_type` IS NOT OLD.`target_type` OR NEW.`target_id` IS NOT OLD.`
   AND r.revision=json_extract(NEW.metadata,'$.cardRevision') AND r.body=json_extract(NEW.metadata,'$.cardContent')
   AND json_valid(r.instruction) AND json(r.instruction)=json(json_extract(NEW.metadata,'$.curation'))
   AND ((r.cause='agent_rewrite' AND OLD.status='open') OR (r.cause='restore' AND json_extract(OLD.metadata,'$.curation.schema')='tedix.deck-curation.v1'))
-  AND ((r.proposal IS NULL AND json_extract(NEW.metadata,'$.proposal') IS json_extract(OLD.metadata,'$.proposal')) OR (r.proposal IS NOT NULL AND json(r.proposal) IS json(json_extract(NEW.metadata,'$.proposal'))))))
+  AND ((r.proposal IS NULL AND json_extract(NEW.metadata,'$.proposal') IS json_extract(OLD.metadata,'$.proposal')) OR (r.proposal IS NOT NULL AND json(r.proposal) IS json(json_extract(NEW.metadata,'$.proposal')))))) AND NOT (NEW.id IS OLD.id
+ AND NEW.org_id IS OLD.org_id
+ AND NEW.work_item_id IS OLD.work_item_id
+ AND NEW.case_id IS OLD.case_id
+ AND NEW.project_id IS OLD.project_id
+ AND NEW.kind IS OLD.kind
+ AND NEW.subject IS OLD.subject
+ AND NEW.prompt IS OLD.prompt
+ AND NEW.creator_type IS OLD.creator_type
+ AND NEW.creator_id IS OLD.creator_id
+ AND NEW.creator_session_id IS OLD.creator_session_id
+ AND NEW.creator_external_session_key IS OLD.creator_external_session_key
+ AND NEW.target_type IS OLD.target_type
+ AND NEW.target_id IS OLD.target_id
+ AND NEW.due_at IS OLD.due_at
+ AND NEW.expires_at IS OLD.expires_at
+ AND NEW.created_at IS OLD.created_at
+ AND OLD.target_type='user' AND OLD.status='open' AND NEW.status='expired'
+ AND NEW.version=OLD.version+1
+ AND NEW.resolution_fence IS NOT NULL AND NEW.resolution_fence IS NOT OLD.resolution_fence
+ AND NEW.resolved_at IS NULL AND NEW.cancelled_at IS NULL
+ AND NEW.expired_at=json_extract(NEW.metadata,'$.supersession.at')
+ AND julianday(NEW.expired_at)>=julianday(OLD.created_at)
+ AND json_remove(NEW.metadata,'$.supersession') IS json_remove(OLD.metadata,'$.supersession')
+ AND json_type(NEW.metadata,'$.supersession')='object'
+ AND json_type(NEW.metadata,'$.supersession.at')='text'
+ AND json_type(NEW.metadata,'$.supersession.supersededBy')='text'
+ AND json_extract(NEW.metadata,'$.supersession.reason')='newer_support_draft'
+ AND json_type(OLD.metadata,'$.supportTicketId')='text'
+ AND json_type(OLD.metadata,'$.supportVersion')='integer'
+ AND (json_extract(OLD.metadata,'$.source')='support-draft' OR (
+  json_extract(OLD.metadata,'$.source')='night-source-adapter'
+  AND json_extract(OLD.metadata,'$.originalSource')='support-work-draft'
+  AND json_extract(OLD.metadata,'$.sourceKey')='support-draft:' || json_extract(OLD.metadata,'$.supportTicketId') || ':' || json_extract(OLD.metadata,'$.supportVersion')
+  AND json_extract(OLD.metadata,'$.decisionDeck.classId')='support.reply'
+  AND json_extract(OLD.metadata,'$.decisionDeck.kind')='outbound'))
+ AND EXISTS (SELECT 1 FROM work_interactions newer WHERE
+  newer.id=json_extract(NEW.metadata,'$.supersession.supersededBy')
+  AND newer.org_id=OLD.org_id AND newer.target_type=OLD.target_type AND newer.target_id=OLD.target_id
+  AND json_extract(newer.metadata,'$.source')='support-draft'
+  AND json_extract(newer.metadata,'$.supportTicketId')=json_extract(OLD.metadata,'$.supportTicketId')
+  AND json_type(newer.metadata,'$.supportVersion')='integer'
+  AND json_extract(newer.metadata,'$.supportVersion')>json_extract(OLD.metadata,'$.supportVersion')))
 BEGIN
  SELECT RAISE(ABORT,'invalid interaction delegation') WHERE
   OLD.`kind`<>'question' OR OLD.`status`<>'open' OR NEW.`status`<>'open' OR
