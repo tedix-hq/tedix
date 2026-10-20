@@ -56,24 +56,30 @@ import {
 	adoptDefaultPersonalConnection,
 	CredentialPreference,
 	CredentialScope,
-	auditOutboundAppRecord,
 	authedOs,
-	collectReferencedProviders,
-	discoverOutboundAppMetadataForAudit,
-	getUrlParam,
-	inferOAuthRegistrationMode,
-	inferOutboundConnectionType,
-	mapConnectionRecord,
-	loadExistingStaticOAuthProvider,
 	mcpOrAuthOs,
 	requireUserId,
 	resolveAdaptiveConnectUserToken,
 	resolveConnectionConsentScopes,
 	resolveCredentialChain,
+} from "./policy-resolution";
+import {
+	auditOutboundAppRecord,
+	discoverOutboundAppMetadataForAudit,
+} from "./provider-discovery";
+import {
+	collectReferencedProviders,
+	loadExistingStaticOAuthProvider,
+} from "./provider-registration";
+import {
+	getUrlParam,
+	inferOAuthRegistrationMode,
+	inferOutboundConnectionType,
+	mapConnectionRecord,
 	resolveProviderLogoUrl,
 	stringOrNull,
 	urlParamsArray,
-} from "./policy-resolution";
+} from "./url-and-scopes";
 
 // =============================================================================
 // PROCEDURES

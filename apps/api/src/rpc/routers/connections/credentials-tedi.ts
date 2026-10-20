@@ -38,13 +38,13 @@ import {
 	CredentialPreference,
 	CredentialScope,
 	authedOs,
-	composeApiKeyCredential,
-	mapConnectionRecord,
 	mcpOrAuthOs,
 	requireUserId,
 	resolveCredentialChain,
 	resolveTediTenantId,
 } from "./policy-resolution";
+import { composeApiKeyCredential } from "./provider-discovery";
+import { mapConnectionRecord } from "./url-and-scopes";
 
 export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 	.use(
