@@ -26,7 +26,7 @@ import {
 import { errorText } from "./format";
 import { TedixHomeClient } from "./home-client";
 import { type AuthResolution, withTimeout } from "./shared";
-import { resolveAgentSession } from "./work";
+import { resolveAgentSession } from "./work-identity";
 import {
 	createFileWorkAttemptStore,
 	type WorkAttemptStore,

@@ -16,21 +16,21 @@ import { readDelegations } from "./delegation-ledger";
 import { TedixHomeClient } from "./home-client";
 import { parseOptions } from "./options";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
+import { callConfiguredNativeTool, boardErrorFromValue } from "./work-native";
 import {
-	callConfiguredNativeTool,
 	attemptSessionLabel,
-	boardErrorFromValue,
 	contextBriefJson,
-	expiresToIso,
 	filterEvidenceRows,
 	principalLabel,
 	renderWorkAttemptsTable,
 	renderWorkEventsTable,
 	renderWorkEvidenceTable,
 	renderWorkItemsTable,
-	resolveAgentSession,
+} from "./work-render";
+import { expiresToIso } from "./work-queries";
+import { resolveAgentSession, WORK_EXIT_FAIL } from "./work-identity";
+import {
 	runWork,
-	WORK_EXIT_FAIL,
 	type WorkContext,
 	type WorkOptions,
 	workUsage,

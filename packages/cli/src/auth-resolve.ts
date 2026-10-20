@@ -30,7 +30,7 @@ import {
 } from "./oauth-provider";
 import type { AuthResolution, CliOptions } from "./shared";
 import { externalAgentSessionWorkspaces } from "./external-agent-store";
-import { resolveAgentSession } from "./work";
+import { resolveAgentSession } from "./work-identity";
 import { sessionWorkspaceDrift } from "./workspace-binding";
 
 export const RAW_API_KEY_MESSAGE =
