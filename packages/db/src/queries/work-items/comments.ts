@@ -11,6 +11,7 @@ import {
 	type WorkItemCorroboration,
 	type WorkItemCorroborationPrincipalType,
 	type WorkItemCorroborationStance,
+	workEvents,
 	workItemComments,
 	workItemCorroborations,
 	workItems,
@@ -25,6 +26,7 @@ export interface AddWorkItemCommentParams {
 	body: string;
 	metadata?: Record<string, JsonValue>;
 	createdAt: string;
+	recordActivity?: boolean;
 }
 
 export async function getWorkItemCommentById(
@@ -64,12 +66,32 @@ export async function addWorkItemComment(
 		throw new Error(
 			`Work Item ${params.workItemId} was not found in organization ${params.orgId}`,
 		);
-	return (
-		await db
-			.insert(workItemComments)
-			.values({ ...params, metadata: params.metadata ?? {} })
-			.returning()
-	)[0]!;
+	const { recordActivity, ...comment } = params;
+	const insert = db
+		.insert(workItemComments)
+		.values({ ...comment, metadata: params.metadata ?? {} })
+		.returning();
+	if (!recordActivity) return (await insert)[0]!;
+	if (!params.authorId)
+		throw new Error("Comment activity requires an authenticated author");
+	const [rows] = await db.batch([
+		insert,
+		db.insert(workEvents).values({
+			id: params.id,
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+			eventType: "comment",
+			actorType: params.authorType,
+			actorId: params.authorId,
+			payload: {
+				...params.metadata,
+				summary: params.body,
+				commentId: params.id,
+			},
+			occurredAt: params.createdAt,
+		}),
+	]);
+	return rows[0]!;
 }
 
 export async function addWorkItemCommentIfAbsent(

@@ -68,6 +68,7 @@ export const addCommentProcedure = authOs.addComment.handler(
 				orgId: workItem.orgId,
 				authorType: author.authorType,
 				authorId: author.authorId,
+				recordActivity: true,
 				body: input.body,
 				metadata:
 					author.metadata === undefined
