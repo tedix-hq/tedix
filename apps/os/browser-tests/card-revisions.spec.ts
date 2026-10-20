@@ -146,18 +146,39 @@ try {
 				.getByRole("button", { name: /^Keep original change/ })
 				.first()
 				.click();
-			await page.getByText("Version 3", { exact: true }).waitFor();
+			await page.getByText("Version 3", { exact: true }).first().waitFor();
 			await page.getByText("(Original kept)", { exact: true }).waitFor();
 			if (screenshotDirectory)
 				await page.screenshot({
 					path: `${screenshotDirectory}/card-revisions-${width}-${theme}.png`,
 					fullPage: true,
 				});
+			await page.getByRole("button", { name: "Versions", exact: true }).click();
 			await page.getByText("Version history", { exact: true }).click();
+			await page
+				.getByRole("spinbutton", { name: "Compare from version" })
+				.fill("1");
+			await page
+				.getByRole("spinbutton", { name: "Compare to version" })
+				.fill("2");
+			const comparison = page.getByLabel("Version comparison");
+			assert.equal(
+				await comparison.locator("p").first().textContent(),
+				original,
+			);
+			assert.equal(await comparison.locator("p").last().textContent(), revised);
+			if (screenshotDirectory)
+				await page.screenshot({
+					path: `${screenshotDirectory}/deck-feedback-${width}-${theme}-versions.png`,
+					fullPage: true,
+				});
 			await page
 				.getByRole("button", { name: "Restore version 1", exact: true })
 				.click();
-			await page.getByText("Version 4", { exact: true }).waitFor();
+			await page
+				.getByRole("button", { name: "Close decision context", exact: true })
+				.click();
+			await page.getByText("Version 4", { exact: true }).first().waitFor();
 			const card = page.getByRole("region", {
 				name: "Send Morgan the use-case email?",
 			});
