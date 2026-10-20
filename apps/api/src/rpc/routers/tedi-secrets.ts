@@ -8,7 +8,6 @@
 
 import { implement } from "@orpc/server";
 import { tediSecretsContract } from "@tedix/api-contract/contracts/tedi-secrets";
-import { isPlatformAdmin } from "@tedix/auth/types";
 import {
 	deleteTediSecret as deleteTediSecretQuery,
 	getTediSecret,
@@ -16,7 +15,6 @@ import {
 	listTediSecrets as listTediSecretsQuery,
 	upsertTediSecret,
 } from "@tedix/db/queries/tedi-secrets";
-import { getTediById } from "@tedix/db/queries/tedis";
 import {
 	decryptTediSecret,
 	encryptTediSecret,
@@ -24,7 +22,6 @@ import {
 } from "@tedix/db/utils/secrets-encryption";
 import { buildRuntimeUrl } from "@tedix/db/utils/tedi-routing";
 import { buildProvisioningConfig, invalidateConfig } from "@tedix/provisioning";
-import { requireOrgId } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -32,6 +29,7 @@ import {
 	ErrorCodes,
 	withAuth,
 } from "../orpc";
+import { requireTediAccess, type TediAccessPolicy } from "../tedi-access";
 
 const tediSecretsOs = implement(tediSecretsContract).$context<BaseContext>();
 const authedOs = tediSecretsOs.use(withAuth);
@@ -58,21 +56,16 @@ function shouldRefreshRuntimeForSecret(name: string): boolean {
 	return CHANNEL_RUNTIME_SECRETS.has(name) || MODEL_RUNTIME_SECRETS.has(name);
 }
 
-async function requireTediAccess(context: BaseContext, tediId: string) {
-	const orgId = requireOrgId(context);
-	const tedi = await getTediById(context.db, tediId);
-	if (!tedi) throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
-	if (tedi.organizationId !== orgId) {
-		if (isPlatformAdmin(context.user)) {
-			console.log(
-				`[Auth] Platform admin cross-org access: tedi-secrets for tedi=${tediId}`,
-			);
-		} else {
-			throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
-		}
-	}
-	return tedi;
-}
+/**
+ * Secrets are tenant-bound; only the human `platform-admin` role reaches
+ * another organization's tedi. Platform API keys, M2M tokens and
+ * `platform:admin` tedis are deliberately confined to their own tenant here.
+ */
+export const TEDI_SECRETS_TEDI_ACCESS: TediAccessPolicy = {
+	scope: "organization",
+	missingOrganizationCode: "FORBIDDEN",
+	platformAuthority: "platform-admin-role",
+};
 
 /**
  * Fire-and-forget runtime refresh for a tedi Worker.
@@ -125,7 +118,7 @@ function getMasterKey(env: CloudflareEnv): string {
 export const listTediSecrets = authedOs.list
 	.use(AUTHZ.secretsRead)
 	.handler(async ({ input, context }) => {
-		await requireTediAccess(context, input.tediId);
+		await requireTediAccess(context, input.tediId, TEDI_SECRETS_TEDI_ACCESS);
 
 		const secrets = await listTediSecretsQuery(context.db, input.tediId);
 		return {
@@ -142,7 +135,11 @@ export const listTediSecrets = authedOs.list
 export const setTediSecret = authedOs.set
 	.use(AUTHZ.secretsWrite)
 	.handler(async ({ input, context }) => {
-		const tedi = await requireTediAccess(context, input.tediId);
+		const tedi = await requireTediAccess(
+			context,
+			input.tediId,
+			TEDI_SECRETS_TEDI_ACCESS,
+		);
 		const masterKey = getMasterKey(context.env);
 
 		const encryptedValue = await encryptTediSecret(
@@ -182,8 +179,16 @@ export const setTediSecret = authedOs.set
 export const copyTediSecret = authedOs.copy
 	.use(AUTHZ.secretsWrite)
 	.handler(async ({ input, context }) => {
-		await requireTediAccess(context, input.sourceTediId);
-		const targetTedi = await requireTediAccess(context, input.tediId);
+		await requireTediAccess(
+			context,
+			input.sourceTediId,
+			TEDI_SECRETS_TEDI_ACCESS,
+		);
+		const targetTedi = await requireTediAccess(
+			context,
+			input.tediId,
+			TEDI_SECRETS_TEDI_ACCESS,
+		);
 		const source = await getTediSecret(
 			context.db,
 			input.sourceTediId,
@@ -231,7 +236,11 @@ export const copyTediSecret = authedOs.copy
 export const deleteTediSecretProcedure = authedOs.delete
 	.use(AUTHZ.secretsWrite)
 	.handler(async ({ input, context }) => {
-		const tedi = await requireTediAccess(context, input.tediId);
+		const tedi = await requireTediAccess(
+			context,
+			input.tediId,
+			TEDI_SECRETS_TEDI_ACCESS,
+		);
 
 		// Verify secret belongs to this tedi
 		const existing = await getTediSecretById(context.db, input.secretId);

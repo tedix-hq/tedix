@@ -37,7 +37,6 @@ import {
 	demoteActiveHarnessVersions,
 	recordHarnessVersion,
 } from "@tedix/db/queries/harness-version/versions";
-import { getTediById } from "@tedix/db/queries/tedis";
 import {
 	getActiveHarnessVersion,
 	getHarnessVersionById,
@@ -55,6 +54,7 @@ import {
 	withAuth,
 } from "../orpc";
 import { auditActor, emitAuditEvent } from "../audit-helpers";
+import { requireTediAccess, type TediAccessPolicy } from "../tedi-access";
 import {
 	KERNEL_TRACE_BUNDLE_FILE_NAMES,
 	kernelTraceBundlePrefix,
@@ -166,40 +166,15 @@ export function stampHarnessEvalRecorder(
 	};
 }
 
-export function canAccessHarnessTedi(
-	context: BaseContext,
-	tedi: { id: string; organizationId: string },
-): boolean {
-	if (context.tediId) return context.tediId === tedi.id;
-	if (
-		context.organizationId &&
-		tedi.organizationId === context.organizationId
-	) {
-		return true;
-	}
-	return isPlatformPrincipal(context);
-}
-
-async function requireTediAccess(context: BaseContext, tediId: string) {
-	const tedi = await getTediById(context.db, tediId);
-	if (!tedi) {
-		throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
-	}
-	if (!canAccessHarnessTedi(context, tedi)) {
-		if (
-			!context.organizationId &&
-			!context.tediId &&
-			!isPlatformPrincipal(context)
-		) {
-			throw createError(
-				ErrorCodes.UNAUTHORIZED,
-				"Organization context required",
-			);
-		}
-		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
-	}
-	return tedi;
-}
+/**
+ * A tedi JWT reaches only its own ledger; org-scoped scorers reach their
+ * organization's tedis; platform principals record cross-org scorer evidence.
+ */
+export const HARNESS_TEDI_ACCESS: TediAccessPolicy = {
+	scope: "principal",
+	tediIdentity: "exclusive",
+	platformAuthority: "platform-principal",
+};
 
 export function harnessVersionBelongsToTedi(
 	tedi: { id: string; organizationId: string },
@@ -216,7 +191,7 @@ async function requireHarnessVersionAccess(
 	tediId: string,
 	harnessVersionId: string,
 ) {
-	const tedi = await requireTediAccess(context, tediId);
+	const tedi = await requireTediAccess(context, tediId, HARNESS_TEDI_ACCESS);
 	const version = await getHarnessVersionById(context.db, harnessVersionId);
 	if (!version) {
 		throw createError(ErrorCodes.NOT_FOUND, "Harness version not found");
@@ -424,7 +399,11 @@ export const harnessContractRouter = harnessOs.router({
 	ensureActiveHarnessVersion: authed.ensureActiveHarnessVersion
 		.use(AUTHZ.tedisWrite)
 		.handler(async ({ context, input }) => {
-			const tedi = await requireTediAccess(context, input.tediId);
+			const tedi = await requireTediAccess(
+				context,
+				input.tediId,
+				HARNESS_TEDI_ACCESS,
+			);
 			const orgId = input.orgId ?? tedi.organizationId;
 
 			const active = await getActiveHarnessVersion(context.db, input.tediId);
@@ -482,7 +461,7 @@ export const harnessContractRouter = harnessOs.router({
 	getActiveHarnessVersion: authed.getActiveHarnessVersion
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			await requireTediAccess(context, input.tediId);
+			await requireTediAccess(context, input.tediId, HARNESS_TEDI_ACCESS);
 			const version = await getActiveHarnessVersion(context.db, input.tediId);
 			return { version };
 		}),
@@ -490,7 +469,7 @@ export const harnessContractRouter = harnessOs.router({
 	listHarnessVersions: authed.listHarnessVersions
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			await requireTediAccess(context, input.tediId);
+			await requireTediAccess(context, input.tediId, HARNESS_TEDI_ACCESS);
 			const versions = await listHarnessVersions(context.db, {
 				tediId: input.tediId,
 				promotionStatus: input.promotionStatus,
@@ -503,7 +482,7 @@ export const harnessContractRouter = harnessOs.router({
 	compareHarnessVersions: authed.compareHarnessVersions
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			await requireTediAccess(context, input.tediId);
+			await requireTediAccess(context, input.tediId, HARNESS_TEDI_ACCESS);
 			const candidate = await getHarnessVersionById(
 				context.db,
 				input.candidateHarnessVersionId,
@@ -560,7 +539,7 @@ export const harnessContractRouter = harnessOs.router({
 	listTraceBundles: authed.listTraceBundles
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			await requireTediAccess(context, input.tediId);
+			await requireTediAccess(context, input.tediId, HARNESS_TEDI_ACCESS);
 			const bundles = await listTraceBundles(context.db, {
 				tediId: input.tediId,
 				runId: input.runId,
@@ -608,7 +587,7 @@ export const harnessContractRouter = harnessOs.router({
 	listEvalResults: authed.listEvalResults
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			await requireTediAccess(context, input.tediId);
+			await requireTediAccess(context, input.tediId, HARNESS_TEDI_ACCESS);
 			const results = await listEvalResults(context.db, {
 				tediId: input.tediId,
 				harnessVersionId: input.harnessVersionId,
@@ -722,7 +701,7 @@ export const harnessContractRouter = harnessOs.router({
 	listEvalRuns: authed.listEvalRuns
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ context, input }) => {
-			await requireTediAccess(context, input.tediId);
+			await requireTediAccess(context, input.tediId, HARNESS_TEDI_ACCESS);
 			const runs = await listEvalRuns(context.db, {
 				tediId: input.tediId,
 				harnessVersionId: input.harnessVersionId,
@@ -742,7 +721,7 @@ export const harnessContractRouter = harnessOs.router({
 				input.harnessVersionId,
 			);
 			if (!version) return { decision: null };
-			await requireTediAccess(context, version.tediId);
+			await requireTediAccess(context, version.tediId, HARNESS_TEDI_ACCESS);
 			const decision = await promoteHarnessVersion(
 				context.db,
 				input.harnessVersionId,

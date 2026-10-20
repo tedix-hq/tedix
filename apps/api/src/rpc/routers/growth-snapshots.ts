@@ -15,16 +15,8 @@ import {
 	getLatestGrowthSnapshot,
 	listGrowthSnapshots,
 } from "@tedix/db/queries/growth-snapshots";
-import { getTediById } from "@tedix/db/queries/tedis";
-import { requireOrgId } from "../org-scope";
-import {
-	AUTHZ,
-	type BaseContext,
-	createError,
-	ErrorCodes,
-	withAuth,
-	withServiceAuth,
-} from "../orpc";
+import { AUTHZ, type BaseContext, withAuth, withServiceAuth } from "../orpc";
+import { requireTediAccess, type TediAccessPolicy } from "../tedi-access";
 
 // =============================================================================
 // IMPLEMENTER
@@ -37,23 +29,12 @@ const authOs = growthOs.use(withAuth);
 // HELPERS
 // =============================================================================
 
-async function requireTediAccess(
-	context: BaseContext,
-	tediId: string,
-): Promise<{ tediId: string; orgId: string }> {
-	const orgId = requireOrgId(context);
-	const tedi = await getTediById(context.db, tediId);
-
-	if (!tedi) {
-		throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
-	}
-
-	if (tedi.organizationId !== orgId) {
-		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
-	}
-
-	return { tediId: tedi.id, orgId: tedi.organizationId };
-}
+/** Strictly tenant-bound: no authority reads another organization's snapshots. */
+export const GROWTH_SNAPSHOTS_TEDI_ACCESS: TediAccessPolicy = {
+	scope: "organization",
+	missingOrganizationCode: "FORBIDDEN",
+	platformAuthority: "none",
+};
 
 // =============================================================================
 // PROCEDURES
@@ -66,14 +47,18 @@ async function requireTediAccess(
 const listProcedure = authOs.list
 	.use(AUTHZ.memoryRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const tedi = await requireTediAccess(
+			context,
+			input.tediId,
+			GROWTH_SNAPSHOTS_TEDI_ACCESS,
+		);
 
 		const limit = input.limit ?? 52;
 		const offset = input.offset ?? 0;
 
 		const { data, total } = await listGrowthSnapshots(
 			context.db,
-			access.tediId,
+			tedi.id,
 			limit,
 			offset,
 		);
@@ -96,9 +81,13 @@ const listProcedure = authOs.list
 const latestProcedure = authOs.latest
 	.use(AUTHZ.memoryRead)
 	.handler(async ({ input, context }) => {
-		const access = await requireTediAccess(context, input.tediId);
+		const tedi = await requireTediAccess(
+			context,
+			input.tediId,
+			GROWTH_SNAPSHOTS_TEDI_ACCESS,
+		);
 
-		const snapshot = await getLatestGrowthSnapshot(context.db, access.tediId);
+		const snapshot = await getLatestGrowthSnapshot(context.db, tedi.id);
 
 		return snapshot ?? null;
 	});

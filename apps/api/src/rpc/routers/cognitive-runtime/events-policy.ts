@@ -46,13 +46,12 @@ import {
 } from "@tedix/db/queries/runtime-submissions/phase-transitions";
 import { bodyExecutionUsageFromRecord } from "@tedix/api-contract/utils/body-execution-result";
 import { cognitiveRuntimeContract } from "@tedix/api-contract/contracts/cognitive-runtime";
+import { updateTediRuntimeActivity } from "@tedix/db/queries/tedis";
 import {
-	getTediById,
-	updateTediRuntimeActivity,
-} from "@tedix/db/queries/tedis";
-import { getTrustedMcpHostAppContext } from "../../mcp-host-context";
+	requireTediAccess as requireTediAccessUnderPolicy,
+	type TediAccessPolicy,
+} from "../../tedi-access";
 import { implement } from "@orpc/server";
-import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	kernelSubmissionId,
 	recordTediSubmissionStarted,
@@ -424,29 +423,23 @@ export function normalizeMessageAttachments<
 	})) as T;
 }
 
-export async function requireTediAccess(context: BaseContext, tediId: string) {
-	const tedi = await getTediById(context.db, tediId);
-	if (!tedi) {
-		throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
-	}
-	const mcpHostApp = getTrustedMcpHostAppContext(context);
-	const platformPrincipal =
-		isPlatformPrincipal(context) ||
-		mcpHostApp.appSlug === PLATFORM_OPERATOR_MCP_APP_SLUG;
-	if (context.tediId && context.tediId !== tediId && !platformPrincipal) {
-		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
-	}
-	if (
-		context.organizationId &&
-		tedi.organizationId !== context.organizationId &&
-		!platformPrincipal
-	) {
-		throw createError(ErrorCodes.FORBIDDEN, "Access denied to this tedi");
-	}
-	if (!context.organizationId && !context.tediId && !platformPrincipal) {
-		throw createError(ErrorCodes.UNAUTHORIZED, "Organization context required");
-	}
-	return tedi;
+/**
+ * A tedi reaches only itself and its organization must own the target, unless
+ * the caller is a platform principal or the trusted operator MCP host app.
+ */
+export const COGNITIVE_RUNTIME_TEDI_ACCESS: TediAccessPolicy = {
+	scope: "principal",
+	tediIdentity: "self-or-platform",
+	platformAuthority: "platform-principal",
+	platformOperatorMcpAppSlug: PLATFORM_OPERATOR_MCP_APP_SLUG,
+};
+
+export function requireTediAccess(context: BaseContext, tediId: string) {
+	return requireTediAccessUnderPolicy(
+		context,
+		tediId,
+		COGNITIVE_RUNTIME_TEDI_ACCESS,
+	);
 }
 
 export function normalizeRuntimeRef(row: {

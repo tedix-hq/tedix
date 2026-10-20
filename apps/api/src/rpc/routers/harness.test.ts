@@ -21,7 +21,6 @@ import { describe, expect, test } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import {
 	canAccessHarnessKernelSubject,
-	canAccessHarnessTedi,
 	componentsEqual,
 	diffHarnessComponents,
 	harnessContractRouter,
@@ -171,56 +170,6 @@ describe("nextVersionString", () => {
 	test("falls back to 1 for an unparseable (e.g. semver) version", () => {
 		expect(nextVersionString("1.4.0")).toBe("2");
 		expect(nextVersionString("v3")).toBe("1");
-	});
-});
-
-describe("canAccessHarnessTedi", () => {
-	test("allows the target tedi JWT only for its own ledger", () => {
-		expect(
-			canAccessHarnessTedi(context({ tediId: "tedi-target" }), targetTedi),
-		).toBe(true);
-		expect(
-			canAccessHarnessTedi(
-				context({
-					apiKey: { id: "key-1", organizationId: "org-target", name: "key" },
-					tediId: "other-tedi",
-				}),
-				targetTedi,
-			),
-		).toBe(false);
-	});
-
-	test("allows org-scoped scorers inside the target org", () => {
-		expect(
-			canAccessHarnessTedi(
-				context({ organizationId: "org-target" }),
-				targetTedi,
-			),
-		).toBe(true);
-		expect(
-			canAccessHarnessTedi(
-				context({ organizationId: "org-other" }),
-				targetTedi,
-			),
-		).toBe(false);
-	});
-
-	test("allows platform principals to record cross-org scorer evidence", () => {
-		expect(
-			canAccessHarnessTedi(
-				context({
-					apiKey: {
-						id: "key-platform",
-						organizationId: "org-platform",
-						name: "platform harness scorer",
-						scopes: ["platform:admin"],
-					},
-					authType: "apikey",
-					organizationId: "org-platform",
-				}),
-				targetTedi,
-			),
-		).toBe(true);
 	});
 });
 
