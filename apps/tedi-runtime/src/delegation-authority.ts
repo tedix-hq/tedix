@@ -31,6 +31,7 @@ export const COMPUTER_TOOL_CAPABILITIES = {
 } as const;
 
 const SUPERVISED_DELEGATION_EXACT_TOOLS = new Set([
+	"close_completed_work_item",
 	...Object.keys(COMPUTER_TOOL_CAPABILITIES),
 	"list_work_approval_inbox",
 	"decide_work_approval",

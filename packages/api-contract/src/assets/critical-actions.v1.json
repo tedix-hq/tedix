@@ -10,6 +10,7 @@
 		"browser_read_result"
 	],
 	"nativeMediumRiskTools": [
+		"close_completed_work_item",
 		"write",
 		"edit",
 		"artifact_write",

@@ -150,6 +150,7 @@ import {
 import { wrapUntrustedInput } from "./untrusted-input";
 import { withTimeout } from "./with-timeout";
 import { createWorkApprovalAiTools as workAiTools } from "./work-approval-tools";
+import { delegatedWorkTools } from "./delegated-work-tools";
 import {
 	type WorkflowImageRef,
 	workflowImageUri,
@@ -984,6 +985,17 @@ export const runtimeFacetTurns = {
 			...this.workspaceAiTools(computerScope, computerTurnContext),
 			...(mcpRuntime ? tedixMcpAITools(mcpRuntime, turnBinding) : {}),
 			...workAiTools(() => this.getPlatformClient()),
+			...(supervised &&
+			input.homeRunId &&
+			input.workItemId &&
+			input.capabilityPlan?.allowedToolIds.includes("close_completed_work_item")
+				? delegatedWorkTools({
+						getPlatform: () => this.getPlatformClient(),
+						homeRunId: input.homeRunId,
+						runId: input.runId,
+						linkedWorkItemId: input.workItemId,
+					})
+				: {}),
 			...this.browserAiTools(computerScope, turnBinding),
 			...this.skillReadTool(turnBinding),
 			...this.durableCodemodeAiTools(computerScope, turnBinding),
