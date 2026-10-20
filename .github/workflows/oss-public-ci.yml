@@ -1,9 +1,8 @@
 name: OSS Public CI
 
 on:
-  # `verify` runs on every push to main and every pull request. The heavier
-  # jobs run on pull requests, the release lane (workflow_call) and dispatch.
-  # Automatic runs are skipped in a private repository.
+  # Main pushes are certified by full-suite-hourly.yml. Contributor and
+  # release checks stay here; automatic jobs skip private repositories.
   push:
     branches: [main]
     paths-ignore:
@@ -37,8 +36,7 @@ jobs:
     # The same change-scoped gates the pre-push hook runs.
     if: >-
       github.event.repository.private == false &&
-      (github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.FULL_SUITE_RUNNER_LABELS == ''))
+      github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

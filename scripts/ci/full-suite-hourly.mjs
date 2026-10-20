@@ -98,14 +98,16 @@ if (
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
 	const env = process.env;
-	const runners = JSON.parse(env.FULL_SUITE_RUNNER_LABELS || "null");
+	const runners = JSON.parse(
+		env.FULL_SUITE_RUNNER_LABELS || '["ubuntu-latest"]',
+	);
 	if (
 		!Array.isArray(runners) ||
 		!runners.length ||
 		runners.some((label) => typeof label !== "string" || !label.trim())
 	)
 		throw new Error(
-			"Set FULL_SUITE_RUNNER_LABELS to the existing Cloudflare runner labels as a JSON array",
+			"FULL_SUITE_RUNNER_LABELS must be a nonempty JSON array of runner labels",
 		);
 	const skip = await alreadyPassed({
 		repository: env.GITHUB_REPOSITORY,

@@ -8,12 +8,12 @@ public docs, generated types, migration validation, builds, licenses and lint.
 The latest successful certification of the same SHA can be reused by the hourly
 run. A newer failed or pending run prevents reuse of an older success.
 
-Set `FULL_SUITE_RUNNER_LABELS` to the existing Cloudflare runner labels as a JSON
-array. No labels are invented or silently replaced with billed runners. The
-planner fails explicitly without labels; workspace/repository shards use them.
-The planner and aggregate use short GitHub-hosted public-repository jobs.
-Once labels exist, this workflow replaces the old scoped push CI; release and
-pull-request certification remain in `oss-public-ci.yml`.
+Workspace and repository shards default to GitHub-hosted `ubuntu-latest`.
+Standard hosted runners are free for this public repository. Set
+`FULL_SUITE_RUNNER_LABELS` to a JSON array to override the runner labels.
+A self-hosted Cloudflare pool is a later optimization, not a rollout dependency.
+This workflow replaces the old scoped push CI; release and pull-request
+certification remain in `oss-public-ci.yml`.
 
 The local hook defaults to its complete gate during rollout. Only after the
 operator proves runners, failure reporting, and green-only deployment should
