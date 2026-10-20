@@ -12,6 +12,7 @@
  * wrapped as inert untrusted data, admitted against the subscription's hourly
  * wake budget, and only then queued for the normal skill dispatch outbox.
  */
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { ProviderEventChannelRow } from "@tedix/db/schema/provider-events";
 import {
 	addProviderEventDelivery,
@@ -57,10 +58,6 @@ export type McpEventIngestOutcome =
 	| "duplicate"
 	| "rate_limited"
 	| "rejected";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * The upstream endpoint and auth of the subscription's app. Only an enabled

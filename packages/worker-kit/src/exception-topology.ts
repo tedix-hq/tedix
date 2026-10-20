@@ -1,24 +1,21 @@
-import {
-	serializeException,
-	type SerializedException,
-} from "@tedix/worker-kit/logger";
+import { serializeException, type SerializedException } from "./logger";
 
-type ExceptionTopology = {
+export type ExceptionTopology = Readonly<{
 	type: string;
 	cause?: ExceptionTopology;
-	errors?: ExceptionTopology[];
+	errors?: readonly ExceptionTopology[];
 	truncated?: true;
-};
+}>;
 
 const SAFE_EXCEPTION_TYPES = new Set([
 	"Error",
-	"AggregateError",
 	"TypeError",
 	"RangeError",
 	"ReferenceError",
 	"SyntaxError",
 	"URIError",
 	"EvalError",
+	"AggregateError",
 	"DOMException",
 	"NullThrown",
 	"FunctionThrown",
@@ -28,14 +25,15 @@ const SAFE_EXCEPTION_TYPES = new Set([
 	"UninspectableThrown",
 ]);
 
-/** Retain bounded cause structure without request, credential or error text. */
 export function exceptionTopology(error: unknown): ExceptionTopology {
 	const project = (exception: SerializedException): ExceptionTopology => ({
 		type: SAFE_EXCEPTION_TYPES.has(exception.type)
 			? exception.type
 			: "UnknownThrown",
 		...(exception.cause && { cause: project(exception.cause) }),
-		...(exception.errors && { errors: exception.errors.map(project) }),
+		...(exception.errors && {
+			errors: exception.errors.map(project),
+		}),
 		...(exception.truncated && { truncated: true }),
 	});
 	return project(serializeException(error));

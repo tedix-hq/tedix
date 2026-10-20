@@ -12,7 +12,7 @@
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { validateUrl } from "@tedix/ssrf-guard";
 import { WORKSTATION_RUNTIME_EVENT_SHAPE_VERSION } from "./event-shape";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 type EgressDecisionKind = "allow" | "deny";
 

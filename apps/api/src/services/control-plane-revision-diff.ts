@@ -1,11 +1,6 @@
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { ControlPlaneDiffEntry } from "@tedix/api-contract/schemas/control-plane";
-
-function isRecord(
-	value: JsonValue | undefined,
-): value is Record<string, JsonValue> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function equalJson(
 	left: JsonValue | undefined,

@@ -1,4 +1,4 @@
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 /** Inbound mail and provider failures can contain addresses and login links. */
 export function logInboundEmailPersistenceFailure(error: unknown): void {

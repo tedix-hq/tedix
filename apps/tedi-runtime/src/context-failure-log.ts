@@ -1,5 +1,5 @@
 import type { ContextSegmentId } from "@tedix/context-core/context-catalog";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 type ContextFailureEvent =
 	| "tedi.context.addendum_failed"

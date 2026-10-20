@@ -5,7 +5,7 @@ import {
 	revokeCachedInstallationTokens,
 	type GitHubAppEnv,
 } from "./github-app";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 const BROKER_SERVICE = "tedi-workstation-egress-broker";
 const INTERNAL_HEADER_PREFIX = "x-tedix-workstation-egress-";

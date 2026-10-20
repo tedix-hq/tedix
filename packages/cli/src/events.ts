@@ -1,3 +1,4 @@
+import { sleep } from "@tedix/worker-kit/sleep";
 import {
 	HOME_RUN_EVENTS_START,
 	type HomeRunEvent,
@@ -28,24 +29,6 @@ const TRANSIENT_RE =
 function isTransient(error: unknown): boolean {
 	const msg = error instanceof Error ? error.message : String(error);
 	return TRANSIENT_RE.test(msg);
-}
-
-async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-	return new Promise<void>((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(new DOMException("Aborted", "AbortError"));
-			return;
-		}
-		const onAbort = () => {
-			clearTimeout(id);
-			reject(new DOMException("Aborted", "AbortError"));
-		};
-		const id = setTimeout(() => {
-			signal?.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
 }
 
 function clampBackoff(attempt: number): number {

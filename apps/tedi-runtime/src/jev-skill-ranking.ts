@@ -9,7 +9,7 @@ import {
 	type RetrievedSkillMatch,
 	type SelectRetrievedSkillsOptions,
 } from "@tedix/context-core/skill-retrieval";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 /** Optional service seam. Never broadens eligibility or the existing prompt top-K. */
 export async function selectSkillsWithJev(input: {

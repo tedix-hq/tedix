@@ -1,5 +1,5 @@
 import type { TediRuntimeEvent } from "@tedix/api-contract/schemas/cognitive-runtime";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import type { RuntimeEventOutbox } from "./runtime-event-outbox";
 
 export interface DurableCodemodeEventInput {

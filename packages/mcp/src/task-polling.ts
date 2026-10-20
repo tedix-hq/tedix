@@ -43,6 +43,7 @@
  *   Lenient mode (default, for arbitrary upstream servers) requires only a
  *   JSON object. States pushed by a subscription are always read leniently.
  */
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	McpCancelTaskResultSchema,
 	McpGetTaskResultSchema,
@@ -130,10 +131,6 @@ export type McpTaskPollOutcome =
 			inputRequests: Record<string, unknown>;
 	  }
 	| { status: "timeout"; state: McpTaskStateRecord | null };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function errorMessage(error: unknown): string {
 	if (error instanceof Error) return error.message;

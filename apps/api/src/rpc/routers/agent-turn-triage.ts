@@ -1,3 +1,4 @@
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { organizationModelEnv } from "../../services/unrouted-model-egress";
 /**
  * Agent-turn urgency triage.
@@ -690,10 +691,6 @@ export function replyDraftOwnerFrom(routing: {
 type InteractionRow = NonNullable<
 	Awaited<ReturnType<typeof getWorkInteraction>>
 >;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Why a question cannot be drafted, from the question alone. Mirrors the

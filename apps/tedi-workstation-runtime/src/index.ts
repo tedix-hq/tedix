@@ -8,7 +8,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 export { DirectoryBackupGateway } from "@cloudflare/sandbox";
 import { outboundEgressHandler } from "./egress";
 import { WORKSTATION_RUNTIME_EVENT_SHAPE_VERSION } from "./event-shape";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { workstationHealth } from "./health";
 import {
 	inspectRepositoryNative,

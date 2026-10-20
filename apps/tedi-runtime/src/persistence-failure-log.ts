@@ -1,4 +1,4 @@
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 type PersistenceFailureEvent =
 	| "tedi.trace.bundle_put_failed"

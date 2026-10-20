@@ -44,7 +44,7 @@ import {
 	type LedgerConversationRead,
 } from "./compaction-ledger";
 import type { DurableCodePause } from "./durable-codemode-lifecycle";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { loadTediSecrets } from "./platform-client-factory";
 
 const RUNTIME_BACKEND = "cloudflare-agents" as const;

@@ -1,5 +1,5 @@
 import type { ChatStreamHub } from "./chat-stream-hub";
-import { exceptionTopology } from "./exception-topology";
+import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 
 /** Finish a generated turn even when durable transcript bookkeeping fails. */
 export async function finalizeSuccessfulChatStream(input: {
