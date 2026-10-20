@@ -1,5 +1,37 @@
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
 
+/** MCP transports may wrap or objectify a Code Mode array. Never accept a clipped result. */
+function discoveryRows(value: unknown, depth = 0): unknown[] | null {
+	if (Array.isArray(value)) return value;
+	if (depth > 3) return null;
+	if (typeof value === "string") {
+		if (value.length > 300_000) return null;
+		try {
+			return discoveryRows(JSON.parse(value), depth + 1);
+		} catch {
+			return null;
+		}
+	}
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	if (record.__tedix_truncated === true) return null;
+	for (const key of ["result", "results", "data"]) {
+		if (!Object.hasOwn(record, key)) continue;
+		const rows = discoveryRows(record[key], depth + 1);
+		if (rows) return rows;
+	}
+	const keys = Object.keys(record).filter((key) => key !== "length");
+	if (!keys.length || keys.some((key) => !/^(0|[1-9]\d*)$/.test(key)))
+		return null;
+	keys.sort((a, b) => Number(a) - Number(b));
+	if (
+		keys.some((key, index) => Number(key) !== index) ||
+		(record.length !== undefined && record.length !== keys.length)
+	)
+		return null;
+	return keys.map((key) => record[key]);
+}
+
 export function assertNativeResearchCheckout(
 	plan: DelegationCapabilityPlan | undefined,
 	environment: { ready: boolean; preparation: string } | undefined,
@@ -35,17 +67,21 @@ export async function preflightDelegationTools(
 		throw new Error(
 			"Delegation preflight failed: invalid or excessive required callables",
 		);
-	const rows = await execute(
+	const result = await execute(
 		`async () => await Promise.all(${JSON.stringify(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`,
 	);
-	if (!Array.isArray(rows))
+	const rows = discoveryRows(result);
+	if (!rows)
 		throw new Error(
-			"Delegation preflight failed: tool authority could not be verified; return to Home",
+			`Delegation preflight failed: tool authority could not be verified (${typeof result}${result && typeof result === "object" ? ` keys=${Object.keys(result).slice(0, 6).join(",").slice(0, 200)}` : ""}); return to Home`,
 		);
 	return callables.map((callable) => {
 		const row = rows.find(
-			(value) =>
-				value && typeof value === "object" && value.callable === callable,
+			(value): value is Record<string, unknown> =>
+				!!value &&
+				typeof value === "object" &&
+				"callable" in value &&
+				value.callable === callable,
 		);
 		if (
 			!row ||
