@@ -81,7 +81,18 @@ const repoRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 
 const args = new Set(process.argv.slice(2));
 const runAll = args.has("--all");
-const pushRanges = parsePushRanges(process.argv.slice(2));
+// Train ranges only broaden the real push range supplied by Git's hook.
+const trainRangeArgs = JSON.parse(process.env.TEDIX_PUSH_TRAIN_RANGES || "[]");
+if (
+	!Array.isArray(trainRangeArgs) ||
+	trainRangeArgs.some((arg) => typeof arg !== "string")
+) {
+	throw new Error("invalid push train ranges");
+}
+const pushRanges = [
+	...parsePushRanges(process.argv.slice(2)),
+	...parsePushRanges(trainRangeArgs),
+];
 // The pre-push hook passes the push target's URL; `bun run verify` has none.
 const remoteUrlIndex = process.argv.indexOf("--remote-url");
 const remoteUrl =

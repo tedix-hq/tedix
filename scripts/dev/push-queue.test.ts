@@ -35,6 +35,15 @@ describe("push queue lock", () => {
 		expect(tryAcquire(file, STALE_MS + 1, () => true)).toBe(true);
 	});
 
+	test("a live train never times out during per-lane fallback; a dead one recovers", () => {
+		expect(
+			isStale({ pid: 1, startedAt: 0, train: true }, STALE_MS + 1, () => true),
+		).toBe(false);
+		expect(
+			isStale({ pid: 1, startedAt: 0, train: true }, STALE_MS + 1, () => false),
+		).toBe(true);
+	});
+
 	test("a fresh lock still being written is left alone", () => {
 		const file = join(tmp(), "lock");
 		writeFileSync(file, "");
