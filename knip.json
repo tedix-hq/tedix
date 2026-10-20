@@ -1,22 +1,43 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
-	"ignoreBinaries": ["tedix", "tsc", "vp", "wrangler"],
-	"ignoreDependencies": ["cloudflare"],
+	"ignoreBinaries": [
+		"tedix",
+		"tsc",
+		"vp",
+		"wrangler",
+		"sandbox-exec",
+		"xdg-open",
+		"codex"
+	],
+	"ignoreDependencies": [
+		"cloudflare",
+		"tailwindcss",
+		"tw-animate-css",
+		"@tailwindcss/typography",
+		"@cloudflare/containers",
+		"vite",
+		"vitest"
+	],
 	"tags": ["-internal"],
 	"workspaces": {
 		".": {
 			"entry": ["scripts/**/*.{ts,mjs}!"],
-			"project": ["scripts/**/*.{ts,mjs}!"]
+			"project": ["scripts/**/*.{ts,mjs}!"],
+			"ignoreUnresolved": ["scripts/run-local.ts"],
+			"ignoreDependencies": ["@cloudflare/kumo", "npm-check-updates"]
 		},
 		"apps/*": {
 			"entry": [
 				"src/{index,worker,main,server}.{ts,tsx}!",
 				"src/**/*.mjs!",
 				"scripts/**/*.{ts,mjs,js}!",
-				"eval/**/*.{ts,js}!"
+				"eval/**/*.{ts,js}!",
+				"src/pages/**/*.{astro,mdx,ts}!",
+				"src/layouts/**/*.astro!",
+				"cloudflare.config.ts!"
 			],
 			"project": [
-				"src/**/*.{ts,tsx,mjs}!",
+				"src/**/*.{ts,tsx,mjs,astro,mdx}!",
 				"scripts/**/*.{ts,mjs,js}!",
 				"eval/**/*.{ts,js}!"
 			]
@@ -29,10 +50,15 @@
 				"eval/**/*.{ts,js}!"
 			],
 			"project": ["src/**/*.ts!", "scripts/**/*.{ts,mjs,js}!", "eval/**/*.ts!"],
-			"ignoreFiles": ["src/rpc/public-rest-operations.ts"]
+			"ignoreFiles": ["src/rpc/public-rest-operations.ts"],
+			"ignoreUnresolved": ["src/index.ts"]
 		},
 		"apps/cms-runtime": {
-			"entry": ["src/emdash-virtual-stubs.ts!", "scripts/**/*.{ts,mjs,js}!"],
+			"entry": [
+				"src/emdash-virtual-stubs.ts!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"src/index.ts!"
+			],
 			"project": ["src/**/*.{ts,tsx}!", "scripts/**/*.{ts,mjs,js}!"]
 		},
 		"apps/mcp-ui": {
@@ -46,7 +72,11 @@
 		},
 		"apps/os": {
 			"project": ["src/**/*.{ts,tsx}!"],
-			"ignoreDependencies": ["@tedix/design-tokens", "tailwindcss"]
+			"ignoreDependencies": ["@tedix/design-tokens", "tailwindcss"],
+			"entry": ["src/worker.ts!"],
+			"vitest": {
+				"config": ["vitest*.config.ts"]
+			}
 		},
 		"apps/tedi-runtime": {
 			"entry": [
@@ -92,6 +122,67 @@
 				"scripts/**/*.{ts,mjs,js}!",
 				"conformance/**/*.{ts,mjs,js}!"
 			]
+		},
+		"apps/landing": {
+			"ignoreDependencies": ["@tedix/design-tokens"],
+			"entry": [
+				"src/{index,worker,main,server}.{ts,tsx}!",
+				"src/**/*.mjs!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!",
+				"src/pages/**/*.{astro,mdx,ts}!",
+				"src/layouts/**/*.astro!",
+				"cloudflare.config.ts!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx,mjs,astro,mdx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			]
+		},
+		"apps/cms": {
+			"ignore": ["templates/**"],
+			"entry": [
+				"src/{index,worker,main,server}.{ts,tsx}!",
+				"src/**/*.mjs!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!",
+				"src/pages/**/*.{astro,mdx,ts}!",
+				"src/layouts/**/*.astro!",
+				"cloudflare.config.ts!",
+				"astro-render.config.mjs!",
+				"tests-render/*.ts!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx,mjs,astro,mdx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			]
+		},
+		"apps/tedi": {
+			"entry": [
+				"src/{index,worker,main,server}.{ts,tsx}!",
+				"src/**/*.mjs!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!",
+				"src/pages/**/*.{astro,mdx,ts}!",
+				"src/layouts/**/*.astro!",
+				"cloudflare.config.ts!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx,mjs,astro,mdx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			],
+			"vitest": {
+				"config": ["vitest*.config.ts"]
+			}
+		},
+		"packages/webmcp-core": {
+			"entry": ["src/index.ts!", "src/spec-conformance.ts!"],
+			"project": ["src/**/*.ts!"]
 		}
-	}
+	},
+	"ignoreExportsUsedInFile": true,
+	"ignoreUnresolved": ["cloudflare:workers"]
 }
