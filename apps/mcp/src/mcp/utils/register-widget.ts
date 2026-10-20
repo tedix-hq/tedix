@@ -602,7 +602,15 @@ export async function registerWidgetTool(
 								uri: resourceUris.mcpApp,
 								mimeType: WIDGET_MIME_TYPES.MCP_APP,
 								text: html,
-								_meta: buildMcpAppResourceMeta(tool, csp, widgetDomain),
+								// Match the generated layout resource template's border preference.
+								_meta: buildMcpAppResourceMeta(
+									tool,
+									csp,
+									widgetDomain,
+									widgetRoute.startsWith("/r/")
+										? { prefersBorder: false }
+										: undefined,
+								),
 							},
 						],
 						// Static deploy-versioned template → long public freshness hint

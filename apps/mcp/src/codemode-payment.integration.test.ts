@@ -2,6 +2,7 @@ import { mountMcp } from "@tedix/mcp-shared/transport";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { CallerIdentity } from "./mcp/caller-identity";
 import { buildMcpServer, type CachedAppData } from "./mcp/server-factory";
+import { clientSupportsMcpApps } from "./mcp/client-apps-capability";
 
 vi.mock("cloudflare:workers", async (importOriginal) => ({
 	...(await importOriginal<typeof import("cloudflare:workers")>()),
@@ -863,6 +864,10 @@ async function postRpcWithData(
 		undefined,
 		undefined,
 		requestedToolName,
+		undefined,
+		undefined,
+		undefined,
+		clientSupportsMcpApps(body),
 	);
 	const response = await mountMcp(
 		server,
@@ -977,6 +982,47 @@ describe("Code Mode payment-gated tools", () => {
 		expect(toolNames).not.toContain("premium_research_brief");
 		expect(toolNames).not.toContain("nosana__get_deployments");
 	});
+
+	it.each(["io.modelcontextprotocol/ui", "io.modelcontextprotocol/apps"])(
+		"lists configured widgets and ui resources for %s clients",
+		async (extension) => {
+			const env = createEnv(createApiService());
+			const ctx = createExecutionContext();
+			const cachedData = createCachedData();
+			const response = await postRpcWithData(env, ctx, cachedData, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/list",
+				params: {
+					_meta: {
+						"io.modelcontextprotocol/clientCapabilities": {
+							extensions: {
+								[extension]: { mimeTypes: ["text/html;profile=mcp-app"] },
+							},
+						},
+					},
+				},
+			});
+			const body = await readJsonRpcResponse<{
+				result: {
+					tools: Array<{
+						name: string;
+						_meta?: { ui?: { resourceUri?: string } };
+					}>;
+				};
+			}>(response);
+			expect(body.result.tools.map((tool) => tool.name)).toContain("code");
+			const widget = body.result.tools.find(
+				(tool) => tool.name === "nosana__get_deployments",
+			);
+			expect(widget?._meta?.ui?.resourceUri).toMatch(
+				/^ui:\/\/widgets\/mcp-app\//,
+			);
+			expect(body.result.tools.map((tool) => tool.name)).not.toContain(
+				"premium_research_brief",
+			);
+		},
+	);
 
 	it("exposes only the requested typed tool to direct AIH M2M automation calls", async () => {
 		const apiService = createApiService();
