@@ -110,6 +110,9 @@ describe("DeckNotUseful", () => {
 			"Not for me",
 		]);
 		await act(async () => buttons()[1]!.click());
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
 		expect(api.markDeckCardNotUseful).toHaveBeenCalledWith({
 			requestId: "10000000-0000-4000-8000-000000000001",
 			expectedRequestVersion: 3,
