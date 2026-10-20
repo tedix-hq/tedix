@@ -63,6 +63,59 @@ export const demoPackWorkspaces = workspaceData;
 export const demoPackFeed = (nowMs: number) =>
 	shiftDemoDates(feedData, packMeta.anchor, nowMs);
 
+export const demoFeedPolicy = {
+	...focusFeed,
+	dailyBudget: 9,
+	needsYouLimit: 3,
+};
+export const demoTodayId = "000000b0-0000-4000-8000-000000000001";
+export const demoTodayConfig = (tediId: string, personId: string) => ({
+	outputId: demoTodayId,
+	skillId: "000000b1-0000-4000-8000-000000000001",
+	tediId,
+	personId,
+	timeZone: "Europe/Berlin",
+});
+export function demoTodayContent(nowMs: number) {
+	return {
+		kind: "document" as const,
+		blocks: [
+			{ type: "paragraph" as const, text: packMeta.description },
+			{
+				type: "paragraph" as const,
+				text: `Sample digest · ${new Date(nowMs).toISOString()}`,
+			},
+			{
+				type: "paragraph" as const,
+				text: "Nothing is sent. All activity is fictional.",
+			},
+			{
+				type: "table" as const,
+				headers: [
+					"Project",
+					"Goal",
+					"Progress",
+					"Running",
+					"Needs you",
+					"Project link",
+					"Receipts link",
+					"Deck link",
+				],
+				rows: workspaceData.map((space, i) => [
+					space.name,
+					space.description,
+					demoPackFeed(nowMs)[i]!.body,
+					"Nothing running now.",
+					`${cardsData.filter((c) => groupOf(c) === i && c.status !== "decided").length} reviews`,
+					`/work/projects/${uid(118, i + 1)}`,
+					`/work?view=feed&projectId=${uid(118, i + 1)}`,
+					`/work?view=deck&projectId=${uid(118, i + 1)}`,
+				]),
+			},
+		],
+	};
+}
+
 /** The pack's cards as dated rows: day 0 is today, older days are history. */
 export function demoPackCards(nowMs: number) {
 	return cardsData.map((card: PackCard, index) => ({
@@ -379,6 +432,23 @@ export function applyDemoPack(
 	);
 	state.homeRuns = [];
 
+	const todayRevisionId = uid(177, 1);
+	list(state, "outputs").push({
+		...outputTemplate,
+		id: demoTodayId,
+		workspaceId: workspaces[0]!.id,
+		title: "PricePilot Today",
+		currentRevisionId: todayRevisionId,
+	});
+	list(state, "outputRevisions").push({
+		...revisionTemplate,
+		id: todayRevisionId,
+		outputId: demoTodayId,
+		content: demoTodayContent(nowMs),
+		createdAt: at(0),
+	});
+	h["organizationPurpose/getActive"] = () => ({ charter: null });
+
 	// Deck cards as work-interaction requests.
 	const requests = demoPackCards(nowMs).map(({ card, requestedAt }, index) => {
 		const group = groupOf(card);
@@ -679,7 +749,7 @@ export function applyDemoPack(
 		config: {
 			enabled: false,
 			unchangedThreshold: 5,
-			focusFeed,
+			focusFeed: demoFeedPolicy,
 			timezone: "Europe/Berlin",
 		},
 	});
@@ -746,7 +816,7 @@ export function applyDemoPack(
 			createdAt: event.createdAt,
 		})),
 		nextCursor: null,
-		hasMore: false,
+		truncated: false,
 	});
 	h["workItems/listAttemptProjection"] = empty;
 	h["workApprovals/listInbox"] = empty;
@@ -793,6 +863,7 @@ export function applyDemoPack(
 								projects: [],
 								pageSize: 50,
 								attentionBudget: 30,
+								today: demoTodayConfig(String(leadTedi(0).id), "dev-operator"),
 							}
 						: { version: 1, limit: 100, examples: [], factorySources: [] },
 			},

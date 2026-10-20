@@ -14,8 +14,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { LOCAL_OS_BUILD_SENTINELS } from "../apps/os/dev/build-config";
 
-export const LOCAL_API_URL = "http://localhost:8790";
-export const LOCAL_OS_URL = "http://localhost:3030";
+export const LOCAL_API_URL = `http://localhost:${process.env.TEDIX_LOCAL_API_PORT || "8790"}`;
+export const LOCAL_OS_URL = `http://localhost:${process.env.TEDIX_LOCAL_OS_PORT || "3030"}`;
 const READY_TIMEOUT_MS = 120_000;
 
 export const RUN_LOCAL_HELP = `Usage: bun run-local [options]
@@ -34,6 +34,9 @@ Requires Bun and genuine Node.js 22+ on PATH for Wrangler.
   --no-install                      Skip installing locked dependencies
   --verbose                         Stream every server log to this terminal
   --help                            Print this help without starting anything
+
+Concurrent local stacks: set TEDIX_LOCAL_API_PORT, TEDIX_LOCAL_OS_PORT and
+TEDIX_LOCAL_MCP_PORT to unused ports.
 
 For AI: bunx wrangler login, then bunx wrangler whoami to find your account ID.
 Example: bun run-local --inference --workers-ai-account=<account-id>

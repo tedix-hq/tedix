@@ -1,7 +1,7 @@
 /**
  * Seeds the sample company (apps/os/dev/demo-pack) into the isolated local D1
- * for `bun run-local --demo`: three projects, Feed and Deck, and the Deck cards
- * with their decided history. Dates are relative to now. Responses are
+ * for `bun run-local --demo`: projects, Feed events, a saved Today digest and
+ * Deck cards with their decided history. Dates are relative to now. Responses are
  * immutable in D1, so seeding is insert-or-ignore; run-local rebuilds the demo
  * state directory when it is older than a week. Nothing here reads a tenant, and the demo API runs
  * with sending switched off (TEDIX_DEMO_SENDING_OFF).
@@ -13,6 +13,11 @@ import { join, resolve } from "node:path";
 import {
 	demoDecisionEnvelope,
 	demoPackCards,
+	demoPackFeed,
+	demoFeedPolicy,
+	demoTodayConfig,
+	demoTodayContent,
+	demoTodayId,
 	demoPackPresentations,
 	demoPackWorkspaces,
 	groupOf,
@@ -39,7 +44,9 @@ const json = (value: unknown): string => q(JSON.stringify(value));
 export function demoPackSeedSql(nowMs: number = Date.now()): string {
 	const at = (ms: number) => new Date(ms).toISOString();
 	const now = at(nowMs);
-	const sql: string[] = [];
+	const sql: string[] = [
+		`UPDATE organizations SET metadata = json_set(coalesce(metadata, '{}'), '$.decisionLearning', json(${json({ enabled: false, focusFeed: demoFeedPolicy, timezone: "Europe/Berlin" })})) WHERE id = ${q(ORG)};`,
+	];
 	demoPackWorkspaces.forEach((space, i) => {
 		sql.push(
 			`INSERT OR IGNORE INTO projects (id, org_id, key, name, description, status, lead_tedi_id, created_at, updated_at) VALUES (${q(uid(118, i + 1))}, ${q(ORG)}, ${q(PROJECT_KEYS[i])}, ${q(space.name)}, ${q(space.description)}, 'active', ${q(TEDI)}, ${q(now)}, ${q(now)});`,
@@ -53,9 +60,21 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 		const revision = uid(50, 10 + i);
 		sql.push(
 			`INSERT OR IGNORE INTO os_gadgets (id, organization_id, workspace_id, name, status, current_revision_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(id)}, ${q(ORG)}, ${q(WORKSPACE)}, ${q(gadget.name)}, 'active', ${q(revision)}, 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
-			`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id, created_at) VALUES (${q(revision)}, ${q(ORG)}, ${q(id)}, 1, ${json(gadget.manifest)}, 'user', 'local-demo-owner', ${q(now)});`,
+			`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id, created_at) VALUES (${q(revision)}, ${q(ORG)}, ${q(id)}, 1, ${json(gadget.name === "Feed" ? { ...gadget.manifest, config: { ...gadget.manifest.config, today: demoTodayConfig(TEDI, USER) } } : gadget.manifest)}, 'user', 'local-demo-owner', ${q(now)});`,
 		);
 	});
+	sql.push(
+		`INSERT OR IGNORE INTO os_outputs (id, organization_id, workspace_id, kind, title, status, current_revision_id, created_by_kind, created_by_id, created_at, updated_at) VALUES (${q(demoTodayId)}, ${q(ORG)}, ${q(WORKSPACE)}, 'document', 'PricePilot Today', 'active', ${q(uid(177, 1))}, 'user', 'local-demo-owner', ${q(now)}, ${q(now)});`,
+		`INSERT OR IGNORE INTO os_output_revisions (id, organization_id, output_id, revision, content, access_envelope, created_by_kind, created_by_id, created_at) VALUES (${q(uid(177, 1))}, ${q(ORG)}, ${q(demoTodayId)}, 1, ${json(demoTodayContent(nowMs))}, ${json({ version: 1, sources: [] })}, 'user', 'local-demo-owner', ${q(now)});`,
+	);
+	for (const [i, event] of demoPackFeed(nowMs).entries()) {
+		const group =
+			event.agent === "Reconciler" ? 1 : event.agent === "On-call" ? 2 : 0;
+		sql.push(
+			`INSERT OR IGNORE INTO work_items (id, org_id, project_id, title, description, disposition, created_at, completed_at, admission_spec_revision, metadata) VALUES (${q(uid(172, i + 1))}, ${q(ORG)}, ${q(uid(118, group + 1))}, ${q(event.title)}, ${q(event.detail)}, 'completed', ${q(event.createdAt)}, ${q(event.createdAt)}, 'sample-pack-v1', ${json({ sampleData: true })});`,
+			`INSERT OR IGNORE INTO work_events (id, org_id, work_item_id, event_type, actor_type, actor_id, payload, occurred_at) VALUES (${q(uid(171, i + 1))}, ${q(ORG)}, ${q(uid(172, i + 1))}, 'work.completed', 'tedi', ${q(TEDI)}, ${json({ summary: event.body, sampleData: true })}, ${q(event.createdAt)});`,
+		);
+	}
 	for (const { card, requestedAt } of demoPackCards(nowMs)) {
 		const group = groupOf(card);
 		const [, lesson] = memoryFacts[group === 0 ? 1 : group === 1 ? 5 : 6]!;

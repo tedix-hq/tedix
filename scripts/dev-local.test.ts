@@ -45,11 +45,15 @@ describe("local Wrangler config", () => {
 				path,
 				JSON.stringify({
 					name: "public-installation-api",
-					vars: { TEDIX_FLEET_AUTHORITY_MODE: mode },
+					vars: {
+						TEDIX_FLEET_AUTHORITY_MODE: mode,
+						AGENT_REVIEW_PROJECT_ID: "configured-via-private-overlay",
+					},
 				}),
 			);
 			expect(createLocalWranglerConfig(path).vars).toMatchObject({
 				TEDIX_FLEET_AUTHORITY_MODE: "disabled",
+				AGENT_REVIEW_PROJECT_ID: "",
 			});
 		}
 	});

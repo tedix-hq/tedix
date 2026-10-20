@@ -87,6 +87,40 @@ beforeEach(() => {
 		presentation: input.presentation,
 	}));
 });
+it("uses committed sample copy without model calls only in the offline demo", async () => {
+	const presentation = {
+		version: 1,
+		title: "Review the sample reply",
+		body: "A fictional buying question is ready. Nothing has been posted.",
+		recommendation: "Review the reply because the question is still open.",
+	};
+	const sample = {
+		...card,
+		interaction: {
+			request: {
+				subject: card.label,
+				prompt: "Fictional buying question",
+				metadata: { sampleData: true, cardPresentation: presentation },
+			},
+		},
+	} as DeckCard;
+	const offline = {
+		...context,
+		env: {
+			ENVIRONMENT: "development",
+			TEDIX_LOCAL_DEMO_ENABLED: "true",
+			TEDIX_DEMO_SENDING_OFF: "true",
+		},
+	} as BaseContext;
+	expect(await prepareDeckCardFace(offline, sample)).toEqual(presentation);
+	expect(mocks.generate).not.toHaveBeenCalled();
+	expect(mocks.preferences).not.toHaveBeenCalled();
+	await prepareDeckCardFace(
+		{ ...context, env: { TEDIX_LOCAL_DEMO_ENABLED: "true" } } as BaseContext,
+		sample,
+	);
+	expect(mocks.generate).toHaveBeenCalledOnce();
+});
 it("reuses checked display copy, isolates people and organizations, and invalidates changed writing preferences", async () => {
 	expect(await prepareDeckCardFace(context, card)).toEqual(copy);
 	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);

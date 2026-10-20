@@ -144,6 +144,29 @@ describe("run-local options", () => {
 		});
 	});
 
+	test("uses isolated API and OS ports for concurrent launchers", () => {
+		const result = Bun.spawnSync(
+			[
+				process.execPath,
+				"-e",
+				'import { LOCAL_API_URL, LOCAL_OS_URL } from "./scripts/run-local"; console.log(JSON.stringify([LOCAL_API_URL, LOCAL_OS_URL]));',
+			],
+			{
+				cwd: join(import.meta.dir, ".."),
+				env: {
+					...process.env,
+					TEDIX_LOCAL_API_PORT: "8890",
+					TEDIX_LOCAL_OS_PORT: "3042",
+				},
+			},
+		);
+		expect(result.exitCode).toBe(0);
+		expect(JSON.parse(result.stdout.toString())).toEqual([
+			"http://localhost:8890",
+			"http://localhost:3042",
+		]);
+	});
+
 	test("supports repeatable clean-export smoke validation", () => {
 		const options = parseRunLocalOptions(["--no-install", "--smoke"]);
 		expect(options).toEqual({

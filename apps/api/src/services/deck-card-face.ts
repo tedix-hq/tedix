@@ -146,6 +146,21 @@ export async function prepareDeckCardFace(
 		onDeferred?.();
 		return null;
 	}
+	const existing = DecisionCardPresentationSchema.safeParse(
+		card.interaction?.request.metadata.cardPresentation,
+	).data;
+	const demoEnv = context.env as CloudflareEnv & {
+		TEDIX_LOCAL_DEMO_ENABLED?: string;
+		TEDIX_DEMO_SENDING_OFF?: string;
+	};
+	// Offline sample cards already carry authored copy; never invoke a model to rewrite it.
+	if (
+		demoEnv?.ENVIRONMENT === "development" &&
+		demoEnv.TEDIX_LOCAL_DEMO_ENABLED === "true" &&
+		demoEnv.TEDIX_DEMO_SENDING_OFF === "true" &&
+		card.interaction?.request.metadata.sampleData === true
+	)
+		return existing ?? null;
 	const preferences = model
 		? draftLearningContext(model, card.decision?.classId)
 		: await readDraftPreferences(
@@ -163,9 +178,6 @@ export async function prepareDeckCardFace(
 	const fingerprint = [...new Uint8Array(digest)]
 		.map((byte) => byte.toString(16).padStart(2, "0"))
 		.join("");
-	const existing = DecisionCardPresentationSchema.safeParse(
-		card.interaction?.request.metadata.cardPresentation,
-	).data;
 	if (
 		existing?.version === 2 &&
 		existing.sourceFingerprint === fingerprint &&

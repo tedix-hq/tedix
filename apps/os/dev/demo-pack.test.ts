@@ -4,9 +4,14 @@ import {
 	DeckProjectionSchema,
 	DeckCardSchema,
 } from "@tedix/api-contract/schemas/attention";
+import { ListWorkActivityResultSchema } from "@tedix/api-contract/schemas/work-items";
+import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
+import { readToday } from "../src/lib/today-digest";
 import { DEMO_SENDING_OFF_MESSAGE } from "@tedix/api-contract/utils/demo-sending-gate";
 import {
 	DEMO_PACK_MAX_AGE_MS,
+	demoTodayContent,
+	demoTodayId,
 	demoPackCards,
 	demoPackIsStale,
 	shiftDemoDates,
@@ -104,6 +109,46 @@ describe("sample company in fixture mode", () => {
 		expect(feed.events.length).toBeGreaterThan(0);
 		for (const event of feed.events)
 			expect(Date.parse(event.createdAt)).toBeLessThanOrEqual(Date.now());
+	});
+
+	it("uses only pack requests for Feed needs, pack activity for Updates, and a readable Today digest", () => {
+		const deck = DeckProjectionSchema.parse(ok("attention/listDeckCards"));
+		const inbox = ok<{ data: { request: { id: string } }[] }>(
+			"workInteractions/listInbox",
+			{ states: ["open"] },
+		);
+		expect(inbox.data.map((r) => r.request.id).sort()).toEqual(
+			deck.cards.map((c) => c.id).sort(),
+		);
+		const activity = ListWorkActivityResultSchema.parse(
+			ok("workItems/listActivity"),
+		);
+		expect(activity.events).toHaveLength(6);
+		expect(
+			activity.events.every((e) => e.workItemDisposition === "completed"),
+		).toBe(true);
+		const apps = ok<{
+			items: {
+				gadget: { name: string };
+				currentRevision: { manifest: { config: unknown } };
+			}[];
+		}>("osWorkspaces/gadgets/workApps", { limit: 20 });
+		const config = ActivityFeedConfigSchema.parse(
+			apps.items.find((a) => a.gadget.name === "Feed")!.currentRevision.manifest
+				.config,
+		);
+		expect(config.today?.outputId).toBe(demoTodayId);
+		const saved = ok<{
+			currentRevision: { content: ReturnType<typeof demoTodayContent> };
+		}>("osWorkspaces/outputs/get", { outputId: demoTodayId });
+		const digest = readToday(saved.currentRevision.content);
+		expect(digest?.rows.map((r) => r[0])).toEqual([
+			"Reddit opportunities",
+			"Finance ops",
+			"On-call",
+		]);
+		expect(JSON.stringify(digest)).not.toMatch(/Solstice|Miles|revenue digest/);
+		expect(ok<{ data: unknown[] }>("tediApprovals/list").data).toEqual([]);
 	});
 
 	it("keeps decided history out of the Deck but in the inbox history", () => {

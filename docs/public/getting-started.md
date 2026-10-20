@@ -47,6 +47,15 @@ contacts a Cloudflare account.
 | `--verbose`                           | Streams every server log to the terminal instead of `server.log`.                      |
 | `--help`                              | Lists every option without starting anything.                                          |
 
+`--demo` includes the sample Deck, Feed activity and a saved Today digest.
+To run beside another local stack, choose unused ports with
+`TEDIX_LOCAL_API_PORT`, `TEDIX_LOCAL_OS_PORT` and `TEDIX_LOCAL_MCP_PORT`.
+For example:
+
+```bash
+TEDIX_LOCAL_API_PORT=8890 TEDIX_LOCAL_OS_PORT=3042 TEDIX_LOCAL_MCP_PORT=3043 bun run-local --demo
+```
+
 The [Tedix CLI](./cli.md) wraps this launcher: `tedix setup` runs it in a
 checkout, or clones the source release matching your CLI version when one is
 published, and `tedix dev` restarts the saved installation later.

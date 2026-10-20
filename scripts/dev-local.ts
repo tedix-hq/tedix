@@ -16,8 +16,9 @@ const REMOTE_ONLY_BINDINGS = [
 	"flagship",
 ] as const;
 
-const localApiUrl =
-	process.env.TEDIX_LOCAL_API_URL?.trim() || "http://localhost:8787";
+const localApiUrl = process.env.TEDIX_LOCAL_API_PORT
+	? `http://localhost:${process.env.TEDIX_LOCAL_API_PORT}`
+	: process.env.TEDIX_LOCAL_API_URL?.trim() || "http://localhost:8787";
 const localCompatibilityDate =
 	process.env.TEDIX_LOCAL_COMPATIBILITY_DATE?.trim();
 const localInferenceEnabled =
@@ -55,9 +56,9 @@ const explicitLocalPersistTo = process.env.TEDIX_LOCAL_PERSIST_TO?.trim();
 const LOCAL_VARS: Record<string, string> = {
 	ENVIRONMENT: "development",
 	API_URL: localApiUrl,
-	MCP_URL: "http://localhost:3000",
+	MCP_URL: `http://localhost:${process.env.TEDIX_LOCAL_MCP_PORT || "3000"}`,
 	MCP_UI_URL: "http://localhost:3001",
-	OS_URL: "http://localhost:3030",
+	OS_URL: `http://localhost:${process.env.TEDIX_LOCAL_OS_PORT || "3030"}`,
 	TEDI_DEV_BASE_URL: "http://localhost:3007",
 	PUBLIC_URL: "http://localhost:3010",
 	DESCOPE_PROJECT_ID: "local-development-disabled",
@@ -79,6 +80,7 @@ const LOCAL_VARS: Record<string, string> = {
 	TEDIX_LOCAL_DEMO_ENABLED: "true",
 	TEDIX_BILLING_SETTLEMENT_MODE: "disabled",
 	TEDIX_FLEET_AUTHORITY_MODE: "disabled",
+	AGENT_REVIEW_PROJECT_ID: "",
 	TEDIX_RUNTIME_ENTITLEMENT_GRANTS: localInferenceEnabled
 		? JSON.stringify([
 				{
@@ -426,6 +428,26 @@ async function run(): Promise<void> {
 	let executable = command[0];
 	if (!executable) throw new Error("missing command");
 	const args = command.slice(1);
+	const portIndex = args.indexOf("--port");
+	const portOverride = process.cwd().endsWith("/apps/api")
+		? process.env.TEDIX_LOCAL_API_PORT
+		: process.cwd().endsWith("/apps/os")
+			? process.env.TEDIX_LOCAL_OS_PORT
+			: process.cwd().endsWith("/apps/mcp")
+				? process.env.TEDIX_LOCAL_MCP_PORT
+				: undefined;
+	if (portIndex >= 0 && portOverride) {
+		if (
+			!/^\d+$/.test(portOverride) ||
+			Number(portOverride) < 1024 ||
+			Number(portOverride) > 65535
+		)
+			throw new Error(
+				"Local port overrides must be integers between 1024 and 65535",
+			);
+		args[portIndex + 1] = portOverride;
+	}
+
 	if (basename(executable) === "wrangler") {
 		executable = "bunx";
 		args.unshift("wrangler");
