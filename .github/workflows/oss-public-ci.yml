@@ -38,7 +38,7 @@ jobs:
     if: >-
       github.event.repository.private == false &&
       (github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.FULL_SUITE_RUNNER_LABELS == ''))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

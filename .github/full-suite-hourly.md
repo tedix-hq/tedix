@@ -1,35 +1,42 @@
-# Hourly full suite
+# Main certification
 
-`full-suite-hourly.yml` runs at minute 17 each hour and supports manual dispatch
-on `main`. Every job checks out the event's exact main SHA. A successful run of
-this workflow for that SHA skips subsequent runs; cancelled and failed runs do
-not count. New hourly or manual runs cancel older runs of this lane.
+`full-suite-hourly.yml` runs on every main push, hourly, and manual dispatch.
+Runs share concurrency group `main`; a newer tip cancels older certification.
+The required aggregate is `Main CI`. Every discovered workspace runs its full
+`test:ci` (or `test:run`) and type-check. Repository checks retain script tests,
+public docs, generated types, migration validation, builds, licenses and lint.
+The latest successful certification of the same SHA can be reused by the hourly
+run. A newer failed or pending run prevents reuse of an older success.
 
-Set the repository variable `FULL_SUITE_RUNNER_LABELS` to a JSON array of the
-existing Cloudflare runner labels before enabling this workflow. The planner
-fails explicitly if labels are missing. Planning uses a GitHub-hosted runner;
-workspace and repository checks use the configured runners.
+Set `FULL_SUITE_RUNNER_LABELS` to the existing Cloudflare runner labels as a JSON
+array. No labels are invented or silently replaced with billed runners. The
+planner fails explicitly without labels; workspace/repository shards use them.
+The planner and aggregate use short GitHub-hosted public-repository jobs.
+Once labels exist, this workflow replaces the old scoped push CI; release and
+pull-request certification remain in `oss-public-ci.yml`.
 
-The matrix discovers every `apps/*` and `packages/*` workspace with `test:run`
-or `type-check`, including type-only packages. All shards finish after a test
-failure so the observer can report every failing workspace together. Repository
-checks also run script tests, script types and public documentation validation.
+The local hook defaults to its complete gate during rollout. Only after the
+operator proves runners, failure reporting, and green-only deployment should
+`git config tedix.pushGateProfile fast` activate owner types, changed formatting,
+Oxlint, architecture/dependency lint, and the fail-closed private secret scan.
+The other checks stay in CI. `bun run verify` retains the complete profile;
+`--ci-policy --all` runs the repository checks in CI. Full workspace suites cover
+the consumer checks previously selected by `vitest related`.
 
-The existing `tedix-observer.yml` handles failed completed runs with GitHub
-OIDC and `TEDIX_OBSERVER_URL`; no new secret is required. It reads jobs from
-the failed run's exact attempt and submits one `ci_red` observation containing
-the tested SHA and failed jobs. Work identity and notification delivery are
-deduplicated by repository, SHA and `full-suite-hourly` surface. The API must
-include `ci_red` support before failure reporting can succeed; older deployments
-reject the new event.
+The repository observer reports only failed runs that still match main's tip,
+using the exact workflow attempt's failed shards. One `ci_red` Work observation
+is deduplicated by repository, SHA and surface; it carries the pushing commit's
+Work trailer when present. The API must ship `ci_red` support before reporting
+can succeed. Older API deployments reject this event.
 
-To verify after landing and runner configuration:
+After runner setup, dispatch the workflow and record its exact SHA, aggregate,
+per-shard durations, total CI duration, and runner identities:
 
 ```sh
 gh workflow run full-suite-hourly.yml --ref main
-gh run list --workflow full-suite-hourly.yml --event workflow_dispatch
 gh run view <run-id> --json status,conclusion,headSha,createdAt,updatedAt,jobs
 ```
 
-Record the tested SHA, run URL, elapsed duration and per-workspace outcomes.
-Dispatching again at the same SHA verifies the successful-SHA skip path.
+Push wall time includes queue waiting. Push-to-live starts when the remote
+accepts the commit and ends at the guarded deployment's surface SHA readback.
+A green aggregate, a queued Ship, and a live revision are separate receipts.

@@ -25,6 +25,11 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_COMMON_DIR \
 	GIT_WORK_TREE
 
 status=0
+profile_args=()
+# Activated only after the main CI runner pool and green-only Ship are proven.
+if [[ "$(git config --get tedix.pushGateProfile || true)" == "fast" ]]; then
+	profile_args+=("--local-fast")
+fi
 preflight_ranges=()
 while read -r _localRef localSha remoteRef remoteSha; do
 	# The public repository has one branch. Work happens on main; releases are
@@ -54,9 +59,9 @@ while read -r _localRef localSha remoteRef remoteSha; do
 	preflight_ranges+=("--base" "$remoteSha" "--head" "$localSha")
 done
 
-if ((${#preflight_ranges[@]})) && ! bun "$root/scripts/ci/preflight-gates.mjs" --remote-url "${2:-}" "${preflight_ranges[@]}"; then
+if ((${#preflight_ranges[@]})) && ! bun "$root/scripts/ci/preflight-gates.mjs" "${profile_args[@]}" --remote-url "${2:-}" "${preflight_ranges[@]}"; then
 	status=1
-elif ((${#preflight_ranges[@]} == 0)) && ! bun "$root/scripts/ci/preflight-gates.mjs"; then
+elif ((${#preflight_ranges[@]} == 0)) && ! bun "$root/scripts/ci/preflight-gates.mjs" "${profile_args[@]}"; then
 	status=1
 fi
 

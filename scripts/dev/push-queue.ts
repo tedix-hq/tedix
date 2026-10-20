@@ -153,8 +153,12 @@ function git(args: string[], inherit = false) {
 	};
 }
 
-function fetchAndRebase(): boolean {
+function fetchAndRebase(expectedMain?: string): boolean {
 	if (!git(["fetch", "--quiet", "origin", "main"], true).ok) return false;
+	if (expectedMain && git(["rev-parse", "origin/main"]).out !== expectedMain) {
+		console.error("push: main changed; refusing the conditional push.");
+		return false;
+	}
 	const rebase = git(["rebase", "origin/main"], true);
 	if (rebase.ok) return true;
 	git(["rebase", "--abort"]);
@@ -189,6 +193,10 @@ export function gcDue(stampFile: string, now = Date.now()): boolean {
 }
 
 function requestShip() {
+	if (git(["config", "--get", "tedix.pushGateProfile"]).out === "fast") {
+		console.log("push: main CI will request Ship after certification.");
+		return;
+	}
 	const run = spawnSync(
 		"gh",
 		["workflow", "run", "ship.yml", "--repo", "tedix-hq/tedix-cloud-ops"],
@@ -226,12 +234,17 @@ function startWeeklyWorktreeGc(commonDir: string) {
 
 async function main() {
 	const dryRun = process.argv.includes("--dry-run");
+	const expectedIndex = process.argv.indexOf("--expect-main");
+	const expectedMain =
+		expectedIndex < 0 ? undefined : process.argv[expectedIndex + 1];
+	if (expectedIndex >= 0 && !/^[a-f0-9]{40}$/.test(expectedMain ?? ""))
+		throw new Error("--expect-main needs an exact SHA");
 	const commonDir = resolve(git(["rev-parse", "--git-common-dir"]).out);
 	const queueDir = join(commonDir, "push-queue");
 	const lockFile = join(commonDir, "push-queue.lock");
 	mkdirSync(queueDir, { recursive: true });
 	const ticket = join(queueDir, `${Date.now()}-${process.pid}`);
-	const lane = snapshotLane(process.cwd(), dryRun);
+	const lane = expectedMain ? null : snapshotLane(process.cwd(), dryRun);
 	const resultsDir = join(commonDir, "push-results");
 	mkdirSync(resultsDir, { recursive: true });
 	const resultTicket = join(resultsDir, ticket.slice(queueDir.length + 1));
@@ -312,7 +325,7 @@ async function main() {
 	);
 
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-		if (!fetchAndRebase()) process.exit(1);
+		if (!fetchAndRebase(expectedMain)) process.exit(1);
 		const outcome = pushOnce(dryRun);
 		if (outcome === "pushed") {
 			console.log(

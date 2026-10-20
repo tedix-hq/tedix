@@ -343,3 +343,25 @@ describe("push train with real repositories and hooks", () => {
 		20000,
 	);
 });
+
+test("conditional automated pushes refuse a moved main before running a gate", () => {
+	const f = fixture(1);
+	const base = git(f.remote, "rev-parse", "main");
+	const result = spawnSync(
+		process.execPath,
+		[
+			resolve(import.meta.dirname, "push-queue.ts"),
+			"--expect-main",
+			"f".repeat(40),
+		],
+		{
+			cwd: f.tickets[0]!.lane.cwd,
+			env: { ...env, TEDIX_PUSH_QUEUE_SNAPSHOT: "fixture" },
+			encoding: "utf8",
+		},
+	);
+	expect(result.status).toBe(1);
+	expect(result.stderr).toContain("main changed");
+	expect(git(f.remote, "rev-parse", "main")).toBe(base);
+	expect(existsSync(join(f.root, "pushes"))).toBe(false);
+});

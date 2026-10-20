@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * The pre-push gate: the repository's validation runs here, before a push,
- * rather than in a post-push pipeline. Runs from `.githooks/pre-push`.
+ * Validation shared by the local hook and main CI. The fast local profile
+ * keeps owner types, formatting, lint and secret scanning; CI retains the rest.
  *
  * WHY THESE GATES. Each one is here because of a regression that reached main
  * and was first seen after the push — the comment on each gate names its
@@ -11,7 +11,7 @@
  * it — `lint:repo`); a `TediEnv`
  * missing a property (vitest does not type-check, so
  * only `tsc` sees it); an actionlint SC2016 that a machine without shellcheck
- * reports as clean. Nothing runs after the push any more, so they run here.
+ * reports as clean. Profiles choose where these checks run.
  *
  * THREE DELIBERATE PROPERTIES.
  *
@@ -37,6 +37,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { gateInProfile } from "./preflight-profiles.mjs";
 import {
 	existsSync,
 	mkdtempSync,
@@ -85,6 +86,11 @@ const repoRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 
 const args = new Set(process.argv.slice(2));
 const runAll = args.has("--all");
+const profile = args.has("--local-fast")
+	? "local-fast"
+	: args.has("--ci-policy")
+		? "ci-policy"
+		: "full";
 // Train ranges only broaden the real push range supplied by Git's hook.
 const trainRangeArgs = JSON.parse(process.env.TEDIX_PUSH_TRAIN_RANGES || "[]");
 if (
@@ -282,12 +288,14 @@ typeCheckedWorkspaces = [
 		...typeCheckTargets(files, (workspaceDir) =>
 			existsSync(`${repoRoot}/${workspaceDir}`),
 		),
-		...affectedWorkspaces(files, {
-			isRelevantWorkspace: (workspaceDir) =>
-				existsSync(`${repoRoot}/${workspaceDir}/package.json`),
-			readManifest: readWorkspaceManifest,
-			workspaceDirs,
-		}),
+		...(profile === "local-fast"
+			? []
+			: affectedWorkspaces(files, {
+					isRelevantWorkspace: (workspaceDir) =>
+						existsSync(`${repoRoot}/${workspaceDir}/package.json`),
+					readManifest: readWorkspaceManifest,
+					workspaceDirs,
+				})),
 	]),
 ].sort();
 const changedScriptTests = relatedTestTargets.filter((f) =>
@@ -552,7 +560,9 @@ const gates = [
 
 const SHOWN_LINES = 12;
 const isTerminal = Boolean(process.stderr.isTTY);
-const active = gates.filter((gate) => gate.when);
+const active = gates.filter(
+	(gate) => gate.when && gateInProfile(gate.name, profile),
+);
 const startedAll = Date.now();
 const failures = [];
 const warnings = [];

@@ -94,6 +94,13 @@ if (
 	let payload;
 	if (env.GITHUB_EVENT_NAME === "workflow_run") {
 		const run = event.workflow_run;
+		const tip = await githubRequest(
+			`/repos/${env.GITHUB_REPOSITORY}/commits/main`,
+		);
+		if (tip.sha !== run.head_sha) {
+			console.log("Superseded red tip; no new incident");
+			process.exit(0);
+		}
 		const jobs = [];
 		for (let page = 1; ; page++) {
 			const result = await githubRequest(
@@ -108,6 +115,14 @@ if (
 			run,
 			jobs,
 		});
+		const message = git("show", "-s", "--format=%B", run.head_sha);
+		const work = message.match(/^Work-Item:\s*([0-9a-f-]{36})\s*$/m)?.[1];
+		if (work) payload.workItemId = work;
+		payload.summary =
+			`${payload.summary}\nPushing lane Work: ${work ?? "not recorded"}\n${message}`.slice(
+				0,
+				24000,
+			);
 	} else {
 		payload = pushObservation({
 			projectId,
