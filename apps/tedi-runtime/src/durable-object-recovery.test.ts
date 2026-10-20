@@ -49,6 +49,9 @@ for (const message of [
 	"internal error: durable object was reset",
 	// Research delegation that died after 22 minutes of native reads.
 	"Attempt failed due to internal workflows error",
+	// Delegated turns that were mid-step when a deploy retired the parent.
+	"Network connection lost.",
+	"FACET_TOOL_REGISTRY_UNAVAILABLE: the parent must rebuild this turn before tools can execute",
 ]) {
 	assert.equal(
 		isTransientWorkflowRedriveError(new Error(message)),
