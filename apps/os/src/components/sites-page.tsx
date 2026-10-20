@@ -970,7 +970,12 @@ export function SitesPage() {
 			role="group"
 			aria-label={`Actions for ${site.name}`}
 		>
-			<Button size="sm" variant="outline" onClick={() => manageSite(site)}>
+			<Button
+				size="sm"
+				variant="outline"
+				className="min-h-11 md:min-h-0"
+				onClick={() => manageSite(site)}
+			>
 				Manage
 			</Button>
 			<DropdownMenu>
@@ -979,6 +984,7 @@ export function SitesPage() {
 						<Button
 							size="icon-sm"
 							variant="ghost"
+							className="min-h-11 min-w-11 md:min-h-0 md:min-w-0"
 							aria-label={`More actions for ${site.name}`}
 						/>
 					}
@@ -1231,7 +1237,50 @@ export function SitesPage() {
 					) : null}
 					{filteredSites?.length ? (
 						<>
-							<Surface tier="panel" className="overflow-hidden">
+							<ul aria-label="Owned sites" className="grid gap-3 md:hidden">
+								{filteredSites.map((site) => (
+									<Surface
+										as="li"
+										key={site.id}
+										tier="panel"
+										className="min-w-0 space-y-3 p-4"
+									>
+										<Text
+											as="h3"
+											role="body"
+											className="m-0 break-words font-medium"
+										>
+											{site.name}
+										</Text>
+										<div className="flex flex-wrap items-center gap-2">
+											<Badge
+												variant={
+													site.status === "active"
+														? "success"
+														: site.status === "provisioning"
+															? "warning"
+															: "secondary"
+												}
+											>
+												{site.status}
+											</Badge>
+											<Text role="caption" tone="secondary">
+												{site.type === "docs" ? "Docs" : "CMS"}
+											</Text>
+										</div>
+										<Text
+											as="p"
+											role="caption"
+											tone="secondary"
+											className="m-0 break-all"
+										>
+											{site.customDomain ?? new URL(site.url).hostname}
+										</Text>
+										{siteActions(site)}
+									</Surface>
+								))}
+							</ul>
+							<Surface tier="panel" className="hidden overflow-hidden md:block">
 								<Table scrollLabel="Owned sites">
 									<TableHeader>
 										<TableRow>
