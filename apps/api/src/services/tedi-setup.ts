@@ -1,4 +1,6 @@
 import type { TediSetup } from "@tedix/api-contract/contracts/tedis";
+import type { ConnectionCapability } from "@tedix/api-contract/schemas/connections";
+import { buildConnectionSetupUrl } from "@tedix/api-contract/utils/connection-capabilities";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 export interface SetupConfig {
@@ -32,6 +34,7 @@ export interface SetupConfig {
 		state: "present" | "missing" | "expired" | "restricted" | "unknown";
 		connected: boolean;
 		scopes: string[];
+		capabilities?: ConnectionCapability[];
 	}[];
 	assignmentsComplete: boolean;
 }
@@ -130,6 +133,31 @@ export function deriveTediSetup(config: SetupConfig): TediSetup {
 						: missing
 							? "missing"
 							: "needs_you";
+			const selectedAccount =
+				candidates.find(
+					(account) =>
+						account.state === "present" &&
+						account.connected &&
+						scopes.every((requiredScope) =>
+							account.scopes.includes(requiredScope),
+						),
+				) ?? candidates[0];
+			const capabilities =
+				scope === "tenant"
+					? [
+							...new Map(
+								(selectedAccount?.capabilities ?? [])
+									.filter(
+										(capability) =>
+											scopes.length === 0 ||
+											capability.requiredScopes.some((requiredScope) =>
+												scopes.includes(requiredScope),
+											),
+									)
+									.map((capability) => [capability.id, capability]),
+							).values(),
+						]
+					: [];
 			add({
 				id: `connection:${providerId}:${scope}:${instanceId ?? "default"}:${[...scopes].sort().join(",")}`,
 				kind: "connection",
@@ -143,7 +171,40 @@ export function deriveTediSetup(config: SetupConfig): TediSetup {
 							: missing
 								? "Connect the required account or API key."
 								: "Verify the account, renew consent, or grant the required scopes.",
-				href: `/admin/connections?connect=${encodeURIComponent(providerId)}`,
+				href: buildConnectionSetupUrl({
+					providerId,
+					scope: scope === "tenant" ? "tenant" : "user",
+					scopes,
+					connectionInstanceId: instanceId ?? undefined,
+				}),
+				capabilities: [
+					...capabilities.filter(
+						(capability) => capability.id !== "required-access",
+					),
+					{
+						id: "required-access",
+						label: "Required access",
+						requiredScopes: scopes,
+						state:
+							ready && scope === "tenant"
+								? "connected"
+								: missing
+									? "not_configured"
+									: "needs_reauth",
+						verified:
+							scope === "tenant" &&
+							candidates.every(
+								(account) =>
+									account.state !== "unknown" && account.state !== "restricted",
+							),
+						setupUrl: buildConnectionSetupUrl({
+							providerId,
+							scope: scope === "tenant" ? "tenant" : "user",
+							scopes,
+							connectionInstanceId: instanceId ?? undefined,
+						}),
+					},
+				],
 			});
 		} else if (auth.type) {
 			add({

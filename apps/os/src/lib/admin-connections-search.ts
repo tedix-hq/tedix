@@ -7,10 +7,9 @@ import * as z from "zod/mini";
  * in component state. `z.catch` keeps a hand-typed or stale value from
  * blocking the navigation.
  *
- * `connect` is the auto-connect landing param minted by apps/api
- * (`?connect=<appId>` fires the connect flow once on arrival). It is a plain
- * optional passthrough — a catch that defaulted it away would break the
- * server-minted handoff links.
+ * `connect` opens setup review on arrival. Capability and named-account
+ * selectors retain the exact requirement and credential in server-minted
+ * handoff links; scopes support tool requirements outside configured groups.
  *
  * `zod/mini`, deliberately: route config lives in the shared entry chunk
  * (see `admin-api-keys-search.ts`).
@@ -30,6 +29,9 @@ export const adminConnectionsSearchSchema = z.object({
 	q: z.catch(z.string(), ""),
 	status: z.catch(z.enum(CONNECTION_STATUS_FILTERS), "all"),
 	connect: z.catch(z.optional(z.string()), undefined),
+	capability: z.catch(z.optional(z.string()), undefined),
+	connectionInstanceId: z.catch(z.optional(z.string()), undefined),
+	scopes: z.catch(z.optional(z.string()), undefined),
 });
 
 export type AdminConnectionsSearch = z.infer<
@@ -46,6 +48,9 @@ export function validateAdminConnectionsSearch(
 		q?: string;
 		status?: ConnectionStatusFilter;
 		connect?: string;
+		capability?: string;
+		connectionInstanceId?: string;
+		scopes?: string;
 	} & SearchSchemaInput,
 ): AdminConnectionsSearch {
 	return adminConnectionsSearchSchema.parse(search);

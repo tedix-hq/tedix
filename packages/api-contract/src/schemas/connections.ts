@@ -32,6 +32,23 @@ export const ConnectionCredentialScopeGroupSchema = z.object({
 	scopes: z.array(z.string()),
 });
 
+export const ConnectionCapabilitySchema = z.object({
+	id: z.string().min(1),
+	label: z.string().min(1),
+	description: z.string().optional(),
+	requiredScopes: z.array(z.string()),
+	state: z.enum([
+		"connected",
+		"not_configured",
+		"needs_reauth",
+		"not_supported",
+	]),
+	setupUrl: z.string().regex(/^\/(?!\/)/),
+	/** False when credential inspection failed; state is not proof of absence. */
+	verified: z.boolean(),
+});
+export type ConnectionCapability = z.infer<typeof ConnectionCapabilitySchema>;
+
 export const ConnectionCredentialProfileSchema = z.object({
 	/**
 	 * Fields an operator UI should collect before uploading an API-key credential
@@ -429,6 +446,7 @@ export const ConnectionInventoryRowSchema = z.object({
 	references: z.array(ConnectionReferenceSchema),
 	/** Direct, same-provider apps that can bind this slot; not proof of a binding. */
 	bindingTargets: z.array(ConnectionReferenceSchema).optional(),
+	capabilities: z.array(ConnectionCapabilitySchema).default([]),
 	referencesComplete: z.boolean(),
 	access: z.literal("not_evaluated"),
 	health: z.literal("not_checked"),

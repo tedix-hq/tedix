@@ -135,7 +135,11 @@ export function filterPersonalAccountRows(
 			return false;
 		const connected =
 			row.accountState === "present" && row.connection?.status === "connected";
-		if (status === "attention") return !connected;
+		if (status === "attention")
+			return (
+				!connected ||
+				row.capabilities?.some((capability) => capability.state !== "connected")
+			);
 		if (status === "connected") return connected;
 		if (status === "not_connected")
 			return (
@@ -244,8 +248,14 @@ export function AdminConnectionsPage({
 	/** OS mounts no global toaster; action failures render as an inline alert. */
 	const [reviewedProvider, setReviewedProvider] =
 		useState<ConnectionProvider | null>(null);
-	const [pendingConnect, setPendingConnect] =
-		useState<ConnectionInventoryRow | null>(null);
+	const [pendingConnect, setPendingConnect] = useState<
+		(ConnectionInventoryRow & { requestedScopes?: string[] }) | null
+	>(null);
+	const canConfirmConnect =
+		pendingConnect?.scope === "user" &&
+		pendingConnect.provider.connectionType === "oauth"
+			? canManagePersonalOauthConnections
+			: canManageConnections;
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [accountEditor, setAccountEditor] = useState<{
 		providerId: string;
@@ -349,7 +359,13 @@ export function AdminConnectionsPage({
 				(!row?.referencesComplete || row.references.length > 0)
 			)
 				return false;
-			if (statusFilter === "attention" && row?.accountState === "present")
+			if (
+				statusFilter === "attention" &&
+				row?.accountState === "present" &&
+				!row.capabilities?.some(
+					(capability) => capability.state !== "connected",
+				)
+			)
 				return false;
 			if (statusFilter === "connected" && !hasConnection) return false;
 			if (statusFilter === "not_connected" && hasConnection) return false;
@@ -402,27 +418,71 @@ export function AdminConnectionsPage({
 		filteredPersonalAccounts.length;
 
 	// ---------------------------------------------------------------------------
-	// Auto-connect when ?connect= query param is present
+	// Review a setup deep link before opening consent or replacing a credential.
 	// ---------------------------------------------------------------------------
-	const autoConnectTriggered = useRef(false);
+	const autoConnectTriggered = useRef<string | null>(null);
 	useEffect(() => {
+		if (!autoConnectAppId) return;
+		const key = `${autoConnectAppId}:${search.connectionInstanceId ?? ""}:${search.capability ?? ""}:${search.scopes ?? ""}`;
+		if (autoConnectTriggered.current === key) return;
+		const target = inventory.find(
+			(row) =>
+				row.provider.appId === autoConnectAppId &&
+				row.connectionInstanceId === search.connectionInstanceId,
+		);
+		if (!target) return;
+		const capability = target.capabilities?.find(
+			(item) => item.id === search.capability,
+		);
 		if (
-			!autoConnectAppId ||
-			autoConnectTriggered.current ||
-			providers.length === 0
+			search.capability &&
+			(!capability ||
+				capability.state === "connected" ||
+				capability.state === "not_supported")
 		)
 			return;
-		const provider = providers.find((p) => p.appId === autoConnectAppId);
-		if (!provider) return;
-		const connection = connections.find((c) => c.appId === autoConnectAppId);
-		if (connection?.status === "connected") return;
-		autoConnectTriggered.current = true;
-		handleConnect(
-			provider.appId,
-			provider.connectionType,
-			provider.recommendedScope,
-		);
-	}, [autoConnectAppId, providers, connections]);
+		const requiredScopes =
+			capability?.requiredScopes ??
+			search.scopes
+				?.split(",")
+				.map((item) => item.trim())
+				.filter(Boolean) ??
+			[];
+		if (
+			!search.capability &&
+			target.connection?.status === "connected" &&
+			requiredScopes.every((item) => target.connection?.scopes.includes(item))
+		)
+			return;
+		autoConnectTriggered.current = key;
+		if (
+			requiredScopes.length > 100 ||
+			requiredScopes.some((item) => item.length > 500)
+		) {
+			setActionError(
+				"The setup link contains too many or invalid permissions. Open the connection and reconnect from its capability list.",
+			);
+			return;
+		}
+		setReviewedProvider(target.provider);
+		setPendingConnect({
+			...target,
+			requestedScopes: requiredScopes.length
+				? [
+						...new Set([
+							...(target.connection?.scopes ?? []),
+							...requiredScopes,
+						]),
+					]
+				: undefined,
+		});
+	}, [
+		autoConnectAppId,
+		inventory,
+		search.connectionInstanceId,
+		search.capability,
+		search.scopes,
+	]);
 
 	// Listen for OAuth popup completion message
 	useConnectionCompleteListener();
@@ -505,6 +565,7 @@ export function AdminConnectionsPage({
 		connectionType: "oauth" | "api_key",
 		tokenScope?: "tenant" | "user",
 		connectionInstanceId?: string,
+		requestedScopes?: string[],
 	) => {
 		const provider =
 			inventory.find((row) => row.provider.appId === appId)?.provider ??
@@ -539,6 +600,7 @@ export function AdminConnectionsPage({
 			),
 			registrationMode: provider?.registrationMode,
 			connectionInstanceId,
+			...(requestedScopes?.length ? { scopes: requestedScopes } : {}),
 		})
 			.then(() => {
 				setConnectingAppId(null);
@@ -1001,11 +1063,26 @@ export function AdminConnectionsPage({
 							yet.
 						</DialogDescription>
 					</DialogHeader>
+					{pendingConnect?.requestedScopes?.length ? (
+						<Text role="body">
+							Requested permissions: {pendingConnect.requestedScopes.join(", ")}
+						</Text>
+					) : null}
+					{!canConfirmConnect && (
+						<Alert>
+							<AlertTitle>Setup requires permission</AlertTitle>
+							<AlertDescription>
+								Ask an organization admin to manage this connection or grant you
+								access. Your connection has not changed.
+							</AlertDescription>
+						</Alert>
+					)}
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setPendingConnect(null)}>
 							Cancel
 						</Button>
 						<Button
+							disabled={!canConfirmConnect}
 							onClick={() => {
 								const target = pendingConnect;
 								if (!target) return;
@@ -1015,6 +1092,7 @@ export function AdminConnectionsPage({
 									target.provider.connectionType,
 									target.scope,
 									target.connectionInstanceId,
+									target.requestedScopes,
 								);
 							}}
 						>

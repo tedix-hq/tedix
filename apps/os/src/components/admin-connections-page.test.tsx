@@ -64,6 +64,7 @@ function row(label?: string): ConnectionInventoryRow {
 		scope: "user",
 		accountState: "missing",
 		accountLabel: null,
+		capabilities: [],
 		access: "not_evaluated",
 		health: "not_checked",
 		connection: null,
@@ -95,6 +96,97 @@ afterEach(async () => {
 });
 
 describe("Account-first personal integration", () => {
+	it("explains permission requirements when a read-only viewer opens a setup link", async () => {
+		state.rows = [row()];
+		state.canManage = false;
+		host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+		await act(async () =>
+			root?.render(
+				<AdminConnectionsPage
+					scope="personal"
+					search={{ q: "", status: "all", connect: row().provider.appId }}
+					onSearchChange={() => {}}
+				/>,
+			),
+		);
+		const review = document.querySelector('[role="dialog"]');
+		expect(review?.textContent).toContain("Ask an organization admin");
+		const proceed = [...(review?.querySelectorAll("button") ?? [])].find(
+			(button) => button.textContent === "Continue",
+		);
+		expect(proceed?.disabled).toBe(true);
+		expect(state.connect).not.toHaveBeenCalled();
+	});
+	it.each([true, false])(
+		"reviews a named setup scope upgrade with capability metadata %s",
+		async (hasCapability) => {
+			const target = row("Work account");
+			target.accountState = "present";
+			target.connection = {
+				appId: target.provider.appId,
+				providerName: target.provider.name,
+				status: "connected",
+				connectedAt: null,
+				tokenExpiresAt: null,
+				scopes: ["calendar.read"],
+				tokenScope: "user",
+			};
+			target.capabilities = [
+				{
+					id: "write",
+					label: "Write calendar",
+					requiredScopes: ["calendar.write"],
+					state: "not_configured",
+					setupUrl: "/account/connections?connect=mail",
+					verified: true,
+				},
+			];
+			state.rows = [row(), target];
+			state.connect.mockResolvedValue(undefined);
+			host = document.createElement("div");
+			document.body.append(host);
+			root = createRoot(host);
+			await act(async () =>
+				root?.render(
+					<AdminConnectionsPage
+						scope="personal"
+						search={{
+							q: "",
+							status: "all",
+							connect: target.provider.appId,
+							connectionInstanceId: "slot-work",
+							capability: hasCapability ? "write" : undefined,
+							scopes: hasCapability ? "untrusted.scope" : "calendar.write",
+						}}
+						onSearchChange={() => {}}
+					/>,
+				),
+			);
+			expect(state.connect).not.toHaveBeenCalled();
+			const review = document.querySelector('[role="dialog"]');
+			expect(review?.textContent).toContain(
+				"Connect Microsoft Graph Calendar OAuth",
+			);
+			expect(review?.textContent).toContain(
+				"Requested permissions: calendar.read, calendar.write",
+			);
+			expect(review?.textContent).not.toContain("untrusted.scope");
+			const proceed = [...(review?.querySelectorAll("button") ?? [])].find(
+				(button) => button.textContent === "Continue",
+			);
+			expect(proceed).toBeDefined();
+			await act(async () => proceed!.click());
+			expect(state.connect).toHaveBeenCalledWith({
+				appId: target.provider.appId,
+				effectiveScope: "user",
+				registrationMode: "pre_registered",
+				connectionInstanceId: "slot-work",
+				scopes: ["calendar.read", "calendar.write"],
+			});
+		},
+	);
 	it("keeps account actions read-only without personal OAuth permission", async () => {
 		state.rows = [row()];
 		state.canManage = false;

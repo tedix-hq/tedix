@@ -19,6 +19,7 @@ import {
 } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
+import { ConnectionCapabilities } from "@/components/connection-capabilities";
 import { tediSetupQueryOptions } from "@/lib/os-query-options";
 
 export function SetupChip({
@@ -90,6 +91,7 @@ function SetupItems({ items }: { items: TediSetup["items"] }) {
 					<Text role="label" tone="secondary">
 						{item.detail}
 					</Text>
+					<ConnectionCapabilities capabilities={item.capabilities} />
 				</li>
 			))}
 		</Collection>

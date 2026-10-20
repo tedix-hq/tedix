@@ -4,6 +4,7 @@
  */
 
 import { Surface } from "@/components/kumo/surface";
+import { ConnectionCapabilities } from "@/components/connection-capabilities";
 
 import type {
 	ConnectionProvider,
@@ -315,6 +316,9 @@ export function ConnectionListItem({
 					)}
 				</div>
 			</CollapsibleTrigger>
+			<div className="px-3 sm:pl-15 sm:pr-4">
+				<ConnectionCapabilities capabilities={inventory?.capabilities} />
+			</div>
 
 			{/* Expanded details */}
 			<CollapsibleContent>

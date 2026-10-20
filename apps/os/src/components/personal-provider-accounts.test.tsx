@@ -33,6 +33,7 @@ const base: ConnectionInventoryRow = {
 	scope: "user",
 	accountState: "present",
 	accountLabel: "user@example.com",
+	capabilities: [],
 	connection: {
 		appId: provider.appId,
 		providerName: provider.name,

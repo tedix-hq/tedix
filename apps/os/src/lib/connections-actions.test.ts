@@ -268,6 +268,7 @@ describe("startOauthConnect", () => {
 			appId: "acme-api",
 			effectiveScope: "user",
 			connectionInstanceId,
+			scopes: ["mail.read", "mail.send"],
 		});
 		await flush();
 		expect(
@@ -275,7 +276,10 @@ describe("startOauthConnect", () => {
 		).toEqual({
 			appId: "acme-api",
 			connectionInstanceId,
-			options: { redirectUrl: `${ORIGIN}/oauth/callback` },
+			options: {
+				redirectUrl: `${ORIGIN}/oauth/callback`,
+				scopes: ["mail.read", "mail.send"],
+			},
 		});
 		expect(
 			JSON.parse(popup!.sessionStorage.getItem(CONNECT_FLOW_KEY)!),
@@ -307,6 +311,7 @@ describe("startOauthConnect", () => {
 			appId: "firecrawl",
 			effectiveScope: "tenant",
 			registrationMode: "cimd",
+			scopes: ["search.read"],
 		});
 		await flush();
 		postCompletion(ORIGIN, popup!);
@@ -315,6 +320,7 @@ describe("startOauthConnect", () => {
 		expect(initiateConnectionMock).toHaveBeenCalledWith({
 			appId: "firecrawl",
 			redirectUri: `${ORIGIN}/oauth/callback`,
+			scopes: ["search.read"],
 		});
 		expect(fetch).not.toHaveBeenCalled();
 		expect(popup?.location.href).toBe(CONSENT_URL);

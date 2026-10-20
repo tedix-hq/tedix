@@ -27,7 +27,7 @@ describe("tedi setup derivation", () => {
 			expect.objectContaining({
 				kind: "connection",
 				state: "missing",
-				href: "/admin/connections?connect=mail",
+				href: "/admin/connections?connect=mail&scopes=read",
 				label: "mail",
 			}),
 		);
@@ -158,5 +158,44 @@ describe("tedi setup derivation", () => {
 		).toContainEqual(
 			expect.objectContaining({ state: "needs_you", kind: "human" }),
 		);
+	});
+	it("keeps required scopes visible when configured groups do not cover a tool", () => {
+		const result = deriveTediSetup({
+			...config(),
+			accounts: [
+				{
+					providerId: "mail",
+					scope: "tenant",
+					instanceId: null,
+					state: "present",
+					connected: true,
+					scopes: ["other"],
+					capabilities: [
+						{
+							id: "other",
+							label: "Other",
+							requiredScopes: ["other"],
+							state: "connected",
+							verified: true,
+							setupUrl: "/admin/connections?connect=mail",
+						},
+					],
+				},
+			],
+		});
+		const connection = result.items.find((item) => item.kind === "connection")!;
+		expect(connection.capabilities).toEqual([
+			expect.objectContaining({
+				id: "required-access",
+				requiredScopes: ["read"],
+				state: "needs_reauth",
+			}),
+		]);
+		for (const capability of connection.capabilities ?? []) {
+			if (capability.state === "connected") continue;
+			const url = new URL(capability.setupUrl, "https://example.test");
+			expect(url.searchParams.get("connect")).toBe("mail");
+			expect(url.searchParams.get("scopes")).toBe("read");
+		}
 	});
 });
