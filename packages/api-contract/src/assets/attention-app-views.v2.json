@@ -2,7 +2,7 @@
 	"version": 2,
 	"views": {
 		"attention/showDeck": {
-			"layoutId": "decision-deck-v2",
+			"layoutId": "decision-deck-v3",
 			"description": "Decisions that need you, with source, draft and real actions.",
 			"layoutSpec": {
 				"root": "shell",
@@ -80,6 +80,15 @@
 							},
 							"confidence": {
 								"$item": "confidence"
+							},
+							"askLabel": {
+								"$item": "askLabel"
+							},
+							"overdue": {
+								"$item": "overdue"
+							},
+							"draftedNotSent": {
+								"$item": "draftedNotSent"
 							}
 						},
 						"children": ["details", "answer", "actions", "source"]

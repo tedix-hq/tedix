@@ -681,3 +681,43 @@ it("explicitly retries summary generation rather than only re-reading the failed
 		expect.objectContaining({ cardId: row.request.id, retrySummary: true }),
 	);
 });
+
+it("leads with the overdue ask, flags it, and groups drafted-not-sent messages", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("No live requests in the fixture"),
+	);
+	const question = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Fictional question",
+	);
+	const overdue = linkedRow(
+		"33333333-3333-4333-8333-333333333333",
+		"Overdue fictional question",
+	);
+	overdue.request.dueAt = "2026-10-01T09:00:00.000Z";
+	const draft = linkedRow(
+		"44444444-4444-4444-8444-444444444444",
+		"Fictional reply to send",
+	);
+	draft.request.metadata = {
+		schema: "tedix.outbound.v1",
+		outboundStatus: "waiting_on_you",
+	};
+	await mount({ rows: [question, overdue, draft] });
+	expect(host.textContent).toContain(`Live request ${overdue.request.id}`);
+	const strip = host.querySelector("[data-deck-ask]")!;
+	expect(strip.getAttribute("data-deck-ask")).toBe("answer");
+	expect(strip.textContent).toContain("Answer");
+	expect(strip.textContent).toContain("Overdue");
+	expect(strip.textContent).toContain("Due Oct 1, 2026");
+	await click("1 drafted, not sent");
+	expect(host.textContent).toContain(`Live request ${draft.request.id}`);
+	expect(host.querySelector("[data-deck-ask]")?.textContent).toContain(
+		"Drafted, not sent",
+	);
+	expect(
+		host.querySelector('[aria-label="Decision kind"]')?.textContent,
+	).toContain("Drafted, not sent");
+	await click("Show all cards");
+	expect(host.textContent).toContain(`Live request ${overdue.request.id}`);
+});

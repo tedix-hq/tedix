@@ -8,6 +8,7 @@ import {
 } from "./decision-card-copy";
 import { containsCardSecret } from "./card-secrets";
 import { isRecord } from "./is-record";
+import { DECK_ASK_LABELS } from "./deck-ask";
 import type { JsonValue } from "../schemas/common";
 import { AttentionOfferedChoicesSchema } from "../schemas/attention";
 import type {
@@ -105,7 +106,11 @@ export function deckDisplayCard(
 			? `${personal.sourceAgentName} · personal agent`
 			: (card.interaction?.askedBy ?? (card.factory ? "Factory" : "Tedix")),
 		evidenceUrl: personal?.evidenceUrl ?? null,
-		dueAt: card.dueAt,
+		dueAt: card.deadline ?? card.dueAt,
+		askKind: card.askKind ?? null,
+		askLabel: card.askKind ? DECK_ASK_LABELS[card.askKind] : null,
+		overdue: card.overdue ?? false,
+		draftedNotSent: card.draftedNotSent ?? false,
 		source: attentionSource(card.source),
 		draft: containsCardSecret(draft) ? null : draft,
 		recipient: outbound?.recipient ?? null,
@@ -317,13 +322,26 @@ export function feedDisplayCard(
 	};
 }
 
+function askPrefix(card: AttentionDisplayCard) {
+	const tags = [
+		card.askLabel,
+		card.overdue ? "Overdue" : null,
+		card.draftedNotSent ? "Drafted, not sent" : null,
+	].filter(Boolean);
+	const due =
+		card.dueAt && card.askLabel
+			? ` · due ${card.dueAt.replace("T", " ").slice(0, 16)}`
+			: "";
+	return tags.length ? `[${tags.join(" · ")}${due}] ` : "";
+}
+
 export function attentionMarkdown(
 	cards: AttentionDisplayCard[],
 	complete: boolean,
 ): string {
 	const lines = cards.map((card) =>
 		[
-			`- ${card.ask.replace(/[\[\]\r\n]/g, " ")}`,
+			`- ${askPrefix(card)}${card.ask.replace(/[\[\]\r\n]/g, " ")}`,
 			card.context && `  ${card.context}`,
 			card.ifYes && `  If yes: ${card.ifYes}`,
 			card.why && `  ${card.why}`,
@@ -336,10 +354,16 @@ export function attentionMarkdown(
 			.filter(Boolean)
 			.join("\n"),
 	);
+	const stale = cards.filter((card) => card.draftedNotSent).length;
 	return [
 		...(complete
 			? []
 			: ["Some sources could not be read. Reload before deciding."]),
+		...(stale
+			? [
+					`Drafted, not sent: ${stale} message draft${stale === 1 ? "" : "s"} waiting to be sent.`,
+				]
+			: []),
 		...lines,
 		...(cards.length
 			? []

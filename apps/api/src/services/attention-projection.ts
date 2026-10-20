@@ -12,6 +12,7 @@ import {
 } from "@tedix/api-contract/schemas/os-activity-feed";
 import {
 	projectDeckCards,
+	annotateDeckAsk,
 	compareDecisionFreshness,
 	rankDeckCard,
 } from "@tedix/api-contract/utils/deck-projection";
@@ -222,6 +223,7 @@ async function loadConfiguredDeckProjection(
 		timeZone,
 		routing: config.routing,
 		destination,
+		staleDraftHours: config.staleDraftHours,
 	});
 	for (const { card, revision } of factories.cards) {
 		if (!isOpen(card)) continue;
@@ -259,6 +261,10 @@ async function loadConfiguredDeckProjection(
 			now,
 			card.interaction?.request,
 		).score;
+	annotateDeckAsk(cards, now, {
+		timeZone,
+		staleDraftHours: config.staleDraftHours,
+	});
 	cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));
 	return {
 		cards,

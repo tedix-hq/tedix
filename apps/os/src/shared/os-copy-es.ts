@@ -207,12 +207,20 @@ export const SPANISH_FEED_DECK_COPY = {
 		} as Record<string, string>,
 		kinds: {
 			all: "Todos los tipos",
-			outbound: "Mensajes",
-			proposal: "Propuestas",
-			question: "Preguntas",
-			approval: "Aprobaciones",
-			decision: "Elecciones",
-			adr: "Arquitectura",
+			send: "Enviar",
+			decide: "Decidir",
+			approve_draft: "Aprobar borrador",
+			answer: "Responder",
+			consent: "Consentir",
+			drafted_not_sent: "Redactado, sin enviar",
+		} as Record<string, string>,
+		ask: {
+			overdue: "Vencido",
+			due: (when: string) => `Vence ${when}`,
+			draftedNotSent: "Redactado, sin enviar",
+			staleDrafts: (count: number) =>
+				`${count} redactado${count === 1 ? "" : "s"}, sin enviar`,
+			showAll: "Mostrar todas",
 		},
 		projects: {
 			Examples: "Ejemplos",

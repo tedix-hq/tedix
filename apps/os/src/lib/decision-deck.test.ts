@@ -184,12 +184,12 @@ it("distinguishes nobody carrying an outcome from a live Attempt or an unknown r
 	);
 });
 
-it("demotes elapsed deadlines even when learning would boost the old ask", () => {
+it("leads with an overdue ask even when learning prefers a fresh one", () => {
 	const now = new Date("2026-10-18T00:30:00Z");
-	const stale = { dueAt: "2026-10-13T09:00:00Z", score: 1000 };
-	const fresh = { requestedAt: "2026-10-17T22:00:00Z", score: 5 };
-	expect(compareDecisionFreshness(stale, fresh, now)).toBeGreaterThan(0);
-	expect(compareDecisionFreshness(fresh, stale, now)).toBeLessThan(0);
+	const overdue = { dueAt: "2026-10-13T09:00:00Z", score: 0 };
+	const fresh = { requestedAt: "2026-10-17T22:00:00Z", score: 1000 };
+	expect(compareDecisionFreshness(overdue, fresh, now)).toBeLessThan(0);
+	expect(compareDecisionFreshness(fresh, overdue, now)).toBeGreaterThan(0);
 });
 it("puts today's deadline before learned preference, then uses recency", () => {
 	const now = new Date("2026-10-18T00:30:00Z");
@@ -258,7 +258,7 @@ it("keeps due follow-ups actionable while elapsed question deadlines require rev
 	expect(decisionDeadlinePassed({ kind: "question" }, now)).toBe(false);
 });
 
-it("keeps fresh approvals ahead of newer filing questions without reviving stale approvals", async () => {
+it("keeps fresh approvals ahead of newer filing questions and overdue approvals ahead of both", async () => {
 	const { compareDecisionFreshness } =
 		await import("@tedix/api-contract/utils/deck-projection");
 	const now = new Date("2026-10-18T12:00:00Z");
@@ -271,7 +271,7 @@ it("keeps fresh approvals ahead of newer filing questions without reviving stale
 			question,
 			now,
 		),
-	).toBeGreaterThan(0);
+	).toBeLessThan(0);
 });
 
 it("shows an owned deadline decision before its deadline while preserving explicit reminder dates", () => {

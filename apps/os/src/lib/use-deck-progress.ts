@@ -3,6 +3,8 @@ import { useLayoutEffect, useState } from "react";
 type ProgressCard = {
 	id: string;
 	kind: string;
+	askKind: string;
+	draftedNotSent: boolean;
 	project: string;
 	urgency: string;
 	label: string;

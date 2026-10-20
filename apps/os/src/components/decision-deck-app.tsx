@@ -3,6 +3,8 @@ import {
 	compareDecisionFreshness,
 } from "@tedix/api-contract/utils/deck-projection";
 import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
+import { DECK_ASK_KINDS, deckAsk } from "@tedix/api-contract/utils/deck-ask";
+import { DeckAskStrip } from "@/components/deck-ask-strip";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import { workRefreshOptions } from "@/lib/work-refresh";
@@ -69,7 +71,6 @@ import {
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-	DecisionKindSchema,
 	DEFAULT_DECK_ROUTING,
 	type DecisionDeckConfig,
 } from "@tedix/api-contract/schemas/os-decision-deck";
@@ -250,6 +251,11 @@ function DecisionDeckContent({
 			.catch(() => {});
 	}, [profile.data?.id, client]);
 	const practiceMode = mode === "practice";
+	const ask = (card: Parameters<typeof deckAsk>[0]) =>
+		deckAsk(card, now, {
+			timeZone,
+			staleDraftHours: config.staleDraftHours ?? 24,
+		});
 	const rows = practiceMode
 		? config.examples.map((decision, i) => ({
 				id: `example:${i}`,
@@ -260,6 +266,7 @@ function DecisionDeckContent({
 				urgency: "later",
 				decision,
 				row: undefined,
+				...ask({ kind: decision.kind, decision }),
 			}))
 		: [
 				...(mode === "decide"
@@ -275,6 +282,12 @@ function DecisionDeckContent({
 							urgency: "later",
 							decision: null,
 							row: undefined,
+							...ask({
+								kind: "decision",
+								factory: card,
+								dueAt: factoryCardDeadline(card),
+								requestedAt: card.runCreatedAt,
+							}),
 						}))
 					: []),
 				...(mode === "history"
@@ -307,6 +320,13 @@ function DecisionDeckContent({
 									}
 								: decision,
 						row,
+						...ask({
+							kind: cardKind,
+							decision,
+							request: row.request,
+							dueAt: row.request.dueAt,
+							requestedAt: row.request.requestedAt,
+						}),
 					};
 				}),
 				...(mode === "decide"
@@ -319,6 +339,7 @@ function DecisionDeckContent({
 							urgency: "now",
 							decision: null,
 							row: undefined,
+							...ask({ kind: "approval" }),
 						}))
 					: []),
 				...(!config.projectId && mode === "decide"
@@ -331,6 +352,7 @@ function DecisionDeckContent({
 							urgency: "now",
 							decision: null,
 							row: undefined,
+							...ask({ kind: "approval", runtimeApproval: approval }),
 						}))
 					: []),
 			];
@@ -344,6 +366,7 @@ function DecisionDeckContent({
 					"dueAt" in a && typeof a.dueAt === "string"
 						? a.dueAt
 						: a.row?.request.dueAt,
+				deadline: a.deadline,
 				requestedAt: a.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(a).score : undefined,
 			},
@@ -353,6 +376,7 @@ function DecisionDeckContent({
 					"dueAt" in b && typeof b.dueAt === "string"
 						? b.dueAt
 						: b.row?.request.dueAt,
+				deadline: b.deadline,
 				requestedAt: b.requestedAt,
 				score: learningModel.data?.config.enabled ? rank(b).score : undefined,
 			},
@@ -360,12 +384,16 @@ function DecisionDeckContent({
 			timeZone,
 		);
 	const matchesFilters = (row: {
-		kind: string;
+		askKind: string;
+		draftedNotSent: boolean;
 		project: string;
 		urgency: string;
 		label: string;
 	}) =>
-		(kind === "all" || row.kind === kind) &&
+		(kind === "all" ||
+			(kind === "drafted_not_sent"
+				? row.draftedNotSent
+				: row.askKind === kind)) &&
 		(project === "all" || row.project === project) &&
 		(urgency === "all" || row.urgency === urgency) &&
 		row.label.toLowerCase().includes(search.toLowerCase());
@@ -401,6 +429,12 @@ function DecisionDeckContent({
 		matchesFilters,
 		filtered.length,
 	);
+	const staleDrafts =
+		mode === "decide"
+			? available.filter(
+					(row) => row.draftedNotSent && !optimisticIds.includes(row.id),
+				).length
+			: 0;
 	const filtersActive =
 		kind !== "all" || project !== "all" || urgency !== "all" || search !== "";
 	const selected =
@@ -867,7 +901,7 @@ function DecisionDeckContent({
 										setKind(value);
 										setIndex(0);
 									}}
-									options={["all", ...DecisionKindSchema.options].map(
+									options={["all", ...DECK_ASK_KINDS, "drafted_not_sent"].map(
 										(value) => ({ value, label: KIND_LABELS[value] }),
 									)}
 								/>
@@ -943,6 +977,23 @@ function DecisionDeckContent({
 							)}
 							filtered={filtersActive}
 							saving={saving}
+							leading={
+								mode === "decide" ? (
+									<DeckAskStrip
+										card={selected}
+										staleDrafts={staleDrafts}
+										showingStale={kind === "drafted_not_sent"}
+										onShowStale={() => {
+											setKind(
+												kind === "drafted_not_sent"
+													? "all"
+													: "drafted_not_sent",
+											);
+											setIndex(0);
+										}}
+									/>
+								) : undefined
+							}
 						/>
 					)}
 				{practiceMode && (

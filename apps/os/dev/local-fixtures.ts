@@ -3885,6 +3885,9 @@ const LOCAL_KNOCKS: readonly {
 	minutesAgo: number;
 	draft: "auto" | "review" | null;
 	drafter: string;
+	/** Negative values are already overdue. */
+	dueInMinutes?: number;
+	outbound?: boolean;
 }[] = [
 	{
 		n: 1,
@@ -3929,6 +3932,7 @@ const LOCAL_KNOCKS: readonly {
 		minutesAgo: 47,
 		draft: "review",
 		drafter: TEDI_MILES,
+		dueInMinutes: -180,
 	},
 	{
 		n: 5,
@@ -3940,6 +3944,18 @@ const LOCAL_KNOCKS: readonly {
 		minutesAgo: 95,
 		draft: null,
 		drafter: TEDI_NOVA,
+	},
+	{
+		n: 6,
+		subject: "Reply to Dana about the revised delivery date",
+		host: "codex",
+		repository: "acme/books",
+		urgency: "later",
+		state: "open",
+		minutesAgo: 30 * 60,
+		draft: null,
+		drafter: TEDI_MILES,
+		outbound: true,
 	},
 ];
 
@@ -3961,17 +3977,26 @@ function localKnockRequest(knock: (typeof LOCAL_KNOCKS)[number]) {
 		creatorSessionId: null,
 		state: knock.state,
 		requestedAt: at,
-		dueAt: null,
+		dueAt:
+			knock.dueInMinutes === undefined
+				? null
+				: new Date(Date.now() + knock.dueInMinutes * 60_000).toISOString(),
 		expiresAt: null,
 		resolvedAt: knock.state === "resolved" ? at : null,
 		version: 1,
-		metadata: {
-			schema: "tedix.decision-capture.v1",
-			host: knock.host,
-			sessionId: fid("a8", knock.n),
-			repository: knock.repository,
-			triage: { urgency: knock.urgency },
-		},
+		metadata: knock.outbound
+			? {
+					schema: "tedix.outbound.v1",
+					outboundStatus: "waiting_on_you",
+					outboundWorkItemId: LOCAL_OUTBOUND.workItemId,
+				}
+			: {
+					schema: "tedix.decision-capture.v1",
+					host: knock.host,
+					sessionId: fid("a8", knock.n),
+					repository: knock.repository,
+					triage: { urgency: knock.urgency },
+				},
 	};
 }
 

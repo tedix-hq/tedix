@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import {
@@ -15,12 +15,15 @@ export function DeckProgress({
 	position,
 	filtered,
 	saving,
+	leading,
 }: {
 	total: number;
 	completed: number;
 	position: number;
 	filtered: boolean;
 	saving: boolean;
+	/** Card facts shown on the counter row so they add no height. */
+	leading?: ReactNode;
 }) {
 	const label = `${position} of ${total}${filtered ? " · filtered" : ""}`;
 	const [announcement, setAnnouncement] = useState("");
@@ -41,13 +44,16 @@ export function DeckProgress({
 	}, [label, completed, total, saving, filtered]);
 	return (
 		<div className="fd-card-progress grid gap-1" data-deck-progress>
-			<Text
-				role="label"
-				tone="secondary"
-				className="px-2 text-right tabular-nums"
-			>
-				{label}
-			</Text>
+			<div className="flex min-w-0 items-center justify-between gap-2">
+				{leading ?? <span />}
+				<Text
+					role="label"
+					tone="secondary"
+					className="shrink-0 px-2 text-right tabular-nums"
+				>
+					{label}
+				</Text>
+			</div>
 			<Progress
 				value={completed}
 				max={total}
