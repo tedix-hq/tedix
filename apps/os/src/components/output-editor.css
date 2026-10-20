@@ -597,12 +597,6 @@
 	}
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.slide-inspector-caret {
-		transition: none;
-	}
-}
-
 .slides-present-body {
 	display: grid;
 	min-height: 0;

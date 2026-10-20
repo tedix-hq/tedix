@@ -445,14 +445,6 @@ a:focus-visible {
  * Page anatomy — flat canvas, eyebrow sections, row-based lists.
  * ------------------------------------------------------------------------- */
 
-/* These three library routes use a tighter gap between route copy and controls. */
-.workspaces-surface,
-.outputs-surface,
-.blueprints-surface {
-	gap: 16px;
-}
-
-.blueprint-explore-heading,
 .blueprint-detail-heading {
 	display: flex;
 	align-items: flex-start;
@@ -579,7 +571,6 @@ a:focus-visible {
 }
 
 @media (max-width: 639px) {
-	.blueprint-explore-heading,
 	.blueprint-detail-heading {
 		flex-direction: column;
 	}

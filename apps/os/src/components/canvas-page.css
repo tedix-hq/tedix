@@ -140,16 +140,12 @@
 
 .canvas-resource-library-header h2 {
 	color: var(--text-color-kumo-strong);
-	font-size: 20px;
 	font-weight: 600;
-	line-height: 28px;
 }
 
 .canvas-resource-library-header p {
 	max-width: 34rem;
 	color: var(--text-color-kumo-subtle);
-	font-size: 13px;
-	line-height: 20px;
 }
 
 .canvas-resource-search {
@@ -387,13 +383,6 @@
 	transition:
 		width 200ms ease-out,
 		opacity 200ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
-	.canvas-surface[data-canvas-transition="true"] .canvas-stage {
-		transition: none;
-	}
 }
 
 .canvas-stage[data-simple-mode="true"] {
@@ -1156,11 +1145,4 @@
 
 .card-review-card {
 	animation: card-review-arrive 180ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.card-review-card {
-		animation: none;
-		transition: none !important;
-	}
 }
