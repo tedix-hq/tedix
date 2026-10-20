@@ -1011,7 +1011,7 @@ export function CanvasPage({
 		<Page
 			fullHeight
 			width="bleed"
-			className="canvas-surface workspace-design"
+			className="canvas-surface"
 			data-canvas-focus={focusMode || undefined}
 			data-chat-collapsed={
 				(chatCollapsed && openedDocs.length > 0 && !simpleMode) || undefined
