@@ -1,7 +1,11 @@
 import { SquaresFour } from "@phosphor-icons/react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { WORK_VIEWS } from "@/lib/work-views";
-import { matchesCommand, workViewCommands } from "./os-command-palette";
+import {
+	matchesCommand,
+	pageCommands,
+	workViewCommands,
+} from "./os-command-palette";
 
 const command = {
 	id: "canvas",
@@ -47,5 +51,58 @@ describe("Work view commands", () => {
 			true,
 		);
 		expect(commands.some((c) => matchesCommand(c, "budgets"))).toBe(true);
+	});
+});
+
+describe("page commands", () => {
+	it("finds admin and account pages by all search tokens and navigates", () => {
+		const open = vi.fn();
+		const commands = pageCommands(open, "/work");
+		for (const [query, path, id] of [
+			[
+				"go to organization settings",
+				"/admin/organization",
+				"admin-organization",
+			],
+			["api keys", "/admin/api-keys", "admin-api-keys"],
+			["account profile", "/account/profile", "account-profile"],
+		]) {
+			const command = commands.find((item) => item.id === `page-${id}`);
+			expect(command).toBeDefined();
+			expect(matchesCommand(command!, query!)).toBe(true);
+			command!.run();
+			expect(open).toHaveBeenLastCalledWith(path);
+		}
+	});
+	it("offers every tedi tab using the current tedi identity", () => {
+		const open = vi.fn();
+		const commands = pageCommands(open, "/team/tedi-1/memory");
+		for (const tab of [
+			"authority",
+			"learning",
+			"mailbox",
+			"memory",
+			"settings",
+			"telemetry",
+		]) {
+			const command = commands.find((item) => item.id === `page-tedi-${tab}`);
+			expect(command).toBeDefined();
+			expect(matchesCommand(command!, `team tedi ${tab}`)).toBe(true);
+			command!.run();
+			expect(open).toHaveBeenLastCalledWith(`/team/tedi-1/${tab}`);
+		}
+	});
+	it("never navigates to unresolved dynamic placeholders or mistakes new for a tedi", () => {
+		for (const path of ["/work", "/team/new"]) {
+			const open = vi.fn();
+			const commands = pageCommands(open, path);
+			expect(
+				commands.some((command) => command.id.startsWith("page-tedi-")),
+			).toBe(false);
+			commands.forEach((command) => command.run());
+			expect(
+				open.mock.calls.every(([destination]) => !destination.includes("$")),
+			).toBe(true);
+		}
 	});
 });
