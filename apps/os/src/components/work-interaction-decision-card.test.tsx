@@ -374,3 +374,61 @@ it("keeps an overdue open Answer card answerable after a curator revision", asyn
 	expect(button?.disabled).toBe(false);
 	expect(respond).not.toHaveBeenCalled();
 });
+
+it.each([false, true])(
+	"saves a decline with no typed answer (prepared draft: %s)",
+	async (withDraft) => {
+		client = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		});
+		client.setQueryData(
+			workInteractionDetailQueryOptions(preview.request.id).queryKey,
+			{
+				request: preview.request,
+				effectiveState: "open",
+				canRespond: true,
+				canCancel: false,
+				latestDraft: withDraft
+					? {
+							id: "33333333-3333-4333-8333-333333333333",
+							body: "Tuesday works for us.",
+							rationale: "The date fits the plan.",
+							drafterId: "fictional-tedi",
+							drafterName: "Supply",
+							createdAt: "2026-10-18T08:01:00Z",
+							turnType: "reply",
+							delivery: "review",
+						}
+					: null,
+				responses: { data: [], nextCursor: null, hasMore: false },
+			},
+		);
+		host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+		respond.mockResolvedValue({});
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<WorkInteractionDecisionCard requestId={preview.request.id} />
+				</QueryClientProvider>,
+			),
+		);
+		const no = host.querySelector<HTMLButtonElement>(
+			"[data-decision-intent=reject]",
+		);
+		expect(no?.textContent).toBe("No / Not needed");
+		expect(no?.disabled).toBe(false);
+		await act(async () => no!.click());
+		expect(respond).toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: "No / Not needed.",
+				resolvesRequest: true,
+				metadata: expect.objectContaining({
+					decisionChoice: "reject",
+					feedbackSignal: "rejected",
+				}),
+			}),
+		);
+	},
+);

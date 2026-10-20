@@ -69,12 +69,37 @@ export const DecisionEnvelopeSchema = z.strictObject({
 			}),
 		)
 		.min(2)
-		.max(4)
+		.max(5)
+		.refine(
+			(options) =>
+				options.length < 5 ||
+				options.some((option) => option.intent === "reject"),
+			"A fifth option must include a decline action",
+		)
 		.refine(
 			(options) =>
 				new Set(options.map((option) => option.id)).size === options.length,
 			"Option ids must be unique",
-		),
+		)
+		.transform((options) => {
+			if (options.some((option) => option.intent === "reject")) return options;
+			let id = "not-needed";
+			while (options.some((option) => option.id === id)) id += "-no";
+			const withDecline = [...options];
+			withDecline.splice(
+				options.findIndex((option) => option.intent === "approve") + 1,
+				0,
+				{
+					id,
+					label: "No / Not needed",
+					intent: "reject",
+					consequence:
+						"Declines this request without approving its proposed action.",
+					cost: "No proposed action is authorized.",
+				},
+			);
+			return withDecline;
+		}),
 });
 export type DecisionEnvelope = z.infer<typeof DecisionEnvelopeSchema>;
 

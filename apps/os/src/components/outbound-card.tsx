@@ -194,7 +194,7 @@ export function OutboundReviewCard({
 					intent: state.draft.channel !== "email" ? "approve" : undefined,
 					disabled: !ready,
 				},
-				{ id: "reject", label: "Not this", intent: "reject" },
+				{ id: "reject", label: "No / Not needed", intent: "reject" },
 			]
 		: [];
 	const decide = async (feedback: DecisionCardFeedback) => {

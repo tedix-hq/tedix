@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { renderCardDateText } from "@tedix/api-contract/utils/decision-card-copy";
 import type { CardRevisionTarget } from "@/components/card-revision-panel";
 import { DecisionProposalBody } from "@/components/decision-proposal-body";
 import type { DecisionEnvelope } from "@tedix/api-contract/schemas/os-decision-deck";
@@ -60,15 +61,22 @@ export function DecisionEnvelopeCard({
 						/>
 					)}
 					{!decision.preview && (
-						<Text className="fd-card-summary">{decision.whyNow}</Text>
+						<Text className="fd-card-summary">
+							{renderCardDateText(decision.whyNow)}
+						</Text>
 					)}
-					<Text className="fd-recommendation">{decision.recommendation}</Text>
+					<Text className="fd-recommendation">
+						{renderCardDateText(decision.recommendation)}
+					</Text>
 					{decision.blastRadius && (
-						<Text className="fd-stakes">If wrong: {decision.blastRadius}</Text>
+						<Text className="fd-stakes">
+							If wrong: {renderCardDateText(decision.blastRadius)}
+						</Text>
 					)}
 					<FeedDeckDisclosure title={OS_COPY.feed.details}>
 						<Text>
-							<strong>{decisionText("Why now:")}</strong> {decision.whyNow}
+							<strong>{decisionText("Why now:")}</strong>{" "}
+							{renderCardDateText(decision.whyNow)}
 						</Text>
 						<Text>
 							<strong>
@@ -80,14 +88,13 @@ export function DecisionEnvelopeCard({
 											: "Reversibility unknown",
 								)}
 							</strong>{" "}
-							· {decision.blastRadius}
+							· {renderCardDateText(decision.blastRadius)}
 						</Text>
 						<Text>
-							{decisionText("Confidence:")}{" "}
-							{decision.confidence === null
-								? decisionText("not assessed")
-								: `${Math.round(decision.confidence * 100)}%`}{" "}
-							· {decisionText("Waiting:")} {decision.costOfWaiting}
+							{decision.confidence !== null &&
+								`${decisionText("Confidence:")} ${Math.round(decision.confidence * 100)}% · `}
+							{decisionText("Waiting:")}{" "}
+							{renderCardDateText(decision.costOfWaiting)}
 						</Text>
 					</FeedDeckDisclosure>
 					{decision.expiresAt && (
@@ -116,7 +123,10 @@ export function DecisionEnvelopeCard({
 			}
 			actions={decision.options.map((option) => ({
 				id: option.id,
-				label: option.label,
+				label:
+					option.intent === "reject" && !option.effect
+						? "No / Not needed"
+						: option.label,
 				intent: option.intent,
 				primary: preferDelegation
 					? option.intent === "delegate"
@@ -126,7 +136,7 @@ export function DecisionEnvelopeCard({
 				(decision.reversibility !== "two_way" ||
 					decision.protectedEffects.length > 0)
 					? {
-							confirm: `${option.consequence} ${decision.blastRadius}. This saves your decision; execution still follows the originating Work's permissions.`,
+							confirm: `${option.consequence} ${renderCardDateText(decision.blastRadius)}. This saves your decision; execution still follows the originating Work's permissions.`,
 						}
 					: {}),
 			}))}

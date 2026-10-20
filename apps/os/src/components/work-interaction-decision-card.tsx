@@ -15,6 +15,7 @@ import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
+import { renderDecisionCardDates } from "@tedix/api-contract/utils/decision-card-copy";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
 import { useContext, useRef } from "react";
 import { OutboundCard } from "@/components/outbound-card";
@@ -201,7 +202,9 @@ export function WorkInteractionDecisionCard({
 							: deferred
 								? "Not now."
 								: "Never suggest this again."
-						: (option?.body ?? option?.label ?? feedback.body);
+						: feedback.signal === "rejected"
+							? "No / Not needed."
+							: (option?.body ?? option?.label ?? feedback.body);
 			const result = await osApi.workInteractions.respond({
 				requestId,
 				expectedRequestVersion: request.version,
@@ -234,17 +237,22 @@ export function WorkInteractionDecisionCard({
 									: "approve",
 					...(feedback.signal === "edited" ? { editedBody: body } : {}),
 					...(lane ? { laneAction: feedback.action } : {}),
-					feedbackSignal: draft
-						? body === draft.body
-							? "approve-as-is"
-							: "edited"
-						: feedback.signal,
+					feedbackSignal:
+						feedback.signal === "rejected"
+							? "rejected"
+							: draft
+								? body === draft.body
+									? "approve-as-is"
+									: "edited"
+								: feedback.signal,
 					...(feedback.reason ? { feedbackReason: feedback.reason } : {}),
 					...(feedback.feedback ? { feedbackText: feedback.feedback } : {}),
 					...(feedback.originalBody
 						? { originalBody: feedback.originalBody }
 						: {}),
-					...(draft ? draftAnswerMetadata(draft, body) : {}),
+					...(draft && feedback.signal !== "rejected"
+						? draftAnswerMetadata(draft, body)
+						: {}),
 					source: "os-decision-card",
 				},
 			});
@@ -344,9 +352,17 @@ export function WorkInteractionDecisionCard({
 			/>
 		);
 	const choices = offeredChoices.parse(request.metadata ?? {});
-	const presentation = DecisionCardPresentationSchema.safeParse(
+	const storedPresentation = DecisionCardPresentationSchema.safeParse(
 		request.metadata?.cardPresentation,
 	).data;
+	const presentation = storedPresentation
+		? renderDecisionCardDates(
+				storedPresentation,
+				[request.dueAt, request.expiresAt].filter((date): date is string =>
+					Boolean(date),
+				),
+			)
+		: undefined;
 	const capture = decisionCaptureSummary(request.metadata);
 	const decision = decisionEnvelope(request.metadata);
 	const outboundBody =
@@ -385,7 +401,7 @@ export function WorkInteractionDecisionCard({
 	const actions: DecisionCardAction[] = approval
 		? [
 				{ id: "approve", label: decisionText("Approve"), intent: "approve" },
-				{ id: "reject", label: decisionText("Not this"), intent: "reject" },
+				{ id: "reject", label: "No / Not needed", intent: "reject" },
 				{
 					id: "delegate",
 					label: decisionText("Decide for me"),
@@ -428,6 +444,21 @@ export function WorkInteractionDecisionCard({
 								intent: "approve",
 							},
 						];
+	if (!approval && !lane && !proposal) {
+		const decline = decision?.options.find(
+			(option) => option.intent === "reject",
+		);
+		const existing =
+			decline && actions.find((action) => action.id === decline.id);
+		if (existing) {
+			existing.intent = "reject";
+			existing.label = "No / Not needed";
+		} else {
+			let id = "not-needed";
+			while (actions.some((action) => action.id === id)) id += "-no";
+			actions.push({ id, label: "No / Not needed", intent: "reject" });
+		}
+	}
 	return (
 		<div className="grid min-w-0 gap-3">
 			{readNotice}

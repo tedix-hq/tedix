@@ -723,3 +723,50 @@ it("keeps revision controls behind collapsed Details", async () => {
 	});
 	expect(trigger?.getAttribute("aria-expanded")).toBe("true");
 });
+
+it.each(["outbound", "decision", "proposal", "question", "approval"] as const)(
+	"allows an explicit decline without an answer for %s",
+	async (kind) => {
+		const decide = await mount({
+			kind,
+			body: "Approve the proposed action.",
+			actions: [
+				{ id: "yes", label: "Yes", intent: "approve" },
+				{ id: "no", label: "No / Not needed", intent: "reject" },
+			],
+		});
+		const button = host.querySelector<HTMLButtonElement>(
+			"[data-decision-intent=reject]",
+		);
+		expect(button?.disabled).toBe(false);
+		await click("No / Not needed");
+		if (kind === "outbound") await click("don't send");
+		expect(decide).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "no",
+				signal: kind === "outbound" ? "reason" : "rejected",
+				body: "No / Not needed",
+			}),
+		);
+	},
+);
+
+it("refreshes a stored face date on rerender without rewriting its source", async () => {
+	vi.useFakeTimers();
+	try {
+		const presentation = {
+			...FACE,
+			generatedAt: "2026-10-19T12:00:00Z",
+			context: "The workshop is tomorrow.",
+		};
+		vi.setSystemTime(new Date("2026-10-20T12:00:00Z"));
+		await mountFace({ presentation, confidence: null, dates: ["2026-10-20"] });
+		expect(host.textContent).toContain("The workshop is today.");
+		vi.setSystemTime(new Date("2026-10-22T12:00:00Z"));
+		await mountFace({ presentation, confidence: null, dates: ["2026-10-20"] });
+		expect(host.textContent).toContain("The workshop is 2 days ago.");
+		expect(presentation.context).toBe("The workshop is tomorrow.");
+	} finally {
+		vi.useRealTimers();
+	}
+});

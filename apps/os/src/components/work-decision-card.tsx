@@ -76,7 +76,11 @@ import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
 import { relativeTime, absoluteTime } from "@/lib/time";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
-import { decisionCardActionLabel } from "@tedix/api-contract/utils/decision-card-copy";
+import {
+	decisionCardActionLabel,
+	renderDecisionCardDates,
+	renderCardDateText,
+} from "@tedix/api-contract/utils/decision-card-copy";
 import {
 	DecisionProposalBody,
 	DecisionProposalHeading,
@@ -191,11 +195,20 @@ export function WorkDecisionCard({
 	onPrevious?: () => void;
 }) {
 	const faceState = useContext(CardFaceContext);
-	const face = faceState?.presentation;
+	const face = faceState?.presentation
+		? renderDecisionCardDates(
+				faceState.presentation,
+				faceState.dates,
+				faceState.now,
+				faceState.timeZone,
+			)
+		: null;
 	const [sourceRead, setSourceRead] = useState(false);
 	// The headline is always real text: the short summary's ask when it exists,
 	// otherwise the original request title. Never a status word.
-	const heading = decisionProposalTitle(face?.title ?? title);
+	const heading = decisionProposalTitle(
+		face?.title ?? (renderCardDateText(title) || "Review this request?"),
+	);
 	const faceWaiting = !!faceState && !face && !faceState.unavailable;
 	const [faceSlow, setFaceSlow] = useState(false);
 	const [faceRetries, setFaceRetries] = useState(0);
@@ -321,7 +334,12 @@ export function WorkDecisionCard({
 			setConfirmation(action);
 			return;
 		}
-		const finalBody = kind === "question" ? answer.trim() : draft.trim();
+		const finalBody =
+			action.intent === "reject"
+				? action.label
+				: kind === "question"
+					? answer.trim()
+					: draft.trim();
 		if (containsCardSecret([finalBody, feedback, reason])) {
 			setError(CARD_SECRET_MESSAGE);
 			return;
@@ -330,7 +348,12 @@ export function WorkDecisionCard({
 			setError("Use connection settings to update credentials.");
 			return;
 		}
-		if (kind === "question" && !finalBody && action.id !== feedbackAction?.id)
+		if (
+			kind === "question" &&
+			action.intent !== "reject" &&
+			!finalBody &&
+			action.id !== feedbackAction?.id
+		)
 			return;
 		inFlight.current = true;
 		setSaving(true);
@@ -958,7 +981,9 @@ export function WorkDecisionCard({
 									const inactive =
 										busy ||
 										action.disabled ||
-										(kind === "question" && !answer.trim()) ||
+										(kind === "question" &&
+											action.intent !== "reject" &&
+											!answer.trim()) ||
 										(editing && !draft.trim());
 									const control = (
 										<Button

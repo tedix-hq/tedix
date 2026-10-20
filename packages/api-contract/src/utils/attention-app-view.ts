@@ -5,6 +5,7 @@ import {
 	checkDecisionCardCopy,
 	decisionCardActionLabel,
 	decisionCardFallbackTitle,
+	renderDecisionCardDates,
 } from "./decision-card-copy";
 import { containsCardSecret } from "./card-secrets";
 import { isRecord } from "./is-record";
@@ -55,11 +56,21 @@ export function deckDisplayCard(
 	const metadata = request?.metadata ?? {};
 	const offered = AttentionOfferedChoicesSchema.safeParse(metadata).data;
 	// Null is the prepared projection's rejection of stale or unavailable copy.
-	const copy = checkedCopy(
+	const storedCopy = checkedCopy(
 		card.presentation === undefined
 			? metadata.cardPresentation
 			: card.presentation,
 	);
+	const copy = storedCopy
+		? renderDecisionCardDates(
+				storedCopy,
+				[card.dueAt, card.deadline].filter((date): date is string =>
+					Boolean(date),
+				),
+				new Date(),
+				input.timeZone,
+			)
+		: null;
 	const personal =
 		request?.creatorType === "system"
 			? PersonalAgentContributionSchema.safeParse(
@@ -349,8 +360,7 @@ export function attentionMarkdown(
 			card.context && `  ${card.context}`,
 			card.ifYes && `  If yes: ${card.ifYes}`,
 			card.why && `  ${card.why}`,
-			card.ifYes &&
-				`  ${card.confidence == null ? "Confidence not assessed" : `${Math.round(card.confidence * 100)}% sure`}`,
+			card.confidence != null && `  ${Math.round(card.confidence * 100)}% sure`,
 			card.actions.length > 0 &&
 				`  Choices: ${card.actions.map((action) => action.label).join(" / ")}`,
 			`  Details: [Original request](${card.source})`,

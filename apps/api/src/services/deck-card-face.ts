@@ -12,6 +12,7 @@ import {
 	checkDecisionCardCopy,
 	decisionCardFaceText,
 	decisionCardFallbackTitle,
+	renderDecisionCardDates,
 } from "@tedix/api-contract/utils/decision-card-copy";
 import { readDraftPreferences } from "./decision-learning";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
@@ -25,14 +26,22 @@ export function displayDeckCard(
 	presentation: DeckCard["presentation"],
 	unavailable = false,
 ): DeckCard {
+	const rendered = presentation
+		? renderDecisionCardDates(
+				presentation,
+				[card.dueAt, card.deadline].filter((date): date is string =>
+					Boolean(date),
+				),
+			)
+		: null;
 	return {
 		...card,
 		presentation: presentation ?? null,
-		label: presentation?.title ?? decisionCardFallbackTitle(card.label),
+		label: rendered?.title ?? decisionCardFallbackTitle(card.label),
 		faceText:
 			!presentation && unavailable
 				? copySpec.unavailableFace
-				: decisionCardFaceText(presentation, card.decision?.confidence ?? null),
+				: decisionCardFaceText(rendered, card.decision?.confidence ?? null),
 	};
 }
 
@@ -106,6 +115,7 @@ export function deckCardWritingSource(card: DeckCard) {
 						: copySpec.unknownConsequence),
 		kind: card.kind,
 		metadata: {
+			absoluteDates: { dueAt: card.dueAt, deadline: card.deadline },
 			sourceOptions: AttentionOfferedChoicesSchema.safeParse(request?.metadata)
 				.data?.decisionCard?.options,
 			producerContext: card.factory

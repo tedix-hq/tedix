@@ -483,3 +483,24 @@ describe("decision card effects", () => {
 		expect(DecisionEnvelopeSchema.safeParse(decision).success).toBe(false);
 	});
 });
+
+it("records the default decline without executing the proposed effect", async () => {
+	const f = await fixture();
+	const input = {
+		...f.input,
+		body: "No / Not needed",
+		metadata: {
+			...f.input.metadata,
+			cardAction: "not-needed",
+			decisionChoice: "reject",
+			feedbackSignal: "rejected",
+		},
+	};
+	const result = await executeDecisionCardEffect(f.context, input);
+	expect(result.metadata).not.toHaveProperty("decisionEffect");
+	expect(
+		f.sqlite.prepare("SELECT count(*) AS count FROM work_item_comments").get()
+			?.count,
+	).toBe(0);
+	f.sqlite.close();
+});

@@ -251,7 +251,7 @@ describe("outbound decisions through the shared card", () => {
 	});
 	it("captures a reason chip without approving or sending", async () => {
 		await mountOutbound();
-		await pressButton("Not this");
+		await pressButton("No / Not needed");
 		expect(actOutbound).not.toHaveBeenCalled();
 		await pressButton("wrong tone");
 		expect(actOutbound).toHaveBeenCalledWith({
