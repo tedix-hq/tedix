@@ -272,6 +272,7 @@ function workAttemptKey(
 	workItemId: string,
 	serverAgentSession?: string,
 ): WorkAttemptKey {
+	assertUnambiguousSession(resolveAgentSession(ctx.work.session));
 	const agentSession =
 		serverAgentSession?.trim() ||
 		resolveAgentSession(ctx.work.session)?.session;
@@ -310,6 +311,7 @@ interface AgentSession {
 	harness: string;
 	/** True when the id is a best-effort shell fallback, not a durable session id. */
 	derived: boolean;
+	ambiguousNative?: string[];
 }
 
 const KNOWN_AGENT_HARNESSES = new Set([
@@ -395,6 +397,23 @@ export function resolveAgentSession(
 		};
 	}
 
+	const candidates = [
+		["devin", devinSession],
+		["claude-code", claudeSession],
+		["codex", codexSession],
+		["cursor", cursorSession],
+	]
+		.filter(([, id]) => Boolean(id))
+		.map(([name, id]) => `${name}:${id}`);
+	if (candidates.length > 1) {
+		return {
+			session: `cli:sh${process.ppid}`,
+			harness: "cli",
+			derived: true,
+			ambiguousNative: candidates,
+		};
+	}
+
 	const native = devinSession ?? claudeSession ?? codexSession ?? cursorSession;
 	if (native)
 		return { session: `${harness}:${native}`, harness, derived: false };
@@ -402,6 +421,14 @@ export function resolveAgentSession(
 	const ppid = typeof process.ppid === "number" ? process.ppid : 0;
 	if (ppid) return { session: `${harness}:sh${ppid}`, harness, derived: true };
 	return undefined;
+}
+
+function assertUnambiguousSession(session: AgentSession | undefined): void {
+	if (session?.ambiguousNative?.length) {
+		throw new Error(
+			`Ambiguous native Agent-Session: ${session.ambiguousNative.join(", ")}. Set TEDIX_AGENT_SESSION=<harness>:<id> or use --session to select the current session.`,
+		);
+	}
 }
 
 /**
@@ -412,6 +439,7 @@ function sessionMetadata(
 	ctx: WorkContext,
 ): Record<string, unknown> | undefined {
 	const s = resolveAgentSession(ctx.work.session);
+	assertUnambiguousSession(s);
 	if (!s) return undefined;
 	return {
 		agentSession: s.session,
@@ -2383,6 +2411,7 @@ async function workTrailers(ctx: WorkContext, id: string): Promise<number> {
 	}
 	const resolvedId = await resolveWorkItemId(ctx, id);
 	const session = resolveAgentSession(ctx.work.session);
+	assertUnambiguousSession(session);
 	if (isDetectedExternalHarness(session) && session?.derived) {
 		throw new Error(
 			"work trailers requires an immutable Agent-Session. Set TEDIX_AGENT_SESSION or use the harness-native session id before `tedix agent start`.",
@@ -3597,6 +3626,7 @@ const DELEGATION_EXPIRES = "14d";
 async function workDelegate(ctx: WorkContext, title: string): Promise<number> {
 	mutationCallable(ctx.work.as?.trim(), "work.create_work_items");
 	const lead = resolveAgentSession(ctx.work.session);
+	assertUnambiguousSession(lead);
 	if (!lead || lead.derived || !delegationKey(lead.session))
 		throw new Error(
 			"work delegate needs the lead session's id: run it inside Claude Code or Codex, or pass --session <id>",

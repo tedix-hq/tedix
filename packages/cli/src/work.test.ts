@@ -3633,6 +3633,72 @@ describe("resolveAgentSession", () => {
 		"CURSOR_TRACE_ID",
 	] as const;
 
+	test.each([
+		["CLAUDE_CODE_SESSION_ID", "claude-code"],
+		["CODEX_SESSION_ID", "codex"],
+		["CODEX_THREAD_ID", "codex"],
+		["CURSOR_TRACE_ID", "cursor"],
+	])("preserves a single %s identity", (key, harness) => {
+		const saved = keys.map((name) => [name, process.env[name]] as const);
+		try {
+			for (const name of keys) delete process.env[name];
+			process.env[key] = "only-session";
+			expect(resolveAgentSession()).toEqual({
+				session: `${harness}:only-session`,
+				harness,
+				derived: false,
+			});
+		} finally {
+			for (const [name, value] of saved)
+				if (value === undefined) delete process.env[name];
+				else process.env[name] = value;
+		}
+	});
+
+	test.each([
+		["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"],
+		["CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID"],
+		["CLAUDE_CODE_SESSION_ID", "CURSOR_TRACE_ID"],
+		["CODEX_THREAD_ID", "CURSOR_TRACE_ID"],
+	])(
+		"refuses writes with %s and %s while preserving reads and overrides",
+		async (parent, child) => {
+			const saved = keys.map((key) => [key, process.env[key]] as const);
+			try {
+				for (const key of keys) delete process.env[key];
+				process.env[parent] = "parent-session";
+				process.env[child] = "child-session";
+				const ambiguous = resolveAgentSession();
+				expect(ambiguous).toMatchObject({ harness: "cli", derived: true });
+				expect(ambiguous?.ambiguousNative).toHaveLength(2);
+				const { ctx, sources } = makeContext({
+					session: undefined,
+					project: ITEM,
+				});
+				await expect(runWork('create "Ambiguous write"', ctx)).rejects.toThrow(
+					/Ambiguous.*parent-session.*child-session|Ambiguous.*child-session.*parent-session/,
+				);
+				expect(sources).toHaveLength(0);
+				expect(await runWork("list", ctx)).toBe(0);
+				process.env.TEDIX_AGENT_SESSION = "codex:chosen-env";
+				expect(resolveAgentSession()).toEqual({
+					session: "codex:chosen-env",
+					harness: "codex",
+					derived: false,
+				});
+				expect(resolveAgentSession("cursor:chosen-flag")).toEqual({
+					session: "cursor:chosen-flag",
+					harness: "cursor",
+					derived: false,
+				});
+			} finally {
+				for (const [key, value] of saved)
+					if (value === undefined) delete process.env[key];
+					else process.env[key] = value;
+			}
+		},
+	);
+
 	test("labels a Codex thread codex even inside a Claude Code shell", () => {
 		const saved = keys.map((key) => [key, process.env[key]] as const);
 		try {
@@ -3645,7 +3711,10 @@ describe("resolveAgentSession", () => {
 				derived: false,
 			});
 			process.env.CLAUDE_CODE_SESSION_ID = "c1";
-			expect(resolveAgentSession()?.session).toBe("claude-code:c1");
+			expect(resolveAgentSession()?.ambiguousNative).toEqual([
+				"claude-code:c1",
+				"codex:00000000-0000-4000-8000-0000000000a3",
+			]);
 		} finally {
 			for (const [key, value] of saved)
 				if (value === undefined) delete process.env[key];
