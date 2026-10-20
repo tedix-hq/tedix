@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 
-// The guard resolves `getAppBySlug` from the direct app-records module and
-// `getOrganizationById` from `@tedix/db/queries/organizations`. Override only
-// those two functions via importOriginal so apps.ts's many other imports from
-// those modules keep their real (pure) implementations. The privileged-key and
-// platform-bypass paths never reach the db, so those tests are mock-agnostic.
+// The guard resolves `getAppById` from `@tedix/db/queries/app-records`,
+// `getAppBySlug` from `@tedix/db/queries/apps` and `getOrganizationById` from
+// `@tedix/db/queries/organizations`. Override only those functions via
+// importOriginal so apps.ts's many other imports from those modules keep
+// their real (pure) implementations. The privileged-key and platform-bypass
+// paths never reach the db, so those tests are mock-agnostic.
 const mocks = vi.hoisted(() => ({
 	getAppById: vi.fn(),
 	getAppBySlug: vi.fn(),
@@ -17,8 +18,12 @@ vi.mock("@tedix/db/queries/app-records", async (importOriginal) => {
 	return {
 		...actual,
 		getAppById: mocks.getAppById,
-		getAppBySlug: mocks.getAppBySlug,
 	};
+});
+
+vi.mock("@tedix/db/queries/apps", async (importOriginal) => {
+	const actual = await importOriginal<Record<string, unknown>>();
+	return { ...actual, getAppBySlug: mocks.getAppBySlug };
 });
 
 vi.mock("@tedix/db/queries/organizations", async (importOriginal) => {

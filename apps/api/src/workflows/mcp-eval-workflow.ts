@@ -19,7 +19,7 @@ import {
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import { createDbClient } from "@tedix/db/client";
-import { getAppBySlug } from "@tedix/db/queries/app-records";
+import { getAppBySlug } from "@tedix/db/queries/apps";
 import { updateJobProgress, updateJobStatus } from "@tedix/db/queries/jobs";
 import { toJsonValue } from "@tedix/db/utils/json";
 import { MCP_MODERN_PROTOCOL_VERSION } from "@tedix/mcp-shared/protocol";
