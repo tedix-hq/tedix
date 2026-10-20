@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../../orpc";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
-import * as dispatchPolicy from "../kernel/dispatch-policy";
 const mocks = vi.hoisted(() => ({ approval: vi.fn() }));
 vi.mock("@tedix/db/queries/approvals", () => ({
 	getApprovalRequestById: mocks.approval,
@@ -30,7 +29,7 @@ describe("direct pending delegation policy", () => {
 			},
 		} as unknown as KernelRuntimeRun;
 	}
-	it("withholds direct delegation without verified route risk and warm-state evidence", async () => {
+	it("releases non-critical orders under standing consent while retaining critical holds", async () => {
 		for (const text of [
 			"Research the paper",
 			"Fix the parser through normal push gates",
@@ -38,7 +37,7 @@ describe("direct pending delegation policy", () => {
 			expect(
 				(await reviewWorkstationDelegationAutonomy(context, run(text)))
 					?.allowed,
-			).toBe(false);
+			).toBe(true);
 		for (const text of [
 			"Email a customer",
 			"Delete records",
@@ -53,11 +52,6 @@ describe("direct pending delegation policy", () => {
 	it.each([undefined, { orgId: "other" }])(
 		"closes a non-critical legacy record without a current organization approval: %s",
 		async (approval) => {
-			vi.spyOn(dispatchPolicy, "classifyWorkstationDispatch").mockReturnValue({
-				autoDispatch: true,
-				risk: "low",
-				reasons: ["independently verified dispatch eligibility"],
-			});
 			mocks.approval.mockResolvedValue(approval);
 			expect(
 				await reviewWorkstationDelegationAutonomy(context, run("Research")),
@@ -65,11 +59,6 @@ describe("direct pending delegation policy", () => {
 		},
 	);
 	it("does not close current-protocol records or interpret a lookup failure as absence", async () => {
-		vi.spyOn(dispatchPolicy, "classifyWorkstationDispatch").mockReturnValue({
-			autoDispatch: true,
-			risk: "low",
-			reasons: ["independently verified dispatch eligibility"],
-		});
 		mocks.approval.mockRejectedValue(new Error("database unavailable"));
 		await expect(
 			reviewWorkstationDelegationAutonomy(context, run("Research")),

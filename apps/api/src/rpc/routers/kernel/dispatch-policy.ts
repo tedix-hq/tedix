@@ -2,14 +2,12 @@
  * Kernel — workstation adapter dispatch policy ("Home-initiated
  * workstation attachment security model").
  *
- * Policy-gated model: auto-dispatch for low-risk
- * embodied work, approval card for high-risk. The classifier is deliberately
- * conservative: auto-dispatch requires EVERY low-risk condition to hold;
- * anything unknown or unmet degrades to the existing approval-card flow (the
- * pre-policy behavior), so the gate can never be more permissive than its
- * inputs justify.
+ * An explicit organization autonomy policy permits classified LOW/MEDIUM work
+ * without another human decision, including kernel-selected and cold targets.
+ * Critical actions, HIGH/unknown risk and unavailable authority remain gated.
+ * Runtime availability is still enforced by the dispatch adapter.
  *
- * Risk model:
+ * Without that opt-in, the legacy risk model remains:
  *  - LOW  → an authenticated human EXPLICITLY chose the target tedi, that
  *    workstation adapter is already provisioned AND currently running (no new
  *    spawn), and no high-risk signal is present. Auto-dispatch.
@@ -42,7 +40,7 @@ export type WorkstationDispatchRisk = "low" | "high";
 
 export interface WorkstationDispatchDecision {
 	risk: WorkstationDispatchRisk;
-	/** True only when every low-risk condition holds. */
+	/** Policy permits dispatch without another human approval. */
 	autoDispatch: boolean;
 	/** Human-readable audit trail of WHY (persisted on run metadata). */
 	reasons: string[];
@@ -76,6 +74,25 @@ export function classifyWorkstationDispatch(args: {
 			autoDispatch: false,
 			reasons: ["human-reserved critical action"],
 		};
+	if (args.autonomy) {
+		const decision = decideAutonomousAction({
+			policy: args.autonomy,
+			risk: args.content
+				? (args.routeRisk ??
+					(args.explicitHumanDelegation ? "medium" : "unknown"))
+				: "unknown",
+			content: args.content ?? "",
+			classId: "delegation:embodied",
+		});
+		const autoDispatch = args.hasActingUser && decision.autoApprove;
+		return {
+			risk: autoDispatch ? "low" : "high",
+			autoDispatch,
+			reasons: [
+				args.hasActingUser ? decision.reason : "no authenticated operator",
+			],
+		};
+	}
 
 	if (!args.explicitHumanDelegation) {
 		reasons.push("kernel-initiated dispatch (no explicit human target)");
@@ -104,20 +121,6 @@ export function classifyWorkstationDispatch(args: {
 	}
 	if (args.routeRisk === "high") {
 		reasons.push("route planner classified the work as high risk");
-	}
-
-	if (args.autonomy && reasons.length === 0) {
-		const decision = decideAutonomousAction({
-			policy: args.autonomy,
-			risk: args.content ? (args.routeRisk ?? "unknown") : "unknown",
-			content: args.content ?? "",
-			classId: "delegation:embodied",
-		});
-		return {
-			risk: decision.autoApprove ? "low" : "high",
-			autoDispatch: decision.autoApprove,
-			reasons: [decision.reason],
-		};
 	}
 
 	if (reasons.length > 0) {

@@ -558,13 +558,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					})
 				: null;
 		if (chatApprovalReply) metadata.chatApprovalReply = chatApprovalReply;
-		// Home-initiated workstation attachment security model (policy-gated):
-		// classify the workstation adapter dispatch. LOW risk =
-		// explicit human delegation by an authenticated operator to an
-		// already-RUNNING workstation adapter (no spawn/wake) → the work-order approval is
-		// auto-resolved by policy (audit row retained). Anything else keeps the
-		// human approval card. Certified dispatch is preserved either way — this
-		// gates only the human-approval click, never body certification.
+		// Org standing consent can replace the human click for non-critical work.
+		// Certification and runtime dispatch checks remain independent of consent.
 		const dispatchPolicy = workstationAttach
 			? classifyWorkstationDispatch({
 					autonomy: governancePolicy?.autonomy,
