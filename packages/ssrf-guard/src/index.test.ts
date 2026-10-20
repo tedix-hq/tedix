@@ -2,6 +2,65 @@ import { describe, expect, it } from "vite-plus/test";
 import { guardedFetch, SsrfBlockedError, validateUrl } from "./index";
 
 describe("validateUrl", () => {
+	describe("trailing-dot hosts", () => {
+		it.each([
+			"localhost.",
+			"LOCALHOST.",
+			"foo.localhost.",
+			"foo.local.",
+			"metadata.google.internal.",
+			"local.",
+			"internal.",
+			"ｌｏｃａｌｈｏｓｔ。",
+		])("blocks local-resolution host %s", (host) => {
+			for (const options of [{}, { allowTedixHosts: true }]) {
+				expect(validateUrl(`https://${host}/x`, options)).not.toBeNull();
+			}
+		});
+
+		it.each(["api.tedix.dev.", "tenant.tedi.club.", "tedix.tech."])(
+			"preserves permissions for Tedix host %s",
+			(host) => {
+				const url = `https://${host}/`;
+				expect(validateUrl(url)).not.toBeNull();
+				expect(validateUrl(url, { allowTedixHosts: true })).toBeNull();
+			},
+		);
+
+		it.each([
+			"127.0.0.1.",
+			"127.1.",
+			"2130706433.",
+			"0x7f000001.",
+			"0x7f.0.0.1.",
+			"0177.0.0.1.",
+			"10.0.0.1.",
+			"169.254.169.254.",
+			"0.0.0.0.",
+		])("blocks private IPv4 host %s regardless of permissions", (host) => {
+			for (const options of [
+				{},
+				{ allowTedixHosts: true },
+				{ allowInternalHosts: true },
+			]) {
+				expect(validateUrl(`https://${host}/`, options)).toBe(
+					"Cannot connect to private networks",
+				);
+			}
+		});
+
+		it("rejects a trailing dot outside IPv6 brackets as an invalid URL", () => {
+			expect(validateUrl("https://[::1]./x")).toBe("Invalid URL");
+		});
+
+		it.each(["example.com.", "bücher.example.", "8.8.8.8."])(
+			"allows public host %s",
+			(host) => {
+				expect(validateUrl(`https://${host}/`)).toBeNull();
+			},
+		);
+	});
+
 	describe("valid public URLs", () => {
 		it("allows HTTPS URLs to public hosts", () => {
 			expect(validateUrl("https://example.com/path")).toBeNull();
