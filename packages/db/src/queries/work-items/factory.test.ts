@@ -80,6 +80,9 @@ CREATE TABLE work_events (
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	sqlite.exec(
+		"CREATE TABLE work_item_comments (id TEXT PRIMARY KEY,work_item_id TEXT NOT NULL,org_id TEXT NOT NULL,author_type TEXT NOT NULL,author_id TEXT,body TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)",
+	);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 
@@ -492,6 +495,60 @@ describe("artifact-neutral work factory", () => {
 					})
 				).disposition,
 			).toBe("completed");
+	});
+
+	it("completes and records a closing comment atomically, including rollback and stale-version fences", async () => {
+		const { sqlite, db } = fixture();
+		for (const id of ["work", "rollback", "stale"]) seed(sqlite, id);
+		const params = {
+			orgId: "org",
+			workItemId: "work",
+			actor: { type: "tedi" as const, id: "worker" },
+			completedAt: NOW,
+			closingComment: { id: "closing", body: "Completed with a verified SHA" },
+		};
+		await completeWorkItem(db, params);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT body,author_type,author_id FROM work_item_comments WHERE id='closing'",
+				)
+				.get(),
+		).toEqual({
+			body: params.closingComment.body,
+			author_type: "tedi",
+			author_id: "worker",
+		});
+		await expect(
+			completeWorkItem(db, { ...params, workItemId: "rollback" }),
+		).rejects.toThrow();
+		expect(
+			sqlite
+				.prepare("SELECT disposition FROM work_items WHERE id='rollback'")
+				.get(),
+		).toEqual({ disposition: "accepted" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS count FROM work_events WHERE work_item_id='rollback' AND event_type='work.completed'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
+		await expect(
+			completeWorkItem(db, {
+				...params,
+				workItemId: "stale",
+				expectedWorkItemVersion: 99,
+				closingComment: { id: "stale-comment", body: "Never inserted" },
+			}),
+		).rejects.toThrow();
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS count FROM work_item_comments WHERE id='stale-comment'",
+				)
+				.get(),
+		).toEqual({ count: 0 });
 	});
 
 	// A peer re-issuing complete must drain the item, not deadlock it.

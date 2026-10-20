@@ -1,4 +1,8 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	containsCardSecret,
+	CARD_SECRET_MESSAGE,
+} from "@tedix/api-contract/utils/card-secrets";
 import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
 import {
 	and,
@@ -751,9 +755,22 @@ export async function completeWorkItem(
 		actor: WorkActor;
 		expectedWorkItemVersion?: number;
 		completedAt?: string;
+		closingComment?: {
+			id: string;
+			body: string;
+			metadata?: Record<string, JsonValue>;
+		};
 	},
 ): Promise<WorkItem> {
 	const completedAt = params.completedAt ?? new Date().toISOString();
+	if (
+		params.closingComment &&
+		containsCardSecret([
+			params.closingComment.body,
+			params.closingComment.metadata,
+		])
+	)
+		throw new Error(CARD_SECRET_MESSAGE);
 	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
 	// Completion is idempotent. Any peer that re-issues complete on an already
 	// completed item reads the settled row back rather than failing, so a
@@ -773,6 +790,14 @@ export async function completeWorkItem(
 			disposition: "completed",
 			completedAt,
 			updatedAt: completedAt,
+			...(params.closingComment
+				? {
+						metadata: {
+							...item.metadata,
+							completionCommentId: params.closingComment.id,
+						},
+					}
+				: {}),
 			version: sql`${workItems.version} + 1`,
 		})
 		.where(
@@ -794,7 +819,44 @@ export async function completeWorkItem(
 		actor: params.actor,
 		occurredAt: completedAt,
 	});
-	const [completedRows] = await db.batch([completeMutation, completeEvent]);
+	const comment = params.closingComment;
+	const [completedRows] = await db.batch([
+		completeMutation,
+		completeEvent,
+		...(comment
+			? [
+					db.insert(workItemComments).select(
+						db
+							.select({
+								id: sql<string>`${comment.id}`.as("id"),
+								workItemId: workItems.id,
+								orgId: workItems.orgId,
+								authorType: sql<string>`${params.actor.type}`.as("author_type"),
+								authorId: sql<string>`${params.actor.id}`.as("author_id"),
+								body: sql<string>`${comment.body}`.as("body"),
+								metadata: sql<
+									Record<string, JsonValue>
+								>`${JSON.stringify(comment.metadata ?? {})}`.as("metadata"),
+								createdAt: sql<string>`${completedAt}`.as("created_at"),
+							})
+							.from(workItems)
+							.where(
+								and(
+									eq(workItems.orgId, params.orgId),
+									eq(workItems.id, params.workItemId),
+									eq(workItems.disposition, "completed"),
+									eq(
+										workItems.version,
+										(params.expectedWorkItemVersion ?? item.version) + 1,
+									),
+									eq(workItems.completedAt, completedAt),
+									sql`json_extract(${workItems.metadata}, '$.completionCommentId') = ${comment.id}`,
+								),
+							),
+					),
+				]
+			: []),
+	]);
 	const completed = completedRows[0];
 	if (!completed)
 		throw new WorkFactoryError(
