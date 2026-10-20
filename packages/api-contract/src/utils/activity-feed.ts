@@ -39,6 +39,8 @@ import {
 	type DeckRetirementReason,
 } from "../schemas/deck-curation";
 import type { WorkApprovalInboxRowSchema } from "../schemas/work-approvals";
+import type { DeckPipelineStatus } from "../schemas/deck-pipeline";
+import { deckWeekOneVerdicts } from "./deck-pipeline";
 import type { LearningInteractionEvent } from "../schemas/learning-feedback";
 import type { OsUserPreferences } from "../schemas/user-settings";
 import type * as z from "zod";
@@ -396,9 +398,72 @@ export function retiredDeckFeedItems(
 				source: evidence ?? `/work/interactions/${r.id}`,
 				done: true,
 				explanation: `${label}. ${curation.data.reason}`,
+				// Retiring never answered the card, so restoring its prior revision is a real reversal.
+				...(curation.data.revision && curation.data.revision > 1
+					? {
+							internalDecisionUndo: {
+								requestId: r.id,
+								expectedRequestVersion: r.version,
+								expectedRevision: curation.data.revision,
+								restoreRevision: curation.data.revision - 1,
+							},
+						}
+					: {}),
 			},
 		];
 	});
+}
+
+/** The Deck curator has not cleaned for too long: an ops alarm in the Feed. */
+export function deckPipelineFeedItems(
+	status: DeckPipelineStatus | null | undefined,
+	now = new Date(),
+): ActivityFeedItem[] {
+	const items: ActivityFeedItem[] = [];
+	const metrics = status?.metrics;
+	if (metrics?.morning) {
+		const v = deckWeekOneVerdicts(metrics);
+		const pct =
+			v.notUsefulRate.value === null
+				? "no swipes yet"
+				: `${Math.round(v.notUsefulRate.value * 100)}% not useful (${v.notUsefulRate.verdict.replace("_", "-")})`;
+		items.push({
+			...base(
+				`deck-pipeline:metrics:${metrics.morning.date}`,
+				status!.lastCleanedAt ?? now.toISOString(),
+				null,
+				null,
+			),
+			kind: "result" as const,
+			classId: "deck_pipeline_metrics",
+			sentence: sentence(
+				`Deck today: ${v.liveCards.value} cards at 08:30 (${v.liveCards.verdict.replace("_", "-")}), ${pct}, ${v.wrongRemovals.value} wrong removals (${v.wrongRemovals.verdict.replace("_", "-")})`,
+			),
+			source: "/work?view=deck",
+			done: true,
+			explanation:
+				"Week-1 targets: at most 10 cards at 08:30 (more than 15 is a no-go), at most 25% of shown cards not useful (over 40% is a no-go), no wrong removal of a protected card and at most 5% overall.",
+		});
+	}
+	if (!status?.stale) return items;
+	const last = status.lastCleanedAt
+		? `Last cleaned ${status.lastCleanedAt.slice(11, 16)} UTC.`
+		: "It has never run.";
+	return [
+		...items,
+		{
+			...base("deck-pipeline:stale", now.toISOString(), null, null),
+			kind: "result" as const,
+			classId: "deck_pipeline_stale",
+			importance: "high" as const,
+			sentence: sentence(
+				`Deck cleaning has not run for over ${status.staleAfterHours} h`,
+			),
+			source: "/work?view=deck",
+			explanation: `${last} Expired, finished and duplicate cards stay on the Deck until the 15-minute sweep runs again.`,
+			stalled: true,
+		},
+	];
 }
 
 export function approvalFeedItems(

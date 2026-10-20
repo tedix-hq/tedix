@@ -59,6 +59,30 @@ export const DeckCurationStateSchema = z.strictObject({
 	model: z.string().nullable(),
 	exampleIds: z.array(z.string()).max(8),
 	retirement: DeckRetirementSchema.optional(),
+	/** The recipient's "Not useful" chip; kept apart from a declined answer. */
+	notUseful: z
+		.strictObject({
+			reason: z.enum([
+				"already_decided",
+				"expired",
+				"agent_could_do",
+				"duplicate",
+				"not_for_me",
+			]),
+			sourceKey: z.string().max(300),
+			classKey: z.string().max(300),
+		})
+		.optional(),
+	/** Shadow ranking: Qwen label and the second key's NOISE probability. */
+	shadow: z
+		.strictObject({
+			label: z.enum(["VALUABLE", "NOISE"]).nullable(),
+			secondKeyNoise: z.number().min(0).max(1).nullable(),
+			wouldHide: z.boolean(),
+			classKey: z.string().max(300),
+			at: z.iso.datetime(),
+		})
+		.optional(),
 });
 export type DeckCurationState = z.infer<typeof DeckCurationStateSchema>;
 export const CurateDeckCardInputSchema = DeckCurationScopeSchema.extend({

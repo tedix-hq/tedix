@@ -11,6 +11,7 @@ export type PlatformCronFreshnessState =
 
 export const PLATFORM_CRON_IDS = [
 	"agent-review-triage",
+	"deck-pipeline-sweep",
 	"decision-outcome-labeller",
 	"provider-event-maintenance",
 	"skill-schedule-dispatch",
@@ -73,6 +74,7 @@ const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 
 export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	...everyTwoMinutes,
+	{ id: "deck-pipeline-sweep", cron: "*/2 * * * *", intervalMinutes: 15 },
 	{
 		id: "agent-review-triage",
 		cron: "*/15 * * * *",

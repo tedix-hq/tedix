@@ -35,6 +35,8 @@ export const DeckRankExampleSchema = z.strictObject({
 	title: z.string().trim().min(1).max(500),
 	summary: z.string().trim().min(1).max(2000),
 	label: z.enum(["VALUABLE", "NOISE"]),
+	/** Who labelled it: the recipient's own swipe outranks audit or supplied labels. */
+	labelSource: z.enum(["recipient", "audit", "supplied"]).optional(),
 	evidenceRef: z.string().min(1).max(2000),
 	decidedAt: z.iso.datetime(),
 });

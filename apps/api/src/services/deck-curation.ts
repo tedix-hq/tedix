@@ -112,7 +112,7 @@ async function append(
 
 /** Appends one immutable revision carrying the curation state; cancelling never answers the card. */
 export async function appendCuration(
-	context: BaseContext,
+	context: Pick<BaseContext, "db">,
 	{
 		orgId,
 		actor,

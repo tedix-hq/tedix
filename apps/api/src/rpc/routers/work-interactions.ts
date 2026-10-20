@@ -281,6 +281,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 	const {
 		curation: _untrustedCuration,
 		internalRouting: _untrustedRouting,
+		createGate: _untrustedGate,
 		...creationMetadata
 	} = input.metadata ?? {};
 	const capturedWithoutTriage =
@@ -299,6 +300,15 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			: null;
 	const target =
 		capturedWithoutTriage || internalRoute ? actor : input.requestedFrom;
+	const { deckCreateGate } = await import("../../services/deck-create-gate");
+	const gate =
+		target.type === "user" && actor.type !== "user"
+			? await deckCreateGate(context, orgId, actor, {
+					...input,
+					metadata: creationMetadata,
+					recipientId: target.id,
+				})
+			: null;
 	const requestedAt = new Date().toISOString();
 	const decision = DecisionEnvelopeSchema.safeParse(
 		input.metadata?.decisionDeck,
@@ -316,9 +326,9 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 					kind: decision?.kind ?? input.kind,
 					now: requestedAt,
 					dueAt: input.dueAt,
-					expiresAt: input.expiresAt ?? decision?.expiresAt,
+					expiresAt: input.expiresAt ?? gate?.expiresAt ?? decision?.expiresAt,
 				})
-			: input.expiresAt;
+			: (input.expiresAt ?? gate?.expiresAt);
 	if (input.dueAt !== undefined && input.dueAt <= requestedAt) {
 		throw createError(
 			ErrorCodes.UNPROCESSABLE_CONTENT,
@@ -399,6 +409,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 						}
 					: null,
 				...(lessonRecall ? { lessonRecall } : {}),
+				...(gate?.receipt ? { createGate: gate.receipt } : {}),
 				...(actor.type === "external_agent"
 					? {
 							agentSession: actor.externalSessionKey,

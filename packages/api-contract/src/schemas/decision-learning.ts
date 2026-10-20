@@ -2,6 +2,7 @@ import * as z from "zod";
 import { DeckCuratorGrantSchema } from "./deck-curation";
 import { LessonTriggersSchema } from "./agent-session-lessons";
 import { DeckCuratorRankerConfigSchema } from "./deck-curator";
+import { DeckPipelineConfigSchema } from "./deck-pipeline";
 import focusFeedPolicy from "../assets/focus-feed.v1.json";
 
 const FocusFeedPolicySchema = z.strictObject({
@@ -40,6 +41,8 @@ export const DecisionLearningConfigSchema = z.strictObject({
 	classifyEdits: z.boolean().default(true),
 	deckCuratorRanker: DeckCuratorRankerConfigSchema.optional(),
 	deckCurators: z.array(DeckCuratorGrantSchema).max(20).default([]),
+	/** Deck lifecycle rules (create gate, sweep, learned rules, earned hiding). */
+	deckPipeline: DeckPipelineConfigSchema.prefault({}),
 	focusFeed: FocusFeedPolicySchema.prefault(() =>
 		FocusFeedPolicySchema.parse(focusFeedPolicy),
 	),

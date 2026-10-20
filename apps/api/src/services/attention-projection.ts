@@ -34,6 +34,7 @@ import {
 	decisionFeedItems,
 	approvalFeedItems,
 	retiredDeckFeedItems,
+	deckPipelineFeedItems,
 	sentence,
 } from "@tedix/api-contract/utils/activity-feed";
 import {
@@ -315,6 +316,7 @@ export async function loadForYouProjection(
 		factories,
 		today,
 		handledInternal,
+		pipeline,
 		retired,
 	] = await Promise.all([
 		loadConfiguredDeckProjection(
@@ -373,6 +375,14 @@ export async function loadForYouProjection(
 				)
 			: Promise.resolve(null),
 		internalDecisionFeed(context, requireOrgId(context), input.projectId),
+		import("./deck-pipeline-status").then(({ loadDeckPipelineStatus }) =>
+			import("@tedix/db/queries/decision-learning")
+				.then(({ getDecisionLearningConfig }) =>
+					getDecisionLearningConfig(context.db, requireOrgId(context)),
+				)
+				.then((config) => loadDeckPipelineStatus(context, config, now))
+				.catch(() => undefined),
+		),
 		call(
 			workInteractionsContractRouter.listInbox,
 			{ projectId: input.projectId, limit: 100, states: ["cancelled"] },
@@ -388,6 +398,7 @@ export async function loadForYouProjection(
 		...sourcePages.flatMap((page) => page.items),
 		...correctionFeedItems(history.events),
 		...retiredDeckFeedItems(retired.data, now),
+		...deckPipelineFeedItems(pipeline, now),
 		...decisionFeedItems(
 			deck.cards.flatMap((card) =>
 				card.interaction ? [card.interaction] : [],

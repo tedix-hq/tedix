@@ -80,6 +80,7 @@ export async function rankCurrentDeck(
 				title: m?.cardTitle,
 				summary: m?.cardSummary,
 				label,
+				labelSource: "recipient",
 				evidenceRef: `learning:${event.id}`,
 				decidedAt: event.occurredAt,
 			});
