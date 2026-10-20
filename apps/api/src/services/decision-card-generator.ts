@@ -9,6 +9,10 @@ import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/deci
 import type { BaseContext } from "../rpc/orpc";
 import { readDraftPreferences } from "./decision-learning";
 import { runDecisionCardCopyModel } from "./decision-card-copy-model";
+import {
+	missingDecisionFaceFacts,
+	type FaceFactGap,
+} from "./decision-card-face-facts";
 
 const MAX_WRITING_CONTEXT_CHARS = 3000;
 const RAW_IDENTIFIER = new RegExp(copySpec.rawIdentifierPattern, "i");
@@ -58,6 +62,7 @@ function copyRepairFeedback(
 		path: PropertyKey[];
 		message: string;
 	}[],
+	missingFacts: FaceFactGap[] = [],
 ) {
 	const record =
 		draft && typeof draft === "object"
@@ -77,6 +82,18 @@ function copyRepairFeedback(
 		copySpec.faceWordLimit - (record.context ? copySpec.faceChromeWords : 0);
 	return JSON.stringify({
 		failedChecks: failures,
+		missingFaceFacts: missingFacts.length
+			? {
+					instruction: copySpec.faceFacts,
+					facts: missingFacts.map(({ check, source }) => ({
+						check,
+						source: source.replace(
+							new RegExp(RAW_IDENTIFIER.source, "gi"),
+							"[reference]",
+						),
+					})),
+				}
+			: undefined,
 		schemaIssues: schemaIssues?.map(({ code, path, message }) => ({
 			code,
 			path: path.map(String).join("."),
@@ -118,6 +135,7 @@ export async function generateDecisionCard(
 		createdAt?: string;
 	},
 	onFailure?: (reason: string) => void,
+	// Context is always required; requireContext remains for existing callers.
 	options?: { timeoutMs?: number; requireContext?: boolean },
 ) {
 	if (containsCardSecret(request)) {
@@ -219,9 +237,11 @@ export async function generateDecisionCard(
 			maxTokens: 650,
 			timeoutMs,
 			onFailure,
-			rewriteInstruction: [copySpec.rewritePass, copySpec.faceInstruction].join(
-				"\n",
-			),
+			rewriteInstruction: [
+				copySpec.rewritePass,
+				copySpec.faceInstruction,
+				filing ? "" : copySpec.faceFacts,
+			].join("\n"),
 			validationFeedback: repair || undefined,
 			system: [
 				copySpec.system,
@@ -230,7 +250,7 @@ export async function generateDecisionCard(
 				JSON.stringify({ plainLanguageExamples: copySpec.plainTerms }),
 				copySpec.bannedWords.join(", "),
 				JSON.stringify({ examples: copySpec.examples }),
-				filing ? copySpec.filing : "",
+				filing ? copySpec.filing : copySpec.faceFacts,
 				repair ? copySpec.repair : "",
 				copySpec.faceInstruction,
 			].join("\n"),
@@ -318,12 +338,21 @@ export async function generateDecisionCard(
 					}).length
 				)
 					issues.push("unsupported_fact");
-				if (options?.requireContext && !parsed.data.context)
-					issues.push("context");
+				// Filing reviews receive no decision facts beyond their reasoning.
+				const gaps = missingDecisionFaceFacts(
+					parsed.data,
+					filing ? undefined : decision,
+				);
+				issues.push(...gaps.map(({ check }) => check));
 				if (issues.length || parsed.data.version !== copySpec.version) {
 					const failures = issues.length ? issues : ["version"];
 					onFailure?.(`invalid_copy:${failures.join(",")}`);
-					repair = copyRepairFeedback(parsed.data, failures);
+					repair = copyRepairFeedback(
+						parsed.data,
+						failures,
+						undefined,
+						gaps.filter(({ check }) => check !== "context"),
+					);
 					continue;
 				}
 			}

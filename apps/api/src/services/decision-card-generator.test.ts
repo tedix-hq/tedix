@@ -22,6 +22,7 @@ const request = {
 const copy = {
 	version: 2,
 	title: "Let the assistant sign in with a test account?",
+	context: "The owner is waiting on this review.",
 	body: "Checks the sample profile page using a separate browser.",
 	recommendation: "The owner needs proof that sign-in works.",
 };
@@ -202,9 +203,10 @@ it("reserves a full repair call for background faces and repairs missing context
 		.mockReturnValueOnce(0)
 		.mockReturnValueOnce(0)
 		.mockReturnValueOnce(8000);
+	const { context: _, ...contextless } = copy;
 	const face = { ...copy, context: "A separate test account is ready." };
 	mocks.model
-		.mockResolvedValueOnce(JSON.stringify(copy))
+		.mockResolvedValueOnce(JSON.stringify(contextless))
 		.mockResolvedValueOnce(JSON.stringify(face));
 	try {
 		expect(
@@ -724,4 +726,44 @@ it("repairs, then falls back to source text, when the face invents a date or amo
 			prompt: `${request.prompt} Allow 2 tries.`,
 		}),
 	).toMatchObject({ body: "Checks the sample profile page within 2 tries." });
+});
+it("repairs a decision face that drops what waiting and yes cost, quoting the source facts", async () => {
+	const decision = {
+		costOfWaiting: "The vendor quote of EUR 1,200 expires on 2026-11-01.",
+		options: [
+			{ id: "buy", intent: "approve", cost: "EUR 1,200 per year." },
+			{ id: "skip", intent: "reject", cost: "None" },
+		],
+	};
+	const vague = {
+		...copy,
+		title: "Buy the yearly vendor plan?",
+		context: "The vendor sent a quote.",
+		body: "Buys the plan for the team.",
+		recommendation: "It replaces three monthly tools.",
+	};
+	const complete = {
+		...vague,
+		context: "The vendor quote expires on 2026-11-01.",
+		body: "Buys the plan for EUR 1,200 a year.",
+	};
+	mocks.model
+		.mockResolvedValueOnce(JSON.stringify(vague))
+		.mockResolvedValueOnce(JSON.stringify(complete));
+	expect(
+		await generateDecisionCard({ db: {}, env: {} } as never, {
+			...request,
+			prompt: "Buy the vendor plan for EUR 1,200 per year before 2026-11-01.",
+			metadata: { decisionDeck: decision },
+		}),
+	).toMatchObject(complete);
+	expect(mocks.model.mock.calls[0]?.[2].system).toContain(copySpec.faceFacts);
+	const feedback = JSON.parse(
+		mocks.model.mock.calls[1]?.[2].validationFeedback,
+	);
+	expect(feedback.failedChecks).toEqual(["cost_of_waiting", "option_cost"]);
+	expect(feedback.missingFaceFacts.facts).toEqual([
+		{ check: "cost_of_waiting", source: decision.costOfWaiting },
+		{ check: "option_cost", source: "EUR 1,200 per year." },
+	]);
 });
