@@ -19,7 +19,7 @@ function measured(
 }
 
 function empty(label: string, emptyReason: string): MetricTileData {
-	return { state: "empty", label, emptyReason };
+	return { state: "empty", label, emptyReason, setupHref: "/work?view=deck" };
 }
 
 function percent(value: number): string {

@@ -140,6 +140,7 @@ export function BillingCreditWallet({
 										label: "Spent this period",
 										emptyReason:
 											"Not settled yet — no settlement total is available",
+										setupHref: "/admin/billing?section=subscription",
 									}
 								: {
 										state: "measured",
