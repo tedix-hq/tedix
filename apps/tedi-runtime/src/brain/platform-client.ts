@@ -479,6 +479,13 @@ export interface PlatformClient {
 		metadata?: Record<string, unknown>;
 	}): Promise<WorkEvidence>;
 	completeWorkItem(workItemId: string): Promise<WorkItemForContext>;
+	closeoutDelegatedWorkItem(params: {
+		id: string;
+		sha: string;
+		homeRunId: string;
+		runId: string;
+		linkedWorkItemId: string;
+	}): Promise<WorkItemForContext>;
 	upsertWorkItemProjection(params: {
 		workItemId: string;
 		provider: string;
@@ -1103,6 +1110,15 @@ export class HttpPlatformClient implements PlatformClient {
 
 	async completeWorkItem(workItemId: string): Promise<WorkItemForContext> {
 		return this.rpc("workItems", "complete", { id: workItemId });
+	}
+	async closeoutDelegatedWorkItem(params: {
+		id: string;
+		sha: string;
+		homeRunId: string;
+		runId: string;
+		linkedWorkItemId: string;
+	}): Promise<WorkItemForContext> {
+		return this.rpc("workItems", "closeoutDelegated", params);
 	}
 
 	async upsertWorkItemProjection(params: {
