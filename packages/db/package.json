@@ -136,6 +136,7 @@
 		"./schema/tedis": "./src/schema/tedis.ts",
 		"./schema/items": "./src/schema/items.ts",
 		"./schema/jobs": "./src/schema/jobs.ts",
+		"./schema/principal-identities": "./src/schema/principal-identities.ts",
 		"./schema/organization-members": "./src/schema/organization-members.ts",
 		"./schema/organization-purpose": "./src/schema/organization-purpose.ts",
 		"./schema/os-approval-rules": "./src/schema/os-approval-rules.ts",

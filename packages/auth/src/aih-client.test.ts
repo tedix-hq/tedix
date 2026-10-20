@@ -251,3 +251,58 @@ describe("AIH MCP server registration hardening", () => {
 		).rejects.toThrow(/at least one exact audience/);
 	});
 });
+
+describe("measured AIH token lifetime", () => {
+	it.each([undefined, null, 0, -1, 0.5, 601, 3600, "600"])(
+		"refuses invalid expires_in %s",
+		async (expiresIn) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					async () =>
+						new Response(
+							JSON.stringify({
+								access_token: "fixture-token",
+								expires_in: expiresIn,
+							}),
+							{ status: 200 },
+						),
+				),
+			);
+			await expect(
+				exchangeAihClientCredentials(
+					env,
+					"https://example.com/mcp",
+					"fixture-client",
+					"fixture-secret",
+				),
+			).rejects.toThrow("expires_in");
+		},
+	);
+	it.each([1, 120, 600])(
+		"returns the measured lifetime %s",
+		async (expiresIn) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					async () =>
+						new Response(
+							JSON.stringify({
+								access_token: "fixture-token",
+								expires_in: expiresIn,
+							}),
+							{ status: 200 },
+						),
+				),
+			);
+			await expect(
+				exchangeAihClientCredentials(
+					env,
+					"https://example.com/mcp",
+					"fixture-client",
+					"fixture-secret",
+				),
+			).resolves.toEqual({ accessToken: "fixture-token", expiresIn });
+		},
+	);
+});
