@@ -617,6 +617,9 @@ async function buildInputRequiredResult(
 				text: `Approval required for destructive action "${tool.toolId}". Provide a reason and retry with inputResponses + requestState.`,
 			},
 		],
+		// No operation has run. Skip the SDK's completed-output validation until
+		// the wire transform turns this internal marker into input_required.
+		isError: true,
 		_meta: {
 			[INPUT_REQUIRED_META_KEY]: {
 				requestState,
