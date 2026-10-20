@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { setOsFormattingPreferences } from "@/lib/format";
 import {
 	afterEach,
 	beforeEach,
@@ -249,6 +250,61 @@ describe("TriggerChip", () => {
 });
 
 describe("TriggerRow", () => {
+	beforeEach(() => {
+		vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-13T00:00:00Z"));
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+		setOsFormattingPreferences({ locale: null, timezone: null });
+	});
+
+	it.each([
+		["2026-08-14T01:40:00Z", "3:40 AM"],
+		["2026-12-14T01:40:00Z", "2:40 AM"],
+	])(
+		"labels UTC cadence and the selected Berlin clock for %s",
+		(nextFireAt, time) => {
+			setOsFormattingPreferences({
+				locale: "en-US",
+				timezone: "Europe/Berlin",
+			});
+			const html = renderToStaticMarkup(
+				<TriggerRow
+					schedule={{ ...baseSchedule, cron: "40 1 * * *", nextFireAt }}
+				/>,
+			);
+			expect(html).toContain("daily at 1:40 AM (UTC)");
+			expect(html).toContain(`${time} (Europe/Berlin)`);
+			expect(html).toContain(`dateTime="${nextFireAt}"`);
+		},
+	);
+
+	it.each(["2026-08-12T01:40:00Z", "2026-08-14T01:40:00Z"])(
+		"does not advertise paused metadata %s as a next run",
+		(nextFireAt) => {
+			const html = renderToStaticMarkup(
+				<TriggerRow
+					schedule={{ ...baseSchedule, enabled: false, nextFireAt }}
+				/>,
+			);
+			expect(html).toContain("Paused · not scheduled");
+			expect(html).not.toContain("next run");
+			expect(html).not.toContain(nextFireAt);
+		},
+	);
+
+	it.each(["2026-08-12T01:40:00Z", "2026-08-13T00:00:00Z", "invalid"])(
+		"does not advertise stale or invalid metadata %s as a future run",
+		(nextFireAt) => {
+			const html = renderToStaticMarkup(
+				<TriggerRow schedule={{ ...baseSchedule, nextFireAt }} />,
+			);
+			expect(html).toContain("Next run unavailable");
+			expect(html).not.toContain(nextFireAt);
+		},
+	);
+
 	it("renders state, last-run chip, title, cadence, next run, owner, and Run now", () => {
 		const html = renderToStaticMarkup(
 			<TriggerRow

@@ -32,6 +32,7 @@ import {
 	workflowDefinitionsQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import { osTimeZone } from "@/lib/format";
 import { useTediNames } from "@/lib/use-tedi-names";
 import { SKILLS_PAGE_SIZE, type SkillsSearch } from "@/lib/skills-search";
 
@@ -235,6 +236,10 @@ export function TriggerRow({
 }) {
 	const owner = tediNames[schedule.tediId] ?? "a tedi";
 	const latestRun = health?.latestRun ?? null;
+	const hasFutureRun = Date.parse(schedule.nextFireAt) > Date.now();
+	const timeZone =
+		osTimeZone() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const nextRun = `${absoluteTime(schedule.nextFireAt)} (${timeZone})`;
 	return (
 		<li className="flex min-h-14 min-w-0 items-start gap-3 rounded-lg px-3 py-2.5">
 			<IconFrame aria-hidden>
@@ -270,13 +275,19 @@ export function TriggerRow({
 					className="tracking-[-0.1px]"
 				>
 					{cronToHuman(schedule.cron)}
-					{" · next run "}
-					<time
-						dateTime={schedule.nextFireAt}
-						title={absoluteTime(schedule.nextFireAt)}
-					>
-						{absoluteTime(schedule.nextFireAt)}
-					</time>
+					{" (UTC) · "}
+					{!schedule.enabled ? (
+						"Paused · not scheduled"
+					) : hasFutureRun ? (
+						<>
+							{"next run "}
+							<time dateTime={schedule.nextFireAt} title={nextRun}>
+								{nextRun}
+							</time>
+						</>
+					) : (
+						"Next run unavailable"
+					)}
 					{" · "}
 					{owner}
 					{schedule.lastFireAt ? (
