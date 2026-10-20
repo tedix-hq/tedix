@@ -103,7 +103,7 @@ export function createKernelHistorySummarizer(
 			const { tracedAi } = await import("../../../lib/traced-ai");
 			const result = await tracedAi.generateText({
 				model: model.model,
-				system: systemPrompt,
+				instructions: systemPrompt,
 				runtimeContext: kernelSpanContext(gatewayContext),
 				telemetry: { functionId: HISTORY_SUMMARY_FUNCTION_ID },
 				messages: [{ role: "user", content: transcript }],

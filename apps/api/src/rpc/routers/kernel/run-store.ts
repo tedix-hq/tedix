@@ -514,7 +514,7 @@ async function readAndSynthesizeChildRunResult(
 		try {
 			const synthResult = await tracedAi.generateText({
 				model: model.model,
-				system: DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
+				instructions: DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
 				runtimeContext: kernelSpanContext({
 					organizationId: input.organizationId,
 					runId: input.runId,

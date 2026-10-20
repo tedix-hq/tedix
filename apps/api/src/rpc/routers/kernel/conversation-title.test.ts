@@ -460,7 +460,7 @@ describe("generateAndPersistHomeConversationTitle", () => {
 
 		expect(mockGenerateText).toHaveBeenCalledTimes(1);
 		const call = mockGenerateText.mock.calls[0]?.[0] as Record<string, unknown>;
-		expect(call.system).toContain("3-6 word title");
+		expect(call.instructions).toContain("3-6 word title");
 		expect(inserted).toHaveLength(1);
 		const row = inserted[0] as {
 			id: string;
