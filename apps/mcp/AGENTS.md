@@ -50,11 +50,11 @@ of them:
   scopes come from three config idioms: `mcpConfig.enforcePolicies` (Descope
   policy mode — `mcp:<tool_name>` via `toolToScope`), the explicit
   `mcpConfig.toolScopes` map, or per-tool `authRequired`
-  (`extractRequiredScopes`, `src/auth-helpers.ts:556`).
+  (`extractRequiredScopes`, `src/auth-helpers.ts`).
 - **Native dispatch gate:** Home tools and aggregated tools are merged into the tool set AFTER
   `enforceMcpAccess()` has run, so the request-level gate never sees them. They
   are gated by `enforceNativeToolScopeGate`
-  (`src/mcp/tool-registration.ts:285`), scoped to
+  (`src/mcp/tool-registration.ts`), scoped to
   `meta.source === "homeSurface"` and `config._aggregateNamespace`.
 
 The rule that follows: a tool registered after the edge gate runs is unguarded
@@ -78,8 +78,8 @@ passing oxlint is not approval. Everything else reads through `apps/api`
 Proxying another `*.mcp.tedix.dev` app (or `mcp.tedix.dev`) through
 `mcpConfig.upstreamMcpUrl` loops the request back into this same Worker. The
 write-guard rejects it for every principal in `assertTenantMcpConfigAllowed`
-(`apps/api/src/rpc/routers/apps.ts:313`, the UPSTREAM_SAME_ZONE check at
-~line 326). Use D1 tools or `mcpConfig.connectionLabel` instead.
+(`apps/api/src/rpc/routers/apps.ts`, its `UPSTREAM_SAME_ZONE` check). Use
+D1 tools or `mcpConfig.connectionLabel` instead.
 
 ## Module-cache discipline
 
@@ -89,8 +89,8 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
 
 - A cache keyed by caller/token/client input must be **size-bounded** like the
   existing siblings: `userTediCache` (`src/index.ts`, 200),
-  `aihM2mClientScopeCache` (`src/auth-helpers.ts`, 100), `credentialTokenCache` (`src/mcp/handler.ts:300`, 500), the x402
-  facilitator cache (`src/mcp/x402-facilitator.ts:14`, 16). TTL-only maps are
+  `aihM2mClientScopeCache` (`src/auth-helpers.ts`, 100), `credentialTokenCache` (`src/mcp/handler.ts`, 500), the x402
+  facilitator cache `serverCache` (`src/mcp/x402-facilitator.ts`, 16). TTL-only maps are
   acceptable only when the key space is app/org-bounded.
 - Tool-schema projection explicitly rolls the aggregate activation epoch and
   purges durable snapshots. Isolates refresh that global marker within five

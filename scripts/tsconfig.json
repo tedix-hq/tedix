@@ -21,6 +21,8 @@
 		"generate-worker-types.ts",
 		"lint-contracts.ts",
 		"descope/**/*.ts",
+		"docs/check-agents-refs.ts",
+		"docs/check-agents-refs.test.ts",
 		"lint-loader-sandbox.ts",
 		"lint-kumo.ts",
 		"lint-worker-route-authz.ts",
