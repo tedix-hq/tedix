@@ -6,7 +6,7 @@ import { users } from "@tedix/db/schema/users";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { userProfileContractRouter } from "./user-profile";
 
 const USER_ID = "00000000-0000-4000-8000-000000000001";
@@ -66,43 +66,21 @@ function fixture() {
 	return { sqlite, env, db: createDbClient(facade) };
 }
 
-type Fixture = ReturnType<typeof fixture>;
-
-function userContext(f: Fixture): BaseContext {
-	return {
-		authType: "user",
-		db: f.db,
-		env: f.env,
-		headers: new Headers(),
-		url: new URL("https://api.tedix.test/rpc/userProfile"),
+const { userContext, apiKeyContext } = bindTestContexts({
+	organizationId: null,
+	url: "https://api.tedix.test/rpc/userProfile",
+	user: {
+		tenantId: null,
+		permissions: ["apps:read"],
+		sub: "descope-1",
 		userId: USER_ID,
-		user: {
-			aud: "test",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions: ["apps:read"],
-			roles: [],
-			sub: "descope-1",
-		},
-	} as BaseContext;
-}
-
-function machineContext(f: Fixture): BaseContext {
-	return {
-		authType: "apikey",
-		apiKey: {
-			id: "key-1",
-			name: "machine",
-			organizationId: "org-1",
-			scopes: ["apps:read", "platform:admin"],
-		},
-		db: f.db,
-		env: f.env,
-		headers: new Headers(),
-		url: new URL("https://api.tedix.test/rpc/userProfile"),
-	} as BaseContext;
-}
+	},
+	apiKey: {
+		keyName: "machine",
+		keyOrganizationId: "org-1",
+		scopes: ["apps:read", "platform:admin"],
+	},
+});
 
 describe("self-service user profile", () => {
 	beforeEach(() => vi.restoreAllMocks());
@@ -110,7 +88,7 @@ describe("self-service user profile", () => {
 	it("rejects machine principals even with platform scope", async () => {
 		const f = fixture();
 		const client = createRouterClient(userProfileContractRouter, {
-			context: machineContext(f),
+			context: apiKeyContext({ db: f.db, env: f.env }),
 		});
 		await expect(client.getMine({})).rejects.toMatchObject({
 			code: "FORBIDDEN",
@@ -126,7 +104,7 @@ describe("self-service user profile", () => {
 			.prepare("UPDATE users SET avatar_url = ? WHERE id = ?")
 			.run("legacy-avatar", USER_ID);
 		const client = createRouterClient(userProfileContractRouter, {
-			context: userContext(f),
+			context: userContext({ db: f.db, env: f.env }),
 		});
 
 		await expect(client.getMine({})).resolves.toMatchObject({
@@ -138,7 +116,7 @@ describe("self-service user profile", () => {
 	it("CAS-updates the canonical profile and all canonical-id member projections", async () => {
 		const f = fixture();
 		const client = createRouterClient(userProfileContractRouter, {
-			context: userContext(f),
+			context: userContext({ db: f.db, env: f.env }),
 		});
 		const updated = await client.updateMine({
 			name: "New Name",
@@ -196,7 +174,7 @@ describe("self-service user profile", () => {
 		);
 		vi.stubGlobal("fetch", fetchMock);
 		const client = createRouterClient(userProfileContractRouter, {
-			context: userContext(f),
+			context: userContext({ db: f.db, env: f.env }),
 		});
 		const requested = await client.requestAvatarUpload({});
 		const avatarMetadata = {
@@ -241,7 +219,7 @@ describe("self-service user profile", () => {
 			),
 		);
 		const client = createRouterClient(userProfileContractRouter, {
-			context: userContext(f),
+			context: userContext({ db: f.db, env: f.env }),
 		});
 		await expect(
 			client.confirmAvatarUpload({

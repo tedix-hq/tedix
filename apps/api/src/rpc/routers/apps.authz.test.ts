@@ -1,6 +1,6 @@
 import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { appsContractRouter } from "./apps";
 
 const gatewayMocks = vi.hoisted(() => ({
@@ -30,48 +30,14 @@ vi.mock("@tedix/db/queries/app-records", async (original) => ({
 
 const APP_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
 
-function userContext(permissions: string[]): BaseContext {
-	return {
-		authType: "user",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: "org-1",
-		url: new URL("https://api.tedix.test/rpc/apps"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions,
-			roles: [],
-			sub: "user-1",
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(scopes: string[]): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId: "org-1",
-			scopes,
-		},
-		authType: "apikey",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: "org-1",
-		url: new URL("https://api.tedix.test/rpc/apps"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/apps",
+});
 
 describe("apps authorization-plane composition", () => {
 	it("rejects a user without apps:read from a public read", async () => {
 		const client = createRouterClient(appsContractRouter, {
-			context: userContext([]),
+			context: userContext({ permissions: [] }),
 		});
 
 		await expect(client.list({})).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -79,7 +45,7 @@ describe("apps authorization-plane composition", () => {
 
 	it("rejects an API key without apps:read from a public read", async () => {
 		const client = createRouterClient(appsContractRouter, {
-			context: apiKeyContext([]),
+			context: apiKeyContext({ scopes: [] }),
 		});
 
 		await expect(client.list({})).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -88,10 +54,10 @@ describe("apps authorization-plane composition", () => {
 	it("rejects read-only users and API keys from config-version writes", async () => {
 		const input = { appId: APP_ID, config: {} };
 		const userClient = createRouterClient(appsContractRouter, {
-			context: userContext(["apps:read"]),
+			context: userContext({ permissions: ["apps:read"] }),
 		});
 		const apiKeyClient = createRouterClient(appsContractRouter, {
-			context: apiKeyContext(["apps:read"]),
+			context: apiKeyContext({ scopes: ["apps:read"] }),
 		});
 
 		await expect(userClient.createConfigVersion(input)).rejects.toMatchObject({
@@ -108,8 +74,8 @@ describe("apps authorization-plane composition", () => {
 describe("gateway membership authorization", () => {
 	it("requires write authority on both user and API-key planes", async () => {
 		for (const context of [
-			userContext(["apps:read"]),
-			apiKeyContext(["apps:read"]),
+			userContext({ permissions: ["apps:read"] }),
+			apiKeyContext({ scopes: ["apps:read"] }),
 		]) {
 			const client = createRouterClient(appsContractRouter, { context });
 			await expect(
@@ -143,7 +109,7 @@ describe("tenant gateway membership", () => {
 	});
 	const client = () =>
 		createRouterClient(appsContractRouter, {
-			context: userContext(["apps:read", "apps:update"]),
+			context: userContext({ permissions: ["apps:read", "apps:update"] }),
 		});
 	it("resolves only the caller's canonical gateway and installed app", async () => {
 		await expect(

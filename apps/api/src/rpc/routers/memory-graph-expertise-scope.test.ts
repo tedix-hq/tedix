@@ -10,7 +10,7 @@
 
 import { createRouterClient } from "@orpc/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 
 const CALLER_ORG = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
 const OTHER_ORG = "7c1d5f30-2b44-4e51-9a12-8d3f6b7c9e01";
@@ -33,26 +33,11 @@ vi.mock("@tedix/db/queries/memory-graph/expertise", async (importOriginal) => ({
 	getExpertise: mocks.getExpertise,
 }));
 
-function userContext(): BaseContext {
-	return {
-		authType: "user",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: CALLER_ORG,
-		url: new URL("https://api.tedix.test/rpc/memory-graph"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions: ["tedis:read"],
-			roles: [],
-			sub: "user-1",
-		},
-	} as BaseContext;
-}
+const { userContext } = bindTestContexts({
+	organizationId: CALLER_ORG,
+	url: "https://api.tedix.test/rpc/memory-graph",
+	user: { permissions: ["tedis:read"] },
+});
 
 async function callExpertise(tediId: string) {
 	const { memoryGraphContractRouter } = await import("./memory-graph");

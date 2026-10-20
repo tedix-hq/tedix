@@ -51,7 +51,7 @@ import {
 	failOsGadgetApprovalDispatch,
 	settleOsGadgetApproval,
 } from "../../services/os-gadget-approval-settlement";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
@@ -174,50 +174,11 @@ function createEnv(): CloudflareEnv {
 	} as unknown as CloudflareEnv;
 }
 
-function userContext(
-	env: CloudflareEnv,
-	organizationId: string,
-	userId = "user-1",
-): BaseContext {
-	return {
-		authType: "user",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/os-workspaces"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions: ["settings:manage"],
-			roles: [],
-			sub: userId,
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(
-	env: CloudflareEnv,
-	organizationId: string,
-): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId,
-			scopes: ["apps:read", "apps:write"],
-		},
-		authType: "apikey",
-		db: createDbClient(env.DB) as BaseContext["db"],
-		env,
-		headers: new Headers(),
-		organizationId,
-		url: new URL("https://api.tedix.test/rpc/os-workspaces"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	url: "https://api.tedix.test/rpc/os-workspaces",
+	user: { permissions: ["settings:manage"] },
+	apiKey: { scopes: ["apps:read", "apps:write"] },
+});
 
 function clients() {
 	const env = createEnv();
@@ -225,17 +186,17 @@ function clients() {
 		/** The shared D1 facade, so a test can assert on the ROW, not just the wire. */
 		env,
 		org1: createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		}),
 		org2: createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-2"),
+			context: userContext({ env, organizationId: "org-2" }),
 		}),
 		machine: createRouterClient(osWorkspacesContractRouter, {
-			context: apiKeyContext(env, "org-1"),
+			context: apiKeyContext({ env, organizationId: "org-1" }),
 		}),
 		machineAgent: createRouterClient(osWorkspacesContractRouter, {
 			context: {
-				...apiKeyContext(env, "org-1"),
+				...apiKeyContext({ env, organizationId: "org-1" }),
 				externalAgentSessionId: "codex:session-1",
 				externalAgentPrincipalId: "external-agent-1",
 			},
@@ -590,7 +551,11 @@ describe("Workspace resources", () => {
 			connectionInstanceId: selection.connectionInstanceId,
 		});
 		const other = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(c.env, "org-1", "other-user"),
+			context: userContext({
+				env: c.env,
+				organizationId: "org-1",
+				sub: "other-user",
+			}),
 		});
 		await expect(
 			other.resources.create({
@@ -630,9 +595,17 @@ describe("Workspace resources", () => {
 		};
 		const reader = createRouterClient(osWorkspacesContractRouter, {
 			context: {
-				...userContext(c.env, "org-1", "reader-1"),
+				...userContext({
+					env: c.env,
+					organizationId: "org-1",
+					sub: "reader-1",
+				}),
 				user: {
-					...userContext(c.env, "org-1", "reader-1").user!,
+					...userContext({
+						env: c.env,
+						organizationId: "org-1",
+						sub: "reader-1",
+					}).user!,
 					permissions: ["os:read"],
 				},
 			},
@@ -724,7 +697,11 @@ describe("workspace preferences", () => {
 			name: "Operations",
 		});
 		const secondUser = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(c.env, "org-1", "user-2"),
+			context: userContext({
+				env: c.env,
+				organizationId: "org-1",
+				sub: "user-2",
+			}),
 		});
 
 		expect(await c.org1.workspacePreferences.list({})).toEqual({ items: [] });
@@ -975,7 +952,7 @@ describe("outputs", () => {
 			createdByKind: "tedi",
 			createdById: "tedi-1",
 		});
-		const context = apiKeyContext(c.env, "org-1");
+		const context = apiKeyContext({ env: c.env, organizationId: "org-1" });
 		context.serviceAccount = { clientId: "skill-runtime" };
 		context.headers = new Headers({
 			"X-Service-Binding": "true",
@@ -994,7 +971,7 @@ describe("outputs", () => {
 	});
 
 	function skillRunProducer(runId: string) {
-		const context = apiKeyContext(c.env, "org-1");
+		const context = apiKeyContext({ env: c.env, organizationId: "org-1" });
 		context.serviceAccount = { clientId: "skill-runtime" };
 		context.headers = new Headers({
 			"X-Service-Binding": "true",
@@ -1170,7 +1147,7 @@ describe("outputs", () => {
 			title: "Authored",
 		});
 		const db = createDbClient(c.env.DB);
-		const readerContext = userContext(c.env, "org-1");
+		const readerContext = userContext({ env: c.env, organizationId: "org-1" });
 		readerContext.user!.permissions.push("tedis:read");
 		const reader = createRouterClient(osWorkspacesContractRouter, {
 			context: readerContext,
@@ -1684,7 +1661,7 @@ describe("collaboration proposals", () => {
 		});
 		const otherProducer = createRouterClient(osWorkspacesContractRouter, {
 			context: {
-				...apiKeyContext(c.env, "org-1"),
+				...apiKeyContext({ env: c.env, organizationId: "org-1" }),
 				externalAgentSessionId: "codex:other-session",
 				externalAgentPrincipalId: "external-agent-2",
 			},
@@ -2167,7 +2144,7 @@ describe("output export", () => {
 			pdfBytes: new Uint8Array([37, 80, 68, 70]),
 		});
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
 			kind: "document",
@@ -2220,7 +2197,7 @@ describe("output export", () => {
 	it("prints presentation pages with backgrounds and CSS sizing", async () => {
 		const { env, calls } = exportEnv({});
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
 			kind: "presentation",
@@ -2258,7 +2235,7 @@ describe("output export", () => {
 	it("exports a PNG through the screenshot action with image validation", async () => {
 		const { env, calls, puts } = exportEnv({});
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
 			kind: "sheet",
@@ -2278,7 +2255,7 @@ describe("output export", () => {
 		// Non-image screenshot bytes are refused instead of stored.
 		const broken = exportEnv({ pngBytes: new Uint8Array([1, 2, 3]) });
 		const brokenClient = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(broken.env, "org-1"),
+			context: userContext({ env: broken.env, organizationId: "org-1" }),
 		});
 		const other = await brokenClient.outputs.create({
 			kind: "sheet",
@@ -2294,7 +2271,7 @@ describe("output export", () => {
 	it("exports stored richText as Markdown and HTML without Browser Rendering", async () => {
 		const { env, calls, bodies, puts } = exportEnv({ withBrowser: false });
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
 			kind: "document",
@@ -2341,7 +2318,7 @@ describe("output export", () => {
 	it("returns a CSV or an all-sheet ZIP under the existing export response", async () => {
 		const { env, bodies, puts, calls } = exportEnv({ withBrowser: false });
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output: single } = await client.outputs.create({
 			kind: "sheet",
@@ -2400,7 +2377,7 @@ describe("output export", () => {
 			withBrowser: false,
 		});
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
 			kind: "sheet",
@@ -2448,7 +2425,7 @@ describe("output export", () => {
 	it("writes a docx from a document and a pptx from a deck", async () => {
 		const { env, bodies, puts } = exportEnv({ withBrowser: false });
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output: document } = await client.outputs.create({
 			kind: "document",
@@ -2496,7 +2473,7 @@ describe("output export", () => {
 	it("refuses a format that does not apply to the output kind", async () => {
 		const { env, puts } = exportEnv({});
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output: sheet } = await client.outputs.create({
 			kind: "sheet",
@@ -2534,7 +2511,7 @@ describe("output export", () => {
 	it("fails BAD_REQUEST without the BROWSER binding and NOT_FOUND across tenants", async () => {
 		const { env } = exportEnv({ withBrowser: false });
 		const client = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { output } = await client.outputs.create({
 			kind: "document",
@@ -2546,7 +2523,7 @@ describe("output export", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
 		const otherTenant = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(env, "org-2"),
+			context: userContext({ env, organizationId: "org-2" }),
 		});
 		await expect(
 			otherTenant.outputs.export({ outputId: output.id, format: "pdf" }),
@@ -3846,7 +3823,7 @@ describe("governed gadget dispatch", () => {
 	}
 
 	function governedClient(env: CloudflareEnv) {
-		const context = userContext(env, "org-1");
+		const context = userContext({ env, organizationId: "org-1" });
 		(context as Record<string, unknown>).externalAgentSessionId =
 			"claude:sess-1";
 		return createRouterClient(osWorkspacesContractRouter, { context });
@@ -4478,7 +4455,7 @@ describe("governed gadget dispatch", () => {
 			workflowId: `approval-${approvalRequestId}`,
 		} as const;
 		const resumed = await settleOsGadgetApproval(
-			userContext(env, "org-1"),
+			userContext({ env, organizationId: "org-1" }),
 			approval,
 		);
 		expect(resumed.execution).toMatchObject({
@@ -4501,7 +4478,7 @@ describe("governed gadget dispatch", () => {
 		// Duplicate resolution/event replay observes the durable lineage and
 		// performs no second runtime call or billing reservation.
 		const replay = await settleOsGadgetApproval(
-			userContext(env, "org-1"),
+			userContext({ env, organizationId: "org-1" }),
 			approval,
 		);
 		expect(replay.dispatched).toBe(false);
@@ -4575,7 +4552,7 @@ describe("governed gadget dispatch", () => {
 				workflowId: `approval-${approvalRequestId}`,
 			} as const;
 			const settled = await settleOsGadgetApproval(
-				userContext(env, "org-1"),
+				userContext({ env, organizationId: "org-1" }),
 				approval,
 			);
 			expect(settled.execution).toMatchObject({
@@ -4630,7 +4607,7 @@ describe("governed gadget dispatch", () => {
 			resolution: "approved",
 			workflowId: `approval-${approvalRequestId}`,
 		} as const;
-		const context = userContext(env, "org-1");
+		const context = userContext({ env, organizationId: "org-1" });
 		await expect(settleOsGadgetApproval(context, approval)).rejects.toThrow(
 			"skill runtime unavailable",
 		);
@@ -5555,7 +5532,11 @@ describe("Work app entry", () => {
 	it("returns current manifests in one read and fences private, archived and foreign workspaces before limiting", async () => {
 		const c = clients();
 		const other = createRouterClient(osWorkspacesContractRouter, {
-			context: userContext(c.env, "org-1", "user-2"),
+			context: userContext({
+				env: c.env,
+				organizationId: "org-1",
+				sub: "user-2",
+			}),
 		});
 		async function install(
 			client: typeof c.org1,

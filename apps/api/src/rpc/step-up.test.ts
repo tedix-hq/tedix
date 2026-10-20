@@ -1,25 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import type { BaseContext } from "./orpc";
+import { userContext } from "./test-context";
 import appsSource from "./routers/apps.ts?raw";
 import organizationsSource from "./routers/organizations.ts?raw";
 import tedisCrudSource from "./routers/tedis/crud.ts?raw";
 import { requireStepUp } from "./step-up";
-
-function userContext(options: { su?: boolean } = {}): BaseContext {
-	return {
-		authType: "user",
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			sub: "user-1",
-			...(options.su === undefined ? {} : { su: options.su }),
-		},
-	} as BaseContext;
-}
 
 describe("requireStepUp", () => {
 	it("rejects an interactive caller without the claim", () => {
@@ -30,7 +16,7 @@ describe("requireStepUp", () => {
 
 	it("admits an interactive caller carrying su: true", () => {
 		expect(() =>
-			requireStepUp(userContext({ su: true }), "Deleting an app"),
+			requireStepUp(userContext({ claims: { su: true } }), "Deleting an app"),
 		).not.toThrow();
 	});
 

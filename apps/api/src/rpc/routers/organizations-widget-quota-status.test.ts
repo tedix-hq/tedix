@@ -1,6 +1,7 @@
 import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 
 const mocks = vi.hoisted(() => ({
 	listOrganizationWidgetQuotaStatus: vi.fn(),
@@ -15,27 +16,11 @@ import { organizationsContractRouter } from "./organizations";
 
 const ORGANIZATION_ID = "5eed0026-0000-4000-8000-000000000027";
 
-function userContext(roles: string[]): BaseContext {
-	return {
-		authType: "user",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		organizationId: ORGANIZATION_ID,
-		url: new URL("https://api.tedix.test/rpc/organizations"),
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions: ["settings:manage"],
-			roles,
-			sub: "user-1",
-		},
-		userRole: "owner",
-	} as BaseContext;
-}
+const { userContext } = bindTestContexts({
+	organizationId: ORGANIZATION_ID,
+	url: "https://api.tedix.test/rpc/organizations",
+	user: { permissions: ["settings:manage"], userRole: "owner" },
+});
 
 /**
  * A background tedi run reaches apps/api through the MCP edge service binding,
@@ -82,7 +67,7 @@ describe("organizations.listWidgetQuotaStatus", () => {
 
 	it("returns quota rows to a platform-admin user", async () => {
 		const client = createRouterClient(organizationsContractRouter, {
-			context: userContext(["platform-admin"]),
+			context: userContext({ roles: ["platform-admin"] }),
 		});
 		await expect(client.listWidgetQuotaStatus({})).resolves.toEqual({
 			organizations: ROWS,
@@ -99,7 +84,10 @@ describe("organizations.listWidgetQuotaStatus", () => {
 	});
 
 	it("refuses a tenant admin and a tedi without platform authority", async () => {
-		for (const context of [userContext(["org-admin"]), tediContext([])]) {
+		for (const context of [
+			userContext({ roles: ["org-admin"] }),
+			tediContext([]),
+		]) {
 			const client = createRouterClient(organizationsContractRouter, {
 				context,
 			});

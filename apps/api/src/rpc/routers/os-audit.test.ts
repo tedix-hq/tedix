@@ -32,6 +32,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { AUTHZ, type BaseContext, withAuth } from "../orpc";
+import { bindTestContexts } from "../test-context";
 import { osAudit } from "../os-audit";
 import { osApprovalRulesContractRouter } from "./os-approval-rules";
 import { osSharesContractRouter } from "./os-shares";
@@ -70,48 +71,27 @@ function createEnv(): CloudflareEnv {
 	} as unknown as CloudflareEnv;
 }
 
+const AUDIT_HEADERS = {
+	"CF-Connecting-IP": "203.0.113.7",
+	"User-Agent": "os-audit-test/1.0",
+};
+
 function baseContext(env: CloudflareEnv, organizationId: string): BaseContext {
 	return {
 		db: createDbClient(env.DB) as BaseContext["db"],
 		env,
-		headers: new Headers({
-			"CF-Connecting-IP": "203.0.113.7",
-			"User-Agent": "os-audit-test/1.0",
-		}),
+		headers: new Headers(AUDIT_HEADERS),
 		organizationId,
 		url: new URL("https://api.tedix.test/rpc/os-workspaces"),
 	} as BaseContext;
 }
 
-function userContext(env: CloudflareEnv, organizationId: string): BaseContext {
-	return {
-		...baseContext(env, organizationId),
-		authType: "user",
-		user: {
-			aud: "test",
-			dct: "tenant-1",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions: ["settings:manage"],
-			roles: [],
-			sub: "user-1",
-		},
-	} as BaseContext;
-}
-
-function apiKeyContext(env: CloudflareEnv): BaseContext {
-	return {
-		...baseContext(env, "org-1"),
-		apiKey: {
-			id: "key-1",
-			name: "ci",
-			organizationId: "org-1",
-			scopes: ["apps:read", "apps:write"],
-		},
-		authType: "apikey",
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	headers: AUDIT_HEADERS,
+	url: "https://api.tedix.test/rpc/os-workspaces",
+	user: { permissions: ["settings:manage"] },
+	apiKey: { keyName: "ci", scopes: ["apps:read", "apps:write"] },
+});
 
 const TEDI_ID = "3f1a5e4c-0d0a-4f6f-9a3e-3c1d2b7a9f01";
 const AGENT_PRINCIPAL_ID = "6d6f0f2c-6b1e-4c0c-8b6e-2f9f4f0f5a11";
@@ -187,7 +167,7 @@ describe("Tedix OS audit emission", () => {
 
 	beforeEach(() => {
 		env = createEnv();
-		os = osClient(userContext(env, "org-1"));
+		os = osClient(userContext({ env, organizationId: "org-1" }));
 	});
 
 	it("records the workspace lifecycle against the workspace id", async () => {
@@ -430,7 +410,7 @@ describe("Tedix OS audit emission", () => {
 	it("records share-link governance without ever recording the token", async () => {
 		const { workspace } = await os.workspaces.create({ name: "Operations" });
 		const shares = createRouterClient(osSharesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const created = await shares.shares.create({
 			resourceType: "workspace",
@@ -525,7 +505,7 @@ describe("Tedix OS audit emission", () => {
 
 	it("records approval-rule governance changes", async () => {
 		const rules = createRouterClient(osApprovalRulesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		const { rule } = await rules.create({ actionKind: "os_gadget_execution" });
 		await rules.setEnabled({ ruleId: rule.id, enabled: false });
@@ -563,14 +543,14 @@ describe("Tedix OS audit emission", () => {
 			gadgetId: gadget.id,
 		});
 		const shares = createRouterClient(osSharesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		await shares.shares.list({
 			resourceType: "workspace",
 			resourceId: workspace.id,
 		});
 		const rules = createRouterClient(osApprovalRulesContractRouter, {
-			context: userContext(env, "org-1"),
+			context: userContext({ env, organizationId: "org-1" }),
 		});
 		await rules.list({});
 
@@ -598,7 +578,7 @@ describe("Tedix OS audit emission", () => {
 			impl.router({
 				workspaces: { list: misconfigured.workspaces.list.handler(() => list) },
 			} as never),
-			{ context: userContext(env, "org-1") },
+			{ context: userContext({ env, organizationId: "org-1" }) },
 		) as { workspaces: { list: (input: unknown) => Promise<unknown> } };
 		const list = { items: [], truncated: false };
 
@@ -609,7 +589,7 @@ describe("Tedix OS audit emission", () => {
 
 	it("emits nothing when the mutation throws", async () => {
 		const { workspace } = await os.workspaces.create({ name: "Operations" });
-		const foreign = osClient(userContext(env, "org-2"));
+		const foreign = osClient(userContext({ env, organizationId: "org-2" }));
 		const before = await countAllAuditRows(env);
 
 		await expect(
@@ -626,9 +606,9 @@ describe("Tedix OS audit emission", () => {
 		await expect(
 			createRouterClient(osWorkspacesContractRouter, {
 				context: {
-					...userContext(env, "org-1"),
+					...userContext({ env, organizationId: "org-1" }),
 					user: {
-						...(userContext(env, "org-1").user as object),
+						...(userContext({ env, organizationId: "org-1" }).user as object),
 						permissions: [],
 					},
 				} as BaseContext,
@@ -640,8 +620,8 @@ describe("Tedix OS audit emission", () => {
 
 	it("distinguishes user, api_key, tedi and external_agent principals", async () => {
 		const cases: [BaseContext, string, string][] = [
-			[userContext(env, "org-1"), "user", "user-1"],
-			[apiKeyContext(env), "api_key", "key-1"],
+			[userContext({ env, organizationId: "org-1" }), "user", "user-1"],
+			[apiKeyContext({ env }), "api_key", "key-1"],
 			[tediContext(env), "tedi", TEDI_ID],
 			[externalAgentContext(env), "external_agent", AGENT_PRINCIPAL_ID],
 		];
@@ -659,7 +639,7 @@ describe("Tedix OS audit emission", () => {
 	});
 
 	it("stamps agent attribution from a well-formed WebMCP invocation header", async () => {
-		const attributed = userContext(env, "org-1");
+		const attributed = userContext({ env, organizationId: "org-1" });
 		attributed.headers.set(
 			"X-Tedix-Webmcp-Invocation",
 			"5B2F0F9C-7F68-4A3A-9A58-0B6A9A1C2D3E",
@@ -679,7 +659,7 @@ describe("Tedix OS audit emission", () => {
 	});
 
 	it("ignores a malformed WebMCP invocation header instead of storing it", async () => {
-		const malformed = userContext(env, "org-1");
+		const malformed = userContext({ env, organizationId: "org-1" });
 		malformed.headers.set(
 			"X-Tedix-Webmcp-Invocation",
 			"ssn 123-45-6789 jane@acme.example",

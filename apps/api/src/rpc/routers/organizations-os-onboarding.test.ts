@@ -1,6 +1,6 @@
 import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { BaseContext } from "../orpc";
+import { bindTestContexts } from "../test-context";
 
 const ORGANIZATION_ID = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
 
@@ -68,41 +68,12 @@ vi.mock("../audit-helpers", async (importOriginal) => ({
 	emitAuditEvent: mocks.emitAuditEvent,
 }));
 
-function userContext(): BaseContext {
-	return {
-		authType: "user",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		url: new URL("https://api.tedix.test/rpc/organizations"),
-		user: {
-			aud: "test",
-			exp: 2,
-			iat: 1,
-			iss: "https://auth.tedix.test",
-			permissions: [],
-			roles: [],
-			sub: "user-1",
-			email: "new-user@example.com",
-		},
-	} as BaseContext;
-}
-
-function machineContext(): BaseContext {
-	return {
-		apiKey: {
-			id: "key-1",
-			name: "test",
-			organizationId: ORGANIZATION_ID,
-			scopes: ["apps:write"],
-		},
-		authType: "apikey",
-		db: {} as BaseContext["db"],
-		env: { ENVIRONMENT: "test" } as CloudflareEnv,
-		headers: new Headers(),
-		url: new URL("https://api.tedix.test/rpc/organizations"),
-	} as BaseContext;
-}
+const { userContext, apiKeyContext } = bindTestContexts({
+	organizationId: null,
+	url: "https://api.tedix.test/rpc/organizations",
+	user: { tenantId: null, claims: { email: "new-user@example.com" } },
+	apiKey: { keyOrganizationId: ORGANIZATION_ID, scopes: ["apps:write"] },
+});
 
 describe("organizations.completeOsOnboarding", () => {
 	beforeEach(() => {
@@ -361,7 +332,7 @@ describe("organizations.completeOsOnboarding", () => {
 	it("never allows machine credentials to perform account onboarding", async () => {
 		const { organizationsContractRouter } = await import("./organizations");
 		const client = createRouterClient(organizationsContractRouter, {
-			context: machineContext(),
+			context: apiKeyContext(),
 		});
 
 		await expect(
