@@ -19,7 +19,7 @@ vi.mock("@/components/widget-frame", () => ({
 	),
 }));
 
-import { ChatMessageWidgets, StructuredReadResult } from "./chat-thread";
+import { ChatMessageWidgets, StructuredReadResult } from "./chat-message-parts";
 
 const message: HomeMessage = {
 	id: "message-1",
