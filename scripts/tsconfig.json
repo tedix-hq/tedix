@@ -10,6 +10,8 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"ci/full-suite-hourly.mjs",
+		"ci/full-suite-hourly.test.ts",
 		"ci/notify-repository-observer.mjs",
 		"ci/notify-repository-observer.test.ts",
 		"dev/**/*.ts",

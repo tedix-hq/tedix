@@ -90,10 +90,10 @@ export async function observeRepositoryEvent(
 			message: "Event does not match the configured repository and branch",
 		});
 	let id = await observerId(
-		`${orgId}:${event.projectId}:${event.repository}:${event.sha}:${event.kind === "push" ? "push" : "ship"}:${event.surface}`,
+		`${orgId}:${event.projectId}:${event.repository}:${event.sha}:${event.kind === "ci_red" ? "ci" : event.kind === "push" ? "push" : "ship"}:${event.surface}`,
 	);
 	let parentId = event.repairObservationId;
-	if (!parentId && event.kind !== "push") {
+	if (!parentId && event.kind !== "push" && event.kind !== "ci_red") {
 		const pushId = await observerId(
 			`${orgId}:${event.projectId}:${event.repository}:${event.sha}:push:all`,
 		);
@@ -184,11 +184,13 @@ export async function observeRepositoryEvent(
 		title:
 			event.kind === "push"
 				? `Commit watch ${event.sha.slice(0, 9)}`
-				: `Red Ship ${event.surface} ${event.sha.slice(0, 9)}`,
+				: event.kind === "ci_red"
+					? `Red CI ${event.surface} ${event.sha.slice(0, 9)}`
+					: `Red Ship ${event.surface} ${event.sha.slice(0, 9)}`,
 		summary: event.summary,
 		now,
 		deadline:
-			event.kind === "ship_red"
+			event.kind === "ship_red" || event.kind === "ci_red"
 				? new Date(
 						Math.min(Date.now(), Date.parse(event.occurredAt ?? now)) +
 							30 * 60_000,
@@ -211,7 +213,7 @@ export async function observeRepositoryEvent(
 			context,
 			config.ownerTediId,
 			id,
-			event.kind === "push"
+			event.kind === "push" || event.kind === "ci_red"
 				? id
 				: await observerId(`${id}:${JSON.stringify(event)}`),
 			config.instructions,

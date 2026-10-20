@@ -41,8 +41,9 @@ export function acceptsObserverClaims(
 	claims: Record<string, unknown>,
 ) {
 	const push = event.kind === "push";
-	const repo = push ? config.repository : config.shipRepository;
-	const workflow = push ? config.pushWorkflow : config.shipWorkflow;
+	const ci = event.kind === "ci_red";
+	const repo = push || ci ? config.repository : config.shipRepository;
+	const workflow = push || ci ? config.pushWorkflow : config.shipWorkflow;
 	return (
 		!!repo &&
 		claims.repository === repo &&
@@ -50,7 +51,9 @@ export function acceptsObserverClaims(
 		claims.workflow_ref === `${repo}/${workflow}@refs/heads/${config.branch}` &&
 		(push
 			? claims.event_name === "push" && claims.sha === event.sha
-			: ["workflow_run", "schedule"].includes(String(claims.event_name)))
+			: ci
+				? claims.event_name === "workflow_run"
+				: ["workflow_run", "schedule"].includes(String(claims.event_name)))
 	);
 }
 export async function handleRepositoryObserverWebhook(
@@ -76,7 +79,9 @@ export async function handleRepositoryObserverWebhook(
 			return c.text("Invalid event", 400);
 		const event = parsed.data;
 		const repo =
-			event.kind === "push" ? config.repository : config.shipRepository;
+			event.kind === "push" || event.kind === "ci_red"
+				? config.repository
+				: config.shipRepository;
 		if (!repo) return c.text("Event source unavailable", 403);
 		const token = c.req.header("Authorization")?.replace(/^Bearer /, "") ?? "";
 		try {
