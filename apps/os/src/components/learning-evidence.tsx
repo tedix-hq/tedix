@@ -2,6 +2,7 @@ import { GraduationCap } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type { GrowthSnapshot } from "@tedix/api-contract/contracts/growth-snapshots";
 import type { ExpertiseLevel } from "@tedix/api-contract/schemas/memory-graph";
+import type { MetricTileMeasured } from "@tedix/api-contract/schemas/metric-tile";
 import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
@@ -12,7 +13,8 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
+import { MetricGrid } from "@/components/kumo/metric-grid";
+import { MetricTile } from "@/components/metric-tile";
 import {
 	PageSection,
 	SectionDescription,
@@ -97,8 +99,7 @@ export const EXPERTISE_LEVEL_VARIANTS: Record<ExpertiseLevel, BadgeVariant> = {
 
 export interface GrowthMetricRow {
 	id: string;
-	label: string;
-	value: string;
+	tile: MetricTileMeasured;
 }
 
 /**
@@ -106,39 +107,37 @@ export interface GrowthMetricRow {
  *
  * `autonomyRate` is a RATE (0..1) while everything else is a count or an
  * average — rendering them in one undifferentiated grid is how a 0.64 gets
- * read as "64 things". Each row therefore formats in its own dialect.
+ * read as "64 things". Each row therefore formats in its own dialect, and
+ * every tile states the week it photographs and the cron that wrote it.
  */
 export function growthMetricRows(snapshot: GrowthSnapshot): GrowthMetricRow[] {
 	const metrics = snapshot.metrics;
+	const provenance = {
+		state: "measured" as const,
+		window: `week of ${snapshot.snapshotDate}`,
+		source: "weekly cognitive snapshot",
+	};
+	const row = (id: string, label: string, value: string): GrowthMetricRow => ({
+		id,
+		tile: { ...provenance, label, value },
+	});
 	return [
-		{ id: "facts", label: "Facts", value: formatCount(metrics.facts) },
-		{
-			id: "avg-confidence",
-			label: "Avg confidence",
-			value: `${Math.round(metrics.avgConfidence * 100)}%`,
-		},
-		{ id: "domains", label: "Domains", value: formatCount(metrics.domains) },
-		{ id: "skills", label: "Skills", value: formatCount(metrics.skills) },
-		{
-			id: "avg-revision",
-			label: "Avg skill revision",
-			value: metrics.avgRevision.toFixed(1),
-		},
-		{
-			id: "muscles",
-			label: "Muscle memories",
-			value: formatCount(metrics.muscles),
-		},
-		{
-			id: "avg-usage",
-			label: "Avg muscle usage",
-			value: metrics.avgUsage.toFixed(1),
-		},
-		{
-			id: "autonomy-rate",
-			label: "Autonomy rate",
-			value: `${Math.round(metrics.autonomyRate * 100)}%`,
-		},
+		row("facts", "Facts", formatCount(metrics.facts)),
+		row(
+			"avg-confidence",
+			"Avg confidence",
+			`${Math.round(metrics.avgConfidence * 100)}%`,
+		),
+		row("domains", "Domains", formatCount(metrics.domains)),
+		row("skills", "Skills", formatCount(metrics.skills)),
+		row("avg-revision", "Avg skill revision", metrics.avgRevision.toFixed(1)),
+		row("muscles", "Muscle memories", formatCount(metrics.muscles)),
+		row("avg-usage", "Avg muscle usage", metrics.avgUsage.toFixed(1)),
+		row(
+			"autonomy-rate",
+			"Autonomy rate",
+			`${Math.round(metrics.autonomyRate * 100)}%`,
+		),
 	];
 }
 
@@ -256,12 +255,7 @@ export function GrowthSnapshotPanel({
 			columns={4}
 		>
 			{growthMetricRows(snapshot).map((row) => (
-				<MetricItem
-					key={row.id}
-					data-metric={row.id}
-					label={row.label}
-					value={row.value}
-				/>
+				<MetricTile key={row.id} tile={row.tile} data-metric={row.id} />
 			))}
 		</MetricGrid>
 	);

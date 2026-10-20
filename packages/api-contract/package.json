@@ -214,6 +214,7 @@
 		"./schemas/mcp-payments": "./src/schemas/mcp-payments.ts",
 		"./schemas/mcp-tasks": "./src/schemas/mcp-tasks.ts",
 		"./schemas/memory-graph": "./src/schemas/memory-graph.ts",
+		"./schemas/metric-tile": "./src/schemas/metric-tile.ts",
 		"./schemas/model-generation": "./src/schemas/model-generation.ts",
 		"./schemas/model-catalog": "./src/schemas/model-catalog.ts",
 		"./schemas/model-fallback": "./src/schemas/model-fallback.ts",

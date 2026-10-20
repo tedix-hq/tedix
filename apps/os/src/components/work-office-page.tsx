@@ -24,7 +24,8 @@ import {
 	EmptyTitle,
 } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
+import { MetricGrid } from "@/components/kumo/metric-grid";
+import { MetricTile } from "@/components/metric-tile";
 import {
 	Collection,
 	PageDescription,
@@ -56,6 +57,7 @@ import {
 	workOfficeKnocksQueryOptions,
 	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
+import { formatCount } from "@/lib/format";
 import { normalizeD1Timestamp, relativeTime, startOfToday } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -295,29 +297,50 @@ function TodayMetrics({
 }) {
 	return (
 		<MetricGrid columns={4} appearance="bounded" aria-label="Today">
-			<MetricItem
+			<MetricTile
 				className="py-4"
-				label="Knocks today"
 				emphasis="metric"
-				value={knocks}
+				tile={{
+					state: "measured",
+					label: "Knocks today",
+					value: knocks,
+					window: "today",
+					source: "knocks",
+				}}
 			/>
-			<MetricItem
+			<MetricTile
 				className="py-4"
-				label="Answered for you"
 				emphasis="metric"
-				value={totals.answered}
+				tile={{
+					state: "measured",
+					label: "Answered for you",
+					value: formatCount(totals.answered),
+					window: "today",
+					source: "reply outcomes",
+				}}
 			/>
-			<MetricItem
+			<MetricTile
 				className="py-4"
-				label="Waiting for you"
 				emphasis="metric"
-				value={<Link href="/work/interactions">{totals.waiting}</Link>}
+				tile={{
+					state: "measured",
+					label: "Waiting for you",
+					value: formatCount(totals.waiting),
+					window: "now",
+					source: "open requests",
+					href: "/work/interactions",
+				}}
 			/>
-			<MetricItem
+			<MetricTile
 				className="py-4"
-				label="You corrected"
 				emphasis="metric"
-				value={totals.corrected}
+				tile={{
+					state: "measured",
+					label: "You corrected",
+					value: formatCount(totals.corrected),
+					window: "today",
+					source: "reply outcomes",
+				}}
 			/>
 		</MetricGrid>
 	);
