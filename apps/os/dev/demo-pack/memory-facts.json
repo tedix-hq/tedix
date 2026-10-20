@@ -1,7 +1,7 @@
 [
 	[
 		"Hide memes with no buying intent",
-		"Katja marked memes as not useful. Reddit Scout filters entertainment with no concrete buying intent before the next round."
+		"Maya marked memes as not useful. Reddit Scout filters entertainment with no concrete buying intent before the next round."
 	],
 	[
 		"Help first, then mention the brand",
@@ -33,7 +33,7 @@
 	],
 	[
 		"Reddit memes and resolved threads → hidden automatically",
-		"Pure memes and already-answered buying questions no longer interrupt Katja."
+		"Pure memes and already-answered buying questions no longer interrupt Maya."
 	],
 	[
 		"flaky alerts and recovered retries → hidden automatically",

@@ -33,6 +33,8 @@
 		"lint-vite-plus-imports.ts",
 		"lint-session-genericity.ts",
 		"lint-session-genericity.test.ts",
+		"lint-demo-identities.ts",
+		"lint-demo-identities.test.ts",
 		"oxc-ast.ts",
 		"oss/dependency-licenses.ts",
 		"oss/secret-scan.ts",

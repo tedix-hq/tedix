@@ -34,6 +34,14 @@ them all with `bun run lint:repo` (`lint-repo.ts`, which runs them in parallel a
 reports every failure; add new gates there), which must stay offline. Gates print findings
 and exit 0 by default; `--strict` (what `lint:repo` uses) exits 1 on errors.
 
+The demo identity gate (`lint-demo-identities.ts`) scans sample packs, seeders,
+fixtures, tests, snapshots, examples and public docs. Known private identities
+are stored only as SHA-256 hashes in `demo-identity-hashes.json`, with their
+word counts. To add a name, normalize it with Unicode NFKC, lowercase it,
+extract Unicode letter/number tokens, join them with single spaces and hash
+that UTF-8 string. Keep the original names outside this public repository,
+including test cases and commit messages. Findings print locations only.
+
 ## Baselines
 
 - `contract-input-strictness-baseline.json` and `import-cycles-baseline.json`

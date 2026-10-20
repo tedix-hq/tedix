@@ -29,6 +29,7 @@ const GATES: string[][] = [
 	["lint-os.ts"],
 	["lint-vite-plus-imports.ts"],
 	["lint-session-genericity.ts"],
+	["lint-demo-identities.ts"],
 ];
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
