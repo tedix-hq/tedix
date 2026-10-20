@@ -1,5 +1,6 @@
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { apiKeys } from "../../schema/api-keys";
 import {
 	type ExternalAgentMcpCredential,
 	type ExternalAgentPrincipal,
@@ -43,6 +44,7 @@ export async function acquireExternalAgentMcpIssuanceLease(
 			AND active_session.id = ${input.sessionId}
 			AND active_session.status = 'active'
 			AND active_principal.status = 'active'
+			AND ${activePrincipalKey(sql`${input.now}`)}
 		ON CONFLICT (organization_id, principal_id, session_id, mcp_server_id)
 		DO UPDATE SET
 			id = excluded.id,
@@ -110,6 +112,7 @@ export async function recordExternalAgentMcpCredential(
 			AND active_session.id = ${input.sessionId}
 			AND active_session.status = 'active'
 			AND active_principal.status = 'active'
+			AND ${activePrincipalKey(sql`${input.issuedAt}`)}
 		ON CONFLICT DO NOTHING
 		RETURNING id
 	`)) as Array<{ id: string }>;
@@ -182,12 +185,8 @@ export async function revokeExternalAgentMcpCredential(
 }
 
 /**
- * List active credential rows whose access token has already expired — the safe
- * reaping set. A client whose newest token is past `expires_at` cannot be
- * serving live traffic, so its Descope client is a pure orphan. Bounded and
- * oldest-first so a large backlog drains deterministically over several ticks.
- * Returns just the identifiers the reaper needs to delete the Descope client
- * and revoke the row.
+ * List expired active credentials and disabled principals' unfinished deletions.
+ * Bounded and oldest-first so cleanup drains over successive reaper ticks.
  */
 export async function listReapableExternalAgentMcpCredentials(
 	db: DbClient,
@@ -200,9 +199,16 @@ export async function listReapableExternalAgentMcpCredentials(
 		})
 		.from(externalAgentMcpCredentials)
 		.where(
-			and(
-				eq(externalAgentMcpCredentials.status, "active"),
-				lt(externalAgentMcpCredentials.expiresAt, params.expiredBefore),
+			or(
+				and(
+					eq(externalAgentMcpCredentials.status, "active"),
+					lt(externalAgentMcpCredentials.expiresAt, params.expiredBefore),
+				),
+				and(
+					eq(externalAgentMcpCredentials.status, "revoked"),
+					isNull(externalAgentMcpCredentials.providerCleanupAt),
+					sql`EXISTS (SELECT 1 FROM ${externalAgentPrincipals} AS cleanup_principal WHERE cleanup_principal.organization_id = ${externalAgentMcpCredentials.organizationId} AND cleanup_principal.id = ${externalAgentMcpCredentials.principalId} AND json_extract(cleanup_principal.metadata, '$.providerCleanup') IN ('pending', 'failed'))`,
+				),
 			),
 		)
 		.orderBy(externalAgentMcpCredentials.expiresAt)
@@ -213,7 +219,7 @@ export async function listReapableExternalAgentMcpCredentials(
  * Mark a batch of credential rows revoked by their Descope client-record id,
  * after the reaper has deleted (or confirmed gone) the corresponding client.
  * Chunked to stay under D1's bound-parameter ceiling. Returns the number of
- * rows flipped (rows already revoked by a concurrent path are skipped).
+ * rows cleaned; existing revocation timestamps and history are preserved.
  */
 export async function markExternalAgentMcpCredentialsReaped(
 	db: DbClient,
@@ -223,16 +229,34 @@ export async function markExternalAgentMcpCredentialsReaped(
 	for (let i = 0; i < params.clientRecordIds.length; i += 50) {
 		const chunk = params.clientRecordIds.slice(i, i + 50);
 		if (chunk.length === 0) continue;
-		const rows = await db
-			.update(externalAgentMcpCredentials)
-			.set({ status: "revoked", revokedAt: params.revokedAt })
-			.where(
-				and(
-					inArray(externalAgentMcpCredentials.clientRecordId, chunk),
-					eq(externalAgentMcpCredentials.status, "active"),
+		const [rows] = await db.batch([
+			db
+				.update(externalAgentMcpCredentials)
+				.set({
+					status: "revoked",
+					revokedAt: sql`coalesce(${externalAgentMcpCredentials.revokedAt}, ${params.revokedAt})`,
+					providerCleanupAt: params.revokedAt,
+				})
+				.where(
+					and(
+						inArray(externalAgentMcpCredentials.clientRecordId, chunk),
+						isNull(externalAgentMcpCredentials.providerCleanupAt),
+					),
+				)
+				.returning({ id: externalAgentMcpCredentials.id }),
+			db
+				.update(externalAgentPrincipals)
+				.set({
+					metadata: sql`json_set(${externalAgentPrincipals.metadata}, '$.providerCleanup', 'done')`,
+				})
+				.where(
+					and(
+						sql`json_extract(${externalAgentPrincipals.metadata}, '$.providerCleanup') IN ('pending', 'failed')`,
+						noOutstandingProviderCleanup(),
+						sql`EXISTS (SELECT 1 FROM ${externalAgentMcpCredentials} AS completed_cleanup WHERE completed_cleanup.organization_id = ${externalAgentPrincipals.organizationId} AND completed_cleanup.principal_id = ${externalAgentPrincipals.id} AND completed_cleanup.client_record_id IN (SELECT value FROM json_each(${JSON.stringify(chunk)})))`,
+					),
 				),
-			)
-			.returning({ id: externalAgentMcpCredentials.id });
+		]);
 		revoked += rows.length;
 	}
 	return revoked;
@@ -330,6 +354,18 @@ export async function refreshExternalAgentMcpCredentialUnderLease(
 			AND client_record_id = ${params.clientRecordId}
 			AND mcp_server_id = ${params.mcpServerId}
 			AND status = 'active'
+            AND EXISTS (
+             SELECT 1 FROM ${externalAgentPrincipals} AS active_principal
+             JOIN ${externalAgentSessions} AS active_session
+              ON active_session.organization_id = active_principal.organization_id
+              AND active_session.principal_id = active_principal.id
+             WHERE active_principal.organization_id = ${params.organizationId}
+              AND active_principal.id = ${params.principalId}
+              AND active_principal.status = 'active'
+              AND active_session.id = ${params.sessionId}
+              AND active_session.status = 'active'
+              AND ${activePrincipalKey(sql`${params.leaseNow}`)}
+            )
 			AND EXISTS (
 				SELECT 1 FROM ${externalAgentMcpIssuanceLeases} AS issuance_lease
 				WHERE issuance_lease.organization_id = ${params.organizationId}
@@ -387,6 +423,7 @@ export async function recordExternalAgentMcpCredentialUnderLease(
 			AND active_session.id = ${input.sessionId}
 			AND active_session.status = 'active'
 			AND active_principal.status = 'active'
+			AND ${activePrincipalKey(sql`${input.leaseNow}`)}
 		ON CONFLICT DO NOTHING
 		RETURNING id
 	`)) as Array<{ id: string }>;
@@ -463,7 +500,8 @@ export async function resolveAuthorizedExternalAgentMcpSession(
 				'status', credential.status,
 				'issuedAt', credential.issued_at,
 				'expiresAt', credential.expires_at,
-				'revokedAt', credential.revoked_at
+				'revokedAt', credential.revoked_at,
+				'providerCleanupAt', credential.provider_cleanup_at
 			) AS credential_json
 		FROM ${externalAgentMcpCredentials} AS credential
 		JOIN ${externalAgentSessions} AS agent_session
@@ -473,6 +511,10 @@ export async function resolveAuthorizedExternalAgentMcpSession(
 		JOIN ${externalAgentPrincipals} AS principal
 			ON principal.organization_id = agent_session.organization_id
 			AND principal.id = agent_session.principal_id
+		LEFT JOIN ${apiKeys} AS bound_key
+			ON principal.credential_binding_type = 'api_key'
+			AND bound_key.id = principal.credential_binding_id
+			AND bound_key.organization_id = principal.organization_id
 		WHERE credential.organization_id = ${params.organizationId}
 			AND credential.principal_id = ${params.principalId}
 			AND credential.session_id = ${params.sessionId}
@@ -481,6 +523,10 @@ export async function resolveAuthorizedExternalAgentMcpSession(
 			AND credential.expires_at > ${params.now}
 			AND agent_session.status = 'active'
 			AND principal.status = 'active'
+			AND (principal.credential_binding_type != 'api_key' OR (
+				bound_key.status = 'active'
+				AND (bound_key.expires_at IS NULL OR bound_key.expires_at > ${params.now})
+			))
 		LIMIT 1
 	`)) as Array<{
 		principal_json: string;
@@ -518,4 +564,64 @@ export async function findFederatedWorkloadCredential(
 		)
 		.limit(1);
 	return rows[0] ?? null;
+}
+
+function noOutstandingProviderCleanup() {
+	return sql`NOT EXISTS (SELECT 1 FROM ${externalAgentMcpCredentials} AS pending_cleanup WHERE pending_cleanup.organization_id = ${externalAgentPrincipals.organizationId} AND pending_cleanup.principal_id = ${externalAgentPrincipals.id} AND pending_cleanup.status = 'revoked' AND pending_cleanup.provider_cleanup_at IS NULL)`;
+}
+
+export async function listPendingExternalAgentProviderCleanup(
+	db: DbClient,
+	params: { organizationId: string; principalId: string },
+) {
+	return db
+		.select({
+			clientRecordId: externalAgentMcpCredentials.clientRecordId,
+			mcpServerId: externalAgentMcpCredentials.mcpServerId,
+		})
+		.from(externalAgentMcpCredentials)
+		.where(
+			and(
+				eq(externalAgentMcpCredentials.organizationId, params.organizationId),
+				eq(externalAgentMcpCredentials.principalId, params.principalId),
+				eq(externalAgentMcpCredentials.status, "revoked"),
+				isNull(externalAgentMcpCredentials.providerCleanupAt),
+			),
+		)
+		.orderBy(externalAgentMcpCredentials.issuedAt)
+		.limit(500);
+}
+
+export async function finishExternalAgentProviderCleanup(
+	db: DbClient,
+	params: { organizationId: string; principalId: string; failed: boolean },
+) {
+	const [row] = await db
+		.update(externalAgentPrincipals)
+		.set({
+			metadata: sql`json_set(${externalAgentPrincipals.metadata}, '$.providerCleanup', CASE WHEN ${noOutstandingProviderCleanup()} THEN 'done' ELSE ${params.failed ? "failed" : "pending"} END)`,
+		})
+		.where(
+			and(
+				eq(externalAgentPrincipals.organizationId, params.organizationId),
+				eq(externalAgentPrincipals.id, params.principalId),
+			),
+		)
+		.returning();
+	if (!row)
+		throw new ExternalAgentIdentityError(
+			"principal_not_found",
+			"External-agent principal not found",
+		);
+	return row;
+}
+
+function activePrincipalKey(now: ReturnType<typeof sql>) {
+	return sql`(active_principal.credential_binding_type != 'api_key' OR EXISTS (
+  SELECT 1 FROM ${apiKeys} AS issuance_key
+  WHERE issuance_key.id = active_principal.credential_binding_id
+   AND issuance_key.organization_id = active_principal.organization_id
+   AND issuance_key.status = 'active'
+   AND (issuance_key.expires_at IS NULL OR issuance_key.expires_at > ${now})
+ ))`;
 }

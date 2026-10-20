@@ -215,6 +215,7 @@ export const externalAgentMcpCredentials = sqliteTable(
 		issuedAt: text("issued_at").notNull(),
 		expiresAt: text("expires_at").notNull(),
 		revokedAt: text("revoked_at"),
+		providerCleanupAt: text("provider_cleanup_at"),
 	},
 	(table) => [
 		foreignKey({

@@ -1,11 +1,14 @@
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { apiKeys } from "../../schema/api-keys";
 import {
 	type ExternalAgentPrincipal,
 	externalAgentPrincipals,
 	externalAgentSessions,
+	externalAgentMcpCredentials,
+	externalAgentMcpIssuanceLeases,
 } from "../../schema/external-agent-identity";
 
 export type ExternalAgentIdentityErrorReason =
@@ -254,4 +257,74 @@ export async function listExternalAgentPrincipalsByIds(
 				: // bound-params: exact platform audit actor ids are capped to 50.
 					inArray(externalAgentPrincipals.id, params.principalIds.slice(0, 50)),
 		);
+}
+
+/** Local denial is atomic; remote deletion runs only after this batch commits. */
+export async function disableExternalAgentPrincipal(
+	db: DbClient,
+	params: {
+		organizationId: string;
+		principalId: string;
+		reason: string;
+		now: string;
+	},
+): Promise<ExternalAgentPrincipal> {
+	const scoped = and(
+		eq(externalAgentPrincipals.organizationId, params.organizationId),
+		eq(externalAgentPrincipals.id, params.principalId),
+	);
+	const [principals] = await db.batch([
+		db
+			.update(externalAgentPrincipals)
+			.set({
+				status: "suspended",
+				updatedAt: params.now,
+				metadata: sql`json_set(${externalAgentPrincipals.metadata}, '$.providerCleanup', 'pending', '$.disableReason', ${params.reason})`,
+			})
+			.where(scoped)
+			.returning(),
+		db
+			.update(externalAgentMcpCredentials)
+			.set({ status: "revoked", revokedAt: params.now })
+			.where(
+				and(
+					eq(externalAgentMcpCredentials.organizationId, params.organizationId),
+					eq(externalAgentMcpCredentials.principalId, params.principalId),
+					eq(externalAgentMcpCredentials.status, "active"),
+				),
+			),
+		db
+			.update(apiKeys)
+			.set({
+				status: "revoked",
+				revokedAt: params.now,
+				revokeReason: params.reason,
+				updatedAt: params.now,
+				previousKeyHash: null,
+				previousKeyExpiresAt: null,
+			})
+			.where(
+				and(
+					eq(apiKeys.organizationId, params.organizationId),
+					sql`${apiKeys.id} IN (SELECT credential_binding_id FROM ${externalAgentPrincipals} WHERE organization_id = ${params.organizationId} AND id = ${params.principalId} AND credential_binding_type = 'api_key')`,
+				),
+			),
+		db
+			.delete(externalAgentMcpIssuanceLeases)
+			.where(
+				and(
+					eq(
+						externalAgentMcpIssuanceLeases.organizationId,
+						params.organizationId,
+					),
+					eq(externalAgentMcpIssuanceLeases.principalId, params.principalId),
+				),
+			),
+	]);
+	if (!principals[0])
+		throw new ExternalAgentIdentityError(
+			"principal_not_found",
+			"External-agent principal not found",
+		);
+	return principals[0];
 }

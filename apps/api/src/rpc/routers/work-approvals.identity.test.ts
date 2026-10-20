@@ -1,3 +1,4 @@
+import { apiKeys } from "@tedix/db/schema/api-keys";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import {
 	externalAgentPrincipals,
@@ -34,6 +35,7 @@ function fixture(userId = "canonical-user-id") {
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
 		schemaDdl(
+			apiKeys,
 			learningInteractionEvents,
 			workResourceRequirements,
 			workBudgetEnvelopes,
@@ -431,6 +433,14 @@ describe("Work approval canonical principal identity", () => {
 async function externalRequester(scopes: string[]) {
 	const { context, sqlite } = fixture();
 	const now = new Date().toISOString();
+	await context.db.insert(apiKeys).values({
+		id: "key-requester",
+		organizationId: ORG_ID,
+		name: "Fixture",
+		keyHash: "fictional-requester-hash",
+		keyPreview: "fixture",
+		status: "active",
+	});
 	const principal = await createExternalAgentPrincipal(context.db, {
 		id: "00000000-0000-4000-8000-000000000010",
 		organizationId: ORG_ID,

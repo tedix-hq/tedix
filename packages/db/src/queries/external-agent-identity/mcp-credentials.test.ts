@@ -12,6 +12,7 @@ import {
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
+		CREATE TABLE external_agent_principals (id TEXT, organization_id TEXT, metadata TEXT);
 		CREATE TABLE external_agent_mcp_credentials (
 			id TEXT PRIMARY KEY NOT NULL,
 			organization_id TEXT NOT NULL,
@@ -23,7 +24,7 @@ function fixture() {
 			status TEXT NOT NULL DEFAULT 'active',
 			issued_at TEXT NOT NULL,
 			expires_at TEXT NOT NULL,
-			revoked_at TEXT
+			revoked_at TEXT, provider_cleanup_at TEXT
 		);
 	`);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
@@ -273,7 +274,7 @@ describe("markExternalAgentMcpCredentialsReaped", () => {
 		]);
 	});
 
-	it("does not re-revoke a row that is already revoked", async () => {
+	it("records cleanup without changing the original revocation timestamp", async () => {
 		const { sqlite, db } = fixture();
 		insert(sqlite, {
 			id: "1",
@@ -287,6 +288,22 @@ describe("markExternalAgentMcpCredentialsReaped", () => {
 			clientRecordIds: ["already"],
 			revokedAt: NOW,
 		});
-		expect(revoked).toBe(0);
+		expect(revoked).toBe(1);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT revoked_at, provider_cleanup_at FROM external_agent_mcp_credentials",
+				)
+				.get(),
+		).toMatchObject({
+			revoked_at: "2026-08-05T00:00:00.000Z",
+			provider_cleanup_at: NOW,
+		});
+		expect(
+			await markExternalAgentMcpCredentialsReaped(db, {
+				clientRecordIds: ["already"],
+				revokedAt: NOW,
+			}),
+		).toBe(0);
 	});
 });

@@ -1004,6 +1004,10 @@
 		{
 			"name": "20261019234628_external_agent_bootstrap_purpose/migration.sql",
 			"sha256": "2714feb7370c69403b4c44866af7c17e7f4593e70c9dc5bdc8fcf5d0a4d15a77"
+		},
+		{
+			"name": "20261020001009_external_agent_provider_cleanup/migration.sql",
+			"sha256": "f914befe2cf7791b5aecd4c50a8f6861685fb0562afb117f61e88d540b2843c0"
 		}
 	]
 }

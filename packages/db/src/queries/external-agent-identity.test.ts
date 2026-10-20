@@ -45,6 +45,7 @@ import {
 } from "./external-agent-identity/sessions";
 
 const DDL = `
+CREATE TABLE api_keys (id TEXT PRIMARY KEY, organization_id TEXT, status TEXT, expires_at TEXT, revoked_at TEXT, revoke_reason TEXT, updated_at TEXT, previous_key_hash TEXT, previous_key_expires_at TEXT);
 CREATE TABLE external_agent_principals (
  id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, key TEXT NOT NULL,
  display_name TEXT NOT NULL, status TEXT NOT NULL,
@@ -74,7 +75,7 @@ CREATE TABLE external_agent_mcp_credentials (
  session_id TEXT NOT NULL, client_record_id TEXT NOT NULL,
  mcp_server_id TEXT NOT NULL, mcp_server_url TEXT NOT NULL,
  status TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL,
- revoked_at TEXT
+ revoked_at TEXT, provider_cleanup_at TEXT
 );
 CREATE UNIQUE INDEX uniq_external_agent_mcp_client_record
  ON external_agent_mcp_credentials (client_record_id);
@@ -123,6 +124,12 @@ const LATER = "2026-07-20T00:05:00.000Z";
 function fixture(onPrepare?: (query: string) => void): DbClient {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	for (const id of ["key-1", "key-derived-reviewer", "key-reviewer"])
+		sqlite
+			.prepare(
+				"INSERT INTO api_keys (id, organization_id, status) VALUES (?, ?, 'active')",
+			)
+			.run(id, ORG);
 	return createDbClient(createD1Facade(sqlite, { onPrepare }));
 }
 

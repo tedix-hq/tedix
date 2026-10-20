@@ -1,0 +1,1 @@
+ALTER TABLE `external_agent_mcp_credentials` ADD `provider_cleanup_at` text;

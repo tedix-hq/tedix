@@ -150,6 +150,21 @@ export const externalAgentIdentityContract = oc
 			)
 			.output(ExternalAgentPrincipalSchema),
 
+		disablePrincipal: oc
+			.route({
+				method: "POST",
+				path: "/principals/{principalId}/disable",
+				summary: "Disable an external-agent principal and its credentials",
+			})
+			.input(
+				z.object({
+					organizationId: OrganizationIdSchema,
+					principalId: z.uuid(),
+					reason: z.string().trim().min(1).max(1000),
+				}),
+			)
+			.output(ExternalAgentPrincipalSchema),
+
 		renamePrincipal: oc
 			.route({
 				method: "PATCH",
