@@ -63,6 +63,17 @@ describe("resolveCorsOrigin", () => {
 		expect(resolveCorsOrigin("https://tedix.tech", {})).toBeUndefined();
 	});
 
+	it("denies non-normalized origins that differ only in serialization", () => {
+		// worker-kit requires url.origin === origin; a suffix-matching origin
+		// with a trailing slash, an explicit default port or a non-lowercase
+		// host is denied instead of echoed back verbatim.
+		expect(resolveCorsOrigin("https://acme.os.tedix.dev/", {})).toBeUndefined();
+		expect(
+			resolveCorsOrigin("https://acme.os.tedix.dev:443", {}),
+		).toBeUndefined();
+		expect(resolveCorsOrigin("https://ACME.OS.TEDIX.DEV", {})).toBeUndefined();
+	});
+
 	it("denies unknown origins even with install config present", () => {
 		expect(
 			resolveCorsOrigin("https://evil.example", installEnv),

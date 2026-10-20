@@ -9,7 +9,18 @@
  * browser surfaces the API has no URL var for. Found live on the OSS
  * clean-account certification: an OS installation on a non-first-party origin
  * got no access-control-allow-origin and every oRPC call died in the browser.
+ *
+ * The matching itself is the shared `@tedix/worker-kit/cors` policy engine;
+ * this module only builds the API's policy. Note worker-kit also rejects
+ * non-normalized origins (`url.origin !== origin`): a serialized origin that
+ * differs only by a trailing slash, an explicit default port or host case is
+ * denied rather than echoed back as received.
  */
+
+import {
+	type CorsOriginPolicy,
+	resolveCorsOrigin as resolveOriginAgainstPolicy,
+} from "@tedix/worker-kit/cors";
 
 const FIRST_PARTY_ORIGINS = new Set([
 	// Production (tedix.dev)
@@ -71,35 +82,33 @@ export function installationOrigins(env: CorsOriginEnv): Set<string> {
 	return origins;
 }
 
+/**
+ * The API's origin policy. HTTPS subdomain suffixes cover the two cases that
+ * cannot be enumerated ahead of time: dev tunnel origins (any *.tedix.tech
+ * subdomain — NOT the apex, tedix.tech itself is an external site) and Tedix
+ * OS tenant origins ({slug}.os.tedix.dev is one multi-tenant Worker). CORS
+ * here is not authorization — every request still authenticates and
+ * re-derives its organization server-side. allowLocalhost stays false:
+ * the local dev origins are exact entries in FIRST_PARTY_ORIGINS.
+ */
+function corsOriginPolicy(env: CorsOriginEnv): CorsOriginPolicy {
+	return {
+		exactOrigins: new Set([
+			...FIRST_PARTY_ORIGINS,
+			...installationOrigins(env),
+		]),
+		httpsSubdomainSuffixes: ["tedix.tech", "os.tedix.dev"],
+		allowLocalhost: false,
+	};
+}
+
 /** Full CORS decision: return the origin to echo, or undefined to deny. */
 export function resolveCorsOrigin(
 	requestOrigin: string,
 	env: CorsOriginEnv,
 ): string | undefined {
-	if (FIRST_PARTY_ORIGINS.has(requestOrigin)) return requestOrigin;
-	if (installationOrigins(env).has(requestOrigin)) return requestOrigin;
-	try {
-		const originUrl = new URL(requestOrigin);
-		// Dev tunnel origins: any *.tedix.tech subdomain (NOT the apex —
-		// tedix.tech itself is an external site).
-		if (
-			originUrl.protocol === "https:" &&
-			originUrl.hostname.endsWith(".tedix.tech")
-		) {
-			return requestOrigin;
-		}
-		// Tedix OS tenant origins: {slug}.os.tedix.dev is one multi-tenant
-		// Worker, so per-tenant origins cannot be enumerated ahead of time.
-		// CORS here is not authorization — every request still authenticates
-		// and re-derives its organization server-side.
-		if (
-			originUrl.protocol === "https:" &&
-			originUrl.hostname.endsWith(".os.tedix.dev")
-		) {
-			return requestOrigin;
-		}
-	} catch {
-		return undefined;
-	}
-	return undefined;
+	return (
+		resolveOriginAgainstPolicy(requestOrigin, corsOriginPolicy(env)) ??
+		undefined
+	);
 }
