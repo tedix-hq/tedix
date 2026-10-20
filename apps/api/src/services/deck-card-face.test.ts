@@ -159,9 +159,49 @@ it("withholds failed readability output from every display and fallback", async 
 	expect(await prepareDeckCardFace(context, card)).toBeNull();
 	expect(await prepareDeckCardFace(context, card, false)).toBeNull();
 	expect(displayDeckCard(card, null)).toMatchObject({
-		label: "Summary pending",
+		label: card.label,
 		faceText: "Summary pending. Open Details to review the source.",
 	});
+});
+
+it("never uses the placeholder as the headline: falls back to the original request", async () => {
+	for (const label of [
+		"Review GRANT BER's invoice corrections by Tuesday 14:00?",
+		"Summary unavailable",
+		"Summary pending",
+	]) {
+		for (const unavailable of [false, true]) {
+			const displayed = displayDeckCard({ ...card, label }, null, unavailable);
+			expect(displayed.label).not.toBe("Summary unavailable");
+			expect(displayed.label).not.toBe("Summary pending");
+			if (label.startsWith("Review")) expect(displayed.label).toBe(label);
+		}
+	}
+	const long = displayDeckCard(
+		{ ...card, label: `Update the connect profile ${"consent ".repeat(20)}` },
+		null,
+		true,
+	);
+	expect(long.label.length).toBeLessThanOrEqual(80);
+	expect(long.label.endsWith("…")).toBe(true);
+	expect(long.faceText).toBe(
+		"Summary unavailable. Open Details to review the source.",
+	);
+});
+
+it("shows the original request as the headline for a card whose stored face failed, then regenerates after the retry window", async () => {
+	mocks.generate.mockResolvedValueOnce(null);
+	await prepareDeckCardFace(context, card);
+	let [displayed] = await prepareDeckCardFaces(context, [card]);
+	expect(displayed?.label).toBe(card.label);
+	expect(displayed?.faceText).toContain("Summary unavailable");
+	vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61000);
+	await prepareDeckCardFace(context, card);
+	[displayed] = await prepareDeckCardFaces(context, [card]);
+	expect(mocks.generate).toHaveBeenCalledTimes(2);
+	expect(displayed?.label).toBe(copy.title);
+	expect(displayed?.presentation).toEqual(copy);
+	vi.restoreAllMocks();
 });
 it("tells the writer the actual factory consequence rather than promising to do the suggested work", () => {
 	const source = deckCardWritingSource(card);
@@ -201,7 +241,8 @@ it("distinguishes failed generation from a pending job during the retry window",
 	mocks.generate.mockResolvedValue(null);
 	await prepareDeckCardFace(context, card);
 	const [displayed] = await prepareDeckCardFaces(context, [card]);
-	expect(displayed?.label).toBe("Summary unavailable");
+	expect(displayed?.label).toBe(card.label);
+	expect(displayed?.faceText).toContain("Summary unavailable");
 	expect(displayed?.faceText).not.toContain("Summary pending");
 	expect(mocks.generate).toHaveBeenCalledTimes(1);
 });
@@ -227,7 +268,8 @@ it.each([true, false])(
 		);
 		await Promise.all(jobs);
 		expect(mocks.generate).toHaveBeenCalledTimes(1);
-		expect(displayed[0]?.label).toBe(
+		expect(displayed[0]?.label).toBe(card.label);
+		expect(displayed[0]?.faceText).toContain(
 			failed ? "Summary unavailable" : "Summary pending",
 		);
 		expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);

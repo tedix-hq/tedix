@@ -11,6 +11,7 @@ import {
 	attentionSource,
 	feedDisplayCard,
 } from "./attention-app-view";
+import { decisionCardFallbackTitle } from "./decision-card-copy";
 const id = "11111111-1111-4111-8111-111111111111";
 function payload(args: unknown) {
 	return DecideDeckCardRequestSchema.parse(args).decision;
@@ -329,8 +330,40 @@ it("keeps generation failure distinct from pending copy in MCP and Markdown face
 	card.presentation = null;
 	card.faceText = "Summary unavailable. Open Details to review the source.";
 	const view = deckDisplayCard(card, 0);
-	expect(view.ask).toBe("Summary unavailable");
+	expect(view.ask).toBe("Original question");
 	expect(view.ifYes).toBe(card.faceText);
 	expect(attentionMarkdown([view], true)).toContain("Summary unavailable");
+	expect(attentionMarkdown([view], true)).toContain("Original question");
 	expect(view.actions).toEqual([]);
+});
+
+it("never shows a placeholder headline: the original request is the ask until copy exists", () => {
+	for (const label of [
+		"Review GRANT BER's invoice corrections by Tuesday 14:00?",
+		"Summary unavailable",
+		"Summary pending",
+	]) {
+		const card = raw();
+		card.label = label;
+		card.presentation = null;
+		for (const faceText of [
+			undefined,
+			"Summary pending. Open Details to review the source.",
+			"Summary unavailable. Open Details to review the source.",
+		]) {
+			card.faceText = faceText;
+			const view = deckDisplayCard(card, 0);
+			expect(view.ask).not.toBe("Summary unavailable");
+			expect(view.ask).not.toBe("Summary pending");
+			if (label.startsWith("Review")) expect(view.ask).toBe(label);
+		}
+	}
+	expect(
+		decisionCardFallbackTitle(
+			"Update the connect profile’s organization consent to include the fictional blueprint proof, then reply here. The gateway returns an error",
+		),
+	).toBe(
+		"Update the connect profile’s organization consent to include the fictional…",
+	);
+	expect(decisionCardFallbackTitle("  ")).toBe("Review this request?");
 });

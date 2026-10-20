@@ -4,6 +4,7 @@ import copySpec from "../assets/decision-card-copy.v2.json";
 import {
 	checkDecisionCardCopy,
 	decisionCardActionLabel,
+	decisionCardFallbackTitle,
 } from "./decision-card-copy";
 import { containsCardSecret } from "./card-secrets";
 import { isRecord } from "./is-record";
@@ -90,11 +91,7 @@ export function deckDisplayCard(
 	const view: AttentionDisplayCard = {
 		id: card.id,
 		kind: card.kind,
-		ask:
-			copy?.title ??
-			(card.faceText === copySpec.unavailableFace
-				? copySpec.unavailableTitle
-				: copySpec.pendingTitle),
+		ask: copy?.title ?? decisionCardFallbackTitle(card.label),
 		context: copy?.context ?? null,
 		confidence: card.decision?.confidence ?? null,
 		ifYes:
@@ -292,7 +289,10 @@ export function feedDisplayCard(
 		id: item.id,
 		kind: item.kind,
 		ask:
-			copy?.title ?? (item.needsAction ? copySpec.pendingTitle : item.sentence),
+			copy?.title ??
+			(item.needsAction
+				? decisionCardFallbackTitle(item.sentence)
+				: item.sentence),
 		context: copy?.context ?? null,
 		confidence: item.decision?.confidence ?? null,
 		ifYes: copy?.body ?? (item.needsAction ? copySpec.pendingFace : null),

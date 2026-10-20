@@ -113,3 +113,24 @@ export function decisionCardActionLabel(
 			return labels[key]!;
 	return fallback;
 }
+
+const FALLBACK_TITLE = "Review this request?";
+
+/** Headline when no checked story exists: the original request text, never the pending or unavailable placeholder. */
+export function decisionCardFallbackTitle(
+	label: string | null | undefined,
+	limit: number = copySpec.fields.title.maxLength,
+): string {
+	const plain = (label ?? "").replace(/\s+/g, " ").trim();
+	if (
+		!plain ||
+		plain === copySpec.pendingTitle ||
+		plain === copySpec.unavailableTitle ||
+		containsCardSecret(plain)
+	)
+		return FALLBACK_TITLE;
+	if (plain.length <= limit) return plain;
+	const cut = plain.slice(0, limit - 1);
+	const atWord = cut.lastIndexOf(" ");
+	return `${(atWord > limit / 2 ? cut.slice(0, atWord) : cut).replace(/[\s,;:.!?-]+$/, "")}…`;
+}
