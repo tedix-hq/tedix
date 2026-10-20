@@ -147,6 +147,10 @@ export async function rankCurrentDeck(
 			unchanged("disabled");
 			continue;
 		}
+		if (Date.now() >= deadline) {
+			unchanged("time_budget");
+			continue;
+		}
 		const summary = (
 			card.interaction?.request.prompt ??
 			card.factory?.sourceText ??

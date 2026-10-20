@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../rpc/orpc";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
+import * as ranking from "@tedix/api-contract/utils/deck-curator";
 import { rankCurrentDeck } from "./deck-curator-ranker";
 
 const mocks = vi.hoisted(() => ({
@@ -225,4 +226,31 @@ it("does not reserve or infer through an unconfigured Gateway", async () => {
 	expect(result.signals[0]!.reason).toBe("model_failed");
 	expect(mocks.reserve).not.toHaveBeenCalled();
 	expect(mocks.model).not.toHaveBeenCalled();
+});
+
+it("stops retrieving history after the run deadline while retaining policy protection", async () => {
+	const now = vi
+		.spyOn(Date, "now")
+		.mockReturnValueOnce(0)
+		.mockReturnValue(8000);
+	const retrieval = vi.spyOn(ranking, "retrieveDeckExamples");
+	try {
+		const result = await rankCurrentDeck(context, input);
+		expect(result.signals.map((row) => row.reason)).toEqual([
+			"time_budget",
+			"time_budget",
+			"critical",
+		]);
+		expect(result.cards.map((row) => row.id)).toEqual([
+			"protected",
+			"one",
+			"two",
+		]);
+		expect(retrieval).not.toHaveBeenCalled();
+		expect(mocks.reserve).not.toHaveBeenCalled();
+		expect(mocks.model).not.toHaveBeenCalled();
+	} finally {
+		now.mockRestore();
+		retrieval.mockRestore();
+	}
 });
