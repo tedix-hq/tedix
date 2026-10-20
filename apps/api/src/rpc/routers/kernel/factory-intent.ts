@@ -6,7 +6,12 @@ import { outputWriteApp } from "./output-create-intent";
 export function factoryIntent(
 	content: string,
 ): "create" | "pause" | "resume" | "archive" | "health" | "run" | null {
-	const text = content.trim().replace(/^(?:please|can you|could you)\s+/i, "");
+	// Only the opening request line names a factory command. Pasted context
+	// below it (commit subjects, logs) must not turn into a factory operation.
+	const text = (content.trim().split(/\r?\n/, 1)[0] ?? "")
+		.trim()
+		.replace(/^(?:please|can you|could you)\s+/i, "");
+	if (text.length > 240) return null;
 	if (
 		/^(?:explain|how (?:do|can|to)|what is|describe|don't|do not)\b/i.test(text)
 	)

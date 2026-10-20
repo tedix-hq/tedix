@@ -35,6 +35,17 @@ describe("factory chat routing", () => {
 	])("%s", (content, expected) =>
 		expect(factoryIntent(content)).toBe(expected),
 	);
+	it("ignores factory words inside pasted context below a long request", () => {
+		const prompt = [
+			'Please reconcile the "accepted" Work items in project sample-project that look finished against the code changes that landed on main, and give me a settle-or-keep table. Read-only.',
+			"",
+			"Commits on main:",
+			"aaaa0001 fix(catalog): preserve delist count API and handle null health",
+			"aaaa0002 test: advance factory cards after the verdict is saved",
+			"aaaa0003 fix(deck): preserve critical factory routing in rank snapshots",
+		].join("\n");
+		expect(factoryIntent(prompt)).toBeNull();
+	});
 	it("routes creation without loading unrelated factories", async () => {
 		const load = vi.fn();
 		const result = await factoryChatDecision(
