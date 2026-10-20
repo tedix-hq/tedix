@@ -10,6 +10,7 @@ import {
 } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { createApiKey } from "@tedix/db/queries/api-keys";
+import { resolveAuthorizedExternalAgentMcpSession } from "@tedix/db/queries/external-agent-identity/mcp-credentials";
 import { apiKeys } from "@tedix/db/schema/api-keys";
 import * as agentTables from "@tedix/db/schema/external-agent-identity";
 import { principalIdentities } from "@tedix/db/schema/principal-identities";
@@ -194,7 +195,7 @@ describe("enrollment-bounded MCP credential issuance", () => {
 				.get(),
 		).toEqual({ expires_at: DEADLINE });
 	});
-	it.each([undefined, 3600])(
+	it.each([undefined])(
 		"fails issuance for provider expires_in %s and removes its unrecorded client",
 		async (lifetime) => {
 			expiresIn = lifetime;
@@ -212,6 +213,55 @@ describe("enrollment-bounded MCP credential issuance", () => {
 			expect(mocks.remove).toHaveBeenCalledTimes(1);
 		},
 	);
+	it("accepts a legacy general key and a one-hour provider token with a ten-minute live credential", async () => {
+		sqlite
+			.prepare("UPDATE api_keys SET purpose = 'general', expires_at = NULL")
+			.run();
+		expiresIn = 3600;
+		const first = await client().issueMcpCredential(INPUT);
+		expect(first.expiresIn).toBe(600);
+		expect(
+			sqlite
+				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
+				.get(),
+		).toEqual({ expires_at: "2030-01-01T00:10:00.000Z" });
+		vi.setSystemTime(new Date("2030-01-01T00:01:00.000Z"));
+		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(600);
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(
+			sqlite
+				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
+				.get(),
+		).toEqual({ expires_at: "2030-01-01T00:11:00.000Z" });
+		const authorization = {
+			organizationId: ORG,
+			principalId: PRINCIPAL,
+			sessionId: SESSION,
+			clientRecordId: first.clientRecordId,
+		};
+		expect(
+			await resolveAuthorizedExternalAgentMcpSession(db, {
+				...authorization,
+				now: "2030-01-01T00:10:59.999Z",
+			}),
+		).not.toBeNull();
+		// The provider token still has 49 minutes left, but Tedix refuses it.
+		expect(
+			await resolveAuthorizedExternalAgentMcpSession(db, {
+				...authorization,
+				now: "2030-01-01T00:11:00.000Z",
+			}),
+		).toBeNull();
+	});
+	it("caps a one-hour provider token at the earlier enrollment expiry", async () => {
+		expiresIn = 3600;
+		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(120);
+		expect(
+			sqlite
+				.prepare("SELECT expires_at FROM external_agent_mcp_credentials")
+				.get(),
+		).toEqual({ expires_at: DEADLINE });
+	});
 	it("rejects renewal at the enrollment deadline without contacting the provider", async () => {
 		vi.setSystemTime(new Date(DEADLINE));
 		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({

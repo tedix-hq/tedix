@@ -253,7 +253,7 @@ describe("AIH MCP server registration hardening", () => {
 });
 
 describe("measured AIH token lifetime", () => {
-	it.each([undefined, null, 0, -1, 0.5, 601, 3600, "600"])(
+	it.each([undefined, null, 0, -1, 0.5, "600"])(
 		"refuses invalid expires_in %s",
 		async (expiresIn) => {
 			vi.stubGlobal(
@@ -279,7 +279,7 @@ describe("measured AIH token lifetime", () => {
 			).rejects.toThrow("expires_in");
 		},
 	);
-	it.each([1, 120, 600])(
+	it.each([1, 120, 600, 601, 3600])(
 		"returns the measured lifetime %s",
 		async (expiresIn) => {
 			vi.stubGlobal(

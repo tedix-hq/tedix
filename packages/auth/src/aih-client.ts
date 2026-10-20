@@ -724,12 +724,9 @@ export async function exchangeAihClientCredentials(
 	if (
 		!Number.isInteger(data.expires_in) ||
 		typeof data.expires_in !== "number" ||
-		data.expires_in <= 0 ||
-		data.expires_in > 600
+		data.expires_in <= 0
 	)
-		throw new Error(
-			"AIH token exchange expires_in must be a positive integer at most 600 seconds",
-		);
+		throw new Error("AIH token exchange expires_in must be a positive integer");
 	return {
 		accessToken: data.access_token,
 		expiresIn: data.expires_in,

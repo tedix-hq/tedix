@@ -1377,7 +1377,9 @@ async function resolveIssuedMcpLifetime(
 	expiresIn: number,
 	issuedAt: Date,
 ) {
-	let expiresAtMs = issuedAt.getTime() + expiresIn * 1_000;
+	// The provider token may outlive Tedix's credential; live authorization
+	// checks the persisted deadline on every request.
+	let expiresAtMs = issuedAt.getTime() + Math.min(expiresIn, 600) * 1_000;
 	if (principal.credentialBindingType === "api_key") {
 		const key = await getApiKeyById(context.db, principal.credentialBindingId);
 		if (
