@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
 	analyzeWorkerRoutes,
+	collectAll,
 	effectiveProductionIngress,
 	parseCloudflareIngressConfig,
 	type SourceFile,
@@ -53,6 +54,76 @@ function file(path: string, lines: string[]): SourceFile {
 }
 
 describe("Hono route model", () => {
+	test("scans extracted API route registrations from disk", () => {
+		const { routes, staleGuards } = collectAll();
+		const apiRoutes = routes.filter((route) => route.app === "apps/api");
+		for (const [module, label] of [
+			["rpc-routes", "ALL /rpc/*"],
+			["openapi-docs", "GET /health"],
+			["kernel-routes", "GET /kernel/ws-token"],
+			["skill-media-routes", "GET /skill-media/:runId/:path{.+}"],
+			["os-shared-routes", "POST /os-shared/redeem"],
+			["exports-and-renders", "GET /os-exports/:outputId/:file"],
+			["artifact-routes", "GET /artifacts/s/:tediId/:artifactId"],
+			["webhook-routes", "POST /webhooks/stripe"],
+			["public-intake-routes", "ALL /public/agent-review"],
+		]) {
+			expect(
+				apiRoutes.some(
+					(route) =>
+						route.file === `apps/api/src/http/${module}.ts` &&
+						route.label === label,
+				),
+			).toBe(true);
+		}
+		expect(
+			apiRoutes.filter((route) => route.classification === "unguarded"),
+		).toEqual([]);
+		expect(staleGuards.filter((guard) => guard.app === "apps/api")).toEqual([]);
+	});
+
+	test("a guard in one extracted module does not cover an unguarded route in another", () => {
+		const config = WORKER_APPS.find((app) => app.app === "apps/api")!;
+		const { routes } = analyzeWorkerRoutes(config, [
+			file("apps/api/src/worker-app.ts", ["const app = new Hono();"]),
+			file("apps/api/src/http/guarded.ts", [
+				"export function registerGuarded(app: Hono) {",
+				'app.get("/guarded", async (c) => { await validateToken(token); return c.json({}); });',
+				"}",
+			]),
+			file("apps/api/src/http/unguarded.ts", [
+				"export function registerUnguarded(app: Hono) {",
+				'app.get("/unguarded", (c) => c.json({}));',
+				"}",
+			]),
+		]);
+		expect(
+			routes.map(({ label, classification }) => ({ label, classification })),
+		).toEqual([
+			{ label: "GET /guarded", classification: "guarded" },
+			{ label: "GET /unguarded", classification: "unguarded" },
+		]);
+	});
+
+	test("transcription requires its authenticated handler", () => {
+		const config = WORKER_APPS.find((app) => app.app === "apps/api")!;
+		for (const [handler, classification] of [
+			["handleKernelVoiceTranscription(c.req.raw, c.env)", "guarded"],
+			["c.json({})", "unguarded"],
+		]) {
+			const { routes } = analyzeWorkerRoutes(config, [
+				file("apps/api/src/worker-app.ts", ["const app = new Hono();"]),
+				file("apps/api/src/http/kernel-routes.ts", [
+					"export function registerKernelRoutes(app: Hono) {",
+					`app.post("/kernel/voice/transcribe", (c) => ${handler});`,
+					"}",
+				]),
+			]);
+			expect(routes).toHaveLength(1);
+			expect(routes[0]?.classification).toBe(classification);
+		}
+	});
+
 	test("recognizes the portable snapshot HMAC guard on the API route", () => {
 		const config = WORKER_APPS.find((app) => app.app === "apps/api");
 		expect(config).toBeDefined();
