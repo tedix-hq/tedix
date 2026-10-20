@@ -1,5 +1,5 @@
 import { workRefreshOptions } from "@/lib/work-refresh";
-import { cardScheduleDates } from "@/lib/card-schedule";
+import { cardScheduleDates } from "@tedix/api-contract/utils/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import {
 	useInfiniteQuery,

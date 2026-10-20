@@ -125,6 +125,10 @@ describe("activity feed", () => {
 		expect(card.classId).toBe(envelope.classId);
 		expect(card.sentence).toBe(envelope.proposal);
 		expect(card.reactions).not.toContain("approve");
+		row.request.dueAt = "2026-10-29";
+		expect(decisionFeedItems([row], now, "Europe/Berlin")[0]?.dueAt).toBe(
+			"2026-10-29",
+		);
 		row.request.metadata = { ...row.request.metadata, remind_at: "2026-10-28" };
 		expect(
 			decisionFeedItems(

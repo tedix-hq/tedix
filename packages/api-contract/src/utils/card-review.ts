@@ -172,6 +172,7 @@ export function sourceParts(text: string): { label: string; links: string[] } {
 
 export type ReviewCard = {
 	scheduleDates?: string[];
+	metadata?: Record<string, string>;
 	key: string;
 	sourceIndex: number;
 	sourceLabel: string;
@@ -303,7 +304,12 @@ export function cardsFromSheet(input: {
 		const type = at(row, source.columns.type);
 		cards.push({
 			key: `${input.outputId}:${rowIndex}`,
-			scheduleDates: scheduleColumns.map((index) => cellText(row[index])),
+			metadata: Object.fromEntries(
+				scheduleColumns.map((index) => [
+					body.columns[index]!,
+					cellText(row[index]),
+				]),
+			),
 			sourceIndex: input.sourceIndex,
 			sourceLabel: source.label,
 			channel: channelFor(source, `${sourceText} ${who} ${type}`),

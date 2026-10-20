@@ -3,7 +3,7 @@ import { workRefreshOptions } from "@/lib/work-refresh";
 import type { ReviewCard } from "@tedix/api-contract/utils/card-review";
 import type { DeckRoutingPolicy } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDeckRoutingAudit } from "@/lib/use-deck-routing-audit";
-import { cardIsDue } from "@/lib/card-schedule";
+import { cardIsDue } from "@tedix/api-contract/utils/card-schedule";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { useQueries } from "@tanstack/react-query";
 import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";

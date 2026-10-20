@@ -1,4 +1,4 @@
-import { cardIsDue } from "@/lib/card-schedule";
+import { cardIsDue } from "@tedix/api-contract/utils/card-schedule";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { currentDeckCuration } from "@tedix/api-contract/utils/deck-curator";
 import type { DecisionCardFeedback } from "@/components/work-decision-card";
@@ -133,10 +133,6 @@ export function decisionIsDue(
 	now: Date,
 	timeZone?: string,
 ) {
-	if (request.metadata?.source === "deadline-decisions") {
-		const { dueAt: _deadline, ...scheduled } = request;
-		return cardIsDue(scheduled, now, timeZone);
-	}
 	return cardIsDue(request, now, timeZone);
 }
 
