@@ -363,5 +363,11 @@ export async function reviseCardContent(
 			ErrorCodes.CONFLICT,
 			"The card changed during the rewrite; reload it",
 		);
+	const { queueDeckCuration } = await import("./deck-curation-trigger");
+	await queueDeckCuration(
+		context,
+		{ ...request, status: curation?.status ?? request.status },
+		actor,
+	);
 	return revision;
 }

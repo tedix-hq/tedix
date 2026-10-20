@@ -431,6 +431,9 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 					}),
 				),
 			);
+		const { queueDeckCuration } =
+			await import("../../services/deck-curation-trigger");
+		await queueDeckCuration(context, created, actor);
 		return requestOutput(created);
 	} catch (error) {
 		rethrowInteractionError(error);
