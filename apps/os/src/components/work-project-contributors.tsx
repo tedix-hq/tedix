@@ -1,15 +1,13 @@
+import {
+	WorkListSkeleton,
+	WorkReadFailure,
+	WorkEmpty,
+} from "@/components/work-surface-primitives";
 import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import { useQuery } from "@tanstack/react-query";
 import type { ListWorkProjectContributorsResultSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type * as z from "zod";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import {
 	Collection,
@@ -18,7 +16,6 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	AGENT_HARNESS_LABEL,
@@ -132,29 +129,15 @@ export function WorkProjectContributors({
 						))}
 					</Collection>
 				) : (
-					<Empty appearance="quiet">
-						<EmptyHeader>
-							<EmptyTitle>No contributors</EmptyTitle>
-							<EmptyDescription>
-								No sessions have worked on this project yet.
-							</EmptyDescription>
-						</EmptyHeader>
-					</Empty>
+					<WorkEmpty
+						title="No contributors"
+						description="No sessions have worked on this project yet."
+					/>
 				)
 			) : query.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Contributors unavailable</AlertTitle>
-					<AlertDescription>
-						{query.error instanceof Error
-							? query.error.message
-							: "The canonical read failed."}
-					</AlertDescription>
-				</Alert>
+				<WorkReadFailure title="Contributors unavailable" error={query.error} />
 			) : (
-				<div className="grid gap-2" aria-label="Loading contributors">
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
-				</div>
+				<WorkListSkeleton rows={2} label="Loading contributors" />
 			)}
 		</PageSection>
 	);

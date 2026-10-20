@@ -1,3 +1,9 @@
+import {
+	WorkPageHeader,
+	WorkListSkeleton,
+	WorkReadFailure,
+	WorkEmpty,
+} from "@/components/work-surface-primitives";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
@@ -51,13 +57,8 @@ import { ResponsiveFormSurface } from "@/components/kumo/responsive-form-surface
 import {
 	Collection,
 	Page,
-	PageActions,
 	PageBack,
-	PageDescription,
-	PageHeader,
-	PageHeading,
 	PageSection,
-	PageTitle,
 	SectionCollection,
 	SectionDescription,
 	SectionHeader,
@@ -66,7 +67,6 @@ import {
 } from "@/components/kumo/page";
 import { Surface } from "@/components/kumo/surface";
 import { SelectItem } from "@/components/kumo/select";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { KumoTabs } from "@/components/kumo/tabs";
 import {
 	Table,
@@ -80,7 +80,7 @@ import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { osApi } from "@/lib/api";
 import { sentenceCase } from "@/lib/format";
-import { normalizeD1Timestamp } from "@/lib/time";
+import { absoluteDate, absoluteTime, normalizeD1Timestamp } from "@/lib/time";
 import {
 	pendingApprovalsQueryOptions,
 	membersListQueryOptions,
@@ -174,61 +174,10 @@ export function useWorkPrincipalNames(organizationId?: string) {
 	}, [tedis.data, members.data, external.data]);
 }
 
-function Header({
-	title,
-	description,
-	action,
-}: {
-	title: string;
-	description: ReactNode;
-	action?: ReactNode;
-}) {
-	useDocumentTitle(`${title} · Work`);
-	return (
-		<PageHeader>
-			<PageHeading>
-				<PageTitle>{title}</PageTitle>
-				<PageDescription>{description}</PageDescription>
-			</PageHeading>
-			{action ? <PageActions>{action}</PageActions> : null}
-		</PageHeader>
-	);
-}
-
-function Loading() {
-	return (
-		<div className="grid gap-2" aria-label="Loading">
-			<Skeleton className="h-10 w-full" />
-			<Skeleton className="h-10 w-full" />
-			<Skeleton className="h-10 w-full" />
-		</div>
-	);
-}
-
-function Failure({ title, error }: { title: string; error?: unknown }) {
-	return (
-		<Alert variant="destructive">
-			<AlertTitle>{title}</AlertTitle>
-			<AlertDescription>
-				{error instanceof Error ? error.message : "The canonical read failed."}
-			</AlertDescription>
-		</Alert>
-	);
-}
-
-function None({ title, description }: { title: string; description: string }) {
-	return (
-		<Empty appearance="quiet">
-			<EmptyHeader>
-				<EmptyTitle>{title}</EmptyTitle>
-				<EmptyDescription>{description}</EmptyDescription>
-			</EmptyHeader>
-		</Empty>
-	);
-}
-
 function MutationError({ error }: { error: unknown }) {
-	return error ? <Failure title="Write rejected" error={error} /> : null;
+	return error ? (
+		<WorkReadFailure title="Write rejected" error={error} />
+	) : null;
 }
 
 export function ApprovalRequestError({ error }: { error: unknown }) {
@@ -237,13 +186,10 @@ export function ApprovalRequestError({ error }: { error: unknown }) {
 		error.message === "Requester cannot approve its own proposal"
 	) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Choose a different approver</AlertTitle>
-				<AlertDescription>
-					You cannot request approval from yourself. Choose another approver, or
-					use the inbox above to approve an existing request assigned to you.
-				</AlertDescription>
-			</Alert>
+			<WorkReadFailure
+				title="Choose a different approver"
+				fallback="You cannot request approval from yourself. Choose another approver, or use the inbox above to approve an existing request assigned to you."
+			/>
 		);
 	}
 	return <MutationError error={error} />;
@@ -355,7 +301,7 @@ export function WorkCasesPage() {
 	});
 	return (
 		<Page width="xl">
-			<Header
+			<WorkPageHeader
 				title="Cases"
 				description="Evolving investigations, incidents, customer matters, and other knowledge work. Case stage never substitutes for Work Item readiness."
 				action={
@@ -424,11 +370,11 @@ export function WorkCasesPage() {
 					</SectionHeading>
 				</SectionHeader>
 				{query.isPending ? (
-					<Loading />
+					<WorkListSkeleton />
 				) : query.isError ? (
-					<Failure title="Cases unavailable" error={query.error} />
+					<WorkReadFailure title="Cases unavailable" error={query.error} />
 				) : query.data.data.length === 0 ? (
-					<None
+					<WorkEmpty
 						title="No cases"
 						description="Open a case when the next Work Items will emerge as facts arrive."
 					/>
@@ -480,11 +426,16 @@ export function WorkCasesPage() {
 										<div className="min-w-0">
 											<dt className="sr-only">Horizon</dt>
 											<dd className="m-0 whitespace-nowrap tabular-nums">
-												{record.targetResolutionAt
-													? new Date(
-															record.targetResolutionAt,
-														).toLocaleDateString()
-													: "Not committed"}
+												{record.targetResolutionAt ? (
+													<time
+														dateTime={record.targetResolutionAt}
+														title={absoluteTime(record.targetResolutionAt)}
+													>
+														{absoluteDate(record.targetResolutionAt)}
+													</time>
+												) : (
+													"Not committed"
+												)}
 											</dd>
 										</div>
 									</dl>
@@ -524,11 +475,16 @@ export function WorkCasesPage() {
 											{workPrincipalLabel(record.accountableOwnerId)}
 										</TableCell>
 										<TableCell>
-											{record.targetResolutionAt
-												? new Date(
-														record.targetResolutionAt,
-													).toLocaleDateString()
-												: "Not committed"}
+											{record.targetResolutionAt ? (
+												<time
+													dateTime={record.targetResolutionAt}
+													title={absoluteTime(record.targetResolutionAt)}
+												>
+													{absoluteDate(record.targetResolutionAt)}
+												</time>
+											) : (
+												"Not committed"
+											)}
 										</TableCell>
 									</TableRow>
 								))}
@@ -623,21 +579,21 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 		return (
 			<Page width="lg">
 				<PageBack render={<Link href="/work/cases" />}>All cases</PageBack>
-				<Loading />
+				<WorkListSkeleton />
 			</Page>
 		);
 	if (query.isError || !query.data)
 		return (
 			<Page width="lg">
 				<PageBack render={<Link href="/work/cases" />}>All cases</PageBack>
-				<Failure title="Case unavailable" error={query.error} />
+				<WorkReadFailure title="Case unavailable" error={query.error} />
 			</Page>
 		);
 	const record = query.data.workCase;
 	return (
 		<Page width="lg">
 			<PageBack render={<Link href="/work/cases" />}>All cases</PageBack>
-			<Header
+			<WorkPageHeader
 				title={record.title}
 				description={`${sentenceCase(record.kind)} case · version ${record.version}`}
 			/>
@@ -963,7 +919,7 @@ export function WorkApprovalsPage() {
 	);
 	return (
 		<Page width="xl">
-			<Header
+			<WorkPageHeader
 				title="Approvals"
 				description="Decisions waiting for you, and approvals that let work start."
 			/>
@@ -1010,14 +966,14 @@ export function WorkApprovalsPage() {
 					/>
 				) : null}
 				{runtimeApprovals.isPending ? (
-					<Loading />
+					<WorkListSkeleton />
 				) : runtimeApprovals.isError ? (
-					<Failure
+					<WorkReadFailure
 						title="Waiting actions unavailable"
 						error={runtimeApprovals.error}
 					/>
 				) : runtimeApprovals.data.data.length === 0 ? (
-					<None
+					<WorkEmpty
 						title="No runtime decisions need attention"
 						description="When a tedi or automation pauses for your approval, it appears here."
 					/>
@@ -1032,32 +988,40 @@ export function WorkApprovalsPage() {
 								<ApprovalDecisionCopy approval={approval} />
 								<div className="flex flex-wrap gap-x-4 gap-y-1">
 									<Text as="span" role="label" tone="secondary">
-										Expires {new Date(approval.expiresAt).toLocaleString()}
+										Expires{" "}
+										<time
+											dateTime={approval.expiresAt}
+											title={absoluteTime(approval.expiresAt)}
+										>
+											{absoluteTime(approval.expiresAt)}
+										</time>
 									</Text>
 									<Text as="span" role="label" tone="mono-secondary">
 										{approval.id}
 									</Text>
 								</div>
-								<details className="text-kumo-subtle text-xs">
-									<summary className="cursor-pointer text-kumo-default">
+								<Collapsible>
+									<CollapsibleTrigger>
 										Exact payload and evidence
-									</summary>
-									<CodeBlock
-										className="mt-2 max-h-64 overflow-auto"
-										code={JSON.stringify(
-											{
-												description: approval.description,
-												payload: approval.payload,
-												evidenceRefs: approval.review.evidenceRefs,
-												timeout: approval.review.timeout,
-											},
-											null,
-											2,
-										)}
-										lang="json"
-										showCopyButton
-									/>
-								</details>
+									</CollapsibleTrigger>
+									<CollapsibleContent>
+										<CodeBlock
+											className="mt-2 max-h-64 overflow-auto"
+											code={JSON.stringify(
+												{
+													description: approval.description,
+													payload: approval.payload,
+													evidenceRefs: approval.review.evidenceRefs,
+													timeout: approval.review.timeout,
+												},
+												null,
+												2,
+											)}
+											lang="json"
+											showCopyButton
+										/>
+									</CollapsibleContent>
+								</Collapsible>
 								{approval.actionType === "browser.live_view_takeover" ? (
 									<BrowserTakeoverLiveView approvalId={approval.id} />
 								) : null}
@@ -1124,9 +1088,9 @@ export function WorkApprovalsPage() {
 					</SectionHeading>
 				</SectionHeader>
 				{pendingApprovals.isPending ? (
-					<Loading />
+					<WorkListSkeleton />
 				) : pendingApprovals.isError ? (
-					<Failure
+					<WorkReadFailure
 						title="Approvals unavailable"
 						error={pendingApprovals.error}
 					/>
@@ -1134,7 +1098,7 @@ export function WorkApprovalsPage() {
 				  approvalRows.length === 0 &&
 				  !query.isPending &&
 				  !query.isError ? (
-					<None
+					<WorkEmpty
 						title="No approval proposals"
 						description="There are no Work-scoped proposals in this bounded inbox."
 					/>
@@ -1181,7 +1145,12 @@ export function WorkApprovalsPage() {
 													</Badge>
 													<Text as="span" role="body" tone="secondary">
 														Version {proposal.version} · expires{" "}
-														{new Date(proposal.expiresAt).toLocaleString()}
+														<time
+															dateTime={proposal.expiresAt}
+															title={absoluteTime(proposal.expiresAt)}
+														>
+															{absoluteTime(proposal.expiresAt)}
+														</time>
 													</Text>
 												</div>
 												<Text as="p" role="body" className="m-0">
@@ -1249,9 +1218,9 @@ export function WorkApprovalsPage() {
 							</CollapsibleTrigger>
 							<CollapsibleContent>
 								{query.isPending ? (
-									<Loading />
+									<WorkListSkeleton />
 								) : query.isError ? (
-									<Failure
+									<WorkReadFailure
 										title="Approval history unavailable"
 										error={query.error}
 									/>
@@ -1807,7 +1776,7 @@ export function WorkInteractionsPage() {
 					};
 	return (
 		<Page width="xl">
-			<Header
+			<WorkPageHeader
 				title="Requests"
 				description="Assigned to me shows your requests. Organization requests shows who has been asked to respond."
 				action={
@@ -1944,11 +1913,11 @@ export function WorkInteractionsPage() {
 					</SectionHeading>
 				</SectionHeader>
 				{query.isPending ? (
-					<Loading />
+					<WorkListSkeleton />
 				) : query.isError ? (
-					<Failure title="Messages unavailable" error={query.error} />
+					<WorkReadFailure title="Messages unavailable" error={query.error} />
 				) : visibleRows.length === 0 ? (
-					<None
+					<WorkEmpty
 						title={
 							listView === "inbox"
 								? "Nothing assigned to you"
@@ -2040,30 +2009,6 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 	);
 }
 
-function MetricCard({
-	title,
-	value,
-	description,
-}: {
-	title: string;
-	value: number | string;
-	description?: string;
-}) {
-	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>{title}</CardTitle>
-				{description ? <CardDescription>{description}</CardDescription> : null}
-			</CardHeader>
-			<CardContent>
-				<Text as="p" role="metric" className="m-0">
-					{value}
-				</Text>
-			</CardContent>
-		</Card>
-	);
-}
-
 export function SchedulerTruncationWarnings({
 	factsTruncated,
 	truncatedFacts,
@@ -2136,7 +2081,7 @@ export function WorkClustersPage() {
 	});
 	return (
 		<Page width="full">
-			<Header
+			<WorkPageHeader
 				title="Execution clusters"
 				description="Plan bounded, resource-compatible execution waves for one active tedi. The projection is advisory; every start re-evaluates admission."
 			/>
@@ -2166,9 +2111,9 @@ export function WorkClustersPage() {
 					</form>
 				</CardContent>
 			</Card>
-			{clusters.isPending && executorId ? <Loading /> : null}
+			{clusters.isPending && executorId ? <WorkListSkeleton /> : null}
 			{clusters.isError ? (
-				<Failure
+				<WorkReadFailure
 					title="Execution cluster plan unavailable"
 					error={clusters.error}
 				/>
@@ -2314,7 +2259,7 @@ export function WorkAdmissionPage() {
 	});
 	return (
 		<Page width="full">
-			<Header
+			<WorkPageHeader
 				title="Admission"
 				description="See which tasks are ready to start and what each needs. Readiness is checked again when work starts."
 			/>
@@ -2402,8 +2347,14 @@ export function WorkAdmissionPage() {
 					<CardHeader>
 						<CardTitle>Current readiness</CardTitle>
 						<CardDescription>
-							Derived {new Date(readiness.data.derivedAt).toLocaleString()} from
-							every admission gate; this state is read-only.
+							Derived{" "}
+							<time
+								dateTime={readiness.data.derivedAt}
+								title={absoluteTime(readiness.data.derivedAt)}
+							>
+								{absoluteTime(readiness.data.derivedAt)}
+							</time>{" "}
+							from every admission gate; this state is read-only.
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="grid gap-3">
@@ -2542,8 +2493,11 @@ export function ResourceHolders({
 					</span>
 					{" · "}
 					{holder.quantity} reserved · lease until{" "}
-					<time dateTime={holder.expiresAt}>
-						{new Date(holder.expiresAt).toLocaleString()}
+					<time
+						dateTime={holder.expiresAt}
+						title={absoluteTime(holder.expiresAt)}
+					>
+						{absoluteTime(holder.expiresAt)}
 					</time>
 					{holder.externalSessionKey ? (
 						<Text as="span" role="label" tone="secondary">
@@ -2672,7 +2626,7 @@ export function WorkCapacityPage({
 	});
 	return (
 		<Page width="full">
-			<Header
+			<WorkPageHeader
 				title={view === "budgets" ? "Budgets" : "Resources"}
 				description={
 					view === "budgets"
@@ -2826,9 +2780,9 @@ export function WorkCapacityPage({
 				</CollapsibleContent>
 			</Collapsible>
 			{pools.isPending || budgets.isPending ? (
-				<Loading />
+				<WorkListSkeleton />
 			) : pools.isError || budgets.isError ? (
-				<Failure
+				<WorkReadFailure
 					title="Capacity unavailable"
 					error={pools.error ?? budgets.error}
 				/>
@@ -2949,10 +2903,9 @@ export function WorkCapacityPage({
 												(row) => !exhaustedOnly || row.availableMicros <= 0,
 											)
 											.map(({ envelope, committedMicros, availableMicros }) => (
-												<Surface
-													className="flex items-center justify-between gap-3 rounded-none border-0 p-3"
+												<li
+													className="flex items-center justify-between gap-3 px-4 py-3"
 													key={envelope.id}
-													render={<li />}
 												>
 													<div className="min-w-0 break-words">
 														<strong>
@@ -3008,7 +2961,7 @@ export function WorkCapacityPage({
 													>
 														Edit
 													</Button>
-												</Surface>
+												</li>
 											))}
 									</Collection>
 								) : exhaustedOnly ? (

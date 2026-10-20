@@ -1,3 +1,10 @@
+import {
+	WorkPageHeader,
+	WorkListSkeleton,
+	WorkReadFailure,
+	WorkEmpty,
+} from "@/components/work-surface-primitives";
+import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { WorkActorAvatar } from "@/components/work-actor-avatar";
 import { workActorReference } from "@/lib/work-actor";
 import { WorkExecutorChoice } from "@/components/work-dispatch-app";
@@ -42,24 +49,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "@/components/kumo/empty";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import {
 	Page,
 	PageBack,
 	Collection,
-	PageDescription,
 	PageGrid,
-	PageHeader,
-	PageHeading,
 	SectionCollection,
-	PageTitle,
 } from "@/components/kumo/page";
 import { Surface } from "@/components/kumo/surface";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -100,7 +97,7 @@ import {
 	workReadinessProjectionQueryOptions,
 } from "@/lib/os-query-options";
 import { osApi } from "@/lib/api";
-import { absoluteTime } from "@/lib/time";
+import { absoluteDate, absoluteTime } from "@/lib/time";
 import { errorMessage } from "@/lib/orpc-error";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { workPrincipalLabel } from "@/lib/work-display";
@@ -111,24 +108,8 @@ import {
 } from "./work-operations-pages";
 
 const WORK_LIST_LIMIT = 100;
-
-function FactoryPageHeader({
-	title,
-	description,
-}: {
-	title: string;
-	description: string;
-}) {
-	useDocumentTitle(`${title} · Work`);
-	return (
-		<PageHeader>
-			<PageHeading>
-				<PageTitle>{title}</PageTitle>
-				<PageDescription>{description}</PageDescription>
-			</PageHeading>
-		</PageHeader>
-	);
-}
+const PROJECTION_FAILURE_FALLBACK =
+	"The canonical projection failed. Retry once; if the failure persists, inspect the API Work projection health.";
 
 export function WorkItemInspectorPage({ children }: { children: ReactNode }) {
 	return (
@@ -212,7 +193,8 @@ export function WorkItemReadOnlyLedgers({
 				>
 					{attemptsError ? (
 						<li>
-							<QueryFailure
+							<WorkReadFailure
+								fallback={PROJECTION_FAILURE_FALLBACK}
 								title="Work sessions unavailable"
 								error={attemptsError}
 							/>
@@ -261,7 +243,8 @@ export function WorkItemReadOnlyLedgers({
 				>
 					{evidenceError ? (
 						<li>
-							<QueryFailure
+							<WorkReadFailure
+								fallback={PROJECTION_FAILURE_FALLBACK}
 								title="Evidence unavailable"
 								error={evidenceError}
 							/>
@@ -325,8 +308,11 @@ export function WorkItemReadOnlyLedgers({
 										{workEventActorLabel(event.actorId, event.actorType)}
 									</span>{" "}
 									·{" "}
-									<time dateTime={event.occurredAt}>
-										{new Date(event.occurredAt).toLocaleString()}
+									<time
+										dateTime={event.occurredAt}
+										title={absoluteTime(event.occurredAt)}
+									>
+										{absoluteTime(event.occurredAt)}
 									</time>
 								</Text>
 							</li>
@@ -458,47 +444,6 @@ export function EvidencePreviewResult({
 			</AlertDescription>
 		</Alert>
 	) : null;
-}
-
-function QueryFailure({ title, error }: { title: string; error?: unknown }) {
-	return (
-		<Alert variant="destructive">
-			<AlertTitle>{title}</AlertTitle>
-			<AlertDescription>
-				{errorMessage(
-					error,
-					"The canonical projection failed. Retry once; if the failure persists, inspect the API Work projection health.",
-				)}
-			</AlertDescription>
-		</Alert>
-	);
-}
-
-function LoadingTable() {
-	return (
-		<div className="grid gap-2" aria-label="Loading">
-			<Skeleton className="h-10 w-full" />
-			<Skeleton className="h-10 w-full" />
-			<Skeleton className="h-10 w-full" />
-		</div>
-	);
-}
-
-function EmptyState({
-	title,
-	description,
-}: {
-	title: string;
-	description: string;
-}) {
-	return (
-		<Empty appearance="quiet">
-			<EmptyHeader>
-				<EmptyTitle>{title}</EmptyTitle>
-				<EmptyDescription>{description}</EmptyDescription>
-			</EmptyHeader>
-		</Empty>
-	);
 }
 
 function dispositionVariant(disposition: WorkItem["disposition"]) {
@@ -716,7 +661,7 @@ function WorkItemMobileList({
 									<dt className="sr-only">Updated</dt>
 									<dd className="m-0 whitespace-nowrap">
 										<time dateTime={updatedAt} title={absoluteTime(updatedAt)}>
-											{new Date(updatedAt).toLocaleDateString()}
+											{absoluteDate(updatedAt)}
 										</time>
 									</dd>
 								</div>
@@ -881,9 +826,7 @@ export function WorkItemsTable({
 										dateTime={item.updatedAt ?? item.createdAt}
 										title={absoluteTime(item.updatedAt ?? item.createdAt)}
 									>
-										{new Date(
-											item.updatedAt ?? item.createdAt,
-										).toLocaleDateString()}
+										{absoluteDate(item.updatedAt ?? item.createdAt)}
 									</time>
 								</TableCell>
 							</TableRow>
@@ -903,14 +846,18 @@ export function WorkCompletedPage() {
 	const principalNames = useWorkPrincipalNames(query.data?.data[0]?.orgId);
 	return (
 		<Page width="full">
-			<FactoryPageHeader
+			<WorkPageHeader
 				title="Completed work"
 				description="Work recorded as completed. Open a record to inspect its outcome; completion does not by itself prove deployment."
 			/>
 			{query.isPending ? (
-				<LoadingTable />
+				<WorkListSkeleton />
 			) : query.isError ? (
-				<QueryFailure title="Completed work unavailable" error={query.error} />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Completed work unavailable"
+					error={query.error}
+				/>
 			) : query.data.data.length ? (
 				<WorkItemsTable
 					items={query.data.data}
@@ -918,7 +865,7 @@ export function WorkCompletedPage() {
 					showReadiness={false}
 				/>
 			) : (
-				<EmptyState
+				<WorkEmpty
 					title="No completed work on this page"
 					description="Completed Work records will appear here."
 				/>
@@ -951,16 +898,20 @@ export function WorkQueuePage() {
 	);
 	return (
 		<Page width="full">
-			<FactoryPageHeader
+			<WorkPageHeader
 				title="Queue"
 				description="Accepted work and whether it is ready to start."
 			/>
 			{queueQuery.isPending ? (
-				<LoadingTable />
+				<WorkListSkeleton />
 			) : queueQuery.isError ? (
-				<QueryFailure title="Work queue unavailable" error={queueQuery.error} />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Work queue unavailable"
+					error={queueQuery.error}
+				/>
 			) : items.length === 0 ? (
-				<EmptyState
+				<WorkEmpty
 					title="No accepted work"
 					description="Create a proposed Work Item, define its acceptance contract, and accept it before admission gates are evaluated."
 				/>
@@ -1044,33 +995,19 @@ export function ProjectSummary({
 	targetDate: string | null;
 }) {
 	return (
-		<dl
-			aria-label="Project summary"
-			className="grid border-kumo-line border-y md:grid-cols-3 md:divide-x md:divide-kumo-line"
-		>
-			<div className="grid gap-1 py-3 md:px-4 md:first:pl-0">
-				<Text as="dt" role="label" tone="secondary">
-					Lifecycle
-				</Text>
-				<dd className="m-0 font-medium">{sentenceCase(status)}</dd>
-			</div>
-			<div className="grid gap-1 border-kumo-line border-t py-3 md:border-t-0 md:px-4">
-				<Text as="dt" role="label" tone="secondary">
-					Outcome progress
-				</Text>
-				<dd className="m-0 font-medium tabular-nums">
-					{percentDone !== undefined && aggregateDisposition
+		<MetricGrid columns={3} appearance="inline" aria-label="Project summary">
+			<MetricItem label="Lifecycle" value={sentenceCase(status)} />
+			<MetricItem
+				label="Outcome progress"
+				value={
+					percentDone !== undefined && aggregateDisposition
 						? `${formatRatioPercent(percentDone)} · ${sentenceCase(aggregateDisposition)}`
-						: "Unavailable"}
-				</dd>
-			</div>
-			<div className="grid gap-1 border-kumo-line border-t py-3 md:border-t-0 md:px-4 md:last:pr-0">
-				<Text as="dt" role="label" tone="secondary">
-					Horizon
-				</Text>
-				<dd className="m-0 font-medium">{targetDate ?? "Not recorded"}</dd>
-			</div>
-		</dl>
+						: "Unavailable"
+				}
+				valueClassName="tabular-nums"
+			/>
+			<MetricItem label="Horizon" value={targetDate ?? "Not recorded"} />
+		</MetricGrid>
 	);
 }
 
@@ -1300,19 +1237,23 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 	)
 		return (
 			<Page width="full">
-				<LoadingTable />
+				<WorkListSkeleton />
 			</Page>
 		);
 	if (project.isError || !project.data)
 		return (
 			<Page width="full">
-				<QueryFailure title="Project unavailable" />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Project unavailable"
+				/>
 			</Page>
 		);
 	if (milestones.isError || health.isError)
 		return (
 			<Page width="full">
-				<QueryFailure
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
 					title={
 						(milestones.error ?? health.error)?.message ??
 						"Project planning controls unavailable"
@@ -1322,7 +1263,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 		);
 	return (
 		<Page width="full">
-			<FactoryPageHeader
+			<WorkPageHeader
 				title={project.data.name}
 				description={`${project.data.key} · accountable portfolio container`}
 			/>
@@ -1485,7 +1426,8 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 						updateMilestone.error ||
 						attachMilestone.error ||
 						addMilestoneDependency.error ? (
-							<QueryFailure
+							<WorkReadFailure
+								fallback={PROJECTION_FAILURE_FALLBACK}
 								title={
 									(
 										createMilestone.error ??
@@ -1546,7 +1488,10 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 							</Button>
 						</form>
 						{recordHealth.error ? (
-							<QueryFailure title={(recordHealth.error as Error).message} />
+							<WorkReadFailure
+								fallback={PROJECTION_FAILURE_FALLBACK}
+								title={(recordHealth.error as Error).message}
+							/>
 						) : null}
 						<ul className="m-0 grid gap-2 pl-5">
 							{health.data?.map((judgment) => (
@@ -1570,14 +1515,17 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				</Card>
 			</div>
 			{items.isError ? (
-				<QueryFailure title="Project work unavailable" />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Project work unavailable"
+				/>
 			) : items.data?.data.length ? (
 				<WorkItemsTable
 					items={items.data.data}
 					principalNames={principalNames}
 				/>
 			) : (
-				<EmptyState
+				<WorkEmpty
 					title="No work in this project"
 					description="Projects are not executable; admit bounded Work Items when outcomes are ready."
 				/>
@@ -1593,16 +1541,19 @@ export function WorkGraphPage() {
 	const titles = new Map(items.map((item) => [item.id, item.title]));
 	return (
 		<Page width="full">
-			<FactoryPageHeader
+			<WorkPageHeader
 				title="Work graph"
 				description="A durable dependency graph. Portfolio hierarchy is not executor ownership, and external project managers remain projections."
 			/>
 			{itemsQuery.isError || relationsQuery.isError ? (
-				<QueryFailure title="Work graph unavailable" />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Work graph unavailable"
+				/>
 			) : itemsQuery.isPending || relationsQuery.isPending ? (
-				<LoadingTable />
+				<WorkListSkeleton />
 			) : relationsQuery.data.relations.length === 0 ? (
-				<EmptyState
+				<WorkEmpty
 					title="No dependency edges"
 					description="Independent work remains visible in the queue; add blocks, duplicates, or references only when the relationship is real."
 				/>
@@ -1828,7 +1779,9 @@ export function WorkAttemptActivity({
 				{timestamp ? (
 					<>
 						{attempt.finishedAt ? "Finished" : "Last update"}{" "}
-						<time dateTime={timestamp}>{absoluteTime(timestamp)}</time>
+						<time dateTime={timestamp} title={absoluteTime(timestamp)}>
+							{absoluteTime(timestamp)}
+						</time>
 					</>
 				) : (
 					"Activity time not recorded"
@@ -1908,7 +1861,11 @@ export function WorkRecordedOutcome({
 		>
 			<li className="grid gap-2">
 				{error ? (
-					<QueryFailure title="Recorded outcome unavailable" error={error} />
+					<WorkReadFailure
+						fallback={PROJECTION_FAILURE_FALLBACK}
+						title="Recorded outcome unavailable"
+						error={error}
+					/>
 				) : pending ? (
 					<Skeleton className="h-16 w-full" />
 				) : attempt ? (
@@ -2066,7 +2023,7 @@ export function WorkAttemptsPage({
 			: "Recorded work in progress, including waiting work and overdue updates. This does not show every local chat.";
 	return (
 		<Page width="full">
-			<FactoryPageHeader title="Activity" description={description} />
+			<WorkPageHeader title="Activity" description={description} />
 			<Text as="p" role="body">
 				<Link
 					href="/work/attempts?view=active"
@@ -2083,11 +2040,14 @@ export function WorkAttemptsPage({
 				</Link>
 			</Text>
 			{query.isError ? (
-				<QueryFailure title="Activity unavailable" />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Activity unavailable"
+				/>
 			) : query.isPending ? (
-				<LoadingTable />
+				<WorkListSkeleton />
 			) : query.data.data.length === 0 ? (
-				<EmptyState
+				<WorkEmpty
 					title={
 						view === "active"
 							? "No work in progress recorded"
@@ -2116,16 +2076,19 @@ export function WorkRecoveryPage() {
 	const query = useQuery(workRecoveryProjectionQueryOptions(paging.cursor));
 	return (
 		<Page width="full">
-			<FactoryPageHeader
+			<WorkPageHeader
 				title="Recovery"
 				description="Blocked admission, stale authority, rejected proof, and exhausted execution are diagnosed before retry. Repeating an unchanged plan is not progress."
 			/>
 			{query.isError ? (
-				<QueryFailure title="Recovery queue unavailable" />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Recovery queue unavailable"
+				/>
 			) : query.isPending ? (
-				<LoadingTable />
+				<WorkListSkeleton />
 			) : query.data.data.length === 0 ? (
-				<EmptyState
+				<WorkEmpty
 					title="No accepted work needs recovery"
 					description="No factual recovery signals were observed for accepted work."
 				/>
@@ -2292,7 +2255,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 	if (detail.isPending)
 		return (
 			<WorkItemInspectorPage>
-				<LoadingTable />
+				<WorkListSkeleton />
 			</WorkItemInspectorPage>
 		);
 	// Unreachable given the verdict above; kept so `item` narrows and so a future
@@ -2300,12 +2263,15 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 	if (!item)
 		return (
 			<WorkItemInspectorPage>
-				<QueryFailure title="Work item unavailable" />
+				<WorkReadFailure
+					fallback={PROJECTION_FAILURE_FALLBACK}
+					title="Work item unavailable"
+				/>
 			</WorkItemInspectorPage>
 		);
 	return (
 		<WorkItemInspectorPage>
-			<FactoryPageHeader
+			<WorkPageHeader
 				title={plainWorkText(item.title)}
 				description={OS_COPY.work.kinds[item.workKind]}
 			/>
@@ -2446,7 +2412,10 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 											`${comment.authorType}:${comment.authorId}`,
 										) ?? "Team member"}{" "}
 										·{" "}
-										<time dateTime={comment.createdAt}>
+										<time
+											dateTime={comment.createdAt}
+											title={absoluteTime(comment.createdAt)}
+										>
 											{workDate(comment.createdAt, true)}
 										</time>
 									</Text>

@@ -456,6 +456,8 @@ describe("Work project summary", () => {
 		);
 
 		expect(html).toContain('aria-label="Project summary"');
+		expect(html).toContain('data-slot="metric-grid"');
+		expect(html.match(/data-slot="metric-item"/g)).toHaveLength(3);
 		expect(html).toContain("<dl");
 		expect(html).toContain("86%");
 		expect(html).toContain("Not recorded");
