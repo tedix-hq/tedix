@@ -107,8 +107,10 @@ export async function readCardHistory(
 	const paired =
 		change &&
 		(await cardChangeHasRevision(context.db, orgId, requestId, change.id));
+	const { readCardStyleRules } = await import("./card-style-rules");
 	return {
 		revisions,
+		styleRules: await readCardStyleRules(context, access),
 		nextBeforeRevision:
 			revisions[0] && revisions[0].revision > 1 ? revisions[0].revision : null,
 		pending:

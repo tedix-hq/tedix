@@ -231,6 +231,25 @@ export function CardRevisionPanel({
 		},
 		onError: () => setOptimistic(false),
 	});
+	const rules = history.data?.pages[0]?.styleRules ?? [];
+	const [justThisRevision, setJustThisRevision] = useState<number>();
+	const remember = useMutation({
+		mutationFn: () =>
+			osApi.workInteractions.rememberCardStyle({
+				requestId: target.requestId,
+				expectedRevision: current!.revision,
+				contentKind,
+			}),
+		onSuccess: refresh,
+	});
+	const reviewRule = useMutation({
+		mutationFn: (input: { ruleId: string; decision: "keep" | "not_true" }) =>
+			osApi.workInteractions.reviewCardStyleRule({
+				requestId: target.requestId,
+				...input,
+			}),
+		onSuccess: refresh,
+	});
 	const restore = useMutation({
 		mutationFn: (revision: number) =>
 			osApi.workInteractions.reviseCard({
@@ -538,6 +557,78 @@ export function CardRevisionPanel({
 					) : null}
 				</details>
 			)}
+			{current &&
+				current.revision > 1 &&
+				previous &&
+				current.body !== previous.body &&
+				!revising &&
+				justThisRevision !== current.revision &&
+				!rules.some(
+					(rule) =>
+						rule.sourceRequestId === target.requestId &&
+						rule.sourceRevision === current.revision,
+				) && (
+					<div className="grid gap-2 type-tedix-caption">
+						<p>Always do it this way?</p>
+						<div className="flex flex-wrap gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={disabled || remember.isPending}
+								onClick={() => remember.mutate()}
+							>
+								{contentKind === "email"
+									? "Yes, for all emails"
+									: contentKind === "plan"
+										? "Yes, for all plans"
+										: "Yes, for written cards"}
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => setJustThisRevision(current.revision)}
+							>
+								Just this one
+							</Button>
+						</div>
+					</div>
+				)}
+			{rules.length > 0 && (
+				<DecisionContextSection title="Your writing rules" sectionId="why">
+					<ul className="grid gap-3">
+						{rules.map((rule) => (
+							<li key={rule.id} className="grid gap-2">
+								<p>{rule.text}</p>
+								<div className="flex gap-2">
+									<Button
+										variant="ghost"
+										size="sm"
+										disabled={disabled || reviewRule.isPending}
+										onClick={() =>
+											reviewRule.mutate({
+												ruleId: rule.id,
+												decision: "not_true",
+											})
+										}
+									>
+										Not true
+									</Button>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={disabled || reviewRule.isPending}
+										onClick={() =>
+											reviewRule.mutate({ ruleId: rule.id, decision: "keep" })
+										}
+									>
+										Keep
+									</Button>
+								</div>
+							</li>
+						))}
+					</ul>
+				</DecisionContextSection>
+			)}
 			{revisions.length > 0 && (
 				<DecisionContextSection
 					title="Versions"
@@ -687,11 +778,22 @@ export function CardRevisionPanel({
 					)}
 				</DecisionContextSection>
 			)}
-			{(changes.error || restore.error || keep.error || history.error) && (
+			{(changes.error ||
+				restore.error ||
+				keep.error ||
+				remember.error ||
+				reviewRule.error ||
+				history.error) && (
 				<p role="alert">
 					{
-						(changes.error || restore.error || keep.error || history.error)
-							?.message
+						(
+							changes.error ||
+							restore.error ||
+							keep.error ||
+							remember.error ||
+							reviewRule.error ||
+							history.error
+						)?.message
 					}
 				</p>
 			)}
