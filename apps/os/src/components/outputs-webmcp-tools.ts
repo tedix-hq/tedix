@@ -181,7 +181,14 @@ export function documentBlocksToMarkdown(
 					return [block.headers, ...block.rows]
 						.map(
 							(row, i) =>
-								`| ${row.map((cell) => cell.replace(/\|/g, "\\|").replace(/\n/g, "<br>")).join(" | ")} |` +
+								`| ${row
+									.map((cell) =>
+										cell
+											.replace(/\\/g, "\\\\")
+											.replace(/\|/g, "\\|")
+											.replace(/\r\n|[\r\n]/g, "<br>"),
+									)
+									.join(" | ")} |` +
 								(i === 0
 									? `\n| ${block.headers.map(() => "---").join(" | ")} |`
 									: ""),
