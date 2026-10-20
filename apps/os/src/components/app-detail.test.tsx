@@ -188,7 +188,7 @@ describe("app lifecycle", () => {
 			"Installation",
 			"Account",
 			"Unified gateway",
-			"Governance",
+			"Readiness",
 			"MCP health",
 			"Available tools",
 			"Test connection",
