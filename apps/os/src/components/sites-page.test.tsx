@@ -656,7 +656,7 @@ describe("SitesPage owned-site actions", () => {
 	it("hides creation from a viewer who can only read owned sites", () => {
 		authorityPermissions.current = [];
 		const host = renderPage();
-		expect(host.querySelector("#new-cms-name")).toBeNull();
+		expect(host.querySelector('input[name="name"]')).toBeNull();
 		expect(
 			host.querySelector('button[aria-controls="create-cms-site"]'),
 		).toBeNull();
@@ -666,14 +666,14 @@ describe("SitesPage owned-site actions", () => {
 	it("offers a starter selection and submits a new site for authoring", async () => {
 		const host = renderPage();
 		expect(host.textContent).toContain("1 / 5 CMS sites");
-		expect(host.querySelector("#new-cms-name")).toBeNull();
+		expect(host.querySelector('input[name="name"]')).toBeNull();
 		const create = host.querySelector<HTMLButtonElement>(
 			'button[aria-controls="create-cms-site"]',
 		);
 		if (!create) throw new Error("Create site action missing");
 		act(() => create.click());
-		const name = host.querySelector<HTMLInputElement>("#new-cms-name");
-		const slug = host.querySelector<HTMLInputElement>("#new-cms-slug");
+		const name = host.querySelector<HTMLInputElement>('input[name="name"]');
+		const slug = host.querySelector<HTMLInputElement>('input[name="slug"]');
 		const form = name?.closest("form");
 		if (!name || !slug || !form) throw new Error("CMS creation form missing");
 		act(() => {

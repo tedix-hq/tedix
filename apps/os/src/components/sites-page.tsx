@@ -1,9 +1,11 @@
+import { useStore } from "@tanstack/react-form";
 import type { CmsTemplateSlug } from "@tedix/api-contract/schemas/cms-template";
 import { DotsThree, FileText, Globe, Plus, Trash } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getOsSurface } from "@/lib/os-navigation";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { useEffect, useRef, useState } from "react";
+import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { toast } from "@/components/kumo/toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -48,6 +50,7 @@ import {
 } from "@/components/kumo/table";
 import {
 	AlertDialog,
+	AlertDialogAction,
 	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -75,6 +78,7 @@ import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi, osSiteDeprovisionApi } from "@/lib/api";
+import { absoluteTime } from "@/lib/time";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
 	docsSiteWorkspaceQueryOptions,
@@ -166,6 +170,160 @@ function storeDeprovisionReceipt(receipt: DeprovisionReceipt | null) {
 	} catch {
 		// Browser storage is optional; the current page can still poll the receipt.
 	}
+}
+
+type DomainClaim = NonNullable<
+	Awaited<ReturnType<typeof osApi.sites.getCmsDomain>>
+>;
+
+function DnsRecordRow({
+	kind,
+	name,
+	value,
+}: {
+	kind: string;
+	name: string;
+	value: string;
+}) {
+	return (
+		<li className="grid gap-1 px-3 py-2.5 sm:grid-cols-[5rem_minmax(0,1fr)]">
+			<Text role="caption" tone="secondary">
+				{kind}
+			</Text>
+			<div className="min-w-0">
+				<Text as="p" role="body" className="m-0 break-all">
+					{name}
+				</Text>
+				<Text as="p" role="caption" tone="secondary" className="m-0 break-all">
+					{value}
+				</Text>
+			</div>
+		</li>
+	);
+}
+
+function DomainClaimPanel({
+	claim,
+	redirectTo,
+	canConnect,
+	verifying,
+	onVerify,
+	onRefresh,
+	onRemove,
+}: {
+	claim: DomainClaim;
+	redirectTo?: string;
+	canConnect: boolean;
+	verifying: boolean;
+	onVerify: (claimId: string) => void;
+	onRefresh: () => void;
+	onRemove: (target: { claimId: string; hostname: string }) => void;
+}) {
+	return (
+		<div className="space-y-3">
+			<div className="flex flex-wrap items-center gap-2">
+				<Text role="body" className="font-medium">
+					{claim.hostname}
+				</Text>
+				<Badge variant={claim.status === "active" ? "outline" : "warning"}>
+					{claim.status}
+				</Badge>
+			</div>
+			{redirectTo ? (
+				<Text as="p" role="body" tone="secondary">
+					{claim.status === "active"
+						? `HTTPS requests to ${claim.hostname} redirect to ${redirectTo} with a 301, preserving the path and query.`
+						: "Add the www DNS records and verify. The HTTPS 301 redirect starts after www and its TLS certificate are active."}
+				</Text>
+			) : claim.status === "pending" ? (
+				<Text as="p" role="body" tone="secondary">
+					Add the ownership TXT record and the hostname record at your DNS
+					provider, then verify the domain.
+				</Text>
+			) : null}
+			{!redirectTo && claim.status === "provisioning" ? (
+				<Text as="p" role="body" tone="secondary">
+					Provisioning is in progress. Refresh status, or retry after five
+					minutes if it does not finish.
+				</Text>
+			) : null}
+			<Collection>
+				<DnsRecordRow kind="TXT" name={claim.txtName} value={claim.txtValue} />
+				<DnsRecordRow
+					kind={!redirectTo && claim.isZoneApex ? "Apex alias" : "CNAME"}
+					name={claim.hostname}
+					value={claim.cnameTarget}
+				/>
+			</Collection>
+			{!redirectTo ? (
+				<Text as="p" role="caption" tone="secondary">
+					{claim.isZoneApex
+						? "At the root domain, use your provider's CNAME flattening or apex alias to point to this target. Once the apex and TLS certificate are active, set up www below."
+						: "Verification completes after Cloudflare confirms the hostname and TLS certificate are active."}
+				</Text>
+			) : null}
+			{claim.validationRecords.length ? (
+				<div className="space-y-2">
+					<Text as="p" role="body" className="font-medium">
+						{redirectTo
+							? "www TLS validation records"
+							: "TLS validation records"}
+					</Text>
+					<Collection>
+						{claim.validationRecords.map((record) => (
+							<DnsRecordRow
+								key={`${record.name}:${record.value}`}
+								kind={record.type}
+								name={record.name}
+								value={record.value}
+							/>
+						))}
+					</Collection>
+				</div>
+			) : null}
+			{redirectTo || claim.providerStatus || claim.sslStatus ? (
+				<Text as="p" role="caption" tone="secondary">
+					Provider: {claim.providerStatus ?? "unknown"} · SSL:{" "}
+					{claim.sslStatus ?? "unknown"}
+				</Text>
+			) : null}
+			<div className="flex flex-wrap gap-2">
+				{canConnect &&
+				(claim.status === "pending" || claim.status === "provisioning") ? (
+					<Button
+						size="sm"
+						disabled={verifying}
+						onClick={() => onVerify(claim.claimId)}
+					>
+						{verifying
+							? "Checking…"
+							: redirectTo
+								? "Verify www"
+								: claim.status === "provisioning"
+									? "Retry provisioning"
+									: "Verify domain"}
+					</Button>
+				) : null}
+				<Button size="sm" variant="outline" onClick={onRefresh}>
+					{redirectTo ? "Refresh www status" : "Refresh status"}
+				</Button>
+				{claim.status !== "removing" ? (
+					<Button
+						size="sm"
+						variant="destructive"
+						onClick={() =>
+							onRemove({
+								claimId: claim.claimId,
+								hostname: claim.hostname,
+							})
+						}
+					>
+						{redirectTo ? "Remove www redirect" : "Remove domain"}
+					</Button>
+				) : null}
+			</div>
+		</div>
+	);
 }
 
 function CmsDomainManager({
@@ -292,147 +450,14 @@ function CmsDomainManager({
 				) : null}
 				{claim ? (
 					<div className="space-y-3">
-						<div className="flex flex-wrap items-center gap-2">
-							<Text role="body" className="font-medium">
-								{claim.hostname}
-							</Text>
-							<Badge
-								variant={claim.status === "active" ? "outline" : "warning"}
-							>
-								{claim.status}
-							</Badge>
-						</div>
-						{claim.status === "pending" ? (
-							<Text as="p" role="body" tone="secondary">
-								Add the ownership TXT record and the hostname record at your DNS
-								provider, then verify the domain.
-							</Text>
-						) : null}
-						{claim.status === "provisioning" ? (
-							<Text as="p" role="body" tone="secondary">
-								Provisioning is in progress. Refresh status, or retry after five
-								minutes if it does not finish.
-							</Text>
-						) : null}
-						<Collection>
-							<li className="grid gap-1 px-3 py-2.5 sm:grid-cols-[5rem_minmax(0,1fr)]">
-								<Text role="caption" tone="secondary">
-									TXT
-								</Text>
-								<div className="min-w-0">
-									<Text as="p" role="body" className="m-0 break-all">
-										{claim.txtName}
-									</Text>
-									<Text
-										as="p"
-										role="caption"
-										tone="secondary"
-										className="m-0 break-all"
-									>
-										{claim.txtValue}
-									</Text>
-								</div>
-							</li>
-							<li className="grid gap-1 px-3 py-2.5 sm:grid-cols-[5rem_minmax(0,1fr)]">
-								<Text role="caption" tone="secondary">
-									{claim.isZoneApex ? "Apex alias" : "CNAME"}
-								</Text>
-								<div className="min-w-0">
-									<Text as="p" role="body" className="m-0 break-all">
-										{claim.hostname}
-									</Text>
-									<Text
-										as="p"
-										role="caption"
-										tone="secondary"
-										className="m-0 break-all"
-									>
-										{claim.cnameTarget}
-									</Text>
-								</div>
-							</li>
-						</Collection>
-						<Text as="p" role="caption" tone="secondary">
-							{claim.isZoneApex
-								? "At the root domain, use your provider's CNAME flattening or apex alias to point to this target. Once the apex and TLS certificate are active, set up www below."
-								: "Verification completes after Cloudflare confirms the hostname and TLS certificate are active."}
-						</Text>
-						{claim.validationRecords.length ? (
-							<div className="space-y-2">
-								<Text as="p" role="body" className="font-medium">
-									TLS validation records
-								</Text>
-								<Collection>
-									{claim.validationRecords.map((record) => (
-										<li
-											key={`${record.name}:${record.value}`}
-											className="grid gap-1 px-3 py-2.5 sm:grid-cols-[5rem_minmax(0,1fr)]"
-										>
-											<Text role="caption" tone="secondary">
-												{record.type}
-											</Text>
-											<div className="min-w-0">
-												<Text as="p" role="body" className="m-0 break-all">
-													{record.name}
-												</Text>
-												<Text
-													as="p"
-													role="caption"
-													tone="secondary"
-													className="m-0 break-all"
-												>
-													{record.value}
-												</Text>
-											</div>
-										</li>
-									))}
-								</Collection>
-							</div>
-						) : null}
-						{claim.providerStatus || claim.sslStatus ? (
-							<Text as="p" role="caption" tone="secondary">
-								Provider: {claim.providerStatus ?? "unknown"} · SSL:{" "}
-								{claim.sslStatus ?? "unknown"}
-							</Text>
-						) : null}
-						<div className="flex flex-wrap gap-2">
-							{canConnect &&
-							(claim.status === "pending" ||
-								claim.status === "provisioning") ? (
-								<Button
-									size="sm"
-									disabled={verify.isPending}
-									onClick={() => verify.mutate(claim.claimId)}
-								>
-									{verify.isPending
-										? "Checking…"
-										: claim.status === "provisioning"
-											? "Retry provisioning"
-											: "Verify domain"}
-								</Button>
-							) : null}
-							<Button
-								size="sm"
-								variant="outline"
-								onClick={() => void domain.refetch()}
-							>
-								Refresh status
-							</Button>
-							{claim.status !== "removing" ? (
-								<Button
-									size="sm"
-									variant="destructive"
-									onClick={() =>
-										setRemoveTarget({
-											claimId: claim.claimId,
-											hostname: claim.hostname,
-										})
-									}
-								>
-									Remove domain
-								</Button>
-							) : null}
-						</div>
+						<DomainClaimPanel
+							claim={claim}
+							canConnect={canConnect}
+							verifying={verify.isPending}
+							onVerify={(claimId) => verify.mutate(claimId)}
+							onRefresh={() => void domain.refetch()}
+							onRemove={setRemoveTarget}
+						/>
 						{showRedirect ? (
 							<div className="space-y-3 border-t pt-4">
 								<Text as="p" role="body" className="font-medium">
@@ -448,139 +473,15 @@ function CmsDomainManager({
 									</Alert>
 								) : null}
 								{redirectClaim ? (
-									<div className="space-y-3">
-										<div className="flex flex-wrap items-center gap-2">
-											<Text role="body" className="font-medium">
-												{redirectClaim.hostname}
-											</Text>
-											<Badge
-												variant={
-													redirectClaim.status === "active"
-														? "outline"
-														: "warning"
-												}
-											>
-												{redirectClaim.status}
-											</Badge>
-										</div>
-										<Text as="p" role="body" tone="secondary">
-											{redirectClaim.status === "active"
-												? `HTTPS requests to ${redirectClaim.hostname} redirect to ${claim.hostname} with a 301, preserving the path and query.`
-												: "Add the www DNS records and verify. The HTTPS 301 redirect starts after www and its TLS certificate are active."}
-										</Text>
-										<Collection>
-											<li className="grid gap-1 px-3 py-2.5 sm:grid-cols-[5rem_minmax(0,1fr)]">
-												<Text role="caption" tone="secondary">
-													TXT
-												</Text>
-												<div className="min-w-0">
-													<Text as="p" role="body" className="m-0 break-all">
-														{redirectClaim.txtName}
-													</Text>
-													<Text
-														as="p"
-														role="caption"
-														tone="secondary"
-														className="m-0 break-all"
-													>
-														{redirectClaim.txtValue}
-													</Text>
-												</div>
-											</li>
-											<li className="grid gap-1 px-3 py-2.5 sm:grid-cols-[5rem_minmax(0,1fr)]">
-												<Text role="caption" tone="secondary">
-													CNAME
-												</Text>
-												<div className="min-w-0">
-													<Text as="p" role="body" className="m-0 break-all">
-														{redirectClaim.hostname}
-													</Text>
-													<Text
-														as="p"
-														role="caption"
-														tone="secondary"
-														className="m-0 break-all"
-													>
-														{redirectClaim.cnameTarget}
-													</Text>
-												</div>
-											</li>
-										</Collection>
-										{redirectClaim.validationRecords.length ? (
-											<div className="space-y-2">
-												<Text as="p" role="body" className="font-medium">
-													www TLS validation records
-												</Text>
-												<Collection>
-													{redirectClaim.validationRecords.map((record) => (
-														<li
-															key={`${record.name}:${record.value}`}
-															className="grid gap-1 px-3 py-2.5 sm:grid-cols-[5rem_minmax(0,1fr)]"
-														>
-															<Text role="caption" tone="secondary">
-																{record.type}
-															</Text>
-															<div className="min-w-0">
-																<Text
-																	as="p"
-																	role="body"
-																	className="m-0 break-all"
-																>
-																	{record.name}
-																</Text>
-																<Text
-																	as="p"
-																	role="caption"
-																	tone="secondary"
-																	className="m-0 break-all"
-																>
-																	{record.value}
-																</Text>
-															</div>
-														</li>
-													))}
-												</Collection>
-											</div>
-										) : null}
-										<Text as="p" role="caption" tone="secondary">
-											Provider: {redirectClaim.providerStatus ?? "unknown"} ·
-											SSL: {redirectClaim.sslStatus ?? "unknown"}
-										</Text>
-										<div className="flex flex-wrap gap-2">
-											{canConnect &&
-											(redirectClaim.status === "pending" ||
-												redirectClaim.status === "provisioning") ? (
-												<Button
-													size="sm"
-													disabled={verify.isPending}
-													onClick={() => verify.mutate(redirectClaim.claimId)}
-												>
-													{verify.isPending ? "Checking…" : "Verify www"}
-												</Button>
-											) : null}
-											<Button
-												size="sm"
-												variant="outline"
-												onClick={() => void redirect.refetch()}
-											>
-												Refresh www status
-											</Button>
-											{redirectClaim.status !== "removing" ? (
-												<Button
-													size="sm"
-													variant="destructive"
-													onClick={() =>
-														setRemoveTarget({
-															claimId: redirectClaim.claimId,
-															hostname: redirectClaim.hostname,
-														})
-													}
-												>
-													Remove www redirect
-												</Button>
-											) : null}
-										</div>
-									</div>
+									<DomainClaimPanel
+										claim={redirectClaim}
+										redirectTo={claim.hostname}
+										canConnect={canConnect}
+										verifying={verify.isPending}
+										onVerify={(claimId) => verify.mutate(claimId)}
+										onRefresh={() => void redirect.refetch()}
+										onRemove={setRemoveTarget}
+									/>
 								) : redirect.isSuccess ? (
 									<div className="space-y-2">
 										<Text as="p" role="body" tone="secondary">
@@ -686,15 +587,17 @@ function CmsDomainManager({
 							<AlertDialogCancel disabled={remove.isPending}>
 								Cancel
 							</AlertDialogCancel>
-							<Button
+							<AlertDialogAction
 								variant="destructive"
 								disabled={!removeTarget || remove.isPending}
-								onClick={() => {
+								onClick={(event) => {
+									event.preventDefault();
+									event.preventBaseUIHandler();
 									if (removeTarget) remove.mutate(removeTarget.claimId);
 								}}
 							>
 								{remove.isPending ? "Removing…" : "Remove domain"}
-							</Button>
+							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>
@@ -720,8 +623,6 @@ export function SitesPage() {
 		cmsSiteQuota.used >= cmsSiteQuota.limit;
 	const reconciliation = useQuery(sitesReconciliationQueryOptions());
 	const queryClient = useQueryClient();
-	const [newSiteName, setNewSiteName] = useState("");
-	const [newSiteSlug, setNewSiteSlug] = useState("");
 	const [newSiteTemplate, setNewSiteTemplate] =
 		useState<CmsTemplateSlug>("native-marketing");
 	const [createOpen, setCreateOpen] = useState(false);
@@ -734,8 +635,7 @@ export function SitesPage() {
 			templateSlug: CmsTemplateSlug;
 		}) => osApi.sites.createCms(input),
 		onSuccess: (result) => {
-			setNewSiteName("");
-			setNewSiteSlug("");
+			createSiteForm.reset();
 			setCreateOpen(false);
 			void queryClient.invalidateQueries(sitesQueryOptions());
 			void queryClient.invalidateQueries(sitesReconciliationQueryOptions());
@@ -748,6 +648,28 @@ export function SitesPage() {
 				error instanceof Error ? error.message : "CMS site creation failed",
 			),
 	});
+	const createSiteForm = useZodForm({
+		schema: z.object({
+			name: z.string().trim().min(1, "Name is required.").max(100),
+			slug: z
+				.string()
+				.trim()
+				.min(1, "Slug is required.")
+				.max(63)
+				.regex(
+					/^[a-z0-9]+(-[a-z0-9]+)*$/,
+					"Use lowercase letters, numbers, and single hyphens.",
+				),
+		}),
+		defaultValues: { name: "", slug: "" },
+		onSubmit: ({ value }) => {
+			createCmsSite.mutate({ ...value, templateSlug: newSiteTemplate });
+		},
+	});
+	const createSiteValues = useStore(
+		createSiteForm.store,
+		(state) => state.values,
+	);
 	const [selectedSite, setSelectedSite] = useState<{
 		id: string;
 		slug: string;
@@ -1153,34 +1075,25 @@ export function SitesPage() {
 						className="grid gap-4 sm:grid-cols-3"
 						onSubmit={(event) => {
 							event.preventDefault();
-							createCmsSite.mutate({
-								name: newSiteName.trim(),
-								slug: newSiteSlug.trim(),
-								templateSlug: newSiteTemplate,
-							});
+							void createSiteForm.handleSubmit();
 						}}
 					>
-						<div className="grid gap-2">
-							<Label htmlFor="new-cms-name">Name</Label>
-							<Input
-								id="new-cms-name"
-								value={newSiteName}
-								maxLength={100}
-								required
-								onChange={(event) => setNewSiteName(event.target.value)}
-							/>
-						</div>
-						<div className="grid gap-2">
-							<Label htmlFor="new-cms-slug">Slug</Label>
-							<Input
-								id="new-cms-slug"
-								value={newSiteSlug}
-								maxLength={63}
-								pattern="[a-z0-9]+(-[a-z0-9]+)*"
-								required
-								onChange={(event) => setNewSiteSlug(event.target.value)}
-							/>
-						</div>
+						<FormField form={createSiteForm} name="name" label="Name">
+							{(field, meta) => (
+								<FormInput field={field} {...meta} maxLength={100} required />
+							)}
+						</FormField>
+						<FormField form={createSiteForm} name="slug" label="Slug">
+							{(field, meta) => (
+								<FormInput
+									field={field}
+									{...meta}
+									maxLength={63}
+									required
+									pattern="[a-z0-9]+(-[a-z0-9]+)*"
+								/>
+							)}
+						</FormField>
 						<div className="grid gap-2">
 							<Label htmlFor="new-cms-template">Starter template</Label>
 							<Select
@@ -1215,8 +1128,8 @@ export function SitesPage() {
 								disabled={
 									createCmsSite.isPending ||
 									cmsSiteLimitReached ||
-									!newSiteName.trim() ||
-									!newSiteSlug.trim()
+									!createSiteValues.name.trim() ||
+									!createSiteValues.slug.trim()
 								}
 							>
 								{createCmsSite.isPending ? "Creating…" : "Create CMS site"}
@@ -1318,11 +1231,11 @@ export function SitesPage() {
 					) : null}
 					{filteredSites?.length ? (
 						<>
-							<Surface tier="panel" className="hidden overflow-hidden sm:block">
+							<Surface tier="panel" className="overflow-hidden">
 								<Table scrollLabel="Owned sites">
 									<TableHeader>
 										<TableRow>
-											<TableHead>Site</TableHead>
+											<TableHead sticky="left">Site</TableHead>
 											<TableHead>Type</TableHead>
 											<TableHead>Status</TableHead>
 											<TableHead>Domain</TableHead>
@@ -1333,7 +1246,7 @@ export function SitesPage() {
 									<TableBody>
 										{filteredSites.map((site) => (
 											<TableRow key={site.id}>
-												<TableCell className="min-w-56">
+												<TableCell sticky="left" className="min-w-56">
 													<div className="flex min-w-0 items-center gap-3">
 														<IconFrame aria-hidden>
 															{site.type === "docs" ? (
@@ -1394,56 +1307,6 @@ export function SitesPage() {
 									</TableBody>
 								</Table>
 							</Surface>
-							<Collection className="sm:hidden">
-								{filteredSites.map((site) => (
-									<li key={site.id} className="space-y-3 px-3 py-3">
-										<div className="flex min-w-0 items-start gap-3">
-											<IconFrame aria-hidden>
-												{site.type === "docs" ? (
-													<FileText size={18} />
-												) : (
-													<Globe size={18} />
-												)}
-											</IconFrame>
-											<div className="min-w-0 flex-1">
-												<Text role="body" className="m-0 font-medium">
-													{site.name}
-												</Text>
-												<Text
-													as="p"
-													role="caption"
-													tone="secondary"
-													className="m-0 truncate"
-												>
-													{site.url}
-												</Text>
-											</div>
-											<Badge
-												variant={
-													site.status === "active"
-														? "success"
-														: site.status === "provisioning"
-															? "warning"
-															: "secondary"
-												}
-											>
-												{site.status}
-											</Badge>
-										</div>
-										<div className="flex items-center justify-between gap-2">
-											<Text
-												role="caption"
-												tone="secondary"
-												className="truncate"
-											>
-												{site.type === "docs" ? "Docs" : "CMS"} ·{" "}
-												{siteMetadata(site) || "Not published"}
-											</Text>
-											{siteActions(site)}
-										</div>
-									</li>
-								))}
-							</Collection>
 						</>
 					) : null}
 				</PageSection>
@@ -1595,7 +1458,9 @@ export function SitesPage() {
 														className="m-0"
 													>
 														{build.status} ·{" "}
-														{new Date(build.createdAt).toLocaleString()}
+														<time dateTime={build.createdAt}>
+															{absoluteTime(build.createdAt)}
+														</time>
 													</Text>
 												</div>
 												<div className="flex items-center gap-2">
@@ -1770,8 +1635,10 @@ export function SitesPage() {
 					{reconciliation.data ? (
 						<Text as="p" role="caption" tone="secondary">
 							Last checked{" "}
-							{new Date(reconciliation.data.checkedAt).toLocaleString()} by{" "}
-							{reconciliation.data.source} run.
+							<time dateTime={reconciliation.data.checkedAt}>
+								{absoluteTime(reconciliation.data.checkedAt)}
+							</time>{" "}
+							by {reconciliation.data.source} run.
 						</Text>
 					) : (
 						<Text as="p" role="body" tone="secondary">

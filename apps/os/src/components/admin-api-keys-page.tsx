@@ -107,7 +107,8 @@ import {
 	SelectValue,
 } from "@/components/kumo/select";
 import { Separator } from "@/components/kumo/separator";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { ListSkeleton } from "@/components/list-skeleton";
+import { errorMessage } from "@/lib/orpc-error";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import {
@@ -307,6 +308,73 @@ function ApiKeyActionsMenu({
 	);
 }
 
+function ApiKeyNameCell({
+	apiKey,
+	compact = false,
+}: {
+	apiKey: ApiKey;
+	compact?: boolean;
+}) {
+	return (
+		<div className="flex min-w-0 items-center gap-2">
+			<Key className="size-3.5 shrink-0 text-kumo-subtle" />
+			<Text
+				as={compact ? "strong" : "span"}
+				weight="medium"
+				truncate={compact}
+				title={compact ? apiKey.name : undefined}
+			>
+				{apiKey.name}
+			</Text>
+		</div>
+	);
+}
+function ApiKeyPreviewCell({ apiKey }: { apiKey: ApiKey }) {
+	return (
+		<Text as="span" role="label" tone="mono-secondary">
+			{apiKey.keyPreview}
+		</Text>
+	);
+}
+function ApiKeyEnvironmentCell({ apiKey }: { apiKey: ApiKey }) {
+	return (
+		<Badge variant={apiKey.environment === "live" ? "default" : "secondary"}>
+			{apiKey.environment ?? "test"}
+		</Badge>
+	);
+}
+function ApiKeyStatusCell({ apiKey }: { apiKey: ApiKey }) {
+	const status = apiKey.status ?? "active";
+	return (
+		<Badge variant={apiKeyStatusVariant(apiKey.status)}>
+			{status.charAt(0).toUpperCase() + status.slice(1)}
+		</Badge>
+	);
+}
+function ApiKeyScopesCell({
+	apiKey,
+	compact = false,
+}: {
+	apiKey: ApiKey;
+	compact?: boolean;
+}) {
+	const summary = scopesSummary(apiKey.scopes);
+	return compact || apiKey.scopes?.includes("*") ? (
+		<Badge variant="outline">{summary}</Badge>
+	) : (
+		<Text as="span" role="label" tone="secondary">
+			{summary}
+		</Text>
+	);
+}
+function ApiKeyTimestampCell({ value }: { value: string | null }) {
+	return (
+		<Text as="span" role="label" tone="secondary">
+			{keyTimestampLabel(value)}
+		</Text>
+	);
+}
+
 /**
  * Narrow-screen projection of the same credential ledger. A horizontally
  * scrollable eight-column table is appropriate only once every recency and
@@ -321,42 +389,24 @@ export function ApiKeyMobileRow({
 	apiKey: ApiKey;
 	onAction: (action: KeyAction) => void;
 }) {
-	const status = apiKey.status ?? "active";
 	return (
 		<li className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 px-3 py-3">
 			<div className="grid min-w-0 gap-1">
-				<div className="flex min-w-0 items-center gap-2">
-					<Key className="size-3.5 shrink-0 text-kumo-subtle" />
-					<Text as="strong" weight="medium" truncate title={apiKey.name}>
-						{apiKey.name}
-					</Text>
-				</div>
-				<Text as="span" role="label" tone="mono-secondary">
-					{apiKey.keyPreview}
-				</Text>
+				<ApiKeyNameCell apiKey={apiKey} compact />
+				<ApiKeyPreviewCell apiKey={apiKey} />
 			</div>
 			<ApiKeyActionsMenu apiKey={apiKey} onAction={onAction} />
 			<div className="col-span-2 flex flex-wrap items-center gap-1.5">
-				<Badge
-					variant={apiKey.environment === "live" ? "default" : "secondary"}
-				>
-					{apiKey.environment ?? "test"}
-				</Badge>
-				<Badge variant={apiKeyStatusVariant(apiKey.status)}>
-					{status.charAt(0).toUpperCase() + status.slice(1)}
-				</Badge>
-				<Badge variant="outline">{scopesSummary(apiKey.scopes)}</Badge>
+				<ApiKeyEnvironmentCell apiKey={apiKey} />
+				<ApiKeyStatusCell apiKey={apiKey} />
+				<ApiKeyScopesCell apiKey={apiKey} compact />
 			</div>
 			<Text as="span" role="label" tone="secondary" className="col-span-2">
-				Last used {keyTimestampLabel(apiKey.lastUsedAt)} · Created{" "}
-				{keyTimestampLabel(apiKey.createdAt)}
+				Last used <ApiKeyTimestampCell value={apiKey.lastUsedAt} /> · Created{" "}
+				<ApiKeyTimestampCell value={apiKey.createdAt} />
 			</Text>
 		</li>
 	);
-}
-
-function mutationErrorMessage(error: unknown, fallback: string): string {
-	return error instanceof Error && error.message ? error.message : fallback;
 }
 
 type ExpiringKey = ApiKey & { warningType: "expiring" | "rotation_overdue" };
@@ -387,9 +437,7 @@ function ApiKeysPanelPending() {
 	return (
 		<PageSection aria-busy="true" aria-label="Loading API keys">
 			<Surface tier="panel" className="space-y-3 p-4">
-				{Array.from({ length: 3 }).map((_, index) => (
-					<Skeleton className="h-16 w-full" key={index} />
-				))}
+				<ListSkeleton rows={3} rowClassName="h-16" />
 			</Surface>
 		</PageSection>
 	);
@@ -425,7 +473,7 @@ export function AdminApiKeysPage({
 				<Alert variant="destructive">
 					<AlertTitle>API keys are unavailable</AlertTitle>
 					<AlertDescription>
-						{mutationErrorMessage(
+						{errorMessage(
 							context.error,
 							"The operational context read failed.",
 						)}
@@ -510,7 +558,7 @@ function AdminApiKeysBody({
 			setPendingAction(null);
 		},
 		onError: (error) =>
-			setActionFailure(mutationErrorMessage(error, "Failed to revoke API key")),
+			setActionFailure(errorMessage(error, "Failed to revoke API key")),
 	});
 
 	const deleteMutation = useMutation({
@@ -521,7 +569,7 @@ function AdminApiKeysBody({
 			setPendingAction(null);
 		},
 		onError: (error) =>
-			setActionFailure(mutationErrorMessage(error, "Failed to delete API key")),
+			setActionFailure(errorMessage(error, "Failed to delete API key")),
 	});
 
 	// Step-up: the API rejects organizations.rotateApiKey unless the presented
@@ -564,7 +612,7 @@ function AdminApiKeysBody({
 			void invalidate();
 		},
 		onError: (error) =>
-			setActionFailure(mutationErrorMessage(error, "Failed to rotate API key")),
+			setActionFailure(errorMessage(error, "Failed to rotate API key")),
 	});
 
 	// A synchronous reservation prevents concurrent browser calls from replacing
@@ -633,68 +681,31 @@ function AdminApiKeysBody({
 			header: "Name",
 			width: "180px",
 			sticky: "left",
-			accessor: (row) => (
-				<div className="flex items-center gap-2">
-					<Key className="size-3.5 text-kumo-subtle" />
-					<Text as="span" weight="medium">
-						{row.name}
-					</Text>
-				</div>
-			),
+			accessor: (row) => <ApiKeyNameCell apiKey={row} />,
 		},
 		{
 			header: "Key",
-			accessor: (row) => (
-				<Text as="span" role="label" tone="mono-secondary">
-					{row.keyPreview}
-				</Text>
-			),
+			accessor: (row) => <ApiKeyPreviewCell apiKey={row} />,
 		},
 		{
 			header: "Environment",
-			accessor: (row) => (
-				<Badge variant={row.environment === "live" ? "default" : "secondary"}>
-					{row.environment ?? "test"}
-				</Badge>
-			),
+			accessor: (row) => <ApiKeyEnvironmentCell apiKey={row} />,
 		},
 		{
 			header: "Status",
-			accessor: (row) => {
-				const status = row.status ?? "active";
-				return (
-					<Badge variant={apiKeyStatusVariant(row.status)}>
-						{status.charAt(0).toUpperCase() + status.slice(1)}
-					</Badge>
-				);
-			},
+			accessor: (row) => <ApiKeyStatusCell apiKey={row} />,
 		},
 		{
 			header: "Scopes",
-			accessor: (row) =>
-				row.scopes?.includes("*") ? (
-					<Badge variant="outline">Full access</Badge>
-				) : (
-					<Text as="span" role="label" tone="secondary">
-						{scopesSummary(row.scopes)}
-					</Text>
-				),
+			accessor: (row) => <ApiKeyScopesCell apiKey={row} />,
 		},
 		{
 			header: "Last used",
-			accessor: (row) => (
-				<Text as="span" role="label" tone="secondary">
-					{keyTimestampLabel(row.lastUsedAt)}
-				</Text>
-			),
+			accessor: (row) => <ApiKeyTimestampCell value={row.lastUsedAt} />,
 		},
 		{
 			header: "Created",
-			accessor: (row) => (
-				<Text as="span" role="label" tone="secondary">
-					{keyTimestampLabel(row.createdAt)}
-				</Text>
-			),
+			accessor: (row) => <ApiKeyTimestampCell value={row.createdAt} />,
 		},
 		{
 			header: "",
@@ -787,7 +798,7 @@ function AdminApiKeysBody({
 						columns={columns}
 						error={
 							listQuery.isError
-								? mutationErrorMessage(listQuery.error, "The key read failed.")
+								? errorMessage(listQuery.error, "The key read failed.")
 								: null
 						}
 						errorTitle="The API key list is unavailable"
@@ -1176,7 +1187,7 @@ function CreateKeyDialog({
 											<fieldset key={group}>
 												<Text
 													as="legend"
-													className="mb-1 uppercase tracking-wide"
+													className="mb-1"
 													role="caption"
 													tone="secondary"
 													weight="medium"
@@ -1232,10 +1243,7 @@ function CreateKeyDialog({
 							<AlertTitle>The key was not created</AlertTitle>
 							<AlertDescription>
 								{stepUpFailure ??
-									mutationErrorMessage(
-										mutation.error,
-										"Failed to create API key",
-									)}
+									errorMessage(mutation.error, "Failed to create API key")}
 							</AlertDescription>
 						</Alert>
 					) : null}

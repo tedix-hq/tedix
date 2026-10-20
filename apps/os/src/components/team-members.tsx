@@ -48,6 +48,7 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -78,7 +79,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Skeleton } from "@/components/kumo/skeleton";
+import { ListSkeleton } from "@/components/list-skeleton";
+import { Label } from "@/components/kumo/label";
+import { errorMessage } from "@/lib/orpc-error";
 import { Text } from "@/components/kumo/text";
 import {
 	Table,
@@ -214,10 +217,6 @@ export function MemberStatusBadge({ status }: { status: Member["status"] }) {
 	return <Badge variant="outline">Unknown</Badge>;
 }
 
-function mutationErrorMessage(error: unknown, fallback: string): string {
-	return error instanceof Error && error.message ? error.message : fallback;
-}
-
 export async function inviteRecipientsSequentially(
 	emails: readonly string[],
 	invite: (email: string) => Promise<Member>,
@@ -228,10 +227,7 @@ export async function inviteRecipientsSequentially(
 		try {
 			invited.push(await invite(email));
 		} catch (error) {
-			const detail = mutationErrorMessage(
-				error,
-				"The request did not complete.",
-			);
+			const detail = errorMessage(error, "The request did not complete.");
 			errors[email] =
 				`Unable to confirm this invitation. ${detail} Check the refreshed member list before retrying.`;
 		}
@@ -239,13 +235,155 @@ export async function inviteRecipientsSequentially(
 	return { invited, errors };
 }
 
+function MemberActionsMenu({
+	member,
+	canEditMember,
+	onAudit,
+	onIdentify,
+	onRemove,
+}: {
+	member: Member;
+	canEditMember: boolean;
+	onAudit: (member: Member) => void;
+	onIdentify: (member: Member) => void;
+	onRemove: (member: Member) => void;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						aria-label={`Actions for ${member.email}`}
+						size="icon-sm"
+						variant="ghost"
+					/>
+				}
+			>
+				<DotsThree className="size-4" weight="bold" />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				<DropdownMenuItem onClick={() => onAudit(member)}>
+					<ShieldCheck className="size-4" />
+					View access
+				</DropdownMenuItem>
+				{canEditMember && member.status === "active" ? (
+					<DropdownMenuItem onClick={() => onIdentify(member)}>
+						Edit identity
+					</DropdownMenuItem>
+				) : null}
+				{canEditMember ? (
+					<DropdownMenuItem
+						onClick={() => onRemove(member)}
+						variant="destructive"
+					>
+						<Trash className="size-4" />
+						Remove member
+					</DropdownMenuItem>
+				) : null}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function MemberRoleControl({
+	member,
+	canEditMember,
+	pending,
+	onRoleChange,
+}: {
+	member: Member;
+	canEditMember: boolean;
+	pending: boolean;
+	onRoleChange: (memberId: string, role: MemberRole) => void;
+}) {
+	return canEditMember ? (
+		<Select
+			disabled={pending}
+			onValueChange={(value) => {
+				if (!value || value === member.role) return;
+				onRoleChange(member.id, value as MemberRole);
+			}}
+			value={member.role}
+		>
+			<SelectTrigger
+				aria-label={`Role for ${member.email}`}
+				className="w-32"
+				size="sm"
+			>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{MANAGEABLE_ROLES.map((role) => (
+					<SelectItem key={role} value={role}>
+						{roleLabel(role)}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	) : (
+		<Badge variant="secondary">{roleLabel(member.role)}</Badge>
+	);
+}
+
+function MemberIdentityCell({
+	member,
+	self,
+	compact,
+}: {
+	member: Member;
+	self: boolean;
+	compact: boolean;
+}) {
+	return (
+		<div className="min-w-0">
+			<div className="flex items-center gap-2">
+				<Text
+					as={compact ? "h3" : "span"}
+					role="body"
+					weight="medium"
+					className="truncate"
+				>
+					{memberIdentityLabel(member)}
+				</Text>
+				{self ? <Badge variant="outline">You</Badge> : null}
+			</div>
+			{member.name ? (
+				<Text
+					role="label"
+					tone="secondary"
+					className={compact ? "mt-0.5 truncate" : "truncate"}
+				>
+					{member.email}
+				</Text>
+			) : null}
+		</div>
+	);
+}
+
+function MemberActivityCell({
+	member,
+	compact = false,
+}: {
+	member: Member;
+	compact?: boolean;
+}) {
+	return (
+		<Text
+			as="span"
+			role={compact ? "label" : "body"}
+			tone="secondary"
+			className={compact ? "truncate" : undefined}
+		>
+			{memberActivityLabel(member)}
+		</Text>
+	);
+}
+
 function MembersPanelPending() {
 	return (
 		<Card aria-busy="true" aria-label="Loading members">
 			<CardContent className="space-y-3">
-				{Array.from({ length: 3 }).map((_, index) => (
-					<Skeleton className="h-16 w-full" key={index} />
-				))}
+				<ListSkeleton rows={3} rowClassName="h-16" />
 			</CardContent>
 		</Card>
 	);
@@ -272,10 +410,7 @@ export function TeamMembersPanel({
 			<Alert variant="destructive">
 				<AlertTitle>Membership is unavailable</AlertTitle>
 				<AlertDescription>
-					{mutationErrorMessage(
-						context.error,
-						"The operational context read failed.",
-					)}
+					{errorMessage(context.error, "The operational context read failed.")}
 				</AlertDescription>
 			</Alert>
 		);
@@ -368,10 +503,7 @@ function TeamMembersPanelBody({
 			<Alert variant="destructive">
 				<AlertTitle>The member list is unavailable</AlertTitle>
 				<AlertDescription>
-					{mutationErrorMessage(
-						membersQuery.error,
-						"The membership read failed.",
-					)}
+					{errorMessage(membersQuery.error, "The membership read failed.")}
 				</AlertDescription>
 			</Alert>
 		);
@@ -390,55 +522,50 @@ function TeamMembersPanelBody({
 		<>
 			<Card>
 				<CardHeader>
-					<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-						<div className="min-w-0">
-							<div className="flex items-center gap-2">
-								<Users className="size-5 text-kumo-subtle" />
-								<CardTitle>Members ({data.pagination.total})</CardTitle>
-							</div>
-							<CardDescription className="mt-1">
-								Roles control what each member can see and manage in this
-								workspace.
-							</CardDescription>
-						</div>
-						<div className="flex items-center gap-2">
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<Button
-											aria-label="Refresh team members"
-											disabled={membersQuery.isFetching}
-											onClick={() => void membersQuery.refetch()}
-											size="icon-sm"
-											variant="ghost"
-										/>
-									}
-								>
-									{membersQuery.isFetching ? (
-										<Loader size="sm" />
-									) : (
-										<ArrowsClockwise className="size-4" />
-									)}
-								</TooltipTrigger>
-								<TooltipContent>Refresh members</TooltipContent>
-							</Tooltip>
-							{canManage ? (
-								<Button
-									disabled={isPersonalOrg}
-									onClick={() => setShowInvite(true)}
-									size="sm"
-									title={
-										isPersonalOrg
-											? "Personal workspaces do not support team invitations"
-											: undefined
-									}
-								>
-									<UserPlus className="size-4" />
-									Invite member
-								</Button>
-							) : null}
-						</div>
-					</div>
+					<CardTitle className="flex items-center gap-2">
+						<Users className="size-5 text-kumo-subtle" />
+						Members ({data.pagination.total})
+					</CardTitle>
+					<CardDescription>
+						Roles control what each member can see and manage in this workspace.
+					</CardDescription>
+					<CardAction className="items-center gap-2">
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										aria-label="Refresh team members"
+										disabled={membersQuery.isFetching}
+										onClick={() => void membersQuery.refetch()}
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								{membersQuery.isFetching ? (
+									<Loader size="sm" />
+								) : (
+									<ArrowsClockwise className="size-4" />
+								)}
+							</TooltipTrigger>
+							<TooltipContent>Refresh members</TooltipContent>
+						</Tooltip>
+						{canManage ? (
+							<Button
+								disabled={isPersonalOrg}
+								onClick={() => setShowInvite(true)}
+								size="sm"
+								title={
+									isPersonalOrg
+										? "Personal workspaces do not support team invitations"
+										: undefined
+								}
+							>
+								<UserPlus className="size-4" />
+								Invite member
+							</Button>
+						) : null}
+					</CardAction>
 				</CardHeader>
 				<CardContent>
 					{notice ? (
@@ -455,7 +582,7 @@ function TeamMembersPanelBody({
 						<Alert className="mb-3" variant="destructive">
 							<AlertTitle>The last member action failed</AlertTitle>
 							<AlertDescription>
-								{mutationErrorMessage(actionError, "The request failed.")}
+								{errorMessage(actionError, "The request failed.")}
 							</AlertDescription>
 						</Alert>
 					) : null}
@@ -484,110 +611,37 @@ function TeamMembersPanelBody({
 											<TableCell>
 												<div className="flex min-w-48 items-center gap-3">
 													<MemberAvatar member={member} />
-													<div className="min-w-0">
-														<div className="flex items-center gap-2">
-															<Text
-																as="span"
-																role="body"
-																weight="medium"
-																className="truncate"
-															>
-																{memberIdentityLabel(member)}
-															</Text>
-															{self ? (
-																<Badge variant="outline">You</Badge>
-															) : null}
-														</div>
-														{member.name ? (
-															<Text
-																role="label"
-																tone="secondary"
-																className="truncate"
-															>
-																{member.email}
-															</Text>
-														) : null}
-													</div>
+													<MemberIdentityCell
+														member={member}
+														self={self}
+														compact={false}
+													/>
 												</div>
 											</TableCell>
 											<TableCell>
 												<MemberStatusBadge status={member.status} />
 											</TableCell>
 											<TableCell>
-												{canEditMember ? (
-													<Select
-														disabled={roleMutation.isPending}
-														onValueChange={(value) => {
-															if (!value || value === member.role) return;
-															roleMutation.mutate({
-																memberId: member.id,
-																role: value as MemberRole,
-															});
-														}}
-														value={member.role}
-													>
-														<SelectTrigger
-															aria-label={`Role for ${member.email}`}
-															className="w-32"
-															size="sm"
-														>
-															<SelectValue />
-														</SelectTrigger>
-														<SelectContent>
-															{MANAGEABLE_ROLES.map((role) => (
-																<SelectItem key={role} value={role}>
-																	{roleLabel(role)}
-																</SelectItem>
-															))}
-														</SelectContent>
-													</Select>
-												) : (
-													<Badge variant="secondary">
-														{roleLabel(member.role)}
-													</Badge>
-												)}
+												<MemberRoleControl
+													member={member}
+													canEditMember={canEditMember}
+													pending={roleMutation.isPending}
+													onRoleChange={(memberId, role) =>
+														roleMutation.mutate({ memberId, role })
+													}
+												/>
 											</TableCell>
 											<TableCell className="text-kumo-subtle">
-												{memberActivityLabel(member)}
+												<MemberActivityCell member={member} />
 											</TableCell>
 											<TableCell>
-												<DropdownMenu>
-													<DropdownMenuTrigger
-														render={
-															<Button
-																aria-label={`Actions for ${member.email}`}
-																size="icon-sm"
-																variant="ghost"
-															/>
-														}
-													>
-														<DotsThree className="size-4" weight="bold" />
-													</DropdownMenuTrigger>
-													<DropdownMenuContent align="end">
-														<DropdownMenuItem
-															onClick={() => setMemberToAudit(member)}
-														>
-															<ShieldCheck className="size-4" />
-															View access
-														</DropdownMenuItem>
-														{canEditMember && member.status === "active" ? (
-															<DropdownMenuItem
-																onClick={() => setMemberToIdentify(member)}
-															>
-																Edit identity
-															</DropdownMenuItem>
-														) : null}
-														{canEditMember ? (
-															<DropdownMenuItem
-																onClick={() => setMemberToRemove(member)}
-																variant="destructive"
-															>
-																<Trash className="size-4" />
-																Remove member
-															</DropdownMenuItem>
-														) : null}
-													</DropdownMenuContent>
-												</DropdownMenu>
+												<MemberActionsMenu
+													member={member}
+													canEditMember={canEditMember}
+													onAudit={setMemberToAudit}
+													onIdentify={setMemberToIdentify}
+													onRemove={setMemberToRemove}
+												/>
 											</TableCell>
 										</TableRow>
 									);
@@ -612,106 +666,33 @@ function TeamMembersPanelBody({
 									key={member.id}
 								>
 									<MemberAvatar member={member} className="shrink-0" />
-									<div className="min-w-0">
-										<div className="flex items-center gap-2">
-											<Text
-												as="h3"
-												role="body"
-												weight="medium"
-												className="truncate"
-											>
-												{memberIdentityLabel(member)}
-											</Text>
-											{self ? <Badge variant="outline">You</Badge> : null}
-										</div>
-										{member.name ? (
-											<Text
-												role="label"
-												tone="secondary"
-												className="mt-0.5 truncate"
-											>
-												{member.email}
-											</Text>
-										) : null}
-									</div>
-									<DropdownMenu>
-										<DropdownMenuTrigger
-											render={
-												<Button
-													aria-label={`Actions for ${member.email}`}
-													size="icon-sm"
-													variant="ghost"
-												/>
-											}
-										>
-											<DotsThree className="size-4" weight="bold" />
-										</DropdownMenuTrigger>
-										<DropdownMenuContent align="end">
-											<DropdownMenuItem
-												onClick={() => setMemberToAudit(member)}
-											>
-												<ShieldCheck className="size-4" />
-												View access
-											</DropdownMenuItem>
-											{canEditMember && member.status === "active" ? (
-												<DropdownMenuItem
-													onClick={() => setMemberToIdentify(member)}
-												>
-													Edit identity
-												</DropdownMenuItem>
-											) : null}
-											{canEditMember ? (
-												<DropdownMenuItem
-													onClick={() => setMemberToRemove(member)}
-													variant="destructive"
-												>
-													<Trash className="size-4" />
-													Remove member
-												</DropdownMenuItem>
-											) : null}
-										</DropdownMenuContent>
-									</DropdownMenu>
+									<MemberIdentityCell
+										member={member}
+										self={self}
+										compact={true}
+									/>
+									<MemberActionsMenu
+										member={member}
+										canEditMember={canEditMember}
+										onAudit={setMemberToAudit}
+										onIdentify={setMemberToIdentify}
+										onRemove={setMemberToRemove}
+									/>
 
 									<div className="col-span-2 col-start-2 flex min-w-0 items-center justify-between gap-3">
 										<div className="flex min-w-0 flex-wrap items-center gap-2">
 											<MemberStatusBadge status={member.status} />
-											<Text role="label" tone="secondary" className="truncate">
-												{memberActivityLabel(member)}
-											</Text>
+											<MemberActivityCell member={member} compact />
 										</div>
 										<div className="shrink-0">
-											{canEditMember ? (
-												<Select
-													disabled={roleMutation.isPending}
-													onValueChange={(value) => {
-														if (!value || value === member.role) return;
-														roleMutation.mutate({
-															memberId: member.id,
-															role: value as MemberRole,
-														});
-													}}
-													value={member.role}
-												>
-													<SelectTrigger
-														aria-label={`Role for ${member.email}`}
-														className="w-32"
-														size="sm"
-													>
-														<SelectValue />
-													</SelectTrigger>
-													<SelectContent>
-														{MANAGEABLE_ROLES.map((role) => (
-															<SelectItem key={role} value={role}>
-																{roleLabel(role)}
-															</SelectItem>
-														))}
-													</SelectContent>
-												</Select>
-											) : (
-												<Badge variant="secondary">
-													{roleLabel(member.role)}
-												</Badge>
-											)}
+											<MemberRoleControl
+												member={member}
+												canEditMember={canEditMember}
+												pending={roleMutation.isPending}
+												onRoleChange={(memberId, role) =>
+													roleMutation.mutate({ memberId, role })
+												}
+											/>
 										</div>
 									</div>
 								</li>
@@ -789,10 +770,7 @@ function TeamMembersPanelBody({
 						<Alert variant="destructive">
 							<AlertTitle>The member could not be removed</AlertTitle>
 							<AlertDescription>
-								{mutationErrorMessage(
-									removeMutation.error,
-									"The request failed.",
-								)}
+								{errorMessage(removeMutation.error, "The request failed.")}
 							</AlertDescription>
 						</Alert>
 					) : null}
@@ -921,9 +899,7 @@ export function InviteMemberDialog({
 					}}
 				>
 					<div className="grid gap-2">
-						<label className="text-sm font-medium" htmlFor="invite-recipients">
-							Email addresses
-						</label>
+						<Label htmlFor="invite-recipients">Email addresses</Label>
 						{recipients.length > 0 ? (
 							<div
 								className="flex flex-wrap gap-2"
@@ -974,9 +950,7 @@ export function InviteMemberDialog({
 						</Text>
 					</div>
 					<div className="grid gap-2">
-						<label className="text-sm font-medium" htmlFor="invite-role">
-							Role
-						</label>
+						<Label htmlFor="invite-role">Role</Label>
 						<Select
 							value={role}
 							onValueChange={(value) =>
