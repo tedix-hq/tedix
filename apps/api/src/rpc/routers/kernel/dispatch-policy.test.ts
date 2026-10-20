@@ -7,10 +7,9 @@ import {
 } from "./dispatch-policy";
 
 /**
- * Workstation-dispatch policy tests. The approved model is policy-gated:
- * auto-dispatch ONLY when every low-risk condition holds; any unmet/unknown
- * condition degrades to the approval-card flow (never more permissive than the
- * inputs justify).
+ * The legacy default requires every low-risk condition. Explicit organization
+ * standing consent permits classified LOW/MEDIUM work while retaining critical
+ * boundaries and feedback that tightens a class.
  */
 
 const LOW_RISK_BASE = {
@@ -414,13 +413,13 @@ describe("autonomous workstation fail-closed inputs", () => {
 		autonomy: { version: 1 as const, maxRisk: "medium" as const },
 	};
 	it.each([
-		{ routeRisk: null },
-		{ runtimeRunning: true, isolateWorkstationWarm: null },
-		{ runtimeRunning: null, isolateWorkstationWarm: null },
-		{ runtimeRunning: false, isolateWorkstationWarm: false },
+		{ explicitHumanDelegation: false, routeRisk: null },
 		{ hasActingUser: false },
+		{ routeRisk: "high" as const },
+		{ content: "Email a customer" },
+		{ content: "" },
 	])(
-		"withholds dispatch for missing risk or unavailable runtime: %j",
+		"withholds dispatch for missing authority, unknown risk or a critical action: %j",
 		(missing) => {
 			expect(
 				classifyWorkstationDispatch({ ...base, ...missing }).autoDispatch,
@@ -429,5 +428,44 @@ describe("autonomous workstation fail-closed inputs", () => {
 	);
 	it("allows classified non-critical work on a running target", () => {
 		expect(classifyWorkstationDispatch(base).autoDispatch).toBe(true);
+	});
+	it.each(["low", "medium"] as const)(
+		"uses standing consent for kernel-selected %s work on a cold target",
+		(routeRisk) => {
+			expect(
+				classifyWorkstationDispatch({
+					...base,
+					routeRisk,
+					explicitHumanDelegation: false,
+					runtimeRunning: false,
+					isolateWorkstationWarm: false,
+				}).autoDispatch,
+			).toBe(true);
+		},
+	);
+	it("classifies an explicit non-critical order without a route-planner risk", () => {
+		expect(
+			classifyWorkstationDispatch({ ...base, routeRisk: null }).autoDispatch,
+		).toBe(true);
+	});
+	it.each([true, false, null])(
+		"keeps runtime availability separate from standing consent: running=%s",
+		(runtimeRunning) => {
+			expect(
+				classifyWorkstationDispatch({
+					...base,
+					runtimeRunning,
+					isolateWorkstationWarm: null,
+				}).autoDispatch,
+			).toBe(true);
+		},
+	);
+	it("honors feedback that tightens the delegation class", () => {
+		expect(
+			classifyWorkstationDispatch({
+				...base,
+				autonomy: { ...base.autonomy, askForClasses: ["delegation:embodied"] },
+			}).autoDispatch,
+		).toBe(false);
 	});
 });

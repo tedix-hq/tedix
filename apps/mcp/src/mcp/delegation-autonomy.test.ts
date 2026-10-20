@@ -28,15 +28,20 @@ function context(autonomy = true) {
 	} as unknown as Pick<ServerContext, "server">;
 }
 describe("tedi autonomous actions", () => {
-	it.each([true, false])(
-		"honors always approval despite bounded risk with Code Mode auto-confirm=%s",
-		async (autoConfirmAgent) => {
+	it.each([
+		[true, "once", true],
+		[true, "always", false],
+		[false, "once", true],
+		[false, "always", false],
+	] as const)(
+		"bounded writes use standing consent=%s over %s, independently of self-confirm=%s",
+		async (autonomy, approvalPolicy, autoConfirmAgent) => {
 			const result = await requireDestructiveToolApproval(
-				context(),
+				context(autonomy),
 				{
 					toolId: "add_comment",
 					title: "Add comment",
-					config: { transport: "rpc", approvalPolicy: "always" },
+					config: { transport: "rpc", approvalPolicy },
 					meta: {
 						"com.tedix/policy": {
 							riskTier: "bounded_write",
@@ -47,7 +52,8 @@ describe("tedi autonomous actions", () => {
 				{ destructiveHint: false },
 				{ autoConfirmAgent },
 			);
-			expect(result?.isError).toBe(true);
+			if (autonomy) expect(result).toBeNull();
+			else expect(result?.isError).toBe(true);
 		},
 	);
 	it.each([
@@ -216,7 +222,7 @@ describe("generated tools under org standing consent", () => {
 });
 
 it.each([true, false])(
-	"dryRun and confirmation arguments cannot bypass explicit or critical holds (autonomy=%s)",
+	"preview and confirmation arguments cannot create authority (autonomy=%s)",
 	async (autonomy) => {
 		for (const [toolId, config] of [
 			["add_comment", { transport: "rpc", approvalPolicy: "always" }],
@@ -246,9 +252,12 @@ it.each([true, false])(
 					},
 				},
 			);
-			expect(result).not.toBeNull();
-			if (config.approvalPolicy === "always")
-				expect(result?.isError).toBe(true);
+			if (autonomy && toolId === "add_comment") expect(result).toBeNull();
+			else {
+				expect(result).not.toBeNull();
+				if (config.approvalPolicy === "always")
+					expect(result?.isError).toBe(true);
+			}
 		}
 	},
 );

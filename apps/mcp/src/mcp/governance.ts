@@ -705,12 +705,13 @@ export async function requireDestructiveToolApproval(
 						: "unknown",
 		content: `${agent.appSlug ?? ""}:${tool.toolId}`,
 	});
+	// Org standing consent covers bounded actions; Work authorization is separate.
 	if (
 		autonomy &&
 		autonomousDecision.autoApprove &&
 		!isOwnedChannelBoundary &&
 		annotations?.destructiveHint !== true &&
-		!configuredApproval
+		configuredApproval !== "work_item"
 	) {
 		emitGovernanceAuditEvent(
 			agent,
