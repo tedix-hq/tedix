@@ -1,3 +1,4 @@
+import "./output-editor.css";
 import {
 	ArrowLeft,
 	ArrowRight,

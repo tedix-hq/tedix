@@ -88,7 +88,7 @@ async function insertFromLibrary(container: HTMLElement, type: string) {
 
 /** The one fixed-light scope both slide sidebars opt into. */
 function chromeRule() {
-	const css = readFileSync("src/styles.css", "utf8");
+	const css = readFileSync("src/components/output-editor.css", "utf8");
 	const rule = css.match(/^\.slides-editor-chrome \{[^}]*\}/m)?.[0];
 	expect(rule).toBeDefined();
 	return rule as string;
@@ -129,7 +129,7 @@ describe("SlidesEditor", () => {
 		// `.slide-element-input` unsets every control style.
 		const field = group.querySelector("textarea");
 		expect(field?.className).toBe("slide-element-input");
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		expect(css).toMatch(/\.slide-element-input \{\n\tall: unset;/);
 		const stage = mounted.container.querySelector(".slides-editor-stage");
 		expect(stage).not.toBeNull();
@@ -152,7 +152,7 @@ describe("SlidesEditor", () => {
 	// the width and let the derived height run past the bottom of the stage.
 	// jsdom does not lay out CSS, so this pins the class/style contract instead.
 	it("fits the slide to the stage on height as well as width", () => {
-		const styles = readFileSync("src/styles.css", "utf8");
+		const styles = readFileSync("src/components/output-editor.css", "utf8");
 		const canvasRule = styles
 			.split(".slides-editor-canvas {")[1]
 			?.split("}")[0];
@@ -187,7 +187,7 @@ describe("SlidesEditor", () => {
 	// the workspace canvas the shell grew with the rail instead, so the slide was
 	// centred in a 1378px stage inside a 763px pane, mostly below the fold.
 	it("bounds the editor to its host pane in the workspace canvas", () => {
-		const styles = readFileSync("src/styles.css", "utf8");
+		const styles = readFileSync("src/components/canvas-page.css", "utf8");
 		expect(styles).toMatch(
 			/\.canvas-document-shell:has\(> \.slides-editor\) \{[^}]*display: flex;[^}]*height: 100%;[^}]*flex-direction: column;/,
 		);
@@ -411,7 +411,7 @@ describe("SlidesEditor", () => {
 		const stage = mounted.container.querySelector(".slides-editor-stage");
 		expect(stage?.className).not.toContain("rounded-lg");
 		expect(stage?.className).not.toContain("rounded-md");
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		const canvasRule =
 			css.match(/^\.slides-editor-canvas \{[^}]*\}/m)?.[0] ?? "";
 		expect(canvasRule).toMatch(/border-radius: 6px;/);
@@ -541,7 +541,7 @@ describe("SlidesEditor", () => {
 		// text on near-white ground, and the active one must not become a black
 		// chip. Selection is carried by the focus hue on the ring plus a white
 		// fill against the 0.94 rail -- no fill dark enough to invert the text.
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		const current =
 			css.match(
 				/^\.slides-editor-thumbnails \[aria-current\] \{[^}]*\}/m,
@@ -578,7 +578,7 @@ describe("SlidesEditor", () => {
 		expect(canvas?.className).not.toMatch(/\bborder(?:-|\b)/);
 		mounted.cleanup();
 
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		const canvasRule =
 			css.match(/^\.slides-editor-canvas \{[^}]*\}/m)?.[0] ?? "";
 		expect(canvasRule).not.toContain("box-shadow");
@@ -589,7 +589,7 @@ describe("SlidesEditor", () => {
 
 	it("keeps the deck stage light while documents and sheets sit on the dark desk", () => {
 		// The presentation stage stays light instead of using --tedix-desk.
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		// Anchored: an unanchored match finds the workshop override selector that
 		// merely ENDS in `.slides-editor-stage`, not the base rule.
 		const stage = css.match(/^\.slides-editor-stage \{[^}]*\}/m)?.[0] ?? "";
@@ -837,7 +837,7 @@ describe("SlidesEditor", () => {
 				?.hidden,
 		).toBe(false);
 		// Both panes at once have their own three-column track.
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		expect(css).toMatch(
 			/\.slides-editor-layout\[data-show-thumbnails\]\[data-show-inspector\] \{\n\t\tgrid-template-columns: 11rem minmax\(0, 1fr\) 15rem;/,
 		);
@@ -996,7 +996,7 @@ describe("SlidesEditor", () => {
 		expect(thumb).not.toBeNull();
 		// The shared renderer sizes type in cqw, so each thumbnail must be its own
 		// inline-size container or the type resolves against an ancestor.
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		const rule =
 			css.match(
 				/^\.slide-thumb-canvas,\n\.deck-read-thumb-canvas \{[^}]*\}/m,
@@ -1108,7 +1108,7 @@ describe("slide regression sweep", () => {
 		mounted.cleanup();
 	});
 	it("limits hover outlines to interactive editor elements", () => {
-		const css = readFileSync("src/styles.css", "utf8");
+		const css = readFileSync("src/components/output-editor.css", "utf8");
 		const selector = css.slice(
 			css.indexOf("/* Hover marks"),
 			css.indexOf("/* Press feedback"),

@@ -2248,7 +2248,9 @@ describe("CanvasPage listing", () => {
 
 describe("Canvas Cloudflare-reference composition", () => {
 	it("keeps selected workpiece tabs and the embedded transcript borderless", () => {
-		const styles = readFileSync("src/styles.css", "utf8");
+		const styles =
+			readFileSync("src/components/canvas-page.css", "utf8") +
+			readFileSync("src/components/output-editor.css", "utf8");
 		expect(styles).toMatch(
 			/\.canvas-workpiece-tab\[data-selected\][\s\S]*?background:\s*var\(--color-kumo-tint\);/,
 		);

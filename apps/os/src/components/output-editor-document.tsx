@@ -1,3 +1,4 @@
+import "./output-editor.css";
 import { TableKit } from "@tiptap/extension-table";
 import { TaskList, TaskItem } from "@tiptap/extension-list";
 import {

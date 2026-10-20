@@ -1,5 +1,6 @@
 import { EntityAvatar } from "@/components/entity-avatar";
 import "./canvas-page.css";
+import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 import { ArrowLeft, FileX, SidebarSimple } from "@phosphor-icons/react";
