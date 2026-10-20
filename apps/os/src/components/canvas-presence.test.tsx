@@ -133,6 +133,22 @@ describe("CanvasPresence", () => {
 		expect(html).not.toContain("opaque-a");
 	});
 
+	it("paints initials with the shared entity palette, not a hand-picked hue", () => {
+		const html = renderToStaticMarkup(
+			<CanvasPresence
+				participants={[
+					participant("opaque-a", "Ada Lovelace"),
+					participant("opaque-b", "Grace Hopper"),
+				]}
+			/>,
+		);
+		// Trigger stack and roster row each render one avatar per person.
+		expect(html.match(/data-avatar-palette="\d"/g)).toHaveLength(4);
+		expect(html).toContain('data-entity-kind="person"');
+		expect(html).not.toMatch(/background-color:\s*#/);
+		expect(html).not.toContain("canvas-presence-avatar");
+	});
+
 	it("renders nothing when nobody else is present", () => {
 		expect(renderToStaticMarkup(<CanvasPresence participants={[]} />)).toBe("");
 	});

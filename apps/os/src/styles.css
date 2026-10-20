@@ -2405,32 +2405,6 @@ a:focus-visible {
 	margin-left: -7px;
 }
 
-.canvas-presence-avatar,
-.canvas-presence-overflow {
-	display: grid;
-	height: 28px;
-	width: 28px;
-	flex: none;
-	place-items: center;
-	border: 2px solid var(--card);
-	border-radius: 999px;
-	color: white;
-	font-weight: 650;
-	font-size: 10px;
-	line-height: 1;
-}
-
-.canvas-presence-avatar-small,
-.canvas-presence-overflow {
-	height: 26px;
-	width: 26px;
-}
-
-.canvas-presence-overflow {
-	background: var(--background-lighter);
-	color: var(--foreground);
-}
-
 /* Collaborators' carets and selections in the rich document editor. Each
  * caret is recreated when it moves, which restarts the idle fade. */
 .collab-caret {
@@ -2448,11 +2422,18 @@ a:focus-visible {
 	padding: 1px 5px;
 	border-radius: 4px 4px 4px 0;
 	background: var(--collab-color);
-	color: white;
+	color: var(--text-color-kumo-inverse);
 	font: 600 11px/1.4 var(--font-sans, system-ui, sans-serif);
 	white-space: nowrap;
 	user-select: none;
 	animation: collab-caret-label-idle 400ms ease 3s forwards;
+}
+
+/* The caret hue is arbitrary; pick the readable ink where the browser can. */
+@supports (color: contrast-color(red)) {
+	.collab-caret-label {
+		color: contrast-color(var(--collab-color));
+	}
 }
 
 .collab-selection {

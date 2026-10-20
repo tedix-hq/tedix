@@ -349,9 +349,10 @@ export function SlideInsertLibrary({
 								>
 									<Text
 										as="h3"
-										role="label"
+										role="caption"
 										tone="secondary"
-										className="m-0 px-2 pt-1 font-semibold text-[11px] uppercase tracking-wide"
+										weight="semibold"
+										className="m-0 px-2 pt-1 uppercase tracking-wide"
 									>
 										{category.name}
 									</Text>
