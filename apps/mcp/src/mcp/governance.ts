@@ -494,8 +494,8 @@ async function resolveWorkItemAuthorization(
 }
 
 /**
- * Is the destructive caller an AGENT (kernel / another tedi or a modern client
- * that declared the tasks extension) rather than a human/bidirectional host?
+ * Is the destructive caller an agent (including a verified coding session),
+ * or a modern client that declared the tasks extension?
  *
  * Agents cannot receive a server→client `elicitation/create` over the stateless
  * transport (it drops standalone server requests), so they resolve approvals
@@ -507,7 +507,12 @@ function callerIsAgent(
 	extra: { _meta?: Record<string, unknown> } | undefined,
 ): boolean {
 	const authType = agent.callerIdentity?.authType;
-	if (authType === "tedi" || authType === "service") return true;
+	if (
+		authType === "tedi" ||
+		authType === "service" ||
+		authType === "external_agent"
+	)
+		return true;
 	// A modern client that opted into the tasks extension is treated as an agent
 	// capable of the multi-round resolution. Only a caller that declared
 	// capabilities and included tasks counts here; `clientSupportsTasks` now
