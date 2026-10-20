@@ -130,6 +130,7 @@ async function mount(
 		rows?: ReturnType<typeof WorkInteractionInboxRowSchema.parse>[];
 		budget?: number;
 		project?: { id: string; name: string };
+		uncachedFace?: boolean;
 	} = {},
 ) {
 	client = new QueryClient({
@@ -173,7 +174,7 @@ async function mount(
 			observedAt: new Date().toISOString(),
 		},
 	);
-	for (const row of input.rows ?? [])
+	for (const row of input.uncachedFace ? [] : (input.rows ?? []))
 		client.setQueryData(
 			osQuery.attention.getDeckCard.queryOptions({
 				input: { cardId: row.request.id, projectId: undefined, limit: 100 },
@@ -730,4 +731,74 @@ it("leads with the overdue ask, flags it, and groups drafted-not-sent messages",
 	).toContain("Drafted, not sent");
 	await click("Show all cards");
 	expect(host.textContent).toContain(`Live request ${overdue.request.id}`);
+});
+
+it("recovers a transient face read without answering or changing cards", async () => {
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Review the supplier date?",
+	);
+	const presentation = {
+		version: 2,
+		title: "Use the revised supplier date?",
+		context: "The supplier proposes Friday.",
+		body: "Records your preferred delivery date; sends nothing.",
+		recommendation: "Friday leaves time for review.",
+	};
+	writes.getCard
+		.mockReset()
+		.mockRejectedValueOnce({
+			code: "SERVICE_UNAVAILABLE",
+			message: "Database temporarily unavailable; retry shortly",
+		})
+		.mockResolvedValue({
+			id: row.request.id,
+			kind: "decision",
+			label: presentation.title,
+			presentation,
+			faceText: presentation.body,
+			project: "",
+			urgency: "later",
+			source: "/work",
+			requestedAt: row.request.requestedAt,
+			dueAt: null,
+			score: 0,
+			interaction: row,
+		});
+	const options = osQuery.attention.getDeckCard.queryOptions({
+		input: { cardId: row.request.id, projectId: undefined, limit: 100 },
+	});
+	await mount({ rows: [row], uncachedFace: true });
+	await vi.waitFor(
+		async () => {
+			await act(async () => {});
+			expect(client.getQueryData(options.queryKey)).toMatchObject({
+				presentation,
+			});
+		},
+		{ timeout: 5000 },
+	);
+	expect(writes.getCard).toHaveBeenCalledTimes(2);
+	expect(host.textContent).toContain("1 of 1");
+	expect(host.textContent).not.toContain("Summary unavailable");
+	expect(host.textContent).toContain(`Live request ${row.request.id}`);
+	expect(writes.save).not.toHaveBeenCalled();
+});
+
+it("stops reading a face after a hard error instead of retrying it", async () => {
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Review the supplier date?",
+	);
+	writes.getCard
+		.mockReset()
+		.mockRejectedValue({ code: "NOT_FOUND", message: "Card not found" });
+	await mount({ rows: [row], uncachedFace: true });
+	await vi.waitFor(() => expect(writes.getCard).toHaveBeenCalledTimes(1));
+	// A transient failure would retry within 2 s; a hard error never does.
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 2_500));
+	});
+	expect(writes.getCard).toHaveBeenCalledTimes(1);
+	expect(writes.save).not.toHaveBeenCalled();
 });
