@@ -22,6 +22,7 @@ import {
 	getMemberById,
 	getMembersByOrganization,
 	listMemberRepresentatives,
+	listTedisByMemberDescopeUserIds,
 	setMemberIdentity,
 	inviteMember as inviteMemberD1,
 	removeMember as removeMemberD1,
@@ -497,6 +498,7 @@ function formatMemberResponse(m: {
 	kind?: "human" | "external_agent";
 	representedUserId?: string | null;
 	representedUserName?: string | null;
+	tediId?: string | null;
 	email: string;
 	name: string | null;
 	avatarUrl: string | null;
@@ -518,6 +520,7 @@ function formatMemberResponse(m: {
 		kind: m.kind ?? "human",
 		representedUserId: m.representedUserId ?? null,
 		representedUserName: m.representedUserName ?? null,
+		tediId: m.tediId ?? null,
 		email: m.email,
 		name: m.name,
 		avatarUrl: m.avatarUrl,
@@ -539,6 +542,65 @@ function formatMemberResponse(m: {
 		createdAt: m.createdAt,
 		updatedAt: m.updatedAt,
 	};
+}
+
+/** Only a real image reference is an avatar; a tedi's emoji glyph is not a URL. */
+function isAvatarUrl(value: string | null): value is string {
+	return value !== null && /^(?:https?:\/\/|data:image\/)/i.test(value);
+}
+
+/**
+ * Resolve each member's display identity from data: the represented person's
+ * name for an external agent, and for a tedi-backed membership (same Descope
+ * subject as a live tedi) the tedi's own avatar. A person keeps their profile
+ * picture; an external agent keeps the avatar stored on its row.
+ */
+async function resolveMemberIdentities(
+	db: BaseContext["db"],
+	organizationId: string,
+	members: Awaited<ReturnType<typeof getMembersByOrganization>>,
+) {
+	const representatives = await listMemberRepresentatives(
+		db,
+		organizationId,
+		members.flatMap((member) =>
+			member.kind === "external_agent" && member.representedUserId
+				? [member.representedUserId]
+				: [],
+		),
+	);
+	const names = new Map(
+		representatives.map((person) => [
+			person.userId,
+			person.name || person.email,
+		]),
+	);
+	const tedisBySubject = new Map(
+		(
+			await listTedisByMemberDescopeUserIds(
+				db,
+				organizationId,
+				members.flatMap((member) =>
+					member.kind !== "external_agent" ? [member.descopeUserId] : [],
+				),
+			)
+		).flatMap((tedi) =>
+			tedi.descopeUserId ? [[tedi.descopeUserId, tedi] as const] : [],
+		),
+	);
+	return members.map((member) => {
+		const tedi =
+			member.kind !== "external_agent"
+				? tedisBySubject.get(member.descopeUserId)
+				: undefined;
+		return formatMemberResponse({
+			...member,
+			representedUserName: names.get(member.representedUserId) ?? null,
+			tediId: tedi?.tediId ?? null,
+			avatarUrl:
+				tedi && isAvatarUrl(tedi.avatar) ? tedi.avatar : member.avatarUrl,
+		});
+	});
 }
 
 /**
@@ -567,28 +629,8 @@ export const listMembersContract = authedMembersOs.listMembers
 		});
 		const total = allMembers.length;
 
-		const representatives = await listMemberRepresentatives(
-			db,
-			organizationId,
-			members.flatMap((member) =>
-				member.kind === "external_agent" && member.representedUserId
-					? [member.representedUserId]
-					: [],
-			),
-		);
-		const names = new Map(
-			representatives.map((person) => [
-				person.userId,
-				person.name || person.email,
-			]),
-		);
 		return {
-			data: members.map((member) =>
-				formatMemberResponse({
-					...member,
-					representedUserName: names.get(member.representedUserId) ?? null,
-				}),
-			),
+			data: await resolveMemberIdentities(db, organizationId, members),
 			pagination: {
 				limit,
 				offset,
@@ -622,9 +664,10 @@ export const getMemberContract = authedMembersOs.getMember
 			);
 		}
 
-		return {
-			data: formatMemberResponse(member),
-		};
+		const [resolved] = await resolveMemberIdentities(db, organizationId, [
+			member,
+		]);
+		return { data: resolved! };
 	});
 
 export const listRolesContract = authedMembersOs.listRoles

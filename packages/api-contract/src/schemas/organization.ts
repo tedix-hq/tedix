@@ -718,12 +718,18 @@ export const MemberSchema = z.object({
 	userId: z.string().nullable().optional(),
 	email: z.email(),
 	name: z.string().nullable(),
+	/**
+	 * Resolved for display: a person's profile picture, the avatar of the tedi
+	 * that signs in as this member, or the avatar stored on an external agent.
+	 */
 	avatarUrl: z.string().nullable(),
 	role: MemberRoleSchema,
 	/** Display identity only; grants no access to the represented user's data. */
 	kind: z.enum(["human", "external_agent"]).optional(),
 	representedUserId: z.string().nullable().optional(),
 	representedUserName: z.string().nullable().optional(),
+	/** The live tedi whose identity this membership is, when there is one. */
+	tediId: z.string().nullable().optional(),
 	/**
 	 * Additive permission grants layered on top of the role. Always the
 	 * canonical vocabulary — never a separate capability model — and bounded to

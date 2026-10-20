@@ -213,6 +213,8 @@ export const membersContract = oc
 							kind: z.literal("external_agent"),
 							displayName: z.string().trim().min(1).max(100),
 							representedUserId: z.string().min(1).max(300),
+							/** The agent's own avatar; omit to keep it, null to clear it. */
+							avatarUrl: z.url().max(2048).nullable().optional(),
 						}),
 					]),
 				}).strict(),

@@ -48,6 +48,11 @@ export function MemberIdentityDialog({
 	const [representedName, setRepresentedName] = useState(
 		member.representedUserName ?? "",
 	);
+	const [avatarUrl, setAvatarUrl] = useState(
+		member.kind === "external_agent" ? (member.avatarUrl ?? "") : "",
+	);
+	const avatarUrlValid =
+		avatarUrl.trim() === "" || /^https?:\/\/\S+$/.test(avatarUrl.trim());
 	const [page, setPage] = useState(0);
 	const people = useQuery(
 		membersListQueryOptions({
@@ -63,7 +68,12 @@ export function MemberIdentityDialog({
 				memberId: member.id,
 				identity:
 					kind === "external_agent"
-						? { kind, displayName, representedUserId }
+						? {
+								kind,
+								displayName,
+								representedUserId,
+								avatarUrl: avatarUrl.trim() || null,
+							}
 						: { kind },
 			}),
 		onSuccess: async () => {
@@ -149,6 +159,15 @@ export function MemberIdentityDialog({
 						{people.isError ? (
 							<p role="alert">The people list could not be loaded.</p>
 						) : null}
+						<Input
+							aria-label="Agent avatar URL"
+							aria-invalid={!avatarUrlValid}
+							placeholder="Agent avatar URL (optional)"
+							type="url"
+							value={avatarUrl}
+							maxLength={2048}
+							onChange={(event) => setAvatarUrl(event.target.value)}
+						/>
 						{people.data && people.data.pagination.total > MEMBERS_PAGE_SIZE ? (
 							<div className="flex gap-2">
 								<Button
@@ -190,7 +209,7 @@ export function MemberIdentityDialog({
 						disabled={
 							save.isPending ||
 							(kind === "external_agent" &&
-								(!displayName.trim() || !representedUserId))
+								(!displayName.trim() || !representedUserId || !avatarUrlValid))
 						}
 						onClick={() => save.mutate()}
 					>

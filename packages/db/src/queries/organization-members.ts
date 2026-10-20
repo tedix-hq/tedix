@@ -169,6 +169,44 @@ export async function listMemberRepresentatives(
 	return rows;
 }
 
+/**
+ * Live tedis behind member rows, keyed by the shared Descope subject. A
+ * first-party tedi signs in as its own Descope user, so its membership row and
+ * its tedi row carry the same subject; that link is data, never a name match.
+ */
+export async function listTedisByMemberDescopeUserIds(
+	db: DbClient,
+	organizationId: string,
+	descopeUserIds: string[],
+): Promise<
+	Array<{ descopeUserId: string | null; tediId: string; avatar: string | null }>
+> {
+	const rows: Array<{
+		descopeUserId: string | null;
+		tediId: string;
+		avatar: string | null;
+	}> = [];
+	for (const ids of chunkForBoundParams([...new Set(descopeUserIds)], 50)) {
+		rows.push(
+			...(await db
+				.select({
+					descopeUserId: tedis.descopeUserId,
+					tediId: tedis.id,
+					avatar: tedis.avatar,
+				})
+				.from(tedis)
+				.where(
+					and(
+						eq(tedis.organizationId, organizationId),
+						isNull(tedis.retiredAt),
+						inArray(tedis.descopeUserId, ids),
+					),
+				)),
+		);
+	}
+	return rows;
+}
+
 /** Conditional tenant-scoped metadata write; never changes authorization fields. */
 export async function setMemberIdentity(
 	db: DbClient,
@@ -180,6 +218,8 @@ export async function setMemberIdentity(
 				kind: "external_agent";
 				displayName: string;
 				representedUserId: string;
+				/** The agent's own avatar; `undefined` leaves the stored value alone. */
+				avatarUrl?: string | null;
 		  },
 ) {
 	const representedUserId =
@@ -191,7 +231,12 @@ export async function setMemberIdentity(
 				kind: identity.kind,
 				representedUserId,
 				...(identity.kind === "external_agent"
-					? { name: identity.displayName }
+					? {
+							name: identity.displayName,
+							...(identity.avatarUrl !== undefined
+								? { avatarUrl: identity.avatarUrl }
+								: {}),
+						}
 					: {}),
 				updatedAt: new Date().toISOString(),
 			})
