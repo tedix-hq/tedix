@@ -3,6 +3,28 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.14.0 — 2026-10-20
+
+### Minor Changes
+
+- Read and decide attention cards with `tedix deck list|show|decide`, and read the activity feed with `tedix feed`. Reads report whether results are complete; decisions check the card version and your permissions.
+- Run Devin CLI as a local Tedix harness, with session identity, sandboxed lane execution, executor selection, and hooks and MCP setup.
+
+### Patch Changes
+
+- Retry rejected dispatcher admissions with bounded backoff after checking canonical Attempts. Keep failure details in receipts, logs and a Work comment, and explain when delegation needs an accountable user owner.
+- Fix Deck decisions and Deck and Feed routing on Connect. Headless decisions save feedback and interaction responses; actions requiring approval point you to OS or Home.
+- Apply the shared critical-action checks to autonomous coding lanes, including payment and publishing aliases.
+- Use Tedix's shared OAuth consent flow for Devin without a client secret.
+- Protect credential paths and private transcripts in Devin lanes, reject unsupported Git filter drivers, and restore clean project hooks on retries.
+- Save Devin sessions before their first turn resumes, record the executable version, and pass the session identity to child CLI calls.
+- Avoid duplicate turn capture when Devin plugin hooks and Tedix-managed hooks are both installed.
+- Use the runner's CLI in Devin hooks, allow scoped inspection commands, and report permission rejections as failed lanes even when Devin exits successfully.
+- Use Devin's native Smart mode to assess routine shell probes within scoped lanes.
+- Keep FYI agent updates in chat instead of opening decision cards.
+- Show up to three fresh Needs-you decisions in session hooks, scoped to the active organization with delivery receipts. Set `TEDIX_NEEDS_YOU=0` for quiet operation.
+- Keep Claude Code and Codex hook configuration separate from Devin plugin discovery.
+
 ## 0.13.3 — 2026-10-19
 
 ### Patch Changes
