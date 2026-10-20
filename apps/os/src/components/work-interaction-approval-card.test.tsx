@@ -89,7 +89,7 @@ it("renders an actionable approval, keeps raw arguments collapsed and never dele
 	expect(buttons.find((b) => b.textContent === "Approve")?.disabled).toBe(
 		false,
 	);
-	expect(buttons.some((b) => b.textContent === "Not this")).toBe(true);
+	expect(buttons.some((b) => b.textContent === "No / Not needed")).toBe(true);
 	expect(buttons.some((b) => b.textContent === "Later")).toBe(true);
 	expect(buttons.some((b) => b.textContent === "Decide for me")).toBe(false);
 	expect(host.textContent).toContain("made-up test user");
@@ -114,6 +114,25 @@ it("binds approval to the exact stored operation and target", async () => {
 			responseKind: "answer",
 			body: "Approve tests_write.GenerateMagicLinkForTestUser for viewer@example.com.",
 			resolvesRequest: true,
+		}),
+	);
+});
+
+it("declines consent without approving the stored operation", async () => {
+	await mount();
+	await act(async () =>
+		[...host.querySelectorAll("button")]
+			.find((button) => button.textContent === "No / Not needed")!
+			.click(),
+	);
+	expect(osApi.workInteractions.respond).toHaveBeenCalledWith(
+		expect.objectContaining({
+			body: "Do not approve tests_write.GenerateMagicLinkForTestUser for viewer@example.com.",
+			resolvesRequest: true,
+			metadata: expect.objectContaining({
+				decisionChoice: "reject",
+				feedbackSignal: "rejected",
+			}),
 		}),
 	);
 });
