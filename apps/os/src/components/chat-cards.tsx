@@ -17,7 +17,11 @@ import type {
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
 import type { ComponentType, ReactNode } from "react";
 import { useState } from "react";
-import { Badge, type BadgeVariant } from "@/components/kumo/badge";
+import {
+	Badge,
+	badgeVariants,
+	type BadgeVariant,
+} from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
@@ -112,7 +116,7 @@ export function RunLinkChip({
 			params={{ runId }}
 			title={`Open run ${runId}`}
 			aria-label={`Open ${label.toLowerCase()} for run ${runId}`}
-			className="inline-flex items-center gap-0.5 rounded-full border border-kumo-hairline bg-kumo-fill px-2 py-0.5 text-kumo-subtle text-xs no-underline transition-colors hover:text-kumo-strong"
+			className={cn(badgeVariants({ variant: "outline" }), "no-underline")}
 		>
 			{label}
 			<CaretRight size={11} aria-hidden />
@@ -141,12 +145,11 @@ export function ExecutionLinkChip({
 			search={branch ? { branch } : undefined}
 			title={`Open Home execution ${runId}`}
 			aria-label={`Open ${label.toLowerCase()} for Home run ${runId}`}
-			className={cn(
-				"inline-flex items-center gap-0.5 text-kumo-subtle text-xs no-underline transition-colors hover:text-kumo-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus",
+			className={
 				appearance === "chip"
-					? "rounded-full border border-kumo-hairline bg-kumo-fill px-2 py-0.5"
-					: "min-h-8 rounded-md px-1 max-sm:min-h-11 coarse:min-h-11",
-			)}
+					? cn(badgeVariants({ variant: "outline" }), "no-underline")
+					: "inline-flex items-center gap-0.5 text-kumo-subtle text-xs no-underline transition-colors hover:text-kumo-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus min-h-8 rounded-md px-1 max-sm:min-h-11 coarse:min-h-11"
+			}
 		>
 			{label}
 			<CaretRight size={11} aria-hidden />
@@ -950,12 +953,21 @@ export function ApprovalCard({
 						) : null}
 					</Text>
 					{approval.detail ? (
-						<details>
-							<summary className="cursor-pointer text-sm">Details</summary>
-							<pre className="whitespace-pre-wrap break-words text-sm">
-								{sanitizeUntrustedText(approval.detail)}
-							</pre>
-						</details>
+						<Collapsible>
+							<CollapsibleTrigger className="group/disclosure">
+								<CaretRight
+									size={14}
+									aria-hidden
+									className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+								/>
+								Details
+							</CollapsibleTrigger>
+							<CollapsibleContent keepMounted>
+								<pre className="whitespace-pre-wrap break-words text-sm">
+									{sanitizeUntrustedText(approval.detail)}
+								</pre>
+							</CollapsibleContent>
+						</Collapsible>
 					) : null}
 					{expired ? (
 						<Text as="span" role="label" tone="error">
