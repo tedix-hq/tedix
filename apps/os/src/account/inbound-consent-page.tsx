@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TedixDescopeProvider } from "@/shared/descope-provider";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Checkbox } from "@/components/kumo/checkbox";
 import {
 	Card,
@@ -748,41 +749,34 @@ function GroupedConsentScreen({
 								application.
 							</Text>
 							<div className="flex flex-wrap gap-2">
-								<Button
-									variant={scopePreset === "read" ? "default" : "outline"}
-									aria-pressed={scopePreset === "read"}
-									onClick={() => {
-										setScopePreset("read");
-										setSelectedScopes(
-											selectConsentPreset(selectableScopes, "read"),
-										);
+								<SegmentedControl
+									ariaLabel="Permission preset"
+									fill
+									value={scopePreset}
+									options={[
+										{
+											value: "read",
+											label: isReadOnlyConsentSelection(
+												selectConsentPreset(selectableScopes, "read"),
+											)
+												? "Read only"
+												: "Read and required access",
+										},
+										{ value: "full", label: "All requested" },
+										{ value: "custom", label: "Custom" },
+									]}
+									onValueChange={(preset) => {
+										setScopePreset(preset);
+										if (preset === "read")
+											setSelectedScopes(
+												selectConsentPreset(selectableScopes, "read"),
+											);
+										if (preset === "full")
+											setSelectedScopes(
+												selectableScopes.map((scope) => scope.name),
+											);
 									}}
-								>
-									{isReadOnlyConsentSelection(
-										selectConsentPreset(selectableScopes, "read"),
-									)
-										? "Read only"
-										: "Read and required access"}
-								</Button>
-								<Button
-									variant={scopePreset === "full" ? "default" : "outline"}
-									aria-pressed={scopePreset === "full"}
-									onClick={() => {
-										setScopePreset("full");
-										setSelectedScopes(
-											selectableScopes.map((scope) => scope.name),
-										);
-									}}
-								>
-									All requested
-								</Button>
-								<Button
-									variant={scopePreset === "custom" ? "default" : "outline"}
-									aria-pressed={scopePreset === "custom"}
-									onClick={() => setScopePreset("custom")}
-								>
-									Custom
-								</Button>
+								/>
 								<Button
 									variant="ghost"
 									onClick={() => {

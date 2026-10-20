@@ -40,6 +40,8 @@ import {
 } from "@/components/card-review-webmcp-tools";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
+import { Skeleton } from "@/components/kumo/skeleton";
 import { Input } from "@/components/kumo/input";
 import { Kbd } from "@/components/kumo/kbd";
 import { Progress } from "@/components/kumo/progress";
@@ -880,7 +882,13 @@ export function CardReviewApp({
 	}, []);
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		if (event.metaKey || event.ctrlKey || event.altKey) return;
+		if (
+			event.defaultPrevented ||
+			event.metaKey ||
+			event.ctrlKey ||
+			event.altKey
+		)
+			return;
 		if (isTypingTarget(event.target)) {
 			if (event.key === "Escape") rootRef.current?.focus();
 			return;
@@ -1016,23 +1024,19 @@ export function CardReviewApp({
 
 			<header className="flex flex-wrap items-center justify-between gap-2">
 				{channels.length > 1 ? (
-					<div
-						className="flex flex-wrap gap-1.5"
-						role="group"
-						aria-label={decisionText("Show cards from")}
-					>
-						{[null, ...channels].map((value) => (
-							<Button
-								key={value ?? "all"}
-								size="sm"
-								variant={activeChannel === value ? "secondary" : "ghost"}
-								aria-pressed={activeChannel === value}
-								onClick={() => setChannel(value)}
-							>
-								{value ?? decisionText("All")}
-							</Button>
-						))}
-					</div>
+					<SegmentedControl
+						ariaLabel={decisionText("Show cards from")}
+						compact
+						value={activeChannel ?? ""}
+						options={[
+							{ value: "", label: decisionText("All") },
+							...channels.map((value) => ({
+								value,
+								label: value,
+							})),
+						]}
+						onValueChange={(value) => setChannel(value || null)}
+					/>
 				) : (
 					<Text as="span" role="label" tone="secondary">
 						{channels[0] ?? sources.map((s) => s.label).join(" · ")}
@@ -1087,12 +1091,9 @@ export function CardReviewApp({
 					</AlertDescription>
 				</Alert>
 			) : loading && cards.length === 0 ? (
-				<div
-					role="status"
-					className="h-80 animate-pulse rounded-2xl bg-kumo-fill motion-reduce:animate-none"
-				>
+				<Skeleton className="h-80 rounded-2xl" role="status">
 					<span className="sr-only">{decisionText("Loading cards…")}</span>
-				</div>
+				</Skeleton>
 			) : card && source ? (
 				<>
 					{needsAccess?.cardKey === card.key && (

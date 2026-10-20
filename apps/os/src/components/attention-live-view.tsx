@@ -22,6 +22,7 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import { cn } from "@/lib/utils";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Input } from "@/components/kumo/input";
 import {
 	Card,
@@ -414,33 +415,34 @@ export function AttentionBoard({
 								);
 							})}
 					</div>
-					<div className="flex flex-wrap gap-2">
-						{[
-							...new Set(
-								data.cards
-									.flatMap((c) => [c.tediName, c.factoryName])
-									.filter((n): n is string => !!n),
-							),
-						].map((name) => (
-							<Button
-								key={name}
-								className="h-auto max-w-full whitespace-normal [overflow-wrap:anywhere]"
-								variant={contributor === name ? "secondary" : "outline"}
-								size="sm"
-								aria-pressed={contributor === name}
-								onClick={() =>
-									setContributor(contributor === name ? null : name)
-								}
-							>
-								{name} ·{" "}
-								{
-									data.cards.filter(
-										(c) => c.tediName === name || c.factoryName === name,
-									).length
-								}
-							</Button>
-						))}
-					</div>
+					<SegmentedControl
+						ariaLabel="Filter by contributor"
+						compact
+						value={contributor ?? ""}
+						onValueChange={(value) => setContributor(value || null)}
+						options={[
+							{ value: "", label: "All" },
+							...[
+								...new Set(
+									data.cards
+										.flatMap((c) => [c.tediName, c.factoryName])
+										.filter((n): n is string => !!n),
+								),
+							].map((name) => ({
+								value: name,
+								label: (
+									<>
+										{name} ·{" "}
+										{
+											data.cards.filter(
+												(c) => c.tediName === name || c.factoryName === name,
+											).length
+										}
+									</>
+								),
+							})),
+						]}
+					/>
 				</CardContent>
 			</Card>
 		),

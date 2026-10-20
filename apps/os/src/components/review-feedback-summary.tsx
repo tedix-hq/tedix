@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { OsReviewFeedback } from "@tedix/api-contract/contracts/os-shares";
 import { Button } from "@/components/kumo/button";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 type Round = { id: string; title: string; createdAt: string };
 export function ReviewFeedbackSummary({ shareId }: { shareId: string }) {
 	const [titles, setTitles] = useState<Record<string, string>>({});
@@ -50,21 +51,26 @@ export function ReviewFeedbackSummary({ shareId }: { shareId: string }) {
 					aria-label="Review rounds"
 				>
 					Rounds:
-					{rounds.map((round, index) => (
-						<Button
-							key={round.id}
-							variant={round.id === roundId ? "secondary" : "ghost"}
-							size="xs"
-							aria-pressed={round.id === roundId}
-							disabled={busy}
-							title={round.title}
-							onClick={() => void load(round.id)}
-						>
-							{index === 0
-								? "Current"
-								: new Date(round.createdAt).toLocaleDateString()}
-						</Button>
-					))}
+					<fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
+						<SegmentedControl
+							ariaLabel="Review rounds"
+							compact
+							value={roundId ?? ""}
+							onValueChange={(id) => {
+								if (!busy) void load(id);
+							}}
+							options={rounds.map((round, index) => ({
+								value: round.id,
+								label: (
+									<span title={round.title}>
+										{index === 0
+											? "Current"
+											: new Date(round.createdAt).toLocaleDateString()}
+									</span>
+								),
+							}))}
+						/>
+					</fieldset>
 				</div>
 			)}
 			<p role="status" className="text-xs text-kumo-subtle">

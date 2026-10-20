@@ -6,6 +6,7 @@ import type {
 import { Play } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
 import {
 	ReadOnlyElement,
@@ -442,18 +443,16 @@ function WorkbookView({
 					</div>
 					{/* Tabs live INSIDE the page, as they do in the editor: the grid
 					    scrolls beneath them and the page stays one object. */}
-					<div className="sheet-read-tabs flex gap-1">
-						{initial.sheets.map((candidate) => (
-							<Button
-								key={candidate.id}
-								size="xs"
-								variant={candidate.id === sheet.id ? "secondary" : "ghost"}
-								onClick={() => setActiveSheetId(candidate.id)}
-							>
-								{candidate.name}
-							</Button>
-						))}
-					</div>
+					<SegmentedControl
+						ariaLabel="Workbook sheets"
+						compact
+						value={sheet.id}
+						options={initial.sheets.map((candidate) => ({
+							value: candidate.id,
+							label: candidate.name,
+						}))}
+						onValueChange={setActiveSheetId}
+					/>
 				</div>
 			</div>
 		</div>

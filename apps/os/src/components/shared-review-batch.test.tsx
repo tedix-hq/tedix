@@ -167,7 +167,11 @@ describe("focused review app", () => {
 		expect(
 			(container.querySelector("textarea") as HTMLTextAreaElement).disabled,
 		).toBe(true);
-		expect(button("Skip", "article")?.disabled).toBe(true);
+		expect(button("Skip", "article")?.closest("fieldset")?.disabled).toBe(true);
+		await click(button("Skip", "article"));
+		expect(button("Use with changes")?.getAttribute("aria-pressed")).toBe(
+			"true",
+		);
 		await act(async () => {
 			resolveSave({ feedback: { revision: 1 } });
 			await tick();

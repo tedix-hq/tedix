@@ -10,6 +10,7 @@ import { CreateDocumentButton } from "@/components/create-document-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import {
 	Empty,
 	EmptyDescription,
@@ -299,30 +300,27 @@ export function CanvasResourceRail({
 								</Alert>
 							)}
 							{outputs.data && stateCounts.all > 0 && (
-								<div
-									aria-label="Filter files by state"
-									className="canvas-resource-state-filter"
-									role="group"
-								>
-									{(
+								<SegmentedControl
+									ariaLabel="Filter files by state"
+									compact
+									value={stateFilter}
+									onValueChange={setStateFilter}
+									options={(
 										[
 											["active", "Active", stateCounts.active],
 											["archived", "Archived", stateCounts.archived],
 											["all", "All", stateCounts.all],
 										] as const
-									).map(([value, label, count]) => (
-										<Button
-											aria-pressed={stateFilter === value}
-											key={value}
-											onClick={() => setStateFilter(value)}
-											size="sm"
-											variant={stateFilter === value ? "secondary" : "ghost"}
-										>
-											{label}
-											<span className="text-kumo-subtle">{count}</span>
-										</Button>
-									))}
-								</div>
+									).map(([value, label, count]) => ({
+										value,
+										label: (
+											<>
+												{label}
+												<span className="text-kumo-subtle">{count}</span>
+											</>
+										),
+									}))}
+								/>
 							)}
 							{outputs.data && shownOutputs.length === 0 && (
 								<Text as="p" role="label" tone="secondary" className="m-0">
