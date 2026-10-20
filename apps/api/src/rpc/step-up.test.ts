@@ -4,6 +4,8 @@ import type { BaseContext } from "./orpc";
 import { userContext } from "./test-context";
 import appsSource from "./routers/apps.ts?raw";
 import organizationsSource from "./routers/organizations.ts?raw";
+import organizationsLifecycleSource from "./routers/organizations-lifecycle.ts?raw";
+import organizationsApiKeysSource from "./routers/organizations-api-keys.ts?raw";
 import tedisCrudSource from "./routers/tedis/crud.ts?raw";
 import { requireStepUp } from "./step-up";
 
@@ -74,9 +76,26 @@ function procedureSource(source: string, exportName: string): string {
  * disappears from the mutation it exists to protect.
  */
 describe("step-up wiring on gated procedures", () => {
+	it("binds the checked procedures to the organizations router", () => {
+		for (const binding of [
+			"delete: deleteOrganizationContract",
+			"rotateApiKey: rotateApiKeyContract",
+			"createApiKey: createApiKeyContract",
+		])
+			expect(organizationsSource).toContain(binding);
+	});
+
 	const guarded: ReadonlyArray<readonly [string, string, string]> = [
-		["organizations.delete", organizationsSource, "deleteOrganizationContract"],
-		["organizations.rotateApiKey", organizationsSource, "rotateApiKeyContract"],
+		[
+			"organizations.delete",
+			organizationsLifecycleSource,
+			"deleteOrganizationContract",
+		],
+		[
+			"organizations.rotateApiKey",
+			organizationsApiKeysSource,
+			"rotateApiKeyContract",
+		],
 		["tedis.rotateAccessKey", tedisCrudSource, "rotateAccessKeyProcedure"],
 	];
 
@@ -90,7 +109,7 @@ describe("step-up wiring on gated procedures", () => {
 
 	it("does not require a fresh challenge to create a scoped organization key", () => {
 		expect(
-			procedureSource(organizationsSource, "createApiKeyContract"),
+			procedureSource(organizationsApiKeysSource, "createApiKeyContract"),
 		).not.toContain("requireStepUp(context,");
 	});
 
