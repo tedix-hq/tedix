@@ -122,19 +122,11 @@ export const attentionContractRouter = os.router({
 			});
 		if (!card)
 			throw errors.NOT_FOUND({ message: "Card is not in your current Deck" });
-		const { prepareDeckCardFace, displayDeckCard } =
+		const { prepareDeckCardFaces } =
 			await import("../../services/deck-card-face");
-		let unavailable = false;
-		const presentation = await prepareDeckCardFace(
-			context,
-			card,
-			true,
-			projection.model,
-			() => {
-				unavailable = true;
-			},
-		);
-		const display = displayDeckCard(card, presentation, unavailable);
+		const display = (
+			await prepareDeckCardFaces(context, [card], projection.model)
+		)[0]!;
 		if (card.interaction)
 			return {
 				...display,

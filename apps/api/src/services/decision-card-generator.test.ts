@@ -499,6 +499,38 @@ it("reports actual field lengths separately from source facts when repairing", a
 	).toEqual({ actual: 121, limit: 120 });
 });
 
+it("reports the full word count and reserved chrome when repairing an overlong face", async () => {
+	const draft = {
+		...copy,
+		context: "The workshop organizer needs your choice today.",
+		body: "Keeps the proposed room and lunch plan ready for your review before confirming anything outside the company.",
+		recommendation:
+			"Review first because several guests have changed their travel plans and cannot attend the earlier workshop date.",
+		actionLabels: { approve: "Review the plan", later: "Wait until later" },
+	};
+	mocks.model.mockResolvedValueOnce(JSON.stringify(draft));
+	await generateDecisionCard({ db: {}, env: {} } as never, request);
+	const feedback = JSON.parse(
+		mocks.model.mock.calls[1]?.[2].validationFeedback,
+	);
+	const words = [
+		draft.title,
+		draft.context,
+		draft.body,
+		draft.recommendation,
+		...Object.values(draft.actionLabels),
+	]
+		.join(" ")
+		.match(/\S+/gu)!.length;
+	expect(feedback.failedChecks).toContain("face_word_limit");
+	expect(feedback.wordBudget).toMatchObject({
+		actual: words,
+		limit: 46,
+		target: 40,
+	});
+	expect(mocks.model.mock.calls[0]?.[1]).toBe(mocks.model.mock.calls[1]?.[1]);
+});
+
 it("retains the model's structured unknown-effect signal without inventing an action", async () => {
 	mocks.model.mockResolvedValue(
 		JSON.stringify({ ...copy, effectStatus: "unknown" }),

@@ -173,3 +173,28 @@ it("distinguishes failed generation from a pending job during the retry window",
 	expect(displayed?.faceText).not.toContain("Summary pending");
 	expect(mocks.generate).toHaveBeenCalledTimes(1);
 });
+
+it("returns pending copy while a registered background writer finishes and persists its result", async () => {
+	let finish!: (value: typeof copy) => void;
+	mocks.generate.mockReturnValue(
+		new Promise<typeof copy>((resolve) => {
+			finish = resolve;
+		}),
+	);
+	const jobs: Promise<unknown>[] = [];
+	const [displayed] = await prepareDeckCardFaces(
+		{
+			...context,
+			waitUntil: (job) => {
+				jobs.push(job);
+			},
+		},
+		[card],
+	);
+	expect(displayed?.faceText).toContain("Summary pending");
+	expect(jobs).toHaveLength(1);
+	await vi.waitFor(() => expect(mocks.generate).toHaveBeenCalledTimes(1));
+	finish(copy);
+	await Promise.all(jobs);
+	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);
+});
