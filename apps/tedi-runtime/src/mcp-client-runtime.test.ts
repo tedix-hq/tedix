@@ -200,3 +200,9 @@ assert.deepEqual(forwarded, [
 	undefined,
 	{ binding: null, signal: invocationSignal },
 ]);
+await invocationRuntime.executeTool(
+	"tedix_mcp_code",
+	{},
+	{ resultAudience: "machine" },
+);
+assert.deepEqual(forwarded.at(-1), { resultAudience: "machine" });

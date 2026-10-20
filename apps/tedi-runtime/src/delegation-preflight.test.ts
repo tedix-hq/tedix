@@ -36,6 +36,24 @@ await assert.rejects(
 	preflightDelegationTools(plan, async () => ({ partial: true })),
 	/could not be verified/,
 );
+// Discovery metadata must not push authority/schema rows past the MCP model
+// result limit before the preflight can inspect them.
+const metadataHeavySchemas = await preflightDelegationTools(
+	plan,
+	async (code) => {
+		const rows = await new Function("discover", `return (${code})()`)({
+			describe: async (callable: string) => ({
+				callable,
+				authorized: true,
+				parameters: { type: "object" },
+				description: "x".repeat(12000),
+			}),
+		});
+		assert.ok(JSON.stringify(rows).length < 12000);
+		return rows;
+	},
+);
+assert.match(metadataHeavySchemas[0]!, /work.add_comment/);
 await assert.rejects(
 	preflightDelegationTools(
 		{ ...plan, missingCapabilities: ["work.comment"] },

@@ -944,7 +944,13 @@ export const runtimeFacetTurns = {
 							throw new Error(
 								"Delegation preflight failed: child MCP credential unavailable",
 							);
-						return mcpRuntime.executeTool("tedix_mcp_code", { code });
+						return mcpRuntime.executeTool(
+							"tedix_mcp_code",
+							{ code },
+							{
+								resultAudience: "machine",
+							},
+						);
 					})
 				: [];
 		const platform = await this.getPlatformClient();

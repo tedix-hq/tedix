@@ -6,6 +6,43 @@ import {
 } from "./runtime.js";
 
 describe("Code Mode server selection", () => {
+	it("keeps machine authority results complete while bounding model results", async () => {
+		const { TedixMcpRuntime } = await import("./runtime");
+		const rows = [
+			{
+				callable: "work.add_comment",
+				authorized: true,
+				parameters: { description: "x".repeat(16000) },
+			},
+		];
+		const runtime = new TedixMcpRuntime({
+			manager: {
+				listConnections: () => [{ serverId: "tenant-unified" }],
+				listTools: () => [{ name: "code" }],
+				callTool: async () => ({
+					structuredContent: { executionId: "code-1", result: rows },
+					content: [],
+				}),
+			} as never,
+			platform: {
+				listServers: async () => [],
+				resolveCredentials: async () => ({ headers: {} }),
+			},
+		});
+		runtime.ensureSynced = async () => {};
+		expect(
+			await runtime.executeTool(
+				"tedix_mcp_code",
+				{ code: "async () => []" },
+				{ resultAudience: "machine" },
+			),
+		).toEqual(rows);
+		const projected = await runtime.executeTool("tedix_mcp_code", {
+			code: "async () => []",
+		});
+		expect(projected).toMatchObject({ __tedix_truncated: true });
+		expect(JSON.stringify(projected).length).toBeLessThanOrEqual(12000);
+	});
 	it("retains executor action receipts outside a summary or oversized projection", async () => {
 		const { TedixMcpRuntime } = await import("./runtime");
 		const actionReceipts = [
