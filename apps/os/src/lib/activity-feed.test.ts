@@ -251,7 +251,7 @@ it("surfaces open incidents loudly while keeping closed incident bookkeeping qui
 		body: "Production is behind main",
 		createdAt: now.toISOString(),
 	});
-	expect(workFeedItems([event], project)[0]?.importance).toBe("high");
+	expect(workFeedItems([event], project)[0]?.importance).toBe("critical");
 	for (const workItemDisposition of ["completed", "cancelled"] as const)
 		expect(
 			workFeedItems([{ ...event, workItemDisposition }], project)[0]

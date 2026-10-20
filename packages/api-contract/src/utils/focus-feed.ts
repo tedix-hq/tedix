@@ -247,6 +247,8 @@ export function focusSelection(
 ) {
 	const config = model?.config ?? DecisionLearningConfigSchema.parse({});
 	const day = focusDay(now.toISOString(), config.timezone);
+	const critical = ranked.filter((item) => item.importance === "critical");
+	const ordinary = ranked.filter((item) => item.importance !== "critical");
 	const used = new Set(
 		events
 			.filter(
@@ -260,13 +262,14 @@ export function focusSelection(
 	);
 	for (const id of prefs?.budgetDay === day ? (prefs.shownIds ?? []) : [])
 		used.add(id);
+	for (const item of critical) used.delete(item.id);
 	let remaining = Math.max(0, config.focusFeed.dailyBudget - used.size);
 	const selected: FocusItem[] = [];
 	const priority = [
-		...ranked
+		...ordinary
 			.filter((item) => item.needsAction)
 			.slice(0, config.focusFeed.needsYouLimit),
-		...ranked,
+		...ordinary,
 	];
 	for (const item of priority) {
 		if (selected.some((row) => row.id === item.id)) continue;
@@ -281,6 +284,7 @@ export function focusSelection(
 		selected.push(item);
 		if (!used.has(item.id)) remaining--;
 	}
+	selected.unshift(...critical);
 	const ids = new Set(selected.map((i) => i.id));
 	return {
 		selected,

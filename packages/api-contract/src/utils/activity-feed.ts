@@ -229,11 +229,12 @@ export function workFeedItems(
 			stalled: /blocked|expired|failed/.test(e.eventType),
 			importance: e.personalAgentContribution
 				? "normal"
-				: /blocked|failed/.test(e.eventType) ||
-					  (e.workItemKind === "incident" &&
-							!["completed", "cancelled"].includes(e.workItemDisposition))
-					? "high"
-					: "low",
+				: e.workItemKind === "incident" &&
+					  !["completed", "cancelled"].includes(e.workItemDisposition)
+					? "critical"
+					: /blocked|failed/.test(e.eventType)
+						? "high"
+						: "low",
 			explanation: [
 				e.personalAgentContribution
 					? `From ${e.personalAgentContribution.sourceAgentName}, for you. ${e.personalAgentContribution.kind === "fyi" ? "FYI" : "Proposal"}; no action executed. Source: ${e.personalAgentContribution.evidenceUrl}`

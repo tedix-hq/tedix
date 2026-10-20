@@ -263,14 +263,18 @@ export function FocusFeed({
 		prefs,
 	);
 	const budgetReady = selection.selected.every(
-		(i) => prefs.budgetDay === selection.day && prefs.shownIds?.includes(i.id),
+		(i) =>
+			i.importance === "critical" ||
+			(prefs.budgetDay === selection.day && prefs.shownIds?.includes(i.id)),
 	);
 	// A repeated status message isn't a second outcome. Everything keeps every canonical record.
 	const outcomes = new Set(timelineItems(ranked).map((i) => i.id));
-	const needs = budgetReady ? selection.needs : [];
-	const updates = budgetReady
-		? selection.updates.filter((i) => outcomes.has(i.id))
-		: [];
+	const needs = selection.needs.filter(
+		(i) => i.importance === "critical" || budgetReady,
+	);
+	const updates = selection.updates.filter(
+		(i) => (i.importance === "critical" || budgetReady) && outcomes.has(i.id),
+	);
 	const selectedIds = new Set([...needs, ...updates].map((i) => i.id));
 	const held = ranked.filter((i) => !selectedIds.has(i.id));
 	const handled = held.filter((i) => i.done);
@@ -359,7 +363,9 @@ export function FocusFeed({
 				shownIds: [
 					...new Set([
 						...(p.budgetDay === chosen.day ? (p.shownIds ?? []) : []),
-						...chosen.selected.map((i) => i.id),
+						...chosen.selected
+							.filter((i) => i.importance !== "critical")
+							.map((i) => i.id),
 					]),
 				],
 			};
@@ -620,7 +626,7 @@ export function FocusFeed({
 			onReact={react}
 			onWork={work}
 			signal={signal}
-			budgeted={budgeted}
+			budgeted={budgeted && item.importance !== "critical"}
 			session={session}
 			events={events}
 			enabled={!loading}
