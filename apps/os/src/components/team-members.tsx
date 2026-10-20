@@ -43,7 +43,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/kumo/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/kumo/avatar";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -162,14 +162,29 @@ export function parseInviteRecipients(
 	return { recipients, invalid, overflow, unresolved };
 }
 
-export function memberInitials(member: Pick<Member, "name" | "email">): string {
-	const source = member.name?.trim() || member.email;
-	return source
-		.split(/[\s@._-]+/)
-		.filter(Boolean)
-		.slice(0, 2)
-		.map((part) => part[0]?.toUpperCase())
-		.join("");
+/**
+ * The same avatar the Tedis tab draws: a tedi-backed member shares its tedi's
+ * image and palette, a person shows their profile picture, and anyone without
+ * an image falls back to initials.
+ */
+export function MemberAvatar({
+	member,
+	className,
+}: {
+	member: Pick<Member, "id" | "name" | "email" | "avatarUrl" | "tediId">;
+	className?: string;
+}) {
+	const displayName = member.name?.trim() || member.email;
+	return (
+		<EntityAvatar
+			id={member.tediId ?? member.id}
+			name={displayName}
+			kind={member.tediId ? "tedi" : "person"}
+			image={member.avatarUrl}
+			alt={displayName}
+			className={className}
+		/>
+	);
 }
 
 export function memberActivityLabel(
@@ -463,17 +478,7 @@ function TeamMembersPanelBody({
 										<TableRow key={member.id}>
 											<TableCell>
 												<div className="flex min-w-48 items-center gap-3">
-													<Avatar>
-														{member.avatarUrl ? (
-															<AvatarImage
-																alt={member.name ?? member.email}
-																src={member.avatarUrl}
-															/>
-														) : null}
-														<AvatarFallback>
-															{memberInitials(member)}
-														</AvatarFallback>
-													</Avatar>
+													<MemberAvatar member={member} />
 													<div className="min-w-0">
 														<div className="flex items-center gap-2">
 															<Text
@@ -601,15 +606,7 @@ function TeamMembersPanelBody({
 									className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 py-3 first:pt-0 last:pb-0"
 									key={member.id}
 								>
-									<Avatar className="shrink-0">
-										{member.avatarUrl ? (
-											<AvatarImage
-												alt={member.name ?? member.email}
-												src={member.avatarUrl}
-											/>
-										) : null}
-										<AvatarFallback>{memberInitials(member)}</AvatarFallback>
-									</Avatar>
+									<MemberAvatar member={member} className="shrink-0" />
 									<div className="min-w-0">
 										<div className="flex items-center gap-2">
 											<Text

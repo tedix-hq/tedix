@@ -1115,8 +1115,20 @@ const tediRow = (
 	updatedAt: T5,
 });
 
+/** Inline marks so the fixture lane renders avatars without a network. */
+const svgAvatar = (background: string, glyph: string): string =>
+	`data:image/svg+xml,${encodeURIComponent(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${background}"/><text x="32" y="42" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">${glyph}</text></svg>`,
+	)}`;
+const NOVA_AVATAR = svgAvatar("#4f46e5", "N");
+const AGENT_AVATAR = svgAvatar("#111827", "I");
+
 const TEDIS = [
-	tediRow(TEDI_NOVA, "nova", "nova", "Nova", "Calm ops coordinator"),
+	{
+		...tediRow(TEDI_NOVA, "nova", "nova", "Nova", "Calm ops coordinator"),
+		descopeUserId: "tedi-nova",
+		avatar: NOVA_AVATAR,
+	},
 	tediRow(
 		TEDI_MILES,
 		"miles",
@@ -3104,6 +3116,7 @@ const ORG_MEMBERSHIP = {
 		id: fid("90", 1),
 		organizationId: ORG_ID,
 		descopeUserId: "dev-operator",
+		userId: "dev-operator",
 		email: "owner@solstice.example",
 		name: "Local Operator",
 		avatarUrl: null,
@@ -3128,6 +3141,37 @@ const ORG_MEMBERSHIP = {
 	mcpGatewaySlug: "solstice",
 	mcpGatewayUrl: "https://solstice.mcp.tedix.dev/mcp",
 };
+
+/** The members list as the API resolves it: a tedi signs in as its own member. */
+const TEAM_MEMBERS = [
+	ORG_MEMBERSHIP.member,
+	{
+		...ORG_MEMBERSHIP.member,
+		id: fid("90", 2),
+		descopeUserId: "tedi-nova",
+		userId: null,
+		email: "nova@solstice.example",
+		name: "Nova",
+		avatarUrl: NOVA_AVATAR,
+		tediId: TEDI_NOVA,
+		role: "member" as const,
+		lastActiveAt: T5,
+	},
+	{
+		...ORG_MEMBERSHIP.member,
+		id: fid("90", 3),
+		descopeUserId: "agent-instinct-local",
+		userId: null,
+		email: "agent@mail.fictional.example",
+		name: "Instinct",
+		avatarUrl: AGENT_AVATAR,
+		kind: "external_agent" as const,
+		representedUserId: "dev-operator",
+		representedUserName: "Local Operator",
+		role: "member" as const,
+		lastActiveAt: T5,
+	},
+];
 
 /** Org API keys for /admin/api-keys; raw keys never exist in a list read. */
 const apiKeyRow = (
@@ -4140,7 +4184,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 
 	// --- team ---
 	"members/listMembers": (input: Pagination | undefined) =>
-		paginate([ORG_MEMBERSHIP.member], input),
+		paginate(TEAM_MEMBERS, input),
 	"tedis/list": (input: Pagination | undefined) => paginate(TEDIS, input),
 	"tedis/listOperationsSummaries": () => ({
 		data: [

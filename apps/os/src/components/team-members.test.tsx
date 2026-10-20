@@ -30,7 +30,7 @@ import {
 	InviteMemberDialog,
 	inviteRecipientsSequentially,
 	memberActivityLabel,
-	memberInitials,
+	MemberAvatar,
 	MemberStatusBadge,
 	parseInviteRecipients,
 	roleLabel,
@@ -137,14 +137,65 @@ describe("members pure helpers", () => {
 		}
 	});
 
-	it("builds initials from the name when present, otherwise the email", () => {
-		expect(memberInitials({ name: "Ada Lovelace", email: "ada@x.dev" })).toBe(
-			"AL",
+	it("draws a member with the Tedis tab avatar, named after the member", () => {
+		const tediBacked = renderToStaticMarkup(
+			<MemberAvatar
+				member={{
+					id: "member-cmo",
+					name: "CMO",
+					email: "cmo@fictional.example",
+					avatarUrl: "https://images.fictional.example/cmo.png",
+					tediId: "tedi-cmo",
+				}}
+			/>,
 		);
+		expect(tediBacked).toContain('data-entity-kind="tedi"');
+		expect(tediBacked).toContain('aria-label="CMO"');
+		expect(tediBacked).toContain(
+			'src="https://images.fictional.example/cmo.png"',
+		);
+		const agent = renderToStaticMarkup(
+			<MemberAvatar
+				member={{
+					id: "member-agent",
+					name: "Juniper",
+					email: "juniper@agent.example",
+					avatarUrl: "https://images.fictional.example/juniper.png",
+					tediId: null,
+				}}
+			/>,
+		);
+		expect(agent).toContain('data-entity-kind="person"');
+		expect(agent).toContain('aria-label="Juniper"');
+		expect(agent).toContain(
+			'src="https://images.fictional.example/juniper.png"',
+		);
+		const initials = renderToStaticMarkup(
+			<MemberAvatar
+				member={{
+					id: "member-ada",
+					name: "Ada Lovelace",
+					email: "ada@fictional.example",
+					avatarUrl: null,
+					tediId: null,
+				}}
+			/>,
+		);
+		expect(initials).not.toContain("<img");
+		expect(initials).toContain(">AL<");
 		expect(
-			memberInitials({ name: null, email: "grace.hopper@acme.example" }),
-		).toBe("GH");
-		expect(memberInitials({ name: "  ", email: "solo@x.dev" })).toBe("SX");
+			renderToStaticMarkup(
+				<MemberAvatar
+					member={{
+						id: "member-grace",
+						name: "  ",
+						email: "grace@fictional.example",
+						avatarUrl: null,
+						tediId: null,
+					}}
+				/>,
+			),
+		).toContain(">GF<");
 	});
 
 	it("normalizes D1 CURRENT_TIMESTAMP values to UTC before rendering", () => {
@@ -448,10 +499,56 @@ describe("members surface", () => {
 				kind: "external_agent",
 				displayName: "Juniper",
 				representedUserId: "river",
+				avatarUrl: null,
 			},
 		});
 		expect(mounted.invalidated).toContainEqual(osQueryKeys.members());
 		expect(membersApi.updateMemberRole).not.toHaveBeenCalled();
+	});
+
+	it("shows each member's resolved avatar in every row and initials otherwise", async () => {
+		const { host } = await mountPanel({
+			members: [
+				member({
+					email: "cmo@fictional.example",
+					name: "CMO",
+					avatarUrl: "https://images.fictional.example/cmo.png",
+					tediId: "tedi-cmo",
+				}),
+				member({
+					email: "juniper@agent.example",
+					name: "Juniper",
+					kind: "external_agent",
+					representedUserId: "river",
+					representedUserName: "River",
+					avatarUrl: "https://images.fictional.example/juniper.png",
+				}),
+				member({ email: "ada@fictional.example", name: "Ada Lovelace" }),
+			],
+		});
+		const avatars = (label: string) => [
+			...host.querySelectorAll<HTMLElement>(
+				`[role="img"][aria-label="${label}"]`,
+			),
+		];
+		expect(avatars("CMO").length).toBeGreaterThan(0);
+		for (const avatar of avatars("CMO")) {
+			expect(avatar.dataset.entityKind).toBe("tedi");
+			expect(avatar.querySelector("img")?.getAttribute("src")).toBe(
+				"https://images.fictional.example/cmo.png",
+			);
+		}
+		for (const avatar of avatars("Juniper")) {
+			expect(avatar.dataset.entityKind).toBe("person");
+			expect(avatar.querySelector("img")?.getAttribute("src")).toBe(
+				"https://images.fictional.example/juniper.png",
+			);
+		}
+		expect(avatars("Ada Lovelace").length).toBeGreaterThan(0);
+		for (const avatar of avatars("Ada Lovelace")) {
+			expect(avatar.querySelector("img")).toBeNull();
+			expect(avatar.textContent).toBe("AL");
+		}
 	});
 
 	it("renders the Tedix member contract, not a provider admin widget", async () => {

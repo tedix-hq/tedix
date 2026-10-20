@@ -15,6 +15,7 @@ export function EntityAvatar({
 	kind,
 	image,
 	role,
+	alt,
 	className,
 }: {
 	id: string;
@@ -22,6 +23,8 @@ export function EntityAvatar({
 	kind: "workspace" | "tedi" | "person";
 	image?: string | null;
 	role?: string | null;
+	/** Accessible name; without it the avatar is decoration beside its label. */
+	alt?: string;
 	className?: string;
 }) {
 	const [failedImage, setFailedImage] = useState<string | null>(null);
@@ -34,7 +37,9 @@ export function EntityAvatar({
 	const Icon = entityGlyph(kind, role || name);
 	return (
 		<Avatar
-			aria-hidden="true"
+			aria-hidden={alt ? undefined : "true"}
+			role={alt ? "img" : undefined}
+			aria-label={alt}
 			data-entity-kind={kind}
 			data-avatar-palette={entityAvatarIndex(id)}
 			className={cn(
