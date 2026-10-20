@@ -32,6 +32,31 @@ async function replay(authorized: boolean) {
 await assert.rejects(replay(false), /mcp:work.write.*No scopes were added/);
 assert.equal(modelCalls, 0, "missing scope fails before inference");
 assert.match((await replay(true))[0]!, /"required":\["id","body"\]/);
+const row = {
+	callable: "work.add_comment",
+	authorized: true,
+	parameters: { type: "object" },
+};
+for (const result of [
+	JSON.stringify([row]),
+	{ result: [row] },
+	{ result: { 0: row, length: 1 } },
+]) {
+	assert.match(
+		(await preflightDelegationTools(plan, async () => result))[0]!,
+		/work.add_comment/,
+	);
+}
+for (const result of [
+	{ __tedix_truncated: true, result: [row] },
+	{ 1: row, length: 1 },
+	{ result: [{ ...row, authorized: false }] },
+]) {
+	await assert.rejects(
+		preflightDelegationTools(plan, async () => result),
+		/could not be verified|unauthorized/,
+	);
+}
 await assert.rejects(
 	preflightDelegationTools(plan, async () => ({ partial: true })),
 	/could not be verified/,
