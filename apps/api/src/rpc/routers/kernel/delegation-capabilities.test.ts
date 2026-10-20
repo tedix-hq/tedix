@@ -116,6 +116,33 @@ describe("request-derived capability plans", () => {
 		expect(read.capabilityPlan?.allowedToolIds).not.toContain(
 			"os.revise_os_output",
 		);
+		const research = buildDelegationWorkOrder({
+			userContent:
+				"Research the repo and save a 1-page Output in this project.",
+			card,
+			route,
+		});
+		expect(research.capabilityPlan?.allowedToolIds).toContain(
+			"os.create_os_output",
+		);
+		expect(research.capabilityPlan?.allowedToolIds).not.toContain(
+			"os.revise_os_output",
+		);
+		const coding = buildDelegationWorkOrder({
+			userContent:
+				"Refactor the repository. Admission: create (or reuse the named existing) Work item, accept/start it; settle with full SHAs.",
+			card,
+			route,
+		});
+		expect(coding.capabilityPlan?.allowedToolIds).toContain(
+			"work.start_work_item_attempt",
+		);
+		expect(coding.capabilityPlan?.allowedToolIds).toContain(
+			"work.settle_work_item_attempt",
+		);
+		expect(coding.capabilityPlan?.allowedToolIds).not.toContain(
+			"work.complete_work_item",
+		);
 	});
 	it("preflights the requested Work comment even when page reading is available", () => {
 		const content =
