@@ -3,7 +3,11 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DbQueryClient } from "../query-client";
 import type { RepositoryObserverConfig } from "@tedix/api-contract/schemas/repository-observer";
 import { projects } from "../schema/projects";
-import { workItems, workItemComments } from "../schema/work-items";
+import {
+	workItems,
+	workItemComments,
+	workAttempts,
+} from "../schema/work-items";
 
 /** Observation state lives on canonical Work, with one deterministic item per commit/incident. */
 export async function createRepositoryObservation(
@@ -83,6 +87,7 @@ export async function pendingRepositoryObservations(
 				eq(workItems.projectId, projectId),
 				sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
 				sql`json_extract(${workItems.metadata}, '$.report') IS NULL`,
+				sql`${workItems.disposition} IN ('proposed','accepted')`,
 			),
 		)
 		.orderBy(workItems.createdAt)
@@ -134,6 +139,22 @@ export async function reportRepositoryObservation(
 				updatedAt: input.now,
 			})
 			.where(and(eq(workItems.orgId, input.orgId), eq(workItems.id, input.id))),
+		db
+			.update(workItems)
+			.set(
+				settlementValues(
+					input.now,
+					"no action needed: observer reported clear",
+				),
+			)
+			.where(
+				and(
+					eq(workItems.orgId, input.orgId),
+					eq(workItems.id, input.id),
+					settleableObservation(input.now),
+					sql`(json_extract(${workItems.metadata}, '$.latestReport.stillRed') = 0 OR (json_extract(${workItems.metadata}, '$.event.kind') = 'push' AND json_extract(${workItems.metadata}, '$.latestReport.stillRed') IS NULL))`,
+				),
+			),
 	]);
 }
 /** One repair recipe may win per incident, including overlapping requests for different lessons. */
@@ -231,4 +252,75 @@ export async function configureRepositoryObserver(
 		.where(and(eq(projects.orgId, orgId), eq(projects.id, projectId)))
 		.returning({ id: projects.id });
 	return rows.length === 1;
+}
+
+const PUSH_OBSERVATION_RETENTION_HOURS = 24;
+
+function settleableObservation(now: string) {
+	return and(
+		sql`json_extract(${workItems.metadata}, '$.repositoryObserver') = 1`,
+		sql`${workItems.disposition} IN ('proposed','accepted')`,
+		sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${workItems.orgId} AND active_attempt.work_item_id = ${workItems.id} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${now}))`,
+	);
+}
+function settlementValues(now: string, reason: string) {
+	return {
+		disposition: "cancelled" as const,
+		cancelledAt: now,
+		updatedAt: now,
+		version: sql`${workItems.version} + 1`,
+		metadata: sql`json_set(${workItems.metadata}, '$.settleReason', ${reason}, '$.settledAt', ${now})`,
+	};
+}
+export async function settleRecoveredRepositoryObservation(
+	db: DbQueryClient,
+	orgId: string,
+	id: string,
+	now: string,
+) {
+	return db
+		.update(workItems)
+		.set(settlementValues(now, "no action needed: ship_green recovery"))
+		.where(
+			and(
+				eq(workItems.orgId, orgId),
+				eq(workItems.id, id),
+				settleableObservation(now),
+			),
+		)
+		.returning({ id: workItems.id });
+}
+
+/** The subquery bounds the mutation without binding a page of IDs or racing a prior read. */
+export async function settleAgedRepositoryPushObservations(
+	db: DbQueryClient,
+	now: string,
+) {
+	const cutoff = new Date(
+		Date.parse(now) - PUSH_OBSERVATION_RETENTION_HOURS * 60 * 60_000,
+	).toISOString();
+	const candidates = db
+		.select({ id: workItems.id })
+		.from(workItems)
+		.where(
+			and(
+				settleableObservation(now),
+				sql`json_extract(${workItems.metadata}, '$.event.kind') = 'push'`,
+				sql`julianday(${workItems.createdAt}) < julianday(${cutoff})`,
+				sql`coalesce(json_extract(${workItems.metadata}, '$.latestReport.stillRed'), json_extract(${workItems.metadata}, '$.report.stillRed'), 0) = 0`,
+				sql`NOT EXISTS (SELECT 1 FROM work_items red WHERE red.org_id = ${workItems.orgId} AND red.project_id = ${workItems.projectId} AND json_extract(red.metadata, '$.repositoryObserver') = 1 AND json_extract(red.metadata, '$.event.kind') IN ('ship_red','ci_red') AND json_extract(red.metadata, '$.event.repository') = json_extract(${workItems.metadata}, '$.event.repository') AND json_extract(red.metadata, '$.event.branch') = json_extract(${workItems.metadata}, '$.event.branch') AND json_extract(red.metadata, '$.event.sha') = json_extract(${workItems.metadata}, '$.event.sha'))`,
+			),
+		)
+		.orderBy(workItems.createdAt, workItems.id)
+		.limit(100);
+	return db
+		.update(workItems)
+		.set(
+			settlementValues(
+				now,
+				`no action needed: push observation older than ${PUSH_OBSERVATION_RETENTION_HOURS} hours with no red follow-up`,
+			),
+		)
+		.where(sql`${workItems.id} IN (${candidates})`)
+		.returning({ id: workItems.id });
 }
