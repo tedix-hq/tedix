@@ -105,6 +105,35 @@ await assert.rejects(
 	}),
 	/exact source\/tool mappings/,
 );
+// Replay: a busy gateway served a catalog without the Work namespace, and the
+// first describe failed the whole delegated turn before inference.
+const degraded = `Execution error: Callable "work.add_comment" is not exposed in the current gateway catalog. Nearest namespaces: home, organizations, flow.`;
+let catalogReads = 0;
+const recovered = await preflightDelegationTools(plan, async () => {
+	catalogReads++;
+	if (catalogReads === 1) throw new Error(degraded);
+	return [row];
+}, [0]);
+assert.equal(catalogReads, 2);
+assert.match(recovered[0]!, /work\.add_comment/);
+let persistentReads = 0;
+await assert.rejects(
+	preflightDelegationTools(plan, async () => {
+		persistentReads++;
+		throw new Error(degraded);
+	}, [0, 0]),
+	/not exposed in the current gateway catalog/,
+);
+assert.equal(persistentReads, 3, "a persistent gap still fails closed");
+let otherReads = 0;
+await assert.rejects(
+	preflightDelegationTools(plan, async () => {
+		otherReads++;
+		throw new Error("permission denied");
+	}, [0]),
+	/permission denied/,
+);
+assert.equal(otherReads, 1, "only a missing-catalog read is retried");
 console.log(
 	"PASS delegated tool authority and checkout preflight replay before inference",
 );

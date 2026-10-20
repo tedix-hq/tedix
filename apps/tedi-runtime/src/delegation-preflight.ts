@@ -44,10 +44,36 @@ export function assertNativeResearchCheckout(
 		);
 }
 
+const CATALOG_NOT_EXPOSED = /is not exposed in the current gateway catalog/i;
+const CATALOG_RETRY_DELAYS_MS = [1_500, 4_000];
+
+/**
+ * A busy gateway can serve a degraded catalog that omits whole namespaces.
+ * Re-read it a bounded number of times; an authority verdict is never assumed.
+ */
+async function executeWithCatalogRetry(
+	execute: (code: string) => Promise<unknown>,
+	code: string,
+	delaysMs: readonly number[],
+): Promise<unknown> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await execute(code);
+		} catch (error) {
+			const delay = delaysMs[attempt];
+			const message = error instanceof Error ? error.message : String(error);
+			if (delay === undefined || !CATALOG_NOT_EXPOSED.test(message))
+				throw error;
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+	}
+}
+
 /** Read metadata with the child's own credential; discovery never grants access. */
 export async function preflightDelegationTools(
 	plan: DelegationCapabilityPlan | undefined,
 	execute: (code: string) => Promise<unknown>,
+	retryDelaysMs: readonly number[] = CATALOG_RETRY_DELAYS_MS,
 ): Promise<string[]> {
 	if (!plan)
 		throw new Error(
@@ -68,9 +94,8 @@ export async function preflightDelegationTools(
 		throw new Error(
 			"Delegation preflight failed: invalid or excessive required callables",
 		);
-	const result = await execute(
-		`async () => await Promise.all(${codeModeLiteral(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`,
-	);
+	const code = `async () => await Promise.all(${codeModeLiteral(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`;
+	const result = await executeWithCatalogRetry(execute, code, retryDelaysMs);
 	const rows = discoveryRows(result);
 	if (!rows)
 		throw new Error(
