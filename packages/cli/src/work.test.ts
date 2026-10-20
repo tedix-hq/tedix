@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readDelegations } from "./delegation-ledger";
 import { TedixHomeClient } from "./home-client";
+import { parseOptions } from "./options";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import {
 	attemptSessionLabel,
@@ -3794,4 +3795,43 @@ test("settle sends the exact human next click and original request to the server
 	expect(await runWork(`settle ${ITEM}`, ctx)).toBe(0);
 	expect(sources[0]).toContain('"needsUser":"Confirm address and send"');
 	expect(sources[0]).toContain(`"requestId":"${ITEM}"`);
+});
+
+describe("comment text options", () => {
+	test.each(["--body", "--message", "--text"])(
+		"posts the trimmed %s value",
+		async (flag) => {
+			const { options } = parseOptions([
+				"work",
+				"comment",
+				ITEM,
+				"positional",
+				flag,
+				" flag body ",
+			]);
+			const { ctx, sources } = makeContext();
+			expect((await capture(options.prompt!, ctx)).code).toBe(0);
+			expect(sources).toHaveLength(1);
+			expect(sources[0]).toContain('"body":"flag body"');
+		},
+	);
+
+	test.each([[], ["--body", " "], ["--message= "], ["--text", ""]])(
+		"rejects empty text before a native call: %j",
+		async (...flags: string[]) => {
+			const { options } = parseOptions(["work", "comment", ITEM, ...flags]);
+			const { ctx, sources } = makeContext();
+			await expect(capture(options.prompt!, ctx)).rejects.toThrow(
+				"work comment requires a work item id and comment text",
+			);
+			expect(sources).toHaveLength(0);
+		},
+	);
+
+	test("help documents create descriptions and comment aliases", () => {
+		expect(workUsage()).toContain("[--desc <text>]");
+		expect(workUsage()).toContain(
+			"comment <id> [text] [--body|--message|--text <text>]",
+		);
+	});
 });

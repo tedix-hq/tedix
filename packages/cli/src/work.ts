@@ -3078,7 +3078,7 @@ Usage: tedix work <verb> [args] [options]
 
 Lifecycle:
   create "<title>" --kind <kind> (--project <id> | --objective <id> | --class <class> --expires <duration>)
-              [--project <id>]
+              [--project <id>] [--desc <text>]
   accept <id> --done-when "<what done looks like>"
   readiness <id>
   start <id> [--lane] [--worktree [--worktree-root <path>]]
@@ -3103,7 +3103,8 @@ Ledger (historical rows on in-flight items stay readable; nothing reviews them):
 Discovery: list [--disposition <value>] · find <query> · readiness <id> · context <id>
 Ledgers: evidence <id> · attempts <id> · events <id>  (one bounded page; --limit 1–100, default 25)
 Checkpoint: checkpoint (read selected chat Work and bounded directed open Interactions; no writes)
-Collaboration: comment <id> <text> · confirm <id> --evidence <ref> [--contradicts]
+Collaboration: comment <id> [text] [--body|--message|--text <text>]
+               confirm <id> --evidence <ref> [--contradicts]
 
 Choose the parent before creating. --project files the item under a portfolio
 project and inherits its objective. For example:
