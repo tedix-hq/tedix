@@ -702,8 +702,11 @@ export const withAuth = base.middleware(async (options, input) => {
 		if (!context.env.AGENT_REVIEW_PROJECT_ID) return options.next(...args);
 		const { guardAgentReviewAccess } =
 			await import("../services/agent-review-access");
-		return guardAgentReviewAccess(context, input, async () =>
-			options.next(...args),
+		return guardAgentReviewAccess(
+			context,
+			input,
+			async () => options.next(...args),
+			options.path,
 		);
 	};
 	// Console credentials never inherit service-binding or general tedi authority.

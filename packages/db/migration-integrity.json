@@ -1028,6 +1028,10 @@
 		{
 			"name": "20261020174334_attention-ask-kind/migration.sql",
 			"sha256": "3ad139cde35eae42acb66818d2bdf250405e4b46869660d34838abba2662fa97"
+		},
+		{
+			"name": "20261020175455_agent_review_bounds/migration.sql",
+			"sha256": "3242a992a1dea171de2e72fcc89925b10143dc3bd580787786d6f29ec56a4969"
 		}
 	]
 }

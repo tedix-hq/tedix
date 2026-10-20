@@ -8,6 +8,7 @@
  * - Tedis are conceptually separate from MCP "Apps" — different entity, different purpose
  */
 
+import type { AiGatewayAdmissionPolicy } from "@tedix/api-contract/schemas/tedi";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { sql } from "drizzle-orm";
 import {
@@ -87,6 +88,9 @@ export type DeviceStatus = (typeof DEVICE_STATUS_VALUES)[number];
 
 /** Tool execution approval policies */
 export interface ToolPolicy {
+	runtimeTools?: string[];
+	mcpScopes?: string[];
+	mcpEndpoints?: string[];
 	bash?: "always-allow" | "approve-first-then-allow" | "always-approve";
 	browser?: "always-allow" | "always-approve";
 	browserEgress?: BrowserHostnamePolicy;
@@ -115,6 +119,7 @@ export interface SelfImprovementPolicy {
 
 /** Daily/operational budget caps */
 export interface TediBudgets {
+	aiGatewayPolicy?: AiGatewayAdmissionPolicy;
 	dailyTokenLimit?: number;
 	dailyMessageLimit?: number;
 	operatorTokenReserve?: number;

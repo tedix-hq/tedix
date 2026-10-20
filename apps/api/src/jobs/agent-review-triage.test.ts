@@ -5,10 +5,14 @@ const mocks = vi.hoisted(() => ({
 	claim: vi.fn(),
 	notice: vi.fn(),
 	wake: vi.fn(),
+	purge: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/projects", () => ({
 	getProjectById: mocks.project,
+}));
+vi.mock("@tedix/db/queries/work-items/agent-review-intake", () => ({
+	purgeExpiredAgentReviews: mocks.purge,
 }));
 vi.mock("@tedix/db/queries/work-items/agent-review-triage", () => ({
 	listAgentReviewsForTriage: mocks.list,
@@ -27,83 +31,61 @@ const project = {
 	objectiveId: "objective",
 	metadata: {
 		agentReviewEnabled: true,
-		agentReviewTriage: { retryMinutes: 15, maxRetries: 2 },
+		agentReviewTriage: { enabled: true, tediId: "triager" },
 	},
 };
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.project.mockResolvedValue(project);
-	mocks.claim.mockResolvedValue(true);
 	mocks.list.mockResolvedValue([]);
+	mocks.claim.mockResolvedValue(true);
+	mocks.purge.mockResolvedValue(0);
 });
-it("uses project recovery policy and skips missing or disabled intake", async () => {
+it("disabled triage returns before querying reviews or waking the CTO while retention remains scheduled", async () => {
+	mocks.project.mockResolvedValue({
+		...project,
+		leadTediId: "cto",
+		metadata: { ...project.metadata, agentReviewTriage: { enabled: false } },
+	});
 	await sweepAgentReviewTriage(env, now);
+	expect(mocks.list).not.toHaveBeenCalled();
+	expect(mocks.wake).not.toHaveBeenCalled();
+	expect(mocks.purge).toHaveBeenCalledOnce();
+});
+it("fails closed unless a dedicated triager is explicitly configured", async () => {
+	mocks.project.mockResolvedValue({
+		...project,
+		metadata: { agentReviewEnabled: true },
+	});
+	await sweepAgentReviewTriage(env, now);
+	expect(mocks.wake).not.toHaveBeenCalled();
+	expect(mocks.list).not.toHaveBeenCalled();
+});
+it("bounds recovery to two per tick, one retry and seven days", async () => {
+	mocks.list.mockResolvedValue(
+		Array.from({ length: 50 }, (_, i) => ({ id: `review-${i}`, retries: 0 })),
+	);
+	await sweepAgentReviewTriage(env, now);
+	expect(mocks.wake).toHaveBeenCalledTimes(2);
 	expect(mocks.list).toHaveBeenCalledWith(
 		{},
 		expect.objectContaining({
-			maxRetries: 2,
-			retryBefore: "2026-10-20T11:45:00.000Z",
+			maxRetries: 1,
+			limit: 2,
+			recentAfter: "2026-10-13T12:00:00.000Z",
 		}),
 	);
-	mocks.project.mockResolvedValue({
-		...project,
-		metadata: { agentReviewEnabled: false },
-	});
-	await sweepAgentReviewTriage(env, now);
-	expect(mocks.list).toHaveBeenCalledTimes(1);
-});
-it("records completion only for a saved result; late pending reviews get a notice and a fresh bounded wake", async () => {
-	mocks.list.mockResolvedValue([
-		{ id: "done", complete: true },
-		{
-			id: "stuck",
-			complete: false,
-			createdAt: "2026-10-20T09:00:00Z",
-			retries: 0,
-			lastRetry: null,
-		},
-		{
-			id: "exhausted",
-			complete: false,
-			createdAt: "2026-10-20T08:00:00Z",
-			retries: 2,
-			lastRetry: "2026-10-20T10:00:00Z",
-		},
-		{
-			id: "recent",
-			complete: false,
-			createdAt: "2026-10-20T09:00:00Z",
-			retries: 1,
-			lastRetry: "2026-10-20T11:50:00Z",
-		},
-	]);
-	await sweepAgentReviewTriage(env, now);
-	expect(mocks.notice).toHaveBeenCalledWith(
+	expect(mocks.notice).toHaveBeenCalledExactlyOnceWith(
 		{},
-		expect.objectContaining({ workItemId: "done", state: "completed" }),
+		expect.objectContaining({ state: "digest", projectId: "reviews" }),
 	);
-	expect(mocks.notice).toHaveBeenCalledWith(
+	expect(mocks.purge).toHaveBeenCalledWith(
 		{},
-		expect.objectContaining({ workItemId: "stuck", state: "late" }),
-	);
-	expect(mocks.wake).toHaveBeenCalledExactlyOnceWith(
-		{},
-		env,
-		project,
-		expect.objectContaining({ id: "stuck" }),
-		1,
+		expect.objectContaining({ before: "2026-07-22T12:00:00.000Z" }),
 	);
 });
-it("does not dispatch when another tick has claimed the same retry", async () => {
-	mocks.list.mockResolvedValue([
-		{
-			id: "stuck",
-			complete: false,
-			createdAt: "2026-10-20T09:00:00Z",
-			retries: 0,
-			lastRetry: null,
-		},
-	]);
+it("does not dispatch when another tick already claimed the attempt", async () => {
+	mocks.list.mockResolvedValue([{ id: "review", retries: 1 }]);
 	mocks.claim.mockResolvedValue(false);
 	await sweepAgentReviewTriage(env, now);
 	expect(mocks.wake).not.toHaveBeenCalled();

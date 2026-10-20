@@ -39,20 +39,6 @@ agentReviewRoutes.post("/", async (c) => {
 	) {
 		return c.json({ error: "Use application/json" }, 415);
 	}
-	// A global bucket caps anonymous wake costs across rotating client IPs.
-	try {
-		if (
-			!(
-				await c.env.AGENT_REVIEW_RATE_LIMITER.limit({
-					key: "agent-review:global",
-				})
-			).success
-		) {
-			return c.json({ error: "Intake busy" }, 429, { "Retry-After": "60" });
-		}
-	} catch {
-		return c.json({ error: "Review intake unavailable" }, 503);
-	}
 	let input: unknown;
 	try {
 		const reader = c.req.raw.body?.getReader();
@@ -101,7 +87,11 @@ agentReviewRoutes.get("/:id", async (c) => {
 
 agentReviewRoutes.onError((error, c) => {
 	if (error instanceof HTTPException)
-		return c.json({ error: error.message }, error.status);
+		return c.json(
+			{ error: error.message },
+			error.status,
+			error.res ? Object.fromEntries(error.res.headers) : undefined,
+		);
 	console.error({ event: "agent_review.unavailable" });
 	return c.json(
 		{ error: "Review intake unavailable; retry the identical payload" },

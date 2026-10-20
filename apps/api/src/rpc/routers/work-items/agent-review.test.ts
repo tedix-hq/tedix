@@ -28,6 +28,7 @@ function client(scopes = ["mcp:work.write"]) {
 		{
 			context: {
 				db: {},
+				organizationId: "fictional-caller",
 				env: { AGENT_REVIEW_RATE_LIMITER: { limit: quota } },
 				headers: new Headers(),
 				authType: "apikey",
@@ -49,8 +50,13 @@ beforeEach(() => {
 
 it("calls the same intake service without an external fetch and returns only receipt fields", async () => {
 	const receipt = await client().file(input);
-	expect(submit).toHaveBeenCalledWith({}, expect.any(Object), input);
-	expect(quota).toHaveBeenCalledWith({ key: "agent-review:global" });
+	expect(submit).toHaveBeenCalledWith(
+		{},
+		expect.any(Object),
+		input,
+		"fictional-caller",
+	);
+	expect(quota).not.toHaveBeenCalled();
 	expect(receipt).toEqual({
 		receiptUrl:
 			"https://api.example.test/public/agent-review/fictional-receipt",
@@ -63,19 +69,21 @@ it("requires the Work write scope before calling intake", async () => {
 	});
 	expect(submit).not.toHaveBeenCalled();
 });
-it("shares the public global quota", async () => {
-	quota.mockResolvedValue({ success: false });
+it("preserves the intake quota response", async () => {
+	submit.mockRejectedValue(
+		new HTTPException(429, { message: "Daily review intake is full" }),
+	);
 	await expect(client().file(input)).rejects.toMatchObject({
 		code: "TOO_MANY_REQUESTS",
 	});
-	expect(submit).not.toHaveBeenCalled();
+	expect(submit).toHaveBeenCalledOnce();
 });
 it("fails closed on quota failures", async () => {
-	quota.mockRejectedValue(new Error("limiter offline"));
+	submit.mockRejectedValue(new Error("limiter offline"));
 	await expect(client().file(input)).rejects.toMatchObject({
 		code: "SERVICE_UNAVAILABLE",
 	});
-	expect(submit).not.toHaveBeenCalled();
+	expect(submit).toHaveBeenCalledOnce();
 });
 it("preserves validation failure without exposing arbitrary storage errors", async () => {
 	submit.mockRejectedValueOnce(

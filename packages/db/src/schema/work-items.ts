@@ -306,6 +306,11 @@ export const workItems = sqliteTable(
 			table.riskLevel,
 		),
 		index("idx_work_items_project").on(table.projectId),
+		index("idx_work_items_org_project_created").on(
+			table.orgId,
+			table.projectId,
+			table.createdAt,
+		),
 		index("idx_work_items_parent").on(table.parentWorkItemId),
 		index("idx_work_items_accountable_owner").on(
 			table.orgId,

@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/work-items/agent-review-intake": "./src/queries/work-items/agent-review-intake.ts",
 		"./queries/work-items/agent-review-triage": "./src/queries/work-items/agent-review-triage.ts",
 		"./queries/work-items/card-style-rules": "./src/queries/work-items/card-style-rules.ts",
 		"./queries/factory-card-revisions": "./src/queries/factory-card-revisions.ts",

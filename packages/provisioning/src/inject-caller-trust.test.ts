@@ -32,6 +32,7 @@ const config: ProvisioningConfig = {
 
 const result = await injectAgentMessage(config, {
 	message: "do the work",
+	learningMode: "disabled",
 	async: true,
 	metadata: { workItemId: "work-1", homeRunId: "home-1" },
 });
@@ -44,6 +45,10 @@ assert.equal(
 	"member",
 	"kernel inject stamps the member tier",
 );
-const body = seen[0]?.body as { metadata?: { workItemId?: string } };
+const body = seen[0]?.body as {
+	learning_mode?: string;
+	metadata?: { workItemId?: string };
+};
+assert.equal(body.learning_mode, "disabled");
 assert.equal(body.metadata?.workItemId, "work-1");
 console.log("injectAgentMessage stamps x-tedix-caller-trust: member");
