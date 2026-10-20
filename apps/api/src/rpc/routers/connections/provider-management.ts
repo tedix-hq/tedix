@@ -29,23 +29,29 @@ import { pinConnectionProviderIssuer } from "@tedix/db/queries/connection-provid
 import { requireOrgId } from "../../org-scope";
 import {
 	authedOs,
-	buildProviderProvisioning,
-	composeApiKeyCredential,
-	DESCOPE_OUTBOUND_CALLBACK_DOMAIN,
 	enforceConnectionProviderIssuerPin,
+	resolveAdaptiveConnectUserToken,
+	resolveConnectionConsentScopes,
+	resolveTediTenantId,
+	tediOs,
+} from "./policy-resolution";
+import {
+	composeApiKeyCredential,
+	resolveConnectionProviderTemplate,
+} from "./provider-discovery";
+import {
+	buildProviderProvisioning,
+	DESCOPE_OUTBOUND_CALLBACK_DOMAIN,
 	isDescopeDcrRegistrationError,
-	isPrivateOrLoopbackUrl,
 	loadExistingStaticOAuthProvider,
 	normalizeProviderDescription,
 	registerMcpOAuthClientForDescope,
+} from "./provider-registration";
+import {
+	isPrivateOrLoopbackUrl,
 	renderableLogoUrl,
-	resolveAdaptiveConnectUserToken,
-	resolveConnectionConsentScopes,
-	resolveConnectionProviderTemplate,
-	resolveTediTenantId,
 	slugFromName,
-	tediOs,
-} from "./policy-resolution";
+} from "./url-and-scopes";
 
 /**
  * Create a Descope outbound app from an upstream MCP protected resource.

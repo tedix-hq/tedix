@@ -19,11 +19,11 @@ import {
 } from "@tedix/db/queries/app-records";
 import {
 	authedOs,
-	collectReferencedProviders,
-	mapConnectionRecord,
 	requireUserId,
 	fetchNamedConnection,
 } from "./policy-resolution";
+import { collectReferencedProviders } from "./provider-registration";
+import { mapConnectionRecord } from "./url-and-scopes";
 import { readConnectionProviders } from "./discovery-user";
 
 type CredentialResponse = {

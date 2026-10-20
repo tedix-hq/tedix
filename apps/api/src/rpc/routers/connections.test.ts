@@ -7,25 +7,31 @@ import type { DbClient } from "@tedix/db/client";
 import type { ConnectionProviderRow } from "@tedix/db/schema/connection-providers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-	auditOutboundAppRecord,
 	buildCredentialResolutionTargets,
 	buildLabeledProviderCandidates,
-	buildProviderProvisioning,
-	chooseEffectiveConsentScopes,
-	collectReferencedProviders,
-	composeApiKeyCredential,
-	DESCOPE_OUTBOUND_CALLBACK_DOMAIN,
-	discoverOutboundAppMetadataForAudit,
 	enforceConnectionProviderIssuerPin,
+	resolveCredentialChain,
+	resolveTokenPreferringLabel,
+} from "./connections/policy-resolution";
+import {
+	auditOutboundAppRecord,
+	composeApiKeyCredential,
+	discoverOutboundAppMetadataForAudit,
+	resolveConnectionProviderTemplate,
+} from "./connections/provider-discovery";
+import {
+	buildProviderProvisioning,
+	collectReferencedProviders,
+	DESCOPE_OUTBOUND_CALLBACK_DOMAIN,
 	hasStaticOAuthOutboundAppShape,
 	isDescopeDcrRegistrationError,
 	normalizeProviderDescription,
 	registerMcpOAuthClientForDescope,
-	resolveConnectionProviderTemplate,
-	resolveCredentialChain,
+} from "./connections/provider-registration";
+import {
+	chooseEffectiveConsentScopes,
 	resolveProviderLogoUrl,
-	resolveTokenPreferringLabel,
-} from "./connections/policy-resolution";
+} from "./connections/url-and-scopes";
 
 const baseArgs = {
 	descopeTenantId: "org_descope_1",
