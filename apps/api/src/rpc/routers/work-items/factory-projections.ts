@@ -38,6 +38,22 @@ export const listReadinessProjectionProcedure =
 		};
 	});
 
+/**
+ * Attempt summaries can hold a whole agent transcript. The org-wide projection
+ * is a paging index, so each row keeps a short summary; the full text stays on
+ * the per-item attempt ledger. Without this, five settled rows overflow a
+ * delegated tedi's tool-result budget and every page arrives clipped.
+ */
+export const ATTEMPT_PROJECTION_SUMMARY_CHARS = 480;
+
+export function boundAttemptProjectionSummary(
+	summary: string | null,
+): string | null {
+	if (summary === null || summary.length <= ATTEMPT_PROJECTION_SUMMARY_CHARS)
+		return summary;
+	return `${summary.slice(0, ATTEMPT_PROJECTION_SUMMARY_CHARS - 1).trimEnd()}…`;
+}
+
 export const listAttemptProjectionProcedure =
 	projectionOs.listAttemptProjection.handler(async ({ input, context }) => {
 		const page = await listOrgWorkAttempts(context.db, {
@@ -57,6 +73,10 @@ export const listAttemptProjectionProcedure =
 			data: await Promise.all(
 				page.data.map(async (row) => ({
 					...row,
+					attempt: {
+						...row.attempt,
+						summary: boundAttemptProjectionSummary(row.attempt.summary),
+					},
 					laneState:
 						row.attempt.metadata.lane === true
 							? await readLaneState(
