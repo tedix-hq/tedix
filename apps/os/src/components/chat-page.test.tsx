@@ -98,7 +98,9 @@ vi.mock("@/components/chat-thread", () => ({
 		onConversationCreated,
 		onConversationPrepared,
 		prepareNewConversation,
+		recoverPendingSend,
 	}: {
+		recoverPendingSend?: boolean;
 		conversationId: string | null;
 		onConversationCreated?: (
 			conversationId: string,
@@ -115,7 +117,14 @@ vi.mock("@/components/chat-thread", () => ({
 		chatHarness.onConversationCreated = onConversationCreated ?? null;
 		chatHarness.onConversationPrepared = onConversationPrepared ?? null;
 		chatHarness.prepareNewConversation = prepareNewConversation ?? null;
-		return <div data-chat-thread={conversationId ?? "new"}>Chat thread</div>;
+		return (
+			<div
+				data-chat-thread={conversationId ?? "new"}
+				data-recover-pending={recoverPendingSend}
+			>
+				Chat thread
+			</div>
+		);
 	},
 }));
 
@@ -279,9 +288,11 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 	it("starts a fresh thread identity when New is chosen from an already new conversation", async () => {
 		const host = await mountPage();
 		const first = host.querySelector("[data-chat-thread]");
+		expect(first?.getAttribute("data-recover-pending")).toBe("true");
 		await act(async () => chatHarness.onSelect?.(null));
 		const second = host.querySelector("[data-chat-thread]");
 		expect(second).not.toBe(first);
+		expect(second?.getAttribute("data-recover-pending")).toBe("false");
 		await act(async () => chatHarness.onSelect?.(null));
 		expect(host.querySelector("[data-chat-thread]")).not.toBe(second);
 	});

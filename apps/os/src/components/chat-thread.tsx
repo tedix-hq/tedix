@@ -21,6 +21,7 @@ import {
 	X,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { HomeMessage } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	Fragment,
@@ -193,6 +194,58 @@ import {
 	userMessageFromEnqueue,
 } from "@/components/chat-transcript";
 
+type RecoverableChatSend = Parameters<
+	ChatTransportActions["enqueueMessage"]
+>[0] & {
+	conversationId: string;
+	draftContent: string;
+};
+
+const FIRST_SEND_PENDING_MS = 15_000;
+const RECOVERED_SEND_NOTICE =
+	"Confirmation is taking longer than expected. Check status or retry the saved message.";
+
+function readRecoverableChatSend(key: string): RecoverableChatSend | null {
+	try {
+		const requests = JSON.parse(window.localStorage.getItem(key) ?? "[]");
+		const value = Array.isArray(requests) ? requests.at(-1) : null;
+		if (
+			!value ||
+			typeof value.draftContent !== "string" ||
+			typeof value.conversationId !== "string" ||
+			typeof value.idempotencyKey !== "string" ||
+			!EnqueueHomeMessageInputSchema.safeParse(value).success
+		)
+			return null;
+		return value;
+	} catch {
+		return null;
+	}
+}
+
+function saveRecoverableChatSend(
+	key: string,
+	request: RecoverableChatSend | null,
+	settledKey?: string,
+) {
+	try {
+		const stored = JSON.parse(window.localStorage.getItem(key) ?? "[]");
+		const requests = Array.isArray(stored)
+			? stored.filter(
+					(candidate) =>
+						candidate?.idempotencyKey !==
+						(request?.idempotencyKey ?? settledKey),
+				)
+			: [];
+		if (request) requests.push(request);
+		if (requests.length)
+			window.localStorage.setItem(key, JSON.stringify(requests));
+		else window.localStorage.removeItem(key);
+	} catch {
+		// Storage denial must not prevent sending or confirming a durable turn.
+	}
+}
+
 export function ChatThread({
 	conversationId,
 	onConversationCreated,
@@ -200,6 +253,7 @@ export function ChatThread({
 	context,
 	workspaceId,
 	composerOnly = false,
+	recoverPendingSend = false,
 	autoFocusComposer = false,
 	onSendMessageReady,
 	onOutputCreated,
@@ -220,6 +274,8 @@ export function ChatThread({
 	 * creates the conversation through the same path as the full thread.
 	 */
 	composerOnly?: boolean;
+	/** Restore on page entry; an explicit New action starts a fresh composer. */
+	recoverPendingSend?: boolean;
 	/**
 	 * Focus the composer when the thread mounts or changes conversation. The
 	 * Workspace's chat-first layout sets it so the first-send navigation from
@@ -255,7 +311,19 @@ export function ChatThread({
 	const cacheConversationRef = useRef<string | null>(conversationId);
 	// A New thread has no route id until its first turn succeeds. Hold the id
 	// across retries so failed first turns cannot create multiple conversations.
-	const newConversationIdRef = useRef<string | null>(null);
+	const recoveryKey = `tedix-os:chat-bootstrap:${workspaceId ?? "home"}`;
+	const [recoveredSend] = useState(() => {
+		if (!recoverPendingSend) return null;
+		const request = readRecoverableChatSend(recoveryKey);
+		return request &&
+			(conversationId === null || conversationId === request.conversationId)
+			? request
+			: null;
+	});
+	const recoveryRequestRef = useRef<RecoverableChatSend | null>(recoveredSend);
+	const newConversationIdRef = useRef<string | null>(
+		recoveredSend?.conversationId ?? null,
+	);
 	if (conversationId === null && newConversationIdRef.current === null) {
 		newConversationIdRef.current = newHomeConversationId();
 	}
@@ -287,27 +355,47 @@ export function ChatThread({
 	// `firstSendConfirmPollMs`: the transcript is read under the minted id so
 	// the turn shows as sent once its durable row exists, not at the response.
 	const [firstSendInFlight, setFirstSendInFlight] =
-		useState<FirstSendInFlight | null>(null);
+		useState<FirstSendInFlight | null>(recoveredSend);
 	const [notice, setNotice] = useState<string | null>(null);
-	const [sendError, setSendError] = useState<string | null>(null);
-	const [sendErrorUnknown, setSendErrorUnknown] = useState(false);
+	const [sendError, setSendError] = useState<string | null>(
+		recoveredSend ? RECOVERED_SEND_NOTICE : null,
+	);
+	const [sendErrorUnknown, setSendErrorUnknown] = useState(
+		Boolean(recoveredSend),
+	);
 	// Held until the send settles successfully; a retry reuses the same key.
-	const idempotencyKeyRef = useRef<string | null>(null);
+	const idempotencyKeyRef = useRef<string | null>(
+		recoveredSend?.idempotencyKey ?? null,
+	);
+	const unknownBootstrapKeyRef = useRef<string | null>(
+		recoveredSend?.idempotencyKey ?? null,
+	);
 	const directReadRetryRef = useRef<DirectReadRequest | null>(null);
 
-	// The provisional user-turn plane. Ephemeral by construction (plain React
-	// state, wiped on conversation switch and gone on reload), keyed by the
-	// idempotency key so a same-key retry lands on the same entry and the
-	// durable row's arrival retires exactly one overlay. See `provisional-send.ts`.
-	const [provisional, setProvisional] = useState<ProvisionalSendMap>(() =>
-		takeCarriedProvisionalFirstTurn(conversationId),
-	);
+	// Provisional turns reconcile by key. A saved bootstrap restores its unknown
+	// overlay on reload; established-thread overlays remain ephemeral.
+	const [provisional, setProvisional] = useState<ProvisionalSendMap>(() => {
+		let initial = takeCarriedProvisionalFirstTurn(conversationId);
+		if (recoveredSend) {
+			initial = reduceProvisionalSends(initial, {
+				type: "send",
+				...recoveredSend,
+				at: new Date().toISOString(),
+			});
+			initial = reduceProvisionalSends(initial, {
+				type: "unknown",
+				idempotencyKey: recoveredSend.idempotencyKey,
+				error: RECOVERED_SEND_NOTICE,
+			});
+		}
+		return initial;
+	});
 	const dispatchProvisional = useCallback((action: ProvisionalSendAction) => {
 		setProvisional((current) => reduceProvisionalSends(current, action));
 	}, []);
 
 	const [draft, setDraft] = useState(() =>
-		restoreChatDraft(window.localStorage, conversationId),
+		recoveredSend ? "" : restoreChatDraft(window.localStorage, conversationId),
 	);
 	const [includeContext, setIncludeContext] = useState(Boolean(context));
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -418,6 +506,8 @@ export function ChatThread({
 		setPinnedToBottom(true);
 		prependAnchorRef.current = null;
 		idempotencyKeyRef.current = null;
+		unknownBootstrapKeyRef.current = null;
+		recoveryRequestRef.current = null;
 		setFirstSendInFlight(null);
 		setMessages([]);
 		setOlderCursor(null);
@@ -760,6 +850,49 @@ export function ChatThread({
 		}
 	}, [transcript.data]);
 
+	useEffect(() => {
+		if (!firstSendInFlight || !isCurrentSend(firstSendInFlight.conversationId))
+			return;
+		if (
+			!messages.some(
+				(message) =>
+					message.id ===
+					provisionalSendMessageId(firstSendInFlight.idempotencyKey),
+			)
+		)
+			return;
+		const target = firstSendInFlight.conversationId;
+		setFirstSendInFlight(null);
+		setPendingRunId(firstSendInFlight.idempotencyKey);
+		unknownBootstrapKeyRef.current = null;
+		setSendError(null);
+		setSendErrorUnknown(false);
+		recoveryRequestRef.current = null;
+		saveRecoverableChatSend(
+			recoveryKey,
+			null,
+			firstSendInFlight.idempotencyKey,
+		);
+		try {
+			window.localStorage.removeItem(chatDraftKey(conversationId));
+		} catch {
+			/* Draft storage is optional. */
+		}
+		if (conversationId === null && cacheConversationRef.current !== target) {
+			cacheConversationRef.current = target;
+			dispatchProvisional({ type: "adopt", conversationId: target });
+			onConversationCreated?.(target, workspaceId);
+		}
+	}, [
+		messages,
+		firstSendInFlight,
+		conversationId,
+		recoveryKey,
+		workspaceId,
+		onConversationCreated,
+		dispatchProvisional,
+	]);
+
 	// The first non-empty transcript is the baseline; an output link that
 	// appears after it arrived live (a create receipt) and is announced once.
 	useEffect(() => {
@@ -901,33 +1034,58 @@ export function ChatThread({
 	}, [pendingRunId, runSet, conversationId, queryClient]);
 
 	const send = useMutation({
-		mutationFn: (input: {
-			enqueueMessage: ChatTransportActions["enqueueMessage"];
-			draftContent: string;
-			content: string;
-			conversationId: string;
-			idempotencyKey: string;
-			attachments?: TediMessageAttachment[];
-			metadata?: Record<string, unknown>;
-			workspaceContext?: {
-				workspaceId: string;
-				workpiece?: { kind: "gadget" | "output"; id: string };
-			};
-			modelRef?: string;
-			delegateToTediId?: string;
-		}) =>
-			input.enqueueMessage({
-				conversationId: input.conversationId,
-				content: input.content,
-				idempotencyKey: input.idempotencyKey,
-				attachments: input.attachments,
-				metadata: input.metadata,
-				workspaceContext: input.workspaceContext,
-				modelRef: input.modelRef,
-				delegateToTediId: input.delegateToTediId,
-			}),
+		mutationFn: async (
+			input: RecoverableChatSend & {
+				enqueueMessage: ChatTransportActions["enqueueMessage"];
+			},
+		) => {
+			const { enqueueMessage, draftContent, ...request } = input;
+			void draftContent;
+			const result = enqueueMessage(request);
+			// Only bootstrap has no bound conversation capability yet. A timeout
+			// means unknown outcome; the same-key retry never creates a second run.
+			if (conversationId !== null) return result;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			try {
+				return await Promise.race([
+					result,
+					new Promise<never>((_resolve, reject) => {
+						timer = setTimeout(
+							() => reject(new Error(RECOVERED_SEND_NOTICE)),
+							FIRST_SEND_PENDING_MS,
+						);
+					}),
+				]);
+			} finally {
+				clearTimeout(timer);
+			}
+		},
 		onSuccess: (output, variables) => {
 			if (!isCurrentSend(variables.conversationId)) return;
+			if (
+				output.status === "failed" &&
+				!output.assistantMessage &&
+				unknownBootstrapKeyRef.current === variables.idempotencyKey
+			) {
+				// This refusal says nothing about the earlier attempt's outcome.
+				const message = output.error ?? "Tedix could not confirm the message.";
+				setSendError(message);
+				setSendErrorUnknown(true);
+				dispatchProvisional({
+					type: "unknown",
+					idempotencyKey: variables.idempotencyKey,
+					error: message,
+				});
+				return;
+			}
+			unknownBootstrapKeyRef.current = null;
+			if (
+				recoveryRequestRef.current?.idempotencyKey === variables.idempotencyKey
+			) {
+				recoveryRequestRef.current = null;
+				saveRecoverableChatSend(recoveryKey, null, variables.idempotencyKey);
+			}
+			setFirstSendInFlight(null);
 			if (output.status === "failed" && !output.assistantMessage) {
 				// A refusal without a receipt is not-sent. A persisted failure reply
 				// follows normal transcript reconciliation instead of restoring a draft.
@@ -974,7 +1132,10 @@ export function ChatThread({
 			queryClient.invalidateQueries({
 				queryKey: homeRunSetQueryKey(output.conversationId),
 			});
-			if (conversationId === null) {
+			if (
+				conversationId === null &&
+				cacheConversationRef.current !== output.conversationId
+			) {
 				// Keep the cache when the parent flips the route to the new id.
 				cacheConversationRef.current = output.conversationId;
 				dispatchProvisional({
@@ -989,14 +1150,26 @@ export function ChatThread({
 		},
 		onError: (error, variables) => {
 			if (!isCurrentSend(variables.conversationId)) return;
+			if (
+				cacheRef.current.has(provisionalSendMessageId(variables.idempotencyKey))
+			)
+				return;
 			// The key is always kept: Retry re-sends it, and a same-key resend is
 			// exactly-once server-side.
 			const message = errorMessage(error, "The send failed.");
 			setSendError(message);
 			// Recorded separately from the overlay because the overlay may already
 			// be gone: a durable row can land before the promise rejects.
-			setSendErrorUnknown(isUnknownSendOutcome(error));
-			if (isUnknownSendOutcome(error)) {
+			const outcomeUnknown =
+				isUnknownSendOutcome(error) ||
+				unknownBootstrapKeyRef.current === variables.idempotencyKey;
+			setSendErrorUnknown(outcomeUnknown);
+			if (outcomeUnknown) {
+				if (
+					recoveryRequestRef.current?.idempotencyKey ===
+					variables.idempotencyKey
+				)
+					unknownBootstrapKeyRef.current = variables.idempotencyKey;
 				// The kernel may hold this turn. The bubble stays — as unconfirmed,
 				// never as sent — and the composer stays empty so Retry re-sends that
 				// message rather than letting a second draft accumulate beside it.
@@ -1014,6 +1187,13 @@ export function ChatThread({
 				}
 				return;
 			}
+			setFirstSendInFlight(null);
+			if (
+				recoveryRequestRef.current?.idempotencyKey === variables.idempotencyKey
+			) {
+				recoveryRequestRef.current = null;
+				saveRecoverableChatSend(recoveryKey, null, variables.idempotencyKey);
+			}
 			// The server answered and refused: nothing durable will ever appear, so
 			// the overlay goes and the text returns to the composer.
 			dispatchProvisional({
@@ -1025,6 +1205,10 @@ export function ChatThread({
 		onMutate: (variables) => {
 			if (!isCurrentSend(variables.conversationId) || conversationId !== null)
 				return;
+			const { enqueueMessage, ...request } = variables;
+			void enqueueMessage;
+			recoveryRequestRef.current = request;
+			saveRecoverableChatSend(recoveryKey, request);
 			setFirstSendInFlight({
 				conversationId: variables.conversationId,
 				idempotencyKey: variables.idempotencyKey,
@@ -1032,7 +1216,6 @@ export function ChatThread({
 		},
 		onSettled: (_output, _error, variables) => {
 			if (!isCurrentSend(variables.conversationId)) return;
-			setFirstSendInFlight(null);
 			// The composer is readOnly (never disabled) while sending, so focus is
 			// normally retained — this refocus covers the cases where a transcript
 			// data load or an error banner stole it mid-send.
@@ -1130,9 +1313,8 @@ export function ChatThread({
 	/**
 	 * Each composer submission gets a new key; Retry replays the original request.
 	 * The draft leaves the textarea immediately —
-	 * the provisional bubble now holds it — but the localStorage copy stays
-	 * until the send succeeds, which is what makes a reload mid-send restore the
-	 * draft rather than lose it.
+	 * the provisional bubble now holds it. New-thread requests are saved with
+	 * their key before sending, so reload restores recovery rather than a new draft.
 	 */
 	const startSend = useCallback(
 		async (content: string) => {
@@ -1140,6 +1322,7 @@ export function ChatThread({
 			if (
 				(!content.trim() && attachments.length === 0) ||
 				preparingAttachments ||
+				(conversationId === null && recoveryRequestRef.current !== null) ||
 				send.isPending ||
 				directRead.isPending ||
 				// Enter bypasses the disabled submit button; the gate cannot.
@@ -1248,7 +1431,14 @@ export function ChatThread({
 	/** Re-send the same key with the same text — never a second message. */
 	const retrySend = useCallback(() => {
 		const key = idempotencyKeyRef.current;
-		const request = send.variables;
+		const request =
+			send.variables ??
+			(recoveryRequestRef.current
+				? {
+						...recoveryRequestRef.current,
+						enqueueMessage: transportActions.enqueueMessage,
+					}
+				: null);
 		if (!request || request.idempotencyKey !== key || send.isPending) return;
 		setSendError(null);
 		setSendErrorUnknown(false);
@@ -1262,7 +1452,7 @@ export function ChatThread({
 		// Replay the complete request, including attachments and context. Passing
 		// encoded text through startSend encodes it twice and loses attachments.
 		send.mutate(request);
-	}, [dispatchProvisional, send]);
+	}, [dispatchProvisional, send, transportActions.enqueueMessage]);
 
 	/** Replay the exact direct-read request and key. The server's request-event
 	 * insert is the execution fence, so a transport retry returns the durable
@@ -1733,16 +1923,29 @@ export function ChatThread({
 				</Alert>
 			) : null}
 			{sendError ? (
-				<SendFailureBanner
-					message={sendError}
-					// The banner's claim is read off the same overlay the transcript
-					// renders, so the two can never disagree about whether the outcome
-					// is unknown.
-					outcomeUnknown={sendOutcomeUnknown}
-					draftHeld={sendHeldProvisionally}
-					retrying={send.isPending || directRead.isPending}
-					onRetry={directReadRetryRef.current ? retryDirectRead : retrySend}
-				/>
+				<div className="[&_button]:min-h-11 [&_button]:min-w-11">
+					<SendFailureBanner
+						message={sendError}
+						// The banner's claim is read off the same overlay the transcript
+						// renders, so the two can never disagree about whether the outcome
+						// is unknown.
+						outcomeUnknown={sendOutcomeUnknown}
+						draftHeld={sendHeldProvisionally}
+						retrying={send.isPending || directRead.isPending}
+						onRetry={directReadRetryRef.current ? retryDirectRead : retrySend}
+					/>
+				</div>
+			) : null}
+			{firstSendInFlight && sendErrorUnknown ? (
+				<Button
+					size="sm"
+					variant="outline"
+					className="min-h-11 self-start"
+					disabled={transcript.isFetching}
+					onClick={() => void transcript.refetch()}
+				>
+					{transcript.isFetching ? "Checking status…" : "Check status"}
+				</Button>
 			) : null}
 			{directReadOpen && blockingApprovalCards.length === 0 ? (
 				<DirectReadPanel
@@ -1949,7 +2152,7 @@ export function ChatThread({
 						// readOnly (not disabled) while sending: a disabled control blurs
 						// the composer and swallows the next Enter — focus must survive
 						// the send round-trip.
-						readOnly={send.isPending}
+						readOnly={send.isPending || firstSendInFlight !== null}
 						autoResize
 						minRows={1}
 						maxRows={8}
@@ -2177,6 +2380,7 @@ export function ChatThread({
 								disabled={
 									preparingAttachments ||
 									send.isPending ||
+									firstSendInFlight !== null ||
 									directRead.isPending ||
 									blockedByAttachedImage ||
 									(localAiUnavailable && !parseDirectReadCommand(draft)) ||

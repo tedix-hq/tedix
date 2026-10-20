@@ -195,6 +195,7 @@ export function ChatPage() {
 					) : null}
 					<ChatThread
 						key={newConversationKey}
+						recoverPendingSend={newConversationKey === 0}
 						conversationId={activeConversationId}
 						onConversationCreated={(conversationId, workspaceId) => {
 							queryClient.invalidateQueries({
