@@ -63,8 +63,8 @@ claim that this hook revalidates the whole native schema.
 
 Bundle activation/rollback flips `is_active` across rows atomically with
 `db.batch()`, never a transaction (root D1 rule):
-`activateTenantBundleVersion` (`packages/provisioning/src/cms.ts:353`) and
-`rollbackCmsTenantBundle` (`src/agent/storage.ts:112`). Keep any new
+`activateTenantBundleVersion` (`packages/provisioning/src/cms.ts`) and
+`rollbackCmsTenantBundle` (`src/agent/storage.ts`). Keep any new
 multi-statement bundle mutation in that shape.
 
 ## Auth boundaries
@@ -73,12 +73,13 @@ multi-statement bundle mutation in that shape.
   `X-Tedix-CMS-Internal-Auth`, never a non-Emdash `Authorization` bearer —
   Emdash's bearer middleware rejects unknown token formats before the external
   auth provider can run (`src/agent/cms-proxy-runtime.ts`).
-- **Tenant membership cache** (`isUserMemberOfTenant`, `src/index.ts:162`): a
+- **Tenant membership cache** (`isUserMemberOfTenant`, `src/index.ts`): a
   `null` from Descope means "couldn't determine" — fail closed and do **not**
   cache it, so the next request retries. The cache is bounded; keep it that
   way.
-- **No per-tenant `cms:<slug>` Descope scopes** (`src/index.ts` header at
-  ~line 218): the AIH policy registry is Console-only, so per-tenant scopes
+- **No per-tenant `cms:<slug>` Descope scopes** (the `resolveAuthorizedOrg`
+  docstring in `src/index.ts`): the AIH policy registry is Console-only, so
+  per-tenant scopes
   need manual clicks per customer and do not scale. Tenant authorization is
   runtime membership resolution.
 

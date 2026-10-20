@@ -60,8 +60,9 @@ not flagged.
 
 **Exact-key writers are why some domains cannot move yet.**
 `src/lib/realtime-projections.ts` patches with `setQueryData` by exact key, and
-`src/lib/live-workspace-projection.ts:119` invalidates with `exact: true`. Those
-writers must move in the same commit as their readers.
+`reconcileLiveWorkspace` (`src/lib/live-workspace-projection.ts`) invalidates
+with `exact: true`. Those writers must move in the same commit as their
+readers.
 
 ## The Cap'n Web lane must terminate in the stateless Worker
 
