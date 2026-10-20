@@ -144,6 +144,17 @@ describe("request-derived capability plans", () => {
 			"work.complete_work_item",
 		);
 	});
+	it("does not treat source-code comments as a requested Work mutation", () => {
+		const result = order(
+			"Refactor the repository for the Work item. Leave the header comment intact; keep index.ts untouched except a comment path fix.",
+		);
+		expect(result.capabilityPlan?.requiredCapabilities).not.toContain(
+			"work.comment",
+		);
+		expect(result.capabilityPlan?.missingCapabilities).not.toContain(
+			"work.comment",
+		);
+	});
 	it("preflights the requested Work comment even when page reading is available", () => {
 		const content =
 			"Research https://example.com and post a comment on Work abcdef01";
