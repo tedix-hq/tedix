@@ -28,7 +28,6 @@ describe("ConsentPermissionGroups", () => {
 		const html = renderToStaticMarkup(
 			<ConsentPermissionGroups permissions={permissions} />,
 		);
-		// Group surfaces share the keyboard-accessible disclosure adapter.
 		expect(html).toContain('data-slot="surface"');
 		expect(html).toContain('data-kumo-component="CollapsibleTrigger"');
 		expect(html).not.toContain("<details");

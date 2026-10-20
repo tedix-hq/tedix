@@ -2504,19 +2504,21 @@ describe("agent proposal review", () => {
 		const suggestion = container.querySelector(
 			'[aria-label="Suggested changes"]',
 		);
-		const details = suggestion?.querySelector("details");
-		expect(details?.hasAttribute("open")).toBe(false);
+		const detailsTrigger = [
+			...(suggestion?.querySelectorAll("button[aria-expanded]") ?? []),
+		].find((button) => button.textContent === "Technical details");
+		expect(detailsTrigger?.getAttribute("aria-expanded")).toBe("false");
+		const details = detailsTrigger?.parentElement;
 		expect(details?.textContent).toContain("codex:session-1");
 		const comparison = [
-			...(suggestion?.querySelectorAll("details") ?? []),
-		].find(
-			(item) =>
-				item.querySelector("summary")?.textContent === "Compare changes",
-		);
+			...(suggestion?.querySelectorAll("button[aria-expanded]") ?? []),
+		].find((item) => item.textContent === "Compare changes");
 		expect(comparison).toBeDefined();
-		expect(comparison?.hasAttribute("open")).toBe(false);
+		expect(comparison?.getAttribute("aria-expanded")).toBe("false");
 		expect(
-			comparison?.querySelector('[aria-label="Proposed change"]'),
+			comparison?.parentElement?.querySelector(
+				'[aria-label="Proposed change"]',
+			),
 		).not.toBeNull();
 		expect(
 			suggestion?.querySelector('[data-slot="card-title"]')?.textContent,
