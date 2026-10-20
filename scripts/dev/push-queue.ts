@@ -9,10 +9,13 @@
  * holding it fetches, rebases onto origin/main and runs a plain
  * `git push origin HEAD:main`, so the pre-push hook runs every gate as usual.
  * If the push still loses to a push made from another machine, it rebases and
- * retries up to twice. Waiting sessions block in arrival order.
+ * retries up to twice. Waiting sessions block in arrival order. When multiple
+ * compatible tickets wait, push-train.ts integrates them in a temporary
+ * worktree and pushes once through the same hook, falling back to per-lane
+ * gates on rejection. A single ticket keeps the original rebase/push path.
  *
- * A lock whose process is gone, or that is older than STALE_MS, is removed, as
- * is a queue ticket whose process is gone. No daemon.
+ * Dead holders and tickets are removed. Single-lane locks also expire after
+ * STALE_MS; living trains may need longer for fallback. No daemon.
  *
  * A successful push also asks tedix-cloud-ops to run Ship now (fail-soft, via
  * `gh`), so a change goes live in minutes instead of waiting for the
@@ -40,13 +43,23 @@ import {
 	closeSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+	finishLane,
+	laneUnchanged,
+	readLane,
+	readResult,
+	recoverTrainResults,
+	resultFile,
+	runTrain,
+	snapshotLane,
+} from "./push-train";
 
 export const STALE_MS = 30 * 60 * 1000;
 const POLL_MS = 2000;
 const MAX_RETRIES = 2;
 export const GC_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 
-export type Holder = { pid: number; startedAt: number };
+export type Holder = { pid: number; startedAt: number; train?: boolean };
 
 export function isAlive(pid: number): boolean {
 	try {
@@ -69,7 +82,9 @@ export function isStale(
 		!Number.isFinite(holder.startedAt)
 	)
 		return true;
-	return !alive(holder.pid) || now - holder.startedAt > STALE_MS;
+	return (
+		!alive(holder.pid) || (!holder.train && now - holder.startedAt > STALE_MS)
+	);
 }
 
 function readHolder(file: string): Holder | null {
@@ -215,7 +230,11 @@ async function main() {
 	const lockFile = join(commonDir, "push-queue.lock");
 	mkdirSync(queueDir, { recursive: true });
 	const ticket = join(queueDir, `${Date.now()}-${process.pid}`);
-	closeSync(openSync(ticket, "w"));
+	const lane = snapshotLane(process.cwd(), dryRun);
+	const resultsDir = join(commonDir, "push-results");
+	mkdirSync(resultsDir, { recursive: true });
+	const resultTicket = join(resultsDir, ticket.slice(queueDir.length + 1));
+	writeFileSync(ticket, lane ? JSON.stringify(lane) : "");
 
 	let held = false;
 	const release = () => {
@@ -229,6 +248,11 @@ async function main() {
 
 	let lastNote = "";
 	while (true) {
+		const result = readResult(resultTicket);
+		if (result) {
+			rmSync(resultFile(resultTicket), { force: true });
+			process.exit(finishLane(lane, result, dryRun));
+		}
 		const tickets = liveTickets(queueDir);
 		const ahead = tickets.indexOf(ticket.slice(queueDir.length + 1));
 		if (ahead === 0 && tryAcquire(lockFile)) break;
@@ -238,6 +262,49 @@ async function main() {
 		await Bun.sleep(POLL_MS);
 	}
 	held = true;
+	recoverTrainResults(process.cwd(), commonDir);
+	const recovered = readResult(resultTicket);
+	if (recovered) {
+		rmSync(resultFile(resultTicket), { force: true });
+		process.exit(finishLane(lane, recovered, dryRun));
+	}
+	// Snapshot only compatible tickets already waiting when the lock frees.
+	const train = [];
+	for (const name of liveTickets(queueDir)) {
+		const file = join(queueDir, name);
+		const waiting = readLane(file);
+		if (!waiting || waiting.dryRun !== dryRun || !laneUnchanged(waiting)) break;
+		train.push({ file, lane: waiting });
+	}
+	if (lane && train.length > 1 && train[0]?.file === ticket) {
+		// A fallback may run several full gates. Never steal a living train's lock
+		// on the single-lane timeout; a dead holder is still recoverable.
+		writeFileSync(
+			lockFile,
+			JSON.stringify({
+				pid: process.pid,
+				startedAt: Date.now(),
+				train: true,
+			} satisfies Holder),
+		);
+		console.log(`push: lock held; forming train of ${train.length} lanes.`);
+		const published = runTrain(
+			process.cwd(),
+			commonDir,
+			train.map((entry) => ({
+				...entry,
+				result: join(resultsDir, entry.file.slice(queueDir.length + 1)),
+			})),
+		);
+		if (published) {
+			requestShip();
+			startWeeklyWorktreeGc(commonDir);
+		}
+		const result = readResult(resultTicket);
+		if (!result) throw new Error("train did not return this lane's result");
+		rmSync(resultFile(resultTicket), { force: true });
+		process.exit(finishLane(lane, result, dryRun));
+	}
 	rmSync(ticket, { force: true });
 	console.log(
 		`push: lock held; rebasing onto origin/main${dryRun ? " (dry run)" : ""}.`,
