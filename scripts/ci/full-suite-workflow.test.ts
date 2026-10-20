@@ -14,9 +14,9 @@ test("every main push is certified and scheduled runs cannot supersede its lane"
 	expect(triggers).toMatch(/push:\n\s+branches: \[main\]/);
 	expect(triggers).not.toMatch(/paths(?:-ignore)?:/);
 	expect(workflow).toContain(
-		"group: main-certification-${{ github.event_name }}",
+		"group: main-certification-${{ github.event_name }}-${{ github.sha }}-${{ github.run_id }}",
 	);
-	expect(workflow).toContain("cancel-in-progress: true");
+	expect(workflow).toContain("cancel-in-progress: false");
 	expect(aggregate).toContain("if: ${{ always() }}");
 });
 
