@@ -49,6 +49,12 @@ const OrganizationAppearanceForm = lazy(() =>
 	})),
 );
 
+const OrganizationModelFallbackForm = lazy(() =>
+	import("@/components/organization-model-fallback-form").then((mod) => ({
+		default: mod.OrganizationModelFallbackForm,
+	})),
+);
+
 const SubscriptionSection = lazy(() =>
 	import("@/components/billing-subscription-section").then((mod) => ({
 		default: mod.SubscriptionSection,
@@ -196,6 +202,13 @@ function AdminOrganizationBody({
 					/>
 				</Suspense>
 			</div>
+
+			<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+				<OrganizationModelFallbackForm
+					organizationId={organization.id}
+					initialPolicy={organization.metadata?.modelFallback}
+				/>
+			</Suspense>
 
 			<div id="organization-appearance" className="scroll-mt-24">
 				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
