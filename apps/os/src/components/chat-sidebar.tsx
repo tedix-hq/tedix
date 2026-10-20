@@ -441,7 +441,7 @@ export function ConversationRow({
 						{relativeTime(conversationActivityAt(conversation), now)}
 					</time>
 				</TooltipTrigger>
-				<TooltipContent role="tooltip" side="right">
+				<TooltipContent side="right">
 					{conversationTitle(conversation)}
 				</TooltipContent>
 			</Tooltip>

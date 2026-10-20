@@ -1,3 +1,4 @@
+import { Link } from "@/components/kumo/link";
 import { useEffect } from "react";
 import { resolveProductLoginIntent } from "@/account/product-login-routing";
 import { isDescopeFlowContinuation } from "@/shared/session-status";
@@ -20,7 +21,7 @@ function IntentlessLoginRedirect() {
 		<main className="centered-state" aria-busy="true">
 			<TedixBrandMark />
 			<p>Taking you to the Tedix OS sign-in…</p>
-			<a href="/">Return to Tedix OS</a>
+			<Link href="/">Return to Tedix OS</Link>
 		</main>
 	);
 }

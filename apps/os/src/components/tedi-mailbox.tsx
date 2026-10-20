@@ -714,9 +714,11 @@ export function InboxCard({ tediId }: { tediId: string }) {
 							return (
 								<li key={thread.id} data-thread-id={thread.id}>
 									<Surface className="space-y-2 p-3">
-										<button
+										<Button
+											variant="ghost"
+											multiline
 											type="button"
-											className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+											className="w-full justify-between text-left"
 											aria-expanded={expanded}
 											onClick={() => {
 												setOpenThreadId(expanded ? null : thread.id);
@@ -768,7 +770,7 @@ export function InboxCard({ tediId }: { tediId: string }) {
 											>
 												{relativeTime(thread.lastMessageAt)}
 											</Text>
-										</button>
+										</Button>
 										<div className="flex flex-wrap gap-2">
 											{thread.unreadCount > 0 && (
 												<Button

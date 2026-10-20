@@ -1,3 +1,10 @@
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import { useEffect, useState } from "react";
 import {
 	OsReviewCardSchema,
@@ -134,19 +141,25 @@ export function CreateReviewBatch({
 				<div className="grid gap-3">
 					<label>
 						Source document
-						<select
-							aria-label="Review source"
-							className="block w-full"
-							value={sourceId}
-							onChange={(e) => setSourceId(e.target.value)}
+						<Select
+							value={sourceId || null}
+							items={sources.map((source) => ({
+								value: source.id,
+								label: source.title,
+							}))}
+							onValueChange={(value) => setSourceId(value ?? "")}
 						>
-							<option value="">Choose a source</option>
-							{sources.map((source) => (
-								<option key={source.id} value={source.id}>
-									{source.title}
-								</option>
-							))}
-						</select>
+							<SelectTrigger aria-label="Review source" className="w-full">
+								<SelectValue placeholder="Choose a source" />
+							</SelectTrigger>
+							<SelectContent>
+								{sources.map((source) => (
+									<SelectItem key={source.id} value={source.id}>
+										{source.title}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</label>
 					<label>
 						Batch title
@@ -188,18 +201,23 @@ export function CreateReviewBatch({
 							/>
 							<label>
 								Effort
-								<select
+								<Select
 									value={card.effort}
-									onChange={(e) =>
-										change(index, {
-											effort: e.target.value as OsReviewCard["effort"],
-										})
+									items={{ low: "Low", medium: "Medium", high: "High" }}
+									onValueChange={(value) =>
+										value &&
+										change(index, { effort: value as OsReviewCard["effort"] })
 									}
 								>
-									<option value="low">Low</option>
-									<option value="medium">Medium</option>
-									<option value="high">High</option>
-								</select>
+									<SelectTrigger aria-label="Effort">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="low">Low</SelectItem>
+										<SelectItem value="medium">Medium</SelectItem>
+										<SelectItem value="high">High</SelectItem>
+									</SelectContent>
+								</Select>
 							</label>
 							<Textarea
 								aria-label={`Card ${index + 1} checks`}

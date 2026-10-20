@@ -1,3 +1,4 @@
+import { Link } from "@/components/kumo/link";
 import {
 	useMutation,
 	useQueries,
@@ -922,9 +923,9 @@ export function WorkspaceCalendarCoordinator({
 				)}
 				{skill && (
 					<>
-						<a href={`/skills/${skill.id}`}>
+						<Link href={`/skills/${skill.id}`}>
 							Review skill instructions and workflow
-						</a>
+						</Link>
 						<Text as="p">
 							{skill.title} · Revision {skill.revision}
 						</Text>

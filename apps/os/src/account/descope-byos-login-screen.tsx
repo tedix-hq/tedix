@@ -1,3 +1,5 @@
+import { Text } from "@/components/kumo/text";
+import { Separator } from "@/components/kumo/separator";
 import { ByosFlowError, useByosAdvance } from "@/shared/descope-byos-advance";
 import { IDENTITY_JOURNEY_COPY } from "@/shared/identity-journey-copy";
 import { AppleLogo, GoogleLogo, Key } from "@phosphor-icons/react";
@@ -109,8 +111,12 @@ export function TedixByosLoginScreen({
 				</form.Subscribe>
 			</form>
 
-			<div className="identity-method-divider" role="separator">
-				<span>or</span>
+			<div className="flex items-center gap-2.5">
+				<Separator className="min-w-0 flex-1" />
+				<Text role="label" tone="secondary" aria-hidden="true">
+					or
+				</Text>
+				<Separator className="min-w-0 flex-1" />
 			</div>
 
 			<div className="identity-provider-list">
