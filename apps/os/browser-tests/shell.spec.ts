@@ -371,6 +371,7 @@ try {
 					"Breadcrumb reloaded document",
 				);
 			}
+			await page.unrouteAll({ behavior: "wait" });
 			await page.close();
 		}
 	}
