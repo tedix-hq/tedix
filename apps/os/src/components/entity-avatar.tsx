@@ -74,7 +74,7 @@ export function EntityAvatar({
 			) : glyph ? (
 				glyph
 			) : Icon ? (
-				<Icon className="size-3/5" weight="duotone" />
+				<Icon className="size-3/5" weight="regular" />
 			) : (
 				<span className="font-medium type-tedix-label">
 					{entityInitials(name)}
