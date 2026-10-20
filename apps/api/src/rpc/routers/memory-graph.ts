@@ -1,4 +1,5 @@
 import {
+	browse,
 	listObservations,
 	consolidateObservations,
 } from "./memory-graph/observations";
@@ -36,6 +37,7 @@ import { memoryGraphOs } from "./memory-graph/policy-operations";
 // =============================================================================
 
 export const memoryGraphContractRouter = memoryGraphOs.router({
+	browse,
 	listObservations,
 	consolidateObservations,
 	search: searchRoute,

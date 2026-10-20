@@ -11,6 +11,10 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { JsonValueSchema } from "../schemas/common";
 import {
+	MemoryBrowseInputSchema,
+	MemoryBrowseOutputSchema,
+} from "../schemas/memory-browser";
+import {
 	CuriosityItemSchema,
 	CuriositySourceSchema,
 	DomainSchema,
@@ -392,6 +396,7 @@ const MemoryGraphAuditOutputSchema = z.object({
 });
 
 export const memoryGraphContract = oc.route({ tags: ["memory-graph"] }).router({
+	browse: oc.input(MemoryBrowseInputSchema).output(MemoryBrowseOutputSchema),
 	listObservations: oc
 		.input(
 			z.strictObject({

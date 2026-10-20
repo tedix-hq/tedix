@@ -1,6 +1,6 @@
-import { FeedbackNotebook } from "./learned-today";
-import { MemoryHealthFindingsSection } from "./memory-health-findings";
-import { MemoryObservations } from "./memory-observations";
+import { MemoryBrowser } from "./memory-browser";
+import { getRouteApi, useLocation } from "@tanstack/react-router";
+import { memoryText } from "@/lib/memory-browser";
 import { BookOpen, Brain, CaretRight } from "@phosphor-icons/react";
 import type { RationaleOutcomeStatus } from "@tedix/api-contract/constants/enums";
 import type {
@@ -12,23 +12,16 @@ import type { MetricTileMeasured } from "@tedix/api-contract/schemas/metric-tile
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
 import { useQuery } from "@tanstack/react-query";
 import { getOsSurface } from "@/lib/os-navigation";
-import { useState } from "react";
 import type { ComponentType } from "react";
 import { type CardRunLinkProps, compactPreview } from "@/components/chat-cards";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import {
-	Collection,
 	Page,
 	PageDescription,
 	PageHeader,
 	PageHeading,
-	PageSection,
 	PageTitle,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
 } from "@/components/kumo/page";
 import {
 	Empty,
@@ -37,7 +30,6 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
-import { KumoTabs } from "@/components/kumo/tabs";
 import { Link } from "@/components/kumo/link";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import { MetricGrid } from "@/components/kumo/metric-grid";
@@ -45,13 +37,8 @@ import { MetricTile } from "@/components/metric-tile";
 import { Text, type TextTone } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { formatCount, humanize, sentenceCase } from "@/lib/format";
-import {
-	knowledgeListQueryOptions,
-	memoryHealthQueryOptions,
-	rationaleListQueryOptions,
-} from "@/lib/os-query-options";
+import { memoryHealthQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
-import { useTediNames } from "@/lib/use-tedi-names";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -239,13 +226,21 @@ const VITAL_TEXT_TONE: Record<MemoryVitalTone, TextTone> = {
 /** Memory vitals — labeled aggregate counts, no graph explorer. */
 export function MemoryVitals({ health }: { health: MemoryHealth }) {
 	return (
-		<MetricGrid aria-label="Memory vitals" columns={4}>
+		<MetricGrid
+			aria-label="Memory vitals"
+			columns={4}
+			className="grid-cols-4 lg:grid-cols-8"
+		>
 			{memoryVitals(health).map((vital) => (
 				<MetricTile
 					key={vital.id}
-					tile={vital.tile}
+					tile={{
+						...vital.tile,
+						href: vital.id === "stale-facts" ? "/brain?tab=stale" : vital.id === "open-gaps" ? "/brain?tab=gaps" : vital.id === "contradictions" || vital.id === "curiosity" ? `/brain?tab=${vital.id}` : undefined,
+					}}
 					data-vital={vital.id}
 					data-tone={vital.tone}
+					className="!px-2 !py-3"
 					valueTone={VITAL_TEXT_TONE[vital.tone]}
 				/>
 			))}
@@ -398,7 +393,10 @@ export function KnowledgeRow({
 	entry: KnowledgeEntry;
 	tediNames?: Record<string, string>;
 }) {
-	const contentPreview = compactPreview(entry.content, BRAIN_PREVIEW_LENGTH);
+	const text = memoryText(entry.title, entry.content);
+	const contentPreview = text.title
+		? compactPreview(entry.content, BRAIN_PREVIEW_LENGTH)
+		: null;
 	const updated = entry.updatedAt ?? entry.createdAt ?? null;
 	const scope = entry.tediId
 		? (tediNames[entry.tediId] ?? "a tedi")
@@ -414,7 +412,7 @@ export function KnowledgeRow({
 						tone="strong"
 						className="min-w-0 truncate"
 					>
-						{entry.title}
+						{text.line}
 					</Text>
 					<Badge
 						variant={ENTRY_TYPE_VARIANTS[entry.entryType]}
@@ -471,193 +469,44 @@ export function KnowledgeEmpty() {
 // Page
 // ---------------------------------------------------------------------------
 
-const RATIONALE_LIMIT = 20;
-/** `knowledge.list` has no schema max — ALWAYS pass an explicit small limit. */
-const KNOWLEDGE_LIMIT = 20;
+const brainRoute = getRouteApi("/_session/_tenant/brain");
 
 export function BrainPage() {
 	const surface = getOsSurface("brain");
-	const [tab, setTab] = useState<OutcomeTabId>("all");
-	const activeTab = OUTCOME_TABS.find((t) => t.id === tab) ?? OUTCOME_TABS[0];
-
-	// Bounded reads only, per the ADR: health aggregates + recent rationale +
-	// consolidated knowledge. No graph explorer, no vector search per request.
-	const health = useQuery({
-		...memoryHealthQueryOptions(),
-		staleTime: 60_000,
-	});
-
-	const rationale = useQuery(
-		rationaleListQueryOptions(
-			activeTab.status
-				? { outcomeStatus: activeTab.status, limit: RATIONALE_LIMIT }
-				: { limit: RATIONALE_LIMIT },
-		),
-	);
-
-	const knowledge = useQuery({
-		...knowledgeListQueryOptions(KNOWLEDGE_LIMIT),
-		staleTime: 60_000,
-	});
-
-	const tediNames = useTediNames();
-
+	const routeSearch = brainRoute.useSearch();
+	const hash = useLocation({ select: (location) => location.hash });
+	const search = hash.startsWith("lesson-")
+		? { ...routeSearch, tab: "rules" as const, detail: hash.slice(7) }
+		: routeSearch;
+	const navigate = brainRoute.useNavigate();
+	const health = useQuery({ ...memoryHealthQueryOptions(), staleTime: 60_000 });
 	return (
-		<Page width="lg">
+		<Page width="full">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>{surface.label}</PageTitle>
 					<PageDescription>{surface.description}</PageDescription>
 				</PageHeading>
 			</PageHeader>
-
-			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Memory vitals</SectionTitle>
-						<SectionDescription>
-							Graph health, confidence, contradictions, and open learning gaps.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-				{health.isPending && <ListSkeleton rows={1} rowClassName="h-24" />}
-				{health.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Memory health is unavailable</AlertTitle>
-						<AlertDescription>
-							{(health.error as Error).message}
-						</AlertDescription>
-					</Alert>
-				)}
-				{health.data && (
-					<>
-						<MemoryVitals health={health.data} />
-						{health.data.totalFacts === 0 && (
-							<Text role="body" tone="secondary" className="m-0">
-								No memories recorded yet — facts accumulate as tedis observe,
-								learn, and consolidate.
-							</Text>
-						)}
-					</>
-				)}
-			</PageSection>
-
-			<MemoryHealthFindingsSection />
-
-			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>What we know</SectionTitle>
-						<SectionDescription>
-							Observations, standing summaries, and the evidence behind each
-							change.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-				<FeedbackNotebook />
-				<MemoryObservations />
-			</PageSection>
-
-			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Recent decisions</SectionTitle>
-						<SectionDescription>
-							Latest rationale, outcomes, confidence, and run evidence.
-						</SectionDescription>
-					</SectionHeading>
-					<div className="flex max-w-full flex-wrap items-center gap-2">
-						{rationale.data ? (
-							<Badge variant="outline">{rationale.data.pagination.total}</Badge>
-						) : null}
-						<KumoTabs
-							value={tab}
-							onValueChange={(value) => setTab(value as OutcomeTabId)}
-							className="shrink-0 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-w-11"
-							aria-label="Decision outcome"
-							size="sm"
-							tabs={OUTCOME_TABS.map(({ id, label }) => ({ value: id, label }))}
-						/>
-					</div>
-				</SectionHeader>
-				{rationale.isPending && <ListSkeleton />}
-				{rationale.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Decisions are unavailable</AlertTitle>
-						<AlertDescription>
-							{(rationale.error as Error).message}
-						</AlertDescription>
-					</Alert>
-				)}
-				{rationale.data && rationale.data.data.length === 0 && (
-					<RationaleEmpty filtered={activeTab.status !== undefined} />
-				)}
-				{rationale.data && rationale.data.data.length > 0 && (
-					<>
-						<Collection>
-							{rationale.data.data.map((record) => (
-								<RationaleRow
-									key={record.id}
-									record={record}
-									tediNames={tediNames}
-								/>
-							))}
-						</Collection>
-						{rationale.data.pagination.hasMore && (
-							<Text role="label" tone="secondary" className="m-0">
-								Showing the latest {formatCount(rationale.data.data.length)} of{" "}
-								{formatCount(rationale.data.pagination.total)} decisions. Narrow
-								the outcome filter to see more.
-							</Text>
-						)}
-					</>
-				)}
-			</PageSection>
-
-			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Knowledge</SectionTitle>
-						<SectionDescription>
-							Consolidated patterns, conventions, insights, and source depth.
-						</SectionDescription>
-					</SectionHeading>
-					{knowledge.data ? (
-						<Badge variant="outline">{knowledge.data.entries.length}</Badge>
-					) : null}
-				</SectionHeader>
-				{knowledge.isPending && <ListSkeleton rows={2} />}
-				{knowledge.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Knowledge is unavailable</AlertTitle>
-						<AlertDescription>
-							{(knowledge.error as Error).message}
-						</AlertDescription>
-					</Alert>
-				)}
-				{knowledge.data && knowledge.data.entries.length === 0 && (
-					<KnowledgeEmpty />
-				)}
-				{knowledge.data && knowledge.data.entries.length > 0 && (
-					<>
-						<Collection>
-							{knowledge.data.entries.map((entry) => (
-								<KnowledgeRow
-									key={entry.id}
-									entry={entry}
-									tediNames={tediNames}
-								/>
-							))}
-						</Collection>
-						{knowledge.data.entries.length >= KNOWLEDGE_LIMIT && (
-							<Text role="label" tone="secondary" className="m-0">
-								Showing the latest {KNOWLEDGE_LIMIT} knowledge entries — the
-								read is bounded by design.
-							</Text>
-						)}
-					</>
-				)}
-			</PageSection>
+			{health.isPending && <ListSkeleton rows={1} rowClassName="h-24" />}
+			{health.isError && (
+				<Alert variant="destructive">
+					<AlertTitle>Memory health is unavailable</AlertTitle>
+					<AlertDescription>{health.error.message}</AlertDescription>
+				</Alert>
+			)}
+			{health.data && <MemoryVitals health={health.data} />}
+			<MemoryBrowser
+				search={search}
+				onSearch={(patch) =>
+					void navigate({
+						search: { ...search, ...patch },
+						hash: "",
+						replace: patch.tab === undefined,
+						resetScroll: false,
+					})
+				}
+			/>
 		</Page>
 	);
 }

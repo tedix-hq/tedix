@@ -11,6 +11,10 @@ import { LOCAL_OUTBOUND } from "./outbound-fixture";
 import { applyDemoPack, demoPackIsStale } from "./demo-pack";
 import { demoSendingBlock } from "@tedix/api-contract/utils/demo-sending-gate";
 import {
+	memoryBrowseFixture,
+	memoryDomainFixture,
+} from "./memory-page-fixtures";
+import {
 	documentContent,
 	sheetContent,
 	cardsContent,
@@ -4290,6 +4294,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			).toISOString();
 			return {
 				id: fid("b1", lesson.n),
+				fromCallerFeedback: true,
 				text: lesson.text,
 				addedAt: added,
 				learnedFrom: lesson.replies
@@ -4917,6 +4922,12 @@ const handlers: Record<string, (input: never) => unknown> = {
 	}),
 
 	// --- brain ---
+	"memoryGraph/browse": memoryBrowseFixture,
+	"memoryGraph/listDomains": () => memoryDomainFixture,
+	"memoryGraph/optimize/backlog": () => ({
+		curiosityItems: [],
+		optimizationSignals: [],
+	}),
 	"memoryGraph/health": () => MEMORY_HEALTH,
 	"memoryGraph/healthFindings": () => MEMORY_HEALTH_FINDINGS,
 	"rationaleRecords/list": (

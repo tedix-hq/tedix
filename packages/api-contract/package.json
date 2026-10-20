@@ -38,6 +38,7 @@
 		"./schemas/agent-session-feedback": "./src/schemas/agent-session-feedback.ts",
 		"./assets/decision-card-copy.v2.json": "./src/assets/decision-card-copy.v2.json",
 		"./schemas/memory-observations": "./src/schemas/memory-observations.ts",
+		"./schemas/memory-browser": "./src/schemas/memory-browser.ts",
 		"./schemas/blueprint-provisioning": "./src/schemas/blueprint-provisioning.ts",
 		"./schemas/data-residency": "./src/schemas/data-residency.ts",
 		"./utils/mcp-scope-catalog": "./src/utils/mcp-scope-catalog.ts",
