@@ -10,6 +10,7 @@ export type PlatformCronFreshnessState =
 	| "disabled";
 
 export const PLATFORM_CRON_IDS = [
+	"agent-review-triage",
 	"decision-outcome-labeller",
 	"provider-event-maintenance",
 	"skill-schedule-dispatch",
@@ -72,6 +73,13 @@ const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({
 
 export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	...everyTwoMinutes,
+	{
+		id: "agent-review-triage",
+		cron: "*/15 * * * *",
+		intervalMinutes: 15,
+		requiresFleet: true,
+		requiresBinding: "TEDI_SERVICE",
+	},
 	{
 		id: "gateway-cost-catchup",
 		cron: "*/2 * * * *",

@@ -32,7 +32,11 @@ vi.mock("@tedix/provisioning", () => ({
 }));
 
 import { agentReviewRoutes } from "./agent-review-routes";
-import { redactAgentReview } from "./services/agent-review";
+import {
+	redactAgentReview,
+	fileAgentReview,
+	wakeAgentReview,
+} from "./services/agent-review";
 
 const project = {
 	id: "fictional-project",
@@ -358,4 +362,36 @@ describe("review privacy boundary", () => {
 			errors.mockRestore();
 		}
 	});
+});
+
+it("keeps intake disabled in local onboarding even when a project placeholder is present", async () => {
+	await expect(
+		fileAgentReview(
+			{} as never,
+			{
+				...env(),
+				ENVIRONMENT: "development",
+				DESCOPE_PROJECT_ID: "local-development-disabled",
+			},
+			payload(),
+		),
+	).rejects.toMatchObject({ status: 503 });
+	expect(mocks.project).not.toHaveBeenCalled();
+	expect(mocks.create).not.toHaveBeenCalled();
+});
+it("recovery uses a new turn key and requests a durable result without embedding review content", async () => {
+	await wakeAgentReview(
+		{} as never,
+		env(),
+		project as never,
+		{ id: "review-id" },
+		2,
+	);
+	expect(mocks.inject).toHaveBeenCalledWith(
+		expect.anything(),
+		expect.objectContaining({
+			clientRequestId: "agent-review:review-id:retry:2",
+			message: expect.stringContaining("metadata.agentReviewTriageResult=true"),
+		}),
+	);
 });

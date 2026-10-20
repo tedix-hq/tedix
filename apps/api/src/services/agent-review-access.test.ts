@@ -198,3 +198,21 @@ describe("private review collection scope", () => {
 		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
 	});
 });
+
+it("disables the review fence for isolated local onboarding, even with the example placeholder", async () => {
+	mocks.project.mockResolvedValue(undefined);
+	const local = context({
+		env: {
+			ENVIRONMENT: "development",
+			DESCOPE_PROJECT_ID: "local-development-disabled",
+			AGENT_REVIEW_PROJECT_ID: "configured-via-private-overlay",
+		} as CloudflareEnv,
+	});
+	await expect(
+		guardAgentReviewAccess(local, {}, async () => ({ output: "onboarded" })),
+	).resolves.toEqual({ output: "onboarded" });
+	expect(
+		await excludedAgentReviewProjectId(local, project.orgId),
+	).toBeUndefined();
+	expect(mocks.project).not.toHaveBeenCalled();
+});

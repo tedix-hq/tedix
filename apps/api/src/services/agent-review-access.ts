@@ -6,9 +6,10 @@ import {
 import { getProjectById } from "@tedix/db/queries/projects";
 import { hasProjectWorkItemReference } from "@tedix/db/queries/work-items/project-access";
 import type { BaseContext } from "../rpc/context";
+import { agentReviewProjectId } from "./agent-review-config";
 
 async function agentReviewProjectScope(context: BaseContext) {
-	const projectId = context.env.AGENT_REVIEW_PROJECT_ID;
+	const projectId = agentReviewProjectId(context.env);
 	if (!projectId) return undefined;
 	const project = await getProjectById(context.db, projectId);
 	if (!project)

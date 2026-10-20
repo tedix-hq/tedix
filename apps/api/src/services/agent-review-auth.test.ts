@@ -66,3 +66,19 @@ it("enforces the private output fence through real authentication middleware", a
 		call(procedure, undefined, { context: context("other-worker") }),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
+it("allows authenticated local RPCs despite the example review-project placeholder", async () => {
+	const local = context("local-worker");
+	local.env = {
+		...local.env,
+		ENVIRONMENT: "development",
+		DESCOPE_PROJECT_ID: "local-development-disabled",
+		AGENT_REVIEW_PROJECT_ID: "configured-via-private-overlay",
+	};
+	const procedure = os
+		.$context<BaseContext>()
+		.use(withAuth)
+		.handler(async () => "local onboarding works");
+	await expect(call(procedure, undefined, { context: local })).resolves.toBe(
+		"local onboarding works",
+	);
+});

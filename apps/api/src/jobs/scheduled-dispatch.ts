@@ -208,6 +208,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
+		if (fleetEnabled && cron === "*/15 * * * *" && env.TEDI_SERVICE) {
+			const { sweepAgentReviewTriage } = await import("./agent-review-triage");
+			await trackPlatformCronPath(env, event, "agent-review-triage", () =>
+				sweepAgentReviewTriage(env, event.scheduledTime),
+			);
+		}
+
 		if (fleetEnabled && cron === "*/15 * * * *") {
 			const { runBillingAndGatewayCostTick } = await import("./billing-cron");
 			await trackPlatformCronPath(env, event, "billing-and-gateway-cost", () =>

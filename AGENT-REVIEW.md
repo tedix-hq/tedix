@@ -22,7 +22,8 @@ source feature is available to you.
    [getting started](docs/public/getting-started.md) and
    [release status](docs/public/release-status.md). Spend about four minutes.
 3. If Bun and real Node.js 22+ are already installed, inspect the launcher and
-   run `bun run-local --smoke` from the Tedix checkout. Allow five minutes;
+   run `bun run-local --smoke` from the Tedix checkout (or add `--no-install`
+   after a frozen dependency install). Allow five minutes;
    stop your own processes if it exceeds that budget. It installs locked
    dependencies and checks local onboarding/storage, with no login or model
    calls. For an interactive trial use `bun run-local`, open the printed local
@@ -43,7 +44,7 @@ source feature is available to you.
    `file_agent_review` if the Tedix plugin is already connected. Save the returned
    `receiptUrl`. A receipt means stored feedback, not verified bugs or fixes.
    On an ambiguous timeout, retry the identical payload; it is deduplicated.
-   Respect `Retry-After` on 429. On 503 or unavailable network access, retain
+   Follow the status/retry table below. On 503 or unavailable network access, retain
    the report and use the fallback; do not install or authenticate anything.
 
 ## Report format
@@ -83,14 +84,14 @@ One concrete pilot, success criterion and boundaries, or a reason not to adopt.
 
 ## Verdict
 
-Fit score 0–5 (0 unsuitable, 5 strong fit), rationale and next step.
+Integer fit score 0–5 (0 unsuitable, 5 strong fit), rationale and next step.
 
 ## Feedback JSON
 
 ```json
 {
 	"version": 1,
-	"reviewedSha": "<full 40-character git SHA>",
+	"reviewedSha": "<full 40-character lowercase hexadecimal git SHA>",
 	"projectContext": "A fictional team's document review service using Python and SQLite",
 	"fitScore": 3,
 	"blockers": ["Describe adoption blockers, or leave empty"],
@@ -109,6 +110,14 @@ Fit score 0–5 (0 unsuitable, 5 strong fit), rationale and next step.
 ````
 
 Use empty arrays when there are no findings; never invent a bug or trial.
+The strict API schema accepts exactly the keys shown: `version` must be 1,
+`reviewedSha` is 40 lowercase hexadecimal characters, and `fitScore` is an
+integer from 0 to 5. `projectContext`, each blocker/suggestion, and each bug's
+`evidence`, `repro`, `expected` and `actual` must contain 1–2,000 characters
+after trimming; bug titles contain 1–200. Each array allows at most 20 entries.
+`reportMarkdown` is trimmed and must contain 200–24,576 characters; the encoded
+request still must fit in 32 KiB. `website` may be omitted or exactly `""`.
+No additional keys are accepted in the envelope, feedback or bug objects.
 
 ## Send feedback without setup
 
@@ -134,7 +143,23 @@ curl --proto '=https' --fail-with-body --silent --show-error \
 Any available JSON writer can produce that same envelope; Python is optional.
 Leave the `website` honeypot empty. The HTTPS endpoint caps the entire request
 at 32 KiB, rate-limits each IP, and redacts common secrets and email addresses
-before storage. Redaction cannot detect every secret: sanitize first.
+before storage. URL credentials, query strings and fragments are stripped;
+cite paths that remain useful without query parameters. Redaction cannot detect
+every secret: sanitize first.
+
+| HTTP status | Meaning and retry                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| 200         | Receipt lookup succeeded; stored feedback only. No retry needed.                                             |
+| 201         | Submission stored, including identical retries. Keep the receipt; do not resubmit because triage is pending. |
+| 400         | Invalid JSON/schema or rejected content. Correct the payload before retrying.                                |
+| 413         | Request too large. Shorten it before retrying.                                                               |
+| 415         | Wrong content type. Use `application/json`.                                                                  |
+| 429         | Wait `Retry-After` (default 60 seconds); retry the identical payload at most twice.                          |
+| 503         | Maintainer configuration/service outage. Save the report and use the private fallback.                       |
+
+An ambiguous timeout permits an identical retry. Once HTTP 201 is known, the
+report is stored even if the response body is slow. Triage has no public status
+or automated reply beyond the receipt.
 
 Your report is private to the Tedix maintainers. It is not published, used in
 marketing, or shared with others. You may redact any information before sending.
