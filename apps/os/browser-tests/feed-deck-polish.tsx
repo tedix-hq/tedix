@@ -285,7 +285,10 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 		creatorSessionId: null,
 		state: "open" as const,
 		requestedAt: new Date().toISOString(),
-		dueAt: null,
+		// `overdue` seeds an elapsed deadline and an aged, unsent message draft.
+		dueAt: params.has("overdue")
+			? new Date(Date.now() - 26 * 3_600_000).toISOString()
+			: null,
 		expiresAt: null,
 		resolvedAt: null,
 		version: 1,
@@ -331,6 +334,31 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 					responseCount: 0,
 					askedBy: "Codex session",
 				},
+				...(params.has("overdue")
+					? [
+							{
+								request: {
+									...request,
+									id: "00000000-0000-4000-8000-0000000000d1",
+									subject: "Reply to Dana about the revised delivery date",
+									requestedAt: new Date(
+										Date.now() - 30 * 3_600_000,
+									).toISOString(),
+									dueAt: null,
+									metadata: {
+										schema: "tedix.outbound.v1",
+										outboundStatus: "waiting_on_you",
+									},
+								},
+								effectiveState: "open",
+								canRespond: true,
+								canCancel: false,
+								workItem: null,
+								responseCount: 0,
+								askedBy: "Codex session",
+							},
+						]
+					: []),
 			],
 			hasMore: false,
 			nextCursor: null,
@@ -357,7 +385,7 @@ if (["approval", "question"].includes(params.get("surface") ?? "")) {
 			source: "/work",
 			score: 0,
 			requestedAt: request.requestedAt,
-			dueAt: null,
+			dueAt: request.dueAt,
 			decision: null,
 			interaction: {
 				request,

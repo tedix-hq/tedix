@@ -129,7 +129,9 @@ export function deckRankSignal(
 }
 
 /** Preserve every input card; policy protection takes precedence over all model signals. */
-export function orderCuratedDeck<T extends { id: string; score: number }>(
+export function orderCuratedDeck<
+	T extends { id: string; score: number; overdue?: boolean },
+>(
 	cards: readonly T[],
 	signals: readonly DeckRankSignal[],
 	critical: ReadonlySet<string>,
@@ -147,6 +149,7 @@ export function orderCuratedDeck<T extends { id: string; score: number }>(
 		}))
 		.sort(
 			(a, b) =>
+				Number(b.card.overdue === true) - Number(a.card.overdue === true) ||
 				Number(critical.has(b.card.id)) - Number(critical.has(a.card.id)) ||
 				b.score - a.score ||
 				a.index - b.index,

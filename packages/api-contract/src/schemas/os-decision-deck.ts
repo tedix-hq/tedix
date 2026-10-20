@@ -194,6 +194,8 @@ export const DecisionDeckConfigSchema = z.strictObject({
 	limit: z.number().int().min(1).max(100).default(50),
 	unchangedThreshold: z.number().int().min(1).max(100).default(5),
 	dailyAttentionBudget: z.number().int().min(1).max(100).default(10),
+	/** A ready message draft older than this joins "Drafted, not sent". */
+	staleDraftHours: z.number().int().min(1).max(720).default(24),
 	auditSampleRate: z.number().min(0).max(1).default(0.1),
 	defaultLowStakesToDelegate: z.boolean().default(true),
 	gamification: z.boolean().default(true),

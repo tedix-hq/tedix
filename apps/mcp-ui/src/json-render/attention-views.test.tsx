@@ -171,6 +171,32 @@ describe("versioned attention layout family", () => {
 		if (!fixture.actions.length) expect(html).not.toContain("Send answer");
 		expect(html).toMatchSnapshot();
 	});
+	it("shows what the card asks with Overdue and Drafted, not sent badges", () => {
+		const html = renderToStaticMarkup(
+			view(deckSpec, {
+				cards: [
+					{
+						...card("outbound"),
+						askKind: "send",
+						askLabel: "Send",
+						overdue: true,
+						draftedNotSent: true,
+					},
+					{ ...card("question"), askKind: "answer", askLabel: "Answer" },
+				],
+				empty: false,
+				notice: "",
+			}).node,
+		);
+		const rendered = document.createElement("div");
+		rendered.innerHTML = html;
+		const [send, answer] = rendered.querySelectorAll("article");
+		expect(send!.textContent).toContain("Send");
+		expect(send!.textContent).toContain("Overdue");
+		expect(send!.textContent).toContain("Drafted, not sent");
+		expect(answer!.textContent).toContain("Answer");
+		expect(answer!.textContent).not.toContain("Overdue");
+	});
 	it("groups Feed needs and updates and preserves provenance", () => {
 		const html = renderToStaticMarkup(
 			view(feedSpec, {

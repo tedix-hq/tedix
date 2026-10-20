@@ -23,6 +23,7 @@
 		"./utils/focus-feed": "./src/utils/focus-feed.ts",
 		"./utils/card-schedule": "./src/utils/card-schedule.ts",
 		"./utils/demo-sending-gate": "./src/utils/demo-sending-gate.ts",
+		"./utils/deck-ask": "./src/utils/deck-ask.ts",
 		"./utils/deck-projection": "./src/utils/deck-projection.ts",
 		"./schemas/attention": "./src/schemas/attention.ts",
 		"./contracts/attention": "./src/contracts/attention.ts",

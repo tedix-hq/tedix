@@ -119,13 +119,13 @@ try {
 							.count()
 					)
 						throw new Error("Deck view toggle is inside the Kind filter");
-					await page.keyboard.type("Questions");
+					await page.keyboard.type("Answer");
 					await page.keyboard.press("Enter");
 					await popup.waitFor({ state: "hidden" });
 					await page.waitForFunction(() =>
 						document
 							.querySelector('[aria-label="Decision kind"]')
-							?.textContent?.includes("Questions"),
+							?.textContent?.includes("Answer"),
 					);
 					await page.waitForFunction(
 						() =>
@@ -139,7 +139,7 @@ try {
 					);
 					if (
 						(await page
-							.getByRole("option", { name: "Questions", exact: true })
+							.getByRole("option", { name: "Answer", exact: true })
 							.getAttribute("aria-selected")) !== "true"
 					)
 						throw new Error("Kind selection was not retained");

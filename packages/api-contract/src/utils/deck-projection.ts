@@ -13,6 +13,7 @@ import type { DecisionLearningModel } from "../schemas/decision-learning";
 import { DecisionCardPresentationSchema } from "../schemas/decision-card-presentation";
 import type { DeckCard } from "../schemas/attention";
 import { calendarDay, cardIsDue } from "./card-schedule";
+import { deadlineOverdue, deckAsk } from "./deck-ask";
 import { scoreLearning, type LearningCandidate } from "./decision-learning";
 
 type Request = z.infer<typeof WorkInteractionInboxRowSchema>;
@@ -107,6 +108,7 @@ export function compareDecisionFreshness(
 	a: {
 		kind?: string;
 		dueAt?: string | null;
+		deadline?: string | null;
 		requestedAt?: string;
 		score?: number;
 		decision?: DeckCard["decision"];
@@ -116,6 +118,7 @@ export function compareDecisionFreshness(
 	b: {
 		kind?: string;
 		dueAt?: string | null;
+		deadline?: string | null;
 		requestedAt?: string;
 		score?: number;
 		decision?: DeckCard["decision"];
@@ -127,30 +130,48 @@ export function compareDecisionFreshness(
 ) {
 	const due = (value?: string | null) =>
 		value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : Infinity;
-	const aDue = due(a.dueAt);
-	const bDue = due(b.dueAt);
+	const aDeadline = a.deadline ?? a.dueAt;
+	const bDeadline = b.deadline ?? b.dueAt;
+	const aDue = due(aDeadline);
+	const bDue = due(bDeadline);
 	const today = calendarDay(now, timeZone);
-	const elapsed = (value: string | null | undefined, timestamp: number) =>
-		value && /^\d{4}-\d{2}-\d{2}$/.test(value)
-			? value < today
-			: timestamp < now.getTime();
+	const aOverdue = deadlineOverdue(aDeadline, now, timeZone);
+	const bOverdue = deadlineOverdue(bDeadline, now, timeZone);
 	const dueToday = (value: string | null | undefined, timestamp: number) =>
 		Boolean(value) &&
 		Number.isFinite(timestamp) &&
 		(value!.length === 10
 			? value === today
 			: calendarDay(new Date(timestamp), timeZone) === today);
+	// Overdue asks lead, longest overdue first; then the existing policy order.
 	return (
-		Number(elapsed(a.dueAt, aDue)) - Number(elapsed(b.dueAt, bDue)) ||
+		Number(bOverdue) - Number(aOverdue) ||
+		(aOverdue && bOverdue ? aDue - bDue : 0) ||
 		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
 		Number(b.kind === "approval") - Number(a.kind === "approval") ||
-		Number(dueToday(b.dueAt, bDue)) - Number(dueToday(a.dueAt, aDue)) ||
-		(dueToday(a.dueAt, aDue) && dueToday(b.dueAt, bDue) ? aDue - bDue : 0) ||
+		Number(dueToday(bDeadline, bDue)) - Number(dueToday(aDeadline, aDue)) ||
+		(dueToday(aDeadline, aDue) && dueToday(bDeadline, bDue)
+			? aDue - bDue
+			: 0) ||
 		(b.score ?? 0) - (a.score ?? 0) ||
 		(aDue !== bDue ? aDue - bDue : 0) ||
 		(Date.parse(b.requestedAt ?? "") || 0) -
 			(Date.parse(a.requestedAt ?? "") || 0)
 	);
+}
+
+/** Sets askKind, deadline, overdue and draftedNotSent on every projected card. */
+export function annotateDeckAsk(
+	cards: DeckCard[],
+	now: Date,
+	options: { timeZone?: string; staleDraftHours?: number } = {},
+) {
+	for (const card of cards)
+		Object.assign(
+			card,
+			deckAsk({ ...card, request: card.interaction?.request }, now, options),
+		);
+	return cards;
 }
 
 /** Pure projection shared by the authenticated headless reader and trusted recipient summaries. */
@@ -164,6 +185,7 @@ export function projectDeckCards(input: {
 	routing?: DeckRoutingPolicy;
 	onRoute?: (route: DeckRoutingReceipt) => void;
 	destination?: "deck" | "all";
+	staleDraftHours?: number;
 }): DeckCard[] {
 	const { now, timeZone, model, routing } = input;
 	const cards: DeckCard[] = [];
@@ -342,5 +364,9 @@ export function projectDeckCards(input: {
 			now,
 			card.interaction?.request,
 		).score;
+	annotateDeckAsk(cards, now, {
+		timeZone,
+		staleDraftHours: input.staleDraftHours,
+	});
 	return cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));
 }

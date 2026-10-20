@@ -1024,6 +1024,10 @@
 		{
 			"name": "20261020104756_deck_curation_projection/migration.sql",
 			"sha256": "c9971ce43d7c8857515c5f8aff2e97689cb82f985c4759efd9aec14ec7738ab2"
+		},
+		{
+			"name": "20261020174334_attention-ask-kind/migration.sql",
+			"sha256": "3ad139cde35eae42acb66818d2bdf250405e4b46869660d34838abba2662fa97"
 		}
 	]
 }

@@ -117,7 +117,7 @@ describe("canonical Deck projection", () => {
 			]),
 		).toEqual([]);
 	});
-	it("dedicates approvals priority but demotes expired deadlines for revalidation", () => {
+	it("puts overdue asks first, then approvals", () => {
 		const expired = row("expired", { riskLevel: "critical" });
 		expired.request.dueAt = "2026-10-18T12:00:00.000Z";
 		expect(
@@ -129,7 +129,7 @@ describe("canonical Deck projection", () => {
 					approvalTarget: "a document",
 				}),
 			]).map((card) => card.id),
-		).toEqual(["approval", "fresh", "expired"]);
+		).toEqual(["expired", "approval", "fresh"]);
 	});
 });
 
@@ -259,7 +259,7 @@ it("retains feed-routed questions and non-critical approvals in the full attenti
 	expect(full).toHaveLength(3);
 });
 
-it("puts a dated factory deadline ahead of learned noise and keeps date-only deadlines current all day", () => {
+it("puts overdue first, then a dated factory deadline ahead of learned noise, keeping date-only deadlines current all day", () => {
 	const dueAt = factoryCardDeadline({
 		action: "Review invoice corrections by Tuesday 14:00?",
 		why: "The buyer asks for updates by Tuesday 20 October at 14:00; timezone unstated.",
@@ -277,23 +277,25 @@ it("puts a dated factory deadline ahead of learned noise and keeps date-only dea
 		cards
 			.sort((a, b) => compareDecisionFreshness(a, b, morning, "Europe/Berlin"))
 			.map((c) => c.id),
-	).toEqual(["invoice", "booth", "noise", "expired"]);
+	).toEqual(["expired", "invoice", "booth", "noise"]);
+	const invoice = cards.find((card) => card.id === "invoice")!;
 	expect(
 		compareDecisionFreshness(
-			cards[0]!,
+			invoice,
 			{ score: 9999 },
 			new Date("2026-10-20T21:59:00Z"),
 			"Europe/Berlin",
 		),
 	).toBeLessThan(0);
+	// After the local day ends the date-only deadline is overdue and still leads.
 	expect(
 		compareDecisionFreshness(
-			cards[0]!,
-			{ score: 0 },
+			invoice,
+			{ score: 9999 },
 			new Date("2026-10-20T22:01:00Z"),
 			"Europe/Berlin",
 		),
-	).toBeGreaterThan(0);
+	).toBeLessThan(0);
 });
 
 it("does not guess ambiguous, invalid, undated or cross-year factory deadlines", () => {

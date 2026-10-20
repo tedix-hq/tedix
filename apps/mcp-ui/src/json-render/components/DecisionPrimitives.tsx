@@ -1,4 +1,5 @@
 import { useRef, type ReactNode } from "react";
+import { Badge } from "@tedix/widget-ui/badge";
 import { safeLinkHref } from "@tedix/widget-ui/safe-url";
 
 export function DecisionCardComponent({
@@ -9,6 +10,9 @@ export function DecisionCardComponent({
 	why,
 	stakes,
 	status,
+	askLabel,
+	overdue,
+	draftedNotSent,
 	children,
 }: {
 	ask: string;
@@ -19,6 +23,9 @@ export function DecisionCardComponent({
 	stakes?: string | null;
 	kind?: string | null;
 	status?: string | null;
+	askLabel?: string | null;
+	overdue?: boolean | null;
+	draftedNotSent?: boolean | null;
 	children?: ReactNode;
 }) {
 	return (
@@ -26,6 +33,13 @@ export function DecisionCardComponent({
 			className="w-full min-w-0 shrink-0 basis-full snap-center break-words rounded-xl border border-border bg-card p-5 text-card-foreground"
 			aria-label={ask}
 		>
+			{(askLabel || overdue || draftedNotSent) && (
+				<div className="mb-3 flex flex-wrap gap-2">
+					{askLabel && <Badge variant="secondary">{askLabel}</Badge>}
+					{overdue && <Badge variant="destructive">Overdue</Badge>}
+					{draftedNotSent && <Badge variant="warning">Drafted, not sent</Badge>}
+				</div>
+			)}
 			<h2 className="text-xl font-semibold">{ask}</h2>
 			{context && <p className="mt-3">{context}</p>}
 			{ifYes && (

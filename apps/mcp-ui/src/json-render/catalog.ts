@@ -759,10 +759,13 @@ export const tedixCatalog = defineCatalog(schema, {
 				stakes: z.string().nullable(),
 				kind: z.string().nullable(),
 				status: z.string().nullable(),
+				askLabel: z.string().nullable().optional(),
+				overdue: z.boolean().nullable().optional(),
+				draftedNotSent: z.boolean().nullable().optional(),
 			}),
 			slots: ["default"],
 			description:
-				"Generic decision content: ASK, IF YES, WHY and optional STAKES. Children supply provenance, preview, inputs and spec-declared actions. Status disables actions while saving or saved.",
+				"Generic decision content: what the card asks (Send, Decide, Approve draft, Answer, Consent) with Overdue and Drafted, not sent badges, then ASK, IF YES, WHY and optional STAKES. Children supply provenance, preview, inputs and spec-declared actions. Status disables actions while saving or saved.",
 		},
 		SwipeStack: {
 			props: z.object({ label: z.string().nullable() }),

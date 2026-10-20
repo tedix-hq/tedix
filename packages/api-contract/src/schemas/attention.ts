@@ -42,6 +42,15 @@ export const AttentionViewInputSchema = z.strictObject({
 	timeZone: AttentionTimeZoneSchema.optional(),
 	limit: z.number().int().min(1).max(100).default(50),
 });
+/** What a card asks of the person; derived from typed card data, never stored. */
+export const DeckAskKindSchema = z.enum([
+	"send",
+	"decide",
+	"approve_draft",
+	"answer",
+	"consent",
+]);
+export type DeckAskKind = z.infer<typeof DeckAskKindSchema>;
 export const DeckCardSchema = z.strictObject({
 	history: CardHistorySchema.optional(),
 	id: z.string().min(1),
@@ -55,6 +64,12 @@ export const DeckCardSchema = z.strictObject({
 	source: z.string(),
 	requestedAt: z.string(),
 	dueAt: z.string().nullable(),
+	askKind: DeckAskKindSchema.optional(),
+	/** Earliest known deadline: request due date, decision expiry or approval expiry. */
+	deadline: z.string().nullable().optional(),
+	overdue: z.boolean().optional(),
+	/** A ready message draft that has waited longer than the Deck's staleDraftHours. */
+	draftedNotSent: z.boolean().optional(),
 	score: z.number(),
 	interaction: WorkInteractionInboxRowSchema.optional(),
 	workApproval: WorkApprovalInboxRowSchema.optional(),
@@ -191,6 +206,10 @@ export const AttentionDisplayCardSchema = z.strictObject({
 	provenance: z.string().nullable(),
 	evidenceUrl: z.string().nullable(),
 	dueAt: z.string().nullable(),
+	askKind: DeckAskKindSchema.nullable().optional(),
+	askLabel: z.string().nullable().optional(),
+	overdue: z.boolean().optional(),
+	draftedNotSent: z.boolean().optional(),
 	source: z.string(),
 	draft: z.string().nullable(),
 	recipient: z.string().nullable(),

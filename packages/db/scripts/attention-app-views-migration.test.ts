@@ -47,7 +47,8 @@ it("seeds owning apps idempotently and leaves the exact versioned specs in D1", 
 				n.includes("_attention-app-value-bindings") ||
 				n.includes("_attention-app-view-assets") ||
 				n.includes("_attention-layout-catalog-props") ||
-				n.includes("_attention-card-tldr"),
+				n.includes("_attention-card-tldr") ||
+				n.includes("_attention-ask-kind"),
 		);
 		for (let pass = 0; pass < 2; pass++)
 			for (const name of migrations) apply(db, name);
