@@ -113,6 +113,8 @@ export type UseCollabDocResult = {
 	 */
 	session: OtEditSession | null;
 	status: CollabDocStatus;
+	/** Restart an unavailable connection, preserving the session and its visible text. */
+	retry: () => void;
 	/** Verified principals, collapsed across tabs/processes; excludes this client. */
 	participants: CollabParticipant[];
 	/** Unique verified principals — includes the local client while connected. */
@@ -187,6 +189,7 @@ export type UseCollabDocResult = {
 /** Transport-level failure. `OtClient` retries these; everything else is hard. */
 class CollabTransportError extends Error {}
 
+const READINESS_TIMEOUT_MS = 10_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 15_000;
 /**
@@ -294,6 +297,7 @@ class CollabSession implements OtEditSession {
 	#reconnectMs = RECONNECT_BASE_MS;
 	#reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	#presenceTimer: ReturnType<typeof setInterval> | null = null;
+	#readinessTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(
 		private readonly url: string,
@@ -562,6 +566,14 @@ class CollabSession implements OtEditSession {
 	// =====================================================================
 	// Lifecycle
 
+	retry(): void {
+		if (this.#disposed || this.#ready) return;
+		if (this.#reconnectTimer !== null) clearTimeout(this.#reconnectTimer);
+		this.#reconnectTimer = null;
+		this.#teardownSocket();
+		this.#connect();
+	}
+
 	dispose(): void {
 		this.#disposed = true;
 		if (this.#presenceTimer !== null) clearInterval(this.#presenceTimer);
@@ -577,10 +589,17 @@ class CollabSession implements OtEditSession {
 			socket = new WebSocket(this.url);
 		} catch (error) {
 			console.error("Collaboration socket could not be opened", error);
+			this.handlers.onStatus("disconnected");
 			this.#scheduleReconnect();
 			return;
 		}
 		this.#socket = socket;
+		// Opening a socket is not room readiness: the base reply must arrive too.
+		this.#readinessTimer = setTimeout(() => {
+			if (this.#socket !== socket || this.#ready) return;
+			this.#teardownSocket();
+			this.#scheduleReconnect();
+		}, READINESS_TIMEOUT_MS);
 		socket.addEventListener("open", () => {
 			if (this.#socket !== socket) return;
 			this.#reconnectMs = RECONNECT_BASE_MS;
@@ -633,6 +652,8 @@ class CollabSession implements OtEditSession {
 				},
 				onRemoteChange: (events) => {
 					this.#ready = true;
+					if (this.#readinessTimer !== null) clearTimeout(this.#readinessTimer);
+					this.#readinessTimer = null;
 					this.handlers.onStatus("connected");
 					const republished = this.#publish(
 						events.length > 0
@@ -683,6 +704,8 @@ class CollabSession implements OtEditSession {
 	}
 
 	#teardownSocket(): void {
+		if (this.#readinessTimer !== null) clearTimeout(this.#readinessTimer);
+		this.#readinessTimer = null;
 		const socket = this.#socket;
 		this.#socket = null;
 		this.#ready = false;
@@ -1012,6 +1035,8 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 		[session],
 	);
 
+	const retry = useCallback(() => session?.retry(), [session]);
+
 	const setSelection = useCallback(
 		(selection: CollabSelection | null) => session?.setSelection(selection),
 		[session],
@@ -1022,6 +1047,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 		// A transient disconnect must not unmount the editor and destroy its view.
 		session,
 		status,
+		retry,
 		participants,
 		peers: status === "connected" ? participants.length + 1 : 0,
 		blocked,

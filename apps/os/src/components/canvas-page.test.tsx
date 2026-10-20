@@ -2338,6 +2338,34 @@ describe("room seeding and shared text", () => {
 		expect(session.local).toEqual([]);
 	});
 
+	it.each(["connecting", "disconnected"])(
+		"shows saved content read-only while the first room is %s",
+		async (status) => {
+			mockLists();
+			osWorkspacesApi.outputs.get.mockResolvedValue({
+				output: outputFixture(),
+				currentRevision: outputRevisionFixture(),
+			});
+			const session = mockCollab({ status, canonicalRevision: null });
+			const retry = vi.fn();
+			const original = collab.useCollabDoc.getMockImplementation()!;
+			collab.useCollabDoc.mockImplementation((...args) => ({
+				...original(...args),
+				retry,
+			}));
+			const container = await openDoc("Weekly report");
+			const view = container.querySelector("[data-canonical-document-view]");
+			expect(view?.textContent).toContain("hello");
+			expect(view?.querySelector('[contenteditable="true"]')).toBeNull();
+			expect(container.querySelector("[data-output-editor]")).toBeNull();
+			expect(findButton(container, "Save version").disabled).toBe(true);
+			click(findButton(container, "Retry connection"));
+			expect(retry).toHaveBeenCalledTimes(1);
+			expect(session.local).toEqual([]);
+			expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
+		},
+	);
+
 	it("waits for canonical truth before offering a seed at all", async () => {
 		mockLists();
 		osWorkspacesApi.outputs.get.mockReturnValue(new Promise(() => {}));
