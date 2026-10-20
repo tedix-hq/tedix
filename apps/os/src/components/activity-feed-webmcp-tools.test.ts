@@ -28,7 +28,7 @@ it("uses the visible card's reaction callback and rejects stale ids and empty co
 		busy: false,
 		react,
 	}));
-	const write = tools.find((t) => t.name === "activity_feed_react")!;
+	const write = tools.find((t) => t.name === "react_activity_feed")!;
 	const stale = await write.execute({ itemId: "gone", reaction: "mute" });
 	expect(stale.isError).toBe(true);
 	expect(

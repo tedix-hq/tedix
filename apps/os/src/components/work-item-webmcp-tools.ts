@@ -122,9 +122,13 @@ export function buildWorkItemWebMcpTools(
 
 	const commentCurrentWorkItem: WebMcpToolDef = {
 		name: "comment_current_work_item",
-		annotations: { readOnlyHint: false, untrustedContentHint: false },
+		annotations: {
+			readOnlyHint: false,
+			untrustedContentHint: false,
+			consequentialHint: true,
+		},
 		description:
-			"Add a comment to the work item currently open on this page; it appears immediately in the thread the human is reading.",
+			"Add a comment when recording context on the work item currently open on this page. Each call appends a separate comment; inspect the thread before retrying an uncertain write.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -163,7 +167,7 @@ export function buildWorkItemWebMcpTools(
 	};
 
 	const listCurrentWorkItemEvidence: WebMcpToolDef = {
-		name: "list_current_work_item_evidence",
+		name: "list_current_work_evidence",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
 			"List the evidence submitted against the acceptance claims of the work item currently open on this page.",
@@ -232,11 +236,30 @@ export function buildWorkItemWebMcpTools(
 	};
 
 	const listCurrentWorkItemAttempts: WebMcpToolDef = {
-		name: "list_current_work_item_attempts",
+		name: "list_current_work_attempts",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"List the execution attempts of the work item currently open on this page — which executor ran, its runtime state, and how each run ended. Heartbeat and expiry are recorded updates and reservations, not live host status. Pass nextCursor as cursor to read an earlier page.",
-		inputSchema: deriveToolSchema(attemptPageSchema, { pick: ["cursor"] }),
+			"List up to 50 recorded attempts for the open work item to inspect executors, runtime states and outcomes; heartbeat and expiry describe recorded reservations. Pass nextCursor as cursor for an earlier page.",
+		inputSchema: deriveToolSchema(attemptPageSchema, {
+			pick: ["cursor"],
+			override: {
+				cursor: {
+					description:
+						"Opaque nextCursor from the preceding attempts result; omit for the newest page.",
+					...deriveToolSchema(WorkFactoryProjectionCursorSchema, {
+						pick: ["at", "id"],
+						override: {
+							at: {
+								description: "Timestamp from nextCursor.at; copy unchanged.",
+							},
+							id: {
+								description: "Attempt id from nextCursor.id; copy unchanged.",
+							},
+						},
+					}),
+				},
+			},
+		}),
 		execute: async (args, executeOptions): Promise<WebMcpToolResult> => {
 			try {
 				const parsed = attemptPageSchema.safeParse(args);

@@ -106,6 +106,7 @@ describe("buildChatWebMcpTools", () => {
 		expect(tool("send_chat_message").annotations).toEqual({
 			readOnlyHint: false,
 			untrustedContentHint: false,
+			consequentialHint: true,
 		});
 		expect(tool("list_conversations").annotations).toEqual({
 			readOnlyHint: true,
@@ -115,7 +116,10 @@ describe("buildChatWebMcpTools", () => {
 
 	it("marks approval decisions and delegation consequential", () => {
 		for (const name of ["respond_home_approval", "delegate_task_to_tedi"])
-			expect(tool(name).annotations).toEqual({ consequentialHint: true });
+			expect(tool(name).annotations).toEqual({
+				readOnlyHint: false,
+				consequentialHint: true,
+			});
 	});
 
 	it("registers the six chat tools under the chat scope", () => {

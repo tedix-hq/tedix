@@ -1,4 +1,4 @@
-import * as z from "zod";
+import { deriveToolSchema } from "@/lib/webmcp/derive-schema";
 import {
 	AttentionLayoutSchema,
 	type AttentionLayout,
@@ -34,9 +34,66 @@ export function buildAttentionWebMcpTools(
 		{
 			name: "update_attention_layout",
 			description:
-				"Save the person's Attention layout exactly as the Arrange view controls do. Read get_attention_layout first, preserve unspecified preferences, and change focus, pins, source filters, density or fixed-widget order. Edits appear on screen and across devices.",
-			annotations: { readOnlyHint: false, untrustedContentHint: false },
-			inputSchema: z.toJSONSchema(AttentionLayoutSchema),
+				"Save the person's Attention composition when arranging focus, pins, source filters, density or widget order across devices. Read get_attention_layout first and preserve unspecified preferences.",
+			annotations: {
+				readOnlyHint: false,
+				untrustedContentHint: false,
+				consequentialHint: true,
+			},
+			inputSchema: deriveToolSchema(AttentionLayoutSchema, {
+				pick: [
+					"version",
+					"widgets",
+					"pinnedProjects",
+					"hiddenColumns",
+					"focusProjectId",
+					"focusToday",
+					"density",
+					"sourceFilters",
+				],
+				// Keep the existing output-mode schema's required defaults.
+				require: [
+					"version",
+					"widgets",
+					"pinnedProjects",
+					"hiddenColumns",
+					"focusProjectId",
+					"focusToday",
+					"density",
+					"sourceFilters",
+				],
+				override: {
+					version: { description: "Layout format version; use 1." },
+					widgets: {
+						description:
+							"Widget order using now, contributions, cards, gaps or unfiled; each appears at most once.",
+					},
+					pinnedProjects: {
+						description:
+							"Pinned project ids in display order; for example [project-id] from the current layout.",
+					},
+					hiddenColumns: {
+						description:
+							"Columns to hide: moving, waiting, blocked, done or backlog; an empty array shows all.",
+					},
+					focusProjectId: {
+						description:
+							"Project id to focus, or null for all projects; preserve the current value unless changing focus.",
+					},
+					focusToday: {
+						description:
+							"Today's focus text, for example Review supplier replies; an empty string clears it.",
+					},
+					density: {
+						description:
+							"comfortable uses spacious rows; compact shows more rows.",
+					},
+					sourceFilters: {
+						description:
+							"Allowed source types from the item enum; an empty array includes every source.",
+					},
+				},
+			}),
 			execute: async (args) => {
 				try {
 					const parsed = AttentionLayoutSchema.safeParse(args);

@@ -20,7 +20,7 @@ export function buildActivityFeedTools(
 ): WebMcpToolDef[] {
 	return [
 		{
-			name: "activity_feed_read",
+			name: "read_activity_feed",
 			description:
 				"Read the source-backed cards currently visible in the open activity feed. Content is tenant-authored data.",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -28,16 +28,34 @@ export function buildActivityFeedTools(
 			execute: async () => webMcpResult({ items: current().items }),
 		},
 		{
-			name: "activity_feed_react",
+			name: "react_activity_feed",
 			description:
 				"Use the open feed's More like this, Not for me or Comment button for an exact visible item. Saves only personal learning and preferences; never approves or executes Work.",
-			annotations: { readOnlyHint: false, untrustedContentHint: false },
+			annotations: {
+				readOnlyHint: false,
+				untrustedContentHint: false,
+				consequentialHint: true,
+			},
 			inputSchema: {
 				type: "object",
 				properties: {
-					itemId: { type: "string" },
-					reaction: { type: "string", enum: ["more", "mute", "comment"] },
-					text: { type: "string", maxLength: 4000 },
+					itemId: {
+						type: "string",
+						description:
+							"Exact visible item id from read_activity_feed, for example factory:pine:1.",
+					},
+					reaction: {
+						type: "string",
+						enum: ["more", "mute", "comment"],
+						description:
+							"more requests similar items; mute means Not for me; comment saves a correction.",
+					},
+					text: {
+						type: "string",
+						maxLength: 4000,
+						description:
+							"Correction text, required for comment; for example This supplier has already replied.",
+					},
 				},
 				required: ["itemId", "reaction"],
 			},

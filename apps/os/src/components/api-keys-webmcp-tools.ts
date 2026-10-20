@@ -102,7 +102,7 @@ export function buildApiKeysWebMcpTools(
 		{
 			name: "list_api_keys",
 			description:
-				"Read API-key metadata on the currently visible page. No raw credentials. Use the page pagination to inspect other keys.",
+				"Read credential-free API-key metadata to inspect the currently visible page; use page pagination for other keys.",
 			inputSchema: deriveToolSchema(emptySchema, {
 				pick: [],
 				additionalProperties: false,
@@ -140,12 +140,34 @@ export function buildApiKeysWebMcpTools(
 		{
 			name: "prepare_create_api_key",
 			description:
-				"Open a prefilled create-key dialog for human review. Requires explicit environment and tenant-delegable scopes. Does not create a key or perform reauthentication; the human must confirm in the UI.",
+				"Open a prefilled create-key dialog when the person wants to review a new key with explicit environment and tenant-delegable scopes. The person completes reauthentication and issuance in the UI.",
 			inputSchema: deriveToolSchema(draftSchema, {
 				pick: ["name", "description", "environment", "scopes"],
+				override: {
+					name: {
+						description:
+							"Display name for the key, for example Build observer.",
+					},
+					description: {
+						description:
+							"Optional purpose, for example Read build status from the CI runner.",
+					},
+					environment: {
+						description:
+							"Key environment; select one of the declared enum values for the intended deployment.",
+					},
+					scopes: {
+						description:
+							"Tenant-delegable permissions from the item enum; choose only those the key needs.",
+					},
+				},
 				additionalProperties: false,
 			}),
-			annotations: { readOnlyHint: false, untrustedContentHint: false },
+			annotations: {
+				readOnlyHint: false,
+				untrustedContentHint: false,
+				consequentialHint: true,
+			},
 			execute: async (args, options) => {
 				try {
 					const parsed = draftSchema.safeParse(args);
@@ -173,12 +195,22 @@ export function buildApiKeysWebMcpTools(
 		},
 		...(["rotate", "revoke"] as const).map((operation): WebMcpToolDef => ({
 			name: `prepare_${operation}_api_key`,
-			description: `Open the human confirmation dialog to ${operation} an active API key on the currently visible page. Does not ${operation} the key. Rotation still requires reauthentication.`,
+			description: `Open the human confirmation dialog when the person wants to ${operation} an active API key on the visible page. The person completes the change in the UI, including reauthentication for rotation.`,
 			inputSchema: deriveToolSchema(keySchema, {
 				pick: ["keyId"],
+				override: {
+					keyId: {
+						description:
+							"Active key id from list_api_keys on the currently visible page.",
+					},
+				},
 				additionalProperties: false,
 			}),
-			annotations: { readOnlyHint: false, untrustedContentHint: false },
+			annotations: {
+				readOnlyHint: false,
+				untrustedContentHint: false,
+				consequentialHint: true,
+			},
 			execute: async (args, options) => {
 				try {
 					const parsed = keySchema.safeParse(args);

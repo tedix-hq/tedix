@@ -111,7 +111,7 @@ export function buildConnectionsWebMcpTools(deps: {
 		{
 			name: "preview_disconnect_connection",
 			description:
-				"Read the app references that may be affected by disconnecting an account. This is an incomplete impact preview, not a permission check. Does not disconnect or confirm anything.",
+				"Read app references when previewing a possible account disconnection; references describe potential impact rather than permissions or complete access.",
 		},
 		{
 			name: "check_connection_service",
@@ -121,7 +121,7 @@ export function buildConnectionsWebMcpTools(deps: {
 		{
 			name: "prepare_connect_connection",
 			description:
-				"Open a connection review dialog. Does not start OAuth, store credentials, or confirm the action. A human must continue in the UI.",
+				"Open a connection review dialog when the person wants to connect a provider. The person continues OAuth and credential storage in the UI.",
 		},
 		{
 			name: "prepare_disconnect_connection",
@@ -144,11 +144,45 @@ export function buildConnectionsWebMcpTools(deps: {
 						: name === "list_connections"
 							? ["q", "status", "limit", "offset"]
 							: ["q", "providerId", "status", "limit", "offset"],
+				override: {
+					q: {
+						description:
+							"Search text for relevant accounts, for example calendar; defaults to an empty search.",
+					},
+					...(name !== "list_connections"
+						? {
+								providerId: {
+									description:
+										"Provider app id from list_connections; identifies the account to inspect or prepare.",
+								},
+							}
+						: {}),
+					...(name === "check_connection_service"
+						? {
+								appSlug: {
+									description:
+										"Referenced app slug to check, for example calendar; required when several services reference this provider.",
+								},
+							}
+						: {}),
+					status: {
+						description:
+							"all includes every account; attention selects issues; in_use selects referenced accounts; unused selects unreferenced accounts.",
+					},
+					limit: {
+						description: "Account rows per page, 1 to 100; defaults to 50.",
+					},
+					offset: {
+						description:
+							"Zero-based account offset, for example 50 for the second 50-row page; defaults to 0.",
+					},
+				},
 				additionalProperties: false,
 			},
 		),
 		annotations: {
 			readOnlyHint: !name.startsWith("prepare_"),
+			consequentialHint: name.startsWith("prepare_"),
 			untrustedContentHint: true,
 		},
 		execute: async (args, options) => {

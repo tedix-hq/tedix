@@ -85,6 +85,7 @@ describe("buildOutputsWebMcpTools", () => {
 		expect(byName.get("patch_document")?.annotations).toEqual({
 			readOnlyHint: false,
 			untrustedContentHint: false,
+			consequentialHint: true,
 		});
 	});
 

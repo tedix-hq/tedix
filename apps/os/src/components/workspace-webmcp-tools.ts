@@ -220,7 +220,7 @@ export function buildWorkspaceWebMcpTools(
 		name: "list_gadget_executions",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"List an app's governed execution receipts in this workspace, newest first — the same activity rows the workbench shows. Defaults to the selected app workpiece. Status: denied, queued, awaiting_approval, running, paused, completed, failed, or canceled.",
+			"List an app's governed execution receipts, newest first, when inspecting activity in this workspace; defaults to the selected app. Status: denied, queued, awaiting_approval, running, paused, completed, failed, or canceled.",
 		inputSchema: {
 			type: "object",
 			properties: {
