@@ -34,6 +34,12 @@ export const IDEMPOTENT_STEP_RETRY = {
 	retries: { limit: 5, delay: "15 seconds", backoff: "exponential" },
 } satisfies WorkflowStepConfig;
 
+/** Home work includes cold computer setup; its admitted deadline still applies. */
+export const DELEGATED_FACET_STEP_RETRY = {
+	...IDEMPOTENT_STEP_RETRY,
+	timeout: "30 minutes",
+} satisfies WorkflowStepConfig;
+
 /**
  * The subset of the SDK's `AgentWorkflowStep` this orchestration uses: durable
  * step execution plus the durable completion report (an idempotent
@@ -51,6 +57,8 @@ export interface ChatTurnStepRunner {
 
 /** Agent-side operations the steps drive (bound to the DO stub by the class). */
 export interface ChatTurnStepOps {
+	/** Derived from the persisted Home/Work tuple, never model metadata. */
+	supervised?: boolean;
 	/** `markChatWorkflowStarted` — the admission watchdog's first checkpoint. */
 	markStarted(): Promise<boolean | void>;
 	/**
@@ -107,7 +115,10 @@ export async function driveChatTurnSteps(
 	// memory effects, final broadcast) — runs as ONE durable step on the DO.
 	// Idempotent; `step.do` memoizes the result so a post-settlement resume
 	// never re-runs the model.
-	let resultRaw = await step.do("facet-turn", IDEMPOTENT_STEP_RETRY, () =>
+	const facetConfig = ops.supervised
+		? DELEGATED_FACET_STEP_RETRY
+		: IDEMPOTENT_STEP_RETRY;
+	let resultRaw = await step.do("facet-turn", facetConfig, () =>
 		ops.runFacetTurn(),
 	);
 	let computerContinuation = 0;
@@ -156,7 +167,7 @@ export async function driveChatTurnSteps(
 		computerContinuation++;
 		resultRaw = await step.do(
 			`facet-turn-continuation-${computerContinuation}`,
-			IDEMPOTENT_STEP_RETRY,
+			facetConfig,
 			() => ops.runFacetTurn(computerContinuation),
 		);
 	}

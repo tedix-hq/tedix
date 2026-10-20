@@ -394,4 +394,50 @@ for (const pending of [
 	assert.equal(h.completionReports.length, 0);
 }
 
+{
+	const configs: Array<[string, unknown]> = [];
+	await driveChatTurnSteps(
+		{
+			do: async (name, config, callback) => {
+				configs.push([name, config]);
+				return callback();
+			},
+			sleep: async () => {
+				throw new Error("Completed command does not sleep");
+			},
+			reportComplete: async () => {},
+		},
+		{
+			supervised: true,
+			markStarted: async () => true,
+			runFacetTurn: async (continuation) =>
+				JSON.stringify(
+					continuation
+						? { text: "Done", stopReason: "stop", toolCalls: [] }
+						: {
+								text: "Waiting",
+								stopReason: "computer_pending",
+								pendingComputerExecutions: ["command-1"],
+								toolCalls: [],
+							},
+				),
+			readComputerExecutions: async () => ({
+				ready: true,
+				retryAfterSeconds: 30,
+			}),
+		},
+	);
+	assert.equal(
+		configs.filter(([name]) => name.startsWith("facet-turn")).length,
+		2,
+	);
+	for (const [name, config] of configs)
+		assert.deepEqual(
+			config,
+			name.startsWith("facet-turn")
+				? { ...IDEMPOTENT_STEP_RETRY, timeout: "30 minutes" }
+				: IDEMPOTENT_STEP_RETRY,
+		);
+}
+
 console.log("chat-turn-steps.test.ts: all assertions passed");
