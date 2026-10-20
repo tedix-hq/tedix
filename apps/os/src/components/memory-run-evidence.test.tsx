@@ -1,7 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import type { CardRunLinkProps } from "./chat-cards";
-import { MemoryRunEvidence } from "./memory-browser";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { memoryHealthFindingsQueryOptions } from "@/lib/os-query-options";
+import { memorySearchSchema } from "@/lib/memory-browser";
+import { MemoryBrowser, MemoryRunEvidence } from "./memory-browser";
 
 function RunLink(props: CardRunLinkProps) {
 	return (
@@ -37,5 +40,32 @@ describe("Memory detail run evidence", () => {
 				<MemoryRunEvidence runId={null} LinkComponent={RunLink} />,
 			),
 		).toBe("");
+	});
+});
+
+describe("Memory Health tab", () => {
+	it("renders main's health findings in the tab without record controls", () => {
+		const client = new QueryClient();
+		client.setQueryData(memoryHealthFindingsQueryOptions().queryKey, {
+			checkedAt: "2026-10-20T12:00:00.000Z",
+			unusedDays: 60,
+			staleDays: 90,
+			orphanWindow: 2000,
+			findings: [{ kind: "unused", count: 38, capped: false, samples: [] }],
+			graphLayer: { configured: false },
+		});
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<MemoryBrowser
+					search={memorySearchSchema.parse({ tab: "health" })}
+					onSearch={() => {}}
+				/>
+			</QueryClientProvider>,
+		);
+		expect(html).toContain('aria-label="Memory health findings"');
+		expect(html).toContain("38 facts were not retrieved in the last 60 days");
+		expect(html).toContain("Graph layer (Neo4j)");
+		expect(html).not.toContain("20 rows per page");
+		expect(html).not.toContain("Search memories");
 	});
 });

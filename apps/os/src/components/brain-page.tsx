@@ -225,7 +225,14 @@ export function MemoryVitals({ health }: { health: MemoryHealth }) {
 					key={vital.id}
 					tile={{
 						...vital.tile,
-						href: vital.id === "stale-facts" ? "/brain?tab=stale" : vital.id === "open-gaps" ? "/brain?tab=gaps" : vital.id === "contradictions" || vital.id === "curiosity" ? `/brain?tab=${vital.id}` : undefined,
+						href:
+							vital.id === "stale-facts"
+								? "/brain?tab=stale"
+								: vital.id === "open-gaps"
+									? "/brain?tab=gaps"
+									: vital.id === "contradictions" || vital.id === "curiosity"
+										? `/brain?tab=${vital.id}`
+										: undefined,
 					}}
 					data-vital={vital.id}
 					data-tone={vital.tone}
