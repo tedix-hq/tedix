@@ -12,6 +12,12 @@ export interface SetupConfig {
 		config: unknown;
 	}[];
 	assignedAppIds: string[];
+	connectionSources?: {
+		id: string;
+		appId: string;
+		title: string;
+		config: unknown;
+	}[];
 	skills: {
 		id: string;
 		title: string;
@@ -77,6 +83,8 @@ export function deriveTediSetup(config: SetupConfig): TediSetup {
 				: "Configured tool is disabled.",
 			href: `/apps/${encodeURIComponent(tool.appId)}/tools`,
 		});
+	}
+	for (const tool of [...tools, ...(config.connectionSources ?? [])]) {
 		const auth =
 			isRecord(tool.config) && isRecord(tool.config.auth)
 				? tool.config.auth

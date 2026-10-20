@@ -5,7 +5,7 @@ import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import { listAllSkillsForOrg } from "@tedix/db/queries/cognitive/skill-inventory";
 import { mcpNamespaceSlugCandidates } from "@tedix/db/queries/cognitive/skill-mcp-bindings";
 import { parseSkillFrontmatterCapabilities } from "@tedix/db/queries/cognitive/skill-tool-metadata";
-import { getToolsByAppId } from "@tedix/db/queries/tools";
+import { listSetupToolsForOrganization } from "@tedix/db/queries/tools";
 import { ConnectionInventoryInputSchema } from "@tedix/api-contract/schemas/connections";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
@@ -33,9 +33,10 @@ export const getSetupProcedure = authedTedisOs.getSetup
 				"Tedi not found in this organization",
 			);
 		const apps = await getAppsByOrganization(context.db, tedi.organizationId);
-		const tools = (
-			await Promise.all(apps.map((a) => getToolsByAppId(context.db, a.id)))
-		).flat();
+		const tools = await listSetupToolsForOrganization(
+			context.db,
+			tedi.organizationId,
+		);
 		const skills: SetupConfig["skills"] = [];
 		for (let offset = 0; ; offset += 200) {
 			const page = await listAllSkillsForOrg(context.db, tedi.organizationId, {
@@ -131,9 +132,46 @@ export const getSetupProcedure = authedTedisOs.getSetup
 			}
 		}
 		const requiredIds = new Set(skills.flatMap((s) => s.toolIds));
+		const connectionSources: NonNullable<SetupConfig["connectionSources"]> = [];
+		for (const app of apps) {
+			if (
+				!assigned.has(app.id) &&
+				!tools.some((tool) => tool.appId === app.id && requiredIds.has(tool.id))
+			)
+				continue;
+			const mcp = getAppMetadataJson(app)?.mcpConfig;
+			const references: unknown[] = [
+				mcp,
+				mcp?.openApiSync,
+				mcp?.googleDiscoverySync,
+				...(Array.isArray(mcp?.aggregateApps) ? mcp.aggregateApps : []),
+			];
+			for (const [index, ref] of references.entries()) {
+				if (!isRecord(ref) || typeof ref.connectionProviderId !== "string")
+					continue;
+				connectionSources.push({
+					id: `app:${app.id}:${index}`,
+					appId: app.id,
+					title: app.name,
+					config: {
+						auth: {
+							type: "connection",
+							connectionId: ref.connectionProviderId,
+							connectionInstanceId: ref.connectionInstanceId,
+							scope: ref.connectionScope ?? "tenant",
+							scopes: ref.connectionScopes ?? ref.authScopes ?? [],
+						},
+					},
+				});
+			}
+		}
 		const providers = new Set<string>();
-		for (const tool of tools) {
-			if (!assigned.has(tool.appId) && !requiredIds.has(tool.id)) continue;
+		for (const tool of [
+			...tools.filter(
+				(tool) => assigned.has(tool.appId) || requiredIds.has(tool.id),
+			),
+			...connectionSources,
+		]) {
 			const auth =
 				isRecord(tool.config) && isRecord(tool.config.auth)
 					? tool.config.auth
@@ -179,6 +217,7 @@ export const getSetupProcedure = authedTedisOs.getSetup
 			tediId: tedi.id,
 			tools,
 			assignedAppIds: [...assigned],
+			connectionSources,
 			skills,
 			accounts,
 			assignmentsComplete,

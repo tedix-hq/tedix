@@ -19,7 +19,9 @@ vi.mock("@tedix/db/queries/tedis", async (original) => ({
 vi.mock("@tedix/db/queries/apps", () => ({
 	getAppsByOrganization: mocks.apps,
 }));
-vi.mock("@tedix/db/queries/tools", () => ({ getToolsByAppId: mocks.tools }));
+vi.mock("@tedix/db/queries/tools", () => ({
+	listSetupToolsForOrganization: mocks.tools,
+}));
 vi.mock("@tedix/db/queries/cognitive/skill-inventory", () => ({
 	listAllSkillsForOrg: mocks.skills,
 }));
@@ -151,5 +153,31 @@ describe("tedi setup read", () => {
 		expect((await invoke()).items).toContainEqual(
 			expect.objectContaining({ id: "assignments", state: "needs_you" }),
 		);
+	});
+	it("includes app and aggregate connection defaults even when the app has no tool rows", async () => {
+		mocks.tools.mockResolvedValue([]);
+		mocks.apps.mockResolvedValue([
+			{
+				id: "app-one",
+				slug: "mail",
+				name: "Mail",
+				metadata: {
+					mcpConfig: {
+						connectionProviderId: "mail",
+						aggregateApps: [
+							{ slug: "stock", connectionProviderId: "stock-key" },
+						],
+					},
+				},
+			},
+		]);
+		const result = await invoke();
+		expect(
+			result.items
+				.filter((item) => item.kind === "connection")
+				.map((item) => item.label)
+				.sort(),
+		).toEqual(["mail", "stock-key"]);
+		expect(result.items.some((item) => item.kind === "tool")).toBe(false);
 	});
 });

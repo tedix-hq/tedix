@@ -25,6 +25,26 @@ const D1_IN_LIST_CHUNK = 50;
 // Read Operations
 // ============================================================================
 
+/** One tenant-scoped statement, including disabled tools required by skills. */
+export async function listSetupToolsForOrganization(
+	db: DbClient,
+	organizationId: string,
+) {
+	return db
+		.select({
+			id: appTools.id,
+			appId: appTools.appId,
+			toolId: appTools.toolId,
+			title: appTools.title,
+			enabled: appTools.enabled,
+			config: appTools.config,
+		})
+		.from(appTools)
+		.innerJoin(apps, eq(apps.id, appTools.appId))
+		.where(eq(apps.organizationId, organizationId))
+		.orderBy(asc(appTools.id));
+}
+
 /**
  * Get all tools for an app
  * Ordered by sortOrder (ascending) for consistent display
