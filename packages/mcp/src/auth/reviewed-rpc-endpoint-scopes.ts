@@ -713,6 +713,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tedis/getProviderInstallation": "platform:admin",
 	"tedis/getProviderOnboardingStatus": "mcp:tedis.read",
 	"tedis/getRuntimeProjection": "mcp:tedis.read",
+	"tedis/getSetup": "mcp:tedis.read",
 	"tedis/getStorageFile": "mcp:tedis.read",
 	"tedis/getStorageStatus": "mcp:tedis.read",
 	"tedis/getWidgetContact": "mcp:tedis.read",

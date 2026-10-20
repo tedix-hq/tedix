@@ -1,3 +1,4 @@
+import { getSetupProcedure } from "./tedis/setup";
 import { inspectRuntimeRecoveryProcedure } from "./tedis/recovery-diagnostic";
 import {
 	runTediDurableCode,
@@ -142,6 +143,7 @@ export const tedisContractRouter = tedisOs.router({
 	configureProviderOnboarding,
 	getProviderOnboardingStatus,
 	activateProviderCustomer,
+	getSetup: getSetupProcedure,
 	list: listTedis,
 	listOperationsSummaries: listOperationsSummariesProcedure,
 	portableSnapshotPage: portableSnapshotPageProcedure,
