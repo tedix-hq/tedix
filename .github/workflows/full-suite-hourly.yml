@@ -43,7 +43,7 @@ jobs:
         run: node scripts/ci/full-suite-hourly.mjs
 
   workspace:
-    name: Workspace ${{ matrix.workspace }}
+    name: Workspace ${{ matrix.workspace }}${{ matrix.testScript && format(' / {0}', matrix.testScript) || '' }}
     needs: plan
     if: ${{ !cancelled() && needs.plan.outputs.skip != 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
@@ -69,14 +69,15 @@ jobs:
         if: matrix.workspace == 'apps/tedi-runtime'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
       - name: Install Playwright Chromium
-        if: matrix.workspace == 'apps/os'
+        if: matrix.workspace == 'apps/os' && matrix.testScript != 'test:unit' && matrix.testScript != 'test:workerd'
         run: bun run --cwd apps/os test:browser:install
       - name: Full test suite
         if: matrix.test
         env:
           WORKSPACE: ${{ matrix.workspace }}
+          TEST_SCRIPT: ${{ matrix.testScript }}
         run: |
-          script="$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')"
+          script="${TEST_SCRIPT:-$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')}"
           bun run --cwd "$WORKSPACE" "$script"
       - name: Type-check
         if: ${{ !cancelled() && matrix.types }}

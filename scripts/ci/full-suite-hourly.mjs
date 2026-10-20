@@ -2,6 +2,18 @@ import { readdirSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+export function testScriptShards(scripts, name, ancestors = []) {
+	if (ancestors.includes(name)) throw new Error(`Cyclic test script: ${name}`);
+	const references = scripts[name]
+		.split("&&")
+		.map((command) => /^bun run ([\w:.-]+)$/.exec(command.trim())?.[1]);
+	if (references.some((reference) => !reference || !scripts[reference]))
+		return [name];
+	return references.flatMap((reference) =>
+		testScriptShards(scripts, reference, [...ancestors, name]),
+	);
+}
+
 export function workspaceMatrix(root = ".") {
 	const include = [];
 	for (const directory of ["apps", "packages"]) {
@@ -17,9 +29,23 @@ export function workspaceMatrix(root = ".") {
 				if (error.code === "ENOENT") continue;
 				throw error;
 			}
-			const { scripts = {} } = JSON.parse(manifest);
+			const { scripts = {}, tedixCi } = JSON.parse(manifest);
 			if (!scripts["test:run"] && !scripts["test:ci"] && !scripts["type-check"])
 				continue;
+			const testScript = scripts["test:ci"] ? "test:ci" : "test:run";
+			if (tedixCi?.splitTestScripts && scripts[testScript]) {
+				for (const [index, script] of testScriptShards(
+					scripts,
+					testScript,
+				).entries())
+					include.push({
+						workspace,
+						test: true,
+						testScript: script,
+						types: index === 0 && !!scripts["type-check"],
+					});
+				continue;
+			}
 			include.push({
 				workspace,
 				test: !!(scripts["test:ci"] || scripts["test:run"]),
