@@ -6,6 +6,8 @@ import {
 	createORPCClient,
 	getApiClient,
 } from "@tedix/api-client/client";
+import { demoTodayId } from "../apps/os/dev/demo-pack";
+import { readToday } from "../apps/os/src/lib/today-digest";
 import type { ApiContract } from "@tedix/api-contract/contracts/api";
 import type { RouterContractClient } from "@tedix/api-contract/types";
 import {
@@ -33,10 +35,12 @@ assert(
 	"Restart acceptance requires both TEDIX_LOCAL_RESTART_MARKER and a write/read TEDIX_LOCAL_RESTART_PHASE",
 );
 
-const health = await fetch("http://localhost:8790/health");
+const apiOrigin = `http://localhost:${process.env.TEDIX_LOCAL_API_PORT || "8790"}`;
+const osOrigin = `http://localhost:${process.env.TEDIX_LOCAL_OS_PORT || "3030"}`;
+const health = await fetch(`${apiOrigin}/health`);
 assert(health.ok, `API health returned ${health.status}`);
 
-const osResponse = await fetch("http://localhost:3030");
+const osResponse = await fetch(osOrigin);
 assert(osResponse.ok, `Tedix OS returned ${osResponse.status}`);
 const osHtml = await osResponse.text();
 assert(
@@ -45,11 +49,11 @@ assert(
 );
 
 const link = createLink({
-	url: "http://localhost:8790/rpc",
+	url: `${apiOrigin}/rpc`,
 	getHeaders: withBearerToken(() => LOCAL_DEMO_TOKEN),
 });
 const client: RouterContractClient<ApiContract> = createORPCClient(link);
-const osClient = getApiClient<ApiContract>("http://localhost:3030/api");
+const osClient = getApiClient<ApiContract>(`${osOrigin}/api`);
 
 const launchableBefore = await client.organizations.listOsMine({
 	limit: 50,
@@ -124,6 +128,45 @@ if (demo) {
 	assert(
 		sharedOutputs.items.some((output) => output.title === "Local Shared Draft"),
 		"The collaboration-ready local output was not available through the OS Worker",
+	);
+	const deck = await osClient.attention.listDeckCards({ limit: 100 });
+	assert(deck.complete && deck.count > 0, "Sample Deck is empty or incomplete");
+	const activity = await osClient.workItems.listActivity({ limit: 50 });
+	assert(
+		activity.events.length === 6 &&
+			activity.events.every(
+				(event) =>
+					event.workItemTitle.startsWith("Reddit Scout") ||
+					event.workItemTitle.startsWith("Reconciler") ||
+					event.workItemTitle.startsWith("On-call"),
+			),
+		"Sample Feed activity is missing or contains classic fixtures",
+	);
+	const today = await osClient.osWorkspaces.outputs.get({
+		outputId: demoTodayId,
+	});
+	assert(
+		readToday(today.currentRevision.content)?.rows.length === 3,
+		"Sample Today digest is unavailable",
+	);
+	const blocked = await fetch(
+		`${osOrigin}/api/rpc/workInteractions/outbound/act`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				json: {
+					action: "approve_send",
+					workItemId: activity.events[0]!.workItemId,
+					expectedVersion: 1,
+				},
+			}),
+		},
+	);
+	assert(
+		blocked.status === 403 &&
+			(await blocked.text()).includes("Sending is switched off"),
+		"Demo send was not blocked",
 	);
 } else if (restartPhase !== "read") {
 	// Onboarding installs the tenant-owned Feed/Deck blueprint, without demo data.
@@ -257,7 +300,7 @@ console.log(
 	JSON.stringify(
 		{
 			status: "passed",
-			os: "http://localhost:3030",
+			os: osOrigin,
 			mode: runMode,
 			organization: organization.slug,
 			onboarding,
