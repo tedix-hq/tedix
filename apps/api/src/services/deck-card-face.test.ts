@@ -324,7 +324,9 @@ it("backs off automatic retries for one, five and thirty minutes, then stops unt
 			[card],
 		);
 		await Promise.all(jobs);
-		expect(failed?.label).toBe("Summary unavailable");
+		expect(failed?.label).toBe(card.label);
+		expect(failed?.faceText).toContain("Summary unavailable");
+		expect(failed?.presentation).toBeNull();
 		expect(mocks.generate).toHaveBeenCalledTimes(4);
 		await prepareDeckCardFace(context, { ...card, label: "Changed source" });
 		expect(mocks.generate).toHaveBeenCalledTimes(5);
