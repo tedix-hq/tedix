@@ -102,11 +102,15 @@ export function nativeToolActionContent(name: string, args: unknown): string {
 export function humanReservedActionClasses(content: string): string[] {
 	// A read-only comparison can describe a paid option without authorizing it.
 	// Strip only the cost description; positive payment/spend instructions survive.
-	const actionContent =
+	const actionContent = (
 		/^\s*(?:research|compare|evaluate)\b/i.test(content) &&
 		/\bno spending\b/i.test(content)
 			? content.replace(/\bcosts? money\b/gi, "costs")
-			: content;
+			: content
+	).replace(
+		/\bno\s+(?:(?:external\s+)?(?:messages?|emails?|publication|money|spending|credentials?|permissions?|deletions?)\b\s*(?:,\s*|\b(?:or|and)\b\s*)?)+/gi,
+		" ",
+	);
 	// An explicitly internal Today/Feed post is not a public-channel publication.
 	// An external destination or a different publication instruction stays gated.
 	const publicationContent =
@@ -115,7 +119,7 @@ export function humanReservedActionClasses(content: string): string[] {
 			actionContent,
 		)
 			? actionContent.replace(
-					/\bpublish it(?=\s*(?:[.!?;]|$))/gi,
+					/\bpublish (?:it|the internal correction)(?=\s*(?:[.!?;]|$|and\s+read\b))/gi,
 					"save the internal post",
 				)
 			: actionContent;
@@ -124,10 +128,6 @@ export function humanReservedActionClasses(content: string): string[] {
 		.replace(
 			/\bcredential(?:\/token)?\s+(?:code|lane|cache band)\b/gi,
 			"source module",
-		)
-		.replace(
-			/\bno\s+(?:(?:external\s+)?(?:messages?|emails?|publication|money|spending|credentials?|permissions?|deletions?)\b\s*(?:,\s*|\b(?:or|and)\b\s*)?)+/gi,
-			" ",
 		)
 		.replace(
 			/\b(?:do not|don't|don’t|never)\s+read\s+(?:`[^`\r\n]+`|"[^"\r\n]+"|'[^'\r\n]+'|[^\s;,!?]+)(?=\s*(?:$|[.!?;,]|\b(?:and|or|but|then|however|while|before|after|also|except)\b))/gi,
