@@ -65,6 +65,9 @@ function copyRepairFeedback(draft: unknown, failures: string[]) {
 		copySpec.faceWordLimit - (record.context ? copySpec.faceChromeWords : 0);
 	return JSON.stringify({
 		failedChecks: failures,
+		bannedTerms: copySpec.bannedWords.filter((term) =>
+			new RegExp(`\\b${term}\\b`, "i").test(text),
+		),
 		wordBudget: {
 			actual: (text.match(/\S+/gu) ?? []).length,
 			limit: wordLimit,
@@ -196,7 +199,9 @@ export async function generateDecisionCard(
 			maxTokens: 650,
 			timeoutMs,
 			onFailure,
-			rewriteInstruction: copySpec.rewritePass,
+			rewriteInstruction: [copySpec.rewritePass, copySpec.faceInstruction].join(
+				"\n",
+			),
 			validationFeedback: repair || undefined,
 			system: [
 				copySpec.system,
@@ -228,7 +233,7 @@ export async function generateDecisionCard(
 						"",
 					);
 			}
-			const parsed = DecisionCardPresentationSchema.safeParse({
+			const parsed = DecisionCardPresentationSchema.options[1].safeParse({
 				version: copySpec.version,
 				...draft,
 			});
@@ -314,7 +319,11 @@ export async function generateDecisionCard(
 					generatedAt: new Date().toISOString(),
 				};
 			const fields = parsed.error.issues
-				.map((issue) => issue.path.join("."))
+				.map((issue) =>
+					issue.code === "unrecognized_keys"
+						? `unknown_field:${issue.keys.join("|")}`
+						: issue.path.join(".") || issue.code,
+				)
 				.join(",");
 			onFailure?.(`invalid_copy:${fields}`);
 			repair = copyRepairFeedback(draft, fields.split(","));
