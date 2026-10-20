@@ -1,3 +1,25 @@
+import {
+	isPlainRecord,
+	summarizeRpcErrorResponse,
+} from "./handler-log-redaction";
+import {
+	ExternalRequestInputError,
+	expandExternalBodyTemplate,
+	setHeaderIfMissing,
+	buildMultipartBody,
+	buildUrlEncodedBody,
+	fileParamsFromConfig,
+	stringParamsFromConfig,
+	applyMcpCustomHeaders,
+	consumeNamedParams,
+	textExternalRequestBody,
+	parseExternalResponse,
+} from "./handler-external-request";
+import { buildStructuredContent, buildTextContent } from "./handler-content";
+import {
+	readToolConfigExtension,
+	readToolConfigString,
+} from "./tool-config-extensions";
 import { isEphemeralSessionKey } from "@tedix/api-contract/utils/runtime-identity";
 import { OWNER_HOST_SESSION_HEADER } from "@tedix/api-contract/contracts/external-agent-identity";
 /**
@@ -77,13 +99,7 @@ import {
 	type CallerIdentity,
 	normalizeCallerIdentity,
 } from "./caller-identity";
-import {
-	applyStripField,
-	applyToNestedArrays,
-	getByPath,
-	redactByPath,
-	setByPath,
-} from "./handlers/path-utils";
+import { getByPath, redactByPath } from "./handlers/path-utils";
 import {
 	getTedixManagedTediHost,
 	isTedixManagedMcpUrl,
@@ -123,12 +139,6 @@ const BROWSER_QUICK_ACTION_ENDPOINTS = new Set([
 	"browser/scrapeElements",
 	"browser/extractJson",
 ]);
-const RPC_ERROR_LOG_SUMMARY_MAX_CHARS = 300;
-const RPC_ERROR_LOG_MAX_DEPTH = 3;
-const RPC_ERROR_LOG_MAX_ARRAY_ITEMS = 5;
-const RPC_ERROR_LOG_MAX_OBJECT_KEYS = 12;
-const REDACTED_LOG_VALUE = "<redacted>";
-
 export function emitUpstreamProtocolMetric(
 	env: CloudflareEnv,
 	event: Parameters<typeof buildMcpUpstreamProtocolDataPoint>[0],
@@ -320,125 +330,6 @@ export function resolveInternalTransportTimeout(
 	return Math.max(configTimeout, timeoutFloor);
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isSensitiveLogKey(key: string): boolean {
-	const normalized = key.toLowerCase().replace(/[-_\s]/g, "");
-	return (
-		normalized === "authorization" ||
-		normalized === "cookie" ||
-		normalized === "setcookie" ||
-		normalized === "apikey" ||
-		normalized === "secret" ||
-		normalized === "password" ||
-		normalized === "passwd" ||
-		normalized === "pwd" ||
-		normalized === "token" ||
-		normalized === "credential" ||
-		normalized === "credentials" ||
-		normalized === "privatekey" ||
-		normalized === "sessionid" ||
-		normalized.endsWith("token") ||
-		normalized.endsWith("secret") ||
-		normalized.endsWith("password") ||
-		normalized.endsWith("apikey") ||
-		normalized.endsWith("credential")
-	);
-}
-
-function scrubSensitiveLogText(value: string): string {
-	return value
-		.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 <redacted>")
-		.replace(
-			/\b(api[-_]?key|secret|password|passwd|pwd|access[-_]?token|refresh[-_]?token|client[-_]?secret)(["']?\s*[:=]\s*["']?)[^"',}\s]+/gi,
-			`$1$2${REDACTED_LOG_VALUE}`,
-		)
-		.replace(
-			/\b[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g,
-			"<redacted.jwt>",
-		);
-}
-
-function truncateLogText(
-	value: string,
-	maxLength = RPC_ERROR_LOG_SUMMARY_MAX_CHARS,
-): { value: string; truncated: boolean } {
-	if (value.length <= maxLength) return { value, truncated: false };
-	return {
-		value: `${value.slice(0, Math.max(0, maxLength - 3))}...`,
-		truncated: true,
-	};
-}
-
-function redactLogValue(value: unknown, depth = 0): unknown {
-	if (value === null || value === undefined) return value;
-	if (typeof value === "string") return scrubSensitiveLogText(value);
-	if (typeof value === "number" || typeof value === "boolean") return value;
-	if (typeof value === "bigint") return value.toString();
-	if (Array.isArray(value)) {
-		if (depth >= RPC_ERROR_LOG_MAX_DEPTH) {
-			return `[array:${value.length}]`;
-		}
-		const items = value
-			.slice(0, RPC_ERROR_LOG_MAX_ARRAY_ITEMS)
-			.map((item) => redactLogValue(item, depth + 1));
-		if (value.length > RPC_ERROR_LOG_MAX_ARRAY_ITEMS) {
-			items.push(
-				`... ${value.length - RPC_ERROR_LOG_MAX_ARRAY_ITEMS} more item(s)`,
-			);
-		}
-		return items;
-	}
-	if (typeof value !== "object") return String(value);
-
-	const record = value as Record<string, unknown>;
-	const entries = Object.entries(record);
-	if (depth >= RPC_ERROR_LOG_MAX_DEPTH) {
-		return `[object:${entries.length} key(s)]`;
-	}
-
-	const redacted: Record<string, unknown> = {};
-	for (const [key, entryValue] of entries.slice(
-		0,
-		RPC_ERROR_LOG_MAX_OBJECT_KEYS,
-	)) {
-		redacted[key] = isSensitiveLogKey(key)
-			? REDACTED_LOG_VALUE
-			: redactLogValue(entryValue, depth + 1);
-	}
-	if (entries.length > RPC_ERROR_LOG_MAX_OBJECT_KEYS) {
-		redacted._truncatedKeys = entries.length - RPC_ERROR_LOG_MAX_OBJECT_KEYS;
-	}
-	return redacted;
-}
-
-function summarizeRpcErrorResponse(data: unknown): {
-	type: string;
-	summary: string;
-	truncated: boolean;
-} {
-	const type = Array.isArray(data)
-		? "array"
-		: data === null
-			? "null"
-			: typeof data;
-	try {
-		const redacted = redactLogValue(data);
-		const serialized =
-			typeof redacted === "string" ? redacted : JSON.stringify(redacted);
-		const summary = truncateLogText(serialized ?? "");
-		return { type, summary: summary.value, truncated: summary.truncated };
-	} catch {
-		return {
-			type,
-			summary: "[unserializable error response]",
-			truncated: false,
-		};
-	}
-}
-
 // =============================================================================
 // module-level caches
 // Worker isolate persists across requests — cache tokens and tedi lookups to
@@ -595,8 +486,7 @@ function selectedConnectionInstanceId(
 ): string | undefined {
 	const id =
 		ctx.config.auth?.connectionInstanceId ??
-		(ctx.config as unknown as Record<string, unknown>)
-			._aggregateConnectionInstanceId;
+		readToolConfigExtension(ctx.config, "_aggregateConnectionInstanceId");
 	if (id === undefined) return undefined;
 	if (
 		typeof id !== "string" ||
@@ -859,42 +749,6 @@ async function verifiedDocsReadObservation(input: {
  * Allows : for path params (e.g., monitors/:id) which are interpolated before the request. */
 const SAFE_ENDPOINT_RE = /^[a-zA-Z0-9_\-/.:]+$/;
 
-/** Max text content length before truncation */
-const MAX_TEXT_LENGTH = 4000;
-
-const CHAR_COUNT_FORMAT = new Intl.NumberFormat("en-US");
-
-/**
- * Head-truncate model-visible text at MAX_TEXT_LENGTH with a machine-actionable
- * hint that teaches the caller how to get a smaller result on the next call.
- * Display text only — structuredContent is never truncated here.
- */
-function truncateTextContent(text: string): string {
-	if (text.length <= MAX_TEXT_LENGTH) return text;
-	return `${text.slice(0, MAX_TEXT_LENGTH)}\n[Truncated: showing first ${CHAR_COUNT_FORMAT.format(MAX_TEXT_LENGTH)} of ${CHAR_COUNT_FORMAT.format(text.length)} chars. Narrow the query with this tool's pagination/filter parameters, or call it via Code Mode and select only the fields you need.]`;
-}
-
-/**
- * Render a `modelSummaryTemplate` against the shaped structured payload.
- * Same `{field.path}` placeholder syntax as responseTransforms, plus a
- * `{count:field.path}` helper that renders the length of the array at that
- * path (`0` when the path is missing or not an array).
- */
-function renderModelSummaryTemplate(
-	template: string,
-	payload: Record<string, unknown>,
-): string {
-	return template.replace(/\{([^{}]+)\}/g, (_match, expr: string) => {
-		if (expr.startsWith("count:")) {
-			const value = getByPath(payload, expr.slice("count:".length));
-			return Array.isArray(value) ? String(value.length) : "0";
-		}
-		const value = getByPath(payload, expr);
-		if (value == null) return "";
-		return typeof value === "object" ? JSON.stringify(value) : String(value);
-	});
-}
-
 /** Validate external URL — prevents SSRF against internal services */
 function validateExternalUrl(baseUrl: string, isDev: boolean): string | null {
 	// In dev, also allow tedix-owned hosts (e.g. retail-bench.tedix.tech) so
@@ -917,8 +771,7 @@ function namespaceAggregateTediTaskLinkage(
 	data: unknown,
 	config: ToolConfig,
 ): unknown {
-	const aggregateTediId = (config as unknown as Record<string, unknown>)
-		._aggregateTediId;
+	const aggregateTediId = readToolConfigExtension(config, "_aggregateTediId");
 	if (
 		typeof aggregateTediId !== "string" ||
 		!aggregateTediId ||
@@ -960,191 +813,14 @@ function namespaceAggregateTediTaskLinkage(
 	return data;
 }
 
-class ExternalRequestInputError extends Error {
-	override name = "ExternalRequestInputError";
-}
-
-function expandExternalBodyTemplate(
-	template: unknown,
-	params: Record<string, unknown>,
-): unknown {
-	if (typeof template === "string") {
-		const placeholder = template.match(/^\{([A-Za-z_]\w*)\}$/)?.[1];
-		if (!placeholder) return template;
-		const value = params[placeholder];
-		if (
-			value === undefined ||
-			value === null ||
-			(typeof value !== "string" &&
-				typeof value !== "number" &&
-				typeof value !== "boolean")
-		) {
-			throw new ExternalRequestInputError(
-				`Missing scalar request-body template value: ${placeholder}`,
-			);
-		}
-		return value;
-	}
-	if (Array.isArray(template)) {
-		return template.map((value) => expandExternalBodyTemplate(value, params));
-	}
-	if (isRecord(template)) {
-		return Object.fromEntries(
-			Object.entries(template).map(([key, value]) => [
-				key,
-				expandExternalBodyTemplate(value, params),
-			]),
-		);
-	}
-	return template;
-}
-
-function normalizedContentType(contentType: string): string {
-	return contentType.split(";")[0]?.trim().toLowerCase() ?? "";
-}
-
-function hasHeader(headers: Record<string, string>, name: string): boolean {
-	const normalized = name.toLowerCase();
-	return Object.keys(headers).some((key) => key.toLowerCase() === normalized);
-}
-
-function setHeaderIfMissing(
-	headers: Record<string, string>,
-	name: string,
-	value: string,
-): void {
-	if (!hasHeader(headers, name)) headers[name] = value;
-}
-
-function appendScalarFormValue(
-	append: (value: string) => void,
-	value: unknown,
-): void {
-	if (value === undefined || value === null) return;
-	if (Array.isArray(value)) {
-		for (const item of value) appendScalarFormValue(append, item);
-		return;
-	}
-	if (typeof value === "object") {
-		append(JSON.stringify(value));
-		return;
-	}
-	append(String(value));
-}
-
-function base64ToBytes(base64: string): Uint8Array {
-	const compact = base64.replace(/\s/g, "");
-	const binary = atob(compact);
-	const bytes = new Uint8Array(binary.length);
-	for (let index = 0; index < binary.length; index++) {
-		bytes[index] = binary.charCodeAt(index);
-	}
-	return bytes;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	const chunkSize = 32_766; // Multiple of 3 so chunked base64 can be concatenated.
-	let encoded = "";
-	for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-		const chunk = bytes.subarray(offset, offset + chunkSize);
-		let binary = "";
-		for (let index = 0; index < chunk.length; index++) {
-			binary += String.fromCharCode(chunk[index]!);
-		}
-		encoded += btoa(binary);
-	}
-	return encoded;
-}
-
-function parseDataUrl(
-	value: string,
-): { mimeType?: string; base64: string } | null {
-	if (!value.startsWith("data:")) return null;
-	const commaIndex = value.indexOf(",");
-	if (commaIndex === -1) return null;
-	const meta = value.slice(5, commaIndex);
-	if (!meta.toLowerCase().includes(";base64")) return null;
-	const mimeType = meta.split(";")[0] || undefined;
-	return { mimeType, base64: value.slice(commaIndex + 1) };
-}
-
-function fileParamToBlob(
-	paramName: string,
-	value: unknown,
-): { blob: Blob; filename: string } {
-	let rawContent: unknown = value;
-	let filename = paramName;
-	let mimeType = "application/octet-stream";
-
-	if (isRecord(value)) {
-		rawContent = value.content ?? value.data ?? value.base64;
-		const candidateFilename = value.filename ?? value.name;
-		if (typeof candidateFilename === "string" && candidateFilename.trim()) {
-			filename = candidateFilename.trim();
-		}
-		const candidateMimeType = value.mimeType ?? value.type;
-		if (typeof candidateMimeType === "string" && candidateMimeType.trim()) {
-			mimeType = candidateMimeType.trim();
-		}
-	}
-
-	if (typeof rawContent !== "string" || rawContent.trim() === "") {
-		throw new ExternalRequestInputError(
-			`File parameter "${paramName}" must be a data URL, base64 string, or object with content/data/base64.`,
-		);
-	}
-
-	const dataUrl = parseDataUrl(rawContent.trim());
-	const base64 = dataUrl?.base64 ?? rawContent;
-	if (dataUrl?.mimeType) mimeType = dataUrl.mimeType;
-
-	try {
-		const bytes = base64ToBytes(base64);
-		return {
-			blob: new Blob([bytes], { type: mimeType }),
-			filename,
-		};
-	} catch {
-		throw new ExternalRequestInputError(
-			`File parameter "${paramName}" is not valid base64 file content.`,
-		);
-	}
-}
-
-function buildMultipartBody(
-	params: Record<string, unknown>,
-	fileParams: string[],
-): FormData {
-	const form = new FormData();
-	const fileParamSet = new Set(fileParams);
-
-	for (const [key, value] of Object.entries(params)) {
-		if (value === undefined || value === null) continue;
-		if (fileParamSet.has(key)) {
-			const file = fileParamToBlob(key, value);
-			form.append(key, file.blob, file.filename);
-			continue;
-		}
-		appendScalarFormValue((next) => form.append(key, next), value);
-	}
-
-	return form;
-}
-
-function buildUrlEncodedBody(params: Record<string, unknown>): URLSearchParams {
-	const body = new URLSearchParams();
-	for (const [key, value] of Object.entries(params)) {
-		appendScalarFormValue((next) => body.append(key, next), value);
-	}
-	return body;
-}
-
 function isPublicRpcToolExecution(
 	ctx: ToolExecutionContext<ToolConfig>,
 	config: ToolConfig,
 ): boolean {
-	const aggregateConfig = config as unknown as Record<string, unknown>;
+	const aggregateConfig = {
+		_sourceAuthRequired: readToolConfigExtension(config, "_sourceAuthRequired"),
+		_sourceVisibility: readToolConfigExtension(config, "_sourceVisibility"),
+	};
 	if (
 		aggregateConfig._sourceAuthRequired === false &&
 		aggregateConfig._sourceVisibility === "public"
@@ -1166,144 +842,6 @@ function isPublicRpcToolExecution(
 
 function delegatedDocsScope(toolName: string): string | undefined {
 	return DOCS_TOOL_SCOPES[toolName as DocsToolName];
-}
-
-function fileParamsFromConfig(config: ToolConfig): string[] {
-	const raw = (config as unknown as Record<string, unknown>).fileParams;
-	if (!Array.isArray(raw)) return [];
-	return raw.filter((item): item is string => typeof item === "string");
-}
-
-function stringParamsFromConfig(
-	config: ToolConfig,
-	key: "headerParams" | "queryParams" | "runtimeOnlyParams",
-): string[] {
-	const raw = (config as unknown as Record<string, unknown>)[key];
-	if (!Array.isArray(raw)) return [];
-	return raw.filter((item): item is string => typeof item === "string");
-}
-
-/**
- * Tedix-private `x-mcp-header`: a tool config can declare a static map of
- * custom headers forwarded on the upstream/rpc/external request. Values support
- * `{paramName}` placeholders resolved from (and consumed out of) tool input,
- * mirroring `staticHeaders`. Header names are normalized so a tool cannot
- * override Tedix-managed `X-Tedix-*`/`Authorization` headers.
- *
- * This is intentionally not SEP-2243's schema-level `x-mcp-header`, which maps
- * tool input properties to `Mcp-Param-*` request headers.
- */
-function applyMcpCustomHeaders(
-	headers: Record<string, string>,
-	config: ToolConfig,
-	params: Record<string, unknown>,
-): void {
-	const raw = (config as unknown as Record<string, unknown>)["x-mcp-header"];
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return;
-	for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
-		if (typeof value !== "string") continue;
-		const lower = name.toLowerCase();
-		// Do not let config-declared headers clobber Tedix-managed identity/auth.
-		if (lower === "authorization" || lower.startsWith("x-tedix-")) continue;
-		const resolved = value.replace(/\{(\w+)\}/g, (_, key: string) => {
-			const v = params[key];
-			if (v !== undefined && v !== null) {
-				delete params[key];
-				return String(v);
-			}
-			return "";
-		});
-		if (resolved) headers[name] = resolved;
-	}
-}
-
-function consumeNamedParams(
-	params: Record<string, unknown>,
-	names: string[],
-): Record<string, unknown> {
-	const out: Record<string, unknown> = {};
-	for (const name of names) {
-		const value = params[name];
-		if (value === undefined || value === null) continue;
-		out[name] = value;
-		delete params[name];
-	}
-	return out;
-}
-
-function filenameFromContentDisposition(
-	contentDisposition: string | null,
-): string | null {
-	if (!contentDisposition) return null;
-	const encoded = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition)?.[1];
-	if (encoded) {
-		try {
-			return decodeURIComponent(encoded.replace(/^"|"$/g, ""));
-		} catch {
-			return encoded.replace(/^"|"$/g, "");
-		}
-	}
-	return /filename="?([^";]+)"?/i.exec(contentDisposition)?.[1]?.trim() ?? null;
-}
-
-function isTextResponseContentType(contentType: string): boolean {
-	const normalized = normalizedContentType(contentType);
-	return (
-		normalized.startsWith("text/") ||
-		normalized.includes("xml") ||
-		normalized.includes("html") ||
-		normalized.includes("csv") ||
-		normalized.includes("yaml")
-	);
-}
-
-function textExternalRequestBody(value: unknown): string {
-	if (typeof value === "string") return value;
-	if (
-		value &&
-		typeof value === "object" &&
-		!Array.isArray(value) &&
-		Object.hasOwn(value, "body")
-	) {
-		const body = (value as Record<string, unknown>).body;
-		return typeof body === "string" ? body : JSON.stringify(body ?? "");
-	}
-	return JSON.stringify(value ?? "");
-}
-
-async function parseExternalResponse(
-	response: Response,
-	config: ToolConfig,
-): Promise<unknown> {
-	const contentType = response.headers.get("content-type") ?? "";
-	const normalizedType = normalizedContentType(contentType);
-	const responseMode = config.responseMode ?? "auto";
-	const isJsonResponse =
-		normalizedType === "application/json" || normalizedType.endsWith("+json");
-
-	if (
-		(response.status >= 400 && isJsonResponse) ||
-		responseMode === "json" ||
-		(responseMode === "auto" && isJsonResponse)
-	) {
-		return response.json();
-	}
-	if (
-		responseMode === "text" ||
-		(responseMode === "auto" && isTextResponseContentType(contentType))
-	) {
-		return response.text();
-	}
-
-	const buffer = await response.arrayBuffer();
-	return {
-		filename: filenameFromContentDisposition(
-			response.headers.get("content-disposition"),
-		),
-		mimeType: contentType || "application/octet-stream",
-		base64encoded: true,
-		content: arrayBufferToBase64(buffer),
-	};
 }
 
 function isOperationalTediRecord(value: unknown): boolean {
@@ -1516,7 +1054,20 @@ export class ToolHandler {
 			Object.assign(params, input);
 		}
 
-		const aggregateConfig = config as unknown as Record<string, unknown>;
+		const aggregateConfig = {
+			_aggregateTediId: readToolConfigExtension(config, "_aggregateTediId"),
+			_aggregateTediOrgId: readToolConfigExtension(
+				config,
+				"_aggregateTediOrgId",
+			),
+			_aggregateTediSlug: readToolConfigExtension(config, "_aggregateTediSlug"),
+			_credentialDerivedTediActor: readToolConfigExtension(
+				config,
+				"_credentialDerivedTediActor",
+			),
+			_voiceSubject: readToolConfigExtension(config, "_voiceSubject"),
+			tediBooleanParams: readToolConfigExtension(config, "tediBooleanParams"),
+		};
 		const omitAggregateTediId =
 			config.staticParams?.__tedixOmitAggregateTediId === true;
 		delete params.__tedixOmitAggregateTediId;
@@ -1713,10 +1264,7 @@ export class ToolHandler {
 			}
 		}
 
-		if (
-			(config as unknown as Record<string, unknown>)._voiceSubject ===
-			"aggregateTedi"
-		) {
+		if (readToolConfigExtension(config, "_voiceSubject") === "aggregateTedi") {
 			if (typeof params.tediId !== "string" || params.tediId.length === 0) {
 				return {
 					data: {
@@ -1787,8 +1335,7 @@ export class ToolHandler {
 			ctx.callerIdentity?.authType === "service" &&
 			ctx.callerIdentity.kernel === true;
 		const forwardActingUser =
-			((config as unknown as Record<string, unknown>)._forwardCallerAuth ===
-				true ||
+			(readToolConfigExtension(config, "_forwardCallerAuth") === true ||
 				kernelActingUser) &&
 			Boolean(ctx.callerIdentity?.userId);
 		if (useServiceBinding && forwardCallerUser) {
@@ -2034,8 +1581,7 @@ export class ToolHandler {
 			// tasks/get — served org-scoped by home-task-handlers.ts.
 			if (
 				status < 400 &&
-				(config as unknown as Record<string, unknown>)._emitTaskLinkage ===
-					true &&
+				readToolConfigExtension(config, "_emitTaskLinkage") === true &&
 				ctx.clientSupportsTasks !== false &&
 				isRecord(data)
 			) {
@@ -2235,9 +1781,9 @@ export class ToolHandler {
 				// aggregator metadata. New apps should use project-specific outbound
 				// app IDs in auth.connectionId.
 				const effectiveLabel =
-					((config as unknown as Record<string, unknown>)
-						._aggregateConnectionLabel as string | undefined) ??
-					ctx.connectionLabel;
+					(readToolConfigExtension(config, "_aggregateConnectionLabel") as
+						| string
+						| undefined) ?? ctx.connectionLabel;
 				const credentialResult = await this.fetchConnectionToken(
 					ctx,
 					config.auth.connectionId,
@@ -2779,8 +2325,10 @@ export class ToolHandler {
 		// these params to mcpServerUrl so the upstream sees ?org=<tenant> on every
 		// request even when the caller's JWT carries a different orgSlug claim.
 		let mcpServerUrl = config.mcpServerUrl;
-		const forwardedQueryParams = (config as unknown as Record<string, unknown>)
-			._forwardedQueryParams as Record<string, string> | undefined;
+		const forwardedQueryParams = readToolConfigExtension(
+			config,
+			"_forwardedQueryParams",
+		) as Record<string, string> | undefined;
 		if (forwardedQueryParams && Object.keys(forwardedQueryParams).length > 0) {
 			try {
 				const url = new URL(mcpServerUrl);
@@ -2836,9 +2384,10 @@ export class ToolHandler {
 		// reject unknown fields like appId/tediId via strict schema validation.
 		// Cross-scope security is handled by the auth layer (connection tokens are
 		// org-scoped) — the upstream server never sees our internal identifiers.
-		const aggregateTediRemoteName = (
-			config as unknown as Record<string, unknown>
-		)._aggregateTediRemoteName;
+		const aggregateTediRemoteName = readToolConfigExtension(
+			config,
+			"_aggregateTediRemoteName",
+		);
 		if (typeof aggregateTediRemoteName === "string") {
 			// Dynamic import for the same reason as index.ts: the
 			// aggregate-tedis tree builds ~130 Zod→JSON schemas at module
@@ -2878,12 +2427,7 @@ export class ToolHandler {
 		// gateway decides here whether this caller may reach the target tedi at
 		// all and how far it is trusted to steer the turn. Target organization is
 		// hydrated from D1 (`_aggregateTediOrgId`), never from caller input.
-		const targetTediOrgId =
-			typeof (config as unknown as Record<string, unknown>)
-				._aggregateTediOrgId === "string"
-				? ((config as unknown as Record<string, unknown>)
-						._aggregateTediOrgId as string)
-				: undefined;
+		const targetTediOrgId = readToolConfigString(config, "_aggregateTediOrgId");
 		const callerTrustTier = resolveCallerTrustTier(
 			ctx.callerIdentity,
 			targetTediOrgId,
@@ -2907,8 +2451,10 @@ export class ToolHandler {
 			headers["X-Tedix-Host"] = managedTediHost;
 			headers["X-Service-Binding"] = "true";
 			headers[CALLER_TRUST_HEADER] = callerTrustTier;
-			const aggregateRemoteName = (config as unknown as Record<string, unknown>)
-				._aggregateTediRemoteName;
+			const aggregateRemoteName = readToolConfigExtension(
+				config,
+				"_aggregateTediRemoteName",
+			);
 			const namespacedRemoteName = ctx.toolId.includes("__")
 				? ctx.toolId.slice(ctx.toolId.indexOf("__") + 2)
 				: ctx.toolId.includes(":")
@@ -2944,8 +2490,10 @@ export class ToolHandler {
 					`[MCP] operator-consent attached: run=${ctx.callerIdentity?.skillRunId} createdBy=${ctx.callerIdentity?.skillRunCreatedBy} tedi=${managedTediHost}`,
 				);
 			}
-			const aggregateTediOrgId = (config as unknown as Record<string, unknown>)
-				._aggregateTediOrgId;
+			const aggregateTediOrgId = readToolConfigExtension(
+				config,
+				"_aggregateTediOrgId",
+			);
 			const orgId =
 				typeof aggregateTediOrgId === "string"
 					? aggregateTediOrgId
@@ -2962,9 +2510,9 @@ export class ToolHandler {
 		// aggregateAndPrefixTools when the tool was loaded from a materialized
 		// tenant/project app) or from the inbound request's own header.
 		const forwardLabel =
-			((config as unknown as Record<string, unknown>)
-				._aggregateConnectionLabel as string | undefined) ??
-			ctx.connectionLabel;
+			(readToolConfigExtension(config, "_aggregateConnectionLabel") as
+				| string
+				| undefined) ?? ctx.connectionLabel;
 		if (forwardLabel) {
 			headers["X-Tedix-Connection-Label"] = forwardLabel;
 		}
@@ -2974,10 +2522,14 @@ export class ToolHandler {
 		// service-binding headers above, so they do not require per-tedi AIH
 		// registration or an mcpCredentials lookup.
 		if (managedMcpUrl && !usesInternalTediServiceBinding) {
-			const aggregateTediId = (config as unknown as Record<string, unknown>)
-				._aggregateTediId;
-			const aggregateTediOrgId = (config as unknown as Record<string, unknown>)
-				._aggregateTediOrgId;
+			const aggregateTediId = readToolConfigExtension(
+				config,
+				"_aggregateTediId",
+			);
+			const aggregateTediOrgId = readToolConfigExtension(
+				config,
+				"_aggregateTediOrgId",
+			);
 			Object.assign(
 				headers,
 				await resolveManagedMcpAuthHeaders({
@@ -3056,9 +2608,9 @@ export class ToolHandler {
 				config.auth.connectionId
 			) {
 				const effectiveLabel =
-					((config as unknown as Record<string, unknown>)
-						._aggregateConnectionLabel as string | undefined) ??
-					ctx.connectionLabel;
+					(readToolConfigExtension(config, "_aggregateConnectionLabel") as
+						| string
+						| undefined) ?? ctx.connectionLabel;
 				const credentialResult = await this.fetchConnectionToken(
 					ctx,
 					config.auth.connectionId,
@@ -3095,9 +2647,9 @@ export class ToolHandler {
 			if (config.auth.type === "connection" && config.auth.connectionId) {
 				// _aggregateConnectionLabel: set by aggregateAndPrefixTools() for org-wide aggregation.
 				const effectiveLabel =
-					((config as unknown as Record<string, unknown>)
-						._aggregateConnectionLabel as string | undefined) ??
-					ctx.connectionLabel;
+					(readToolConfigExtension(config, "_aggregateConnectionLabel") as
+						| string
+						| undefined) ?? ctx.connectionLabel;
 				const credentialResult = await this.fetchConnectionToken(
 					ctx,
 					config.auth.connectionId,
@@ -3315,8 +2867,10 @@ export class ToolHandler {
 			// This is compatibility-removal evidence, so record only calls whose
 			// transport and JSON-RPC layers both succeeded. Negotiation probes and
 			// upstream tool errors must not look like active successful consumers.
-			const sourceAppSlug = (ctx.config as unknown as Record<string, unknown>)
-				._sourceAppSlug;
+			const sourceAppSlug = readToolConfigExtension(
+				ctx.config,
+				"_sourceAppSlug",
+			);
 			emitUpstreamProtocolMetric(ctx.env, {
 				protocolEra: upstreamProtocol,
 				appSlug:
@@ -3403,8 +2957,7 @@ export class ToolHandler {
 			// Used to scrub credential leaks from upstream MCP responses (e.g.
 			// firecrawl_browser_list returning tokenized session URLs even for
 			// destroyed sessions).
-			const redactPaths = (config as unknown as Record<string, unknown>)
-				.responseRedact;
+			const redactPaths = readToolConfigExtension(config, "responseRedact");
 			if (
 				Array.isArray(redactPaths) &&
 				data != null &&
@@ -3478,7 +3031,7 @@ export class ToolHandler {
 			};
 		}
 
-		if (!isCodeModeAvailable(ctx.env as unknown as Record<string, unknown>)) {
+		if (!isCodeModeAvailable(ctx.env)) {
 			return {
 				data: {
 					error: "Code transport requires LOADER binding (Dynamic Workers)",
@@ -3674,8 +3227,9 @@ return __fn ? await __fn(args) : __mod;
 			} else {
 				// _sourceAppId: set by aggregateAndPrefixTools() — routes RPC calls to the
 				// source app so adapter lookup, content queries, etc. resolve correctly.
-				const sourceAppId = (config as unknown as Record<string, unknown>)
-					?._sourceAppId as string | undefined;
+				const sourceAppId = readToolConfigExtension(config, "_sourceAppId") as
+					| string
+					| undefined;
 				if (sourceAppId) {
 					params.appId = sourceAppId;
 				} else {
@@ -4149,170 +3703,18 @@ return __fn ? await __fn(args) : __mod;
 		result: RpcToolResult,
 		ctx: ToolExecutionContext<ToolConfig>,
 	): Record<string, unknown> {
-		let output: Record<string, unknown>;
-		if (
-			result.data != null &&
-			typeof result.data === "object" &&
-			!Array.isArray(result.data)
-		) {
-			output = { ...(result.data as Record<string, unknown>) };
-		} else {
-			output = { data: result.data };
-		}
-
-		// Apply responseMap: rename/extract fields for widget consumption
-		// Supports "[]" suffix for array-wrapping: { "source[]": "sources" }
-		// wraps a scalar value in an array for the target field
-		const responseMap = ctx.config.responseMap;
-		if (responseMap) {
-			for (const [sourceExpr, targetKey] of Object.entries(responseMap)) {
-				const wrapArray = sourceExpr.endsWith("[]");
-				const sourcePath = wrapArray ? sourceExpr.slice(0, -2) : sourceExpr;
-				let value = getByPath(output, sourcePath);
-				if (value !== undefined) {
-					if (wrapArray && !Array.isArray(value)) {
-						value = [value];
-					}
-					output[targetKey] = value;
-					// Remove original key if it differs and is a top-level key
-					if (
-						!sourcePath.includes(".") &&
-						sourcePath !== targetKey &&
-						sourcePath in output
-					) {
-						delete output[sourcePath];
-					}
-				}
-			}
-		}
-
-		// Apply responseTransforms: compute derived fields on array items
-		const transforms = ctx.config.responseTransforms;
-		if (transforms) {
-			for (const rule of transforms) {
-				const arr = getByPath(output, rule.arrayPath);
-				if (!Array.isArray(arr)) continue;
-				for (const item of arr) {
-					if (item == null || typeof item !== "object") continue;
-					const value = rule.template.replace(
-						/\{([^{}]+)\}/g,
-						(_m, path: string) => {
-							const v = getByPath(item, path);
-							return v != null ? String(v) : "";
-						},
-					);
-					setByPath(item as Record<string, unknown>, rule.set, value);
-				}
-			}
-		}
-
-		// Apply arrayLimits: truncate nested arrays to max length
-		const arrayLimits = ctx.config.arrayLimits;
-		if (arrayLimits) {
-			for (const [pathExpr, maxLen] of Object.entries(arrayLimits)) {
-				applyToNestedArrays(output, pathExpr, (arr) => {
-					arr.length = Math.min(arr.length, maxLen);
-				});
-			}
-		}
-
-		// Apply stripFields: remove unwanted fields from output
-		const stripFields = ctx.config.stripFields;
-		if (stripFields) {
-			for (const pathExpr of stripFields) {
-				applyStripField(output, pathExpr);
-			}
-		}
-
-		// Apply staticOutput: constant fields for widget context (doesn't overwrite API data)
-		const staticOutput = ctx.config.staticOutput;
-		if (staticOutput) {
-			for (const [key, value] of Object.entries(staticOutput)) {
-				if (!(key in output)) {
-					output[key] = value;
-				}
-			}
-		}
-
-		return output;
+		return buildStructuredContent(result, ctx);
 	}
 
 	buildTextContent(
 		result: RpcToolResult,
 		ctx: ToolExecutionContext<ToolConfig>,
 	): string {
-		if (result.status >= 400) {
-			const errorData = result.data as Record<string, unknown> | undefined;
-			if (errorData && typeof errorData === "object") {
-				// REST-style: { error: "..." } — Google-style APIs nest an object
-				// ({ code, message, status }) here; String() renders that as the
-				// useless "Error: [object Object]", so stringify objects instead.
-				if ("error" in errorData) {
-					const inner = errorData.error;
-					const detail =
-						inner && typeof inner === "object"
-							? JSON.stringify(inner).slice(0, 500)
-							: String(inner);
-					return `Error: ${detail}`;
-				}
-				// oRPC-style: { code: "BAD_REQUEST", message: "...", data?: {...} }
-				if ("code" in errorData && "message" in errorData) {
-					// Validation errors carry their issues in the message and an
-					// empty `data: {}`; appending that renders a meaningless " — {}".
-					const detail =
-						errorData.data &&
-						typeof errorData.data === "object" &&
-						Object.keys(errorData.data).length > 0
-							? ` — ${JSON.stringify(errorData.data).slice(0, 300)}`
-							: "";
-					return `${errorData.code}: ${errorData.message}${detail}`;
-				}
-			}
-			return `Request failed with status ${result.status}`;
-		}
-		// Dual-audience projection: when the tool config carries a
-		// modelSummaryTemplate, the model-visible text becomes the rendered
-		// template while structuredContent keeps the full shaped payload for
-		// widgets/hosts. Paths resolve against the shaped structured output so
-		// the projection and structuredContent always describe the same data.
-		// Fail-soft: a malformed template row must never turn a successful
-		// result into an error — fall back to the default JSON text instead.
-		const modelSummaryTemplate = ctx.config.modelSummaryTemplate;
-		if (modelSummaryTemplate) {
-			if (typeof modelSummaryTemplate === "string") {
-				try {
-					// Shape an isolated deep copy: buildStructuredContent only
-					// shallow-copies the top level, and responseTransforms /
-					// arrayLimits / stripFields mutate nested objects shared with
-					// the structuredContent the caller already built. Cloning keeps
-					// this second shaping pass from double-applying transforms onto
-					// that payload.
-					const shaped = this.buildStructuredContent(
-						{ ...result, data: structuredClone(result.data) },
-						ctx,
-					);
-					return truncateTextContent(
-						renderModelSummaryTemplate(modelSummaryTemplate, shaped),
-					);
-				} catch (error) {
-					log.error("Model summary rendering failed; using JSON text", {
-						event: "handler.model_summary_render_failed",
-						appId: ctx.appId,
-						toolName: ctx.toolId,
-						outcome: "invalid",
-						error: contentFreeMcpException(error),
-					});
-				}
-			} else {
-				log.error("Model summary template is not a string", {
-					event: "handler.model_summary_template_invalid",
-					appId: ctx.appId,
-					toolName: ctx.toolId,
-					outcome: "invalid",
-				});
-			}
-		}
-		return truncateTextContent(JSON.stringify(result.data, null, 2));
+		return buildTextContent(
+			result,
+			ctx,
+			this.buildStructuredContent.bind(this),
+		);
 	}
 }
 
