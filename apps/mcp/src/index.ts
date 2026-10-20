@@ -122,6 +122,7 @@ import {
 	shouldEnforceMcpToolScopes,
 	shouldEnforceTenantMatchForOAuth,
 	validateAuth,
+	stripRedundantApiKeyHeader,
 	type MultiOrgMcpSelection,
 } from "./auth-helpers";
 import {
@@ -2537,6 +2538,8 @@ const worker = {
 		ctx: ExecutionContext,
 	): Promise<Response> {
 		const url = new URL(request.url);
+		if (url.pathname !== "/external-agents/session")
+			request = stripRedundantApiKeyHeader(request);
 
 		let hostname = resolveRequestHostname(request.headers, url, env);
 		const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
@@ -2926,6 +2929,7 @@ const worker = {
 				const apiKey = hasApiKeyHeader;
 				const headers = new Headers(request.headers);
 				headers.set("Authorization", `Bearer ${apiKey}`);
+				headers.delete("X-API-Key");
 				request = new Request(request.url, {
 					method: request.method,
 					headers,

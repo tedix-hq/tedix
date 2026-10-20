@@ -331,3 +331,39 @@ describe("external-agent session exchange", () => {
 		expect((result as Response).status).toBe(401);
 	});
 });
+
+describe("stable external-agent exchange rejections", () => {
+	it.each([
+		[401, "enrollment_expired", "enrollment_expired"],
+		[409, "External-agent principal is suspended", "principal_inactive"],
+		[403, "principal_inactive", "principal_inactive"],
+		[
+			429,
+			"External-agent exchange rate limit exceeded",
+			"exchange_rate_limited",
+		],
+	])(
+		"preserves status %s and public code %s",
+		async (status, message, code) => {
+			callRpc
+				.mockReset()
+				.mockRejectedValueOnce(
+					new RpcCallError(
+						"externalAgentIdentity/issueMcpCredential",
+						status,
+						JSON.stringify({ message, internal: "must-not-leak" }),
+						"Rejected",
+						undefined,
+					),
+				);
+			const response = await handleExternalAgentSessionExchange(request(), {
+				API_SERVICE: { fetch: vi.fn() } as unknown as Fetcher,
+			});
+			expect(response.status).toBe(status);
+			expect(await response.json()).toEqual({
+				error: "Session exchange rejected",
+				code,
+			});
+		},
+	);
+});

@@ -7,6 +7,7 @@ import {
 	type ExternalAgentSession,
 	externalAgentPrincipals,
 	externalAgentSessions,
+	externalAgentExchangeLimits,
 } from "../../schema/external-agent-identity";
 import { workAttempts } from "../../schema/work-items";
 import {
@@ -292,6 +293,26 @@ export async function resolveActiveExternalAgentSession(
 
 	const { principal, ...session } = row;
 	return { principal, session };
+}
+
+/** A single conditional upsert enforces the UTC minute budget across sessions and isolates. */
+export async function consumeExternalAgentExchangeBudget(
+	db: DbClient,
+	params: { organizationId: string; principalId: string; nowMs: number },
+): Promise<boolean> {
+	const windowStart = Math.floor(params.nowMs / 60_000);
+	const rows = await db.all(sql`
+		INSERT INTO ${externalAgentExchangeLimits} (organization_id, principal_id, window_start, request_count)
+		VALUES (${params.organizationId}, ${params.principalId}, ${windowStart}, 1)
+		ON CONFLICT (organization_id, principal_id) DO UPDATE SET
+			window_start = excluded.window_start,
+			request_count = CASE WHEN ${externalAgentExchangeLimits.windowStart} = excluded.window_start
+				THEN ${externalAgentExchangeLimits.requestCount} + 1 ELSE 1 END
+		WHERE ${externalAgentExchangeLimits.windowStart} < excluded.window_start
+			OR (${externalAgentExchangeLimits.windowStart} = excluded.window_start AND ${externalAgentExchangeLimits.requestCount} < 30)
+		RETURNING request_count
+	`);
+	return rows.length === 1;
 }
 
 /** Narrow immutable-session lookup for attempt fencing and Git attribution. */
