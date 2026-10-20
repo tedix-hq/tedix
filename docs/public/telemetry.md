@@ -47,15 +47,20 @@ self-hosted installation contacts `*.tedix.dev` until you override them. See
 
 ## What is collected, and where it goes
 
-| Source                          | What                                                                | Destination                                 | Default                                                             |
-| ------------------------------- | ------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
-| MCP, runtime, and API Workers   | Request, Code Mode, runtime, and widget counters (Analytics Engine) | Analytics Engine datasets in your account   | On                                                                  |
-| All Workers                     | Logs and sampled traces (`observability` in `wrangler.jsonc`)       | Workers Observability in your account       | On; no external destinations configured                             |
-| All Workers                     | `logpush: true`                                                     | Only a Logpush job you create               | Inert until you configure a job                                     |
-| Tedix OS                        | WebMCP tool-call events (`sendBeacon` to `/webmcp/telemetry`)       | Your own OS origin                          | On                                                                  |
-| Embedded widget                 | Reliability metrics for the chat session                            | Your own API, over the session's stream URL | **Off** unless the provider enables widget analytics                |
-| CLI                             | Nothing. Wrangler is run with `WRANGLER_SEND_METRICS=false`         | —                                           | —                                                                   |
-| Marketing site (`apps/landing`) | Google Analytics page and lead events                               | Google Analytics                            | Off until configured in production and the visitor allows analytics |
+Each Worker is configured by `cloudflare.config.ts`, or by `wrangler.jsonc` for
+apps/api, apps/landing, apps/mcp-ui, apps/tedi-runtime,
+apps/tedi-workstation-runtime and packages/db; "the Worker's config file"
+below means that file.
+
+| Source                          | What                                                                  | Destination                                 | Default                                                             |
+| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
+| MCP, runtime, and API Workers   | Request, Code Mode, runtime, and widget counters (Analytics Engine)   | Analytics Engine datasets in your account   | On                                                                  |
+| All Workers                     | Logs and sampled traces (`observability` in the Worker's config file) | Workers Observability in your account       | On; no external destinations configured                             |
+| All Workers                     | `logpush: true`                                                       | Only a Logpush job you create               | Inert until you configure a job                                     |
+| Tedix OS                        | WebMCP tool-call events (`sendBeacon` to `/webmcp/telemetry`)         | Your own OS origin                          | On                                                                  |
+| Embedded widget                 | Reliability metrics for the chat session                              | Your own API, over the session's stream URL | **Off** unless the provider enables widget analytics                |
+| CLI                             | Nothing. Wrangler is run with `WRANGLER_SEND_METRICS=false`           | —                                           | —                                                                   |
+| Marketing site (`apps/landing`) | Google Analytics page and lead events                                 | Google Analytics                            | Off until configured in production and the visitor allows analytics |
 
 ## What is never collected
 
@@ -95,9 +100,9 @@ Self-hosting is experimental; see the
   disable Google Analytics for a deployment, omit `GA_MEASUREMENT_ID`.
 - **Widget analytics:** leave widget analytics disabled for the provider (the
   default), or call `consent({ analytics: false })` from the host page.
-- **Analytics Engine and observability:** remove the
-  `analytics_engine_datasets` or `observability` blocks from an app's
-  `wrangler.jsonc` before you deploy. Test the app afterwards: not every
-  writer treats a missing dataset binding as optional.
+- **Analytics Engine and observability:** remove the Analytics Engine
+  datasets or the `observability` block from the Worker's config file before
+  you deploy. Test the app afterwards: not every writer treats a missing
+  dataset binding as optional.
 - **Logpush:** do not create a Logpush job, or delete it.
 - **Tedix Cloud endpoints:** set the overrides above to your own hosts.
