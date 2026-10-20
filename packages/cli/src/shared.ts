@@ -145,6 +145,8 @@ export interface CliOptions {
 	workObjective?: string;
 	workClass?: string;
 	workExpires?: string;
+	/** `work list`: server-side executor filter (human|tedi|codex|claude-code|devin). */
+	workExecutor?: string;
 	/** `work clusters`: explicit tedi executor for an operator credential. */
 	workExecutorTedi?: string;
 	/** `work start`: provision an isolated local Git worktree after admission. */

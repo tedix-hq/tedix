@@ -524,6 +524,7 @@ export const listCliProjectionProcedure = cliReadOs.listCliProjection.handler(
 			projectId: input.projectId,
 			objectiveId: input.objectiveId,
 			workClass: input.workClass,
+			executor: input.executor,
 			idPrefix: input.idPrefix,
 			titleContains: input.titleContains,
 			customerVisiblePreFilter: input.customerVisibleOnly,

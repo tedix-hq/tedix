@@ -1,4 +1,9 @@
-import { WorkItemDispositionSchema } from "@tedix/api-contract/schemas/work-items";
+import {
+	WorkItemDispositionSchema,
+	WorkItemKindSchema,
+	WorkItemClassSchema,
+	WorkExecutorSchema,
+} from "@tedix/api-contract/schemas/work-items";
 import { WorkInteractionCursorSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { readFileSync } from "node:fs";
 import { resolveAgentContext } from "./agent-context";
@@ -301,13 +306,62 @@ export async function workFind(
 
 // ─── Verbs ─────────────────────────────────────────────────────────────────
 
+/** One `work list` enum filter; a typo must error, not silently widen the page. */
+function listEnumArg(
+	flag: string,
+	values: readonly string[],
+	value: string | undefined,
+	arg: string,
+): Record<string, unknown> {
+	if (value === undefined) return {};
+	const trimmed = value.trim();
+	if (!values.includes(trimmed))
+		throw new Error(
+			`work list ${flag} must be one of ${values.join("|")}, got "${value}"`,
+		);
+	return { [arg]: trimmed };
+}
+
 export async function workList(ctx: WorkContext, _id: string): Promise<number> {
 	const { as, project, disposition, mine, limit } = ctx.work;
 	const base: Record<string, unknown> = {
 		limit: limit ?? DEFAULT_LIST_LIMIT,
 		...(disposition ? { disposition } : {}),
 		...projectArg(project),
+		...listEnumArg(
+			"--kind",
+			WorkItemKindSchema.options,
+			ctx.work.kind,
+			"workKind",
+		),
+		...listEnumArg(
+			"--class",
+			WorkItemClassSchema.options,
+			ctx.work.workClass,
+			"workClass",
+		),
+		...listEnumArg(
+			"--executor",
+			WorkExecutorSchema.options,
+			ctx.work.executor,
+			"executor",
+		),
 	};
+	const objective = ctx.work.objective?.trim();
+	if (objective && !isUuid(objective)) {
+		throw new Error(
+			"work list --objective requires the canonical objective UUID",
+		);
+	}
+	if (objective) base.objectiveId = objective;
+	const offset = ctx.work.offset?.trim();
+	if (offset) {
+		const parsed = Number(offset);
+		if (!Number.isInteger(parsed) || parsed < 0) {
+			throw new Error("work list --offset requires a non-negative integer");
+		}
+		base.offset = parsed;
+	}
 
 	let call: BoardResult;
 	if (mine) {
@@ -333,9 +387,26 @@ export async function workList(ctx: WorkContext, _id: string): Promise<number> {
 		);
 	}
 	const items = itemsFromList(call.value);
-	return ok(ctx, call.value, () =>
-		console.log(renderWorkItemsTable(items, ctx.color)),
-	);
+	const pagination =
+		isRecord(call.value) && isRecord(call.value.pagination)
+			? call.value.pagination
+			: undefined;
+	const total =
+		typeof pagination?.total === "number" ? pagination.total : undefined;
+	const nextOffset =
+		(typeof pagination?.offset === "number" ? pagination.offset : 0) +
+		items.length;
+	return ok(ctx, call.value, () => {
+		console.log(renderWorkItemsTable(items, ctx.color));
+		if (pagination?.hasMore === true && total !== undefined) {
+			console.log(
+				dim(
+					`Showing ${items.length} of ${total} (use --offset ${nextOffset} for the next page)`,
+					ctx.color,
+				),
+			);
+		}
+	});
 }
 
 /** Purpose-exception classes `create` accepts (objective work uses --objective). */

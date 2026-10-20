@@ -1425,6 +1425,7 @@ async function main() {
 						: {}),
 					...(options.workClass ? { workClass: options.workClass } : {}),
 					...(options.workExpires ? { expires: options.workExpires } : {}),
+					...(options.workExecutor ? { executor: options.workExecutor } : {}),
 					...(options.workExecutorTedi
 						? { executorTedi: options.workExecutorTedi }
 						: {}),
@@ -1440,6 +1441,7 @@ async function main() {
 					...(options.workOperatorOverride ? { operatorOverride: true } : {}),
 					...(options.workContradicts ? { contradicts: true } : {}),
 					...(options.limit ? { limit: options.limit } : {}),
+					...(options.offset ? { offset: options.offset } : {}),
 				},
 			});
 			if (process.exitCode === 0)

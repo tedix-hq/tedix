@@ -100,6 +100,10 @@ export interface WorkOptions {
 	workClass?: string;
 	/** `create`: --expires <duration|iso> paired with --class (72h, 7d, ISO). */
 	expires?: string;
+	/** `list`: server-side filter on the item's declared Work executor. */
+	executor?: string;
+	/** `list`: zero-based page start; raw string validated by the verb. */
+	offset?: string;
 	/** `clusters`: explicit active tedi executor selected by an operator. */
 	executorTedi?: string;
 	/** `accept`: plain-language done-looks-like, written into the contract. */
@@ -246,7 +250,9 @@ Ledger (historical rows on in-flight items stay readable; nothing reviews them):
                     [--evidence-metadata <json|@path>]
   evidence <id> [--claim-key <key>] [--limit <n>]
 
-Discovery: list [--disposition <value>] · find <query> · readiness <id> · context <id>
+Discovery: list [--disposition <value>] [--kind <kind>] [--class <class>]
+                [--objective <id>] [--executor <exec>] [--offset <n>]
+           · find <query> · readiness <id> · context <id>
 Ledgers: evidence <id> · attempts <id> · events <id>  (one bounded page; --limit 1–100, default 25)
 Checkpoint: checkpoint (read selected chat Work and bounded directed open Interactions; no writes)
 Collaboration: comment <id> [text] [--body|--message|--text <text>]
