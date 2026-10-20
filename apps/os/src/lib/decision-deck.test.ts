@@ -158,10 +158,10 @@ it("preserves a draft preview during curation and accepts a later human edit", (
 			curation: {
 				...metadata.curation,
 				revision: 4,
-				draftBody: "Human edited draft",
+				draftBody: "  Human edited draft\n",
 			},
 		})?.preview?.body,
-	).toBe("Human edited draft");
+	).toBe("  Human edited draft\n");
 });
 
 it("distinguishes nobody carrying an outcome from a live Attempt or an unknown read", () => {
