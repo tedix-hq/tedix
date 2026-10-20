@@ -214,7 +214,7 @@ export async function runRetentionCleanupCron(
 			getStaleUnhealthyAppCount,
 			autoDisableDeadMcpCatalogApps,
 			autoHideUnhealthyCatalogApps,
-			autoDelistStaleCatalogApps,
+			autoDelistStaleCatalogAppsWithStats,
 		} = await import("@tedix/db/queries/catalog/scheduled-maintenance");
 
 		const staleCount = await getStaleUnhealthyAppCount(db, 14);
@@ -242,7 +242,7 @@ export async function runRetentionCleanupCron(
 			);
 		}
 
-		const delisted = await autoDelistStaleCatalogApps(db, 21);
+		const delisted = await autoDelistStaleCatalogAppsWithStats(db, 21);
 		if (delisted.delisted > 0 || delisted.skippedProtected > 0) {
 			console.log(
 				`[Scheduled] Auto-delisted ${delisted.delisted} apps (not seen in 21+ days; skipped ${delisted.skippedProtected} manual/auth-gated)`,
