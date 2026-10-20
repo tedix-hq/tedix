@@ -989,6 +989,11 @@ describe("Code Mode payment-gated tools", () => {
 			const env = createEnv(createApiService());
 			const ctx = createExecutionContext();
 			const cachedData = createCachedData();
+			cachedData.tools = cachedData.tools.map((tool) =>
+				tool.toolId === "nosana__get_deployments"
+					? { ...tool, config: { ...tool.config, nativeDirect: true } }
+					: tool,
+			);
 			const response = await postRpcWithData(env, ctx, cachedData, {
 				jsonrpc: "2.0",
 				id: 1,

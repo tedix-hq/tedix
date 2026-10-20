@@ -615,6 +615,54 @@ describe("Connect compact protocol organization routing", () => {
 			expect(resolveGateway).not.toHaveBeenCalled();
 		},
 	);
+	it.each([true, false])(
+		"hydrates untargeted Connect widget discovery only for Apps clients (%s)",
+		async (supportsApps) => {
+			const factory = await import("./mcp/server-factory");
+			const contextSpy = vi
+				.spyOn(factory, "getAppContext")
+				.mockRejectedValue(new Error("selected organization catalog required"));
+			try {
+				const original = request("tools/list");
+				const body = (await original.json()) as {
+					params: { _meta: Record<string, unknown> };
+				};
+				body.params._meta["io.modelcontextprotocol/clientCapabilities"] =
+					supportsApps
+						? {
+								extensions: {
+									"io.modelcontextprotocol/ui": {
+										mimeTypes: ["text/html;profile=mcp-app"],
+									},
+								},
+							}
+						: {};
+				const response = handleMcpRequest(
+					new Request(original.url, {
+						method: "POST",
+						headers: original.headers,
+						body: JSON.stringify(body),
+					}),
+					connect,
+					createEnv(),
+					ctx,
+					{ organizations: [organization] },
+				);
+				if (supportsApps) {
+					await expect(response).rejects.toThrow(
+						"selected organization catalog required",
+					);
+					expect(contextSpy).toHaveBeenCalledOnce();
+				} else {
+					expect((await response).status).toBe(200);
+					expect(contextSpy).not.toHaveBeenCalled();
+				}
+			} finally {
+				contextSpy.mockRestore();
+			}
+		},
+	);
+
 	it("does not advertise Home Tasks on untargeted Connect", async () => {
 		const response = await handleMcpRequest(
 			request("server/discover"),

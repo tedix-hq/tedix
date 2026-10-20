@@ -1062,6 +1062,7 @@ export async function buildMcpServer(
 				!(
 					clientAppsSupported &&
 					tool.enabled &&
+					tool.config?.nativeDirect === true &&
 					resolveToolWidgetRoute(tool)
 				) &&
 				((tool.meta as Record<string, unknown> | null | undefined)?.source !==
