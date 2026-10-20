@@ -544,7 +544,7 @@ try {
 				.waitFor();
 			for (const name of [
 				"Filters",
-				"Shortcuts",
+				"Keyboard shortcuts",
 				"History",
 				"What each choice does",
 			])

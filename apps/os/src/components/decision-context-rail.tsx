@@ -22,6 +22,7 @@ import {
 } from "@phosphor-icons/react";
 import { OS_COPY } from "@/shared/os-copy";
 import { Button } from "@/components/kumo/button";
+import { Kbd } from "@/components/kumo/kbd";
 import {
 	Sheet,
 	SheetContent,
@@ -163,11 +164,18 @@ export function DecisionContextRail({
 		<div className="fd-shortcut-grid">
 			{OS_COPY.feedDeckVisual.shortcutList.map(([key, label]) => (
 				<Fragment key={key}>
-					<kbd>{key}</kbd>
+					<Kbd>{key}</Kbd>
 					<span>{label}</span>
 				</Fragment>
 			))}
 		</div>
+	);
+	// One legend entry point for the whole Deck; cards carry no per-button hints.
+	const shortcutHint = surface === "deck" && (
+		<p className="fd-shortcut-hint">
+			{OS_COPY.feedDeckVisual.shortcutHint[0]} <Kbd>?</Kbd>{" "}
+			{OS_COPY.feedDeckVisual.shortcutHint[1]}
+		</p>
 	);
 	const contents = (
 		<div
@@ -250,6 +258,7 @@ export function DecisionContextRail({
 							</Button>
 						</div>
 						{contents}
+						{shortcutHint}
 					</aside>
 				)}
 			</div>
@@ -278,6 +287,7 @@ export function DecisionContextRail({
 							</Button>
 						</SheetHeader>
 						{contents}
+						{shortcutHint}
 					</SheetContent>
 				</Sheet>
 			)}
@@ -287,7 +297,7 @@ export function DecisionContextRail({
 					className="feed-deck fd-shortcut-sheet"
 				>
 					<SheetHeader>
-						<SheetTitle>Shortcuts</SheetTitle>
+						<SheetTitle>{OS_COPY.feedDeckVisual.shortcutsTitle}</SheetTitle>
 					</SheetHeader>
 					{shortcutGrid}
 				</SheetContent>

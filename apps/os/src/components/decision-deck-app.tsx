@@ -56,6 +56,7 @@ import { DecisionLearningFeedback } from "@/components/decision-learning-feedbac
 import {
 	DeckClosure,
 	ProposerContext,
+	ShortcutTooltip,
 } from "@/components/feed-deck-primitives";
 import {
 	createElement,
@@ -1041,43 +1042,45 @@ function DecisionDeckContent({
 									!current?.options.some(
 										(option) => option.intent === "later",
 									) && (
-										<Button
-											variant="outline"
-											onClick={() => {
-												if (!practiceMode)
-													void osApi.learningFeedback
-														.recordInteraction({
-															clientEventId: crypto.randomUUID(),
-															eventKind: "ignored",
-															scope: { kind: "personal" },
-															surface: "decision_deck",
-															targetType: "work_interaction",
-															targetId: selected.id,
-															metadata: {
-																decisionClass: classId ?? selected.kind,
-																decisionChoice: "later",
-																...cardDecisionTiming(selectedViewKey),
-																sourceVersion: selectedSourceVersion,
-																railOpenedBeforeDecision:
-																	railOpenedBeforeDecision ||
-																	cardDetailsOpened(selectedViewKey),
-																reaction: "skip",
-																projectId: selected.project,
-															},
-														})
-														.then(async (result) => {
-															if (!result.duplicate && result.event?.id)
-																setSessionLearningId(result.event.id);
-															await client.invalidateQueries({
-																queryKey: osQuery.learningFeedback.key(),
-															});
-														})
-														.catch(() => {});
-												next();
-											}}
-										>
-											{decisionText("Later")}
-										</Button>
+										<ShortcutTooltip label={decisionText("Later")} shortcut="L">
+											<Button
+												variant="outline"
+												onClick={() => {
+													if (!practiceMode)
+														void osApi.learningFeedback
+															.recordInteraction({
+																clientEventId: crypto.randomUUID(),
+																eventKind: "ignored",
+																scope: { kind: "personal" },
+																surface: "decision_deck",
+																targetType: "work_interaction",
+																targetId: selected.id,
+																metadata: {
+																	decisionClass: classId ?? selected.kind,
+																	decisionChoice: "later",
+																	...cardDecisionTiming(selectedViewKey),
+																	sourceVersion: selectedSourceVersion,
+																	railOpenedBeforeDecision:
+																		railOpenedBeforeDecision ||
+																		cardDetailsOpened(selectedViewKey),
+																	reaction: "skip",
+																	projectId: selected.project,
+																},
+															})
+															.then(async (result) => {
+																if (!result.duplicate && result.event?.id)
+																	setSessionLearningId(result.event.id);
+																await client.invalidateQueries({
+																	queryKey: osQuery.learningFeedback.key(),
+																});
+															})
+															.catch(() => {});
+													next();
+												}}
+											>
+												{decisionText("Later")}
+											</Button>
+										</ShortcutTooltip>
 									)
 								}
 							>
