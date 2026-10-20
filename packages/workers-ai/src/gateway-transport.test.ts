@@ -307,6 +307,48 @@ describe("callCloudflareAutoRouter", () => {
 			callCloudflareAutoRouter({}, "gw", { body: "{}" }),
 		).rejects.toThrow(/requires AI_GATEWAY_ACCOUNT_ID/);
 	});
+
+	it.each([400, 422, 429, 500])(
+		"redacts prompt text the provider echoes back in a %s body",
+		async (status) => {
+			const marker = "SYNTHETIC_PRIVATE_PROMPT_7c92 do not leak me";
+			const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+				const sent = JSON.parse(String(init?.body)) as {
+					messages: Array<{ content: string }>;
+				};
+				return new Response(
+					JSON.stringify({
+						errors: [
+							{
+								code: 7001,
+								message: `Bad messages[0].content: ${sent.messages[0]?.content}`,
+							},
+						],
+					}),
+					{ status, statusText: "Rejected" },
+				);
+			});
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const error = await callCloudflareAutoRouter(HTTPS_ENV, "gw", {
+					body: JSON.stringify({
+						model: "cloudflare/auto",
+						messages: [{ role: "user", content: marker }],
+					}),
+				}).catch((e: Error) => e);
+				expect(error).toBeInstanceOf(Error);
+				const message = (error as Error).message;
+				expect(message).toMatch(
+					new RegExp(`^cloudflare auto router: ${status} Rejected`),
+				);
+				expect(message).not.toContain("SYNTHETIC_PRIVATE_PROMPT_7c92");
+				expect(message).toContain('"code":7001');
+				expect(message).toContain("[redacted]");
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		},
+	);
 });
 
 describe("Auto Router modality pools", () => {

@@ -427,6 +427,66 @@ describe("callWorkersAi over the gateway", () => {
 		},
 	);
 
+	it.each([400, 422, 429, 500])(
+		"redacts prompt text the provider echoes back in a %s body",
+		async (status) => {
+			const marker = "SYNTHETIC_PRIVATE_PROMPT_7c92 do not leak me";
+			globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+				const sent = JSON.parse(String(init?.body)) as {
+					messages: Array<{ content: string }>;
+				};
+				const echoed = sent.messages[0]?.content ?? "";
+				return new Response(
+					JSON.stringify({
+						error: {
+							message: `Invalid value for messages[0].content: "${echoed}" is unsupported_value`,
+							type: "invalid_request_error",
+							code: "unsupported_value",
+						},
+					}),
+					{ status, statusText: "Rejected" },
+				);
+			}) as typeof fetch;
+			const error = await callWorkersAi(
+				{ env: GATEWAY_ENV, authorize: passthrough },
+				"@cf/openai/gpt-oss-120b",
+				{ messages: [{ role: "user", content: marker }] },
+			).catch((e: Error) => e);
+			expect(error).toBeInstanceOf(Error);
+			const message = (error as Error).message;
+			expect(message).toMatch(
+				new RegExp(
+					`^workers-ai gateway @cf/openai/gpt-oss-120b: ${status} Rejected`,
+				),
+			);
+			expect(message).not.toContain(marker);
+			expect(message).not.toContain("SYNTHETIC_PRIVATE_PROMPT_7c92");
+			expect(message).toContain("[redacted]");
+			expect(message).toContain('"code":"unsupported_value"');
+			expect(message).toContain("unsupported_value");
+			expect(message).not.toContain("sent body:");
+		},
+	);
+
+	it("never includes a long non-JSON body that quotes the request", async () => {
+		const marker = "SYNTHETIC_PRIVATE_PROMPT_7c92";
+		globalThis.fetch = vi.fn(
+			async (_url: unknown, init?: RequestInit) =>
+				new Response(`bad request: ${String(init?.body)}`, {
+					status: 400,
+					statusText: "Bad Request",
+				}),
+		) as typeof fetch;
+		const error = await callWorkersAi(
+			{ env: GATEWAY_ENV, authorize: passthrough },
+			"@cf/openai/gpt-oss-120b",
+			{ messages: [{ role: "user", content: marker.repeat(8) }] },
+		).catch((e: Error) => e);
+		expect((error as Error).message).toBe(
+			"workers-ai gateway @cf/openai/gpt-oss-120b: 400 Bad Request",
+		);
+	});
+
 	it("omits the body head on a 5xx (the request was not the problem)", async () => {
 		globalThis.fetch = vi.fn(
 			async () =>

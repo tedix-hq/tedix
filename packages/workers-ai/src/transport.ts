@@ -347,13 +347,13 @@ async function callViaGateway(
 	});
 	if (!response.ok) {
 		const detail = await response.text().catch(() => "");
-		const error = aiGatewayHttpError(
+		throw aiGatewayHttpError(
 			`workers-ai gateway ${modelId}`,
 			response.status,
 			response.statusText,
 			detail,
+			serialized,
 		);
-		throw error;
 	}
 	const data = (await response.json()) as OpenAiChatResponse;
 	const message = data.choices?.[0]?.message;
