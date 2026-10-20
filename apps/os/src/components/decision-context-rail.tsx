@@ -66,6 +66,7 @@ export const DecisionRailContext = createContext<{
 	phone: boolean;
 	toggle: () => void;
 	activeSection?: string;
+	railId: string;
 	surface: "deck" | "feed";
 } | null>(null);
 
@@ -237,6 +238,7 @@ export function DecisionContextRail({
 				phone,
 				toggle: () => changeOpen(!open),
 				activeSection: section,
+				railId: contextId,
 				openSection: (id) => {
 					if (id === "shortcuts") {
 						setShortcutsOpen(true);
@@ -482,16 +484,23 @@ export function DecisionContextSection({
 				{children}
 			</section>
 		);
+	const expanded = rail.open && rail.activeSection === id;
 	return (
 		<>
 			{trigger && (
-				<Button variant="ghost" onClick={() => rail.openSection(id)}>
+				<Button
+					variant="ghost"
+					aria-expanded={expanded}
+					aria-controls={expanded ? `${rail.railId}-${id}` : undefined}
+					onClick={() => (expanded ? rail.toggle() : rail.openSection(id))}
+				>
 					{title}
 				</Button>
 			)}
 			{rail.target &&
 				createPortal(
 					<section
+						id={`${rail.railId}-${id}`}
 						data-context-section={id}
 						hidden={
 							rail.surface === "deck" &&
