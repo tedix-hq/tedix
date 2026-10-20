@@ -10,7 +10,7 @@ import {
 	readPositiveNumberOption,
 	requireValue,
 } from "./option-values";
-import { parseWorkOption } from "./work-options";
+import { parseWorkOption, workOptionNames } from "./work-options";
 import { parseFlowOption } from "./flow-options";
 import { hasFactoryOptions, parseFactoryOption } from "./factory-options";
 import { parseAgentOption } from "./agent-options";
@@ -18,6 +18,115 @@ import { parseAgentOption } from "./agent-options";
 // The local apps/mcp Worker (see docs/engineering/development.md). TedixHomeClient adds
 // the app-resolution header for loopback targets; a tunnel is an explicit opt-in.
 export const LOCAL_TEDIX_MCP_URL = "http://localhost:3000/mcp";
+
+const globalOptions = [
+	"-h",
+	"--help",
+	"--map",
+	"-v",
+	"--version",
+	"-p",
+	"--prompt",
+	"-c",
+	"--conversation",
+	"--delegate-to-tedi",
+	"--work-item",
+	"--verify",
+	"--require-code-proof",
+	"--require-workstation",
+	"--idempotency-key",
+	"--url",
+	"--local",
+	"--scope-profile",
+	"--offset",
+	"--thread",
+	"--no-poll",
+	"--follow",
+	"--no-follow",
+	"--once",
+	"--no-color",
+	"--meta",
+	"--approve-destructive",
+	"--poll-timeout-ms",
+	"--poll-interval-ms",
+	"--limit",
+	"--artifact-limit",
+	"--cursor",
+	"--search",
+	"--channel",
+	"--include-archived",
+	"--check",
+	"--force",
+	"--trace",
+	"--events",
+	"--artifacts",
+	"--workstations",
+	"--branch",
+	"--harness-version",
+	"--condition",
+	"--max-turns",
+	"--budget-usd",
+	"--evaluator",
+	"--objective-id",
+	"--no-repo-context",
+	"--json",
+	"-w",
+	"--workspace",
+	"--all",
+	"--organization",
+	"--header",
+	"--org",
+];
+
+const commandOptions: Record<string, string[]> = {
+	flow: ["--file", "--skill", "--params", "--title", "--watch", "--param"],
+	factory: [
+		"--goal",
+		"--owner",
+		"--cadence",
+		"--every-hours",
+		"--output",
+		"--output-kind",
+		"--template",
+		"--slug",
+		"--name",
+		"--max-proposals",
+		"--workspace-id",
+		"--dry-run",
+	],
+	agent: [
+		"--agent-key",
+		"--display-name",
+		"--agent-harness",
+		"--agent-harness-version",
+		"--model-provider",
+		"--model-id",
+		"--model-version",
+		"--no-handoff-reason",
+		"--zero-work-reason",
+		"--stale-before",
+		"--artifact-ref",
+		"--agent-scopes",
+	],
+};
+
+function editDistance(a: string, b: string): number {
+	let row = Array.from({ length: b.length + 1 }, (_, index) => index);
+	for (let i = 0; i < a.length; i++) {
+		const next = [i + 1];
+		for (let j = 0; j < b.length; j++) {
+			next.push(
+				Math.min(
+					next[j]! + 1,
+					row[j + 1]! + 1,
+					row[j]! + (a[i] === b[j] ? 0 : 1),
+				),
+			);
+		}
+		row = next;
+	}
+	return row[b.length]!;
+}
 
 export function parseOptions(argv: string[]): {
 	command: string;
@@ -48,6 +157,7 @@ export function parseOptions(argv: string[]): {
 	if (wsEnv) options.workspace = wsEnv;
 	const positional: string[] = [];
 	let command: string | undefined;
+	let commentText: string | undefined;
 
 	for (let index = 0; index < args.length; index++) {
 		let arg = args[index] ?? "";
@@ -75,6 +185,13 @@ export function parseOptions(argv: string[]): {
 			continue;
 		}
 		switch (arg) {
+			case "--body":
+			case "--message":
+			case "--text": {
+				const value = requireValue(arg, args[++index]).trim();
+				commentText = commentText || value;
+				break;
+			}
 			case "-h":
 			case "--help":
 				options.help = true;
@@ -276,7 +393,25 @@ export function parseOptions(argv: string[]): {
 				requireValue(arg, args[++index]);
 				break;
 			default:
-				if (arg?.startsWith("-")) throw new Error(`Unknown option ${arg}`);
+				if (arg?.startsWith("-")) {
+					const name = command ?? "chat";
+					const candidates = [
+						...globalOptions,
+						...(name === "work"
+							? workOptionNames()
+							: (commandOptions[name] ?? [])),
+					];
+					const nearest = candidates
+						.map((flag) => ({ flag, distance: editDistance(arg, flag) }))
+						.sort((a, b) => a.distance - b.distance)[0];
+					const hint =
+						nearest && nearest.distance <= 3
+							? `; did you mean ${nearest.flag}?`
+							: ";";
+					throw new Error(
+						`Unknown option ${arg} for "tedix ${name}"${hint} See tedix ${name} --help`,
+					);
+				}
 				if (arg && !command) command = arg;
 				else if (arg) positional.push(arg);
 		}
@@ -285,6 +420,16 @@ export function parseOptions(argv: string[]): {
 				`Unexpected value for ${arg}; check tedix ${command ?? "help"} --help`,
 			);
 		}
+	}
+
+	if (commentText !== undefined) {
+		if (command !== "work" || positional[0] !== "comment") {
+			throw new Error(
+				"--body, --message and --text are only valid with work comment",
+			);
+		}
+		// Normalize aliases to the positional form consumed by the Work dispatcher.
+		if (commentText) positional.splice(2, positional.length, commentText);
 	}
 
 	if (!options.prompt && positional.length > 0) {

@@ -42,6 +42,24 @@ const valueOptions = {
 	"--hours": "whoHours",
 } as const;
 
+export function workOptionNames(): string[] {
+	return [
+		...Object.keys(valueOptions),
+		"--body",
+		"--message",
+		"--text",
+		"--mine",
+		"--no-deliver",
+		"--path",
+		"--commit",
+		"--worktree",
+		"--lane",
+		"--operator-override",
+		"--launch",
+		"--contradicts",
+	];
+}
+
 /** Consume one work option; return its final argv index, or undefined. */
 export function parseWorkOption(
 	args: string[],
