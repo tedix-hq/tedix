@@ -142,7 +142,7 @@ async function card(
 		targetType: "user",
 		targetId: USER,
 		createdAt: `2026-10-20T0${seq % 10}:00:00.000Z`,
-		metadata: {},
+		metadata: { decisionClass: "relationship" },
 		...overrides,
 	});
 	return id;
@@ -199,7 +199,7 @@ describe("deck pipeline sweep", () => {
 			expect((await status(db, id)).status).toBe("open");
 		expect(await getDeckSweepReceipt(db, ORG)).toMatchObject({
 			at: now.toISOString(),
-			metrics: [{ recipientId: USER, liveCards: 3, removals: 3 }],
+			metrics: [{ recipientId: USER, liveCards: 2, removals: 3 }],
 		});
 	});
 
@@ -210,7 +210,7 @@ describe("deck pipeline sweep", () => {
 		await sweepOrganizationDeck(db, ORG, now);
 		await db
 			.update(workInteractions)
-			.set({ status: "open", metadata: {} })
+			.set({ status: "open", metadata: { decisionClass: "relationship" } })
 			.where(eq(workInteractions.id, expired));
 		const next = await sweepOrganizationDeck(
 			db,
