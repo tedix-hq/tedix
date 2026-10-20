@@ -1,4 +1,5 @@
 import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution-evidence";
+import { delegatedCloseoutProjects } from "@tedix/api-contract/utils/delegated-work-closeout";
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { KernelRouteDecision } from "./route-schema";
 import type { TediCapabilityCard } from "./tedi-capabilities";
@@ -17,6 +18,9 @@ export function deriveDelegationCapabilityPlan(input: {
 }): DelegationCapabilityPlan | undefined {
 	const { route, requirement, card } = input;
 	const content = delegationRequestContent(input.content);
+	const scopedCloseout = Boolean(
+		card && delegatedCloseoutProjects(content).length,
+	);
 	const capabilities: string[] = [];
 	const tools = new Set<string>();
 	const missingCapabilities: string[] = [];
@@ -70,6 +74,7 @@ export function deriveDelegationCapabilityPlan(input: {
 		);
 	}
 	if (
+		!scopedCloseout &&
 		/\bwork(?:\s+item)?\b/i.test(content) &&
 		/\b(?:add|post|write|leave)\s+(?:(?:a|an|the|one-line|closing|brief|short)\s+){0,4}comment\b|\bclosing\s+comment\b|\bwork(?:\s+item)?\s+comment\b/i.test(
 			content,
@@ -101,7 +106,10 @@ export function deriveDelegationCapabilityPlan(input: {
 			"list_work_item_events",
 		])
 			tools.add(`work.${id}`);
-		if (/\bmark\b[^.!?\n]{0,60}\bcompleted\b/i.test(content)) {
+		if (scopedCloseout) {
+			capabilities.push("work.closeout");
+			tools.add("close_completed_work_item");
+		} else if (/\bmark\b[^.!?\n]{0,60}\bcompleted\b/i.test(content)) {
 			capabilities.push("work.complete");
 			tools.add("work.complete_work_item");
 		}

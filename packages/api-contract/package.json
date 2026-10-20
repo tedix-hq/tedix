@@ -255,6 +255,7 @@
 		"./utils/workbook-number-format": "./src/utils/workbook-number-format.ts",
 		"./utils/presentation-style": "./src/utils/presentation-style.ts",
 		"./utils/approval-policy": "./src/utils/approval-policy.ts",
+		"./utils/delegated-work-closeout": "./src/utils/delegated-work-closeout.ts",
 		"./utils/body-execution-result": "./src/utils/body-execution-result.ts",
 		"./utils/catalog-categories": "./src/utils/catalog-categories.ts",
 		"./utils/contract-routers": "./src/utils/contract-routers.ts",
