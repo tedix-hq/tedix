@@ -363,7 +363,7 @@ function PaymentsFilters({
 	const [mobileFiltersOpen, setMobileFiltersOpen] = useState(
 		() => activeFilterCount > 0,
 	);
-	const filterSummary = `${paymentWindowLabel(search.hours)} · ${paymentStatusLabel(search.status)}${activeFilterCount > 0 ? ` · ${activeFilterCount} active` : ""}`;
+	const filterSummary = `Spend summary: ${paymentWindowLabel(search.hours)} · ${paymentStatusLabel(search.status)}${activeFilterCount > 0 ? ` · ${activeFilterCount} active` : ""}`;
 
 	return (
 		<PageSection>
@@ -387,7 +387,8 @@ function PaymentsFilters({
 				<SectionHeading>
 					<SectionTitle>Filters</SectionTitle>
 					<SectionDescription>
-						Narrow the ledger without changing payment state.
+						Filter events by status, app, tool, or tedi. The window applies only
+						to spend summaries.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -420,7 +421,9 @@ function PaymentFilterControls({
 			className="grid grid-cols-1 items-start sm:grid-cols-2 lg:grid-cols-5 xl:grid xl:items-start"
 		>
 			<div className="min-w-0 space-y-1.5">
-				<Label htmlFor={`${idPrefix}payment-time-window`}>Time window</Label>
+				<Label htmlFor={`${idPrefix}payment-time-window`}>
+					Spend-summary window
+				</Label>
 				<Select
 					value={String(search.hours)}
 					onValueChange={(value) =>
@@ -655,8 +658,8 @@ function PaymentEventsTable({
 				<SectionHeading>
 					<SectionTitle>Payment events</SectionTitle>
 					<SectionDescription>
-						Latest payment requirements and outcomes, up to{" "}
-						{PAYMENT_EVENTS_LIMIT} events.
+						Latest events across all dates, up to {PAYMENT_EVENTS_LIMIT} events.
+						The spend-summary window does not filter this list.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>

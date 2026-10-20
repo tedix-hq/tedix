@@ -16,6 +16,7 @@ import {
 	formatCreditWorth,
 	formatUsageCredits,
 } from "@/lib/billing-credit-display";
+import { hasUnlimitedTokenUsage } from "@/lib/billing-display";
 import { settledCreditCoverage } from "@/lib/billing-inference-spending";
 
 export function BillingCreditWallet({
@@ -70,26 +71,50 @@ export function BillingCreditWallet({
 			<CardHeader className="sm:grid-cols-[minmax(0,1fr)_auto]">
 				<div className="space-y-1">
 					<CardTitle>
-						{denominated ? "Usage credits" : "Usage balance"}
+						{monetary ? "Usage credits" : "Token plan allowance"}
 					</CardTitle>
 					<Text tone="secondary">
 						{monetary
 							? "Your shared AI usage balance"
-							: "Your credit wallet · this plan still uses a token allowance"}
+							: "Your plan uses tokens; the credit wallet is separate."}
 					</Text>
 				</div>
 				<Badge
 					variant={overview.inferenceCapacity.available ? "success" : "warning"}
 				>
 					{overview.inferenceCapacity.available
-						? "Ready to run"
+						? monetary
+							? "Ready to run"
+							: "Token plan capacity available"
 						: "Usage paused"}
 				</Badge>
 			</CardHeader>
 			<CardContent className="space-y-4">
+				{!monetary && (
+					<div>
+						<Text role="label" tone="secondary">
+							Included token allowance remaining
+						</Text>
+						<Text
+							role="metric"
+							weight="semibold"
+							className="break-words tabular-nums"
+						>
+							{hasUnlimitedTokenUsage(overview.snapshot, overview.plan)
+								? "Unlimited tokens"
+								: `${overview.snapshot.remainingIncludedTokens.toLocaleString()} tokens`}
+						</Text>
+						<Text tone="secondary">
+							This billing period, after tokens reserved for running work. Daily
+							capacity and other limits still apply.
+						</Text>
+					</div>
+				)}
 				<div>
 					<Text role="label" tone="secondary">
-						Available to spend
+						{monetary
+							? "Available credits to spend"
+							: "Usage credits · separate wallet available"}
 					</Text>
 					<Text
 						role="metric"

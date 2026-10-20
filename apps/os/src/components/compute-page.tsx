@@ -6,7 +6,7 @@ import {
 	type CostProvenance,
 	CostProvenanceSchema,
 } from "@tedix/api-contract/schemas/cost-provenance";
-import { getOsSurface } from "@/lib/os-navigation";
+import { Link } from "@/components/kumo/link";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -570,7 +570,6 @@ export function AttributionCard({
  * collapsing them lets a dead ingestion pipeline render as a clean $0.
  */
 export function ComputePage() {
-	const surface = getOsSurface("compute");
 	const [window, setWindow] = useState<ComputeWindow>("7d");
 	const posture = useQuery({
 		...computePostureQueryOptions(window),
@@ -582,8 +581,12 @@ export function ComputePage() {
 		<Page width="lg">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>{surface.label}</PageTitle>
-					<PageDescription>{surface.description}</PageDescription>
+					<PageTitle>Usage diagnostics</PageTitle>
+					<PageDescription>
+						Recorded model costs and runtime capacity. For your plan, credits,
+						invoices, and payment methods, open{" "}
+						<Link href="/admin/billing">Billing</Link>.
+					</PageDescription>
 				</PageHeading>
 				<PageActions>
 					<SegmentedControl
@@ -645,52 +648,59 @@ export function ComputePage() {
 				)}
 			</PageSection>
 
-			{posture.data && <LimitsSection posture={posture.data} />}
+			<Collapsible className="space-y-4">
+				<CollapsibleTrigger>Advanced usage diagnostics</CollapsibleTrigger>
+				<CollapsibleContent keepMounted className="space-y-6">
+					{posture.data && <LimitsSection posture={posture.data} />}
 
-			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Routing and models</SectionTitle>
-						<SectionDescription>
-							Selected model, allowed catalog, observed providers, and fallback.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-				<Collection
-					aria-label="Routing and model status"
-					className="[&>li]:min-w-0"
-				>
-					{posture.data && (
-						<li>
-							<RoutingCard posture={posture.data} embedded />
-						</li>
-					)}
-					<li>
-						<ModelCatalogSection embedded />
-					</li>
-				</Collection>
-			</PageSection>
+					<PageSection>
+						<SectionHeader>
+							<SectionHeading>
+								<SectionTitle>Routing and models</SectionTitle>
+								<SectionDescription>
+									Selected model, allowed catalog, observed providers, and
+									fallback.
+								</SectionDescription>
+							</SectionHeading>
+						</SectionHeader>
+						<Collection
+							aria-label="Routing and model status"
+							className="[&>li]:min-w-0"
+						>
+							{posture.data && (
+								<li>
+									<RoutingCard posture={posture.data} embedded />
+								</li>
+							)}
+							<li>
+								<ModelCatalogSection embedded />
+							</li>
+						</Collection>
+					</PageSection>
 
-			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Admission health</SectionTitle>
-						<SectionDescription>
-							Credential evidence, provider visibility, and D1 policy ceilings.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-				{posture.data && (
-					<Collection
-						aria-label="Admission health status"
-						className="[&>li]:min-w-0"
-					>
-						<li>
-							<HealthCard posture={posture.data} embedded />
-						</li>
-					</Collection>
-				)}
-			</PageSection>
+					<PageSection>
+						<SectionHeader>
+							<SectionHeading>
+								<SectionTitle>Admission health</SectionTitle>
+								<SectionDescription>
+									Credential evidence, provider visibility, and D1 policy
+									ceilings.
+								</SectionDescription>
+							</SectionHeading>
+						</SectionHeader>
+						{posture.data && (
+							<Collection
+								aria-label="Admission health status"
+								className="[&>li]:min-w-0"
+							>
+								<li>
+									<HealthCard posture={posture.data} embedded />
+								</li>
+							</Collection>
+						)}
+					</PageSection>
+				</CollapsibleContent>
+			</Collapsible>
 		</Page>
 	);
 }
