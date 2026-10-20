@@ -417,6 +417,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"memoryGraph/graph/traverse": "mcp:memory.read",
 	"memoryGraph/graph/visualization": "mcp:memory.read",
 	"memoryGraph/health": "mcp:memory.read",
+	"memoryGraph/healthFindings": "mcp:memory.read",
 	"memoryGraph/learn": "mcp:memory.write",
 	"memoryGraph/listObservations": "mcp:memory.read",
 	"memoryGraph/consolidateObservations": "mcp:memory.write",
