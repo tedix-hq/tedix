@@ -12,7 +12,7 @@ import {
 } from "./table";
 
 describe("Kumo Table adapter", () => {
-	it("labels the scroll region, defaults to the compact header, and forwards row state", () => {
+	it("labels the scroll region, defaults to the compact header, and forwards the row variant", () => {
 		const html = renderToStaticMarkup(
 			<Table scrollLabel="Workers">
 				<TableCaption>Current workers</TableCaption>
@@ -22,7 +22,7 @@ describe("Kumo Table adapter", () => {
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					<TableRow data-state="selected">
+					<TableRow variant="selected">
 						<TableCell>Researcher</TableCell>
 					</TableRow>
 				</TableBody>
@@ -35,7 +35,8 @@ describe("Kumo Table adapter", () => {
 		expect(html).not.toContain("scrollbar-gutter");
 		expect(html).toContain('data-compact=""');
 		expect(html).toContain("Current workers");
-		expect(html).toContain('data-state="selected"');
+		expect(html).toContain("bg-kumo-tint");
+		expect(html).toContain("[--kumo-table-row-bg:var(--color-kumo-tint)]");
 		expect(html).toContain("Researcher");
 
 		expect(
