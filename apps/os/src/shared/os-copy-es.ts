@@ -64,6 +64,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		deck: "Decisiones",
 		decide: "Decidir",
 		views: "Trabajo",
+		moreViews: "Más vistas",
 		apps: "Apps",
 		back: "Volver a la actividad",
 		loading: "Cargando tus apps de trabajo…",

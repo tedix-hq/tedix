@@ -27,6 +27,7 @@ import {
 } from "@/lib/os-query-options";
 import { primaryOutputNavigationTarget } from "@/lib/output-navigation";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
+import { WORK_VIEWS, type WorkView } from "@/lib/work-views";
 
 // The palette shows a bounded slice of each domain, not the surface page size.
 const PALETTE_LIST_LIMIT = 12;
@@ -46,6 +47,17 @@ type PaletteGroup = {
 	label: string;
 	items: PaletteCommand[];
 };
+
+/** One "Go to …" command per Work view, so ⌘K is the first way to find them. */
+function workViewCommands(open: (view: WorkView) => void): PaletteCommand[] {
+	return WORK_VIEWS.map((view) => ({
+		id: `work-view-${view.id}`,
+		title: `Go to ${view.label}`,
+		description: `Work · ${view.description}`,
+		icon: SURFACE_ICONS.work,
+		run: () => open(view),
+	}));
+}
 
 function matchesCommand(command: PaletteCommand, query: string): boolean {
 	const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -201,8 +213,15 @@ export function OsCommandPalette({
 			}),
 		);
 
+		const workViewItems = workViewCommands((view) => {
+			if (view.to === "/work")
+				void navigate({ to: view.to, search: view.search });
+			else void navigate({ to: view.to });
+		});
+
 		return [
 			{ id: "pages", label: "OS", items: pageCommands },
+			{ id: "work-views", label: "Work views", items: workViewItems },
 			{
 				id: "workspaces",
 				label: "Workspaces and Apps",
@@ -344,4 +363,4 @@ export function OsCommandPalette({
 	);
 }
 
-export { matchesCommand };
+export { matchesCommand, workViewCommands };

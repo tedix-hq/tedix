@@ -120,6 +120,10 @@ export function ShortcutTooltip({
 
 export const ProposerContext = createContext<{
 	project?: string;
+	/** When known, the project name links to its page. */
+	projectId?: string;
+	/** When known, the card links to its Work item record. */
+	workItemId?: string;
 	actor?: WorkActorReference;
 	source?: WorkContributionSource;
 }>({});
@@ -150,11 +154,31 @@ export function ProposerChip({
 				<Text weight="medium" title={resolved.label}>
 					{resolved.label}
 				</Text>
-				{(detail || project) && (
+				{(detail || project || context.workItemId) && (
 					<Text role="label" tone="secondary">
-						{project}
+						{project && context.projectId ? (
+							<Link
+								href={`/work/projects/${context.projectId}`}
+								variant="record"
+							>
+								{project}
+							</Link>
+						) : (
+							project
+						)}
 						{project && detail && " · "}
 						{detail}
+						{context.workItemId && (
+							<>
+								{(project || detail) && " · "}
+								<Link
+									href={`/work/items/${context.workItemId}`}
+									variant="record"
+								>
+									{OS_COPY.workHome.openWork}
+								</Link>
+							</>
+						)}
 					</Text>
 				)}
 			</div>

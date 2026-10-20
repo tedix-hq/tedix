@@ -105,6 +105,13 @@ describe("Work shell navigation", () => {
 		expect(doc.querySelector('[aria-label="Work section"]')).toBeNull();
 		expect(doc.querySelector("nav")?.className).toContain("bottom-0");
 	});
+	it("keeps one quiet More views button at the end of the Feed/Deck row", () => {
+		const nav = renderShell("/work").querySelector("nav")!;
+		const more = nav.querySelector('button[aria-label="More views"]');
+		expect(more).not.toBeNull();
+		expect(nav.lastElementChild).toBe(more);
+		expect(nav.querySelectorAll("a")).toHaveLength(2);
+	});
 	it("marks Deck when it is selected and keeps navigation on record pages", () => {
 		const doc = renderShell("/work", { view: "deck" });
 		expect(doc.querySelector('[aria-current="page"]')?.textContent).toBe(
