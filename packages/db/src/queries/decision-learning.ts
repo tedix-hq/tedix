@@ -513,6 +513,9 @@ export async function listUnlabelledDecisionDeferrals(
 	now: string,
 	limit = 50,
 ) {
+	// CROSS JOIN fixes SQLite's loop order: scan feedback once, then look up
+	// exposures by org/actor/card instead of rescanning a user's feedback for
+	// every exposure. The output limit alone does not bound that join work.
 	return db
 		.select({
 			exposureId: sql<string>`${decisionExposures.id}`.as("exposure_id"),
@@ -524,9 +527,9 @@ export async function listUnlabelledDecisionDeferrals(
 			eventId: learningInteractionEvents.id,
 			occurredAt: learningInteractionEvents.occurredAt,
 		})
-		.from(decisionExposures)
-		.innerJoin(
-			learningInteractionEvents,
+		.from(learningInteractionEvents)
+		.crossJoin(decisionExposures)
+		.where(
 			and(
 				eq(
 					learningInteractionEvents.organizationId,
@@ -539,12 +542,8 @@ export async function listUnlabelledDecisionDeferrals(
 				eq(learningInteractionEvents.surface, "decision_deck"),
 				sql`json_extract(${learningInteractionEvents.metadata},'$.decisionChoice')='later'`,
 				sql`${learningInteractionEvents.occurredAt}>=${decisionExposures.occurredAt}`,
-			),
-		)
-		.where(
-			and(
 				gt(decisionExposures.expiresAt, now),
-				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.id=(${decisionExposures.organizationId} || ':' || ${learningInteractionEvents.id} || ':immediate'))`,
+				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.id=(${learningInteractionEvents.organizationId} || ':' || ${learningInteractionEvents.id} || ':immediate'))`,
 			),
 		)
 		.orderBy(
