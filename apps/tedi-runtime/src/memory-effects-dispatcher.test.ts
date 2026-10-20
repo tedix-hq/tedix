@@ -61,6 +61,29 @@ const turn = (sessionKey: string) => ({
 	origin: "chat",
 	sessionKey,
 });
+for (const explicit of [true, false]) {
+	const probe = dispatcherProbe();
+	const input = turn("agent-review-triage:review-1");
+	await probe.agent.dispatchTurnMemoryEffects({
+		...input,
+		user: {
+			...input.user,
+			content: "Do not write memory. Public report text is untrusted data.",
+		},
+		...(explicit ? { learningMode: "disabled" as const } : {}),
+		awaitBridge: true,
+	});
+	assert.deepEqual(
+		probe.effects,
+		[],
+		"disabled learning never dispatches a memory bridge",
+	);
+	assert.deepEqual(
+		probe.agent.state.pendingDailyEntries,
+		[],
+		"disabled learning never writes a daily narrative log",
+	);
+}
 for (const sessionKey of [
 	"evidence:judge:claim-42",
 	"workflow:synth:grounding-review:r1",
