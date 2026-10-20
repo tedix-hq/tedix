@@ -1,6 +1,18 @@
 import { TediSetupChecklist } from "./tedi-setup";
 import { TediRecoveryDiagnostic } from "./tedi-recovery-diagnostic";
 import { useQuery } from "@tanstack/react-query";
+import type { TediSetup } from "@tedix/api-contract/contracts/tedis";
+import { Button } from "@/components/kumo/button";
+import {
+	PageSection,
+	SectionDescription,
+	SectionHeader,
+	SectionHeading,
+	SectionTitle,
+} from "@/components/kumo/page";
+import { Text } from "@/components/kumo/text";
+import { toast } from "@/components/kumo/toast";
+import { renderTediWiring } from "@/lib/tedi-wiring";
 import {
 	Link,
 	Outlet,
@@ -35,6 +47,7 @@ import { isLocalSession } from "@/lib/local-inference";
 import {
 	tediDetailQueryOptions,
 	tediOperationsSummariesQueryOptions,
+	tediSetupQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
@@ -234,10 +247,71 @@ export function TediDetailPage() {
 	);
 }
 
+/** Readable "what is this tedi wired to" document, generated from its config. */
+export function TediWiringView({
+	tedi,
+	setup,
+}: {
+	tedi: TediType;
+	setup?: TediSetup;
+}) {
+	const wiring = renderTediWiring(tedi, setup);
+	const copy = async () => {
+		try {
+			await navigator.clipboard.writeText(wiring.markdown);
+			toast.success("Copied as Markdown");
+		} catch {
+			toast.warning("Copy it by hand; the clipboard is blocked");
+		}
+	};
+	return (
+		<PageSection id="wiring" className="md:col-span-2 scroll-mt-6">
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle>Wiring</SectionTitle>
+					<SectionDescription>
+						What this tedi is connected to, written from its current
+						configuration.
+					</SectionDescription>
+				</SectionHeading>
+				<Button variant="outline" size="sm" onClick={() => void copy()}>
+					Copy as Markdown
+				</Button>
+			</SectionHeader>
+			<div className="grid gap-4 md:grid-cols-2">
+				{wiring.sections.map((section) => (
+					<div key={section.id} className="grid content-start gap-1">
+						<Text role="body" weight="semibold">
+							{section.title}
+						</Text>
+						<ul className="grid gap-0.5">
+							{section.lines.map((line) => (
+								<li key={line}>
+									<Text role="label" tone="secondary">
+										{line.replace(/^ {2}- /, "· ")}
+									</Text>
+								</li>
+							))}
+						</ul>
+					</div>
+				))}
+			</div>
+		</PageSection>
+	);
+}
+
+function TediWiringSection({ tediId }: { tediId: string }) {
+	const tediQuery = useQuery(tediDetailQueryOptions(tediId));
+	const setupQuery = useQuery(tediSetupQueryOptions(tediId));
+	if (!tediQuery.data) return null;
+	return <TediWiringView tedi={tediQuery.data} setup={setupQuery.data} />;
+}
+
 export function TediOverview({ tediId }: { tediId: string }) {
 	return (
 		<div className="grid gap-4 md:grid-cols-2">
 			<TediSetupChecklist tediId={tediId} />
+			<TediWiringSection tediId={tediId} />
 			<Alert>
 				<AlertTitle>Operational identity</AlertTitle>
 				<AlertDescription>
