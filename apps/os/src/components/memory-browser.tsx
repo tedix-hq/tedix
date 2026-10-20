@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { RunLinkChip, type CardRunLinkProps } from "./chat-cards";
 import { X } from "@phosphor-icons/react";
 import type { Fact } from "@tedix/api-contract/schemas/memory-graph";
 import { MemoryConsolidationSchema } from "@tedix/api-contract/schemas/memory-observations";
@@ -12,6 +13,7 @@ import {
 	filterMemoryRows,
 	memoryPage,
 	memoryText,
+	workflowRunLinkId,
 	type MemorySearch,
 	type MemoryTableRow,
 } from "@/lib/memory-browser";
@@ -47,6 +49,23 @@ import { ListSkeleton } from "./list-skeleton";
 import { ObservationEvidence } from "./memory-observations";
 
 type Row = MemoryTableRow & { details: ReactNode };
+
+export function MemoryRunEvidence({
+	runId,
+	LinkComponent,
+}: {
+	runId: string | null;
+	LinkComponent?: ComponentType<CardRunLinkProps>;
+}) {
+	const workflowRunId = workflowRunLinkId(runId);
+	if (workflowRunId)
+		return (
+			<div className="[&_a]:min-h-11">
+				<RunLinkChip runId={workflowRunId} LinkComponent={LinkComponent} />
+			</div>
+		);
+	return runId ? <Text className="wrap-anywhere">Run: {runId}</Text> : null;
+}
 
 function Choice({
 	label,
@@ -283,9 +302,7 @@ export function MemoryBrowser({
 					<pre className="whitespace-pre-wrap wrap-anywhere type-tedix-caption">
 						{JSON.stringify(record.evidence, null, 2)}
 					</pre>
-					{record.runId && (
-						<Text className="wrap-anywhere">Run: {record.runId}</Text>
-					)}
+					<MemoryRunEvidence runId={record.runId} />
 					{record.proofRef && (
 						<Text className="wrap-anywhere">Proof: {record.proofRef.ref}</Text>
 					)}

@@ -7,6 +7,7 @@ import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-reco
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import type { CardRunLinkProps } from "./chat-cards";
+import { workflowRunLinkId } from "@/lib/memory-browser";
 import {
 	BRAIN_PREVIEW_LENGTH,
 	confidencePercent,
@@ -21,7 +22,6 @@ import {
 	RationaleEmpty,
 	RationaleRow,
 	runtimeReferenceLabel,
-	workflowRunLinkId,
 } from "./brain-page";
 
 // TanStack Link needs a RouterProvider — the injectable-link seam from
