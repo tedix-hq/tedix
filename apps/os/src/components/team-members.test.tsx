@@ -804,14 +804,14 @@ describe("roles panel", () => {
 			expect(doc.body.textContent).toContain(roleLabel(role));
 	});
 
-	it("keeps dense references compact below the large breakpoint", () => {
+	it("keeps each dense reference in one labelled scroll region", () => {
 		const doc = html();
-		const tables = [...doc.querySelectorAll("table")];
-		for (const table of tables)
-			expect(table.closest(".hidden")?.classList.contains("lg:block")).toBe(
-				true,
-			);
-		expect(doc.querySelectorAll(".lg\\:hidden").length).toBeGreaterThan(0);
-		expect(doc.querySelector(".md\\:hidden, .md\\:block")).toBeNull();
+		const regions = [...doc.querySelectorAll('[role="region"]')];
+		expect(regions).toHaveLength(2);
+		for (const region of regions) {
+			expect(region.getAttribute("tabindex")).toBe("0");
+			expect(region.querySelectorAll("table")).toHaveLength(1);
+			expect(region.closest(".hidden")).toBeNull();
+		}
 	});
 });
