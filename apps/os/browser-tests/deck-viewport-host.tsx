@@ -41,8 +41,8 @@ function RegressionDeck() {
 					ref={ref}
 					className="feed-deck fd-deck mx-auto grid w-full min-w-0"
 				>
-					<div className="fd-deck-controls">
-						<div className="fd-deck-progress">1 of 14 · 0/7 today</div>
+					<div className="flex items-center justify-between">
+						<div>1 of 14 · 0/7 today</div>
 						<FeedDeckDisclosure
 							className="fd-deck-filters"
 							title="Find a decision"
@@ -92,9 +92,6 @@ function RegressionDeck() {
 						Recent loaded history only.
 					</FeedDeckDisclosure>
 					<a href="#history">More history and decisions in Work</a>
-					<p className="fd-deck-shortcuts">
-						← Not this · → Approve · E Change · L Later
-					</p>
 					<a href="#profile">Your style profile</a>
 				</div>
 			</section>

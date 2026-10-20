@@ -296,11 +296,7 @@ try {
 			};
 			assert.equal(await progress.locator("p").innerText(), "1 of 20");
 			assert.equal(
-				await page
-					.locator(
-						".fd-work-bar [data-deck-progress], .fd-work-bar .fd-position",
-					)
-					.count(),
+				await page.locator(".fd-work-bar [data-deck-progress]").count(),
 				0,
 				"toolbar keeps only its total",
 			);
