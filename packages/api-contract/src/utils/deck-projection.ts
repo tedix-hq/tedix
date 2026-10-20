@@ -141,8 +141,8 @@ export function compareDecisionFreshness(
 			? value === today
 			: calendarDay(new Date(timestamp), timeZone) === today);
 	return (
-		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
 		Number(elapsed(a.dueAt, aDue)) - Number(elapsed(b.dueAt, bDue)) ||
+		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
 		Number(b.kind === "approval") - Number(a.kind === "approval") ||
 		Number(dueToday(b.dueAt, bDue)) - Number(dueToday(a.dueAt, aDue)) ||
 		(dueToday(a.dueAt, aDue) && dueToday(b.dueAt, bDue) ? aDue - bDue : 0) ||
