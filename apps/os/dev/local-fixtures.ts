@@ -1121,7 +1121,10 @@ const svgAvatar = (background: string, glyph: string): string =>
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${background}"/><text x="32" y="42" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">${glyph}</text></svg>`,
 	)}`;
 const NOVA_AVATAR = svgAvatar("#4f46e5", "N");
-const AGENT_AVATAR = svgAvatar("#111827", "I");
+/** A bare brand glyph with no background, as agent marks usually ship. */
+const AGENT_AVATAR = `data:image/svg+xml,${encodeURIComponent(
+	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><text x="32" y="50" font-family="serif" font-size="52" font-weight="700" text-anchor="middle" fill="#0a0a0a">I</text></svg>',
+)}`;
 
 const TEDIS = [
 	{

@@ -16,6 +16,7 @@ export function EntityAvatar({
 	image,
 	role,
 	alt,
+	imageFit = "cover",
 	className,
 }: {
 	id: string;
@@ -25,6 +26,11 @@ export function EntityAvatar({
 	role?: string | null;
 	/** Accessible name; without it the avatar is decoration beside its label. */
 	alt?: string;
+	/**
+	 * `cover` fills the circle with a photo. `contain` sets a brand mark on a
+	 * light tile inside the circle, so a transparent or bare glyph stays legible.
+	 */
+	imageFit?: "cover" | "contain";
 	className?: string;
 }) {
 	const [failedImage, setFailedImage] = useState<string | null>(null);
@@ -53,7 +59,13 @@ export function EntityAvatar({
 				<img
 					src={imageUrl}
 					alt=""
-					className="size-full rounded-[inherit] object-cover"
+					data-image-fit={imageFit}
+					className={cn(
+						"size-full rounded-[inherit]",
+						imageFit === "contain"
+							? "bg-white object-contain p-1"
+							: "object-cover",
+					)}
 					onError={() => setFailedImage(imageUrl)}
 				/>
 			) : glyph ? (

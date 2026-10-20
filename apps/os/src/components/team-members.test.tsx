@@ -154,12 +154,14 @@ describe("members pure helpers", () => {
 		expect(tediBacked).toContain(
 			'src="https://images.fictional.example/cmo.png"',
 		);
+		expect(tediBacked).toContain('data-image-fit="cover"');
 		const agent = renderToStaticMarkup(
 			<MemberAvatar
 				member={{
 					id: "member-agent",
 					name: "Juniper",
 					email: "juniper@agent.example",
+					kind: "external_agent",
 					avatarUrl: "https://images.fictional.example/juniper.png",
 					tediId: null,
 				}}
@@ -170,6 +172,10 @@ describe("members pure helpers", () => {
 		expect(agent).toContain(
 			'src="https://images.fictional.example/juniper.png"',
 		);
+		// A brand mark is contained on a light tile, never stretched to cover.
+		expect(agent).toContain('data-image-fit="contain"');
+		expect(agent).toContain("object-contain");
+		expect(agent).toContain("bg-white");
 		const initials = renderToStaticMarkup(
 			<MemberAvatar
 				member={{
@@ -543,6 +549,7 @@ describe("members surface", () => {
 			expect(avatar.querySelector("img")?.getAttribute("src")).toBe(
 				"https://images.fictional.example/juniper.png",
 			);
+			expect(avatar.querySelector("img")?.dataset.imageFit).toBe("contain");
 		}
 		expect(avatars("Ada Lovelace").length).toBeGreaterThan(0);
 		for (const avatar of avatars("Ada Lovelace")) {
