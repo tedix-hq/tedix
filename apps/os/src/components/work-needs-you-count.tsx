@@ -159,6 +159,7 @@ export function WorkNeedsYouCount() {
 	const queue = useDeckCount(
 		config.success ? config.data : undefined,
 		deck?.gadget.workspaceId,
+		"all",
 	);
 	const count = queue.count;
 	if (!config.success || queue.pending || queue.failed) return null;

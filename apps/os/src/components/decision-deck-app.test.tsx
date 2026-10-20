@@ -1,7 +1,10 @@
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
-import { act, useContext } from "react";
+import { act, useContext, useState } from "react";
+import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
+import { useDeckCount } from "@/lib/use-deck-count";
+import { useDecisionInbox } from "@/lib/use-decision-inbox";
 import { ProposerContext } from "./feed-deck-primitives";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -36,7 +39,7 @@ vi.mock("@/lib/api", async (original) => {
 						? { listLessons: vi.fn(async () => ({ lessons: [] })) }
 						: key === "learningFeedback"
 							? {
-									recordInteraction: vi.fn(async () => ({})),
+									recordInteraction: writes.record,
 									recordExposure: vi.fn(async () => ({
 										id: "fictional-exposure",
 									})),
@@ -51,7 +54,13 @@ vi.mock("@/lib/api", async (original) => {
 		}),
 	};
 });
-vi.mock("@/components/kumo/toast", () => ({ toast: { success: vi.fn() } }));
+const writes = vi.hoisted(() => ({
+	save: vi.fn(),
+	record: vi.fn(async (_input: { surface?: string }) => ({})),
+}));
+vi.mock("@/components/kumo/toast", () => ({
+	toast: { success: vi.fn(), error: vi.fn() },
+}));
 vi.mock("./work-decision-stack", () => ({
 	ApprovalDecisionCard: () => <p>Live approval</p>,
 }));
@@ -64,11 +73,25 @@ vi.mock("./work-interaction-decision-card", () => ({
 		onNext: () => void;
 	}) => {
 		const proposer = useContext(ProposerContext);
+		const save = useContext(OptimisticDeckDecisionContext);
+		const [draft, setDraft] = useState("");
 		return (
 			<>
 				<p>Live request {requestId}</p>
 				<p>{proposer.project}</p>
 				<button onClick={onNext}>Skip linked preview</button>
+				<textarea
+					aria-label="Fictional draft"
+					value={draft}
+					onChange={(event) => setDraft(event.target.value)}
+				/>
+				<button
+					onClick={() => {
+						void save?.(() => writes.save(draft)).catch(() => {});
+					}}
+				>
+					Save fictional draft
+				</button>
 			</>
 		);
 	},
@@ -563,4 +586,73 @@ it("omits a missing or inaccessible project instead of labelling the card unavai
 	await mount({ rows: [row] });
 	expect(host.textContent).toContain(`Live request ${row.request.id}`);
 	expect(host.textContent).not.toContain("Project unavailable");
+});
+
+it("keeps edited text and the same editor mounted while a save is pending and after rejection", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("Fixture read unavailable"),
+	);
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Fictional supplier review",
+	);
+	await mount({ rows: [row] });
+	const editor = host.querySelector<HTMLTextAreaElement>(
+		'[aria-label="Fictional draft"]',
+	)!;
+	await act(async () => {
+		const setter = Object.getOwnPropertyDescriptor(
+			HTMLTextAreaElement.prototype,
+			"value",
+		)!.set!;
+		setter.call(editor, "Keep my supplier changes");
+		editor.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	let reject!: (error: Error) => void;
+	writes.save.mockImplementation(
+		() =>
+			new Promise((_, no) => {
+				reject = no;
+			}),
+	);
+	await click("Save fictional draft");
+	expect(writes.save).toHaveBeenCalledWith("Keep my supplier changes");
+	expect(host.querySelector('[aria-label="Fictional draft"]')).toBe(editor);
+	await act(async () => reject(new Error("Temporary save failure")));
+	expect(host.querySelector('[aria-label="Fictional draft"]')).toBe(editor);
+	expect(editor.value).toBe("Keep my supplier changes");
+});
+
+it("counts feed-routed owner questions in the badge and Feed without adding them to the Deck", async () => {
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Which fictional supplier?",
+	);
+	row.request.metadata = {};
+	writes.record.mockClear();
+	await mount({ rows: [row] });
+	function Counts() {
+		const config = DecisionDeckConfigSchema.parse({ version: 1 });
+		const badge = useDeckCount(config, undefined, "all");
+		const feed = useDecisionInbox(config, "all");
+		const deck = useDecisionInbox(config);
+		return (
+			<output>
+				{badge.count}:{feed.requests.length}:{deck.requests.length}
+			</output>
+		);
+	}
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<Counts />
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.querySelector("output")?.textContent).toBe("1:1:0");
+	expect(
+		writes.record.mock.calls.filter(
+			([input]) => input.surface === "decision_deck_routing",
+		),
+	).toHaveLength(1);
 });

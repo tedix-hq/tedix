@@ -21,19 +21,18 @@ export function workRetryDelay(attempt: number): number {
 	return ceiling / 2 + (Math.random() * ceiling) / 2;
 }
 
-type RefreshQuery = { state: { fetchFailureCount: number } };
-function canRefresh(query?: RefreshQuery): boolean {
-	return !document.hidden && (!query || query.state.fetchFailureCount === 0);
+function canRefresh(): boolean {
+	return !document.hidden;
 }
 
 /** Retain TanStack's same-key cache on errors; never carry decisions across keys. */
 export const workRefreshOptions = {
 	retry: retryWorkRead,
 	retryDelay: workRetryDelay,
-	refetchInterval: (query?: RefreshQuery): number | false =>
-		canRefresh(query) ? WORK_REFRESH_MS : false,
+	refetchInterval: (): number | false =>
+		canRefresh() ? WORK_REFRESH_MS : false,
 	refetchIntervalInBackground: false,
 	refetchOnWindowFocus: canRefresh,
 	refetchOnReconnect: canRefresh,
-	retryOnMount: false,
+	retryOnMount: true,
 } as const;

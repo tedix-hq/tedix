@@ -204,3 +204,52 @@ it("emits both admitted and withheld routing receipts without a human vote", () 
 		}),
 	]);
 });
+
+it("retains feed-routed questions and non-critical approvals in the full attention projection", () => {
+	type Input = Parameters<typeof projectDeckCards>[0];
+	const input: Input = {
+		requests: [
+			row("supplier-question"),
+			row("other-recipient", {}, { canRespond: false }),
+		],
+		work: [
+			{
+				proposal: {
+					id: "routine-work",
+					authorityKey: "run_workflow",
+					requestedAt: now.toISOString(),
+					metadata: {},
+				},
+				workItem: {
+					title: "Prepare fictional inventory",
+					projectId: null,
+					riskLevel: "low",
+				},
+				effectiveStatus: "pending",
+				canDecide: true,
+			},
+		] as Input["work"],
+		runtime: [
+			{
+				id: "routine-runtime",
+				status: "pending",
+				actionType: "run_workflow",
+				payload: {},
+				review: { intent: "workflow" },
+				description: "Prepare fictional inventory",
+				createdAt: now.toISOString(),
+			},
+		] as Input["runtime"],
+		now,
+	};
+	expect(projectDeckCards(input)).toEqual([]);
+	const full = projectDeckCards({ ...input, destination: "all" });
+	expect(full.map((card) => card.id)).toEqual(
+		expect.arrayContaining([
+			"supplier-question",
+			"work-approval:routine-work",
+			"approval:routine-runtime",
+		]),
+	);
+	expect(full).toHaveLength(3);
+});

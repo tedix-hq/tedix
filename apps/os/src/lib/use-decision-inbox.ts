@@ -15,10 +15,13 @@ import {
 } from "@tedix/api-contract/utils/deck-projection";
 import { useFactoryCardCount } from "@/lib/use-factory-card-count";
 import { useDeckRoutingAudit } from "@/lib/use-deck-routing-audit";
-import { osApi } from "@/lib/api";
+import { subscribeDecisionSourceRefresh } from "@/lib/decision-source-refresh";
 
 /** The header and Deck use the same recipient checks, project scope and bounded pages. */
-export function useDecisionInbox(config?: DecisionDeckConfig) {
+export function useDecisionInbox(
+	config?: DecisionDeckConfig,
+	destination: "deck" | "all" = "deck",
+) {
 	const { now, timeZone } = useCardSchedule();
 	const client = useQueryClient();
 	const learning = useQuery({
@@ -27,35 +30,9 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		...workRefreshOptions,
 	});
 	const enabled = Boolean(config);
-	const projectId = config?.projectId;
 	useEffect(() => {
-		if (!enabled) return;
-		let active = true;
-		const refresh = async () => {
-			try {
-				const result = await osApi.workInteractions.refreshDecisionSources({
-					projectId,
-				});
-				if (active && (result.created || result.superseded))
-					await Promise.all([
-						client.invalidateQueries({
-							queryKey: osQuery.workInteractions.listInbox.key(),
-						}),
-						client.invalidateQueries({
-							queryKey: osQuery.attention.listDeckCards.key(),
-						}),
-					]);
-			} catch {
-				/* A source failure must not discard the existing inbox. */
-			}
-		};
-		void refresh();
-		const timer = setInterval(() => void refresh(), 120000);
-		return () => {
-			active = false;
-			clearInterval(timer);
-		};
-	}, [enabled, projectId, client]);
+		if (enabled) return subscribeDecisionSourceRefresh(client);
+	}, [enabled, client]);
 
 	const factories = useFactoryCardCount(
 		config?.factorySources ?? [],
@@ -155,6 +132,7 @@ export function useDecisionInbox(config?: DecisionDeckConfig) {
 		now,
 		timeZone,
 		routing: config?.routing,
+		destination,
 		onRoute: (route) => routes.push(route),
 	});
 	useDeckRoutingAudit(routes);

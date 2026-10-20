@@ -3,7 +3,6 @@ import { osQuery } from "@/lib/os-query-options";
 import { osApi } from "@/lib/api";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
-import { WorkItemCreate } from "@/components/work-item-create";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { Page } from "@/components/kumo/page";
@@ -92,10 +91,6 @@ export function WorkHome({
 	);
 	return (
 		<Page width="full" className="fd-work-home">
-			<WorkItemCreate
-				key={search.project ?? "all"}
-				projectId={search.project}
-			/>
 			{selected ? (
 				<WorkspaceAppRenderer
 					key={selected.gadget.id}

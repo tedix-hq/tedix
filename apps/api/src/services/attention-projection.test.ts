@@ -261,3 +261,77 @@ it("counts every visible configured factory source in a project Deck just as the
 		project: "Unfiled",
 	});
 });
+
+it("includes ordinary owner questions and non-critical approvals routed to Feed", async () => {
+	const implementation = mocks.call.getMockImplementation()!;
+	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {
+		if (procedure === "spaces") return { items: [], truncated: false };
+		if (procedure === "inbox")
+			return {
+				data: [
+					{
+						request: {
+							id: "fictional-question",
+							kind: "question",
+							metadata: {},
+							subject: "Which supplier?",
+							prompt: "Choose Cedar or Pine.",
+							projectId: null,
+							workItemId: null,
+							requestedAt: new Date().toISOString(),
+							dueAt: null,
+						},
+						effectiveState: "open",
+						canRespond: true,
+						askedBy: "Orchard helper",
+					},
+				],
+				nextCursor: null,
+				hasMore: false,
+			};
+		if (procedure === "work")
+			return {
+				data: [
+					{
+						proposal: {
+							id: "fictional-approval",
+							action: "run_workflow",
+							authorityKey: "run_workflow",
+							requestRationale: "Prepare inventory?",
+							requestedAt: new Date().toISOString(),
+							expiresAt: null,
+							metadata: {},
+						},
+						workItem: {
+							id: "fictional-work",
+							title: "Prepare inventory",
+							projectId: null,
+							riskLevel: "low",
+						},
+						effectiveStatus: "pending",
+						canDecide: true,
+					},
+				],
+				nextCursor: null,
+				hasMore: false,
+			};
+		return implementation(procedure, input);
+	});
+	const deck = await loadDeckProjection(context, { limit: 100 });
+	expect(deck.cards.some((card) => card.id === "fictional-question")).toBe(
+		false,
+	);
+	const feed = await loadForYouProjection(context, { limit: 100 });
+	expect(feed.items).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				id: "decision:fictional-question",
+				needsAction: true,
+			}),
+			expect.objectContaining({
+				id: "work-approval:fictional-approval",
+				needsAction: true,
+			}),
+		]),
+	);
+});

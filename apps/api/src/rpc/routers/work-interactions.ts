@@ -292,7 +292,9 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		input.metadata?.decisionDeck,
 	).data;
 	const expiresAt =
-		target.type === "user"
+		target.type === "user" &&
+		(decision !== undefined ||
+			typeof input.metadata?.decisionClass === "string")
 			? defaultDecisionExpiry({
 					classId:
 						decision?.classId ??
