@@ -126,7 +126,7 @@ origins, flows, keys, and later cleanup inside the installation being tested.
 
 For interactive provisioning, declare `OS_URL`, `SESSION_BROKER_URL`,
 `DESCOPE_BASE_URL`, and `DESCOPE_PROJECT_ID` in the manifest's OS Worker `vars`.
-Declare one `apps/session-broker/wrangler.jsonc` Worker with those same four
+Declare one session-broker Worker (`apps/session-broker`) with those same four
 values. `DESCOPE_BASE_URL` and `SESSION_BROKER_URL` must name the same auth
 origin, distinct from `OS_URL`: Descope's bootstrap cookie and the broker's
 refresh rotation share that host. URLs must be canonical HTTPS origins with no
@@ -276,6 +276,9 @@ secret names are regenerated with `bun run installation-manifest:overlay`.
 
 These generated files are sanitized examples, not deployment or clean-account
 certification. Managed production coordinates are never published: every
-checked-in `wrangler.jsonc` is an example with placeholders instead of account,
-zone, or resource identifiers, and the private operations repository holds the
-live configuration. See [Release status](./release-status.md).
+checked-in Worker config file (`cloudflare.config.ts`, or `wrangler.jsonc` for
+apps/api, apps/landing, apps/mcp-ui, apps/tedi-runtime,
+apps/tedi-workstation-runtime and packages/db) is an example with placeholders
+instead of account, zone, or resource identifiers, and the private operations
+repository holds the live configuration. See
+[Release status](./release-status.md).

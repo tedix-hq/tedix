@@ -100,9 +100,10 @@ remote tedis, connect outside providers, or deploy anything.
 `bun run-local` builds Tedix OS with local placeholder values and no Tedix
 Cloud identity. Any other `bun run --cwd apps/os build` needs `API_URL`,
 `DESCOPE_PROJECT_ID`, and `DESCOPE_BASE_URL` (Descope is the identity
-provider), either as `TEDIX_BUILD_*` environment variables or in the `vars`
-block of `apps/os/wrangler.jsonc`. The build stops and names any missing value.
-See "Build configuration" in `apps/os/README.md`.
+provider), either as `TEDIX_BUILD_*` environment variables or as text
+bindings in `apps/os/cloudflare.config.ts`, the Worker's config file. The
+build stops and names any missing value. See "Build configuration" in
+`apps/os/README.md`.
 
 ## Let your coding agent set it up
 
