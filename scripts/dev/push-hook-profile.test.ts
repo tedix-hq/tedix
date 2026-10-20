@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 test.each([
-	[undefined, false],
+	[undefined, true],
 	["fast", true],
 	["full", false],
 	["unknown", false],

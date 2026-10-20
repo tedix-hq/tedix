@@ -21,10 +21,11 @@ A self-hosted Cloudflare pool is a later optimization, not a rollout dependency.
 This workflow replaces the old scoped push CI; release and pull-request
 certification remain in `oss-public-ci.yml`.
 
-The local hook defaults to its complete gate during rollout. Only after the
-operator proves runners, failure reporting, and green-only deployment should
-`git config tedix.pushGateProfile fast` activate owner types, changed formatting,
-Oxlint, architecture/dependency lint, and the fail-closed private secret scan.
+The local hook defaults to owner types, changed formatting, Oxlint,
+architecture/dependency lint, and the fail-closed private secret scan. Operators
+must prove main certification, failure reporting, and green-only deployment
+before publishing this default. `git config tedix.pushGateProfile full` retains
+complete local proof; unsetting it restores the fast default.
 The other checks stay in CI. `bun run verify` retains the complete profile;
 `--ci-policy --all` runs the repository checks in CI. Full workspace suites cover
 the consumer checks previously selected by `vitest related`.
@@ -32,9 +33,9 @@ the consumer checks previously selected by `vitest related`.
 For the initial CI bootstrap, operations can pause new deployment plans while
 one push uses a process-scoped fast profile to install this workflow. Restore
 planning only after certification passes and green-only selection is enforced;
-keep the shared fast-profile setting disabled until then.
+keep other lanes on the full profile until then.
 
-In fast mode, `bun run push` starts a detached completion observer using the
+`bun run push` starts a detached completion observer using the
 existing `gh` session. It checks every 15 seconds for up to 30 minutes and wakes
 ops only after this push, or a main descendant containing it, passes CI. Ops
 independently resolves and verifies the newest green main commit. No Actions
