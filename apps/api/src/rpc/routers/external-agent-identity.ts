@@ -1311,6 +1311,51 @@ const issueMcpCredential = authed.issueMcpCredential.handler(
 	},
 );
 
+async function resolveIssuedMcpLifetime(
+	context: BaseContext,
+	principal: {
+		credentialBindingType: string;
+		credentialBindingId: string;
+		organizationId: string;
+	},
+	expiresIn: number,
+	issuedAt: Date,
+) {
+	let expiresAtMs = issuedAt.getTime() + expiresIn * 1_000;
+	if (principal.credentialBindingType === "api_key") {
+		const key = await getApiKeyById(context.db, principal.credentialBindingId);
+		if (
+			!key ||
+			key.organizationId !== principal.organizationId ||
+			key.status !== "active"
+		)
+			throw createError(
+				ErrorCodes.UNAUTHORIZED,
+				"External-agent enrollment credential is inactive",
+			);
+		if (key.expiresAt) {
+			const enrollmentDeadline = Date.parse(key.expiresAt);
+			if (!Number.isFinite(enrollmentDeadline))
+				throw createError(
+					ErrorCodes.UNAUTHORIZED,
+					"enrollment_expired: Invalid enrollment expiry",
+				);
+			expiresAtMs = Math.min(expiresAtMs, enrollmentDeadline);
+		}
+	}
+	const remaining = Math.floor((expiresAtMs - Date.now()) / 1_000);
+	if (remaining <= 0)
+		throw createError(
+			ErrorCodes.UNAUTHORIZED,
+			"enrollment_expired: External-agent enrollment has expired",
+			{ rejectionCode: "enrollment_expired" },
+		);
+	return {
+		expiresAt: new Date(expiresAtMs).toISOString(),
+		expiresIn: remaining,
+	};
+}
+
 async function issueMcpCredentialForOrganization(
 	input: {
 		organizationId?: string;
@@ -1503,6 +1548,12 @@ async function issueMcpCredentialForOrganization(
 				secret,
 			);
 			const issuedAt = new Date();
+			const lifetime = await resolveIssuedMcpLifetime(
+				context,
+				active.principal,
+				token.expiresIn,
+				issuedAt,
+			);
 			await refreshExternalAgentMcpCredentialUnderLease(context.db, {
 				organizationId,
 				principalId: input.principalId,
@@ -1512,9 +1563,7 @@ async function issueMcpCredentialForOrganization(
 				leaseOwnerToken,
 				leaseNow: issuedAt.toISOString(),
 				issuedAt: issuedAt.toISOString(),
-				expiresAt: new Date(
-					issuedAt.getTime() + token.expiresIn * 1_000,
-				).toISOString(),
+				expiresAt: lifetime.expiresAt,
 			});
 			await invalidateMcpClientCache(context.env, mcpServerId).catch((error) =>
 				console.error(
@@ -1525,7 +1574,7 @@ async function issueMcpCredentialForOrganization(
 			return {
 				accessToken: token.accessToken,
 				clientRecordId: reusable.clientRecordId,
-				expiresIn: token.expiresIn,
+				expiresIn: lifetime.expiresIn,
 				mcpServerUrl,
 			};
 		}
@@ -1546,6 +1595,12 @@ async function issueMcpCredentialForOrganization(
 			client.clientSecret,
 		);
 		const issuedAt = new Date();
+		const lifetime = await resolveIssuedMcpLifetime(
+			context,
+			active.principal,
+			token.expiresIn,
+			issuedAt,
+		);
 		await bindPrincipalIdentity(context.db, {
 			organizationId,
 			principalType: "external_agent",
@@ -1568,9 +1623,7 @@ async function issueMcpCredentialForOrganization(
 			leaseOwnerToken,
 			leaseNow: issuedAt.toISOString(),
 			issuedAt: issuedAt.toISOString(),
-			expiresAt: new Date(
-				issuedAt.getTime() + token.expiresIn * 1_000,
-			).toISOString(),
+			expiresAt: lifetime.expiresAt,
 		});
 		await invalidateMcpClientCache(context.env, mcpServerId).catch((error) =>
 			console.error(
@@ -1581,7 +1634,7 @@ async function issueMcpCredentialForOrganization(
 		return {
 			accessToken: token.accessToken,
 			clientRecordId: client.id,
-			expiresIn: token.expiresIn,
+			expiresIn: lifetime.expiresIn,
 			mcpServerUrl,
 		};
 	} catch (error) {
@@ -1599,7 +1652,7 @@ async function issueMcpCredentialForOrganization(
 				mcpServerId,
 			}).catch(() => {});
 		}
-		if (error instanceof ORPCError && error.code === ErrorCodes.BAD_REQUEST) {
+		if (error instanceof ORPCError) {
 			throw error;
 		}
 		throw createError(

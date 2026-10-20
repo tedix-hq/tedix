@@ -1934,7 +1934,16 @@ async function authenticateApiKey(context: BaseContext): Promise<void> {
 	}
 
 	// Check expiration
-	if (apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date()) {
+	if (apiKey.expiresAt && new Date(apiKey.expiresAt) <= new Date()) {
+		if (
+			isServiceBinding(context.headers) &&
+			isExternalAgentSessionExchangeCall(context.headers, context.url)
+		)
+			throw createError(
+				ErrorCodes.UNAUTHORIZED,
+				"enrollment_expired: API key has expired",
+				{ rejectionCode: "enrollment_expired" },
+			);
 		throw new Error("API key has expired");
 	}
 
