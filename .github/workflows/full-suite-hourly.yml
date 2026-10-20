@@ -108,6 +108,8 @@ jobs:
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Local onboarding smoke
+        run: bun run-local --smoke --no-install
       - run: bun run test:scripts
       - if: ${{ !cancelled() }}
         run: bun run type-check:scripts

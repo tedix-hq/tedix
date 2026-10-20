@@ -27,7 +27,29 @@ The project lead receives an asynchronous, idempotent wake pointing to the
 review Work Item. Report content never becomes a trusted wake prompt. The lead
 verifies bugs into proposed Work, puts suggestions in one comment and records
 a thank-you. A queued wake is not completed triage. Identical submission retries
-reuse the stored Work and wake key after a failed notification.
+reuse the stored Work and wake key after a failed notification. Local onboarding
+disables intake and its private-project fence; deployed installations still fail
+closed when their configured review policy cannot be loaded.
+
+The fleet's existing 15-minute tick sweeps up to 50 eligible reviews per pass.
+Project metadata configures recovery separately from intake:
+
+```json
+{
+	"agentReviewEnabled": true,
+	"agentReviewTriage": { "enabled": true, "retryMinutes": 30, "maxRetries": 3 }
+}
+```
+
+Absent recovery settings use those defaults. `retryMinutes` is bounded to
+5–120 minutes and `maxRetries` to 0–5. Each attempt claims a durable retry slot
+before dispatch and uses a fresh idempotency key; failed dispatches also consume
+a slot. Exhausted reviews stay pending for maintainers. The lead saves its
+combined suggestions comment with `metadata.agentReviewTriageResult=true`;
+only that lead's nonempty saved result counts as completed triage. New proposed
+findings link back with `parentWorkItemId`. Feed receives one content-free
+completion event and, if still pending after two hours, one late event. These
+are private Work events, not public responses or verification of findings.
 
 Use the lead's existing scheduler for a weekly private digest: review count,
 fit scores, verified bug/proposal links, recurring blockers and pending triage.
