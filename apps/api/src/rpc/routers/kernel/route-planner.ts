@@ -910,7 +910,7 @@ async function planKernelRouteUnguarded(
 				? routeDetailsSchema(args.routeChoice)
 				: kernelRouteGenerationSchema,
 			repairText: repairRouteDecisionText,
-			system: SYSTEM_PROMPT,
+			instructions: SYSTEM_PROMPT,
 			telemetry: objectSpanTelemetry("kernel.route_plan", span),
 			...modelPrompt,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -1267,7 +1267,7 @@ async function streamRoutePlan(args: {
 			? routeDetailsSchema(args.routeChoice)
 			: kernelRouteGenerationSchema,
 		repairText: repairRouteDecisionText,
-		system: SYSTEM_PROMPT,
+		instructions: SYSTEM_PROMPT,
 		telemetry: objectSpanTelemetry("kernel.route_plan.stream", args.span),
 		...modelPrompt,
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -1400,7 +1400,7 @@ async function streamHomeAnswer(
 		signal.throwIfAborted();
 		const result = tracedAi.streamText({
 			model: model.model,
-			system: SYSTEM_PROMPT,
+			instructions: SYSTEM_PROMPT,
 			...homeModelPrompt(
 				buildUserPrompt(args.content, args.context, ANSWER_INSTRUCTION),
 				args.images,
@@ -1417,7 +1417,7 @@ async function streamHomeAnswer(
 			}),
 		});
 		let answer = "";
-		for await (const part of result.fullStream) {
+		for await (const part of result.stream) {
 			idle.reset();
 			signal.throwIfAborted();
 			if (part.type === "error") throw part.error;
