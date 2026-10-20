@@ -29,6 +29,7 @@ const valueOptions = {
 	"--objective": "workObjective",
 	"--class": "workClass",
 	"--expires": "workExpires",
+	"--executor": "workExecutor",
 	"--executor-tedi": "workExecutorTedi",
 	"--worktree-root": "workWorktreeRoot",
 	"--session": "workSession",

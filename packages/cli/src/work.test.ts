@@ -1456,6 +1456,73 @@ describe("canonical list pagination and output", () => {
 		).rejects.toThrow("needs --as <tediSlug>");
 	});
 
+	test("forwards kind, class, objective, executor and offset filters", async () => {
+		const objective = "70000000-0000-4000-8000-0000000000ff";
+		const { ctx, sources } = makeContext({
+			kind: "research",
+			workClass: "maintenance",
+			objective,
+			executor: "codex",
+			offset: "40",
+		});
+		expect((await capture("list", ctx)).code).toBe(0);
+		expect(sources[0]).toContain('"workKind":"research"');
+		expect(sources[0]).toContain('"workClass":"maintenance"');
+		expect(sources[0]).toContain(`"objectiveId":"${objective}"`);
+		expect(sources[0]).toContain('"executor":"codex"');
+		expect(sources[0]).toContain('"offset":40');
+	});
+
+	test("rejects unknown filter values before the gateway call", async () => {
+		for (const [work, message] of [
+			[{ kind: "bogus" }, "work list --kind must be one of"],
+			[{ workClass: "bogus" }, "work list --class must be one of"],
+			[{ executor: "bogus" }, "work list --executor must be one of"],
+			[{ objective: "not-a-uuid" }, "work list --objective requires"],
+			[{ offset: "-1" }, "work list --offset requires"],
+			[{ offset: "abc" }, "work list --offset requires"],
+		] as const) {
+			const { ctx, sources } = makeContext(work);
+			await expect(runWork("list", ctx)).rejects.toThrow(message);
+			expect(sources).toEqual([]);
+		}
+	});
+
+	test("prints the next-page offset in table mode only while rows remain", async () => {
+		const page = {
+			data: [row(1)],
+			pagination: { limit: 50, offset: 0, total: 75, hasMore: true },
+		};
+		const partial = makeContext({}, undefined, () => page, { json: false });
+		const result = await capture("list", partial.ctx);
+		expect(result.code).toBe(0);
+		expect(result.out.join("\n")).toContain(
+			"Showing 1 of 75 (use --offset 1 for the next page)",
+		);
+
+		const json = makeContext({}, undefined, () => page);
+		const jsonResult = await capture("list", json.ctx);
+		expect(jsonResult.out).toHaveLength(1);
+		expect(JSON.parse(jsonResult.out[0]!)).toMatchObject({
+			pagination: { total: 75, hasMore: true },
+		});
+	});
+
+	test("omits the footer on a complete page", async () => {
+		const { ctx } = makeContext(
+			{},
+			undefined,
+			() => ({
+				data: [row(1)],
+				pagination: { limit: 50, offset: 0, total: 1, hasMore: false },
+			}),
+			{ json: false },
+		);
+		const result = await capture("list", ctx);
+		expect(result.code).toBe(0);
+		expect(result.out.join("\n")).not.toContain("Showing");
+	});
+
 	test("fails loudly on a truncated page in JSON mode", async () => {
 		const { ctx } = makeContext({}, undefined, () => ({
 			__tedix_truncated: true,

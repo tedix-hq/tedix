@@ -2294,6 +2294,7 @@ export const ListWorkCliProjectionInputSchema = z.strictObject({
 	projectId: z.uuid().optional(),
 	objectiveId: z.uuid().optional(),
 	workClass: WorkItemClassSchema.optional(),
+	executor: WorkExecutorSchema.optional(),
 	idPrefix: z
 		.string()
 		.regex(/^[0-9a-f-]{6,36}$/)
