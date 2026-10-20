@@ -68,23 +68,119 @@ export function assertProviderDispatchReady(
 	}
 }
 
+/** Longest provider message an error carries; longer raw bodies are dropped. */
+const ERROR_DETAIL_MAX_CHARS = 120;
+/** Shortest message token that counts as an echo of the request. */
+const REDACT_MIN_TOKEN_CHARS = 4;
+
+/**
+ * String values of the request body (never its keys), so a provider message
+ * can be checked for echoed prompt text without redacting our own schema words
+ * (`messages`, `content`, `model`) out of an otherwise structural message.
+ */
+function requestBodyText(requestBody: string | undefined): string {
+	if (!requestBody) return "";
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(requestBody);
+	} catch {
+		return requestBody;
+	}
+	const values: string[] = [];
+	const stack: unknown[] = [parsed];
+	while (stack.length > 0) {
+		const node = stack.pop();
+		if (typeof node === "string") values.push(node);
+		else if (Array.isArray(node)) stack.push(...node);
+		else if (node && typeof node === "object")
+			stack.push(...Object.values(node));
+	}
+	return values.join("\n");
+}
+
+/** Replace every message token that also occurs in the request body. */
+function redactEchoedRequest(message: string, requestText: string): string {
+	if (!requestText) return message;
+	return message.replace(/[^\s"'`,:;(){}[\]]+/g, (token) =>
+		token.length >= REDACT_MIN_TOKEN_CHARS && requestText.includes(token)
+			? "[redacted]"
+			: token,
+	);
+}
+
+function structuredField(
+	node: unknown,
+	key: "message" | "code" | "type",
+): string | number | undefined {
+	if (!node || typeof node !== "object") return undefined;
+	const value = (node as Record<string, unknown>)[key];
+	return typeof value === "string" || typeof value === "number"
+		? value
+		: undefined;
+}
+
+/**
+ * Reduce a provider error body to the fields that explain the failure. JSON
+ * bodies keep `code`, `type` and a capped `message` (from `error`, `errors[0]`
+ * or the root); a short plain body is kept verbatim; anything else is dropped,
+ * so a validation error that quotes the offending field can never carry the
+ * prompt into Work comments, run logs or Deck cards.
+ */
+function safeErrorDetail(detail: string, requestBody?: string): string {
+	const requestText = requestBodyText(requestBody);
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(detail);
+	} catch {
+		const trimmed = detail.trim();
+		return trimmed.length <= ERROR_DETAIL_MAX_CHARS
+			? redactEchoedRequest(trimmed, requestText)
+			: "";
+	}
+	if (!parsed || typeof parsed !== "object") return "";
+	const root = parsed as Record<string, unknown>;
+	const nested =
+		root.error ?? (Array.isArray(root.errors) ? root.errors[0] : undefined);
+	const source = nested && typeof nested === "object" ? nested : root;
+	const rawMessage =
+		typeof nested === "string" ? nested : structuredField(source, "message");
+	const structured: Record<string, string | number> = {};
+	const code = structuredField(source, "code");
+	if (code !== undefined) structured.code = code;
+	const type = structuredField(source, "type");
+	if (type !== undefined) structured.type = type;
+	if (typeof rawMessage === "string" || typeof rawMessage === "number")
+		structured.message = redactEchoedRequest(
+			String(rawMessage),
+			requestText,
+		).slice(0, ERROR_DETAIL_MAX_CHARS);
+	return Object.keys(structured).length > 0 ? JSON.stringify(structured) : "";
+}
+
 /**
  * AI Gateway answers a provider-rejected credential with 401 and Cloudflare
  * error code 2009 (changelog 2026-10-06). Name it first so the capped turn
  * error says what to fix and the provider-error classifier seals it.
+ *
+ * The error message must never contain prompt text: it propagates into Work
+ * comments, run logs and Deck cards that other principals read. `requestBody`
+ * is the serialized request, used only to redact echoes from the provider's
+ * message; it is never included.
  */
 export function aiGatewayHttpError(
 	label: string,
 	status: number,
 	statusText: string,
 	detail: string,
+	requestBody?: string,
 ): Error {
 	const credential =
 		status === 401 || /"code"\s*:\s*2009\b/.test(detail)
 			? " — AI Gateway rejected the provider credential; check the gateway's provider key and token"
 			: "";
+	const safeDetail = safeErrorDetail(detail, requestBody);
 	return new Error(
-		`${label}: ${status} ${statusText}${credential}${detail ? ` — ${detail.slice(0, 300)}` : ""}`,
+		`${label}: ${status} ${statusText}${credential}${safeDetail ? ` — ${safeDetail}` : ""}`,
 	);
 }
 
@@ -284,6 +380,7 @@ export async function openCloudflareAutoRouterResponse(
 			response.status,
 			response.statusText,
 			detail,
+			request.body,
 		);
 	}
 	return response;
