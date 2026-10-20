@@ -470,6 +470,84 @@ describe("Connect compact protocol organization routing", () => {
 			contextSpy.mockRestore();
 		}
 	});
+	it("serves legacy initialization and listing through Connect's full SDK path", async () => {
+		resolveGateway.mockResolvedValue({
+			app: {
+				id: "legacy-gateway",
+				slug: "tedix-unified",
+				name: "Legacy gateway",
+				organizationId: "org-id",
+			},
+			metadata: {
+				mcpConfig: {
+					codeMode: true,
+					authMode: "authenticated",
+					enforcePolicies: false,
+				},
+			},
+			tools: [],
+		});
+		for (const method of [
+			"initialize",
+			"tools/list",
+			"notifications/initialized",
+		]) {
+			const response = await handleMcpRequest(
+				new Request("https://connect.mcp.tedix.dev/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/json, text/event-stream",
+						...(method === "initialize"
+							? {}
+							: { "MCP-Protocol-Version": "2025-11-25" }),
+						"x-tedix-auth-type": "oauth",
+						"x-tedix-auth-user-id": "human",
+						"x-tedix-auth-org-id": "hosting-org",
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						...(method.startsWith("notifications/") ? {} : { id: 0 }),
+						method,
+						...(method === "initialize"
+							? {
+									params: {
+										protocolVersion: "2025-11-25",
+										capabilities: {},
+										clientInfo: { name: "claude-code", version: "2.1.304" },
+									},
+								}
+							: {}),
+					}),
+				}),
+				connect,
+				createEnv({
+					API_SERVICE: {
+						fetch: async () =>
+							Response.json({
+								json: { skills: [], descopeTenantId: "org_tedix" },
+							}),
+					},
+				}),
+				ctx,
+				{ organizations: [organization] },
+			);
+			expect(response.status, await response.clone().text()).toBe(
+				method.startsWith("notifications/") ? 202 : 200,
+			);
+			if (method === "notifications/initialized") continue;
+			const body = (await response.json()) as {
+				result: {
+					protocolVersion?: string;
+					tools?: { name: string }[];
+					resultType?: string;
+				};
+			};
+			if (method === "initialize")
+				expect(body.result.protocolVersion).toBe("2025-11-25");
+			else expect(body.result.tools?.map((t) => t.name)).toContain("get_info");
+		}
+	});
 	it.each(["server/discover", "tools/list"])(
 		"routes %s to the selected gateway before compact responses",
 		async (method) => {
@@ -502,7 +580,10 @@ describe("Connect compact protocol organization routing", () => {
 			};
 			if (method === "server/discover") {
 				expect(body.result).toMatchObject({
-					supportedVersions: ["2026-07-28"],
+					supportedVersions: expect.arrayContaining([
+						"2026-07-28",
+						"2025-11-25",
+					]),
 					capabilities: { extensions: { "io.modelcontextprotocol/tasks": {} } },
 					_meta: {
 						"io.modelcontextprotocol/serverInfo": { name: "Tedix MCP" },

@@ -128,14 +128,16 @@ async function readBoundedRequestBody(
 	return { tooLarge: false, text: text + decoder.decode() };
 }
 
-/** Fail-closed current-spec gate for Tedix-owned MCP POST surfaces. External
- * upstream adapters remain dual-era and deliberately do not call this helper. */
-export function enforceModernMcpProtocol(request: Request): Response | null {
+export const MCP_SUPPORTED_PROTOCOL_VERSIONS = [
+	MODERN_PROTOCOL_VERSION,
+	...SUPPORTED_PROTOCOL_VERSIONS,
+];
+
+/** Allow headerless legacy initialization; the transport validates each wire era. */
+export function enforceSupportedMcpProtocol(request: Request): Response | null {
 	if (request.method !== "POST") return null;
-	if (
-		request.headers.get(MCP_PROTOCOL_VERSION_HEADER)?.trim() ===
-		MODERN_PROTOCOL_VERSION
-	)
+	const version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER);
+	if (version === null || MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(version))
 		return null;
 	return new Response(
 		JSON.stringify({
@@ -143,7 +145,11 @@ export function enforceModernMcpProtocol(request: Request): Response | null {
 			id: null,
 			error: {
 				code: ERR_UNSUPPORTED_PROTOCOL_VERSION,
-				message: `Unsupported MCP protocol version: Tedix requires ${MODERN_PROTOCOL_VERSION}`,
+				message: "Unsupported MCP protocol version",
+				data: {
+					supported: MCP_SUPPORTED_PROTOCOL_VERSIONS,
+					requested: version,
+				},
 			},
 		}),
 		{ status: 400, headers: { "Content-Type": "application/json" } },

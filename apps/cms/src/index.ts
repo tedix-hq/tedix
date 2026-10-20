@@ -3,7 +3,7 @@ import { checkUserTenantMembership } from "@tedix/auth/descope";
 import { validateToken } from "@tedix/auth/jwt";
 import { isPlatformPrincipal, type JWTPayload } from "@tedix/auth/types";
 import {
-	enforceModernMcpProtocol,
+	enforceSupportedMcpProtocol,
 	mountMcp,
 	validateModernProtocolHeaders,
 } from "@tedix/mcp-shared/transport";
@@ -904,7 +904,7 @@ async function handleMcpRequest(c: {
 	};
 	env: AppEnv["Bindings"];
 }): Promise<Response> {
-	const protocolError = enforceModernMcpProtocol(c.req.raw);
+	const protocolError = enforceSupportedMcpProtocol(c.req.raw);
 	if (protocolError) return protocolError;
 	const auth = await authenticateRequest(c.req.raw, c.env);
 	if (!auth.authenticated) {
