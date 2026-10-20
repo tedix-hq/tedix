@@ -1519,8 +1519,6 @@ export const runtimeMemory = {
 					assistantText: input.assistant.content,
 				})) === "disabled"
 		) {
-			if (input.dailyLog !== false)
-				this.enqueueDailyLogPair(input.user, input.assistant);
 			createTurnLearningTelemetry(input).finish("skipped", "learning_disabled");
 			return;
 		}
