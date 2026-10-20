@@ -110,6 +110,23 @@ export const TEDI_ACCESS_CASES = [
 		context: { authType: "service-binding", organizationId: "system" },
 	},
 	{
+		name: "verified MCP edge identity lookup",
+		context: {
+			authType: "service-binding",
+			organizationId: "system",
+			serviceBindingPrincipal: "mcp-edge",
+		},
+	},
+	{
+		name: "missing sibling tedi",
+		tediId: MISSING_TEDI_ID,
+		context: {
+			authType: "tedi",
+			organizationId: "org-target",
+			tediId: "tedi-sibling",
+		},
+	},
+	{
 		name: "system organization on a user call",
 		context: { authType: "user", organizationId: "system", user: tenantUser },
 	},
@@ -118,9 +135,36 @@ export const TEDI_ACCESS_CASES = [
 		context: { authType: "service-binding", organizationId: "org-other" },
 	},
 	{
+		name: "tenant tedi forwarded by verified MCP binding",
+		context: {
+			authType: "service-binding",
+			serviceBindingPrincipal: "mcp-edge",
+			organizationId: "org-other",
+			tediId: "tedi-other",
+			tediScopes: ["apps:read"],
+		},
+	},
+	{
+		name: "untrusted binding forwarding platform headers",
+		context: {
+			authType: "service-binding",
+			organizationId: "org-other",
+			tediScopes: ["platform:admin"],
+		},
+	},
+	{
+		name: "untrusted binding forwarding operator app headers",
+		context: {
+			authType: "service-binding",
+			organizationId: "org-other",
+			headers: new Headers(operatorAppHeaders),
+		},
+	},
+	{
 		name: "cross-org service binding forwarding a platform tedi",
 		context: {
 			authType: "service-binding",
+			serviceBindingPrincipal: "mcp-edge",
 			organizationId: "org-other",
 			tediId: "tedi-cto",
 			tediScopes: ["platform:admin"],
@@ -130,6 +174,7 @@ export const TEDI_ACCESS_CASES = [
 		name: "cross-org service binding from the operator MCP app",
 		context: {
 			authType: "service-binding",
+			serviceBindingPrincipal: "mcp-edge",
 			organizationId: "org-other",
 			headers: new Headers(operatorAppHeaders),
 		},
@@ -242,6 +287,7 @@ export function tediAccessContext(
 	return {
 		db: {},
 		headers: new Headers(),
+		url: new URL("https://api.test/rpc/tedis/get"),
 		...overrides,
 	} as BaseContext;
 }

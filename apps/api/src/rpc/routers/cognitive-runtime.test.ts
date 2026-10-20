@@ -78,6 +78,10 @@ vi.mock(
 
 vi.mock("@tedix/db/queries/tedis", () => ({
 	getTediById: mocks.getTediById,
+	getTediByIdForOrganization: async (db: unknown, id: string, org: string) => {
+		const tedi = await mocks.getTediById(db, id);
+		return tedi?.organizationId === org ? tedi : undefined;
+	},
 	updateTediRuntimeActivity: mocks.updateTediRuntimeActivity,
 }));
 
@@ -807,6 +811,7 @@ describe("cognitive runtime router invariants", () => {
 		const context = createContext(db);
 		context.apiKey = undefined;
 		context.authType = undefined;
+		context.serviceBindingPrincipal = "mcp-edge";
 		context.headers = new Headers({
 			"X-Service-Binding": "true",
 			"X-Tedix-Tedi-Scopes": "tedis:read",

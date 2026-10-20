@@ -1674,3 +1674,30 @@ describe("skipOutputValidation", () => {
 		expect(wrapped["~orpc"].outputSchemas?.length).toBeGreaterThan(0);
 	});
 });
+
+describe("service bootstrap marker is not a global privilege", () => {
+	const guarded = os
+		.$context<BaseContext>()
+		.use(withAuth)
+		.handler(() => "ok");
+	it.each([undefined, "mcp-edge"] as const)(
+		"preserves non-tedi billing bootstrap with principal %s",
+		async (principal) => {
+			const context = {
+				env: { ENVIRONMENT: "production" },
+				db: {},
+				url: new URL(
+					"https://api.test/rpc/runtimeEntitlements/authorizeInference",
+				),
+				headers: new Headers({
+					"X-Service-Binding": "true",
+					"X-Tedix-Org-Id": "system",
+					"X-Tedix-Service-Principal": "mcp-edge",
+				}),
+				serviceBindingPrincipal: principal,
+			} as BaseContext;
+			const result = call(guarded, undefined, { context });
+			await expect(result).resolves.toBe("ok");
+		},
+	);
+});

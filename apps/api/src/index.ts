@@ -16,6 +16,7 @@
  * Do not add static imports of the router graph (./rpc/**, ./workflows/**)
  * here — that silently re-eagers the whole bundle and re-breaks deploys.
  */
+import { bindMcpServicePrincipal } from "./service-principal";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import {
 	WorkerEntrypoint,
@@ -90,6 +91,14 @@ async function serveFetch(
  */
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	override fetch(request: Request): Promise<Response> {
+		return serveFetch(request, this.env, this.ctx);
+	}
+}
+
+/** Only the MCP Worker is configured to bind this service capability. */
+export class McpEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
+	override fetch(request: Request): Promise<Response> {
+		bindMcpServicePrincipal(request);
 		return serveFetch(request, this.env, this.ctx);
 	}
 }

@@ -2,10 +2,8 @@ import type { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
-import {
-	correlatedRequest,
-	correlatedErrorResponse,
-} from "@tedix/worker-kit/request-correlation";
+import { correlatedErrorResponse } from "@tedix/worker-kit/request-correlation";
+import { correlatedServiceRequest } from "../service-principal";
 import { getApiDiscoveryLinkHeader } from "../api-discovery";
 import { handleOutboundMcpClientMetadata } from "../oauth-client-metadata";
 import { resolveCorsOrigin } from "../lib/cors-origins";
@@ -21,7 +19,7 @@ import { redactRequestLogMessage } from "../request-log-redaction";
 
 export function registerCorsAndLimits(app: Hono<{ Bindings: CloudflareEnv }>) {
 	app.use("*", async (c, next) => {
-		const { request, traceId } = correlatedRequest(c.req.raw);
+		const { request, traceId } = correlatedServiceRequest(c.req.raw);
 		c.req.raw = request;
 		c.header("X-Tedix-Trace-Id", traceId);
 		await next();

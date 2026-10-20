@@ -221,7 +221,7 @@ function requireKernelHarnessSubject(context: BaseContext): {
 } {
 	const subject = canAccessHarnessKernelSubject(context);
 	if (!subject) {
-		throw createError(ErrorCodes.UNAUTHORIZED, "Organization context required");
+		throw createError(ErrorCodes.FORBIDDEN, "Organization context required");
 	}
 	return subject;
 }

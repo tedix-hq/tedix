@@ -12,15 +12,13 @@ import { requireTediAccess } from "./events-policy";
 vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/tedis")>()),
 	getTediById: lookupTediAccessTarget,
+	getTediByIdForOrganization: async (db: unknown, id: string, org: string) =>
+		org === TEDI_ACCESS_TARGET.organizationId
+			? lookupTediAccessTarget(db, id)
+			: null,
 }));
 
-/**
- * Cognitive runtime: the tedi is read first (a missing tedi is NOT_FOUND even
- * without organization scope). A tedi principal reaches only itself and the
- * caller's organization must own the tedi, unless the caller is a platform
- * principal or the trusted operator MCP host app. A caller with no
- * organization, no tedi identity and no platform authority is UNAUTHORIZED.
- */
+/** Caller scope precedes lookup; inaccessible and absent tenant rows are FORBIDDEN. */
 const EXPECTED: Record<TediAccessCaseName, TediAccessOutcome> = {
 	"same-org user": "allow",
 	"cross-org user": "FORBIDDEN",
@@ -31,8 +29,13 @@ const EXPECTED: Record<TediAccessCaseName, TediAccessOutcome> = {
 	"cross-org api key with tenant scopes": "FORBIDDEN",
 	"cross-org m2m with platform:admin": "allow",
 	"system service binding": "FORBIDDEN",
+	"verified MCP edge identity lookup": "FORBIDDEN",
+	"missing sibling tedi": "FORBIDDEN",
 	"system organization on a user call": "FORBIDDEN",
 	"cross-org service binding": "FORBIDDEN",
+	"tenant tedi forwarded by verified MCP binding": "FORBIDDEN",
+	"untrusted binding forwarding platform headers": "FORBIDDEN",
+	"untrusted binding forwarding operator app headers": "FORBIDDEN",
 	"cross-org service binding forwarding a platform tedi": "allow",
 	"cross-org service binding from the operator MCP app": "allow",
 	"operator MCP app slug on a user call": "FORBIDDEN",
@@ -42,12 +45,12 @@ const EXPECTED: Record<TediAccessCaseName, TediAccessOutcome> = {
 	"sibling tedi in the same org": "FORBIDDEN",
 	"sibling platform tedi in the same org": "allow",
 	"cross-org tedi": "FORBIDDEN",
-	"user without organization": "UNAUTHORIZED",
+	"user without organization": "FORBIDDEN",
 	"platform-admin user without organization": "allow",
 	"platform api key without organization": "allow",
-	"missing tedi for a same-org user": "NOT_FOUND",
-	"missing tedi for a cross-org user": "NOT_FOUND",
-	"missing tedi for a user without organization": "NOT_FOUND",
+	"missing tedi for a same-org user": "FORBIDDEN",
+	"missing tedi for a cross-org user": "FORBIDDEN",
+	"missing tedi for a user without organization": "FORBIDDEN",
 	"missing tedi for a platform api key without organization": "NOT_FOUND",
 };
 

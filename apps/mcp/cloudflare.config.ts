@@ -118,7 +118,7 @@ export default defineConfig(({ mode }) => {
 					worker: local
 						? "public-installation-api"
 						: worker("public-installation-api"),
-					exportName: "InternalEntrypoint",
+					exportName: "McpEntrypoint",
 				}),
 				TEDI_SERVICE: bindings.worker({
 					worker: worker("public-installation-tedi"),
