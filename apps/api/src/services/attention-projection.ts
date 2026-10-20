@@ -15,7 +15,10 @@ import {
 	compareDecisionFreshness,
 	rankDeckCard,
 } from "@tedix/api-contract/utils/deck-projection";
-import { cardIsDue } from "@tedix/api-contract/utils/card-schedule";
+import {
+	cardIsDue,
+	factoryCardDeadline,
+} from "@tedix/api-contract/utils/card-schedule";
 import {
 	cardSheetsForSource,
 	cardsFromSheet,
@@ -235,7 +238,7 @@ async function loadConfiguredDeckProjection(
 			decision: null,
 			source: `/work?view=deck#card=factory:${card.key}`,
 			requestedAt: card.runCreatedAt,
-			dueAt: null,
+			dueAt: factoryCardDeadline(card),
 			score: 0,
 			factory: {
 				outputId: card.outputId,
@@ -256,7 +259,7 @@ async function loadConfiguredDeckProjection(
 			now,
 			card.interaction?.request,
 		).score;
-	cards.sort((a, b) => compareDecisionFreshness(a, b, now));
+	cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));
 	return {
 		cards,
 		count: cards.length,

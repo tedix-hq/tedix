@@ -1,3 +1,4 @@
+import copySpec from "@tedix/api-contract/assets/decision-card-copy.v2.json";
 import {
 	DecisionContextSection,
 	DecisionRailContext,
@@ -165,7 +166,12 @@ export function WorkDecisionCard({
 	const face = faceState?.presentation;
 	const [sourceRead, setSourceRead] = useState(false);
 	const heading = decisionProposalTitle(
-		faceState ? (face?.title ?? "Review this request?") : title,
+		faceState
+			? (face?.title ??
+					(faceState.unavailable
+						? copySpec.unavailableTitle
+						: copySpec.pendingTitle))
+			: title,
 	);
 	const queryClient = useContext(QueryClientContext);
 	const revision = revisionTarget;
@@ -413,7 +419,7 @@ export function WorkDecisionCard({
 	return (
 		<section
 			ref={section}
-			aria-label={faceState ? (face?.title ?? "Review this request?") : title}
+			aria-label={heading}
 			tabIndex={0}
 			className="fd-decision min-w-0 rounded-xl"
 			style={motion.style}
@@ -620,8 +626,9 @@ export function WorkDecisionCard({
 										</>
 									) : (
 										<p role="status">
-											Preparing a shorter summary. Open Details to review the
-											source.
+											{faceState.unavailable
+												? copySpec.unavailableFace
+												: copySpec.pendingFace}
 										</p>
 									)}
 									<FeedDeckDisclosure

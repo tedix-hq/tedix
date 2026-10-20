@@ -4,6 +4,7 @@ import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decis
 export const CardFaceContext = createContext<{
 	presentation: DecisionCardPresentation | null;
 	confidence: number | null;
+	unavailable?: boolean;
 } | null>(null);
 
 export const DeckRemainingContext = createContext<

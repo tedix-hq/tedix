@@ -23,6 +23,7 @@ vi.mock("./decision-learning", () => ({
 }));
 import {
 	prepareDeckCardFace,
+	prepareDeckCardFaces,
 	deckCardWritingSource,
 	displayDeckCard,
 } from "./deck-card-face";
@@ -126,8 +127,8 @@ it("withholds failed readability output from every display and fallback", async 
 	expect(await prepareDeckCardFace(context, card)).toBeNull();
 	expect(await prepareDeckCardFace(context, card, false)).toBeNull();
 	expect(displayDeckCard(card, null)).toMatchObject({
-		label: "Review this request?",
-		faceText: "Preparing a shorter summary. Open Details to review the source.",
+		label: "Summary pending",
+		faceText: "Summary pending. Open Details to review the source.",
 	});
 });
 it("tells the writer the actual factory consequence rather than promising to do the suggested work", () => {
@@ -150,4 +151,25 @@ it("withholds source secrets before generation and secret-bearing cached output"
 	mocks.generate.mockResolvedValue({ ...copy, context: secret });
 	expect(await prepareDeckCardFace(context, card)).toBeNull();
 	expect(await prepareDeckCardFace(context, card, false)).toBeNull();
+});
+
+it("renders the generated story on the next read without changing the source", async () => {
+	const original = structuredClone(card);
+	await prepareDeckCardFace(context, card);
+	const presentation = await prepareDeckCardFace(context, card, false);
+	const displayed = displayDeckCard(card, presentation);
+	expect(displayed.label).toBe(copy.title);
+	expect(displayed.faceText).toContain(copy.context);
+	expect(displayed.faceText).toContain(copy.body);
+	expect(displayed.faceText).not.toContain("Summary pending");
+	expect(card).toEqual(original);
+});
+
+it("distinguishes failed generation from a pending job during the retry window", async () => {
+	mocks.generate.mockResolvedValue(null);
+	await prepareDeckCardFace(context, card);
+	const [displayed] = await prepareDeckCardFaces(context, [card]);
+	expect(displayed?.label).toBe("Summary unavailable");
+	expect(displayed?.faceText).not.toContain("Summary pending");
+	expect(mocks.generate).toHaveBeenCalledTimes(1);
 });

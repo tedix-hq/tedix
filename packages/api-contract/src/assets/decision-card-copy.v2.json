@@ -190,7 +190,9 @@
 		"workApproval": "The buttons approve or reject the supplied permission request for this task. Approval records permission; it does not itself complete the task or change settings. Only describe scope established by the supplied rationale.",
 		"runtimeApproval": "The buttons approve or reject the saved action described by this request. Do not infer effects from an internal operation name. If its description does not establish the change or cost, state that it is unknown."
 	},
-	"pendingFace": "Preparing a shorter summary. Open Details to review the source.",
-	"pendingTitle": "Review this request?",
+	"pendingFace": "Summary pending. Open Details to review the source.",
+	"pendingTitle": "Summary pending",
+	"unavailableFace": "Summary unavailable. Open Details to review the source.",
+	"unavailableTitle": "Summary unavailable",
 	"faceChromeWords": 14
 }
