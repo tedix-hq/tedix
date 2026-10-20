@@ -215,6 +215,7 @@ export async function readConnectionsOverview(
 	{
 		const owner = scope === "user" ? { userId: userId! } : { organizationId };
 		const instances = await listConnectionInstances(context.db, owner);
+		if (instances.length === 100) verificationComplete = false;
 		let instanceCursor = 0;
 		await Promise.all(
 			Array.from({ length: Math.min(6, instances.length) }, async () => {
