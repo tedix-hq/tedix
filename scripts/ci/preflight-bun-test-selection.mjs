@@ -73,6 +73,7 @@ export function isBunSuiteInfrastructure(file, workspaceDir) {
 	return (
 		name === "package.json" ||
 		name === "bunfig.toml" ||
+		name === "scripts/run-tests.ts" ||
 		/^tsconfig[^/]*\.json$/.test(name) ||
 		/^vitest[^/]*\.config\.[cm]?[jt]s$/.test(name) ||
 		/^vite\.config\.[cm]?[jt]s$/.test(name)
