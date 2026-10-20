@@ -60,6 +60,7 @@
 		"./queries/mcp-consent": "./src/queries/mcp-consent.ts",
 		"./queries/mcp-event-subscriptions": "./src/queries/mcp-event-subscriptions.ts",
 		"./queries/mcp-governance": "./src/queries/mcp-governance.ts",
+		"./queries/mcp-agent-lifecycle": "./src/queries/mcp-agent-lifecycle.ts",
 		"./queries/memory-audit": "./src/queries/memory-audit.ts",
 		"./queries/memory-graph/agent-lessons": "./src/queries/memory-graph/agent-lessons.ts",
 		"./queries/memory-graph/auto-linking": "./src/queries/memory-graph/auto-linking.ts",

@@ -12,6 +12,8 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import {
+	ResolveAgentLifecycleAuthorizationInputSchema,
+	ResolveAgentLifecycleAuthorizationResponseSchema,
 	ResolveAgentTransportPolicyInputSchema,
 	ResolveAgentTransportPolicyResponseSchema,
 	ResolveMcpToolApprovalGrantInputSchema,
@@ -24,6 +26,15 @@ export const mcpGovernanceContract = oc
 	.route({ tags: ["mcp-governance"], prefix: "/mcpGovernance" })
 	.errors(baseErrors)
 	.router({
+		resolveAgentLifecycleAuthorization: oc
+			.route({
+				method: "POST",
+				path: "/resolve-agent-lifecycle-authorization",
+				summary: "Verify a coding session's admitted lifecycle write",
+				tags: ["internal"],
+			})
+			.input(ResolveAgentLifecycleAuthorizationInputSchema)
+			.output(ResolveAgentLifecycleAuthorizationResponseSchema),
 		resolveAgentTransportPolicy: oc
 			.route({
 				method: "POST",

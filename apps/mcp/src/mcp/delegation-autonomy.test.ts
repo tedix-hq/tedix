@@ -98,8 +98,7 @@ describe("tedi autonomous actions", () => {
 				{ destructiveHint: false },
 				{ autoConfirmAgent },
 			);
-			if (autonomy && approvalPolicy !== "always") expect(result).toBeNull();
-			else expect(result?.isError).toBe(true);
+			expect(result?.isError).toBe(true);
 		},
 	);
 	it.each([

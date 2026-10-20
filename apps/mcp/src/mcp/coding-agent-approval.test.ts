@@ -156,3 +156,133 @@ it.each(bindings)(
 		).toThrow();
 	},
 );
+
+it.each([undefined, { version: 1, maxRisk: "medium" }] as const)(
+	"allows only verified own lifecycle writes without relying on autonomy (%s)",
+	async (autonomy) => {
+		for (const endpoint of [
+			"workItems/heartbeatAttempt",
+			"workItems/addComment",
+			"workItems/settleAttempt",
+			"externalAgentIdentity/recordKnowledgeCheckpoint",
+			"osWorkspaces/outputs/create",
+			"osWorkspaces/outputs/revise",
+		]) {
+			const ctx = context("external_agent");
+			vi.mocked(
+				ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+			).mockResolvedValue({
+				requireExplicitApprovalPolicy: false,
+				autonomy,
+			});
+			const resolve = vi.fn(async () => ({ approved: true }));
+			Object.assign(ctx.apiClient.mcpGovernance, {
+				resolveAgentLifecycleAuthorization: resolve,
+			});
+			const binding = tool("bounded_lifecycle_write", endpoint);
+			expect(
+				await requireDestructiveToolApproval(
+					ctx,
+					binding,
+					resolveToolAnnotations(binding),
+					{ args: { id: "own-work" }, allowSyncMrtr: false },
+				),
+			).toBeNull();
+			expect(resolve).toHaveBeenCalledWith({
+				organizationId: "fictional-org",
+				principalId: "fictional-agent",
+				sessionId: "fictional-session",
+				endpoint,
+				args: { id: "own-work" },
+			});
+		}
+	},
+);
+
+it("keeps unowned writes and explicit or human-reserved gates closed without autonomy", async () => {
+	const ctx = context("external_agent");
+	vi.mocked(
+		ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+	).mockResolvedValue({ requireExplicitApprovalPolicy: false });
+	const resolve = vi.fn(async () => ({ approved: false }));
+	Object.assign(ctx.apiClient.mcpGovernance, {
+		resolveAgentLifecycleAuthorization: resolve,
+	});
+	const binding = tool("add_comment", "workItems/addComment");
+	expect(
+		await requireDestructiveToolApproval(
+			ctx,
+			binding,
+			resolveToolAnnotations(binding),
+			{ args: { id: "other-work" }, allowSyncMrtr: false },
+		),
+	).not.toBeNull();
+	resolve.mockResolvedValue({ approved: true });
+	for (const approvalPolicy of ["always", "work_item", "once"]) {
+		expect(
+			await requireDestructiveToolApproval(
+				ctx,
+				{ ...binding, config: { ...binding.config, approvalPolicy } },
+				resolveToolAnnotations(binding),
+				{ args: { id: "own-work" }, allowSyncMrtr: false },
+			),
+		).not.toBeNull();
+	}
+	expect(
+		await requireDestructiveToolApproval(
+			ctx,
+			binding,
+			{ destructiveHint: true },
+			{ args: { id: "own-work" }, allowSyncMrtr: false },
+		),
+	).not.toBeNull();
+});
+
+it.each([false, true])(
+	"consults the once grant even with autonomy (approved: %s)",
+	async (approved) => {
+		const ctx = context("external_agent");
+		vi.mocked(
+			ctx.apiClient.mcpGovernance.resolveToolApprovalGrant,
+		).mockResolvedValue({
+			approved,
+			grantId: approved ? "one-time-grant" : null,
+		});
+		const binding = tool("add_comment", "workItems/addComment");
+		binding.config = { ...binding.config, approvalPolicy: "once" };
+		const result = await requireDestructiveToolApproval(
+			ctx,
+			binding,
+			resolveToolAnnotations(binding),
+			{ allowSyncMrtr: false },
+		);
+		expect(result === null).toBe(approved);
+		expect(
+			ctx.apiClient.mcpGovernance.resolveToolApprovalGrant,
+		).toHaveBeenCalledWith(expect.objectContaining({ grantKind: "once" }));
+	},
+);
+
+it.each(["add_member", "assign_role", "invite_member"])(
+	"does not exempt member governance for %s",
+	async (toolId) => {
+		const ctx = context("external_agent");
+		vi.mocked(
+			ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+		).mockResolvedValue({ requireExplicitApprovalPolicy: false });
+		const resolve = vi.fn(async () => ({ approved: true }));
+		Object.assign(ctx.apiClient.mcpGovernance, {
+			resolveAgentLifecycleAuthorization: resolve,
+		});
+		const binding = tool(toolId, "workItems/addComment");
+		expect(
+			await requireDestructiveToolApproval(
+				ctx,
+				binding,
+				resolveToolAnnotations(binding),
+				{ args: { id: "own-work" }, allowSyncMrtr: false },
+			),
+		).not.toBeNull();
+		expect(resolve).not.toHaveBeenCalled();
+	},
+);

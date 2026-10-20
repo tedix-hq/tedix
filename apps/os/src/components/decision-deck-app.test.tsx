@@ -5,6 +5,7 @@ import { act, useContext, useState } from "react";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import { useDeckCount } from "@/lib/use-deck-count";
 import { useDecisionInbox } from "@/lib/use-decision-inbox";
+import { CardFaceContext } from "./deck-presentation-context";
 import { ProposerContext } from "./feed-deck-primitives";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -35,27 +36,31 @@ vi.mock("@/lib/api", async (original) => {
 									? async () => ({ created: 0, scanned: 0, hasMore: false })
 									: Reflect.get(target, key),
 						})
-					: key === "agentTurnTriage"
-						? { listLessons: vi.fn(async () => ({ lessons: [] })) }
-						: key === "learningFeedback"
-							? {
-									recordInteraction: writes.record,
-									recordExposure: vi.fn(async () => ({
-										id: "fictional-exposure",
-									})),
-									listInteractions: vi.fn(async () => ({ events: [] })),
-									getCalibration: actual.osApi.learningFeedback.getCalibration,
-									getInstrumentation:
-										actual.osApi.learningFeedback.getInstrumentation,
-									model: vi.fn(),
-									correct: vi.fn(),
-								}
-							: Reflect.get(target, key),
+					: key === "attention"
+						? { getDeckCard: writes.getCard }
+						: key === "agentTurnTriage"
+							? { listLessons: vi.fn(async () => ({ lessons: [] })) }
+							: key === "learningFeedback"
+								? {
+										recordInteraction: writes.record,
+										recordExposure: vi.fn(async () => ({
+											id: "fictional-exposure",
+										})),
+										listInteractions: vi.fn(async () => ({ events: [] })),
+										getCalibration:
+											actual.osApi.learningFeedback.getCalibration,
+										getInstrumentation:
+											actual.osApi.learningFeedback.getInstrumentation,
+										model: vi.fn(),
+										correct: vi.fn(),
+									}
+								: Reflect.get(target, key),
 		}),
 	};
 });
 const writes = vi.hoisted(() => ({
 	save: vi.fn(),
+	getCard: vi.fn(),
 	record: vi.fn(async (_input: { surface?: string }) => ({})),
 }));
 vi.mock("@/components/kumo/toast", () => ({
@@ -72,12 +77,14 @@ vi.mock("./work-interaction-decision-card", () => ({
 		requestId: string;
 		onNext: () => void;
 	}) => {
+		const face = useContext(CardFaceContext);
 		const proposer = useContext(ProposerContext);
 		const save = useContext(OptimisticDeckDecisionContext);
 		const [draft, setDraft] = useState("");
 		return (
 			<>
 				<p>Live request {requestId}</p>
+				<button onClick={face?.retry}>Retry summary</button>
 				<p>{proposer.project}</p>
 				<button onClick={onNext}>Skip linked preview</button>
 				<textarea
@@ -649,4 +656,28 @@ it("counts feed-routed owner questions in the badge and Feed without adding them
 			([input]) => input.surface === "decision_deck_routing",
 		),
 	).toHaveLength(1);
+});
+
+it("explicitly retries summary generation rather than only re-reading the failed face", async () => {
+	vi.spyOn(globalThis, "fetch").mockRejectedValue(
+		new Error("No live requests in the fixture"),
+	);
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Review supplier reply",
+	);
+	writes.getCard.mockResolvedValue({
+		id: row.request.id,
+		interaction: row,
+		presentation: null,
+	});
+	await mount({ rows: [row] });
+	await act(async () => {
+		Array.from(host.querySelectorAll("button"))
+			.find((button) => button.textContent === "Retry summary")!
+			.click();
+	});
+	expect(writes.getCard).toHaveBeenCalledWith(
+		expect.objectContaining({ cardId: row.request.id, retrySummary: true }),
+	);
 });

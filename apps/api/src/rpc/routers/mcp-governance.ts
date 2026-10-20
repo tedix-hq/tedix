@@ -6,6 +6,7 @@
  * "why not a direct D1 query from apps/mcp" rationale.
  */
 
+import { resolveAgentLifecycleAuthorization } from "@tedix/db/queries/mcp-agent-lifecycle";
 import { implement } from "@orpc/server";
 import { mcpGovernanceContract } from "@tedix/api-contract/contracts/mcp-governance";
 import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
@@ -25,6 +26,12 @@ const mcpGovernanceOs = implement(
 const serviceOs = mcpGovernanceOs.use(withServiceAuth);
 
 export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
+	resolveAgentLifecycleAuthorization:
+		serviceOs.resolveAgentLifecycleAuthorization.handler(
+			async ({ input, context }) => ({
+				approved: await resolveAgentLifecycleAuthorization(context.db, input),
+			}),
+		),
 	resolveAgentTransportPolicy: serviceOs.resolveAgentTransportPolicy.handler(
 		async ({ input, context }) => {
 			const tedi = input.tediId
