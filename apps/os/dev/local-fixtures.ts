@@ -4823,8 +4823,9 @@ const handlers: Record<string, (input: never) => unknown> = {
 			percentDone: items.length ? done / items.length : 0,
 			aggregateDisposition: items.length ? "accepted" : "empty",
 			distinctExecutors: [],
-			topLevelItems: items.map(({ id, title, disposition }) => ({
+			topLevelItems: items.map(({ id, workKind, title, disposition }) => ({
 				id,
+				workKind,
 				title,
 				disposition,
 			})),
