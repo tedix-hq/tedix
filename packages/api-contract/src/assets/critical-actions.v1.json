@@ -47,6 +47,14 @@
 		"glob"
 	],
 	"builtinToolPolicies": {
+		"cancel_work_item": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"cancel_work_items": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
 		"work_item_comment": {
 			"riskTier": "bounded_write",
 			"blastRadius": "single_resource"

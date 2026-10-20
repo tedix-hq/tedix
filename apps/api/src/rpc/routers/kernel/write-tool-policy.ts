@@ -1,6 +1,8 @@
 import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import {
 	humanReservedActionClasses,
+	builtinToolPolicyMetadata,
+	isSafeNotionPageUpdateCall,
 	type KernelWriteRiskTier,
 } from "@tedix/api-contract/utils/approval-policy";
 
@@ -175,11 +177,21 @@ const DESTRUCTIVE_VERB_RE = verbMatcher(DESTRUCTIVE_VERBS);
  * critical-action text can raise the risk, but cannot lower a missing or
  * higher-impact classification.
  */
-export function classifyWriteRisk(tool: McpTool): KernelWriteRiskTier {
+export function classifyWriteRisk(
+	tool: McpTool,
+	args?: unknown,
+): KernelWriteRiskTier {
 	if (humanReservedActionClasses(tool.name).length) return "high";
-	if (DESTRUCTIVE_VERB_RE.test(tool.name)) return "high";
-	if (tool.annotations?.destructiveHint === true) return "high";
 	const policy = parseToolPolicyMetadata(tool._meta);
+	if (policy?.argumentPolicy === "notion_page_update")
+		return policy.riskTier === "bounded_write" &&
+			isSafeNotionPageUpdateCall(args)
+			? "low"
+			: "high";
+	if (tool.annotations?.destructiveHint === true) return "high";
+	const name = tool.name.split(/[.:]/).at(-1)?.split("__").at(-1) ?? tool.name;
+	if (DESTRUCTIVE_VERB_RE.test(tool.name) && !builtinToolPolicyMetadata(name))
+		return "high";
 	return policy?.riskTier === "bounded_write" && policy.blastRadius
 		? "low"
 		: "high";

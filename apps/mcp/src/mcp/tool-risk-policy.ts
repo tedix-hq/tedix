@@ -14,6 +14,7 @@ const log = createMcpLogger("mcp.tool_risk");
 export interface ToolRiskPolicy {
 	riskTier: ToolOperationalRiskTier;
 	blastRadius: ToolBlastRadius;
+	argumentPolicy?: "notion_page_update";
 }
 
 export function resolveToolRiskPolicy(
@@ -21,7 +22,13 @@ export function resolveToolRiskPolicy(
 ): ToolRiskPolicy | null {
 	const policy = parseToolPolicyMetadata(tool.meta as Record<string, unknown>);
 	return policy?.riskTier && policy.blastRadius
-		? { riskTier: policy.riskTier, blastRadius: policy.blastRadius }
+		? {
+				riskTier: policy.riskTier,
+				blastRadius: policy.blastRadius,
+				...(policy.argumentPolicy
+					? { argumentPolicy: policy.argumentPolicy }
+					: {}),
+			}
 		: null;
 }
 

@@ -2,6 +2,7 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
 	decideAutonomousAction,
 	humanReservedActionClasses,
+	isSafeNotionPageUpdateCall,
 	type DelegationAutonomyPolicy,
 } from "@tedix/api-contract/utils/approval-policy";
 import { AgentLifecycleEndpointSchema } from "@tedix/api-contract/schemas/mcp-governance";
@@ -664,7 +665,21 @@ export async function requireDestructiveToolApproval(
 		agent,
 		tool,
 	);
-	const risk = resolveToolRiskPolicy({ meta: tool.meta ?? null })?.riskTier;
+	const policy = resolveToolRiskPolicy({ meta: tool.meta ?? null });
+	const boundedNotionUpdate =
+		policy?.riskTier === "bounded_write" &&
+		policy.argumentPolicy === "notion_page_update" &&
+		isSafeNotionPageUpdateCall(options?.args);
+	const risk =
+		policy?.argumentPolicy === "notion_page_update" && !boundedNotionUpdate
+			? "high_impact_write"
+			: policy?.riskTier;
+	if (boundedNotionUpdate)
+		annotations = {
+			...annotations,
+			readOnlyHint: false,
+			destructiveHint: false,
+		};
 	const configuredApproval = readApprovalPolicy(agent, tool);
 	const humanBoundary =
 		annotations?.destructiveHint === true ||
@@ -672,6 +687,22 @@ export async function requireDestructiveToolApproval(
 			0 ||
 		risk === "high_impact_write" ||
 		risk === "external_side_effect";
+	// This call IS the human's approval. The API still checks the run, tenant,
+	// conversation access and owner/admin authority; asking again creates a loop.
+	if (
+		!humanBoundary &&
+		!configuredApproval &&
+		tool.config?.transport === "rpc" &&
+		tool.config.endpoint === "kernelRuntime/respondApproval" &&
+		tool.toolId.split("__").at(-1) === "respond_home_approval" &&
+		callerIsUserPrincipalPath(agent) &&
+		agent.callerIdentity?.userId &&
+		!agent.callerIdentity.tediId &&
+		!agent.callerIdentity.externalAgentPrincipalId &&
+		!agent.callerIdentity.kernel &&
+		!agent.callerIdentity.ownerHostSessionId
+	)
+		return null;
 	// Enqueue records intent; the kernel authorizes and risk-checks execution.
 	// Tasks capability alone must not turn that ingress into a destructive action.
 	if (

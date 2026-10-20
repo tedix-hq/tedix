@@ -4,6 +4,7 @@ import type {
 	ToolInputJsonSchema,
 } from "@tedix/api-contract/schemas/tools";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
+import { builtinToolPolicyMetadata } from "@tedix/api-contract/utils/approval-policy";
 import {
 	EnqueueHomeMessageInputSchema,
 	RetryHomeRunInputSchema,
@@ -772,7 +773,13 @@ function buildHomeSurfaceTool(spec: HomeSurfaceToolSpec): AppTool {
 			...(spec.asyncTask ? { _asyncTask: true } : {}),
 		},
 		annotations: spec.annotations,
-		meta: { source: "homeSurface", namespace: HOME_SURFACE_NAMESPACE },
+		meta: {
+			source: "homeSurface",
+			namespace: HOME_SURFACE_NAMESPACE,
+			...(builtinToolPolicyMetadata(spec.name)
+				? { "com.tedix/policy": builtinToolPolicyMetadata(spec.name)! }
+				: {}),
+		},
 		icons: null,
 		executionTaskSupport: null,
 		invocationStatus: null,

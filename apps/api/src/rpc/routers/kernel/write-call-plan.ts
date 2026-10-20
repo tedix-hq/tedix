@@ -409,6 +409,6 @@ export function validateProposedCall(
 	return {
 		tool,
 		args,
-		riskTier: classifyWriteRisk(tool),
+		riskTier: classifyWriteRisk(tool, args),
 	};
 }

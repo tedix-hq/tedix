@@ -1,3 +1,4 @@
+import { isSafeNotionPageUpdateCall } from "@tedix/api-contract/utils/approval-policy";
 import {
 	DOMAINLESS_WORKSTATION_TOOL_NAMES,
 	isAdminAccessLevelOverrideTool,
@@ -645,90 +646,6 @@ function connectedProviderId(tool: ToolAuthShape): string | null {
 
 function isConnectedTool(tool: ToolAuthShape): boolean {
 	return connectedProviderId(tool) !== null;
-}
-
-function isSafeNotionPageUpdateCall(args: unknown): boolean {
-	if (!args || typeof args !== "object" || Array.isArray(args)) return false;
-	const call = args as Record<string, unknown>;
-	if (typeof call.page_id !== "string" || !call.page_id.trim()) return false;
-	if (call.allow_async !== undefined && typeof call.allow_async !== "boolean")
-		return false;
-	if (
-		call.confirmDestructive !== undefined &&
-		typeof call.confirmDestructive !== "boolean"
-	)
-		return false;
-	if (call.reason !== undefined && typeof call.reason !== "string")
-		return false;
-
-	let allowed: ReadonlySet<string>;
-	switch (call.command) {
-		case "update_properties":
-			if (
-				!call.properties ||
-				typeof call.properties !== "object" ||
-				Array.isArray(call.properties)
-			)
-				return false;
-			allowed = new Set(["properties"]);
-			break;
-		case "insert_content":
-			if (typeof call.content !== "string") return false;
-			if (call.position !== undefined) {
-				if (
-					!call.position ||
-					typeof call.position !== "object" ||
-					Array.isArray(call.position)
-				)
-					return false;
-				const position = call.position as Record<string, unknown>;
-				if (
-					(position.type !== "start" && position.type !== "end") ||
-					Object.keys(position).some((key) => key !== "type")
-				)
-					return false;
-			}
-			allowed = new Set(["content", "position"]);
-			break;
-		case "update_content":
-			if (
-				!Array.isArray(call.content_updates) ||
-				call.content_updates.length === 0 ||
-				call.content_updates.some((update) => {
-					if (!update || typeof update !== "object" || Array.isArray(update))
-						return true;
-					const entry = update as Record<string, unknown>;
-					return (
-						typeof entry.old_str !== "string" ||
-						!entry.old_str ||
-						typeof entry.new_str !== "string" ||
-						(entry.replace_all_matches !== undefined &&
-							typeof entry.replace_all_matches !== "boolean") ||
-						Object.keys(entry).some(
-							(key) =>
-								key !== "old_str" &&
-								key !== "new_str" &&
-								key !== "replace_all_matches",
-						)
-					);
-				}) ||
-				(call.allow_deleting_content !== undefined &&
-					call.allow_deleting_content !== false)
-			)
-				return false;
-			allowed = new Set(["content_updates", "allow_deleting_content"]);
-			break;
-		default:
-			return false;
-	}
-	const common = new Set([
-		"page_id",
-		"command",
-		"allow_async",
-		"confirmDestructive",
-		"reason",
-	]);
-	return Object.keys(call).every((key) => common.has(key) || allowed.has(key));
 }
 
 function sanitizeToolName(name: string): string {
