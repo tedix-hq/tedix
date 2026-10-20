@@ -185,6 +185,7 @@ describe("Work cases", () => {
 					title: "Refund backlog",
 					kind: "operations",
 					stage: "open",
+					accountableOwnerType: "user",
 					accountableOwnerId: OWNER,
 					targetResolutionAt: null,
 				},
@@ -606,6 +607,8 @@ describe("Work admission and capacity", () => {
 	it("uses separate schema-backed lookup and specification forms", async () => {
 		viewport(false);
 		const page = await mount(<pages.WorkAdmissionPage />);
+		expect(page.host.querySelectorAll("form")).toHaveLength(0);
+		await page.submit("Advanced: IDs and specification JSON");
 		expect(page.host.querySelectorAll("form")).toHaveLength(2);
 		await page.type("Work Item id", "not-a-uuid");
 		await page.submit("Load");
@@ -708,6 +711,8 @@ describe("Work case detail and clusters", () => {
 	it("uses a schema-backed form for execution cluster lookup", async () => {
 		viewport(false);
 		const page = await mount(<pages.WorkClustersPage />);
+		expect(page.host.querySelectorAll("form")).toHaveLength(0);
+		await page.submit("Advanced: tedi UUID");
 		await page.type("Executor tedi id", "not-a-uuid");
 		await page.submit("Plan waves");
 		expect(page.host.textContent).toContain("Enter a canonical tedi UUID.");
