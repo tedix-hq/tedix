@@ -339,7 +339,7 @@ it("keeps generation failure distinct from pending copy in MCP and Markdown face
 
 it("never shows a placeholder headline: the original request is the ask until copy exists", () => {
 	for (const label of [
-		"Review GRANT BER's invoice corrections by Tuesday 14:00?",
+		"Review Northwind's invoice corrections by Tuesday 14:00?",
 		"Summary unavailable",
 		"Summary pending",
 	]) {

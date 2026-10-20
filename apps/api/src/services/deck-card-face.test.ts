@@ -200,7 +200,7 @@ it("withholds failed readability output from every display and fallback", async 
 
 it("never uses the placeholder as the headline: falls back to the original request", async () => {
 	for (const label of [
-		"Review GRANT BER's invoice corrections by Tuesday 14:00?",
+		"Review Northwind's invoice corrections by Tuesday 14:00?",
 		"Summary unavailable",
 		"Summary pending",
 	]) {
