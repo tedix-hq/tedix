@@ -151,31 +151,77 @@ describe("route choice probabilities and policy", () => {
 			resolveRouteChoice(answers, { ...context, delegationAvailable: false }),
 		).toBeNull();
 	});
-	it("bounds the governed wrapper while holding accounting alive", async () => {
-		let finish!: (value: null) => void;
-		vi.mocked(executeJevJudgment).mockImplementationOnce(
-			() =>
-				new Promise((resolve) => {
-					finish = resolve;
-				}),
-		);
-		const held: Promise<void>[] = [];
-		const result = await decideHomeRoute({
-			db: {} as DbClient,
-			env: { AI: {} } as KernelEnv,
-			gatewayContext: { organizationId: "org-fiction" },
-			content: "Hello",
-			context,
-			policy: { ...policy, timeoutMs: 10 },
-			hold: (work) => held.push(work),
-		});
-		expect(result.status).toBe("timeout");
-		expect(held).toHaveLength(1);
-		expect(
-			vi.mocked(executeJevJudgment).mock.calls[0]![0].signal?.aborted,
-		).toBe(true);
-		finish(null);
-		await held[0];
+	it.each(["admission", "inference"] as const)(
+		"bounds stalled %s while holding accounting alive",
+		async (phase) => {
+			vi.useFakeTimers();
+			try {
+				let finish!: (value: null) => void;
+				vi.mocked(executeJevJudgment).mockImplementationOnce((input) => {
+					if (phase === "inference") input.onExecutionAttempts?.([]);
+					return new Promise((resolve) => {
+						finish = resolve;
+					});
+				});
+				const held: Promise<void>[] = [];
+				const pending = decideHomeRoute({
+					db: {} as DbClient,
+					env: { AI: {} } as KernelEnv,
+					gatewayContext: { organizationId: "org-fiction" },
+					content: "Hello",
+					context,
+					policy: { ...policy, timeoutMs: 10 },
+					hold: (work) => held.push(work),
+				});
+				await vi.advanceTimersByTimeAsync(phase === "admission" ? 10_000 : 10);
+				const result = await pending;
+				expect(result.status).toBe("timeout");
+				expect(result.timeoutPhase).toBe(phase);
+				expect(held).toHaveLength(1);
+				expect(
+					vi.mocked(executeJevJudgment).mock.calls[0]![0].signal?.aborted,
+				).toBe(true);
+				finish(null);
+				await held[0];
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
+	it("allows slow admission followed by inference within its own deadline", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.mocked(executeJevJudgment).mockImplementationOnce(async (input) => {
+				await new Promise((resolve) => setTimeout(resolve, 1800));
+				expect(input.signal?.aborted).toBe(false);
+				input.onExecutionAttempts?.([]);
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				return {
+					model: "clef-flash",
+					answers: { route: distribution("answer_in_home", HOME_ROUTE_KINDS) },
+					usage: { input_tokens: 100, output_tokens: 0 },
+				};
+			});
+			const pending = decideHomeRoute({
+				db: {} as DbClient,
+				env: { AI: {} } as KernelEnv,
+				gatewayContext: { organizationId: "org-fiction" },
+				content: "Hello",
+				context,
+				policy: { ...policy, timeoutMs: 1500 },
+				hold: () => undefined,
+			});
+			await vi.advanceTimersByTimeAsync(2100);
+			expect(await pending).toMatchObject({
+				status: "selected",
+				latencyMs: 2100,
+				admissionLatencyMs: 1800,
+				inferenceLatencyMs: 300,
+				applied: false,
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 	it("skips images without a text-only judgment", async () => {
 		const result = await decideHomeRoute({
