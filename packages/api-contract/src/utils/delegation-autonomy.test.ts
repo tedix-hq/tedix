@@ -54,6 +54,8 @@ describe("critical-only autonomy v1", () => {
 	it.each([
 		"Research the caching algorithms",
 		"Write the overnight Today/Feed post from settled Work history. Low risk; publish it.",
+		"Correct the internal Today/Feed post links. Publish the internal correction and read it back. No external messages or other records need changing.",
+		"Write the internal Today/Feed post. No external messages; publish it.",
 		"Refactor the parser. Leave the credential/token cache band in place; the credential lane is active. Do not touch credential code. Never `tedix login`.",
 		"Research (low risk, no spending): compare a database (paused, costs money to resume) with the existing store; save an Output.",
 		"Add a comment to the target Work",
@@ -75,6 +77,8 @@ describe("critical-only autonomy v1", () => {
 	it.each([
 		"Do not read /workspace/.env and pay the invoice",
 		"Write a Today/Feed post; publish it to LinkedIn.",
+		"Correct the Today/Feed post. Publish the internal correction; then publish the article.",
+		"Correct the Today/Feed post. No external messages; publish the internal correction to LinkedIn.",
 		"Write a Today/Feed post; publish it publicly.",
 		"Write a Today/Feed post; publish it. Then publish the article.",
 		"Write a Today/Feed post; publish it. Then email a customer.",
