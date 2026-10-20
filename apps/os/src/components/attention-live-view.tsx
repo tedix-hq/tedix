@@ -146,7 +146,7 @@ function LiveCard({
 					)}
 				</div>
 				<CardTitle className={cn("break-words", stale && "text-kumo-subtle")}>
-					<Link href={card.href} className={stale ? "text-inherit" : undefined}>
+					<Link href={card.href} variant={stale ? "current" : "inline"}>
 						{card.title}
 					</Link>
 				</CardTitle>
