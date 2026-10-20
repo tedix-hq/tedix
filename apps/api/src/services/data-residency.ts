@@ -66,6 +66,27 @@ export function eligibleResidencyProvider(
 	return member;
 }
 
+const RESIDENCY_POLICY_READ_BACKOFF_MS = [100, 400];
+
+/**
+ * One busy D1 read must not fail a whole delegated turn before inference.
+ * Bounded retries keep the fail-closed verdict for a persistent outage.
+ */
+async function readResidencyPolicyWithRetry(
+	db: DbClient,
+	organizationId: string,
+) {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await getOrganizationResidencyPolicy(db, organizationId);
+		} catch (error) {
+			const delay = RESIDENCY_POLICY_READ_BACKOFF_MS[attempt];
+			if (delay === undefined) throw error;
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+	}
+}
+
 export async function authorizeDataResidency(input: {
 	db: DbClient;
 	organizationId: string;
@@ -76,10 +97,7 @@ export async function authorizeDataResidency(input: {
 }) {
 	let policy;
 	try {
-		policy = await getOrganizationResidencyPolicy(
-			input.db,
-			input.organizationId,
-		);
+		policy = await readResidencyPolicyWithRetry(input.db, input.organizationId);
 	} catch {
 		throw new DataResidencyError(
 			"RESIDENCY_POLICY_UNAVAILABLE",

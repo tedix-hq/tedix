@@ -173,11 +173,29 @@ describe("EU model egress admission", () => {
 			),
 		).toThrow("EU_PROVIDER_ROUTE_REQUIRED");
 	});
+	it("retries one transient policy read instead of failing the turn", async () => {
+		mocks.policy
+			.mockRejectedValueOnce(
+				Error("D1_ERROR: database temporarily unavailable"),
+			)
+			.mockResolvedValueOnce({
+				organizationId: "org_lark",
+				mode: "unrestricted",
+				revision: 1,
+			});
+		expect(await authorizeDataResidency(input)).toBeNull();
+		expect(mocks.policy).toHaveBeenCalledTimes(2);
+	});
 	it("fails closed on a policy read failure and hides decryption details", async () => {
-		mocks.policy.mockRejectedValueOnce(Error("db unavailable"));
+		mocks.policy.mockRejectedValue(Error("db unavailable"));
 		await expect(authorizeDataResidency(input)).rejects.toThrow(
 			"RESIDENCY_POLICY_UNAVAILABLE",
 		);
+		mocks.policy.mockResolvedValue({
+			organizationId: "org_lark",
+			mode: "eu",
+			revision: 1,
+		});
 		mocks.decrypt.mockRejectedValue(Error("private-decryption-detail"));
 		await expect(authorizeDataResidency(input)).rejects.toThrow(
 			"EU_PROVIDER_CREDENTIAL_REQUIRED",
