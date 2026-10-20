@@ -99,3 +99,62 @@ it("reads an explicit repository URL or path from a lane brief", () => {
 	);
 	expect(briefRepository("Edit apps/example/worker.jsonc")).toBeUndefined();
 });
+
+it.each([
+	"a".repeat(50_000),
+	`${"a".repeat(25_000)}.${"a".repeat(24_998)}/`,
+	`${"a./".repeat(16_666)}a.`,
+	`${"/".repeat(49_999)}!`,
+	"\n".repeat(50_000),
+	`Repo${" ".repeat(49_996)}`,
+])("handles 50 KB adversarial recall input in under 50 ms", (input) => {
+	const start = performance.now();
+	lessonMatches(
+		{ pathGlobs: ["missing.ts"], repos: ["example/product"] },
+		{
+			repo: input,
+			text: input,
+		},
+	);
+	lessonMatches({ pathGlobs: ["missing.ts"] }, { text: input });
+	briefRepository(input);
+	expect(performance.now() - start).toBeLessThan(50);
+});
+
+it.each([
+	["Repo `team/my product`; next", "team/my product"],
+	['Repository = "team/product".', "team/product"],
+	["notes; repo\n /tmp/product///", "product"],
+	["Repo:missing", undefined],
+	["Repo :missing", ":missing"],
+	["Repo : ", ":"],
+	["Repo    ", undefined],
+	["Repo 'unterminated", "unterminated"],
+	["notes. repository team/product", "team/product"],
+])("parses repository hint %s", (brief, expected) => {
+	expect(briefRepository(brief)).toBe(expected);
+});
+
+it.each([
+	"https://github.com/example/product.git",
+	"git@github.com:example/product.git",
+	"user@github.com/example/product.git",
+	"GITHUB.COM/EXAMPLE/PRODUCT///",
+])("normalizes repository %s", (repo) => {
+	expect(
+		lessonMatches(
+			{ repos: ["github.com/example/product"], keywords: ["fix"] },
+			{ repo, text: "fix" },
+		),
+	).toBe(true);
+});
+
+it.each([
+	["Edit ./apps/example/worker.jsonc", "apps/example/worker.jsonc"],
+	["Edit foo*.ts", "foo*.ts"],
+	["Edit a.b*c/d", "a.b*c"],
+	["Edit *.a./example", "example"],
+	["Edit a..b.ts", "b.ts"],
+])("extracts paths from %s", (text, path) => {
+	expect(lessonMatches({ pathGlobs: [path] }, { text })).toBe(true);
+});

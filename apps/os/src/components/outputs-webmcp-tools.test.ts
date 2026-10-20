@@ -660,3 +660,15 @@ describe("WebMCP execution cancellation", () => {
 		);
 	});
 });
+
+it("escapes table backslashes and pipes and normalizes all line endings", () => {
+	expect(
+		documentBlocksToMarkdown([
+			{
+				type: "table",
+				headers: ["a\\|b\r\nc|d\re\nf"],
+				rows: [["\\\\| |"]],
+			},
+		]),
+	).toBe("| a\\\\\\|b<br>c\\|d<br>e<br>f |\n| --- |\n| \\\\\\\\\\| \\| |");
+});

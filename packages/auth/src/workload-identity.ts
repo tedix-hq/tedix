@@ -301,7 +301,7 @@ function verifyGithubActionsClaims(
 			: [];
 	if (
 		iss !== GITHUB_ACTIONS_OIDC_ISSUER ||
-		!audiences.includes(audience) ||
+		!audiences.some((candidate) => candidate === audience) ||
 		typeof iat !== "number" ||
 		typeof exp !== "number" ||
 		iat > now + 5 ||

@@ -18,16 +18,70 @@ export interface RecallLesson {
 	text: string;
 	triggers?: LessonTriggers;
 }
-function repoKey(value: string): string {
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/^[a-z+]+:\/\//, "")
-		.replace(/^[^@/]+@([^:/]+):/, "$1/")
-		.replace(/^[^@/]+@/, "")
-		.replace(/\.git$/, "")
-		.replace(/\/+$/, "");
+// Bound free-text hint extraction; explicit repository and path constraints stay intact.
+const MAX_RECALL_HINT_LENGTH = 64 * 1024;
+
+function withoutTrailingSlashes(value: string): string {
+	let end = value.length;
+	while (end > 0 && value[end - 1] === "/") end--;
+	return value.slice(0, end);
 }
+
+function repoKey(value: string): string {
+	return withoutTrailingSlashes(
+		value
+			.trim()
+			.toLowerCase()
+			.replace(/^[a-z+]+:\/\//, "")
+			.replace(/^[^@/]+@([^:/]+):/, "$1/")
+			.replace(/^[^@/]+@/, "")
+			.replace(/\.git$/, ""),
+	);
+}
+function textPaths(text: string): string[] {
+	text = text.slice(0, MAX_RECALL_HINT_LENGTH);
+	const paths: string[] = [];
+	// Sticky matches cannot search ahead; separators never occur in segments.
+	const slashPath = /[\w.@-]+(?:\/[\w.@*-]+)+/y;
+	const dottedPath = /[\w@*-]+(?:\.[\w@*-]+)+/y;
+	let slashFailedUntil = 0;
+	let dotFailedUntil = 0;
+	for (let i = 0; i < text.length;) {
+		let match: RegExpExecArray | null = null;
+		if (i >= slashFailedUntil) {
+			slashPath.lastIndex = i;
+			match = slashPath.exec(text);
+			// A failed segment cannot succeed at any of its suffixes. Skip retries
+			// even when a dotted match consumes only part of that segment.
+			if (!match) {
+				slashFailedUntil = i;
+				while (
+					slashFailedUntil < text.length &&
+					/[\w.@-]/.test(text[slashFailedUntil]!)
+				)
+					slashFailedUntil++;
+			}
+		}
+		if (!match && i >= dotFailedUntil) {
+			dottedPath.lastIndex = i;
+			match = dottedPath.exec(text);
+			if (!match) {
+				dotFailedUntil = i;
+				while (
+					dotFailedUntil < text.length &&
+					/[\w@*-]/.test(text[dotFailedUntil]!)
+				)
+					dotFailedUntil++;
+			}
+		}
+		if (match) {
+			paths.push(match[0]);
+			i += match[0].length;
+		} else i++;
+	}
+	return paths;
+}
+
 function glob(pattern: string): RegExp {
 	let source = "";
 	for (let i = 0; i < pattern.length; i++) {
@@ -62,11 +116,7 @@ export function lessonMatches(
 	const sourceText = `${situation.text ?? ""} ${situation.command ?? ""}`;
 	const text = sourceText.toLowerCase();
 	// Briefs and shell commands often name the relevant paths themselves.
-	const paths = [
-		...(situation.paths ?? []),
-		...(sourceText.match(/[\w.@-]+(?:\/[\w.@*-]+)+|[\w@*-]+(?:\.[\w@*-]+)+/g) ??
-			[]),
-	];
+	const paths = [...(situation.paths ?? []), ...textPaths(sourceText)];
 	return Boolean(
 		triggers.pathGlobs?.some((p) =>
 			paths.some((path) =>
@@ -114,15 +164,43 @@ export function incidentFingerprint(reason: string): string {
 
 /** An explicit repository hint in a brief; a local path gives only its basename. */
 export function briefRepository(brief: string): string | undefined {
-	const match =
-		/(?:^|[\n.;:])\s*(?:repo|repository)\s*(?::|=)?\s+(`[^`]+`|"[^"]+"|'[^']+'|[^\s,;]+)/i.exec(
-			brief,
-		);
-	if (!match) return undefined;
-	const value = match[1]!.replace(/^[`"']|[`"']$/g, "").replace(/[.,;)]+$/, "");
+	brief = brief.slice(0, MAX_RECALL_HINT_LENGTH);
+	let raw: string | undefined;
+	// Each whitespace run is consumed once, including runs spanning newlines.
+	for (let i = 0; i < brief.length; i++) {
+		if (i !== 0 && !/[\n.;:]/.test(brief[i - 1]!)) continue;
+		while (i < brief.length && /\s/.test(brief[i]!)) i++;
+		const header = /^(?:repository|repo)/i.exec(brief.slice(i, i + 10));
+		if (!header) continue;
+		let end = i + header[0].length;
+		const afterHeader = end;
+		while (end < brief.length && /\s/.test(brief[end]!)) end++;
+		const beforeSeparator = end;
+		if (brief[end] === ":" || brief[end] === "=") {
+			end++;
+			const afterSeparator = end;
+			while (end < brief.length && /\s/.test(brief[end]!)) end++;
+			if (end === afterSeparator) {
+				if (beforeSeparator === afterHeader) continue;
+				end = beforeSeparator;
+			}
+		} else if (end === afterHeader) continue;
+		raw = /^(?:`[^`]+`|"[^"]+"|'[^']+'|[^\s,;]+)/.exec(brief.slice(end))?.[0];
+		if (raw === undefined && beforeSeparator > afterHeader) {
+			raw = /^(?:`[^`]+`|"[^"]+"|'[^']+'|[^\s,;]+)/.exec(
+				brief.slice(beforeSeparator),
+			)?.[0];
+		}
+		if (raw !== undefined) break;
+	}
+	if (raw === undefined) return undefined;
+	const unquoted = raw.replace(/^[`"']|[`"']$/g, "");
+	let end = unquoted.length;
+	while (end > 0 && /[.,;)]/.test(unquoted[end - 1]!)) end--;
+	const value = unquoted.slice(0, end);
 	if (!value || value.length > 500) return undefined;
 	if (/^(?:[a-z+]+:\/\/|[^@/]+@[^:/]+:)/i.test(value)) return repoKey(value);
 	return value.startsWith("/") || value.startsWith("~/")
-		? value.replace(/\/+$/, "").split("/").at(-1)
+		? withoutTrailingSlashes(value).split("/").at(-1)
 		: value;
 }

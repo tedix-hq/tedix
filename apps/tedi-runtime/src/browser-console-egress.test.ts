@@ -14,9 +14,10 @@ const policy = ToolPolicySchema.parse({
 }).browserEgress!;
 for (const hostname of TEDIX_CONSOLE_SIGN_IN_HOSTNAMES) {
 	assert.equal(
-		browserEgressDecision(`https://${hostname.replace("*", "example")}/login`, [
-			policy,
-		]).decision,
+		browserEgressDecision(
+			`https://${hostname.replaceAll("*", "example")}/login`,
+			[policy],
+		).decision,
 		"allow",
 	);
 }

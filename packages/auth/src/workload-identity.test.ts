@@ -14,6 +14,7 @@ const subject = "repo:tedix-hq/tedix:environment:production";
 async function fixtureToken(
 	overrides: Record<string, unknown> = {},
 	header: { alg: string; kid: string } = { alg: "RS256", kid: "test" },
+	audience: string | string[] = TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE,
 ) {
 	const { privateKey, publicKey } = await generateKeyPair("RS256");
 	const jwk = await exportJWK(publicKey);
@@ -21,7 +22,7 @@ async function fixtureToken(
 	const token = await new SignJWT({ jti: "run-123", ...overrides })
 		.setProtectedHeader(header)
 		.setIssuer(GITHUB_ACTIONS_OIDC_ISSUER)
-		.setAudience(TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE)
+		.setAudience(audience)
 		.setSubject(subject)
 		.setIssuedAt(now)
 		.setExpirationTime(now + 300)
@@ -33,6 +34,43 @@ async function fixtureToken(
 }
 
 describe("GitHub Actions workload identity", () => {
+	it.each([
+		{ audience: `prefix-${TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE}` },
+		{ audience: `${TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE}/suffix` },
+		{
+			audience: [
+				`prefix-${TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE}`,
+				`${TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE}/suffix`,
+			],
+		},
+	])(
+		"rejects audience substrings in scalar and array claims: %s",
+		async ({ audience }) => {
+			const fixture = await fixtureToken({}, undefined, audience);
+			await expect(
+				verifyGithubActionsWorkloadToken(fixture.token, {
+					expectedSubject: subject,
+					jwk: fixture.jwk,
+				}),
+			).rejects.toMatchObject({ code: "invalid_token" });
+		},
+	);
+
+	it("accepts an exact audience among other array entries", async () => {
+		const fixture = await fixtureToken({}, undefined, [
+			"https://other.example",
+			TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE,
+		]);
+		await expect(
+			verifyGithubActionsWorkloadToken(fixture.token, {
+				expectedSubject: subject,
+				jwk: fixture.jwk,
+			}),
+		).resolves.toMatchObject({
+			audience: TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE,
+		});
+	});
+
 	it("verifies the exact issuer, audience, subject, algorithm, lifetime, and jti", async () => {
 		const fixture = await fixtureToken();
 		await expect(
@@ -55,6 +93,21 @@ describe("GitHub Actions workload identity", () => {
 			TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE,
 		],
 		["audience", subject, "https://evil.example"],
+		[
+			"audience prefix",
+			subject,
+			TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE.slice(0, -1),
+		],
+		[
+			"audience suffix",
+			subject,
+			TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE.slice(1),
+		],
+		[
+			"audience extension",
+			subject,
+			`${TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE}/evil`,
+		],
 	])(
 		"rejects %s binding drift",
 		async (_label, expectedSubject, expectedAudience) => {
