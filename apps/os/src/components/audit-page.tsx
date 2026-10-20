@@ -5,7 +5,7 @@ import {
 } from "@phosphor-icons/react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getOsSurface } from "@/lib/os-navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useContext } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { Text } from "@/components/kumo/text";
@@ -67,6 +67,11 @@ import {
 import { formatCount, humanize, sentenceCase } from "@/lib/format";
 import { auditSearchQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import {
+	WorkActorAvatar,
+	WorkActorDirectoryContext,
+} from "@/components/work-actor-avatar";
+import type { ActorDirectory } from "@/lib/work-actor";
 import { useTediNames } from "@/lib/use-tedi-names";
 
 // ---------------------------------------------------------------------------
@@ -133,21 +138,62 @@ export function actorTypeLabel(actorType: AuditActorType): string {
 	return ACTOR_TYPE_LABELS[actorType] ?? sentenceCase(actorType);
 }
 
-/**
- * The identity line next to the actor-type chip. Tedi actor ids resolve
- * through the shared name map; anonymous actors carry no meaningful id (the
- * chip already says so); everything else shows the raw principal id — the
- * honest value, since the contract carries no display name.
- */
+/** Names use the shared actor directory; IDs remain diagnostic fields. */
 export function actorLabel(
 	event: AuditEvent,
 	tediNames: Record<string, string> = {},
+	directory: ActorDirectory = new Map(),
 ): string | null {
-	if (event.actorType === "tedi") {
-		return tediNames[event.actorId] ?? "a tedi";
-	}
 	if (event.actorType === "anonymous") return null;
+	const known = directory.get(`${event.actorType}:${event.actorId}`)?.name;
+	if (known) return known;
+	if (event.actorType === "tedi")
+		return tediNames[event.actorId] ?? "Name unavailable";
+	if (event.actorType === "user" || event.actorType === "external_agent")
+		return "Name unavailable";
 	return event.actorId;
+}
+
+function AuditIdentity({
+	event,
+	tediNames,
+}: {
+	event: AuditEvent;
+	tediNames: Record<string, string>;
+}) {
+	const directory = useContext(WorkActorDirectoryContext);
+	const name = actorLabel(event, tediNames, directory);
+	return (
+		<span className="inline-flex min-w-0 items-center gap-2">
+			{name && (
+				<WorkActorAvatar
+					actor={{ type: event.actorType, id: event.actorId }}
+					name={name}
+					detail={`${actorTypeLabel(event.actorType)}: ${event.actorId}`}
+					className="max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11"
+				/>
+			)}
+			<span className="min-w-0">
+				<AuditActorChip actorType={event.actorType} />
+				{name && (
+					<Text as="span" role="label" className="block truncate">
+						{name}
+					</Text>
+				)}
+				{name && (
+					<Text
+						as="span"
+						role="label"
+						tone="secondary"
+						className="block truncate"
+						title={event.actorId}
+					>
+						{event.actorId.slice(0, 8)}
+					</Text>
+				)}
+			</span>
+		</span>
+	);
 }
 
 /** How many resource-type facet tabs render beside "All". */
@@ -194,18 +240,10 @@ export function AuditEventRow({
 	tediNames?: Record<string, string>;
 	onInspect?: (event: AuditEvent) => void;
 }) {
-	const actor = actorLabel(event, tediNames);
 	return (
 		<li className="relative flex min-w-0 items-start gap-3 px-3 py-3 has-[button]:hover:bg-kumo-tint has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-kumo-ring">
 			<span className="flex min-w-0 flex-1 flex-col gap-1">
-				<span className="flex flex-wrap items-center gap-1.5">
-					<AuditActorChip actorType={event.actorType} />
-					{actor ? (
-						<Text role="label" tone="secondary" as="span" truncate>
-							{actor}
-						</Text>
-					) : null}
-				</span>
+				<AuditIdentity event={event} tediNames={tediNames} />
 				{/* The exact action string stays on title — filters take exact values. */}
 				<Text
 					role="body"
@@ -234,7 +272,7 @@ export function AuditEventRow({
 				<Button
 					variant="ghost"
 					size="sm"
-					className="shrink-0 after:absolute after:inset-0 after:content-['']"
+					className="min-h-11 shrink-0"
 					onClick={() => onInspect(event)}
 					aria-label={`View details for ${event.action} event`}
 				>
@@ -275,27 +313,13 @@ export function AuditEventTable({
 				</TableHeader>
 				<TableBody>
 					{events.map((event) => {
-						const actor = actorLabel(event, tediNames);
 						return (
 							<TableRow
 								key={event.id}
 								className="relative has-[button]:hover:bg-kumo-tint has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-kumo-ring"
 							>
 								<TableCell className="max-w-52">
-									<div className="flex min-w-0 items-center gap-2">
-										<AuditActorChip actorType={event.actorType} />
-										{actor ? (
-											<Text
-												role="label"
-												tone="secondary"
-												as="span"
-												truncate
-												title={actor}
-											>
-												{actor}
-											</Text>
-										) : null}
-									</div>
+									<AuditIdentity event={event} tediNames={tediNames} />
 								</TableCell>
 								<TableCell className="max-w-60">
 									<Text
@@ -343,7 +367,7 @@ export function AuditEventTable({
 										<Button
 											variant="ghost"
 											size="sm"
-											className="after:absolute after:inset-0 after:content-['']"
+											className="min-h-11"
 											onClick={() => onInspect(event)}
 											aria-label={`View details for ${event.action} event`}
 										>
@@ -377,7 +401,8 @@ export function AuditEventDetails({
 	event: AuditEvent;
 	tediNames?: Record<string, string>;
 }) {
-	const actor = actorLabel(event, tediNames);
+	const directory = useContext(WorkActorDirectoryContext);
+	const actor = actorLabel(event, tediNames, directory);
 	const fields = [
 		["Actor", actor ?? actorTypeLabel(event.actorType)],
 		["Actor type", actorTypeLabel(event.actorType)],

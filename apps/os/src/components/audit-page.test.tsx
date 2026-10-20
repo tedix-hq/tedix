@@ -111,12 +111,12 @@ describe("actorLabel", () => {
 				"33333333-3333-4333-8333-333333333333": "CTO",
 			}),
 		).toBe("CTO");
-		expect(actorLabel(baseEvent)).toBe("a tedi");
+		expect(actorLabel(baseEvent)).toBe("Name unavailable");
 	});
 
-	it("shows the raw principal id for non-tedi actors", () => {
+	it("uses an honest fallback when a person name is unavailable", () => {
 		expect(actorLabel(event({ actorType: "user", actorId: "U123" }))).toBe(
-			"U123",
+			"Name unavailable",
 		);
 		expect(actorLabel(event({ actorType: "api_key", actorId: "sk_1" }))).toBe(
 			"sk_1",
@@ -421,4 +421,28 @@ describe("plain activity labels", () => {
 		);
 		expect(auditActionLabel("home.tool_write")).toBe("Chat action");
 	});
+});
+
+it("resolves people and coding assistants from the actor directory while retaining diagnostic IDs", () => {
+	const directory = new Map([
+		["user:U123", { name: "Sample Owner" }],
+		["external_agent:session-1", { name: "Codex session" }],
+	]);
+	expect(
+		actorLabel(event({ actorType: "user", actorId: "U123" }), {}, directory),
+	).toBe("Sample Owner");
+	expect(
+		actorLabel(
+			event({ actorType: "external_agent", actorId: "session-1" }),
+			{},
+			directory,
+		),
+	).toBe("Codex session");
+	expect(
+		renderToStaticMarkup(
+			<AuditEventDetails
+				event={event({ actorType: "user", actorId: "U123" })}
+			/>,
+		),
+	).toContain("U123");
 });

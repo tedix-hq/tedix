@@ -2,6 +2,7 @@ import {
 	interactionSubject,
 	decisionCaptureSummary,
 } from "@/lib/work-interaction-display";
+import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -15,7 +16,7 @@ import {
 	RouterProvider,
 } from "@tanstack/react-router";
 import { workInteractionDetailQueryOptions } from "@/lib/os-query-options";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	membersListQueryOptions,
 	tediRosterQueryOptions,
@@ -33,8 +34,15 @@ import {
 	osQueryKeys,
 	workResourcePoolsQueryOptions,
 	workUrgentInteractionsQueryOptions,
+	workReadinessProjectionQueryOptions,
+	workAdmissionSpecificationQueryOptions,
+	workItemReadinessQueryOptions,
 } from "@/lib/os-query-options";
 import {
+	WorkAdmissionPage,
+	WorkClustersPage,
+	NeedsYouNowSection,
+	OperationActor,
 	ResourcePressureLinks,
 	WorkInteractionsRoute,
 	WorkApprovalsPage,
@@ -74,6 +82,7 @@ function Harness() {
 }
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	if (root) act(() => root?.unmount());
 	root = undefined;
 	paging = undefined;
@@ -1142,5 +1151,170 @@ describe("Work request and capacity navigation", () => {
 				workResourcePoolsQueryOptions("cursor-1", "release:os").queryKey,
 			),
 		).toContain("release:os");
+	});
+});
+
+describe("Read-only operations entry", () => {
+	const id = "11111111-1111-4111-8111-111111111111";
+	it("opens admission and selects Work without replacing its specification or starting an Attempt", async () => {
+		const fetch = vi
+			.spyOn(globalThis, "fetch")
+			.mockRejectedValue(new Error("Unexpected request"));
+		const client = new QueryClient({
+			defaultOptions: {
+				queries: { enabled: false, retry: false, staleTime: Infinity },
+			},
+		});
+		client.setQueryData(workReadinessProjectionQueryOptions().queryKey, {
+			data: [
+				{
+					workItem: {
+						id,
+						title: "Review sample deployment",
+						disposition: "accepted",
+						workKind: "coding",
+						riskLevel: "low",
+						priority: "medium",
+						projectId: null,
+						accountableOwnerType: "user",
+						accountableOwnerId: "sample-owner",
+						createdAt: "2026-10-20T10:00:00Z",
+						updatedAt: null,
+					},
+					readiness: {
+						workItemId: id,
+						ready: false,
+						state: "already_running",
+						gates: [
+							{
+								gate: "attempt",
+								detail: "Active lease until tomorrow",
+								evaluation: "failed",
+							},
+						],
+						reasons: [],
+						derivedAt: "2026-10-20T10:00:00Z",
+					},
+				},
+			],
+			hasMore: false,
+			observedAt: "2026-10-20T10:00:00Z",
+			nextCursor: null,
+		});
+		client.setQueryData(workItemReadinessQueryOptions(id).queryKey, {
+			workItemId: id,
+			reasons: [],
+			ready: false,
+			state: "already_running",
+			gates: [],
+			derivedAt: "2026-10-20T10:00:00Z",
+		});
+		client.setQueryData(workAdmissionSpecificationQueryOptions(id).queryKey, {
+			workItemVersion: 2,
+			workItemId: id,
+			admissionSpecRevision: "sample-revision",
+			resources: [{ resourceKey: "sample:resource", quantity: 1 }],
+			budget: null,
+		});
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<QueryClientProvider client={client}>
+					<WorkAdmissionPage />
+				</QueryClientProvider>,
+			),
+		);
+		expect(container.textContent).toContain("Active lease until tomorrow");
+		expect(container.querySelector("textarea")).toBeNull();
+		const inspect = Array.from(container.querySelectorAll("button")).find(
+			(button) => button.textContent?.includes("Review sample deployment"),
+		);
+		expect(inspect).toBeDefined();
+		await act(async () => inspect?.click());
+		expect(container.textContent).toContain("Current readiness");
+		expect(fetch).not.toHaveBeenCalled();
+		vi.restoreAllMocks();
+	});
+	it("offers a named tedi snapshot with advanced UUID lookup collapsed", () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { enabled: false } },
+		});
+		client.setQueryData(tediRosterQueryOptions(100).queryKey, {
+			data: [{ id, name: "cedar", displayName: "Cedar" }] as never,
+			pagination: { total: 1, limit: 100, offset: 0, hasMore: false },
+		});
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<WorkClustersPage />
+			</QueryClientProvider>,
+		);
+		expect(html).toContain("Choose a tedi");
+		expect(html).toContain("Advanced");
+		expect(html).not.toContain('placeholder="Tedi UUID"');
+	});
+});
+
+describe("Request and case identity presentation", () => {
+	it("resolves typed owners from the shared actor directory and keeps a diagnostic ID", () => {
+		const html = renderToStaticMarkup(
+			<WorkActorDirectoryContext.Provider
+				value={new Map([["user:sample-owner", { name: "Sample Owner" }]])}
+			>
+				<OperationActor type="user" id="sample-owner" />
+			</WorkActorDirectoryContext.Provider>,
+		);
+		expect(html).toContain("Sample Owner");
+		expect(html).toContain('title="user: sample-owner"');
+		expect(
+			renderToStaticMarkup(<OperationActor type="user" id="unknown" />),
+		).toContain("Name unavailable");
+	});
+	it("suppresses identical subtitles and uses linked Work as the canonical origin on mobile", () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { enabled: false } },
+		});
+		client.setQueryData(workUrgentInteractionsQueryOptions().queryKey, {
+			data: [
+				{
+					request: {
+						id: "sample-request",
+						prompt: "Check the sample failure before continuing.",
+						subject: "Review sample deployment",
+						creatorType: "user",
+						creatorId: "sample-owner",
+						metadata: {},
+						workItemId: "sample-work",
+					},
+					workItem: { id: "sample-work", title: "Review sample deployment" },
+					effectiveState: "open",
+				},
+			],
+			hasMore: false,
+			nextCursor: null,
+		} as never);
+		const doc = new DOMParser().parseFromString(
+			renderToStaticMarkup(
+				<QueryClientProvider client={client}>
+					<NeedsYouNowSection />
+				</QueryClientProvider>,
+			),
+			"text/html",
+		);
+		const mobile = doc.querySelector(
+			'ul[aria-label="Requests that need you now"]',
+		);
+		expect(mobile?.querySelectorAll("li")).toHaveLength(1);
+		expect(
+			mobile?.textContent?.match(/Review sample deployment/g),
+		).toHaveLength(1);
+		expect(mobile?.textContent).toContain("Needs you");
+		expect(mobile?.textContent).toContain(
+			"Check the sample failure before continuing.",
+		);
+		expect(mobile?.textContent).not.toContain("Origin not recorded");
+		expect(
+			mobile?.querySelector('a[href="/work/items/sample-work"]'),
+		).not.toBeNull();
 	});
 });
