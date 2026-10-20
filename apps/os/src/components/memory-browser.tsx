@@ -1,3 +1,9 @@
+import type { AgentLessonEntry } from "@tedix/api-contract/schemas/agent-session-lessons";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "./kumo/collapsible";
 import { useQuery } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
 import { RunLinkChip, type CardRunLinkProps } from "./chat-cards";
@@ -143,6 +149,50 @@ function FactDetails({ fact }: { fact: Fact }) {
 	);
 }
 
+export function MemoryRuleDetails({ lesson }: { lesson: AgentLessonEntry }) {
+	const normalize = (text: string) => text.trim().replace(/\s+/g, " ");
+	return (
+		<div className="grid gap-4">
+			<Text className="whitespace-pre-wrap wrap-anywhere">{lesson.text}</Text>
+			<Collapsible>
+				<CollapsibleTrigger className="min-h-11">Evidence</CollapsibleTrigger>
+				<CollapsibleContent keepMounted>
+					<div className="grid gap-3 pt-2">
+						{lesson.evidence?.sources.length ? (
+							lesson.evidence.sources.map((source) => (
+								<blockquote
+									key={`${source.kind}:${source.id}`}
+									className="m-0 border-l border-kumo-line pl-4"
+								>
+									{normalize(source.quote) !== normalize(lesson.text) && (
+										<Text className="whitespace-pre-wrap wrap-anywhere">
+											{source.quote}
+										</Text>
+									)}
+									<Text
+										role="caption"
+										tone="secondary"
+										className="wrap-anywhere"
+									>
+										{source.kind}: {source.id}
+									</Text>
+								</blockquote>
+							))
+						) : (
+							<Text tone="secondary">No source quotes recorded.</Text>
+						)}
+						<Text tone="secondary">
+							{lesson.learnedFrom
+								? `${lesson.learnedFrom.replies} decisions cited`
+								: "No decision history recorded."}
+						</Text>
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
+		</div>
+	);
+}
+
 export function MemoryBrowser({
 	search,
 	onSearch,
@@ -223,38 +273,7 @@ export function MemoryBrowser({
 				source: "Your feedback",
 				updated: lesson.addedAt,
 				confidence: null,
-				details: (
-					<div className="grid gap-4">
-						<Text className="wrap-anywhere">{lesson.text}</Text>
-						<Text weight="medium">Evidence</Text>
-						{lesson.evidence?.sources.length ? (
-							lesson.evidence.sources.map((source) => (
-								<blockquote
-									key={source.id}
-									className="border-l border-kumo-line pl-4"
-								>
-									<Text className="whitespace-pre-wrap wrap-anywhere">
-										{source.quote}
-									</Text>
-									<Text
-										role="caption"
-										tone="secondary"
-										className="wrap-anywhere"
-									>
-										{source.id}
-									</Text>
-								</blockquote>
-							))
-						) : (
-							<Text tone="secondary">No source quotes recorded.</Text>
-						)}
-						<Text tone="secondary">
-							{lesson.learnedFrom
-								? `${lesson.learnedFrom.replies} decisions cited`
-								: "No decision history recorded."}
-						</Text>
-					</div>
-				),
+				details: <MemoryRuleDetails lesson={lesson} />,
 			}));
 	if (search.tab === "knowledge")
 		rows = (knowledge.data?.entries ?? []).map((entry) => ({

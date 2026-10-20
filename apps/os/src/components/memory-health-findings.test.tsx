@@ -118,3 +118,36 @@ describe("MemoryHealthFindingItem", () => {
 		expect(html).toContain("Showing 1.");
 	});
 });
+
+it("groups identical health text while keeping each fact and its provenance", () => {
+	const html = renderToStaticMarkup(
+		<MemoryHealthFindingItem
+			context={context}
+			finding={{
+				...finding("unused", 3),
+				samples: [
+					sample,
+					{ ...sample, factId: "f2", source: "doc://second", confidence: 0.3 },
+					{ ...sample, factId: "f3", text: "A distinct summary." },
+				],
+			}}
+		/>,
+	);
+	const root = document.createElement("div");
+	root.innerHTML = html;
+	expect(
+		root.querySelectorAll('[data-slot="memory-health-sample"]'),
+	).toHaveLength(2);
+	expect(
+		root.textContent?.match(/Refunds above 500 EUR need a second approver\./g),
+	).toHaveLength(1);
+	expect(root.querySelector("[aria-expanded=false]")?.textContent).toContain(
+		"2 sources",
+	);
+	expect(root.textContent).toContain("f1");
+	expect(root.textContent).toContain("f2");
+	expect(root.textContent).toContain("doc://second");
+	expect(root.textContent).toContain("Confidence 30%");
+	expect(root.textContent).toContain("A distinct summary.");
+	expect(root.textContent).not.toContain("Showing 2.");
+});
