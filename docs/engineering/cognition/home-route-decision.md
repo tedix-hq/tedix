@@ -64,11 +64,15 @@ to retry; no invented tool or dispatch arguments are executed. A confident
 choice does not show the old routing-trouble notice.
 
 Judgments use the existing governed executor and Cloudflare transport. Admission
-and rate resolution stay awaited. A real Worker/DO lifetime holder bounds the
-whole decision wait and retains both pending dispatch completion and usage
-persistence; usage writes may finish after the decision. Callers without a
-lifetime holder await completion. Receipt failures retain the existing retry
-and reconciliation evidence. Direct unmetered calls are not used.
+and rate resolution stay awaited, with a separate 10-second admission deadline.
+The configured `timeoutMs` starts after admission and bounds inference through
+response parsing. Observations separate `admissionLatencyMs` and
+`inferenceLatencyMs` from total `latencyMs`; `timeoutPhase` identifies which
+deadline expired. A real Worker/DO lifetime holder retains pending admission,
+dispatch completion and usage persistence; usage writes may finish after the
+decision. Callers without a lifetime holder await completion. Receipt failures
+retain the existing retry and reconciliation evidence. Direct unmetered calls
+are not used.
 
 The offline replay suite contains two fictionalized recorded approval-stage
 Work creation failures plus six synthetic route scenarios. It tests policy,

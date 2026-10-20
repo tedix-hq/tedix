@@ -16,6 +16,7 @@ import type { KernelEnv } from "./llm";
 import { HOME_ROUTE_KINDS, type KernelRouteDecision } from "./route-schema";
 
 export type HomeRoutePolicy = JevSettings["purposes"]["homeRoute"];
+const ROUTE_ADMISSION_TIMEOUT_MS = 10_000;
 export interface RouteChoice {
 	routeKind: KernelRouteDecision["routeKind"];
 	targetTediId: string | null;
@@ -29,6 +30,9 @@ export interface RouteDecisionObservation {
 	threshold: number;
 	shadowTurns: number;
 	latencyMs: number;
+	admissionLatencyMs?: number;
+	inferenceLatencyMs?: number;
+	timeoutPhase?: "admission" | "inference";
 	routerLatencyMs?: number;
 	targetOptions?: Record<string, string>;
 	status: "selected" | "uncertain" | "unavailable" | "timeout" | "ineligible";
@@ -209,6 +213,25 @@ export async function decideHomeRoute(input: {
 		controller.signal,
 		...(input.signal ? [input.signal] : []),
 	]);
+	let admittedAt: number | undefined;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let resolveTimeout: (value: RouteDecisionObservation) => void;
+	const timeout = new Promise<RouteDecisionObservation>((resolve) => {
+		resolveTimeout = resolve;
+	});
+	const armTimeout = (ms: number, phase: "admission" | "inference") => {
+		clearTimeout(timer);
+		if (!input.hold) return;
+		timer = setTimeout(() => {
+			observation.status = "timeout";
+			observation.timeoutPhase = phase;
+			controller.abort();
+			resolveTimeout(observation);
+		}, ms);
+	};
+	// The provider's budget starts after governed admission, as in callJev.
+	// Admission remains awaited and separately bounded; it is never bypassed.
+	armTimeout(ROUTE_ADMISSION_TIMEOUT_MS, "admission");
 	const work = executeJevJudgment({
 		db: input.db,
 		env: input.env,
@@ -242,6 +265,10 @@ export async function decideHomeRoute(input: {
 		onExecutionAttempts: (attempts) => {
 			observation.executionIds.push(...attempts.map((a) => a.executionId));
 			input.onExecutionAttempts?.(attempts);
+			if (signal.aborted) return;
+			admittedAt = Date.now();
+			observation.admissionLatencyMs = admittedAt - started;
+			armTimeout(policy.timeoutMs, "inference");
 		},
 	})
 		.then((result) => {
@@ -265,22 +292,21 @@ export async function decideHomeRoute(input: {
 			};
 		})
 		.catch(() => observation);
-	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		// Keep admitted usage persistence alive even if the hot path stops waiting.
 		input.hold?.(work.then(() => undefined));
 		const result = input.hold
-			? await Promise.race([
-					work,
-					new Promise<RouteDecisionObservation>((resolve) => {
-						timer = setTimeout(() => {
-							controller.abort();
-							resolve({ ...observation, status: "timeout" });
-						}, policy.timeoutMs);
-					}),
-				])
+			? await Promise.race([work, timeout])
 			: await work;
-		return { ...result, latencyMs: Date.now() - started };
+		const ended = Date.now();
+		return {
+			...result,
+			executionIds: [...result.executionIds],
+			latencyMs: ended - started,
+			...(admittedAt === undefined
+				? {}
+				: { inferenceLatencyMs: ended - admittedAt }),
+		};
 	} finally {
 		clearTimeout(timer);
 	}
