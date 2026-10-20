@@ -19,6 +19,7 @@ export type KernelWriteTransport = "direct" | "codemode";
 
 export interface CodeModeCatalogTool {
 	name: string;
+	_meta?: Record<string, unknown>;
 	description?: string;
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
 	inputSchema?: { properties?: Record<string, unknown>; required?: string[] };
@@ -27,6 +28,7 @@ export interface CodeModeCatalogTool {
 
 interface CodeModeDiscoveryEntry {
 	callable?: unknown;
+	_meta?: unknown;
 	description?: unknown;
 	annotations?: unknown;
 	parameters?: unknown;
@@ -103,7 +105,7 @@ export function codeModeDiscoveryParams(
 			// Return only the catalog fields consumed by the planner. Raw JSON Schema
 			// for dozens of tools exceeds Code Mode's model-output budget and becomes
 			// a deliberately truncated (therefore unparseable) string.
-			code: `async () => { const page = await discover.search(${JSON.stringify(input)}); const hits = Array.isArray(page) ? page : page.results; return hits.filter((hit) => hit.callable && hit.annotations?.readOnlyHint !== true).slice(0, ${MAX_DISCOVERY_RESULTS}).map((hit) => ({ callable: hit.callable, description: String(hit.description || "").slice(0, ${MAX_DISCOVERY_DESCRIPTION_LENGTH}), annotations: hit.annotations, parameters: hit.parameters ? { properties: Object.fromEntries(Object.entries(hit.parameters.properties || {}).slice(0, ${MAX_DISCOVERY_PROPERTIES}).map(([name, schema]) => [name, { type: schema && typeof schema === "object" && "type" in schema ? schema.type : "any" }])), required: Array.isArray(hit.parameters.required) ? hit.parameters.required.slice(0, ${MAX_DISCOVERY_PROPERTIES}) : [] } : undefined })); }`,
+			code: `async () => { const page = await discover.search(${JSON.stringify(input)}); const hits = Array.isArray(page) ? page : page.results; return hits.filter((hit) => hit.callable && hit.annotations?.readOnlyHint !== true).slice(0, ${MAX_DISCOVERY_RESULTS}).map((hit) => ({ callable: hit.callable, description: String(hit.description || "").slice(0, ${MAX_DISCOVERY_DESCRIPTION_LENGTH}), annotations: hit.annotations, _meta: hit._meta, parameters: hit.parameters ? { properties: Object.fromEntries(Object.entries(hit.parameters.properties || {}).slice(0, ${MAX_DISCOVERY_PROPERTIES}).map(([name, schema]) => [name, { type: schema && typeof schema === "object" && "type" in schema ? schema.type : "any" }])), required: Array.isArray(hit.parameters.required) ? hit.parameters.required.slice(0, ${MAX_DISCOVERY_PROPERTIES}) : [] } : undefined })); }`,
 		},
 	};
 }
@@ -117,7 +119,7 @@ export function codeModeDescribeParams(
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
-			code: `async () => { const hit = await discover.describe({ callable: ${JSON.stringify(callable)} }); return hit ? [{ callable: hit.callable, description: hit.description, annotations: hit.annotations, parameters: hit.parameters }] : []; }`,
+			code: `async () => { const hit = await discover.describe({ callable: ${JSON.stringify(callable)} }); return hit ? [{ callable: hit.callable, description: hit.description, annotations: hit.annotations, _meta: hit._meta, parameters: hit.parameters }] : []; }`,
 		},
 	};
 }
@@ -147,7 +149,7 @@ export function codeModeCanonicalDescribeParams(
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
-			code: `async () => { ${search}const callable = ${resolve}; if (!callable) return []; const hit = await discover.describe({ callable }); return hit ? [{ callable: hit.callable, description: hit.description, annotations: hit.annotations, parameters: hit.parameters }] : []; }`,
+			code: `async () => { ${search}const callable = ${resolve}; if (!callable) return []; const hit = await discover.describe({ callable }); return hit ? [{ callable: hit.callable, description: hit.description, annotations: hit.annotations, _meta: hit._meta, parameters: hit.parameters }] : []; }`,
 		},
 	};
 }
@@ -176,11 +178,13 @@ export function parseCodeModeCatalog(result: unknown): CodeModeCatalogTool[] {
 		if (!entry || typeof entry.callable !== "string") return [];
 		if (!CALLABLE_RE.test(entry.callable)) return [];
 		const annotations = recordFrom(entry.annotations);
+		const metadata = recordFrom(entry._meta);
 		const parameters = recordFrom(entry.parameters);
 		const native = McpNativeDescriptorSchema.safeParse(entry.native);
 		return [
 			{
 				name: entry.callable,
+				...(metadata ? { _meta: metadata } : {}),
 				...(typeof entry.description === "string"
 					? { description: entry.description }
 					: {}),

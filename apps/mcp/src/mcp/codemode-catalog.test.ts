@@ -2296,3 +2296,55 @@ it("indexed native descriptors reject duplicate names and retain current caller 
 		authorized: false,
 	});
 });
+
+it("preserves bounded approval facts in compact discovery and exact describe", async () => {
+	const row = tool({
+		toolId: "notion__notion_update_page",
+		title: "Update Notion page",
+		toolTypeId: "mcp",
+		annotations: { readOnlyHint: false, destructiveHint: true },
+		config: {
+			transport: "mcp",
+			mcpToolName: "notion-update-page",
+			auth: { type: "connection", connectionId: "notion" },
+		},
+		meta: {
+			"private-unrelated-field": "omit",
+			"com.tedix/policy": {
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+				argumentPolicy: "notion_page_update",
+			},
+		},
+	});
+	const provider = buildCatalogProvider(
+		{
+			loadedTools: new Map([[row.toolId, row]]),
+		} as unknown as ServerContext,
+		undefined,
+	);
+	const result = await runSearch(provider, "Notion page");
+	const found = result.results.find(
+		(entry) => entry.callable === "notion.notion_update_page",
+	)!;
+	const expected = {
+		"com.tedix/policy": {
+			riskTier: "bounded_write",
+			blastRadius: "single_resource",
+			argumentPolicy: "notion_page_update",
+		},
+		"com.tedix/connectedTool": {
+			providerId: "notion",
+			toolName: "notion-update-page",
+		},
+	};
+	expect(found._meta).toEqual(expected);
+	const tools = provider.tools as Record<
+		string,
+		{ execute: (input: unknown) => Promise<unknown> }
+	>;
+	const described = (await tools.describe!.execute({
+		callable: "notion.notion_update_page",
+	})) as Record<string, unknown>;
+	expect(described._meta).toEqual(expected);
+});

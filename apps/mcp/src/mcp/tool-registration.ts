@@ -28,7 +28,6 @@ import {
 	ToolAnnotationsSchema,
 } from "@tedix/api-contract/schemas/tools";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
-import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import {
 	GetSkillParamsSchema,
 	GetSkillResultSchema,
@@ -109,7 +108,10 @@ import {
 	resolveMcpToolNamespace,
 } from "@tedix/mcp-shared/auth/tool-scopes";
 import { executeTool } from "./tool-execution";
-import { enforceToolRiskRateLimit } from "./tool-risk-policy";
+import {
+	enforceToolRiskRateLimit,
+	toolApprovalMetadata,
+} from "./tool-risk-policy";
 import {
 	buildCallerTelemetryFields,
 	emitMcpAuditEvent,
@@ -471,13 +473,7 @@ export async function registerTextOnlyTool(
 	meta["com.tedix/toolTypeId"] = tool.toolTypeId ?? "unknown";
 	// Provenance comes from the configured connection, never upstream _meta.
 	delete meta["com.tedix/connectedTool"];
-	const providerId = connectedProviderId(tool);
-	if (providerId && tool.config?.transport === "mcp") {
-		meta["com.tedix/connectedTool"] = {
-			providerId,
-			toolName: tool.config.mcpToolName,
-		};
-	}
+	Object.assign(meta, { ...toolApprovalMetadata(tool), ...meta });
 	const paymentPolicy = getToolPaymentPolicy(tool);
 	if (paymentPolicy) {
 		meta["x-tedix/paymentRequired"] = true;

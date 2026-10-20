@@ -7,6 +7,7 @@ import { serializeException } from "@tedix/worker-kit/logger";
 import { createMcpLogger } from "../log";
 import { redactRateLimitKey } from "../middleware/rate-limit";
 import { normalizeCallerIdentity } from "./caller-identity";
+import { connectedProviderId } from "@tedix/mcp-shared/auth/tool-scopes";
 import type { AppTool, ServerContext } from "./server-context";
 
 const log = createMcpLogger("mcp.tool_risk");
@@ -30,6 +31,27 @@ export function resolveToolRiskPolicy(
 					: {}),
 			}
 		: null;
+}
+
+/** The bounded approval facts shared by native and Code Mode discovery. */
+export function toolApprovalMetadata(
+	tool: Pick<AppTool, "toolId" | "config" | "meta">,
+): Record<string, unknown> {
+	const policy = resolveToolRiskPolicy(tool);
+	const providerId = connectedProviderId(tool);
+	return {
+		...(policy ? { "com.tedix/policy": policy } : {}),
+		...(providerId &&
+		tool.config?.transport === "mcp" &&
+		typeof tool.config.mcpToolName === "string"
+			? {
+					"com.tedix/connectedTool": {
+						providerId,
+						toolName: tool.config.mcpToolName,
+					},
+				}
+			: {}),
+	};
 }
 
 export function toolRiskAuditMetadata(
