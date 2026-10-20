@@ -25,6 +25,22 @@ export async function queueDeckCuration(
 			if (!context.env.AUTOMATION_EVENTS)
 				throw new Error("Automation queue unavailable");
 			const seconds = grant.trigger.debounceSeconds;
+			const digest = await crypto.subtle.digest(
+				"SHA-256",
+				new TextEncoder().encode(
+					JSON.stringify([
+						card.orgId,
+						grant.tediId,
+						grant.recipientId,
+						grant.gadgetId,
+						grant.trigger.skillId,
+						Math.floor(Date.now() / (seconds * 1000)),
+					]),
+				),
+			);
+			const key = [...new Uint8Array(digest)]
+				.map((byte) => byte.toString(16).padStart(2, "0"))
+				.join("");
 			await context.env.AUTOMATION_EVENTS.send(
 				{
 					kind: "skill_workflow",
@@ -36,7 +52,7 @@ export async function queueDeckCuration(
 						gadgetId: grant.gadgetId,
 						source: "recipient_card_changed",
 					},
-					idempotencyKey: `deck-curation:${grant.tediId}:${grant.gadgetId}:${Math.floor(Date.now() / (seconds * 1000))}`,
+					idempotencyKey: `deck-curation:${key}`,
 					source: "deck-curation-trigger",
 				},
 				{ delaySeconds: seconds },
