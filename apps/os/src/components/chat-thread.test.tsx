@@ -127,29 +127,17 @@ import {
 import {
 	ACTIVE_RUN_STATUSES,
 	activeDelegations,
-	imageAttachmentRefusal,
-	JumpToLatestControl,
 	shouldReconcileApprovalsOnStreamOpen,
 	isUnresolvedApprovalCard,
 	reconcileApprovalsAfterReconnect,
-	selectedModelImageInput,
-	ApprovalInputGate,
 	applyDelegatedRunPreviews,
 	appendHydrateEvents,
-	buildReadArguments,
-	ChatMessageBubble,
-	ChatThread,
 	chatDraftKey,
-	composerImageRefusal,
 	compareHomeMessages,
-	contextUsedItems,
 	conversationIdForSend,
-	directReadError,
 	HYDRATE_RUN_EVENTS_TAIL,
 	executionLinkMessageIds,
 	encodeChatContext,
-	FIRST_SEND_CONFIRM_POLL_MS,
-	firstSendConfirmPollMs,
 	invalidateOnFocus,
 	mergeHomeMessages,
 	newHomeConversationId,
@@ -157,19 +145,39 @@ import {
 	isBlockingApprovalCard,
 	nextSessionAutoApproval,
 	nextIdempotencyKey,
-	parseDirectReadCommand,
-	readToolFields,
 	restoreChatDraft,
+	shouldHydrateRun,
+	userMessageFromEnqueue,
+} from "./chat-transcript";
+import {
+	imageAttachmentRefusal,
+	selectedModelImageInput,
+	composerImageRefusal,
+} from "./chat-attachments";
+import {
+	JumpToLatestControl,
+	ApprovalInputGate,
+	ChatMessageBubble,
 	ProvisionalUserBubble,
 	RunningIndicator,
-	runSetPollInterval,
 	SendFailureBanner,
+} from "./chat-message-parts";
+import {
+	buildReadArguments,
+	directReadError,
+	parseDirectReadCommand,
+	readToolFields,
+} from "./chat-direct-read";
+import { ChatThread } from "./chat-thread";
+import { contextUsedItems } from "./chat-context-used";
+import {
+	FIRST_SEND_CONFIRM_POLL_MS,
+	firstSendConfirmPollMs,
+	runSetPollInterval,
 	shouldPollTranscript,
-	shouldHydrateRun,
 	shouldShowRunningIndicator,
-	userMessageFromEnqueue,
 	controllableRun,
-} from "./chat-thread";
+} from "./chat-polling";
 import type { ProvisionalSend } from "@/lib/provisional-send";
 import {
 	applyOverlayEvent,
