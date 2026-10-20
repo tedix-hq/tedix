@@ -154,6 +154,49 @@ describe("a turn", () => {
 		expect(stream.input.modelRef).toBe("deep");
 	});
 
+	it.each(["", "cloudflare/auto"])(
+		"distinguishes automatic routing from the explicit Auto model and preserves %j",
+		async (modelRef) => {
+			const saved = JSON.stringify({ modelRef, effort: "" });
+			const w = await bootWidget({
+				before: () =>
+					sessionStorage.setItem("tedix:model-choice:v1:demo-shop", saved),
+				options: {
+					session: vi.fn(async () =>
+						sessionResult({
+							modelSelection: {
+								models: [
+									{ ref: "cloudflare/auto", label: "Auto", reasoning: true },
+									{ ref: "fast", label: "Fast" },
+								],
+								defaultRef: "cloudflare/auto",
+							},
+						}),
+					),
+				},
+			});
+			const stream = await answering(w);
+			const model = w.$<HTMLSelectElement>(".tedix-model-select")!;
+			expect(
+				[...model.options].map((option) => [option.value, option.textContent]),
+			).toEqual([
+				["", "Automatic · Cloudflare Auto"],
+				["cloudflare/auto", "Cloudflare Auto"],
+				["fast", "Fast"],
+			]);
+			expect(model.value).toBe(modelRef);
+			expect(stream.input.modelRef).toBe(modelRef || undefined);
+			expect(sessionStorage.getItem("tedix:model-choice:v1:demo-shop")).toBe(
+				saved,
+			);
+			expect(model.disabled).toBe(true);
+			stream.frame({ kind: "done", text: "done" });
+			stream.finish();
+			await settle();
+			expect(model.disabled).toBe(false);
+		},
+	);
+
 	it("reports the tool phase once, in the worklog, in product language", async () => {
 		const w = await bootWidget({ options: { product: "Acme" } });
 		const stream = await answering(w);
