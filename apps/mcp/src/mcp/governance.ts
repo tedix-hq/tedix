@@ -663,6 +663,16 @@ export async function requireDestructiveToolApproval(
 			0 ||
 		risk === "high_impact_write" ||
 		risk === "external_side_effect";
+	// Enqueue records intent; the kernel authorizes and risk-checks execution.
+	// Tasks capability alone must not turn that ingress into a destructive action.
+	if (
+		!humanBoundary &&
+		!isOwnedChannelBoundary &&
+		!configuredApproval &&
+		tool.config?.transport === "rpc" &&
+		tool.config.endpoint === "kernelRuntime/enqueueMessage"
+	)
+		return null;
 	if (
 		!humanBoundary &&
 		!isOwnedChannelBoundary &&
@@ -711,6 +721,7 @@ export async function requireDestructiveToolApproval(
 		autonomousDecision.autoApprove &&
 		!isOwnedChannelBoundary &&
 		annotations?.destructiveHint !== true &&
+		configuredApproval !== "always" &&
 		configuredApproval !== "work_item"
 	) {
 		emitGovernanceAuditEvent(
