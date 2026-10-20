@@ -6,7 +6,7 @@ import { fileNativeBootstrapCache } from "./native-bootstrap-cache";
 import { resolveOrganizationTarget } from "./organization-target";
 import { parseOptions } from "./options";
 import { callConfiguredNativeTool } from "./work-native";
-import { type NativeToolContext } from "./work";
+import type { NativeToolContext } from "./work";
 
 /** The wrapper observes as the owner; it never borrows a child's executor identity. */
 export function createLaneReporter() {

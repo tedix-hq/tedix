@@ -8,7 +8,7 @@ import {
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
 import { errorText } from "./format";
 import { callConfiguredNativeTool } from "./work-native";
-import { type NativeToolContext } from "./work";
+import type { NativeToolContext } from "./work";
 
 export function attentionUsage(): string {
 	return `tedix deck list [--project <uuid>] [--limit <n>] [--json]

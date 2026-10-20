@@ -1,7 +1,7 @@
 import { cyan, dim, green, red, yellow } from "./format";
 import type { ColorMode } from "./terminal";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import { type WorkContext } from "./work";
+import type { WorkContext } from "./work";
 import { WORK_EXIT_FAIL, type BoardError } from "./work-identity";
 
 // ─── Output ──────────────────────────────────────────────────────────────────

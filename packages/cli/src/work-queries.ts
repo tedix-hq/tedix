@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolveAgentContext } from "./agent-context";
 import { dim, green } from "./format";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import { type WorkContext } from "./work";
+import type { WorkContext } from "./work";
 import {
 	type BoardResult,
 	isUuid,
