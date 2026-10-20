@@ -36,7 +36,7 @@ export async function preflightDelegationTools(
 			"Delegation preflight failed: invalid or excessive required callables",
 		);
 	const rows = await execute(
-		`async () => await Promise.all(${JSON.stringify(callables)}.map(async (callable) => await discover.describe(callable)))`,
+		`async () => await Promise.all(${JSON.stringify(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`,
 	);
 	if (!Array.isArray(rows))
 		throw new Error(

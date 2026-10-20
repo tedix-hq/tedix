@@ -380,17 +380,27 @@ export class AgentMcpRuntime {
 	async executeTool(
 		name: string,
 		args: Record<string, unknown>,
-		opts?: { signal?: AbortSignal; binding?: TedixMcpRuntimeBinding | null },
+		opts?: {
+			signal?: AbortSignal;
+			binding?: TedixMcpRuntimeBinding | null;
+			resultAudience?: "machine";
+		},
 	): Promise<unknown> {
 		const signal = opts?.signal;
 		// Thread the CALLING turn's binding into core so its tool events survive a
 		// concurrent turn's bindTurn/clearTurn on this shared instance (see
 		// core.executeTool + clearTurn notes). Explicit null/undefined cannot
 		// borrow a sibling binding; omitted options use the captured shared turn.
-		const coreOpts =
-			opts && Object.hasOwn(opts, "binding")
-				? { binding: opts.binding ?? null }
-				: undefined;
+		const coreOpts = opts
+			? {
+					...(Object.hasOwn(opts, "binding")
+						? { binding: opts.binding ?? null }
+						: {}),
+					...(opts.resultAudience
+						? { resultAudience: opts.resultAudience }
+						: {}),
+				}
+			: undefined;
 		if (!signal) {
 			return await this.core.executeTool(name, args, coreOpts);
 		}

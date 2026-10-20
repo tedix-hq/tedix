@@ -1278,7 +1278,12 @@ export class TedixMcpRuntime {
 	async executeTool(
 		name: string,
 		args: Record<string, unknown>,
-		opts?: { binding?: TedixMcpRuntimeBinding | null; signal?: AbortSignal },
+		opts?: {
+			binding?: TedixMcpRuntimeBinding | null;
+			signal?: AbortSignal;
+			/** Internal preflight consumers validate structured results before inference. */
+			resultAudience?: "machine";
+		},
 	): Promise<unknown> {
 		// Per-turn binding threaded by the caller wins over the shared `this.binding`
 		// field. This instance is SHARED across concurrent turns on one tedi DO, so
@@ -1424,12 +1429,14 @@ export class TedixMcpRuntime {
 					timing: { startEventMs, prepareMs, executeMs },
 				},
 			});
+			const returnedResult =
+				opts?.resultAudience === "machine" ? result : projected.modelResult;
 			return outcome.actionReceipts?.length
 				? {
-						result: projected.modelResult,
+						result: returnedResult,
 						actionReceipts: outcome.actionReceipts,
 					}
-				: projected.modelResult;
+				: returnedResult;
 		} catch (err) {
 			const latencyMs = Date.now() - startedAt;
 			if (executedAt !== null) executeMs = Date.now() - executedAt;
