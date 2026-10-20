@@ -110,6 +110,8 @@ export function deckDisplayCard(
 		askKind: card.askKind ?? null,
 		askLabel: card.askKind ? DECK_ASK_LABELS[card.askKind] : null,
 		overdue: card.overdue ?? false,
+		...(card.handled ? { handled: true } : {}),
+		...(card.expired ? { expired: true } : {}),
 		draftedNotSent: card.draftedNotSent ?? false,
 		source: attentionSource(card.source),
 		draft: containsCardSecret(draft) ? null : draft,
@@ -326,6 +328,8 @@ function askPrefix(card: AttentionDisplayCard) {
 	const tags = [
 		card.askLabel,
 		card.overdue ? "Overdue" : null,
+		card.handled ? "Handled" : null,
+		card.expired ? "Expired" : null,
 		card.draftedNotSent ? "Drafted, not sent" : null,
 	].filter(Boolean);
 	const due =

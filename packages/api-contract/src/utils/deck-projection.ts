@@ -14,6 +14,7 @@ import { DecisionCardPresentationSchema } from "../schemas/decision-card-present
 import type { DeckCard } from "../schemas/attention";
 import { calendarDay, cardIsDue } from "./card-schedule";
 import { deadlineOverdue, deckAsk } from "./deck-ask";
+import { credentialCard } from "./card-secrets";
 import { scoreLearning, type LearningCandidate } from "./decision-learning";
 
 type Request = z.infer<typeof WorkInteractionInboxRowSchema>;
@@ -109,6 +110,8 @@ export function compareDecisionFreshness(
 		kind?: string;
 		dueAt?: string | null;
 		deadline?: string | null;
+		handled?: boolean;
+		expired?: boolean;
 		requestedAt?: string;
 		score?: number;
 		decision?: DeckCard["decision"];
@@ -119,6 +122,8 @@ export function compareDecisionFreshness(
 		kind?: string;
 		dueAt?: string | null;
 		deadline?: string | null;
+		handled?: boolean;
+		expired?: boolean;
 		requestedAt?: string;
 		score?: number;
 		decision?: DeckCard["decision"];
@@ -135,8 +140,11 @@ export function compareDecisionFreshness(
 	const aDue = due(aDeadline);
 	const bDue = due(bDeadline);
 	const today = calendarDay(now, timeZone);
-	const aOverdue = deadlineOverdue(aDeadline, now, timeZone);
-	const bOverdue = deadlineOverdue(bDeadline, now, timeZone);
+	// Handled or expired asks wait for retirement at the end, never as overdue.
+	const aSettled = Boolean(a.handled || a.expired);
+	const bSettled = Boolean(b.handled || b.expired);
+	const aOverdue = !aSettled && deadlineOverdue(aDeadline, now, timeZone);
+	const bOverdue = !bSettled && deadlineOverdue(bDeadline, now, timeZone);
 	const dueToday = (value: string | null | undefined, timestamp: number) =>
 		Boolean(value) &&
 		Number.isFinite(timestamp) &&
@@ -145,6 +153,7 @@ export function compareDecisionFreshness(
 			: calendarDay(new Date(timestamp), timeZone) === today);
 	// Overdue asks lead, longest overdue first; then the existing policy order.
 	return (
+		Number(aSettled) - Number(bSettled) ||
 		Number(bOverdue) - Number(aOverdue) ||
 		(aOverdue && bOverdue ? aDue - bDue : 0) ||
 		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
@@ -169,7 +178,15 @@ export function annotateDeckAsk(
 	for (const card of cards)
 		Object.assign(
 			card,
-			deckAsk({ ...card, request: card.interaction?.request }, now, options),
+			deckAsk(
+				{
+					...card,
+					request: card.interaction?.request,
+					workItem: card.interaction?.workItem,
+				},
+				now,
+				options,
+			),
 		);
 	return cards;
 }
@@ -249,7 +266,12 @@ export function projectDeckCards(input: {
 				action: decision
 					? undefined
 					: String(m.approvalOperation ?? `${r.subject ?? ""}\n${r.prompt}`),
-				risk: typeof m.riskLevel === "string" ? m.riskLevel : undefined,
+				// A credential ask stays protected whatever generated copy says.
+				risk: credentialCard(`${r.subject ?? ""} ${r.prompt}`, m)
+					? "critical"
+					: typeof m.riskLevel === "string"
+						? m.riskLevel
+						: undefined,
 				protectedEffects:
 					decision?.protectedEffects ??
 					(kind === "outbound"

@@ -509,6 +509,10 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 				.uuid()
 				.nullable()
 				.describe("Nullable for Work Items that are not filed in a project."),
+			disposition: z
+				.enum(["proposed", "accepted", "completed", "cancelled"])
+				.optional()
+				.describe("Completed or cancelled Work means the ask was handled."),
 		})
 		.nullable()
 		.describe(

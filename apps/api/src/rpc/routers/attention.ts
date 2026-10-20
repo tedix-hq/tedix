@@ -465,6 +465,14 @@ export const attentionContractRouter = os.router({
 		const { curateDeckCard } = await import("../../services/deck-curation");
 		return curateDeckCard(context, input);
 	}),
+	retireDeckCard: write.retireDeckCard.handler(async ({ input, context }) => {
+		const { retireDeckCard } = await import("../../services/deck-retirement");
+		return retireDeckCard(context, input);
+	}),
+	mergeDeckCards: write.mergeDeckCards.handler(async ({ input, context }) => {
+		const { mergeDeckCards } = await import("../../services/deck-retirement");
+		return mergeDeckCards(context, input);
+	}),
 	rankCurationInbox: write.rankCurationInbox.handler(
 		async ({ input, context }) => {
 			const { rankCurationInbox } =

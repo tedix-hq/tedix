@@ -216,6 +216,8 @@ export const SPANISH_FEED_DECK_COPY = {
 		} as Record<string, string>,
 		ask: {
 			overdue: "Vencido",
+			handled: "Resuelto",
+			expired: "Caducado",
 			due: (when: string) => `Vence ${when}`,
 			draftedNotSent: "Redactado, sin enviar",
 			staleDrafts: (count: number) =>

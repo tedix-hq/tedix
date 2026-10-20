@@ -68,6 +68,10 @@ export const DeckCardSchema = z.strictObject({
 	/** Earliest known deadline: request due date, decision expiry or approval expiry. */
 	deadline: z.string().nullable().optional(),
 	overdue: z.boolean().optional(),
+	/** The ask's Work Item is completed or cancelled; retire the card, never show it as overdue. */
+	handled: z.boolean().optional(),
+	/** The ask's own expiry passed; retire the card as expired, never show it as overdue. */
+	expired: z.boolean().optional(),
 	/** A ready message draft that has waited longer than the Deck's staleDraftHours. */
 	draftedNotSent: z.boolean().optional(),
 	score: z.number(),
@@ -209,6 +213,8 @@ export const AttentionDisplayCardSchema = z.strictObject({
 	askKind: DeckAskKindSchema.nullable().optional(),
 	askLabel: z.string().nullable().optional(),
 	overdue: z.boolean().optional(),
+	handled: z.boolean().optional(),
+	expired: z.boolean().optional(),
 	draftedNotSent: z.boolean().optional(),
 	source: z.string(),
 	draft: z.string().nullable(),

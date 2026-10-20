@@ -22,6 +22,8 @@ export function DeckAskStrip({
 		askKind: DeckAskKind;
 		deadline: string | null;
 		overdue: boolean;
+		handled?: boolean;
+		expired?: boolean;
 		draftedNotSent: boolean;
 	};
 	staleDrafts: number;
@@ -39,6 +41,16 @@ export function DeckAskStrip({
 					{card.overdue && (
 						<Badge variant="error" className="py-0">
 							{copy.ask.overdue}
+						</Badge>
+					)}
+					{card.handled && (
+						<Badge variant="secondary" className="py-0">
+							{copy.ask.handled}
+						</Badge>
+					)}
+					{card.expired && (
+						<Badge variant="secondary" className="py-0">
+							{copy.ask.expired}
 						</Badge>
 					)}
 					{card.draftedNotSent && (
