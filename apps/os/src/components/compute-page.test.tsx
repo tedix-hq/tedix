@@ -490,6 +490,14 @@ describe("compute posture summaries support both composition levels", () => {
 			),
 			"text/html",
 		);
+		expect(doc.querySelector("h1")?.textContent).toBe("Usage diagnostics");
+		expect(doc.querySelector('a[href="/admin/billing"]')?.textContent).toBe(
+			"Billing",
+		);
+		const advanced = [...doc.querySelectorAll("button")].find(
+			(button) => button.textContent === "Advanced usage diagnostics",
+		);
+		expect(advanced?.getAttribute("aria-expanded")).toBe("false");
 		const collections = [
 			...doc.querySelectorAll('[data-slot="collection"]'),
 		].map((collection) => collection.getAttribute("aria-label"));

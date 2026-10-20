@@ -65,6 +65,10 @@ describe("BillingOverageSection", () => {
 	it("explains a plan that sells no overage", () => {
 		const html = render({ ...off, planSellsOverage: false });
 		expect(html).toContain("This plan does not sell overage");
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const control = doc.querySelector('[role="switch"]');
+		expect(control?.getAttribute("aria-label")).toBe("Allow overage");
+		expect(control?.hasAttribute("disabled")).toBe(true);
 	});
 });
 

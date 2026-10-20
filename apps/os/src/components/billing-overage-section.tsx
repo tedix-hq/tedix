@@ -148,6 +148,7 @@ function OverageForm({
 					>
 						<Switch
 							id="overage-enabled"
+							aria-label="Allow overage"
 							checked={enabled}
 							disabled={!settings.planSellsOverage || mutation.isPending}
 							onCheckedChange={setEnabled}
