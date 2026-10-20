@@ -22,7 +22,7 @@ import {
 	digestCmsRecoverySqlite,
 	digestCmsSiteSqlite,
 } from "./emdash-db";
-import { databaseRecoveryBookmarkAdminResponse } from "./index";
+import { databaseRecoveryBookmarkAdminResponse } from "./database-admin";
 
 const siteId = "13d1b0d0-2664-4006-981b-d27af4e73794";
 const slug = "emdash1rc-src-20260928";
