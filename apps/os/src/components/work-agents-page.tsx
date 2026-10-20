@@ -39,6 +39,10 @@ import {
 } from "@/components/kumo/collapsible";
 import {
 	Collection,
+	PageHeader,
+	PageHeading,
+	PageTitle,
+	PageDescription,
 	PageSection,
 	PageToolbar,
 	SectionHeader,
@@ -519,7 +523,14 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 		filterAgentSessions(query.data, config, { project, state, harness });
 	return (
 		<div className="grid min-w-0 gap-4" data-workspace-app-entry="agents">
-			<DeckAttentionMetrics />
+			<PageHeader>
+				<PageHeading>
+					<PageTitle>Agents</PageTitle>
+					<PageDescription>
+						Session status and activity by project.
+					</PageDescription>
+				</PageHeading>
+			</PageHeader>
 			<PageToolbar appearance="inline">
 				<Select
 					value={project}
@@ -609,6 +620,12 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 					<ListSkeleton rows={3} rowClassName="h-10" />
 				</div>
 			)}
+			<Collapsible>
+				<CollapsibleTrigger>Decision context</CollapsibleTrigger>
+				<CollapsibleContent>
+					<DeckAttentionMetrics />
+				</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }

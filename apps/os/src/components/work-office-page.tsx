@@ -9,6 +9,11 @@ import {
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { EntityAvatar } from "@/components/entity-avatar";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -31,6 +36,7 @@ import {
 	PageDescription,
 	PageHeader,
 	PageHeading,
+	PageTitle,
 	PageSection,
 	SectionDescription,
 	SectionHeader,
@@ -205,6 +211,7 @@ function OfficeHeader({ since }: { since: string }) {
 	return (
 		<PageHeader>
 			<PageHeading>
+				<PageTitle>Office</PageTitle>
 				<PageDescription className="text-kumo-default type-tedix-dialog">
 					{knocks.isError ||
 					totals.acceptance.isError ||
@@ -869,13 +876,20 @@ export function OfficeApp() {
 	const requests = useQuery(agentSessionRequestsQueryOptions());
 	return (
 		<div className="grid min-w-0 gap-10" data-workspace-app-entry="office">
-			<DeckAttentionMetrics />
-			<WeeklyDecisionDigest />
 			<div className="grid gap-5">
 				<OfficeHeader since={since} />
-				<TodayTiles since={since} />
 				<Activity />
+				<TodayTiles since={since} />
 			</div>
+			<Collapsible>
+				<CollapsibleTrigger>Decision context</CollapsibleTrigger>
+				<CollapsibleContent>
+					<div className="grid gap-5">
+						<DeckAttentionMetrics />
+						<WeeklyDecisionDigest />
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
 			<Knocks since={since} />
 			<OfficeLeaderboard />
 			<Notebook since={since} />

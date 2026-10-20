@@ -97,6 +97,22 @@ async function render(
 }
 
 describe("Agents board", () => {
+	it("leads with the page title and keeps decision context collapsed", async () => {
+		const doc = await render([
+			session(1, "working", "Running tests", PROJECT_A),
+		]);
+		const app = doc.querySelector('[data-workspace-app-entry="agents"]')!;
+		expect(app.firstElementChild?.querySelector("h1")?.textContent).toBe(
+			"Agents",
+		);
+		expect(app.querySelector("[data-agent-state]")).not.toBeNull();
+		const context = [...app.querySelectorAll("button")].find(
+			(button) => button.textContent === "Decision context",
+		)!;
+		expect(context.getAttribute("aria-expanded")).toBe("false");
+		expect(app.querySelector('[aria-label="Decision attention"]')).toBeNull();
+	});
+
 	it("shows the last observed time for inactive sessions without a device explanation", () => {
 		const html = renderToStaticMarkup(
 			<AgentStateBadge state="idle" lastSeenAt={ago(12)} now={new Date(NOW)} />,
