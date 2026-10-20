@@ -7,6 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	userProfileQueryOptions,
 	workItemDetailQueryOptions,
+	workItemRelationsQueryOptions,
 	workItemAttemptsQueryOptions,
 	workItemEvidenceQueryOptions,
 	workItemEventsQueryOptions,
@@ -30,6 +31,7 @@ import {
 	WorkItemInspectorPage,
 	WorkItemReadOnlyLedgers,
 	WorkGraphLedger,
+	WorkGraphPage,
 	workAttemptSessionLabel,
 	WorkItemsTable,
 	workOwnerName,
@@ -298,6 +300,55 @@ describe("Work factory queue", () => {
 });
 
 describe("Work graph collection", () => {
+	it("resolves the displayed endpoints independently of the bounded Work list", () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		});
+		const otherId = "44444444-4444-4444-8444-444444444444";
+		client.setQueryData(workItemRelationsQueryOptions({}, 5000).queryKey, {
+			relations: Array.from({ length: 26 }, (_, index) => ({
+				id: `edge-${index}`,
+				fromWorkItemId: ITEM_ID,
+				toWorkItemId:
+					index === 25 ? "55555555-5555-4555-8555-555555555555" : otherId,
+				relationType: "blocks" as const,
+				createdAt: item.createdAt,
+			})),
+			truncated: true,
+		});
+		client.setQueryData(workItemDetailQueryOptions(ITEM_ID).queryKey, {
+			workItem: item,
+			project: null,
+			projections: [],
+			evidence: [],
+			evidenceNextCursor: null,
+			comments: [],
+		});
+		client.setQueryData(workItemDetailQueryOptions(otherId).queryKey, {
+			project: null,
+			projections: [],
+			evidence: [],
+			evidenceNextCursor: null,
+			comments: [],
+			workItem: {
+				...item,
+				id: otherId,
+				title: "Older task outside the first 100",
+			},
+		});
+		const html = renderToStaticMarkup(
+			<QueryClientProvider client={client}>
+				<WorkGraphPage />
+			</QueryClientProvider>,
+		);
+		expect(html).toContain(item.title);
+		expect(html).toContain("Older task outside the first 100");
+		expect(html).toContain("1–25 of 26 returned dependencies");
+		expect(html).toContain("Dependency view is truncated");
+		expect(html).toContain("Next dependencies");
+		expect(client.getQueryCache().getAll()).toHaveLength(3);
+	});
+
 	it("keeps every edge in one bounded responsive collection with canonical destinations", () => {
 		const secondItemId = "44444444-4444-4444-8444-444444444444";
 		const missingTitleId = "55555555-5555-4555-8555-555555555555";
@@ -336,12 +387,15 @@ describe("Work graph collection", () => {
 		expect(html).toContain("overflow-y-auto");
 		expect(html).toContain("sm:hidden");
 		expect(html).toContain("hidden overflow-visible sm:block");
-		expect(html).toContain("min-h-11 w-full min-w-0 items-center");
+		expect(html).toContain("min-h-11");
 		expect(html).toContain(`href="/work/items/${ITEM_ID}"`);
 		expect(html).toContain(`href="/work/items/${secondItemId}"`);
 		expect(html).toContain(`href="/work/items/${missingTitleId}"`);
 		expect(html).toContain("Verify the customer export");
 		expect(html).toContain(missingTitleId);
+		expect(html).toContain("Task unavailable");
+		expect(html).toContain('aria-label="Copy to clipboard"');
+		expect(html).not.toContain(`From ${missingTitleId}`);
 		expect(html).toContain("Blocks");
 		expect(html).toContain("References");
 		expect(html).toContain("Dependency view is truncated");

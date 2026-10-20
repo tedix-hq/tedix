@@ -13,8 +13,13 @@ import type {
 	WorkItemRelationEdge,
 } from "@tedix/api-contract/schemas/work-items";
 import type { Project } from "@tedix/api-contract/contracts/projects";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import {
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
+import { type ReactNode, useState } from "react";
 import * as z from "zod";
 import { WorkItemDescription } from "@/components/work-item-description";
 import { WorkItemCommentComposer } from "@/components/work-item-comment-composer";
@@ -81,7 +86,6 @@ import {
 	projectHealthJudgmentsQueryOptions,
 	projectMilestonesQueryOptions,
 	osQueryKeys,
-	workGraphItemsQueryOptions,
 	workItemAttemptsQueryOptions,
 	workItemDetailQueryOptions,
 	workItemEventsQueryOptions,
@@ -1429,37 +1433,128 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 	);
 }
 
+const GRAPH_PAGE_SIZE = 25;
+
 export function WorkGraphPage() {
-	const itemsQuery = useQuery(workGraphItemsQueryOptions({}, WORK_LIST_LIMIT));
 	const relationsQuery = useQuery(workItemRelationsQueryOptions({}, 5000));
-	const items = itemsQuery.data?.data ?? [];
-	const titles = new Map(items.map((item) => [item.id, item.title]));
+	const [page, setPage] = useState(0);
+	const relations = relationsQuery.data?.relations ?? [];
+	const currentPage = Math.min(
+		page,
+		Math.max(0, Math.ceil(relations.length / GRAPH_PAGE_SIZE) - 1),
+	);
+	const offset = currentPage * GRAPH_PAGE_SIZE;
+	const visibleRelations = relations.slice(offset, offset + GRAPH_PAGE_SIZE);
+	// Resolve only this page's unique endpoints: at most 50 canonical detail reads.
+	const endpointIds = [
+		...new Set(
+			visibleRelations.flatMap((edge) => [
+				edge.fromWorkItemId,
+				edge.toWorkItemId,
+			]),
+		),
+	];
+	const endpointQueries = useQueries({
+		queries: endpointIds.map((id) => ({
+			...workItemDetailQueryOptions(id),
+			retry: false,
+		})),
+	});
+	const titles = new Map(
+		endpointIds.map((id, index) => {
+			const query = endpointQueries[index]!;
+			return [
+				id,
+				query.data?.workItem.title ??
+					(query.isPending ? "Loading task…" : "Task unavailable"),
+			];
+		}),
+	);
 	return (
 		<Page width="full">
 			<WorkPageHeader
 				title="Work graph"
 				description="A durable dependency graph. Portfolio hierarchy is not executor ownership, and external project managers remain projections."
 			/>
-			{itemsQuery.isError || relationsQuery.isError ? (
+			{relationsQuery.isError ? (
 				<WorkReadFailure
 					fallback={PROJECTION_FAILURE_FALLBACK}
 					title="Work graph unavailable"
 				/>
-			) : itemsQuery.isPending || relationsQuery.isPending ? (
+			) : relationsQuery.isPending ? (
 				<WorkListSkeleton />
-			) : relationsQuery.data.relations.length === 0 ? (
+			) : relations.length === 0 ? (
 				<WorkEmpty
 					title="No dependency edges"
 					description="Independent work remains visible in the queue; add blocks, duplicates, or references only when the relationship is real."
 				/>
 			) : (
-				<WorkGraphLedger
-					relations={relationsQuery.data.relations}
-					titles={titles}
-					truncated={relationsQuery.data.truncated}
-				/>
+				<>
+					<WorkGraphLedger
+						relations={visibleRelations}
+						titles={titles}
+						truncated={relationsQuery.data.truncated}
+					/>
+					<div
+						className="flex flex-wrap items-center gap-3"
+						aria-label="Dependency pages"
+					>
+						<Text role="label" tone="secondary" aria-live="polite">
+							{offset + 1}–
+							{Math.min(offset + GRAPH_PAGE_SIZE, relations.length)} of{" "}
+							{relations.length} returned dependencies
+						</Text>
+						<Button
+							variant="secondary"
+							className="min-h-11"
+							disabled={currentPage === 0}
+							onClick={() => setPage(currentPage - 1)}
+						>
+							Previous dependencies
+						</Button>
+						<Button
+							variant="secondary"
+							className="min-h-11"
+							disabled={offset + GRAPH_PAGE_SIZE >= relations.length}
+							onClick={() => setPage(currentPage + 1)}
+						>
+							Next dependencies
+						</Button>
+					</div>
+				</>
 			)}
 		</Page>
+	);
+}
+
+function WorkGraphEndpoint({
+	id,
+	label,
+	direction,
+}: {
+	id: string;
+	label: string;
+	direction: "From" | "To";
+}) {
+	return (
+		<div className="grid min-w-0 gap-1">
+			<Link
+				href={`/work/items/${id}`}
+				variant="record"
+				aria-label={`${direction} ${label}`}
+				className="flex min-h-11 min-w-0 items-center whitespace-normal break-words font-medium [overflow-wrap:anywhere]"
+			>
+				{label}
+			</Link>
+			<span title={id}>
+				<ClipboardText
+					size="sm"
+					text={`${id.slice(0, 8)}…`}
+					textToCopy={id}
+					className="min-h-11 max-w-full text-kumo-subtle [&_button]:min-h-11 [&_button]:min-w-11"
+				/>
+			</span>
+		</div>
 	);
 }
 
@@ -1472,7 +1567,7 @@ export function WorkGraphLedger({
 	titles: ReadonlyMap<string, string>;
 	truncated: boolean;
 }) {
-	const labelFor = (id: string) => titles.get(id) ?? id;
+	const labelFor = (id: string) => titles.get(id) ?? "Task unavailable";
 
 	return (
 		<div className="grid gap-3">
@@ -1480,8 +1575,8 @@ export function WorkGraphLedger({
 				<Alert>
 					<AlertTitle>Dependency view is truncated</AlertTitle>
 					<AlertDescription>
-						This collection shows the first 5,000 returned edges. Refine the
-						dependency query before treating it as complete.
+						Only the first 5,000 returned edges are available in these pages.
+						Refine the dependency query before treating it as complete.
 					</AlertDescription>
 				</Alert>
 			) : null}
@@ -1496,35 +1591,21 @@ export function WorkGraphLedger({
 					aria-label="Work dependency edges"
 					className="sm:hidden"
 				>
-					{relations.map((edge) => {
-						const fromLabel = labelFor(edge.fromWorkItemId);
-						const toLabel = labelFor(edge.toWorkItemId);
-						return (
-							<li key={edge.id} className="grid px-3 py-1.5">
-								<Link
-									href={`/work/items/${edge.fromWorkItemId}`}
-									variant="record"
-									aria-label={`From ${fromLabel}`}
-									className="flex min-h-11 w-full min-w-0 items-center truncate font-medium"
-								>
-									{fromLabel}
-								</Link>
-								<div className="flex min-h-11 min-w-0 items-center gap-2">
-									<Badge variant="outline" className="shrink-0">
-										{sentenceCase(edge.relationType)}
-									</Badge>
-									<Link
-										href={`/work/items/${edge.toWorkItemId}`}
-										variant="record"
-										aria-label={`To ${toLabel}`}
-										className="flex min-h-11 min-w-0 flex-1 items-center truncate"
-									>
-										{toLabel}
-									</Link>
-								</div>
-							</li>
-						);
-					})}
+					{relations.map((edge) => (
+						<li key={edge.id} className="grid min-w-0 gap-2 px-3 py-3">
+							<WorkGraphEndpoint
+								id={edge.fromWorkItemId}
+								label={labelFor(edge.fromWorkItemId)}
+								direction="From"
+							/>
+							<Badge variant="outline">{sentenceCase(edge.relationType)}</Badge>
+							<WorkGraphEndpoint
+								id={edge.toWorkItemId}
+								label={labelFor(edge.toWorkItemId)}
+								direction="To"
+							/>
+						</li>
+					))}
 				</Collection>
 				<Table
 					containerClassName="hidden overflow-visible sm:block"
@@ -1541,12 +1622,11 @@ export function WorkGraphLedger({
 						{relations.map((edge) => (
 							<TableRow key={edge.id}>
 								<TableCell className="whitespace-normal">
-									<Link
-										href={`/work/items/${edge.fromWorkItemId}`}
-										variant="record"
-									>
-										{labelFor(edge.fromWorkItemId)}
-									</Link>
+									<WorkGraphEndpoint
+										id={edge.fromWorkItemId}
+										label={labelFor(edge.fromWorkItemId)}
+										direction="From"
+									/>
 								</TableCell>
 								<TableCell>
 									<Badge variant="outline">
@@ -1554,12 +1634,11 @@ export function WorkGraphLedger({
 									</Badge>
 								</TableCell>
 								<TableCell className="whitespace-normal">
-									<Link
-										href={`/work/items/${edge.toWorkItemId}`}
-										variant="record"
-									>
-										{labelFor(edge.toWorkItemId)}
-									</Link>
+									<WorkGraphEndpoint
+										id={edge.toWorkItemId}
+										label={labelFor(edge.toWorkItemId)}
+										direction="To"
+									/>
 								</TableCell>
 							</TableRow>
 						))}
