@@ -1,4 +1,9 @@
 import {
+	WorkListSkeleton,
+	WorkReadFailure,
+	WorkEmpty,
+} from "@/components/work-surface-primitives";
+import {
 	WorkActorAvatar,
 	WorkActorOwnerContext,
 } from "@/components/work-actor-avatar";
@@ -27,7 +32,6 @@ import {
 	SelectValue,
 } from "@/components/kumo/select";
 import type * as z from "zod";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Collapsible,
@@ -35,19 +39,12 @@ import {
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "@/components/kumo/empty";
-import {
 	Collection,
 	PageSection,
 	SectionHeader,
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
 	projectListQueryOptions,
@@ -425,10 +422,10 @@ export function WorkAgentsBoard({
 	const totals = laneDailyTotals(data.sessions, now);
 	if (!groups.length) {
 		return (
-			<Empty appearance="quiet">
-				<EmptyHeader>
-					<EmptyTitle>No agent sessions reporting</EmptyTitle>
-					<EmptyDescription>
+			<WorkEmpty
+				title="No agent sessions reporting"
+				description={
+					<>
 						Create <code>~/.tedix/agent-status.json</code> with{" "}
 						<code>
 							{
@@ -436,9 +433,9 @@ export function WorkAgentsBoard({
 							}
 						</code>{" "}
 						and restart your Claude Code or Codex sessions.
-					</EmptyDescription>
-				</EmptyHeader>
-			</Empty>
+					</>
+				}
+			/>
 		);
 	}
 	return (
@@ -602,20 +599,12 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 					includeEnded={includeEnded}
 				/>
 			) : query.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Agent sessions unavailable</AlertTitle>
-					<AlertDescription>
-						{query.error instanceof Error
-							? query.error.message
-							: "The canonical read failed."}
-					</AlertDescription>
-				</Alert>
+				<WorkReadFailure
+					title="Agent sessions unavailable"
+					error={query.error}
+				/>
 			) : (
-				<div className="grid gap-2" aria-label="Loading">
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
-				</div>
+				<WorkListSkeleton />
 			)}
 		</div>
 	);
