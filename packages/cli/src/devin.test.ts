@@ -15,6 +15,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	assertDevinProjectHooks,
+	devinGitWritePaths,
 	writeDevinGitIdentity,
 } from "./devin-lane-security";
 import {
@@ -599,6 +600,85 @@ function gitFixture() {
 	);
 	return { dir, git };
 }
+
+test("linked worktree Git grants cover only its metadata, objects and current branch", () => {
+	const { dir, git } = gitFixture();
+	const lane = join(dir, "lane");
+	const peer = join(dir, "peer");
+	git("worktree", "add", "-qb", "lane", lane);
+	git("worktree", "add", "--detach", peer);
+	const paths = devinGitWritePaths(lane);
+	const common = realpathSync(join(dir, ".git"));
+	expect(paths).toEqual([
+		`${common}/worktrees/lane/**`,
+		`${common}/objects/**`,
+		`${common}/refs/heads/lane`,
+		`${common}/refs/heads/lane.lock`,
+		`${common}/logs/refs/heads/lane`,
+	]);
+	const allows = devinPermissionProfile(lane).permissions.allow;
+	for (const path of paths) expect(allows).toContain(`Write(${path})`);
+	for (const path of [
+		common,
+		`${common}/worktrees/peer`,
+		`${common}/hooks`,
+		`${common}/refs`,
+	])
+		expect(allows).not.toContain(`Write(${path}/**)`);
+	expect(devinGitWritePaths(peer)).toEqual([
+		`${common}/worktrees/peer/**`,
+		`${common}/objects/**`,
+	]);
+	expect(devinGitWritePaths(dir)).toEqual([]);
+	const block = (command: string, workdir = lane) =>
+		devinPermissionBlock(
+			JSON.stringify({ tool_name: "exec", tool_input: { command, workdir } }),
+			lane,
+		);
+	for (const command of [
+		"git add source.ts",
+		"git commit -m example",
+		`git -C ${lane} add source.ts`,
+	])
+		expect(block(command)).toBeUndefined();
+	for (const command of [
+		"git push",
+		`git -C ${lane} push`,
+		`git -C ${peer} add source.ts`,
+	])
+		expect(block(command)).toBeDefined();
+	expect(block("git add source.ts", peer)).toContain("lane worktree");
+	expect(
+		devinPermissionBlock(
+			JSON.stringify({
+				tool_name: "write",
+				tool_input: {
+					path: `${common}/worktrees/lane/HEAD`,
+				},
+			}),
+			lane,
+		),
+	).toContain("lane worktree");
+	writeFileSync(join(lane, "source.ts"), "export const example = 1;\n");
+	for (const args of [
+		["add", "source.ts"],
+		[
+			"-c",
+			"user.name=Example",
+			"-c",
+			"user.email=example@example.invalid",
+			"-c",
+			"core.hooksPath=/dev/null",
+			"commit",
+			"-qm",
+			"example",
+		],
+	]) {
+		const result = spawnSync("git", args, { cwd: lane, encoding: "utf8" });
+		expect(result.status, result.stderr).toBe(0);
+	}
+	git("diff", "--exit-code", "HEAD", "--", ".claude");
+});
 
 test("tracked hook modifications, staged changes, deletions and ignored plants block launch", async () => {
 	for (const mode of [

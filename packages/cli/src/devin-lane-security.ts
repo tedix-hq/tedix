@@ -10,6 +10,58 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
+/** Linked worktrees keep their index and commit objects outside the source tree. */
+export function devinGitWritePaths(cwd: string): string[] {
+	const result = spawnSync(
+		"git",
+		[
+			"-c",
+			"core.fsmonitor=false",
+			"rev-parse",
+			"--path-format=absolute",
+			"--show-toplevel",
+			"--git-dir",
+			"--git-common-dir",
+		],
+		{ cwd, encoding: "utf8", timeout: 10_000 },
+	);
+	if (result.status !== 0) return [];
+	const [top, gitDir, commonDir] = result.stdout.trim().split("\n");
+	if (!top || !gitDir || !commonDir || realpathSync(top) !== realpathSync(cwd))
+		throw new Error("Devin Git scope requires the lane worktree root");
+	if (gitDir === commonDir) return [];
+	if (
+		!realpathSync(gitDir).startsWith(
+			realpathSync(join(commonDir, "worktrees")) + sep,
+		) ||
+		realpathSync(readFileSync(join(gitDir, "gitdir"), "utf8").trim()) !==
+			realpathSync(join(cwd, ".git"))
+	)
+		throw new Error("Cannot verify Devin worktree Git metadata");
+	const paths = [`${gitDir}/**`, `${commonDir}/objects/**`];
+	const branch = spawnSync("git", ["symbolic-ref", "-q", "HEAD"], {
+		cwd,
+		encoding: "utf8",
+		timeout: 10_000,
+	});
+	if (branch.status === 0) {
+		const ref = branch.stdout.trim();
+		if (!/^refs\/heads\/[\w./-]+$/.test(ref) || ref.includes(".."))
+			throw new Error("Unsupported Devin branch reference");
+		paths.push(
+			`${commonDir}/${ref}`,
+			`${commonDir}/${ref}.lock`,
+			`${commonDir}/logs/${ref}`,
+		);
+	} else if (branch.status !== 1)
+		throw new Error("Cannot resolve Devin branch reference");
+	if (
+		paths.some((path) => /[()\n\r*?\[\]{}]/.test(path.replace(/\/\*\*$/, "")))
+	)
+		throw new Error("Unsupported Devin Git metadata path");
+	return paths;
+}
+
 /** Keep dispatcher worktrees readable; deny the credential stores, not ~/.tedix/**. */
 export function devinSecretPaths(env = process.env) {
 	const stores = [

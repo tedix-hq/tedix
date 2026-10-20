@@ -66,6 +66,12 @@ export function devinPermissionBlock(
 		if (typeof input.command !== "string")
 			return "Exec tool did not expose its command";
 		const command = input.command.trim();
+		if (
+			command.startsWith("git ") &&
+			typeof input.workdir === "string" &&
+			canonical(resolve(base, input.workdir)) !== base
+		)
+			return "Git commands must run inside the lane worktree";
 		// Do not let Smart mode expand the explicit prefix scope via shell syntax.
 		if (/[;&|<>`$\n\r]/.test(command))
 			return "Compound or expanded shell commands are outside the lane exec scope";
