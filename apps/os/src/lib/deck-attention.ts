@@ -94,6 +94,11 @@ export function attentionMetrics(
 				? firstViewElapsed[middle]!
 				: (firstViewElapsed[middle - 1]! + firstViewElapsed[middle]!) / 2
 			: null,
+		// The denominators behind each rate/count, exported so a tile can name
+		// the population it measures instead of implying "all time".
+		decisionCount: decisions.length,
+		observedDecisionCount: observedDetails.length,
+		actionCount: actions.length,
 		withoutDetailsRate: observedDetails.length
 			? observedDetails.filter(
 					(event) => event.metadata?.railOpenedBeforeDecision === false,

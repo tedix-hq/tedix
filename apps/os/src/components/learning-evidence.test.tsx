@@ -122,12 +122,20 @@ describe("expertiseRows", () => {
 describe("growthMetricRows", () => {
 	it("formats each metric in its own dialect, not one undifferentiated grid", () => {
 		const rows = growthMetricRows(snapshot(6));
-		const byId = new Map(rows.map((row) => [row.id, row.value]));
+		const byId = new Map(rows.map((row) => [row.id, row.tile.value]));
 		// A rate rendered as a raw 0.64 reads as "64 things".
 		expect(byId.get("autonomy-rate")).toBe("64%");
 		expect(byId.get("avg-confidence")).toBe("82%");
 		expect(byId.get("facts")).toBe("128");
 		expect(byId.get("avg-revision")).toBe("2.1");
+		// Every row states the week it photographs and the cron that wrote it.
+		for (const row of rows) {
+			expect(row.tile).toMatchObject({
+				state: "measured",
+				window: "week of 2026-08-10",
+				source: "weekly cognitive snapshot",
+			});
+		}
 	});
 });
 

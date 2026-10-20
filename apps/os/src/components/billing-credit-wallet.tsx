@@ -8,7 +8,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
+import { MetricGrid } from "@/components/kumo/metric-grid";
+import { MetricTile } from "@/components/metric-tile";
 import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
 import {
@@ -111,23 +112,43 @@ export function BillingCreditWallet({
 					</Alert>
 				)}
 				<MetricGrid columns={3} appearance="bounded">
-					<MetricItem
-						label="Wallet balance"
-						value={label(balance)}
-						description={`${worth(balance)} · includes plan credits and top-ups`}
+					<MetricTile
+						tile={{
+							state: "measured",
+							label: "Wallet balance",
+							value: label(balance),
+							window: "now",
+							source: "billing snapshot",
+							qualifier: `${worth(balance)} · includes plan credits and top-ups`,
+						}}
 					/>
-					<MetricItem
-						label="Held for running work"
-						value={label(reserved)}
-						description={`${worth(reserved)} · released or settled when work finishes`}
+					<MetricTile
+						tile={{
+							state: "measured",
+							label: "Held for running work",
+							value: label(reserved),
+							window: "now",
+							source: "billing snapshot",
+							qualifier: `${worth(reserved)} · released or settled when work finishes`,
+						}}
 					/>
-					<MetricItem
-						label="Spent this period"
-						value={spent === null ? "Not settled yet" : label(spent)}
-						description={
+					<MetricTile
+						tile={
 							spent === null
-								? "No settlement total is available"
-								: `${worth(spent)} · recorded usage, excluding subscription`
+								? {
+										state: "empty",
+										label: "Spent this period",
+										emptyReason:
+											"Not settled yet — no settlement total is available",
+									}
+								: {
+										state: "measured",
+										label: "Spent this period",
+										value: label(spent),
+										window: "this billing period",
+										source: "usage ledger",
+										qualifier: `${worth(spent)} · recorded usage, excluding subscription`,
+									}
 						}
 					/>
 				</MetricGrid>

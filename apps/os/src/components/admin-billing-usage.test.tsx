@@ -365,9 +365,8 @@ describe("billing population coverage", () => {
 it("does not describe unlimited-plan settled tokens as paid overage", () => {
 	const html = render(usage(), { unlimited: true });
 	expect(html).toContain("Unlimited plan allowance");
-	expect(html).toContain(
-		"Estimated usage this period · unlimited token allowance",
-	);
+	expect(html).toContain("Estimated usage · unlimited token allowance");
+	expect(html).toContain("billing snapshot");
 	expect(html).not.toContain("80,000 metered overage tokens");
 	expect(html).toContain("Metered usage charges");
 });

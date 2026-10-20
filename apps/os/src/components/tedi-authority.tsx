@@ -16,7 +16,8 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
+import { MetricGrid } from "@/components/kumo/metric-grid";
+import { MetricTile } from "@/components/metric-tile";
 import {
 	PageSection,
 	SectionDescription,
@@ -453,33 +454,51 @@ export function EarnedAuthorityPanel({
 				aria-label="Earned authority summary"
 				columns={4}
 			>
-				<MetricItem
-					label="career stage"
+				<MetricTile
 					emphasis="dialog"
-					value={
-						profile.activeRole
+					tile={{
+						state: "measured",
+						label: "career stage",
+						value: profile.activeRole
 							? sentenceCase(profile.activeRole.careerStage)
-							: "Unassigned"
-					}
-					description={profile.activeRole?.roleName ?? "No role track"}
+							: "Unassigned",
+						window: "current",
+						source: "delegation profile",
+						qualifier: profile.activeRole?.roleName ?? "No role track",
+					}}
 				/>
-				<MetricItem
-					label="active entrustments"
+				<MetricTile
 					emphasis="dialog"
-					value={formatCount(active)}
-					description={`${formatCount(entrustments.length)} on record`}
+					tile={{
+						state: "measured",
+						label: "active entrustments",
+						value: formatCount(active),
+						window: "current",
+						source: "delegation profile",
+						qualifier: `${formatCount(entrustments.length)} on record`,
+					}}
 				/>
-				<MetricItem
-					label="credited work"
+				<MetricTile
 					emphasis="dialog"
-					value={formatCount(experience.creditedOpportunities)}
-					description={`${formatCount(experience.negativeOpportunities)} negative`}
+					tile={{
+						state: "measured",
+						label: "credited work",
+						value: formatCount(experience.creditedOpportunities),
+						window: "current",
+						source: "delegation profile",
+						qualifier: `${formatCount(experience.negativeOpportunities)} negative`,
+					}}
 				/>
-				<MetricItem
-					label="task families"
+				<MetricTile
 					emphasis="dialog"
-					value={formatCount(experience.taskFamilies.length)}
-					description={`${formatCount(experience.observationsEvaluated)} observations`}
+					tile={{
+						state: "measured",
+						label: "task families",
+						value: formatCount(experience.taskFamilies.length),
+						window: "current",
+						source: "delegation profile",
+						qualifier: `${formatCount(experience.observationsEvaluated)} observations`,
+					}}
 				/>
 			</MetricGrid>
 

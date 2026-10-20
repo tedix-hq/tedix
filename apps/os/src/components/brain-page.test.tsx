@@ -157,12 +157,20 @@ describe("memoryVitals", () => {
 	it("keeps hygiene counters at default tone when clean", () => {
 		const vitals = memoryVitals(baseHealth);
 		const byId = Object.fromEntries(vitals.map((v) => [v.id, v]));
-		expect(byId["active-facts"]?.value).toBe("1,200");
-		expect(byId["edges"]?.value).toBe("4,210");
-		expect(byId["avg-confidence"]?.value).toBe("73%");
+		expect(byId["active-facts"]?.tile.value).toBe("1,200");
+		expect(byId["edges"]?.tile.value).toBe("4,210");
+		expect(byId["avg-confidence"]?.tile.value).toBe("73%");
 		expect(byId["stale-facts"]?.tone).toBe("default");
 		expect(byId["contradictions"]?.tone).toBe("default");
-		expect(byId["curiosity"]?.value).toBe("3 queued · 1 exploring");
+		expect(byId["curiosity"]?.tile.value).toBe("3 queued · 1 exploring");
+		// Every vital is a measured tile carrying its live-read provenance.
+		for (const vital of vitals) {
+			expect(vital.tile).toMatchObject({
+				state: "measured",
+				window: "now",
+				source: "memory graph health",
+			});
+		}
 	});
 
 	it("escalates stale facts and contradictions when non-zero", () => {
@@ -188,6 +196,8 @@ describe("memoryVitals", () => {
 		expect(html).toContain('data-slot="metric-grid"');
 		expect(html).toContain('aria-label="Memory vitals"');
 		expect(html.match(/data-slot="metric-item"/g)).toHaveLength(8);
+		expect(html.match(/data-slot="metric-provenance"/g)).toHaveLength(8);
+		expect(html).toContain("now · memory graph health");
 		expect(html).not.toContain('data-slot="surface"');
 	});
 });

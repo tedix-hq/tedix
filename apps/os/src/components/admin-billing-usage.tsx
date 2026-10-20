@@ -24,6 +24,7 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
+import { MetricTile } from "@/components/metric-tile";
 import { Meter } from "@/components/kumo/meter";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
@@ -298,29 +299,45 @@ export function BillingUsageOverview({
 							columns={3}
 							aria-label="Billing summary"
 						>
-							<MetricItem
+							<MetricTile
 								emphasis="metric"
-								label="Metered usage charges"
-								value={formatCharge(overview.period?.customerChargeMicros ?? 0)}
-								description={
-									isUnlimited
-										? "Estimated usage this period · unlimited token allowance"
-										: `Estimated usage this period · ${formatTokens(overview.period?.meteredOverageTokens ?? 0)} metered overage tokens`
-								}
+								tile={{
+									state: "measured",
+									label: "Metered usage charges",
+									value: formatCharge(
+										overview.period?.customerChargeMicros ?? 0,
+									),
+									window: billingPeriod,
+									source: "billing snapshot",
+									qualifier: isUnlimited
+										? "Estimated usage · unlimited token allowance"
+										: `Estimated usage · ${formatTokens(overview.period?.meteredOverageTokens ?? 0)} metered overage tokens`,
+								}}
 							/>
-							<MetricItem
+							<MetricTile
 								emphasis="metric"
-								label="Credits"
-								value={formatCharge(overview.snapshot.availableCreditMicros)}
-								description={`Available after reservations · ${formatCharge(overview.period?.creditAppliedMicros ?? 0)} applied this period`}
+								tile={{
+									state: "measured",
+									label: "Credits",
+									value: formatCharge(overview.snapshot.availableCreditMicros),
+									window: "now",
+									source: "billing snapshot",
+									qualifier: `Available after reservations · ${formatCharge(overview.period?.creditAppliedMicros ?? 0)} applied this billing period`,
+								}}
 							/>
-							<MetricItem
+							<MetricTile
 								emphasis="metric"
-								label="Settled model cost"
-								value={formatCost(
-									(overview.period?.providerCostMicros ?? 0) / 1_000_000,
-								)}
-								description="Recorded model cost for settled usage · not a customer charge or total infrastructure spend"
+								tile={{
+									state: "measured",
+									label: "Settled model cost",
+									value: formatCost(
+										(overview.period?.providerCostMicros ?? 0) / 1_000_000,
+									),
+									window: billingPeriod,
+									source: "billing snapshot",
+									qualifier:
+										"Recorded model cost for settled usage · not a customer charge or total infrastructure spend",
+								}}
 							/>
 						</MetricGrid>
 					</div>
@@ -338,20 +355,35 @@ export function BillingUsageOverview({
 						</Text>
 					)}
 					<MetricGrid appearance="bounded" columns={3}>
-						<MetricItem
-							label="Observed model tokens"
-							value={formatTokens(usageQuery.data.totals.totalTokens)}
-							description="Organization-attributed ledger observations this period"
+						<MetricTile
+							tile={{
+								state: "measured",
+								label: "Observed model tokens",
+								value: formatTokens(usageQuery.data.totals.totalTokens),
+								window: billingPeriod,
+								source: "usage ledger",
+								qualifier: "Organization-attributed ledger observations",
+							}}
 						/>
-						<MetricItem
-							label="Known model-cost subtotal"
-							value={formatCost(usageQuery.data.totals.knownSubtotalUsd)}
-							description={`${sentenceCase(usageQuery.data.totals.costCompleteness)} pricing coverage · not a payable amount`}
+						<MetricTile
+							tile={{
+								state: "measured",
+								label: "Known model-cost subtotal",
+								value: formatCost(usageQuery.data.totals.knownSubtotalUsd),
+								window: billingPeriod,
+								source: "usage ledger",
+								qualifier: `${sentenceCase(usageQuery.data.totals.costCompleteness)} pricing coverage · not a payable amount`,
+							}}
 						/>
-						<MetricItem
-							label="Unpriced observed tokens"
-							value={formatTokens(usageQuery.data.totals.unpricedTokens)}
-							description={`${formatTokens(usageQuery.data.totals.pricedRowCount)} priced rows · ${formatTokens(usageQuery.data.totals.unpricedRowCount)} unpriced rows`}
+						<MetricTile
+							tile={{
+								state: "measured",
+								label: "Unpriced observed tokens",
+								value: formatTokens(usageQuery.data.totals.unpricedTokens),
+								window: billingPeriod,
+								source: "usage ledger",
+								qualifier: `${formatTokens(usageQuery.data.totals.pricedRowCount)} priced rows · ${formatTokens(usageQuery.data.totals.unpricedRowCount)} unpriced rows`,
+							}}
 						/>
 					</MetricGrid>
 					<Card tone="raised">

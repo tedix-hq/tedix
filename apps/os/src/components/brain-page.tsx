@@ -7,6 +7,7 @@ import type {
 	KnowledgeEntryType,
 } from "@tedix/api-contract/schemas/cognitive";
 import type { MemoryHealth } from "@tedix/api-contract/schemas/memory-graph";
+import type { MetricTileMeasured } from "@tedix/api-contract/schemas/metric-tile";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
 import { useQuery } from "@tanstack/react-query";
 import { getOsSurface } from "@/lib/os-navigation";
@@ -38,7 +39,8 @@ import {
 import { KumoTabs } from "@/components/kumo/tabs";
 import { Link } from "@/components/kumo/link";
 import { OsRouterLink } from "@/components/kumo/link-provider";
-import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
+import { MetricGrid } from "@/components/kumo/metric-grid";
+import { MetricTile } from "@/components/metric-tile";
 import { Text, type TextTone } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { formatCount, humanize, sentenceCase } from "@/lib/format";
@@ -111,66 +113,95 @@ export type MemoryVitalTone = "default" | "warn" | "danger";
 
 export type MemoryVital = {
 	id: string;
-	label: string;
-	value: string;
+	tile: MetricTileMeasured;
 	tone: MemoryVitalTone;
 };
 
 /**
  * Projects `memoryGraph.health` (pure aggregate counts — the honest brain
  * vitals) into labeled stats. Hygiene counters only escalate their tone when
- * they are actually non-zero.
+ * they are actually non-zero. Every tile carries its provenance — a live
+ * aggregate read, so the window is "now" and the source is the health read.
  */
 export function memoryVitals(health: MemoryHealth): MemoryVital[] {
+	const provenance = {
+		state: "measured" as const,
+		window: "now",
+		source: "memory graph health",
+	};
 	return [
 		{
 			id: "active-facts",
-			label: "Active facts",
-			value: formatCount(health.activeFacts),
+			tile: {
+				...provenance,
+				label: "Active facts",
+				value: formatCount(health.activeFacts),
+			},
 			tone: "default",
 		},
 		{
 			id: "edges",
-			label: "Edges",
-			value: formatCount(health.totalEdges),
+			tile: {
+				...provenance,
+				label: "Edges",
+				value: formatCount(health.totalEdges),
+			},
 			tone: "default",
 		},
 		{
 			id: "domains",
-			label: "Domains",
-			value: formatCount(health.totalDomains),
+			tile: {
+				...provenance,
+				label: "Domains",
+				value: formatCount(health.totalDomains),
+			},
 			tone: "default",
 		},
 		{
 			id: "avg-confidence",
-			label: "Avg confidence",
-			value: confidencePercent(health.avgConfidence),
+			tile: {
+				...provenance,
+				label: "Avg confidence",
+				value: confidencePercent(health.avgConfidence),
+			},
 			tone: "default",
 		},
 		{
 			id: "open-gaps",
-			label: "Open gaps",
-			value: formatCount(health.totalGaps),
+			tile: {
+				...provenance,
+				label: "Open gaps",
+				value: formatCount(health.totalGaps),
+			},
 			tone: "default",
 		},
 		{
 			id: "stale-facts",
-			label: "Stale facts",
-			value: formatCount(health.staleFacts),
+			tile: {
+				...provenance,
+				label: "Stale facts",
+				value: formatCount(health.staleFacts),
+			},
 			tone: health.staleFacts > 0 ? "warn" : "default",
 		},
 		{
 			id: "contradictions",
-			label: "Contradictions",
-			value: formatCount(health.contradictions),
+			tile: {
+				...provenance,
+				label: "Contradictions",
+				value: formatCount(health.contradictions),
+			},
 			tone: health.contradictions > 0 ? "danger" : "default",
 		},
 		{
 			id: "curiosity",
-			label: "Curiosity queue",
-			value: `${formatCount(health.curiosityQueue.queued)} queued · ${formatCount(
-				health.curiosityQueue.exploring,
-			)} exploring`,
+			tile: {
+				...provenance,
+				label: "Curiosity queue",
+				value: `${formatCount(health.curiosityQueue.queued)} queued · ${formatCount(
+					health.curiosityQueue.exploring,
+				)} exploring`,
+			},
 			tone: "default",
 		},
 	];
@@ -209,12 +240,11 @@ export function MemoryVitals({ health }: { health: MemoryHealth }) {
 	return (
 		<MetricGrid aria-label="Memory vitals" columns={4}>
 			{memoryVitals(health).map((vital) => (
-				<MetricItem
+				<MetricTile
 					key={vital.id}
+					tile={vital.tile}
 					data-vital={vital.id}
 					data-tone={vital.tone}
-					label={vital.label}
-					value={vital.value}
 					valueTone={VITAL_TEXT_TONE[vital.tone]}
 				/>
 			))}
