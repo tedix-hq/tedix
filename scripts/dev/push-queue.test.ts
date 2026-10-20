@@ -58,6 +58,11 @@ describe("push queue lock", () => {
 });
 
 describe("push queue tickets", () => {
+	test("priority tickets precede waiting lanes using the existing ticket reader", () => {
+		const dir = tmp();
+		for (const name of ["300-1", "0-2"]) writeFileSync(join(dir, name), "");
+		expect(liveTickets(dir, alive)).toEqual(["0-2", "300-1"]);
+	});
 	test("orders by arrival and drops tickets of dead processes", () => {
 		const dir = tmp();
 		for (const name of ["300-1", `100-${DEAD}`, "200-2"])
