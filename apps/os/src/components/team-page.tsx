@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { Pagination } from "@/components/kumo/pagination";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
 	Collection,
@@ -227,12 +228,7 @@ export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
 	return (
 		<Surface className="grid gap-3 px-4 py-3 sm:ml-12">
 			<div className="grid gap-1">
-				<Text
-					as="span"
-					className="text-kumo-subtle uppercase tracking-[0.8px]"
-					role="caption"
-					weight="semibold"
-				>
+				<Text as="span" tone="secondary" role="caption" weight="semibold">
 					Delegation
 				</Text>
 				<Text as="span" role="label" className="text-kumo-default">
@@ -247,12 +243,7 @@ export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
 			</div>
 
 			<div className="grid gap-1">
-				<Text
-					as="span"
-					className="text-kumo-subtle uppercase tracking-[0.8px]"
-					role="caption"
-					weight="semibold"
-				>
+				<Text as="span" tone="secondary" role="caption" weight="semibold">
 					Workload
 				</Text>
 				<Text as="span" role="label" className="text-kumo-default">
@@ -295,12 +286,7 @@ export function TediDetailPanel({ detail }: { detail: TediOperationsDetail }) {
 			</div>
 
 			<div className="grid gap-1">
-				<Text
-					as="span"
-					className="text-kumo-subtle uppercase tracking-[0.8px]"
-					role="caption"
-					weight="semibold"
-				>
+				<Text as="span" tone="secondary" role="caption" weight="semibold">
 					Pulse
 				</Text>
 				<Text as="span" role="label" tone="secondary">
@@ -346,13 +332,12 @@ export function TediDetailUnavailable({
 	readFailed?: boolean;
 }) {
 	return (
-		<Surface
-			className="m-0 border-dashed px-4 py-3 text-kumo-subtle text-xs sm:ml-12"
-			render={<p />}
-		>
-			{readFailed
-				? "Operations detail is unavailable right now — the delegation and workload read failed."
-				: "No operations summary for this tedi — paused, provisioning, errored, or archived tedis are excluded from the operations read."}
+		<Surface className="m-0 border-dashed px-4 py-3 sm:ml-12" render={<p />}>
+			<Text as="span" role="label" tone="secondary">
+				{readFailed
+					? "Operations detail is unavailable right now — the delegation and workload read failed."
+					: "No operations summary for this tedi — paused, provisioning, errored, or archived tedis are excluded from the operations read."}
+			</Text>
 		</Surface>
 	);
 }
@@ -383,18 +368,28 @@ export function TediDetailLink({
 	compact?: boolean;
 	tediName?: string;
 }) {
+	if (compact) {
+		return (
+			<Button
+				size="sm"
+				variant="outline"
+				aria-label={tediName ? `Open ${tediName} details` : undefined}
+				render={<LinkComponent to="/team/$tediId" params={{ tediId }} />}
+			>
+				Open details
+				<ArrowRight size={12} />
+			</Button>
+		);
+	}
 	return (
 		<LinkComponent
 			to="/team/$tediId"
 			params={{ tediId }}
-			aria-label={compact && tediName ? `Open ${tediName} details` : undefined}
-			className={
-				compact
-					? "inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-3 py-1 text-kumo-default type-tedix-control no-underline ring ring-kumo-line transition-colors duration-tedix-standard hover:bg-kumo-tint motion-reduce:transition-none coarse:min-h-11"
-					: "inline-flex w-fit items-center gap-1 rounded-lg px-3 py-1 text-kumo-subtle text-xs no-underline transition-colors duration-tedix-standard hover:text-kumo-strong motion-reduce:transition-none coarse:min-h-11 coarse:py-2 sm:ml-12"
-			}
+			className="inline-flex w-fit items-center gap-1 rounded-lg px-3 py-1 text-kumo-subtle no-underline transition-colors duration-tedix-standard hover:text-kumo-strong motion-reduce:transition-none coarse:min-h-11 coarse:py-2 sm:ml-12"
 		>
-			{compact ? "Open details" : "Authority, telemetry, and learning evidence"}
+			<Text as="span" role="label">
+				Authority, telemetry, and learning evidence
+			</Text>
 			<ArrowRight size={12} />
 		</LinkComponent>
 	);
@@ -744,33 +739,27 @@ export function TediRosterPanel({
 								/>
 							))}
 						</Collection>
-						<div
-							aria-live="polite"
-							className="flex flex-col items-center justify-between gap-2 sm:flex-row"
-						>
-							<Text as="p" role="label" tone="secondary">
-								Showing {formatCount((page - 1) * TEDI_ROSTER_LIMIT + 1)}–
-								{formatCount((page - 1) * TEDI_ROSTER_LIMIT + roster.length)} of{" "}
-								{formatCount(total)} tedis
-							</Text>
-							<div className="flex w-full gap-2 sm:w-auto">
-								<Button
-									className="flex-1 sm:flex-none"
-									disabled={page === 1}
-									onClick={() => onPageChange?.(page - 1)}
-									variant="outline"
-								>
-									Previous page
-								</Button>
-								<Button
-									className="flex-1 sm:flex-none"
-									disabled={!tedis.data.pagination.hasMore}
-									onClick={() => onPageChange?.(page + 1)}
-									variant="outline"
-								>
-									Next page
-								</Button>
-							</div>
+						<div aria-live="polite">
+							<Pagination
+								className="flex-col items-stretch gap-3 border-kumo-hairline border-t pt-3 sm:flex-row sm:items-center"
+								page={page}
+								perPage={TEDI_ROSTER_LIMIT}
+								totalCount={total}
+								setPage={(nextPage) => onPageChange?.(nextPage)}
+							>
+								<Pagination.Info>
+									{() => (
+										<>
+											Showing {formatCount((page - 1) * TEDI_ROSTER_LIMIT + 1)}–
+											{formatCount(
+												(page - 1) * TEDI_ROSTER_LIMIT + roster.length,
+											)}{" "}
+											of {formatCount(total)} tedis
+										</>
+									)}
+								</Pagination.Info>
+								<Pagination.Controls controls="simple" />
+							</Pagination>
 						</div>
 					</>
 				)}

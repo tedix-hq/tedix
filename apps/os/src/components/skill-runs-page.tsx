@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
+import { Link } from "@/components/kumo/link";
 import { RunStatusChip } from "@/components/activity-runs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Card, CardContent } from "@/components/kumo/card";
@@ -101,9 +102,9 @@ export function SkillRunsPage({
 								{runs.data.runs.map((run) => (
 									<li key={run.id}>
 										<Link
-											to="/work/runs/$runId"
-											params={{ runId: run.id }}
-											className="grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 px-4 py-3 text-inherit no-underline transition-colors hover:bg-kumo-tint sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+											variant="collection"
+											href={`/work/runs/${run.id}`}
+											className="grid! min-h-14 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3! gap-y-1! px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
 										>
 											<RunStatusChip status={run.status} />
 											<Text as="span" role="body" className="min-w-0 truncate">

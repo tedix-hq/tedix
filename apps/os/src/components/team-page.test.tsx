@@ -549,9 +549,13 @@ describe("TeamPage", () => {
 		).not.toBeNull();
 		expect(container.textContent).toContain("51 results");
 		expect(container.textContent).toContain("Showing 1–50 of 51 tedis");
-		const next = [...container.querySelectorAll("button")].find((button) =>
-			button.textContent?.includes("Next page"),
+		const next = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Next page"]',
 		);
+		expect(next).not.toBeNull();
+		expect(
+			container.querySelector('[aria-live="polite"]')?.textContent,
+		).toContain("Showing 1–50 of 51 tedis");
 		await act(async () => next?.click());
 		await flush();
 		expect(tedisApi.list).toHaveBeenCalledWith(

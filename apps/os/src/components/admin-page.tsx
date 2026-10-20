@@ -5,13 +5,16 @@ import {
 	Plugs,
 	Wallet,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { Link } from "@/components/kumo/link";
 import { useQuery } from "@tanstack/react-query";
 import type { ComponentType } from "react";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
-import { Card } from "@/components/kumo/card";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import {
+	Collection,
+	PageSection,
+	SectionHeader,
+	SectionTitle,
 	Page,
 	PageDescription,
 	PageHeader,
@@ -70,8 +73,9 @@ function AdminDestinationRow({
 	const Icon = destination.icon;
 	return (
 		<Link
-			className="flex items-center gap-3 px-4 py-3 outline-none transition-colors hover:bg-kumo-tint focus-visible:ring-2 focus-visible:ring-kumo-brand focus-visible:ring-inset"
-			to={destination.to}
+			variant="collection"
+			className="flex w-full gap-3! px-4 py-3"
+			href={destination.to}
 		>
 			<IconFrame appearance="fill" size="sm">
 				<Icon size={16} />
@@ -105,8 +109,9 @@ function StatusRow({
 	return (
 		<li>
 			<Link
-				className="flex min-h-11 min-w-0 items-center gap-3 rounded-md px-1 outline-none transition-colors hover:bg-kumo-tint focus-visible:ring-2 focus-visible:ring-kumo-brand focus-visible:ring-inset"
-				to={to}
+				variant="collection"
+				className="flex w-full min-w-0 gap-3! px-1"
+				href={to}
 			>
 				<div className="min-w-0 flex-1">
 					<Text weight="medium">{title}</Text>
@@ -275,7 +280,7 @@ export function AdminPage() {
 								};
 
 	return (
-		<Page width="md" className="os-admin-page max-w-3xl">
+		<Page width="md" className="max-w-3xl">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>{OS_COPY.navigation.settings}</PageTitle>
@@ -306,20 +311,26 @@ export function AdminPage() {
 				/>
 			</SectionCollection>
 
-			<Text weight="medium">Manage settings</Text>
-			<Card className="divide-y divide-kumo-line overflow-hidden p-0">
-				{[
-					...OS_SETTINGS_NAVIGATION.map((item) => ({
-						to: item.path,
-						title: item.label,
-						description: item.description,
-						icon: Buildings,
-					})),
-					...ADMIN_DESTINATIONS,
-				].map((destination) => (
-					<AdminDestinationRow key={destination.to} destination={destination} />
-				))}
-			</Card>
+			<PageSection>
+				<SectionHeader>
+					<SectionTitle>Manage settings</SectionTitle>
+				</SectionHeader>
+				<Collection aria-label="Manage settings">
+					{[
+						...OS_SETTINGS_NAVIGATION.map((item) => ({
+							to: item.path,
+							title: item.label,
+							description: item.description,
+							icon: Buildings,
+						})),
+						...ADMIN_DESTINATIONS,
+					].map((destination) => (
+						<li key={destination.to}>
+							<AdminDestinationRow destination={destination} />
+						</li>
+					))}
+				</Collection>
+			</PageSection>
 		</Page>
 	);
 }
