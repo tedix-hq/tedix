@@ -47,6 +47,8 @@ for (const message of [
 	"Worker exceeded memory limit",
 	"out of memory",
 	"internal error: durable object was reset",
+	// Research delegation that died after 22 minutes of native reads.
+	"Attempt failed due to internal workflows error",
 ]) {
 	assert.equal(
 		isTransientWorkflowRedriveError(new Error(message)),

@@ -26,6 +26,8 @@ const RUNTIME_LOSS_TRANSIENT_PATTERNS = [
 	/\bisolate\b.*\b(?:evicted|reset|exceeded)/i,
 	/durable object.*(?:reset|internal error)/i,
 	/storage.*(?:reset|reset because)/i,
+	// Cloudflare's own Workflows engine failed the attempt; the turn did not.
+	/attempt failed due to internal workflows? error/i,
 ];
 
 /**
