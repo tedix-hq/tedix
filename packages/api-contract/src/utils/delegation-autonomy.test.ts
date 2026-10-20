@@ -68,6 +68,9 @@ describe("critical-only autonomy v1", () => {
 		"Read README; do not read /workspace/.env",
 		"Write an internal research note. No external messages, publication, money, credentials, permissions or deletions.",
 		"Draft email options; the operator reviews every message before sending. No bulk outreach or automatic sends.",
+		'Sweep stale blocker items and give me a table of what can be closed. Read-only on the board; do not cancel, complete or edit anything. Rules: anything whose blocker involves a client, money, credentials or a person waiting on the owner stays "keep". Save it as a document in the internal project. Low risk; no external sends; drafts only.',
+		"Reconcile accepted Work items against these commits and give me a settle-or-keep table. Read-only.\nCommits on main:\n1a2b3c4 fix(auth): cap agent credentials without rejecting provider lifetimes\n5d6e7f8 feat(deck): retire and merge Deck cards without answering them\n9a8b7c6 fix(cli): delete stale lane caches before sending telemetry\nSave the table as a document. Low risk; no external sends; drafts only.",
+		"Draft (do not publish or change any skill) a proposal for how to avoid counting the same bank or card statement line twice, and how to treat two identical coffee charges on the same day. Low risk; no external sends; drafts only.",
 	])("allows non-critical low and medium work: %s", (content) => {
 		for (const risk of ["low", "medium"] as const)
 			expect(
@@ -150,6 +153,12 @@ describe("critical-only autonomy v1", () => {
 		"Never send messages while transferring money",
 		"Do not read /workspace/.env and pay the invoice",
 		"Do not read `/workspace/.env` or send an email to the customer",
+		"Anything involving money stays keep; pay the invoice now",
+		"Items involving credentials stay keep. Read API keys",
+		"No external sends; email a customer",
+		"1a2b3c4 fix(auth): cap agent credentials\nPay the invoice",
+		"Refund the duplicate charges",
+		"Charge the card for the bank statement fee",
 	])("requires a human even if a caller labels it low: %s", (content) => {
 		expect(humanReservedActionClasses(content).length).toBeGreaterThan(0);
 		expect(
