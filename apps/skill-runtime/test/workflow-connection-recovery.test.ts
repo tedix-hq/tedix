@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { DISPATCH_SHIM, WORKFLOW_FETCH_GATE_MODULE } from "../src/runner";
+import { DISPATCH_SHIM } from "../src/runner";
+import { WORKFLOW_FETCH_GATE_MODULE } from "../src/runner-sandbox";
 import {
 	connectionRecoveryPath,
 	requirePendingConnectionRecovery,
