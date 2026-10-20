@@ -632,8 +632,12 @@ describe("approval builders", () => {
 			<ApprovalCard approval={card} onResolve={() => {}} />,
 		);
 		expect(html).toContain("Create document “Orion plan”");
-		expect(html).toMatch(/<details><summary[^>]*>Details<\/summary><pre/);
-		expect(html).not.toContain("<details open");
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		const trigger = container.querySelector("button[aria-expanded]");
+		expect(trigger?.textContent).toBe("Details");
+		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+		expect(container.querySelector("pre")?.textContent).toContain("Orion plan");
 		expect(
 			approvalsFromRunSet({
 				runs: [{ ...write, status: "completed" }],
@@ -746,7 +750,13 @@ describe("approval builders", () => {
 				/>,
 			);
 			expect(html).toContain(`Delegation proposal from ${status} run`);
-			expect(html).not.toContain("<button");
+			const container = document.createElement("div");
+			container.innerHTML = html;
+			expect(
+				[...container.querySelectorAll("button")].map(
+					(button) => button.textContent,
+				),
+			).toEqual(["Details"]);
 			expect(run).toEqual(original);
 		},
 	);

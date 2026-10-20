@@ -1,3 +1,9 @@
+import { CaretRight } from "@phosphor-icons/react";
+import {
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import {
 	WorkReadNotice,
@@ -419,17 +425,26 @@ export function OutboundStyleProfile() {
 						))}
 						{query.data?.approvals.length ? (
 							query.data.approvals.map((approval, index) => (
-								<details key={approval.id}>
-									<summary>{query.data.lessons[index]}</summary>
-									<Text as="p" role="body">
-										{approval.after}
-									</Text>
-									{approval.before !== approval.after ? (
-										<Text as="p" role="body" tone="secondary">
-											Before: {approval.before}
+								<Collapsible key={approval.id}>
+									<CollapsibleTrigger className="group/disclosure">
+										<CaretRight
+											size={14}
+											aria-hidden
+											className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+										/>
+										{query.data.lessons[index]}
+									</CollapsibleTrigger>
+									<CollapsibleContent keepMounted>
+										<Text as="p" role="body">
+											{approval.after}
 										</Text>
-									) : null}
-								</details>
+										{approval.before !== approval.after ? (
+											<Text as="p" role="body" tone="secondary">
+												Before: {approval.before}
+											</Text>
+										) : null}
+									</CollapsibleContent>
+								</Collapsible>
 							))
 						) : !query.data?.decisionCount ? (
 							<Text role="body">{OS_COPY.outboundProfile.empty}</Text>
