@@ -29,8 +29,8 @@ import * as z from "zod";
 import { errorText } from "./format";
 import { NATIVE_DESCRIPTOR_CACHE_TTL_MS } from "./native-bootstrap-cache";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import { type NativeToolContext } from "./work";
-import { type BoardError, type BoardResult } from "./work-identity";
+import type { NativeToolContext } from "./work";
+import type { BoardError, BoardResult } from "./work-identity";
 
 /**
  * Detect an error envelope returned (not thrown) through native transport.

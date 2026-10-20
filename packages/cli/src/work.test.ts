@@ -34,10 +34,12 @@ import {
 	type WorkContext,
 	type WorkOptions,
 	workUsage,
-	buildAcceptanceContract,
-	buildSettlementMetadata,
 	workVerbNames,
 } from "./work";
+import {
+	buildAcceptanceContract,
+	buildSettlementMetadata,
+} from "./work-lifecycle";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 
 const ITEM = "11111111-1111-4111-8111-111111111111";

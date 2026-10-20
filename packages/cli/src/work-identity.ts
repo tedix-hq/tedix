@@ -1,7 +1,7 @@
 import { readExternalAgentProfile } from "./external-agent-store";
 import type { WorkAttemptKey } from "./work-attempt-store";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import { type WorkContext } from "./work";
+import type { WorkContext } from "./work";
 
 // Any non-zero exit signals "the board operation did not succeed" — matching the
 // CLI's failed/canceled → 2 convention so automation can branch on it.
