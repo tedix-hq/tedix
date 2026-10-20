@@ -1,6 +1,6 @@
 import { MemoryBrowser } from "./memory-browser";
 import { getRouteApi, useLocation } from "@tanstack/react-router";
-import { memoryText } from "@/lib/memory-browser";
+import { memoryText, workflowRunLinkId } from "@/lib/memory-browser";
 import { BookOpen, Brain, CaretRight } from "@phosphor-icons/react";
 import type { RationaleOutcomeStatus } from "@tedix/api-contract/constants/enums";
 import type {
@@ -80,17 +80,6 @@ export function confidencePercent(confidence: number): string {
 
 /** Rationale/knowledge body previews are clamped to this many characters. */
 export const BRAIN_PREVIEW_LENGTH = 200;
-
-// The Run detail route reads `skill_runs`, whose production creation path uses
-// `crypto.randomUUID()`. Rationale `runId` is intentionally broader and also
-// carries Agent/Home compound runtime references. Sending those identifiers to
-// the workflow-only route produces a false "Run not found" destination.
-const WORKFLOW_RUN_ID_PATTERN =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export function workflowRunLinkId(runId: string | null): string | null {
-	return runId && WORKFLOW_RUN_ID_PATTERN.test(runId) ? runId : null;
-}
 
 export function runtimeReferenceLabel(runId: string): string {
 	const compoundId = runId.match(/:mcp:([^:]+)/i)?.[1] ?? runId;
