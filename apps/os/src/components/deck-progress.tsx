@@ -44,7 +44,7 @@ export function DeckProgress({
 	}, [label, completed, total, saving, filtered]);
 	return (
 		<div className="fd-card-progress grid gap-1" data-deck-progress>
-			<div className="flex min-w-0 items-center justify-between gap-2">
+			<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
 				{leading ?? <span />}
 				<Text
 					role="label"
