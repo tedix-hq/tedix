@@ -20,7 +20,7 @@ it("seeds owning apps idempotently and leaves the exact versioned specs in D1", 
 	const db = new DatabaseSync(":memory:");
 	try {
 		for (const name of names) {
-			if (name.startsWith("20261019200603_")) break;
+			if (name.startsWith("20261019204457_")) break;
 			apply(db, name);
 		}
 		db.exec("PRAGMA foreign_keys = OFF");
@@ -43,7 +43,7 @@ it("seeds owning apps idempotently and leaves the exact versioned specs in D1", 
 		}
 		const migrations = names.filter(
 			(n) =>
-				n.startsWith("20261019200603_") ||
+				n.startsWith("20261019204457_") ||
 				n.includes("_attention-app-value-bindings") ||
 				n.includes("_attention-app-view-assets") ||
 				n.includes("_attention-layout-catalog-props") ||
