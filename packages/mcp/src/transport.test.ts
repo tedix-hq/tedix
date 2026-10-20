@@ -38,7 +38,7 @@ import {
 } from "./skills";
 import { McpTaskError } from "./tasks";
 import {
-	enforceModernMcpProtocol,
+	enforceSupportedMcpProtocol,
 	MCP_RESULT_CACHE_HINT_META_KEY,
 	mountMcp,
 	requiresLegacyMcpTransport,
@@ -531,21 +531,80 @@ function modernPost(
 }
 
 describe("transport — MCP 2026-07-28 modern mode", () => {
-	it("provides a fail-closed gate for Tedix-owned POST mounts", async () => {
-		const missing = enforceModernMcpProtocol(
-			new Request(URL_OK, { method: "POST" }),
+	it.each([undefined, "2025-11-25", "2025-06-18", "2025-03-26", MODERN])(
+		"allows the supported protocol header %s at Tedix-owned mounts",
+		(version) => {
+			const headers: Record<string, string> = version
+				? { "MCP-Protocol-Version": version }
+				: {};
+			expect(
+				enforceSupportedMcpProtocol(
+					new Request(URL_OK, {
+						method: "POST",
+						headers,
+					}),
+				),
+			).toBeNull();
+		},
+	);
+	it("rejects unknown explicit revisions at Tedix-owned mounts", async () => {
+		const response = enforceSupportedMcpProtocol(
+			new Request(URL_OK, {
+				method: "POST",
+				headers: { "MCP-Protocol-Version": "1999-01-01" },
+			}),
 		);
-		expect(missing?.status).toBe(400);
-		expect(await missing?.json()).toMatchObject({
-			error: { code: -32_022 },
+		expect(response?.status).toBe(400);
+		expect(await response?.json()).toMatchObject({
+			error: { code: -32022, data: { requested: "1999-01-01" } },
 		});
 		expect(
-			enforceModernMcpProtocol(modernPost({ id: 1, method: "ping" })),
-		).toBeNull();
-		expect(
-			enforceModernMcpProtocol(new Request(URL_OK, { method: "DELETE" })),
+			enforceSupportedMcpProtocol(new Request(URL_OK, { method: "DELETE" })),
 		).toBeNull();
 	});
+	it.each([{}, { cacheHints: {} }])(
+		"serves Claude's legacy initialization and subsequent calls with %j",
+		async (options) => {
+			async function readMessage(response: Response) {
+				const text = await response.text();
+				const payload = response.headers
+					.get("Content-Type")
+					?.includes("text/event-stream")
+					? text
+							.split("\n")
+							.find((line) => line.startsWith("data:"))!
+							.slice(5)
+					: text;
+				return JSON.parse(payload);
+			}
+			const initialize = postRpc({
+				jsonrpc: "2.0",
+				id: 0,
+				method: "initialize",
+				params: {
+					protocolVersion: "2025-11-25",
+					capabilities: {},
+					clientInfo: { name: "claude-code", version: "2.1.304" },
+				},
+			});
+			expect(enforceSupportedMcpProtocol(initialize)).toBeNull();
+			const response = await mountMcp(buildServer(), initialize, options);
+			expect(response.status).toBe(200);
+			expect(await readMessage(response)).toMatchObject({
+				id: 0,
+				result: { protocolVersion: "2025-11-25" },
+			});
+			const tools = postRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+			tools.headers.set("MCP-Protocol-Version", "2025-11-25");
+			expect(enforceSupportedMcpProtocol(tools)).toBeNull();
+			const listed = await mountMcp(buildServer(), tools, options);
+			expect(listed.status).toBe(200);
+			const body = (await readMessage(listed)) as {
+				result: { tools: { name: string }[]; resultType?: string };
+			};
+			expect(body.result.tools.map((t) => t.name)).toContain("echo");
+		},
+	);
 	it("server/discover advertises the modern protocol version", async () => {
 		const res = await call(
 			postRpc({ jsonrpc: "2.0", id: 50, method: "server/discover" }),

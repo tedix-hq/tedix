@@ -39,7 +39,8 @@ vi.mock("./lib/api-client", () => ({
 	getApiClient,
 }));
 
-vi.mock("@tedix/mcp-shared/transport", () => ({
+vi.mock("@tedix/mcp-shared/transport", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/mcp-shared/transport")>()),
 	mountMcp,
 }));
 
@@ -77,6 +78,45 @@ describe("base MCP domain routing", () => {
 		getBySlugWithTools.mockResolvedValue({ app: null, tools: [] });
 	});
 
+	it.each([undefined, "2025-11-25", "2025-06-18", "1999-01-01"])(
+		"passes legacy version %s through the ingress gate",
+		async (version) => {
+			const response = await worker.fetch(
+				new Request("https://missing.mcp.tedix.tech/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						...(version ? { "MCP-Protocol-Version": version } : {}),
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 0,
+						method: "initialize",
+						params: {
+							protocolVersion: "2025-11-25",
+							capabilities: {},
+							clientInfo: { name: "claude-code", version: "2.1.304" },
+						},
+					}),
+				}),
+				createEnv(),
+				createExecutionContext(),
+			);
+			if (version === "1999-01-01") {
+				expect(response.status).toBe(400);
+				expect(await response.json()).toMatchObject({
+					id: 0,
+					error: { code: -32022 },
+				});
+				expect(getApiClient).not.toHaveBeenCalled();
+			} else {
+				expect(response.status).toBe(404);
+				expect(await response.json()).not.toMatchObject({
+					error: { code: -32022 },
+				});
+			}
+		},
+	);
 	it("rejects base-domain scanner paths without app lookup", async () => {
 		const env = createEnv();
 		const response = await worker.fetch(

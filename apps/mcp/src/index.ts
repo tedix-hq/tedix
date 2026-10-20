@@ -87,6 +87,7 @@ import {
 } from "@tedix/mcp-shared/trace-context";
 import {
 	DEFAULT_MCP_CACHE_HINT,
+	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 	mountMcp,
 	validateModernProtocolHeaders,
 	type McpCompletionRequest,
@@ -1253,7 +1254,7 @@ export async function handleMcpRequest(
 				: undefined,
 		),
 		discover: {
-			supportedVersions: [MCP_MODERN_PROTOCOL_VERSION],
+			supportedVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS,
 			serverInfo: resolvedMcpServerInfo(resolvedApp),
 			instructions: modernDiscoverInstructions(resolvedApp),
 			capabilities: {
@@ -1648,7 +1649,8 @@ export async function unsupportedProtocolVersionResponse(
 					: null,
 			error: {
 				code: -32_022,
-				message: `Unsupported MCP protocol version: Tedix requires ${MCP_MODERN_PROTOCOL_VERSION}`,
+				message: "Unsupported MCP protocol version",
+				data: { supported: MCP_SUPPORTED_PROTOCOL_VERSIONS },
 			},
 		}),
 		{ status: 400, headers: { "Content-Type": "application/json" } },
@@ -2271,6 +2273,12 @@ async function maybeHandleCodeModeCompactMcp(
 ): Promise<Response | null> {
 	if (request.method !== "POST") return null;
 	if (resolvedApp.metadata?.mcpConfig?.codeMode !== true) return null;
+	// Legacy hosts use the SDK's initialization and response codec below.
+	if (
+		request.headers.get(MCP_PROTOCOL_VERSION_HEADER) !==
+		MCP_MODERN_PROTOCOL_VERSION
+	)
+		return null;
 
 	const envelope = await readJsonRpcEnvelope(request);
 	if (envelope && "tooLarge" in envelope) return requestBodyTooLargeResponse();
@@ -2299,7 +2307,7 @@ async function maybeHandleCodeModeCompactMcp(
 			envelope,
 			decorateModernFastPathResult(envelope, resolvedApp, {
 				resultType: "complete",
-				supportedVersions: [MCP_MODERN_PROTOCOL_VERSION],
+				supportedVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS,
 				capabilities: {
 					...(interactionEventsEnabled ? { events: {} } : {}),
 					tools: hasSubscriptionStream ? { listChanged: true } : {},
@@ -2741,14 +2749,14 @@ const worker = {
 			});
 		}
 
-		// Tedix gateways are current-spec-only. Do not negotiate, initialize, or
-		// create sessions for older MCP hosts: every protocol POST must bind the
-		// finalized revision explicitly.
+		// Legacy initialization has no version header. Explicit versions must
+		// belong to the same compatibility ladder advertised by the transport.
+		const protocolVersion = request.headers.get(MCP_PROTOCOL_VERSION_HEADER);
 		if (
 			request.method === "POST" &&
 			(url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) &&
-			request.headers.get(MCP_PROTOCOL_VERSION_HEADER)?.trim() !==
-				MCP_MODERN_PROTOCOL_VERSION
+			protocolVersion !== null &&
+			!MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)
 		) {
 			return unsupportedProtocolVersionResponse(request);
 		}

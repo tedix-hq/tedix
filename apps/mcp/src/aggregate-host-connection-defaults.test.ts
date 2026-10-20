@@ -600,7 +600,9 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 				};
 			};
 		};
-		expect(discovery.result?.supportedVersions).toEqual(["2026-07-28"]);
+		expect(discovery.result?.supportedVersions).toEqual(
+			expect.arrayContaining(["2026-07-28", "2025-11-25"]),
+		);
 		expect(discovery.result?.instructions).toContain(
 			"discover show_deck and show_feed in the active organization",
 		);

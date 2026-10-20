@@ -1,5 +1,5 @@
 import {
-	enforceModernMcpProtocol,
+	enforceSupportedMcpProtocol,
 	mountMcp,
 } from "@tedix/mcp-shared/transport";
 import {
@@ -62,7 +62,7 @@ async function handleMcp(context: {
 	req: { raw: Request; header(name: string): string | undefined };
 	env: AppEnv["Bindings"];
 }): Promise<Response> {
-	const protocolError = enforceModernMcpProtocol(context.req.raw);
+	const protocolError = enforceSupportedMcpProtocol(context.req.raw);
 	if (protocolError) return protocolError;
 	try {
 		const auth = await authorizeDocsRequest(context.req.raw, context.env);

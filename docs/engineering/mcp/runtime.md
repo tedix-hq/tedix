@@ -29,10 +29,13 @@ the two scope gates, the `@tedix/db` boundary, and cache discipline are in
 
 ## Protocol
 
-Baseline: MCP SDK v2 and the `2026-07-28` revision. Tedix-owned endpoints are
-modern-only: they reject `initialize` and require `MCP-Protocol-Version`,
-`Mcp-Method`, `Mcp-Name`, and the required `_meta` keys (`-32022` unsupported
-version, `-32020` header/`_meta` mismatch, `-32021` missing client extension).
+Baseline: MCP SDK v2 and the `2026-07-28` revision, with the SDK's supported
+2025-era initialization and stateless response codec retained for older hosts
+and authentication fallback. Headerless `initialize` reaches that compatibility
+path; explicit unsupported version headers return `-32022`. Modern requests
+still require `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and the required
+`_meta` keys (`-32020` header/`_meta` mismatch, `-32021` missing client extension).
+The compact fast path serves modern requests only.
 Non-obvious choices:
 
 - First-party oRPC non-object results use a `{ data: value }` envelope in both

@@ -34,7 +34,7 @@ import type { McpTaskHandlers } from "@tedix/mcp-shared/tasks";
 import {
 	type McpCompletionRequest,
 	type McpCompletionResult,
-	enforceModernMcpProtocol,
+	enforceSupportedMcpProtocol,
 	mountMcp,
 } from "@tedix/mcp-shared/transport";
 import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
@@ -459,7 +459,7 @@ export async function handleMcp(
 		codeModeExtraInstructions?: string[];
 	},
 ): Promise<Response> {
-	const protocolError = enforceModernMcpProtocol(request);
+	const protocolError = enforceSupportedMcpProtocol(request);
 	if (protocolError) return protocolError;
 	const traceId = requestTraceId(request);
 	const caller = decodeTediMcpCaller(request);
