@@ -37,13 +37,19 @@ export function workspaceMatrix(root = ".") {
 				for (const [index, script] of testScriptShards(
 					scripts,
 					testScript,
-				).entries())
-					include.push({
-						workspace,
-						test: true,
-						testScript: script,
-						types: index === 0 && !!scripts["type-check"],
-					});
+				).entries()) {
+					const count = tedixCi.testScriptShards?.[script] ?? 1;
+					if (!Number.isInteger(count) || count < 1)
+						throw new Error(`Invalid shard count for ${workspace} ${script}`);
+					for (let shard = 1; shard <= count; shard++)
+						include.push({
+							workspace,
+							test: true,
+							testScript: script,
+							...(count > 1 ? { shard: `${shard}/${count}` } : {}),
+							types: index === 0 && shard === 1 && !!scripts["type-check"],
+						});
+				}
 				continue;
 			}
 			include.push({

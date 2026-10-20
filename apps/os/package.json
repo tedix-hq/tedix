@@ -110,6 +110,9 @@
 		"vitest": "catalog:"
 	},
 	"tedixCi": {
-		"splitTestScripts": true
+		"splitTestScripts": true,
+		"testScriptShards": {
+			"test:unit": 4
+		}
 	}
 }

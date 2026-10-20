@@ -43,7 +43,7 @@ jobs:
         run: node scripts/ci/full-suite-hourly.mjs
 
   workspace:
-    name: Workspace ${{ matrix.workspace }}${{ matrix.testScript && format(' / {0}', matrix.testScript) || '' }}
+    name: Workspace ${{ matrix.workspace }}${{ matrix.testScript && format(' / {0}', matrix.testScript) || '' }}${{ matrix.shard && format(' [{0}]', matrix.shard) || '' }}
     needs: plan
     if: ${{ !cancelled() && needs.plan.outputs.skip != 'true' }}
     runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
@@ -76,9 +76,14 @@ jobs:
         env:
           WORKSPACE: ${{ matrix.workspace }}
           TEST_SCRIPT: ${{ matrix.testScript }}
+          TEST_SHARD: ${{ matrix.shard }}
         run: |
           script="${TEST_SCRIPT:-$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')}"
-          bun run --cwd "$WORKSPACE" "$script"
+          if [ -n "$TEST_SHARD" ]; then
+            bun run --cwd "$WORKSPACE" "$script" --shard "$TEST_SHARD"
+          else
+            bun run --cwd "$WORKSPACE" "$script"
+          fi
       - name: Type-check
         if: ${{ !cancelled() && matrix.types }}
         env:
