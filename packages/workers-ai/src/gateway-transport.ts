@@ -179,8 +179,11 @@ export function aiGatewayHttpError(
 			? " — AI Gateway rejected the provider credential; check the gateway's provider key and token"
 			: "";
 	const safeDetail = safeErrorDetail(detail, requestBody);
-	return new Error(
-		`${label}: ${status} ${statusText}${credential}${safeDetail ? ` — ${safeDetail}` : ""}`,
+	return Object.assign(
+		new Error(
+			`${label}: ${status} ${statusText}${credential}${safeDetail ? ` — ${safeDetail}` : ""}`,
+		),
+		{ statusCode: status },
 	);
 }
 

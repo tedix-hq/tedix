@@ -4,6 +4,7 @@
  */
 
 import * as z from "zod";
+import { ModelFallbackPolicySchema } from "./model-fallback";
 import { DecisionLearningConfigSchema } from "./decision-learning";
 import { WorkStewardshipPolicySchema } from "./work-stewardship";
 import { JevSettingsSchema } from "./jev";
@@ -415,6 +416,7 @@ export const PortfolioBucketsSchema = z
 	);
 
 export const OrganizationMetadataSchema = z.object({
+	modelFallback: ModelFallbackPolicySchema.nullable().optional(),
 	workStewardship: WorkStewardshipPolicySchema.optional().describe(
 		"Creation-time stewardship defaults; explicit ownership and human execution are preserved.",
 	),

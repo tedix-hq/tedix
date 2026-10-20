@@ -299,6 +299,7 @@
 		"./queries/artifact-policy/contributions": "./src/queries/artifact-policy/contributions.ts",
 		"./queries/artifact-policy/releases": "./src/queries/artifact-policy/releases.ts",
 		"./queries/organizations": "./src/queries/organizations.ts",
+		"./queries/model-fallback": "./src/queries/model-fallback.ts",
 		"./queries/entity-images": "./src/queries/entity-images.ts",
 		"./queries/templates": "./src/queries/templates.ts",
 		"./queries/tools": "./src/queries/tools.ts",

@@ -1,0 +1,12 @@
+{
+	"version": 1,
+	"maxTransitions": 3,
+	"ladder": {
+		"cloudflare/auto": ["azure-openai/gpt-6-luna"],
+		"azure-openai/gpt-6-astra": [
+			"azure-openai/gpt-6.1-sol",
+			"azure-openai/gpt-6-luna"
+		],
+		"azure-openai/gpt-6.1-sol": ["azure-openai/gpt-6-luna"]
+	}
+}
