@@ -11,6 +11,7 @@ import { generateDecisionCard } from "./decision-card-generator";
 import {
 	checkDecisionCardCopy,
 	decisionCardFaceText,
+	decisionCardFallbackTitle,
 } from "@tedix/api-contract/utils/decision-card-copy";
 import { readDraftPreferences } from "./decision-learning";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
@@ -25,9 +26,7 @@ export function displayDeckCard(
 	return {
 		...card,
 		presentation: presentation ?? null,
-		label:
-			presentation?.title ??
-			(unavailable ? copySpec.unavailableTitle : copySpec.pendingTitle),
+		label: presentation?.title ?? decisionCardFallbackTitle(card.label),
 		faceText:
 			!presentation && unavailable
 				? copySpec.unavailableFace
