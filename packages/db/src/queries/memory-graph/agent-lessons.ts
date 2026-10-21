@@ -323,11 +323,20 @@ export async function decisionLessonEvidence(
 	for (let offset = 0; offset < unique.length; offset += 50) {
 		const rows = await db
 			.select({
-				id: learningInteractionEvents.id,
-				metadata: learningInteractionEvents.metadata,
-				eventKind: learningInteractionEvents.eventKind,
+				id: sql`${learningInteractionEvents.id}`.mapWith(
+					learningInteractionEvents.id,
+				),
+				metadata: sql`${learningInteractionEvents.metadata}`.mapWith(
+					learningInteractionEvents.metadata,
+				),
+				eventKind: sql`${learningInteractionEvents.eventKind}`.mapWith(
+					learningInteractionEvents.eventKind,
+				),
 			})
-			.from(learningInteractionEvents)
+			// Larger ID batches otherwise choose an organization-only index search.
+			.from(
+				sql`${learningInteractionEvents} INDEXED BY sqlite_autoindex_learning_interaction_events_1`,
+			)
 			.where(
 				and(
 					eq(learningInteractionEvents.organizationId, orgId),
@@ -447,10 +456,16 @@ async function liveEvidenceSources(
 	for (let i = 0; i < eventIds.length; i += 50) {
 		const events = await db
 			.select({
-				id: learningInteractionEvents.id,
-				metadata: learningInteractionEvents.metadata,
+				id: sql`${learningInteractionEvents.id}`.mapWith(
+					learningInteractionEvents.id,
+				),
+				metadata: sql`${learningInteractionEvents.metadata}`.mapWith(
+					learningInteractionEvents.metadata,
+				),
 			})
-			.from(learningInteractionEvents)
+			.from(
+				sql`${learningInteractionEvents} INDEXED BY sqlite_autoindex_learning_interaction_events_1`,
+			)
 			.where(
 				and(
 					eq(learningInteractionEvents.organizationId, orgId),
@@ -458,9 +473,9 @@ async function liveEvidenceSources(
 					sql`json_extract(${learningInteractionEvents.metadata}, '$.validTo') IS NULL`,
 					sql`json_extract(${learningInteractionEvents.metadata}, '$.supersededBy') IS NULL`,
 					sql`NOT EXISTS (SELECT 1 FROM learning_interaction_events c WHERE c.organization_id = ${orgId}
-    AND c.occurred_at > ${learningInteractionEvents.occurredAt}
     AND c.scope_kind = ${learningInteractionEvents.scopeKind} AND c.scope_id = ${learningInteractionEvents.scopeId}
     AND c.target_type = ${learningInteractionEvents.targetType} AND c.target_id = ${learningInteractionEvents.targetId}
+    AND c.occurred_at > ${learningInteractionEvents.occurredAt}
     AND c.event_kind IN ('edited', 'manually_replaced')
     AND json_extract(c.metadata, '$.answer') IS NOT json_extract(${learningInteractionEvents.metadata}, '$.answer'))`,
 				),
