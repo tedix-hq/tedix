@@ -10072,6 +10072,95 @@ describe("home approved-write layer (v1)", () => {
 			});
 		});
 
+		it.each([
+			["approve", false],
+			["reject", false],
+			["approve", true],
+			["reject", true],
+		] as const)(
+			"chat %s of a held delegation (member=%s) does not replan or duplicate dispatch",
+			async (decision, member) => {
+				const db = createKernelRuntimeDb();
+				const context = createContext(db);
+				const client = createKernelRuntimeClient(
+					member
+						? {
+								...context,
+								authType: "user",
+								apiKey: undefined,
+								user: { sub: "member-1" } as BaseContext["user"],
+								userRole: "member",
+							}
+						: context,
+				);
+				db.runs.push(
+					normalizeKernelRuntimeRunInsert({
+						id: "held-delegation",
+						organizationId: ORG_ID,
+						conversationId: "home:test",
+						status: "requires_approval",
+						metadata: {
+							homeDelegation: {
+								decision: {
+									mode: "needs_approval",
+									canAutoDispatch: false,
+									reason: "operator explicitly held dispatch for approval",
+								},
+								workOrder: {
+									targetTediId: "tedi-cpo",
+									targetTediLabel: "CPO",
+									objective: "Review the roadmap",
+									executionRequirement: NATIVE_EXECUTION_REQUIREMENT,
+									outputContract: "Return a short summary",
+									toolGuidance: [],
+									boundaries: ["Stay in-org"],
+									sourceContent: "Review the roadmap",
+									status: "draft",
+								},
+							},
+						},
+					}),
+				);
+				const kernel = vi.fn();
+				kernelRuntimeTestHooks.setKernelForTest(kernel);
+				const runner = vi.fn(async (input: { childRunId: string }) => ({
+					childRunId: input.childRunId,
+					status: "queued" as const,
+				}));
+				kernelRuntimeTestHooks.setDelegateRunnerForTest(runner);
+				const result = await client.enqueueMessage({
+					conversationId: "home:test",
+					content: decision,
+					idempotencyKey: "delegation-chat-reply",
+				});
+				expect(kernel).not.toHaveBeenCalled();
+				expect(runner).toHaveBeenCalledTimes(
+					!member && decision === "approve" ? 1 : 0,
+				);
+				expect(db.runs).toHaveLength(2);
+				if (member) {
+					expect(result.status).toBe("failed");
+					expect(
+						db.runs.find((run) => run.id === "held-delegation")?.status,
+					).toBe("requires_approval");
+					expect(result.assistantMessage?.content).toContain("tedis:update");
+				} else {
+					expect(result.assistantMessage?.content).toContain(
+						decision === "approve"
+							? "Approved delegation"
+							: "Rejected delegation",
+					);
+					await expect(
+						client.respondApproval({
+							runId: "held-delegation",
+							decision: "approve",
+						}),
+					).rejects.toThrow();
+					expect(runner).toHaveBeenCalledTimes(decision === "approve" ? 1 : 0);
+				}
+			},
+		);
+
 		it("decision approve on a Home delegation recommendation dispatches the target tedi by homeRunId", async () => {
 			const db = createKernelRuntimeDb();
 			const client = createKernelRuntimeClient(createContext(db));

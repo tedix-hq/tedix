@@ -5,7 +5,9 @@ import type {
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import { homeRuntimeEventId } from "@tedix/api-contract/utils/runtime-events";
 import type { kernelRuntimeRuns } from "@tedix/db/schema";
-import { describe, expect, it } from "vite-plus/test";
+import * as runQueries from "@tedix/db/queries/kernel-runtime-runs";
+import type { BaseContext } from "../../orpc";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	asyncCompletionAssistantMessageId,
 	homeDelegationCompletionContent,
@@ -13,6 +15,7 @@ import {
 	homeRunStatusFromChildStatus,
 	normalizeHomeRunRecord,
 	reconcileHomePlanWithChildStatuses,
+	reconcileHomeRunRowsFromChildStatus,
 	homeDelegationProofMetadata,
 	homeDelegationVerdictMetadata,
 } from "./run-store";
@@ -317,6 +320,69 @@ describe("normalizeHomeRunRecord", () => {
 			}
 		},
 	);
+
+	it.each(["failed", "completed"] as const)(
+		"preserves a %s parent over cached child progress",
+		(status) => {
+			const settledAt = "2026-07-01T01:00:00.000Z";
+			const row = makeRunRow({
+				status,
+				delegatedTediId: "worker",
+				childRunId: "child",
+				preview: "The delegated run ended",
+				completedAt: settledAt,
+				updatedAt: settledAt,
+				progressValue: 100,
+				progressLabel: "Settled",
+				metadata: {
+					...makeChildSummary(),
+					kernelReconciliation: {
+						action: "propagate_child_failure",
+						at: settledAt,
+					},
+				},
+			});
+			expect(normalizeHomeRunRecord(row)).toMatchObject({
+				status,
+				completedAt: settledAt,
+				updatedAt: settledAt,
+				progress: { current: 100, label: "Settled" },
+			});
+		},
+	);
+
+	it("does not overwrite a terminal parent when an older reconciliation loses its compare-and-set", async () => {
+		const row = makeRunRow({ delegatedTediId: "worker", childRunId: "child" });
+		const settled = { ...row, status: "failed", completedAt: NOW };
+		const transition = vi
+			.spyOn(runQueries, "transitionKernelRuntimeRunStatus")
+			.mockResolvedValue(false);
+		const read = vi
+			.spyOn(runQueries, "getKernelRuntimeRun")
+			.mockResolvedValue(settled);
+		try {
+			const result = await reconcileHomeRunRowsFromChildStatus(
+				{ db: {} } as BaseContext,
+				{
+					rows: [row],
+					childRunStatuses: new Map([
+						[childRunStatusKey("worker", "child"), makeChildSummary()],
+					]),
+				},
+			);
+			expect(transition).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining({
+					fromStatus: "running",
+					expectedUpdatedAt: NOW,
+				}),
+			);
+			expect(result).toEqual([settled]);
+		} finally {
+			transition.mockRestore();
+			read.mockRestore();
+		}
+	});
 
 	it("reads a persisted marker-only 'partial' as failed with the runtime's stop reason", () => {
 		// Older rows persisted `partial` for a stop that left only the runtime's

@@ -57,6 +57,11 @@ import {
 	type WriteWorkspaceContext,
 } from "./write-edit-target";
 import { planWriteCall, validateProposedCall } from "./write-call-plan";
+import {
+	outputDraftSaveTarget,
+	renderOutputDraftSaveRequest,
+	type OutputDraftSaveTarget,
+} from "./output-draft-save-intent";
 import type { LanguageModel } from "ai";
 import { buildMcpHost } from "../../../lib/mcp-client";
 import {
@@ -314,8 +319,10 @@ export interface KernelWriteProposalDeclined {
 		| "no_write_tools"
 		| "planner_declined"
 		| "validation_failed"
+		| "live_draft_save"
 		| "error";
 	detail?: string;
+	draftSaveTarget?: OutputDraftSaveTarget;
 }
 
 /**
@@ -335,6 +342,10 @@ export function renderWriteDeclined(
 	const appSlug = route.toolIntent?.appSlug?.trim();
 	const app = appSlug?.replaceAll("-", " ") || "that app";
 	switch (declined.stage) {
+		case "live_draft_save":
+			return declined.draftSaveTarget
+				? renderOutputDraftSaveRequest(declined.draftSaveTarget)
+				: "Open the selected file and use Save version above the editor. Nothing was saved by this chat.";
 		case "disabled":
 		case "no_provider":
 		case "no_write_tools":
@@ -396,8 +407,13 @@ export async function planKernelWriteProposal(args: {
 		args.onDecline?.(declined);
 		return null;
 	};
-	if (!kernelWriteEnabled(env)) return decline({ stage: "disabled" });
 	if (route.routeKind !== "propose_tool_write") return null;
+	const draftSaveTarget = content
+		? outputDraftSaveTarget(content, args.workspaceContext)
+		: null;
+	if (draftSaveTarget)
+		return decline({ stage: "live_draft_save", draftSaveTarget });
+	if (!kernelWriteEnabled(env)) return decline({ stage: "disabled" });
 	const appSlug = route.toolIntent?.appSlug?.trim();
 	if (!appSlug || !model || !content?.trim()) {
 		return decline({

@@ -432,6 +432,24 @@ describe("ChatMessageBubble", () => {
 		]);
 	});
 
+	it.each(["failed", "completed", "canceled"] as const)(
+		"does not resurrect a %s delegated child from a stale active sibling",
+		(status) => {
+			const run = {
+				id: "stale-parent",
+				organizationId: ORG_ID,
+				conversationId: "home:main",
+				status: "running",
+				delegatedTediId: "worker",
+				childRunId: CHILD_RUN_ID,
+				createdAt: "2026-08-21T10:01:00.000Z",
+			} as const;
+			expect(
+				activeDelegations([run, { ...run, id: "settled-parent", status }]),
+			).toEqual([]);
+		},
+	);
+
 	it("accepts only a fully-qualified explicit direct-read command", () => {
 		expect(
 			parseDirectReadCommand('/read acme.search_products {"query":"AirPods"}'),
@@ -2645,6 +2663,7 @@ beforeEach(() => {
 	kernelRuntimeApi.readRunSet.mockResolvedValue(runSetPayload());
 	userSettingsApi.getContext.mockResolvedValue({
 		organization: { id: ORG_ID },
+		authority: { role: "owner", permissions: ["tedis:update"] },
 	});
 	modelCatalogApi.list.mockResolvedValue(
 		catalogPayload([catalogModel(TEXT_ONLY_REF, "unsupported")]),

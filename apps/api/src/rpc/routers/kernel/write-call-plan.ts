@@ -49,6 +49,7 @@ Rules:
 - Pick the single tool that most directly performs the change the operator asked for. Prefer the narrowest matching write over broad/batch operations.
 - If the request needs two or more separate writes (e.g. rename a project AND create a Work item), return NONE: one proposal must never silently drop part of the request.
 - For Work items, issues and tasks, the supplied description and acceptance criteria are record content about future work. Store that brief without performing it or counting its steps as additional writes. Creating the record does not execute or delegate the work it describes.
+- Tedix Work creation needs one structured purpose context: a known objectiveId, projectId, parentWorkItemId, or an explicitly requested maintenance/incident/hygiene workClass. A prose "Purpose" belongs in the description and does not replace that context. Preserve a supplied destination even when the request starts with a purpose preface. Never invent an identifier or classify unrelated work as maintenance to make creation pass; return NONE if no valid context is known.
 - "Only stage it for approval" or "do nothing else" describes this review step; it does not negate the change.
 - Only use parameters the chosen tool declares. Omit optional parameters unless they clearly help.
 - When asked to draft or create content, compose the finished content inside the tool arguments. Follow the requested structure, durations, and other explicit constraints; do not paste the drafting instructions into the deliverable. Use supplied text verbatim only when the operator asks for that. Do not invent factual evidence, measurements, or completed actions. Before returning, check that every requested component is present in the draft; mentioning a requirement is not fulfilling it.
@@ -404,6 +405,19 @@ export function validateProposedCall(
 			return null;
 		}
 	} catch {
+		return null;
+	}
+	if (
+		tool.name === "work.create_work_items" &&
+		!["objectiveId", "projectId", "parentWorkItemId"].some(
+			(key) => typeof args[key] === "string" && args[key] !== "",
+		) &&
+		!(
+			typeof args.workClass === "string" &&
+			["maintenance", "incident", "hygiene"].includes(args.workClass)
+		)
+	) {
+		onInvalid?.(["objectiveId", "projectId", "parentWorkItemId", "workClass"]);
 		return null;
 	}
 	return {

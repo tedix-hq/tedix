@@ -169,6 +169,7 @@ export interface ChatApprovalReply {
 	runId: string;
 	decision: "approve" | "reject";
 	tool: string;
+	targetKind?: "delegation";
 	runStatus: string | null;
 	error: string | null;
 	/** The settled write's human receipt (e.g. "Updated “Plan”. [Open document](…)"). */
@@ -191,6 +192,9 @@ export function readChatApprovalReply(
 		runId: reply.runId,
 		decision: reply.decision,
 		tool: reply.tool,
+		...(reply.targetKind === "delegation"
+			? { targetKind: "delegation" as const }
+			: {}),
 		runStatus: typeof reply.runStatus === "string" ? reply.runStatus : null,
 		error: typeof reply.error === "string" ? reply.error : null,
 		receipt: typeof reply.receipt === "string" ? reply.receipt : null,
@@ -201,6 +205,13 @@ export function chatApprovalReplyContent(reply: ChatApprovalReply): string {
 	const tool = `\`${reply.tool}\``;
 	if (reply.error) {
 		return `Couldn't ${reply.decision} ${tool}: ${reply.error}`;
+	}
+	if (reply.targetKind === "delegation") {
+		if (reply.decision === "reject")
+			return `Rejected delegation to ${tool}. Nothing was dispatched.`;
+		return reply.runStatus === "failed"
+			? `Approved delegation to ${tool}, but dispatch failed. Open the run details for the error.`
+			: `Approved delegation to ${tool}. Follow its status in the delegation card.`;
 	}
 	if (reply.decision === "reject") return `Rejected ${tool}. Nothing ran.`;
 	return reply.runStatus === "failed"

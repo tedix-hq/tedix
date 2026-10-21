@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
@@ -592,7 +592,7 @@ export async function readPendingWorkflowHint(
 }
 
 /**
- * The newest of the conversation's recent runs that is parked on an approval
+ * The newest of the conversation's runs that is parked on an approval
  * card (`requires_approval` with a stored `approvalRequestId`), so a bare
  * "approve" or "reject" reply can resolve that card even when another turn
  * came in between. Caller must separately authorize conversation access.
@@ -616,10 +616,13 @@ export async function readLatestRunAwaitingApproval(
 			and(
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				eq(kernelRuntimeRuns.conversationId, input.conversationId),
+				eq(kernelRuntimeRuns.status, "requires_approval"),
+				ne(kernelRuntimeRuns.id, input.excludeRunId),
+				sql`json_type(${kernelRuntimeRuns.metadata}, '$.approvalRequestId') = 'text' AND length(json_extract(${kernelRuntimeRuns.metadata}, '$.approvalRequestId')) > 0`,
 			),
 		)
-		.orderBy(desc(kernelRuntimeRuns.updatedAt))
-		.limit(5);
+		.orderBy(desc(kernelRuntimeRuns.updatedAt), desc(kernelRuntimeRuns.id))
+		.limit(1);
 	for (const row of rows) {
 		if (row.id === input.excludeRunId || row.status !== "requires_approval")
 			continue;
@@ -629,6 +632,36 @@ export async function readLatestRunAwaitingApproval(
 			return { runId: row.id, approvalRequestId };
 	}
 	return null;
+}
+
+/** Conversation-bound pending delegation; completed follow-ups cannot hide it. */
+export async function readLatestRunAwaitingDelegationApproval(
+	db: DbQueryClient,
+	input: {
+		organizationId: string;
+		conversationId: string;
+		excludeRunId: string;
+	},
+): Promise<KernelRuntimeRun | null> {
+	const [row] = await db
+		.select()
+		.from(kernelRuntimeRuns)
+		.where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(kernelRuntimeRuns.conversationId, input.conversationId),
+				eq(kernelRuntimeRuns.status, "requires_approval"),
+				ne(kernelRuntimeRuns.id, input.excludeRunId),
+				isNull(kernelRuntimeRuns.childRunId),
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.decision.mode') = 'needs_approval'`,
+				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`,
+				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = 'text' AND length(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId')) > 0`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.resolutionStatus') IS NULL`,
+			),
+		)
+		.orderBy(desc(kernelRuntimeRuns.updatedAt), desc(kernelRuntimeRuns.id))
+		.limit(1);
+	return row ?? null;
 }
 
 /** Exact evidence only; caller must separately authorize conversation access. */

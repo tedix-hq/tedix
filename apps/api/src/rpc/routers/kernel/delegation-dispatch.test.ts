@@ -535,6 +535,30 @@ ${source}
 		).toMatchObject({ mode: "auto", canAutoDispatch: true });
 	});
 
+	it.each([
+		"Prepare an invoice draft for the bounded Weekly Winners test. Do not send it.",
+		"Review the results of a marketing test and return a draft summary.",
+	])(
+		"does not turn a business experiment into a software test job: %s",
+		(content) => {
+			expect(deriveExecutionRequirement(content, makeRoute())).toMatchObject({
+				surface: "native",
+				requiredCapabilities: [],
+			});
+		},
+	);
+
+	it.each([
+		"Run the unit test",
+		"Run the smoke tests",
+		"bun test",
+		"Run the regression test file",
+	])("retains software-test execution for %s", (content) => {
+		expect(
+			deriveExecutionRequirement(content, makeRoute()).requiredCapabilities,
+		).toContain("tests");
+	});
+
 	it("does not require a workstation lease for a bounded software build job", () => {
 		const route = makeRoute({ effortClass: "fan_out", risk: "medium" });
 		const requirement = deriveExecutionRequirement(

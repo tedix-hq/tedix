@@ -16,6 +16,7 @@ import {
 	type KernelRuntimeRun,
 	getKernelRuntimeRun,
 	readLatestRunAwaitingApproval,
+	readLatestRunAwaitingDelegationApproval,
 	updateKernelRuntimeRun,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import type { ChatApprovalReply } from "../kernel/turn-work-intercepts";
@@ -869,10 +870,9 @@ async function respondKernelToolWriteApprovalCore(
 }
 
 /**
- * A bare "approve"/"reject" chat reply to the conversation's parked write
- * card. Resolves it as the replying operator through the same core the card's
- * buttons use (same authority: tedis write + conversation edit), so chat-only
- * surfaces (`tedix chat`, the widget, MCP) can answer an approval. Returns
+ * A bare "approve"/"reject" reply to a parked write or delegation card.
+ * Resolves it as the replying operator through the card's existing authority
+ * and exactly-once latch, so chat-only surfaces can answer an approval. Returns
  * null when the reply is not a decision or nothing is parked; the turn then
  * plans normally.
  */
@@ -892,7 +892,46 @@ export async function resolveApprovalByChatReply(
 		conversationId: input.conversationId,
 		excludeRunId: input.runId,
 	});
-	if (!pending) return null;
+	if (!pending) {
+		const run = await readLatestRunAwaitingDelegationApproval(context.db, {
+			organizationId: input.organizationId,
+			conversationId: input.conversationId,
+			excludeRunId: input.runId,
+		});
+		if (!run) return null;
+		const delegation = kernelDelegationRecommendationFromRun(run);
+		if (!delegation) return null;
+		const tool =
+			stringFromPayload(delegation.workOrder.targetTediLabel) ??
+			"the selected worker";
+		try {
+			const { respondApprovalRoute } = await import("./delegation-control");
+			const respond = createRouterClient(respondApprovalRoute, { context });
+			const result = await respond({
+				organizationId: input.organizationId,
+				runId: run.id,
+				decision,
+				note: `${decision === "approve" ? "Approved" : "Rejected"} by chat reply`,
+			});
+			return {
+				runId: run.id,
+				decision,
+				tool,
+				targetKind: "delegation",
+				runStatus: result.run.status,
+				error: null,
+			};
+		} catch (error) {
+			return {
+				runId: run.id,
+				decision,
+				tool,
+				targetKind: "delegation",
+				runStatus: null,
+				error: errorMessage(error).slice(0, 300),
+			};
+		}
+	}
 	const [approval, run] = await Promise.all([
 		getApprovalRequestById(context.db, pending.approvalRequestId),
 		getKernelRuntimeRun(context.db, {

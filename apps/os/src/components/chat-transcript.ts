@@ -76,8 +76,8 @@ export const ACTIVE_RUN_STATUSES: ReadonlySet<string> = new Set([
 /** Active work is rendered as live chrome only. Completed delegation history is
  * already represented by its own transcript turn and run detail. */
 export function activeDelegations(runs: readonly HomeRun[]) {
-	return dedupeDelegations(
-		runs.filter((run) => ACTIVE_RUN_STATUSES.has(run.status)),
+	return dedupeDelegations(runs).filter((work) =>
+		ACTIVE_RUN_STATUSES.has(work.status),
 	);
 }
 
