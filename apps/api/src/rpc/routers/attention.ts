@@ -4,6 +4,7 @@ import { requireOrgId } from "../org-scope";
 import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
 import {
 	cardsFromSheet,
+	factoryVerdictLearning,
 	verdictCells,
 	rowWrite,
 } from "@tedix/api-contract/utils/card-review";
@@ -418,11 +419,7 @@ export const attentionContractRouter = os.router({
 					targetType: "output",
 					targetId: original.outputId,
 					metadata: {
-						decisionClass:
-							`factory:${source.label}:${original.type || "card"}`.slice(
-								0,
-								100,
-							),
+						...factoryVerdictLearning(source, original, input.reason),
 						decisionChoice: input.verdict,
 						cardId: card.id,
 						cardTitle: card.label.slice(0, 500),

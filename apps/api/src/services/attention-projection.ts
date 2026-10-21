@@ -23,8 +23,10 @@ import {
 import {
 	cardSheetsForSource,
 	cardsFromSheet,
+	factoryLearningClass,
 	isOpen,
 	routeFactoryCard,
+	scoredCards,
 	type ReviewCard,
 } from "@tedix/api-contract/utils/card-review";
 import {
@@ -160,7 +162,15 @@ async function factoryCards(
 				).flat();
 			}),
 	);
-	return { cards: groups.flat(), complete };
+	const loaded = groups.flat();
+	const kept = new Set(
+		scoredCards(
+			loaded.map((entry) => entry.card),
+			sources,
+			now,
+		),
+	);
+	return { cards: loaded.filter((entry) => kept.has(entry.card)), complete };
 }
 
 export async function loadDeckProjection(
@@ -581,10 +591,7 @@ export async function loadForYouProjection(
 			tediId: null,
 			kind: isOpen(card) ? "decision" : "result",
 			attachment: { title: card.sheetTitle },
-			classId: `factory:${binding.source.label}:${card.type || "card"}`.slice(
-				0,
-				100,
-			),
+			classId: factoryLearningClass(binding.source.label, card.type),
 			importance: "normal",
 			at: card.runCreatedAt,
 			dueAt: null,
