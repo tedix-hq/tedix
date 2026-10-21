@@ -7,9 +7,54 @@ import {
 	sample,
 	sweepCard,
 } from "./measure.mjs";
-import { assertStoredDeckSchema, deploymentContains } from "./run.mjs";
+import {
+	assertStoredDeckSchema,
+	deploymentContains,
+	readWithRetry,
+} from "./run.mjs";
 
 describe("decision graph measurement", () => {
+	test("transient read checks retry with bounded backoff", async () => {
+		let calls = 0;
+		const delays: number[] = [];
+		const result = await readWithRetry(
+			async () => {
+				if (++calls < 3) throw new Error("human_mcp_grant_unavailable");
+				return "read";
+			},
+			async (ms) => {
+				delays.push(ms);
+			},
+		);
+		expect(result).toBe("read");
+		expect(calls).toBe(3);
+		expect(delays).toEqual([1000, 2000]);
+	});
+	test("permission and capacity gates are returned without retrying", async () => {
+		for (const message of ["FORBIDDEN", "HTTP 429 Retry-After: 120"]) {
+			let calls = 0;
+			await expect(
+				readWithRetry(async () => {
+					calls++;
+					throw new Error(message);
+				}),
+			).rejects.toThrow(message);
+			expect(calls).toBe(1);
+		}
+	});
+	test("read outages stop after five attempts", async () => {
+		let calls = 0;
+		await expect(
+			readWithRetry(
+				async () => {
+					calls++;
+					throw new Error("human_mcp_grant_unavailable");
+				},
+				async () => {},
+			),
+		).rejects.toThrow("human_mcp_grant_unavailable");
+		expect(calls).toBe(5);
+	});
 	test("stale discovery cannot silently drop the stored-only request", () => {
 		expect(() => assertStoredDeckSchema({ properties: {} })).toThrow(
 			"Stored-only Deck read",

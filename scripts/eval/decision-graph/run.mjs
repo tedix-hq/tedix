@@ -7,6 +7,27 @@ import { fixture } from "./fixture.mjs";
 import { markdown, measure } from "./measure.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+/** @template T
+ * @param {() => Promise<T>} read
+ * @param {(ms: number) => Promise<unknown>} wait
+ * @returns {Promise<T>}
+ */
+export async function readWithRetry(read, wait = Bun.sleep) {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await read();
+		} catch (error) {
+			if (
+				attempt === 4 ||
+				!/human_mcp_grant_unavailable|external_agent_validation_unavailable|ETIMEDOUT|ECONNRESET|timed out/i.test(
+					String(error),
+				)
+			)
+				throw error;
+			await wait(1000 * 2 ** attempt);
+		}
+	}
+}
 export function assertStoredDeckSchema(parameters) {
 	if (!parameters?.properties?.presentation?.enum?.includes("stored"))
 		throw new Error(
@@ -104,37 +125,41 @@ async function main() {
 			});
 		}
 		async function code(source) {
-			const proc = Bun.spawn(
-				[
-					"tedix",
-					"--organization",
-					v.organization,
-					"-w",
-					v.profile,
-					"code",
-					`async () => { ${source} }`,
-					"--json",
-				],
-				{ stdout: "pipe", stderr: "pipe", env: process.env },
-			);
-			const [stdout, stderr, exit] = await Promise.all([
-				new Response(proc.stdout).text(),
-				new Response(proc.stderr).text(),
-				proc.exited,
-			]);
-			if (exit !== 0 || /truncat/i.test(stderr))
-				throw new Error(`CLI read failed: ${stderr || stdout}`);
-			let result = JSON.parse(stdout);
-			for (let i = 0; i < 8 && result?.result !== undefined; i++)
-				result = result.result;
-			if (typeof result === "string") result = JSON.parse(result);
-			if (!result || result.error)
-				throw new Error("Missing or failed read result");
-			return result;
+			return readWithRetry(async () => {
+				const proc = Bun.spawn(
+					[
+						"tedix",
+						"--organization",
+						v.organization,
+						"-w",
+						v.profile,
+						"code",
+						`async () => { ${source} }`,
+						"--json",
+					],
+					{ stdout: "pipe", stderr: "pipe", env: process.env },
+				);
+				const [stdout, stderr, exit] = await Promise.all([
+					new Response(proc.stdout).text(),
+					new Response(proc.stderr).text(),
+					proc.exited,
+				]);
+				if (/truncat/i.test(stderr))
+					throw new Error("Gateway read truncated; narrow the projection");
+				if (exit !== 0) throw new Error(`CLI read failed: ${stderr || stdout}`);
+				let result = JSON.parse(stdout);
+				for (let i = 0; i < 8 && result?.result !== undefined; i++)
+					result = result.result;
+				if (typeof result === "string") result = JSON.parse(result);
+				if (!result) throw new Error("Missing read result");
+				if (result.error)
+					throw new Error(`Read failed: ${JSON.stringify(result.error)}`);
+				return result;
+			});
 		}
-		async function discover(name) {
+		async function discover(name, endpoint = null) {
 			const matches = await code(
-				`const r=await discover.search(${codeModeLiteral({ query: name, limit: 10, includeParameters: true })}); return r.filter(x=>x.tool===${codeModeLiteral(name)}).map(x=>({callable:x.callable,parameters:x.parameters,readOnly:x.annotations?.readOnlyHint}));`,
+				`const endpoint=${codeModeLiteral(endpoint)}; const r=await discover.search(${codeModeLiteral({ query: name, limit: 10, includeParameters: true })}); return r.filter(x=>x.tool===${codeModeLiteral(name)} && (!endpoint || x.native?.endpoint===endpoint)).map(x=>({callable:x.callable,parameters:x.parameters,readOnly:x.annotations?.readOnlyHint}));`,
 			);
 			if (
 				matches.length !== 1 ||
@@ -154,23 +179,32 @@ async function main() {
 			inboxTool = await discover("list_work_interactions"),
 			contextTool = await discover("get_decision_context"),
 			detailTool = await discover("get_work_interaction"),
-			learningTool = await discover("get_decision_learning");
+			learningTool = await discover("get_decision_learning"),
+			preferencesTool = await discover(
+				"get_preferences",
+				"userSettings/getPreferences",
+			);
 		const learning = await code(
-			`const r=await ${learningTool}({}); return {pipeline:r.config.deckPipeline,timeZone:r.config.timezone};`,
+			`const r=await ${learningTool}({}); return {pipeline:r.config.deckPipeline};`,
+		);
+		const preferences = await code(
+			`const r=await ${preferencesTool}({}); return {timeZone:r.preferences.timezone??"UTC",revision:r.revision,source:r.source};`,
 		);
 		// Project the inventory before serialization; full cards can exceed gateway limits.
 		const deck = await code(
-			`const r=await ${deckTool}({limit:100,presentation:"stored"}); return {ids:r.cards.map(c=>c.id),otherCards:r.cards.filter(c=>!c.interaction).map(c=>({id:c.id,kind:c.kind,label:c.label,requestedAt:c.requestedAt,dueAt:c.dueAt,workItemId:c.workApproval?.workItem?.id??null})),count:r.count,complete:r.complete,observedAt:r.observedAt,pipeline:r.pipeline};`,
+			`const r=await ${deckTool}(${codeModeLiteral({ limit: 100, presentation: "stored", timeZone: preferences.timeZone })}); return {ids:r.cards.map(c=>c.id),otherCards:r.cards.filter(c=>!c.interaction).map(c=>({id:c.id,kind:c.kind,label:c.label,requestedAt:c.requestedAt,dueAt:c.dueAt,workItemId:c.workApproval?.workItem?.id??null})),count:r.count,complete:r.complete,observedAt:r.observedAt,pipeline:r.pipeline};`,
 		);
 		snapshot = {
 			mode: "live",
 			observedAt: deck.observedAt,
-			timeZone: learning.timeZone,
+			timeZone: preferences.timeZone,
 			currentIds: deck.ids,
 			rows: [],
 			contexts: {},
 			deployment,
 			coverage: {
+				organization: v.organization,
+				timeZonePreferenceRevision: preferences.revision,
 				currentComplete: deck.complete && deck.ids.length === deck.count,
 				currentCount: deck.count,
 				historyScope:
@@ -214,8 +248,16 @@ async function main() {
 				page.data.every((r) => r.request.requestedAt < cutoff);
 			if (!page.hasMore || reachedCutoff) {
 				snapshot.coverage.historyComplete = true;
-				break;
 			}
+			snapshot.historyCursor = snapshot.coverage.historyComplete
+				? null
+				: page.nextCursor;
+			await writeFile(
+				join(out, "snapshot.json"),
+				JSON.stringify(snapshot, null, 2),
+				{ mode: 0o600 },
+			);
+			if (snapshot.coverage.historyComplete) break;
 			if (!page.nextCursor || cursors.has(JSON.stringify(page.nextCursor)))
 				throw new Error("History cursor missing or repeated");
 			cursor = page.nextCursor;
