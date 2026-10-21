@@ -1,6 +1,7 @@
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { type ToolExecutionContext, ToolHandler } from "./handler";
+import { fetchTediConnectionToken } from "./handler-connection-credentials";
 
 const originalFetch = globalThis.fetch;
 
@@ -1279,7 +1280,7 @@ describe("background named credential provenance", () => {
 				workflowExecutionEpoch: 3,
 			},
 		} as unknown as ToolExecutionContext<ToolConfig>;
-		const handler = new ToolHandler() as unknown as {
+		const handler = { fetchTediConnectionToken } as unknown as {
 			fetchTediConnectionToken(
 				context: ToolExecutionContext<ToolConfig>,
 				tedi: string,

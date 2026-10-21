@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
-import {
-	buildCredentialErrorData,
-	ToolHandler,
-	type ToolExecutionContext,
-} from "./handler";
+import { ToolHandler, type ToolExecutionContext } from "./handler";
+import { buildCredentialErrorData } from "./handler-connection-credentials";
 
 const selection = {
 	providerId: "fictional-mail",

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { resolveClientCredentialsToken } from "./handler";
+import { resolveClientCredentialsToken } from "./handler-connection-credentials";
 
 const TOKEN_URL = "https://auth.example.com/oauth2/token";
 const CRED = "client-id:client-secret";
