@@ -1,3 +1,4 @@
+import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
 import { ChatStreamHub } from "../src/chat-stream-hub";
 import { AgentTediDO } from "../src/do";
 import { ActionReceiptJournal } from "../src/action-receipts";
@@ -230,6 +231,7 @@ export function tediDo(fields: Record<string, unknown> = {}): TediDoProbe {
 		state: fixtureState,
 		runtimeAdmission: () => admission,
 		activeFacetTurnTools: new Map(),
+		pageToolBroker: new PageToolBroker(),
 		activeFacetTurnAuthorities: new Map(),
 		activeFacetTurnConversations: new Map(),
 		facetWorkflowTurns: new KeyedFacetTurnGate(),
