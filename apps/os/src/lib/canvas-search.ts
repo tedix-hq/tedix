@@ -1,4 +1,5 @@
 import { optionalUuidSearchParam } from "@/lib/os-route-loaders";
+import { cardSourceSearch } from "./card-source-filter";
 
 export type CanvasDocSelection =
 	| { type: "gadget"; id: string }
@@ -22,6 +23,7 @@ export type CanvasSearch = {
 	view?: CanvasWorkpieceMode;
 	pane?: CanvasMobilePane;
 	focus?: true;
+	source?: string;
 };
 
 const CANVAS_MOBILE_PANES = new Set<CanvasMobilePane>([
@@ -64,9 +66,8 @@ function enumSearchParam<T extends string>(
 }
 
 /**
- * The Canvas URL accepts only bounded enums and UUID-backed resource keys.
- * Arbitrary labels, editor content, chat text, and capability data never enter
- * the address bar.
+ * The Canvas URL accepts bounded navigation identifiers and card Source filters.
+ * Editor content, chat text, and capability data never enter the address bar.
  */
 /**
  * A URL can carry at most this many open tabs. Enough for any real comparison
@@ -156,6 +157,9 @@ export function validateWorkspaceSearch(
 		view: enumSearchParam(search.view, CANVAS_WORKPIECE_MODES),
 		pane: enumSearchParam(search.pane, CANVAS_MOBILE_PANES),
 		focus: focus ? true : undefined,
+		...(cardSourceSearch(search.source)
+			? { source: cardSourceSearch(search.source) }
+			: {}),
 	};
 }
 

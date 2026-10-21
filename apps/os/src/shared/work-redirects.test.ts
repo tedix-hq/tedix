@@ -46,3 +46,22 @@ it("validates shareable filters and retains old completed links", () => {
 		workHomeSearch({ view: "other-org", filter: "admin", app: "__proto__" }),
 	).toEqual({});
 });
+
+it.each(["app:work", "factory:Inbox & Social", "workspace:fictional-home"])(
+	"retains a Source filter in Work URLs: %s",
+	(source) => {
+		expect(workHomeSearch({ view: "deck", source })).toEqual({
+			view: "deck",
+			source,
+		});
+	},
+);
+it.each([
+	"unknown",
+	"factory:",
+	"workspace:",
+	"factory:" + "x".repeat(256),
+	["app:work"],
+])("drops an invalid Source filter: %s", (source) => {
+	expect(workHomeSearch({ source })).toEqual({});
+});
