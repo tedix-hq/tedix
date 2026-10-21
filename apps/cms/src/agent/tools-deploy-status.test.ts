@@ -20,10 +20,8 @@ vi.mock("./storage", async (original) => ({
 	...(await original<object>()),
 	getCmsHumanSiteAuthority: mocks.authority,
 }));
-import {
-	buildSiteBuilderMcpServer,
-	type SiteBuilderToolContext,
-} from "./tools";
+import { buildSiteBuilderMcpServer } from "./tools";
+import type { SiteBuilderToolContext } from "./tools-shared";
 
 const db = { prepare: vi.fn() } as unknown as D1Database;
 const ACTIVE = "a".repeat(64);

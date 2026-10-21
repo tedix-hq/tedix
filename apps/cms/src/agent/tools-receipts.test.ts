@@ -32,10 +32,8 @@ vi.mock("./theme-artifacts", async (original) => ({
 	readThemeArtifactRepoSeedStatus: mocks.read,
 	cancelThemeArtifactRepoSeed: mocks.cancel,
 }));
-import {
-	buildSiteBuilderMcpServer,
-	type SiteBuilderToolContext,
-} from "./tools";
+import { buildSiteBuilderMcpServer } from "./tools";
+import type { SiteBuilderToolContext } from "./tools-shared";
 
 const terminal = {
 	jobId: "one",

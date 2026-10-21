@@ -73,7 +73,10 @@ import { recordCmsMcpAuditEvent } from "./agent/mcp-audit";
 // frozen table of embedded template files, and evaluating it on the Worker entry
 // path spends startup CPU against Cloudflare's 1s validation budget before any
 // request is served.
-import type { DeployStatus, SiteBuilderToolContext } from "./agent/tools";
+import type {
+	DeployStatus,
+	SiteBuilderToolContext,
+} from "./agent/tools-shared";
 import { buildCmsMcpDiscovery } from "./mcp-discovery";
 import { getSiteBuilderSandbox } from "./sandbox";
 import { loadServiceKey } from "./service-key-storage";
