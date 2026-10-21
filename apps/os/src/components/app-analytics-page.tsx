@@ -13,14 +13,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import {
-	ChartBar,
-	CheckCircle,
-	Clock,
-	Lightbulb,
-	Pulse,
-	Wrench,
-} from "@phosphor-icons/react";
+import { ChartBar, Clock, Lightbulb, Wrench } from "@phosphor-icons/react";
 import { lazy, Suspense, useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -64,7 +57,7 @@ import {
 	AnalyticsQueryState,
 	CallerTypesCard,
 	EventVolumeTable,
-	MetricCard,
+	PeriodChange,
 } from "./app-analytics/shared";
 import { ToolBreakdownTable } from "./app-analytics/tool-breakdown";
 
@@ -205,32 +198,41 @@ export function AppAnalyticsPage() {
 			<AnalyticsHeader />
 			{freshness && <ActivityFreshnessStrip freshness={freshness} />}
 
-			{/* Session Metrics (period-over-period comparison) */}
-			<div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-				<MetricCard
-					title="Total Sessions"
-					description="Unique conversations started"
-					value={String(metrics.totalSessions)}
-					change={metrics.sessionsChange}
-					icon={<Pulse size={16} aria-hidden className="text-kumo-subtle" />}
-				/>
-				<MetricCard
-					title="Avg Messages"
-					description="Tool calls per session"
-					value={metrics.avgMessages.toFixed(1)}
-					change={metrics.avgMessagesChange}
-					icon={<Wrench size={16} aria-hidden className="text-kumo-subtle" />}
-				/>
-				<MetricCard
-					title="Success Rate"
-					description="Tool calls completed successfully"
-					value={`${Math.round(metrics.successRate)}%`}
-					change={metrics.successRateChange}
-					icon={
-						<CheckCircle size={16} aria-hidden className="text-kumo-subtle" />
+			<MetricGrid aria-label="Session summary" columns={3} appearance="bounded">
+				<MetricItem
+					emphasis="metric"
+					label="Total sessions"
+					value={
+						<span className="flex flex-wrap items-baseline gap-2">
+							{metrics.totalSessions.toLocaleString()}
+							<PeriodChange change={metrics.sessionsChange} />
+						</span>
 					}
+					description="Unique conversations started"
 				/>
-			</div>
+				<MetricItem
+					emphasis="metric"
+					label="Avg messages"
+					value={
+						<span className="flex flex-wrap items-baseline gap-2">
+							{metrics.avgMessages.toFixed(1)}
+							<PeriodChange change={metrics.avgMessagesChange} />
+						</span>
+					}
+					description="Tool calls per session"
+				/>
+				<MetricItem
+					emphasis="metric"
+					label="Success rate"
+					value={
+						<span className="flex flex-wrap items-baseline gap-2">
+							{`${Math.round(metrics.successRate)}%`}
+							<PeriodChange change={metrics.successRateChange} />
+						</span>
+					}
+					description="Tool calls completed successfully"
+				/>
+			</MetricGrid>
 
 			{/* Event Type Breakdown */}
 			{summary && summary.totalEvents > 0 && (
