@@ -231,6 +231,7 @@
 		"./schemas/oidc-identity": "./src/schemas/oidc-identity.ts",
 		"./schemas/os-theme": "./src/schemas/os-theme.ts",
 		"./schemas/decision-graph": "./src/schemas/decision-graph.ts",
+		"./schemas/decision-graph-backfill": "./src/schemas/decision-graph-backfill.ts",
 		"./schemas/organization-purpose": "./src/schemas/organization-purpose.ts",
 		"./schemas/os-workspaces": "./src/schemas/os-workspaces.ts",
 		"./schemas/workspace-files": "./src/schemas/workspace-files.ts",

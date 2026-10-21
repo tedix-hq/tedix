@@ -528,6 +528,7 @@ export const SEO_RESEARCH_KIND_OVERRIDES: Record<
 export const GRAPH_GOVERNANCE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"memoryGraph/browse": "browse_memories",
 	"decisionGraph/getContext": "get_decision_context",
+	"decisionGraph/backfillPreview": "preview_decision_graph_backfill",
 	"memoryGraph/listObservations": "list_memory_observations",
 	"memoryGraph/consolidateObservations": "consolidate_memory_observations",
 	"memoryGraph/graph/maintenanceTaskStatus": "get_graph_gds_refresh_task",
@@ -565,6 +566,7 @@ export const GRAPH_GOVERNANCE_KIND_OVERRIDES: Record<
 	"memoryGraph/listObservations": "read",
 	"memoryGraph/browse": "read",
 	"decisionGraph/getContext": "read",
+	"decisionGraph/backfillPreview": "read",
 	"memoryGraph/consolidateObservations": "write",
 	"memoryGraph/graph/visualization": "read",
 	"memoryGraph/graph/similar": "read",
