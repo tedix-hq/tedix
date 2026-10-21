@@ -741,19 +741,22 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 						: orgRows.length + personalRows.length > 0
 							? "Connection needs attention"
 							: "No account requirement discovered";
+	const isGateway = membership.data?.gateway?.id === app.id;
 	const gatewayValue = membership.isPending
 		? "Checking membership"
 		: membership.isError
 			? "Gateway state unavailable"
-			: membership.data?.enabled
-				? "Available in unified gateway"
-				: "Not in unified gateway";
+			: isGateway
+				? "This app is the unified gateway"
+				: membership.data?.enabled
+					? "Available in unified gateway"
+					: "Not in unified gateway";
 	const governanceValue = eligibility.isPending
 		? "Checking readiness"
 		: eligibility.isError
 			? "Readiness unavailable"
 			: governance?.badge === "ready"
-				? "Ready to use"
+				? "Requirements met"
 				: governance?.badge === "plan_upgrade"
 					? "Plan upgrade needed"
 					: governance
@@ -801,7 +804,11 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 						<LifecycleFact
 							label="Unified gateway"
 							value={gatewayValue}
-							detail="Gateway membership controls discovery. It does not create credentials or grant scopes."
+							detail={
+								isGateway && !membership.isError
+									? "Self-membership does not apply. Manage availability from each installed app. Client permissions and account access still apply."
+									: "Gateway membership controls discovery. It does not create credentials or grant scopes."
+							}
 							className="border-kumo-hairline border-t md:border-r"
 						/>
 						<LifecycleFact
