@@ -790,8 +790,10 @@ export async function requireDestructiveToolApproval(
 				return null;
 			}
 		} catch {
-			return approvalFailure(
+			return preDispatchUnavailableToolResult(
+				"attempt_authorization_unavailable",
 				"Attempt authorization is unavailable; no side effect was executed.",
+				5,
 			);
 		}
 	}

@@ -108,6 +108,7 @@ export class McpToolError extends Error {
  */
 export const PRE_DISPATCH_UNAVAILABLE_TOOL_ERRORS = new Set([
 	"autonomous_policy_unavailable",
+	"attempt_authorization_unavailable",
 ]);
 
 const MAX_PRE_DISPATCH_RETRY_AFTER_SECONDS = 120;

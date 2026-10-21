@@ -243,12 +243,15 @@ test("cooldown extensions never shorten a sibling marker, and unrelated gateways
 	}
 });
 
-describe("resendPreDispatchToolRefusals", () => {
+describe.each([
+	["autonomous_policy_unavailable", "Autonomous action policy is unavailable"],
+	["attempt_authorization_unavailable", "Attempt authorization is unavailable"],
+])("resendPreDispatchToolRefusals: %s", (code, message) => {
 	const refusal = () =>
 		unwrapCallToolResult(
 			preDispatchUnavailableToolResult(
-				"autonomous_policy_unavailable",
-				"Autonomous action policy is unavailable; no side effect was executed.",
+				code,
+				`${message}; no side effect was executed.`,
 				5,
 			),
 			"work.start",
@@ -281,17 +284,21 @@ describe("resendPreDispatchToolRefusals", () => {
 				calls++;
 				return refusal();
 			}, deps(waits)),
-		).rejects.toThrow("Autonomous action policy is unavailable");
+		).rejects.toThrow(message);
 		expect(calls).toBe(3);
 		expect(waits).toHaveLength(2);
 	});
 
 	test("never resends an untyped tool error or one that may have run", async () => {
 		for (const error of [
-			new McpToolError("Autonomous action policy is unavailable", undefined),
+			new McpToolError(message, undefined),
 			new McpToolError("busy", {
-				code: "autonomous_policy_unavailable",
+				code,
 				details: { retryAfterSeconds: 5 },
+			}),
+			new McpToolError("busy", {
+				code,
+				details: { executed: true, retryAfterSeconds: 5 },
 			}),
 			new McpToolError("busy", {
 				code: "some_other_failure",
@@ -320,7 +327,7 @@ describe("resendPreDispatchToolRefusals", () => {
 				},
 				{ ...deps(waits), deadlineAt: 7_000 },
 			),
-		).rejects.toThrow("Autonomous action policy is unavailable");
+		).rejects.toThrow(message);
 		expect(calls).toBe(1);
 		expect(waits).toEqual([]);
 	});
