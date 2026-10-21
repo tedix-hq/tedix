@@ -39,6 +39,7 @@ const row = () => ({
 	openAlertId: alert?.id ?? null,
 	openAlertVersion: alert?.version ?? null,
 	openAlertCreatorId: alert ? "owner" : null,
+	answeredAlertAt: null,
 	...facts,
 });
 
@@ -98,6 +99,22 @@ describe("runDispatcherHealthAlarm", () => {
 		await runDispatcherHealthAlarm(env, NOW + 120_000);
 		expect(db.create).toHaveBeenCalledOnce();
 		expect(db.cancel).not.toHaveBeenCalled();
+	});
+
+	it("does not raise again after the owner answered this stall's item", async () => {
+		facts = { lastAdmissionAt: ago(46) };
+		await runDispatcherHealthAlarm(env, NOW);
+		// The owner answers the item; the stall itself has not recovered.
+		alert = null;
+		facts = { lastAdmissionAt: ago(46), answeredAlertAt: ago(0) };
+		await runDispatcherHealthAlarm(env, NOW + 120_000);
+		expect(db.create).toHaveBeenCalledOnce();
+	});
+
+	it("raises for a new stall after an answered item from an earlier one", async () => {
+		facts = { lastAdmissionAt: ago(46), answeredAlertAt: ago(60) };
+		await runDispatcherHealthAlarm(env, NOW);
+		expect(db.create).toHaveBeenCalledOnce();
 	});
 
 	it("clears the item when both signals recover", async () => {

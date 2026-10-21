@@ -115,6 +115,35 @@ describe("dispatcher health queries", () => {
 		]);
 	});
 
+	it("reports when the owner last answered an alert", async () => {
+		const sqlite = seed();
+		// Lifecycle guards are out of scope; only the stored status matters.
+		for (const { name } of sqlite
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='work_interactions'",
+			)
+			.all() as { name: string }[])
+			sqlite.exec(`DROP TRIGGER "${name}"`);
+		const alert = sqlite.prepare(
+			"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata,status,version) VALUES(?,'busy','ready','coordination','S','P','user','owner','user','owner',?,?,?,?)",
+		);
+		const metadata = JSON.stringify({ schema: DISPATCHER_HEALTH_SCHEMA });
+		alert.run("answered-old", T0, metadata, "resolved", 2);
+		alert.run("answered", T1, metadata, "resolved", 2);
+		alert.run("cleared", T1, metadata, "cancelled", 2);
+		alert.run("open", T1, metadata, "open", 3);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		expect(await listDispatcherHealthOrgs(db)).toEqual([
+			expect.objectContaining({
+				orgId: "busy",
+				openAlertId: "open",
+				openAlertVersion: 3,
+				openAlertCreatorId: "owner",
+				answeredAlertAt: T1,
+			}),
+		]);
+	});
+
 	it("exposes only the two platform timestamps", async () => {
 		const sqlite = seed();
 		const db = createDbQueryClient(createD1Facade(sqlite));
