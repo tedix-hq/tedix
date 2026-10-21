@@ -49,13 +49,11 @@
 	min-width: 8rem;
 	max-width: 32rem;
 	margin: 0;
-	overflow: hidden;
+	overflow-wrap: anywhere;
 	color: var(--foreground);
 	font-size: 14px;
 	font-weight: 600;
 	line-height: 20px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 .output-detail-workshop-feedback {

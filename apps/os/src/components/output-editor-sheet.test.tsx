@@ -115,7 +115,7 @@ describe("SheetEditor", () => {
 				mounted.container.querySelector(`[aria-label="${name}"]`),
 			).not.toBeNull();
 		}
-		expect(mounted.container.textContent).toContain("Excel-style functions");
+		expect(mounted.container.textContent).toContain("spreadsheet functions");
 		expect(mounted.container.textContent).toContain("Sheet1");
 		expect(
 			mounted.container.querySelector('[data-kumo-component="Select"]'),

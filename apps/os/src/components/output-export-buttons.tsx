@@ -53,9 +53,9 @@ export function OutputExportButtons({
 	const activeFormat = exportOutput.isPending ? exportOutput.variables : null;
 	const formats: OsOutputExportFormat[] = osOutputExportFormatsForKind(kind);
 	const labels: Partial<Record<OsOutputExportFormat, string>> = {
-		docx: "Word (.docx)",
-		xlsx: "Excel (.xlsx)",
-		pptx: "PowerPoint (.pptx)",
+		docx: "Document (.docx)",
+		xlsx: "Workbook (.xlsx)",
+		pptx: "Slides (.pptx)",
 		markdown: "Markdown (.md)",
 		html: "HTML (.html)",
 		csv: "CSV (all sheets)",

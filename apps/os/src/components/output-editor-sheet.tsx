@@ -1653,7 +1653,7 @@ export function SheetEditor({
 						</ContextMenu>
 						<div className="flex flex-wrap items-center gap-2 text-kumo-subtle type-tedix-label">
 							<span>
-								{WORKBOOK_SUPPORTED_FORMULA_COUNT}+ Excel-style functions
+								{WORKBOOK_SUPPORTED_FORMULA_COUNT}+ spreadsheet functions
 							</span>
 						</div>
 					</div>

@@ -338,7 +338,7 @@ export function SlideList({
 			/>
 			<ol
 				ref={listRef}
-				className="m-0 grid list-none grid-cols-1 content-start gap-1.5 overflow-y-auto p-0"
+				className="m-0 grid list-none grid-cols-1 content-start gap-1.5 overflow-y-auto p-0 max-sm:grid-cols-2"
 			>
 				{visible.length === 0 && (
 					<li>
@@ -431,11 +431,11 @@ export function SlideList({
 									{index + 1}
 								</Text>
 								<ReadOnlySlide slide={slide} className="slide-thumb-canvas" />
-								<Text as="span" className="block truncate" role="caption">
+								<Text as="span" className="block wrap-anywhere" role="caption">
 									{label}
 								</Text>
 							</Button>
-							<div className="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+							<div className="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 coarse:opacity-100">
 								<Button
 									type="button"
 									size="icon-xs"
