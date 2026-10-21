@@ -50,15 +50,13 @@ export function buildStructuredContent(
 	result: RpcToolResult,
 	ctx: ToolExecutionContext<ToolConfig>,
 ): Record<string, unknown> {
+	// Shaping mutates nested arrays and objects; each projection owns its copy.
+	const data = structuredClone(result.data);
 	let output: Record<string, unknown>;
-	if (
-		result.data != null &&
-		typeof result.data === "object" &&
-		!Array.isArray(result.data)
-	) {
-		output = { ...(result.data as Record<string, unknown>) };
+	if (data != null && typeof data === "object" && !Array.isArray(data)) {
+		output = data as Record<string, unknown>;
 	} else {
-		output = { data: result.data };
+		output = { data };
 	}
 
 	// Apply responseMap: rename/extract fields for widget consumption
@@ -183,12 +181,7 @@ export function buildTextContent(
 	if (modelSummaryTemplate) {
 		if (typeof modelSummaryTemplate === "string") {
 			try {
-				// Shape an isolated deep copy: buildStructuredContent only
-				// shallow-copies the top level, and responseTransforms /
-				// arrayLimits / stripFields mutate nested objects shared with
-				// the structuredContent the caller already built. Cloning keeps
-				// this second shaping pass from double-applying transforms onto
-				// that payload.
+				// Keep custom shaping callbacks isolated from the upstream payload.
 				const shaped = shapeContent(
 					{ ...result, data: structuredClone(result.data) },
 					ctx,
