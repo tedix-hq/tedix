@@ -113,10 +113,11 @@ export const triggerScanCatalog = fleetCatalogOs.triggerScan
 				if (!workflow) {
 					console.warn("[Catalog] MCP_SCAN_WORKFLOW binding not available");
 					return {
-						success: true,
-						appsQueued: catalogAppIds.length,
+						success: false,
+						appsQueued: 0,
 						workflowInstanceId: undefined,
-						message: `${catalogAppIds.length} apps need scans but workflow binding not available`,
+						message:
+							"Scans did not start because the scan workflow is unavailable. Contact an operator to configure it and retry.",
 					};
 				}
 				const instance = await workflow.create({
@@ -141,7 +142,7 @@ export const triggerScanCatalog = fleetCatalogOs.triggerScan
 					success: false,
 					appsQueued: 0,
 					workflowInstanceId: undefined,
-					message: `Failed to start MCP scan workflow: ${error instanceof Error ? error.message : "Unknown error"}`,
+					message: "Scans did not start. Please retry or contact an operator.",
 				};
 			}
 		}
@@ -175,10 +176,11 @@ export const triggerScanCatalog = fleetCatalogOs.triggerScan
 			if (!workflow) {
 				console.warn("[Catalog] MCP_SCAN_WORKFLOW binding not available");
 				return {
-					success: true,
-					appsQueued: appsNeedingScan.length,
+					success: false,
+					appsQueued: 0,
 					workflowInstanceId: undefined,
-					message: `${appsNeedingScan.length} apps need scans but workflow binding not available`,
+					message:
+						"Scans did not start because the scan workflow is unavailable. Contact an operator to configure it and retry.",
 				};
 			}
 			const instance = await workflow.create({
@@ -203,7 +205,7 @@ export const triggerScanCatalog = fleetCatalogOs.triggerScan
 				success: false,
 				appsQueued: 0,
 				workflowInstanceId: undefined,
-				message: `Failed to start MCP scan workflow: ${error instanceof Error ? error.message : "Unknown error"}`,
+				message: "Scans did not start. Please retry or contact an operator.",
 			};
 		}
 	});
