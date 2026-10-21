@@ -13,6 +13,7 @@
  */
 
 import { sendTransactionalEmail } from "./email";
+import { safeExceptionTopology } from "./safe-log-metadata";
 
 export interface SendOpsAlertOptions {
 	subject: string;
@@ -60,7 +61,9 @@ export async function sendOpsAlert(
 			});
 			result.emailed = res.sent;
 		} catch (err) {
-			console.warn("[ops-alert] email channel failed:", err);
+			console.warn("[ops-alert] email channel failed", {
+				exception: safeExceptionTopology(err),
+			});
 		}
 	}
 
@@ -83,7 +86,9 @@ export async function sendOpsAlert(
 				console.warn(`[ops-alert] webhook non-2xx: ${res.status}`);
 			}
 		} catch (err) {
-			console.warn("[ops-alert] webhook channel failed:", err);
+			console.warn("[ops-alert] webhook channel failed", {
+				exception: safeExceptionTopology(err),
+			});
 		}
 	}
 

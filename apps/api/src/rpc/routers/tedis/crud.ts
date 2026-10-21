@@ -81,6 +81,7 @@ import {
 	isTediCapabilityDowngrade,
 } from "../../../lib/tedi-aih-client-sync";
 import { auditActor, emitAuditEvent } from "../../audit-helpers";
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	AUTHZ,
 	withAuthorization,
@@ -1861,7 +1862,7 @@ export function assertPlatformAdminOrServiceBinding(
  * not transferred to the new name. A rebind does not recover that native state.
  * Caller must already hold platform-admin authority or a trusted service binding.
  */
-async function performRebindIsolate(
+export async function performRebindIsolate(
 	context: BaseContext,
 	tedi: Awaited<ReturnType<typeof requireTediAccess>>,
 ): Promise<{ isolateAgentId: string; previous: string }> {
@@ -1895,7 +1896,11 @@ async function performRebindIsolate(
 		resourceId: tedi.id,
 		metadata: { previous, isolateAgentId },
 	}).catch((err) => {
-		console.error("[Tedis] Failed to emit audit event for tedi.rebind:", err);
+		console.error("[Tedis] Failed to emit audit event for tedi.rebind", {
+			organizationId: tedi.organizationId,
+			tediId: tedi.id,
+			exception: safeExceptionTopology(err),
+		});
 	});
 
 	// Fire-and-forget: invalidate the tedi edge Worker resolve cache so the

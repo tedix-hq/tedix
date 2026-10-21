@@ -1,8 +1,40 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	buildOpenApiSyncMetadata,
+	executeOpenApiToolImport,
 	openApiToolImportTestInternals,
 } from "./openapi-tool-import";
+
+const CANARY = "https://hooks.example.test/secret-token";
+
+vi.mock("@tedix/db/queries/app-records", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/app-records")>()),
+	getAppById: vi.fn(async (_db: unknown, id: string) => ({
+		id,
+		slug: "orders",
+		organizationId: "00000000-0000-4000-8000-000000000001",
+		metadata: {},
+	})),
+	updateApp: vi.fn(async () => null),
+}));
+vi.mock("@tedix/db/queries/tools", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/tools")>()),
+	getToolsByAppId: vi.fn(async () => [
+		{
+			id: "tool-row-1",
+			toolId: "orders.removed",
+			config: { transport: "external", method: "GET", endpoint: "/gone" },
+		},
+	]),
+	deleteTool: vi.fn(async () => undefined),
+}));
+vi.mock("./reconcile-portable-webmcp-profiles", () => ({
+	reconcilePublishedWebMcpProfiles: vi.fn(async () => {
+		throw new TypeError(`profile write failed for ${CANARY}`);
+	}),
+}));
+
+afterEach(() => vi.restoreAllMocks());
 
 const baseResult = {
 	appId: "7a2f8b3c-d4e5-4f6a-b1c2-3d4e5f6a7b8c",
@@ -1433,5 +1465,31 @@ describe("allowlist clearing", () => {
 			stored,
 		);
 		expect(merged.includeOperationIds).toEqual(["customers.detail"]);
+	});
+});
+
+describe("profile reconciliation failure", () => {
+	it("logs exception structure without the thrown text", async () => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const appId = "7a2f8b3c-d4e5-4f6a-b1c2-3d4e5f6a7b8c";
+
+		const result = await executeOpenApiToolImport({} as never, {
+			appId,
+			dryRun: false,
+			spec: { openapi: "3.0.0", paths: {} },
+			baseUrl: "https://api.example.test",
+		});
+
+		expect(result.deleted).toBe(1);
+		const logged = JSON.stringify(error.mock.calls, (_key, value) =>
+			value instanceof Error
+				? { message: value.message, stack: value.stack }
+				: value,
+		);
+		expect(logged).not.toContain("secret-token");
+		expect(error).toHaveBeenCalledWith(
+			"Portable WebMCP profile reconciliation failed",
+			{ appId, exception: { type: "TypeError" } },
+		);
 	});
 });

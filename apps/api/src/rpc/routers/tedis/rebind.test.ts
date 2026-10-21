@@ -1,5 +1,24 @@
-import { describe, expect, test } from "vite-plus/test";
-import { computeRebindAgentId } from "./crud";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
+import { computeRebindAgentId, performRebindIsolate } from "./crud";
+
+const CANARY = "https://hooks.example.test/secret-token";
+
+vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/tedis")>()),
+	updateTedi: vi.fn(async (_db: unknown, id: string, patch: object) => ({
+		id,
+		slug: "echo",
+		...patch,
+	})),
+}));
+vi.mock("../../audit-helpers", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../audit-helpers")>()),
+	emitAuditEvent: vi.fn(async () => {
+		throw new TypeError(`audit insert failed for ${CANARY}`);
+	}),
+}));
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("computeRebindAgentId", () => {
 	test("generates a fresh {slug}-rebind-{epochMs} name distinct from the current value", () => {
@@ -44,5 +63,40 @@ describe("computeRebindAgentId", () => {
 		expect(previous).toBe("echo-rebind-1790000000000");
 		expect(isolateAgentId).toBe("echo-rebind-1790000000000-abcd1234");
 		expect(isolateAgentId).not.toBe(previous);
+	});
+});
+
+describe("performRebindIsolate", () => {
+	test("logs an audit failure as exception structure without its text", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation(() => {});
+		const tedi = {
+			id: "44444444-4444-4444-8444-444444444444",
+			organizationId: "55555555-5555-4555-8555-555555555555",
+			slug: "echo",
+			isolateAgentId: "echo",
+		};
+
+		await performRebindIsolate(
+			{ db: {}, env: {}, authType: "service-binding" } as never,
+			tedi as never,
+		);
+
+		const logged = JSON.stringify(consoleError.mock.calls, (_key, value) =>
+			value instanceof Error
+				? { message: value.message, stack: value.stack }
+				: value,
+		);
+		expect(logged).not.toContain("secret-token");
+		expect(consoleError).toHaveBeenCalledWith(
+			"[Tedis] Failed to emit audit event for tedi.rebind",
+			{
+				organizationId: tedi.organizationId,
+				tediId: tedi.id,
+				exception: { type: "TypeError" },
+			},
+		);
 	});
 });

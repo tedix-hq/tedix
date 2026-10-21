@@ -27,6 +27,7 @@ import { parse as parseYaml } from "yaml";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { stableStringify } from "../lib/stable-json";
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
 type JsonObject = Record<string, unknown>;
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -1857,7 +1858,7 @@ export async function executeOpenApiToolImport(
 			} catch (error) {
 				console.error("Portable WebMCP profile reconciliation failed", {
 					appId: resolved.appId,
-					message: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				});
 			}
 		}
