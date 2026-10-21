@@ -39,7 +39,7 @@ import {
 import { KumoTabs } from "@/components/kumo/tabs";
 import { ListSkeleton } from "@/components/list-skeleton";
 import {
-	type EntrustmentEffectiveStatus,
+	type TediOperationsDetail,
 	entrustmentSummary,
 	roleHint,
 	TediAvatar,
@@ -65,18 +65,6 @@ import { absoluteTime, relativeTime } from "@/lib/time";
 // ---------------------------------------------------------------------------
 
 /**
- * Structural subset of `TediOperationsSummary` the header reads — the full
- * contract row assigns to it, and tests can build small fixtures.
- */
-export interface TediHeaderSummary {
-	delegationProfile: {
-		activeRole: { roleName: string; careerStage: string } | null;
-		entrustments: readonly { effectiveStatus: EntrustmentEffectiveStatus }[];
-	};
-	pulse: { decisionsLast24h: number; factsLearnedLast24h: number };
-}
-
-/**
  * Roster identity for the detail header.
  *
  * The operations summary is the source of the role hint and the entrustment
@@ -88,7 +76,13 @@ export function TediDetailHeader({
 	summary,
 }: {
 	tedi: TediType;
-	summary?: TediHeaderSummary;
+	summary?: {
+		delegationProfile: TediOperationsDetail["delegationProfile"];
+		pulse: Pick<
+			TediOperationsDetail["pulse"],
+			"decisionsLast24h" | "factsLearnedLast24h"
+		>;
+	};
 }) {
 	useOsFormattingPreferences();
 	const activeRole = summary?.delegationProfile.activeRole ?? null;
