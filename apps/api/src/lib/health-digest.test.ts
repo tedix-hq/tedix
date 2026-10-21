@@ -378,7 +378,7 @@ describe("graphProjectionConsumerHealthConditions", () => {
 	});
 });
 
-it("does not probe graph projection consumers while the projection is turned off", async () => {
+it("includes stalled consumers in the live health collector even when unrelated probes fail", async () => {
 	const probe = vi
 		.spyOn(projectionQueries, "listGraphProjectionConsumerHealth")
 		.mockResolvedValue([
@@ -391,11 +391,27 @@ it("does not probe graph projection consumers while the projection is turned off
 	const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
 	try {
 		const db = {} as DbClient;
-		const conditions = await collectHealthConditions(db, Date.parse(NOW));
-		expect(probe).not.toHaveBeenCalled();
-		expect(conditions).not.toContainEqual(
+		const conditions = await collectHealthConditions(db, Date.parse(NOW), {
+			graphProjectionConfigured: true,
+		});
+		expect(probe).toHaveBeenCalledWith(db);
+		expect(conditions).toContainEqual(
 			expect.objectContaining({ key: "graph-projection-stale:org-stuck" }),
 		);
+	} finally {
+		probe.mockRestore();
+		warnings.mockRestore();
+	}
+});
+
+it("does not probe projection consumers without graph database config", async () => {
+	const probe = vi
+		.spyOn(projectionQueries, "listGraphProjectionConsumerHealth")
+		.mockResolvedValue([]);
+	const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+	try {
+		await collectHealthConditions({} as DbClient, Date.parse(NOW));
+		expect(probe).not.toHaveBeenCalled();
 	} finally {
 		probe.mockRestore();
 		warnings.mockRestore();

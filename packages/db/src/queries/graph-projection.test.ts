@@ -15,6 +15,7 @@ import {
 	getGraphProjectionReadState,
 	listGraphProjectionCertificationOrganizations,
 	listGraphProjectionOrganizations,
+	measureGraphProjectionBacklog,
 	pruneAcknowledgedGraphProjectionEvents,
 	readGraphEdgeBackfillPage,
 	readGraphFactBackfillPage,
@@ -290,6 +291,52 @@ describe("graph projection ledger queries", () => {
 				10,
 			),
 		).resolves.toEqual(["org-busy"]);
+	});
+
+	it("skips an organization whose last drain failed inside the cooldown", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		createProjectionTables(sqlite);
+		insertOutbox(sqlite, { id: "failing", orgId: "org-failing" });
+		insertOutbox(sqlite, { id: "old-failure", orgId: "org-cooled" });
+		insertOutbox(sqlite, { id: "healthy", orgId: "org-healthy" });
+		sqlite.exec(`
+			INSERT INTO graph_projection_consumers
+				(organization_id, last_projected_sequence, last_error, updated_at)
+			VALUES
+				('org-failing', 0, 'graph unreachable', '2026-10-21T22:05:00.000Z'),
+				('org-cooled', 0, 'graph unreachable', '2026-10-21T21:00:00.000Z'),
+				('org-healthy', 0, NULL, '2026-10-21T22:06:00.000Z')
+		`);
+
+		await expect(
+			listGraphProjectionOrganizations(
+				createDbClient(createD1Facade(sqlite)),
+				10,
+				{ failedSince: "2026-10-21T22:00:00.000Z" },
+			),
+		).resolves.toEqual(["org-cooled", "org-healthy"]);
+	});
+
+	it("measures pending backlog per organization up to a cap", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		createProjectionTables(sqlite);
+		const first = insertOutbox(sqlite, { id: "a-1", orgId: "org-a" });
+		insertOutbox(sqlite, { id: "a-2", orgId: "org-a" });
+		insertOutbox(sqlite, { id: "a-3", orgId: "org-a" });
+		for (let index = 0; index < 4; index += 1) {
+			insertOutbox(sqlite, { id: `b-${index}`, orgId: "org-b" });
+		}
+
+		await expect(
+			measureGraphProjectionBacklog(
+				createDbClient(createD1Facade(sqlite)),
+				[
+					{ organizationId: "org-a", cursor: first },
+					{ organizationId: "org-b", cursor: 0 },
+				],
+				3,
+			),
+		).resolves.toEqual({ organizations: 2, pending: 5, capped: 1 });
 	});
 
 	it("recertifies stale ready rows and retries quiet baseline-complete failures", async () => {

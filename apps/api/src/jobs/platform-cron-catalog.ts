@@ -14,6 +14,8 @@ export const PLATFORM_CRON_IDS = [
 	"deck-pipeline-sweep",
 	"decision-outcome-labeller",
 	"provider-event-maintenance",
+	"graph-projection-drain",
+	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
 	"work-approval-redrive",
@@ -64,6 +66,8 @@ interface PlatformCronDefinition {
 const everyTwoMinuteIds = [
 	"decision-outcome-labeller",
 	"provider-event-maintenance",
+	"graph-projection-drain",
+	"graph-gds-redrive",
 	"skill-schedule-dispatch",
 	"orphan-run-sweep",
 	"work-attempt-lease-sweep",

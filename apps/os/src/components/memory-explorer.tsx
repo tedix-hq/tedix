@@ -291,7 +291,7 @@ export function graphFreshnessNote(
 ): string | null {
 	if (!meta) return null;
 	if (!meta.graphConfigured || meta.source === "none") {
-		return "The graph view is turned off, so this map is empty by configuration rather than because nothing was learned.";
+		return "No graph projection is configured, so this map is empty by configuration rather than because nothing was learned.";
 	}
 	if (meta.projectionState === "disabled") {
 		return "The graph projection is disabled; this map is not a current view of memory.";

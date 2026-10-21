@@ -51,7 +51,8 @@ const GRAPH_PROJECTION_DISCOVERY_PROBE_CHUNK = 100;
 type GraphProjectionProbe = Parameters<DbClient["batch"]>[0][number];
 
 export const GRAPH_PROJECTION_RETENTION_DAYS = 7;
-export const GRAPH_PROJECTION_PRUNE_BATCH_SIZE = 1_000;
+/** Small delete batches keep each D1 write short; see the retention job. */
+export const GRAPH_PROJECTION_PRUNE_BATCH_SIZE = 250;
 
 function boundedLimit(limit: number): number {
 	if (!Number.isFinite(limit)) return GRAPH_PROJECTION_BATCH_SIZE;
@@ -237,6 +238,14 @@ export async function setGraphProjectionReadiness(
 export async function listGraphProjectionOrganizations(
 	db: DbClient,
 	limit = 100,
+	options?: {
+		/**
+		 * Skip a consumer whose last drain failed at or after this ISO instant:
+		 * the dispatch-level backoff that keeps an unreachable graph database
+		 * from being retried on every tick.
+		 */
+		failedSince?: string;
+	},
 ): Promise<string[]> {
 	const wanted = Math.max(1, Math.min(500, Math.trunc(limit)));
 	const [consumerRows, organizationRows] = await db.batch([
@@ -244,19 +253,29 @@ export async function listGraphProjectionOrganizations(
 			.select({
 				organizationId: graphProjectionConsumers.organizationId,
 				lastProjectedSequence: graphProjectionConsumers.lastProjectedSequence,
+				lastError: graphProjectionConsumers.lastError,
 				updatedAt: graphProjectionConsumers.updatedAt,
 			})
 			.from(graphProjectionConsumers),
 		db.select({ organizationId: organizations.id }).from(organizations),
 	]);
 
+	const failedSince = options?.failedSince;
 	const leased = new Set(consumerRows.map((row) => row.organizationId));
 	const candidates = [
-		...consumerRows.map((row) => ({
-			organizationId: row.organizationId,
-			cursor: row.lastProjectedSequence,
-			updatedAt: row.updatedAt as string | null,
-		})),
+		...consumerRows
+			.filter(
+				(row) =>
+					!failedSince ||
+					row.lastError === null ||
+					(row.updatedAt as string | null) === null ||
+					(row.updatedAt as string) < failedSince,
+			)
+			.map((row) => ({
+				organizationId: row.organizationId,
+				cursor: row.lastProjectedSequence,
+				updatedAt: row.updatedAt as string | null,
+			})),
 		...organizationRows
 			.filter((row) => !leased.has(row.organizationId))
 			.map((row) => ({
@@ -790,6 +809,53 @@ export async function getGraphProjectionBacklogStats(
 		poisonedCount: Number(row?.poisonedCount ?? 0),
 		oldestPendingAt: row?.oldestPendingAt ?? null,
 	};
+}
+
+export type GraphProjectionBacklogMeasurement = {
+	organizations: number;
+	/** Pending events summed over organizations, each counted up to `cap`. */
+	pending: number;
+	/** Organizations whose backlog reached `cap`, so `pending` is a floor. */
+	capped: number;
+};
+
+/**
+ * Bounded backlog size for the given consumers: one indexed range count per
+ * organization, each stopping at `cap` rows, composed into one D1 batch.
+ */
+export async function measureGraphProjectionBacklog(
+	db: DbClient,
+	consumers: readonly { organizationId: string; cursor: number }[],
+	cap = 10_000,
+): Promise<GraphProjectionBacklogMeasurement> {
+	const limit = Math.max(1, Math.min(50_000, Math.trunc(cap)));
+	const bounded = consumers.slice(0, GRAPH_PROJECTION_DISCOVERY_PROBE_CHUNK);
+	if (bounded.length === 0) return { organizations: 0, pending: 0, capped: 0 };
+	const statements = bounded.map(({ organizationId, cursor }) => {
+		const pendingRows = db
+			.select({ sequence: graphProjectionOutbox.sequence })
+			.from(graphProjectionOutbox)
+			.where(
+				and(
+					eq(graphProjectionOutbox.organizationId, organizationId),
+					gt(graphProjectionOutbox.sequence, cursor),
+				),
+			)
+			.limit(limit)
+			.as("pending_rows");
+		return db.select({ pending: count() }).from(pendingRows);
+	});
+	const results = (await db.batch(
+		statements as unknown as [GraphProjectionProbe, ...GraphProjectionProbe[]],
+	)) as { pending: number }[][];
+	let pending = 0;
+	let capped = 0;
+	for (const rows of results) {
+		const value = Number(rows[0]?.pending ?? 0);
+		pending += value;
+		if (value >= limit) capped += 1;
+	}
+	return { organizations: bounded.length, pending, capped };
 }
 
 export async function countPendingGraphProjectionEvents(

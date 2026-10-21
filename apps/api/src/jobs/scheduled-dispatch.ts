@@ -33,11 +33,11 @@ async function trackPlatformCronPath(
  * branch with no trigger never fires.
  * (Cron literals containing a slash-star are spelled in words below: inside a
  * block comment they would close it.)
- * - Every 2 minutes → Deck pipeline sweep (in the first two minutes of each
- *   quarter hour: retire expired, finished-Work and duplicate cards), due skill schedules, always-on keepalive, orphan-run
- *   sweep, work-attempt lease sweep, work approval redrive, MCP event webhook
- *   delivery. The Neo4j graph projection drain and GDS redrive are turned off
- *   (2026-10-16, Aura instance paused); see integrations/graph-db/client.ts.
+ * - Every 2 minutes → graph projection drain + GDS redrive (only when graph
+ *   database config is present), Deck pipeline sweep (in the first two minutes
+ *   of each quarter hour: retire expired, finished-Work and duplicate cards),
+ *   due skill schedules, always-on keepalive, orphan-run sweep, work-attempt
+ *   lease sweep, work approval redrive, MCP event webhook delivery.
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
  *   workstation compute metering
@@ -100,7 +100,17 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 		}
 
 		if (cron === "*/2 * * * *") {
-			const { dispatchDueSkillSchedulesTick } = await import("./platform-tick");
+			const {
+				dispatchGraphProjectionDrains,
+				redriveGraphGdsMaintenance,
+				dispatchDueSkillSchedulesTick,
+			} = await import("./platform-tick");
+			await trackPlatformCronPath(env, event, "graph-projection-drain", () =>
+				dispatchGraphProjectionDrains(env, event),
+			);
+			await trackPlatformCronPath(env, event, "graph-gds-redrive", () =>
+				redriveGraphGdsMaintenance(env, event),
+			);
 			await trackPlatformCronPath(env, event, "skill-schedule-dispatch", () =>
 				dispatchDueSkillSchedulesTick(env, event),
 			);
