@@ -744,7 +744,7 @@ try {
 		await preferred.locator(".fd-decision").focus();
 		await preferred.keyboard.press("d");
 		await preferred
-			.locator("[data-deck-progress]")
+			.locator("[data-deck-progress] .fd-deck-meta")
 			.getByText("2 of 6", { exact: true })
 			.waitFor();
 		if (
