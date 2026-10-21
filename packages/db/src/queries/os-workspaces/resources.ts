@@ -1,14 +1,154 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsWorkspaceResourceRow,
 	type OsWorkspaceResourceRow,
 	osWorkspaceResources,
+	osWorkspaceSkillDraftGrants,
+	osWorkspaceSkillDraftProposals,
 } from "../../schema/os-workspaces";
+
+export interface OsWorkspaceSkillDraftGrantIdentity extends OsWorkspaceResourceIdentity {
+	memberId: string;
+}
+
+export async function getOsWorkspaceSkillDraftGrant(
+	db: DbQueryClient,
+	params: OsWorkspaceSkillDraftGrantIdentity,
+) {
+	const [row] = await db
+		.select()
+		.from(osWorkspaceSkillDraftGrants)
+		.where(
+			and(
+				eq(osWorkspaceSkillDraftGrants.organizationId, params.organizationId),
+				eq(osWorkspaceSkillDraftGrants.memberId, params.memberId),
+				eq(osWorkspaceSkillDraftGrants.workspaceId, params.workspaceId),
+				eq(osWorkspaceSkillDraftGrants.resourceId, params.resourceId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+export async function setOsWorkspaceSkillDraftGrant(
+	db: DbQueryClient,
+	grant: typeof osWorkspaceSkillDraftGrants.$inferInsert,
+) {
+	const [row] = await db
+		.insert(osWorkspaceSkillDraftGrants)
+		.values(grant)
+		.onConflictDoUpdate({
+			target: [
+				osWorkspaceSkillDraftGrants.organizationId,
+				osWorkspaceSkillDraftGrants.memberId,
+				osWorkspaceSkillDraftGrants.workspaceId,
+				osWorkspaceSkillDraftGrants.resourceId,
+			],
+			set: {
+				skillId: grant.skillId,
+				enabled: grant.enabled,
+				expiresAt: grant.expiresAt,
+				grantedBy: grant.grantedBy,
+				updatedAt: grant.updatedAt,
+			},
+		})
+		.returning();
+	if (!row)
+		throw new Error("Workspace skill draft grant write returned no row");
+	return row;
+}
 
 export interface OsWorkspaceResourceScope {
 	organizationId: string;
 	workspaceId: string;
+}
+
+export async function getOsWorkspaceSkillDraftProposal(
+	db: DbQueryClient,
+	input: OsWorkspaceResourceIdentity & { proposalId: string },
+) {
+	const [row] = await db
+		.select()
+		.from(osWorkspaceSkillDraftProposals)
+		.where(
+			and(
+				eq(osWorkspaceSkillDraftProposals.organizationId, input.organizationId),
+				eq(osWorkspaceSkillDraftProposals.workspaceId, input.workspaceId),
+				eq(osWorkspaceSkillDraftProposals.resourceId, input.resourceId),
+				eq(osWorkspaceSkillDraftProposals.id, input.proposalId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+export async function createOsWorkspaceSkillDraftProposal(
+	db: DbQueryClient,
+	proposal: typeof osWorkspaceSkillDraftProposals.$inferInsert,
+) {
+	await db
+		.insert(osWorkspaceSkillDraftProposals)
+		.values(proposal)
+		.onConflictDoNothing({ target: osWorkspaceSkillDraftProposals.id });
+	return getOsWorkspaceSkillDraftProposal(db, {
+		...proposal,
+		proposalId: proposal.id,
+	});
+}
+
+export async function listOsWorkspaceSkillDraftProposals(
+	db: DbQueryClient,
+	input: OsWorkspaceResourceIdentity & { memberId?: string },
+) {
+	return db
+		.select({
+			id: osWorkspaceSkillDraftProposals.id,
+			memberId: osWorkspaceSkillDraftProposals.memberId,
+			sourceRevision: osWorkspaceSkillDraftProposals.sourceRevision,
+			reason: osWorkspaceSkillDraftProposals.reason,
+			createdAt: osWorkspaceSkillDraftProposals.createdAt,
+			status: osWorkspaceSkillDraftProposals.status,
+		})
+		.from(osWorkspaceSkillDraftProposals)
+		.where(
+			and(
+				eq(osWorkspaceSkillDraftProposals.organizationId, input.organizationId),
+				eq(osWorkspaceSkillDraftProposals.workspaceId, input.workspaceId),
+				eq(osWorkspaceSkillDraftProposals.resourceId, input.resourceId),
+				input.memberId
+					? eq(osWorkspaceSkillDraftProposals.memberId, input.memberId)
+					: undefined,
+			),
+		)
+		.orderBy(
+			desc(osWorkspaceSkillDraftProposals.createdAt),
+			desc(osWorkspaceSkillDraftProposals.id),
+		)
+		.limit(50);
+}
+
+export async function withdrawOsWorkspaceSkillDraftProposal(
+	db: DbQueryClient,
+	input: OsWorkspaceSkillDraftGrantIdentity & {
+		proposalId: string;
+		now: string;
+	},
+) {
+	await db
+		.update(osWorkspaceSkillDraftProposals)
+		.set({ status: "withdrawn", withdrawnAt: input.now })
+		.where(
+			and(
+				eq(osWorkspaceSkillDraftProposals.organizationId, input.organizationId),
+				eq(osWorkspaceSkillDraftProposals.workspaceId, input.workspaceId),
+				eq(osWorkspaceSkillDraftProposals.resourceId, input.resourceId),
+				eq(osWorkspaceSkillDraftProposals.memberId, input.memberId),
+				eq(osWorkspaceSkillDraftProposals.id, input.proposalId),
+				eq(osWorkspaceSkillDraftProposals.status, "pending"),
+			),
+		);
+	return getOsWorkspaceSkillDraftProposal(db, input);
 }
 
 export interface OsWorkspaceResourceIdentity extends OsWorkspaceResourceScope {

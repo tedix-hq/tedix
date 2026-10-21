@@ -10,6 +10,7 @@ import {
 } from "./calendar-resource-picker";
 import { WorkspaceCalendarCoordinator } from "./workspace-calendar-coordinator";
 import { WorkspacePersonalAccess } from "./workspace-personal-access";
+import { WorkspaceSkillDraftPanel } from "./workspace-skill-drafts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
 import { isWorkspaceSkillResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
@@ -380,6 +381,10 @@ export function WorkspaceResourcesPanel({
 				(resource) =>
 					resource.status === "active" && resource.resourceType === "calendar",
 			) && <WorkspaceCalendarCoordinator workspaceId={workspaceId} />}
+			<WorkspaceSkillDraftPanel
+				workspaceId={workspaceId}
+				resources={(query.data?.items ?? []).filter(isWorkspaceSkillResource)}
+			/>
 			{query.isPending ? (
 				<Text as="p" role="body" tone="secondary" className="m-0">
 					Loading resources…

@@ -38,6 +38,15 @@ export async function getMemberById(
 	return db.query.organizationMembers.findFirst({ where: { id } });
 }
 
+export async function getMemberByIdForOrganization(
+	db: DbClient,
+	input: { organizationId: string; memberId: string },
+): Promise<OrganizationMember | undefined> {
+	return db.query.organizationMembers.findFirst({
+		where: { id: input.memberId, organizationId: input.organizationId },
+	});
+}
+
 /**
  * Get member by organization and Descope user ID
  * Primary lookup for checking user membership

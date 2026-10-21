@@ -590,3 +590,73 @@ export const MuscleMemorySchema = z.object({
 	updatedAt: z.string().nullable().optional(),
 });
 export type MuscleMemory = z.infer<typeof MuscleMemorySchema>;
+
+export const WorkspaceSkillDraftTargetSchema = z
+	.object({
+		workspaceId: z.string().uuid(),
+		resourceId: z.string().uuid(),
+	})
+	.strict();
+
+export const WorkspaceSkillDraftGrantSchema = z.object({
+	memberId: z.string(),
+	workspaceId: z.string().uuid(),
+	resourceId: z.string().uuid(),
+	skillId: z.string(),
+	enabled: z.boolean(),
+	expiresAt: z.string().datetime(),
+});
+
+export const WorkspaceSkillDraftGrantInputSchema =
+	WorkspaceSkillDraftTargetSchema.extend({
+		memberId: z.string().min(1),
+		enabled: z.boolean(),
+		expiresAt: z.string().datetime(),
+	}).strict();
+
+export const WorkspaceSkillDraftInputSchema =
+	WorkspaceSkillDraftTargetSchema.extend({
+		requestId: z.string().uuid(),
+		expectedSourceRevision: z.number().int().min(1),
+		content: z.string().min(1).max(200_000),
+		files: z.record(z.string(), z.string().max(500_000)).optional(),
+		reason: z.string().min(8).max(2000),
+	}).strict();
+
+export const WorkspaceSkillDraftResultSchema = z.object({
+	proposal: z.object({
+		id: z.string().uuid(),
+		memberId: z.string(),
+		skillId: z.string(),
+		sourceRevision: z.number().int(),
+		baseContent: z.string(),
+		baseFiles: z.record(z.string(), z.string()).nullable(),
+		content: z.string(),
+		files: z.record(z.string(), z.string()).nullable(),
+		reason: z.string(),
+		createdAt: z.string(),
+		status: z.enum(["pending", "withdrawn"]),
+		withdrawnAt: z.string().nullable(),
+	}),
+	workspaceId: z.string().uuid(),
+	resourceId: z.string().uuid(),
+	humanActivationRequired: z.literal(true),
+	canWithdraw: z.boolean(),
+});
+
+export const WorkspaceSkillDraftProposalRefSchema =
+	WorkspaceSkillDraftTargetSchema.extend({
+		proposalId: z.string().uuid(),
+	}).strict();
+export const WorkspaceSkillDraftListSchema = z.object({
+	proposals: z.array(
+		z.object({
+			id: z.string().uuid(),
+			memberId: z.string(),
+			sourceRevision: z.number().int(),
+			reason: z.string(),
+			createdAt: z.string(),
+			status: z.enum(["pending", "withdrawn"]),
+		}),
+	),
+});
