@@ -19,7 +19,9 @@ import {
 	osPagePath,
 } from "@/lib/os-navigation";
 import type { ComponentType } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { Button } from "@/components/kumo/button";
 import { CommandPalette } from "@/components/kumo/command-palette";
 import { Kbd } from "@/components/kumo/kbd";
 import {
@@ -109,6 +111,27 @@ export function OsCommandPalette({
 	const navigate = useNavigate();
 	const pathname = useLocation({ select: (location) => location.pathname });
 	const [query, setQuery] = useState("");
+	// The shell mounts the palette on demand, without a Kumo Dialog.Trigger.
+	const [returnFocus] = useState(() =>
+		typeof document === "undefined" ? null : document.activeElement,
+	);
+	const stillOpen = useRef(open);
+	useEffect(() => {
+		stillOpen.current = open;
+		if (!open) return;
+		return () => {
+			stillOpen.current = false;
+			requestAnimationFrame(() => {
+				if (
+					!stillOpen.current &&
+					returnFocus instanceof HTMLElement &&
+					returnFocus.isConnected
+				) {
+					returnFocus.focus({ preventScroll: true });
+				}
+			});
+		};
+	}, [open, returnFocus]);
 	const workspaces = useQuery({
 		...commandPaletteWorkspacesQueryOptions(PALETTE_LIST_LIMIT),
 		enabled: open,
@@ -134,9 +157,36 @@ export function OsCommandPalette({
 		enabled: open,
 		staleTime: 30_000,
 	});
-	const loadingResources = [workspaces, outputs, apps, skills, runs].some(
-		(query) => query.isPending,
-	);
+	const resources = [
+		{ label: "Workspaces", query: workspaces },
+		{ label: OS_COPY.navigation.outputs, query: outputs },
+		{ label: "Apps", query: apps },
+		{ label: "Skills", query: skills },
+		{ label: "Recent runs", query: runs },
+	];
+	const loadingResources = resources.some(({ query }) => query.isPending);
+	const failedResources = resources.filter(({ query }) => query.isError);
+	const [retryingResources, setRetryingResources] = useState<
+		{ label: string; cached: boolean }[]
+	>([]);
+	const unavailableResources = retryingResources.length
+		? retryingResources
+		: failedResources.map(({ label, query }) => ({
+				label,
+				cached: query.data !== undefined,
+			}));
+	const retrying =
+		retryingResources.length > 0 ||
+		failedResources.some(({ query }) => query.isFetching);
+	const retryFailedResources = () => {
+		if (!open || retrying || failedResources.length === 0) return;
+		setRetryingResources(unavailableResources);
+		void Promise.allSettled(
+			failedResources.map(({ query }) =>
+				query.refetch({ cancelRefetch: false }),
+			),
+		).then(() => setRetryingResources([]));
+	};
 
 	const groups = useMemo<PaletteGroup[]>(() => {
 		const go = (to: string) => () => {
@@ -298,6 +348,37 @@ export function OsCommandPalette({
 				placeholder="Search pages, workspaces, outputs, apps, skills…"
 			/>
 			<CommandPalette.List>
+				{unavailableResources.length > 0 ? (
+					<Alert
+						role="status"
+						aria-label="Resource availability"
+						variant="warning"
+						className="mb-2"
+					>
+						<AlertTitle>
+							{unavailableResources.length === resources.length
+								? "Resources unavailable"
+								: "Some resources unavailable"}
+						</AlertTitle>
+						<AlertDescription>
+							Could not load:{" "}
+							{unavailableResources.map(({ label }) => label).join(", ")}.
+							{unavailableResources.some(({ cached }) => cached)
+								? " Saved results may be out of date."
+								: " Pages and available results still work."}
+						</AlertDescription>
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							className="mt-2 justify-self-start"
+							disabled={retrying}
+							onClick={retryFailedResources}
+						>
+							{retrying ? "Retrying resources…" : "Retry unavailable resources"}
+						</Button>
+					</Alert>
+				) : null}
 				{loadingResources ? (
 					<div role="status" aria-label="Loading resources">
 						<CommandPalette.Loading />
@@ -350,7 +431,9 @@ export function OsCommandPalette({
 				</CommandPalette.Results>
 				{loadingResources ? null : (
 					<CommandPalette.Empty>
-						No matching pages or resources
+						{unavailableResources.length > 0
+							? "No matches in available pages or resources"
+							: "No matching pages or resources"}
 					</CommandPalette.Empty>
 				)}
 			</CommandPalette.List>
