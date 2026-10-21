@@ -3,15 +3,14 @@ import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Switch } from "@/components/kumo/switch";
-import { Text } from "@/components/kumo/text";
+import { SlideField, SlideImageUrlField } from "@/components/slide-field";
 import { SlideImageUploadButton } from "@/components/slide-insert-library";
-import { safeImageSource } from "@/lib/output-models";
 
 /** The inset surface the toggle adds: the schema's own defaults. */
-export const SLIDE_INSET_SURFACE = { color: "#ffffff", inset: 24, radius: 8 };
+const SLIDE_INSET_SURFACE = { color: "#ffffff", inset: 24, radius: 8 };
 
 /** Dot grid opacity from a typed value: cleared when empty or zero. */
-export function slideDotGridOpacity(raw: string): number | undefined {
+function slideDotGridOpacity(raw: string): number | undefined {
 	const value = Number(raw);
 	if (raw === "" || !Number.isFinite(value) || value <= 0) return undefined;
 	return Math.min(1, value);
@@ -33,13 +32,21 @@ export function SlideBackgroundControls({
 	onBackgroundImageFile: (file: File) => void;
 }) {
 	const [opacityDraft, setOpacityDraft] = useState<string | null>(null);
-	const [urlDraft, setUrlDraft] = useState<string | null>(null);
 	const image = slide.backgroundImage;
-	const linked = safeImageSource(image)?.startsWith("https://");
 	return (
 		<>
-			<Text as="label" role="label" tone="secondary" className="grid gap-1">
-				Dot grid opacity
+			<SlideField label="Background">
+				<Input
+					type="color"
+					aria-label="Slide background"
+					disabled={disabled}
+					value={slide.background}
+					onChange={(event) =>
+						onChangeSlide({ ...slide, background: event.target.value })
+					}
+				/>
+			</SlideField>
+			<SlideField label="Dot grid opacity">
 				<Input
 					type="number"
 					aria-label="Slide dot grid opacity"
@@ -58,14 +65,8 @@ export function SlideBackgroundControls({
 					}}
 					onBlur={() => setOpacityDraft(null)}
 				/>
-			</Text>
-			<Text
-				as="span"
-				role="label"
-				tone="secondary"
-				className="flex items-center justify-between gap-2"
-			>
-				Inset surface
+			</SlideField>
+			<SlideField label="Inset surface" inline>
 				<Switch
 					size="sm"
 					aria-label="Slide inset surface"
@@ -78,26 +79,16 @@ export function SlideBackgroundControls({
 						})
 					}
 				/>
-			</Text>
-			<Text as="label" role="label" tone="secondary" className="grid gap-1">
-				Background image URL
-				<Input
-					type="url"
-					aria-label="Slide background image URL"
-					maxLength={2_048}
-					disabled={disabled}
-					placeholder={image && !linked ? "Uploaded image" : "https://"}
-					value={urlDraft ?? (linked ? image : "")}
-					onBlur={() => setUrlDraft(null)}
-					onChange={(event) => {
-						setUrlDraft(event.target.value);
-						const src = event.target.value.trim();
-						// Keep the current image while a new address is still being typed.
-						if (src === "" || safeImageSource(src))
-							onChangeSlide({ ...slide, backgroundImage: src || undefined });
-					}}
-				/>
-			</Text>
+			</SlideField>
+			<SlideImageUrlField
+				label="Background image URL"
+				ariaLabel="Slide background image URL"
+				src={image}
+				disabled={disabled}
+				onChange={(backgroundImage) =>
+					onChangeSlide({ ...slide, backgroundImage })
+				}
+			/>
 			<div className="flex flex-wrap gap-2">
 				<SlideImageUploadButton
 					label={image ? "Replace background image" : "Upload background image"}

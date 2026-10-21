@@ -37,7 +37,7 @@ import {
 	slideInspectorFields,
 	writeSlideField,
 } from "@/components/slide-inspector-fields";
-import { safeImageSource } from "@/lib/output-models";
+import { SlideField, SlideImageUrlField } from "@/components/slide-field";
 import {
 	svgMarkupFromSource,
 	svgSourceFromMarkup,
@@ -79,8 +79,7 @@ function NumberField({
 		);
 	};
 	return (
-		<Text as="label" role="label" tone="secondary" className="grid gap-1">
-			{field.label}
+		<SlideField label={field.label}>
 			<Input
 				type="number"
 				aria-label={fieldLabel(field)}
@@ -106,7 +105,7 @@ function NumberField({
 					setDraft(null);
 				}}
 			/>
-		</Text>
+		</SlideField>
 	);
 }
 
@@ -133,8 +132,7 @@ function TextPropField({
 		field.kind === "items" || (field.kind === "prop-text" && field.multiline);
 	const Control = multiline ? Textarea : Input;
 	return (
-		<Text as="label" role="label" tone="secondary" className="grid gap-1">
-			{field.label}
+		<SlideField label={field.label}>
 			<Control
 				aria-label={fieldLabel(field)}
 				disabled={disabled}
@@ -154,7 +152,7 @@ function TextPropField({
 				}}
 				onBlur={() => setDraft(null)}
 			/>
-		</Text>
+		</SlideField>
 	);
 }
 
@@ -171,8 +169,7 @@ function SvgField({
 	const [error, setError] = useState<string | null>(null);
 	const uploaded = element.src && !svgMarkupFromSource(element.src);
 	return (
-		<Text as="label" role="label" tone="secondary" className="grid gap-1">
-			SVG code
+		<SlideField label="SVG code">
 			<Textarea
 				aria-label="Element SVG code"
 				className="slide-inspector-code"
@@ -204,7 +201,7 @@ function SvgField({
 					{error}
 				</span>
 			)}
-		</Text>
+		</SlideField>
 	);
 }
 
@@ -219,7 +216,6 @@ function InspectorField({
 	disabled?: boolean;
 	onChange: (next: OsPresentationElement) => void;
 }) {
-	const [urlDraft, setUrlDraft] = useState<string | null>(null);
 	switch (field.kind) {
 		case "number":
 		case "prop-number":
@@ -237,13 +233,7 @@ function InspectorField({
 			);
 		case "prop-toggle":
 			return (
-				<Text
-					as="span"
-					role="label"
-					tone="secondary"
-					className="flex items-center justify-between gap-2"
-				>
-					{field.label}
+				<SlideField label={field.label} inline>
 					<Switch
 						size="sm"
 						aria-label={fieldLabel(field)}
@@ -253,7 +243,7 @@ function InspectorField({
 							onChange(writeSlideField(element, field, String(checked)))
 						}
 					/>
-				</Text>
+				</SlideField>
 			);
 		case "prop-text":
 		case "highlight":
@@ -269,8 +259,7 @@ function InspectorField({
 		case "color":
 		case "prop-color":
 			return (
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					{field.label}
+				<SlideField label={field.label}>
 					<Input
 						type="color"
 						aria-label={fieldLabel(field)}
@@ -283,7 +272,7 @@ function InspectorField({
 							onChange(writeSlideField(element, field, event.target.value))
 						}
 					/>
-				</Text>
+				</SlideField>
 			);
 		case "select":
 		case "prop-select":
@@ -308,8 +297,7 @@ function InspectorField({
 					: ((slideFieldValue(element, field) as string | undefined) ??
 						field.fallback);
 			return (
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					{field.label}
+				<SlideField label={field.label}>
 					<Select
 						disabled={disabled}
 						value={value}
@@ -348,13 +336,12 @@ function InspectorField({
 							))}
 						</SelectContent>
 					</Select>
-				</Text>
+				</SlideField>
 			);
 		}
 		case "text":
 			return (
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					{field.label}
+				<SlideField label={field.label}>
 					<Input
 						aria-label={fieldLabel(field)}
 						maxLength={500}
@@ -364,33 +351,18 @@ function InspectorField({
 							onChange(writeSlideField(element, field, event.target.value))
 						}
 					/>
-				</Text>
+				</SlideField>
 			);
-		case "image-url": {
-			const linked = safeImageSource(element.src)?.startsWith("https://");
+		case "image-url":
 			return (
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					{field.label}
-					<Input
-						type="url"
-						aria-label="Element image URL"
-						maxLength={2_048}
-						disabled={disabled}
-						placeholder={element.src && !linked ? "Uploaded image" : "https://"}
-						value={urlDraft ?? (linked ? element.src : "")}
-						onBlur={() => setUrlDraft(null)}
-						onChange={(event) => {
-							setUrlDraft(event.target.value);
-							const src = event.target.value.trim();
-							// Only an https URL is a usable image; keep the current one
-							// while a new address is still being typed.
-							if (src === "" || safeImageSource(src))
-								onChange({ ...element, src: src || undefined });
-						}}
-					/>
-				</Text>
+				<SlideImageUrlField
+					label={field.label}
+					ariaLabel="Element image URL"
+					src={element.src}
+					disabled={disabled}
+					onChange={(src) => onChange({ ...element, src })}
+				/>
 			);
-		}
 	}
 }
 
@@ -427,8 +399,7 @@ export function SlideInspector({
 	return (
 		<>
 			<div className="slide-inspector-scroll grid min-h-0 content-start gap-3 overflow-y-auto p-3">
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					Slide name
+				<SlideField label="Slide name">
 					<Input
 						id="slide-name"
 						aria-label="Slide name"
@@ -441,19 +412,8 @@ export function SlideInspector({
 							})
 						}
 					/>
-				</Text>
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					Background
-					<Input
-						type="color"
-						aria-label="Slide background"
-						disabled={disabled}
-						value={slide.background}
-						onChange={(event) =>
-							onChangeSlide({ ...slide, background: event.target.value })
-						}
-					/>
-				</Text>
+				</SlideField>
+
 				<SlideBackgroundControls
 					slide={slide}
 					disabled={disabled}
@@ -515,8 +475,7 @@ export function SlideInspector({
 						nudge it; Shift moves 10 px.
 					</Text>
 				)}
-				<Text as="label" role="label" tone="secondary" className="grid gap-1">
-					Speaker notes
+				<SlideField label="Speaker notes">
 					<Textarea
 						aria-label="Speaker notes"
 						value={slide.notes ?? ""}
@@ -529,7 +488,7 @@ export function SlideInspector({
 							})
 						}
 					/>
-				</Text>
+				</SlideField>
 			</div>
 			{element && (
 				<div className="slide-inspector-actions grid grid-cols-4 gap-1 p-2">

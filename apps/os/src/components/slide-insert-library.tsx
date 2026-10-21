@@ -27,7 +27,7 @@ import {
 import { Text } from "@/components/kumo/text";
 import { SLIDE_IMAGE_TYPES } from "@/lib/slide-image-upload";
 
-export interface SlideComponent {
+interface SlideComponent {
 	type: OsPresentationElementType;
 	name: string;
 	description: string;
@@ -232,17 +232,19 @@ function ComponentRow({
 				variant="ghost"
 				size="sm"
 				multiline
-				className="h-auto w-full justify-start gap-2 px-2 py-1.5 text-left"
+				className="h-auto w-full justify-start gap-2 px-2 py-2 text-left"
 				data-slide-component={component.type}
 				aria-label={`Insert ${component.name}: ${component.description}`}
 				onClick={() => onInsert(component.type)}
 			>
 				<RowIcon size={16} aria-hidden className="shrink-0" />
 				<span className="grid min-w-0">
-					<span className="truncate font-medium">{component.name}</span>
-					<span className="truncate text-kumo-subtle text-xs">
+					<Text as="span" role="label" weight="medium" truncate>
+						{component.name}
+					</Text>
+					<Text as="span" role="caption" tone="secondary" truncate>
 						{component.description}
-					</span>
+					</Text>
 				</span>
 			</Button>
 		</li>
@@ -314,7 +316,7 @@ export function SlideInsertLibrary({
 				<PopoverContent
 					align="start"
 					aria-label="Component library"
-					className="w-[min(20rem,calc(100vw-2rem))] gap-2 p-2"
+					className="w-[min(20rem,calc(100vw-2rem))] gap-3 p-3"
 					initialFocus={filterInput}
 				>
 					<Input
@@ -333,7 +335,7 @@ export function SlideInsertLibrary({
 							}
 						}}
 					/>
-					<div id={listId} className="grid max-h-80 gap-2 overflow-y-auto">
+					<div id={listId} className="grid max-h-80 gap-3 overflow-y-auto">
 						{matches.length === 0 ? (
 							<Text role="label" tone="secondary" className="m-0 p-2">
 								No matching components
@@ -352,7 +354,7 @@ export function SlideInsertLibrary({
 										role="caption"
 										tone="secondary"
 										weight="semibold"
-										className="m-0 px-2 pt-1 uppercase tracking-wide"
+										className="m-0 px-2 pt-1"
 									>
 										{category.name}
 									</Text>

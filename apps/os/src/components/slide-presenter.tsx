@@ -150,7 +150,7 @@ export function SlidePresenter({
 				</Button>
 				<Button
 					size="sm"
-					variant="ghost"
+					variant="secondary"
 					aria-label="Jump to slide"
 					aria-expanded={jumpOpen}
 					onClick={() => setJumpOpen((open) => !open)}
