@@ -601,7 +601,11 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 		this.#accessTokenExpiresAtSeconds = expiry(tokens.access_token, fallback);
 		if (workspace) {
 			// A stored refresh must save the rotation even for a read-only provider.
-			const credential = { ...expectedCredential, ...this.credential() };
+			const credential = {
+				...expectedCredential,
+				...this.credential(),
+				oauthRefreshPending: undefined,
+			};
 			writeWorkspaceCredentials(
 				workspace,
 				credential,
@@ -775,14 +779,16 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 	async #persist(expectedCredential?: WorkspaceCredential): Promise<void> {
 		if (this.#interactive || !this.#options.persist || !this.#options.workspace)
 			return;
+		expectedCredential ??= this.#credential;
 		if (this.#tokens) {
-			this.#credential = this.credential();
+			const credential = this.credential();
 			writeWorkspaceCredentials(
 				this.#options.workspace,
-				this.#credential,
+				credential,
 				undefined,
 				expectedCredential,
 			);
+			this.#credential = credential;
 			return;
 		}
 		if (!this.#credential) return;
@@ -797,8 +803,13 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 				: { oauthClientInformation: undefined }),
 			oauthDiscoveryState: this.#discovery,
 		};
+		writeWorkspaceCredentials(
+			this.#options.workspace,
+			cleared,
+			undefined,
+			expectedCredential,
+		);
 		this.#credential = cleared;
-		writeWorkspaceCredentials(this.#options.workspace, cleared);
 	}
 }
 
@@ -840,11 +851,15 @@ export const SESSION_REFRESH_SKEW_SECONDS = 120;
 export function sessionNeedsRefresh(
 	credential: Pick<
 		WorkspaceCredential,
-		"accessTokenExpiresAtSeconds" | "oauthTokens" | "oauthRefreshInvalidated"
+		| "accessTokenExpiresAtSeconds"
+		| "oauthTokens"
+		| "oauthRefreshInvalidated"
+		| "oauthRefreshPending"
 	>,
 	nowSeconds: number = Math.floor(Date.now() / 1000),
 ): boolean {
-	if (credential.oauthRefreshInvalidated) return true;
+	if (credential.oauthRefreshInvalidated || credential.oauthRefreshPending)
+		return true;
 	if (!credential.oauthTokens?.refresh_token) return false;
 	// A missing/zero expiry is unknown, not fresh — renew rather than gamble.
 	if (!credential.accessTokenExpiresAtSeconds) return true;
@@ -859,6 +874,7 @@ export type SessionRefreshOutcome =
 	| "not-needed"
 	| "unavailable"
 	| "invalidated"
+	| "uncertain"
 	| "scope-expanded"
 	| "deferred-dark-wake"
 	| "failed";
@@ -961,6 +977,7 @@ export async function refreshStoredSession(
 			expectedCredential = stored ?? undefined;
 			if (!stored) return finish("unavailable");
 			if (stored.oauthRefreshInvalidated) return finish("invalidated");
+			if (stored.oauthRefreshPending) return finish("uncertain");
 			if (!sessionNeedsRefresh(stored)) return finish("not-needed");
 		}
 		const tokens = provider.tokens();
@@ -980,6 +997,7 @@ export async function refreshStoredSession(
 		// One deadline for the whole exchange, response body included: a body that
 		// stalls after the server rotated the token must not hold the lock forever.
 		const controller = new AbortController();
+		let refreshSent = false;
 		timer = setTimeout(
 			() => controller.abort(new Error("OAuth session refresh timed out")),
 			options.timeoutMs ?? SESSION_REFRESH_TIMEOUT_MS,
@@ -1000,6 +1018,28 @@ export async function refreshStoredSession(
 					if (body.get("grant_type") === "refresh_token") {
 						body.set("scope", grantedScope);
 					}
+				}
+				if (
+					body instanceof URLSearchParams &&
+					body.get("grant_type") === "refresh_token"
+				) {
+					if (refreshSent) throw new Error("Refresh token already submitted");
+					if (workspace && expectedCredential) {
+						// Write before sending: timeout, SIGKILL, sleep or an invalid reply
+						// cannot distinguish a lost rotation from a request never received.
+						const pending = {
+							...expectedCredential,
+							oauthRefreshPending: true,
+						};
+						writeWorkspaceCredentials(
+							workspace,
+							pending,
+							undefined,
+							expectedCredential,
+						);
+						expectedCredential = pending;
+					}
+					refreshSent = true;
 				}
 				phase = "sent";
 				const response = await fetchFn(input, {
@@ -1128,12 +1168,15 @@ export async function refreshStoredSession(
 			);
 			return finish("invalidated");
 		}
-		return finish("failed");
+		return finish(
+			expectedCredential?.oauthRefreshPending ? "uncertain" : "failed",
+		);
 	} finally {
 		clearTimeout(timer);
 		lock?.release();
 		const entry = {
 			at: new Date().toISOString(),
+			startedAt: new Date(started).toISOString(),
 			version: CLI_VERSION,
 			pid: process.pid,
 			ppid: process.ppid,
@@ -1156,6 +1199,7 @@ const SESSION_REFRESH_OUTCOMES = new Set<string>([
 	"not-needed",
 	"unavailable",
 	"invalidated",
+	"uncertain",
 	"scope-expanded",
 	"deferred-dark-wake",
 	"failed",

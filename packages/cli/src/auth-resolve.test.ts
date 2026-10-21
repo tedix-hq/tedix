@@ -207,6 +207,7 @@ describe("stored login renewal", () => {
 		for (const outcome of [
 			"unavailable",
 			"invalidated",
+			"uncertain",
 			"failed",
 			"deferred-dark-wake",
 		] as const) {
@@ -235,6 +236,11 @@ describe("stored login renewal", () => {
 			if (outcome === "invalidated") {
 				expect(result.loginError).toContain("is invalidated");
 				expect(result.loginError).not.toContain("tedix login");
+				continue;
+			}
+			if (outcome === "uncertain") {
+				expect(result.loginError).toContain("will not be retried");
+				expect(result.loginError).toContain("may already have rotated");
 				continue;
 			}
 			expect(result.loginError, outcome).toContain(
