@@ -12,6 +12,7 @@ export type PlatformCronFreshnessState =
 export const PLATFORM_CRON_IDS = [
 	"agent-review-triage",
 	"deck-pipeline-sweep",
+	"factory-weight-update",
 	"decision-outcome-labeller",
 	"provider-event-maintenance",
 	"graph-projection-drain",
@@ -206,6 +207,7 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		requiresFleet: true,
 	},
 	{ id: "content-sync", cron: "0 7 * * *", intervalMinutes: 1_440 },
+	{ id: "factory-weight-update", cron: "0 7 * * *", intervalMinutes: 1_440 },
 	{
 		id: "capture-health-heartbeat",
 		cron: "0 7 * * *",

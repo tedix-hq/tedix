@@ -2,6 +2,8 @@ import type { DecisionLearningModel } from "../schemas/decision-learning";
 import type { DeckNotUsefulReason } from "../schemas/deck-pipeline";
 import {
 	classifyDeckCard,
+	DECISION_DECK_ENTRY,
+	DecisionDeckConfigSchema,
 	type DecisionEnvelope,
 	DecisionEnvelopeSchema,
 	type DeckRoutingPolicy,
@@ -47,6 +49,32 @@ export function cardReviewConfigFromManifest(
 		};
 	}
 	return { kind: "ok", config: parsed.data };
+}
+
+/**
+ * The factory card sources an app manifest names: a Card review app's
+ * `sources` or a Decision Deck app's `factorySources`; null for other apps
+ * or invalid settings.
+ */
+export function factorySourcesFromManifest(manifest: unknown): {
+	path: "sources" | "factorySources";
+	sources: CardReviewSource[];
+} | null {
+	if (!manifest || typeof manifest !== "object") return null;
+	const { entry, config } = manifest as { entry?: unknown; config?: unknown };
+	if (entry === CARD_REVIEW_ENTRY) {
+		const parsed = CardReviewConfigSchema.safeParse(config);
+		return parsed.success
+			? { path: "sources", sources: parsed.data.sources }
+			: null;
+	}
+	if (entry === DECISION_DECK_ENTRY) {
+		const parsed = DecisionDeckConfigSchema.safeParse(config);
+		return parsed.success
+			? { path: "factorySources", sources: parsed.data.factorySources }
+			: null;
+	}
+	return null;
 }
 
 type Cell = string | number | boolean | null;

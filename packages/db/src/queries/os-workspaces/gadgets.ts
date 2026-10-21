@@ -288,3 +288,48 @@ export async function listOsWorkApps(
 		.orderBy(asc(osGadgets.createdAt), asc(osGadgets.id))
 		.limit(Math.min(Math.max(limit, 1), 201));
 }
+
+/**
+ * Active Card review and Decision Deck apps with their current manifests,
+ * the apps whose config names factory card sources. With `organizationId`
+ * the read is tenant-scoped; without it (the weekly weight job only) it
+ * spans organizations, oldest first, and `weightUpdateOnly` keeps apps
+ * whose manifest mentions a weight update.
+ */
+export async function listCardSourceApps(
+	db: DbQueryClient,
+	params: {
+		organizationId?: string;
+		weightUpdateOnly?: boolean;
+		limit: number;
+	},
+) {
+	return db
+		.select({
+			gadget: prefixedColumns(osGadgets, "gadget"),
+			revision: prefixedColumns(osGadgetRevisions, "revision"),
+		})
+		.from(osGadgets)
+		.innerJoin(
+			osGadgetRevisions,
+			and(
+				eq(osGadgetRevisions.id, osGadgets.currentRevisionId),
+				eq(osGadgetRevisions.organizationId, osGadgets.organizationId),
+				eq(osGadgetRevisions.gadgetId, osGadgets.id),
+			),
+		)
+		.where(
+			and(
+				params.organizationId
+					? eq(osGadgets.organizationId, params.organizationId)
+					: undefined,
+				eq(osGadgets.status, "active"),
+				sql`json_extract(${osGadgetRevisions.manifest}, '$.entry') IN ('tedix:app/card-review', 'tedix:app/decision-deck')`,
+				params.weightUpdateOnly
+					? sql`instr(${osGadgetRevisions.manifest}, '"weightUpdate"') > 0`
+					: undefined,
+			),
+		)
+		.orderBy(asc(osGadgets.createdAt), asc(osGadgets.id))
+		.limit(Math.min(Math.max(params.limit, 1), 500));
+}

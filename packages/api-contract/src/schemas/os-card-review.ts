@@ -88,16 +88,25 @@ const featureName = z
  * How a factory ranks its own cards. The factory computes `score` (0–1) and
  * `features` when it writes a card row; the OS only re-sorts, caps and dedupes.
  */
+const FeatureWeightsSchema = z
+	.record(featureName, z.number().finite().min(-100).max(100))
+	.refine((weights) => Object.keys(weights).length <= 30, {
+		message: "At most 30 weights",
+	});
+
 export const CardScoringSchema = z
 	.object({
-		weights: z
-			.record(featureName, z.number().finite().min(-100).max(100))
-			.refine((weights) => Object.keys(weights).length <= 30, {
-				message: "At most 30 weights",
+		weights: FeatureWeightsSchema.default({}).describe(
+			"Factory default weight per feature; the factory's score is the weighted sum it wrote",
+		),
+		reviewerWeights: z
+			.record(z.string().trim().min(1).max(200), FeatureWeightsSchema)
+			.refine((reviewers) => Object.keys(reviewers).length <= 20, {
+				message: "At most 20 reviewers",
 			})
-			.default({})
+			.optional()
 			.describe(
-				"Factory default weight per feature; the factory's score is the weighted sum it wrote",
+				"Accepted per-reviewer weights by the reviewer's user id; reviewers without an entry use weights",
 			),
 		topN: z
 			.number()
@@ -135,11 +144,41 @@ export const CardScoringSchema = z
 			.object({
 				cadence: z.literal("weekly"),
 				mode: z.enum(["off", "shadow", "enforce"]),
-				minSamples: z.number().int().min(1).max(10_000),
+				minSamples: z
+					.number()
+					.int()
+					.min(1)
+					.max(10_000)
+					.describe(
+						"Verdicts with features needed before weights are proposed, per source and per reviewer",
+					),
+				maxChange: z
+					.number()
+					.finite()
+					.min(0.01)
+					.max(10)
+					.optional()
+					.describe(
+						"Largest change one weekly proposal may make to one weight; default 0.25",
+					),
+				reasonWeights: z
+					.record(
+						z.string().trim().min(1).max(40),
+						z.number().finite().min(0).max(1),
+					)
+					.refine((reasons) => Object.keys(reasons).length <= 20, {
+						message: "At most 20 reason weights",
+					})
+					.optional()
+					.describe(
+						"How much a Not useful verdict counts, by skip chip label or shared reason, from 0 to 1; overrides the defaults",
+					),
 			})
 			.strict()
 			.optional()
-			.describe("How verdicts may retune the weights; promotion stays human"),
+			.describe(
+				"How verdicts retune the weights each week; shadow only reports, enforce proposes through the rules sheet and applies accepted proposals",
+			),
 		agentDecidableClasses: z
 			.array(z.string().trim().min(1).max(100))
 			.max(50)
@@ -292,3 +331,56 @@ export const CardReviewConfigSchema = z
 
 export type CardReviewSource = z.infer<typeof CardReviewSourceSchema>;
 export type CardReviewConfig = z.infer<typeof CardReviewConfigSchema>;
+
+const ProposalWeightsSchema = z.record(z.string(), z.number().finite());
+
+/**
+ * One weekly weight proposal for a factory source, kept on the organization.
+ * The stored weights are the only ones ever applied; the rules sheet row only
+ * carries the person's Accept or Reject.
+ */
+export const FactoryWeightProposalSchema = z
+	.object({
+		id: z.string().min(1).max(100),
+		factoryKey: z.string().min(1).max(400),
+		sourceLabel: z.string().min(1).max(40),
+		workspaceId: z.string().min(1).max(100),
+		mode: z.enum(["shadow", "enforce"]),
+		createdAt: z.string().min(1).max(40),
+		status: z.enum([
+			"insufficient",
+			"no_change",
+			"shadow",
+			"proposed",
+			"applied",
+			"rejected",
+			"stale",
+		]),
+		ruleId: z.string().max(200).nullable(),
+		previousWeights: ProposalWeightsSchema,
+		weights: ProposalWeightsSchema,
+		previousReviewerWeights: z.record(z.string(), ProposalWeightsSchema),
+		reviewerWeights: z.record(z.string(), ProposalWeightsSchema),
+		report: z
+			.object({
+				samples: z.number().int().min(0),
+				positives: z.number().int().min(0),
+				negatives: z.number().int().min(0),
+				heldOut: z.number().int().min(0),
+				accuracyBefore: z.number().min(0).max(1).nullable(),
+				accuracyAfter: z.number().min(0).max(1).nullable(),
+				topN: z.number().int().min(1),
+				topNChanged: z.number().int().min(0),
+				reasons: z.record(z.string(), z.number().int().min(0)),
+				reviewers: z.number().int().min(0),
+				note: z.string().max(500).optional(),
+			})
+			.strict(),
+		decidedAt: z.string().max(40).optional(),
+		appliedTo: z
+			.array(z.object({ gadgetId: z.string(), revision: z.number().int() }))
+			.max(20)
+			.optional(),
+	})
+	.strict();
+export type FactoryWeightProposal = z.infer<typeof FactoryWeightProposalSchema>;

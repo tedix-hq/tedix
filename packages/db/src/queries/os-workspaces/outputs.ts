@@ -110,6 +110,43 @@ export async function getOsOutput(
 	return row;
 }
 
+/**
+ * A workspace's newest active sheet with exactly this title, with its current
+ * revision. Server jobs use it to find a configured sheet by name, such as a
+ * factory source's rules sheet.
+ */
+export async function getActiveSheetByTitle(
+	db: DbQueryClient,
+	params: { organizationId: string; workspaceId: string; title: string },
+): Promise<{ output: OsOutputRow; revision: OsOutputRevisionRow } | undefined> {
+	const [row] = await db
+		.select({
+			output: prefixedColumns(osOutputs, "output"),
+			revision: prefixedColumns(osOutputRevisions, "revision"),
+		})
+		.from(osOutputs)
+		.innerJoin(
+			osOutputRevisions,
+			and(
+				eq(osOutputRevisions.id, osOutputs.currentRevisionId),
+				eq(osOutputRevisions.organizationId, params.organizationId),
+				eq(osOutputRevisions.outputId, osOutputs.id),
+			),
+		)
+		.where(
+			and(
+				eq(osOutputs.organizationId, params.organizationId),
+				eq(osOutputs.workspaceId, params.workspaceId),
+				eq(osOutputs.kind, "sheet"),
+				eq(osOutputs.status, "active"),
+				eq(osOutputs.title, params.title),
+			),
+		)
+		.orderBy(desc(osOutputs.updatedAt), desc(osOutputs.id))
+		.limit(1);
+	return row;
+}
+
 export async function listOsOutputs(
 	db: DbQueryClient,
 	organizationId: string,

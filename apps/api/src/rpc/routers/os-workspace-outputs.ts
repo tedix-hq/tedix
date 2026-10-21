@@ -1,4 +1,5 @@
 import { normalizeOsOutputInput } from "@tedix/api-contract/utils/os-document";
+import { applySheetRange } from "@tedix/api-contract/utils/sheet-range";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import {
 	getOrganizationProfile,
@@ -848,56 +849,9 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 				`The rectangle ends at row ${endRow}, beyond the ${SHEET_ROW_CAP}-row sheet cap`,
 			);
 		}
-		const rows = content.rows.map((row) => [...row]);
-		while (rows.length < endRow) {
-			rows.push(Array.from({ length: columnCount }, () => null));
-		}
-		for (const [rowOffset, sourceRow] of input.cells.entries()) {
-			const target = rows[input.startRow + rowOffset]!;
-			while (target.length < input.startColumn) target.push(null);
-			for (const [columnOffset, cell] of sourceRow.entries()) {
-				target[input.startColumn + columnOffset] = cell;
-			}
-		}
-		const workbook = content.workbook
-			? {
-					...content.workbook,
-					sheets: content.workbook.sheets.map((sheet) => {
-						if (sheet.id !== content.workbook?.activeSheetId) return sheet;
-						const richRows = sheet.rows.map((row) => [...row]);
-						while (richRows.length < endRow) {
-							richRows.push(
-								Array.from({ length: sheet.columns.length }, () => ({
-									input: "",
-									value: null,
-								})),
-							);
-						}
-						for (const [rowOffset, sourceRow] of input.cells.entries()) {
-							const target = richRows[input.startRow + rowOffset]!;
-							while (target.length < input.startColumn) {
-								target.push({ input: "", value: null });
-							}
-							for (const [columnOffset, cell] of sourceRow.entries()) {
-								const index = input.startColumn + columnOffset;
-								const previous = target[index];
-								target[index] = {
-									input: cell === null ? "" : String(cell),
-									value: cell,
-									...(previous?.format ? { format: previous.format } : {}),
-								};
-							}
-						}
-						return { ...sheet, rows: richRows };
-					}),
-				}
-			: undefined;
-		const next = OsOutputContentSchema.safeParse({
-			kind: "sheet",
-			columns: content.columns,
-			rows,
-			...(workbook ? { workbook } : {}),
-		});
+		const next = OsOutputContentSchema.safeParse(
+			applySheetRange(content, input.startRow, input.startColumn, input.cells),
+		);
 		if (!next.success) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,

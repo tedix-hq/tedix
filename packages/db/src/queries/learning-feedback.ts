@@ -303,6 +303,38 @@ export async function listLearningInteractionsForReflection(
 		.limit(input.limit);
 }
 
+/**
+ * Factory verdict events of one organization whose decision class starts
+ * with `classPrefix` (`factory:<source label>:`), every reviewer included,
+ * newest first. Only the weekly factory weight job reads this: it fits
+ * source and per-reviewer weights and never exposes one person's events to
+ * another.
+ */
+export async function listFactoryVerdictEvents(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		classPrefix: string;
+		since: string;
+		limit: number;
+	},
+): Promise<LearningInteractionEventRow[]> {
+	return db
+		.select()
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, input.organizationId),
+				eq(learningInteractionEvents.surface, "decision_deck"),
+				gte(learningInteractionEvents.occurredAt, input.since),
+				sql`substr(json_extract(${learningInteractionEvents.metadata}, '$.decisionClass'), 1, ${input.classPrefix.length}) = ${input.classPrefix}`,
+				notCorrectedLearningEvent(),
+			),
+		)
+		.orderBy(desc(learningInteractionEvents.occurredAt))
+		.limit(input.limit);
+}
+
 function ownedBy(userId: string | undefined) {
 	return userId
 		? and(
