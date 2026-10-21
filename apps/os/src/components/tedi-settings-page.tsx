@@ -117,7 +117,7 @@ type CommonChannelPolicy = {
 };
 
 const DEFAULT_CHANNEL_POLICY: CommonChannelPolicy = {
-	dmPolicy: "pairing",
+	dmPolicy: "allowlist",
 	groupPolicy: "allowlist",
 	requireMention: true,
 };
@@ -333,7 +333,7 @@ export function liveChannelValues(channelsValue: unknown): LiveChannelsValues {
 	) as LiveChannelsValues;
 }
 
-function LiveChannelsForm({
+export function LiveChannelsForm({
 	values,
 	canManage,
 	canReadSecrets,
@@ -352,6 +352,10 @@ function LiveChannelsForm({
 	onSave: (value: LiveChannelsValues) => Promise<boolean>;
 	onTest: (channel: ManagedChannel, token: string) => void;
 }) {
+	const dmPolicyOptions = DM_POLICY_OPTIONS.filter(
+		(option) =>
+			option.value !== "pairing" || values.telegram.dmPolicy === "pairing",
+	);
 	const form = useZodForm({
 		schema: liveChannelsSchema,
 		defaultValues: values,
@@ -451,8 +455,13 @@ function LiveChannelsForm({
 									description={policyHelp(DM_POLICY_OPTIONS, dmPolicy)}
 								>
 									{(field, meta) => (
-										<FormSelect field={field} {...meta} disabled={!canManage}>
-											{DM_POLICY_OPTIONS.map((option) => (
+										<FormSelect
+											field={field}
+											{...meta}
+											disabled={!canManage}
+											items={dmPolicyOptions}
+										>
+											{dmPolicyOptions.map((option) => (
 												<SelectItem key={option.value} value={option.value}>
 													{option.label}
 												</SelectItem>

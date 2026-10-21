@@ -69,7 +69,7 @@ describe("Telegram channel policy wording", () => {
 			requireMention: false,
 		});
 		expect(liveChannelValues(undefined).telegram).toMatchObject({
-			dmPolicy: "pairing",
+			dmPolicy: "allowlist",
 			allowFrom: "",
 			groupAllowFrom: "",
 			requireMention: true,
