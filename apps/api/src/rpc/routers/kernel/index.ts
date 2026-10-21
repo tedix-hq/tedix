@@ -68,8 +68,13 @@ import {
 	DEFAULT_MAX_PROMPT_TOKENS,
 	type KernelContext,
 	maxPromptTokensForWindow,
+	renderHomeInventory,
 	WORKERS_AI_CONTEXT_WINDOW_TOKENS,
 } from "./context-assembly";
+import {
+	type HomeInventorySnapshot,
+	resolveInventorySnapshot,
+} from "../../../kernel/inventory-snapshot";
 import {
 	assessStepPressure,
 	getHistoryTokenLimits,
@@ -452,6 +457,10 @@ export async function runKernel(args: {
 	previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
 	/** Receives a NEW compaction checkpoint so the caller can persist it. */
 	onHistoryCheckpoint?: (checkpoint: KernelHistoryCheckpoint) => void;
+	/** The conversation's frozen inventory snapshot (KernelDO storage). */
+	previousInventorySnapshot?: HomeInventorySnapshot | null;
+	/** Receives a NEW inventory snapshot so the caller can persist it. */
+	onInventorySnapshot?: (snapshot: HomeInventorySnapshot) => void;
 	/**
 	 * Per-request prompt budget (tokens) for the DEFERRED fold: when the route
 	 * call's own prompt is over this budget's trigger, the turn hands back a
@@ -656,6 +665,9 @@ export async function runKernel(args: {
 			? maxPromptTokensForWindow(WORKERS_AI_CONTEXT_WINDOW_TOKENS)
 			: DEFAULT_MAX_PROMPT_TOKENS;
 	const maxPromptTokens = laneBudget();
+	// The conversation's frozen inventory; a snapshot taken on the first pass is
+	// reused by later passes of the same turn.
+	let inventorySnapshot = args.previousInventorySnapshot ?? null;
 
 	// ── The assembly pass ─────────────────────────────────────────────────────
 	// one pass = load the durable history, assemble and measure the prompt, fold
@@ -714,6 +726,15 @@ export async function runKernel(args: {
 			assembled.historyCheckpoint !== args.previousHistoryCheckpoint
 		)
 			args.onHistoryCheckpoint?.(assembled.historyCheckpoint);
+		const inventory = await resolveInventorySnapshot(
+			inventorySnapshot,
+			renderHomeInventory(assembled),
+		);
+		inventorySnapshot = inventory.snapshot;
+		assembled.inventorySnapshot = inventory.snapshot;
+		if (inventory.changeNote)
+			assembled.inventoryChangeNote = inventory.changeNote;
+		if (inventory.taken) args.onInventorySnapshot?.(inventory.snapshot);
 		const beforeHydration = historyReplayChars(assembled.history);
 		assembled.history = await hydrateHomeHistory(
 			assembled.history,

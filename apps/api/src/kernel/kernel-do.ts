@@ -8,6 +8,11 @@ import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 
 import { isDurableObjectMemoryLimitReset } from "agents";
 import { getKernelContextCache } from "./context-cache";
+import {
+	type HomeInventorySnapshot,
+	inventorySnapshotStorageKey,
+	isUsableInventorySnapshot,
+} from "./inventory-snapshot";
 
 import { injectAgentMessage } from "@tedix/provisioning";
 import type { BaseContext } from "../rpc/context";
@@ -839,6 +844,44 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	}
 
 	/**
+	 * The conversation's frozen inventory snapshot, or null. Fail-soft: the
+	 * turn then takes a new snapshot (one prefix-cache miss).
+	 */
+	private async readInventorySnapshot(
+		conversationId: string,
+	): Promise<HomeInventorySnapshot | null> {
+		try {
+			const stored = await this.ctx.storage.get<unknown>(
+				inventorySnapshotStorageKey(conversationId),
+			);
+			return isUsableInventorySnapshot(stored) ? stored : null;
+		} catch (error) {
+			console.warn(
+				"[kernel] inventory snapshot read failed (new snapshot this turn)",
+				kernelErrorMessage(error),
+			);
+			return null;
+		}
+	}
+
+	private async storeInventorySnapshot(
+		conversationId: string,
+		snapshot: HomeInventorySnapshot,
+	): Promise<void> {
+		try {
+			await this.ctx.storage.put(
+				inventorySnapshotStorageKey(conversationId),
+				snapshot,
+			);
+		} catch (error) {
+			console.warn(
+				"[kernel] inventory snapshot store failed (next turn retakes it)",
+				kernelErrorMessage(error),
+			);
+		}
+	}
+
+	/**
 	 * The conversation's last completed recall, or null when absent, expired
 	 * (30 min cap) or unreadable. Fail-soft: assembly then uses static facts.
 	 */
@@ -883,12 +926,17 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// late result still lands in storage for the conversation's next turn.
 		const candidatesInFlight =
 			relevanceCandidates ?? this.startIngressRecall(input);
-		const [context, previousRelevanceRecall, previousHistoryCheckpoint] =
-			await Promise.all([
-				this.turnContext(),
-				this.readPreviousRelevanceRecall(input.conversationId),
-				this.readPersistedHistoryCheckpoint(input.conversationId),
-			]);
+		const [
+			context,
+			previousRelevanceRecall,
+			previousHistoryCheckpoint,
+			previousInventorySnapshot,
+		] = await Promise.all([
+			this.turnContext(),
+			this.readPreviousRelevanceRecall(input.conversationId),
+			this.readPersistedHistoryCheckpoint(input.conversationId),
+			this.readInventorySnapshot(input.conversationId),
+		]);
 		// One stage-timing collector per turn, shared between the turn body (which
 		// marks the serial stage boundaries and attaches the snapshot to the run's
 		// terminal metadata write) and the progress seam's answer-delta batcher
@@ -972,6 +1020,11 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 								input.conversationId,
 								checkpoint,
 							),
+						),
+					...(previousInventorySnapshot ? { previousInventorySnapshot } : {}),
+					onInventorySnapshot: (snapshot) =>
+						this.ctx.waitUntil(
+							this.storeInventorySnapshot(input.conversationId, snapshot),
 						),
 					// This DO is the org's single kernel instance, so the cache it
 					// reads through is the one `invalidateContextCache` reaches.
