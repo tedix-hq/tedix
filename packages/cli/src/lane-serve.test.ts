@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -12,6 +13,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
+	provisionLaneWorktree,
+	landedLaneCommits,
 	mergeDispatcherReceipts,
 	retainedLaneWorktree,
 	dispatchSkip,
@@ -33,6 +36,7 @@ afterEach(() => {
 const item = (n = 1): DispatchItem => ({
 	id: `22222222-2222-4222-8222-${String(n).padStart(12, "0")}`,
 	title: "Summarize the guide",
+	workKind: "research",
 	description: "Write a paragraph as a Work comment.",
 	disposition: "accepted",
 	startAt: null,
@@ -89,6 +93,9 @@ function fixture({
 	}> = [];
 	const releases: Array<() => void> = [];
 	const control = {
+		provisionError: undefined as Error | undefined,
+		commits: [] as string[],
+		proofError: undefined as Error | undefined,
 		startError: refuse
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
 			: (undefined as Error | undefined),
@@ -103,7 +110,14 @@ function fixture({
 	const dispatcher = new LaneDispatcher(config, dir, {
 		darkWake: () => dark,
 		devinAvailable: () => devinReady,
-		provision: () => {},
+		provision: () => {
+			if (control.provisionError) throw control.provisionError;
+		},
+		baseCommit: () => "a".repeat(40),
+		landedCommits: () => {
+			if (control.proofError) throw control.proofError;
+			return control.commits;
+		},
 		cleanup: () => true,
 		thread: async () => ({
 			thread: {
@@ -359,12 +373,10 @@ describe("dispatcher admission", () => {
 			retries: 1,
 			admissionFailure: "Error: Admission refused: resource capacity",
 			admissionState: "rejected",
-			failureCommented: true,
+			identicalFailures: 1,
 		});
 		expect(saved.retryAt).toBeGreaterThan(Date.now() + 55_000);
-		expect(events.find((e) => e.verb === "comment")?.args.join(" ")).toContain(
-			"resource capacity",
-		);
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
 		await dispatcher.tick();
 		await dispatcher.drain();
 		expect(releases).toHaveLength(0);
@@ -377,39 +389,96 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
-		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
 		expect(events.filter((e) => e.verb === "dispatch-attempts")).toHaveLength(
 			2,
 		);
 	});
-	it("bounds failures with exponential backoff and opens a new retry window after its deadline", async () => {
-		const { dispatcher, dir, items, events } = fixture({ refuse: true });
-		items.splice(1);
-		const path = join(dir, `${item().id}-2.json`);
-		for (let n = 1; n <= 5; n++) {
+	it.each(["admission", "provision"])(
+		"holds three identical %s failures across restarts until revision changes",
+		async (stage) => {
+			const { dispatcher, dir, items, events, control, releases } = fixture({
+				refuse: stage === "admission",
+			});
+			items.splice(1);
+			if (stage === "provision")
+				control.provisionError = new Error("Destination already exists");
+			const path = join(dir, `${item().id}-2.json`);
+			for (let n = 1; n <= 3; n++) {
+				await dispatcher.tick();
+				await dispatcher.drain();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved.identicalFailures).toBe(n);
+				expect(events.filter((e) => e.verb === "comment")).toHaveLength(
+					n === 3 ? 1 : 0,
+				);
+				saved.retryAt = 0;
+				saved.retryDeadlineAt = 0;
+				writeFileSync(path, JSON.stringify(saved));
+			}
+			const count = events.length;
 			await dispatcher.tick();
 			await dispatcher.drain();
-			const saved = JSON.parse(readFileSync(path, "utf8"));
-			expect(saved.retries).toBe(n);
-			if (n < 5)
-				expect(saved.retryAt).toBeGreaterThan(
-					Date.now() + 60_000 * 2 ** (n - 1) - 5_000,
-				);
-			else expect(saved.retryAt).toBe(saved.retryDeadlineAt);
-			saved.retryAt = 0;
-			writeFileSync(path, JSON.stringify(saved));
-		}
+			expect(events.slice(count).map((e) => e.verb)).toEqual(["dispatch-list"]);
+			// The held decision is durable, even without the original dispatcher object.
+			const restarted = new LaneDispatcher(options, dir, {
+				darkWake: () => false,
+				cli: async <T>() =>
+					({ data: items, pagination: { hasMore: false } }) as T,
+			});
+			await restarted.tick();
+			await restarted.drain();
+			expect(JSON.parse(readFileSync(path, "utf8")).held).toBe(true);
+			items[0]!.version++;
+			control.startError = undefined;
+			control.provisionError = undefined;
+			await dispatcher.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await dispatcher.drain();
+			expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+		},
+	);
+	it("sends the full any-local executor set to server-side discovery", async () => {
+		const { dispatcher, events, releases } = fixture({ executor: "any-local" });
 		await dispatcher.tick();
+		await until(() => releases.length === 2);
+		expect(
+			events.find((e) => e.verb === "dispatch-list")?.input?.executor,
+		).toEqual(["codex", "claude-code", "devin"]);
+		for (const release of releases) release();
 		await dispatcher.drain();
-		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(5);
-		const saved = JSON.parse(readFileSync(path, "utf8"));
-		saved.retryDeadlineAt = 0;
-		writeFileSync(path, JSON.stringify(saved));
-		await dispatcher.tick();
-		await dispatcher.drain();
-		expect(JSON.parse(readFileSync(path, "utf8")).retries).toBe(1);
-		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
 	});
+	it.each(["landed", "missing", "unavailable"])(
+		"settles coding Work with %s commit proof",
+		async (proof) => {
+			const { dispatcher, items, control, events, releases, dir } = fixture();
+			items.splice(1);
+			items[0]!.workKind = "coding";
+			if (proof === "landed")
+				control.commits = ["b".repeat(40), "c".repeat(40)];
+			if (proof === "unavailable")
+				control.proofError = new Error("origin/main unavailable");
+			await dispatcher.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await dispatcher.drain();
+			const settlement = events.find((e) => e.verb === "settle")!.args;
+			expect(settlement[settlement.indexOf("--outcome") + 1]).toBe(
+				proof === "landed" ? "succeeded" : "failed",
+			);
+			expect(settlement.filter((arg) => arg === "--commit")).toHaveLength(
+				control.commits.length,
+			);
+			for (const sha of control.commits) expect(settlement).toContain(sha);
+			const receipt = JSON.parse(
+				readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
+			);
+			if (proof === "missing")
+				expect(receipt.note).toContain("No landed commit SHA on origin/main");
+		},
+	);
+
 	it.each(["failed", "expired"])(
 		"holds lost admission responses until canonical history retires the Attempt as %s",
 		async (outcome) => {
@@ -756,4 +825,91 @@ it("any-local requests delegation for the assigned native executor", () => {
 			"any-local",
 		),
 	).toContain("needs an owner comment");
+});
+
+function gitFixture() {
+	const root = mkdtempSync(join(tmpdir(), "lane-git-test-"));
+	dirs.push(root);
+	const repo = join(root, "source");
+	mkdirSync(repo);
+	const git = (args: string[], cwd = repo) => {
+		const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+		if (result.status !== 0) throw new Error(result.stderr);
+		return result.stdout.trim();
+	};
+	git(["init", "-b", "main"]);
+	git(["config", "user.name", "Test"]);
+	git(["config", "user.email", "test@example.com"]);
+	git(["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base"]);
+	return { root, repo, git };
+}
+
+it("preserves an orphan destination and provisions the retry path", () => {
+	const { root, repo, git } = gitFixture();
+	const destination = join(root, "repo");
+	mkdirSync(destination);
+	writeFileSync(join(destination, "retained.txt"), "unfinished work");
+	provisionLaneWorktree(repo, destination);
+	expect(git(["rev-parse", "HEAD"], destination)).toBe(
+		git(["rev-parse", "HEAD"]),
+	);
+	const orphan = readdirSync(root).find((name) =>
+		name.startsWith("repo.orphan-"),
+	)!;
+	expect(readFileSync(join(root, orphan, "repo", "retained.txt"), "utf8")).toBe(
+		"unfinished work",
+	);
+});
+
+it("refuses to replace a registered worktree and preserves dirty files", () => {
+	const { root, repo, git } = gitFixture();
+	const destination = join(root, "repo");
+	git(["worktree", "add", "--detach", destination]);
+	writeFileSync(join(destination, "retained.txt"), "unfinished work");
+	expect(() => provisionLaneWorktree(repo, destination)).toThrow(
+		"registered worktree",
+	);
+	expect(readFileSync(join(destination, "retained.txt"), "utf8")).toBe(
+		"unfinished work",
+	);
+});
+
+it("extracts and deduplicates final-message and local commits, accepting only origin/main ancestors", () => {
+	const { root, repo, git } = gitFixture();
+	const base = git(["rev-parse", "HEAD"]);
+	const remote = join(root, "origin.git");
+	git(["init", "--bare", remote]);
+	git(["remote", "add", "origin", remote]);
+	git([
+		"-c",
+		"commit.gpgsign=false",
+		"commit",
+		"--allow-empty",
+		"-m",
+		"landed",
+	]);
+	const landed = git(["rev-parse", "HEAD"]);
+	git(["push", "origin", "main"]);
+	git([
+		"-c",
+		"commit.gpgsign=false",
+		"commit",
+		"--allow-empty",
+		"-m",
+		"unpublished",
+	]);
+	const unpublished = git(["rev-parse", "HEAD"]);
+	expect(landedLaneCommits(repo, base, "")).toEqual([landed]);
+	expect(
+		landedLaneCommits(
+			repo,
+			base,
+			`Result ${landed} ${unpublished} ${"f".repeat(40)}`,
+		),
+	).toEqual([landed]);
+	// Guarded push can rebase/reset the lane, so its final message is also evidence input.
+	expect(
+		landedLaneCommits(repo, git(["rev-parse", "HEAD"]), `Result ${landed}`),
+	).toEqual([landed]);
+	expect(() => landedLaneCommits(repo, "f".repeat(40), "")).toThrow();
 });

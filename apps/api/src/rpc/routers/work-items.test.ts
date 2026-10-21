@@ -1221,3 +1221,27 @@ describe("Work activity forward polling", () => {
 		).toMatchObject({ events: [], nextSequence: 3 });
 	});
 });
+
+it("accepts an executor set and forwards it to the paged SQL filter", async () => {
+	for (const [index, executor] of [
+		"human",
+		"codex",
+		"claude-code",
+		"devin",
+	].entries()) {
+		const id = `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`;
+		seed({ id, disposition: "accepted" });
+		sqlite
+			.prepare("UPDATE work_items SET metadata=? WHERE id=?")
+			.run(JSON.stringify({ executor }), id);
+	}
+	const page = await client("owner").list({
+		executor: ["codex", "claude-code", "devin"],
+		limit: 2,
+	});
+	expect(page.pagination).toMatchObject({ total: 3, hasMore: true });
+	expect(page.data.map((row) => row.metadata.executor)).toEqual([
+		"devin",
+		"claude-code",
+	]);
+});
