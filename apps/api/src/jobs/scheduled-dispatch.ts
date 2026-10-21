@@ -127,6 +127,16 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
+		if (cron === "*/2 * * * *") {
+			// No AI: raises one attention item per organization while Work waits and
+			// neither an Attempt admission nor a request-tracker action is recent.
+			const { runDispatcherHealthAlarm } =
+				await import("./dispatcher-health-alarm");
+			await trackPlatformCronPath(env, event, "dispatcher-health-alarm", () =>
+				runDispatcherHealthAlarm(env, event.scheduledTime),
+			);
+		}
+
 		if (fleetEnabled && cron === "*/2 * * * *") {
 			// Separate from the 15-minute billing tick: catch up observations more
 			// quickly without repeating settlement, credits, or Stripe side effects.

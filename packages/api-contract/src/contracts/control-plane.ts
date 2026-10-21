@@ -64,6 +64,15 @@ export const PlatformCronHealthResponseSchema = z.object({
 	generatedAt: z.string(),
 	attentionCount: z.number(),
 	schedules: z.array(PlatformCronHealthSchema),
+	/** Platform-wide dispatcher liveness: no tenant data, only two timestamps and their ages. */
+	dispatcher: z
+		.object({
+			lastAdmissionAt: z.string().nullable(),
+			lastTrackerActionAt: z.string().nullable(),
+			admissionAgeSeconds: z.number().nullable(),
+			trackerAgeSeconds: z.number().nullable(),
+		})
+		.optional(),
 });
 
 export type {

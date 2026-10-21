@@ -54,6 +54,9 @@ vi.mock("./platform-tick", () => ({
 	sweepOrphanRunsTick: vi.fn(),
 	runAlwaysOnKeepalive: vi.fn(),
 }));
+vi.mock("./dispatcher-health-alarm", () => ({
+	runDispatcherHealthAlarm: vi.fn().mockResolvedValue({}),
+}));
 vi.mock("./work-attempt-lease-sweeper", () => ({
 	runWorkAttemptLeaseSweeperTick: vi.fn(),
 }));

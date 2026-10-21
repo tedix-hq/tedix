@@ -119,6 +119,8 @@ export interface OrganizationMetadata {
 	/** Published, validated Tedix OS semantic appearance inputs. */
 	osTheme?: OrganizationOsTheme | null;
 	outboundReview?: OutboundPolicy;
+	/** Dispatcher stall alarm: quiet minutes before it fires (default 45); enabled false turns it off. */
+	dispatcherHealth?: { staleAfterMinutes?: number; enabled?: boolean };
 	/** Optional Cloudflare One network overlay; never a Tedix authorization source. */
 	mcpNetworkControl?: McpNetworkControlConfig;
 	/** Organization-wide browser boundary; per-tedi policy may narrow it further. */
