@@ -695,6 +695,71 @@ describe("public secret scan", () => {
 				`fix: a change\n\nBody text.\n\nWork-Item: ${item}\nAgent-Session: ${session}\nCo-Authored-By: A <a@x.dev>\n`,
 			),
 		).toEqual([]);
+		expect(
+			trailerFindings(
+				`fix: a change\n\nWork-Item: ${item}\nAgent-Session: devin:silent-river`,
+			),
+		).toEqual([]);
+	});
+
+	test.each([
+		"opencode:ses_012345abcdef0123456789AbCd",
+		"opencode:ses_ffffffffffffAbCdEfGhIjKlMn",
+	])("accepts generated OpenCode session trailers: %s", (session) => {
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: 11111111-1111-4111-8111-111111111111\nAgent-Session: ${session}`,
+			),
+		).toEqual([]);
+	});
+
+	test.each([
+		"ses_012345abcdef0123456789AbCd",
+		"codex:ses_012345abcdef0123456789AbCd",
+		"opencode:msg_012345abcdef0123456789AbCd",
+		"opencode:ses_012345abcdeg0123456789AbCd",
+		"opencode:ses_012345ABCDEF0123456789AbCd",
+		"opencode:ses_012345abcdef0123456789AbC",
+		"opencode:ses_012345abcdef0123456789AbCdE",
+		"opencode:ses_012345abcdef0123456789AbC_",
+		"opencode:ses_012345abcdef0123456789AbCd-review",
+	])("rejects malformed OpenCode session trailers: %s", (session) => {
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: 11111111-1111-4111-8111-111111111111\nAgent-Session: ${session}`,
+			),
+		).toEqual([4]);
+	});
+
+	test("keeps OpenCode trailers paired, unique and in the final block", () => {
+		const item = "11111111-1111-4111-8111-111111111111";
+		const session = "opencode:ses_012345abcdef0123456789AbCd";
+		expect(trailerFindings(`fix: a\n\nAgent-Session: ${session}`)).toEqual([3]);
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: ${item}\nAgent-Session: ${session}\nAgent-Session: ${session}`,
+			),
+		).toEqual([5]);
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: ${item}\n\nAgent-Session: ${session}`,
+			),
+		).toEqual([3]);
+	});
+
+	test("scans a pushed commit with generated OpenCode session trailers", () => {
+		const privateRulesPath = placeholderRules();
+		const root = fixture({ "src/index.ts": "export {};\n" });
+		const base = commitFixture(root, "Ada Codex|ada@acme.dev", "chore: base");
+		setOriginMain(root, base);
+		const head = commitFixture(
+			root,
+			"Ada Codex|ada@acme.dev",
+			"fix: a\n\nWork-Item: 11111111-1111-4111-8111-111111111111\nAgent-Session: opencode:ses_012345abcdef0123456789AbCd",
+		);
+		expect(scanCommits(root, [{ base, head }], { privateRulesPath })).toEqual(
+			[],
+		);
 	});
 
 	test("rejects malformed, split, partial or duplicated trailers", () => {
