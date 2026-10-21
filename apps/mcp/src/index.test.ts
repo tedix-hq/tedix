@@ -546,7 +546,9 @@ describe("Connect compact protocol organization routing", () => {
 			};
 			if (method === "initialize")
 				expect(body.result.protocolVersion).toBe("2025-11-25");
-			else expect(body.result.tools?.map((t) => t.name)).toContain("get_info");
+			// Code Mode lists no bootstrap helpers; this fixture gateway has no
+			// visible inner tools, so `code` itself is withheld too.
+			else expect(body.result.tools?.map((t) => t.name)).toEqual([]);
 		}
 	});
 	it.each(["server/discover", "tools/list"])(
@@ -615,9 +617,13 @@ describe("Connect compact protocol organization routing", () => {
 			expect(resolveGateway).not.toHaveBeenCalled();
 		},
 	);
-	it.each([true, false])(
-		"hydrates untargeted Connect widget discovery only for Apps clients (%s)",
-		async (supportsApps) => {
+	it.each([
+		[true, true],
+		[true, false],
+		[false, true],
+	])(
+		"hydrates untargeted Connect widget discovery only for Apps clients with native opt-in (%s, %s)",
+		async (supportsApps, optIn) => {
 			const factory = await import("./mcp/server-factory");
 			const contextSpy = vi
 				.spyOn(factory, "getAppContext")
@@ -643,12 +649,23 @@ describe("Connect compact protocol organization routing", () => {
 						headers: original.headers,
 						body: JSON.stringify(body),
 					}),
-					connect,
+					optIn
+						? ({
+								...(connect as object),
+								metadata: {
+									mcpConfig: {
+										codeMode: true,
+										multiOrgConsent: true,
+										codeModeNativeTools: ["acme_unified_tedix__show_deck"],
+									},
+								},
+							} as never)
+						: connect,
 					createEnv(),
 					ctx,
 					{ organizations: [organization] },
 				);
-				if (supportsApps) {
+				if (supportsApps && optIn) {
 					await expect(response).rejects.toThrow(
 						"selected organization catalog required",
 					);
@@ -956,14 +973,14 @@ describe("modern compact configured catalog protocol", () => {
 		expect(first.result.tools).toHaveLength(200);
 		expect(first.result.nextCursor).toBeTruthy();
 		const second = await list(first.result.nextCursor);
-		expect(second.result.tools).toHaveLength(8);
+		expect(second.result.tools).toHaveLength(6);
 		expect(
 			new Set(
 				[...first.result.tools, ...second.result.tools].map(
 					(tool) => tool.name,
 				),
 			).size,
-		).toBe(208);
+		).toBe(206);
 		resolved.tools = [...rows].reverse();
 		try {
 			const permuted = await list();

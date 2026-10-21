@@ -94,24 +94,35 @@ through the same request-local projection without a Dynamic Worker (see
 
 ## Outer Surface Lanes
 
-Pinned by `apps/mcp/src/mcp/outer-surface-lanes.test.ts`: the stateless fast
-path (`index.ts`) exposes `code`, `get_info`, `get_profile`, and configured
-catalog rows but never `ask` (it needs an org context); the session lane
-(`server-factory.ts`) adds `ask`. Request-scoped targeting keeps large
+Pinned by `apps/mcp/src/mcp/outer-surface-lanes.test.ts`: a Code Mode app
+lists `code` as its only top-level tool by default. The stateless fast path
+(`index.ts`) adds configured catalog rows but never `ask` (it needs an org
+context); the session lane (`server-factory.ts`) adds `ask`. Any other tool is
+listed only when its exact registered name is in `mcpConfig.codeModeNativeTools`
+(`code-mode-native-tools.ts`); this applies to the bootstrap `get_info` and
+`get_profile`, the skill helpers `list_skills` and `read_skill`, and widget
+tools. Unlisted bootstrap tools still answer `tools/call` for existing clients
+(the CLI calls `get_info`), and every tool stays reachable as a Code Mode
+callable through `discover.search`. Request-scoped targeting keeps large
 aggregates cheap: a concrete `tools/call` registers only that tool; a `code`
 program naming explicit providers hydrates only those namespaces, while one
 calling `discover.*` gets the full catalog; `get_info`, `server/discover`, and
 `tools/list` answer from app metadata without building the aggregate.
 
-Clients declaring MCP Apps (`io.modelcontextprotocol/ui`, or the older
-`io.modelcontextprotocol/apps` alias) also see enabled widget tools explicitly
-opted in through `config.nativeDirect`, such as Deck and Feed,
-with their native `ui://` resource links. Their `tools/list` hydrates the
-aggregate, including Connect's verified selected organizations when no single
-organization header is supplied; callers without Apps support retain the
-compact surface. Modern
-clients declare capabilities in request `_meta`; legacy clients declare them
-in `initialize` and echo the returned `Mcp-Session-Id` on later exchanges.
+Widget tools such as Deck and Feed are Code Mode callables by default: a `code`
+program that calls `<namespace>.show_deck()` returns the view's `ui://`
+resource in the result metadata, and hosts that render result views show it.
+A host that only mounts views declared in `tools/list` needs an explicit
+opt-in: list the exact widget tool names in `codeModeNativeTools`. Then clients
+declaring MCP Apps (`io.modelcontextprotocol/ui`, or the older
+`io.modelcontextprotocol/apps` alias) also see those enabled `config.nativeDirect`
+widget tools with their native `ui://` resource links. Their `tools/list`
+hydrates the aggregate, including Connect's verified selected organizations
+when no single organization header is supplied; callers without Apps support
+retain the compact surface. Aggregate names are organization-qualified, so an
+opt-in on a multi-organization gateway lists one tool per named organization.
+Modern clients declare capabilities in request `_meta`; legacy clients declare
+them in `initialize` and echo the returned `Mcp-Session-Id` on later exchanges.
 That stateless identifier carries only the UI declaration, never authentication
 or tool authority. An explicit modern capability declaration takes precedence.
 `prefersBorder` retains the layout resource's existing value.

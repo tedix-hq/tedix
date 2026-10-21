@@ -6,18 +6,19 @@ import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tool
  * this test pins it so registration and documentation cannot drift.
  *
  * Lane decision:
- * - Stateless fast path (`compactCodeModeTools`): `code` + `get_info` + authenticated `get_profile` for every
- *   caller. Deliberately no `ask` — it creates a durable Home turn and needs an authenticated org
+ * - Stateless fast path (`compactCodeModeTools`): `code` alone for every caller, plus configured
+ *   catalog rows and exact `mcpConfig.codeModeNativeTools` opt-ins (e.g. `get_profile`).
+ *   Deliberately no `ask` — it creates a durable Home turn and needs an authenticated org
  *   context the stateless lane does not resolve.
  * - Session Code Mode lane: `code` plus the home-surface tools named by
- *   SESSION_NATIVE_HOME_TOOL_IDS (exactly `ask`), plus get_info and authenticated profile bootstrap.
+ *   SESSION_NATIVE_HOME_TOOL_IDS (exactly `ask`). Bootstrap helpers stay callable, unlisted.
  */
 
 import { describe, expect, it } from "vite-plus/test";
 
 import { compactCodeModeTools } from "../index";
 import { mcpToolsListResultTransform } from "../mcp-result-transform";
-import { SESSION_NATIVE_HOME_TOOL_IDS } from "./server-factory";
+import { SESSION_NATIVE_HOME_TOOL_IDS } from "./code-mode-native-tools";
 
 function resolvedAppStub() {
 	return {
@@ -35,11 +36,7 @@ describe("outer-surface lanes", () => {
 				new Headers(userAgent ? { "User-Agent": userAgent } : {}),
 				"connect",
 			);
-			expect(tools.map((tool) => tool.name)).toEqual([
-				"code",
-				"get_info",
-				"get_profile",
-			]);
+			expect(tools.map((tool) => tool.name)).toEqual(["code"]);
 			expect(
 				Object.keys(
 					(tools[0]!.inputSchema as { properties: object }).properties,
@@ -116,8 +113,27 @@ describe("outer-surface lanes", () => {
 			expect(listed[0]?._meta).toEqual({ securitySchemes });
 		},
 	);
-	it("stateless fast path advertises code + get_info (no ask) independent of caller identity", () => {
+	it("stateless fast path advertises only code (no ask) independent of caller identity", () => {
 		const tools = compactCodeModeTools(resolvedAppStub(), new Headers());
+		expect(tools.map((tool) => tool.name)).toEqual(["code"]);
+		for (const tool of tools)
+			expect((tool.annotations as { title?: string }).title).toBe(tool.title);
+	});
+
+	it("lists bootstrap helpers only when configured as native opt-ins", () => {
+		const tools = compactCodeModeTools(
+			{
+				app: { slug: "connect", name: "Tedix" },
+				metadata: {
+					mcpConfig: {
+						codeMode: true,
+						authMode: "authenticated",
+						codeModeNativeTools: ["get_info", "get_profile"],
+					},
+				},
+			} as never,
+			new Headers(),
+		);
 		expect(tools.map((tool) => tool.name)).toEqual([
 			"code",
 			"get_info",
@@ -135,16 +151,51 @@ describe("outer-surface lanes", () => {
 			compactCodeModeTools(
 				{
 					app: { name: "Public" },
-					metadata: { mcpConfig: { codeMode: true, authMode: "public" } },
+					metadata: {
+						mcpConfig: {
+							codeMode: true,
+							authMode: "public",
+							codeModeNativeTools: ["get_info", "get_profile"],
+						},
+					},
 				} as never,
 				new Headers(),
 			).map((t) => t.name),
 		).toEqual(["code", "get_info"]);
 	});
+	it("session tools/list keeps code and ask and hides unlisted helpers and widgets", () => {
+		const transform = mcpToolsListResultTransform(
+			[{ toolId: "sample_read", authRequired: false }],
+			{ codeMode: true, authMode: "authenticated" },
+			new Headers({ "x-tedix-auth-type": "service" }),
+		);
+		const response = transform({
+			request: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+			response: {
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					tools: [
+						{ name: "code" },
+						{ name: "ask" },
+						{ name: "get_info" },
+						{ name: "get_profile" },
+						{ name: "list_skills" },
+						{ name: "read_skill" },
+						{ name: "acme_unified_tedix__show_deck" },
+					],
+				},
+			},
+		} as never);
+		if (!("result" in response)) throw new Error("Expected tools/list result");
+		expect(
+			(response.result.tools as Array<{ name: string }>).map((t) => t.name),
+		).toEqual(["ask", "code"]);
+	});
 	it("preserves the standard account profile wire declaration without capability scope union", () => {
 		const transform = mcpToolsListResultTransform(
 			[],
-			{ codeMode: true },
+			{ codeMode: true, codeModeNativeTools: ["get_profile"] },
 			new Headers(),
 		);
 		const response = transform({

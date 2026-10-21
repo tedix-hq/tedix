@@ -548,6 +548,13 @@ export const McpConfigSchema = z
 		 */
 		codeModeNamespaces: z.record(z.string(), z.string()).optional(),
 		/**
+		 * Exact tool names to list as top-level MCP tools beside `code` in Code
+		 * Mode (for example `get_profile` or a widget tool such as `show_deck`).
+		 * Default: none, so Code Mode lists only `code` (plus the session `ask`
+		 * and configured catalog rows). Everything stays callable through Code Mode.
+		 */
+		codeModeNativeTools: z.array(z.string().min(1)).max(50).optional(),
+		/**
 		 * Custom ES modules injected into the Code Mode sandbox.
 		 * Keys are module specifiers (e.g. "helpers.js"), values are ES module source code.
 		 * LLM-generated code can `import { fn } from "helpers.js"` to use them.

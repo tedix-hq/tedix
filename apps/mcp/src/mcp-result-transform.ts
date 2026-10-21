@@ -7,6 +7,10 @@ import {
 } from "@tedix/mcp-shared/auth/tool-scopes";
 import { type McpResultTransform } from "@tedix/mcp-shared/transport";
 import { codeModeSecurityMeta } from "./mcp/codemode-security";
+import {
+	isCodeModeNativeOptIn,
+	SESSION_NATIVE_HOME_TOOL_IDS,
+} from "./mcp/code-mode-native-tools";
 import { ACCOUNT_PROFILE_SECURITY } from "./mcp/registration/account-profile";
 import type { AppTool as InternalAppTool } from "./mcp/server-context";
 import { sortToolsDeterministically } from "./mcp/tools-list-order";
@@ -96,6 +100,17 @@ export function mcpToolsListResultTransform(
 			}
 			const name = (tool as { name: string }).name;
 			if (toolsByName.has(name) && !visibleToolNames.has(name)) {
+				return [];
+			}
+			// Code Mode lists `code` only; registered helpers and widget tools
+			// stay callable but need an explicit opt-in to be listed.
+			if (
+				mcpConfig?.codeMode === true &&
+				name !== "code" &&
+				!(SESSION_NATIVE_HOME_TOOL_IDS as readonly string[]).includes(name) &&
+				toolsByName.get(name)?.config?.transport !== "catalog" &&
+				!isCodeModeNativeOptIn(mcpConfig, name)
+			) {
 				return [];
 			}
 			if (

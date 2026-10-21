@@ -984,11 +984,18 @@ describe("Code Mode payment-gated tools", () => {
 	});
 
 	it.each(["io.modelcontextprotocol/ui", "io.modelcontextprotocol/apps"])(
-		"lists configured widgets and ui resources for %s clients",
+		"lists opted-in widgets and ui resources for %s clients",
 		async (extension) => {
 			const env = createEnv(createApiService());
 			const ctx = createExecutionContext();
 			const cachedData = createCachedData();
+			cachedData.metadata = {
+				...cachedData.metadata,
+				mcpConfig: {
+					...cachedData.metadata?.mcpConfig,
+					codeModeNativeTools: ["nosana__get_deployments"],
+				},
+			} as CachedAppData["metadata"];
 			cachedData.tools = cachedData.tools.map((tool) =>
 				tool.toolId === "nosana__get_deployments"
 					? { ...tool, config: { ...tool.config, nativeDirect: true } }

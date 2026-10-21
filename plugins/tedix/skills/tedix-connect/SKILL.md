@@ -23,11 +23,12 @@ tool name as proof that the task's call is authorized.
    Never request, print, copy, or store a token, cookie, or password. For access
    changes, use the host's connection management and fresh consent; do not invent
    a Tedix management URL or claim a reauthorization changed every tool.
-   After connection, use the authenticated `get_profile` tool when available
-   to verify the account label. Its opaque ID identifies the current credential's
-   owner; it does not select an organization or grant a capability. Verify the
-   selected organization separately through Code Mode runtime/discovery. Never
-   infer the actual account from a stale host nickname or another connection.
+   After connection, call `codemode.__runtime()` through the `code` tool to
+   verify the account (`actor.userId`) and the selected organization. The
+   opaque ID identifies the current credential's owner; it does not grant a
+   capability. Connect lists only `code`; everything else is a Code Mode
+   callable. Never infer the actual account from a stale host nickname or
+   another connection.
 3. Discover a tool for the user's actual task through `discover.search()` (or
    `discover.list_namespaces()` when the domain is unknown). Request
    `includeParameters: true` for the exact callable, then make one bounded

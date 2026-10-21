@@ -94,8 +94,8 @@ matching managed hooks take precedence to avoid duplicate capture. See the
 [Devin plugin guide](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/devin.md).
 
 On first use, run the `tedix-connect` skill, or follow its steps: confirm the
-account with `get_profile`, resolve the organization separately, and make one
-bounded read-only call through Code Mode. Account identity, organization
+account and organization with `codemode.__runtime()` through the `code` tool,
+and make one bounded read-only call through Code Mode. Account identity, organization
 selection and granted capabilities are separate facts; the grant authenticates
 the **owner**, not the agent.
 

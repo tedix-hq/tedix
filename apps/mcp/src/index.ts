@@ -5,6 +5,7 @@ import {
 	LEGACY_APPS_SESSION_PREFIX,
 } from "./mcp/client-apps-capability";
 import { resolveToolWidgetRoute } from "./mcp/utils/render-widget";
+import { isCodeModeNativeOptIn } from "./mcp/code-mode-native-tools";
 import { z } from "zod";
 import {
 	AGGREGATE_SURFACE_CACHE_TTL_MS,
@@ -2190,7 +2191,8 @@ function modernDiscoverInstructions(
 }
 
 // Exported for the outer-surface lane conformance test: the stateless fast
-// path deliberately advertises `code` + `get_info` and not `ask` — see
+// path advertises `code` (plus configured catalog rows and explicit
+// `codeModeNativeTools` opt-ins) and never `ask` — see
 // outer-surface-lanes.test.ts and docs/engineering/mcp/codemode.md.
 export function compactCodeModeTools(
 	resolvedApp: ResolvedApp,
@@ -2222,7 +2224,11 @@ export function compactCodeModeTools(
 		...(accountProfileEnabled(resolvedApp.metadata?.mcpConfig)
 			? [accountProfileTool]
 			: []),
-	];
+	].filter(
+		(tool) =>
+			tool.name === "code" ||
+			isCodeModeNativeOptIn(resolvedApp.metadata?.mcpConfig, tool.name),
+	);
 	const config = resolvedApp.metadata?.mcpConfig;
 	const caller = parseMcpCallerFromHeaders(requestHeaders);
 	const overrides = config?.codeModeNamespaces as
@@ -2352,11 +2358,19 @@ async function maybeHandleCodeModeCompactMcp(
 	}
 
 	if (method === "tools/list") {
+		// Only explicitly configured native widget tools need the hydrated
+		// session surface; by default Code Mode lists `code` alone.
+		const nativeToolNames =
+			resolvedApp.metadata?.mcpConfig?.codeModeNativeTools;
 		if (
 			clientSupportsMcpApps(body) &&
+			Array.isArray(nativeToolNames) &&
+			nativeToolNames.length > 0 &&
 			((resolvedApp.tools ?? []).some(
 				(tool) =>
-					tool.config?.nativeDirect === true && resolveToolWidgetRoute(tool),
+					tool.config?.nativeDirect === true &&
+					resolveToolWidgetRoute(tool) &&
+					nativeToolNames.includes(tool.toolId),
 			) ||
 				(Array.isArray(resolvedApp.metadata?.mcpConfig?.aggregateApps) &&
 					resolvedApp.metadata.mcpConfig.aggregateApps.length > 0) ||
