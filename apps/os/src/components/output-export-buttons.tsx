@@ -56,7 +56,7 @@ export function OutputExportButtons({
 		csv: "CSV (all sheets)",
 	};
 	return (
-		<div className="flex items-center gap-2">
+		<div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
@@ -97,8 +97,8 @@ export function OutputExportButtons({
 				<span
 					className={
 						compact
-							? "max-w-48 text-xs text-kumo-danger"
-							: "text-sm text-kumo-danger"
+							? "min-w-0 max-w-48 text-xs text-kumo-danger [overflow-wrap:anywhere]"
+							: "min-w-0 max-w-full text-sm text-kumo-danger [overflow-wrap:anywhere]"
 					}
 					role="alert"
 				>
