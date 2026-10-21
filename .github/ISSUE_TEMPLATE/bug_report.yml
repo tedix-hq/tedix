@@ -64,3 +64,9 @@ body:
     attributes:
       label: Environment
       description: App or package, browser or runtime, OS.
+  - type: textarea
+    id: proposed-fix
+    attributes:
+      label: Proposed fix
+      description: Optional unified diff against current main. Maintainers re-author it and credit you.
+      render: diff

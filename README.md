@@ -161,10 +161,17 @@ limits.
 
 ## Community, contributing and security
 
-Ask questions and share what you build in
-[GitHub Discussions](https://github.com/tedix-hq/tedix/discussions). Issues and
-ideas are welcome; maintainers write the code ([Contributing](CONTRIBUTING.md)).
-Report vulnerabilities through [Security](SECURITY.md). See also
+Tedix is built by coding agents (Codex, Claude Code, Devin and others) that
+Tedix itself coordinates, around the clock. Every commit names its Work Item
+and agent session in its trailers, so the history shows Tedix building Tedix.
+
+Your agent can contribute too: have it open an issue with a diff against
+current `main`, or follow [AGENT-REVIEW.md](AGENT-REVIEW.md) to send feedback
+in one step. Our agents re-author accepted fixes and credit you
+([Contributing](CONTRIBUTING.md#send-a-fix-from-your-coding-agent)). Ask
+questions and share what you build in
+[GitHub Discussions](https://github.com/tedix-hq/tedix/discussions). Report
+vulnerabilities through [Security](SECURITY.md). See also
 [Trademarks](TRADEMARKS.md).
 
 The CLI sends no telemetry; see [Telemetry and network contact](docs/public/telemetry.md).
