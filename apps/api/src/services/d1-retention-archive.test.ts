@@ -1,11 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
+import { skillRunArtifacts } from "@tedix/db/schema/cognitive";
 import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
 import { d1RetentionPolicies } from "@tedix/db/schema/d1-retention";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl, tableDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	D1_ARCHIVE_PREFIX,
 	runD1Retention,
@@ -33,7 +34,14 @@ function fixture(policies: string) {
 	const sqlite = new DatabaseSync(":memory:", {
 		enableForeignKeyConstraints: false,
 	});
-	sqlite.exec(schemaDdl(auditEvents, tediRuntimeEvents, d1RetentionPolicies));
+	sqlite.exec(
+		schemaDdl(
+			auditEvents,
+			tediRuntimeEvents,
+			skillRunArtifacts,
+			d1RetentionPolicies,
+		),
+	);
 	sqlite.exec(
 		`INSERT INTO d1_retention_policies(table_name, mode, keep_days, max_rows_per_run, updated_at) VALUES ${policies}`,
 	);
@@ -97,7 +105,7 @@ function fixture(policies: string) {
 function logsFixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		[auditEvents, tediRuntimeEvents]
+		[auditEvents, tediRuntimeEvents, skillRunArtifacts]
 			.flatMap((table) => tableDdl(table, { foreignKeys: false }))
 			.join("\n"),
 	);
@@ -120,6 +128,165 @@ async function gunzipLines(bytes: Uint8Array): Promise<string[]> {
 }
 
 describe("runD1Retention", () => {
+	it.each(["move_to_logs_db", "archive_then_delete"] as const)(
+		"%s skips a newer row and drains later expired rowids over repeated ticks",
+		async (mode) => {
+			const { db, seed, sqlite } = fixture(
+				`('audit_events','${mode}',30,2,'2026-10-21')`,
+			);
+			seed([90, 1, 90, 90]);
+			const logs = logsFixture();
+			const bucket = new MemoryBucket();
+			const tick = () =>
+				runD1Retention({
+					db,
+					logsDb: logs.db,
+					bucket: bucket as unknown as R2Bucket,
+					now: NOW,
+				});
+			const first = await tick();
+			const second = await tick();
+			const third = await tick();
+			expect([
+				first.deletedRows,
+				second.deletedRows,
+				third.deletedRows,
+			]).toEqual([2, 1, 0]);
+			expect(
+				sqlite.prepare("SELECT id FROM audit_events ORDER BY rowid").all(),
+			).toEqual([{ id: "audit-1" }]);
+			const archived = (
+				await Promise.all([...bucket.objects.values()].map(gunzipLines))
+			)
+				.flat()
+				.map((line) => JSON.parse(line).id);
+			expect(archived.sort()).toEqual(["audit-0", "audit-2", "audit-3"]);
+			if (mode === "move_to_logs_db") expect(logs.count()).toBe(3);
+		},
+	);
+
+	it.each(["move_to_logs_db", "archive_then_delete"] as const)(
+		"%s retains an artifact body and its reachable pointer or refuses the policy",
+		async (mode) => {
+			const { db, sqlite, count } = fixture(
+				`('skill_run_artifacts','${mode}',14,10,'2026-10-21')`,
+			);
+			const logs = logsFixture();
+			const key = "fictional-run/bodies/artifact-1";
+			sqlite
+				.prepare(
+					"INSERT INTO skill_run_artifacts(id,run_id,path,content_r2_key,created_at) VALUES(?,?,?,?,?)",
+				)
+				.run(
+					"artifact-1",
+					"fictional-run",
+					"result.json",
+					key,
+					"2026-07-01 10:00:00",
+				);
+			const bucket = new MemoryBucket();
+			const body = new TextEncoder().encode('{"result":"retained"}');
+			bucket.objects.set(key, body);
+			const result = await runD1Retention({
+				db,
+				logsDb: logs.db,
+				bucket: bucket as unknown as R2Bucket,
+				now: NOW,
+			});
+			expect(bucket.objects.get(key)).toEqual(body);
+			if (mode === "archive_then_delete") {
+				expect(result.tables[0]?.problem).toBe("logs_copy_required");
+				expect(result.deletedRows).toBe(0);
+				expect(count("skill_run_artifacts")).toBe(1);
+			} else {
+				expect(result.tables[0]?.problem).toBeNull();
+				expect(result.deletedRows).toBe(1);
+				expect(
+					logs.sqlite
+						.prepare(
+							"SELECT content_r2_key FROM skill_run_artifacts WHERE id = 'artifact-1'",
+						)
+						.get(),
+				).toEqual({ content_r2_key: key });
+			}
+		},
+	);
+
+	it("resumes scanning past retained pages after the time budget and wraps to reconsider them", async () => {
+		const { db, seed, count, policy } = fixture(
+			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
+		);
+		seed([...Array.from({ length: 120 }, () => 1), 90]);
+		const bucket = new MemoryBucket();
+		let clock = 0;
+		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock++);
+		try {
+			const tick = () =>
+				runD1Retention({
+					db,
+					bucket: bucket as unknown as R2Bucket,
+					now: NOW,
+					timeBudgetMs: 3,
+				});
+			const first = await tick();
+			expect(first.tables[0]).toMatchObject({
+				deletedRows: 0,
+				stoppedBy: "time_budget",
+				scanAfterRowid: 50,
+			});
+			expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(50);
+			await tick();
+			const third = await tick();
+			expect(third.deletedRows).toBe(1);
+			expect(count()).toBe(120);
+		} finally {
+			mocked.mockRestore();
+		}
+		await runD1Retention({
+			db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
+		const later = await runD1Retention({
+			db,
+			bucket: bucket as unknown as R2Bucket,
+			now: new Date(NOW.getTime() + 90 * DAY * 1000),
+		});
+		expect(later.deletedRows).toBe(120);
+		expect(count()).toBe(0);
+	});
+
+	it("skips an entire scan window of retained rows and keeps invalid timestamps", async () => {
+		const { db, seedRuntime, sqlite, count } = fixture(
+			"('tedi_runtime_events','archive_then_delete',14,2000,'2026-10-21')",
+		);
+		seedRuntime([...Array.from({ length: 501 }, () => 1), 90, 90]);
+		sqlite
+			.prepare(
+				"UPDATE tedi_runtime_events SET created_at = '0000-invalid' WHERE id = 'runtime-501'",
+			)
+			.run();
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			archivedRows: 1,
+			deletedRows: 1,
+			stoppedBy: "done",
+		});
+		expect(count("tedi_runtime_events")).toBe(502);
+		const archived = await gunzipLines(
+			[...bucket.objects.values()][0] as Uint8Array,
+		);
+		expect(archived.map((line) => JSON.parse(line).id)).toEqual([
+			"runtime-502",
+		]);
+	});
+
 	it("dry run reports what it would free and changes no rows", async () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','dry_run',30,2000,'2026-10-21')",

@@ -14,6 +14,7 @@ import {
 	deleteD1RetentionRows,
 	estimateD1RetentionBacklog,
 	getD1RetentionTableSpec,
+	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
 	readD1RetentionPage,
 	recordD1RetentionRun,
@@ -100,6 +101,24 @@ describe("d1 retention policy validation", () => {
 			}),
 		).toBeNull();
 		expect(getD1RetentionTableSpec("constructor")).toBeNull();
+	});
+
+	it("never judges unparsable timestamps expired", () => {
+		const runtime = getD1RetentionTableSpec("tedi_runtime_events");
+		if (!runtime) throw new Error("runtime spec missing");
+		for (const value of [
+			"",
+			"0000-invalid",
+			"2026-00-02",
+			"2026-02-30",
+			"2026-07-01bad",
+			null,
+		]) {
+			expect(isD1RetentionExpired(runtime, value, "2026-09-21")).toBe(false);
+		}
+		for (const value of [-Infinity, -1e99, NaN]) {
+			expect(isD1RetentionExpired(audit(), value, 100)).toBe(false);
+		}
 	});
 
 	it("expresses the cutoff in each table's own timestamp format", () => {
