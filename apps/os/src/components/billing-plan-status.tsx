@@ -1,3 +1,4 @@
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
 import { useMutation } from "@tanstack/react-query";
 import { CreditCard, Warning } from "@phosphor-icons/react";
@@ -59,46 +60,52 @@ export function BillingPlanStatus({ overview }: { overview: BillingOverview }) {
 		: null;
 	return (
 		<div className="space-y-3" aria-label="Subscription status and recovery">
-			<Surface className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-				<div className="space-y-1">
-					<Text weight="medium">Current plan</Text>
-					<div className="flex items-center gap-2">
-						<Badge
-							variant={
-								tierBadgeVariant[tier as keyof typeof tierBadgeVariant] ||
-								"secondary"
-							}
-						>
-							{tier.charAt(0).toUpperCase() + tier.slice(1)}
-						</Badge>
-						<Badge
-							variant={
-								statusBadgeVariant[status as keyof typeof statusBadgeVariant] ||
-								"secondary"
-							}
-						>
-							{status.charAt(0).toUpperCase() + status.slice(1)}
-						</Badge>
-					</div>
-				</div>
-				{selectedStripeCustomerId ? (
-					<Button
-						loading={portalMutation.isPending}
-						icon={<CreditCard size={16} />}
-						variant="outline"
-						onClick={() => portalMutation.mutate()}
-						disabled={portalMutation.isPending}
-					>
-						Manage or upgrade plan
-					</Button>
-				) : (
-					<Button
-						variant="outline"
-						render={<a href="/admin/billing?section=subscription" />}
-					>
-						Choose a plan
-					</Button>
-				)}
+			<Surface className="p-tedix-card">
+				<BillingSectionHeader
+					title="Current plan"
+					description={
+						<span className="flex flex-wrap items-center gap-2">
+							<Badge
+								variant={
+									tierBadgeVariant[tier as keyof typeof tierBadgeVariant] ||
+									"secondary"
+								}
+							>
+								{tier.charAt(0).toUpperCase() + tier.slice(1)}
+							</Badge>
+							<Badge
+								variant={
+									statusBadgeVariant[
+										status as keyof typeof statusBadgeVariant
+									] || "secondary"
+								}
+							>
+								{status.charAt(0).toUpperCase() +
+									status.slice(1).replaceAll("_", " ")}
+							</Badge>
+						</span>
+					}
+					actions={
+						selectedStripeCustomerId ? (
+							<Button
+								loading={portalMutation.isPending}
+								icon={<CreditCard size={16} />}
+								variant="outline"
+								onClick={() => portalMutation.mutate()}
+								disabled={portalMutation.isPending}
+							>
+								Manage or upgrade plan
+							</Button>
+						) : (
+							<Button
+								variant="outline"
+								render={<a href="/admin/billing?section=subscription" />}
+							>
+								Choose a plan
+							</Button>
+						)
+					}
+				/>
 			</Surface>
 
 			{portalMutation.isError && (

@@ -1,15 +1,11 @@
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import { Link } from "@/components/kumo/link";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CostChip } from "@/components/cost-chip";
 import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+import { Card, CardContent } from "@/components/kumo/card";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
@@ -44,23 +40,21 @@ export function BillingRunCosts({
 	});
 	return (
 		<Card tone="raised">
-			<CardHeader className="sm:grid-cols-[minmax(0,1fr)_auto]">
-				<div className="space-y-1">
-					<CardTitle>Spending by run</CardTitle>
-					<Text tone="secondary">
-						See which runs used model resources, then open a run to inspect its
-						steps.
-					</Text>
-				</div>
-				<Button
-					variant="outline"
-					className="text-kumo-strong"
-					aria-expanded={expanded}
-					onClick={() => setExpanded(!expanded)}
-				>
-					{expanded ? "Hide run costs" : "View run costs"}
-				</Button>
-			</CardHeader>
+			<BillingSectionHeader
+				className="px-tedix-card"
+				title="Spending by run"
+				description="See which runs used model resources, then open a run to inspect its steps."
+				actions={
+					<Button
+						variant="outline"
+						className="text-kumo-strong"
+						aria-expanded={expanded}
+						onClick={() => setExpanded(!expanded)}
+					>
+						{expanded ? "Hide run costs" : "View run costs"}
+					</Button>
+				}
+			/>
 			{expanded && (
 				<CardContent className="space-y-3">
 					<BillingSettledSpending />

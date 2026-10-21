@@ -1,3 +1,5 @@
+import { formatCount } from "@/lib/format";
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
@@ -13,13 +15,7 @@ import {
 	ChartPalette,
 	type KumoChartOption,
 } from "@/components/kumo/event-chart";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+import { Card, CardContent } from "@/components/kumo/card";
 import { Empty } from "@/components/kumo/empty";
 import {
 	Table,
@@ -40,9 +36,9 @@ function coverageCells(row: DailyUsage | TediUsage): string[] {
 	return [
 		row.costCompleteness,
 		formatCost(row.knownSubtotalUsd),
-		formatTokens(row.pricedRowCount),
-		formatTokens(row.unpricedRowCount),
-		formatTokens(row.unpricedTokens),
+		formatCount(row.pricedRowCount),
+		formatCount(row.unpricedRowCount),
+		formatCount(row.unpricedTokens),
 	];
 }
 
@@ -51,10 +47,6 @@ function formatCost(value: number | null): string {
 	return Math.abs(value) > 0 && Math.abs(value) < 0.01
 		? formatCurrencyAmount(value, "usd", 4)
 		: formatCurrencyAmount(value);
-}
-
-function formatTokens(value: number): string {
-	return value.toLocaleString();
 }
 
 function formatAxisCost(value: number): string {
@@ -144,7 +136,11 @@ function DailyCostChart({
 			yAxis: {
 				type: "value",
 				min: 0,
-				axisLabel: { color: text, fontSize: 11, formatter: formatAxisCost },
+				axisLabel: {
+					color: text,
+					fontSize: 11,
+					formatter: formatAxisCost,
+				},
 			},
 			series: [
 				{
@@ -162,12 +158,11 @@ function DailyCostChart({
 
 	return (
 		<Card>
-			<CardHeader>
-				<CardTitle>Model cost trend</CardTitle>
-				<CardDescription>
-					Daily estimated model cost · {periodLabel}
-				</CardDescription>
-			</CardHeader>
+			<BillingSectionHeader
+				className="px-tedix-card"
+				title="Model cost trend"
+				description={<>Daily estimated model cost · {periodLabel}</>}
+			/>
 			<CardContent>
 				<Text role="label" tone="secondary">
 					Known subtotals show available pricing evidence, not payable amounts.
@@ -185,7 +180,7 @@ function DailyCostChart({
 					rows={daily.map((day) => [
 						day.date,
 						formatCost(day.estimatedCostUsd),
-						formatTokens(day.totalTokens),
+						formatCount(day.totalTokens),
 						...coverageCells(day),
 					])}
 				/>
@@ -233,7 +228,11 @@ function TediCostChart({
 			xAxis: {
 				type: "value",
 				min: 0,
-				axisLabel: { color: text, fontSize: 11, formatter: formatAxisCost },
+				axisLabel: {
+					color: text,
+					fontSize: 11,
+					formatter: formatAxisCost,
+				},
 			},
 			yAxis: {
 				type: "category",
@@ -259,12 +258,11 @@ function TediCostChart({
 
 	return (
 		<Card>
-			<CardHeader>
-				<CardTitle>Model cost by tedi</CardTitle>
-				<CardDescription>
-					Estimated model cost by tedi · {periodLabel}
-				</CardDescription>
-			</CardHeader>
+			<BillingSectionHeader
+				className="px-tedix-card"
+				title="Model cost by tedi"
+				description={<>Estimated model cost by tedi · {periodLabel}</>}
+			/>
 			<CardContent>
 				<Text role="label" tone="secondary">
 					Known subtotals show available pricing evidence, not payable amounts.
@@ -282,7 +280,7 @@ function TediCostChart({
 					rows={sortedTedis.map((tedi) => [
 						`${tedi.tediName} (@${tedi.tediSlug})`,
 						formatCost(tedi.estimatedCostUsd),
-						formatTokens(tedi.totalTokens),
+						formatCount(tedi.totalTokens),
 						tedi.cacheHitRate == null
 							? "Not available"
 							: `${(tedi.cacheHitRate * 100).toFixed(0)}%`,
@@ -324,9 +322,10 @@ export function BillingUsageCharts({
 				<DailyCostChart daily={daily} periodLabel={periodLabel} />
 			) : (
 				<Card>
-					<CardHeader>
-						<CardTitle>Model cost trend</CardTitle>
-					</CardHeader>
+					<BillingSectionHeader
+						className="px-tedix-card"
+						title="Model cost trend"
+					/>
 					<CardContent>
 						<Empty
 							appearance="quiet"
@@ -340,9 +339,10 @@ export function BillingUsageCharts({
 				<TediCostChart tedis={tedis} periodLabel={periodLabel} />
 			) : (
 				<Card>
-					<CardHeader>
-						<CardTitle>Model cost by tedi</CardTitle>
-					</CardHeader>
+					<BillingSectionHeader
+						className="px-tedix-card"
+						title="Model cost by tedi"
+					/>
 					<CardContent>
 						<Empty
 							appearance="quiet"

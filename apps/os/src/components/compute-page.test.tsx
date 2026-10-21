@@ -370,6 +370,21 @@ describe("ProvenanceCard", () => {
 });
 
 describe("BudgetCard", () => {
+	it("meters known allowance usage without inventing a meter for unknown usage", () => {
+		const known = new DOMParser().parseFromString(
+			renderToStaticMarkup(<BudgetCard posture={posture()} />),
+			"text/html",
+		);
+		expect(
+			known.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+		).toBe("40");
+		const unknown = renderToStaticMarkup(
+			<BudgetCard
+				posture={posture({ budget: { ...posture().budget, usedTokens: null } })}
+			/>,
+		);
+		expect(unknown).not.toContain('role="meter"');
+	});
 	it("says consumption is unknown rather than zero when no account exists", () => {
 		const html = renderToStaticMarkup(
 			<BudgetCard
@@ -405,6 +420,17 @@ describe("BudgetCard", () => {
 });
 
 describe("RoutingCard", () => {
+	it("labels the model Auto and keeps missing selection explicit", () => {
+		expect(renderToStaticMarkup(<RoutingCard posture={posture()} />)).toContain(
+			">Auto</span>",
+		);
+		const html = renderToStaticMarkup(
+			<RoutingCard
+				posture={posture({ routing: { ...posture().routing, modelRef: null } })}
+			/>,
+		);
+		expect(html).toContain("No model selected");
+	});
 	it("shows a detected fallback without inventing a reason for it", () => {
 		const html = renderToStaticMarkup(
 			<RoutingCard

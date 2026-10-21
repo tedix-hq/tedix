@@ -1,3 +1,4 @@
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import type { ComputePosture } from "@tedix/api-contract/contracts/os-compute";
 import {
 	COST_PROVENANCE_DETAIL,
@@ -25,16 +26,13 @@ import {
 	PageHeading,
 	PageSection,
 	PageTitle,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
 } from "@/components/kumo/page";
 import {
 	SegmentedControl,
 	USAGE_PERIOD_OPTIONS,
 } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
+import { Meter } from "@/components/kumo/meter";
 import { Text } from "@/components/kumo/text";
 import { CostChip } from "@/components/cost-chip";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -53,10 +51,6 @@ import { OS_COPY } from "@/shared/os-copy";
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
-
-/** The windows the posture read accepts. Mirrors `CostComputeWindowSchema`. */
-export const COMPUTE_WINDOWS = ["24h", "7d", "30d"] as const;
-export type ComputeWindow = (typeof COMPUTE_WINDOWS)[number];
 
 type PostureTone = "ok" | "warn" | "bad" | "unknown";
 
@@ -421,6 +415,9 @@ export function BudgetCard({
 					"Consumption is unknown, not zero."
 				)}
 			</Text>
+			{share !== null && (
+				<Meter label="Included allowance used" value={share * 100} />
+			)}
 			<Text as="span" role="label" tone="secondary">
 				{posture.budget.detail}
 			</Text>
@@ -444,8 +441,11 @@ export function RoutingCard({
 				<Text as="strong" role="body" weight="medium" tone="strong">
 					Routing
 				</Text>
-				<Badge variant={posture.routing.modelRef ? "info" : "outline"}>
-					{posture.routing.modelRef ?? "No model selected"}
+				<Badge
+					variant={posture.routing.modelRef ? "info" : "outline"}
+					title={posture.routing.modelRef ?? undefined}
+				>
+					{posture.routing.modelRef ? "Auto" : "No model selected"}
 				</Badge>
 				<Badge variant="secondary">
 					{posture.routing.allowedCount} allowed
@@ -576,7 +576,7 @@ export function AttributionCard({
  * collapsing them lets a dead ingestion pipeline render as a clean $0.
  */
 export function ComputePage() {
-	const [window, setWindow] = useState<ComputeWindow>("7d");
+	const [window, setWindow] = useState<ComputePosture["window"]>("7d");
 	const posture = useQuery({
 		...computePostureQueryOptions(window),
 		staleTime: 60_000,
@@ -606,14 +606,10 @@ export function ComputePage() {
 			</PageHeader>
 
 			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Cost and budget</SectionTitle>
-						<SectionDescription>
-							Recorded spend, ingestion freshness, capacity, and source basis.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
+				<BillingSectionHeader
+					title="Cost and budget"
+					description="Recorded spend, ingestion freshness, capacity, and source basis."
+				/>
 				{posture.isPending && <ListSkeleton rows={3} rowClassName="h-24" />}
 				{nonData?.kind === "refused" && (
 					<Alert>
@@ -660,15 +656,10 @@ export function ComputePage() {
 					{posture.data && <LimitsSection posture={posture.data} />}
 
 					<PageSection>
-						<SectionHeader>
-							<SectionHeading>
-								<SectionTitle>Routing and models</SectionTitle>
-								<SectionDescription>
-									Selected model, allowed catalog, observed providers, and
-									fallback.
-								</SectionDescription>
-							</SectionHeading>
-						</SectionHeader>
+						<BillingSectionHeader
+							title="Routing and models"
+							description="Selected model, allowed catalog, observed providers, and fallback."
+						/>
 						<Collection
 							aria-label="Routing and model status"
 							className="[&>li]:min-w-0"
@@ -685,15 +676,10 @@ export function ComputePage() {
 					</PageSection>
 
 					<PageSection>
-						<SectionHeader>
-							<SectionHeading>
-								<SectionTitle>Admission health</SectionTitle>
-								<SectionDescription>
-									Credential evidence, provider visibility, and D1 policy
-									ceilings.
-								</SectionDescription>
-							</SectionHeading>
-						</SectionHeader>
+						<BillingSectionHeader
+							title="Admission health"
+							description="Credential evidence, provider visibility, and D1 policy ceilings."
+						/>
 						{posture.data && (
 							<Collection
 								aria-label="Admission health status"

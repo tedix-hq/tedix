@@ -1,3 +1,4 @@
+import { BillingSectionHeader } from "@/components/billing-section-header";
 import type { BillingCreditOverview } from "@tedix/api-contract/schemas/billing";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -7,8 +8,6 @@ import { Label } from "@/components/kumo/label";
 import {
 	SettingsSection,
 	SettingsSectionContent,
-	SectionHeader,
-	SectionTitle,
 } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -50,9 +49,7 @@ export function BillingCreditBudget({
 	const consumed = credits.spentMicros + credits.reservedMicros;
 	return (
 		<SettingsSection id="credit-budget">
-			<SectionHeader>
-				<SectionTitle>Monthly credit spending cap</SectionTitle>
-			</SectionHeader>
+			<BillingSectionHeader title="Monthly credit spending cap" />
 			<SettingsSectionContent className="space-y-3">
 				<Text tone="secondary">
 					Pause new model calls when recorded spending and running-work
