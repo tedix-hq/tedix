@@ -218,7 +218,6 @@ export function AdminConnectionsPage({
 			...(autoConnectAppId ? { providerId: autoConnectAppId } : {}),
 		}),
 	);
-	const connectionsQuery = providersQuery;
 	const inventory = providersQuery.data?.rows ?? [];
 	const defaultInventory = inventory.filter((row) => !row.connectionInstanceId);
 	const namedInventory = inventory.filter((row) => row.connectionInstanceId);
@@ -749,7 +748,7 @@ export function AdminConnectionsPage({
 	// ---------------------------------------------------------------------------
 	// Render
 	// ---------------------------------------------------------------------------
-	const isPending = providersQuery.isPending || connectionsQuery.isPending;
+	const isPending = providersQuery.isPending;
 
 	return (
 		<Page width="lg">
@@ -944,7 +943,6 @@ export function AdminConnectionsPage({
 							icon={<Buildings className="h-4 w-4 text-kumo-subtle" />}
 							title="Organization connections"
 							description="Organization-owned credentials. App references do not prove permission to use them or provider health."
-							count={filteredOrgProviders.length}
 							providers={filteredOrgProviders}
 							inventoryByProvider={inventoryByProvider}
 							connectionsByProvider={orgConnectionsByProvider}
@@ -1025,7 +1023,6 @@ export function AdminConnectionsPage({
 							icon={<User className="h-4 w-4 text-kumo-subtle" />}
 							title="My accounts"
 							description="Your credentials, not organization-owned accounts. App references do not prove that this workspace can use your account."
-							count={filteredPersonalProviders.length}
 							providers={filteredPersonalProviders}
 							inventoryByProvider={inventoryByProvider}
 							connectionsByProvider={personalConnectionsByProvider}
@@ -1242,20 +1239,10 @@ export function AdminConnectionsPage({
 	);
 }
 
-/**
- * The Descope OutboundApplications widget preview, mounted lazily behind a
- * collapsible like the identity widgets on /admin/organization. It needs the
- * org's Descope tenant id, which lives on the organization detail read.
- */
-// =============================================================================
-// Provider Section (collapsible group)
-// =============================================================================
-
 function ProviderSection({
 	icon,
 	title,
 	description,
-	count,
 	providers,
 	inventoryByProvider,
 	connectionsByProvider,
@@ -1273,7 +1260,6 @@ function ProviderSection({
 	icon: React.ReactNode;
 	title: string;
 	description?: string;
-	count: number;
 	providers: ConnectionProvider[];
 	inventoryByProvider: Map<string, ConnectionInventoryRow>;
 	connectionsByProvider: Map<string, UserConnection[]>;
@@ -1299,9 +1285,9 @@ function ProviderSection({
 		}
 	>;
 	onCheckService: (providerId: string, appSlug: string) => void;
-	sectionScope?: "tenant" | "user";
+	sectionScope: "tenant" | "user";
 }) {
-	const titleId = `${sectionScope ?? "connection"}-connections-title`;
+	const titleId = `${sectionScope}-connections-title`;
 
 	return (
 		<PageSection aria-labelledby={titleId}>
@@ -1318,7 +1304,7 @@ function ProviderSection({
 					)}
 				</SectionHeading>
 				<SectionActions>
-					<Badge variant="secondary">{count} shown</Badge>
+					<Badge variant="secondary">{providers.length} shown</Badge>
 				</SectionActions>
 			</SectionHeader>
 			<Collection aria-label={title}>
