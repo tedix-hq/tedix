@@ -17,6 +17,23 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
 
+export const ResolveSkillManifestAuthorizationInputSchema = z.object({
+	organizationId: z.string().min(1),
+	runId: z.string().min(1),
+	skillId: z.string().min(1),
+	tediId: z.string().min(1),
+	executionEpoch: z.number().int().nonnegative(),
+	method: z.string().min(1),
+	namespace: z.string().optional(),
+	sourceAppSlug: z.string().optional(),
+	targetTediId: z.string().optional(),
+});
+export const ResolveSkillManifestAuthorizationResponseSchema = z.object({
+	approved: z.boolean(),
+	skillId: z.string().optional(),
+	revision: z.number().int().positive().optional(),
+});
+
 export const McpToolApprovalGrantKindSchema = z.enum(["once", "always"]);
 export type McpToolApprovalGrantKind = z.infer<
 	typeof McpToolApprovalGrantKindSchema

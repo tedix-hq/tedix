@@ -26,6 +26,7 @@ import {
 	logSkillRuntimeWarning,
 } from "./control-log";
 import {
+	listWorkflowCallReceiptStorage,
 	loadSkillRunSnapshot,
 	resolveNamespaceSlugs,
 	resolveSkillNamespaceSlugs,
@@ -33,6 +34,7 @@ import {
 	skillRunEnvironmentMatches,
 } from "./db";
 import { enforceGroundingPolicy } from "./evidence";
+import { fullyRefusedWorkflowStep } from "./workflow-call-outcome";
 import {
 	EVIDENCE_SCRAPE_NAMESPACE,
 	PLATFORM_EVIDENCE_MANIFEST,
@@ -371,6 +373,45 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 						const output = normalizeWorkflowResult(
 							await tenantRunner.run(event, step),
 						);
+						const refusedStep = await nativeStep.do(
+							`tedix epoch ${snapshot.executionEpoch} tool refusal check`,
+							async () => {
+								const receipts: unknown[] = [];
+								let after = "";
+								for (;;) {
+									const rows = await listWorkflowCallReceiptStorage(
+										env.DB,
+										snapshot.orgId,
+										meta.runId!,
+										snapshot.executionEpoch,
+										after,
+									);
+									for (const row of rows) {
+										const content =
+											row.content_inline ??
+											(row.content_r2_key
+												? await (
+														await env.SKILL_ARTIFACTS.get(row.content_r2_key)
+													)?.text()
+												: null);
+										if (!content)
+											throw new Error("WORKFLOW_CALL_RECEIPT_UNAVAILABLE");
+										receipts.push(JSON.parse(content));
+									}
+									if (rows.length < 200) break;
+									after = rows.at(-1)!.path;
+								}
+								return fullyRefusedWorkflowStep(receipts);
+							},
+						);
+						if (refusedStep) {
+							const { NonRetryableError } =
+								await import("cloudflare:workflows");
+							throw new NonRetryableError(
+								`WORKFLOW_TOOLS_REFUSED: a tool capability in step ${refusedStep} was wholly refused`,
+								"WorkflowToolsRefused",
+							);
+						}
 						// Grounding policy. Evaluated here, in the dispatcher, so a
 						// workflow cannot skip its own audit — but recorded as a WARNING,
 						// not a failure. A skill authored before this primitive existed

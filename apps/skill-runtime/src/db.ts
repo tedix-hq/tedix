@@ -1021,3 +1021,38 @@ export async function releaseSkillWorkflowAdmissionFence(
 		.bind(input.fingerprint, input.runId)
 		.run();
 }
+
+/** Bounded, epoch-scoped scan used before asserting workflow completion. */
+export async function listWorkflowCallReceiptStorage(
+	db: D1Database,
+	organizationId: string,
+	runId: string,
+	executionEpoch: number,
+	after: string,
+): Promise<
+	Array<{
+		path: string;
+		content_inline: string | null;
+		content_r2_key: string | null;
+	}>
+> {
+	const rows = await db
+		.prepare(
+			`SELECT a.path, a.content_inline, a.content_r2_key FROM skill_run_artifacts a
+		 JOIN skill_runs r ON r.id = a.run_id
+		 WHERE a.run_id = ?1 AND a.path GLOB ?2 AND a.path > ?3 AND r.organization_id = ?4
+		 ORDER BY a.path LIMIT 200`,
+		)
+		.bind(
+			runId,
+			`epochs/${executionEpoch}/steps/*/calls/*.json`,
+			after,
+			organizationId,
+		)
+		.all<{
+			path: string;
+			content_inline: string | null;
+			content_r2_key: string | null;
+		}>();
+	return rows.results ?? [];
+}

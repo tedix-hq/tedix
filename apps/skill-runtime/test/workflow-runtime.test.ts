@@ -7,6 +7,7 @@ import trajectoryMining from "../examples/trajectory-mining/scripts/workflow";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { recordArtifactOnceForRun } from "../src/artifact-immutability";
 import {
+	listWorkflowCallReceiptStorage,
 	clearSkillRunRestartIntent,
 	finalizeAbortedSkillRunRestart,
 	getSkillRun,
@@ -696,7 +697,7 @@ assert.equal(
 );
 assert.equal(
 	WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
-	"v5-canonical-connection-outcomes",
+	"v6-manifest-approval-refusal-outcomes",
 );
 const bunLock = await Bun.file(
 	new URL("../../../bun.lock", import.meta.url),
@@ -3641,3 +3642,185 @@ assert.match(DISPATCH_SHIM, /workflowName: event\.workflowName/);
 assert.doesNotMatch(DISPATCH_SHIM, /DEFAULT_STEP_DO_CONFIG/);
 
 console.log("workflow runtime tests passed");
+
+import { fullyRefusedWorkflowStep } from "../src/workflow-call-outcome";
+const callReceipt = (
+	step: string,
+	status: string,
+	attempt = 1,
+	message = "Action requires approval",
+) => ({
+	kind: "workflow_mcp_call",
+	step: { id: step, name: step },
+	attempt,
+	status,
+	error: { message },
+});
+assert.equal(
+	fullyRefusedWorkflowStep([
+		callReceipt("fetch", "succeeded"),
+		callReceipt("read", "failed"),
+		callReceipt("judge", "failed"),
+	]),
+	"read",
+);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		callReceipt("judge", "failed"),
+		callReceipt("judge", "succeeded"),
+	]),
+	null,
+);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		callReceipt("judge", "failed"),
+		callReceipt("judge", "succeeded", 2),
+	]),
+	null,
+);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		callReceipt("judge", "succeeded", 2),
+		callReceipt("judge", "failed"),
+	]),
+	null,
+);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		callReceipt("judge", "failed", 1, "MCP_INPUT_REQUIRED"),
+	]),
+	"judge",
+);
+assert.equal(
+	fullyRefusedWorkflowStep([callReceipt("judge", "failed", 1, "HTTP 429")]),
+	null,
+);
+assert.equal(fullyRefusedWorkflowStep([]), null);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		{
+			...callReceipt("judge", "failed"),
+			refused: true,
+			error: { message: "[redacted]" },
+		},
+	]),
+	"judge",
+);
+
+const receiptSqlite = new Database(":memory:");
+receiptSqlite.exec(
+	"CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT)",
+);
+receiptSqlite
+	.prepare("INSERT INTO skill_runs VALUES (?, ?)")
+	.run("run-receipts", "org-receipts");
+receiptSqlite.exec(
+	"CREATE TABLE skill_run_artifacts (run_id TEXT, path TEXT, content_inline TEXT, content_r2_key TEXT)",
+);
+for (let i = 0; i < 205; i++) {
+	receiptSqlite
+		.prepare("INSERT INTO skill_run_artifacts VALUES (?, ?, ?, NULL)")
+		.run(
+			"run-receipts",
+			`epochs/2/steps/read/1/attempts/1/calls/run/${String(i).padStart(3, "0")}.json`,
+			"{}",
+		);
+}
+receiptSqlite
+	.prepare("INSERT INTO skill_run_artifacts VALUES (?, ?, ?, NULL)")
+	.run(
+		"other-run",
+		"epochs/2/steps/read/1/attempts/1/calls/run/999.json",
+		"{}",
+	);
+receiptSqlite
+	.prepare("INSERT INTO skill_run_artifacts VALUES (?, ?, ?, NULL)")
+	.run(
+		"run-receipts",
+		"epochs/1/steps/read/1/attempts/1/calls/run/999.json",
+		"{}",
+	);
+const firstReceipts = await listWorkflowCallReceiptStorage(
+	sqliteD1(receiptSqlite),
+	"org-receipts",
+	"run-receipts",
+	2,
+	"",
+);
+assert.equal(firstReceipts.length, 200);
+assert.equal(
+	(
+		await listWorkflowCallReceiptStorage(
+			sqliteD1(receiptSqlite),
+			"org-receipts",
+			"run-receipts",
+			2,
+			firstReceipts.at(-1)!.path,
+		)
+	).length,
+	5,
+);
+assert.equal(
+	(
+		await listWorkflowCallReceiptStorage(
+			sqliteD1(receiptSqlite),
+			"other-org",
+			"run-receipts",
+			2,
+			"",
+		)
+	).length,
+	0,
+);
+receiptSqlite.close();
+
+assert.equal(
+	fullyRefusedWorkflowStep([
+		{
+			...callReceipt("research", "succeeded"),
+			namespace: "reddit",
+			method: "list_threads",
+		},
+		{
+			...callReceipt("research", "failed"),
+			namespace: "firecrawl",
+			method: "firecrawl_agent",
+		},
+		{
+			...callReceipt("research", "failed"),
+			namespace: "tedi",
+			method: "run_tedi_turn",
+		},
+	]),
+	"research",
+);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		{
+			...callReceipt("research", "failed"),
+			namespace: "firecrawl",
+			method: "firecrawl_agent",
+		},
+		{
+			...callReceipt("research", "succeeded"),
+			namespace: "firecrawl",
+			method: "firecrawl_agent",
+		},
+	]),
+	null,
+);
+assert.equal(
+	fullyRefusedWorkflowStep([
+		{
+			...callReceipt("research", "failed"),
+			namespace: "firecrawl",
+			method: "firecrawl_agent",
+		},
+		{
+			...callReceipt("research", "succeeded", 2),
+			namespace: "reddit",
+			method: "list_threads",
+		},
+	]),
+	null,
+);
