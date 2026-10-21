@@ -15,13 +15,28 @@ export function presentationImageDimensions(
 		return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
 	if (source.startsWith("data:image/svg+xml;")) {
 		const xml = new TextDecoder().decode(bytes);
-		const width = Number(/\bwidth="([\d.]+)"/.exec(xml)?.[1]);
-		const height = Number(/\bheight="([\d.]+)"/.exec(xml)?.[1]);
-		if (width && height) return { width, height };
+		let width = Number(/\bwidth\s*=\s*(["'])\s*([\d.]+)\s*\1/.exec(xml)?.[2]);
+		let height = Number(/\bheight\s*=\s*(["'])\s*([\d.]+)\s*\1/.exec(xml)?.[2]);
+		if (
+			Number.isFinite(width) &&
+			width > 0 &&
+			Number.isFinite(height) &&
+			height > 0
+		)
+			return { width, height };
 		const viewBox =
-			/\bviewBox="[\d.-]+[ ,]+[\d.-]+[ ,]+([\d.]+)[ ,]+([\d.]+)"/.exec(xml);
-		if (viewBox)
-			return { width: Number(viewBox[1]), height: Number(viewBox[2]) };
+			/\bviewBox\s*=\s*(["'])\s*[\d.-]+[\s,]+[\d.-]+[\s,]+([\d.]+)[\s,]+([\d.]+)\s*\1/.exec(
+				xml,
+			);
+		width = Number(viewBox?.[2]);
+		height = Number(viewBox?.[3]);
+		if (
+			Number.isFinite(width) &&
+			width > 0 &&
+			Number.isFinite(height) &&
+			height > 0
+		)
+			return { width, height };
 	}
 	if (source.startsWith("data:image/jpeg;")) {
 		for (let offset = 2; offset + 9 < bytes.length;) {
