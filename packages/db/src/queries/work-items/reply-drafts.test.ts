@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { listUndeliveredWorkInteractionResponses } from "./interaction-deliveries";
@@ -669,6 +669,48 @@ describe("auto reply delivery (migrated D1 triggers)", () => {
 		responseId: "auto-1",
 		now: "2026-08-20T01:05:00.000Z",
 	};
+	it.each([false, true])(
+		"records an automatic card answer without failing delivery when graph writes fail: %s",
+		async (broken) => {
+			const { sqlite, db } = seed();
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			try {
+				question(sqlite, "q1", {
+					metadata: { ...QUIET, sessionId: SESSION, host: "claude-code" },
+				});
+				await insertReplyDraft(db, draft({ delivery: "auto" }));
+				if (broken)
+					sqlite.exec(
+						"CREATE TRIGGER broken_graph BEFORE INSERT ON decision_edges BEGIN SELECT RAISE(ABORT,'unavailable'); END;",
+					);
+				const result = await recordAutoReplyDelivery(db, delivery);
+				expect(result.created).toBe(true);
+				expect(result.response.resolvesRequest).toBe(true);
+				const edges = sqlite
+					.prepare("SELECT kind,from_id,to_id FROM decision_edges")
+					.all();
+				if (broken) {
+					expect(warn).toHaveBeenCalledWith(
+						"[decision-graph] edge write skipped",
+						{ source: "card_resolution" },
+					);
+					expect(edges).toEqual([]);
+				} else
+					expect(edges).toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({
+								kind: "card_answers",
+								from_id: "q1",
+								to_id: "auto-1",
+							}),
+						]),
+					);
+			} finally {
+				warn.mockRestore();
+				sqlite.close();
+			}
+		},
+	);
 
 	it("answers in the tedi's name once delivered, idempotently, and keeps the delivery", async () => {
 		const { sqlite, db } = seed();

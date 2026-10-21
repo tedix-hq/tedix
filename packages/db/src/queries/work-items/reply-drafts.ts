@@ -20,6 +20,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { recordPersistedCardResolutionEdges } from "../decision-graph-writers";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -751,6 +752,7 @@ export async function recordAutoReplyDelivery(
 		]);
 		const response = responses[0];
 		if (!response) throw new Error("lost race");
+		await recordPersistedCardResolutionEdges(db, p.orgId, response.id);
 		return {
 			response,
 			deliveredAt: deliveries[0]?.deliveredAt ?? p.now,

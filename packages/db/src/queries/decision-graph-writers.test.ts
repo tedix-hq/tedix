@@ -3,7 +3,19 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
-import { createApprovalRequest, resolveApprovalRequest } from "./approvals";
+import {
+	createApprovalRequest,
+	resolveApprovalRequest,
+	ensurePaymentBudgetOverrideRequest,
+	ensureProvisionalPromotionApprovalRequest,
+} from "./approvals";
+import { instantiateOsBlueprint } from "./os-workspaces/instantiate";
+import { saveOutbound } from "./work-items/outbound";
+import {
+	startWorkItemAttempt,
+	settleWorkItemAttempt,
+} from "./work-items/attempts";
+import type { OutboundState } from "@tedix/api-contract/schemas/outbound";
 import { countBlocked, getDecisionContext } from "./decision-graph";
 import { createFact, createFacts, updateFact } from "./memory-graph/facts";
 import { insertSessionFeedbackLesson } from "./memory-graph/session-feedback";
@@ -127,6 +139,171 @@ function fixture(broken = false) {
 describe.each([false, true])(
 	"decision graph writers (graph unavailable: %s)",
 	(broken) => {
+		it("records outbound review creation and resolution only after a successful CAS", async () => {
+			const f = fixture(broken);
+			const state: OutboundState = {
+				schema: "tedix.outbound.v1",
+				draft: {
+					channel: "email",
+					topic: "operations",
+					recipient: "owner@example.test",
+					subject: "Review",
+					body: "Rotate the old key",
+					reasoning: "Review the fictional audit",
+					sources: [],
+					risks: [],
+				},
+				draftRevision: 1,
+				author: { type: "user", id: "owner" },
+				ownerUserId: "owner",
+				reviewerTediId: "worker",
+				interactionId: "outbound-card",
+				status: "reviewing",
+				review: null,
+			};
+			const params = {
+				orgId: "org",
+				workItemId: "work",
+				expectedVersion: 1,
+				state,
+				actor: { type: "user" as const, id: "owner" },
+				action: "submitted",
+				now: NOW,
+				createInteraction: true,
+			};
+			expect(await saveOutbound(f.db, params)).toBe(true);
+			expect(
+				await saveOutbound(f.db, {
+					...params,
+					state: { ...state, interactionId: "lost-card" },
+				}),
+			).toBe(false);
+			if (!broken)
+				expect(f.edges()).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							kind: "card_from_work",
+							from_id: state.interactionId,
+							to_id: "work",
+						}),
+					]),
+				);
+			expect(
+				await saveOutbound(f.db, {
+					...params,
+					expectedVersion: 2,
+					createInteraction: false,
+					state: { ...state, status: "approved_manual" },
+					action: "approve_manual",
+					response: {
+						body: state.draft.body,
+						before: state.draft.body,
+						resolves: true,
+					},
+				}),
+			).toBe(true);
+			if (broken)
+				expect(f.warn).toHaveBeenCalledWith(
+					"[decision-graph] edge write skipped",
+					{ source: "card_resolution" },
+				);
+			else
+				expect(f.edges()).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							kind: "card_answers",
+							from_id: state.interactionId,
+						}),
+					]),
+				);
+			expect(f.edges().some((e) => e.from_id === "lost-card")).toBe(false);
+		});
+
+		it("records the user card created by a successful lane handoff settlement", async () => {
+			const f = fixture(broken);
+			f.sqlite.exec(
+				`INSERT INTO work_items(id,org_id,title,disposition,acceptance_contract,accountable_owner_type,accountable_owner_id,work_class,purpose_exception_expires_at,admission_spec_revision,created_at,accepted_at) VALUES('lane-work','org','Review lane result','accepted','{"version":1,"doneLooksLike":"Reviewed result"}','user','owner','maintenance','2099-01-01T00:00:00.000Z','lane','${NOW}','${NOW}'); INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,decided_at,expires_at,created_at) VALUES('lane-admission','org','lane-work',1,'lane','tedi','worker','admitted','${NOW}','2099-01-01T00:00:00.000Z','${NOW}');`,
+			);
+			const executor = { type: "tedi" as const, id: "worker" };
+			const started = await startWorkItemAttempt(f.db, {
+				orgId: "org",
+				workItemId: "lane-work",
+				admissionId: "lane-admission",
+				executor,
+				startedAt: NOW,
+				expiresAt: "2099-01-01T00:00:00.000Z",
+			});
+			const result = await settleWorkItemAttempt(f.db, {
+				orgId: "org",
+				workItemId: "lane-work",
+				attemptId: started.attempt.id,
+				executor,
+				outcome: "succeeded",
+				needsUser: "Review the audit result",
+				settledAt: NOW,
+			});
+			expect(result.attempt.runtimeState).toBe("finished");
+			expect(result.interactionId).toBeTruthy();
+			if (broken)
+				expect(f.warn).toHaveBeenCalledWith(
+					"[decision-graph] edge write skipped",
+					{ source: "deck_creation" },
+				);
+			else
+				expect(f.edges()).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							kind: "card_from_work",
+							from_id: result.interactionId,
+							to_id: "lane-work",
+						}),
+					]),
+				);
+		});
+
+		it("records Work links provisioned with a workspace without rolling the workspace back", async () => {
+			const f = fixture(broken);
+			const result = await instantiateOsBlueprint(f.db, {
+				workspace: {
+					id: "space",
+					organizationId: "org",
+					name: "Audit",
+					createdByKind: "user",
+					createdById: "owner",
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				gadgets: [],
+				revisions: [],
+				provisioning: {
+					projects: [],
+					milestones: [],
+					items: [],
+					relations: [
+						{
+							id: "provisioned-link",
+							orgId: "org",
+							fromWorkItemId: "work",
+							toWorkItemId: "waiting",
+							relationType: "blocks",
+							createdAt: NOW,
+						},
+					],
+					milestoneItems: [],
+					outputs: [],
+					outputRevisions: [],
+					projectLinks: [],
+					schedules: [],
+				},
+			});
+			expect(result.workspace.id).toBe("space");
+			if (broken)
+				expect(f.warn).toHaveBeenCalledWith(
+					"[decision-graph] edge write skipped",
+					{ source: "work_link" },
+				);
+			else expect(await countBlocked(f.db, "org", "work")).toBe(1);
+		});
 		it("projects owner instructions after confirmation and bulk persistence", async () => {
 			const f = fixture(broken);
 			f.sqlite.exec(
@@ -341,6 +518,47 @@ describe.each([false, true])(
 					resolvedBy: "owner",
 				}),
 			).toBeUndefined();
+			const payment = await ensurePaymentBudgetOverrideRequest(f.db, {
+				id: "payment-approval",
+				orgId: "org",
+				tediId: "worker",
+				actionType: "payment_budget_override",
+				description: "Review Orchard API",
+				payload: {
+					kind: "payment_budget_override",
+					rejectedEventId: "rejected-event",
+					workItemId: "work",
+				},
+				createdAt: NOW,
+				expiresAt: "2099-01-01T00:00:00.000Z",
+			});
+			const promotion = await ensureProvisionalPromotionApprovalRequest(f.db, {
+				id: "promotion-approval",
+				orgId: "org",
+				tediId: "worker",
+				provisionalOutcomeId: "provisional",
+				provisionalOutcomeHash: "fictional-hash",
+				description: "Review Orchard API",
+				createdAt: NOW,
+				expiresAt: "2099-01-01T00:00:00.000Z",
+				workflowId: "workflow",
+			});
+			expect(payment.created && promotion.created).toBe(true);
+			if (!broken)
+				expect(f.edges()).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							kind: "card_from_work",
+							from_id: "approval:payment-approval",
+							to_id: "work",
+						}),
+						expect.objectContaining({
+							kind: "involves",
+							from_id: "approval:promotion-approval",
+							to_id: "api",
+						}),
+					]),
+				);
 			if (broken) {
 				expect(f.warn).toHaveBeenCalledWith(
 					"[decision-graph] edge write skipped",

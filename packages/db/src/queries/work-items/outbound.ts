@@ -1,4 +1,8 @@
 import {
+	recordPersistedCardCreationEdges,
+	recordPersistedCardResolutionEdges,
+} from "../decision-graph-writers";
+import {
 	OUTBOUND_SCHEMA,
 	OutboundPolicySchema,
 	OutboundStateSchema,
@@ -226,13 +230,15 @@ export async function saveOutbound(
 					),
 			),
 		);
+	let responseId: string | undefined;
 	if (p.response) {
 		const response = p.response;
+		responseId = crypto.randomUUID();
 		statements.push(
 			db.insert(workInteractionResponses).select(
 				db
 					.select({
-						id: sql<string>`${crypto.randomUUID()}`.as("id"),
+						id: sql<string>`${responseId}`.as("id"),
 						orgId: workInteractions.orgId,
 						interactionId: sql<string>`${workInteractions.id}`.as(
 							"interaction_id",
@@ -343,7 +349,12 @@ export async function saveOutbound(
 	);
 	statements.push(buildCardRevisionLearningStatement(db, p.orgId, revisionId));
 	const results = await db.batch(batchNonEmpty(statements));
-	return (results[0] as Array<{ id: string }>).length === 1;
+	const saved = (results[0] as Array<{ id: string }>).length === 1;
+	if (saved && p.createInteraction)
+		await recordPersistedCardCreationEdges(db, p.orgId, p.state.interactionId);
+	if (saved && responseId)
+		await recordPersistedCardResolutionEdges(db, p.orgId, responseId);
+	return saved;
 }
 
 export async function outboundApprovalHistory(

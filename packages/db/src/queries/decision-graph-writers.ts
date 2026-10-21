@@ -8,13 +8,22 @@ import { memoryEntities } from "../schema/memory-entities";
 import type { MemoryFact } from "../schema/memory-graph";
 import { organizationMembers } from "../schema/organization-members";
 import { organizationSecrets } from "../schema/organization-secrets";
-import { workInteractions, type WorkInteraction } from "../schema/work-factory";
+import {
+	workInteractions,
+	workInteractionResponses,
+	type WorkInteraction,
+} from "../schema/work-factory";
 import {
 	workItemComments,
 	workItems,
 	type WorkItem,
+	type NewWorkItemRelation,
 } from "../schema/work-items";
-import { type DecisionEdgeInput, upsertDecisionEdges } from "./decision-graph";
+import {
+	DECISION_EDGE_UPSERT_LIMIT,
+	type DecisionEdgeInput,
+	upsertDecisionEdges,
+} from "./decision-graph";
 
 function skipped(source: string) {
 	// Source text and database errors can contain credential material.
@@ -26,11 +35,115 @@ export async function writeDecisionEdgesBestEffort(
 	orgId: string,
 	edges: readonly DecisionEdgeInput[],
 ) {
-	if (!edges.length) return;
+	for (
+		let offset = 0;
+		offset < edges.length;
+		offset += DECISION_EDGE_UPSERT_LIMIT
+	) {
+		try {
+			await upsertDecisionEdges(
+				db,
+				orgId,
+				edges.slice(offset, offset + DECISION_EDGE_UPSERT_LIMIT),
+			);
+		} catch {
+			skipped(edges[offset]!.source);
+		}
+	}
+}
+
+export async function recordWorkRelationEdges(
+	db: DbQueryClient,
+	orgId: string,
+	relations: readonly NewWorkItemRelation[],
+) {
+	await writeDecisionEdgesBestEffort(
+		db,
+		orgId,
+		relations.flatMap((relation) =>
+			relation.orgId === orgId &&
+			(relation.relationType === "blocks" ||
+				relation.relationType === "supersedes")
+				? [
+						{
+							kind: relation.relationType,
+							from: { kind: "work_item" as const, id: relation.fromWorkItemId },
+							to: { kind: "work_item" as const, id: relation.toWorkItemId },
+							source: "work_link",
+							evidenceRef: `work-relation:${relation.id}`,
+							note:
+								relation.relationType === "blocks"
+									? "Waiting Work"
+									: "Replaced Work",
+							occurredAt: relation.createdAt,
+						},
+					]
+				: [],
+		),
+	);
+}
+
+export async function recordPersistedCardCreationEdges(
+	db: DbQueryClient,
+	orgId: string,
+	cardId: string,
+) {
 	try {
-		await upsertDecisionEdges(db, orgId, edges);
+		const [card] = await db
+			.select()
+			.from(workInteractions)
+			.where(
+				and(eq(workInteractions.orgId, orgId), eq(workInteractions.id, cardId)),
+			)
+			.limit(1);
+		if (card) await recordCardCreationEdges(db, card);
 	} catch {
-		skipped(edges[0]!.source);
+		skipped("deck_creation");
+	}
+}
+
+export async function recordPersistedCardResolutionEdges(
+	db: DbQueryClient,
+	orgId: string,
+	responseId: string,
+) {
+	try {
+		const [response] = await db
+			.select()
+			.from(workInteractionResponses)
+			.where(
+				and(
+					eq(workInteractionResponses.orgId, orgId),
+					eq(workInteractionResponses.id, responseId),
+					eq(workInteractionResponses.resolvesRequest, true),
+				),
+			)
+			.limit(1);
+		if (!response) return;
+		const [card] = await db
+			.select()
+			.from(workInteractions)
+			.where(
+				and(
+					eq(workInteractions.orgId, orgId),
+					eq(workInteractions.id, response.interactionId),
+					eq(workInteractions.targetType, "user"),
+				),
+			)
+			.limit(1);
+		if (card)
+			await recordDecisionResolutionEdges(db, {
+				orgId,
+				cardId: card.id,
+				decisionId: response.id,
+				workItemId: card.workItemId,
+				occurredAt: response.respondedAt,
+				source: "card_resolution",
+				evidenceRef: `work-interaction-response:${response.id}`,
+				note: response.body,
+			});
+	} catch {
+		skipped("card_resolution");
 	}
 }
 
