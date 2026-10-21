@@ -41,6 +41,7 @@ export const kernelRequests = sqliteTable(
 			t.sourceId,
 		),
 		index("kernel_requests_due_idx").on(t.organizationId, t.nextDueAt),
+		index("kernel_requests_updated_idx").on(t.organizationId, t.updatedAt),
 	],
 );
 

@@ -1044,6 +1044,10 @@
 		{
 			"name": "20261021170314_decision_edges/migration.sql",
 			"sha256": "1afdd71e1433689f708fcce6ce1c566ea38f17fbf6c8a28cda25430b5c56df8b"
+		},
+		{
+			"name": "20261021175133_dispatcher_health_indexes/migration.sql",
+			"sha256": "051c12aea55dca8971a2933f0e62609f418df25bf49536219a4aa5ffa2f7999c"
 		}
 	]
 }

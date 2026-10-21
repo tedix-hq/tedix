@@ -29,6 +29,7 @@ let facts: Record<string, unknown>;
 
 const row = () => ({
 	orgId: "org",
+	trackerEnabled: true,
 	staleAfterMinutes: null,
 	alarmEnabled: true,
 	dispatchableCount: 2,
@@ -143,6 +144,16 @@ describe("runDispatcherHealthAlarm", () => {
 		facts = { lastAdmissionAt: ago(46), dispatchableCount: 0 };
 		await runDispatcherHealthAlarm(env, NOW + 120_000);
 		expect(db.cancel).toHaveBeenCalledOnce();
+	});
+
+	it("never raises for, and clears an old item of, an org without the request tracker", async () => {
+		facts = { trackerEnabled: false, lastTrackerActionAt: null };
+		await runDispatcherHealthAlarm(env, NOW);
+		expect(db.create).not.toHaveBeenCalled();
+		alert = { id: "old", version: 1 };
+		const counts = await runDispatcherHealthAlarm(env, NOW + 120_000);
+		expect(db.cancel).toHaveBeenCalledOnce();
+		expect(counts.cleared).toBe(1);
 	});
 
 	it("takes the threshold from organization config", async () => {
