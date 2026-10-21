@@ -168,7 +168,7 @@ export function toolCallLabel(name: string): string {
 // Tool-call state reducer
 // ---------------------------------------------------------------------------
 
-export type ToolCallStatus = "running" | "completed" | "failed";
+type ToolCallStatus = "running" | "completed" | "failed";
 
 export type ToolCallState = {
 	toolCallId: string;
@@ -476,7 +476,7 @@ export function WorkTraceCard({ tools }: { tools: readonly ToolCallState[] }) {
 // <DelegationWorkCard/>
 // ---------------------------------------------------------------------------
 
-export type DelegationWork = {
+type DelegationWork = {
 	/** Parent Home run id — the cancel/steer/retry target. */
 	runId: string;
 	childRunId: string | null;
@@ -492,7 +492,7 @@ export type DelegationWork = {
 	proof?: DelegationProof | null;
 };
 
-export type DelegationProof = { verdict: string; note: string | null };
+type DelegationProof = { verdict: string; note: string | null };
 
 /** Reads `metadata.delegationProof = { verdict, note }` off a run. */
 export function delegationProofFromRun(run: HomeRun): DelegationProof | null {
@@ -1070,7 +1070,7 @@ export function ApprovalCard({
 // ---------------------------------------------------------------------------
 
 /** Statuses `cancelRun` can interrupt — the run set's active set. */
-export const STOPPABLE_RUN_STATUSES: ReadonlySet<TediRunStatus> =
+const STOPPABLE_RUN_STATUSES: ReadonlySet<TediRunStatus> =
 	new Set<TediRunStatus>(["queued", "running", "requires_approval"]);
 
 /**

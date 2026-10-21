@@ -46,8 +46,6 @@ import {
 	decodeChatContext,
 } from "@/components/chat-transcript";
 
-export const CHAT_STARTER_PROMPTS = OS_COPY.chatStarterPrompts;
-
 /**
  * Renders a direct-read tool result. Every string here is tool-authored — the
  * object keys as much as the values — so each goes through
@@ -239,7 +237,7 @@ export function ChatMessageBubble({
  * row remains visible because its timestamp and execution link are canonical;
  * only the implementation-residue `(no text)` label is replaced.
  */
-export function emptyMessageLabel(message: HomeMessage): string {
+function emptyMessageLabel(message: HomeMessage): string {
 	const attachmentCount = message.attachments?.length ?? 0;
 	if (attachmentCount > 0) {
 		return `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`;
@@ -344,7 +342,7 @@ export function ChatStarterPrompts({
 			data-focus-ring="inset"
 			className="chat-starter-prompts mt-6 grid w-full !max-w-none gap-2 text-wrap"
 		>
-			{CHAT_STARTER_PROMPTS.map((prompt) => (
+			{OS_COPY.chatStarterPrompts.map((prompt) => (
 				<Button
 					key={prompt}
 					type="button"

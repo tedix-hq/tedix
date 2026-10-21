@@ -82,7 +82,7 @@ function mintConversationId(randomUuid: () => string): string {
 }
 
 /** Injectable seams; production uses the app singletons via {@link useChatWebMcpTools}. */
-export interface ChatWebMcpDeps {
+interface ChatWebMcpDeps {
 	enqueueMessage: (
 		input: EnqueueHomeMessageInput,
 		options?: WebMcpToolExecuteOptions,

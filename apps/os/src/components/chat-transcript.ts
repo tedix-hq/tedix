@@ -17,7 +17,7 @@ import {
 	homeMessagesQueryKey,
 	homeRunSetQueryKey,
 } from "@/lib/os-query-options";
-import { recordOrNull } from "@/components/chat-context-used";
+import { asRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	directReadError,
 	directReadResult,
@@ -343,15 +343,15 @@ export function applyDelegatedRunPreviews(
 			activeRuns.add(run.id);
 			continue;
 		}
-		const metadata = recordOrNull(run.metadata);
+		const metadata = asRecord(run.metadata);
 		const preview = metadata?.childRunPreview;
 		if (typeof preview === "string" && preview.trim()) {
 			previews.set(run.id, preview);
 		}
 	}
 	return messages.flatMap((message) => {
-		const metadata = recordOrNull(recordOrNull(message.metadata)?.metadata);
-		const workOrder = recordOrNull(metadata?.delegationWorkOrder);
+		const metadata = asRecord(asRecord(message.metadata)?.metadata);
+		const workOrder = asRecord(metadata?.delegationWorkOrder);
 		// A plain dispatch receipt is superseded by its durable child outcome.
 		// Preserve proposals, failures, attachments, and structured results.
 		if (

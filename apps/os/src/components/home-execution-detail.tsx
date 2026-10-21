@@ -48,7 +48,7 @@ import { absoluteTime, formatDurationMs } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { ArtifactReleaseReview } from "@/components/artifact-release-review";
 import { useTediNames } from "@/lib/use-tedi-names";
-import { recordOrNull } from "@/components/chat-context-used";
+import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 function safeText(value: unknown): string | null {
 	return typeof value === "string" && value.trim()
@@ -141,7 +141,7 @@ function DelegationEvidence({ evidence }: { evidence: HomeChildRunEvidence }) {
 				{toolEvents.length ? (
 					<Collection aria-label="Delegated tool events">
 						{toolEvents.map((event) => {
-							const payload = recordOrNull(event.payload);
+							const payload = asRecord(event.payload);
 							const name = safeText(payload?.name) ?? "Tool action";
 							const detail = compactPreview(
 								payload?.error ?? payload?.result ?? payload?.args,
@@ -226,11 +226,11 @@ export function HomeExecutionDetailView({
 	const selectedBranch = branchId
 		? trace.branches.find((branch) => branch.childRunId === branchId)
 		: undefined;
-	const metadata = recordOrNull(run.metadata);
-	const route = recordOrNull(metadata?.kernelRoute);
-	const delegation = recordOrNull(metadata?.homeDelegation);
-	const workOrder = recordOrNull(delegation?.workOrder);
-	const proof = recordOrNull(metadata?.delegationProof);
+	const metadata = asRecord(run.metadata);
+	const route = asRecord(metadata?.kernelRoute);
+	const delegation = asRecord(metadata?.homeDelegation);
+	const workOrder = asRecord(delegation?.workOrder);
+	const proof = asRecord(metadata?.delegationProof);
 	const selectedTedi = selectedBranch
 		? (tediNames[selectedBranch.delegatedTediId] ?? "Digital worker")
 		: null;
@@ -240,7 +240,7 @@ export function HomeExecutionDetailView({
 			(events ?? [])
 				.filter((event) => event.kind.startsWith("tool."))
 				.flatMap((event) => {
-					const payload = recordOrNull(event.payload);
+					const payload = asRecord(event.payload);
 					const name = safeText(payload?.name) ?? safeText(payload?.toolName);
 					return name ? [name] : [];
 				}),
