@@ -31,7 +31,7 @@
 		"test:browser:outputs": "bun browser-tests/outputs.spec.ts",
 		"test:browser:chat-list": "bun browser-tests/chat-list.spec.ts",
 		"test:browser:chat-actions": "bun browser-tests/chat-actions.spec.ts",
-		"test:browser:feed-deck": "bun browser-tests/feed-deck-polish.spec.ts",
+		"test:browser:feed-deck": "bun browser-tests/feed-deck-polish.spec.ts && bun browser-tests/feed-lean.spec.ts",
 		"test:browser:apps": "bun browser-tests/widget-apps.spec.ts",
 		"test:browser:viewport": "bun browser-tests/deck-viewport.spec.ts && bun browser-tests/deck-responsive.spec.ts && bun browser-tests/viewport-band.spec.ts && bun browser-tests/deck-iphone.spec.ts",
 		"test:browser:deck": "bun browser-tests/deck.spec.ts && bun browser-tests/deck-progress.spec.ts",
