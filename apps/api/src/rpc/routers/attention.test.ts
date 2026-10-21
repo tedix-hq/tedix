@@ -424,6 +424,96 @@ it("records factory usefulness without executing its proposed action", async () 
 	);
 });
 
+it("records a scored factory card's features, score and mapped skip reason", async () => {
+	const source = {
+		label: "Forum",
+		columns: {
+			type: "Type",
+			source: "Source",
+			why: "Why",
+			useful: "Useful",
+			reason: "Reason",
+			done: "Done",
+			score: "Score",
+			features: "Features",
+		},
+		scoring: {
+			weights: { fresh_thread: 1 },
+			skipReasonChips: [
+				{ label: "Already covered", mapsTo: "duplicate" },
+				{ label: "Too much effort", mapsTo: null },
+			],
+			agentDecidableClasses: [],
+		},
+	};
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [
+			{
+				id: "factory:row",
+				label: "Reply to this thread?",
+				factory: { outputId: requestId, sourceIndex: 0, rowIndex: 0 },
+			},
+		],
+		complete: true,
+		config: { factorySources: [source] },
+	});
+	const sheet = {
+		kind: "sheet",
+		columns: [
+			"Type",
+			"Source",
+			"Why",
+			"Useful",
+			"Reason",
+			"Done",
+			"Score",
+			"Features",
+		],
+		rows: [
+			[
+				"Reply",
+				"A thread",
+				"Fresh question",
+				"",
+				"",
+				"",
+				"0.7",
+				'{"fresh_thread":0.9}',
+			],
+		],
+	};
+	mocks.call
+		.mockResolvedValueOnce({
+			output: { title: "Cards", createdAt: "2026-10-19T12:00:00.000Z" },
+			currentRevision: { revision: 3, content: sheet },
+		})
+		.mockResolvedValueOnce({ revision: { id: "revision4" } });
+	await client().decideDeckCard({
+		decision: {
+			kind: "factory",
+			cardId: "factory:row",
+			expectedRevision: 3,
+			verdict: "not_useful",
+			reason: "Already covered: answered last week",
+		},
+	});
+	expect(mocks.record).toHaveBeenCalledWith(
+		expect.anything(),
+		expect.objectContaining({
+			eventKind: "rejected",
+			metadata: expect.objectContaining({
+				decisionClass: "factory:Forum:Reply",
+				decisionChoice: "not_useful",
+				score: 0.7,
+				features: { fresh_thread: 0.9 },
+				factoryReason: "Already covered",
+				sharedReason: "duplicate",
+				reason: "Already covered: answered last week",
+			}),
+		}),
+	);
+});
+
 it("allows an explicit reversible envelope without protected or executable effects", async () => {
 	const decisionDeck = DecisionEnvelopeSchema.parse(envelope());
 	mocks.loadDeckProjection.mockResolvedValue({
