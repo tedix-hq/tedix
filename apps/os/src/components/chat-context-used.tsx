@@ -1,7 +1,7 @@
 /** Context-used summary items and inspector dialog for a chat turn. */
 import { Info } from "@phosphor-icons/react";
 import type { HomeRun } from "@tedix/api-contract/schemas/kernel-runtime";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import {
@@ -10,6 +10,7 @@ import {
 	DialogDescription,
 	DialogHeader,
 	DialogTitle,
+	DialogTrigger,
 } from "@/components/kumo/dialog";
 import { type ChatContext } from "@/components/chat-transcript";
 
@@ -127,27 +128,25 @@ export function ContextUsedInspector({
 	workspaceId?: string;
 	context?: ChatContext;
 }) {
-	const [open, setOpen] = useState(false);
 	const items = useMemo(
 		() => contextUsedItems(runs, { workspaceId, context }),
 		[runs, workspaceId, context],
 	);
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
-			<Button
-				size="sm"
-				variant="outline"
-				icon={<Info size={14} />}
+		<Dialog>
+			<DialogTrigger
 				disabled={items.length === 0}
-				onClick={() => setOpen(true)}
+				render={
+					<Button size="sm" variant="outline" icon={<Info size={14} />} />
+				}
 			>
 				Context used
-			</Button>
+			</DialogTrigger>
 			<DialogContent size="base">
 				<DialogHeader>
 					<DialogTitle>Context used</DialogTitle>
 					<DialogDescription>
-						Canonical, secret-free context recorded for the latest Kernel run.
+						Context recorded for the latest response.
 					</DialogDescription>
 				</DialogHeader>
 				<dl className="grid gap-3">

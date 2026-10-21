@@ -302,12 +302,12 @@ export function HomeExecutionDetailView({
 				</>
 			) : null}
 			<PageSection aria-label="Response summary">
-				<Text role="body">
+				<Text role="body" className="[overflow-wrap:anywhere]">
 					{safeText(workOrder?.objective) ??
 						safeText(route?.rationale) ??
 						`This response ${run.status === "running" ? "is in progress" : run.status === "queued" ? "is waiting to start" : sentenceCase(run.status).toLowerCase()}.`}
 				</Text>
-				<dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 type-tedix-body">
+				<dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 type-tedix-body [&>dd]:min-w-0 [&>dd]:[overflow-wrap:anywhere]">
 					<dt className="text-kumo-subtle">Tedi</dt>
 					<dd>{workers.join(", ") || "Home"}</dd>
 					<dt className="text-kumo-subtle">Tools</dt>
