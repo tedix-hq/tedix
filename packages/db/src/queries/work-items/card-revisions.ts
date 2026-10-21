@@ -1,10 +1,12 @@
 import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DeckCurationState } from "@tedix/api-contract/schemas/deck-curation";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workInteractionCardRevisions as revisions,
 	workInteractions,
 	workInteractionResponses,
+	workInteractionCardPresentations,
 } from "../../schema/work-factory";
 import {
 	CARD_SECRET_MESSAGE,
@@ -160,6 +162,7 @@ export async function appendCardRevision(
 		expectedRevision: number;
 		body: string;
 		proposal?: WorkProposal | null;
+		presentation?: DecisionCardPresentation;
 		cause: (typeof revisions.$inferInsert)["cause"];
 		actorType: string;
 		actorId: string;
@@ -185,6 +188,7 @@ export async function appendCardRevision(
 			p.anchorsResolved,
 			p.summary,
 			p.keptHunks,
+			p.presentation,
 		])
 	)
 		throw new Error(CARD_SECRET_MESSAGE);
@@ -256,6 +260,51 @@ export async function appendCardRevision(
 		.onConflictDoNothing()
 		.returning();
 	if (p.cause === "initial") return (await insert)[0] ?? null;
+	const faceWrites = p.presentation
+		? [
+				db
+					.insert(workInteractionCardPresentations)
+					.select(
+						db
+							.select({
+								orgId: workInteractions.orgId,
+								interactionId: workInteractions.id,
+								personId: sql<string>`${workInteractions.targetId}`.as(
+									"person_id",
+								),
+								requestVersion: workInteractions.version,
+								presentation:
+									sql<DecisionCardPresentation>`json(${JSON.stringify(p.presentation)})`.as(
+										"presentation",
+									),
+								updatedAt: sql<string>`${new Date().toISOString()}`.as(
+									"updated_at",
+								),
+							})
+							.from(workInteractions)
+							.where(
+								and(
+									eq(workInteractions.orgId, p.orgId),
+									eq(workInteractions.id, p.requestId),
+									eq(workInteractions.targetType, "user"),
+									eq(workInteractions.version, p.expectedVersion + 1),
+									sql`EXISTS (SELECT 1 FROM work_interaction_card_revisions WHERE id=${id})`,
+								),
+							),
+					)
+					.onConflictDoUpdate({
+						target: [
+							workInteractionCardPresentations.orgId,
+							workInteractionCardPresentations.interactionId,
+						],
+						set: {
+							requestVersion: p.expectedVersion + 1,
+							presentation: p.presentation,
+							updatedAt: new Date().toISOString(),
+						},
+					}),
+			]
+		: [];
 	const [rows] = await db.batch([
 		insert,
 		db
@@ -285,6 +334,7 @@ export async function appendCardRevision(
 					sql`EXISTS (SELECT 1 FROM work_interaction_card_revisions WHERE id=${id})`,
 				),
 			),
+		...faceWrites,
 		buildCardRevisionLearningStatement(db, p.orgId, id),
 	]);
 	return rows[0] ?? null;

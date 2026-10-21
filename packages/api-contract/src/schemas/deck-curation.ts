@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { CardTextSchema } from "./card-revisions";
 import { DeckRankExampleSchema } from "./deck-curator";
+import { DecisionCardPresentationSchema } from "./decision-card-presentation";
 
 export const DeckCuratorGrantSchema = z.strictObject({
 	tediId: z.uuid(),
@@ -86,10 +87,13 @@ export const DeckCurationStateSchema = z.strictObject({
 });
 export type DeckCurationState = z.infer<typeof DeckCurationStateSchema>;
 export const CurateDeckCardInputSchema = DeckCurationScopeSchema.extend({
+	gadgetId: z.uuid().optional(),
 	requestId: z.uuid(),
 	expectedRequestVersion: z.number().int().positive(),
 	expectedRevision: z.number().int().nonnegative(),
 	body: CardTextSchema.optional(),
+	/** Display copy only; leaves the original decision and executable effects intact. */
+	presentation: DecisionCardPresentationSchema.optional(),
 	successorId: z.uuid().optional(),
 	handleInternally: z.boolean().optional(),
 	reason: CardTextSchema.max(4000),

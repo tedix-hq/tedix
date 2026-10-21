@@ -122,12 +122,15 @@ export function renderDecisionCardDates<T extends CardCopy>(
 	timeZone?: string,
 ): T {
 	const render = (text: string) =>
-		renderCardDateText(text, {
-			generatedAt: copy.generatedAt,
-			dates,
-			now,
-			timeZone,
-		});
+		formatIsoCardDates(
+			renderCardDateText(text, {
+				generatedAt: copy.generatedAt,
+				dates,
+				now,
+				timeZone,
+			}),
+			{ timeZone },
+		);
 	return {
 		...copy,
 		title: render(copy.title) || "Review this request?",

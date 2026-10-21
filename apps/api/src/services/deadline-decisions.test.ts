@@ -39,6 +39,12 @@ describe("deadline decision producer", () => {
 			{ ...base, id: "far", deadline: "2026-11-20" },
 			{ ...base, id: "done", disposition: "completed" },
 		]);
+		await db.insert(workItems).values({
+			...base,
+			id: "no-source-deadline",
+			deadline: null,
+			dueDate: null,
+		});
 		expect(
 			(await materializeDeadlineDecisions(db, { orgId, userId: "ada" }, now))
 				.created,
@@ -53,6 +59,7 @@ describe("deadline decision producer", () => {
 			creatorType: "system",
 			targetId: "ada",
 			workItemId: "00000000-0000-4000-8000-000000000002",
+			dueAt: "2026-10-20T23:59:59Z",
 		});
 		expect(cards[0]?.metadata).toMatchObject({
 			decisionDeck: { classId: "deadline.owner" },

@@ -161,7 +161,7 @@ export const WorkInteractionRequestSchema = z.strictObject({
 		.datetime()
 		.nullable()
 		.describe(
-			"Nullable when the requester has not assigned a preferred response date.",
+			"Actual source deadline, or null. Owner triage and preferred review targets are not deadlines.",
 		),
 	expiresAt: z.iso
 		.datetime()
@@ -277,7 +277,9 @@ export const CreateWorkInteractionInputSchema = z
 		dueAt: z.iso
 			.datetime()
 			.optional()
-			.describe("Optional preferred response date visible to recipients."),
+			.describe(
+				"Optional actual deadline from the source. Never default to an owner triage or review target. Omit when the source has no deadline.",
+			),
 		expiresAt: z.iso
 			.datetime()
 			.optional()

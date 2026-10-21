@@ -31,7 +31,13 @@ import {
 import { reserveDeckRankingBudget } from "@tedix/db/queries/deck-curator-budget";
 import { createError, ErrorCodes, type BaseContext } from "../rpc/orpc";
 import { requestOutput } from "../rpc/routers/work-interactions";
-import { deckCurationAccess } from "./deck-curation-access";
+import {
+	deckCurationAccess,
+	deckCurationEditAccess,
+} from "./deck-curation-access";
+import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
+import { checkDecisionCardCopy } from "@tedix/api-contract/utils/decision-card-copy";
+import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import { cardOriginalBody } from "./card-revisions";
 import { runDecisionCardCopyModel } from "./decision-card-copy-model";
 
@@ -121,6 +127,7 @@ export async function appendCuration(
 		body,
 		state,
 		skipRevisedSince,
+		presentation,
 	}: {
 		orgId: string;
 		actor: { type: string; id: string; sessionId?: string };
@@ -129,6 +136,7 @@ export async function appendCuration(
 		body: string;
 		state: z.infer<typeof DeckCurationStateSchema>;
 		skipRevisedSince?: string;
+		presentation?: DecisionCardPresentation;
 	},
 ) {
 	let history = await listCardRevisions(context.db, orgId, request.id);
@@ -171,6 +179,15 @@ export async function appendCuration(
 			currentDeckCuration(request.metadata)?.draftBody ??
 			cardOriginalBody(request),
 	};
+	const previousFace = presentation
+		? (
+				await listDecisionCardPresentations(context.db, {
+					orgId,
+					personId: request.targetId,
+					requests: [request],
+				})
+			)[0]?.presentation
+		: undefined;
 	const revision = await appendCardRevision(context.db, {
 		orgId,
 		requestId: request.id,
@@ -180,12 +197,20 @@ export async function appendCuration(
 		proposal:
 			WorkProposalMetadataSchema.safeParse(request.metadata).data?.proposal ??
 			null,
-		cause: "agent_rewrite",
+		cause:
+			presentation && actor.type === "user" ? "human_edit" : "agent_rewrite",
 		actorType: actor.type,
 		actorId: actor.id,
 		actorSessionId: actor.sessionId,
 		instruction: JSON.stringify(curation),
-		curation,
+		curation: presentation && actor.type === "user" ? undefined : curation,
+		presentation,
+		summary: presentation
+			? JSON.stringify({
+					faceBefore: previousFace ?? request.metadata.cardPresentation ?? null,
+					faceAfter: presentation,
+				})
+			: undefined,
 	});
 	if (!revision)
 		throw createError(ErrorCodes.CONFLICT, "The card changed during curation");
@@ -196,7 +221,10 @@ export async function curateDeckCard(
 	context: BaseContext,
 	input: z.infer<typeof CurateDeckCardInputSchema>,
 ) {
-	const { orgId } = await deckCurationAccess(context, input);
+	const { orgId, actor, recipient } = await deckCurationEditAccess(
+		context,
+		input,
+	);
 	const request = await getWorkInteraction(context.db, {
 		orgId,
 		interactionId: input.requestId,
@@ -216,12 +244,36 @@ export async function curateDeckCard(
 	)
 		throw createError(ErrorCodes.CONFLICT, "Reload the open card");
 	if (
-		credentialCard(`${request.subject} ${request.prompt}`, request.metadata) ||
+		(!recipient &&
+			credentialCard(
+				`${request.subject} ${request.prompt}`,
+				request.metadata,
+			)) ||
 		request.metadata.schema === "tedix.outbound.v1"
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
 			"Use the original credential or outbound review flow",
+		);
+	if (
+		input.presentation &&
+		(input.presentation.version !== 2 ||
+			!("context" in input.presentation) ||
+			!input.presentation.context ||
+			checkDecisionCardCopy(input.presentation).length ||
+			input.presentation.sourceFingerprint)
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Supply checked face text without a generator fingerprint",
+		);
+	if (
+		input.presentation &&
+		(input.successorId || input.handleInternally || input.body !== undefined)
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"A face correction cannot also rewrite the source, handle or supersede a card",
 		);
 	if (input.body && input.body.split(/\s+/u).length > 60)
 		throw createError(
@@ -273,7 +325,16 @@ export async function curateDeckCard(
 		exampleIds: prior.success ? prior.data.exampleIds : [],
 	});
 	const body = input.body ?? cardOriginalBody(request);
-	return append(context, input, request, input.expectedRevision, body, state);
+	return appendCuration(context, {
+		orgId,
+		actor,
+		request,
+		expectedRevision: input.expectedRevision,
+		body,
+		state,
+		skipRevisedSince: input.skipRevisedSince,
+		presentation: input.presentation,
+	});
 }
 
 export async function rankCurationInbox(context: BaseContext, scope: Scope) {

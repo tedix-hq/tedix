@@ -269,3 +269,167 @@ it("refuses critical supersession and long stories", async () => {
 		sqlite.close();
 	}
 });
+
+const editedFace = {
+	version: 2 as const,
+	title: "Review the account access?",
+	context: "Only you can change the account settings.",
+	body: "Keeps the remaining manual steps visible.",
+	recommendation: "Check the audit before making changes.",
+};
+it("lets the recipient correct a credential card's face without a gadget grant or creator session, with audit", async () => {
+	const { sqlite, humanContext } = fixture({ secureAction: true });
+	try {
+		sqlite
+			.prepare("UPDATE organizations SET metadata='{}' WHERE id=?")
+			.run(org);
+		const { gadgetId: _, ...baseInput } = input;
+		const ownerInput = { ...baseInput, requestId: successor };
+		const revision = await curateDeckCard(humanContext, {
+			...ownerInput,
+			presentation: editedFace,
+		});
+		expect(revision).toMatchObject({
+			cause: "human_edit",
+			actorType: "user",
+			actorId: "person",
+			revision: 2,
+		});
+		expect(JSON.parse(revision.summary!)).toMatchObject({
+			faceAfter: editedFace,
+		});
+		const stored = sqlite
+			.prepare(
+				"SELECT subject,prompt,status,version,metadata FROM work_interactions WHERE id=?",
+			)
+			.get(successor)!;
+		expect(stored).toMatchObject({
+			subject: "Critical decision?",
+			prompt: "Money requires you",
+			status: "open",
+			version: 2,
+		});
+		expect(JSON.parse(String(stored.metadata))).toMatchObject({
+			secureAction: true,
+		});
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_responses")
+				.get()?.n,
+		).toBe(0);
+		const { prepareDeckCardFaces } = await import("./deck-card-face");
+		const { requestOutput } = await import("../rpc/routers/work-interactions");
+		const { getWorkInteraction } =
+			await import("@tedix/db/queries/work-items/interactions");
+		const request = await getWorkInteraction(humanContext.db, {
+			orgId: org,
+			interactionId: successor,
+		});
+		const { listDecisionCardPresentations } =
+			await import("@tedix/db/queries/work-items/card-presentation");
+		const faces = await listDecisionCardPresentations(humanContext.db, {
+			orgId: org,
+			personId: "person",
+			requests: [request!],
+		});
+		const [display] = await prepareDeckCardFaces(humanContext, [
+			{
+				id: successor,
+				requestedAt: request!.createdAt,
+				label: request!.subject,
+				kind: "question",
+				decision: null,
+				dueAt: null,
+				project: work,
+				score: 0,
+				urgency: "later",
+				source: "/work",
+				interaction: {
+					request: requestOutput(
+						request!,
+						undefined,
+						undefined,
+						faces[0]!.presentation,
+					),
+					effectiveState: "open",
+					canRespond: true,
+					canCancel: false,
+					workItem: null,
+					responseCount: 0,
+				},
+			},
+		]);
+		expect(display?.presentation).toEqual(editedFace);
+		expect(display?.faceText).toContain(editedFace.body);
+		await expect(
+			curateDeckCard(humanContext, { ...ownerInput, presentation: editedFace }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+	} finally {
+		sqlite.close();
+	}
+});
+it("allows a scoped curator to edit ordinary faces but protects credential cards and foreign recipients", async () => {
+	const { sqlite, context, humanContext } = fixture({ secureAction: true });
+	try {
+		await curateDeckCard(context, { ...input, presentation: editedFace });
+		expect(
+			JSON.parse(
+				String(
+					sqlite
+						.prepare(
+							"SELECT presentation FROM work_interaction_card_presentations WHERE interaction_id=?",
+						)
+						.get(card)?.presentation,
+				),
+			),
+		).toEqual(editedFace);
+		await expect(
+			curateDeckCard(context, {
+				...input,
+				requestId: successor,
+				presentation: editedFace,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			curateDeckCard(humanContext, {
+				...input,
+				recipientId: "other",
+				presentation: editedFace,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	} finally {
+		sqlite.close();
+	}
+});
+it("rejects secrets and executable changes in a face correction before writing a revision", async () => {
+	const { sqlite, humanContext } = fixture();
+	try {
+		await expect(
+			curateDeckCard(humanContext, {
+				...input,
+				presentation: { ...editedFace, body: `sk-${"fictional".repeat(5)}` },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			curateDeckCard(humanContext, {
+				...input,
+				presentation: editedFace,
+				handleInternally: true,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			curateDeckCard(humanContext, {
+				...input,
+				presentation: editedFace,
+				body: "Replace the underlying action.",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(
+			sqlite
+				.prepare("SELECT count(*) AS n FROM work_interaction_card_revisions")
+				.get()?.n,
+		).toBe(0);
+	} finally {
+		sqlite.close();
+	}
+});

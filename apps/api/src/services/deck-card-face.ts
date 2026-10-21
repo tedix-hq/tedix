@@ -66,24 +66,27 @@ export async function prepareDeckCardFaces(
 			),
 		),
 	);
-	context.waitUntil?.(
-		Promise.all(
-			cards
-				.filter((card, index) => !faces[index] && !deferred.has(card.id))
-				.slice(0, 3)
-				.map((card) =>
-					prepareDeckCardFace(
-						context,
-						card,
-						true,
-						model,
-						undefined,
-						undefined,
-						retry,
-					),
-				),
-		).catch(() => {}),
-	);
+	const missing = cards
+		.map((card, index) => ({ card, index }))
+		.filter(({ card, index }) => !faces[index] && !deferred.has(card.id))
+		.slice(0, 3);
+	const generation = Promise.all(
+		missing.map(async ({ card, index }) => {
+			const face = await prepareDeckCardFace(
+				context,
+				card,
+				true,
+				model,
+				() => unavailable.add(card.id),
+				undefined,
+				retry,
+			);
+			if (!context.waitUntil) faces[index] = face;
+		}),
+	).catch(() => {});
+	// RPC hosts without an execution context must finish the bounded work before returning.
+	if (context.waitUntil) context.waitUntil(generation);
+	else await generation;
 	return cards.map((card, index) =>
 		displayDeckCard(card, faces[index], unavailable.has(card.id)),
 	);
@@ -171,6 +174,14 @@ export async function prepareDeckCardFace(
 		card.interaction?.request.metadata.sampleData === true
 	)
 		return existing ?? null;
+	// Interaction projections are fenced by request version in listDecisionCardPresentations.
+	// Changing writing preferences must not hide already-saved copy on every read.
+	if (
+		existing?.version === 2 &&
+		existing.context &&
+		!checkDecisionCardCopy(existing).length
+	)
+		return existing;
 	const preferences = model
 		? draftLearningContext(model, card.decision?.classId)
 		: await readDraftPreferences(
@@ -188,13 +199,6 @@ export async function prepareDeckCardFace(
 	const fingerprint = [...new Uint8Array(digest)]
 		.map((byte) => byte.toString(16).padStart(2, "0"))
 		.join("");
-	if (
-		existing?.version === 2 &&
-		existing.sourceFingerprint === fingerprint &&
-		existing.context &&
-		!checkDecisionCardCopy(existing).length
-	)
-		return existing;
 	const key = {
 		userId: context.userId,
 		namespace: "decision-card-face.v1",

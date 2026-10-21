@@ -44,17 +44,27 @@ export function deckAskKind(card: AskSource): DeckAskKind {
 	return "decide";
 }
 
-/** The earliest of the deadlines a card carries; date-only values sort before same-day times. */
+/** A review/triage target is scheduling metadata, never a source deadline. */
+export function sourceInteractionDeadline(
+	dueAt: string | null | undefined,
+	metadata: Record<string, unknown> = {},
+): string | null {
+	if (
+		metadata.deadlineOrigin === "review_target" ||
+		(typeof metadata.deadlineBasis === "string" &&
+			/\b(?:triage|review target)\b/i.test(metadata.deadlineBasis))
+	)
+		return null;
+	return dueAt && Number.isFinite(Date.parse(dueAt)) ? dueAt : null;
+}
+
+/** Source deadlines only: a default decision expiry controls validity, not urgency. */
 export function deckCardDeadline(card: {
 	dueAt?: string | null;
 	decision?: { expiresAt?: string } | null;
 	runtimeApproval?: { expiresAt?: string | null } | null;
 }): string | null {
-	const values = [
-		card.dueAt,
-		card.decision?.expiresAt,
-		card.runtimeApproval?.expiresAt,
-	].filter(
+	const values = [card.dueAt, card.runtimeApproval?.expiresAt].filter(
 		(value): value is string =>
 			typeof value === "string" && Number.isFinite(Date.parse(value)),
 	);
