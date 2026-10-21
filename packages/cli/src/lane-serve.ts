@@ -6,7 +6,9 @@ import {
 	appendFileSync,
 	existsSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	readdirSync,
 	renameSync,
 	writeFileSync,
@@ -38,6 +40,7 @@ export type DispatchItem = Pick<
 	WorkItem,
 	| "id"
 	| "title"
+	| "workKind"
 	| "description"
 	| "startAt"
 	| "acceptanceContract"
@@ -250,6 +253,11 @@ interface Receipt {
 	admissionFailure?: string;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
+	baseCommit?: string;
+	commits?: string[];
+	expectsCode?: boolean;
+	identicalFailures?: number;
+	held?: boolean;
 	pendingObservation?: Record<string, unknown>;
 	reportRetryAt?: number;
 	reportRetries?: number;
@@ -296,6 +304,82 @@ export function retainedLaneWorktree(
 	return previous;
 }
 
+function gitOutput(repo: string, args: string[]): string {
+	const result = spawnSync("git", ["-C", repo, ...args], {
+		encoding: "utf8",
+		timeout: 30_000,
+	});
+	if (result.status !== 0)
+		throw new Error(result.stderr || `git ${args[0]} failed`);
+	return result.stdout.trim();
+}
+
+export function provisionLaneWorktree(source: string, destination: string) {
+	gitOutput(source, ["worktree", "prune"]);
+	const registered = gitOutput(source, [
+		"worktree",
+		"list",
+		"--porcelain",
+		"-z",
+	])
+		.split("\0")
+		.some(
+			(line) =>
+				line ===
+				`worktree ${existsSync(destination) ? realpathSync(destination) : resolve(destination)}`,
+		);
+	if (registered)
+		throw new Error(
+			"Provision destination is a registered worktree; retained for inspection",
+		);
+	if (existsSync(destination)) {
+		// A failed add may leave files behind. Preserve them outside the retry path.
+		const recovery = mkdtempSync(`${destination}.orphan-`);
+		renameSync(destination, join(recovery, "repo"));
+	}
+	gitOutput(source, ["worktree", "add", "--detach", destination, "HEAD"]);
+}
+
+export function landedLaneCommits(
+	repo: string,
+	base: string,
+	finalMessage: string,
+): string[] {
+	const candidates = new Set([
+		...(finalMessage.match(/\b[0-9a-f]{40}\b/gi) ?? []).map((sha) =>
+			sha.toLowerCase(),
+		),
+		...gitOutput(repo, ["rev-list", `${base}..HEAD`])
+			.split("\n")
+			.filter(Boolean),
+	]);
+	if (!candidates.size) return [];
+	gitOutput(repo, [
+		"fetch",
+		"--no-tags",
+		"origin",
+		"refs/heads/main:refs/remotes/origin/main",
+	]);
+	return [...candidates].filter((sha) => {
+		const result = spawnSync(
+			"git",
+			[
+				"-C",
+				repo,
+				"merge-base",
+				"--is-ancestor",
+				sha,
+				"refs/remotes/origin/main",
+			],
+			{
+				encoding: "utf8",
+				timeout: 10_000,
+			},
+		);
+		return result.status === 0;
+	});
+}
+
 interface DispatcherDeps {
 	cli: typeof cli;
 	devinAvailable: typeof devinAvailable;
@@ -310,6 +394,8 @@ interface DispatcherDeps {
 	launch: typeof runLaneProcess;
 	darkWake: typeof inDarkWake;
 	provision: (source: string, destination: string) => void;
+	baseCommit: (repo: string) => string;
+	landedCommits: typeof landedLaneCommits;
 	cleanup: (source: string, destination: string) => boolean;
 }
 const defaultDeps: DispatcherDeps = {
@@ -343,15 +429,9 @@ const defaultDeps: DispatcherDeps = {
 			return false;
 		return run(["-C", source, "worktree", "remove", destination]).status === 0;
 	},
-	provision: (source, destination) => {
-		const git = spawnSync(
-			"git",
-			["-C", source, "worktree", "add", "--detach", destination, "HEAD"],
-			{ encoding: "utf8", timeout: 30_000 },
-		);
-		if (git.status !== 0)
-			throw new Error(git.stderr || "Could not provision isolated worktree");
-	},
+	provision: provisionLaneWorktree,
+	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
+	landedCommits: landedLaneCommits,
 };
 
 export class LaneDispatcher {
@@ -462,7 +542,7 @@ export class LaneDispatcher {
 				JSON.stringify({
 					disposition: "accepted",
 					...(this.options.executor === "any-local"
-						? {}
+						? { executor: ["codex", "claude-code", "devin"] }
 						: { executor: this.options.executor }),
 					dispatchReadyOnly: true,
 					...(this.options.project ? { projectId: this.options.project } : {}),
@@ -512,7 +592,8 @@ export class LaneDispatcher {
 				if (
 					this.running.has(item.id) ||
 					(previous &&
-						(previous.attemptId ||
+						(previous.held ||
+							previous.attemptId ||
 							!["deferred", "failed", "preparing"].includes(previous.phase) ||
 							(previous.pid && alive(previous.pid)) ||
 							Date.now() < (previous.retryAt ?? 0) ||
@@ -552,6 +633,7 @@ export class LaneDispatcher {
 			failureCommented: previous?.failureCommented,
 			admissionFailure: previous?.admissionFailure ?? previous?.note,
 			admissionState: previous?.admissionState ?? "not_sent",
+			identicalFailures: previous?.identicalFailures ?? 0,
 		};
 		this.save(path, receipt);
 		let admitted = false;
@@ -637,6 +719,9 @@ export class LaneDispatcher {
 			const repo = previousLane?.repo ?? join(dir, "repo");
 			if (!previousLane) this.deps.provision(this.options.repo, repo);
 			receipt.repo = repo;
+			receipt.baseCommit =
+				previousLane?.baseCommit ?? this.deps.baseCommit(repo);
+			receipt.expectsCode = item.workKind === "coding";
 			const thread = await this.deps.thread(repo, executor);
 			receipt.session = `${executor}:${thread.thread.id}`;
 			this.save(path, receipt);
@@ -826,10 +911,19 @@ export class LaneDispatcher {
 				receipt.telemetry?.outcome === "succeeded" || exit === 0
 					? "succeeded"
 					: "failed";
-			receipt.note = (
+			const finalMessage =
 				receipt.telemetry?.finalMessage ||
-				(existsSync(last) ? readFileSync(last, "utf8") : "No final message")
-			).slice(0, 1800);
+				(existsSync(last) ? readFileSync(last, "utf8") : "No final message");
+			receipt.note = finalMessage.slice(0, 1800);
+			receipt.commits = this.deps.landedCommits(
+				repo,
+				receipt.baseCommit!,
+				finalMessage,
+			);
+			if (receipt.expectsCode && !receipt.commits.length) {
+				receipt.outcome = "failed";
+				receipt.note = `No landed commit SHA on origin/main for coding Work. ${receipt.note}`;
+			}
 		} catch (error) {
 			receipt.outcome = "failed";
 			if (
@@ -848,9 +942,16 @@ export class LaneDispatcher {
 			)
 				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
-			if (!admitted) receipt.admissionFailure ??= receipt.note;
+			if (!admitted) {
+				receipt.identicalFailures =
+					previous?.admissionFailure === receipt.note
+						? (previous.identicalFailures ?? 0) + 1
+						: 1;
+				receipt.admissionFailure = receipt.note;
+				receipt.held = receipt.identicalFailures >= 3;
+			}
 			this.log("skipped-or-failed", candidate.id, receipt.note);
-			if (!admitted && !receipt.failureCommented) {
+			if (!admitted && receipt.held && !receipt.failureCommented) {
 				// Persist before sending: an uncertain comment response must not cause duplicates.
 				receipt.failureCommented = true;
 				this.save(path, receipt);
@@ -859,7 +960,7 @@ export class LaneDispatcher {
 						"work",
 						"comment",
 						candidate.id,
-						`Dispatcher admission held for Work revision ${candidate.version}: ${receipt.note}. Retained for bounded retry after canonical Attempt reconciliation; no execution launched.`,
+						`Dispatcher admission held for Work revision ${candidate.version}: ${receipt.note}. Three identical failures; held until the Work revision changes. No execution launched.`,
 					]);
 				} catch (commentError) {
 					this.log(
@@ -913,6 +1014,7 @@ export class LaneDispatcher {
 					receipt.outcome!,
 					"--note",
 					receipt.note!,
+					...(receipt.commits ?? []).flatMap((sha) => ["--commit", sha]),
 					"--input",
 					JSON.stringify({
 						metadata: {

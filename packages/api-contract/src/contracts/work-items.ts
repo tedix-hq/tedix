@@ -244,7 +244,12 @@ export const workItemsContract = oc
 						disposition: WorkItemDispositionSchema.optional().describe(
 							'Server-side lifecycle filter: proposed | accepted | completed | cancelled. There is no "status" field — "pending" work is disposition proposed (not yet accepted) or accepted (admitted, not completed).',
 						),
-						executor: WorkExecutorSchema.optional(),
+						executor: z
+							.union([
+								WorkExecutorSchema,
+								z.array(WorkExecutorSchema).min(1).max(10),
+							])
+							.optional(),
 						dispatchReadyOnly: z.boolean().optional(),
 						workKind: WorkItemKindSchema.optional(),
 						objectiveId: z.uuid().optional(),

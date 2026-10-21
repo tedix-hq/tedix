@@ -468,3 +468,46 @@ it("pages server-selected lanes and keeps held or malformed plans out of dispatc
 		(await listWorkItemsPage(db, { orgId: ORG, executor: "codex" })).total,
 	).toBe(5);
 });
+
+it("filters an executor set before pagination and count, preserving org scope", async () => {
+	for (const [n, executor] of [
+		"codex",
+		"claude-code",
+		"devin",
+		"human",
+		"tedi",
+	].entries()) {
+		insert({ id: idFor(n) });
+		sqlite
+			.prepare("UPDATE work_items SET metadata=? WHERE id=?")
+			.run(JSON.stringify({ executor }), idFor(n));
+	}
+	insert({ id: idFor(99), orgId: OTHER_ORG });
+	sqlite
+		.prepare("UPDATE work_items SET metadata=? WHERE id=?")
+		.run(JSON.stringify({ executor: "codex" }), idFor(99));
+	const first = await listWorkItemsPage(db, {
+		orgId: ORG,
+		executor: ["codex", "claude-code", "devin"],
+		limit: 2,
+	});
+	expect(first.total).toBe(3);
+	expect(first.data.map((row) => row.id)).toEqual([idFor(2), idFor(1)]);
+	const second = await listWorkItemsPage(db, {
+		orgId: ORG,
+		executor: ["codex", "claude-code", "devin"],
+		limit: 2,
+		offset: 2,
+	});
+	expect(second.total).toBe(3);
+	expect(second.data.map((row) => row.id)).toEqual([idFor(0)]);
+});
+
+it.each([{ executor: [] }, { executor: Array(11).fill("codex") }])(
+	"rejects an invalid executor filter size",
+	async ({ executor }) => {
+		await expect(
+			listWorkItemsPage(db, { orgId: ORG, executor }),
+		).rejects.toThrow("between 1 and 10");
+	},
+);

@@ -325,7 +325,7 @@ export async function listWorkItemTitlesByShortIds(
 
 export interface ListWorkItemsPageOptions {
 	orgId: string;
-	executor?: string;
+	executor?: string | string[];
 	dispatchReadyOnly?: boolean;
 	projectId?: string | null;
 	parentWorkItemId?: string | null;
@@ -376,6 +376,13 @@ export async function listWorkItemsPage(
 	const offset = Math.max(Math.trunc(options.offset ?? 0), 0);
 	const idPrefix = options.idPrefix?.trim().toLowerCase();
 	const titleContains = options.titleContains?.toLowerCase();
+	const executors = Array.isArray(options.executor)
+		? options.executor
+		: options.executor
+			? [options.executor]
+			: undefined;
+	if (executors && (executors.length < 1 || executors.length > 10))
+		throw new Error("Executor filter requires between 1 and 10 values");
 	const where = and(
 		eq(workItems.orgId, options.orgId),
 		options.projectId === undefined
@@ -391,8 +398,12 @@ export async function listWorkItemsPage(
 		options.disposition
 			? eq(workItems.disposition, options.disposition)
 			: undefined,
-		options.executor
-			? sql`json_extract(${workItems.metadata}, '$.executor') = ${options.executor}`
+		executors
+			? // bound-params: executor filter is limited to 10 values above.
+				inArray(
+					sql`json_extract(${workItems.metadata}, '$.executor')`,
+					executors,
+				)
 			: undefined,
 		options.dispatchReadyOnly
 			? sql`(json_type(${workItems.metadata}, '$.laneDispatch') IS NULL OR json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'ready')`
