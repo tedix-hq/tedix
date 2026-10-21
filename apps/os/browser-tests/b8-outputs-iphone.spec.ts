@@ -453,8 +453,18 @@ try {
 				gate = new Promise<void>((resolve) => {
 					release = resolve;
 				});
+				const pendingRequest = page.waitForRequest(
+					(request) =>
+						new URL(request.url()).pathname ===
+						"/api/rpc/osWorkspaces/outputs/library",
+				);
 				await page.goto(`${origin}/outputs`);
-				await visible(page.locator('main[aria-busy="true"]'));
+				await pendingRequest;
+				await visible(
+					page.locator(
+						'section[data-slot="page"][aria-busy="true"], main[aria-busy="true"]',
+					),
+				);
 				assert.equal(
 					await page.getByText("No outputs yet", { exact: true }).count(),
 					0,
