@@ -146,7 +146,7 @@ tell me its URL and stop.
 - **Local, with model calls:** ask Home to save a short note as a document and
   approve the action it proposes.
 - **Cloud:** give a tedi one small task with
-  [Run a digital worker](./learning-paths/first-worker.md) and open its run.
+  [Give an AI assistant a task](./learning-paths/first-worker.md) and open its run.
 - **Cloud:** ask Home what is in progress with
   `tedix ask "Summarize the active work and cite its evidence."`, then run
   `tedix work --help` to see how to list and create Work Items.

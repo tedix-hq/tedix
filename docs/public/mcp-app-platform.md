@@ -4,7 +4,7 @@ sidebar:
 title: "MCP app platform"
 topic: "Platform"
 resource_type: guide
-description: "Connect digital workers to tools and applications through MCP."
+description: "Connect AI assistants to tools and applications through MCP."
 summary: "Public overview of the Tedix MCP application platform"
 read_when:
   - Connecting tools to Tedix

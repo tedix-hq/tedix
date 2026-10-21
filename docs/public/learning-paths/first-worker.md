@@ -1,21 +1,23 @@
 ---
 sidebar:
   order: 10
-title: "Run a digital worker and find its result"
+title: "Give an AI assistant a task and find its result"
 topic: "Learning paths"
 resource_type: tutorial
-description: "Run one existing Tedix digital worker, find its result, and inspect the run evidence."
+description: "Give one existing Tedix AI assistant a task, find its result, and check the saved record."
 summary: "A first useful worker result with prerequisites, expected output, evidence, and recovery"
 read_when:
-  - Running a Tedix digital worker for the first time
+  - Giving a Tedix AI assistant its first task
   - Checking whether a task reached a worker
   - Recovering a first worker run that did not finish
 visibility: public
 ---
 
-# Run a digital worker and find its result
+<a id="run-a-digital-worker-and-find-its-result"></a>
 
-This tutorial gives one named digital worker, called a **tedi**, a small task.
+# Give an AI assistant a task and find its result
+
+This tutorial gives one named AI assistant, called a **tedi**, a small task.
 It uses only the facts in the prompt, so it needs no connected app, private
 document, or permission to change an outside system.
 

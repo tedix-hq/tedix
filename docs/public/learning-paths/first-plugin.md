@@ -185,4 +185,4 @@ admission. No one can fix this by sending you a token.
 - [Codex and ChatGPT guide](https://github.com/tedix-hq/tedix/blob/main/plugins/tedix/docs/chatgpt-codex.md)
 - [tedix-hq/tedix-plugins](https://github.com/tedix-hq/tedix-plugins), the
   published plugin and marketplace
-- [Run a digital worker](./first-worker.md) for your first result with a tedi
+- [Give an AI assistant a task](./first-worker.md) for your first result with a tedi

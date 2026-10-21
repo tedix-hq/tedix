@@ -61,7 +61,9 @@ explains how to set them up.
 | Skill        | Reusable procedure a tedi can learn, run, evaluate, and improve; some skills run on a schedule as automations.                                                        |
 | Code Mode    | Direct gateway lane where an agent discovers namespaced tools and composes bounded JavaScript calls without creating a Home run.                                      |
 
-## Governance
+<a id="governance"></a>
+
+## Who may do what
 
 | Term               | Meaning                                                                                                          |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
@@ -76,5 +78,5 @@ explains how to set them up.
 The key distinction is continuity: a tedi and its organization's memory outlive
 individual runs and runtime changes, while permissions stay limited per action.
 
-Continue with [Workers and governance](./workers-and-governance.md) or the
+Continue with [What an AI assistant may do and who says yes](./workers-and-governance.md) or the
 [Getting started](./getting-started.md) guide.

@@ -48,7 +48,7 @@ what is available today.
 | You want to…                                                           | Start with                                                                 |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Use Tedix from the assistant you already have (Claude, ChatGPT, Codex) | [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md) |
-| Give a tedi a task and find its result                                 | [Run a digital worker](./learning-paths/first-worker.md)                   |
+| Give a tedi a task and find its result                                 | [Give an AI assistant a task](./learning-paths/first-worker.md)            |
 
 **For developers and operators**
 
@@ -73,16 +73,16 @@ what is available today.
 
 **Understand Tedix**
 
-| You want to…                                        | Start with                                                               |
-| --------------------------------------------------- | ------------------------------------------------------------------------ |
-| Learn the vocabulary                                | [Core concepts](./concepts.md)                                           |
-| Organize initiatives into projects and factories    | [Factories, Workspaces and Projects](./factories-workspaces-projects.md) |
-| See which sessions work on which project            | [Track sessions per project](./sessions-per-project.md)                  |
-| Let the supervisor resume sessions in Documents     | [Give the supervisor Full Disk Access](./supervisor-full-disk-access.md) |
-| Understand what a tedi may do and who approves      | [Worker permissions and governance](./workers-and-governance.md)         |
-| Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md)      |
-| Check what is available today                       | [Release status](./release-status.md)                                    |
-| Understand the license boundary                     | [Licensing and operator FAQ](./licensing.md)                             |
+| You want to…                                        | Start with                                                                  |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| Learn the vocabulary                                | [Core concepts](./concepts.md)                                              |
+| Organize initiatives into projects and factories    | [Factories, Workspaces and Projects](./factories-workspaces-projects.md)    |
+| See which sessions work on which project            | [Track sessions per project](./sessions-per-project.md)                     |
+| Let the supervisor resume sessions in Documents     | [Give the supervisor Full Disk Access](./supervisor-full-disk-access.md)    |
+| Understand what a tedi may do and who approves      | [What an AI assistant may do and who says yes](./workers-and-governance.md) |
+| Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md)         |
+| Check what is available today                       | [Release status](./release-status.md)                                       |
+| Understand the license boundary                     | [Licensing and operator FAQ](./licensing.md)                                |
 
 ## Read these docs as an agent
 
