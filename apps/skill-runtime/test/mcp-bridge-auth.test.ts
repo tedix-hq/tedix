@@ -498,3 +498,73 @@ test("reasoning unwraps real MCP bridge receipts while retaining the synthesis r
 	assert.equal(programs[0], programs[1]);
 	assert.match(programs[0]!, /"client_request_id":"reason:stable"/);
 });
+
+test("a failed tedi turn ends the waiting call with a permanent error", async () => {
+	const taskId = "tedi:tedi-1:run-failed";
+	const methods: string[] = [];
+	const failedTurnEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const body = (await new Request(input, init).json()) as {
+					method: string;
+				};
+				methods.push(body.method);
+				if (body.method === "tools/call") {
+					const accepted = {
+						ok: true,
+						accepted: true,
+						pending: true,
+						assistant: null,
+						task: { id: taskId, pollWith: "tasks/get" },
+					};
+					return Response.json({
+						jsonrpc: "2.0",
+						id: "call",
+						result: {
+							structuredContent: accepted,
+							content: [{ type: "text", text: JSON.stringify(accepted) }],
+						},
+					});
+				}
+				return Response.json({
+					jsonrpc: "2.0",
+					id: "get",
+					result: {
+						taskId,
+						status: "failed",
+						error: { message: "Turn failed: tool registry unavailable" },
+					},
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+	const startedAt = Date.now();
+	await assert.rejects(
+		callMcpTool(
+			failedTurnEnv,
+			{
+				...props,
+				manifest: {
+					...manifest,
+					mcp: { notion_tedix: ["run_tedi_turn"] },
+					expectedAnnotations: { destructive: false, readOnly: false },
+				},
+			},
+			{
+				namespace: "notion_tedix",
+				method: "run_tedi_turn",
+				args: { session_key: "factory:example", text: "Report" },
+				workflow,
+			},
+		),
+		(error: unknown) => {
+			assert.match(
+				(error as Error).message,
+				/^MCP_TASK_FAILED: run_tedi_turn task tedi:tedi-1:run-failed failed: Turn failed: tool registry unavailable$/,
+			);
+			return true;
+		},
+	);
+	assert.deepEqual(methods, ["tools/call", "tasks/get"]);
+	assert.ok(Date.now() - startedAt < 5_000);
+});

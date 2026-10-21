@@ -3635,6 +3635,8 @@ assert.match(
 assert.match(DISPATCH_SHIM, /MCP_TOOL_REPORTED_FAILURE/);
 assert.match(DISPATCH_SHIM, /nextOrdinal: 1/);
 assert.ok(DISPATCH_SHIM.includes("MCP upstream returned\\s+(\\d{3})"));
+// A failed or cancelled tedi turn is final; retrying would dispatch a new turn.
+assert.ok(DISPATCH_SHIM.includes("MCP_TASK_(?:FAILED|CANCELLED):"));
 assert.match(DISPATCH_SHIM, /workflowName: event\.workflowName/);
 assert.doesNotMatch(DISPATCH_SHIM, /DEFAULT_STEP_DO_CONFIG/);
 
