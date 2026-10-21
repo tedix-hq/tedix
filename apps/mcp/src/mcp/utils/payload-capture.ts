@@ -1,3 +1,7 @@
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
+
+const writePayload = createTelemetryWriter("mcp.payload_capture");
+
 /**
  * Gated tool-call payload capture — R2-SQL-backed forensics write path.
  *
@@ -242,20 +246,18 @@ export function capturePayloadRecord(
 	// P1.6 consent gate: skip payload bodies for non-consenting orgs/apps.
 	if (!payloadCaptureAllowed(env, capturePayloads)) return;
 
-	const send = fetch(endpoint, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${token}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify([record]),
-	})
-		.then(() => undefined)
-		.catch(() => undefined);
-
-	if (ctx?.waitUntil) {
-		ctx.waitUntil(send);
-	} else {
-		void send;
-	}
+	writePayload(
+		() =>
+			fetch(endpoint, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify([record]),
+			}).then((response) => {
+				if (!response.ok) throw new Error("Payload capture unavailable");
+			}),
+		ctx?.waitUntil?.bind(ctx),
+	);
 }

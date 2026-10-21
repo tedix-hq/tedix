@@ -20,6 +20,7 @@
 
 import type { ServerContext as McpCtx } from "@modelcontextprotocol/server";
 import { tracing } from "cloudflare:workers";
+import { runWithTelemetrySpan } from "@tedix/worker-kit/telemetry";
 import type { ServerContext } from "../server-context";
 import { toolRiskAuditMetadata } from "../tool-risk-policy";
 import {
@@ -95,8 +96,8 @@ export function wrapToolCallTelemetry(
 		)?.capturePayloads;
 
 		try {
-			const result = await tracing.enterSpan(
-				"tedix.mcp.tool_call",
+			const result = await runWithTelemetrySpan(
+				(callback) => tracing.enterSpan("tedix.mcp.tool_call", callback),
 				async (span) => {
 					span.setAttribute("tedix.trace_id", serverCtx.traceId);
 					span.setAttribute("tedix.app_id", serverCtx.appId);

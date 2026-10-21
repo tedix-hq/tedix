@@ -982,6 +982,69 @@ describe("Code Mode tail telemetry", () => {
 		]);
 	});
 
+	it.each(["throw", "reject", "logs"])(
+		"keeps discovery and tool calls successful when telemetry sinks %s",
+		async (failure) => {
+			const fail = () => {
+				if (failure === "reject")
+					return Promise.reject(
+						new Error("Analytics Engine write limit exceeded"),
+					);
+				throw new Error("Analytics Engine write limit exceeded");
+			};
+			const writeDataPoint = vi.fn(failure === "logs" ? () => undefined : fail);
+			const ctx = makeServerCtx(undefined, writeDataPoint);
+			ctx.env.ANALYTICS = {
+				writeDataPoint,
+			} as unknown as AnalyticsEngineDataset;
+			const pending: Promise<unknown>[] = [];
+			ctx.ctx.waitUntil = (p) => {
+				pending.push(p);
+			};
+			if (failure === "logs")
+				logSpy.mockImplementation((message: unknown) => {
+					if (
+						typeof message === "string" &&
+						(message.includes('"_cm"') || message.includes('"source":"mcp"'))
+					)
+						fail();
+				});
+			const registered = new Map<string, (args: unknown) => Promise<unknown>>();
+			const server = {
+				registerTool: (
+					name: string,
+					_config: unknown,
+					handler: (args: unknown) => Promise<unknown>,
+				) => {
+					registered.set(name, handler);
+				},
+			};
+			await registerCodeModeTools(server as never, ctx);
+			executeToolMock.mockResolvedValue({
+				content: [{ type: "text", text: "ok" }],
+				structuredContent: { ok: true },
+				_meta: {},
+				isError: false,
+			});
+			const response = (await registered.get("code")!({
+				code: "async () => test.soft_fail({})",
+			})) as { isError?: boolean; structuredContent: { result: unknown } };
+			expect(response.isError, JSON.stringify(response)).not.toBe(true);
+			expect(executeToolMock).toHaveBeenCalledTimes(1);
+			const discovery = (await registered.get("code")!({
+				code: "async () => discover_search_slice",
+			})) as { isError?: boolean; structuredContent: { result: unknown } };
+			expect(discovery.isError).not.toBe(true);
+			expect(discovery.structuredContent.result).toMatchObject({
+				ok: true,
+				firstCallable: "test.soft_fail",
+				resultsIsArray: true,
+			});
+			await Promise.all(pending);
+			expect(writeDataPoint).toHaveBeenCalled();
+		},
+	);
+
 	it("writes rpc and exec telemetry directly to Analytics Engine", async () => {
 		const writeDataPoint = vi.fn();
 		const registered = new Map<string, (args: unknown) => Promise<unknown>>();

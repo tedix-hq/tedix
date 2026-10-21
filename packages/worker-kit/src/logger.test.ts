@@ -1,6 +1,18 @@
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { createLogger, type LogValue, type ReservedLogField } from "./logger";
 
+test("a throwing log sink cannot fail a request", () => {
+	vi.spyOn(console, "info").mockImplementation(() => {
+		throw new Error("logs full");
+	});
+	vi.spyOn(console, "warn").mockImplementation(() => {
+		throw new Error("logs full");
+	});
+	expect(() =>
+		createLogger({ component: "test" }).info("done", { event: "request.ok" }),
+	).not.toThrow();
+});
+
 type TestFields = {
 	requestId: string;
 	attempt: number;

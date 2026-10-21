@@ -8,6 +8,10 @@ import type { CatalogueTransportCallback } from "@tedix/api-contract/schemas/too
 import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
 import { ATTENTION_GUIDANCE } from "./attention-guidance";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import {
+	createTelemetryWriter,
+	runWithTelemetrySpan,
+} from "@tedix/worker-kit/telemetry";
 import type { z as NativeZ } from "zod";
 import {
 	buildUiProvider,
@@ -115,7 +119,10 @@ import {
 	IdenticalFailureBudget,
 } from "@tedix/tedi-codemode-core/failure-budget";
 import { withModelAuthoredCodeIsolation } from "@tedix/tedi-codemode-core/model-authored-code-loader";
-import { runStatelessCodeMode } from "@tedix/tedi-codemode-core/run-stateless-code";
+import {
+	runStatelessCodeMode,
+	type StatelessCodeModeRunResult,
+} from "@tedix/tedi-codemode-core/run-stateless-code";
 import { tracing } from "cloudflare:workers";
 import { configuredAggregateNamespaces } from "./aggregate-namespaces";
 import {
@@ -1056,13 +1063,19 @@ function codeModeTailContext(
 	};
 }
 
+const writeCodeModeLog = createTelemetryWriter("mcp.codemode.log");
+const writeCodeModeTelemetry = createTelemetryWriter("mcp.codemode.analytics");
+
 function writeCodeModeAnalytics(
 	serverCtx: ServerContext,
 	event: McpCodeModeAnalyticsDataPointEvent,
 ): void {
 	const dataset = serverCtx.env.CODEMODE_ANALYTICS;
 	if (!dataset) return;
-	dataset.writeDataPoint(buildMcpCodeModeAnalyticsDataPoint(event));
+	writeCodeModeTelemetry(
+		() => dataset.writeDataPoint(buildMcpCodeModeAnalyticsDataPoint(event)),
+		serverCtx.ctx.waitUntil.bind(serverCtx.ctx),
+	);
 }
 
 function splitToolArgs(args: Record<string, unknown>): {
@@ -1593,15 +1606,17 @@ function buildNamespaceGroups(
 				} finally {
 					const durationMs = Date.now() - rpcStart;
 					executionRefs.rpcNamespaces.add(ns);
-					console.log(
-						JSON.stringify({
-							_cm: "rpc",
-							...codeModeTailContext(serverCtx, executionRefs.executionId),
-							ns,
-							tool: safeName,
-							durationMs,
-							success: rpcSuccess,
-						}),
+					writeCodeModeLog(() =>
+						console.log(
+							JSON.stringify({
+								_cm: "rpc",
+								...codeModeTailContext(serverCtx, executionRefs.executionId),
+								ns,
+								tool: safeName,
+								durationMs,
+								success: rpcSuccess,
+							}),
+						),
 					);
 					writeCodeModeAnalytics(serverCtx, {
 						eventType: "rpc",
@@ -1916,9 +1931,11 @@ function getSkillDiscoveryRows(
 			}
 			return rows;
 		} catch (error) {
-			console.warn(
-				"[MCP] Skill discovery rows unavailable:",
-				error instanceof Error ? error.message : error,
+			writeCodeModeLog(() =>
+				console.warn(
+					"[MCP] Skill discovery rows unavailable:",
+					error instanceof Error ? error.message : error,
+				),
 			);
 			return [];
 		}
@@ -3427,8 +3444,10 @@ export async function registerCodeModeTools(
 	const env = serverCtx.env;
 
 	if (!isCodeModeAvailable(env as unknown as Record<string, unknown>)) {
-		console.warn(
-			"[MCP] Code Mode requested but LOADER binding not available. Falling back to standard tools.",
+		writeCodeModeLog(() =>
+			console.warn(
+				"[MCP] Code Mode requested but LOADER binding not available. Falling back to standard tools.",
+			),
 		);
 		return false;
 	}
@@ -3497,13 +3516,15 @@ export async function registerCodeModeTools(
 		namespaceOverrides,
 	);
 	for (const [ownerKey, owners] of collisionOwners) {
-		console.warn(
-			JSON.stringify({
-				component: "mcp.codemode",
-				event: "tool_collision_quarantined",
-				ownerKey,
-				owners,
-			}),
+		writeCodeModeLog(() =>
+			console.warn(
+				JSON.stringify({
+					component: "mcp.codemode",
+					event: "tool_collision_quarantined",
+					ownerKey,
+					owners,
+				}),
+			),
 		);
 	}
 	const collisionKeys = new Set(collisionOwners.keys());
@@ -3707,8 +3728,10 @@ export async function registerCodeModeTools(
 		descriptionTruncated = true;
 	}
 
-	console.log(
-		`[MCP] Code Mode description: preamble=${preamble.length} compactTypes=${compactTypes.length} compactTypesInlined=${shouldInlineCompactTypes} total=${description.length} budget=${MAX_CODEMODE_DESCRIPTION_CHARS} descriptionTruncated=${descriptionTruncated}`,
+	writeCodeModeLog(() =>
+		console.log(
+			`[MCP] Code Mode description: preamble=${preamble.length} compactTypes=${compactTypes.length} compactTypesInlined=${shouldInlineCompactTypes} total=${description.length} budget=${MAX_CODEMODE_DESCRIPTION_CHARS} descriptionTruncated=${descriptionTruncated}`,
+		),
 	);
 
 	// Register single unified code tool
@@ -3760,24 +3783,26 @@ export async function registerCodeModeTools(
 				const discoverCalls = executionRefs.discoverCalls;
 				const discoverParameterRequests =
 					executionRefs.discoverParameterRequests;
-				console.log(
-					JSON.stringify({
-						_cm: "exec",
-						...codeModeTailContext(serverCtx, executionId),
-						toolCount,
-						namespaceCount: accessedNamespaceCount,
-						totalDurationMs: durationMs,
-						codeLength: code.length,
-						// Cost-shape telemetry: what the model
-						// actually re-reads, and how it discovered. Without these payload
-						// amplification is invisible server-side.
-						discoverCalls,
-						discoverParameterRequests,
-						// Spreading undefined is a no-op, so no fallback object needed.
-						...resultMetrics,
-						success,
-						...(errorMsg && { error: errorMsg.slice(0, 200) }),
-					}),
+				writeCodeModeLog(() =>
+					console.log(
+						JSON.stringify({
+							_cm: "exec",
+							...codeModeTailContext(serverCtx, executionId),
+							toolCount,
+							namespaceCount: accessedNamespaceCount,
+							totalDurationMs: durationMs,
+							codeLength: code.length,
+							// Cost-shape telemetry: what the model
+							// actually re-reads, and how it discovered. Without these payload
+							// amplification is invisible server-side.
+							discoverCalls,
+							discoverParameterRequests,
+							// Spreading undefined is a no-op, so no fallback object needed.
+							...resultMetrics,
+							success,
+							...(errorMsg && { error: errorMsg.slice(0, 200) }),
+						}),
+					),
 				);
 				writeCodeModeAnalytics(serverCtx, {
 					eventType: "exec",
@@ -3925,8 +3950,8 @@ export async function registerCodeModeTools(
 				// Workers custom spans are beta: diagnostic timing only, never an
 				// SLO gate or proof artifact. IDs identify the execution; code and
 				// returned values stay out of span attributes.
-				const result = await tracing.enterSpan(
-					"tedix.mcp.code_exec",
+				const result = await runWithTelemetrySpan<StatelessCodeModeRunResult>(
+					(callback) => tracing.enterSpan("tedix.mcp.code_exec", callback),
 					async (span) => {
 						span.setAttribute("tedix.trace_id", serverCtx.traceId);
 						span.setAttribute("tedix.app_id", serverCtx.appId);
@@ -4158,8 +4183,10 @@ export async function registerCodeModeTools(
 		},
 	);
 
-	console.log(
-		`[MCP] Code Mode enabled: 1 code tool wrapping ${appToolCount} app tools plus ${UI_TOOL_COUNT} ui tools across ${namespaceCount} namespaces`,
+	writeCodeModeLog(() =>
+		console.log(
+			`[MCP] Code Mode enabled: 1 code tool wrapping ${appToolCount} app tools plus ${UI_TOOL_COUNT} ui tools across ${namespaceCount} namespaces`,
+		),
 	);
 
 	return true;

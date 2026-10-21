@@ -14,7 +14,8 @@
 		"./logger": "./src/logger.ts",
 		"./request-auth": "./src/request-auth.ts",
 		"./request-correlation": "./src/request-correlation.ts",
-		"./sleep": "./src/sleep.ts"
+		"./sleep": "./src/sleep.ts",
+		"./telemetry": "./src/telemetry.ts"
 	},
 	"scripts": {
 		"clean": "true",

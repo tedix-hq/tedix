@@ -3,6 +3,7 @@ import {
 	type McpAggregateCacheDataPointEvent,
 } from "@tedix/api-contract/schemas/mcp-analytics";
 import { type ApiClient, getApiClient } from "./lib/api-client";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import {
 	pruneExpiredCacheEntries,
 	setBoundedExpiringCacheEntry,
@@ -853,17 +854,17 @@ function aggregateL2RequestFromHash(cacheKeyHash: string): Request {
 // = "aggregate_cache") so hit-rate / cold-miss / SWR effectiveness is queryable
 // on prod, where Worker logs aren't tailable. Fully fail-safe: telemetry never
 // breaks a request.
+const writeAggregateTelemetry = createTelemetryWriter(
+	"mcp.aggregate.analytics",
+);
+
 function emitAggregateCacheMetric(
 	env: CloudflareEnv,
 	event: McpAggregateCacheDataPointEvent,
 ): void {
-	try {
-		if ("ANALYTICS" in env && env.ANALYTICS) {
-			env.ANALYTICS.writeDataPoint(buildMcpAggregateCacheDataPoint(event));
-		}
-	} catch {
-		// swallow — never let telemetry break the aggregate path
-	}
+	writeAggregateTelemetry(() =>
+		env.ANALYTICS?.writeDataPoint(buildMcpAggregateCacheDataPoint(event)),
+	);
 }
 async function readAggregateL2(
 	cacheKey: string,

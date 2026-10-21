@@ -237,6 +237,33 @@ describe("capturePayloadRecord", () => {
 		expect(promise).toBeInstanceOf(Promise);
 	});
 
+	it.each(["fetch", "schedule"])(
+		"never throws when %s throws synchronously",
+		(failure) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(() => {
+					if (failure === "fetch") throw new Error("sink unavailable");
+					return Promise.resolve(new Response(null));
+				}),
+			);
+			expect(() =>
+				capturePayloadRecord(
+					{
+						MCP_PAYLOAD_STREAM_ENDPOINT: "https://sink.example/ingest",
+						MCP_PAYLOAD_STREAM_TOKEN: "t",
+					},
+					{
+						waitUntil: () => {
+							throw new Error("context closed");
+						},
+					},
+					makeRecord(),
+				),
+			).not.toThrow();
+		},
+	);
+
 	it("never throws when fetch rejects", () => {
 		const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
 		vi.stubGlobal("fetch", fetchMock);
