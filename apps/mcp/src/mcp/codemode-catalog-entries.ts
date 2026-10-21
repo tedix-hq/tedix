@@ -42,6 +42,7 @@ export interface CatalogToolAnnotations {
 
 export interface CatalogToolEntry {
 	callable: string;
+	organization?: string;
 	namespace: string;
 	tool: string;
 	name: string;

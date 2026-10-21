@@ -1318,6 +1318,107 @@ return result;`,
 });
 
 describe("discover.search on a multi-organization surface", () => {
+	it("validates search arguments and preserves string queries", async () => {
+		const provider = buildCatalogProvider(buildLargeServerCtx(2), undefined);
+		await expect(runSearch(provider, "", 5, { q: "list" })).rejects.toThrow(
+			'unknown argument "q"',
+		);
+		await expect(runSearch(provider, "", 5, { limit: "5" })).rejects.toThrow(
+			'invalid argument "limit"',
+		);
+		const tools = provider.tools as Record<
+			string,
+			{ execute: (input: unknown) => Promise<unknown> }
+		>;
+		expect(await tools.search?.execute("list")).toEqual(
+			await runSearch(provider, "list", 25),
+		);
+	});
+
+	it("exposes organization only on mounted rows and filters exact slug or id before paging", async () => {
+		const loadedTools = new Map<string, AppTool>();
+		for (const [namespace, organization] of [
+			["alpha", "org-alpha"],
+			["beta", "org-beta"],
+			["local", undefined],
+		] as const) {
+			const row = tool({
+				toolId: `${namespace}__list_records`,
+				config: {
+					_aggregateNamespace: namespace,
+					...(organization ? { _multiOrgOrganizationId: organization } : {}),
+				},
+			});
+			loadedTools.set(row.toolId, row);
+		}
+		const ctx = {
+			loadedTools,
+			callerIdentity: {
+				authType: "oauth",
+				scopes: [],
+				verifiedMultiOrgOrganizations: [
+					{
+						organizationId: "org-alpha",
+						descopeTenantId: "tenant-alpha",
+						gatewaySlug: "alpha-unified",
+					},
+					{
+						organizationId: "org-beta",
+						descopeTenantId: "tenant-beta",
+						gatewaySlug: "beta-unified",
+					},
+				],
+			},
+		} as unknown as ServerContext;
+		const provider = buildCatalogProvider(ctx, undefined);
+		const all = await runSearch(provider, "list records");
+		expect(
+			all.results.find((row) => row.namespace === "alpha")?.organization,
+		).toBe("org-alpha");
+		expect(
+			all.results.find((row) => row.namespace === "local"),
+		).not.toHaveProperty("organization");
+		for (const query of ["", "list records"]) {
+			for (const organization of ["org-beta", "beta", "beta-unified"]) {
+				const result = await runSearch(provider, query, 1, { organization });
+				expect(result.results).toHaveLength(1);
+				expect(result.results[0]).toMatchObject({
+					namespace: "beta",
+					organization: "org-beta",
+				});
+				expect(result.meta.pagination).toMatchObject({ total: 1 });
+			}
+			expect(
+				(await runSearch(provider, query, 10, { organization: "bet" })).results,
+			).toEqual([]);
+			expect(
+				(await runSearch(provider, query, 10, { organization: "BETA" }))
+					.results,
+			).toEqual([]);
+			expect(
+				(
+					await runSearch(provider, query, 10, {
+						organization: "org-beta",
+						namespace: "alpha",
+					})
+				).results,
+			).toEqual([]);
+		}
+		const single = buildCatalogProvider(
+			{
+				loadedTools: new Map([
+					["local__list_records", loadedTools.get("local__list_records")!],
+				]),
+			} as unknown as ServerContext,
+			undefined,
+		);
+		expect(
+			(await runSearch(single, "list records")).results.every(
+				(row) => !("organization" in row),
+			),
+		).toBe(true);
+	});
+
 	it("ranks the caller's current organization first", async () => {
 		const orgTool = (namespace: string, organizationId: string) =>
 			tool({
