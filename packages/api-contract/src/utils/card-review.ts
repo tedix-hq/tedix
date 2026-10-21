@@ -1,6 +1,9 @@
 import type { DecisionLearningModel } from "../schemas/decision-learning";
+import type { DeckNotUsefulReason } from "../schemas/deck-pipeline";
 import {
 	classifyDeckCard,
+	type DecisionEnvelope,
+	DecisionEnvelopeSchema,
 	type DeckRoutingPolicy,
 } from "../schemas/os-decision-deck";
 import { cardIsDue, isCardScheduleField } from "./card-schedule";
@@ -58,6 +61,9 @@ export function reasonChips(
 	source: CardReviewSource,
 	verdict: "useful" | "notUseful",
 ): readonly string[] {
+	const skip = source.scoring?.skipReasonChips ?? [];
+	if (verdict === "notUseful" && skip.length > 0)
+		return skip.map((chip) => chip.label);
 	return source.reasonChips?.[verdict] ?? DEFAULT_CHIPS[verdict];
 }
 
@@ -196,7 +202,50 @@ export type ReviewCard = {
 	done: string;
 	/** A run_skill Do it's outcome, e.g. "Failed: …"; empty until a run writes it. */
 	result: string;
+	/** Factory score from 0 to 1; null when the sheet has none or the cell is not one. */
+	score: number | null;
+	/** Named numeric score inputs the factory wrote; null when absent or unreadable. */
+	features: Record<string, number> | null;
+	/** Face chips; empty when the sheet has no such column. */
+	effort: string;
+	timing: string;
 };
+
+/** The learning class of a factory card: `factory:<source label>:<type>`. */
+export function factoryLearningClass(sourceLabel: string, type: string) {
+	return `factory:${sourceLabel}:${type || "card"}`.slice(0, 100);
+}
+
+/** A score cell as a number from 0 to 1, else null. */
+export function parseCardScore(text: string): number | null {
+	if (!text) return null;
+	const value = Number(text);
+	return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+}
+
+const FEATURE_LIMIT = 30;
+
+/** A features cell (a JSON object of named numbers) with its numeric entries, else null. */
+export function parseCardFeatures(text: string): Record<string, number> | null {
+	if (!text.startsWith("{")) return null;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+		return null;
+	const entries = Object.entries(parsed)
+		.filter(
+			(entry): entry is [string, number] =>
+				entry[0].length <= 40 &&
+				typeof entry[1] === "number" &&
+				Number.isFinite(entry[1]),
+		)
+		.slice(0, FEATURE_LIMIT);
+	return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
 
 export function channelFor(source: CardReviewSource, haystack: string): string {
 	const lower = haystack.toLowerCase();
@@ -331,9 +380,194 @@ export function cardsFromSheet(input: {
 			reason: at(row, source.columns.reason),
 			done: at(row, source.columns.done),
 			result: at(row, source.columns.result),
+			score: parseCardScore(at(row, source.columns.score)),
+			features: parseCardFeatures(at(row, source.columns.features)),
+			effort: at(row, source.columns.effort),
+			timing: at(row, source.columns.timing),
 		});
 	});
 	return { cards };
+}
+
+/**
+ * What makes two cards the same card across runs: a factory that surfaces one
+ * thread again on a later day writes a new row, so the row key differs.
+ */
+export function cardIdentity(
+	card: Pick<ReviewCard, "sourceIndex" | "type" | "link" | "sourceText">,
+): string {
+	const target = card.link ?? card.sourceText.toLowerCase();
+	return `${card.sourceIndex}|${card.type.trim().toLowerCase()}|${target}`;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Applies each source's `scoring`: drops cards from runs older than
+ * maxAgeDays, collapses repeats of one card (a decided copy wins, else the
+ * newest run), then keeps the topN best-scored cards per run day. Decided
+ * cards count toward topN, so deciding a card never pulls in another one.
+ * Sources without scoring pass through unchanged; order is preserved.
+ */
+export function scoredCards<T extends ReviewCard>(
+	cards: readonly T[],
+	sources: readonly (Pick<CardReviewSource, "scoring"> | undefined)[],
+	now = new Date(),
+): T[] {
+	const scoring = (card: T) => sources[card.sourceIndex]?.scoring;
+	if (!cards.some(scoring)) return [...cards];
+	const survivors = new Map<string, T>();
+	for (const card of cards) {
+		const config = scoring(card);
+		if (!config) continue;
+		if (
+			config.maxAgeDays !== undefined &&
+			now.getTime() - Date.parse(card.runCreatedAt) > config.maxAgeDays * DAY_MS
+		)
+			continue;
+		const identity = cardIdentity(card);
+		const kept = survivors.get(identity);
+		if (
+			!kept ||
+			(isOpen(kept) && !isOpen(card)) ||
+			(isOpen(kept) === isOpen(card) && card.runCreatedAt > kept.runCreatedAt)
+		)
+			survivors.set(identity, card);
+	}
+	const byDay = new Map<string, T[]>();
+	for (const card of survivors.values()) {
+		const day = `${card.sourceIndex}|${card.runCreatedAt.slice(0, 10)}`;
+		byDay.set(day, [...(byDay.get(day) ?? []), card]);
+	}
+	const kept = new Set<T>();
+	for (const group of byDay.values()) {
+		const topN = scoring(group[0]!)?.topN;
+		const ranked =
+			topN === undefined
+				? group
+				: group
+						.map((card, order) => ({ card, order }))
+						.sort(
+							(a, b) =>
+								(b.card.score ?? -1) - (a.card.score ?? -1) ||
+								a.order - b.order,
+						)
+						.slice(0, topN)
+						.map(({ card }) => card);
+		for (const card of ranked) kept.add(card);
+	}
+	return cards.filter((card) => !scoring(card) || kept.has(card));
+}
+
+/**
+ * One line on why the factory ranked this card: its two features with the
+ * largest weighted contribution (the feature value when no weights are set).
+ */
+export function whyThisCard(
+	source: Pick<CardReviewSource, "scoring"> | undefined,
+	card: Pick<ReviewCard, "features">,
+): string | null {
+	if (!card.features) return null;
+	const weights = source?.scoring?.weights ?? {};
+	const weighted = Object.keys(weights).length > 0;
+	const top = Object.entries(card.features)
+		.map(([name, value]) => ({
+			name,
+			contribution: (weighted ? (weights[name] ?? 0) : 1) * value,
+		}))
+		.filter((entry) => entry.contribution > 0)
+		.sort((a, b) => b.contribution - a.contribution)
+		.slice(0, 2);
+	return top.length > 0
+		? top.map((entry) => entry.name.replace(/_/g, " ")).join(", ")
+		: null;
+}
+
+/** The skip chip a reason starts with ("Chip, Chip: note"), and the shared reason it maps to. */
+export function skipReasonFor(
+	source: Pick<CardReviewSource, "scoring">,
+	reason: string,
+): { factoryReason: string; sharedReason: DeckNotUsefulReason | null } | null {
+	const chips = source.scoring?.skipReasonChips ?? [];
+	if (chips.length === 0 || !reason) return null;
+	const picked = reason
+		.split(":")[0]!
+		.split(",")
+		.map((part) => part.trim().toLowerCase());
+	const chip = chips.find((entry) =>
+		picked.includes(entry.label.toLowerCase()),
+	);
+	return chip ? { factoryReason: chip.label, sharedReason: chip.mapsTo } : null;
+}
+
+/** Learning-event metadata every surface records with a factory verdict. */
+export function factoryVerdictLearning(
+	source: Pick<CardReviewSource, "label" | "scoring">,
+	card: Pick<ReviewCard, "type" | "score" | "features">,
+	reason: string,
+) {
+	const skip = skipReasonFor(source, reason);
+	return {
+		decisionClass: factoryLearningClass(source.label, card.type),
+		...(card.score === null ? {} : { score: card.score }),
+		...(card.features ? { features: card.features } : {}),
+		...(skip
+			? { factoryReason: skip.factoryReason, sharedReason: skip.sharedReason }
+			: {}),
+	};
+}
+
+/**
+ * The decision envelope a factory card carries into Work as
+ * `metadata.decisionDeck`, so routing and learning treat it like any other
+ * proposal. Display and learning context only; it grants nothing.
+ */
+export function factoryCardDecisionEnvelope(
+	source: CardReviewSource,
+	card: ReviewCard,
+): DecisionEnvelope {
+	const why = plainWhy(card.why);
+	const proposal =
+		card.action ||
+		why ||
+		sourceParts(card.sourceText).label ||
+		`Card ${card.number}`;
+	const maxAgeDays = source.scoring?.maxAgeDays;
+	const runAt = Date.parse(card.runCreatedAt);
+	return DecisionEnvelopeSchema.parse({
+		version: 1,
+		kind: "proposal",
+		classId: (card.type.trim().toLowerCase() || "card").slice(0, 100),
+		proposal: proposal.slice(0, 500),
+		whyNow: (why || `Surfaced by the ${source.label} factory`).slice(0, 2000),
+		recommendation: proposal.slice(0, 4000),
+		...(card.draft ? { preview: { body: card.draft.slice(0, 40000) } } : {}),
+		reversibility: "unknown",
+		protectedEffects: source.protectedEffects ?? [],
+		blastRadius: `One ${source.label} card`,
+		confidence: card.score,
+		costOfWaiting: card.timing || "Not stated by the factory",
+		...(maxAgeDays !== undefined && Number.isFinite(runAt)
+			? { expiresAt: new Date(runAt + maxAgeDays * DAY_MS).toISOString() }
+			: {}),
+		reasoning: (card.why || proposal).slice(0, 8000),
+		options: [
+			{
+				id: "do-it",
+				label: isActionLabel(card.action) ? card.action : "Do it",
+				intent: "approve",
+				consequence: "Carries out the card's proposed action.",
+				cost: card.effort || "Not stated by the factory",
+			},
+			{
+				id: "not-useful",
+				label: "Not useful",
+				intent: "reject",
+				consequence: "Declines the card; its reason teaches the factory.",
+				cost: "Nothing changes.",
+			},
+		],
+	});
 }
 
 /** A card is open until any verdict cell carries a value. */
@@ -479,7 +713,8 @@ export function isSnoozed(
 /**
  * The review queue: open, unsnoozed cards in the selected channel, in the
  * configured source order (an install lists its own workspace first), then
- * newest run first and sheet order; skipped cards move to the end.
+ * newest run first, best factory score, then sheet order; skipped cards move
+ * to the end.
  */
 export function reviewQueue(
 	cards: readonly ReviewCard[],
@@ -504,7 +739,7 @@ export function reviewQueue(
 				? a.sourceIndex - b.sourceIndex
 				: a.runCreatedAt === b.runCreatedAt
 					? a.outputId === b.outputId
-						? a.rowIndex - b.rowIndex
+						? (b.score ?? -1) - (a.score ?? -1) || a.rowIndex - b.rowIndex
 						: a.outputId.localeCompare(b.outputId)
 					: b.runCreatedAt.localeCompare(a.runCreatedAt),
 		);
@@ -596,13 +831,13 @@ export function resultParts(result: string): {
 
 /** Factory type is the producer's value class; prose alone cannot promote a card. */
 export function routeFactoryCard(
-	card: Pick<ReviewCard, "type" | "key" | "sourceLabel">,
+	card: Pick<ReviewCard, "type" | "key" | "sourceLabel"> &
+		Partial<Pick<ReviewCard, "score">>,
 	policy?: DeckRoutingPolicy,
 	now = new Date(),
 	model?: DecisionLearningModel,
 ) {
-	const learningClass =
-		`factory:${card.sourceLabel}:${card.type || "card"}`.slice(0, 100);
+	const learningClass = factoryLearningClass(card.sourceLabel, card.type);
 	const learnedUsefulness = model?.config.enabled
 		? model.weights.usefulness.find(
 				(weight) => weight.key === `class:${learningClass}`,
@@ -610,6 +845,7 @@ export function routeFactoryCard(
 		: undefined;
 	return {
 		id: card.key,
+		score: card.score ?? null,
 		...classifyDeckCard(
 			{
 				kind: "proposal",

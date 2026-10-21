@@ -1,5 +1,8 @@
 import * as z from "zod";
-import { DecisionEffectSchema } from "./decision-effects";
+import {
+	DecisionEffectSchema,
+	ProtectedEffectSchema,
+} from "./decision-effects";
 import { CardReviewSourceSchema } from "./os-card-review";
 import routingPolicy from "../assets/deck-routing.v1.json";
 
@@ -24,20 +27,7 @@ export const DecisionEnvelopeSchema = z.strictObject({
 	preview: z.strictObject({ body: z.string().min(1).max(40000) }).optional(),
 	reversibility: z.enum(["one_way", "two_way", "unknown"]),
 	tasteOrStrategy: z.boolean().default(false),
-	protectedEffects: z
-		.array(
-			z.enum([
-				"data",
-				"contract",
-				"production",
-				"money",
-				"consent",
-				"message",
-				"commitment",
-			]),
-		)
-		.max(7)
-		.default([]),
+	protectedEffects: z.array(ProtectedEffectSchema).max(7).default([]),
 	blastRadius: z.string().min(1).max(1000),
 	confidence: z.number().min(0).max(1).nullable(),
 	costOfWaiting: z.string().min(1).max(1000),

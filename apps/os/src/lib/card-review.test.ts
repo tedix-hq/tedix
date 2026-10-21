@@ -255,6 +255,10 @@ function card(overrides: Partial<ReviewCard>): ReviewCard {
 		reason: "",
 		done: "",
 		result: "",
+		score: null,
+		features: null,
+		effort: "",
+		timing: "",
 		...overrides,
 	};
 }
