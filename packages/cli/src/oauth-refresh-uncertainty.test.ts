@@ -64,6 +64,12 @@ for (const failure of ["timeout", "body", "killed", "save"] as const) {
 		const requestReceived = new Promise<void>((resolve) => {
 			requested = resolve;
 		});
+		// A timed-out exchange never gets an answer, so the client's deadline is
+		// what ends it, however long the request took to arrive.
+		let release!: () => void;
+		const released = new Promise<void>((resolve) => {
+			release = resolve;
+		});
 		const server = Bun.serve({
 			port: 0,
 			async fetch() {
@@ -82,7 +88,8 @@ for (const failure of ["timeout", "body", "killed", "save"] as const) {
 					);
 				}
 				requested();
-				if (failure === "timeout" || failure === "killed") await Bun.sleep(300);
+				if (failure === "timeout") await released;
+				if (failure === "killed") await Bun.sleep(300);
 				if (failure === "body")
 					return new Response("{", {
 						headers: { "content-type": "application/json" },
@@ -127,7 +134,7 @@ for (const failure of ["timeout", "body", "killed", "save"] as const) {
 			const credential = readWorkspaceCredentials("fixture");
 			const provider = new WorkspaceOAuthProvider({ mcpUrl: credential.mcpUrl, workspace: "fixture", credential });
 			${first && failure === "save" ? 'provider.saveRenewedTokens = async () => { throw new Error("disk unavailable"); };' : ""}
-			const result = await refreshStoredSession(provider, { isDarkWake: () => false, timeoutMs: ${first && failure === "timeout" ? 50 : 2000} });
+			const result = await refreshStoredSession(provider, { isDarkWake: () => false, timeoutMs: ${first && failure === "timeout" ? 1000 : 2000} });
 			console.log(result);
 		`,
 				],
@@ -140,7 +147,12 @@ for (const failure of ["timeout", "body", "killed", "save"] as const) {
 		const first = command(true);
 		const children = [first];
 		try {
-			await requestReceived;
+			// Fail fast, not by hanging, if the first refresh gave up unsent.
+			const exitedUnsent = await Promise.race([
+				requestReceived.then(() => false),
+				first.exited.then(() => true),
+			]);
+			expect(exitedUnsent).toBe(false);
 			if (failure === "killed") first.kill("SIGKILL");
 			await first.exited;
 			children.push(...Array.from({ length: 8 }, () => command()));
@@ -182,6 +194,7 @@ for (const failure of ["timeout", "body", "killed", "save"] as const) {
 					?.oauthRefreshPending,
 			).toBeUndefined();
 		} finally {
+			release();
 			for (const child of children) {
 				child.kill();
 				await child.exited;
