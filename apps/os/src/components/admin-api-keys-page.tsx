@@ -198,7 +198,7 @@ export function apiKeyExpirationDateLabel(
 export const CREATE_API_KEY_STEP_UP_INTENT = "admin-api-keys:create";
 export const ROTATE_API_KEY_STEP_UP_INTENT = "admin-api-keys:rotate";
 
-export interface CreateKeyDraft {
+interface CreateKeyDraft {
 	name: string;
 	description: string;
 	environment: "test" | "live";
@@ -223,7 +223,7 @@ export function parseCreateKeyDraft(payload: unknown): CreateKeyDraft | null {
 	};
 }
 
-export interface RotateKeyIntent {
+interface RotateKeyIntent {
 	keyId: string;
 	name: string;
 }
@@ -375,7 +375,7 @@ function ApiKeyTimestampCell({ value }: { value: string | null }) {
  * name and action columns obscure the state people need to scan before
  * rotating or revoking a key.
  */
-export function ApiKeyMobileRow({
+function ApiKeyMobileRow({
 	apiKey,
 	onAction,
 }: {

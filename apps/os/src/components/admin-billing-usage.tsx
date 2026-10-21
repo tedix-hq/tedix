@@ -34,6 +34,7 @@ import { BillingCreditWallet } from "@/components/billing-credit-wallet";
 import { BillingRunCosts } from "@/components/billing-run-costs";
 import { formatPlanLimit, hasUnlimitedTokenUsage } from "@/lib/billing-display";
 import { formatCurrencyAmount } from "@/lib/billing-price";
+import { sentenceCase } from "@/lib/format";
 import { formatCreditWorth } from "@/lib/billing-credit-display";
 import {
 	billingOverviewQueryOptions,
@@ -72,10 +73,6 @@ function formatPeriod(start: string, end: string): string {
 		timeZone: "UTC",
 	});
 	return `${formatter.format(from)} – ${formatter.format(to)}`;
-}
-
-function sentenceCase(value: string) {
-	return value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " ");
 }
 
 function errorText(error: unknown, fallback: string): string {

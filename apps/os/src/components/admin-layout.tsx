@@ -22,7 +22,7 @@ const ADMIN_SECTION_PERMISSIONS: readonly Permission[] = [
 	"settings:manage",
 	"os:admin",
 ];
-const ADMIN_SECTION_ROLES: readonly string[] = ["owner", "admin", "admin"];
+const ADMIN_SECTION_ROLES: readonly string[] = ["owner", "admin"];
 
 export function canAccessAdminSection(authority: {
 	role: string | null;
