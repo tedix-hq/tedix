@@ -301,13 +301,24 @@ try {
 	async function choose(page: Page, label: string) {
 		const chip = page.getByRole("combobox", { name: "Card source" });
 		// Phones keep the Deck's filters behind one Filters button.
-		const filtersOpen = !(await chip.isVisible());
-		if (filtersOpen)
-			await page.getByRole("button", { name: "Filters" }).click();
+		const filters = page.getByRole("button", { name: "Filters" });
+		await chip.or(filters).first().waitFor();
+		const phone = !(await chip.isVisible());
+		for (
+			let tries = 0;
+			phone && !(await chip.isVisible()) && tries < 3;
+			tries++
+		) {
+			await filters.click();
+			await chip.waitFor({ timeout: 2_000 }).catch(() => {});
+		}
 		await chip.click();
 		await page.getByRole("option", { name: label, exact: true }).click();
 		await page.getByRole("listbox").waitFor({ state: "hidden" });
-		if (filtersOpen) await page.keyboard.press("Escape");
+		if (phone && (await chip.isVisible())) {
+			await page.keyboard.press("Escape");
+			await chip.waitFor({ state: "hidden" });
+		}
 	}
 	async function fits(page: Page, what: string) {
 		assert(
