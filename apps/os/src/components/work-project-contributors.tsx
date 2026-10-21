@@ -7,7 +7,9 @@ import { ATTENTION_COPY } from "@tedix/api-contract/utils/attention-copy";
 import { useQuery } from "@tanstack/react-query";
 import type { ListWorkProjectContributorsResultSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type * as z from "zod";
+import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import {
 	Collection,
@@ -24,6 +26,28 @@ import {
 import { workProjectContributorsQueryOptions } from "@/lib/os-query-options";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
+
+function RetryButton({
+	onRetry,
+	fetching,
+}: {
+	onRetry: () => void;
+	fetching: boolean;
+}) {
+	return (
+		<Button
+			size="sm"
+			variant="secondary"
+			aria-label="Retry loading contributors"
+			disabled={fetching}
+			onClick={() => {
+				if (!fetching) onRetry();
+			}}
+		>
+			{fetching ? "Retrying…" : "Retry"}
+		</Button>
+	);
+}
 
 type Contributor = z.output<
 	typeof ListWorkProjectContributorsResultSchema
@@ -110,15 +134,44 @@ export function WorkProjectContributors({
 }) {
 	const query = useQuery(workProjectContributorsQueryOptions(projectId));
 	const contributors = query.data?.contributors;
+	// A failed refresh keeps the last rows; they are no longer verified current.
+	const stale = Boolean(contributors) && query.isError;
+	// cancelRefetch: false joins a read already in flight instead of restarting it.
+	const retry = () => void query.refetch({ cancelRefetch: false });
 	return (
 		<PageSection aria-label="Contributors">
 			<SectionHeader>
 				<SectionHeading>
 					<SectionTitle>
-						Contributors{contributors ? ` (${contributors.length})` : ""}
+						Contributors
+						{contributors && !stale ? ` (${contributors.length})` : ""}
 					</SectionTitle>
 				</SectionHeading>
 			</SectionHeader>
+			{stale ? (
+				<Alert variant="warning" data-contributors-stale="">
+					<AlertTitle>Contributors could not be refreshed</AlertTitle>
+					<AlertDescription>
+						<p>
+							{contributors?.length
+								? "These sessions were last loaded "
+								: "The last load found no sessions, "}
+							<time
+								dateTime={new Date(query.dataUpdatedAt).toISOString()}
+								title={absoluteTime(
+									new Date(query.dataUpdatedAt).toISOString(),
+								)}
+							>
+								{relativeTime(new Date(query.dataUpdatedAt).toISOString(), now)}
+							</time>
+							{contributors?.length
+								? " and may be out of date."
+								: " and that is not confirmed now."}
+						</p>
+						<RetryButton onRetry={retry} fetching={query.isFetching} />
+					</AlertDescription>
+				</Alert>
+			) : null}
 			{contributors ? (
 				contributors.length ? (
 					<Collection aria-label="Project contributors">
@@ -130,14 +183,20 @@ export function WorkProjectContributors({
 							/>
 						))}
 					</Collection>
-				) : (
+				) : stale ? null : (
 					<WorkEmpty
 						title="No contributors"
 						description="No sessions have worked on this project yet."
 					/>
 				)
 			) : query.isError ? (
-				<WorkReadFailure title="Contributors unavailable" error={query.error} />
+				<>
+					<WorkReadFailure
+						title="Contributors unavailable"
+						error={query.error}
+					/>
+					<RetryButton onRetry={retry} fetching={query.isFetching} />
+				</>
 			) : (
 				<WorkListSkeleton rows={2} label="Loading contributors" />
 			)}
