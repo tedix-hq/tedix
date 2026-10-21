@@ -7,6 +7,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	decisionLessonEvidence,
+	filterEvidenceBackedLessons,
 	listApprovedAgentLessons,
 } from "./memory-graph/agent-lessons";
 
@@ -83,19 +84,49 @@ function setup(plans: string[] = []) {
 }
 
 describe("lesson evidence lifecycle", () => {
-	it("seeks corrections by exact target and time instead of scanning later org events", async () => {
+	it("validates a shared event once for the whole lesson request", async () => {
 		const plans: string[] = [];
 		const { db, event } = setup(plans);
 		event("decision", "Always verify before release.");
-		expect(
-			(await decisionLessonEvidence(db, ORG, ["decision"])).supportCount,
-		).toBe(1);
-		expect(plans).toContainEqual(
-			expect.stringMatching(
-				/SEARCH c USING INDEX idx_learning_event_target_occurred .*target_type=\? AND target_id=\? AND occurred_at>\?/,
-			),
+		const evidence = await decisionLessonEvidence(db, ORG, ["decision"]);
+		const rows = ["lesson-a", "lesson-b"].map((id) => ({
+			id,
+			metadata: { learningFeed: { evidence } },
+		}));
+		plans.length = 0;
+		expect(await filterEvidenceBackedLessons(db, ORG, rows)).toEqual(rows);
+		expect(plans.filter((plan) => plan.startsWith("SEARCH c "))).toHaveLength(
+			1,
 		);
 	});
+	it.each([1, 50])(
+		"seeks %i cited events by ID and corrections by exact target and time",
+		async (count) => {
+			const plans: string[] = [];
+			const { db, event } = setup(plans);
+			const ids = Array.from({ length: count }, (_, i) => `decision-${i}`);
+			for (const id of ids) event(id, "Always verify before release.");
+			expect((await decisionLessonEvidence(db, ORG, ids)).supportCount).toBe(
+				count,
+			);
+			expect(plans).toContainEqual(
+				expect.stringMatching(
+					/SEARCH c USING INDEX idx_learning_event_target_occurred .*target_type=\? AND target_id=\? AND occurred_at>\?/,
+				),
+			);
+			expect(
+				plans.filter((plan) =>
+					plan.startsWith("SEARCH learning_interaction_events"),
+				),
+			).toEqual([
+				"SEARCH learning_interaction_events USING INDEX sqlite_autoindex_learning_interaction_events_1 (id=?)",
+				"SEARCH learning_interaction_events USING INDEX sqlite_autoindex_learning_interaction_events_1 (id=?)",
+			]);
+			expect(plans).not.toContainEqual(
+				expect.stringMatching(/SCAN (?:c|learning_interaction_events)\b/),
+			);
+		},
+	);
 	it.each(["valid_to", "archived_at"])(
 		"holds and queues a lesson when a source gets %s, without disabling auto-confirmation",
 		async (column) => {
@@ -206,6 +237,50 @@ describe("lesson evidence lifecycle", () => {
 			).sources.map((s) => s.id),
 		).toEqual(["correction-2"]);
 	});
+	it.each([
+		["organization_id", "fictional-other"],
+		["scope_kind", "organization"],
+		["scope_id", "another-user"],
+		["target_type", "another-type"],
+		["target_id", "another-target"],
+		["target_id", null],
+		["occurred_at", "2026-10-01T00:00:00Z"],
+		["event_kind", "answered"],
+		["metadata", JSON.stringify({ answer: "Original answer." })],
+	])(
+		"does not supersede evidence when the correction differs in %s (%s)",
+		async (column, value) => {
+			const { db, sqlite, event } = setup();
+			event(
+				"original",
+				"Original answer.",
+				"answered",
+				"2026-10-01T00:00:00Z",
+				"target",
+			);
+			event(
+				"correction",
+				"Changed answer.",
+				"manually_replaced",
+				"2026-10-02T00:00:00Z",
+				"target",
+			);
+			sqlite
+				.prepare(
+					`UPDATE learning_interaction_events SET ${column} = ? WHERE id = 'correction'`,
+				)
+				.run(value);
+			expect(await decisionLessonEvidence(db, ORG, ["original"])).toMatchObject(
+				{
+					state: "live",
+					supportCount: 1,
+					sources: [
+						{ kind: "decision", id: "original", quote: "Original answer." },
+					],
+				},
+			);
+		},
+	);
 	it("chunks more than 100 cited decisions under D1's parameter ceiling", async () => {
 		const { db, event } = setup();
 		const ids = Array.from({ length: 123 }, (_, i) => `event-${i}`);
