@@ -31,9 +31,12 @@ inbox is a different cohort. Existing authorization and grants remain enforced.
 Every CLI call discovers an exact read-only callable before using it. History
 uses the inbox cursor in descending `requestedAt` order, stopping at thirty
 days, exhaustion, or `--max-pages` (default 1000). One interaction per page
-avoids gateway truncation on large card bodies. Current factory/runtime/Work
-approval projections are inventoried and conservatively protected; their
-historical ledgers are outside this collector's thirty-day interaction cohort.
+avoids gateway truncation on large card bodies. Work approval history uses the
+caller's inbox, and runtime approval history keeps the Deck's `decidableOnly`
+access filter. Both retain source decisions and explicit pagination coverage.
+Runtime offset pages detect a changing total and mark the inventory incomplete.
+Historical factory-generated Deck appearances have no equivalent ledger here;
+current unmatched projections are inventoried and conservatively protected.
 Missing contexts, unmapped cards, incomplete inventories and page bounds are
 visible in the report. They must not be described as complete organization-wide
 results.

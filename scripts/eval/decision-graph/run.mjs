@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { fixture } from "./fixture.mjs";
 import { markdown, measure } from "./measure.mjs";
+import { approvalHistory } from "./approval-history.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
 /** @template T
@@ -208,7 +209,7 @@ async function main() {
 				currentComplete: deck.complete && deck.ids.length === deck.count,
 				currentCount: deck.count,
 				historyScope:
-					"Interaction cards; factory/runtime/Work approval histories not inventoried",
+					"Interaction, Work approval and accessible runtime approval cards; historical factory-generated appearances unavailable",
 				conservativelyProtectedProjections: deck.otherCards.length,
 				historyComplete: false,
 				pages: 0,
@@ -263,7 +264,36 @@ async function main() {
 			cursor = page.nextCursor;
 			cursors.add(JSON.stringify(cursor));
 		}
-		for (const card of deck.otherCards) {
+		const interactionRows = [...snapshot.rows];
+		await approvalHistory({
+			read: code,
+			workTool: await discover(
+				"list_work_approvals",
+				"workApprovals/listInbox",
+			),
+			runtimeTool: await discover("list_tedi_approvals", "tediApprovals/list"),
+			cutoff,
+			maxPages,
+			currentIds: snapshot.currentIds,
+			checkpoint: async ({ rows, coverage }) => {
+				snapshot.rows = [...interactionRows, ...rows];
+				snapshot.coverage.approvals = coverage;
+				await writeFile(
+					join(out, "snapshot.json"),
+					JSON.stringify(snapshot, null, 2),
+					{ mode: 0o600 },
+				);
+			},
+		});
+		for (const row of snapshot.rows) seen.add(row.request.id);
+		snapshot.coverage.interactionHistoryComplete =
+			snapshot.coverage.historyComplete;
+		snapshot.coverage.historyComplete &&= Object.values(
+			snapshot.coverage.approvals,
+		).every((c) => c.complete);
+		snapshot.coverage.conservativelyProtectedProjections =
+			deck.otherCards.filter((card) => !seen.has(card.id)).length;
+		for (const card of deck.otherCards.filter((card) => !seen.has(card.id))) {
 			snapshot.rows.push({
 				request: {
 					id: card.id,
