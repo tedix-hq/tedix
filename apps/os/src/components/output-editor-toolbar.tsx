@@ -68,7 +68,7 @@ export function EditorToolbarButton({
 			aria-label={label}
 			title={label}
 			aria-pressed={active}
-			className={active ? "bg-kumo-tint" : undefined}
+			className="aria-pressed:bg-kumo-tint! aria-[pressed=false]:bg-transparent! max-sm:min-h-11 max-sm:min-w-11"
 			disabled={disabled}
 			onClick={onClick}
 		>
@@ -130,7 +130,7 @@ export function EditorToolbarColorButton({
 		<label
 			title={label}
 			data-toolbar-control="color"
-			className="relative inline-flex size-7 shrink-0 cursor-pointer flex-col items-center justify-center gap-px rounded-md text-kumo-default transition-colors hover:bg-kumo-interact has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 motion-reduce:transition-none"
+			className="relative inline-flex size-11 shrink-0 cursor-pointer flex-col items-center justify-center gap-px rounded-md border-0! text-kumo-default transition-colors hover:bg-kumo-interact has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-kumo-focus motion-reduce:transition-none sm:size-7"
 		>
 			{children}
 			<span
@@ -141,7 +141,7 @@ export function EditorToolbarColorButton({
 			<Input
 				type="color"
 				aria-label={label}
-				className="absolute inset-0 size-full cursor-pointer rounded-md border-0 bg-transparent p-0 opacity-0 shadow-none"
+				className="absolute inset-0 size-full cursor-pointer rounded-md border-0 bg-transparent p-0 opacity-0 shadow-none coarse:min-h-0"
 				disabled={disabled}
 				value={color}
 				onChange={(event) => onChange(event.target.value)}
