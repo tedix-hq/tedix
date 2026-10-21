@@ -6,6 +6,7 @@ import { OutboundRecordSchema } from "./outbound";
 import {
 	CredentialWorkActorTypeSchema,
 	WorkFactoryProjectionCursorSchema,
+	WorkItemDispositionSchema,
 } from "./work-items";
 
 export const WORK_PROPOSAL_SCHEMA = "tedix.work-proposal.v1";
@@ -509,10 +510,9 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 				.uuid()
 				.nullable()
 				.describe("Nullable for Work Items that are not filed in a project."),
-			disposition: z
-				.enum(["proposed", "accepted", "completed", "cancelled"])
-				.optional()
-				.describe("Completed or cancelled Work means the ask was handled."),
+			disposition: WorkItemDispositionSchema.optional().describe(
+				"Completed or cancelled Work means the ask was handled.",
+			),
 		})
 		.nullable()
 		.describe(

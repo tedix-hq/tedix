@@ -1247,6 +1247,35 @@ describe("artifact-neutral factory control verbs", () => {
 		expect(outbox.sources[0]).toContain("work.list_work_interaction_outbox");
 	});
 
+	test.each(["proposed", "accepted", "completed", "cancelled", undefined])(
+		"interaction-list JSON preserves Work disposition %s",
+		async (disposition) => {
+			const workItem = {
+				id: ITEM,
+				title: "Check compatibility",
+				projectId: null,
+				...(disposition === undefined ? {} : { disposition }),
+			};
+			const { ctx } = makeContext({}, undefined, () => ({
+				data: [
+					{
+						request: { id: ATTEMPT, orgId: TEST_ORG, workItemId: ITEM },
+						effectiveState: "open",
+						canRespond: true,
+						workItem,
+					},
+				],
+				nextCursor: null,
+				hasMore: false,
+				observedAt: "2026-10-07T12:00:00Z",
+			}));
+			const result = await capture("interaction-list", ctx);
+			expect(result.code).toBe(0);
+			expect(result.err).toEqual([]);
+			expect(JSON.parse(result.out[0]!).data[0].workItem).toEqual(workItem);
+		},
+	);
+
 	test("loads structured input from inline JSON and calls the exact verb-first tool", async () => {
 		const { ctx, sources } = makeContext({
 			input: JSON.stringify({
@@ -2326,6 +2355,41 @@ describe("selected chat Work checkpoint", () => {
 		const optionsRuntime = options.runtime;
 		return { ctx, sources };
 	}
+	test("checkpoint accepts Work disposition in its directed inbox", async () => {
+		const workItem = {
+			id: ITEM,
+			title: "Check contract",
+			projectId: PROJECT,
+			disposition: "accepted",
+		};
+		const { ctx } = fixture({
+			page: {
+				data: [
+					{
+						canRespond: true,
+						effectiveState: "open",
+						request: {
+							id: REQUEST,
+							orgId: ORG,
+							workItemId: ITEM,
+							kind: "coordination",
+							prompt: "Check contract",
+							promptComplete: true,
+						},
+						workItem,
+					},
+				],
+				nextCursor: null,
+				hasMore: false,
+				observedAt: "2026-10-03T10:00:00Z",
+			},
+		});
+		const result = await capture("checkpoint", ctx);
+		expect(result.code).toBe(0);
+		expect(result.err).toEqual([]);
+		expect(JSON.parse(result.out[0]!).requests[0].id).toBe(REQUEST);
+	});
+
 	test("reads exact selected chat Work and directed inbox without writes", async () => {
 		const { ctx, sources } = fixture();
 		const result = await capture("checkpoint", ctx);
