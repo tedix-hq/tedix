@@ -15,3 +15,18 @@
 		grid-column: 1 / -1;
 	}
 }
+
+.output-detail-reading .output-detail-actions {
+	flex-wrap: nowrap;
+}
+
+@media (max-width: 639px) {
+	.output-detail-reading .output-detail-overflow {
+		width: 44px;
+		padding-inline: 0;
+	}
+
+	.output-detail-reading .output-detail-actions > [data-slot="button"] {
+		flex: 1;
+	}
+}

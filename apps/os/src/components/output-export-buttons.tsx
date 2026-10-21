@@ -1,4 +1,5 @@
-import { DownloadSimple } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
+import { DotsThree, DownloadSimple } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 import {
 	type OsOutputExportFormat,
@@ -23,6 +24,8 @@ export function OutputExportButtons({
 	outputId,
 	kind,
 	compact = false,
+	phoneOverflow = false,
+	phoneActions,
 }: {
 	outputId: string;
 	/**
@@ -32,6 +35,8 @@ export function OutputExportButtons({
 	 */
 	kind: OsOutputKind;
 	compact?: boolean;
+	phoneOverflow?: boolean;
+	phoneActions?: ReactNode;
 }) {
 	const exportOutput = useMutation({
 		mutationFn: (format: OsOutputExportFormat) =>
@@ -62,21 +67,36 @@ export function OutputExportButtons({
 					render={
 						<Button
 							size="sm"
+							className={phoneOverflow ? "output-detail-overflow" : undefined}
 							variant="secondary"
 							disabled={exportOutput.isPending}
 							aria-label={
 								activeFormat
 									? `Exporting ${activeFormat.toUpperCase()}`
-									: "Export"
+									: phoneOverflow
+										? "Output actions"
+										: "Export"
 							}
 							aria-busy={exportOutput.isPending || undefined}
 						/>
 					}
 				>
-					<DownloadSimple size={14} />
-					{activeFormat ? `Exporting ${activeFormat.toUpperCase()}…` : "Export"}
+					{phoneOverflow ? <DotsThree size={18} className="sm:hidden" /> : null}
+					<span
+						className={
+							phoneOverflow
+								? "hidden sm:inline-flex items-center gap-1"
+								: "inline-flex items-center gap-1"
+						}
+					>
+						<DownloadSimple size={14} />
+						{activeFormat
+							? `Exporting ${activeFormat.toUpperCase()}…`
+							: "Export"}
+					</span>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
+					{phoneActions}
 					{formats.map((format) => (
 						<DropdownMenuItem
 							key={format}

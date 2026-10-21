@@ -161,16 +161,16 @@ describe("OutputsPage", () => {
 		expect(toolbar?.className).not.toContain("xl:flex-row");
 		const searchGroup = toolbar?.querySelector(".lg\\:w-auto");
 		expect(searchGroup).not.toBeNull();
-		expect(searchGroup?.className).toContain("flex-col");
-		expect(searchGroup?.className).toContain("sm:flex-row");
+		expect(searchGroup?.className).not.toContain("flex-col");
+		expect(searchGroup?.className).toContain("items-center");
 		const scopeButton = Array.from(container.querySelectorAll("button")).find(
 			(button) => button.textContent?.includes("Yours and shared"),
 		);
-		expect(scopeButton?.className).toContain("w-full");
+		expect(scopeButton?.className).toContain("shrink-0");
 		expect(scopeButton?.className).toContain("justify-between");
-		expect(scopeButton?.className).toContain("sm:w-auto");
+		expect(scopeButton?.getAttribute("aria-label")).toBe("Yours and shared");
 		const search = container.querySelector('[aria-label="Search outputs"]');
-		expect(search?.parentElement?.className).toContain("w-full");
+		expect(search?.parentElement?.className).toContain("flex-1");
 		expect(search?.parentElement?.className).toContain("sm:w-60");
 	});
 
@@ -412,7 +412,7 @@ describe("OutputsPage", () => {
 		expect(gridPreview?.className).toContain("rounded-t-xl");
 		expect(gridPreview?.className).not.toContain("rounded-t-lg");
 		expect(gridPreview?.className).toContain("aspect-video");
-		expect(gridPreview?.className).toContain("sm:aspect-[4/3]");
+		expect(gridPreview?.className).not.toContain("sm:aspect-[4/3]");
 		const typeTabs = container.querySelectorAll('[role="tab"]');
 		expect(typeTabs).toHaveLength(5);
 		const typeTabList = container.querySelector(
