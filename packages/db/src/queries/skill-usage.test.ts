@@ -831,6 +831,7 @@ describe("automatic pace-layer eval gating", () => {
 		expect(skillRow("candidate")).toMatchObject({
 			lifecycleState: "draft",
 			successCount: 1,
+			avgDurationMs: 300000,
 		});
 		expect(
 			sqlite.prepare("SELECT count(*) AS count FROM skill_schedules").get()
