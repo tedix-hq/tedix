@@ -266,7 +266,7 @@ export function AdminPage() {
 								};
 
 	return (
-		<Page width="md" className="max-w-3xl">
+		<Page width="md">
 			<PageHeader>
 				<PageHeading>
 					<PageTitle>{OS_COPY.navigation.settings}</PageTitle>
