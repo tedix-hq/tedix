@@ -1,4 +1,8 @@
 import { CaretRight } from "@phosphor-icons/react";
+import { useContext, useState } from "react";
+import { createPortal } from "react-dom";
+import { DropdownMenuItem } from "@/components/kumo/dropdown-menu";
+import { OsTopbarMenuContext } from "@/components/os-topbar-actions-context";
 import {
 	Collapsible,
 	CollapsibleTrigger,
@@ -47,10 +51,15 @@ export function isActionableHomeApproval(approval: {
 
 export function ApprovalNotifications({
 	conversationId = null,
+	topbar = false,
 }: {
 	conversationId?: string | null;
+	topbar?: boolean;
 }) {
 	const queryClient = useQueryClient();
+	const topbarMenu = useContext(OsTopbarMenuContext);
+	const menu = topbar ? topbarMenu : null;
+	const [open, setOpen] = useState(false);
 	const runSet = useQuery({
 		...homeRunSetQueryOptions(conversationId ?? ""),
 		enabled: conversationId !== null,
@@ -125,30 +134,43 @@ export function ApprovalNotifications({
 	const error = respondHome.error ?? resolveRuntime.error;
 
 	return (
-		<PopoverRoot>
-			<PopoverTrigger
-				render={
-					<Button
-						aria-label={
-							count === 0
-								? "Action approvals: none waiting"
-								: `Action approvals: ${count} waiting`
-						}
-						className="relative"
-						size="icon-sm"
-						title="Action approvals"
-						variant={count > 0 ? "secondary" : "ghost"}
-					>
-						<Pulse size={16} weight={count > 0 ? "bold" : "regular"} />
-						{count > 0 ? (
-							<Badge className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 tabular-nums">
-								{count > 99 ? "99+" : count}
-							</Badge>
-						) : null}
-					</Button>
-				}
-			/>
+		<PopoverRoot open={open} onOpenChange={setOpen}>
+			{menu ? (
+				menu.target &&
+				createPortal(
+					<DropdownMenuItem onClick={() => setOpen(true)}>
+						<Pulse aria-hidden size={18} />
+						Activity{count > 0 ? <Badge>{count} waiting</Badge> : null}
+					</DropdownMenuItem>,
+					menu.target,
+				)
+			) : (
+				<PopoverTrigger
+					render={
+						<Button
+							aria-label={
+								count === 0
+									? "Action approvals: none waiting"
+									: `Action approvals: ${count} waiting`
+							}
+							className="relative"
+							size="icon-sm"
+							title="Action approvals"
+							variant={count > 0 ? "secondary" : "ghost"}
+						>
+							<Pulse size={16} weight={count > 0 ? "bold" : "regular"} />
+							{count > 0 ? (
+								<Badge className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 tabular-nums">
+									{count > 99 ? "99+" : count}
+								</Badge>
+							) : null}
+						</Button>
+					}
+				/>
+			)}
 			<PopoverContent
+				anchor={menu?.anchor}
+				finalFocus={menu?.anchor}
 				align="end"
 				className="grid max-h-[min(36rem,var(--available-height))] w-[min(28rem,calc(100vw-2rem))] gap-3 overflow-y-auto p-3"
 				side="bottom"

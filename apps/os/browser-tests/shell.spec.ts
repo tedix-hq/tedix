@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { chromium, type Browser, type Page } from "playwright";
+import { assertLeanTopbar } from "./topbar.spec";
 
 const cwd = new URL("../", import.meta.url).pathname;
 const evidenceDir = process.env.SHELL_EVIDENCE_DIR;
@@ -657,6 +658,7 @@ async function runShell() {
 		}
 	}
 	assert.deepEqual(pageErrors, [], "Shell pages must not raise browser errors");
+	await assertLeanTopbar(origin, evidenceDir);
 	console.log(
 		"PASS: nine sidebar links, avatar-only footer, account menu, settings rail, retained URLs and titles; desktop/390 × light/dark",
 	);
