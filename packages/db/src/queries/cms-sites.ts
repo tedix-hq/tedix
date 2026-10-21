@@ -38,6 +38,7 @@ export async function rotateCmsSitePageCacheRevision(
 				eq(cmsSites.id, input.siteId),
 				eq(cmsSites.slug, input.slug),
 				eq(cmsSites.restoreEpoch, input.restoreEpoch),
+				sql`json_extract(${cmsSites.config}, '$.pageCacheRevision') IS NOT ${input.revision}`,
 			),
 		);
 }

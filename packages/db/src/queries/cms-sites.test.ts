@@ -15,7 +15,7 @@ import {
 	rotateCmsSitePageCacheRevision,
 } from "./cms-sites";
 
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		CREATE TABLE cms_sites (
@@ -51,10 +51,59 @@ function fixture() {
 			id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, slug TEXT NOT NULL
 		);
 	`);
-	return { db: createDbQueryClient(createD1Facade(sqlite)), sqlite };
+	return {
+		db: createDbQueryClient(createD1Facade(sqlite, { onPrepare })),
+		sqlite,
+	};
 }
 
 describe("CMS site create on D1", () => {
+	it("writes only changed page revisions using an indexed exact-site lookup", async () => {
+		let query = "";
+		const { db, sqlite } = fixture((statement) => {
+			query = statement;
+		});
+		await registerCmsSite(db, {
+			id: "site-one",
+			organizationId: "org-one",
+			slug: "first",
+			name: "First",
+			canonicalUrl: "https://example.com",
+		});
+		const input = {
+			siteId: "site-one",
+			slug: "first",
+			restoreEpoch: 0,
+			revision: "revision-one",
+		};
+		await rotateCmsSitePageCacheRevision(db, input);
+		expect(sqlite.prepare("SELECT changes() AS n").get()).toEqual({ n: 1 });
+		await rotateCmsSitePageCacheRevision(db, input);
+		expect(sqlite.prepare("SELECT changes() AS n").get()).toEqual({ n: 0 });
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(
+				input.revision,
+				input.siteId,
+				input.slug,
+				input.restoreEpoch,
+				input.revision,
+			)
+			.map((row) => String(row.detail));
+		expect(plan.some((step) => /SEARCH cms_sites USING INDEX/.test(step))).toBe(
+			true,
+		);
+		expect(plan.some((step) => /SCAN cms_sites/.test(step))).toBe(false);
+		await rotateCmsSitePageCacheRevision(db, {
+			...input,
+			revision: "revision-two",
+		});
+		expect(sqlite.prepare("SELECT changes() AS n").get()).toEqual({ n: 1 });
+		expect(
+			(await getCmsSiteBySlug(db, "first"))?.config?.pageCacheRevision,
+		).toBe("revision-two");
+	});
+
 	it("rotates the cache revision without losing config or crossing site and restore boundaries", async () => {
 		const { db } = fixture();
 		await registerCmsSite(db, {

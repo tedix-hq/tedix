@@ -200,16 +200,21 @@ export function digestCmsRecoverySqlite(
 export class EmDashDB extends EmdashSqlDB {
 	private databasePermits = new PublicRestorePermits();
 
-	private async withPageCacheInvalidation<T>(
+	private async withPageCacheInvalidation<
+		T extends DoQueryResult | DoQueryResult[],
+	>(
 		identity: CmsRestoreFenceIdentity,
 		statements: DoQueryStatement[],
 		run: () => Promise<T>,
 	): Promise<T> {
+		let results: DoQueryResult[] | undefined;
 		try {
-			return await run();
+			const result = await run();
+			results = Array.isArray(result) ? result : [result];
+			return result;
 		} finally {
 			if (
-				statements.some(({ sql, params }) => {
+				statements.some(({ sql, params }, index) => {
 					if (sql.includes(";")) return true;
 					if (PLAIN_SELECT_PATTERN.test(sql)) return false;
 					// Native maintenance does not alter public content.
@@ -219,6 +224,28 @@ export class EmDashDB extends EmdashSqlDB {
 						.replace(/\s+/g, " ")
 						.trim()
 						.toLowerCase();
+					if (results?.[index]?.changes === 0) {
+						const target = sql.match(
+							/^\s*(?:insert\s+into|update|delete\s+from)\s+(?:"([a-z_][a-z0-9_]*)"|`([a-z_][a-z0-9_]*)`|([a-z_][a-z0-9_]*))(?=\s|\()/i,
+						);
+						const table = (
+							target?.[1] ??
+							target?.[2] ??
+							target?.[3]
+						)?.toLowerCase();
+						// changes() excludes trigger writes, including INSTEAD OF
+						// triggers on views. Unknown SQL and failed batches invalidate.
+						if (
+							table &&
+							this.ctx.storage.sql
+								.exec(
+									"SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND lower(tbl_name) = ? LIMIT 1",
+									table,
+								)
+								.toArray().length === 0
+						)
+							return false;
+					}
 					if (
 						/^(?:insert into|update|delete from) (?:_emdash_404_log|_emdash_cron_tasks|_plugin_indexes)\b/.test(
 							normalized,
