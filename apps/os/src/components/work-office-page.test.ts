@@ -1,6 +1,6 @@
 import { officeAsk } from "@/lib/work-interaction-display";
 import { describe, expect, it } from "vite-plus/test";
-import { answerDeliveryLine } from "./work-operations-pages";
+import { answerDeliveryLine } from "./work-operations-shared";
 import {
 	captureHealthLine,
 	knockOutcome,

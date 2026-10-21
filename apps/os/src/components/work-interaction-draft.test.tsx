@@ -20,7 +20,7 @@ import {
 	editRatio,
 	latestDraftOf,
 } from "./work-interaction-draft";
-import { WorkInteractionPage } from "./work-operations-pages";
+import { WorkInteractionPage } from "./work-interactions-pages";
 
 const { respond } = vi.hoisted(() => ({
 	// Never settles, so success invalidation never refetches over the network.

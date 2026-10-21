@@ -26,7 +26,7 @@ vi.mock("@/lib/api", () => ({
 		userSettings: { getContext: api.getContext },
 	},
 }));
-vi.mock("@/components/work-operations-pages", () => ({
+vi.mock("@/components/work-operations-shared", () => ({
 	useWorkPrincipalNames: () => api.names,
 }));
 
