@@ -66,6 +66,12 @@ describe("getHistoryTokenLimits", () => {
 		expect(limits.retainTargetChars).toBe(900);
 	});
 
+	it("caps a one-million-token budget at 20,000 retained tokens", () => {
+		const limits = getHistoryTokenLimits(1_000_000, 0);
+		expect(limits.historyBudgetChars).toBe(4_000_000);
+		expect(limits.retainTargetChars).toBe(80_000);
+	});
+
 	it("never goes negative when the fixed sections alone exceed the budget", () => {
 		const limits = getHistoryTokenLimits(10, 10_000);
 		expect(limits.historyBudgetChars).toBe(0);
