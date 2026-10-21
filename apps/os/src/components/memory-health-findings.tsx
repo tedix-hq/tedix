@@ -80,7 +80,7 @@ export function findingHeadline(
 	}
 }
 
-export const FINDING_ACTIONS: Record<MemoryHealthFinding["kind"], string> = {
+const FINDING_ACTIONS: Record<MemoryHealthFinding["kind"], string> = {
 	unused: "Archive them, or check why no tedi reaches for them.",
 	stale_in_use: "Re-verify these first: tedis are acting on them today.",
 	duplicate: "Keep the current one and archive the rest.",
@@ -107,13 +107,6 @@ export function graphLayerStatus(layer: MemoryHealthFindings["graphLayer"]): {
 					"The Neo4j graph layer is paused. Memory itself is unaffected: D1 is the record and every number on this page comes from it.",
 				variant: "warning",
 			};
-}
-
-/** Where a person can review the fact; org-wide facts have no per-tedi page. */
-export function reviewTarget(
-	sample: Pick<MemoryHealthFindingSample, "tediId">,
-): { tediId: string } | null {
-	return sample.tediId ? { tediId: sample.tediId } : null;
 }
 
 export function provenanceLines(sample: MemoryHealthFindingSample): string[] {
@@ -183,11 +176,7 @@ export function ProvenanceDetails({
 	);
 }
 
-export function WhyWeBelieveThis({
-	sample,
-}: {
-	sample: MemoryHealthFindingSample;
-}) {
+function WhyWeBelieveThis({ sample }: { sample: MemoryHealthFindingSample }) {
 	return (
 		<PopoverRoot>
 			<PopoverTrigger
@@ -213,8 +202,18 @@ export function WhyWeBelieveThis({
 	);
 }
 
+function ReviewMemoryLink({ tediId }: { tediId: string }) {
+	return (
+		<Link
+			render={<OsRouterLink to="/team/$tediId/memory" params={{ tediId }} />}
+			className="min-h-11"
+		>
+			Review in this tedi&apos;s memory
+		</Link>
+	);
+}
+
 function SampleRow({ sample }: { sample: MemoryHealthFindingSample }) {
-	const target = reviewTarget(sample);
 	return (
 		<li
 			data-slot="memory-health-sample"
@@ -228,17 +227,8 @@ function SampleRow({ sample }: { sample: MemoryHealthFindingSample }) {
 			</Text>
 			<span className="flex flex-wrap items-center gap-1">
 				<WhyWeBelieveThis sample={sample} />
-				{target ? (
-					<Link
-						render={
-							<OsRouterLink
-								to="/team/$tediId/memory"
-								params={{ tediId: target.tediId }}
-							/>
-						}
-					>
-						Review in this tedi&apos;s memory
-					</Link>
+				{sample.tediId ? (
+					<ReviewMemoryLink tediId={sample.tediId} />
 				) : (
 					<Text role="label" tone="secondary" className="m-0">
 						Org-wide fact
@@ -273,19 +263,7 @@ function SampleGroup({ samples }: { samples: MemoryHealthFindingSample[] }) {
 								</Text>
 								<Text className="m-0 break-words">{sample.detail}</Text>
 								<ProvenanceDetails sample={sample} showText={false} />
-								{sample.tediId && (
-									<Link
-										render={
-											<OsRouterLink
-												to="/team/$tediId/memory"
-												params={{ tediId: sample.tediId }}
-											/>
-										}
-										className="min-h-11"
-									>
-										Review in this tedi&apos;s memory
-									</Link>
-								)}
+								{sample.tediId && <ReviewMemoryLink tediId={sample.tediId} />}
 							</li>
 						))}
 					</ul>
@@ -353,11 +331,7 @@ export function MemoryHealthFindingItem({
 	);
 }
 
-export function MemoryHealthFindingsList({
-	data,
-}: {
-	data: MemoryHealthFindings;
-}) {
+function MemoryHealthFindingsList({ data }: { data: MemoryHealthFindings }) {
 	useOsFormattingPreferences();
 	const layer = graphLayerStatus(data.graphLayer);
 	return (

@@ -389,6 +389,9 @@ export function MemoryBrowser({
 	const change = (patch: Partial<MemorySearch>) =>
 		onSearch({ ...patch, page: 0, detail: "" });
 	const sources = [...new Set(rows.map((row) => row.source))].sort();
+	const hasFilters = Boolean(
+		search.q || search.domain || search.source || search.confidence !== "all",
+	);
 	const description =
 		search.tab === "stale"
 			? "Not accessed in 60 days. Only memories you can access are listed."
@@ -483,7 +486,7 @@ export function MemoryBrowser({
 							)}
 							<Choice
 								label="Confidence"
-								disabled={search.tab === "rules" || search.tab === "curiosity"}
+								disabled={!confidenceAvailable}
 								value={confidenceAvailable ? search.confidence : "all"}
 								choices={[
 									{ value: "all", label: "Any confidence" },
@@ -510,10 +513,7 @@ export function MemoryBrowser({
 								}
 							/>
 						</div>
-						{(search.q ||
-							search.domain ||
-							search.source ||
-							search.confidence !== "all") && (
+						{hasFilters && (
 							<div>
 								<Button
 									variant="ghost"
@@ -548,10 +548,7 @@ export function MemoryBrowser({
 							<EmptyHeader>
 								<EmptyTitle>No memories to show</EmptyTitle>
 								<EmptyDescription>
-									{search.q ||
-									search.domain ||
-									search.source ||
-									search.confidence !== "all"
+									{hasFilters
 										? "Try another search or clear the filters."
 										: "Memories appear here as your tedis learn."}
 								</EmptyDescription>
