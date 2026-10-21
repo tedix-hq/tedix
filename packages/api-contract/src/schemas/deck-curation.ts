@@ -24,6 +24,7 @@ export const DeckCurationScopeSchema = z.strictObject({
 });
 /** Why a card left the Deck without being answered. */
 export const DeckRetirementReasonSchema = z.enum([
+	"already_decided",
 	"expired",
 	"handled_elsewhere",
 	"superseded",

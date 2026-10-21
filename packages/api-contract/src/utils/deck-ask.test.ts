@@ -171,6 +171,10 @@ describe("deadlines", () => {
 			),
 		).toEqual({
 			askKind: "send",
+			responseKind: "open",
+			responseOptions: [],
+			ownerTask: null,
+			actionable: true,
 			deadline: null,
 			overdue: false,
 			draftedNotSent: true,
@@ -427,7 +431,9 @@ it.each(["send", "decide", "approve_draft", "answer", "consent"])(
 				],
 			},
 		);
-		expect(deckAskKind({ kind: decision.kind, decision })).toBe(ask);
+		expect(deckAskKind({ kind: decision.kind, decision })).toBe(
+			ask === "answer" ? "decide" : ask,
+		);
 		expect(
 			decision.options.find((option) => option.intent === "reject"),
 		).toMatchObject({ label: "No / Not needed" });
@@ -437,3 +443,49 @@ it.each(["send", "decide", "approve_draft", "answer", "consent"])(
 		expect(DecisionEnvelopeSchema.parse(decision)).toEqual(decision);
 	},
 );
+
+it("exposes one actionable date including the source expiry and task classification", () => {
+	const ask = deckAsk(
+		{
+			kind: "question",
+			dueAt: "2026-10-23",
+			request: {
+				subject: "Your Maple login (about 3 min)",
+				prompt: "1. Sign in with MFA.\n2. Revoke the old token.",
+				expiresAt: "2026-10-22T12:00:00Z",
+			},
+		},
+		now,
+	);
+	expect(ask).toMatchObject({
+		askKind: "task",
+		responseKind: "task",
+		deadline: "2026-10-22T12:00:00Z",
+		ownerTask: { estimatedMinutes: 3 },
+	});
+});
+
+it("preserves consent and outbound kinds while exposing response options", () => {
+	expect(
+		deckAsk(
+			{
+				kind: "question",
+				request: {
+					subject: "Should Maple import?",
+					metadata: { localImport: true },
+				},
+			},
+			now,
+		).askKind,
+	).toBe("consent");
+	expect(
+		deckAsk(
+			{
+				kind: "outbound",
+				label: "Send the sign in steps?",
+				request: { prompt: "Sign in with your MFA." },
+			},
+			now,
+		).askKind,
+	).toBe("send");
+});

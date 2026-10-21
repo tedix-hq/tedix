@@ -10,7 +10,9 @@ import type {
 	DeckSweepReceipt,
 } from "../schemas/deck-pipeline";
 import { DecisionEnvelopeSchema } from "../schemas/os-decision-deck";
-import { deckCardExpired } from "./deck-ask";
+import { deckCardExpired, deckCardStale } from "./deck-ask";
+import type { DecisionContext } from "../schemas/decision-graph";
+import defaults from "../assets/deck-pipeline.v1.json";
 
 type Metadata = Record<string, unknown>;
 
@@ -159,6 +161,14 @@ export type SweepCard = {
 	/** Latest revision by the card's owner; refreshes reset the overdue clock. */
 	refreshedAt?: string | null;
 	askKind: string;
+	responseKind?: "task" | "choice" | "open";
+	actionable?: boolean;
+	graph?: Partial<
+		Pick<
+			DecisionContext,
+			"priorDecision" | "supersededBy" | "duplicates" | "blocksCount"
+		>
+	>;
 };
 
 export type SweepAction = {
@@ -172,35 +182,75 @@ export type SweepAction = {
 	ruleId?: string;
 };
 
-/**
- * S2: which live cards leave the Deck. Deterministic and bounded by its input.
- * Only a hard expiry, a finished Work Item, an exact duplicate or a learned
- * rule retires a card; a missed due time never does (it is still actionable).
- * A protected ask leaves only when it hard-expired or when an agent's own
- * duplicate folds into a protected card with the same ask.
- */
+/** S2 retires only expired asks, settled sources, graph facts and learned rules. */
 export function planDeckSweep(input: {
 	cards: readonly SweepCard[];
 	now: Date;
 	config: DeckPipelineConfig["sweep"];
+	qualification?: DeckPipelineConfig["qualification"];
+	timeZone?: string;
 	rules: readonly DeckLearnedRule[];
-	/** Recently answered cards; feed the "already decided" rule. */
-	answered?: readonly { id: string; sourceKey: string; subject: string }[];
 }): { actions: SweepAction[]; proposals: SweepAction[] } {
 	const { cards, now, config } = input;
+	const qualification = input.qualification ?? defaults.qualification;
 	const actions = new Map<string, SweepAction>();
-	const proposals: SweepAction[] = [];
 	const add = (action: SweepAction) => {
 		if (!actions.has(action.cardId)) actions.set(action.cardId, action);
 	};
-	const nowMs = now.getTime();
 	for (const card of cards) {
 		const decision = DecisionEnvelopeSchema.safeParse(
 			card.metadata.decisionDeck,
 		).data;
-		const agentCard = card.creatorType !== "user";
+		const prior = card.graph?.priorDecision;
 		if (
-			agentCard &&
+			qualification.enabled &&
+			qualification.alreadyDecided &&
+			prior &&
+			card.responseKind !== "task"
+		) {
+			add({
+				cardId: card.id,
+				reason: "already_decided",
+				cause: "handled",
+				note: "Already decided.",
+				evidenceRefs: [
+					prior.edge.evidenceRef ?? `${prior.node.kind}:${prior.node.id}`,
+				],
+			});
+			continue;
+		}
+		if (
+			deckCardStale(
+				{
+					dueAt: card.dueAt,
+					decision,
+					request: {
+						subject: card.subject,
+						prompt: card.prompt,
+						expiresAt: card.expiresAt,
+						metadata: card.metadata,
+					},
+					workItem: { disposition: card.workItemDisposition },
+				},
+				now,
+				qualification,
+				input.timeZone,
+			)
+		) {
+			add({
+				cardId: card.id,
+				reason: "expired",
+				cause: "expired",
+				workItemId: card.workItemId ?? undefined,
+				note: "Withdrawn: check the source before asking again. Create a fresh ask only if a decision is still needed.",
+				evidenceRefs: card.workItemId
+					? [`/work/items/${card.workItemId}`]
+					: [`work-interaction:${card.id}`],
+			});
+			continue;
+		}
+		if (
+			card.creatorType !== "user" &&
 			deckCardExpired({ decision, request: { expiresAt: card.expiresAt } }, now)
 		) {
 			add({
@@ -212,106 +262,123 @@ export function planDeckSweep(input: {
 			});
 			continue;
 		}
-		if (card.protected) continue;
+		if (card.workItemId && card.workItemDisposition === "completed") {
+			add({
+				cardId: card.id,
+				reason: "already_decided",
+				cause: "handled",
+				workItemId: card.workItemId,
+				note: "Already decided.",
+				evidenceRefs: [`/work/items/${card.workItemId}`],
+			});
+			continue;
+		}
 		if (
+			!card.protected &&
 			card.workItemId &&
-			(card.workItemDisposition === "completed" ||
-				card.workItemDisposition === "cancelled")
+			card.workItemDisposition === "cancelled"
 		) {
 			add({
 				cardId: card.id,
 				reason: "handled_elsewhere",
 				cause: "handled",
 				workItemId: card.workItemId,
-				note: `Its Work Item is ${card.workItemDisposition}.`,
+				note: "Its Work Item is cancelled.",
 				evidenceRefs: [`/work/items/${card.workItemId}`],
 			});
-			continue;
 		}
 	}
-
-	// Newer supersedes older on an exact key: same agent, same Work Item (or
-	// none; a learned duplicate rule drops this), same ask kind, same subject.
-	const live = cards.filter((card) => !actions.has(card.id));
-	const newestFirst = [...live].sort(
+	// Only linked cards in this recipient's bounded live set can be keepers.
+	const newestFirst = [...cards].sort(
 		(a, b) =>
 			b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
 	);
-	const duplicateRuleSources = new Set(
-		input.rules
-			.filter((rule) => rule.reason === "duplicate")
-			.map((rule) => rule.sourceKey),
-	);
-	for (const [index, older] of newestFirst.entries()) {
-		if (older.creatorType === "user" || actions.has(older.id)) continue;
-		const source = deckSourceKey(older);
-		const learned = duplicateRuleSources.has(source);
-		const keeper = newestFirst
-			.slice(0, index)
-			.find(
-				(newer) =>
-					!actions.has(newer.id) &&
-					newer.creatorType === older.creatorType &&
-					newer.creatorId === older.creatorId &&
-					newer.askKind === older.askKind &&
-					(learned || (newer.workItemId ?? "") === (older.workItemId ?? "")) &&
-					(!older.protected || newer.protected) &&
-					subjectSimilarity(newer.subject, older.subject) >=
-						config.duplicateSimilarity,
+	if (qualification.enabled && qualification.graphDuplicates) {
+		const groups = new Map(cards.map((card) => [card.id, card.id]));
+		const group = (id: string) => {
+			let current = id;
+			while (groups.get(current) && groups.get(current) !== current)
+				current = groups.get(current)!;
+			return current;
+		};
+		for (const card of cards)
+			for (const other of card.graph?.duplicates ?? []) {
+				if (groups.has(other)) groups.set(group(card.id), group(other));
+			}
+		// Directed supersedes takes precedence over age-based duplicate selection.
+		for (const card of newestFirst) {
+			if (actions.has(card.id)) continue;
+			const successor = card.graph?.supersededBy;
+			if (!successor) continue;
+			const keeper = newestFirst.find(
+				(c) =>
+					c.id === successor.node.id &&
+					!actions.has(c.id) &&
+					(!card.protected || c.protected),
 			);
-		if (keeper)
-			add({
-				cardId: older.id,
-				reason: "duplicate",
-				cause: "duplicate",
-				successorId: keeper.id,
-				workItemId: keeper.workItemId ?? undefined,
-				note: `Superseded by the newer card “${keeper.subject.slice(0, 120)}”.`,
-				evidenceRefs: [`work-interaction:${keeper.id}`],
-			});
+			if (
+				successor.node.kind === "deck_card" &&
+				keeper &&
+				keeper.id !== card.id &&
+				keeper.graph?.supersededBy?.node.id !== card.id
+			)
+				add({
+					cardId: card.id,
+					reason: "superseded",
+					cause: "duplicate",
+					successorId: keeper.id,
+					note: "Replaced by a linked card.",
+					evidenceRefs: [
+						successor.edge.evidenceRef ?? `work-interaction:${keeper.id}`,
+					],
+				});
+		}
+		for (const [index, older] of newestFirst.entries()) {
+			if (actions.has(older.id)) continue;
+			const keeper = newestFirst
+				.slice(0, index)
+				.find(
+					(newer) =>
+						!actions.has(newer.id) &&
+						(newer.responseKind === "task") ===
+							(older.responseKind === "task") &&
+						(!older.protected || newer.protected) &&
+						group(older.id) === group(newer.id),
+				);
+			if (keeper)
+				add({
+					cardId: older.id,
+					reason: "duplicate",
+					cause: "duplicate",
+					successorId: keeper.id,
+					workItemId: keeper.workItemId ?? undefined,
+					note: "Merged into the linked duplicate.",
+					evidenceRefs: [`work-interaction:${keeper.id}`],
+				});
+		}
 	}
-
-	// Learned rules never touch a protected ask; at most they lower it.
 	for (const rule of input.rules) {
 		for (const card of cards) {
-			if (actions.has(card.id) || card.protected) continue;
-			if (deckSourceKey(card) !== rule.sourceKey) continue;
-			const base = {
-				cardId: card.id,
-				cause: "rule" as const,
-				ruleId: rule.id,
-				evidenceRefs: [`deck-rule:${rule.id}`],
-			};
+			if (
+				actions.has(card.id) ||
+				card.protected ||
+				deckSourceKey(card) !== rule.sourceKey
+			)
+				continue;
 			if (rule.reason === "not_for_me" || rule.reason === "agent_could_do")
-				add({ ...base, reason: "no_longer_relevant", note: rule.sentence });
-			else if (rule.reason === "already_decided") {
-				// A fuzzy match only proposes; settling needs a cited decision record.
-				const match = input.answered?.find(
-					(answered) =>
-						answered.id !== card.id &&
-						answered.sourceKey === rule.sourceKey &&
-						subjectSimilarity(answered.subject, card.subject) >=
-							config.duplicateSimilarity,
-				);
-				if (match)
-					proposals.push({
-						cardId: card.id,
-						reason: "handled_elsewhere",
-						cause: "rule",
-						ruleId: rule.id,
-						note: rule.sentence,
-						evidenceRefs: [
-							`deck-rule:${rule.id}`,
-							`work-interaction:${match.id}`,
-						],
-					});
-			}
-			// "expired" rules act at create time: the card's due time becomes its expiry.
+				add({
+					cardId: card.id,
+					cause: "rule",
+					ruleId: rule.id,
+					reason: "no_longer_relevant",
+					note: rule.sentence,
+					evidenceRefs: [`deck-rule:${rule.id}`],
+				});
 		}
 	}
 	return {
 		actions: [...actions.values()].slice(0, config.maxRetirementsPerRun),
-		proposals,
+		proposals: [],
 	};
 }
 

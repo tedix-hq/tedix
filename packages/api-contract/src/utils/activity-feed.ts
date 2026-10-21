@@ -362,6 +362,7 @@ export function decisionFeedItems(
 }
 
 const RETIREMENT_LABELS: Record<DeckRetirementReason, string> = {
+	already_decided: "Already decided",
 	expired: "Expired",
 	handled_elsewhere: "Handled elsewhere",
 	superseded: "Superseded",

@@ -156,6 +156,21 @@ describe("headless attention view adaptation", () => {
 				metadata: { cardAction: "wait", decisionChoice: "later" },
 			},
 		});
+		card.responseKind = "task";
+		card.askKind = "task";
+		card.ownerTask = {
+			presence: "mfa",
+			steps: ["Sign in to Maple", "Finish the approved setup"],
+			estimatedMinutes: 3,
+		};
+		expect(deckDisplayCard(card, 0)).toMatchObject({
+			askKind: "task",
+			askLabel: "Task for you",
+			ownerTask: { estimatedMinutes: 3 },
+			options: [],
+			actions: [],
+			needsText: false,
+		});
 	});
 	it("keeps handoff execution in its originating OS flow", () => {
 		const view = deckDisplayCard(raw("handoff"), 0);

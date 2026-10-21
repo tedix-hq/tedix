@@ -6,7 +6,13 @@ import {
 	workInteractionCardRevisions,
 	workInteractions,
 } from "@tedix/db/schema/work-factory";
-import { workItems } from "@tedix/db/schema/work-items";
+import {
+	workItems,
+	workAttempts,
+	workItemRelations,
+} from "@tedix/db/schema/work-items";
+import { decisionEdges } from "@tedix/db/schema/decision-graph";
+import { upsertDecisionEdges } from "@tedix/db/queries/decision-graph";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -53,6 +59,9 @@ async function fixture(decisionLearning: Record<string, unknown> = {}) {
 			organizations,
 			organizationMembers,
 			workItems,
+			workAttempts,
+			workItemRelations,
+			decisionEdges,
 			workInteractions,
 			workInteractionCardRevisions,
 			learningInteractionEvents,
@@ -173,6 +182,14 @@ describe("deck pipeline sweep", () => {
 			subject: "Publish the reply to Omar",
 			createdAt: "2026-10-20T09:00:00.000Z",
 		});
+		await upsertDecisionEdges(db, ORG, [
+			{
+				kind: "same_as",
+				from: { kind: "deck_card", id: older },
+				to: { kind: "deck_card", id: newer },
+				source: "fictional-test",
+			},
+		]);
 		const human = await card(db, {
 			creatorType: "user",
 			creatorId: USER,
@@ -371,5 +388,73 @@ describe("deck pipeline sweep", () => {
 		expect(receipt.hidden).toBe(1);
 		expect((await status(db, hidden)).status).toBe("cancelled");
 		expect((await status(db, kept)).status).toBe("open");
+	});
+});
+
+it("retires graph-linked prior decisions with their evidence; keeps a remaining owner task", async () => {
+	const { db } = await fixture();
+	const decided = await card(db, {
+		subject: "Should Maple renew?",
+		metadata: { riskLevel: "high" },
+	});
+	const task = await card(db, {
+		subject: "Maple login (about 3 min)",
+		prompt: "1. Sign in with MFA.\n2. Remove the old key.",
+		metadata: {
+			ownerTask: {
+				presence: "mfa",
+				steps: ["Sign in with MFA.", "Remove the old key."],
+				estimatedMinutes: 3,
+			},
+		},
+	});
+	await upsertDecisionEdges(
+		db,
+		ORG,
+		[decided, task].map((id) => ({
+			kind: "decided_by" as const,
+			from: { kind: "deck_card" as const, id },
+			to: { kind: "owner_instruction" as const, id: "fictional-maple-lesson" },
+			source: "fictional-owner",
+			evidenceRef: "/lessons/fictional-maple-lesson",
+		})),
+	);
+	const result = await sweepOrganizationDeck(db, ORG, now);
+	expect(result.retired).toBe(1);
+	expect((await status(db, decided)).metadata.curation).toMatchObject({
+		retirement: { reason: "already_decided" },
+		reason: "Already decided.",
+		evidenceRefs: ["/lessons/fictional-maple-lesson"],
+	});
+	expect((await status(db, task)).status).toBe("open");
+});
+
+it("uses the recorded answer of a linked resolved duplicate", async () => {
+	const { db } = await fixture();
+	const answered = await card(db, {
+		subject: "Maple renewal",
+		status: "resolved",
+	});
+	const repeated = await card(db, { subject: "Continue the orchard plan?" });
+	await upsertDecisionEdges(db, ORG, [
+		{
+			kind: "same_as",
+			from: { kind: "deck_card", id: repeated },
+			to: { kind: "deck_card", id: answered },
+			source: "fictional-curator",
+		},
+		{
+			kind: "card_answers",
+			from: { kind: "deck_card", id: answered },
+			to: { kind: "decision", id: "maple-answer" },
+			source: "fictional-owner",
+			evidenceRef: "/work/interactions/maple-answer",
+		},
+	]);
+	const result = await sweepOrganizationDeck(db, ORG, now);
+	expect(result.retired).toBe(1);
+	expect((await status(db, repeated)).metadata.curation).toMatchObject({
+		retirement: { reason: "already_decided" },
+		evidenceRefs: ["/work/interactions/maple-answer"],
 	});
 });

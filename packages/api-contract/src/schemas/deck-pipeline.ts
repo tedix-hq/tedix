@@ -111,6 +111,33 @@ export const DeckPipelineConfigSchema = z.strictObject({
 				.default(defaults.sweep.staleAfterHours),
 		})
 		.prefault({}),
+	qualification: z
+		.strictObject({
+			enabled: z.boolean().default(defaults.qualification.enabled),
+			alreadyDecided: z
+				.boolean()
+				.default(defaults.qualification.alreadyDecided),
+			graphDuplicates: z
+				.boolean()
+				.default(defaults.qualification.graphDuplicates),
+			rankBlocked: z.boolean().default(defaults.qualification.rankBlocked),
+			yesNoPattern: PatternSchema.default(defaults.qualification.yesNoPattern),
+			ownerPresencePattern: PatternSchema.default(
+				defaults.qualification.ownerPresencePattern,
+			),
+			ownerStepPattern: PatternSchema.default(
+				defaults.qualification.ownerStepPattern,
+			),
+			durationPattern: PatternSchema.default(
+				defaults.qualification.durationPattern,
+			),
+			stalePattern: PatternSchema.default(defaults.qualification.stalePattern),
+			blockedDispositions: z
+				.array(z.string().min(1).max(50))
+				.max(20)
+				.default(defaults.qualification.blockedDispositions),
+		})
+		.prefault({}),
 	secondKey: z
 		.strictObject({
 			model: z

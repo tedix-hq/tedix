@@ -52,6 +52,10 @@ import { userSettingsContractRouter } from "../rpc/routers/user-settings";
 import { workItemsContractRouter } from "../rpc/routers/work-items";
 import { internalDecisionFeed } from "./internal-decision-feed";
 import { requireOrgId } from "../rpc/org-scope";
+import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
+import { deckQualificationGraph } from "./deck-qualification-graph";
+import { listDeckSourceStates } from "@tedix/db/queries/work-items/deck-sweep";
+import { deckCardStale } from "@tedix/api-contract/utils/deck-ask";
 
 type ViewInput = z.infer<typeof AttentionViewInputSchema>;
 
@@ -185,6 +189,9 @@ async function loadConfiguredDeckProjection(
 	const timeZone = input.timeZone ?? preferences.preferences.timezone ?? "UTC";
 	const projectId = input.projectId ?? config.projectId;
 	const now = new Date();
+	const qualification = (
+		await getDecisionLearningConfig(context.db, requireOrgId(context))
+	).deckPipeline.qualification;
 	const [model, first, work, runtime, factories] = await Promise.all([
 		call(learningFeedbackContractRouter.model, {}, { context }),
 		call(
@@ -268,7 +275,59 @@ async function loadConfiguredDeckProjection(
 	annotateDeckAsk(cards, now, {
 		timeZone,
 		staleDraftHours: config.staleDraftHours,
+		qualification,
 	});
+	if (qualification.enabled) {
+		const graph = await deckQualificationGraph(
+			context.db,
+			requireOrgId(context),
+			cards.map((card) => ({
+				id: card.id,
+				workItemId: card.interaction?.request.workItemId,
+			})),
+		);
+		const sourceWork = new Map(
+			cards.map((card) => [
+				card.id,
+				card.interaction?.request.workItemId ??
+					graph
+						.get(card.id)
+						?.chain.find((step) => step.edge.kind === "card_from_work")?.node
+						.id,
+			]),
+		);
+		const states = await listDeckSourceStates(
+			context.db,
+			requireOrgId(context),
+			[...sourceWork.values()].filter((id): id is string => Boolean(id)),
+			now,
+		);
+		for (const card of cards) {
+			const facts = graph.get(card.id);
+			const workId = sourceWork.get(card.id);
+			const stale = deckCardStale(
+				{
+					...card,
+					request: card.interaction?.request,
+					workItem: { disposition: workId ? states.get(workId) : undefined },
+				},
+				now,
+				qualification,
+				timeZone,
+			);
+			if (
+				stale ||
+				(qualification.alreadyDecided &&
+					facts?.priorDecision &&
+					card.responseKind !== "task") ||
+				(qualification.graphDuplicates && facts?.supersededBy)
+			) {
+				card.actionable = false;
+				card.overdue = false;
+			}
+			if (qualification.rankBlocked) card.blocksCount = facts?.blocksCount ?? 0;
+		}
+	}
 	cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));
 	return {
 		cards,

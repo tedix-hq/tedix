@@ -1,8 +1,12 @@
 import type { DeckAskKind } from "../schemas/attention";
 import type { DecisionEnvelope } from "../schemas/os-decision-deck";
 import { calendarDay } from "./card-schedule";
+import defaults from "../assets/deck-pipeline.v1.json";
+import { classifyDeckAsk } from "./deck-qualification";
+import type { DeckPipelineConfig } from "../schemas/deck-pipeline";
 
 export const DECK_ASK_KINDS = [
+	"task",
 	"send",
 	"decide",
 	"approve_draft",
@@ -11,6 +15,7 @@ export const DECK_ASK_KINDS = [
 ] as const satisfies readonly DeckAskKind[];
 
 export const DECK_ASK_LABELS: Record<DeckAskKind, string> = {
+	task: "Task for you",
 	send: "Send",
 	decide: "Decide",
 	approve_draft: "Approve draft",
@@ -20,16 +25,33 @@ export const DECK_ASK_LABELS: Record<DeckAskKind, string> = {
 
 type AskSource = {
 	kind: string;
+	label?: string;
 	decision?: DecisionEnvelope | null;
 	factory?: { draft?: string | null } | null;
 	request?: {
+		subject?: string;
+		prompt?: string;
 		metadata?: Record<string, unknown> | null;
 		expiresAt?: string | null;
 	} | null;
 };
 
 /** Derived from typed card data: card kind, decision effects and factory draft text. */
-export function deckAskKind(card: AskSource): DeckAskKind {
+export function deckAskKind(
+	card: AskSource,
+	qualification?: DeckPipelineConfig["qualification"],
+): DeckAskKind {
+	const response = classifyDeckAsk(
+		{
+			kind: card.kind,
+			subject: card.request?.subject ?? card.label,
+			prompt: card.request?.prompt,
+			metadata: card.request?.metadata,
+			decision: card.decision,
+		},
+		qualification,
+	);
+	if (response.responseKind === "task") return "task";
 	const effects = card.decision?.protectedEffects ?? [];
 	if (
 		card.kind === "approval" ||
@@ -40,7 +62,8 @@ export function deckAskKind(card: AskSource): DeckAskKind {
 	if (card.kind === "outbound" || effects.includes("message")) return "send";
 	if (card.factory?.draft?.trim() || card.decision?.preview?.body.trim())
 		return "approve_draft";
-	if (card.kind === "question") return "answer";
+	if (card.kind === "question")
+		return response.responseKind === "choice" ? "decide" : "answer";
 	return "decide";
 }
 
@@ -63,11 +86,13 @@ export function deckCardDeadline(card: {
 	dueAt?: string | null;
 	decision?: { expiresAt?: string } | null;
 	runtimeApproval?: { expiresAt?: string | null } | null;
+	request?: { expiresAt?: string | null } | null;
 }): string | null {
 	const values = [
 		card.dueAt,
 		card.decision?.expiresAt,
 		card.runtimeApproval?.expiresAt,
+		card.request?.expiresAt,
 	].filter(
 		(value): value is string =>
 			typeof value === "string" && Number.isFinite(Date.parse(value)),
@@ -128,6 +153,49 @@ export function deckCardHandled(card: {
 	return disposition === "completed" || disposition === "cancelled";
 }
 
+/** Withdrawal is different from an ordinary actionable missed deadline. */
+export function deckCardStale(
+	card: {
+		dueAt?: string | null;
+		decision?: { expiresAt?: string } | null;
+		request?: {
+			subject?: string;
+			prompt?: string;
+			expiresAt?: string | null;
+			metadata?: Record<string, unknown> | null;
+		} | null;
+		workItem?: { disposition?: string | null } | null;
+	},
+	now: Date,
+	config: DeckPipelineConfig["qualification"] = defaults.qualification,
+	timeZone?: string,
+) {
+	if (!config.enabled) return false;
+	if (config.blockedDispositions.includes(card.workItem?.disposition ?? ""))
+		return true;
+	const metadata = card.request?.metadata;
+	const face = metadata?.cardPresentation;
+	const faceBody =
+		face &&
+		typeof face === "object" &&
+		"body" in face &&
+		typeof face.body === "string"
+			? face.body
+			: "";
+	const text = [
+		card.request?.subject,
+		card.request?.prompt,
+		typeof metadata?.cardContent === "string" ? metadata.cardContent : "",
+		faceBody,
+	]
+		.filter(Boolean)
+		.join("\n");
+	return (
+		deadlineOverdue(deckCardDeadline(card), now, timeZone) &&
+		new RegExp(config.stalePattern, "iu").test(text)
+	);
+}
+
 /** One derivation for every Deck surface: API projection, OS rows and MCP view. */
 export function deckAsk(
 	card: AskSource & {
@@ -137,18 +205,40 @@ export function deckAsk(
 		workItem?: { disposition?: string | null } | null;
 	},
 	now: Date,
-	options: { timeZone?: string; staleDraftHours?: number } = {},
+	options: {
+		timeZone?: string;
+		staleDraftHours?: number;
+		qualification?: DeckPipelineConfig["qualification"];
+	} = {},
 ) {
-	const askKind = deckAskKind(card);
+	const response = classifyDeckAsk(
+		{
+			kind: card.kind,
+			subject: card.request?.subject ?? card.label,
+			prompt: card.request?.prompt,
+			metadata: card.request?.metadata,
+			decision: card.decision,
+		},
+		options.qualification,
+	);
+	const askKind = deckAskKind(card, options.qualification);
 	const deadline = deckCardDeadline(card);
 	const handled = deckCardHandled(card);
-	const expired = !handled && deckCardExpired(card, now);
+	const expired =
+		!handled &&
+		(deckCardExpired(card, now) ||
+			deckCardStale(card, now, options.qualification, options.timeZone));
+	const actionable =
+		!handled &&
+		!expired &&
+		(response.responseKind !== "task" || response.ownerTask !== null);
 	return {
 		askKind,
+		...response,
+		actionable,
 		deadline,
 		// Overdue only while the ask can still be acted on.
-		overdue:
-			!handled && !expired && deadlineOverdue(deadline, now, options.timeZone),
+		overdue: actionable && deadlineOverdue(deadline, now, options.timeZone),
 		...(handled ? { handled } : {}),
 		...(expired ? { expired } : {}),
 		draftedNotSent: draftedNotSent(
