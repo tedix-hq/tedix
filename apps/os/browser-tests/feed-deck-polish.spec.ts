@@ -488,6 +488,7 @@ try {
 					throw new Error("Handled outcomes must expand as one-line receipts");
 				await handled.click();
 			}
+			await page.locator('[data-workspace-app-entry="activity-feed"]').focus();
 			await page.keyboard.press("j");
 			if (
 				!(await page
