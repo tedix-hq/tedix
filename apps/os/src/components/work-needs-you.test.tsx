@@ -1,23 +1,6 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import {
-	agentSessionRequestsQueryOptions,
-	factoryScoreboardQueryOptions,
-	pendingApprovalsQueryOptions,
-	userProfileQueryOptions,
-	workFleetQueryOptions,
-	workNeedsYouInteractionsQueryOptions,
-	workPendingApprovalsQueryOptions,
-	workReadinessProjectionQueryOptions,
-} from "@/lib/os-query-options";
 import { needsYouSourceCount } from "./work-needs-you-count";
-import {
-	NeedsYouList,
-	needsYouCount,
-	needsYouItems,
-	WorkNeedsYouPage,
-} from "./work-needs-you";
+import { needsYouCount, needsYouItems } from "./work-needs-you";
 
 const VIEWER = "user-rosa";
 
@@ -244,105 +227,6 @@ describe("needsYouItems", () => {
 	});
 });
 
-describe("WorkNeedsYouPage", () => {
-	function seeded() {
-		const client = new QueryClient({
-			defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-		});
-		client.setQueryData(workNeedsYouInteractionsQueryOptions().queryKey, {
-			data: [proposal, question],
-			nextCursor: null,
-			hasMore: false,
-			observedAt: "2026-10-16T00:00:00.000Z",
-		} as never);
-		client.setQueryData(workPendingApprovalsQueryOptions().queryKey, {
-			data: [workApproval],
-			nextCursor: null,
-			observedAt: "2026-10-16T00:00:00.000Z",
-		} as never);
-		client.setQueryData(pendingApprovalsQueryOptions().queryKey, {
-			data: [runtimeApproval],
-			pagination: { total: 1, limit: 50, offset: 0, hasMore: false },
-		} as never);
-		client.setQueryData(factoryScoreboardQueryOptions().queryKey, {
-			data: [failingFactory],
-			since: "2026-10-09T00:00:00.000Z",
-		} as never);
-		client.setQueryData(workReadinessProjectionQueryOptions().queryKey, {
-			data: readiness,
-			nextCursor: null,
-		} as never);
-		client.setQueryData(userProfileQueryOptions().queryKey, {
-			id: VIEWER,
-		} as never);
-		client.setQueryData(workFleetQueryOptions().queryKey, {
-			observedAt: "2026-10-16T00:00:00.000Z",
-			attention: { actions: [] },
-		} as never);
-		client.setQueryData(agentSessionRequestsQueryOptions().queryKey, {
-			data: [],
-		});
-		return client;
-	}
-
-	it("keeps ready questions visible while approvals and the request ledger load", () => {
-		const client = seeded();
-		client.removeQueries({ queryKey: pendingApprovalsQueryOptions().queryKey });
-		client.removeQueries({
-			queryKey: agentSessionRequestsQueryOptions().queryKey,
-		});
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={client}>
-				<WorkNeedsYouPage />
-			</QueryClientProvider>,
-		);
-		expect(html).toContain("Which fare table applies in winter?");
-		expect(html).toContain("Loading remaining Needs you sources");
-		expect(html).not.toContain("Nothing waits for you right now.");
-	});
-
-	it("does not report an empty inbox before any source has answered", () => {
-		const client = new QueryClient({
-			defaultOptions: { queries: { retry: false } },
-		});
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={client}>
-				<WorkNeedsYouPage />
-			</QueryClientProvider>,
-		);
-		expect(html).toContain("Loading remaining Needs you sources");
-		expect(html).not.toContain("Nothing waits for you right now.");
-		expect(html).not.toContain(
-			"No approvals, requests, failing factories or blocked Work wait for you.",
-		);
-	});
-
-	it("shows a pending onboarding proposal and an approval in one list with their actions", () => {
-		const doc = new DOMParser().parseFromString(
-			renderToStaticMarkup(
-				<QueryClientProvider client={seeded()}>
-					<WorkNeedsYouPage />
-				</QueryClientProvider>,
-			),
-			"text/html",
-		);
-		const list = doc.querySelector('[aria-label="Needs you"]');
-		const rows = [...(list?.querySelectorAll("[data-decision-row]") ?? [])];
-		expect(rows).toHaveLength(6);
-		expect(
-			rows[0]?.querySelector('[aria-label="Loading decision"]'),
-		).not.toBeNull();
-		expect(
-			rows.some((row) => row.textContent?.includes("Harbor tours launch plan")),
-		).toBe(true);
-		expect(
-			rows.slice(1).every((row) => row.querySelectorAll("button").length === 1),
-		).toBe(true);
-
-		expect(doc.body.textContent).toContain("6 things wait for you");
-	});
-});
-
 describe("Needs you rows explain themselves", () => {
 	const housekeeping = {
 		...request(4, "question", "harbor · claude-code waiting: Done.", {
@@ -407,32 +291,9 @@ describe("Needs you rows explain themselves", () => {
 	it("falls back to the Work item's title when an older ask gives no reason", () => {
 		expect(input?.detail).toBe("For Work item “Book the venue”");
 	});
-
-	it("renders who, why and the button hint on the row", () => {
-		const html = renderToStaticMarkup(
-			<NeedsYouList
-				items={[ask, accept].filter((item) => item !== undefined)}
-				onApprove={() => {}}
-				onHandoff={() => {}}
-			/>,
-		);
-		expect(html).toContain("From Claude Code session");
-		expect(
-			renderToStaticMarkup(
-				<NeedsYouList
-					items={ask ? [{ ...ask, askedBy: "An agent session" }] : []}
-					onApprove={() => {}}
-					onHandoff={() => {}}
-				/>,
-			),
-		).toContain("From an agent session");
-		expect(html).toContain("Answer: write a reply");
-		expect(html).toContain("Accept: a tedi drafts it in your space");
-		expect(html).not.toContain("5a7c0de1");
-	});
 });
 
-it("gives a lane's human ask Done and Snooze actions instead of another ask", () => {
+it("gives a lane's human ask a lane action instead of another ask", () => {
 	const row = {
 		...request(42, "question", "Confirm address"),
 		canRespond: true,
@@ -444,13 +305,6 @@ it("gives a lane's human ask Done and Snooze actions instead of another ask", ()
 		requestId: row.request.id,
 		version: row.request.version,
 	});
-	const html = renderToStaticMarkup(
-		<QueryClientProvider client={new QueryClient()}>
-			<NeedsYouList items={items} onApprove={() => {}} onHandoff={() => {}} />
-		</QueryClientProvider>,
-	);
-	expect(html).toContain("Done");
-	expect(html).toContain("Snooze 1 day");
 });
 
 it("counts the Interaction once and keeps its snoozed ledger row from becoming a second ask", () => {

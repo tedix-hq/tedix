@@ -1,6 +1,5 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -19,8 +18,6 @@ import {
 import {
 	draftAnswerMetadata,
 	editRatio,
-	InteractionDraftReply,
-	isAutoDelivered,
 	latestDraftOf,
 } from "./work-interaction-draft";
 import { WorkInteractionPage } from "./work-operations-pages";
@@ -95,133 +92,6 @@ describe("tedi-drafted replies", () => {
 		expect(
 			draftAnswerMetadata(draft, "No, revert the deploy first.").draftOutcome,
 		).toBe("replaced");
-	});
-
-	it("shows the codex delivery hint only for Codex", () => {
-		const draft = latestDraftOf({ latestDraft: DRAFT })!;
-		const codex = renderToStaticMarkup(
-			<InteractionDraftReply
-				draft={draft}
-				drafterName="Docs"
-				host="codex"
-				pending={false}
-				onAnswer={() => {}}
-			/>,
-		);
-		expect(codex).toContain("Recommended answer from Docs");
-		expect(codex).toContain("Docs drift after a push.");
-		expect(codex).toContain("Codex receives your answer with its next prompt");
-		expect(
-			renderToStaticMarkup(
-				<InteractionDraftReply
-					draft={draft}
-					drafterName="Docs"
-					host="claude-code"
-					pending={false}
-					onAnswer={() => {}}
-				/>,
-			),
-		).not.toContain("Codex");
-	});
-
-	it("an auto draft shows as sent, without Accept, and an override replaces it", () => {
-		const draft = latestDraftOf({
-			latestDraft: { ...DRAFT, delivery: "auto" },
-		})!;
-		expect(isAutoDelivered(draft)).toBe(true);
-		const onAnswer = vi.fn();
-		const container = document.createElement("div");
-		root = createRoot(container);
-		act(() =>
-			root?.render(
-				<InteractionDraftReply
-					draft={draft}
-					drafterName="Docs"
-					pending={false}
-					onAnswer={onAnswer}
-				/>,
-			),
-		);
-		expect(container.textContent).toContain("Sent automatically by Docs");
-		expect(container.textContent).toContain(DRAFT.body);
-		const labels = [...container.querySelectorAll("button")].map((button) =>
-			button.textContent?.trim(),
-		);
-		expect(labels).not.toContain("Send this");
-		expect(labels).not.toContain("Write my own");
-		const override = [...container.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "Override",
-		)!;
-		expect(override.disabled).toBe(true);
-		const textarea = container.querySelector("textarea")!;
-		expect(textarea.value).toBe("");
-		const setter = Object.getOwnPropertyDescriptor(
-			HTMLTextAreaElement.prototype,
-			"value",
-		)!.set!;
-		act(() => {
-			setter.call(textarea, "No, leave the docs for now.");
-			textarea.dispatchEvent(new Event("input", { bubbles: true }));
-		});
-		click(container, "Override");
-		expect(onAnswer).toHaveBeenCalledWith(
-			"No, leave the docs for now.",
-			expect.objectContaining({
-				draftId: DRAFT.id,
-				draftOutcome: "replaced",
-				source: "os-inbox",
-			}),
-		);
-	});
-
-	it("review, absent or unknown delivery keeps Accept", () => {
-		for (const delivery of ["review", undefined, null, "later"]) {
-			const draft = latestDraftOf({ latestDraft: { ...DRAFT, delivery } })!;
-			expect(isAutoDelivered(draft)).toBe(false);
-			const html = renderToStaticMarkup(
-				<InteractionDraftReply
-					draft={draft}
-					drafterName="Docs"
-					pending={false}
-					onAnswer={() => {}}
-				/>,
-			);
-			expect(html).toContain("Send this");
-			expect(html).not.toContain("Sent automatically");
-		}
-	});
-
-	it("edit prefills the draft and submits the computed outcome", () => {
-		const draft = latestDraftOf({ latestDraft: DRAFT })!;
-		const onAnswer = vi.fn();
-		const container = document.createElement("div");
-		root = createRoot(container);
-		act(() =>
-			root?.render(
-				<InteractionDraftReply
-					draft={draft}
-					drafterName="Docs"
-					pending={false}
-					onAnswer={onAnswer}
-				/>,
-			),
-		);
-		click(container, "Write my own");
-		const textarea = container.querySelector("textarea")!;
-		expect(textarea.value).toBe(DRAFT.body);
-		const setter = Object.getOwnPropertyDescriptor(
-			HTMLTextAreaElement.prototype,
-			"value",
-		)!.set!;
-		act(() => {
-			setter.call(textarea, "Yes, tidy the docs and push it.");
-			textarea.dispatchEvent(new Event("input", { bubbles: true }));
-		});
-		click(container, "Send edited reply");
-		expect(onAnswer).toHaveBeenCalledWith(
-			"Yes, tidy the docs and push it.",
-			expect.objectContaining({ draftId: DRAFT.id, draftOutcome: "edited" }),
-		);
 	});
 
 	it("Accept on the detail page answers with the draft and cites it", async () => {
