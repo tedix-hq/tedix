@@ -521,6 +521,14 @@
 					"database_id": "00000000-0000-0000-0000-000000000000",
 					"remote": false,
 				},
+				{
+					// Optional logs database, production only: local dev stays main-only.
+					// A distinct placeholder id so it never aliases DB locally.
+					"binding": "LOGS_DB",
+					"database_name": "public-installation-logs",
+					"database_id": "00000000-0000-0000-0000-000000000001",
+					"remote": false,
+				},
 			],
 			"agent_memory": [
 				{
