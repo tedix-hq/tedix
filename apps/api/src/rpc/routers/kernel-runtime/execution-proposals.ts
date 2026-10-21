@@ -558,6 +558,16 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					})
 				: null;
 		if (chatApprovalReply) metadata.chatApprovalReply = chatApprovalReply;
+		const requestedDelegationWorkItemId = input.delegateToTediId
+			? stringFromPayload(metadata.workItemId)
+			: undefined;
+		const requestedWorkItem = requestedDelegationWorkItemId
+			? await getWorkItemById(
+					context.db,
+					requestedDelegationWorkItemId,
+					organizationId,
+				)
+			: null;
 		// Org standing consent can replace the human click for non-critical work.
 		// Certification and runtime dispatch checks remain independent of consent.
 		const dispatchPolicy = workstationAttach
@@ -582,6 +592,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					// exists on this path (was `kernelResult?.route?.risk ?? null`,
 					// which was always null here).
 					routeRisk: null,
+					workItemRisk: requestedWorkItem?.riskLevel,
 				})
 			: null;
 		const autoApprovedAttach = dispatchPolicy?.autoDispatch === true;
@@ -597,9 +608,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			).WORKSTATION_AUTO_DISPATCH_ENABLED === "true";
 		const workstationDispatchNow =
 			autoApprovedAttach && workstationAutoDispatchEnabled;
-		const requestedDelegationWorkItemId = input.delegateToTediId
-			? stringFromPayload(metadata.workItemId)
-			: undefined;
 		const workstationIdentity =
 			workstationAttach && delegateTarget
 				? workstationDispatchIdentity({
@@ -616,13 +624,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				runtimeRunId: workstationIdentity.runtimeRunId,
 				now: createdAt,
 			});
-		const requestedWorkItem = requestedDelegationWorkItemId
-			? await getWorkItemById(
-					context.db,
-					requestedDelegationWorkItemId,
-					organizationId,
-				)
-			: null;
 		const requestedExecutionRequirement = requestedWorkItem
 			? ExecutionRequirementSchema.safeParse(
 					requestedWorkItem.metadata?.executionRequirement,
