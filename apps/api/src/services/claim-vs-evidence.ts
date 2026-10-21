@@ -149,14 +149,14 @@ const READ_ONLY_CODE_NAMESPACES = new Set(["discover", "codemode"]);
 /**
  * Extract `namespace.method(` call targets from a Code Mode snippet — a local
  * mirror of `extractCodeModeProviderNamespacesFromCode` in
- * `apps/mcp/src/index.ts` (apps do not import each other). Locals that happen
- * to match (e.g. `results.map(`) only make the classification MORE
+ * `apps/mcp/src/mcp/code-mode-namespaces.ts` (apps do not import each other).
+ * Locals that happen to match (e.g. `results.map(`) only make classification MORE
  * conservative here, never less.
  */
-function extractCalledNamespaces(code: string): Set<string> {
+function extractCalledNamespaces(code: string): Set<string> | null {
 	const namespaces = new Set<string>();
 	const callPattern =
-		/(?:^|[^A-Za-z0-9_$])([A-Za-z_$][\w$]*)\s*\.\s*[A-Za-z_$][\w$]*\s*\(/g;
+		/(?:^|[^A-Za-z0-9_$])([A-Za-z_$][\w$]*)\s*(?:\.\s*[A-Za-z_$][\w$]*|\[\s*(?:"[^"]*"|'[^']*')\s*\])\s*\(/g;
 	const BUILTINS = new Set([
 		"Array",
 		"BigInt",
@@ -177,13 +177,59 @@ function extractCalledNamespaces(code: string): Set<string> {
 		"console",
 		"globalThis",
 	]);
-	let match = callPattern.exec(code);
+
+	let dynamicTemplate = false;
+	const masked = code.replace(
+		/\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g,
+		(literal) => {
+			const quote = literal[0]!;
+			if (quote === "/") return " ".repeat(literal.length);
+			if (quote === "`" && literal.includes("${")) dynamicTemplate = true;
+			return quote + " ".repeat(literal.length - 2) + quote;
+		},
+	);
+	if (dynamicTemplate || hasOpaqueNamespaceCalls(masked, BUILTINS)) return null;
+	let match = callPattern.exec(masked);
 	while (match !== null) {
 		const namespace = match[1];
 		if (namespace && !BUILTINS.has(namespace)) namespaces.add(namespace);
-		match = callPattern.exec(code);
+		match = callPattern.exec(masked);
 	}
 	return namespaces;
+}
+
+/** Computed calls and aliases are not provably discovery-only. */
+function hasOpaqueNamespaceCalls(
+	code: string,
+	builtins: ReadonlySet<string>,
+): boolean {
+	const aliases = new Set<string>();
+	for (const match of code.matchAll(
+		/(?<![\w$.])([A-Za-z_$][\w$]*)\s*=(?!=)\s*\(*\s*([A-Za-z_$][\w$]*)\s*\)*\s*(?=[;,)\n}]|$)/g,
+	)) {
+		if (!builtins.has(match[2]!)) aliases.add(match[1]!);
+	}
+	for (const match of code.matchAll(
+		/(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?:\?\.\s*)?(\[|\.|\()/g,
+	)) {
+		const name = match[1]!;
+		if (aliases.has(name)) return true;
+		if (builtins.has(name) || match[2] !== "[") continue;
+		const start = match.index + match[0].length;
+		let depth = 1;
+		let end = start;
+		for (; end < code.length && depth > 0; end++) {
+			if (code[end] === "[") depth++;
+			else if (code[end] === "]") depth--;
+		}
+		if (depth !== 0) return true;
+		if (
+			/^\s*(?:\?\.\s*)?\(/.test(code.slice(end)) &&
+			!/^\s*(?:"[^"]*"|'[^']*')\s*$/.test(code.slice(start, end - 1))
+		)
+			return true;
+	}
+	return false;
 }
 
 /** Short tool name: the segment after the last `__` / `.` separator. */
@@ -202,7 +248,7 @@ export function isPotentiallyMutatingCall(call: ChildToolCall): boolean {
 		const code = call.codeArgument;
 		if (typeof code !== "string" || code.trim().length === 0) return true;
 		const called = extractCalledNamespaces(code);
-		if (called.size === 0) return true; // unreadable/opaque snippet
+		if (called === null || called.size === 0) return true; // unreadable/opaque snippet
 		for (const namespace of called) {
 			// Local variables extracted by the regex (e.g. `results.map(`) are
 			// not read-only namespaces → conservative: potentially mutating.

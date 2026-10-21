@@ -304,6 +304,40 @@ describe("extractRequiredScopes — D1 toolScopes mode", () => {
 });
 
 describe("targeted Code Mode surface extraction", () => {
+	it.each([
+		"async () => work[method]({})",
+		"async () => unknown_ns[methods[index]]({})",
+		'async () => work[choose("create")]({})',
+		"async () => { const w = work; return w.list_work_items({}); }",
+		'async () => { let w; w = unknown_ns; return w["create"]({}); }',
+		"async () => { const w = work; const x = w; return x.list({}); }",
+		"async () => work?.[method]?.({})",
+		"async () => `result: ${work[method]({})}`",
+	])("hydrates the whole catalog for opaque access: %s", (code) => {
+		const namespaces = extractCodeModeProviderNamespacesFromCode(code);
+		expect(namespaces).toBeNull();
+		expect(
+			filterAggregateAppsForCodeNamespaces(
+				[{ slug: "acme" }, { slug: "sample" }],
+				namespaces,
+			),
+		).toHaveLength(2);
+	});
+
+	it.each([
+		'async () => { const text = "work[method]({}); const w = work; w.list()"; return acme.list({}); }',
+		"async () => { const text = 'work[method]({})'; return acme.list({}); }",
+		"async () => { const text = `work[method]({})`; return acme.list({}); }",
+		"async () => { /* work[method]({}); const w = work; w.list() */ return acme.list({}); }",
+		"async () => { // work[method]({}); const w = work; w.list()\n return acme.list({}); }",
+		'async () => acme /* work[method]() */ ["list"]({})',
+		'async () => { const method = "max"; Math[method](1); return acme.list({}); }',
+	])("ignores opaque-looking literals, comments and builtins: %s", (code) => {
+		expect(extractCodeModeProviderNamespacesFromCode(code)).toEqual(
+			new Set(["acme"]),
+		);
+	});
+
 	it("bounds discovery with parentheses inside JSON string arguments", () => {
 		expect(
 			extractCodeModeProviderNamespacesFromCode(
@@ -339,13 +373,6 @@ describe("targeted Code Mode surface extraction", () => {
 	});
 
 	it.each([
-		[
-			"an alias",
-			`async () => {
-				const api = acme_unified_tedix; // aliased once
-				return await api.get_os_output({ id: "o1" });
-			}`,
-		],
 		[
 			"globalThis with a literal key",
 			'async () => await globalThis["acme_unified_tedix"].get_os_output({})',
