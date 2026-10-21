@@ -2,7 +2,7 @@
 sidebar:
   order: 10
 title: "Tedix documentation"
-description: "Build, govern, and operate long-lived AI workers on Cloudflare."
+description: "One shared to-do list, memory and record for your team and the AI assistants you already use."
 summary: "Public introduction to Tedix and its documentation"
 read_when:
   - Learning what Tedix provides
@@ -13,20 +13,33 @@ visibility: public
 
 # Tedix documentation
 
-**AI coworkers that show their work.**
+**One shared to-do list, memory and record for your team and the AI
+assistants you already use.**
 
-Tedix gives your team AI coworkers, called tedis, for recurring work. Ask a
-tedi to work from a source you grant, then open the run to see what it used,
-what it produced, and who approved any outside action.
+Tedix is for people who use AI assistants for real work and are tired of
+explaining their company again in every chat, checking on approvals in many
+open windows, and not knowing what an assistant actually did.
 
-Use Tedix from the assistant you already have: [add Tedix to Claude,
-ChatGPT or Codex](./learning-paths/first-plugin.md). Claude chat and Cowork
-need no install, only a connector URL; then get a useful result from
-[your first digital worker](./learning-paths/first-worker.md). Developers who
-want a terminal can [connect the Tedix CLI](./learning-paths/first-connection.md).
-To evaluate the product from source without a Cloud account, [run Tedix
-locally](./getting-started.md). [Release status](./release-status.md) lists what
-is available today.
+With Tedix:
+
+- people and assistants work from one shared list, so nothing is done twice;
+- your company's facts and your preferences reach whichever assistant you use;
+- every piece of work keeps a record of what was used, what came out and who
+  said yes;
+- decisions that need you wait in one short stack, the Deck, and everything
+  else goes to a timeline, the Feed.
+
+Tedix's own assistants are called tedis. A tedi has one job, its own memory
+and only the access you give it, and it asks before anything risky.
+
+**Start in five minutes:** [add Tedix to Claude, ChatGPT or
+Codex](./learning-paths/first-plugin.md). Claude chat and Cowork need no
+install, only a connector URL. Then [give a tedi its first
+task](./learning-paths/first-worker.md). Developers who want a terminal can
+[connect the Tedix CLI](./learning-paths/first-connection.md). To try it from
+source without a Cloud account, [run Tedix locally](./getting-started.md).
+Tedix Cloud is an invited beta; [Release status](./release-status.md) lists
+what is available today.
 
 ## Choose your path
 
@@ -35,7 +48,7 @@ is available today.
 | You want to…                                                           | Start with                                                                 |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Use Tedix from the assistant you already have (Claude, ChatGPT, Codex) | [Use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md) |
-| Run an existing worker and find its result                             | [Run a digital worker](./learning-paths/first-worker.md)                   |
+| Give a tedi a task and find its result                                 | [Run a digital worker](./learning-paths/first-worker.md)                   |
 
 **For developers and operators**
 
@@ -66,7 +79,7 @@ is available today.
 | Organize initiatives into projects and factories    | [Factories, Workspaces and Projects](./factories-workspaces-projects.md) |
 | See which sessions work on which project            | [Track sessions per project](./sessions-per-project.md)                  |
 | Let the supervisor resume sessions in Documents     | [Give the supervisor Full Disk Access](./supervisor-full-disk-access.md) |
-| Understand worker permissions and approvals         | [Worker permissions and governance](./workers-and-governance.md)         |
+| Understand what a tedi may do and who approves      | [Worker permissions and governance](./workers-and-governance.md)         |
 | Choose between skills, automations, flows, and runs | [Skills, automations, flows, and runs](./skills-flows-workflows.md)      |
 | Check what is available today                       | [Release status](./release-status.md)                                    |
 | Understand the license boundary                     | [Licensing and operator FAQ](./licensing.md)                             |
@@ -94,9 +107,17 @@ agent may change things.
 - [Coding-agent guide for the source repository](./AGENTS.md)
 - [Telemetry and network contact](./telemetry.md)
 
-## What you can build
+## What teams use it for
 
-Internal operations workers, department specialists, customer-facing
-assistants, and single-task workers. Each worker gets only the tools and
-permissions it needs, and its identity, history, memory, policies, and
-artifacts belong to the organization that runs it.
+Recurring jobs with a clear result, for example:
+
+- finding public threads where your product could help and drafting a reply
+  for you to post, edit or skip;
+- matching supplier invoices against what arrived and showing only the
+  mismatches;
+- summarizing a critical error report, finding its owner and asking before
+  alerting anyone.
+
+Each tedi gets only the tools and permissions its job needs. Its history,
+memory, rules and results belong to the organization that runs it, even when
+you change models or tools.

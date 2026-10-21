@@ -1,7 +1,13 @@
 # Contributing to Tedix
 
-Issues, bug reports, and ideas are welcome; questions and open-ended ideas can
-also go to [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions).
+Thanks for looking. The most helpful things you can do are try Tedix, tell us
+where it confused you, and report what broke. Bug reports and ideas go to
+GitHub issues; questions and open-ended ideas can also go to
+[GitHub Discussions](https://github.com/tedix-hq/tedix/discussions).
+
+In short: maintainers write all merged code and pull requests are turned off,
+so a clear issue is worth more than a patch. If we take up your idea, we
+credit you. The sections below explain why and how.
 
 ## Code of conduct
 

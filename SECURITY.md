@@ -1,5 +1,10 @@
 # Security Policy
 
+Tedix holds a company's work, its records and the access it gives AI
+assistants, so keeping each organization's data its own and keeping
+assistants inside the access they were given matters most. If you find a way
+around either, please tell us privately first.
+
 ## Reporting a Vulnerability
 
 Please do **not** report security vulnerabilities in public GitHub issues.

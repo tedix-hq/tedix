@@ -14,11 +14,15 @@ visibility: public
 
 # Getting started
 
-This tutorial starts Tedix from a source checkout, creates one local Workspace,
-and checks that its data persists. No account or Cloud credential is needed.
-This page is for evaluating the product from source; to simply use Tedix
-Cloud, [use Tedix in ChatGPT, Codex and Claude](./learning-paths/first-plugin.md).
-To connect the CLI to an invited Cloud organization instead, [connect to Tedix
+This page runs Tedix on your own computer, so you can look around before
+asking for anything else. You need no account, and nothing leaves your
+machine unless you turn on model calls. In about five minutes you will have
+Tedix open in your browser, a first Workspace saved, and, with `--demo`, a
+fictional company's Deck and Feed to click through.
+
+Just want to use the hosted service? [Use Tedix in ChatGPT, Codex and
+Claude](./learning-paths/first-plugin.md). To connect the CLI to an invited
+Cloud organization instead, [connect to Tedix
 Cloud](./learning-paths/first-connection.md).
 
 ## Run Tedix locally
@@ -47,7 +51,8 @@ contacts a Cloudflare account.
 | `--verbose`                           | Streams every server log to the terminal instead of `server.log`.                      |
 | `--help`                              | Lists every option without starting anything.                                          |
 
-`--demo` includes the sample Deck, Feed activity and a saved Today digest.
+`--demo` includes a sample Deck (decisions waiting for you, one card at a
+time), Feed activity (a timeline of what happened) and a saved Today digest.
 To run beside another local stack, choose unused ports with
 `TEDIX_LOCAL_API_PORT`, `TEDIX_LOCAL_OS_PORT` and `TEDIX_LOCAL_MCP_PORT`.
 For example:
@@ -69,7 +74,7 @@ or a restart. Drafting text needs model calls, which the next step turns on.
 
 **Expected result:** the workspace still appears with the same name and
 description after you refresh the page. This proves local storage and the local
-API path. It does not prove that a digital worker ran.
+API path. It does not prove that a tedi ran.
 
 ### Turn on model calls
 
@@ -146,7 +151,7 @@ tell me its URL and stop.
 ## Next
 
 - [Connect to Tedix Cloud](./learning-paths/first-connection.md) to use a live
-  organization and its digital workers.
+  organization and its tedis.
 - Check [release status](./release-status.md) for the current limits of local
   and Cloud operation.
 - Read [core concepts](./concepts.md) for the product vocabulary.

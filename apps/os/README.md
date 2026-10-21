@@ -1,6 +1,17 @@
 # @tedix/os
 
-The Tedix OS web application.
+The Tedix OS web application: where people see and steer the work their team
+and its AI assistants share.
+
+In plain words, it opens on two views. The **Deck** shows the decisions
+waiting for you, one card at a time, and ends when you are done. The **Feed**
+is a timeline of everything that happened, each entry with its record. Around
+them sit Workspaces for shared documents, sheets and presentations, and
+settings for who may do what. It works on a phone and on a desktop.
+
+To run it with sample data and no account, use `bun run --cwd apps/os dev`
+(UI only) or `bun run-local --demo` from the repository root (full local
+stack). [Development](#development) has the details.
 
 ## Overview
 
