@@ -1,3 +1,4 @@
+import { createConnectionProviderOwnership } from "@tedix/db/queries/connection-providers";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { ORPCError } from "@orpc/server";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
@@ -594,6 +595,10 @@ export const createProvider = authedOs.createProvider
 			const result = input.id
 				? await createConnectionProviderWithId(input.id, config, context.env)
 				: await createConnectionProvider(context.env, config);
+			await createConnectionProviderOwnership(context.db, {
+				appId: result.id,
+				organizationId: requireOrgId(context),
+			});
 			console.log(
 				`[Connections] Created provider: appId=${result.id} name=${input.name}`,
 			);

@@ -16,6 +16,7 @@ import type {
 	ConnectionProviderOAuthConfig,
 	TokenScope,
 } from "@tedix/api-contract/schemas/connection-provider-templates";
+import { organizations } from "./organizations";
 import { sql } from "drizzle-orm";
 import {
 	index,
@@ -93,3 +94,20 @@ export const connectionProviders = sqliteTable(
 
 export type ConnectionProviderRow = typeof connectionProviders.$inferSelect;
 export type NewConnectionProviderRow = typeof connectionProviders.$inferInsert;
+
+/** Ownership of live Descope outbound apps; absent legacy apps remain platform-only. */
+export const connectionProviderOwnership = sqliteTable(
+	"connection_provider_ownership",
+	{
+		appId: text("app_id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		index("connection_provider_ownership_org_idx").on(table.organizationId),
+	],
+);

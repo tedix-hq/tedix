@@ -1064,6 +1064,10 @@
 		{
 			"name": "20261021192732_d1_retention_policies/migration.sql",
 			"sha256": "e96ae2cd68b3efcd0cbd26229b5088cb31a585ec91852e2d7e6a22e72868166f"
+		},
+		{
+			"name": "20261021195849_connection_provider_ownership/migration.sql",
+			"sha256": "be9f5efef93c901af29740176f10289052fa1c74d4f02231b6eb02b9645fe614"
 		}
 	]
 }

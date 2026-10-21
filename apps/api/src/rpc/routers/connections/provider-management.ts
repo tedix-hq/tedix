@@ -25,7 +25,12 @@ import {
 } from "@tedix/db/queries/catalog/get-app";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { isPlatformPrincipal } from "@tedix/auth/types";
-import { pinConnectionProviderIssuer } from "@tedix/db/queries/connection-providers";
+import { requireProviderManagement } from "./provider-ownership";
+import {
+	createConnectionProviderOwnership,
+	deleteConnectionProviderOwnership,
+	pinConnectionProviderIssuer,
+} from "@tedix/db/queries/connection-providers";
 import { requireOrgId } from "../../org-scope";
 import {
 	authedOs,
@@ -92,13 +97,30 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 			input.name ??
 			catalogApp?.name ??
 			new URL(mcpEndpointUrl).hostname.replace(/^www\./, "");
-		const providerId = input.id ?? catalogApp?.slug ?? slugFromName(name);
+		const platform = isPlatformPrincipal(context);
+		const providerId =
+			input.id ??
+			(platform
+				? (catalogApp?.slug ?? slugFromName(name))
+				: crypto.randomUUID());
+		if (!platform && input.id && !input.dryRun)
+			await requireProviderManagement(context, providerId);
+		const recordOwnership = async (result: {
+			id: string;
+			status: "created" | "updated";
+		}) => {
+			if (result.status === "created")
+				await createConnectionProviderOwnership(context.db, {
+					appId: result.id,
+					organizationId: requireOrgId(context),
+				});
+		};
 		const description = normalizeProviderDescription(
 			input.description ?? catalogApp?.description,
 		);
 		const providerTemplate = await resolveConnectionProviderTemplate({
 			db: context.db,
-			providerId,
+			providerId: input.id ?? catalogApp?.slug ?? slugFromName(name),
 			baseProviderId: input.baseProviderId,
 		});
 		const logo =
@@ -181,6 +203,7 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 							)),
 							status: "created" as const,
 						};
+			await recordOwnership(result);
 			console.log(
 				`[Connections] ${result.status} API-key MCP provider: appId=${result.id} name=${name}`,
 			);
@@ -552,6 +575,7 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 		console.log(
 			`[Connections] ${result.status} MCP-derived provider: appId=${result.id} name=${name}`,
 		);
+		await recordOwnership(result);
 		await persistIssuerPin();
 		return {
 			dryRun: false,
@@ -584,18 +608,7 @@ export const createProviderFromMcp = authedOs.createProviderFromMcp
 export const updateProviderMetadata = authedOs.updateProviderMetadata
 	.use(AUTHZ.integrationAppsWrite)
 	.handler(async ({ input, context }) => {
-		requireOrgId(context);
-		// Connection providers are project-global Descope outbound apps with no
-		// org-ownership ledger yet, so update-by-appId has no org boundary to
-		// enforce. Until per-org ownership lands, only platform principals may
-		// mutate a provider — otherwise a tenant admin could rename another
-		// tenant's provider. See audit finding #13 (hybrid remediation).
-		if (!isPlatformPrincipal(context)) {
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"Updating connection providers is restricted to platform administrators until per-org provider ownership ships.",
-			);
-		}
+		await requireProviderManagement(context, input.appId);
 		const result = await updateConnectionProviderMetadataWithId(
 			input.appId,
 			{
@@ -636,20 +649,10 @@ export const deleteProvider = authedOs.deleteProvider
 			};
 			context: BaseContext;
 		}) => {
-			requireOrgId(context);
-			// Irreversible and project-global: deleting a provider removes the
-			// Descope outbound app and all associated token storage for EVERY
-			// tenant. With no org-ownership ledger yet, a tenant admin could
-			// delete another tenant's provider. Restrict to platform principals
-			// until per-org ownership ships. See audit finding #2 (hybrid).
-			if (!isPlatformPrincipal(context)) {
-				throw createError(
-					ErrorCodes.FORBIDDEN,
-					"Deleting connection providers is restricted to platform administrators until per-org provider ownership ships.",
-				);
-			}
+			await requireProviderManagement(context, input.appId);
 			const client = getDescopeManagement(context.env, true);
 			await deleteConnectionProvider(client, input.appId);
+			await deleteConnectionProviderOwnership(context.db, input.appId);
 			console.log(`[Connections] Deleted provider: appId=${input.appId}`);
 			return {
 				success: true as const,
@@ -703,7 +706,10 @@ export const createTediProvider = tediOs.createTediProvider
 			};
 			context: BaseContext;
 		}) => {
-			await resolveTediTenantId(context, input.tediId);
+			const { organizationId } = await resolveTediTenantId(
+				context,
+				input.tediId,
+			);
 			const result = await createConnectionProvider(context.env, {
 				name: input.name,
 				type: input.type,
@@ -717,6 +723,10 @@ export const createTediProvider = tediOs.createTediProvider
 				pkce: input.pkce,
 				defaultScopes: input.defaultScopes,
 				credentialProfile: input.credentialProfile,
+			});
+			await createConnectionProviderOwnership(context.db, {
+				appId: result.id,
+				organizationId,
 			});
 			console.log(
 				`[Connections] Created tedi provider: appId=${result.id} name=${input.name} tediId=${input.tediId}`,
