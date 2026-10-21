@@ -255,7 +255,7 @@ export function OutputDetailPage() {
 							) : null}
 						</PageHeading>
 					</PageHeader>
-					<PageActions className="output-detail-actions sm:justify-start">
+					<PageActions className="output-detail-actions ms-0 w-full justify-start sm:w-auto [&>[data-slot=button]:not([data-icon-only])]:max-sm:flex-1">
 						{detail.data.output.status === "active" && (
 							<Button size="sm" onClick={startEditing}>
 								<PencilSimple size={14} /> Edit

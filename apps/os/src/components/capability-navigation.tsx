@@ -140,6 +140,7 @@ export function CapabilityNavigation({
 	return (
 		<nav
 			aria-label="Gateway, apps, skills and accounts"
+			data-capability-nav=""
 			className={CAPABILITY_NAV_CLASSNAME}
 		>
 			{overflowState.canScrollBack ? (
