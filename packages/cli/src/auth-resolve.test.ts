@@ -127,6 +127,59 @@ describe("usesRetiredTedixOAuthClient", () => {
 	});
 });
 
+describe("client rotation", () => {
+	const mcpUrl = "https://acme-unified.mcp.tedix.dev/mcp";
+	const previousClientId = "https://os.example.test/oauth-client/previous.json";
+	const nextClientId = "https://os.example.test/oauth-client/next.json";
+	const login = (clientId: string) => ({
+		loginId: "user-1",
+		oauthTokens: {
+			token_type: "Bearer",
+			access_token: "access-token",
+			refresh_token: "refresh-token",
+		},
+		accessTokenExpiresAtSeconds: Math.floor(Date.now() / 1000) + 3600,
+		mcpUrl,
+		org: "org_acme",
+		oauthClientInformation: { client_id: clientId },
+	});
+
+	test("asks for re-login on the old client, then accepts the new one", async () => {
+		const original = process.env.TEDIX_OAUTH_CLIENT_ID;
+		process.env.TEDIX_OAUTH_CLIENT_ID = nextClientId;
+		let refreshed = false;
+		try {
+			const old = await resolveStoredLoginAuth("acme", {
+				credential: login(previousClientId),
+				refreshSession: async () => {
+					refreshed = true;
+					return "refreshed";
+				},
+			});
+			expect(old.auth).toBeNull();
+			expect(old.loginError).toContain("retired Tedix CLI OAuth client");
+			expect(old.loginError).toContain("tedix login --workspace acme");
+			expect(refreshed).toBe(false);
+
+			const next = await resolveStoredLoginAuth("acme", {
+				credential: login(nextClientId),
+			});
+			expect(next.loginError).toBeUndefined();
+			expect(next.auth?.source).toBe("stored-login:acme");
+			expect(
+				usesRetiredTedixOAuthClient({
+					mcpUrl,
+					storedClientId: nextClientId,
+					expectedClientId: nextClientId,
+				}),
+			).toBe(false);
+		} finally {
+			if (original === undefined) delete process.env.TEDIX_OAUTH_CLIENT_ID;
+			else process.env.TEDIX_OAUTH_CLIENT_ID = original;
+		}
+	});
+});
+
 describe("stored login renewal", () => {
 	test("fails fast instead of entering interactive OAuth after refresh failure", async () => {
 		const result = await resolveStoredLoginAuth("tedix", {
