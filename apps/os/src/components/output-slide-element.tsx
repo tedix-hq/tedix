@@ -80,3 +80,28 @@ export function ReadOnlyElement({
 		</div>
 	);
 }
+
+export function ReadOnlySlide({
+	slide,
+	className,
+}: {
+	slide: OsPresentationCanvasSlide;
+	className: string;
+}) {
+	const color = useSlideTextColor();
+	return (
+		<div
+			className={className}
+			style={{
+				background: slide.background,
+				color,
+				containerType: "inline-size",
+			}}
+		>
+			<SlideBackground slide={slide} />
+			{slide.elements.map((element) => (
+				<ReadOnlyElement key={element.id} element={element} />
+			))}
+		</div>
+	);
+}

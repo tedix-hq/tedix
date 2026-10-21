@@ -462,11 +462,6 @@
 	overflow: auto;
 }
 
-.sheet-read-tabs {
-	padding: 4px 6px;
-	border-top: 1px solid var(--tedix-sheet-rule);
-}
-
 /*
  * A sheet on a desk, the same grammar `.document-editor-desk` gives a document
  * page: recessed ground, page-scale air, then the artifact. The grid used to be

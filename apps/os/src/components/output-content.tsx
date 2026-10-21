@@ -8,11 +8,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
-import {
-	ReadOnlyElement,
-	SlideBackground,
-	useSlideTextColor,
-} from "@/components/output-slide-element";
+import { ReadOnlySlide } from "@/components/output-slide-element";
 import {
 	bareKey,
 	ownsSlideKeys,
@@ -467,7 +463,6 @@ function DeckView({
 	onEdit?: () => void;
 }) {
 	const deck = normalizePresentationContent(content).deck!;
-	const color = useSlideTextColor();
 	const [activeSlideId, setActiveSlideId] = useState(deck.activeSlideId);
 	const [presenting, setPresenting] = useState(false);
 	const slide =
@@ -520,14 +515,6 @@ function DeckView({
 			<ol className="deck-read-rail m-0 list-none p-0">
 				{deck.slides.map((candidate, index) => (
 					<li key={candidate.id}>
-						{/*
-						 * A real miniature, not the slide's name. The editor rail and
-						 * the Outputs gallery both show a deck; the read view was the
-						 * only place it was words. `ReadOnlyElement` is reused rather
-						 * than approximated -- it positions in percentages and sizes
-						 * type in `cqw`, so the same renderer scales into a thumbnail
-						 * with no second implementation to drift.
-						 */}
 						<Button
 							aria-current={candidate.id === slide.id || undefined}
 							aria-label={`Slide ${index + 1}: ${candidate.name}`}
@@ -537,15 +524,10 @@ function DeckView({
 							size="sm"
 							variant={candidate.id === slide.id ? "secondary" : "outline"}
 						>
-							<span
+							<ReadOnlySlide
+								slide={candidate}
 								className="deck-read-thumb-canvas"
-								style={{ background: candidate.background, color }}
-							>
-								<SlideBackground slide={candidate} />
-								{candidate.elements.map((element) => (
-									<ReadOnlyElement element={element} key={element.id} />
-								))}
-							</span>
+							/>
 							<span className="deck-read-thumb-name">
 								{index + 1}. {candidate.name}
 							</span>
@@ -557,19 +539,10 @@ function DeckView({
 			    the viewport height, and its height follows from 16:9. No fixed-height
 			    stage, so there is no letterbox above, below or beside the slide. */}
 			<div className="deck-read-stage">
-				<div
+				<ReadOnlySlide
+					slide={slide}
 					className="deck-read-canvas relative overflow-hidden rounded-md"
-					style={{
-						background: slide.background,
-						color,
-						containerType: "inline-size",
-					}}
-				>
-					<SlideBackground slide={slide} />
-					{slide.elements.map((element) => (
-						<ReadOnlyElement key={element.id} element={element} />
-					))}
-				</div>
+				/>
 			</div>
 			<div className="deck-read-footer flex items-start justify-between gap-3">
 				<Text role="body" tone="secondary">
