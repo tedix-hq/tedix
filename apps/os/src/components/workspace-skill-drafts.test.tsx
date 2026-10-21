@@ -173,6 +173,7 @@ beforeEach(() => {
 	vi.resetAllMocks();
 	harness.permissions = [];
 	harness.getGrant.mockResolvedValue({
+		effective: true,
 		grant: {
 			enabled: true,
 			expiresAt: new Date(Date.now() + 86400_000).toISOString(),
@@ -198,7 +199,14 @@ beforeEach(() => {
 			},
 		],
 	});
-	harness.setGrant.mockResolvedValue({ grant: { enabled: true } });
+	harness.setGrant.mockResolvedValue({
+		grant: {
+			enabled: true,
+			memberId: "member-agent",
+			workspaceId: WORKSPACE_ID,
+			resourceId: RESOURCE_ID,
+		},
+	});
 	client = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
@@ -316,6 +324,21 @@ describe("workspace skill draft safety and usability", () => {
 
 	it("distinguishes matching display names by exact email before granting only this resource", async () => {
 		harness.permissions = ["team:manage"];
+		const expiresAt = "2026-12-01T12:34:56.000Z";
+		harness.getGrant.mockImplementation(async (input) => ({
+			effective: input.memberId === "member-agent",
+			grant:
+				input.memberId === "member-agent"
+					? {
+							memberId: input.memberId,
+							workspaceId: WORKSPACE_ID,
+							resourceId: RESOURCE_ID,
+							skillId: source.id,
+							enabled: true,
+							expiresAt,
+						}
+					: null,
+		}));
 		await mount();
 		const picker = document.querySelector<HTMLElement>(
 			'[aria-label="Draft access for Research skill"]',
@@ -332,6 +355,20 @@ describe("workspace skill draft safety and usability", () => {
 		if (!option) throw new Error("Exact member email is not shown");
 		expect(document.body.textContent).toContain("other@example.test");
 		await click(option);
+		expect(harness.getGrant).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+			resourceId: RESOURCE_ID,
+			memberId: "member-agent",
+		});
+		const readback = document.querySelector(
+			'[aria-label="Selected member draft access"]',
+		);
+		expect(readback?.textContent).toContain(
+			"agent@example.test · Research skill",
+		);
+		expect(readback?.textContent).toContain(RESOURCE_ID);
+		expect(readback?.textContent).toContain(expiresAt);
+		expect(readback?.textContent).toContain("Draft access allowed.");
 		await click(button("Allow drafts for 7 days"));
 		expect(harness.setGrant).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -345,6 +382,68 @@ describe("workspace skill draft safety and usability", () => {
 		const expiry = Date.parse(harness.setGrant.mock.calls[0]?.[0].expiresAt);
 		expect(expiry).toBeGreaterThan(Date.now());
 		expect(expiry).toBeLessThanOrEqual(Date.now() + 7 * 86400_000);
+		expect(document.body.textContent).toContain(
+			"Draft access saved for this skill and workspace.",
+		);
+		await click(picker);
+		const other = [
+			...document.querySelectorAll<HTMLElement>('[role="option"]'),
+		].find((item) => item.textContent?.includes("other@example.test"));
+		if (!other) throw new Error("Missing other member");
+		await click(other);
+		expect(document.body.textContent).not.toContain(
+			"Draft access saved for this skill and workspace.",
+		);
+		expect(
+			document.querySelector('[aria-label="Selected member draft access"]')
+				?.textContent,
+		).toContain("No current draft access.");
+		expect(harness.getGrant).toHaveBeenCalledWith({
+			workspaceId: WORKSPACE_ID,
+			resourceId: RESOURCE_ID,
+			memberId: "other-agent",
+		});
+	});
+
+	it("uses server-effective access even when a stored grant is enabled", async () => {
+		harness.getGrant.mockResolvedValue({
+			grant: {
+				enabled: true,
+				expiresAt: new Date(Date.now() + 86400_000).toISOString(),
+			},
+			effective: false,
+		});
+		await mount();
+		expect(button("Propose changes").disabled).toBe(true);
+	});
+
+	it("reports a selected-member access read failure and lets the owner retry", async () => {
+		harness.permissions = ["team:manage"];
+		harness.getGrant.mockImplementation(async (input) => {
+			if (input.memberId) throw new Error("Access read unavailable");
+			return { grant: null, effective: false };
+		});
+		await mount();
+		const picker = document.querySelector<HTMLElement>(
+			'[aria-label="Draft access for Research skill"]',
+		);
+		if (!picker) throw new Error("Missing member picker");
+		await click(picker);
+		const option = [
+			...document.querySelectorAll<HTMLElement>('[role="option"]'),
+		].find((item) => item.textContent?.includes("other@example.test"));
+		if (!option) throw new Error("Missing member option");
+		await click(option);
+		expect(
+			document.querySelector('[aria-label="Selected member draft access"]')
+				?.textContent,
+		).toContain("Access could not be checked.");
+		harness.getGrant.mockResolvedValue({ grant: null, effective: false });
+		await click(button("Retry member access"));
+		expect(
+			document.querySelector('[aria-label="Selected member draft access"]')
+				?.textContent,
+		).toContain("No current draft access.");
 	});
 
 	it("lets an owner review another member's pending receipt without a misleading withdraw or publish action", async () => {

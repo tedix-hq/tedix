@@ -94,35 +94,63 @@ async function requireLinkedSkill(
 	return { workspace, resource, skill };
 }
 
+function assertHumanDraftAdministrator(
+	context: BaseContext,
+	actor: Awaited<ReturnType<typeof requireMember>>,
+) {
+	if (
+		context.authType !== "user" ||
+		context.tediId ||
+		context.externalAgentPrincipalId ||
+		actor.kind !== "human" ||
+		!["owner", "admin"].includes(actor.role)
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"An active human owner or administrator is required to manage workspace skill draft access",
+		);
+}
+
 export const skillsGetWorkspaceDraftGrant = authedSkills.getWorkspaceDraftGrant
 	.use(AUTHZ.osRead)
 	.handler(async ({ input, context }) => {
-		const member = await requireMember(context);
-		await requireLinkedSkill(context, input);
+		const actor = await requireMember(context);
+		let member = actor;
+		if (input.memberId && input.memberId !== actor.id) {
+			assertHumanDraftAdministrator(context, actor);
+			const targetMember = await getMemberByIdForOrganization(context.db, {
+				organizationId: actor.organizationId,
+				memberId: input.memberId,
+			});
+			if (!targetMember)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Organization member not found",
+				);
+			member = targetMember;
+		}
+		const { skill } = await requireLinkedSkill(context, input);
 		const grant = await getOsWorkspaceSkillDraftGrant(context.db, {
 			organizationId: member.organizationId,
 			memberId: member.id,
-			...input,
+			workspaceId: input.workspaceId,
+			resourceId: input.resourceId,
 		});
-		return { grant: grant ?? null };
+		return {
+			grant: grant ?? null,
+			effective:
+				member.status === "active" &&
+				grant?.enabled === true &&
+				grant.skillId === skill.id &&
+				Date.parse(grant.expiresAt) > Date.now(),
+		};
 	});
 
 export const skillsSetWorkspaceDraftGrant = authedSkills.setWorkspaceDraftGrant
 	.use(withAuthorization("team:manage", "team:write"))
 	.handler(async ({ input, context }) => {
 		const actor = await requireMember(context);
-		if (
-			context.authType !== "user" ||
-			context.tediId ||
-			context.externalAgentPrincipalId ||
-			actor.kind !== "human" ||
-			!["owner", "admin"].includes(actor.role)
-		) {
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"An active human owner or administrator must grant workspace skill drafts",
-			);
-		}
+		assertHumanDraftAdministrator(context, actor);
 		const member = await getMemberByIdForOrganization(context.db, {
 			organizationId: actor.organizationId,
 			memberId: input.memberId,
