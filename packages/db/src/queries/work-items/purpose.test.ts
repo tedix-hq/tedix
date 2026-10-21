@@ -4,6 +4,7 @@ import { createDbQueryClient } from "../../query-client";
 import { workItems } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import {
+	acceptanceRenewedPurposeExpiry,
 	activePurposeContext,
 	assertValidWorkItemProject,
 	hasActivePurposeContext,
@@ -368,5 +369,70 @@ describe("canonical Work Item purpose", () => {
 				},
 			}),
 		).rejects.toMatchObject({ code: "context_conflict" });
+	});
+});
+
+describe("acceptance purpose renewal", () => {
+	const ACCEPTED = "2026-08-20T12:00:00.000Z";
+	const RENEWED = "2026-08-27T12:00:00.000Z";
+	const LAPSED = "2026-08-10T00:00:00.000Z";
+
+	it("re-asserts a lapsed operational window from the acceptance instant", () => {
+		expect(
+			acceptanceRenewedPurposeExpiry(
+				{ workClass: "maintenance", purposeExceptionExpiresAt: LAPSED },
+				null,
+				ACCEPTED,
+			),
+		).toBe(RENEWED);
+		expect(
+			acceptanceRenewedPurposeExpiry(
+				{ workClass: "hygiene", purposeExceptionExpiresAt: null },
+				null,
+				ACCEPTED,
+			),
+		).toBe(RENEWED);
+	});
+
+	it("never shortens a window, outlives an operational parent, or invents purpose", () => {
+		expect(
+			acceptanceRenewedPurposeExpiry(
+				{
+					workClass: "incident",
+					purposeExceptionExpiresAt: "2026-09-10T00:00:00.000Z",
+				},
+				null,
+				ACCEPTED,
+			),
+		).toBeNull();
+		expect(
+			acceptanceRenewedPurposeExpiry(
+				{ workClass: "maintenance", purposeExceptionExpiresAt: LAPSED },
+				{
+					workClass: "maintenance",
+					purposeExceptionExpiresAt: "2026-08-22T00:00:00.000Z",
+				},
+				ACCEPTED,
+			),
+		).toBe("2026-08-22T00:00:00.000Z");
+		// A lapsed parent keeps its child blocked: the parent's purpose ended.
+		expect(
+			acceptanceRenewedPurposeExpiry(
+				{ workClass: "maintenance", purposeExceptionExpiresAt: LAPSED },
+				{
+					workClass: "maintenance",
+					purposeExceptionExpiresAt: "2026-08-15T00:00:00.000Z",
+				},
+				ACCEPTED,
+			),
+		).toBeNull();
+		for (const workClass of ["objective", null] as const)
+			expect(
+				acceptanceRenewedPurposeExpiry(
+					{ workClass, purposeExceptionExpiresAt: null },
+					null,
+					ACCEPTED,
+				),
+			).toBeNull();
 	});
 });

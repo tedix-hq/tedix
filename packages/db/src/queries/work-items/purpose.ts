@@ -140,6 +140,46 @@ export function hasActivePurposeContext(
 		item.purposeExceptionExpiresAt && item.purposeExceptionExpiresAt > at,
 	);
 }
+/**
+ * The operational purpose window an acceptance leaves behind. Acceptance is a
+ * fresh owner decision that the work is wanted now, so it re-asserts the
+ * default window from the acceptance instant. Without this, work filed into a
+ * project more than seven days before it was accepted came out of `accept`
+ * already `purpose_blocked`, and only an owner/admin specification edit could
+ * free it. The window never shortens, never outlives an operational parent's,
+ * and objective or undeclared purpose is left alone. Returns null when nothing
+ * changes.
+ */
+export function acceptanceRenewedPurposeExpiry(
+	item: Pick<WorkItem, "workClass" | "purposeExceptionExpiresAt">,
+	parent: Pick<WorkItem, "workClass" | "purposeExceptionExpiresAt"> | null,
+	acceptedAt: string,
+): string | null {
+	if (
+		item.workClass !== "maintenance" &&
+		item.workClass !== "incident" &&
+		item.workClass !== "hygiene"
+	)
+		return null;
+	const acceptedMs = Date.parse(acceptedAt);
+	if (!Number.isFinite(acceptedMs)) return null;
+	let renewedMs = acceptedMs + DEFAULT_PURPOSE_EXCEPTION_TTL_MS;
+	const parentExpiry =
+		parent?.workClass && parent.workClass !== "objective"
+			? parent.purposeExceptionExpiresAt
+			: null;
+	if (parentExpiry) {
+		const parentMs = Date.parse(parentExpiry);
+		if (Number.isFinite(parentMs)) renewedMs = Math.min(renewedMs, parentMs);
+	}
+	const currentMs = item.purposeExceptionExpiresAt
+		? Date.parse(item.purposeExceptionExpiresAt)
+		: Number.NaN;
+	if (renewedMs <= acceptedMs) return null;
+	if (Number.isFinite(currentMs) && currentMs >= renewedMs) return null;
+	return new Date(renewedMs).toISOString();
+}
+
 export type PurposeParent = Pick<
 	WorkItem,
 	"id" | "objectiveId" | "workClass" | "purposeExceptionExpiresAt" | "projectId"
