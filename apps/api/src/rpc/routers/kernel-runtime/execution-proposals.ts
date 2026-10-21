@@ -32,9 +32,9 @@ import {
 	existingRunStartedCause,
 	insertKernelRuntimeEvent,
 	persistKernelTurnStart,
-	normalizeHomeRunRecord,
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
+import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import type { KernelDO } from "../../../kernel/kernel-do";
 import { recordDetachedKernelFailure } from "../kernel/detached-turn-failure";
 import {

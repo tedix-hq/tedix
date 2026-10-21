@@ -57,9 +57,9 @@ import { insertAuditEvent } from "@tedix/db/queries/audit";
 import {
 	insertKernelRuntimeEvent,
 	insertKernelRuntimeRun,
-	normalizeHomeRunRecord,
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
+import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import { resolveKernelFanOutCap } from "@tedix/api-contract/utils/approval-policy";
 import { settleKernelSubmission } from "../../../kernel/runtime-submission-bridge";
 import { startWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";

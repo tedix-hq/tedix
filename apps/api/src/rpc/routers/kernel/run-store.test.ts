@@ -10,15 +10,19 @@ import type { BaseContext } from "../../orpc";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	asyncCompletionAssistantMessageId,
-	homeDelegationCompletionContent,
 	homePlanFinalSynthesisContent,
-	homeRunStatusFromChildStatus,
-	normalizeHomeRunRecord,
 	reconcileHomePlanWithChildStatuses,
 	reconcileHomeRunRowsFromChildStatus,
+} from "./run-store";
+import {
+	homeDelegationCompletionContent,
 	homeDelegationProofMetadata,
 	homeDelegationVerdictMetadata,
-} from "./run-store";
+} from "./run-store-content";
+import {
+	homeRunStatusFromChildStatus,
+	normalizeHomeRunRecord,
+} from "./run-store-normalization";
 import { childRunStatusKey } from "./runtime-shared";
 
 type RunRow = typeof kernelRuntimeRuns.$inferSelect;

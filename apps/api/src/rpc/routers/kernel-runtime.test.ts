@@ -37,10 +37,8 @@ import { tediApprovalExecutionReceipts } from "@tedix/db/schema/approval-simulat
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { assembleHomeContext } from "./kernel/context-assembly";
-import {
-	insertKernelRuntimeEvent,
-	normalizeHomeRunRecord,
-} from "./kernel/run-store";
+import { insertKernelRuntimeEvent } from "./kernel/run-store";
+import { normalizeHomeRunRecord } from "./kernel/run-store-normalization";
 import { createDelegationWorkItem } from "./kernel/delegation-work-item";
 import type { KernelResult } from "./kernel/index";
 import {

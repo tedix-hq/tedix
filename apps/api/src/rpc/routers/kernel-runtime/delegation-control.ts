@@ -26,10 +26,8 @@ import {
 	listKernelRuntimeEvents,
 	listTediRuntimeEvents,
 } from "@tedix/db/queries/kernel-runtime-events";
-import {
-	ensureHomeConversationAccess,
-	normalizeHomeRunRecord,
-} from "../kernel/run-store";
+import { ensureHomeConversationAccess } from "../kernel/run-store";
+import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import {
 	errorMessage,
 	nonNullRecord,
