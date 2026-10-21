@@ -16,6 +16,7 @@ export function CanvasDocumentRecovery({
 	revision,
 	invalidDraft = false,
 	keptChanges = false,
+	saveActionLabel,
 	disabled = false,
 	onReplace,
 	onKeepChanges,
@@ -26,6 +27,7 @@ export function CanvasDocumentRecovery({
 	invalidDraft?: boolean;
 	/** The user chose to keep their changes; Save now writes on top of `revision`. */
 	keptChanges?: boolean;
+	saveActionLabel?: string;
 	disabled?: boolean;
 	onReplace: () => Promise<CollabRecoveryResult>;
 	onKeepChanges?: (keep: boolean) => void;
@@ -79,6 +81,9 @@ export function CanvasDocumentRecovery({
 			<AlertTitle>{title}</AlertTitle>
 			<AlertDescription className="grid gap-3">
 				<p>{body}</p>
+				{keptChanges && saveActionLabel && (
+					<p>Use {saveActionLabel} above the editor to review and save them.</p>
+				)}
 				{recoveryError && <p role="alert">{recoveryError}</p>}
 				{confirming ? (
 					<div className="grid gap-2">

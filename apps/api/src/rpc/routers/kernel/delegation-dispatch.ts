@@ -113,7 +113,11 @@ const CAPABILITY_SIGNALS: ReadonlyArray<{
 		pattern: /\b(?:install|update) (?:dependencies|packages?|toolchain)\b/i,
 	},
 	{ capability: "typecheck", pattern: /\b(?:type-?check|tsc)\b/i },
-	{ capability: "tests", pattern: /\b(?:test suite|tests?|vitest)\b/i },
+	{
+		capability: "tests",
+		pattern:
+			/\b(?:test (?:suite|run|command|file)|tests|(?:unit|integration|regression|e2e|smoke|browser) test|vitest|pytest|jest)\b|\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?test\b/i,
+	},
 	{ capability: "lint", pattern: /\b(?:lint|biome)\b/i },
 	{
 		capability: "build",

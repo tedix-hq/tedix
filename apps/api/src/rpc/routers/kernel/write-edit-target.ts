@@ -14,6 +14,7 @@ import { parseDerivedAccessEnvelope } from "../../../services/os-derived-resourc
 export type WriteWorkspaceContext = {
 	workspaceId: string;
 	workspaceName: string;
+	workpiece?: { kind: "gadget" | "output"; id: string; name: string };
 };
 
 const UUID_RE =

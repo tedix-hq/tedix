@@ -676,7 +676,30 @@ export type ApprovalCardData = {
 	sessionScopeKey?: string;
 };
 
-/** Payload shape of `metadata.kernelWriteProposal` on `message.completed`. */
+export function approvalsForAuthority(
+	cards: readonly ApprovalCardData[],
+	authority:
+		| { role?: string | null; permissions: readonly string[] }
+		| undefined,
+): ApprovalCardData[] {
+	return cards.map((card) => {
+		if (card.decisionMode === "no_action" || card.expired) return card;
+		const delegation = card.approvalId.startsWith("home-delegation:");
+		const canDecide =
+			authority?.permissions.includes("tedis:update") &&
+			(!delegation || authority.role === "owner" || authority.role === "admin");
+		return canDecide
+			? card
+			: {
+					...card,
+					decisionMode: "no_action",
+					sessionScopeKey: undefined,
+					noActionNote: delegation
+						? "An organization owner or admin must decide this delegation. Your account cannot approve or reject it."
+						: "Your account cannot decide this approval. Ask an authorized operator to review it.",
+				};
+	});
+}
 
 /**
  * Pending delegation approvals for a conversation, joined from

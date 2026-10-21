@@ -15,7 +15,7 @@ import type {
 	OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { isConflictError } from "@/components/blueprints-page";
 import { CanvasCodeEditor } from "@/components/canvas-editor";
 import {
@@ -347,6 +347,10 @@ export function CanvasDocPanel({
 		setDocText(serialized);
 	};
 	const [confirming, setConfirming] = useState(false);
+	const saveFooter = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (confirming) saveFooter.current?.scrollIntoView?.({ block: "nearest" });
+	}, [confirming]);
 	// Discarding unsaved changes asks once before it reloads the saved version.
 	const [discarding, setDiscarding] = useState<"confirm" | "busy" | null>(null);
 	const [discardError, setDiscardError] = useState<string | null>(null);
@@ -574,6 +578,26 @@ export function CanvasDocPanel({
 		(recoveryRequired && !keepingChanges) ||
 		unacknowledged ||
 		outputDraftIssue !== null;
+	const saveBlockedReason = !detail.data
+		? "The saved version is still loading."
+		: !session || !live
+			? "Reconnect before saving a version."
+			: roomCanonical === null
+				? "The shared draft is still loading."
+				: outputDraftIssue
+					? "The shared draft cannot be opened. Download a copy or load the saved version."
+					: recoveryRequired && !keepingChanges
+						? "Choose whether to keep your changes or load the newer version."
+						: unacknowledged
+							? "Wait for your latest edits to reach the shared draft."
+							: undefined;
+	const beginSave = () => {
+		setDraftError(null);
+		setCommittedRevision(null);
+		gadgetCommit.reset();
+		reviseOutput.clearOutcome();
+		setConfirming(true);
+	};
 
 	return (
 		<div
@@ -662,6 +686,26 @@ export function CanvasDocPanel({
 					)}
 				</OutputWorkshopStatus>
 				<OutputWorkshopActions className="canvas-document-actions">
+					{!isGadget && !confirming && (
+						<Button
+							size="sm"
+							disabled={commitDisabled}
+							title={saveBlockedReason ?? "Review and save this version."}
+							aria-description={saveBlockedReason}
+							aria-label={
+								keepingChanges && canonicalDoc
+									? `Save as v${canonicalDoc.revision + 1}`
+									: "Save version"
+							}
+							onClick={beginSave}
+							data-canvas-save-version
+						>
+							<FloppyDisk size={14} />{" "}
+							{keepingChanges && canonicalDoc
+								? `Save as v${canonicalDoc.revision + 1}`
+								: "Save version"}
+						</Button>
+					)}
 					{isGadget && gadgetDetail.data && (
 						<ShareControls
 							resourceType="gadget"
@@ -754,6 +798,9 @@ export function CanvasDocPanel({
 						revision={canonicalDoc.revision}
 						invalidDraft={!!outputDraftIssue}
 						keptChanges={keepingChanges}
+						saveActionLabel={
+							!isGadget ? `Save as v${canonicalDoc.revision + 1}` : undefined
+						}
 						disabled={!live || unacknowledged || unsynced}
 						onReplace={replaceWithCanonical}
 						onKeepChanges={() => setKeptChangesOver(canonicalDoc.revision)}
@@ -956,6 +1003,7 @@ export function CanvasDocPanel({
 				<ListSkeleton rows={1} rowClassName="h-64" />
 			)}
 			<OutputWorkshopFooter
+				ref={saveFooter}
 				className={
 					builtinAppView
 						? "canvas-document-footer hidden!"
@@ -1027,17 +1075,7 @@ export function CanvasDocPanel({
 					</span>
 				)}
 				{!confirming ? (
-					<Button
-						size="sm"
-						disabled={commitDisabled}
-						onClick={() => {
-							setDraftError(null);
-							setCommittedRevision(null);
-							gadgetCommit.reset();
-							reviseOutput.clearOutcome();
-							setConfirming(true);
-						}}
-					>
+					<Button size="sm" disabled={commitDisabled} onClick={beginSave}>
 						<FloppyDisk size={14} />{" "}
 						{keepingChanges && canonicalDoc
 							? `Save as v${canonicalDoc.revision + 1}`

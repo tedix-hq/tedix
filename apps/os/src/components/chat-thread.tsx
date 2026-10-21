@@ -66,6 +66,7 @@ import { observeScrollResize } from "@tedix/chat-transport/composer-semantics";
 import {
 	ApprovalCard,
 	approvalsFromRunSet,
+	approvalsForAuthority,
 	DelegationWorkCard,
 	mergeToolEvents,
 	pruneDepartedRunFrames,
@@ -578,8 +579,12 @@ export function ChatThread({
 		realtimeDegraded,
 	);
 	const approvalCards = useMemo(
-		() => (runSet ? approvalsFromRunSet(runSet) : []),
-		[runSet],
+		() =>
+			approvalsForAuthority(
+				runSet ? approvalsFromRunSet(runSet) : [],
+				operationalContext.data?.authority,
+			),
+		[runSet, operationalContext.data?.authority],
 	);
 	const displayMessages = useMemo(
 		() => applyDelegatedRunPreviews(messages, runSet?.runs ?? []),

@@ -3310,11 +3310,26 @@ describe("adopting a newer canonical revision", () => {
 		// The save guard: while the choice is open, Save cannot write the stale
 		// draft over the newer version.
 		expect(findButton(container, "Save version").disabled).toBe(true);
+		const saveAction = container.querySelector<HTMLButtonElement>(
+			"[data-canvas-save-version]",
+		);
+		expect(saveAction?.closest("header")).not.toBeNull();
+		expect(saveAction?.getAttribute("aria-description")).toContain(
+			"Choose whether to keep your changes",
+		);
 		click(findButton(container, "Keep my changes"));
 
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
 		expect(container.textContent).toContain("You're keeping your changes");
 		expect(findButton(container, "Load v6 instead")).toBeDefined();
+		expect(container.textContent).toContain(
+			"Use Save as v7 above the editor to review and save them.",
+		);
+		const saveAsAction = container.querySelector<HTMLButtonElement>(
+			"[data-canvas-save-version]",
+		);
+		expect(saveAsAction?.textContent).toContain("Save as v7");
+		expect(saveAsAction?.disabled).toBe(false);
 		// Now Save is explicit about what it writes and what it writes over.
 		osWorkspacesApi.outputs.revise.mockResolvedValue({
 			output: outputFixture(),

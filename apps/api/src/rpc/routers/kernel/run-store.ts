@@ -33,12 +33,14 @@ import {
 } from "@tedix/db/queries/kernel-runtime-events";
 import {
 	findKernelRuntimeRunByChild,
+	getKernelRuntimeRun,
 	hasUnacceptedChatDispatch,
 	insertKernelRuntimeRunIfAbsent,
 	type KernelRuntimeRun,
 	type NewKernelRuntimeRun,
 	openKernelRuntimeTurn,
 	settleKernelRuntimeTurn,
+	transitionKernelRuntimeRunStatus,
 	type TransitionKernelRuntimeRunStatusParams,
 	updateKernelRuntimeRunForOrg,
 } from "@tedix/db/queries/kernel-runtime-runs";
@@ -175,20 +177,23 @@ function normalizeHomeEvent(row: KernelRuntimeEventRow): KernelRuntimeEvent {
 	};
 }
 
-/**
- * Single source of truth for the run-derived terminal state shared by
- * {@link normalizeHomeRunRecord} and {@link normalizeHomeMessage}.
- *
- * Both surfaces must agree on whether a run is terminal (`completed`/`failed`/
- * `canceled`), on the terminal answer text (`preview`/`content`), and on the
- * terminal timestamp (`completedAt`). Deriving these independently let the run
- * surface and the message surface drift (e.g. a run reads "completed" while its
- * message still reads "pending"). Routing both callers through this helper makes
- * that drift impossible.
- *
- * `childRunStatus` is the resolved per-row child-run summary record (already
- * looked up by the caller), NOT the summaries Map.
- */
+function parentOwnsTerminalOutcome(
+	row: KernelRuntimeRun,
+	childRunStatus: Record<string, unknown> | null,
+): boolean {
+	return (
+		row.status === "canceled" ||
+		(isTerminalHomeRunStatus(row.status as TediRunStatus) &&
+			!isTerminalHomeRunStatus(
+				homeRunStatusFromChildStatus(
+					childRunStatusFromSummary(childRunStatus),
+					row.status as TediRunStatus,
+				),
+			))
+	);
+}
+
+/** Run and message projections share terminal status, content and timestamp. */
 function classifyHomeRunState(
 	row: KernelRuntimeRun,
 	childRunStatus: Record<string, unknown> | null,
@@ -198,11 +203,11 @@ function classifyHomeRunState(
 	preview: string | null;
 	completedAt: string | null;
 } {
-	// Cancellation is a parent control decision. An older child snapshot or a
-	// late child completion cannot revive it or replace the operator's outcome.
-	if (row.status === "canceled") {
+	// A cached child progress snapshot cannot revive a settled parent. Explicit
+	// cancellation also wins over a later terminal child outcome.
+	if (parentOwnsTerminalOutcome(row, childRunStatus)) {
 		return {
-			status: "canceled",
+			status: row.status as TediRunStatus,
 			content: row.preview ?? null,
 			preview: row.preview ?? null,
 			completedAt: row.completedAt ?? null,
@@ -593,7 +598,8 @@ export function normalizeHomeRunRecord(
 		typeof childRunStatus?.childRunLatestActivityLabel === "string"
 			? childRunStatus.childRunLatestActivityLabel
 			: null;
-	const useChildOutcome = hasChildStatus && row.status !== "canceled";
+	const useChildOutcome =
+		hasChildStatus && !parentOwnsTerminalOutcome(row, childRunStatus ?? null);
 	const interrupted =
 		!useChildOutcome &&
 		status === "failed" &&
@@ -657,15 +663,11 @@ export function normalizeHomeRunRecord(
 		// submission-level reads populate it without a schema change.
 		timeoutAt: null,
 		createdAt: row.createdAt,
-		updatedAt:
-			row.status === "canceled"
-				? (row.updatedAt ?? null)
-				: ((childRunStatus?.childRunLatestEventAt as
-						| string
-						| null
-						| undefined) ??
-					row.updatedAt ??
-					null),
+		updatedAt: parentOwnsTerminalOutcome(row, childRunStatus ?? null)
+			? (row.updatedAt ?? null)
+			: ((childRunStatus?.childRunLatestEventAt as string | null | undefined) ??
+				row.updatedAt ??
+				null),
 		progress,
 		...(rowUsage !== undefined ? { usage: rowUsage } : {}),
 		metadata: {
@@ -1317,23 +1319,36 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				return row;
 			}
 			try {
-				await updateKernelRuntimeRunForOrg(context.db, {
-					id: row.id,
-					organizationId: row.organizationId,
-					patch: {
-						status: run.status,
-						progressValue: nextProgressValue,
-						progressLabel: nextProgressLabel,
-						progressDetail: nextProgressDetail,
-						latestEventKind,
-						latestEventAt,
-						outputMessageId: nextOutputMessageId,
-						preview,
-						completedAt: nextCompletedAt,
-						updatedAt: nextUpdatedAt,
-						metadata: nextMetadata,
+				const transitioned = await transitionKernelRuntimeRunStatus(
+					context.db,
+					{
+						id: row.id,
+						organizationId: row.organizationId,
+						fromStatus: row.status,
+						expectedUpdatedAt: row.updatedAt,
+						patch: {
+							status: run.status,
+							progressValue: nextProgressValue,
+							progressLabel: nextProgressLabel,
+							progressDetail: nextProgressDetail,
+							latestEventKind,
+							latestEventAt,
+							outputMessageId: nextOutputMessageId,
+							preview,
+							completedAt: nextCompletedAt,
+							updatedAt: nextUpdatedAt,
+							metadata: nextMetadata,
+						},
 					},
-				});
+				);
+				if (!transitioned) {
+					return (
+						(await getKernelRuntimeRun(context.db, {
+							id: row.id,
+							organizationId: row.organizationId,
+						})) ?? row
+					);
+				}
 				if (terminal) {
 					try {
 						await settleTerminalHomeRunSubmission(context, row, run.status);

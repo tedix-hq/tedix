@@ -1356,6 +1356,40 @@ describe("Tedix OS origin router", () => {
 		expect(env.seen).toHaveLength(0);
 	});
 
+	it.each(["read", "write"])(
+		"uses the authoritative tenant resolution when the cache %s fails",
+		async (operation) => {
+			vi.stubGlobal("caches", {
+				default: {
+					match: async () => {
+						if (operation === "read") throw new Error("cache unavailable");
+						return undefined;
+					},
+					put: async () => {
+						throw new Error("cache unavailable");
+					},
+				},
+			});
+			try {
+				const response = await handleOsRequest(
+					new Request("https://sample.os.tedix.dev/"),
+					withApiService(assetsReturning("shell")),
+					provisionedWithTenant,
+				);
+				expect(response.status).toBe(200);
+				await expect(response.text()).resolves.toBe("shell");
+				const refused = await handleOsRequest(
+					new Request("https://sample.os.tedix.dev/"),
+					withApiService(envRecordingRequests()),
+					failing,
+				);
+				expect(refused.status).toBe(503);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		},
+	);
+
 	it("skips provisioning enforcement only when the binding is absent (local lane)", async () => {
 		const response = await handleOsRequest(
 			new Request("https://tedix.os.tedix.dev/"),

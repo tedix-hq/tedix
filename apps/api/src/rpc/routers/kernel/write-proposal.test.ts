@@ -15,6 +15,7 @@ import {
 	readEditTargetOutput,
 } from "./write-edit-target";
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { planWriteCall, validateProposedCall } from "./write-call-plan";
 import * as z from "zod";
 import { MCP_MODERN_PROTOCOL_VERSION } from "@tedix/mcp-shared/protocol";
 import type { DbClient } from "@tedix/db/client";
@@ -25,6 +26,7 @@ import {
 	clearWriteCatalogCacheForTests,
 	kernelWriteEnabled,
 	planKernelWriteProposal,
+	renderWriteDeclined,
 	type WriteProposalEnv,
 } from "./write-proposal";
 
@@ -1128,6 +1130,162 @@ describe("readEditTargetOutput", () => {
 	});
 });
 
+describe("Home live-draft snapshot request", () => {
+	it("links to the exact selected editor without generating or executing a write", async () => {
+		const workspaceId = "11111111-1111-4111-8111-111111111111";
+		const outputId = "22222222-2222-4222-8222-222222222222";
+		const service = mcpService(globexProvider);
+		const model = objectModel({
+			toolName: "os.revise_os_output",
+			args: { content: "wrong saved body" },
+		});
+		const onDecline = vi.fn();
+		const route = writeRoute();
+		expect(
+			await planKernelWriteProposal({
+				db: DB,
+				env: baseEnv(service),
+				organizationId: "org-1",
+				route,
+				content: "Snapshot Replies to review rows 21–23 as v12",
+				workspaceContext: {
+					workspaceId,
+					workspaceName: "Review workspace",
+					workpiece: {
+						kind: "output",
+						id: outputId,
+						name: "Replies to review",
+					},
+				},
+				model,
+				onDecline,
+			}),
+		).toBeNull();
+		expect(model.doGenerateCalls).toHaveLength(0);
+		expect(service.calls).toHaveLength(0);
+		expect(mocks.getAppBySlugForOrg).not.toHaveBeenCalled();
+		const declined = onDecline.mock.calls[0]?.[0];
+		expect(declined.stage).toBe("live_draft_save");
+		const response = renderWriteDeclined(declined, route);
+		expect(response).toContain("open Replies to review");
+		expect(response).toContain(`workpiece=output:${outputId}`);
+		expect(response).toContain("Nothing was saved by this chat.");
+	});
+});
+
+describe("canonical Work creation purpose", () => {
+	const tool = {
+		name: "work.create_work_items",
+		description: "Create a proposed Work item",
+		inputSchema: {
+			type: "object",
+			properties: {
+				title: { type: "string" },
+				description: { type: "string" },
+				objectiveId: { type: "string" },
+				projectId: { type: "string" },
+				parentWorkItemId: { type: "string" },
+				workClass: { type: "string" },
+			},
+			required: ["title"],
+		},
+	};
+
+	it("repairs a prose-only purpose before proposing, preserving the supplied project", async () => {
+		const projectId = "11111111-1111-4111-8111-111111111111";
+		const content = `Purpose: track event follow-ups.\nTitle: Follow up\nWhere: project ${projectId}\nCreate ONE work item.`;
+		const model = objectModel({
+			toolName: tool.name,
+			args: {
+				title: "Follow up",
+				description: "Track event follow-ups",
+				projectId,
+			},
+		});
+		const generate = vi
+			.spyOn(model, "doGenerate")
+			.mockImplementationOnce(async () => ({
+				finishReason: "stop",
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				warnings: [],
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify({
+							toolName: tool.name,
+							args: {
+								title: "Follow up",
+								description: "Purpose: track event follow-ups",
+							},
+						}),
+					},
+				],
+			}));
+		const result = await planWriteCall({
+			content,
+			capability: "work_items.create",
+			tools: [tool],
+			model,
+			paramDefaults: null,
+			timeoutMs: 10000,
+		});
+		expect(result?.args).toEqual({
+			title: "Follow up",
+			description: "Track event follow-ups",
+			projectId,
+		});
+		expect(generate).toHaveBeenCalledTimes(2);
+		expect(JSON.stringify(generate.mock.calls[1]?.[0].prompt)).toContain(
+			"workClass",
+		);
+		expect(result?.args).not.toHaveProperty("workClass");
+	});
+
+	it("refuses a prose purpose without inventing an operational class", () => {
+		const invalid = vi.fn();
+		expect(
+			validateProposedCall(
+				{
+					toolName: tool.name,
+					args: {
+						title: "Follow up",
+						description: "Purpose: event follow-ups",
+					},
+				},
+				[tool],
+				null,
+				invalid,
+			),
+		).toBeNull();
+		expect(invalid).toHaveBeenCalledWith([
+			"objectiveId",
+			"projectId",
+			"parentWorkItemId",
+			"workClass",
+		]);
+		expect(
+			validateProposedCall(
+				{
+					toolName: tool.name,
+					args: { title: "Follow up", workClass: "objective" },
+				},
+				[tool],
+				null,
+			),
+		).toBeNull();
+		expect(
+			validateProposedCall(
+				{
+					toolName: tool.name,
+					args: { title: "Repair a failed job", workClass: "incident" },
+				},
+				[tool],
+				null,
+			)?.args,
+		).toEqual({ title: "Repair a failed job", workClass: "incident" });
+	});
+});
+
 describe("planKernelWriteProposal — positive path", () => {
 	it("retries invalid argument JSON once without executing a provider write", async () => {
 		const service = mcpService(globexProvider);
@@ -1565,6 +1723,7 @@ describe("planKernelWriteProposal — positive path", () => {
 	});
 
 	it("preserves a long Work brief in an aggregate proposal without executing it", async () => {
+		const projectId = "11111111-1111-4111-8111-111111111111";
 		const service = mcpService((body) => {
 			if (body.method === "tools/list") {
 				return {
@@ -1591,6 +1750,7 @@ describe("planKernelWriteProposal — positive path", () => {
 										properties: {
 											title: { type: "string" },
 											description: { type: "string" },
+											projectId: { type: "string" },
 										},
 										required: ["title"],
 									},
@@ -1608,7 +1768,7 @@ describe("planKernelWriteProposal — positive path", () => {
 			"Create a demo, source files and playback notes. ".repeat(60);
 		const model = objectModel({
 			toolName: "work.create_work_items",
-			args: { title: "Release proof", description },
+			args: { title: "Release proof", description, projectId },
 			reasoning: "create the requested work item",
 		});
 		const generate = vi.spyOn(model, "doGenerate");
@@ -1624,7 +1784,7 @@ describe("planKernelWriteProposal — positive path", () => {
 				},
 			}),
 			actingUserId: "user-123",
-			content: `create the work item titled Release proof. Description: ${description}`,
+			content: `create the work item titled Release proof in project ${projectId}. Description: ${description}`,
 			model,
 		});
 		expect(mocks.selectJevAction).not.toHaveBeenCalled();
@@ -1632,7 +1792,7 @@ describe("planKernelWriteProposal — positive path", () => {
 		expect(proposal).toEqual({
 			appSlug: "tedix-unified",
 			toolName: "work.create_work_items",
-			args: { title: "Release proof", description },
+			args: { title: "Release proof", description, projectId },
 			reasoning: "create the requested work item",
 			riskTier: "high",
 			transport: "codemode",
@@ -1646,6 +1806,12 @@ describe("planKernelWriteProposal — positive path", () => {
 				{
 					name: "description",
 					label: "Description",
+					required: false,
+					schema: { type: "string" },
+				},
+				{
+					name: "projectId",
+					label: "Project id",
 					required: false,
 					schema: { type: "string" },
 				},
@@ -1681,6 +1847,7 @@ describe("planKernelWriteProposal — positive path", () => {
 								properties: {
 									title: { type: "string" },
 									description: { type: "string" },
+									projectId: { type: "string" },
 								},
 								required: ["title"],
 							},

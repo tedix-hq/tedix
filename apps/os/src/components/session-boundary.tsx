@@ -43,8 +43,13 @@ function BrokerSessionBoundary({
 	brokerPrefix: BrokerPrefix;
 	renderLogin: (brokerPrefix: BrokerPrefix) => ReactNode;
 }) {
-	const { status, redirectStarted, resumeThroughBroker } =
-		useOsBrokerSessionStatus(brokerPrefix);
+	const {
+		status,
+		unavailable,
+		retryStatus,
+		redirectStarted,
+		resumeThroughBroker,
+	} = useOsBrokerSessionStatus(brokerPrefix);
 	// Silent session resume: a browser holding a valid central Descope refresh
 	// cookie but no host product session gets ONE unattended pass through the
 	// broker before any login form renders. Loop safety is structural, not
@@ -82,6 +87,18 @@ function BrokerSessionBoundary({
 
 	if (flowContinuation && !status?.authenticated) {
 		return renderLogin(brokerPrefix);
+	}
+	if (unavailable) {
+		return (
+			<main className="centered-state" role="alert">
+				<TedixBrandMark />
+				<p>We couldn't verify your Tedix session.</p>
+				<p>This does not mean your session expired or your access changed.</p>
+				<button type="button" onClick={retryStatus}>
+					Try again
+				</button>
+			</main>
+		);
 	}
 	if (!status || status.renewalRequired || redirectStarted || silentResume) {
 		return (

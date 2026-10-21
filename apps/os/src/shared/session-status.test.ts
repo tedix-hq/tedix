@@ -160,8 +160,7 @@ describe("useOsBrokerSessionStatus — bounded status read", () => {
 	 * renders a spinner with no error path, so a `/status` fetch that never
 	 * settles would hold that spinner forever with zero console output. The
 	 * hook must therefore pass an abort signal bounded at
-	 * OS_BROKER_STATUS_TIMEOUT_MS; the timeout rejection lands in the existing
-	 * catch, which renders login instead of an eternal spinner.
+	 * OS_BROKER_STATUS_TIMEOUT_MS; a rejected read exposes a retryable failure.
 	 */
 	it("passes a timeout-bounded abort signal to the status fetch", async () => {
 		(

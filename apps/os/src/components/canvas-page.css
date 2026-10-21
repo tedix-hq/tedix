@@ -644,6 +644,9 @@
 }
 
 .canvas-document-header {
+	position: sticky;
+	top: 0;
+	z-index: 2;
 	padding: 4px 8px;
 	border-bottom: 1px solid var(--border);
 	background: var(--background-lighter);

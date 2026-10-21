@@ -44,9 +44,9 @@ export type BrokerPrefix = "/auth/session-broker" | "/cli/session-broker";
 /**
  * Bound on the broker `/status` read. While `status` is null the boundary
  * renders a spinner with no error path, so an unresolved fetch would hold that
- * spinner forever with zero console output. Timing out lands in the existing catch — `{ authenticated: false }`
- * — which renders login: a bounded, recoverable outcome instead of an eternal
- * spinner. 15s matches `OS_API_REQUEST_TIMEOUT_MS` for ordinary UI reads.
+ * spinner forever with zero console output. A timeout exposes a retryable
+ * verification failure rather than treating an unknown session as signed out.
+ * 15s matches `OS_API_REQUEST_TIMEOUT_MS` for ordinary UI reads.
  */
 export const OS_BROKER_STATUS_TIMEOUT_MS = 15_000;
 
@@ -182,10 +182,19 @@ export function shouldAttemptSilentOsResume(
  */
 export function useOsBrokerSessionStatus(brokerPrefix: BrokerPrefix): {
 	status: BrokerStatus | null;
+	unavailable: boolean;
+	retryStatus: () => void;
 	resumeThroughBroker: () => void;
 	redirectStarted: boolean;
 } {
 	const [status, setStatus] = useState<BrokerStatus | null>(null);
+	const [unavailable, setUnavailable] = useState(false);
+	const [attempt, setAttempt] = useState(0);
+	const retryStatus = useCallback(() => {
+		setUnavailable(false);
+		setStatus(null);
+		setAttempt((value) => value + 1);
+	}, []);
 	const redirectStarted = useRef(false);
 	// A flow continuation suppresses the automatic broker bounce exactly like a
 	// broker error: the login surface must mount first so the magic-link
@@ -201,17 +210,26 @@ export function useOsBrokerSessionStatus(brokerPrefix: BrokerPrefix): {
 			headers: { Accept: "application/json" },
 			signal: AbortSignal.timeout(OS_BROKER_STATUS_TIMEOUT_MS),
 		})
-			.then((response) => response.json() as Promise<BrokerStatus>)
+			.then(async (response) => {
+				if (!response.ok && response.status !== 401) {
+					throw new Error("Session verification unavailable");
+				}
+				const value = (await response.json()) as BrokerStatus;
+				if (typeof value?.authenticated !== "boolean") {
+					throw new Error("Invalid session status");
+				}
+				return value;
+			})
 			.then((value) => {
 				if (active) setStatus(value);
 			})
 			.catch(() => {
-				if (active) setStatus({ authenticated: false });
+				if (active) setUnavailable(true);
 			});
 		return () => {
 			active = false;
 		};
-	}, [brokerPrefix]);
+	}, [brokerPrefix, attempt]);
 
 	const resumeThroughBroker = useCallback(() => {
 		if (redirectStarted.current) return;
@@ -242,6 +260,8 @@ export function useOsBrokerSessionStatus(brokerPrefix: BrokerPrefix): {
 
 	return {
 		status,
+		unavailable,
+		retryStatus,
 		resumeThroughBroker,
 		redirectStarted: redirectStarted.current,
 	};

@@ -151,6 +151,46 @@ describe("SessionBoundary silent session resume", () => {
 		);
 	});
 
+	it.each(["network", "server", "invalid"])(
+		"offers a retry without a login redirect after a %s failure",
+		async (failure) => {
+			const fetchStatus = vi.fn(() =>
+				failure === "network"
+					? Promise.reject(new Error("offline"))
+					: Promise.resolve(
+							new Response(
+								JSON.stringify(
+									failure === "server" ? { authenticated: false } : {},
+								),
+								{ status: failure === "server" ? 503 : 200 },
+							),
+						),
+			);
+			vi.stubGlobal("fetch", fetchStatus);
+			await renderBoundary();
+			expect(container.textContent).toContain(
+				"We couldn't verify your Tedix session.",
+			);
+			expect(container.querySelector("[data-descope-flow]")).toBeNull();
+			expect(replaceSpy).not.toHaveBeenCalled();
+			expect(
+				window.sessionStorage.getItem(OS_SILENT_RESUME_GUARD_KEY),
+			).toBeNull();
+
+			fetchStatus.mockImplementation(() =>
+				Promise.resolve(new Response(JSON.stringify({ authenticated: true }))),
+			);
+			await act(async () => {
+				container.querySelector("button")?.click();
+			});
+			expect(fetchStatus).toHaveBeenCalledTimes(2);
+			expect(
+				container.querySelector("[data-authenticated-child]"),
+			).not.toBeNull();
+			expect(replaceSpy).not.toHaveBeenCalled();
+		},
+	);
+
 	it("leaves the renewal shape to the existing resume path, not the guard", async () => {
 		// The 401 renewal body resumes through shouldResumeOsBroker and must not
 		// consume the tab's single silent attempt.

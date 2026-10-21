@@ -376,8 +376,14 @@ async function resolveWithCache(
 	const cache = resolutionCache();
 	const key = resolutionCacheKey(slug);
 	if (cache) {
-		const hit = await cache.match(key);
-		if (hit) return (await hit.json()) as TenantResolution;
+		try {
+			const hit = await cache.match(key);
+			if (hit) return (await hit.json()) as TenantResolution;
+		} catch {
+			console.error(
+				"OS tenant resolution cache read failed; checking the API.",
+			);
+		}
 	}
 	try {
 		const resolution = await resolver(env, slug);
@@ -385,15 +391,19 @@ async function resolveWithCache(
 			const ttl = resolution.provisioned
 				? PROVISIONED_TTL_SECONDS
 				: UNPROVISIONED_TTL_SECONDS;
-			await cache.put(
-				key,
-				new Response(JSON.stringify(resolution), {
-					headers: {
-						"Content-Type": "application/json",
-						"Cache-Control": `max-age=${ttl}`,
-					},
-				}),
-			);
+			try {
+				await cache.put(
+					key,
+					new Response(JSON.stringify(resolution), {
+						headers: {
+							"Content-Type": "application/json",
+							"Cache-Control": `max-age=${ttl}`,
+						},
+					}),
+				);
+			} catch {
+				console.error("OS tenant resolution cache write failed.");
+			}
 		}
 		return resolution;
 	} catch (error) {

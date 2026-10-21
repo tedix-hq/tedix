@@ -5,6 +5,7 @@ import {
 	type ApprovalCardData,
 	ApprovalCard,
 	approvalsFromRunSet,
+	approvalsForAuthority,
 	type CardRunLinkProps,
 	compactPreview,
 	dedupeDelegations,
@@ -515,6 +516,36 @@ describe("ApprovalCard", () => {
 		);
 		expect(html).toContain("resolves through its own surface");
 		expect(html).not.toContain(">Approve<");
+	});
+
+	it("explains delegation eligibility to members without offering approval or session allowance", () => {
+		const [card] = approvalsForAuthority(
+			[
+				approval({
+					approvalId: `home-delegation:${RUN_ID}`,
+					sessionScopeKey: `delegate:${TEDI_ID}`,
+				}),
+			],
+			{ role: "member", permissions: ["tedis:update"] },
+		);
+		const html = renderToStaticMarkup(<ApprovalCard approval={card!} />);
+		expect(html).toContain("owner or admin");
+		expect(html).not.toContain(">Approve<");
+		expect(html).not.toContain(">Reject<");
+		expect(card?.sessionScopeKey).toBeUndefined();
+	});
+
+	it("keeps owner controls and fails closed while authority is unavailable", () => {
+		const card = approval({ approvalId: `home-delegation:${RUN_ID}` });
+		expect(
+			approvalsForAuthority([card], {
+				role: "owner",
+				permissions: ["tedis:update"],
+			}),
+		).toEqual([card]);
+		expect(approvalsForAuthority([card], undefined)[0]?.decisionMode).toBe(
+			"no_action",
+		);
 	});
 
 	it("marks escalated approvals", () => {
