@@ -110,6 +110,8 @@ export const KernelRequestPolicySchema = z
 			.object({
 				/** Project whose repository observer records pushes to the delivery branch. */
 				observerProjectId: identity,
+				/** Omit for all dispatcher Work; an empty cohort captures none. */
+				workItemIds: z.array(identity).max(50).optional(),
 				/** A SHA not observed on main and deployed within this window fails. */
 				verifyWindowMs: z.number().int().min(60_000).max(172_800_000),
 				/** Operator-approved timer authority; omission keeps verified Work open. */

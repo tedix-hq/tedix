@@ -97,6 +97,7 @@ export async function captureDispatcherWorkAttempts(
 			Date.now() - DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
 		).toISOString(),
 		limit: 20,
+		workItemIds: policy.workAttemptDelivery.workItemIds,
 	});
 	for (const attempt of attempts)
 		await receiveKernelRequest(context.db, {
@@ -162,6 +163,8 @@ export async function completeVerifiedDispatcherWork(
 		!authority ||
 		!work.projectId ||
 		!authority.projectIds.includes(work.projectId) ||
+		(policy.workAttemptDelivery?.workItemIds &&
+			!policy.workAttemptDelivery.workItemIds.includes(work.id)) ||
 		work.workKind !== "coding" ||
 		!["low", "medium"].includes(work.riskLevel) ||
 		work.disposition !== "accepted"
@@ -429,6 +432,7 @@ export async function reconcileWorkAttemptKernelRequest(
 		row.sourceKind !== "work_attempt" ||
 		!delivery ||
 		!workItemId ||
+		(delivery.workItemIds && !delivery.workItemIds.includes(workItemId)) ||
 		row.snapshot.state === "learned" ||
 		row.snapshot.state === "cancelled"
 	)

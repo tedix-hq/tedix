@@ -96,12 +96,14 @@ async function fixture(deployedSha: string, workKind = "coding") {
 			outcome: "succeeded" | "failed";
 			startedMinutesAgo: number;
 			metadata?: Record<string, unknown>;
+			workItemId?: string;
+			organizationId?: string;
 		},
 	) => {
 		await db.insert(workAttempts).values({
 			id,
-			orgId: org,
-			workItemId: "work-one",
+			orgId: p.organizationId ?? org,
+			workItemId: p.workItemId ?? "work-one",
 			executorType: "external_agent",
 			executorId: "agent-example",
 			executorSessionId: "session-example",
@@ -197,6 +199,74 @@ async function fixture(deployedSha: string, workKind = "coding") {
 }
 
 describe("dispatcher Work Attempt request source", () => {
+	it("filters a canary cohort before the intake limit and preserves tenant scope", async () => {
+		const f = await fixture(sha("a"));
+		for (let i = 0; i < 21; i++)
+			await f.attempt(`ordinary-${i}`, {
+				outcome: "succeeded",
+				startedMinutesAgo: 60,
+			});
+		await f.attempt("canary", {
+			outcome: "succeeded",
+			startedMinutesAgo: 30,
+			workItemId: "work-canary",
+		});
+		await f.attempt("other-tenant", {
+			outcome: "succeeded",
+			startedMinutesAgo: 30,
+			workItemId: "work-canary",
+			organizationId: "other-org",
+		});
+		const scopedPolicy = {
+			...policy,
+			workAttemptDelivery: {
+				...policy.workAttemptDelivery!,
+				workItemIds: ["work-canary"],
+			},
+		};
+		expect(
+			await captureDispatcherWorkAttempts(f.context, org, scopedPolicy),
+		).toBe(1);
+		expect(
+			(await f.db.select().from(kernelRequests)).map((r) => r.sourceId),
+		).toEqual(["canary"]);
+		expect(
+			await captureDispatcherWorkAttempts(f.context, org, scopedPolicy),
+		).toBe(0);
+	});
+
+	it("captures nothing for an empty cohort and does not reconcile an existing excluded request", async () => {
+		const f = await fixture(sha("a"));
+		await f.attempt("canary", { outcome: "succeeded", startedMinutesAgo: 30 });
+		const scopedPolicy = {
+			...policy,
+			workAttemptDelivery: { ...policy.workAttemptDelivery!, workItemIds: [] },
+		};
+		expect(
+			await captureDispatcherWorkAttempts(f.context, org, scopedPolicy),
+		).toBe(0);
+		expect(await captureDispatcherWorkAttempts(f.context, org, policy)).toBe(1);
+		const row = (await f.db.select().from(kernelRequests))[0]!;
+		expect(
+			await reconcileWorkAttemptKernelRequest(f.context, row, scopedPolicy),
+		).toBe(row);
+		expect(await f.repairs()).toHaveLength(0);
+		expect(await f.db.select().from(workEvents)).toHaveLength(0);
+	});
+
+	it("rejects a cohort too large for the D1 bound-parameter budget", async () => {
+		const f = await fixture(sha("a"));
+		await expect(
+			captureDispatcherWorkAttempts(f.context, org, {
+				...policy,
+				workAttemptDelivery: {
+					...policy.workAttemptDelivery!,
+					workItemIds: Array.from({ length: 51 }, (_, i) => `work-${i}`),
+				},
+			}),
+		).rejects.toThrow("limited to 50");
+	});
+
 	it("drains an existing verified request after opt-in and completes exactly once", async () => {
 		const f = await fixture(sha("a"));
 		await f.attempt("attempt-one", {
