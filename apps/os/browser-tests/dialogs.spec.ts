@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
-import { chromium, type Browser } from "playwright";
+import {
+	chromium,
+	webkit,
+	type Browser,
+	type BrowserType,
+	type Page,
+} from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
 // Parallel worktrees must not share the browser fixture's listener.
@@ -28,7 +34,64 @@ const server = Bun.spawn(
 	],
 	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
 );
-let browser: Browser | undefined;
+type Case = {
+	engine: string;
+	type: BrowserType;
+	viewport: { width: number; height: number };
+	theme: "light" | "dark";
+};
+const cases: Case[] = [];
+for (const theme of ["light", "dark"] as const) {
+	for (const viewport of [
+		{ width: 1280, height: 720 },
+		{ width: 390, height: 844 },
+	])
+		cases.push({ engine: "chromium", type: chromium, viewport, theme });
+	for (const viewport of [
+		{ width: 375, height: 667 },
+		{ width: 390, height: 844 },
+	])
+		cases.push({ engine: "webkit", type: webkit, viewport, theme });
+}
+const label = (c: Case) =>
+	`${c.engine} ${c.viewport.width}x${c.viewport.height} ${c.theme}`;
+const fixtureUrl = (c: Case, view?: string) =>
+	`${origin}/browser-tests/dialogs.html?theme=${c.theme}${view ? `&view=${view}` : ""}`;
+const browsers = new Map<string, Browser>();
+const diagnostics = new Map<Page, string[]>();
+const fresh = async (c: Case) => {
+	let browser = browsers.get(c.engine);
+	if (!browser) {
+		browser = await c.type.launch({ headless: true });
+		browsers.set(c.engine, browser);
+	}
+	const context = await browser.newContext({
+		viewport: c.viewport,
+		colorScheme: c.theme,
+	});
+	const page = await context.newPage();
+	const seen: string[] = [];
+	diagnostics.set(page, seen);
+	page.on("pageerror", (e) => seen.push(`pageerror: ${e.message}`));
+	page.on("requestfailed", (r) => seen.push(`requestfailed: ${r.url()}`));
+	page.on("request", (r) => {
+		if (!r.url().startsWith(origin)) seen.push(`external: ${r.url()}`);
+		if (r.method() !== "GET" && r.method() !== "HEAD")
+			seen.push(`${r.method()}: ${r.url()}`);
+	});
+	return page;
+};
+// Close the isolated context and require a clean run: no page error, failed
+// or external request, submission or horizontal overflow.
+const finish = async (page: Page, c: Case) => {
+	const overflow = await page.evaluate(
+		() => document.documentElement.scrollWidth - innerWidth,
+	);
+	const seen = diagnostics.get(page) ?? [];
+	await page.context().close();
+	assert.deepEqual(seen, [], `${label(c)} diagnostics`);
+	assert(overflow <= 0, `${label(c)} no horizontal overflow`);
+};
 try {
 	let ready = false;
 	for (let i = 0; i < 100; i++) {
@@ -41,13 +104,14 @@ try {
 		await Bun.sleep(250);
 	}
 	assert(ready, "Vite must serve the real CSS browser fixture");
-	browser = await chromium.launch({ headless: true });
-	for (const viewport of [
-		{ width: 1280, height: 720 },
-		{ width: 390, height: 844 },
-	]) {
-		const page = await browser.newPage({ viewport });
-		await page.goto(`${origin}/browser-tests/dialogs.html`);
+	const settled = (page: Page) =>
+		page.waitForFunction(() =>
+			document.getAnimations().every((a) => a.playState !== "running"),
+		);
+	for (const c of cases) {
+		const { viewport } = c;
+		const page = await fresh(c);
+		await page.goto(fixtureUrl(c));
 		await page.getByRole("button", { name: "Get help", exact: true }).click();
 		const dialog = page.getByRole("dialog");
 		await dialog.waitFor();
@@ -158,25 +222,45 @@ try {
 		);
 		await page.keyboard.press("Escape");
 		await dialog.waitFor({ state: "hidden" });
-		await page.close();
-		console.log(`Dialog viewport passed: ${viewport.width}x${viewport.height}`);
+		// Known product gap (support-get-help.tsx is outside this spec): closing
+		// Get help leaves focus on <body> instead of the opener, so focus return
+		// is asserted on the identity and nested dialogs below. Reopening by
+		// keyboard and pointer still has to land on Summary every time.
+		const help = page.getByRole("button", { name: "Get help", exact: true });
+		for (const mode of ["keyboard", "pointer", "keyboard"] as const) {
+			if (mode === "keyboard") {
+				await help.focus();
+				await page.keyboard.press("Enter");
+			} else await help.click();
+			await dialog.waitFor();
+			await settled(page);
+			assert(
+				await page
+					.getByRole("textbox", { name: "Summary", exact: true })
+					.evaluate((el) => el === document.activeElement),
+				`${label(c)}: Summary receives focus on ${mode} reopen`,
+			);
+			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
+		}
+		await finish(page, c);
+		console.log(`Dialog viewport passed: ${label(c)}`);
 	}
 
-	const settled = (page: import("playwright").Page) =>
-		page.waitForFunction(() =>
-			document.getAnimations().every((a) => a.playState !== "running"),
-		);
-	for (const viewport of [
-		{ width: 1280, height: 720 },
-		{ width: 390, height: 844 },
-	]) {
+	for (const c of cases) {
+		const { viewport } = c;
 		const phone = viewport.width < 640;
 
 		// Focus return + Escape on a plain form dialog.
-		const page = await browser.newPage({ viewport });
-		await page.goto(`${origin}/browser-tests/dialogs.html?view=identity`);
+		const page = await fresh(c);
+		await page.goto(fixtureUrl(c, "identity"));
 		const opener = page.getByRole("button", { name: "Edit identity" });
-		await opener.click();
+		// Safari does not focus a button on click, so WebKit opens by keyboard to
+		// give the dialog a focused opener to restore; pointer opens follow below.
+		if (c.engine === "webkit") {
+			await opener.focus();
+			await page.keyboard.press("Enter");
+		} else await opener.click();
 		const dialog = page.getByRole("dialog");
 		await dialog.waitFor();
 		await settled(page);
@@ -203,18 +287,35 @@ try {
 			await opener.evaluate((el) => el === document.activeElement),
 			"focus returns to the opener after Escape",
 		);
-		await page.close();
+		for (const mode of ["keyboard", "pointer", "keyboard"] as const) {
+			if (mode === "keyboard") await page.keyboard.press("Enter");
+			else await opener.click();
+			await dialog.waitFor();
+			await settled(page);
+			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
+			if (mode === "keyboard" || c.engine !== "webkit")
+				assert(
+					await opener.evaluate((el) => el === document.activeElement),
+					`${label(c)}: focus returns after ${mode} reopen`,
+				);
+			else await opener.focus();
+		}
+		await finish(page, c);
 
 		// A confirm opened from inside a Sheet stacks above it; Escape closes
 		// only the confirm and focus returns into the sheet.
-		const nested = await browser.newPage({ viewport });
-		await nested.goto(`${origin}/browser-tests/dialogs.html?view=sheet`);
+		const nested = await fresh(c);
+		await nested.goto(fixtureUrl(c, "sheet"));
 		await nested.getByRole("button", { name: "Open details" }).click();
 		const sheet = nested.getByRole("dialog", { name: "Source details" });
 		await sheet.waitFor();
 		await settled(nested);
 		const removeSource = sheet.getByRole("button", { name: "Remove source" });
-		await removeSource.click();
+		if (c.engine === "webkit") {
+			await removeSource.focus();
+			await nested.keyboard.press("Enter");
+		} else await removeSource.click();
 		const confirm = nested.getByRole("alertdialog");
 		await confirm.waitFor();
 		await settled(nested);
@@ -244,13 +345,24 @@ try {
 			await removeSource.evaluate((el) => el === document.activeElement),
 			"focus returns to the sheet control",
 		);
-		await nested.close();
-		console.log(
-			`Dialog behaviour passed: ${viewport.width}x${viewport.height}`,
+		// Footer actions stay visible and phone targets are at least 44px.
+		await sheet.getByRole("button").last().waitFor();
+		const footer = await sheet.getByRole("button").evaluateAll((els) =>
+			els.map((el) => {
+				const r = el.getBoundingClientRect();
+				return { w: r.width, h: r.height, bottom: r.bottom };
+			}),
 		);
+		for (const b of footer)
+			assert(
+				b.bottom <= viewport.height && (!phone || b.h >= 44),
+				`${label(c)}: sheet action visible and >=44px on phone ${JSON.stringify(footer)}`,
+			);
+		await finish(nested, c);
+		console.log(`Dialog behaviour passed: ${label(c)}`);
 	}
 } finally {
-	await browser?.close();
+	for (const browser of browsers.values()) await browser.close();
 	// vp launches Vite in a child; close the group so test gates receive EOF.
 	try {
 		process.kill(-server.pid, "SIGTERM");
