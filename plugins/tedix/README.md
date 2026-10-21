@@ -1,7 +1,7 @@
 # Tedix plugin
 
 Add Tedix to the AI assistant you already use. Once you sign in, Claude,
-Codex, ChatGPT, Devin or OpenCode can see your team's shared to-do list, pick
+Codex, ChatGPT, Devin or OpenCode can see the work your team has handed off, pick
 up your company's context and preferences, hand a task to a tedi, and save
 results where your colleagues can find them. Installing the plugin gives the
 assistant a connection, not power: it can only do what you allow after you

@@ -1,7 +1,7 @@
 # Agent guide for the source repository
 
-Tedix gives a team and its AI agents one shared to-do list, memory and record;
-it runs on Cloudflare. Start with
+Tedix lets people hand off work and brings back only the decisions that need
+them; it runs on Cloudflare. Start with
 `README.md` and `docs/public/index.md`; `docs/public/release-status.md` says
 what is available today.
 

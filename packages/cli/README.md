@@ -6,9 +6,8 @@ with Tedix from the command line. Public beta; see
 
 ## What you can do with it
 
-Tedix is one shared to-do list, memory and record for your team and the AI
-assistants you already use. The `tedix` command gives you that from a
-terminal:
+Hand off the work. Tedix brings back only the decisions that need you, and
+handles the rest. The `tedix` command gives you that from a terminal:
 
 - ask a question or hand off a task, and see the answer with its record;
 - see what is in progress and approve or reject what is waiting for you;

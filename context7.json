@@ -3,7 +3,7 @@
 	"public_key": "pk_OFMLe3yeyaPJ0kmk3Lx6n",
 	"$schema": "https://context7.com/schema/context7.json",
 	"projectTitle": "Tedix",
-	"description": "Open source. One shared to-do list, memory and record for your team and AI agents: one context for every agent, approval before risky steps, a record of every step.",
+	"description": "Open source. Hand off the work. Tedix brings back only the decisions that need you, and handles the rest. Works with Claude, ChatGPT and Codex.",
 	"folders": ["docs/public"],
 	"excludeFolders": [
 		"./apps",

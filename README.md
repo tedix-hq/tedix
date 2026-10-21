@@ -16,8 +16,8 @@
   <a href="https://github.com/tedix-hq/tedix/discussions">Discussions</a>
 </p>
 
-**Tedix is one shared to-do list, memory and record for your team and the AI
-assistants you already use.**
+**Hand off the work. Tedix brings back only the decisions that need you, and
+handles the rest.**
 
 ## The problem
 
@@ -138,7 +138,7 @@ limits.
 | ------------- | ---------------------------------------------------------------------------------- |
 | **Tedi**      | An AI assistant with one job, its own memory and only the access you give it.      |
 | **Home**      | The chat where you ask for something. Tedix answers or hands it to a tedi.         |
-| **Work**      | Your team's shared to-do list. One task on it is a **Work Item**.                  |
+| **Work**      | Everything your team has handed off. One piece of it is a **Work Item**.           |
 | **Deck**      | The short stack of decisions waiting for you, one card at a time.                  |
 | **Feed**      | A timeline of everything that happened, each entry with its record.                |
 | **Run**       | The saved record of one piece of work: what was used, what came out, who said yes. |
