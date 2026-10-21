@@ -38,6 +38,7 @@ import { LearnedToday } from "@/components/learned-today";
 import { DeckAttentionMetrics } from "@/components/deck-attention-metrics";
 import {
 	DeckRemainingContext,
+	DeckCurationContext,
 	DeckFooterContext,
 	DeckNoticeContext,
 	CardFaceContext,
@@ -1101,245 +1102,243 @@ function DecisionDeckContent({
 								</>
 							}
 						>
-							<DeckFooterContext.Provider
+							<DeckCurationContext.Provider
 								value={
-									<>
-										{!practiceMode &&
-											mode === "decide" &&
-											selected.row?.request && (
-												<DeckNotUseful
-													key={`${selected.row.request.id}:${selected.row.request.version}`}
-													request={selected.row.request}
-													disabled={saving}
-												/>
-											)}
-										{mode !== "history" &&
-											!current?.options.some(
-												(option) => option.intent === "later",
-											) && (
-												<ShortcutTooltip
-													label={decisionText("Later")}
-													shortcut="L"
-												>
-													<Button
-														variant="outline"
-														onClick={() => {
-															if (!practiceMode)
-																void osApi.learningFeedback
-																	.recordInteraction({
-																		clientEventId: crypto.randomUUID(),
-																		eventKind: "ignored",
-																		scope: { kind: "personal" },
-																		surface: "decision_deck",
-																		targetType: "work_interaction",
-																		targetId: selected.id,
-																		metadata: {
-																			decisionClass: classId ?? selected.kind,
-																			decisionChoice: "later",
-																			...cardDecisionTiming(selectedViewKey),
-																			sourceVersion: selectedSourceVersion,
-																			railOpenedBeforeDecision:
-																				railOpenedBeforeDecision ||
-																				cardDetailsOpened(selectedViewKey),
-																			reaction: "skip",
-																			projectId: selected.project,
-																		},
-																	})
-																	.then(async (result) => {
-																		if (!result.duplicate && result.event?.id)
-																			setSessionLearningId(result.event.id);
-																		await client.invalidateQueries({
-																			queryKey: osQuery.learningFeedback.key(),
-																		});
-																	})
-																	.catch(() => {});
-															next();
-														}}
-													>
-														{decisionText("Later")}
-													</Button>
-												</ShortcutTooltip>
-											)}
-									</>
+									mode === "decide" &&
+									!practiceMode &&
+									selected.row?.request ? (
+										<DeckNotUseful
+											key={`${selected.row.request.id}:${selected.row.request.version}`}
+											request={selected.row.request}
+											disabled={saving}
+										/>
+									) : null
 								}
 							>
-								{" "}
-								<ProposerContext.Provider
-									value={{
-										source: selected.row
-											? {
-													channel: "Decision capture",
-													capturedAt: selected.row.request.requestedAt,
-													evidenceUrl: `/work/interactions/${selected.row.request.id}`,
-												}
-											: undefined,
-										project: selected.project
-											? projectLabel(selected.project)
-											: undefined,
-										projectId: projectNames.has(selected.project)
-											? selected.project
-											: undefined,
-										workItemId:
-											selected.row?.workItem?.id ??
-											selected.row?.request.workItemId ??
-											undefined,
-										actor: selected.row
-											? workActorReference(
-													selected.row.request.creatorType,
-													selected.row.request.creatorId,
-													{
-														...selected.row.request.metadata,
-														agentHarness:
-															selected.row.creatorHarness ??
-															selected.row.request.metadata.agentHarness,
-													},
-													selected.row.request.creatorSessionId,
-												)
-											: undefined,
-									}}
+								<DeckFooterContext.Provider
+									value={
+										<>
+											{mode !== "history" &&
+												!current?.options.some(
+													(option) => option.intent === "later",
+												) && (
+													<ShortcutTooltip
+														label={decisionText("Later")}
+														shortcut="L"
+													>
+														<Button
+															variant="outline"
+															onClick={() => {
+																if (!practiceMode)
+																	void osApi.learningFeedback
+																		.recordInteraction({
+																			clientEventId: crypto.randomUUID(),
+																			eventKind: "ignored",
+																			scope: { kind: "personal" },
+																			surface: "decision_deck",
+																			targetType: "work_interaction",
+																			targetId: selected.id,
+																			metadata: {
+																				decisionClass: classId ?? selected.kind,
+																				decisionChoice: "later",
+																				...cardDecisionTiming(selectedViewKey),
+																				sourceVersion: selectedSourceVersion,
+																				railOpenedBeforeDecision:
+																					railOpenedBeforeDecision ||
+																					cardDetailsOpened(selectedViewKey),
+																				reaction: "skip",
+																				projectId: selected.project,
+																			},
+																		})
+																		.then(async (result) => {
+																			if (!result.duplicate && result.event?.id)
+																				setSessionLearningId(result.event.id);
+																			await client.invalidateQueries({
+																				queryKey:
+																					osQuery.learningFeedback.key(),
+																			});
+																		})
+																		.catch(() => {});
+																next();
+															}}
+														>
+															{decisionText("Later")}
+														</Button>
+													</ShortcutTooltip>
+												)}
+										</>
+									}
 								>
-									<OptimisticDeckDecisionContext.Provider
-										value={optimisticDecision}
+									{" "}
+									<ProposerContext.Provider
+										value={{
+											source: selected.row
+												? {
+														channel: "Decision capture",
+														capturedAt: selected.row.request.requestedAt,
+														evidenceUrl: `/work/interactions/${selected.row.request.id}`,
+													}
+												: undefined,
+											project: selected.project
+												? projectLabel(selected.project)
+												: undefined,
+											projectId: projectNames.has(selected.project)
+												? selected.project
+												: undefined,
+											workItemId:
+												selected.row?.workItem?.id ??
+												selected.row?.request.workItemId ??
+												undefined,
+											actor: selected.row
+												? workActorReference(
+														selected.row.request.creatorType,
+														selected.row.request.creatorId,
+														{
+															...selected.row.request.metadata,
+															agentHarness:
+																selected.row.creatorHarness ??
+																selected.row.request.metadata.agentHarness,
+														},
+														selected.row.request.creatorSessionId,
+													)
+												: undefined,
+										}}
 									>
-										<div
-											key={selected.id}
-											className="fd-decision-stack"
-											data-has-next={filtered.length > 1}
-											data-instant={mode === "decide"}
+										<OptimisticDeckDecisionContext.Provider
+											value={optimisticDecision}
 										>
-											{mode === "history" ? (
-												<WorkDecisionCard
-													revisionTarget={
-														selected.row
-															? {
-																	requestId: selected.row.request.id,
-																	version: selected.row.request.version,
-																}
-															: undefined
-													}
-													kind={current?.kind ?? "decision"}
-													title={selected.label}
-													askedBy={
-														selected.row?.askedBy ?? decisionText("Your tedi")
-													}
-													body={selected.row?.request.prompt}
-													why={
-														<Link href={`/work/interactions/${selected.id}`}>
-															{decisionText(
-																"Read the saved answer and history",
-															)}
-														</Link>
-													}
-													disabled
-													onDecision={async () => {}}
-													onNext={next}
-													onPrevious={previous}
-												/>
-											) : selected.id.startsWith("work-approval:") ? (
-												<WorkApprovalDecisionCard
-													row={decisions.work.find(
-														(row) =>
-															`work-approval:${row.proposal.id}` ===
-															selected.id,
-													)!}
-													onNext={next}
-													onPrevious={previous}
-												/>
-											) : selected.id.startsWith("approval:") ? (
-												<ApprovalDecisionCard
-													id={selected.id.slice("approval:".length)}
-													onNext={next}
-													onPrevious={previous}
-												/>
-											) : current &&
-											  (practiceMode ||
-													current.kind === "approval" ||
-													current.kind === "adr" ||
-													current.kind === "decision" ||
-													current.options.some((option) => option.effect)) ? (
-												<DecisionEnvelopeCard
-													revisionTarget={
-														selected.row
-															? {
-																	requestId: selected.row.request.id,
-																	version: selected.row.request.version,
-																}
-															: undefined
-													}
-													decision={current}
-													defaultLowStakesToDelegate={
-														config.defaultLowStakesToDelegate
-													}
-													askedBy={
-														practiceMode
-															? decisionText("Example")
-															: (selected.row?.askedBy ??
-																decisionText("Your tedi"))
-													}
-													disabled={
-														mode === "history" || (!practiceMode && expired)
-													}
-													onNext={next}
-													onPrevious={previous}
-													onDecision={async (feedback, choice, elapsedMs) => {
-														if (practiceMode) {
-															setPractice((value) => [
-																...value,
-																{
-																	id: crypto.randomUUID(),
-																	classId: current.classId,
-																	choice,
-																	signal: feedback.signal,
-																	at: new Date().toISOString(),
-																	elapsedMs,
-																},
-															]);
-															return;
+											<div
+												key={selected.id}
+												className="fd-decision-stack"
+												data-has-next={filtered.length > 1}
+												data-instant={mode === "decide"}
+											>
+												{mode === "history" ? (
+													<WorkDecisionCard
+														revisionTarget={
+															selected.row
+																? {
+																		requestId: selected.row.request.id,
+																		version: selected.row.request.version,
+																	}
+																: undefined
 														}
-														const request = selected.row!.request;
-														const result = await osApi.workInteractions.respond(
-															{
-																requestId: request.id,
-																expectedRequestVersion: request.version,
-																responseKind: "answer",
-																body:
-																	choice === "change"
-																		? feedback.body
-																		: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
-																resolvesRequest: choice !== "later",
-																metadata: decisionFeedbackMetadata(
-																	feedback,
-																	current.classId,
-																	choice,
-																	elapsedMs,
-																),
-															},
-														);
-														return result;
-													}}
-												/>
-											) : (
-												<WorkInteractionDecisionCard
-													requestId={selected.id}
-													preview={selected.row}
-													askedBy={selected.row?.askedBy}
-													autoFocus
-													onNext={next}
-													onPrevious={previous}
-												/>
-											)}
-										</div>
-									</OptimisticDeckDecisionContext.Provider>
-								</ProposerContext.Provider>
-							</DeckFooterContext.Provider>
+														kind={current?.kind ?? "decision"}
+														title={selected.label}
+														askedBy={
+															selected.row?.askedBy ?? decisionText("Your tedi")
+														}
+														body={selected.row?.request.prompt}
+														why={
+															<Link href={`/work/interactions/${selected.id}`}>
+																{decisionText(
+																	"Read the saved answer and history",
+																)}
+															</Link>
+														}
+														disabled
+														onDecision={async () => {}}
+														onNext={next}
+														onPrevious={previous}
+													/>
+												) : selected.id.startsWith("work-approval:") ? (
+													<WorkApprovalDecisionCard
+														row={decisions.work.find(
+															(row) =>
+																`work-approval:${row.proposal.id}` ===
+																selected.id,
+														)!}
+														onNext={next}
+														onPrevious={previous}
+													/>
+												) : selected.id.startsWith("approval:") ? (
+													<ApprovalDecisionCard
+														id={selected.id.slice("approval:".length)}
+														onNext={next}
+														onPrevious={previous}
+													/>
+												) : current &&
+												  (practiceMode ||
+														current.kind === "approval" ||
+														current.kind === "adr" ||
+														current.kind === "decision" ||
+														current.options.some((option) => option.effect)) ? (
+													<DecisionEnvelopeCard
+														revisionTarget={
+															selected.row
+																? {
+																		requestId: selected.row.request.id,
+																		version: selected.row.request.version,
+																	}
+																: undefined
+														}
+														decision={current}
+														defaultLowStakesToDelegate={
+															config.defaultLowStakesToDelegate
+														}
+														askedBy={
+															practiceMode
+																? decisionText("Example")
+																: (selected.row?.askedBy ??
+																	decisionText("Your tedi"))
+														}
+														disabled={
+															mode === "history" || (!practiceMode && expired)
+														}
+														onNext={next}
+														onPrevious={previous}
+														onDecision={async (feedback, choice, elapsedMs) => {
+															if (practiceMode) {
+																setPractice((value) => [
+																	...value,
+																	{
+																		id: crypto.randomUUID(),
+																		classId: current.classId,
+																		choice,
+																		signal: feedback.signal,
+																		at: new Date().toISOString(),
+																		elapsedMs,
+																	},
+																]);
+																return;
+															}
+															const request = selected.row!.request;
+															const result =
+																await osApi.workInteractions.respond({
+																	requestId: request.id,
+																	expectedRequestVersion: request.version,
+																	responseKind: "answer",
+																	body:
+																		choice === "change"
+																			? feedback.body
+																			: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
+																	resolvesRequest: choice !== "later",
+																	metadata: decisionFeedbackMetadata(
+																		feedback,
+																		current.classId,
+																		choice,
+																		elapsedMs,
+																	),
+																});
+															return result;
+														}}
+													/>
+												) : (
+													<WorkInteractionDecisionCard
+														requestId={selected.id}
+														preview={selected.row}
+														askedBy={selected.row?.askedBy}
+														autoFocus
+														onNext={next}
+														onPrevious={previous}
+													/>
+												)}
+											</div>
+										</OptimisticDeckDecisionContext.Provider>
+									</ProposerContext.Provider>
+								</DeckFooterContext.Provider>
+							</DeckCurationContext.Provider>
 						</DeckNoticeContext.Provider>
-						{mode === "decide" && !practiceMode && selected.row?.request && (
-							<DeckNotUseful
-								key={`${selected.row.request.id}:${selected.row.request.version}`}
-								request={selected.row.request}
-								disabled={saving}
-							/>
-						)}
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
 								<Button variant="ghost" onClick={previous}>

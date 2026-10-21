@@ -713,8 +713,7 @@ export function FocusFeed({
 						]}
 					/>
 					<p className="focus-budget">
-						Worth your time today: {selection.selected.length} · handled without
-						you: {handled.length}
+						Worth your time today: {selection.selected.length}
 					</p>
 				</div>
 			)}

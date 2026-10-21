@@ -121,7 +121,7 @@ it.each([true, false])(
 		expect(host.textContent).not.toContain("Make customer work easier.");
 		expect(host.textContent).not.toContain("Checking Deck");
 		expect(host.querySelector('a[href="/work?view=deck"]')?.textContent).toBe(
-			complete ? "Needs you 7" : "Open Deck · count unavailable",
+			complete ? "7 decisions waiting → Deck" : "Open Deck · count unavailable",
 		);
 		expect(host.textContent).toContain("Updated today.");
 		await act(async () => {

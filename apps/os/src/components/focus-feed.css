@@ -20,6 +20,10 @@
 	display: inline-flex;
 	align-items: center;
 }
+/* The trigger's hover inset hangs outside, so its label starts on the title's edge. */
+.focus-decision-row [data-kumo-component="CollapsibleTrigger"] {
+	margin-inline-start: -0.5rem;
+}
 .focus-source-text {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
@@ -148,8 +152,9 @@
 .focus-handled-row .fd-rich-preview {
 	display: none;
 }
+/* Same inset as .focus-row, so Today and the lists above share one inner edge. */
 .focus-feed .focus-today[data-slot="card"] {
-	padding: var(--spacing-tedix-card);
+	padding: 1rem;
 	gap: 1rem;
 	background: var(--card);
 }
@@ -168,10 +173,6 @@
 }
 .focus-today-chips > * {
 	max-width: 100%;
-	padding: 0.25rem 0.5rem;
-	border: 1px solid var(--border);
-	border-radius: 999px;
-	background: var(--muted);
 	font-size: 0.8125rem;
 	line-height: 1.5;
 	overflow-wrap: anywhere;

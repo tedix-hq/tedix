@@ -83,7 +83,7 @@ export function demoTodayContent(nowMs: number) {
 			{ type: "paragraph" as const, text: packMeta.description },
 			{
 				type: "paragraph" as const,
-				text: `Sample digest · ${new Date(nowMs).toISOString()}`,
+				text: `Sample digest · updated at ${new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" }).format(nowMs)}`,
 			},
 			{
 				type: "paragraph" as const,

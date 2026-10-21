@@ -26,4 +26,7 @@ export const WorkToolbarTargetContext = createContext<HTMLDivElement | null>(
 
 export const DeckFooterContext = createContext<ReactNode>(null);
 
+/** Deck curation ("Not useful"), rendered inside the card's action row. */
+export const DeckCurationContext = createContext<ReactNode>(null);
+
 export const DeckNoticeContext = createContext<ReactNode>(null);

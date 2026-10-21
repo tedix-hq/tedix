@@ -7,6 +7,7 @@ import type {
 	WorkContributionSource,
 } from "@tedix/api-contract/schemas/os-work-actor";
 import {
+	DeckCurationContext,
 	DeckFooterContext,
 	DeckNoticeContext,
 	CardFaceContext,
@@ -131,10 +132,17 @@ const ACTION_SHORTCUTS: Record<string, { key: string; aria: string }> = {
 	delegate: { key: "D", aria: "D" },
 };
 
+/** The card already labels the consequence "If yes:", so the sentence must not repeat it. */
+function withoutIfYes(body: string) {
+	const rest = body.replace(/^\s*If yes[,:]?\s*/i, "");
+	return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
 /*
  * The Button adapter resolves Kumo's primary label color through an inline
- * `--color-white`, which no stylesheet rule can outrank. A disabled action
- * trades the accent pairing for the muted pairing feed-deck.css paints.
+ * `--color-white`, which no stylesheet rule can outrank. A disabled secondary
+ * action trades the accent pairing for the muted pairing feed-deck.css paints;
+ * a disabled primary keeps its label color on a lighter primary fill.
  */
 const DISABLED_ACTION_LABEL = {
 	"--color-white": "var(--muted-foreground)",
@@ -231,6 +239,7 @@ export function WorkDecisionCard({
 		connectionSettings || credentialCard(`${title} ${body}`);
 	const identifiers = decisionIdentifiers(`${title} ${body}`);
 	const deckFooter = useContext(DeckFooterContext);
+	const deckCuration = useContext(DeckCurationContext);
 	const deckNotice = useContext(DeckNoticeContext);
 	const proposer = useContext(ProposerContext);
 	const submittingActor = actor ?? proposer.actor;
@@ -585,16 +594,18 @@ export function WorkDecisionCard({
 			<FeedDeckCard>
 				<CardHeader>
 					<CardDescription className="flex flex-wrap items-center gap-2">
-						{faceState ? (
-							<span>Tedix</span>
-						) : (
-							<ProposerChip name={askedBy} actor={actor} />
-						)}
-						{at ? (
-							<time dateTime={at} title={absoluteTime(at)}>
-								· {relativeTime(at)}
-							</time>
-						) : null}
+						<span className="flex min-w-0 items-center">
+							{faceState ? (
+								<span>Tedix</span>
+							) : (
+								<ProposerChip name={askedBy} actor={actor} />
+							)}
+							{at ? (
+								<time dateTime={at} title={absoluteTime(at)}>
+									&nbsp;· {relativeTime(at)}
+								</time>
+							) : null}
+						</span>
 						{rail && (
 							<Button
 								variant="ghost"
@@ -667,7 +678,7 @@ export function WorkDecisionCard({
 										<div className="fd-face-enter grid gap-3">
 											{"context" in face && <Text>{face.context}</Text>}
 											<Text className="fd-card-summary">
-												<strong>If yes:</strong> {face.body}
+												<strong>If yes:</strong> {withoutIfYes(face.body)}
 											</Text>
 											<Text className="fd-recommendation">
 												{face.recommendation}
@@ -990,7 +1001,11 @@ export function WorkDecisionCard({
 									const control = (
 										<Button
 											data-decision-intent={action.intent}
-											style={inactive ? DISABLED_ACTION_LABEL : undefined}
+											style={
+												inactive && action !== approve
+													? DISABLED_ACTION_LABEL
+													: undefined
+											}
 											className={
 												kind === "decision" ||
 												kind === "adr" ||
@@ -1080,6 +1095,7 @@ export function WorkDecisionCard({
 							) : null}
 							{!actions.some((action) => action.intent === "later") &&
 								deckFooter}
+							{deckCuration}
 							<div className="fd-card-why">
 								{why || learnedWhy ? (
 									rail ? (
