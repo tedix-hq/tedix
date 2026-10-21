@@ -1,6 +1,6 @@
 /**
  * Tedix for OpenCode: the remote MCP connection, the shared skills, the
- * session's Agent-Session identity and the read-only Tedix context hooks.
+ * session's Agent-Session identity and the Tedix lifecycle hooks.
  *
  * OpenCode loads every function this module exports as a plugin, so it exports
  * exactly one. Hook logic runs in the installed Tedix CLI
@@ -42,16 +42,18 @@ function tedixInstalled(env) {
 	});
 }
 
-/** One `tedix hooks <name> --host opencode` run; its context, or "" on any fault. */
-function runHook(name, event, timeout) {
+/** Returns context, or the framed await-reply wake message; empty on failure. */
+function runHook(name, event, timeout, signal) {
 	return new Promise((resolve) => {
 		let stdout = "";
+		let stderr = "";
 		let child;
 		try {
 			child = spawn("tedix", ["hooks", name, "--host", "opencode"], {
 				cwd: event.cwd,
 				env: { ...process.env, TEDIX_HOOK_CONTEXT_BYTES: "10000" },
-				stdio: ["pipe", "pipe", "ignore"],
+				stdio: ["pipe", "pipe", "pipe"],
+				signal,
 			});
 		} catch {
 			resolve("");
@@ -63,8 +65,13 @@ function runHook(name, event, timeout) {
 		child.stdout.on("data", (chunk) => {
 			stdout += chunk;
 		});
+		child.stderr.on("data", (chunk) => {
+			if (name === "await-reply") stderr = (stderr + chunk).slice(0, 100_000);
+		});
 		child.on("close", (code) => {
 			clearTimeout(timer);
+			if (name === "await-reply")
+				return resolve(code === 2 && !signal?.aborted ? stderr.trim() : "");
 			if (code !== 0) return resolve("");
 			try {
 				const line = stdout.trim().split("\n").pop() || "{}";
@@ -95,14 +102,80 @@ function recallInput(args) {
 	return input;
 }
 
-export const TedixPlugin = async ({ directory }, options = {}) => {
+export const TedixPlugin = async ({ directory, client }, options = {}) => {
 	/** id -> { parentID, version, created } from OpenCode session events. */
 	const sessions = new Map();
 	/** id -> { providerID, modelID } of the latest user message. */
 	const models = new Map();
 	const started = new Set();
 	const recalls = new Map();
+	const waiting = new Map();
+	const turns = new Map();
 	const hooks = options.hooks !== false;
+	const hostEvent = (id, name, fields = {}) => ({
+		session_id: id,
+		cwd: directory,
+		hook_event_name: name,
+		...fields,
+	});
+	const status = (id, name, fields = {}) =>
+		runHook("status", hostEvent(id, name, fields), 12_000);
+	const stopWaiting = (id) => {
+		waiting.get(id)?.abort();
+		waiting.delete(id);
+	};
+	const idle = async (id) => {
+		const controller = new AbortController();
+		stopWaiting(id);
+		waiting.set(id, controller);
+		try {
+			const result = await client.session.messages({
+				path: { id },
+				query: { limit: 100 },
+			});
+			const messages = result.data ?? [];
+			const lastUser = messages.findLastIndex(
+				(message) => message.info.role === "user",
+			);
+			const replies = messages
+				.slice(lastUser + 1)
+				.filter((message) => message.info.role === "assistant");
+			const last = replies.at(-1);
+			if (!last || turns.get(id) === last.info.id || controller.signal.aborted)
+				return;
+			turns.set(id, last.info.id);
+			const textOf = (message) =>
+				message.parts
+					.filter((part) => part.type === "text" && !part.synthetic)
+					.map((part) => part.text)
+					.join("\n\n");
+			const event = hostEvent(id, "Stop", {
+				turn_id: last.info.id,
+				last_assistant_message: textOf(last),
+				opencode_turn_text: replies.map(textOf).filter(Boolean).join("\n\n"),
+			});
+			await Promise.all([
+				runHook("capture-stop", event, 120_000),
+				runHook("status", event, 12_000),
+			]);
+			if (controller.signal.aborted || !client.session.promptAsync) return;
+			const reply = await runHook(
+				"await-reply",
+				event,
+				4 * 60 * 60 * 1000 + 5000,
+				controller.signal,
+			);
+			if (reply && !controller.signal.aborted)
+				await client.session.promptAsync({
+					path: { id },
+					body: { parts: [{ type: "text", text: reply, synthetic: true }] },
+				});
+		} catch {
+			// Host events remain advisory if the CLI or session API is unavailable.
+		} finally {
+			if (waiting.get(id) === controller) waiting.delete(id);
+		}
+	};
 
 	const root = (id) => {
 		const seen = new Set();
@@ -143,9 +216,43 @@ export const TedixPlugin = async ({ directory }, options = {}) => {
 						event.type === "session.created" || sessions.get(info.id)?.created,
 				});
 			if (event.type === "session.deleted" && typeof info?.id === "string") {
+				stopWaiting(info.id);
+				turns.delete(info.id);
+				if (
+					hooks &&
+					!sessions.get(info.id)?.parentID &&
+					tedixInstalled(process.env)
+				)
+					await status(info.id, "SessionEnd");
 				sessions.delete(info.id);
 				models.delete(info.id);
 				started.delete(info.id);
+			}
+			const props = event.properties;
+			const id = props?.sessionID;
+			if (
+				!hooks ||
+				!id ||
+				sessions.get(id)?.parentID ||
+				!tedixInstalled(process.env)
+			)
+				return;
+			if (event.type === "session.idle") {
+				// A reply can arrive hours later; never hold OpenCode's event dispatch open.
+				if (!waiting.has(id)) void idle(id);
+			} else if (
+				event.type === "permission.asked" ||
+				event.type === "permission.updated"
+			) {
+				await status(id, "PermissionRequest", {
+					tool_name: props.permission ?? props.type,
+					tool_input: props.metadata,
+				});
+			} else if (event.type === "permission.replied") {
+				await status(id, "PostToolUse");
+			} else if (event.type === "session.error") {
+				stopWaiting(id);
+				await status(id, "StopFailure", { error: props.error });
 			}
 		},
 		/** Shell commands identify this OpenCode session, as Claude Code and Codex do natively. */
@@ -182,6 +289,7 @@ export const TedixPlugin = async ({ directory }, options = {}) => {
 			if (sessions.get(input.sessionID)?.parentID) return;
 			if (!tedixInstalled(process.env)) return;
 			const id = input.sessionID;
+			stopWaiting(id);
 			const cwd = directory;
 			const contexts = [];
 			if (!started.has(id)) {
@@ -203,6 +311,12 @@ export const TedixPlugin = async ({ directory }, options = {}) => {
 				.filter((part) => part.type === "text" && !part.synthetic)
 				.map((part) => part.text)
 				.join("\n");
+			if (!prompt.trim()) return;
+			const event = hostEvent(id, "UserPromptSubmit", { prompt });
+			await Promise.all([
+				runHook("capture-reply", event, 120_000),
+				runHook("status", event, 12_000),
+			]);
 			contexts.push(
 				await runHook(
 					"prompt-context",
@@ -239,6 +353,11 @@ export const TedixPlugin = async ({ directory }, options = {}) => {
 			if (context) recalls.set(input.callID, context);
 		},
 		"tool.execute.after": async (input, output) => {
+			if (
+				!sessions.get(input.sessionID)?.parentID &&
+				tedixInstalled(process.env)
+			)
+				await status(input.sessionID, "PostToolUse");
 			const context = recalls.get(input.callID);
 			if (!context) return;
 			recalls.delete(input.callID);

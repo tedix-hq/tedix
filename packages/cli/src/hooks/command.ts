@@ -39,12 +39,12 @@ export const hooksUsage = `Agent-host lifecycle hooks (installed by the Tedix pl
                               the turn and its activity for the request ledger (opt-in)
   tedix hooks capture-reply   UserPromptSubmit: answer it with the user's reply and
                               upload the message for the request ledger (opt-in)
-  tedix hooks await-reply     Stop (Claude Code asyncRewake): wake on a Tedix OS answer or auto reply (opt-in)
+  tedix hooks await-reply     Stop/idle (Claude Code/OpenCode): wake on a Tedix OS answer or auto reply (opt-in)
   tedix hooks await-draft     Stop (Codex only): continue with a tedi auto reply, 5 min max (opt-in)
   tedix hooks status          Turn boundaries: local turn status, notification and report (opt-in)
 
-The OpenCode plugin runs session-start, prompt-context and situational-recall
-with --host opencode and its native ses_ session id.
+The OpenCode plugin runs every hook above except await-draft, using
+--host opencode and its native ses_ session id.
 
 Each reads one host event JSON object on stdin and exits 0; await-reply exits 2
 with the answer on stderr when the user answers in Tedix OS or a tedi auto

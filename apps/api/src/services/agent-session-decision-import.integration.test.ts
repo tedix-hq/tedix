@@ -16,22 +16,23 @@ describe("historic session imports against D1 persistence", () => {
 		const input = {
 			organizationId: "org-acme",
 			userId: "member-grace",
-			decisions: (["claude-code", "codex"] as const).flatMap((harness) =>
-				["turn-1", "turn-2"].map((turnId) => ({
-					harness,
-					sessionId: `fictional-${harness}-session`,
-					turnId,
-					repository: "acme-app",
-					topic: "preferences",
-					occurredAt: "2026-03-01T10:00:00.000Z",
-					agentMessage: "Should I use technical language?",
-					reply: "Keep the explanation in plain English.",
-				})),
+			decisions: (["claude-code", "codex", "opencode"] as const).flatMap(
+				(harness) =>
+					["turn-1", "turn-2"].map((turnId) => ({
+						harness,
+						sessionId: `fictional-${harness}-session`,
+						turnId,
+						repository: "acme-app",
+						topic: "preferences",
+						occurredAt: "2026-03-01T10:00:00.000Z",
+						agentMessage: "Should I use technical language?",
+						reply: "Keep the explanation in plain English.",
+					})),
 			),
 		};
 		expect(await importAgentSessionDecisions(db, input)).toEqual({
-			received: 4,
-			recorded: 4,
+			received: 6,
+			recorded: 6,
 			duplicates: 0,
 		});
 		const stored = () =>
@@ -40,12 +41,12 @@ describe("historic session imports against D1 persistence", () => {
 				.all();
 		const first = stored();
 		expect(await importAgentSessionDecisions(db, input)).toEqual({
-			received: 4,
+			received: 6,
 			recorded: 0,
-			duplicates: 4,
+			duplicates: 6,
 		});
 		expect(stored()).toEqual(first);
-		expect(first).toHaveLength(4);
+		expect(first).toHaveLength(6);
 		for (const row of first)
 			expect(row).toMatchObject({
 				organization_id: "org-acme",

@@ -33,7 +33,11 @@ import { asciiJson } from "./hooks/agent-status";
 import { classify, redact } from "./hooks/decision-capture";
 import { cliRead, type ReadJson } from "./hooks/hook-io";
 
-type Harness = AgentSessionDecision["harness"];
+// Only these hosts have local transcript parsers.
+type Harness = Extract<
+	AgentSessionDecision["harness"],
+	"claude-code" | "codex"
+>;
 type Json = Record<string, any>;
 
 /** One extracted pair before routing. */

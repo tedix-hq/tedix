@@ -1896,3 +1896,39 @@ it("settles only this session's requests with completed Work explicitly linked i
 	});
 	expect(after.filter((row) => row.status === "open")).toHaveLength(7);
 });
+
+it("deduplicates OpenCode ledger events without merging another harness", async () => {
+	const db = fixture();
+	const event = {
+		kind: "prompt" as const,
+		harness: "opencode" as const,
+		sessionKey: "ses_ea08bec38ffeGv2rruD2pzxAuC",
+		sourceAt: T0,
+		text: "Check the example",
+	};
+	const input = {
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+		now: T0,
+		events: [event],
+	};
+	expect(await acceptAgentSessionEvents(db, input)).toEqual({
+		accepted: 1,
+		duplicates: 0,
+	});
+	expect(await acceptAgentSessionEvents(db, input)).toEqual({
+		accepted: 0,
+		duplicates: 1,
+	});
+	expect(
+		await acceptAgentSessionEvents(db, {
+			...input,
+			events: [{ ...event, harness: "codex" }],
+		}),
+	).toEqual({ accepted: 1, duplicates: 0 });
+	expect(
+		(await db.select().from(agentSessionEvents))
+			.map((row) => row.harness)
+			.sort(),
+	).toEqual(["codex", "opencode"]);
+});

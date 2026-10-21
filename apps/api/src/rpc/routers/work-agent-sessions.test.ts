@@ -491,3 +491,16 @@ it("returns an immediate empty pass and surfaces storage failures instead of rep
 	});
 	expect(queued).toHaveLength(0);
 });
+
+it("keeps OpenCode reports private to the reporting user", async () => {
+	const { ada, grace } = fixture();
+	const input = {
+		...report,
+		harness: "opencode" as const,
+		sessionKey: "ses_ea08bec38ffeGv2rruD2pzxAuC",
+	};
+	const saved = await ada.report(input);
+	expect(saved.session.harness).toBe("opencode");
+	expect((await ada.list({})).sessions).toHaveLength(1);
+	expect((await grace.list({})).sessions).toEqual([]);
+});

@@ -5,7 +5,7 @@ import { resolveAgentSession } from "../work-identity";
 import { harnessOf } from "./agent-status";
 import { runHooksCommand } from "./command";
 import { hostEvent } from "./hook-io";
-import { opencodeHookEvent } from "./opencode-event";
+import { OPENCODE_HOOKS, opencodeHookEvent } from "./opencode-event";
 import { runSessionStart } from "./session-start";
 
 const SESSION = "ses_ea08bec38ffeGv2rruD2pzxAuC";
@@ -43,6 +43,7 @@ test("OpenCode hook identity overrides inherited hosts", async () => {
 		"TEDIX_AGENT_SESSION",
 	])
 		expect(mapped.env[key]).toBeUndefined();
+	expect(JSON.parse(mapped.stdin).session_id).toBe(SESSION.toLowerCase());
 	expect(hostEvent(mapped.stdin, mapped.env, 10_000).session).toBe(
 		SESSION.toLowerCase(),
 	);
@@ -86,12 +87,12 @@ test("the Agent-Session the plugin exports names the opencode harness", () => {
 	);
 });
 
-test("only the read hooks run for OpenCode", async () => {
-	for (const args of [
-		["capture-stop", "--host", "opencode"],
-		["status", "--host", "opencode"],
-		["await-reply", "--host", "opencode"],
-		["session-start", "--host", "opencode", "--plugin"],
-	])
-		expect(await runHooksCommand(args)).toBe(1);
+test("OpenCode permits the lifecycle hooks but no plugin flag or unrelated hook", async () => {
+	for (const name of ["capture-stop", "capture-reply", "status", "await-reply"])
+		expect(OPENCODE_HOOKS.has(name)).toBe(true);
+	for (const name of ["await-draft", "devin-permission", "unknown"])
+		expect(await runHooksCommand([name, "--host", "opencode"])).toBe(1);
+	expect(
+		await runHooksCommand(["session-start", "--host", "opencode", "--plugin"]),
+	).toBe(1);
 });

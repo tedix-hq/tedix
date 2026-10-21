@@ -1140,6 +1140,7 @@ async function onStop(
 		token,
 		host,
 		turnText: text,
+		...(host === "opencode" ? { turnId: event.turn_id } : {}),
 	});
 	writeState(questionPath(state), { requestId: request.id, token, host });
 	await answerEarlyReply(deps, session, binding, state, options);
