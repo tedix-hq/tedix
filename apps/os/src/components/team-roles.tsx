@@ -52,14 +52,7 @@ import {
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
-
-/**
- * The roles a tenant administrator may assign, in descending authority.
- * Sourced from the canonical model rather than restated here, so a role added
- * to Tedix cannot go missing from this page — and a platform role can never
- * appear on it: `ASSIGNABLE_ROLES` excludes `platform-admin`.
- */
-export const CANONICAL_ROLE_ORDER: readonly MemberRole[] = ASSIGNABLE_ROLES;
+import { Surface } from "@/components/kumo/surface";
 
 const GROUP_LABELS: Record<PermissionGroup, string> = {
 	apps: "Apps",
@@ -162,7 +155,7 @@ export function RolePermissionsMatrix() {
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{CANONICAL_ROLE_ORDER.map((role) => {
+						{ASSIGNABLE_ROLES.map((role) => {
 							const details = ROLE_METADATA[role];
 							return (
 								<TableRow key={role}>
@@ -201,19 +194,20 @@ export function RolePermissionsMatrix() {
 				className="grid gap-4 lg:hidden"
 				aria-label="Organization role summaries"
 			>
-				{CANONICAL_ROLE_ORDER.map((role) => {
+				{ASSIGNABLE_ROLES.map((role) => {
 					const details = ROLE_METADATA[role];
 					return (
-						<section
+						<Surface
 							key={role}
+							render={<section />}
 							aria-label={`${details.label} role`}
-							className="min-w-0 rounded-lg border border-kumo-line p-4 space-y-3"
+							className="min-w-0 p-4 space-y-3"
 						>
 							<Badge variant={ROLE_BADGE_VARIANTS[role]}>{details.label}</Badge>
 							<Text tone="secondary">{details.description}</Text>
 							<Text weight="medium">{details.responsibility}</Text>
 							<PermissionBadges role={role} expandable />
-						</section>
+						</Surface>
 					);
 				})}
 			</div>
@@ -275,10 +269,11 @@ export function CapabilityScopeReference() {
 				{CAPABILITY_SCOPES.map((scope) => {
 					const meta = CAPABILITY_SCOPE_METADATA[scope];
 					return (
-						<section
+						<Surface
 							key={scope}
+							render={<section />}
 							aria-label={scope}
-							className="min-w-0 rounded-lg border border-kumo-line p-4 space-y-2"
+							className="min-w-0 p-4 space-y-2"
 						>
 							<Text weight="medium">{meta.label}</Text>
 							<Text
@@ -293,7 +288,7 @@ export function CapabilityScopeReference() {
 							<Badge variant={meta.humanOnly ? "secondary" : "outline"}>
 								{meta.humanOnly ? "People only" : "People and tedis"}
 							</Badge>
-						</section>
+						</Surface>
 					);
 				})}
 			</div>
