@@ -451,7 +451,7 @@ export const ToolPolicyMetadataSchema = z
 			.max(8)
 			.optional()
 			.describe(
-				"Top-level inputs an approver may change before approving. Absent: every unpinned scalar input; empty: none.",
+				"Top-level inputs an approver may change before approving. Absent: unpinned scalar content inputs, excluding destinations and identifiers; empty: none. Destination inputs require an explicit list.",
 			),
 	})
 	.superRefine((policy, ctx) => {

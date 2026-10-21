@@ -1,3 +1,5 @@
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { approverEditedPayload } from "../../../services/approval-edits";
 import { resolveHomeAttachments } from "./attachment-storage";
 import {
 	type BaseContext,
@@ -781,6 +783,8 @@ async function respondKernelToolWriteApprovalCore(
 	input: {
 		approval: TediApprovalRequest;
 		decision: "approve" | "reject";
+		edits?: Record<string, JsonValue>;
+		delegateRecommendation?: boolean;
 		note?: string;
 		organizationId: string;
 		run: KernelRuntimeRun;
@@ -814,12 +818,23 @@ async function respondKernelToolWriteApprovalCore(
 	assertKernelApprovalStillPending(approval);
 	const status = input.decision === "approve" ? "approved" : "rejected";
 	const resolvedBy = context.user?.sub ?? context.authType ?? "unknown";
+	const edited = approverEditedPayload(
+		context,
+		approval,
+		{
+			status,
+			edits: input.edits,
+			delegateRecommendation: input.delegateRecommendation,
+		},
+		resolvedBy,
+	);
 	// Canonical exactly-once latch (shared with tediApprovals.resolve): the
 	// conditional pending→resolved update; a concurrent resolve loses here.
 	const resolved = await resolveApprovalRequest(context.db, approval.id, {
 		status,
 		resolvedBy,
 		resolution: input.note,
+		...(edited ? { payload: edited.payload } : {}),
 	});
 	if (!resolved) {
 		throw createError(
@@ -840,6 +855,7 @@ async function respondKernelToolWriteApprovalCore(
 			actionType: resolved.actionType,
 			resolution: input.note ?? null,
 			source: "kernelRuntime.respondApproval",
+			...(edited ? { approverEdits: edited.changes } : {}),
 			homeRunId: input.run.id,
 		}),
 	});

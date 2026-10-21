@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import type { KernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
 import { createRouterClient } from "@orpc/server";
+import { auditEvents } from "@tedix/db/schema/audit-events";
+import { tediApprovalDependencyEvents } from "@tedix/db/schema/approval-simulations";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import {
@@ -20,7 +22,7 @@ import {
 	it,
 	vi,
 } from "vite-plus/test";
-import { userContext } from "../../test-context";
+import { apiKeyContext, userContext } from "../../test-context";
 import {
 	approveHomePlanAssignmentsCore,
 	respondKernelDelegationRecommendationApprovalCore,
@@ -106,6 +108,8 @@ async function fixture() {
 			organizationMembers,
 			workEvents,
 			tediApprovalRequests,
+			tediApprovalDependencyEvents,
+			auditEvents,
 		),
 	);
 	const writes: string[] = [];
@@ -576,4 +580,140 @@ describe("policy authority for critical actions", () => {
 			noEffects(f.writes);
 		},
 	);
+});
+
+async function editableWriteFixture() {
+	const f = await fixture();
+	await f.context.db.insert(tediApprovalRequests).values({
+		id: "editable-write",
+		tediId: "tedi-research",
+		orgId: ORG,
+		actionType: "home.tool_write",
+		description: "Fictional document update",
+		status: "pending",
+		createdAt: AT,
+		expiresAt: "2099-01-01T00:00:00.000Z",
+		payload: {
+			kind: "home_tool_write",
+			appSlug: "example",
+			toolName: "update_document",
+			organizationId: ORG,
+			homeRunId: f.run.id,
+			conversationId: f.run.conversationId,
+			initiatedByUserId: "requester",
+			args: { title: "Draft", accountId: "original" },
+			editableFields: [
+				{
+					name: "title",
+					label: "Title",
+					required: true,
+					schema: { type: "string", maxLength: 20 },
+				},
+			],
+		},
+	});
+	f.sqlite
+		.prepare("UPDATE kernel_runtime_runs SET metadata = ?")
+		.run(JSON.stringify({ approvalRequestId: "editable-write" }));
+	f.writes.length = 0;
+	return f;
+}
+
+describe("Home approve with changes", () => {
+	it("atomically stores edits and audit before settling, preserving requester identity", async () => {
+		const f = await editableWriteFixture();
+		await f.client.respond({
+			runId: f.run.id,
+			decision: "approve",
+			edits: { title: "Final" },
+		});
+		const row = f.sqlite
+			.prepare("SELECT payload, status FROM tedi_approval_requests")
+			.get() as { payload: string; status: string };
+		expect(row.status).toBe("approved");
+		const stored = JSON.parse(row.payload);
+		expect(stored).toMatchObject({
+			args: { title: "Final", accountId: "original" },
+			initiatedByUserId: "requester",
+			approverEdits: {
+				editedBy: "operator",
+				changes: [{ field: "title", before: "Draft", after: "Final" }],
+			},
+		});
+		expect(effects.settle).toHaveBeenCalledWith(
+			f.context,
+			expect.objectContaining({
+				approval: expect.objectContaining({ payload: stored }),
+			}),
+		);
+		const audit = f.sqlite
+			.prepare(
+				"SELECT metadata FROM audit_events WHERE resource_id = 'editable-write'",
+			)
+			.get() as { metadata: string };
+		expect(JSON.parse(audit.metadata)).toMatchObject({
+			source: "kernelRuntime.respondApproval",
+			approverEdits: stored.approverEdits.changes,
+		});
+		await expect(
+			f.client.respond({
+				runId: f.run.id,
+				decision: "approve",
+				edits: { title: "Again" },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(effects.settle).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		{ decision: "reject" as const, edits: { title: "Final" } },
+		{
+			decision: "approve" as const,
+			delegateRecommendation: true,
+			edits: { title: "Final" },
+		},
+		{ decision: "approve" as const, edits: { title: "x".repeat(21) } },
+		{ decision: "approve" as const, edits: { accountId: "redirected" } },
+	])("refuses invalid Home edits before resolution: %j", async (input) => {
+		const f = await editableWriteFixture();
+		await expect(
+			f.client.respond({ runId: f.run.id, ...input }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		noEffects(f.writes);
+	});
+
+	it("refuses a machine's edits before the approval latch", async () => {
+		const f = await editableWriteFixture();
+		const client = createRouterClient(
+			{ respond: respondApprovalRoute },
+			{
+				context: apiKeyContext({
+					db: f.context.db,
+					env: f.context.env,
+					organizationId: ORG,
+					scopes: ["mcp:tedis.write"],
+				}),
+			},
+		);
+		await expect(
+			client.respond({
+				runId: f.run.id,
+				decision: "approve",
+				edits: { title: "Final" },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		noEffects(f.writes);
+	});
+
+	it("does not silently ignore edits on a delegation", async () => {
+		const f = await fixture();
+		await expect(
+			f.client.respond({
+				runId: f.run.id,
+				decision: "approve",
+				edits: { title: "Final" },
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		noEffects(f.writes);
+	});
 });

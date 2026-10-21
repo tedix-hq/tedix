@@ -15,6 +15,7 @@ import {
 import { ModelRefSchema } from "./model-catalog";
 import { ExecutionRequirementSchema } from "./execution-evidence";
 import { JsonValueSchema } from "./common";
+import { ApprovalEditsInputSchema } from "./approval-edits";
 import {
 	KernelAcceptanceCheckSchema,
 	KernelRequestSnapshotSchema,
@@ -1182,6 +1183,7 @@ export const RespondHomeApprovalInputSchema = z.object({
 	 */
 	decision: z.enum(["approve", "reject"]),
 	delegateRecommendation: z.boolean().optional(),
+	edits: ApprovalEditsInputSchema.optional(),
 	/** Plan target only: optional subset of plan assignment ids. */
 	assignmentIds: z.array(z.string().min(1)).optional(),
 	note: z.string().max(2000).optional(),
