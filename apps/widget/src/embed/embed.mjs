@@ -711,10 +711,6 @@ import { createInFlightRequestCoalescer } from "./session-request";
 		// threw at mount and took the whole widget with it.
 		let selectedModelRef = "";
 		let selectedEffort = "";
-		const modelChoiceLabel = (choice) =>
-			choice.ref === "cloudflare/auto" && choice.label === "Auto"
-				? "Auto Router"
-				: choice.label;
 		/**
 		 * The roster is advisory: the runtime edge re-validates every choice, so a
 		 * ref that is no longer offered simply falls back to the surface default
@@ -735,14 +731,14 @@ import { createInFlightRequestCoalescer } from "./session-request";
 				(choice) => choice.ref === defaultModelRef,
 			);
 			automatic.textContent = fallback
-				? t("model_automatic_named", { model: modelChoiceLabel(fallback) })
+				? t("model_automatic_named", { model: fallback.label })
 				: t("model_automatic");
 			modelSelect.replaceChildren(
 				automatic,
 				...modelChoices.map((choice) => {
 					const option = document.createElement("option");
 					option.value = choice.ref;
-					option.textContent = modelChoiceLabel(choice);
+					option.textContent = choice.label;
 					return option;
 				}),
 			);
