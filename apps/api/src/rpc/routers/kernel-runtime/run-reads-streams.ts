@@ -10,10 +10,8 @@ import {
 	type JsonValue,
 	JsonValueSchema,
 } from "@tedix/api-contract/schemas/common";
-import {
-	KERNEL_RUNTIME_BACKEND,
-	reconcileHomeRunRowsFromChildStatus,
-} from "../kernel/run-store";
+import { KERNEL_RUNTIME_BACKEND } from "../kernel/run-store";
+import { reconcileHomeRunRowsFromChildStatus } from "../kernel/run-store-reconciliation";
 import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import {
 	type KernelRuntimeEvent,

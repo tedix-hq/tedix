@@ -37,8 +37,8 @@ import {
 import {
 	ensureHomeConversationAccess,
 	insertKernelRuntimeEvent,
-	reconcileHomeRunRowsFromChildStatus,
 } from "../kernel/run-store";
+import { reconcileHomeRunRowsFromChildStatus } from "../kernel/run-store-reconciliation";
 import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import { getOrganizationTedi } from "@tedix/db/queries/kernel-runtime-support";
 import { insertAuditEvent } from "@tedix/db/queries/audit";

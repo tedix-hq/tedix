@@ -71,9 +71,9 @@ import {
 } from "../kernel/run-store-normalization";
 import {
 	insertKernelRuntimeEvent,
-	reconcileHomeRunRowsFromChildStatus,
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
+import { reconcileHomeRunRowsFromChildStatus } from "../kernel/run-store-reconciliation";
 import { homeWorkstationAttachPayload } from "../kernel/workstation-attach";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { insertWorkItemCommentIfAbsent } from "@tedix/db/queries/kernel-runtime-support";

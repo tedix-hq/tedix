@@ -82,10 +82,8 @@ import {
 } from "@tedix/db/queries/kernel-runtime-support";
 import { healthForIsolateTedi } from "../cognitive-runtime/events-policy";
 import { kernelRuntimeContract } from "@tedix/api-contract/contracts/kernel-runtime";
-import {
-	normalizeRuntime,
-	registerCanceledParentChildStopper,
-} from "../kernel/run-store";
+import { normalizeRuntime } from "../kernel/run-store";
+import { registerCanceledParentChildStopper } from "../kernel/run-store-reconciliation";
 import { planKernelWriteProposal } from "../kernel/write-proposal";
 import { runKernel } from "../kernel";
 import { setKernelWriteExecutorForTest } from "../kernel/write-approval-settlement";
