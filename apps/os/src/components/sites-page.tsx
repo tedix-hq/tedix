@@ -194,6 +194,44 @@ function DnsRecordRow({
 	);
 }
 
+function ReadFailureAlert({
+	title,
+	error,
+	cached,
+	retrying,
+	retryLabel,
+	onRetry,
+}: {
+	title: string;
+	error: unknown;
+	cached: boolean;
+	retrying: boolean;
+	retryLabel: string;
+	onRetry: () => void;
+}) {
+	return (
+		<Alert variant="destructive">
+			<AlertTitle>{title}</AlertTitle>
+			<AlertDescription>
+				<span className="block">
+					{error instanceof Error ? error.message : "The read failed."}
+					{cached ? " Showing the last result that loaded." : ""}
+				</span>
+				<Button
+					size="sm"
+					variant="outline"
+					className="mt-2"
+					disabled={retrying}
+					aria-label={retryLabel}
+					onClick={onRetry}
+				>
+					{retrying ? "Retrying…" : "Retry"}
+				</Button>
+			</AlertDescription>
+		</Alert>
+	);
+}
+
 function DomainClaimPanel({
 	claim,
 	redirectTo,
@@ -1432,6 +1470,16 @@ export function SitesPage() {
 								</Button>
 							</div>
 							{docsWorkspace.isPending ? <ListSkeleton /> : null}
+							{docsWorkspace.isError ? (
+								<ReadFailureAlert
+									title="Documentation builds are unavailable"
+									error={docsWorkspace.error}
+									cached={docsWorkspace.data !== undefined}
+									retrying={docsWorkspace.isFetching}
+									retryLabel="Retry loading builds"
+									onRetry={() => void docsWorkspace.refetch()}
+								/>
+							) : null}
 							{docsWorkspace.data?.builds.length ? (
 								<Collection>
 									{docsWorkspace.data.builds.map((build) => {
@@ -1506,6 +1554,16 @@ export function SitesPage() {
 								/>
 							) : null}
 							{deprovisionPlan.isPending ? <ListSkeleton /> : null}
+							{deprovisionPlan.isError ? (
+								<ReadFailureAlert
+									title="The cleanup plan is unavailable"
+									error={deprovisionPlan.error}
+									cached={deprovisionPlan.data !== undefined}
+									retrying={deprovisionPlan.isFetching}
+									retryLabel="Retry loading the cleanup plan"
+									onRetry={() => void deprovisionPlan.refetch()}
+								/>
+							) : null}
 							{deprovisionPlan.data ? (
 								<Collection className="mt-4">
 									{deprovisionPlan.data.dependencies.map((dependency) => (
@@ -1630,6 +1688,17 @@ export function SitesPage() {
 							{runReconciliation.isPending ? "Checking…" : "Run now"}
 						</Button>
 					</SectionHeader>
+					{reconciliation.isPending ? <ListSkeleton /> : null}
+					{reconciliation.isError ? (
+						<ReadFailureAlert
+							title="The last reconciliation result is unavailable"
+							error={reconciliation.error}
+							cached={reconciliation.data !== undefined}
+							retrying={reconciliation.isFetching}
+							retryLabel="Retry loading the last check"
+							onRetry={() => void reconciliation.refetch()}
+						/>
+					) : null}
 					{reconciliation.data ? (
 						<Text as="p" role="caption" tone="secondary">
 							Last checked{" "}
@@ -1638,11 +1707,11 @@ export function SitesPage() {
 							</time>{" "}
 							by {reconciliation.data.source} run.
 						</Text>
-					) : (
+					) : reconciliation.isSuccess ? (
 						<Text as="p" role="body" tone="secondary">
 							No reconciliation has run yet.
 						</Text>
-					)}
+					) : null}
 					{reconciliation.data?.issues.length === 0 ? (
 						<Text as="p" role="body" tone="secondary">
 							All {reconciliation.data.sitesChecked} owned sites are consistent.
