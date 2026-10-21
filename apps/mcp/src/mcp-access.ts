@@ -134,7 +134,11 @@ export async function enforceMcpAccess(params: {
 				description: tool.description ?? undefined,
 			})),
 		});
-		const hasOAuth = advertisedScopes.length > 0;
+		// Point at the metadata wherever well-known.ts serves it: explicit
+		// protected-resource metadata (the Connect gateway) or advertised scopes.
+		const hasOAuth =
+			advertisedScopes.length > 0 ||
+			Boolean(metadata?.mcpConfig?.protectedResourceMetadata);
 		const wwwAuth = hasOAuth
 			? buildWwwAuthenticate(hostname)
 			: 'Bearer realm="MCP"';
