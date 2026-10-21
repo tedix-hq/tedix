@@ -26,13 +26,17 @@ export function useDeckProgress(
 	);
 	for (const card of cards) candidates.set(card.id, card);
 	const encoded = JSON.stringify(
-		[...candidates.values()].map(({ id, kind, project, urgency, label }) => ({
-			id,
-			kind,
-			project,
-			urgency,
-			label,
-		})),
+		[...candidates.values()].map(
+			({ id, kind, askKind, draftedNotSent, project, urgency, label }) => ({
+				id,
+				kind,
+				askKind,
+				draftedNotSent,
+				project,
+				urgency,
+				label,
+			}),
+		),
 	);
 	useLayoutEffect(() => {
 		setSaved({ key, cards: JSON.parse(encoded) as ProgressCard[] });
