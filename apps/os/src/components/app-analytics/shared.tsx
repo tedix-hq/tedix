@@ -336,65 +336,21 @@ export function ActivityFreshnessStrip({
 	);
 }
 
-export function MetricCard({
-	title,
-	description,
-	value,
-	change,
-	icon,
-}: {
-	title: string;
-	description: string;
-	value: string;
-	change?: number;
-	icon: React.ReactNode;
-}) {
+/** Period-over-period change, shown after a metric value; nothing when flat. */
+export function PeriodChange({ change }: { change?: number }) {
+	if (change == null || change === 0) return null;
 	return (
-		<Card>
-			<CardContent>
-				<div className="flex items-center justify-between">
-					<Text
-						as="p"
-						role="body"
-						tone="secondary"
-						weight="medium"
-						className="m-0"
-					>
-						{title}
-					</Text>
-					{icon}
-				</div>
-				<div className="mt-2 flex items-baseline gap-2">
-					<Text
-						as="p"
-						role="metric"
-						weight="semibold"
-						className="m-0 tabular-nums"
-					>
-						{value}
-					</Text>
-					{change != null && change !== 0 && (
-						<Badge
-							variant={change > 0 ? "success" : "destructive"}
-							className="gap-0.5"
-						>
-							{change > 0 ? (
-								<ArrowUp size={12} aria-hidden />
-							) : (
-								<ArrowDown size={12} aria-hidden />
-							)}
-							{Math.abs(Math.round(change))}%
-							<Text as="span" className="ml-1 opacity-70" role="caption">
-								vs prior
-							</Text>
-						</Badge>
-					)}
-				</div>
-				<Text as="p" role="label" tone="secondary" className="mt-1.5 mb-0">
-					{description}
-				</Text>
-			</CardContent>
-		</Card>
+		<Badge
+			variant={change > 0 ? "success" : "destructive"}
+			className="gap-0.5 font-normal"
+		>
+			{change > 0 ? (
+				<ArrowUp size={12} aria-hidden />
+			) : (
+				<ArrowDown size={12} aria-hidden />
+			)}
+			{Math.abs(Math.round(change))}% vs prior
+		</Badge>
 	);
 }
 

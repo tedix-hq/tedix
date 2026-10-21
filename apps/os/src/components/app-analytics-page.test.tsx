@@ -515,9 +515,9 @@ describe("AppAnalyticsPage", () => {
 		expect(container.querySelector("h2")?.textContent).toBe("Analytics");
 		expect(text).toContain("Audit trail");
 		expect(text).toContain("Latest tool call 5m ago");
-		expect(text).toContain("Total Sessions");
-		expect(text).toContain("Avg Messages");
-		expect(text).toContain("Success Rate");
+		expect(text).toContain("Total sessions");
+		expect(text).toContain("Avg messages");
+		expect(text).toContain("Success rate");
 		expect(text).toContain("Total events");
 		expect(text).toContain("Caller auth types");
 		expect(text).toContain("OAuth");
