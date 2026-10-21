@@ -102,6 +102,23 @@ export function bindDurableCodeRecovery(input: {
 	}) as RecoverableCodemodeRuntimeHandle;
 }
 
+export function scopeDurableCodeAction<
+	Scope extends { kind: string; key: string },
+	Input extends { execution_id: string },
+	Result,
+>(input: {
+	resolve: (id: string) => Promise<Scope>;
+	scope: { kind: string; key: string };
+	action: (args: Input, scope: Scope) => Promise<Result>;
+}) {
+	return async (args: Input) => {
+		const scope = await input.resolve(args.execution_id);
+		if (scope.kind !== input.scope.kind || scope.key !== input.scope.key)
+			throw new Error("Execution belongs to another Computer workspace");
+		return input.action(args, scope);
+	};
+}
+
 export function createDurableCodeRecovery<
 	Scope extends { kind: string; key: string },
 >(input: {
@@ -109,10 +126,9 @@ export function createDurableCodeRecovery<
 	runtime: (scope: Scope) => Promise<RecoverableCodemodeRuntimeHandle>;
 	scope: { kind: string; key: string };
 }) {
-	return async ({ execution_id }: { execution_id: string }) => {
-		const scope = await input.resolve(execution_id);
-		if (scope.kind !== input.scope.kind || scope.key !== input.scope.key)
-			throw new Error("Execution belongs to another Computer workspace");
-		return (await input.runtime(scope)).recover({ executionId: execution_id });
-	};
+	return scopeDurableCodeAction({
+		...input,
+		action: async ({ execution_id }, scope) =>
+			(await input.runtime(scope)).recover({ executionId: execution_id }),
+	});
 }

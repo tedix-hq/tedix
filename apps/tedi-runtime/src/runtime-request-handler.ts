@@ -98,6 +98,7 @@ import type { AgentTediDO } from "./do";
 import type { ActiveTurnBinding, State } from "./runtime-state";
 import {
 	createDurableCodeRecovery,
+	scopeDurableCodeAction,
 	type RecoverableCodemodeRuntimeHandle,
 } from "./durable-codemode-recovery";
 import {
@@ -1781,12 +1782,29 @@ export async function handleRuntimeRequest(
 				}),
 				...(canManageDurableCode
 					? {
-							approveCodeExecution: ({ execution_id }) =>
-								host.approveDurableCodeExecution(execution_id),
-							rejectCodeExecution: ({ execution_id, seq }) =>
-								host.rejectDurableCodeExecution(execution_id, seq),
-							rollbackCodeExecution: ({ execution_id }) =>
-								host.rollbackDurableCodeExecution(execution_id),
+							approveCodeExecution: scopeDurableCodeAction({
+								resolve: (id) => host.computerCodeRouting.resolve(id),
+								scope: mcpComputer.scope,
+								action: ({ execution_id }) =>
+									host.approveDurableCodeExecution(execution_id),
+							}),
+							rejectCodeExecution: scopeDurableCodeAction({
+								resolve: (id) => host.computerCodeRouting.resolve(id),
+								scope: mcpComputer.scope,
+								action: ({
+									execution_id,
+									seq,
+								}: {
+									execution_id: string;
+									seq: number;
+								}) => host.rejectDurableCodeExecution(execution_id, seq),
+							}),
+							rollbackCodeExecution: scopeDurableCodeAction({
+								resolve: (id) => host.computerCodeRouting.resolve(id),
+								scope: mcpComputer.scope,
+								action: ({ execution_id }) =>
+									host.rollbackDurableCodeExecution(execution_id),
+							}),
 						}
 					: {}),
 				...(request.headers.get("X-Tedix-Auth-Can-Recover-Durable-Code") ===
