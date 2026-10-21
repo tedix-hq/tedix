@@ -5,8 +5,9 @@
  * DO SQLite so the bridge quality envelope (priority gating, content-hash dedup, task
  * relevance, rate limits) stays single-source.
  *
- * v1 scope: persist content hashes only. The crystallizer / rationale-bridge
- * loops are not wired here yet — those are scheduled DO alarms in a follow-up.
+ * Scope: persist content hashes only. The crystallizer and rationale-bridge
+ * stages run in the post-turn learning pass in `runtime-memory.ts`, each with
+ * its own DO store.
  */
 
 import type { DedupStore } from "./brain/dedup-types";
