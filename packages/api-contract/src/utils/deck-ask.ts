@@ -92,7 +92,6 @@ export function deckCardDeadline(card: {
 		card.dueAt,
 		card.decision?.expiresAt,
 		card.runtimeApproval?.expiresAt,
-		card.request?.expiresAt,
 	].filter(
 		(value): value is string =>
 			typeof value === "string" && Number.isFinite(Date.parse(value)),
