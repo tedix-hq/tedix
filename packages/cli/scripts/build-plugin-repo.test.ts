@@ -28,6 +28,8 @@ describe("public plugin repository", () => {
 			".agents/plugins/marketplace.json",
 			".mcp.json",
 			"README.md",
+			"llms-install.md",
+			"gemini-extension.json",
 			"LICENSE",
 		])
 			expect(files.has(path)).toBe(true);
@@ -50,6 +52,19 @@ describe("public plugin repository", () => {
 		expect(claude.version).toBe(codex.version);
 		expect(claude.repository).toBe(PLUGIN_REPOSITORY);
 		expect(codex.repository).toBe(PLUGIN_REPOSITORY);
+	});
+
+	test("Gemini extension points at the same remote MCP server", () => {
+		const claude = JSON.parse(text(files.get(".claude-plugin/plugin.json")));
+		const gemini = JSON.parse(text(files.get("gemini-extension.json")));
+		expect(gemini).toEqual({
+			name: "tedix",
+			version: claude.version,
+			description: claude.description,
+			mcpServers: {
+				tedix: { httpUrl: "https://connect.mcp.tedix.dev/mcp" },
+			},
+		});
 	});
 
 	test("both marketplaces install the root plugin", () => {
