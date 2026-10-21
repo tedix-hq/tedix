@@ -334,24 +334,58 @@ function evidenceFromSearchResult(
 	};
 }
 
-async function evidenceForObservation(
+/** Upper bound on the recall query, matching the former per-observation cap. */
+const EVIDENCE_QUERY_MAX_CHARS = 500;
+
+/**
+ * One bounded recall query for every observation that may open a record this
+ * turn. A single observation keeps its exact former query (content + details);
+ * several share the budget evenly by content so each one is represented.
+ */
+function combinedEvidenceQuery(observations: Observation[]): string {
+	const [obs] = observations;
+	if (observations.length === 1 && obs) {
+		return [obs.content, ...obs.details]
+			.join(" ")
+			.slice(0, EVIDENCE_QUERY_MAX_CHARS);
+	}
+	const share = Math.floor(EVIDENCE_QUERY_MAX_CHARS / observations.length);
+	return observations
+		.map((obs) => obs.content.slice(0, share).trim())
+		.filter(Boolean)
+		.join(" ")
+		.slice(0, EVIDENCE_QUERY_MAX_CHARS);
+}
+
+/**
+ * Per-turn evidence loader: at most ONE memory search per bridge run, issued
+ * lazily on the first record that needs it and shared by every record the turn
+ * opens. Caller-supplied retrieval evidence still wins and costs no search.
+ */
+function createTurnEvidenceLoader(
 	platform: PlatformClient,
 	cachedEvidence: RetrievedEvidence | undefined,
-	obs: Observation,
+	candidates: Observation[],
 	logger: Logger,
-): Promise<RetrievedEvidence | undefined> {
-	if (cachedEvidence?.factIds.length) return cachedEvidence;
-	const query = [obs.content, ...obs.details].join(" ").slice(0, 500);
-	if (!query.trim()) return undefined;
-	try {
-		const result = await platform.memorySearch(query, 5);
-		return evidenceFromSearchResult(query, result);
-	} catch (err) {
-		logger.log(
-			`[brain-bridge] Rationale: targeted evidence search skipped (${err instanceof Error ? err.message : String(err)})`,
-		);
-		return undefined;
-	}
+): () => Promise<RetrievedEvidence | undefined> {
+	let pending: Promise<RetrievedEvidence | undefined> | undefined;
+	return () => {
+		if (cachedEvidence?.factIds.length) return Promise.resolve(cachedEvidence);
+		pending ??= (async () => {
+			const query = combinedEvidenceQuery(candidates);
+			if (!query.trim()) return undefined;
+			try {
+				const result = await platform.memorySearch(query, 5);
+				return evidenceFromSearchResult(query, result);
+			} catch (err) {
+				logger.log(
+					`[brain-bridge] Rationale: targeted evidence search skipped (${err instanceof Error ? err.message : String(err)})`,
+				);
+				return undefined;
+			}
+		})();
+		return pending;
+	};
 }
 
 // ── Options + entrypoint ────────────────────────────────────────────────────
@@ -444,16 +478,25 @@ export async function runRationaleBridge(
 		currentRunRationaleCreated = true;
 	}
 
+	const isRecordCandidate = (obs: Observation): boolean =>
+		(obs.type === "decision" ||
+			(obs.type === "procedural" && obs.priority === "high")) &&
+		obs.priority !== "low" &&
+		!isRationaleLifecycleObservation(obs) &&
+		!isReadOnlyGuardrailObservation(obs);
+	const loadTurnEvidence = createTurnEvidenceLoader(
+		platform,
+		retrievalEvidence,
+		[
+			...newObservations.filter(isRecordCandidate),
+			...(episode && correlation?.runId ? [episode] : []),
+		],
+		logger,
+	);
+
 	// 1. Create rationale records from decision observations
 	for (const obs of newObservations) {
-		if (
-			obs.type !== "decision" &&
-			(obs.type !== "procedural" || obs.priority !== "high")
-		)
-			continue;
-		if (obs.priority === "low") continue;
-		if (isRationaleLifecycleObservation(obs)) continue;
-		if (isReadOnlyGuardrailObservation(obs)) continue;
+		if (!isRecordCandidate(obs)) continue;
 		// A terminal episode is the run-level learning row. Preserve the first
 		// substantive rationale for the run, but do not create multiple open
 		// records whose shared run cost would later be counted more than once.
@@ -487,12 +530,7 @@ export async function runRationaleBridge(
 		const confidence = obs.priority === "high" ? 0.85 : 0.65;
 
 		try {
-			const observationEvidence = await evidenceForObservation(
-				platform,
-				retrievalEvidence,
-				obs,
-				logger,
-			);
+			const observationEvidence = await loadTurnEvidence();
 			const result = await platform.createRationaleRecord({
 				...(episode && correlation?.runId
 					? {
@@ -798,12 +836,7 @@ export async function runRationaleBridge(
 		}
 	} else if (episode && correlation?.runId && !currentRunRationaleTouched) {
 		try {
-			const observationEvidence = await evidenceForObservation(
-				platform,
-				retrievalEvidence,
-				episode,
-				logger,
-			);
+			const observationEvidence = await loadTurnEvidence();
 			const category = pickRationaleCategory(episode);
 			const outcomeStatus = episode.outcomeStatus ?? "partial";
 			const result = await platform.createRationaleRecord({

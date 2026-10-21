@@ -132,6 +132,63 @@ describe("runRationaleBridge", () => {
 		expect(result.recordIds).toEqual([]);
 	});
 
+	it("runs one memory search per turn and shares its evidence across records", async () => {
+		const stateStore = makeStateStore();
+		let nextId = 0;
+		const createRationaleRecord = vi.fn(async () => ({
+			id: `rationale-${++nextId}`,
+		}));
+		const memorySearch = vi.fn(async () => ({
+			results: [{ factId: "fact-1", score: 0.9 }],
+		}));
+		const platform = {
+			memorySearch,
+			createRationaleRecord,
+			completeRationaleRecord: vi.fn(async () => ({})),
+		} as unknown as PlatformClient;
+
+		await runRationaleBridge({
+			newObservations: [
+				observation({ content: "Install Firecrawl app for acme org config" }),
+				observation({ content: "Rotate the billing webhook signing secret" }),
+				observation({ content: "Archive the stale onboarding checklist" }),
+			],
+			platform,
+			stateStore,
+		});
+
+		expect(createRationaleRecord).toHaveBeenCalledTimes(3);
+		expect(memorySearch).toHaveBeenCalledTimes(1);
+		const [query] = memorySearch.mock.calls[0] as unknown as [string];
+		expect(query.length).toBeLessThanOrEqual(500);
+		expect(query).toContain("Firecrawl");
+		expect(query).toContain("billing webhook");
+		expect(query).toContain("onboarding checklist");
+		for (const call of createRationaleRecord.mock.calls as unknown as [
+			{ evidence: { factIds?: string[]; retrievalQuery?: string } },
+		][]) {
+			expect(call[0].evidence.factIds).toEqual(["fact-1"]);
+			expect(call[0].evidence.retrievalQuery).toBe(query);
+		}
+	});
+
+	it("skips the memory search when no record is created", async () => {
+		const memorySearch = vi.fn(async () => ({ results: [] }));
+		const platform = {
+			memorySearch,
+			createRationaleRecord: vi.fn(async () => ({ id: "unused" })),
+			completeRationaleRecord: vi.fn(async () => ({})),
+		} as unknown as PlatformClient;
+
+		await runRationaleBridge({
+			newObservations: [observation({ priority: "low" })],
+			platform,
+			stateStore: makeStateStore(),
+		});
+
+		expect(memorySearch).not.toHaveBeenCalled();
+	});
+
 	it("WS1: auto-attaches runId + toolCallRefs to created records", async () => {
 		const stateStore = makeStateStore();
 		const createRationaleRecord = vi.fn(async () => ({ id: "rationale-1" }));
