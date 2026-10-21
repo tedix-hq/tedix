@@ -50,7 +50,7 @@ export function embeddedTediStyles(
 				.tedix-panel[data-open] { display: flex; animation: tedix-enter 180ms ease-out; }
 				.tedix-panel[data-expanded] { width: min(760px, calc(var(--tedix-viewport-width) - 44px)); height: calc(var(--tedix-viewport-height) - 44px); }
 				@keyframes tedix-enter { from { opacity: 0; transform: translateY(12px) scale(.98); } }
-				.tedix-header { display: flex; min-height: 66px; align-items: center; gap: 11px; padding: 10px 12px 10px 18px; border-bottom: 1px solid var(--tedix-border); background: color-mix(in srgb, var(--tedix-bg) 94%, transparent); }
+				.tedix-header { display: flex; min-height: 66px; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--tedix-border); background: color-mix(in srgb, var(--tedix-bg) 94%, transparent); }
 				.tedix-avatar { position: relative; display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: var(--tedix-radius-xl); background: color-mix(in srgb, var(--tedix-accent) 12%, var(--tedix-bg)); color: var(--tedix-accent); font-weight: 750; letter-spacing: -.03em; }
 				.tedix-presence { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--tedix-bg); border-radius: 50%; background: #22a06b; }
 				.tedix-model-select, .tedix-effort-select, .tedix-tedi-select { font: inherit; font-size: 14px; line-height: 20px; color: var(--tedix-text); background: var(--tedix-bg); border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-lg); min-width: 44px; max-width: 100%; height: 36px; padding: 0 12px; }
@@ -61,40 +61,42 @@ export function embeddedTediStyles(
 				.tedix-history-bar strong { font-size: 16px; font-weight: 620; letter-spacing: -.01em; }
 				.tedix-panel[data-history] .tedix-history-bar { display: flex; }
 				.tedix-panel[data-history] .tedix-avatar, .tedix-panel[data-history] .tedix-heading, .tedix-panel[data-history] .tedix-actions { display: none; }
-				.tedix-title { margin: 0; font-size: 15px; font-weight: 680; line-height: 1.2; letter-spacing: -.01em; }
-				.tedix-subtitle { overflow: hidden; margin: 3px 0 0; color: var(--tedix-muted); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-				.tedix-actions { display: flex; gap: 2px; }
+				.tedix-title { overflow-wrap: anywhere; margin: 0; font-size: 15px; font-weight: 680; line-height: 1.2; letter-spacing: -.01em; }
+				.tedix-subtitle { overflow-wrap: anywhere; margin: 4px 0 0; color: var(--tedix-muted); font-size: 12px; line-height: 1.4; }
+				.tedix-actions { display: flex; flex: 0 0 auto; gap: 2px; }
 				.tedix-icon { display: grid; place-items: center; width: var(--tedix-control-md); height: var(--tedix-control-md); padding: 0; border: 0; border-radius: var(--tedix-radius-xl); background: transparent; color: var(--tedix-muted); cursor: pointer; }
 				.tedix-icon:hover { background: var(--tedix-soft); color: var(--tedix-text); }
 				.tedix-history[hidden], .tedix-thread[hidden], .tedix-composer-wrap[hidden] { display: none; }
 				.tedix-history { min-height: 0; flex: 1; overflow-y: auto; padding: 18px 14px 22px; background: var(--tedix-bg); }
-				.tedix-history-new, .tedix-history-item { width: 100%; min-height: 48px; border: 0; border-radius: 13px; background: transparent; cursor: pointer; text-align: left; }
+				.tedix-history-new, .tedix-history-item { width: 100%; min-height: 48px; border: 0; border-radius: var(--tedix-radius-xl); background: transparent; cursor: pointer; text-align: left; }
 				.tedix-history-new { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 11px 13px; color: var(--tedix-text); font-size: 14px; font-weight: 590; }
 				.tedix-history-new svg { width: 17px; height: 17px; }
-				.tedix-history-list { display: grid; gap: 2px; }
-				.tedix-history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 13px; }
+				.tedix-history-list, .tedix-recent-list { display: grid; gap: 2px; }
+				.tedix-history-item, .tedix-recent-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+				.tedix-history-item { padding: 12px; }
 				.tedix-history-new:hover, .tedix-history-item:hover, .tedix-history-item[data-active="true"] { background: var(--tedix-soft); }
-				.tedix-history-item span { overflow: hidden; font-size: 14px; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
-				.tedix-history-item time { color: var(--tedix-muted); font-size: 13px; white-space: nowrap; }
+				.tedix-history-item span, .tedix-recent-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+				.tedix-history-item span { font-size: 14px; font-weight: 450; }
+				.tedix-history-item time, .tedix-recent-item time { color: var(--tedix-muted); white-space: nowrap; }
+				.tedix-history-item time { font-size: 13px; }
 				.tedix-panel[data-history] .tedix-context, .tedix-panel[data-history] .tedix-footer { display: none; }
 				.tedix-panel[data-history] .tedix-composer-wrap { padding-top: 8px; }
-				.tedix-thread { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 22px 12px; background: var(--tedix-canvas); scroll-behavior: smooth; }
-				.tedix-empty { display: flex; min-height: 100%; flex-direction: column; align-items: center; justify-content: center; padding: 34px 14px 16px; text-align: center; }
-				.tedix-empty-mark { display: grid; place-items: center; width: 46px; height: 46px; margin-bottom: 18px; border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-2xl); background: var(--tedix-bg); color: var(--tedix-accent); box-shadow: 0 8px 24px rgba(24,24,27,.06); }
-				.tedix-empty h2 { max-width: 330px; margin: 0; font-size: 18px; line-height: 1.35; letter-spacing: -.02em; }
-				.tedix-empty p { max-width: 350px; margin: 9px 0 22px; color: var(--tedix-muted); font-size: 13px; line-height: 1.5; }
-				.tedix-prompts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(100%, 380px); margin: 0 0 22px; }
-				.tedix-prompt { min-height: var(--tedix-control-md); padding: 7px 13px; border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-full); background: var(--tedix-bg); color: var(--tedix-text); cursor: pointer; font: inherit; font-size: 13px; line-height: 1.3; text-align: left; }
+				.tedix-thread { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px 16px 12px; background: var(--tedix-canvas); scroll-behavior: smooth; }
+				.tedix-empty { display: flex; min-height: 100%; flex-direction: column; align-items: flex-start; justify-content: center; padding: 24px 0 16px; text-align: left; }
+				.tedix-empty-mark { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 16px; border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-2xl); background: var(--tedix-bg); color: var(--tedix-accent); box-shadow: 0 8px 24px rgba(24,24,27,.06); }
+				.tedix-empty h2 { overflow-wrap: anywhere; max-width: 100%; margin: 0; font-size: 18px; line-height: 1.35; letter-spacing: -.02em; }
+				.tedix-empty p { max-width: 100%; margin: 8px 0 24px; color: var(--tedix-muted); font-size: 13px; line-height: 1.5; }
+				.tedix-prompts { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; margin: 0 0 24px; }
+				.tedix-prompt { max-width: 100%; overflow-wrap: anywhere; min-height: var(--tedix-control-md); padding: 7px 13px; border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-full); background: var(--tedix-bg); color: var(--tedix-text); cursor: pointer; font: inherit; font-size: 13px; line-height: 1.3; text-align: left; }
 				.tedix-prompt:hover { border-color: color-mix(in srgb, var(--tedix-accent) 42%, var(--tedix-border)); background: color-mix(in srgb, var(--tedix-accent) 6%, var(--tedix-bg)); }
 				.tedix-recent[hidden] { display: none; }
-				.tedix-recent { width: min(100%, 380px); margin-top: auto; padding-top: 28px; text-align: left; }
-				.tedix-recent h2 { max-width: none; margin: 0 12px 8px; color: var(--tedix-muted); font-size: 13px; font-weight: 520; letter-spacing: 0; }
-				.tedix-recent-list { display: grid; gap: 2px; }
-				.tedix-recent-item { display: grid; width: 100%; min-height: 42px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; border: 0; border-radius: 12px; background: transparent; cursor: pointer; text-align: left; }
+				.tedix-recent { width: 100%; margin-top: auto; padding-top: 24px; text-align: left; }
+				.tedix-recent h2 { max-width: none; margin: 0 0 8px; color: var(--tedix-muted); font-size: 13px; font-weight: 520; letter-spacing: 0; }
+				.tedix-recent-item { width: 100%; min-height: var(--tedix-control-md); padding: 8px 0; border: 0; border-radius: var(--tedix-radius-xl); background: transparent; cursor: pointer; text-align: left; }
 				.tedix-recent-item:hover { background: color-mix(in srgb, var(--tedix-accent) 6%, var(--tedix-bg)); }
-				.tedix-recent-item span { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-				.tedix-recent-item time { color: var(--tedix-muted); font-size: 12px; white-space: nowrap; }
-				.tedix-recent-more { min-height: 38px; padding: 8px 12px; border: 0; background: transparent; color: var(--tedix-muted); cursor: pointer; font-size: 13px; text-align: left; }
+				.tedix-recent-item span { font-size: 13px; }
+				.tedix-recent-item time { font-size: 12px; }
+				.tedix-recent-more { min-height: var(--tedix-control-md); padding: 8px 0; border: 0; background: transparent; color: var(--tedix-muted); cursor: pointer; font-size: 13px; text-align: left; }
 				.tedix-recent-more:hover { color: var(--tedix-text); }
 				.tedix-message { display: flex; width: 100%; margin: 0 0 20px; }
 				.tedix-message-user { justify-content: flex-end; }
@@ -181,8 +183,8 @@ export function embeddedTediStyles(
 				.tedix-page-action button:disabled { cursor: default; opacity: .55; }
 				.tedix-widget-frame { width: 100%; min-height: 180px; margin: -7px 0 20px; overflow: hidden; border: 1px solid var(--tedix-border); border-radius: 18px; background: var(--tedix-bg); }
 				.tedix-widget-frame iframe { display: block; width: 100%; min-height: 260px; border: 0; }
-				.tedix-composer-wrap { padding: 10px 12px 13px; border-top: 1px solid var(--tedix-border); background: var(--tedix-bg); }
-				.tedix-context { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 20px; padding: 0 8px 7px; color: var(--tedix-muted); font-size: 11px; }
+				.tedix-composer-wrap { flex: 0 0 auto; padding: 12px 16px 16px; border-top: 1px solid var(--tedix-border); background: var(--tedix-bg); }
+				.tedix-context { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 20px; padding: 0 0 8px; color: var(--tedix-muted); font-size: 11px; }
 				.tedix-context .tedix-status { margin-left: auto; }
 				.tedix-context strong { min-width: 0; overflow: hidden; max-width: 220px; color: var(--tedix-text); font-weight: 590; text-overflow: ellipsis; white-space: nowrap; }
 				.tedix-session-recovery { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 8px 8px; padding: 9px 10px; border: 1px solid var(--tedix-border); border-radius: 12px; background: var(--tedix-canvas); color: var(--tedix-muted); font-size: 11px; line-height: 1.35; }
@@ -193,7 +195,7 @@ export function embeddedTediStyles(
 				.tedix-form:focus-within { border-color: color-mix(in srgb, var(--tedix-accent) 48%, var(--tedix-border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tedix-accent) 10%, transparent); }
 				.tedix-form .tedix-icon { width: var(--tedix-control-md); height: var(--tedix-control-md); flex: 0 0 auto; }
 				.tedix-input { min-width: 0; min-height: 40px; max-height: 130px; flex: 1; resize: none; overflow-y: auto; padding: 9px 4px 7px; border: 0; outline: 0; background: transparent; color: var(--tedix-text); font-size: 14px; line-height: 1.45; }
-				.tedix-input::placeholder { color: var(--tedix-muted); }
+				.tedix-input::placeholder { color: var(--tedix-muted); white-space: nowrap; }
 				.tedix-voice, .tedix-voice-cancel { display: grid; width: var(--tedix-control-md); height: var(--tedix-control-md); flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--tedix-text); cursor: pointer; }
 				.tedix-voice:hover, .tedix-voice-cancel:hover { background: var(--tedix-soft); }
 				.tedix-form[data-voice-state="recording"] .tedix-voice svg { fill: currentColor; stroke: none; }
@@ -220,11 +222,11 @@ export function embeddedTediStyles(
 				:host([data-theme="dark"]) .tedix-brand-image:not([data-theme-dark]) { display: none; }
 				:host([data-theme="dark"]) .tedix-brand-image[data-theme-dark] { display: block; }
 				:host([data-theme="light"]) { --tedix-bg: #fff; --tedix-canvas: #fafafa; --tedix-text: #18181b; --tedix-muted: #71717a; --tedix-border: rgba(24,24,27,.12); --tedix-soft: rgba(24,24,27,.055); color-scheme: light; }
-				@media (max-width: 600px) { .tedix-launcher { bottom: calc(14px + var(--tedix-host-bottom-inset, 0px)); ${appearance.position === "bottom-left" ? "left: 14px; right: auto;" : "right: 14px; left: auto;"} } .tedix-panel, .tedix-panel[data-expanded] { top: var(--tedix-viewport-top); right: auto; bottom: auto; left: 0; width: var(--tedix-viewport-width); height: var(--tedix-viewport-height); border: 0; border-radius: 0; } :host([data-keyboard-open]) .tedix-composer-wrap { padding-bottom: 0; } :host([data-keyboard-open]) .tedix-footer { display: none; } .tedix-expand { display: none; } .tedix-thread { padding-inline: 16px; } .tedix-header { padding-left: 14px; } }
+				@media (max-width: 600px) { .tedix-launcher { bottom: calc(14px + var(--tedix-host-bottom-inset, 0px)); ${appearance.position === "bottom-left" ? "left: 14px; right: auto;" : "right: 14px; left: auto;"} } .tedix-panel, .tedix-panel[data-expanded] { top: var(--tedix-viewport-top); right: auto; bottom: auto; left: 0; width: var(--tedix-viewport-width); height: var(--tedix-viewport-height); border: 0; border-radius: 0; } :host([data-keyboard-open]) .tedix-composer-wrap { padding-bottom: 0; } :host([data-keyboard-open]) .tedix-footer { display: none; } .tedix-expand { display: none; } }
 				@media (max-width: 639px), (pointer: coarse) { .tedix-model-select, .tedix-effort-select, .tedix-tedi-select { min-height: var(--tedix-touch-target); } }
 				@media (pointer: coarse) { .tedix-input { font-size: 16px; } }
 				/* Every tap target reaches 44px on phones and touch screens. */
-				@media (max-width: 639px), (pointer: coarse) { .tedix-icon, .tedix-form .tedix-icon, .tedix-voice, .tedix-voice-cancel, .tedix-send { width: var(--tedix-touch-target); height: var(--tedix-touch-target); } .tedix-prompt, .tedix-approval button, .tedix-session-retry, .tedix-route-link, .tedix-md-link[href^="/"], .tedix-recent-item, .tedix-recent-more, .tedix-history-new, .tedix-history-item, .tedix-voice-error button, .tedix-worklog summary { min-height: var(--tedix-touch-target); } .tedix-md-copy { min-width: var(--tedix-touch-target); min-height: var(--tedix-touch-target); } .tedix-conversation-reference summary { padding-block: 12px; margin-block: -12px -10px; } }
-				@media (prefers-reduced-motion: reduce) { .tedix-panel[data-open] { animation: none; } .tedix-launcher, .tedix-send, .tedix-activity-chevron { transition: none; } .tedix-thinking-label, .tedix-skeleton::after { animation: none; } .tedix-worklog-step[data-streaming="true"] { background: none; color: inherit; animation: none; } }
+				@media (max-width: 639px), (pointer: coarse) { .tedix-icon, .tedix-form .tedix-icon, .tedix-voice, .tedix-voice-cancel, .tedix-send { width: var(--tedix-touch-target); height: var(--tedix-touch-target); } .tedix-page-action > button, .tedix-prompt, .tedix-approval button, .tedix-session-retry, .tedix-route-link, .tedix-md-link[href^="/"], .tedix-recent-item, .tedix-recent-more, .tedix-history-new, .tedix-history-item, .tedix-voice-error button, .tedix-worklog summary { min-height: var(--tedix-touch-target); } .tedix-md-copy { min-width: var(--tedix-touch-target); min-height: var(--tedix-touch-target); } .tedix-conversation-reference summary { padding-block: 12px; margin-block: -12px -10px; } }
+				@media (prefers-reduced-motion: reduce) { .tedix-panel[data-open] { animation: none; } .tedix-launcher, .tedix-send, .tedix-worklog-chevron { transition: none; } .tedix-thinking-label, .tedix-skeleton::after { animation: none; } .tedix-worklog-step[data-streaming="true"] { background: none; color: inherit; animation: none; } }
 	`;
 }
