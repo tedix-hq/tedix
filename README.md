@@ -1,7 +1,7 @@
 <h1 align="center">Tedix</h1>
 
 <p align="center">
-  <img src="docs/public/assets/tedix-banner.jpg" alt="Tedix astronaut mascot waving next to the tagline: AI coworkers that show their work." width="100%">
+  <img src="docs/public/assets/tedix-banner.jpg" alt="The Tedix astronaut mascot waving." width="100%">
 </p>
 
 <p align="center">

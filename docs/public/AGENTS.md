@@ -14,7 +14,8 @@ visibility: public
 
 # Agent guide for the source repository
 
-Tedix runs persistent, organization-owned AI workers on Cloudflare. Start with
+Tedix gives a team and its AI agents one shared to-do list, memory and record;
+it runs on Cloudflare. Start with
 `README.md` and `docs/public/index.md`; `docs/public/release-status.md` says
 what is available today.
 
@@ -130,7 +131,7 @@ private overlay against the exact product config and land it in ops first.
 The pre-push gate checks the reference offline; Ship checks compatibility.
 
 This repository owns product source and example configuration, not the live
-Tedix Cloud installation. Managed releases run from `tedix-hq/tedix-cloud-ops`,
+Tedix Cloud installation. Managed releases run from the private ops repository,
 which owns the guarded deployment workflow, live configuration and credentials.
 Do not hand-deploy Tedix Cloud from this checkout or add its account, database,
 organization or resource IDs, secret references, or private runbooks here.
