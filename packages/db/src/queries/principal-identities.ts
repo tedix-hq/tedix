@@ -55,6 +55,8 @@ function normalizeExternalIdentity(
 export interface UserTenantIdentityContext {
 	organizationId: string;
 	canonicalUserId: string | null;
+	/** Null means no membership row; false means an explicitly inactive row. */
+	memberIsActive: boolean | null;
 	memberRole: string | null;
 	memberPermissionOverrides: OrganizationPermission[] | null;
 }
@@ -90,6 +92,12 @@ export async function resolveUserTenantIdentityContext(
 			canonicalUserId: sql<string | null>`${userMapping.principalId}`.as(
 				"identity_context_user_id",
 			),
+			memberIsActive: sql<boolean | null>`CASE
+				WHEN ${organizationMembers.id} IS NULL THEN NULL
+				WHEN ${organizationMembers.status} = 'active' THEN 1
+				ELSE 0 END`
+				.mapWith(Boolean)
+				.as("identity_context_member_is_active"),
 			memberRole: sql<string | null>`${organizationMembers.role}`.as(
 				"identity_context_member_role",
 			),
@@ -149,7 +157,14 @@ export async function resolveUserTenantIdentityContext(
 		)
 		.limit(1);
 
-	return row;
+	if (!row) return undefined;
+	return {
+		...row,
+		memberRole: row.memberIsActive ? row.memberRole : null,
+		memberPermissionOverrides: row.memberIsActive
+			? row.memberPermissionOverrides
+			: null,
+	};
 }
 
 export async function resolvePrincipalIdentity(

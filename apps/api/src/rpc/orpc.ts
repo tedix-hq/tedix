@@ -889,6 +889,12 @@ export const withAuth = base.middleware(async (options, input) => {
 			await authenticateUserJwt(context);
 		} catch (userJwtError) {
 			if (isAuthInfrastructureError(userJwtError)) throw userJwtError;
+			if (
+				userJwtError instanceof ORPCError &&
+				userJwtError.code === ErrorCodes.FORBIDDEN
+			) {
+				throw userJwtError;
+			}
 			// Strategy 2: Try M2M JWT authentication
 			try {
 				await authenticateM2MJwt(context);
@@ -1684,6 +1690,14 @@ async function authenticateUserJwt(
 			);
 			context.userId = identity?.canonicalUserId ?? undefined;
 			if (identity) {
+				// Preserve the missing-membership bootstrap, but never restore a
+				// deactivated member's authority from a still-valid session JWT.
+				if (identity.memberIsActive === false) {
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Organization membership is not active",
+					);
+				}
 				// Fail closed on a cross-tenant override to an org the caller is not
 				// a member of: never grant org context off a bare tenant id (an
 				// identifier, not a credential). Same-tenant resolution still grants
@@ -1703,6 +1717,9 @@ async function authenticateUserJwt(
 				}
 			}
 		} catch (error) {
+			if (error instanceof ORPCError && error.code === ErrorCodes.FORBIDDEN) {
+				throw error;
+			}
 			console.error(
 				"[Auth] Failed to resolve org context from tenant claim:",
 				error,
@@ -1733,12 +1750,21 @@ async function authenticateUserJwt(
 					personalOrg.id,
 					payload.sub,
 				);
+				if (member && member.status !== "active") {
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Organization membership is not active",
+					);
+				}
 				if (member?.role) {
 					context.userRole = member.role;
 				}
 				context.userPermissionOverrides = readMemberOverrides(member);
 			}
 		} catch (error) {
+			if (error instanceof ORPCError && error.code === ErrorCodes.FORBIDDEN) {
+				throw error;
+			}
 			console.warn(
 				"[Auth] Failed to resolve org context from D1 membership:",
 				error,

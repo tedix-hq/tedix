@@ -14,6 +14,7 @@ import {
 	AUTHZ,
 	hasOsReadAuthorization,
 	authorizeOsShareRecipient,
+	authorizeOsOutputExportRecipient,
 	CLIENT_ERROR_CODES,
 	createError,
 	createScopeMiddleware,
@@ -28,6 +29,7 @@ import {
 	resolveMcpServiceBindingAuthorization,
 	resolveForwardedMcpUserTenantContext,
 	skipOutputValidation,
+	userHoldsPermission,
 	withAuth,
 	withAuthorization,
 	withExactApiKeyScope,
@@ -85,6 +87,23 @@ const shareAuthMocks = vi.hoisted(() => ({
 }));
 
 const jwtMocks = vi.hoisted(() => ({ validateToken: vi.fn() }));
+
+const personalAuthMocks = vi.hoisted(() => ({
+	getPersonalOrganization: vi.fn(),
+	getMemberByUserId: vi.fn(),
+}));
+
+vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tedix/db/queries/organizations")>()),
+	getPersonalOrganization: personalAuthMocks.getPersonalOrganization,
+}));
+
+vi.mock("@tedix/db/queries/organization-members", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("@tedix/db/queries/organization-members")
+	>()),
+	getMemberByUserId: personalAuthMocks.getMemberByUserId,
+}));
 
 vi.mock("@tedix/auth/jwt", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@tedix/auth/jwt")>();
@@ -268,6 +287,28 @@ describe("OS share recipient authorization", () => {
 			}),
 		).resolves.toBe(false);
 		expect(shareAuthMocks.getWorkspaceResource).not.toHaveBeenCalled();
+	});
+
+	it("denies inactive members on both share and output-export paths", async () => {
+		shareAuthMocks.resolveUserTenantIdentityContext.mockResolvedValue({
+			organizationId: "org-1",
+			canonicalUserId: "user-1",
+			memberIsActive: false,
+			memberRole: null,
+			memberPermissionOverrides: null,
+		});
+		await expect(
+			authorizeOsShareRecipient(request(), env(), {
+				organizationId: "org-1",
+				role: "viewer",
+			}),
+		).resolves.toBe(false);
+		await expect(
+			authorizeOsOutputExportRecipient(request(), env(), {
+				organizationId: "org-1",
+				accessEnvelope: envelope,
+			}),
+		).resolves.toBe(false);
 	});
 
 	it.each([
@@ -585,6 +626,7 @@ describe("public user-session authentication", () => {
 	async function authenticate(
 		claims: Record<string, unknown>,
 		token = "header.payload.sig",
+		memberIsActive: boolean | null = true,
 	) {
 		jwtMocks.validateToken.mockResolvedValue({
 			sub: "U2fictionaluser",
@@ -596,7 +638,8 @@ describe("public user-session authentication", () => {
 		shareAuthMocks.resolveUserTenantIdentityContext.mockResolvedValue({
 			organizationId: "org-1",
 			canonicalUserId: "canonical-user",
-			memberRole: "owner",
+			memberIsActive,
+			memberRole: memberIsActive ? "owner" : null,
 			memberPermissionOverrides: [],
 		});
 		let seen: BaseContext | undefined;
@@ -617,6 +660,30 @@ describe("public user-session authentication", () => {
 		return seen;
 	}
 
+	it.each(["deactivated", "invited", null])(
+		"rejects a %s personal membership without a tenant claim",
+		async (status) => {
+			shareAuthMocks.resolvePrincipalIdentity.mockResolvedValueOnce({
+				principalId: "canonical-user",
+			});
+			personalAuthMocks.getPersonalOrganization.mockResolvedValueOnce({
+				id: "personal-org",
+			});
+			personalAuthMocks.getMemberByUserId.mockResolvedValueOnce({
+				role: "admin",
+				status,
+				customPermissions: ["apps:delete"],
+			});
+			await expect(
+				authenticate({
+					iss: "https://auth.tedix.dev/P2fictional",
+					dct: undefined,
+					roles: ["admin"],
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+
 	it("accepts a Descope session JWT as the user", async () => {
 		const context = await authenticate({
 			iss: "https://auth.tedix.dev/P2fictional",
@@ -625,6 +692,31 @@ describe("public user-session authentication", () => {
 		});
 		expect(context?.authType).toBe("user");
 		expect(context?.organizationId).toBe("org-1");
+	});
+
+	it("rejects an inactive member despite stale token admin claims and permits reactivation", async () => {
+		const claims = {
+			iss: "https://auth.tedix.dev/P2fictional",
+			roles: ["admin"],
+			permissions: ["settings:manage"],
+		};
+		await expect(
+			authenticate(claims, "header.payload.sig", false),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+		const context = await authenticate(claims);
+		expect(context?.userRole).toBe("owner");
+		expect(userHoldsPermission(context!, "settings:manage")).toBe(true);
+	});
+
+	it("preserves token-role bootstrap when no membership exists", async () => {
+		const context = await authenticate(
+			{ iss: "https://auth.tedix.dev/P2fictional", roles: ["admin"] },
+			"header.payload.sig",
+			null,
+		);
+		expect(context?.authType).toBe("user");
+		expect(context?.userRole).toBe("admin");
 	});
 
 	it.each([
