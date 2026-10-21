@@ -835,3 +835,24 @@ describe("stale session status", () => {
 		expect(existsSync(log)).toBe(true);
 	});
 });
+
+test("OpenCode status uses the same opt-in and emits a valid report", async () => {
+	const session = "ses_ea08bec38ffeGv2rruD2pzxAuC";
+	const raw = JSON.stringify({
+		session_id: session.toLowerCase(),
+		hook_event_name: "PermissionRequest",
+		tool_name: "bash",
+		tool_input: { command: "bun run test:run" },
+	});
+	await fire("PermissionRequest", {}, { TEDIX_HOOK_HOST: "opencode" }, raw);
+	expect(spawned).toEqual([]);
+	enable();
+	await fire("PermissionRequest", {}, { TEDIX_HOOK_HOST: "opencode" }, raw);
+	const reports = spawned.filter(([args]) => args[0] === "tedix");
+	expect(reports).toHaveLength(1);
+	expect(JSON.parse(reports[0]![0][6]!)).toMatchObject({
+		harness: "opencode",
+		sessionKey: session.toLowerCase(),
+		state: "needs_you",
+	});
+});

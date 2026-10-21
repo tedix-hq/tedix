@@ -23,17 +23,19 @@ yourself; installing the plugin grants no access.
 
 ## What the plugin adds
 
-| Capability             | Claude Code and Codex                          | OpenCode plugin                                                                |
-| ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| MCP connection         | `.mcp.json`, host OAuth                        | `mcp.tedix`, OAuth with a public CIMD client ID                                |
-| Skills                 | `skills/`                                      | The same `skills/` directory, through `skills.paths`                           |
-| Agent-Session identity | Native session ID in the shell                 | `TEDIX_AGENT_SESSION=opencode:<ses_…>` and the version and model in each shell |
-| `SessionStart`         | `tedix hooks session-start`                    | First prompt of a session, as a synthetic `<tedix-context>` part               |
-| `UserPromptSubmit`     | `tedix hooks prompt-context`                   | Every user prompt, in the same part                                            |
-| `PreToolUse` recall    | `tedix hooks situational-recall`               | Bash, edit, write and patch tools; lessons are appended to the tool result     |
-| Decision capture       | `capture-reply`, `capture-stop`, `await-reply` | Not available: the request ledger does not accept the `opencode` harness yet   |
-| Turn-status reporter   | `tedix hooks status`                           | Not available, for the same reason                                             |
-| Repository rules       | `AGENTS.md`                                    | `AGENTS.md`, read natively by OpenCode                                         |
+| Capability             | Claude Code and Codex                           | OpenCode plugin                                                                         |
+| ---------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------- |
+| MCP connection         | `.mcp.json`, host OAuth                         | `mcp.tedix`, OAuth with a public CIMD client ID                                         |
+| Skills                 | `skills/`                                       | The same `skills/` directory, through `skills.paths`                                    |
+| Agent-Session identity | Native session ID in the shell                  | `TEDIX_AGENT_SESSION=opencode:<ses_…>` and the version and model in each shell          |
+| `SessionStart`         | `tedix hooks session-start`                     | First prompt of a session, as a synthetic `<tedix-context>` part                        |
+| `UserPromptSubmit`     | `tedix hooks prompt-context`                    | Every user prompt, in the same part                                                     |
+| `PreToolUse` recall    | `tedix hooks situational-recall`                | Bash, edit, write and patch tools; lessons are appended to the tool result              |
+| Decision capture       | `capture-reply`, `capture-stop`                 | User prompts and `session.idle`, using the same opt-in and redaction                    |
+| Request ledger         | Prompt and turn capture                         | The same ledger, scoped to the OpenCode session                                         |
+| Await-reply wake       | Claude background wake; Codex Stop continuation | Idle listener runs `await-reply`; a framed answer resumes through `session.promptAsync` |
+| Turn-status reporter   | `tedix hooks status`                            | Prompt, idle, permission, tool, error and deletion events; same opt-in                  |
+| Repository rules       | `AGENTS.md`                                     | `AGENTS.md`, read natively by OpenCode                                                  |
 
 The plugin adds the MCP entry only when your configuration has no `mcp.tedix`
 of its own. Subagent sessions use their parent's Agent-Session and receive no
@@ -45,6 +47,21 @@ which needs a release that supports `--host opencode` (after 0.15.1). Without
 the CLI, or with an older one, they add nothing and never block a turn. The
 `SessionStart` preflight keeps its opt-in: a repository binding or
 `TEDIX_PLUGIN_PREFLIGHT=1`.
+
+Decision capture and the request ledger keep their existing local decision-capture
+opt-in (`tedix setup agents context enable-decision-capture`). Status reporting
+requires `~/.tedix/agent-status.json` or `TEDIX_AGENT_STATUS=1`. These hooks require
+the CLI release containing the lifecycle hooks and a server release accepting the
+`opencode` reporting harness; installing the plugin alone does not update either.
+
+The idle listener records assistant text since the latest user message in the
+ledger (up to 100 messages); decision capture and status use the final message.
+It waits in the background for an answer to that
+exact turn. A new prompt or session deletion cancels the wait, duplicate idle
+events do not recapture a turn, and synthetic wake messages are never captured as
+user replies. Permission events only report that approval is needed; OpenCode
+still owns the permission decision. Subagent events do not capture or report
+independent turns.
 
 Options use OpenCode's tuple form:
 

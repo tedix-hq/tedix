@@ -4,6 +4,7 @@ import * as z from "zod";
 export const WorkAgentSessionHarnessSchema = z.enum([
 	"claude-code",
 	"codex",
+	"opencode",
 	"devin",
 	"tedi",
 	"skill",
@@ -37,7 +38,14 @@ const SummarySchema = z
 /** Observed execution facts, separate from Work admission and verification. */
 export const LaneTelemetryInputSchema = z
 	.strictObject({
-		executor: z.enum(["codex", "claude-code", "devin", "tedi", "skill"]),
+		executor: z.enum([
+			"codex",
+			"claude-code",
+			"opencode",
+			"devin",
+			"tedi",
+			"skill",
+		]),
 		model: z.string().max(200).nullable(),
 		provider: z.string().max(80).nullable(),
 		reasoningEffort: z.string().max(40).nullable(),

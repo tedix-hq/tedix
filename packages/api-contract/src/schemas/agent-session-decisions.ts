@@ -1,6 +1,6 @@
 /**
  * Historic import of a person's own past local agent sessions (Claude Code,
- * Codex) as decision learning events (MCP: `import_agent_session_decisions`).
+ * Codex, OpenCode) as decision learning events (MCP: `import_agent_session_decisions`).
  *
  * Each decision is one pair the CLI extracted and redacted locally: the tail
  * of the agent's last message before a genuine user reply, and that reply.
@@ -14,6 +14,7 @@ import * as z from "zod";
 export const AGENT_SESSION_DECISION_HARNESSES = [
 	"claude-code",
 	"codex",
+	"opencode",
 ] as const;
 /** Bounds shared with the CLI extractor so a pair is never rejected for size. */
 export const AGENT_SESSION_DECISION_LIMITS = {

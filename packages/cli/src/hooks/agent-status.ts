@@ -49,7 +49,7 @@ export const REPORT_VERB = "agent-session-report";
 const SESSION_KEY = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const ORGANIZATION = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const STATES = new Set(["working", "needs_you", "done", "error", "ended"]);
-const HARNESSES = new Set(["claude-code", "codex", "devin"]);
+const HARNESSES = new Set(["claude-code", "codex", "devin", "opencode"]);
 const TRUTHY = new Set(["1", "true", "yes"]);
 const FALSY = new Set(["0", "false", "no"]);
 const SUMMARY_LIMIT = 160;
@@ -116,7 +116,7 @@ export function pruneStatusFiles(env: NodeJS.ProcessEnv, now: number): number {
 		return 0;
 	}
 	for (const name of names) {
-		if (!/^(claude-code|codex|devin)-/.test(name)) continue;
+		if (!/^(claude-code|codex|devin|opencode)-/.test(name)) continue;
 		const path = join(directory, name);
 		try {
 			if (now - statSync(path).mtimeMs <= STATUS_PRUNE_AFTER_MS) continue;

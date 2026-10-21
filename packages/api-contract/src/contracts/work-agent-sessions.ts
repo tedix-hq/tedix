@@ -102,7 +102,7 @@ export const workAgentSessionsContract = oc
 				path: "/events",
 				summary: "Upload redacted events from the caller's own agent sessions",
 				description:
-					"Stores up to 20 redacted events from the caller's own Claude Code or Codex session and returns at once; re-uploaded events are stored once. retryFailed explicitly restarts failed duplicates only before later session work was processed or leased. rebuildFailedSession explicitly discards one failed owner session’s derived rows and replays its immutable events with count and lease guards. A small observer extracts requests. A Gateway reflector judges full turn text and user replies, cites status changes, merges restatements, and records asks and unfinished commitments. At-risk status requires five turns without mention and no unresolved running lane. Rows remain private to the caller.",
+					"Stores up to 20 redacted events from the caller's own Claude Code, Codex or OpenCode session and returns at once; re-uploaded events are stored once. retryFailed explicitly restarts failed duplicates only before later session work was processed or leased. rebuildFailedSession explicitly discards one failed owner session’s derived rows and replays its immutable events with count and lease guards. A small observer extracts requests. A Gateway reflector judges full turn text and user replies, cites status changes, merges restatements, and records asks and unfinished commitments. At-risk status requires five turns without mention and no unresolved running lane. Rows remain private to the caller.",
 			})
 			.input(RecordAgentSessionEventsInputSchema)
 			.output(RecordAgentSessionEventsResultSchema),

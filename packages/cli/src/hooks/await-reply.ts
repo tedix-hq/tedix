@@ -130,7 +130,12 @@ export async function runAwaitReply(
 		const id = session!;
 		const state = captureStatePath(deps.env, id);
 		// The question this Stop's capture-stop is about to open, not an older one.
-		const before = peek(state)?.token;
+		const current = peek(state);
+		// OpenCode starts its listener after capture finishes; bind it to that turn.
+		const opencode = harnessOf(event, deps.env) === "opencode";
+		if (opencode && (!event.turn_id || current?.turnId !== event.turn_id))
+			return { code: 0 };
+		const before = opencode ? undefined : current?.token;
 		const binding = await bindingFor(deps, id);
 		if (!binding) return { code: 0 };
 		const question = await awaitQuestion(

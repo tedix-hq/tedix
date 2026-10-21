@@ -16,6 +16,7 @@ import { organizations } from "./organizations";
 export const WORK_AGENT_SESSION_HARNESS_VALUES = [
 	"claude-code",
 	"codex",
+	"opencode",
 	"devin",
 	"tedi",
 	"skill",
@@ -34,7 +35,7 @@ export type WorkAgentSessionState =
 	(typeof WORK_AGENT_SESSION_STATE_VALUES)[number];
 
 export interface LaneTelemetry {
-	executor: "codex" | "claude-code" | "devin" | "tedi" | "skill";
+	executor: "codex" | "claude-code" | "opencode" | "devin" | "tedi" | "skill";
 	model: string | null;
 	provider: string | null;
 	reasoningEffort: string | null;

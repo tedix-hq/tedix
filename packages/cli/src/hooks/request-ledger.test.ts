@@ -711,3 +711,22 @@ test("stale requests surface once as a pointer and never replay their text", () 
 	expect(next).not.toContain("stale requests");
 	expect(next.split("\n").length).toBeLessThanOrEqual(8);
 });
+
+test("OpenCode records the full turn with existing redaction while other hosts use their final message", async () => {
+	const event = {
+		last_assistant_message: "Done.",
+		opencode_turn_text:
+			"The earlier check failed.\nTEDIX_API_KEY=abcd1234secret\nThe fix passed.\nDone.",
+	};
+	const open = await run(
+		"turn",
+		{ ...event, session_id: "ses_ea08bec38ffeGv2rruD2pzxAuC" },
+		{ env: { TEDIX_HOOK_HOST: "opencode" } },
+	);
+	expect(open[0]?.[0]?.harness).toBe("opencode");
+	expect(open[0]?.[0]?.text).toContain("The earlier check failed.");
+	expect(open[0]?.[0]?.text).toContain("The fix passed.");
+	expect(open[0]?.[0]?.text).not.toContain("abcd1234secret");
+	const other = await run("turn", event);
+	expect(other[0]?.[0]?.text).toBe("Done.");
+});

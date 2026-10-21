@@ -1280,3 +1280,35 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(existsSync(state().replace(/\.json$/, ".early"))).toBe(false);
 	});
 });
+
+test("OpenCode capture persists its turn binding and pairs only an opted-in user reply", async () => {
+	const session = "ses_ea08bec38ffeGv2rruD2pzxAuC";
+	const env = { TEDIX_HOOK_HOST: "opencode" };
+	const event = {
+		session_id: session,
+		turn_id: "msg_example",
+		last_assistant_message: "Should I continue?",
+	};
+	await runHook("stop", event, [{ ...BINDING, decisionCapture: false }], {
+		env,
+	});
+	expect(payloads).toEqual([]);
+	await runHook("stop", event, [BINDING, AUTH, CREATED], { env });
+	const file = captureStatePath(
+		{ TEDIX_CONFIG_DIR: config },
+		session.toLowerCase(),
+	);
+	expect(peek(file)).toMatchObject({
+		host: "opencode",
+		turnId: "msg_example",
+		requestId: REQUEST,
+	});
+	expect(payloads[0]?.[1].metadata.host).toBe("opencode");
+	await runHook(
+		"reply",
+		{ session_id: session, prompt: "Yes, continue." },
+		[BINDING, AUTH, { request: CREATED }],
+		{ env },
+	);
+	expect(payloads.at(-1)?.[1].body).toBe("Yes, continue.");
+});

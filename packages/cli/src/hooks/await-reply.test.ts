@@ -585,3 +585,28 @@ describe("tedix hooks await-reply", () => {
 		expect(existsSync(questionPath(state()))).toBe(false);
 	});
 });
+
+test("OpenCode awaits only the question captured for this exact idle turn", async () => {
+	open();
+	const current = peek(state());
+	writeFileSync(
+		state(),
+		JSON.stringify({ ...current, host: "opencode", turnId: "msg_current" }),
+	);
+	const env = { TEDIX_HOOK_HOST: "opencode" };
+	const stale = await run([], {
+		env,
+		event: { session_id: SESSION, turn_id: "msg_old" },
+	});
+	expect(stale.result.code).toBe(0);
+	expect(stale.detailReads).toBe(0);
+	const delivered = await run(
+		[interaction({ latestDraft: { ...DRAFT, delivery: "auto" } })],
+		{ env, event: { session_id: SESSION, turn_id: "msg_current" } },
+	);
+	expect(delivered.result.code).toBe(2);
+	expect(delivered.result.message).toContain("delegated answer");
+	expect(delivered.drafted).toEqual([
+		[REQUEST, { draftId: DRAFT.id, via: "hook" }],
+	]);
+});

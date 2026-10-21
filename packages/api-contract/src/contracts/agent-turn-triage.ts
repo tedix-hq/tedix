@@ -277,7 +277,7 @@ export const agentTurnTriageContract = oc
 				path: "/session-decisions/import",
 				summary: "Import the caller's past local agent-session decisions",
 				description:
-					"Records up to 25 locally extracted, redacted (agent message tail, user reply) pairs from the caller's own past Claude Code or Codex sessions as personal-scope learning events (surface `agent_session_import`) for the learning-feed miner (nightly, or now with `mine_agent_session_lessons`). Requires a person's identity. Idempotent by (harness, sessionId, turnId): a re-run reports duplicates and writes nothing new.",
+					"Records up to 25 locally extracted, redacted (agent message tail, user reply) pairs from the caller's own past Claude Code, Codex or OpenCode sessions as personal-scope learning events (surface `agent_session_import`) for the learning-feed miner (nightly, or now with `mine_agent_session_lessons`). Requires a person's identity. Idempotent by (harness, sessionId, turnId): a re-run reports duplicates and writes nothing new.",
 			})
 			.input(ImportAgentSessionDecisionsInputSchema)
 			.output(ImportAgentSessionDecisionsResultSchema),

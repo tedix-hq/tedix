@@ -962,6 +962,7 @@ function quotedShortIds(request: RequestOutput): string[] {
 const AGENT_HOSTS: Record<string, string> = {
 	"claude-code": "Claude Code session",
 	codex: "Codex session",
+	opencode: "OpenCode session",
 };
 
 function creatorHarness(

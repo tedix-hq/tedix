@@ -426,7 +426,14 @@ export async function runRequestLedger(
 			return;
 		const turn =
 			mode === "turn" ? readTurnTranscript(event.transcript_path) : null;
-		const lastText = ledgerText(mode, event);
+		const lastText = ledgerText(
+			mode,
+			mode === "turn" &&
+				harnessOf(event, hostEnv) === "opencode" &&
+				typeof event.opencode_turn_text === "string"
+				? { ...event, last_assistant_message: event.opencode_turn_text }
+				: event,
+		);
 		const text = turn?.text
 			? `${turn.text}${lastText && !turn.text.includes(lastText) ? `\n\n${lastText}` : ""}`
 			: lastText;

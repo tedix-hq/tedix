@@ -153,7 +153,16 @@ test("the first prompt gets session-start and prompt context as one synthetic pa
 		second as never,
 	);
 	expect(second.parts[1]!.text).not.toContain("session-start");
-	expect(calls()).toEqual([
+	expect(
+		calls().filter(
+			(call) =>
+				["SessionStart", "UserPromptSubmit"].includes(
+					call.event.hook_event_name,
+				) &&
+				!call.args?.includes("capture-reply") &&
+				!call.args?.includes("status"),
+		),
+	).toEqual([
 		{
 			args: "hooks session-start --host opencode",
 			event: {
@@ -226,7 +235,9 @@ test("edits and commands get advisory recall appended to their result", async ()
 		"Edit applied.\n\n<tedix-recall>\ncontext from situational-recall\n</tedix-recall>",
 	);
 	const [recall, ...rest] = calls();
-	expect(rest).toEqual([]);
+	expect(rest.map((call) => call.event.hook_event_name)).toEqual([
+		"PostToolUse",
+	]);
 	expect(recall).toEqual({
 		args: "hooks situational-recall --host opencode",
 		event: {
@@ -242,4 +253,233 @@ test("edits and commands get advisory recall appended to their result", async ()
 			},
 		},
 	});
+});
+
+async function until(check: () => boolean) {
+	for (let i = 0; i < 200; i++) {
+		if (check()) return;
+		await Bun.sleep(10);
+	}
+	throw new Error("OpenCode hook did not finish");
+}
+
+const emit = (
+	hooks: Awaited<ReturnType<typeof plugin>>,
+	type: string,
+	properties = {},
+) => hooks.event!({ event: { type, properties } } as never);
+
+function sessionClient(wakes: unknown[]) {
+	return {
+		session: {
+			messages: async () => ({
+				data: [
+					{
+						info: { role: "user", id: "msg_user" },
+						parts: [{ type: "text", text: "Check it" }],
+					},
+					{
+						info: { role: "assistant", id: "msg_first" },
+						parts: [{ type: "text", text: "Checked the example." }],
+					},
+					{
+						info: { role: "assistant", id: "msg_last" },
+						parts: [{ type: "text", text: "Should I continue?" }],
+					},
+				],
+			}),
+			promptAsync: async (input: unknown) => {
+				wakes.push(input);
+			},
+		},
+	};
+}
+
+test("idle captures the whole turn and wakes once with the CLI's framed reply", async () => {
+	fakeCli(
+		'if [ "$2" = "await-reply" ]; then printf "The user replied in Tedix OS: continue" >&2; exit 2; fi',
+	);
+	const wakes: unknown[] = [];
+	const hooks = await module.TedixPlugin({
+		directory,
+		client: sessionClient(wakes),
+	});
+	await emit(hooks, "session.idle", { sessionID: SESSION });
+	await until(() => wakes.length === 1);
+	expect(wakes[0]).toEqual({
+		path: { id: SESSION },
+		body: {
+			parts: [
+				{
+					type: "text",
+					text: "The user replied in Tedix OS: continue",
+					synthetic: true,
+				},
+			],
+		},
+	});
+	const capture = calls().find((call) => call.args?.includes("capture-stop"));
+	expect(capture?.event).toEqual({
+		session_id: SESSION,
+		cwd: directory,
+		hook_event_name: "Stop",
+		turn_id: "msg_last",
+		last_assistant_message: "Should I continue?",
+		opencode_turn_text: "Checked the example.\n\nShould I continue?",
+	});
+	await emit(hooks, "session.idle", { sessionID: SESSION });
+	await Bun.sleep(30);
+	expect(wakes).toHaveLength(1);
+	expect(
+		calls().filter((call) => call.args?.includes("capture-stop")),
+	).toHaveLength(1);
+});
+
+test("permission, tool, error and deletion events report status without approving permissions", async () => {
+	fakeCli();
+	const hooks = await plugin();
+	await emit(hooks, "permission.asked", {
+		sessionID: SESSION,
+		permission: "bash",
+		metadata: { command: "bun run test:run" },
+	});
+	await emit(hooks, "permission.replied", { sessionID: SESSION });
+	await emit(hooks, "session.error", {
+		sessionID: SESSION,
+		error: { name: "ExampleError", data: { message: "Failed" } },
+	});
+	await emit(hooks, "session.deleted", { info: { id: SESSION } });
+	expect(calls().map((call) => call.event.hook_event_name)).toEqual([
+		"PermissionRequest",
+		"PostToolUse",
+		"StopFailure",
+		"SessionEnd",
+	]);
+	expect(calls()[0]?.event).toMatchObject({
+		tool_name: "bash",
+		tool_input: { command: "bun run test:run" },
+	});
+	expect(
+		calls().every((call) => call.args === "hooks status --host opencode"),
+	).toBe(true);
+});
+
+test("user prompts capture replies and status; synthetic wakes are never captured as user replies", async () => {
+	fakeCli();
+	const hooks = await plugin();
+	await hooks["chat.message"]!(
+		{ sessionID: SESSION } as never,
+		message() as never,
+	);
+	expect(
+		calls().filter((call) => call.args?.includes("capture-reply")),
+	).toHaveLength(1);
+	expect(
+		calls().find((call) => call.args?.includes("status"))?.event
+			.hook_event_name,
+	).toBe("UserPromptSubmit");
+	const synthetic = message();
+	Object.assign(synthetic.parts[0]!, { synthetic: true });
+	await hooks["chat.message"]!(
+		{ sessionID: SESSION } as never,
+		synthetic as never,
+	);
+	expect(
+		calls().filter((call) => call.args?.includes("capture-reply")),
+	).toHaveLength(1);
+});
+
+test("new prompts and deletion cancel a pending wake", async () => {
+	fakeCli(
+		'if [ "$2" = "await-reply" ]; then sleep 0.1; printf "stale reply" >&2; exit 2; fi',
+	);
+	for (const cancel of ["prompt", "delete"]) {
+		const wakes: unknown[] = [];
+		const hooks = await module.TedixPlugin({
+			directory,
+			client: sessionClient(wakes),
+		});
+		const before = callsSafeCount();
+		await emit(hooks, "session.idle", { sessionID: SESSION });
+		await until(
+			() =>
+				callsSafeCount() > before &&
+				calls()
+					.slice(before)
+					.some((call) => call.args?.includes("await-reply")),
+		);
+		if (cancel === "prompt")
+			await hooks["chat.message"]!(
+				{ sessionID: SESSION } as never,
+				message() as never,
+			);
+		else await emit(hooks, "session.deleted", { info: { id: SESSION } });
+		await Bun.sleep(300);
+		expect(wakes).toEqual([]);
+	}
+});
+
+function callsSafeCount() {
+	try {
+		return calls().length;
+	} catch {
+		return 0;
+	}
+}
+
+test("disabled hooks and subagent events cannot capture, report or wake", async () => {
+	fakeCli();
+	const wakes: unknown[] = [];
+	const hooks = await module.TedixPlugin(
+		{ directory, client: sessionClient(wakes) },
+		{ hooks: false },
+	);
+	await emit(hooks, "session.idle", { sessionID: SESSION });
+	await emit(hooks, "permission.asked", { sessionID: SESSION });
+	const enabled = await module.TedixPlugin({
+		directory,
+		client: sessionClient(wakes),
+	});
+	await emit(enabled, "session.created", {
+		info: { id: CHILD, parentID: SESSION },
+	});
+	await emit(enabled, "session.idle", { sessionID: CHILD });
+	await emit(enabled, "permission.asked", { sessionID: CHILD });
+	await Bun.sleep(20);
+	expect(callsSafeCount()).toBe(0);
+	expect(wakes).toEqual([]);
+});
+
+test("older permission.updated events report the same approval status", async () => {
+	fakeCli();
+	const hooks = await plugin();
+	await emit(hooks, "permission.updated", {
+		sessionID: SESSION,
+		type: "bash",
+		metadata: { command: "bun run test:run" },
+	});
+	expect(calls()[0]?.event).toMatchObject({
+		hook_event_name: "PermissionRequest",
+		tool_name: "bash",
+		tool_input: { command: "bun run test:run" },
+	});
+});
+
+test("idle does not resume for a silent or failed await-reply hook", async () => {
+	fakeCli(
+		'if [ "$2" = "await-reply" ]; then printf "not a wake" >&2; exit 1; fi',
+	);
+	const wakes: unknown[] = [];
+	const hooks = await module.TedixPlugin({
+		directory,
+		client: sessionClient(wakes),
+	});
+	await emit(hooks, "session.idle", { sessionID: SESSION });
+	await until(
+		() =>
+			callsSafeCount() > 0 &&
+			calls().some((call) => call.args?.includes("await-reply")),
+	);
+	await Bun.sleep(30);
+	expect(wakes).toEqual([]);
 });
