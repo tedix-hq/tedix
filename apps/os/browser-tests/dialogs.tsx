@@ -1,7 +1,12 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	QueryClient,
+	QueryClientProvider,
+	useMutation,
+} from "@tanstack/react-query";
 import type { Member } from "@tedix/api-contract/schemas/organization";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { TypedConfirmDialog } from "../src/components/typed-confirm-dialog";
 import { ConfirmDialog } from "../src/components/confirm-dialog";
 import { CreateDocumentDialog } from "../src/components/create-document-dialog";
 import { Button } from "../src/components/kumo/button";
@@ -50,6 +55,44 @@ function ConfirmFixture() {
 				destructive
 				isPending={false}
 				onConfirm={() => setOpen(false)}
+			/>
+		</>
+	);
+}
+
+function TypedConfirmFixture() {
+	const [open, setOpen] = useState(false);
+	const mutation = useMutation({
+		mutationFn: async () => {
+			const response = await fetch("/browser-tests/typed-confirm-result");
+			if (!response.ok)
+				throw new Error("Organization could not be retired. Please retry.");
+		},
+		onSuccess: () => setOpen(false),
+	});
+	return (
+		<>
+			<Button
+				onClick={() => {
+					mutation.reset();
+					setOpen(true);
+				}}
+			>
+				Retire organization
+			</Button>
+			<TypedConfirmDialog
+				open={open}
+				onOpenChange={setOpen}
+				title="Retire organization?"
+				description="This removes tenant access, disables its apps, and retires its tedis. Their durable memory is retained."
+				expectedName="Example team"
+				nameLabel="Organization name"
+				confirmLabel="Retire organization"
+				pendingLabel="Retiring…"
+				destructive
+				isPending={mutation.isPending}
+				error={mutation.error}
+				onConfirm={() => mutation.mutate()}
 			/>
 		</>
 	);
@@ -120,6 +163,7 @@ function SheetFixture() {
 }
 
 const views = {
+	typed: TypedConfirmFixture,
 	confirm: ConfirmFixture,
 	form: FormFixture,
 	identity: IdentityFixture,

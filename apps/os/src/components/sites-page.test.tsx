@@ -27,6 +27,7 @@ const cmsSiteQuota = vi.hoisted(() => ({
 }));
 const lifecycleMutation = vi.hoisted(() => ({
 	isPending: false,
+	reset: vi.fn(),
 	mutate: vi.fn(),
 }));
 const domainClaim = vi.hoisted(() => ({
