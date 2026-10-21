@@ -1,3 +1,5 @@
+import { setProcessTableReader } from "./host-ancestry";
+
 /**
  * Bun test preload: start every test file without the caller's Tedix or
  * harness identity. Launched agent shells export these, and the CLI would
@@ -5,8 +7,10 @@
  */
 const HARNESS_SESSION_ENV = [
 	"CLAUDE_CODE_SESSION_ID",
+	"CLAUDE_PID",
 	"CODEX_SESSION_ID",
 	"CODEX_THREAD_ID",
+	"CODEX_VERSION",
 	"CURSOR_TRACE_ID",
 ];
 
@@ -15,3 +19,6 @@ for (const name of Object.keys(process.env)) {
 		delete process.env[name];
 	}
 }
+
+// The test runner's own host (a Codex or Claude shell) must not pick a session.
+setProcessTableReader(() => []);

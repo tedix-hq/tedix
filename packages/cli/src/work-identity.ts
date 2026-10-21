@@ -1,4 +1,5 @@
 import { readExternalAgentProfile } from "./external-agent-store";
+import { nearestHostHarness } from "./host-ancestry";
 import type { WorkAttemptKey } from "./work-attempt-store";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { WorkContext } from "./work";
@@ -198,6 +199,13 @@ export function resolveAgentSession(
 		.filter(([, id]) => Boolean(id))
 		.map(([name, id]) => `${name}:${id}`);
 	if (candidates.length > 1) {
+		// A launched child inherits its launcher's id; the nearer host owns us.
+		const host = nearestHostHarness();
+		const own = host
+			? candidates.filter((candidate) => candidate.startsWith(`${host}:`))
+			: [];
+		if (host && own.length === 1)
+			return { session: own[0]!, harness: host, derived: false };
 		return {
 			session: `cli:sh${process.ppid}`,
 			harness: "cli",
@@ -292,7 +300,7 @@ export function executorIdentityHint(
 	} catch {
 		// The hint degrades to a placeholder when the local store is unreadable.
 	}
-	return `\nThis call ran with the owner login. Start a verified session if this harness has none (\`tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> --model-version <version>\`), then rerun as it: \`TEDIX_EXTERNAL_AGENT=${key ?? "<principal-key>"} tedix work start ${id}\`.`;
+	return `\nThis call ran with the owner login. Start a verified session if this harness has none (\`tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> [--model-version <snapshot>]\`), then rerun as it: \`TEDIX_EXTERNAL_AGENT=${key ?? "<principal-key>"} tedix work start ${id}\`.`;
 }
 
 /** Merge session provenance into a board-write arg object under `metadata`. */

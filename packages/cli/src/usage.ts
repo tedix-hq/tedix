@@ -79,7 +79,7 @@ Create and close a gateway-verified coding-harness identity. An active session
 is required to start governed attempts or record their lifecycle evidence.
 
 Usage:
-  tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> --model-version <version> [--agent-key <key>] [--display-name <name>]
+  tedix agent start --agent-harness-version <version> --model-provider <provider> --model-id <id> [--model-version <snapshot>] [--agent-key <key>] [--display-name <name>]
   tedix agent status
   tedix agent rename [--display-name <name>]
   tedix agent checkpoint <work-item-id> --note <summary> --idempotency-key <key>
