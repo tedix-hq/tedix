@@ -2,7 +2,7 @@ import {
 	createKumoToastManager,
 	Toasty,
 } from "@cloudflare/kumo/components/toast";
-import type { ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useState } from "react";
 
 /**
  * One Kumo manager shared by the whole app session. Keeping it at module scope
@@ -54,8 +54,39 @@ const toast = {
 	dismiss: (id?: string) => osToastManager.close(id),
 };
 
+/**
+ * Kumo draws its close control as a 20px square pinned 8px inside the toast
+ * corner. On phone widths and coarse pointers this outlet grows that same
+ * control to a 44px corner hit area (the glyph stays 12px) and reserves the
+ * matching gutter in the text column, so long titles wrap beside it rather
+ * than under it. The selectors only reach this outlet's portal container;
+ * Kumo still owns the queue, announcements, swipe, Escape and toast lifetime.
+ */
+const toastOutletClassName = [
+	"[&_[data-kumo-part=close]]:max-sm:top-0 [&_[data-kumo-part=close]]:max-sm:right-0 [&_[data-kumo-part=close]]:max-sm:size-11 [&_[data-kumo-part=close]]:max-sm:rounded-tr-xl",
+	"[&_[data-kumo-part=close]]:coarse:top-0 [&_[data-kumo-part=close]]:coarse:right-0 [&_[data-kumo-part=close]]:coarse:size-11 [&_[data-kumo-part=close]]:coarse:rounded-tr-xl",
+	"[&_:has(>[data-toast-title])]:max-sm:pr-7 [&_:has(>[data-toast-title])]:coarse:pr-7 [&_:has(>[data-toast-title])]:[overflow-wrap:anywhere]",
+].join(" ");
+
 function Toaster() {
-	return <Toasty toastManager={osToastManager}>{null}</Toasty>;
+	// Toasty portals into document.body by default. A body-level container of
+	// our own keeps that placement and gives the classes above their scope; it
+	// exists from the first render so the manager subscribes as early as before.
+	const [outlet] = useState(() => {
+		const element = document.createElement("div");
+		element.className = toastOutletClassName;
+		element.dataset.osToastOutlet = "";
+		return element;
+	});
+	useLayoutEffect(() => {
+		document.body.append(outlet);
+		return () => outlet.remove();
+	}, [outlet]);
+	return (
+		<Toasty container={outlet} toastManager={osToastManager}>
+			{null}
+		</Toasty>
+	);
 }
 
 export { osToastManager, toast, Toaster, type ToastOptions };
