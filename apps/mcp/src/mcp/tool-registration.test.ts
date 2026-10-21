@@ -10,9 +10,9 @@ import { buildHomeSurfaceTools } from "./home-surface-tools";
 import type { AppTool, ServerContext } from "./server-context";
 import {
 	enforceNativeToolScopeGate,
-	resolveToolRequestMeta,
 	resolveWireAnnotations,
-} from "./tool-registration";
+} from "./tool-registration-policy";
+import { resolveToolRequestMeta } from "./tool-registration";
 
 const HOME_TOOLS = buildHomeSurfaceTools();
 const byId = new Map(HOME_TOOLS.map((tool) => [tool.toolId, tool]));

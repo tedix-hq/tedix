@@ -54,7 +54,7 @@ of them:
 - **Native dispatch gate:** Home tools and aggregated tools are merged into the tool set AFTER
   `enforceMcpAccess()` has run, so the request-level gate never sees them. They
   are gated by `enforceNativeToolScopeGate`
-  (`src/mcp/tool-registration.ts`), scoped to
+  (`src/mcp/tool-registration-policy.ts`), scoped to
   `meta.source === "homeSurface"` and `config._aggregateNamespace`.
 
 The rule that follows: a tool registered after the edge gate runs is unguarded

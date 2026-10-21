@@ -2240,7 +2240,7 @@ it("describe lists the three closest callables within a valid namespace", async 
 });
 
 it("retains policy-hidden identity for describe without registering or exposing the tool", async () => {
-	const { registerDynamicTool } = await import("./tool-registration");
+	const { registerDynamicTool } = await import("./widget-tool-registration");
 	const row = tool({
 		toolId: "provider__create_payment",
 		writeCapability: "read",

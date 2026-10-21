@@ -52,16 +52,16 @@ import {
 	getCachedSkillSummariesForApps,
 	mapWithConcurrency,
 } from "./skill-cache";
+import { enrichToolsWithSkills } from "./skill-tool-enrichment";
+import { registerAppPrompts } from "./prompt-registration";
+import { registerAppSkills } from "./skill-registration";
+import { registerAppTools } from "./app-tool-registration";
 import {
-	enrichToolsWithSkills,
-	registerAppPrompts,
-	registerAppSkills,
-	registerAppTools,
 	registerBootstrapResources,
 	registerBootstrapTools,
-	registerDynamicTool,
-	registerGenUiAuthoringTools,
-} from "./tool-registration";
+} from "./registration/bootstrap";
+import { registerDynamicTool } from "./widget-tool-registration";
+import { registerGenUiAuthoringTools } from "./genui-tool-registration";
 import type { McpApp, OpenAiWidgetCSP } from "./types";
 import { registerAccountProfile } from "./registration/account-profile";
 import {

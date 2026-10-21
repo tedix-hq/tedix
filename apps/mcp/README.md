@@ -48,7 +48,7 @@ after the first gate runs is unguarded unless it gets its own check:
   `authRequired`.
 - **Native dispatch gate** — `home__*` tools are merged into the tool set after
   the edge gate has run, so they are checked at dispatch by
-  `enforceNativeHomeSurfaceToolScope` in `src/mcp/tool-registration.ts`.
+  `enforceNativeToolScopeGate` in `src/mcp/tool-registration-policy.ts`.
 
 Never add a tool without deciding which gate owns it.
 

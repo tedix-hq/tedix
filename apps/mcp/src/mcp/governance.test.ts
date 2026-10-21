@@ -7,7 +7,7 @@ import {
 	stripDestructiveApprovalArgs,
 	withDestructiveApprovalSchema,
 } from "./governance";
-import { resolveWireAnnotations } from "./tool-registration";
+import { resolveWireAnnotations } from "./tool-registration-policy";
 import type { AppTool } from "./server-context";
 import type { ServerContext } from "./server-context";
 
