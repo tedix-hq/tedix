@@ -30,6 +30,8 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 } from "@/components/kumo/alert-dialog";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { errorMessage, orpcErrorCode } from "@/lib/orpc-error";
 import { createPortal } from "react-dom";
 import { QueryClientContext } from "@tanstack/react-query";
 import {
@@ -221,6 +223,31 @@ type SubmitStatus =
 	| "invalid"
 	| "empty"
 	| "failed";
+
+/** Plain-English failure text for a decision write, with the next step. */
+function decisionFailureText(cause: unknown): string {
+	const code = orpcErrorCode(cause);
+	if (code === "FORBIDDEN" || code === "UNAUTHORIZED")
+		return decisionText(
+			"You don't have permission to make this decision. Ask the owner of the originating Work or an organization admin for access.",
+		);
+	const reason = errorMessage(cause, "");
+	const next =
+		code === "CONFLICT"
+			? "This card changed since you opened it. Go back, review the latest version and decide again."
+			: "Check your connection and try again.";
+	return [
+		decisionText("Your decision was not saved."),
+		reason &&
+		reason !== code &&
+		!/^(conflict|internal server error)$/i.test(reason)
+			? reason.replace(/\.?$/, ".")
+			: "",
+		decisionText(next),
+	]
+		.filter(Boolean)
+		.join(" ");
+}
 
 const SUBMIT_REFUSALS: Record<
 	Exclude<SubmitStatus, "saved" | "confirming">,
@@ -478,6 +505,7 @@ export function WorkDecisionCard({
 		if (action.id === editAction?.id && draft === body && !hasEdits)
 			return "unchanged";
 		if (action.confirm && !confirmed) {
+			setError("");
 			setConfirmation(action);
 			return "confirming";
 		}
@@ -562,7 +590,7 @@ export function WorkDecisionCard({
 				});
 			};
 			const result = await (optimistic && !revisionEdit
-				? optimistic(write)
+				? optimistic(write, { errorShownInline: confirmed })
 				: write());
 			if (revisionEdit) {
 				setEditing(false);
@@ -595,11 +623,7 @@ export function WorkDecisionCard({
 			return "saved";
 		} catch (cause) {
 			motion.cancelExit();
-			setError(
-				cause instanceof Error
-					? cause.message
-					: decisionText("Your decision could not be saved. Try again."),
-			);
+			setError(decisionFailureText(cause));
 			return "failed";
 		} finally {
 			inFlight.current = false;
@@ -1135,22 +1159,35 @@ export function WorkDecisionCard({
 											</AlertDialogDescription>
 										</AlertDialogHeader>
 										{confirmation?.confirmContent}
+										{/* The card behind the sheet is covered: a failure must show here. */}
+										{error && !saving ? (
+											<Alert variant="destructive" data-confirm-error>
+												<AlertDescription>{error}</AlertDescription>
+											</Alert>
+										) : null}
 										<AlertDialogFooter>
 											<Button
-												variant="ghost"
+												variant="outline"
 												disabled={busy}
 												onClick={() => setConfirmation(null)}
 											>
 												{decisionText("Go back")}
 											</Button>
 											<Button
+												loading={saving}
 												disabled={busy || confirmation?.confirmDisabled}
 												onClick={() => {
 													if (confirmation)
 														void submit(confirmation, undefined, true);
 												}}
 											>
-												{decisionText("Confirm")}
+												{decisionText(
+													saving
+														? "Confirming…"
+														: error
+															? "Try again"
+															: "Confirm",
+												)}
 											</Button>
 										</AlertDialogFooter>
 									</AlertDialogContent>

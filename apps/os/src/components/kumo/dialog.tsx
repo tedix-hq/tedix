@@ -167,6 +167,13 @@ const stickyHeaderClasses =
 	"sticky -top-4 z-10 -mx-4 -mt-4 bg-kumo-base p-4 pr-12 sm:-top-5 sm:-mx-5 sm:-mt-5 sm:p-5 sm:pr-14";
 const stickyFooterClasses =
 	"sticky -bottom-4 z-10 -mx-4 -mb-4 border-t border-kumo-hairline bg-kumo-base p-4 sm:-bottom-5 sm:-mx-5 sm:-mb-5 sm:px-5";
+/*
+ * Dialog actions: on phones a stacked footer of full-width 44px buttons with
+ * the primary on top (callers list secondary first, then primary); from `sm`
+ * up a right-aligned row, secondary then primary.
+ */
+const dialogActionsClasses =
+	"flex flex-col-reverse gap-2 max-sm:[&>button]:w-full max-sm:[&>button]:min-h-11 max-sm:[&>button]:justify-center sm:flex-row sm:items-center sm:justify-end";
 
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 	return (
@@ -187,11 +194,7 @@ function DialogFooter({
 	return (
 		<div
 			data-slot="dialog-footer"
-			className={cn(
-				"flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-				stickyFooterClasses,
-				className,
-			)}
+			className={cn(dialogActionsClasses, stickyFooterClasses, className)}
 			{...props}
 		>
 			{children}
@@ -238,6 +241,7 @@ export {
 	DialogSurface,
 	DialogTitle,
 	DialogTrigger,
+	dialogActionsClasses,
 	stickyFooterClasses,
 	stickyHeaderClasses,
 };

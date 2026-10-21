@@ -197,7 +197,7 @@ describe("fast decision cards", () => {
 		await mount({ onDecision, onNext });
 		await click("Send");
 		expect(host.querySelector('[role="alert"]')?.textContent).toBe(
-			"Connection unavailable",
+			"Your decision was not saved. Connection unavailable. Check your connection and try again.",
 		);
 		expect(onNext).not.toHaveBeenCalled();
 		await click("Send");

@@ -436,6 +436,14 @@ export const SPANISH_DECISION_CONTROLS: Record<string, string> = {
 	"Confirm decision": "Confirmar decisión",
 	"Go back": "Volver",
 	Confirm: "Confirmar",
+	"Confirming…": "Confirmando…",
+	"Your decision was not saved.": "Tu decisión no se guardó.",
+	"You don't have permission to make this decision. Ask the owner of the originating Work or an organization admin for access.":
+		"No tienes permiso para tomar esta decisión. Pide acceso a quien es responsable del trabajo de origen o a un administrador de la organización.",
+	"This card changed since you opened it. Go back, review the latest version and decide again.":
+		"Esta tarjeta cambió desde que la abriste. Vuelve, revisa la última versión y decide de nuevo.",
+	"Check your connection and try again.":
+		"Comprueba tu conexión e inténtalo de nuevo.",
 	"Give feedback": "Dar opinión",
 	"Optional feedback": "Opinión opcional",
 	"What should change? (optional)": "¿Qué debería cambiar? (opcional)",
