@@ -1,13 +1,5 @@
 import { useState } from "react";
-import {
-	AlertDialog,
-	AlertDialogContent,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogCancel,
-} from "@/components/kumo/alert-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
 	useMutation,
 	useQueryClient,
@@ -513,45 +505,22 @@ export function InstallButton({
 							: "Review installation"}
 				</Button>
 			)}
-			<AlertDialog
+			<ConfirmDialog
 				open={reviewOpen}
-				onOpenChange={(open) => {
-					if (!mutation.isPending) setReviewOpen(open);
-				}}
-			>
-				<AlertDialogContent size="sm">
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							Install {name} for this organization?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							This creates a private organization app. It does not connect a
-							personal or shared account, grant tool access, or start an
-							automation. Review account setup and permissions after
-							installation.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					{mutation.isError && (
-						<Text role="body" tone="secondary">
-							Installation failed. You can retry or cancel.
-						</Text>
-					)}
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={mutation.isPending}>
-							Cancel
-						</AlertDialogCancel>
-						<Button
-							disabled={mutation.isPending || disabled}
-							onClick={(event) => {
-								event.preventDefault();
-								mutation.mutate();
-							}}
-						>
-							{mutation.isPending ? "Installing…" : "Install for organization"}
-						</Button>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+				onOpenChange={setReviewOpen}
+				title={`Install ${name} for this organization?`}
+				description="This creates a private organization app. It does not connect a personal or shared account, grant tool access, or start an automation. Review account setup and permissions after installation."
+				confirmLabel="Install for organization"
+				pendingLabel="Installing…"
+				isPending={mutation.isPending}
+				confirmDisabled={disabled}
+				error={
+					mutation.isError
+						? "Installation failed. You can retry or cancel."
+						: undefined
+				}
+				onConfirm={() => mutation.mutate()}
+			/>
 		</>
 	);
 }

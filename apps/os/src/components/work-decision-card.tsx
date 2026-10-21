@@ -22,15 +22,7 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
-import {
-	AlertDialog,
-	AlertDialogContent,
-	AlertDialogTitle,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-} from "@/components/kumo/alert-dialog";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { errorMessage, orpcErrorCode } from "@/lib/orpc-error";
 import { createPortal } from "react-dom";
 import { QueryClientContext } from "@tanstack/react-query";
@@ -1143,55 +1135,27 @@ export function WorkDecisionCard({
 										)}
 									</div>
 								) : null}
-								<AlertDialog
+								<ConfirmDialog
 									open={Boolean(confirmation)}
 									onOpenChange={(open) => {
-										if (!open && !saving) setConfirmation(null);
+										if (!open) setConfirmation(null);
+									}}
+									title={decisionText("Confirm decision")}
+									description={confirmation?.confirm}
+									cancelLabel={decisionText("Go back")}
+									confirmLabel={decisionText("Confirm")}
+									pendingLabel={decisionText("Confirming…")}
+									retryLabel={decisionText("Try again")}
+									isPending={saving}
+									confirmDisabled={busy || confirmation?.confirmDisabled}
+									error={error || undefined}
+									onConfirm={() => {
+										if (confirmation)
+											void submit(confirmation, undefined, true);
 									}}
 								>
-									<AlertDialogContent>
-										<AlertDialogHeader>
-											<AlertDialogTitle>
-												{decisionText("Confirm decision")}
-											</AlertDialogTitle>
-											<AlertDialogDescription>
-												{confirmation?.confirm}
-											</AlertDialogDescription>
-										</AlertDialogHeader>
-										{confirmation?.confirmContent}
-										{/* The card behind the sheet is covered: a failure must show here. */}
-										{error && !saving ? (
-											<Alert variant="destructive" data-confirm-error>
-												<AlertDescription>{error}</AlertDescription>
-											</Alert>
-										) : null}
-										<AlertDialogFooter>
-											<Button
-												variant="outline"
-												disabled={busy}
-												onClick={() => setConfirmation(null)}
-											>
-												{decisionText("Go back")}
-											</Button>
-											<Button
-												loading={saving}
-												disabled={busy || confirmation?.confirmDisabled}
-												onClick={() => {
-													if (confirmation)
-														void submit(confirmation, undefined, true);
-												}}
-											>
-												{decisionText(
-													saving
-														? "Confirming…"
-														: error
-															? "Try again"
-															: "Confirm",
-												)}
-											</Button>
-										</AlertDialogFooter>
-									</AlertDialogContent>
-								</AlertDialog>
+									{confirmation?.confirmContent}
+								</ConfirmDialog>
 								{!disabled && !secureConnection ? (
 									<DecisionContextSection title="Feedback">
 										<div className="fd-feedback">

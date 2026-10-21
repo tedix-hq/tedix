@@ -67,6 +67,19 @@ describe("ConfirmDialog", () => {
 			"Please retry",
 		);
 	});
+	it("offers a retry label while a failure is shown and hides it while pending", async () => {
+		await render({ error: new Error("Nope"), retryLabel: "Try again" });
+		expect(button("Try again")).toBeDefined();
+		await act(async () => root.unmount());
+		host.remove();
+		await render({
+			error: new Error("Nope"),
+			retryLabel: "Try again",
+			isPending: true,
+		});
+		expect(document.querySelector("[data-confirm-error]")).toBeNull();
+		expect(button("Deleting…").disabled).toBe(true);
+	});
 	it("fires once and leaves closing to the mutation owner", async () => {
 		const { onConfirm, onOpenChange } = await render();
 		await act(async () => button("Delete").click());
