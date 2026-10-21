@@ -21,6 +21,7 @@
 		"./queries/personal-agent-outbound": "./src/queries/personal-agent-outbound.ts",
 		"./queries/work-items/delegation-autonomy": "./src/queries/work-items/delegation-autonomy.ts",
 		"./queries/memory-graph/session-feedback": "./src/queries/memory-graph/session-feedback.ts",
+		"./queries/memory-graph/fact-citations": "./src/queries/memory-graph/fact-citations.ts",
 		"./queries/memory-graph/observations": "./src/queries/memory-graph/observations.ts",
 		"./queries/memory-graph/browse": "./src/queries/memory-graph/browse.ts",
 		"./queries/today-project": "./src/queries/today-project.ts",

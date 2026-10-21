@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
@@ -36,6 +37,15 @@ function setup(onPrepare?: (query: string, db: SyncSqliteDatabase) => void) {
 		memoryEntityResolutions,
 	])
 		sqlite.exec(schemaDdl(table));
+	sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../drizzle/20261022001402_memory-fact-citations/migration.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const db = createDbClient(
 		createD1Facade(sqlite, { maxBoundParams: 100, onPrepare }),
 	);
@@ -515,19 +525,21 @@ describe("evidence-backed observations and standing summaries", () => {
 		expect(readConsolidation(await observation())?.state).toBe("live");
 		expect((await summary()).content).not.toContain("never builds");
 	});
-	it("seeks consolidation candidates by source before parsing citations", async () => {
+	it("seeks citation links and hydrates by primary key without parsing linked evidence", async () => {
 		const plans: string[][] = [];
 		const queries: string[] = [];
 		const { sqlite, db, fact, summary } = setup((query, sqlite) => {
-			if (!query.startsWith("select") || !query.includes("citation.value"))
-				return;
+			if (!/^select/i.test(query)) return;
 			queries.push(query);
-			const rows = sqlite
-				.prepare(`EXPLAIN QUERY PLAN ${query}`)
-				.all(...Array((query.match(/\?/g) ?? []).length).fill(null)) as Array<{
-				detail: string;
-			}>;
-			plans.push(rows.map((row) => row.detail));
+			plans.push(
+				(
+					sqlite
+						.prepare(`EXPLAIN QUERY PLAN ${query}`)
+						.all(
+							...Array((query.match(/\?/g) ?? []).length).fill(null),
+						) as Array<{ detail: string }>
+				).map((row) => row.detail),
+			);
 		});
 		const insert = sqlite.prepare(
 			"INSERT INTO memory_facts (id,organization_id,content,fact_type,status,visibility,metadata) VALUES (?,?,'Unrelated evidence','technical','active','org','{}')",
@@ -546,25 +558,21 @@ describe("evidence-backed observations and standing summaries", () => {
 		expect(await preferConsolidatedFacts(db, ORG, raw)).toEqual([expected]);
 		await refreshConsolidatedForFact(db, ORG, "a");
 		expect(await summary()).toEqual(expected);
-		expect(plans).toHaveLength(2);
-		for (const plan of plans) {
-			expect(
-				plan.some((detail) =>
-					/SEARCH memory_facts USING INDEX idx_memory_facts_source/.test(
+		expect(
+			plans
+				.flat()
+				.some((detail) =>
+					/SEARCH memory_fact_citations USING INDEX idx_memory_fact_citations_org_cited/.test(
 						detail,
 					),
 				),
-			).toBe(true);
-			expect(plan.some((detail) => /SCAN memory_facts/.test(detail))).toBe(
-				false,
-			);
-		}
-		for (const query of queries) {
-			const candidateSelect = query.slice(
-				query.lastIndexOf("select", query.indexOf("citation.value") - 1),
-			);
-			expect(candidateSelect.split(" from ")[0]).not.toContain('"content"');
-		}
+		).toBe(true);
+		expect(
+			plans.flat().some((detail) => /SCAN (?:memory_facts|f)\b/.test(detail)),
+		).toBe(false);
+		expect(queries.some((query) => query.includes("citation.value"))).toBe(
+			false,
+		);
 	});
 	it("uses primary-key evidence reads even with a large active corpus", async () => {
 		const plans: string[][] = [];

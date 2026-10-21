@@ -13,15 +13,32 @@ export async function runMemoryReflection(
 	const { listOrganizations } = await import("@tedix/db/queries/organizations");
 	const { backfillFactSearch } =
 		await import("@tedix/db/queries/memory-graph/hybrid-recall");
+	const { backfillFactCitations } =
+		await import("@tedix/db/queries/memory-graph/fact-citations");
 	const db = createDbClient(env.DB);
 
 	const orgs = await listOrganizations(db);
 	let searchRowsBackfilled = 0;
+	let citationFactsBackfilled = 0;
 	for (const org of orgs) {
 		try {
 			searchRowsBackfilled += await backfillFactSearch(db, org.id);
 		} catch (error) {
 			console.warn("[Scheduled] Memory search backfill unavailable", {
+				orgId: org.id,
+				error: error instanceof Error ? error.name : "unknown",
+			});
+		}
+		try {
+			if (citationFactsBackfilled < 100) {
+				citationFactsBackfilled += await backfillFactCitations(
+					db,
+					org.id,
+					100 - citationFactsBackfilled,
+				);
+			}
+		} catch (error) {
+			console.warn("[Scheduled] Memory citation backfill unavailable", {
 				orgId: org.id,
 				error: error instanceof Error ? error.name : "unknown",
 			});
@@ -40,6 +57,7 @@ export async function runMemoryReflection(
 
 	return {
 		searchRowsBackfilled,
+		citationFactsBackfilled,
 		organizationsDispatched: orgs.length,
 		workflowsDispatched: orgs.length,
 	};

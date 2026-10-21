@@ -10,6 +10,7 @@ import {
 	type MemoryFact,
 	type NewMemoryFact,
 } from "../../schema/memory-graph";
+import { findCitationDependents } from "./fact-citations";
 
 const MAX_SOURCES = 50;
 const MAX_TARGETS = 10;
@@ -266,7 +267,10 @@ async function persist(
 					),
 				),
 		]);
-	} else await db.insert(memoryFacts).values(values).onConflictDoNothing();
+	} else
+		await db.batch([
+			db.insert(memoryFacts).values(values).onConflictDoNothing(),
+		]);
 	return readHead(db, orgId, id);
 }
 async function refreshTarget(
@@ -517,11 +521,14 @@ export async function refreshConsolidatedForFact(
 		memoryFacts,
 		"fact",
 	);
+	const dependentIds = JSON.stringify(
+		await findCitationDependents(db, orgId, [factId]),
+	);
 	let cursor = "";
 	while (true) {
 		const rows = await db
 			.select({ id, metadata, tediId, visibility, memoryScope })
-			.from(derivedFacts)
+			.from(factsById)
 			.where(
 				and(
 					eq(memoryFacts.organizationId, orgId),
@@ -529,7 +536,7 @@ export async function refreshConsolidatedForFact(
 					sql`${memoryFacts.id} > ${cursor}`,
 					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.kind') = 'observation'`,
 					sql`json_extract(${memoryFacts.metadata}, '$.consolidation.isHistory') = 0`,
-					sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata}, '$.consolidation.evidence.sources')) citation WHERE json_extract(citation.value, '$.id') = ${factId})`,
+					sql`${memoryFacts.id} IN (SELECT value FROM json_each(${dependentIds}))`,
 				),
 			)
 			.orderBy(asc(memoryFacts.id))
@@ -722,15 +729,18 @@ export async function preferConsolidatedFacts(
 	tediId?: string,
 ) {
 	if (!facts.length) return facts;
-	const ids = facts.map((fact) => fact.id);
-	// Seek the small derived-source set before evaluating citation JSON. Lifecycle
-	// indexes otherwise tempt SQLite into reading every active fact in the org.
-	const candidateIds = db
-		.select({ id: prefixedColumns(memoryFacts, "candidate").id })
-		.from(derivedFacts)
+	const ids = await findCitationDependents(
+		db,
+		orgId,
+		facts.map((fact) => fact.id),
+	);
+	const candidates = await db
+		.select(prefixedColumns(memoryFacts, "fact"))
+		.from(factsById)
 		.where(
 			and(
 				eq(memoryFacts.organizationId, orgId),
+				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
 				inArray(memoryFacts.source, [
 					"consolidation://observation",
 					"consolidation://standing_summary",
@@ -738,17 +748,10 @@ export async function preferConsolidatedFacts(
 				isNull(memoryFacts.validTo),
 				isNull(memoryFacts.archivedAt),
 				sql`(${memoryFacts.visibility} IN ('org', 'shared') OR (${memoryFacts.visibility} = 'private' AND ${memoryFacts.tediId} = ${tediId ?? ""}))`,
-				sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata}, '$.consolidation.evidence.sources')) citation WHERE json_extract(citation.value, '$.id') IN (SELECT value FROM json_each(${JSON.stringify(ids)})))`,
 			),
 		)
 		.orderBy(desc(memoryFacts.updatedAt), asc(memoryFacts.id))
 		.limit(50);
-	const candidates = await db
-		.select(prefixedColumns(memoryFacts, "fact"))
-		.from(factsById)
-		// bound-params: candidateIds is a LIMIT 50 SQL subquery, not a bound-value list.
-		.where(inArray(memoryFacts.id, candidateIds))
-		.orderBy(desc(memoryFacts.updatedAt), asc(memoryFacts.id));
 	const merged = new Map(
 		[...candidates.filter((fact) => readConsolidation(fact)), ...facts].map(
 			(fact) => [fact.id, fact],

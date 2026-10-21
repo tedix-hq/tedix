@@ -1084,6 +1084,10 @@
 		{
 			"name": "20261022000248_workspace_skill_draft_proposals/migration.sql",
 			"sha256": "bb1b13d647b58eb7435c7f76401ff5b85fb6d81a2f8b8659a1dbbbfa4746871d"
+		},
+		{
+			"name": "20261022001402_memory-fact-citations/migration.sql",
+			"sha256": "dc95d592b23af8f933b60bbaef6e805e17a7f42d9eefc7b712fbdffba53ee012"
 		}
 	]
 }
