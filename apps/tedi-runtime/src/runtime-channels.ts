@@ -34,6 +34,7 @@ import {
 	isEphemeralSession,
 	mirrorTurnToLedger,
 } from "./ledger-mirror";
+import { createPageToolSet, PAGE_TOOLS_SYSTEM_NOTE } from "./page-tool-broker";
 import { cacheOrderedSystemPrompt } from "./prompt-cache";
 import { CODE_MODE_BATCHING_NOTE } from "./runtime-facet-turns";
 import { logTediRuntimeFailure } from "./runtime-failure-log";
@@ -138,6 +139,7 @@ export interface RuntimeChannelsHost {
 	mirrorFailedTurn: AgentTediDO["mirrorFailedTurn"];
 	sseControllerSink: AgentTediDO["sseControllerSink"];
 	sseFrameEncoder: AgentTediDO["sseFrameEncoder"];
+	pageToolBroker: AgentTediDO["pageToolBroker"];
 }
 
 export const runtimeChannels = {
@@ -652,31 +654,47 @@ export const runtimeChannels = {
 					const computerScope = computerWorkspaceScope({ sessionKey });
 					const trust = input.trust ?? "trusted";
 					const trustChannel = input.trustChannel ?? "mcp";
+					const fullTools: ToolSet = input.toolArgumentConstraints
+						? mcpTools
+						: {
+								...this.workspaceAiTools(computerScope, turnBinding),
+								...mcpTools,
+								...this.browserAiTools(computerScope, turnBinding),
+								...this.skillReadTool(turnBinding),
+								...this.durableCodemodeAiTools(computerScope, turnBinding),
+								...this.cronAiTool(sessionKey),
+								...this.workstationAiTool(computerScope, turnBinding),
+								...this.objectStoreAiTools(),
+								...this.r2SqlAiTool(),
+								...createWebSearchAiTools({
+									ai: this.env.AI,
+									organizationWebSearch: this.state.organizationWebSearch,
+									toolPolicy: this.state.toolPolicy,
+									runId: turnBinding?.runId,
+									getPlatform: () => this.getPlatformClient(),
+								}),
+							};
+					// The host page's own tools for this widget turn only: relayed to
+					// the browser, never run here (`page-tool-broker.ts`).
+					const pageTools =
+						trustChannel === "widget" && input.pageTools?.length
+							? createPageToolSet({
+									descriptors: input.pageTools,
+									reservedNames: new Set(Object.keys(fullTools)),
+									broker: this.pageToolBroker,
+									runId: sseRunId,
+									emit: (event) => this.chatStreamHub.emit(sseRunId, event),
+								})
+							: {};
+					const offersPageTools = Object.keys(pageTools).length > 0;
 					// An unverified author keeps only the channel's read-only allowlist
-					// on top of the fenced (embedded) or full surface.
+					// on top of the fenced (embedded) or full surface, plus the page's
+					// own relayed tools when the widget offered them.
 					const tools: ToolSet = selectTrustedTurnTools({
 						trust,
 						allowlist: untrustedTurnToolAllowlist(trustChannel),
-						full: input.toolArgumentConstraints
-							? mcpTools
-							: {
-									...this.workspaceAiTools(computerScope, turnBinding),
-									...mcpTools,
-									...this.browserAiTools(computerScope, turnBinding),
-									...this.skillReadTool(turnBinding),
-									...this.durableCodemodeAiTools(computerScope, turnBinding),
-									...this.cronAiTool(sessionKey),
-									...this.workstationAiTool(computerScope, turnBinding),
-									...this.objectStoreAiTools(),
-									...this.r2SqlAiTool(),
-									...createWebSearchAiTools({
-										ai: this.env.AI,
-										organizationWebSearch: this.state.organizationWebSearch,
-										toolPolicy: this.state.toolPolicy,
-										runId: turnBinding?.runId,
-										getPlatform: () => this.getPlatformClient(),
-									}),
-								},
+						full: fullTools,
+						extra: pageTools,
 					});
 					const addenda = contextPolicy.cognitiveAddenda
 						? await this.cognitiveAddenda(sessionKey, userMessage, turnBinding)
@@ -697,7 +715,12 @@ export const runtimeChannels = {
 								? untrustedTurnSystemAddendum(trustChannel)
 								: "",
 						],
-						[addenda, embeddedFit ?? ""],
+						// Per turn: a page offers tools only while it is on screen.
+						[
+							addenda,
+							embeddedFit ?? "",
+							offersPageTools ? PAGE_TOOLS_SYSTEM_NOTE : "",
+						],
 					);
 					if (turnBinding) this.activeTurnBinding = turnBinding;
 					// Per turn: the counts are meaningless across turns and the map
@@ -758,6 +781,7 @@ export const runtimeChannels = {
 						if (this.activeTurnBinding === turnBinding) {
 							this.clearActiveTurn();
 						}
+						this.pageToolBroker.cancelRun(sseRunId);
 					}
 				}
 				const assistantTurn: RecentTurn = {

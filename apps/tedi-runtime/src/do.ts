@@ -1,4 +1,5 @@
 import { createObjectStoreTools } from "./object-store-tools";
+import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
 import {
 	ModelFallbackStepSchema,
 	type ModelFallbackStep,
@@ -849,6 +850,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				parent.emitFailureTraceBundle(...args),
 			mirrorFailedTurn: (...args) => parent.mirrorFailedTurn(...args),
 			sseControllerSink: (...args) => parent.sseControllerSink(...args),
+			get pageToolBroker() {
+				return parent.pageToolBroker;
+			},
 			get sseFrameEncoder() {
 				return parent.sseFrameEncoder;
 			},
@@ -1503,6 +1507,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				return parent.activeTurnAborts;
 			},
 			cascadeCancelFanout: (...args) => parent.cascadeCancelFanout(...args),
+			get pageToolBroker() {
+				return parent.pageToolBroker;
+			},
 			get ctx() {
 				return parent.ctx;
 			},
@@ -1697,6 +1704,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * buffer and the client re-sends (see the GET handler's `no-run` branch).
 	 */
 	private readonly chatStreamHub = new ChatStreamHub();
+	/** Relays host page tool calls for embedded widget turns; never runs them. */
+	private readonly pageToolBroker = new PageToolBroker();
 	private sseFrameEncoder?: TextEncoder;
 
 	override async onFiberRecovered(

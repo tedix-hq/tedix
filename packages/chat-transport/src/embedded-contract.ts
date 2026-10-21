@@ -18,6 +18,7 @@ export const EMBEDDED_STREAM_CURSOR_REJECTED =
 import type { RuntimeFrame } from "./runtime-frames";
 import type { CapnConnection } from "./session-hub";
 import type { ClientTurnMilestoneBatch } from "./client-turn-milestones";
+import type { PageToolDescriptor, ResolvePageToolInput } from "./page-tools";
 
 export interface EmbeddedTurnInput {
 	clientRequestId: string;
@@ -40,6 +41,11 @@ export interface EmbeddedTurnInput {
 	 * take an effort on the wire.
 	 */
 	reasoningEffort?: string;
+	/**
+	 * Tools the host page registered for this widget session, offered to the
+	 * model for this turn only. The page runs them; see `page-tools.ts`.
+	 */
+	pageTools?: PageToolDescriptor[];
 }
 export interface EmbeddedSubscriber {
 	(frame: RuntimeFrame): Promise<void>;
@@ -123,6 +129,8 @@ export interface EmbeddedSessionApi {
 		subscriber: EmbeddedSubscriber,
 	): Promise<void>;
 	cancel(clientRequestId: string): Promise<unknown>;
+	/** Post a page tool result for a call this conversation's turn requested. */
+	resolvePageTool(input: ResolvePageToolInput): Promise<{ accepted: boolean }>;
 	listApprovals(): Promise<unknown>;
 	requestApproval(description: string): Promise<unknown>;
 	resolveApproval(id: string, approved: boolean): Promise<unknown>;
