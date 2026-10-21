@@ -1,5 +1,9 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
+	recordCardCreationEdges,
+	recordDecisionResolutionEdges,
+} from "../decision-graph-writers";
+import {
 	CARD_SECRET_MESSAGE,
 	containsCardSecret,
 } from "@tedix/api-contract/utils/card-secrets";
@@ -154,7 +158,7 @@ export async function createWorkInteraction(
 				: "quiet_batch",
 			deliverAt: urgent ? p.now : nextInteractionDigestAt(p.now),
 		};
-	return (
+	const created = (
 		await db
 			.insert(workInteractions)
 			.values({
@@ -190,6 +194,8 @@ export async function createWorkInteraction(
 			})
 			.returning()
 	)[0]!;
+	await recordCardCreationEdges(db, created, work);
+	return created;
 }
 
 export interface RespondWorkInteractionParams {
@@ -494,6 +500,21 @@ export async function respondToWorkInteraction(
 				updatedAt: p.now,
 			})
 			.onConflictDoNothing();
+	if (
+		p.responder.type === "user" &&
+		(resolvesRequest || corrects) &&
+		request.kind !== "coordination"
+	)
+		await recordDecisionResolutionEdges(db, {
+			orgId: p.orgId,
+			cardId: request.id,
+			decisionId: response.id,
+			workItemId: request.workItemId,
+			occurredAt: response.respondedAt,
+			source: "card_resolution",
+			evidenceRef: `work-interaction-response:${response.id}`,
+			note: response.body,
+		});
 	return response;
 }
 /** One explicit handoff by the human currently asked to answer, never impersonation. */

@@ -147,6 +147,7 @@ export type WorkItemCorroborationPrincipalType =
 
 export const WORK_ITEM_RELATION_TYPE_VALUES = [
 	"blocks",
+	"supersedes",
 	"duplicates",
 	"references",
 ] as const;

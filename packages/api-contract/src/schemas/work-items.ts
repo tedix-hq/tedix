@@ -928,6 +928,7 @@ export type WorkItemCommentAuthorType = z.infer<
 
 export const WorkItemRelationTypeSchema = z.enum([
 	"blocks",
+	"supersedes",
 	"duplicates",
 	"references",
 ]);

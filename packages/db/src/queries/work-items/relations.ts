@@ -1,4 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { writeDecisionEdgesBestEffort } from "../decision-graph-writers";
 import { and, asc, eq, ne } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -46,12 +47,29 @@ export async function addWorkItemRelation(
 		.limit(1);
 	if (!endpoints[0] || !target[0])
 		throw new Error("Both relation endpoints must exist in the organization");
-	return (
+	const relation = (
 		await db
 			.insert(workItemRelations)
 			.values({ ...params, metadata: params.metadata ?? {} })
 			.returning()
 	)[0]!;
+	if (
+		relation.relationType === "blocks" ||
+		relation.relationType === "supersedes"
+	)
+		await writeDecisionEdgesBestEffort(db, params.orgId, [
+			{
+				kind: relation.relationType,
+				from: { kind: "work_item", id: relation.fromWorkItemId },
+				to: { kind: "work_item", id: relation.toWorkItemId },
+				source: "work_link",
+				evidenceRef: `work-relation:${relation.id}`,
+				note:
+					relation.relationType === "blocks" ? "Waiting Work" : "Replaced Work",
+				occurredAt: relation.createdAt,
+			},
+		]);
+	return relation;
 }
 
 export interface WorkItemDependencyRow {
