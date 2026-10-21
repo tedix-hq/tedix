@@ -83,7 +83,7 @@ assert.notEqual(
 	await fingerprintWorkflowError(workflowEngineErrorText(refusal)),
 );
 
-// Both writers of skill_runs.error — the /status path in index.ts and the cron
+// Both writers of skill_runs.error — the /status route and the cron
 // reconciler — must derive the persisted text from the one helper, or the
 // failure class downstream depends on which writer wrote last, and must
 // fingerprint the raw message. Structural guard over each writer's syntax tree
@@ -104,7 +104,7 @@ const calleeName = (node: Node) =>
 	node.type === "CallExpression" && node.callee.type === "Identifier"
 		? (node.callee.name as string)
 		: null;
-for (const file of ["../src/index.ts", "../src/reconciler.ts"]) {
+for (const file of ["../src/routes/status.ts", "../src/reconciler.ts"]) {
 	const { program } = parseSync(
 		file,
 		readFileSync(new URL(file, import.meta.url), "utf8"),
@@ -117,7 +117,10 @@ for (const file of ["../src/index.ts", "../src/reconciler.ts"]) {
 	walk(program, (node) => {
 		if (
 			node.type === "ImportDeclaration" &&
-			node.source.value === "./workflow-engine-error"
+			node.source.value ===
+				(file.includes("/routes/")
+					? "../workflow-engine-error"
+					: "./workflow-engine-error")
 		)
 			for (const specifier of node.specifiers)
 				imported.add(specifier.imported.name);

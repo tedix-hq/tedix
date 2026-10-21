@@ -342,7 +342,7 @@ const baseContext = {
 
 // The worker entrypoint transitively imports Cloudflare-only modules. Mock the
 // two runtime packages so this standalone Bun test can exercise the pure
-// restart fence exported by index.ts without constructing a Worker runtime.
+// restart fence exported by control-admission.ts without constructing a Worker runtime.
 const { mock } = await import("bun:test");
 mock.module("cloudflare:workers", () => ({
 	WorkerEntrypoint: class {},
@@ -356,7 +356,7 @@ const {
 	workflowControlAdmissionConflict,
 	workflowControlRestartConflict,
 	workflowControlRetiredConflict,
-} = await import("../src/index");
+} = await import("../src/control-admission");
 const { reconcileWorkflowAbortIntent } = await import("../src/reconciler");
 
 const abortSubmission = {
