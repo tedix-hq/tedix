@@ -42,7 +42,6 @@ import {
 	entrustmentSummary,
 	roleHint,
 	TASKS_PREVIEW_LIMIT,
-	TeamChip,
 	TeamEmpty,
 	TediAvatar,
 	TediDetailLink,
@@ -175,14 +174,6 @@ describe("entrustmentSummary", () => {
 	});
 });
 
-describe("TeamChip", () => {
-	it("renders a Kumo Badge stamped with its tone", () => {
-		const html = renderToStaticMarkup(<TeamChip tone="done">x</TeamChip>);
-		expect(html).toContain('data-slot="badge"');
-		expect(html).toContain('data-tone="done"');
-	});
-});
-
 describe("TediAvatar", () => {
 	it("renders an image for URL avatars", () => {
 		const html = renderToStaticMarkup(
@@ -299,7 +290,7 @@ describe("TediDetailLink", () => {
 			<TediDetailLink tediId={baseTedi.id} LinkComponent={StubLink} />,
 		);
 		expect(html).toContain(`/team/${baseTedi.id}`);
-		expect(html).toContain("Authority, telemetry, and learning evidence");
+		expect(html).toContain("Open details");
 	});
 
 	it("renders outside the expand button, never inside it", () => {

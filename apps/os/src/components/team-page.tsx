@@ -16,7 +16,6 @@ import { getOsSurface } from "@/lib/os-navigation";
 import type { ComponentType, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Pagination } from "@/components/kumo/pagination";
 import { OsRouterLink } from "@/components/kumo/link-provider";
@@ -77,7 +76,7 @@ import { absoluteTime, relativeTime } from "@/lib/time";
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
-export type ChipTone = "neutral" | "active" | "blocked" | "done" | "warn";
+type ChipTone = "neutral" | "active" | "blocked" | "done" | "warn";
 
 export function tediStatusTone(status: TediType["status"]): ChipTone {
 	switch (status) {
@@ -114,7 +113,7 @@ export function roleHint(
 	return tediDescription(tedi.personality);
 }
 
-export type TediRosterStatusFilter =
+type TediRosterStatusFilter =
 	| "all"
 	| NonNullable<TediType["status"]>
 	| "unknown";
@@ -180,28 +179,6 @@ export interface TediOperationsDetail {
 // ---------------------------------------------------------------------------
 // Pure presentational subcomponents (exported for tests)
 // ---------------------------------------------------------------------------
-
-const CHIP_VARIANTS: Record<ChipTone, BadgeVariant> = {
-	neutral: "outline",
-	active: "info",
-	blocked: "destructive",
-	done: "success",
-	warn: "warning",
-};
-
-export function TeamChip({
-	tone,
-	children,
-}: {
-	tone: ChipTone;
-	children: ReactNode;
-}) {
-	return (
-		<Badge variant={CHIP_VARIANTS[tone]} data-tone={tone}>
-			{children}
-		</Badge>
-	);
-}
 
 export function TediAvatar({
 	tedi,
@@ -368,38 +345,22 @@ const DefaultTediDetailLink: ComponentType<TediDetailLinkProps> = OsRouterLink;
 export function TediDetailLink({
 	tediId,
 	LinkComponent = DefaultTediDetailLink,
-	compact = false,
 	tediName,
 }: {
 	tediId: string;
 	LinkComponent?: ComponentType<TediDetailLinkProps>;
-	compact?: boolean;
 	tediName?: string;
 }) {
-	if (compact) {
-		return (
-			<Button
-				size="sm"
-				variant="outline"
-				aria-label={tediName ? `Open ${tediName} details` : undefined}
-				render={<LinkComponent to="/team/$tediId" params={{ tediId }} />}
-			>
-				Open details
-				<ArrowRight size={12} />
-			</Button>
-		);
-	}
 	return (
-		<LinkComponent
-			to="/team/$tediId"
-			params={{ tediId }}
-			className="inline-flex w-fit items-center gap-1 rounded-lg px-3 py-1 text-kumo-subtle no-underline transition-colors duration-tedix-standard hover:text-kumo-strong motion-reduce:transition-none coarse:min-h-11 coarse:py-2 sm:ml-12"
+		<Button
+			size="sm"
+			variant="outline"
+			aria-label={tediName ? `Open ${tediName} details` : undefined}
+			render={<LinkComponent to="/team/$tediId" params={{ tediId }} />}
 		>
-			<Text as="span" role="label">
-				Authority, telemetry, and learning evidence
-			</Text>
+			Open details
 			<ArrowRight size={12} />
-		</LinkComponent>
+		</Button>
 	);
 }
 
@@ -495,7 +456,6 @@ export function TediRow({
 						tediId={tedi.id}
 						tediName={tedi.displayName ?? tedi.name}
 						LinkComponent={LinkComponent}
-						compact
 					/>
 				</div>
 			</div>
@@ -531,11 +491,6 @@ export function TeamEmpty() {
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
-
-// The contract's list default is 50, but the handler defaults to 20 when the
-// input is omitted — always pass limit/offset explicitly (survey pitfall).
-// Exported so the per-tedi detail route reads under the SAME generated key +
-// limit and serves its roster row from cache instead of a second roster read.
 
 export function TeamPage({
 	tab = "tedis",
