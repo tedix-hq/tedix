@@ -3,6 +3,20 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.16.0 — 2026-10-21
+
+### Minor Changes
+
+- Support OpenCode's native `ses_` session IDs in the session-start, prompt-context and situational-recall hooks with `--host opencode`. Recognize `TEDIX_AGENT_SESSION=opencode:<id>` as an OpenCode agent session.
+
+### Patch Changes
+
+- Ignore non-object JWT payloads when decoding CLI status and workspace metadata.
+- Keep Home submission recovery reads within the caller's timeout and preserve reconnect guidance without resending an uncertain submission.
+- List available organizations with exact `--organization` flags when a Connect command needs a selection. Use the workspace's saved default organization while it remains selected.
+- Accept current Work disposition values in interaction-list responses so inbox and checkpoint reads can decode them.
+- Keep stored logins renewable after refresh failures that reach no server, such as offline, DNS or refused-connection errors. Require a lane's cited commit to be newer than its starting point before counting it as that lane's landed result.
+
 ## 0.15.1 — 2026-10-21
 
 ### Patch Changes
