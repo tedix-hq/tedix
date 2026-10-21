@@ -444,6 +444,15 @@ function pinnedDefault(store: Store): DefaultOrganization | undefined {
 		: undefined;
 }
 
+/** Read the existing saved choice; callers must check current consent. */
+export function savedDefaultOrganization(
+	workspace: string,
+	options?: CredentialStoreOpts,
+): string | undefined {
+	const pinned = pinnedDefault(readStore(options));
+	return pinned?.workspace === workspace ? pinned.organization : undefined;
+}
+
 /**
  * The profile and organization a session outside any bound repository works
  * in: TEDIX_WORKSPACE, else the saved default's profile, else the current

@@ -1,13 +1,20 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	organizationScopedAttemptStore,
-	resolveOrganizationTarget,
+	resolveOrganizationTarget as resolveTarget,
 } from "./organization-target";
 import { createFileWorkAttemptStore } from "./work-attempt-store";
 import { parseOptions } from "./options";
+
+const configDir = mkdtempSync(join(tmpdir(), "tedix-org-target-"));
+afterAll(() => rmSync(configDir, { recursive: true, force: true }));
+const resolveOrganizationTarget: typeof resolveTarget = (
+	input,
+	options = { configDir },
+) => resolveTarget(input, options);
 
 const url = "https://connect.mcp.tedix.dev/mcp";
 const token = (selected: unknown) =>
@@ -21,6 +28,73 @@ const base = {
 };
 
 describe("CLI organization target", () => {
+	test("ambiguity lists every selected ID and the exact flag to add", () => {
+		expect(() =>
+			resolveOrganizationTarget({
+				...base,
+				accessToken: token(["org_example", "org_customer"]),
+			}),
+		).toThrow(
+			"Selectable organizations:\n  --organization org_example\n  --organization org_customer",
+		);
+	});
+	test("uses the saved default only for its workspace and current selection", () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-org-default-"));
+		try {
+			writeFileSync(
+				join(configDir, "agent-contexts.json"),
+				JSON.stringify({
+					version: 1,
+					repositories: [],
+					defaultOrganization: {
+						workspace: "connect",
+						organization: "org_customer",
+					},
+				}),
+			);
+			const input = {
+				...base,
+				accessToken: token(["org_example", "org_customer"]),
+			};
+			expect(resolveOrganizationTarget(input, { configDir })).toMatchObject({
+				organization: "org_customer",
+				headers: { "X-Tedix-Organization": "org_customer" },
+				workspace: JSON.stringify(["connect", "org_customer"]),
+			});
+			expect(
+				resolveOrganizationTarget(
+					{ ...input, organization: "example" },
+					{ configDir },
+				).organization,
+			).toBe("example");
+			expect(
+				resolveOrganizationTarget(
+					{ ...input, environmentOrganization: "example" },
+					{ configDir },
+				).organization,
+			).toBe("example");
+			for (const invalid of [
+				{ ...input, workspace: "another" },
+				{ ...input, accessToken: token(["org_example", "org_other"]) },
+			])
+				expect(() => resolveOrganizationTarget(invalid, { configDir })).toThrow(
+					"Several organizations",
+				);
+			for (const command of ["code", "mcp"]) {
+				expect(
+					resolveOrganizationTarget({ ...input, command }, { configDir }),
+				).toEqual({ headers: {}, workspace: "connect" });
+			}
+			expect(
+				resolveOrganizationTarget(
+					{ ...input, externalAgent: true },
+					{ configDir },
+				),
+			).toEqual({ headers: {}, workspace: "connect" });
+		} finally {
+			rmSync(configDir, { recursive: true, force: true });
+		}
+	});
 	test("parses explicit target and auto-resolves a sole selected org", () => {
 		expect(
 			parseOptions(["work", "list", "--organization", "tedix"]).options
