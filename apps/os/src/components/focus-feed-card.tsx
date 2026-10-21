@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext, useId, useRef, useState } from "react";
 import { ChatText, Info, ListPlus, Receipt } from "@phosphor-icons/react";
 import { FocusRowActions, type FocusRowAction } from "./focus-row-actions";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
@@ -44,10 +44,25 @@ export function FeedCard({
 	onWork: (item: ActivityFeedItem) => Promise<void>;
 }) {
 	useOsFormattingPreferences();
+	const disclosureId = useId();
+	const receiptId = `${disclosureId}-receipt`;
+	const commentId = `${disclosureId}-note`;
+	const article = useRef<HTMLElement>(null);
+	const commentTrigger = useRef<HTMLButtonElement>(null);
 	const [receipt, setReceipt] = useState(false);
 	const [comment, setComment] = useState(false);
 	const [text, setText] = useState("");
 	const [correctionSaved, setCorrectionSaved] = useState(false);
+	const closeComment = () => {
+		setComment(false);
+		const trigger = commentTrigger.current;
+		trigger?.focus();
+		// A viewport change can hide the desktop trigger while a note is open.
+		if (document.activeElement !== trigger)
+			article.current
+				?.querySelector<HTMLButtonElement>('[aria-label="More actions"]')
+				?.focus();
+	};
 	const rail = useContext(DecisionRailContext);
 	const section = `feed-${item.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 	const directory = useContext(WorkActorDirectoryContext);
@@ -61,7 +76,11 @@ export function FeedCard({
 		evidenceUrl: item.source,
 	};
 	return (
-		<article aria-label={item.sentence} className="fd-story min-w-0">
+		<article
+			ref={article}
+			aria-label={item.sentence}
+			className="fd-story min-w-0"
+		>
 			<WorkActorAvatar
 				actor={identity}
 				name={actor}
@@ -130,6 +149,7 @@ export function FeedCard({
 							label: "Receipt",
 							Icon: Receipt,
 							expanded: receipt,
+							controls: receiptId,
 							onClick: () => {
 								setReceipt((v) => !v);
 								if (!receipt) void onReact(item, "why");
@@ -139,7 +159,12 @@ export function FeedCard({
 							label: "Comment",
 							Icon: ChatText,
 							expanded: comment,
-							onClick: () => setComment((v) => !v),
+							controls: commentId,
+							onClick: (trigger) => {
+								commentTrigger.current = trigger;
+								if (comment) closeComment();
+								else setComment(true);
+							},
 						},
 						{
 							label: "Why this update",
@@ -159,21 +184,28 @@ export function FeedCard({
 						...rowActions,
 					]}
 				/>
-				{receipt && (
-					<div className="focus-receipt">
-						<WorkSourceProvenance
-							actor={identity}
-							name={actor}
-							source={source}
-							details
-						/>
-						<FeedOutcomePreview item={item} />
-						<Text tone="secondary">{item.explanation}</Text>
-						<Link variant="record" href={item.source}>
-							Open receipt
-						</Link>
-					</div>
-				)}
+				<div
+					id={receiptId}
+					role="region"
+					aria-label="Receipt"
+					hidden={!receipt}
+				>
+					{receipt && (
+						<div className="focus-receipt">
+							<WorkSourceProvenance
+								actor={identity}
+								name={actor}
+								source={source}
+								details
+							/>
+							<FeedOutcomePreview item={item} />
+							<Text tone="secondary">{item.explanation}</Text>
+							<Link variant="record" href={item.source}>
+								Open receipt
+							</Link>
+						</div>
+					)}
+				</div>
 				{rail?.activeSection === section && (
 					<DecisionContextSection sectionId={section} title="Why this update">
 						<WorkSourceProvenance
@@ -189,29 +221,34 @@ export function FeedCard({
 						</Text>
 					</DecisionContextSection>
 				)}
-				{comment && (
-					<div className="grid gap-2">
-						<Textarea
-							aria-label="Your correction"
-							value={text}
-							onChange={(e) => setText(e.target.value)}
-							maxLength={4000}
-						/>
-						<Button
-							disabled={busy || !text.trim()}
-							onClick={() =>
-								void onReact(item, "comment", text.trim()).then((ok) => {
-									if (ok) {
-										setText("");
-										setComment(false);
-									}
-								})
-							}
-						>
-							Save note
-						</Button>
-					</div>
-				)}
+				<div id={commentId} role="region" aria-label="Note" hidden={!comment}>
+					{comment && (
+						<div className="grid gap-2">
+							<Textarea
+								aria-label="Your correction"
+								value={text}
+								onChange={(e) => setText(e.target.value)}
+								maxLength={4000}
+							/>
+							<Button
+								disabled={busy || !text.trim()}
+								onClick={() =>
+									void onReact(item, "comment", text.trim()).then((ok) => {
+										if (ok) {
+											setText("");
+											closeComment();
+										}
+									})
+								}
+							>
+								Save note
+							</Button>
+							<Button variant="ghost" onClick={closeComment}>
+								Close note
+							</Button>
+						</div>
+					)}
+				</div>
 			</div>
 		</article>
 	);
