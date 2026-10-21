@@ -2,8 +2,12 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	CODEMODE_TRUNCATION_MARKER,
 	boundCodeModeLogs,
+	buildCodeModeResultHandle,
+	isCodeModeResultHandle,
 	projectCodeModeOutputForModel,
 	isTruncatedCodeModeResult,
+	readCodeModeResultPage,
+	serializeCodeModeResultForHandle,
 	shapeBoundedCodeModeResult,
 	stringifyBoundedCodeModeResult,
 	type TruncatedCodeModeResult,
@@ -227,5 +231,113 @@ describe("model output projection", () => {
 		expect(JSON.stringify(bounded)).toContain(CODEMODE_TRUNCATION_MARKER);
 		const small = ["ok"];
 		expect(boundCodeModeLogs(small)).toBe(small);
+	});
+});
+
+describe("result handles", () => {
+	const handle = { handle: "exec-1", expiresAt: "2026-01-01T00:30:00.000Z" };
+
+	it("builds a small envelope that names the handle, size, keys and a clipped preview", () => {
+		const value = oversizedPage();
+		const serialized = serializeCodeModeResultForHandle(value);
+		const envelope = buildCodeModeResultHandle(value, serialized, handle);
+		expect(isCodeModeResultHandle(envelope)).toBe(true);
+		expect(envelope).toMatchObject({
+			__tedix_result_handle: true,
+			handle: "exec-1",
+			originalType: "object",
+			keys: ["data"],
+			total: serialized.length,
+			maxTokens: 6_000,
+			expiresAt: handle.expiresAt,
+		});
+		expect(envelope.approxTokens).toBeGreaterThan(6_000);
+		// A quarter of the budget: the envelope must cost far less than the value.
+		expect(envelope.preview.length).toBe(6_000);
+		expect(envelope.guidance).toContain("discover.read_result");
+		expect(isTruncatedCodeModeResult(envelope)).toBe(false);
+	});
+
+	it("reports array length for array results", () => {
+		const value = Array.from({ length: 5 }, (_, i) => i);
+		const envelope = buildCodeModeResultHandle(
+			value,
+			serializeCodeModeResultForHandle(value),
+			handle,
+		);
+		expect(envelope.originalType).toBe("array");
+		expect(envelope.length).toBe(5);
+		expect(envelope.keys).toBeUndefined();
+	});
+
+	it("returns the whole value in one page when it fits", () => {
+		const value = { messages: [{ id: "m1" }, { id: "m2" }], nextCursor: null };
+		const serialized = serializeCodeModeResultForHandle(value);
+		const page = readCodeModeResultPage("exec-1", serialized);
+		expect(page).toEqual({
+			handle: "exec-1",
+			total: serialized.length,
+			offset: 0,
+			limit: 24_000,
+			keys: ["messages", "nextCursor"],
+			value,
+			complete: true,
+		});
+	});
+
+	it("pages the compact JSON text with offset/limit and a nextOffset chain", () => {
+		const value = oversizedPage();
+		const serialized = serializeCodeModeResultForHandle(value);
+		const parts: string[] = [];
+		let offset: number | undefined = 0;
+		let pages = 0;
+		while (offset !== undefined) {
+			const page = readCodeModeResultPage("exec-1", serialized, {
+				offset,
+				limit: 10_000,
+			});
+			expect(page.limit).toBe(10_000);
+			expect(page.value).toBeUndefined();
+			parts.push(page.text!);
+			offset = page.nextOffset;
+			pages++;
+			if (offset === undefined) expect(page.complete).toBe(true);
+		}
+		expect(pages).toBe(Math.ceil(serialized.length / 10_000));
+		expect(JSON.parse(parts.join(""))).toEqual(value);
+	});
+
+	it("caps a page at the result budget so a page always fits", () => {
+		const serialized = serializeCodeModeResultForHandle(oversizedPage());
+		const page = readCodeModeResultPage(
+			"exec-1",
+			serialized,
+			{ limit: 1_000_000 },
+			{ maxTokens: 100 },
+		);
+		expect(page.limit).toBe(400);
+		expect(page.text).toHaveLength(400);
+		expect(page.nextOffset).toBe(400);
+	});
+
+	it("selects a nested value by path with dot and index notation", () => {
+		const value = {
+			messages: [{ id: "m1", content: "hello" }, { id: "m2" }],
+		};
+		const serialized = serializeCodeModeResultForHandle(value);
+		expect(
+			readCodeModeResultPage("exec-1", serialized, {
+				path: "messages[0].content",
+			}),
+		).toMatchObject({ path: "messages[0].content", value: "hello" });
+		expect(
+			readCodeModeResultPage("exec-1", serialized, { path: "messages" }),
+		).toMatchObject({ length: 2, value: value.messages });
+		expect(() =>
+			readCodeModeResultPage("exec-1", serialized, { path: "messages[7]" }),
+		).toThrow(/out of range/);
+		expect(() =>
+			readCodeModeResultPage("exec-1", serialized, { path: "nope" }),
+		).toThrow(/no key "nope"/);
 	});
 });

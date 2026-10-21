@@ -28,6 +28,13 @@ import {
 	resolveToolAnnotations,
 } from "@tedix/api-contract/schemas/tools";
 import { resolveProvider, type ToolProvider } from "@cloudflare/codemode";
+import { readCodeModeResultPage } from "@tedix/tedi-codemode-core/bounded-result";
+import {
+	codeModeResultHandleUnavailableMessage,
+	codeModeResultOwner,
+	createCodeModeResultStore,
+} from "./codemode-result-store";
+import { resolveCodeModeResultBudget } from "./codemode-results";
 import { createNativeDescriptorLookup } from "./registration/bootstrap";
 import { isToolDeniedForConnection } from "./no-funds-policy";
 import { recordFrom, UI_NAMESPACE, UI_CATALOG_TOOLS } from "./codemode-ui";
@@ -756,6 +763,43 @@ export function buildCatalogProvider(
 					);
 				},
 			},
+			read_result: {
+				description:
+					'Page a stored over-budget result by the handle from a { __tedix_result_handle: true } envelope. path selects a nested value (e.g. "messages[0].content"); offset/limit page the selected value\'s compact JSON text. Returns { value, complete: true } when the selection fits in one page, otherwise { text, nextOffset } slices to concatenate and parse. Handles resolve only for the caller that produced them and expire; an unknown handle throws.',
+				execute: async (input: unknown) => {
+					const record = recordFrom(input);
+					const handle = record?.handle ?? input;
+					if (typeof handle !== "string" || handle.length === 0) {
+						throw new Error(
+							"discover.read_result requires { handle } from a __tedix_result_handle envelope",
+						);
+					}
+					const store = createCodeModeResultStore(
+						serverCtx.env,
+						codeModeResultOwner(serverCtx),
+					);
+					const serialized = store ? await store.get(handle) : null;
+					if (serialized === null) {
+						throw new Error(codeModeResultHandleUnavailableMessage(handle));
+					}
+					return readCodeModeResultPage(
+						handle,
+						serialized,
+						{
+							...(typeof record?.path === "string"
+								? { path: record.path }
+								: {}),
+							...(typeof record?.offset === "number"
+								? { offset: record.offset }
+								: {}),
+							...(typeof record?.limit === "number"
+								? { limit: record.limit }
+								: {}),
+						},
+						resolveCodeModeResultBudget(serverCtx),
+					);
+				},
+			},
 		},
 		types: [
 			"declare namespace discover {",
@@ -765,6 +809,8 @@ export function buildCatalogProvider(
 			"  /** Fetch ONE tool's input definition (parameters, full description, annotations, schemaFreshness) by exact callable. Output schemas require includeOutputSchema: true. The cheap second step after a compact search — prefer this over includeParameters on a broad search. Throws a current-catalog recovery diagnostic for an unknown callable. */",
 			"  function describe(input: string | { callable: string; includeOutputSchema?: boolean }): Promise<{ callable: string; namespace: string; tool: string; name: string; displayName: string; description: string; resultEnvelopeKeys?: string[]; parameters?: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean }; native?: { name: string; toolRowId: string; endpoint: string; eligible: boolean; authorized: boolean; schemaFreshness: { source: string | null; sourceRef: string | null; sourceHash: string | null; syncedAt: string | null } }; schemaFreshness?: { dialect?: string; source?: string; sourceRef?: string; sourceHash?: string; syncedAt?: string; toolUpdatedAt?: string } }>;",
 			'  function list_namespaces(input?: { includeTools?: boolean }): Promise<Record<string, { tools: number; toolNames?: string[]; quarantinedTools?: string[]; governance: { owner: string; class: "discovery" | "host" | "platform" | "tenant_app" | "virtual_tedi"; aliases: readonly string[]; requiredScopes: readonly string[]; visibility: "internal" | "tenant"; freshness: "build" | "request" | "d1_config"; collisionPolicy: "reserved_wins" | "reject_duplicate" } }>>;',
+			"  /** Page a stored over-budget result by its handle (from a { __tedix_result_handle: true } envelope). path selects a nested value; offset/limit page its compact JSON text. value is set when the selection fits in one page; otherwise concatenate text slices by following nextOffset, then parse. Handles are caller-bound and expire. */",
+			"  function read_result(input: string | { handle: string; path?: string; offset?: number; limit?: number }): Promise<{ handle: string; path?: string; total: number; offset: number; limit: number; keys?: string[]; length?: number; value?: unknown; text?: string; nextOffset?: number; complete: boolean }>;",
 			"}",
 		].join("\n"),
 	};

@@ -5,6 +5,8 @@ import {
 	formatCodeValue,
 	innerFailureMessage,
 	normalizeCodeResult,
+	readCodeResultHandle,
+	resolveCodeResult,
 	truncationErrorMessage,
 } from "./code-result";
 
@@ -263,4 +265,129 @@ test("discovery recovery preserves the selected target and shell-quotes values",
 	expect(hint).toContain("-w 'team'\\''s'");
 	expect(hint).toContain("--organization 'org_tedix'");
 	expect(hint).toContain("--url 'https://connect.mcp.tedix.dev/mcp'");
+});
+
+// The handle envelope Tedix gateways emit for an over-budget result they kept.
+const HANDLE_ENVELOPE = {
+	__tedix_result_handle: true,
+	handle: "2f6c1e6e-6b1e-4b7e-9c6e-3f1a2b3c4d5e",
+	originalType: "object",
+	approxTokens: 14_735,
+	maxTokens: 6_000,
+	total: 58_940,
+	keys: ["messages", "nextCursor"],
+	preview: '{"messages":[{"id":"m1"',
+	expiresAt: "2026-01-01T00:30:00.000Z",
+	guidance: "Result is ~14,735 tokens; read it with discover.read_result.",
+};
+
+/** A gateway whose discover.read_result pages `value` in `pageChars` slices. */
+function pagingGateway(value: unknown, pageChars: number) {
+	const serialized = JSON.stringify(value);
+	const calls: string[] = [];
+	const runCode = async (source: string) => {
+		calls.push(source);
+		const open = source.indexOf("read_result(") + "read_result(".length;
+		const args = JSON.parse(source.slice(open, source.lastIndexOf(")"))) as {
+			handle: string;
+			offset: number;
+			limit: number;
+		};
+		const limit = Math.min(args.limit, pageChars);
+		if (args.offset === 0 && serialized.length <= limit) {
+			return { executionId: "page", result: { value, complete: true } };
+		}
+		const end = Math.min(args.offset + limit, serialized.length);
+		return {
+			executionId: "page",
+			result: {
+				text: serialized.slice(args.offset, end),
+				...(end < serialized.length ? { nextOffset: end } : {}),
+				complete: end >= serialized.length,
+			},
+		};
+	};
+	return { runCode, calls };
+}
+
+describe("normalizeCodeResult: result handle envelope", () => {
+	test("marks the result bounded, keeps the handle, and never trusts the preview", () => {
+		const out = normalizeCodeResult({
+			executionId: "exec-9",
+			result: HANDLE_ENVELOPE,
+		});
+		expect(out.truncated).toBe(true);
+		expect(out.handle).toEqual({
+			handle: HANDLE_ENVELOPE.handle,
+			total: 58_940,
+			keys: ["messages", "nextCursor"],
+			expiresAt: "2026-01-01T00:30:00.000Z",
+			preview: HANDLE_ENVELOPE.preview,
+		});
+		expect(out.approxTokens).toBe(14_735);
+		expect(out.truncationHint).toContain("discover.read_result");
+		expect(out.value).toBe(HANDLE_ENVELOPE.preview);
+	});
+});
+
+describe("readCodeResultHandle / resolveCodeResult", () => {
+	const big = {
+		messages: Array.from({ length: 300 }, (_, i) => ({
+			id: `m${i}`,
+			content: "answer text ".repeat(20),
+		})),
+		nextCursor: null,
+	};
+
+	test("pages through the handle and reassembles the full value", async () => {
+		const gateway = pagingGateway(big, 5_000);
+		const value = await readCodeResultHandle(gateway.runCode, "h1");
+		expect(value).toEqual(big);
+		expect(gateway.calls.length).toBe(
+			Math.ceil(JSON.stringify(big).length / 5_000),
+		);
+		expect(gateway.calls[0]).toContain("discover.read_result(");
+		expect(gateway.calls[0]).toContain('"handle":"h1"');
+	});
+
+	test("returns the value directly when one page holds it", async () => {
+		const gateway = pagingGateway({ ok: true }, 5_000);
+		expect(await readCodeResultHandle(gateway.runCode, "h1")).toEqual({
+			ok: true,
+		});
+		expect(gateway.calls.length).toBe(1);
+	});
+
+	test("fails loudly when a page itself comes back bounded", async () => {
+		await expect(
+			readCodeResultHandle(async () => ({ result: ENVELOPE }), "h1"),
+		).rejects.toThrow(/did not fit/);
+	});
+
+	test("resolveCodeResult replaces a handle with the complete value and clears truncated", async () => {
+		const gateway = pagingGateway(big, 5_000);
+		const out = await resolveCodeResult(gateway.runCode, {
+			executionId: "exec-9",
+			result: HANDLE_ENVELOPE,
+		});
+		expect(out.executionId).toBe("exec-9");
+		expect(out.value).toEqual(big);
+		expect(out.truncated).toBeUndefined();
+		expect(out.handle).toBeUndefined();
+		expect(out.truncationHint).toBeUndefined();
+	});
+
+	test("resolveCodeResult leaves a plain truncation envelope for the caller", async () => {
+		let called = false;
+		const out = await resolveCodeResult(
+			async () => {
+				called = true;
+				return {};
+			},
+			{ executionId: "exec-1", result: ENVELOPE },
+		);
+		expect(called).toBe(false);
+		expect(out.truncated).toBe(true);
+		expect(out.handle).toBeUndefined();
+	});
 });

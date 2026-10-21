@@ -137,11 +137,21 @@ host-specific sandbox domain. Legacy Apps SDK domain metadata is separate.
 
 `shapeBoundedCodeModeResult()` passes results through up to 6,000 tokens
 (override: `mcpConfig.codeModeResultMaxTokens`, per tedi `resultMaxTokens`).
-Over budget it returns a detectable envelope
-`{ __tedix_truncated: true, marker, approxTokens, maxTokens, guidance, preview, … }`,
-never a bare clipped string. `resultIdentity` is computed before truncation so
-an oversized result still links to workflow state. The CLI
-(`packages/cli/src/code-result.ts`) recognizes the marker so row-parsing
+On the MCP gateway an over-budget result is kept whole
+(`apps/mcp/src/mcp/codemode-result-store.ts`: the `AGGREGATE_CACHE` R2 bucket,
+keyed by organization and `executionId`, 30-minute expiry, readable only by
+the principal that produced it) and the model receives
+`{ __tedix_result_handle: true, handle, preview, keys, total, expiresAt, guidance }`.
+`discover.read_result({ handle, path?, offset?, limit? })` pages it back:
+`path` selects a nested value, `offset`/`limit` page its compact JSON text,
+and a page is capped at the same budget. When the result cannot be stored (no
+bucket, no caller identity, write failure) or on durable tedi runtimes, the
+detectable envelope
+`{ __tedix_truncated: true, marker, approxTokens, maxTokens, guidance, preview, … }`
+is returned instead, never a bare clipped string. `resultIdentity` is computed
+before either bound so an oversized result still links to workflow state. The
+CLI (`packages/cli/src/code-result.ts`) pages handles back in full through
+`resolveCodeResult()` and recognizes the truncation marker so row-parsing
 commands fail loudly instead of reading a clipped page as empty.
 
 The `code` description is rebuilt per server build by
