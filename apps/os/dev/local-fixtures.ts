@@ -1103,6 +1103,42 @@ const seedState = (): LocalState => ({
 });
 
 let state = seedState();
+installPortfolioFixture();
+
+function installPortfolioFixture(): void {
+	const gadgetId = fid("49", 0x20);
+	const revisionId = fid("50", 0x20);
+	if (state.gadgets.some((gadget) => gadget.id === gadgetId)) return;
+	state.gadgets.push({
+		id: gadgetId,
+		organizationId: ORG_ID,
+		workspaceId: state.workspaces[0]!.id,
+		name: "Projects",
+		description: "Projects and their factories",
+		status: "active",
+		currentRevisionId: revisionId,
+		sourceBlueprintRevisionId: null,
+		createdByKind: "user",
+		createdById: "dev-operator",
+		createdAt: T0,
+		updatedAt: T0,
+	});
+	state.gadgetRevisions.push({
+		id: revisionId,
+		organizationId: ORG_ID,
+		gadgetId,
+		revision: 1,
+		manifest: {
+			capabilities: [],
+			entry: "tedix:app/portfolio",
+			navigation: { board: true },
+		},
+		sourceArtifactRef: null,
+		createdByKind: "user",
+		createdById: "dev-operator",
+		createdAt: T0,
+	});
+}
 
 /** Set once by the dev server: the sample company replaces the classic fixtures. */
 let demoPackBuiltAt: number | null = null;
@@ -1112,6 +1148,7 @@ export function resetLocalFixtures(): void {
 	state = seedState();
 	seq = 0;
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
+	else installPortfolioFixture();
 }
 
 /** Serve the sample company (Feed, Deck, tedis, memory) with sending switched off. */
@@ -7401,13 +7438,35 @@ const handlers: Record<string, (input: never) => unknown> = {
 		idempotencyKey?: string;
 		attachments?: HomeMessage["attachments"];
 	}) => {
+		const runId = input.idempotencyKey ?? nextId();
+		const existing = state.homeRuns.find((run) => run.id === runId);
+		if (existing) {
+			if (
+				input.conversationId &&
+				existing.conversationId !== input.conversationId
+			) {
+				throw new RpcError(
+					"CONFLICT",
+					"This idempotency key is already bound to a different Home identity",
+				);
+			}
+			return {
+				idempotencyKey: runId,
+				conversationId: existing.conversationId,
+				status: "queued" as const,
+				run: existing,
+				assistantMessage: state.messages.find(
+					(message) => message.id === existing.outputMessageId,
+				),
+			};
+		}
 		const timestamp = now();
-		let conversation = input.conversationId
-			? findConversation(input.conversationId)
-			: undefined;
+		let conversation = state.conversations.find(
+			(row) => row.id === input.conversationId,
+		);
 		if (!conversation) {
 			conversation = {
-				id: nextId(),
+				id: input.conversationId ?? nextId(),
 				organizationId: ORG_ID,
 				title: input.content.slice(0, 60) || "New conversation",
 				status: "active",
@@ -7422,7 +7481,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			state.conversations.push(conversation);
 		}
 		const run: HomeRun = {
-			id: nextId(),
+			id: runId,
 			organizationId: ORG_ID,
 			conversationId: conversation.id,
 			status: "completed",
@@ -7441,7 +7500,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			},
 		};
 		const userMessage: HomeMessage = {
-			id: nextId(),
+			id: `${runId}:input`,
 			organizationId: ORG_ID,
 			conversationId: conversation.id,
 			runId: run.id,
@@ -7452,7 +7511,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			createdAt: timestamp,
 		};
 		const assistantMessage: HomeMessage = {
-			id: nextId(),
+			id: `${runId}:assistant`,
 			organizationId: ORG_ID,
 			conversationId: conversation.id,
 			runId: run.id,
@@ -7469,7 +7528,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 		conversation.updatedAt = timestamp;
 		conversation.messageCount = (conversation.messageCount ?? 0) + 2;
 		return {
-			idempotencyKey: input.idempotencyKey ?? `local-${run.id}`,
+			idempotencyKey: runId,
 			conversationId: conversation.id,
 			status: "queued" as const,
 			run,
@@ -7481,7 +7540,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 export const LOCAL_RPC_PROCEDURES: readonly string[] = Object.keys(handlers);
 
 function installDemoPack(): number {
-	return applyDemoPack({
+	const { builtAt } = applyDemoPack({
 		state: state as unknown as Record<string, unknown>,
 		handlers,
 		tedis: TEDIS,
@@ -7491,7 +7550,9 @@ function installDemoPack(): number {
 		orgMembership: ORG_MEMBERSHIP,
 		rationales: RATIONALES,
 		memoryHealth: MEMORY_HEALTH,
-	} as unknown as Parameters<typeof applyDemoPack>[0]).builtAt;
+	} as unknown as Parameters<typeof applyDemoPack>[0]);
+	installPortfolioFixture();
+	return builtAt;
 }
 
 /** Fixture ids the unit tests (and curl probes) address directly. */
