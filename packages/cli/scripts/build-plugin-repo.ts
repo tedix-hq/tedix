@@ -68,7 +68,26 @@ export function pluginRepoFiles(): Map<string, string | Uint8Array> {
 			],
 		}),
 	);
+	// Gemini CLI and Antigravity index repositories with a root
+	// gemini-extension.json and the gemini-cli-extension topic.
+	const mcpFile = files.get(".mcp.json");
+	const mcp = JSON.parse(
+		typeof mcpFile === "string" ? mcpFile : new TextDecoder().decode(mcpFile),
+	);
+	files.set(
+		"gemini-extension.json",
+		json({
+			name: "tedix",
+			version: claude.version,
+			description,
+			mcpServers: { tedix: { httpUrl: mcp.mcpServers.tedix.url } },
+		}),
+	);
 	files.set("README.md", readFileSync(join(ROOT, "repo/README.md"), "utf8"));
+	files.set(
+		"llms-install.md",
+		readFileSync(join(ROOT, "repo/llms-install.md"), "utf8"),
+	);
 	files.set("LICENSE", readFileSync(resolve(ROOT, "../../LICENSE"), "utf8"));
 	for (const path of files.keys()) {
 		if (path.startsWith("hooks/"))
