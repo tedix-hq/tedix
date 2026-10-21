@@ -713,7 +713,7 @@ import { createInFlightRequestCoalescer } from "./session-request";
 		let selectedEffort = "";
 		const modelChoiceLabel = (choice) =>
 			choice.ref === "cloudflare/auto" && choice.label === "Auto"
-				? "Cloudflare Auto"
+				? "Auto Router"
 				: choice.label;
 		/**
 		 * The roster is advisory: the runtime edge re-validates every choice, so a
