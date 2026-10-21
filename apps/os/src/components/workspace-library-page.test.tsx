@@ -141,7 +141,15 @@ beforeEach(() => {
 			},
 		],
 	});
-	api.workspacePreferences.setFavorite.mockResolvedValue({});
+	api.workspacePreferences.setFavorite.mockImplementation(
+		async (input: { workspaceId: string; favorite: boolean }) => ({
+			preference: {
+				...input,
+				lastOpenedAt: null,
+				updatedAt: "2026-10-21T12:00:00.000Z",
+			},
+		}),
+	);
 	api.blueprints.list.mockResolvedValue({
 		items: [
 			{
@@ -371,4 +379,383 @@ describe("WorkspaceLibraryPage", () => {
 		);
 		act(() => root.unmount());
 	});
+});
+
+function button(container: HTMLElement, name: string) {
+	const found = Array.from(container.querySelectorAll("button")).find(
+		(element) =>
+			element.getAttribute("aria-label") === name ||
+			element.textContent?.trim() === name,
+	);
+	if (!found) throw new Error(`Missing button: ${name}`);
+	return found;
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+describe("Workspace library recovery", () => {
+	it("keeps navigation usable while preferences are pending and unknown", async () => {
+		const pending = deferred<{ items: [] }>();
+		api.workspacePreferences.list.mockReturnValue(pending.promise);
+		const { container, root } = await renderPage();
+		expect(container.textContent).toContain("Loading favorites");
+		expect(
+			container.querySelector(`a[href="/workspace/${WORKSPACE_ID}"]`),
+		).not.toBeNull();
+		expect(
+			button(container, "Favorites unavailable for Revenue Ops").disabled,
+		).toBe(true);
+		expect(
+			container.querySelector('[aria-label="Add Revenue Ops to favorites"]'),
+		).toBeNull();
+		await act(async () => pending.resolve({ items: [] }));
+		await flush();
+		expect(button(container, "Add Revenue Ops to favorites").disabled).toBe(
+			false,
+		);
+		act(() => root.unmount());
+	});
+
+	it("retries only failed preferences without replaying any write", async () => {
+		api.workspacePreferences.list.mockRejectedValue(
+			new Error("preferences offline"),
+		);
+		const { container, root } = await renderPage();
+		expect(container.textContent).toContain("Favorites are unavailable");
+		expect(
+			button(container, "Favorites unavailable for Revenue Ops").disabled,
+		).toBe(true);
+		api.workspacePreferences.list.mockResolvedValue({ items: [] });
+		const discoveryCalls = api.workspaces.list.mock.calls.length;
+		click(button(container, "Retry favorites"));
+		await flush();
+		expect(api.workspaces.list).toHaveBeenCalledTimes(discoveryCalls);
+		expect(button(container, "Add Revenue Ops to favorites").disabled).toBe(
+			false,
+		);
+		expect(api.workspacePreferences.setFavorite).not.toHaveBeenCalled();
+		act(() => root.unmount());
+	});
+
+	it("retains cached active rows on failed refresh and retries the exact list", async () => {
+		const { activeWorkspacesQueryOptions } =
+			await import("@/lib/os-query-options");
+		const { container, root, queryClient } = await renderPage();
+		api.workspaces.list.mockRejectedValue(new Error("discovery offline"));
+		await act(async () => {
+			await queryClient.refetchQueries({
+				...activeWorkspacesQueryOptions(),
+				exact: true,
+			});
+		});
+		await flush();
+		expect(container.textContent).toContain("Workspaces could not refresh");
+		expect(container.textContent).toContain(
+			"Showing previously loaded workspaces",
+		);
+		expect(
+			container.querySelector(`a[href="/workspace/${WORKSPACE_ID}"]`),
+		).not.toBeNull();
+		setFieldValue(container.querySelector("input")!, "missing");
+		expect(container.textContent).not.toContain("No loaded workspaces match");
+		const preferenceCalls = api.workspacePreferences.list.mock.calls.length;
+		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
+		click(button(container, "Retry workspaces"));
+		await flush();
+		expect(container.textContent).toContain("No workspaces yet");
+		expect(api.workspacePreferences.list).toHaveBeenCalledTimes(
+			preferenceCalls,
+		);
+		act(() => root.unmount());
+	});
+
+	it("does not turn cached empty data into a current empty claim after refresh fails", async () => {
+		const { activeWorkspacesQueryOptions } =
+			await import("@/lib/os-query-options");
+		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
+		const { container, root, queryClient } = await renderPage();
+		api.workspaces.list.mockRejectedValue(new Error("offline"));
+		await act(async () => {
+			await queryClient.refetchQueries({
+				...activeWorkspacesQueryOptions(),
+				exact: true,
+			});
+		});
+		await flush();
+		expect(container.textContent).not.toContain("No workspaces yet");
+		act(() => root.unmount());
+	});
+
+	it("retries an unavailable archive, then retains its cached rows on later failure", async () => {
+		const { archivedWorkspacesQueryOptions } =
+			await import("@/lib/os-query-options");
+		api.workspaces.list.mockImplementation(
+			async (input: { status?: string }) => {
+				if (input.status === "archived") throw new Error("archive offline");
+				return { items: [workspace()], truncated: false };
+			},
+		);
+		const { container, root, queryClient } = await renderPage();
+		click(button(container, "Archived"));
+		await flush();
+		expect(container.textContent).toContain(
+			"Archived workspaces are unavailable",
+		);
+		expect(container.textContent).not.toContain("No archived workspaces");
+		api.workspaces.list.mockResolvedValue({
+			items: [workspace({ status: "archived" })],
+			truncated: true,
+		});
+		click(button(container, "Retry archived workspaces"));
+		await flush();
+		expect(container.textContent).toContain("Revenue Ops");
+		expect(api.workspaces.list.mock.calls.at(-1)?.[0]).toEqual({
+			status: "archived",
+			limit: 100,
+		});
+		api.workspaces.list.mockRejectedValue(new Error("archive offline again"));
+		await act(async () => {
+			await queryClient.refetchQueries({
+				...archivedWorkspacesQueryOptions(),
+				exact: true,
+			});
+		});
+		await flush();
+		expect(container.textContent).toContain(
+			"Archived workspaces could not refresh",
+		);
+		expect(container.textContent).toContain("Revenue Ops");
+		expect(container.textContent).toContain(
+			"Showing the first 1 archived workspaces",
+		);
+		act(() => root.unmount());
+	});
+
+	it("prevents duplicate favorite clicks and distinguishes write failure", async () => {
+		const pending = deferred<unknown>();
+		api.workspacePreferences.setFavorite.mockReturnValue(pending.promise);
+		const { container, root } = await renderPage();
+		const toggle = button(container, "Add Support Desk to favorites");
+		click(toggle);
+		await flush();
+		expect(button(container, "Add Support Desk to favorites").disabled).toBe(
+			true,
+		);
+		click(button(container, "Add Support Desk to favorites"));
+		expect(api.workspacePreferences.setFavorite).toHaveBeenCalledTimes(1);
+		expect(container.textContent).toContain("Saving favorite");
+		act(() => root.unmount());
+		api.workspacePreferences.setFavorite.mockRejectedValue(
+			new Error("write refused"),
+		);
+		const failed = await renderPage();
+		click(button(failed.container, "Add Support Desk to favorites"));
+		await flush();
+		expect(failed.container.textContent).toContain("Could not save favorite");
+		expect(failed.container.textContent).toContain("write refused");
+		act(() => failed.root.unmount());
+	});
+
+	it.each(["invalidateQueries", "setQueryData"] as const)(
+		"keeps a confirmed favorite separate from rejected %s",
+		async (method) => {
+			const { container, root, queryClient } = await renderPage();
+			if (method === "invalidateQueries")
+				vi.spyOn(queryClient, method).mockRejectedValue(
+					new Error("refresh rejected"),
+				);
+			else
+				vi.spyOn(queryClient, method).mockImplementation(() => {
+					throw new Error("cache rejected");
+				});
+			click(button(container, "Add Support Desk to favorites"));
+			await flush();
+			expect(container.textContent).toContain("Favorite saved");
+			expect(container.textContent).toContain("could not refresh");
+			expect(container.textContent).not.toContain("Could not save favorite");
+			expect(
+				button(container, "Favorites unavailable for Support Desk").disabled,
+			).toBe(true);
+			click(button(container, "Retry favorites"));
+			await flush();
+			expect(api.workspacePreferences.setFavorite).toHaveBeenCalledTimes(1);
+			act(() => root.unmount());
+		},
+	);
+
+	it.each(["invalidateQueries", "setQueryData"] as const)(
+		"keeps confirmed restore visible after rejected %s without offering replay",
+		async (method) => {
+			api.workspaces.list.mockResolvedValue({
+				items: [workspace({ status: "archived" })],
+				truncated: false,
+			});
+			api.workspaces.restore.mockResolvedValue({ workspace: workspace() });
+			const { container, root, queryClient } = await renderPage();
+			click(button(container, "Archived"));
+			await flush();
+			if (method === "invalidateQueries")
+				vi.spyOn(queryClient, method).mockRejectedValue(
+					new Error("refresh rejected"),
+				);
+			else
+				vi.spyOn(queryClient, method).mockImplementation(() => {
+					throw new Error("cache rejected");
+				});
+			click(button(container, "Restore Revenue Ops"));
+			await flush();
+			expect(container.textContent).toContain("Workspace restored");
+			expect(container.textContent).toContain("could not refresh");
+			expect(container.textContent).not.toContain(
+				"Could not restore the workspace",
+			);
+			expect(
+				container.querySelector('[aria-label="Restore Revenue Ops"]'),
+			).toBeNull();
+			click(button(container, "Retry archived workspaces"));
+			await flush();
+			expect(api.workspaces.restore).toHaveBeenCalledTimes(1);
+			expect(
+				container.querySelector('[aria-label="Restore Revenue Ops"]'),
+			).toBeNull();
+			click(button(container, "Active"));
+			click(button(container, "Archived"));
+			await flush();
+			expect(
+				container.querySelector('[aria-label="Restore Revenue Ops"]'),
+			).toBeNull();
+			act(() => root.unmount());
+		},
+	);
+});
+
+it("retries initial active discovery without fetching preferences or mutating", async () => {
+	api.workspaces.list.mockRejectedValue(new Error("active offline"));
+	const { container, root } = await renderPage();
+	expect(container.textContent).toContain("Workspaces are unavailable");
+	expect(container.textContent).not.toContain("No workspaces yet");
+	const preferenceCalls = api.workspacePreferences.list.mock.calls.length;
+	api.workspaces.list.mockResolvedValue({
+		items: [workspace()],
+		truncated: false,
+	});
+	click(button(container, "Retry workspaces"));
+	await flush();
+	expect(api.workspaces.list.mock.calls.at(-1)?.[0]).toEqual({
+		status: "active",
+		limit: 100,
+	});
+	expect(api.workspacePreferences.list).toHaveBeenCalledTimes(preferenceCalls);
+	expect(api.workspacePreferences.setFavorite).not.toHaveBeenCalled();
+	act(() => root.unmount());
+});
+
+it("makes cached favorites unknown after their refresh fails", async () => {
+	const { workspacePreferencesQueryOptions } =
+		await import("@/lib/os-query-options");
+	const { container, root, queryClient } = await renderPage();
+	expect(
+		button(container, "Remove Revenue Ops from favorites").getAttribute(
+			"aria-pressed",
+		),
+	).toBe("true");
+	api.workspacePreferences.list.mockRejectedValue(
+		new Error("preferences offline"),
+	);
+	await act(async () => {
+		await queryClient.refetchQueries({
+			...workspacePreferencesQueryOptions(),
+			exact: true,
+		});
+	});
+	await flush();
+	const unknown = button(container, "Favorites unavailable for Revenue Ops");
+	expect(unknown.disabled).toBe(true);
+	expect(unknown.hasAttribute("aria-pressed")).toBe(false);
+	expect(
+		container.querySelector(`a[href="/workspace/${WORKSPACE_ID}"]`),
+	).not.toBeNull();
+	act(() => root.unmount());
+});
+
+it("fences duplicate restores and reports a rejected write separately", async () => {
+	let reject!: (error: Error) => void;
+	api.workspaces.restore.mockReturnValue(
+		new Promise((_resolve, fail) => {
+			reject = fail;
+		}),
+	);
+	api.workspaces.list.mockResolvedValue({
+		items: [workspace({ status: "archived" })],
+		truncated: false,
+	});
+	const { container, root } = await renderPage();
+	click(button(container, "Archived"));
+	await flush();
+	click(button(container, "Restore Revenue Ops"));
+	click(button(container, "Restore Revenue Ops"));
+	await flush();
+	expect(api.workspaces.restore).toHaveBeenCalledTimes(1);
+	expect(button(container, "Restore Revenue Ops").disabled).toBe(true);
+	await act(async () => reject(new Error("restore refused")));
+	await flush();
+	expect(container.textContent).toContain("Could not restore the workspace");
+	expect(container.textContent).toContain("restore refused");
+	expect(container.textContent).not.toContain("Workspace restored");
+	expect(button(container, "Restore Revenue Ops").disabled).toBe(false);
+	act(() => root.unmount());
+});
+
+it.each(["active", "archived"] as const)(
+	"bounds an empty %s page when the response is truncated",
+	async (view) => {
+		api.workspaces.list.mockResolvedValue({ items: [], truncated: true });
+		const { container, root } = await renderPage();
+		if (view === "archived") {
+			click(button(container, "Archived"));
+			await flush();
+		}
+		expect(container.textContent).toContain("in this loaded page");
+		expect(container.textContent).toContain("beyond this page");
+		act(() => root.unmount());
+	},
+);
+
+it("shows a newer archive after a confirmed restore without replaying the write", async () => {
+	let archivedWorkspace = workspace({ status: "archived" });
+	api.workspaces.list.mockImplementation(
+		async (input: { status?: string }) => ({
+			items: input.status === "archived" ? [archivedWorkspace] : [workspace()],
+			truncated: false,
+		}),
+	);
+	api.workspaces.restore.mockResolvedValue({
+		workspace: workspace({ updatedAt: "2026-10-21T12:00:00.000Z" }),
+	});
+	const { container, root, queryClient } = await renderPage();
+	click(button(container, "Archived"));
+	await flush();
+	vi.spyOn(queryClient, "invalidateQueries").mockRejectedValue(
+		new Error("refresh rejected"),
+	);
+	click(button(container, "Restore Revenue Ops"));
+	await flush();
+	expect(
+		container.querySelector('[aria-label="Restore Revenue Ops"]'),
+	).toBeNull();
+	archivedWorkspace = workspace({
+		status: "archived",
+		updatedAt: "2026-10-21T12:01:00.000Z",
+	});
+	click(button(container, "Retry archived workspaces"));
+	await flush();
+	expect(button(container, "Restore Revenue Ops").disabled).toBe(false);
+	expect(api.workspaces.restore).toHaveBeenCalledTimes(1);
+	act(() => root.unmount());
 });
