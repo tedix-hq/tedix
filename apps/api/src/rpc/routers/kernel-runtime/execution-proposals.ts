@@ -174,6 +174,9 @@ export async function resolveWorkspaceContext(
 	};
 }
 
+/** In-band wait for a Home turn whose page offers tools; see the race below. */
+const PAGE_TOOL_TURN_ACK_MS = 1_500;
+
 export const enqueueMessageRoute = authed.enqueueMessage
 	.use(AUTHZ.homeUse)
 	.handler(async ({ context, input }) => {
@@ -1186,6 +1189,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				runtimeMetadata,
 				governancePolicy,
 				sessionWriteAllowlist,
+				...(input.pageTools?.length ? { pageTools: input.pageTools } : {}),
 			};
 			const kernel = (
 				context.env as {
@@ -1248,9 +1252,14 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						}),
 					);
 					let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-					const remainingBudgetMs = remainingKernelTurnBudgetMs(
-						enqueueStartedAtMs,
-						Date.now(),
+					// A turn that may ask the page to act acks almost at once: the
+					// page reads the run's events for those requests, and it cannot
+					// before it has the run id.
+					const remainingBudgetMs = Math.min(
+						remainingKernelTurnBudgetMs(enqueueStartedAtMs, Date.now()),
+						turnInput.pageTools?.length
+							? PAGE_TOOL_TURN_ACK_MS
+							: Number.POSITIVE_INFINITY,
 					);
 					const deadline = new Promise<KernelTurnOutcome>((resolve) => {
 						deadlineTimer = setTimeout(

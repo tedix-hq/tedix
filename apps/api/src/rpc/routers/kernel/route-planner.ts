@@ -1,5 +1,11 @@
 import { ZodError } from "zod";
-import { NoObjectGeneratedError } from "ai";
+import { jsonSchema, NoObjectGeneratedError, stepCountIs, tool } from "ai";
+import {
+	HOME_PAGE_TOOL_MAX_STEPS,
+	HOME_PAGE_TOOLS_INSTRUCTION,
+	homePageToolsRouteNote,
+	type HomePageTools,
+} from "./home-page-tools";
 import type { SelectedKernelModel } from "./llm";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 /** Bounded model-backed Home route planning. The selected model is authoritative;
@@ -533,6 +539,13 @@ export type PlanKernelRouteArgs = {
 	 * cancel gate settles it as a clean cancel regardless of this return value.
 	 */
 	abortSignal?: AbortSignal;
+	/**
+	 * Tools the person's page offers for this turn. When present, an
+	 * answer_in_home turn answers in a pass that may ask the page to run them
+	 * (`home-page-tools.ts`); the route pass then streams nothing, so the
+	 * person sees one answer.
+	 */
+	pageTools?: HomePageTools;
 };
 
 /**
@@ -589,8 +602,20 @@ export async function planKernelRoute(
 }
 
 async function planKernelRouteWithRecovery(
-	args: PlanKernelRouteArgs,
+	input: PlanKernelRouteArgs,
 ): Promise<PlanKernelRouteResult | null> {
+	const pageTools = input.pageTools?.descriptors.length
+		? input.pageTools
+		: undefined;
+	// With page tools the route pass only routes: its answer field would be a
+	// promise about an action not yet taken. The page-action pass answers.
+	const args: PlanKernelRouteArgs = pageTools
+		? {
+				...input,
+				content: `${input.content}\n${homePageToolsRouteNote(pageTools.descriptors)}`,
+				onAnswerDelta: input.onAnswerDelta ? () => {} : undefined,
+			}
+		: input;
 	const model = args.model?.forOperation() ?? null;
 	const attempts = model?.attempts ?? [];
 	const operatorContent = args.operatorContent ?? args.content;
@@ -792,7 +817,19 @@ async function planKernelRouteWithRecovery(
 			ranker: args.delegationCandidateRanker,
 			signal: args.abortSignal,
 		});
-		if (
+		if (pageTools && guarded.routeKind === "answer_in_home" && model) {
+			const answerModel = model.forOperation();
+			try {
+				await streamHomePageAnswer(
+					{ ...input, content: args.content },
+					answerModel,
+					guarded,
+					pageTools,
+				);
+			} finally {
+				attempts.push(...answerModel.attempts);
+			}
+		} else if (
 			(autoRouter || retried || args.routeChoice) &&
 			guarded.routeKind === "answer_in_home" &&
 			model
@@ -1378,6 +1415,122 @@ async function streamRoutePlan(args: {
 		traceInput: requestTrace,
 		hedge: null,
 	};
+}
+
+/**
+ * The answer pass for a Home turn whose page offers tools: the model may ask
+ * the page to run them, one at a time, through `pageTools.relay`, which waits
+ * for the page. Nothing here runs a page tool. Results reach the model as
+ * untrusted page data. The idle bound pauses while the page (or the person
+ * tapping confirm) answers.
+ */
+async function streamHomePageAnswer(
+	args: PlanKernelRouteArgs,
+	model: SelectedKernelModel,
+	decision: PlanKernelRouteResult,
+	pageTools: HomePageTools,
+): Promise<void> {
+	const idle = withIdleAbort(
+		args.streamIdleMs ?? KERNEL_STREAM_IDLE_TIMEOUT_MS,
+		"[kernel] Home page-action answer stream",
+	);
+	const signal = args.abortSignal
+		? AbortSignal.any([idle.signal, args.abortSignal])
+		: idle.signal;
+	const tools = Object.fromEntries(
+		pageTools.descriptors.map((descriptor) => [
+			descriptor.name,
+			tool({
+				description: descriptor.description,
+				inputSchema: jsonSchema(descriptor.inputSchema as never),
+				execute: async (input: unknown) => {
+					const keepAlive = setInterval(() => idle.reset(), 5_000);
+					try {
+						const result = await pageTools.relay(
+							{
+								name: descriptor.name,
+								args:
+									input && typeof input === "object" && !Array.isArray(input)
+										? (input as Record<string, unknown>)
+										: {},
+								confirm: descriptor.confirm === true,
+							},
+							args.abortSignal,
+						);
+						return {
+							ok: result.ok,
+							source: "host_page",
+							untrustedPageData: result.content,
+						};
+					} finally {
+						clearInterval(keepAlive);
+						idle.reset();
+					}
+				},
+			}),
+		]),
+	);
+	try {
+		signal.throwIfAborted();
+		const result = tracedAi.streamText({
+			model: model.model,
+			instructions: `${SYSTEM_PROMPT}\n\n${HOME_PAGE_TOOLS_INSTRUCTION}`,
+			...homeModelPrompt(
+				buildUserPrompt(
+					args.content,
+					args.context,
+					HOME_PAGE_TOOLS_INSTRUCTION,
+				),
+				args.images,
+				args.context.history,
+			),
+			tools,
+			stopWhen: stepCountIs(HOME_PAGE_TOOL_MAX_STEPS),
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			maxRetries: 0,
+			abortSignal: signal,
+			runtimeContext: kernelSpanContext({
+				...args.gatewayContext,
+				organizationId:
+					args.organizationId ?? args.gatewayContext?.organizationId,
+				source: "home_page_answer",
+			}),
+		});
+		let answer = "";
+		for await (const part of result.stream) {
+			idle.reset();
+			signal.throwIfAborted();
+			if (part.type === "error") throw part.error;
+			if (part.type === "abort")
+				throw new Error("Home page-action answer stream aborted");
+			if (part.type !== "text-delta") continue;
+			answer += part.text;
+			try {
+				args.onAnswerDelta?.(part.text);
+			} catch {
+				/* Advisory delivery only. */
+			}
+		}
+		signal.throwIfAborted();
+		if (!answer.trim()) throw new Error("Incomplete Home page-action answer");
+		const usage = shapeRouteUsage(
+			await awaitWithSettleBound(
+				result.usage,
+				"Home page-action usage did not settle",
+			),
+			model,
+		);
+		const sum = (a: number | null, b: number | null) =>
+			a === null || b === null ? null : a + b;
+		decision.usage = {
+			...decision.usage,
+			inputTokens: sum(decision.usage.inputTokens, usage.inputTokens),
+			outputTokens: sum(decision.usage.outputTokens, usage.outputTokens),
+		};
+		decision.answer = answer;
+	} finally {
+		idle.clear();
+	}
 }
 
 /**

@@ -44,6 +44,7 @@
         "@tedix/api-client": "workspace:*",
         "@tedix/api-contract": "workspace:*",
         "@tedix/auth": "workspace:*",
+        "@tedix/chat-transport": "workspace:*",
         "@tedix/context-core": "workspace:*",
         "@tedix/db": "workspace:*",
         "@tedix/mcp-client-core": "workspace:*",

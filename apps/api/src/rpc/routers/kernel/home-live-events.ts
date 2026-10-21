@@ -216,3 +216,54 @@ export async function recordHomeRationaleDelta(
 		});
 	}
 }
+
+/**
+ * Ask the person's page to run one page tool: a durable `tool.started` event
+ * on the parent run that the browser reads with `readRunEvents`. The payload
+ * carries `pageTool` so a reader can tell it from Home's own tool activity.
+ * Unlike the deltas this is NOT fail-soft: a request the page can never see
+ * would only time out, so the caller fails the call at once instead.
+ */
+export async function recordHomePageToolRequest(
+	context: BaseContext,
+	input: {
+		organizationId: string;
+		conversationId: string;
+		runId: string;
+		callId: string;
+		name: string;
+		args: Record<string, unknown>;
+		confirm: boolean;
+		createdAt: string;
+	},
+): Promise<void> {
+	await insertKernelRuntimeEvent(context, {
+		id: homeRuntimeEventId({
+			organizationId: input.organizationId,
+			kind: "tool.started",
+			conversationId: input.conversationId,
+			runId: input.runId,
+			suffix: `page-tool:${input.callId}`,
+		}),
+		organizationId: input.organizationId,
+		kind: "tool.started",
+		conversationId: input.conversationId,
+		runId: input.runId,
+		payload: {
+			channel: "home",
+			pageTool: {
+				callId: input.callId,
+				name: input.name,
+				args: input.args,
+				confirm: input.confirm,
+			},
+			metadata: {
+				homeSubject: true,
+				homeRunId: input.runId,
+				source: "kernelRuntime.pageTool",
+			},
+		},
+		runtimeMetadata: { source: "kernelRuntime.pageTool" },
+		createdAt: input.createdAt,
+	});
+}

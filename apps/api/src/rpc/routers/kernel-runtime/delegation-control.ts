@@ -52,6 +52,7 @@ import { parseCodemodeExecuteWritePayload } from "@tedix/api-contract/schemas/co
 import { parseHomeToolWritePayload } from "../kernel/write-executor";
 import { readOptionalHomePlanFromRun } from "../kernel/home-plan";
 import { authed } from "./policy-normalization";
+import type { KernelDO } from "../../../kernel/kernel-do";
 import {
 	RUN_EVENT_RECEIPT_KINDS,
 	RUN_EVENT_RECEIPT_ROWS,
@@ -338,6 +339,42 @@ export const cancelRunRoute = authed.cancelRun
 			homeRunId: input.runId,
 			reason: input.reason,
 		});
+	});
+
+/**
+ * The person's page returns the result of one page tool call a running Home
+ * turn asked for. Only someone who may edit the run's conversation can answer,
+ * and the KernelDO accepts it only for an open call of that run, so a guessed
+ * or replayed call id, or a result for another run, settles nothing. The
+ * result is untrusted page data and grants no server access.
+ */
+export const resolvePageToolRoute = authed.resolvePageTool
+	.use(AUTHZ.tedisWrite)
+	.handler(async ({ context, input }) => {
+		const organizationId = resolveOrganizationId(context, input.organizationId);
+		const run = await getKernelRuntimeRun(context.db, {
+			id: input.runId,
+			organizationId,
+		});
+		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
+		await ensureHomeConversationAccess(context, {
+			conversationId: run.conversationId,
+			organizationId,
+			required: "edit",
+		});
+		if (run.status !== "running") return { accepted: false };
+		const kernel = (
+			context.env as { KERNEL?: DurableObjectNamespace<KernelDO> }
+		).KERNEL;
+		if (!kernel) return { accepted: false };
+		const stub = kernel.get(kernel.idFromName(organizationId));
+		return {
+			accepted: await stub.resolvePageTool(
+				input.runId,
+				input.callId,
+				input.result,
+			),
+		};
 	});
 
 export const steerRunRoute = authed.steerRun

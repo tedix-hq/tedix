@@ -2,6 +2,7 @@ import {
 	guardKernelRouteDecision,
 	hasExplicitDelegationIntent,
 } from "./delegation-intent";
+import type { HomePageTools } from "./home-page-tools";
 import { createJevContextRanker } from "./jev-context-ranking";
 import { createJevDelegationRanker } from "./jev-delegation-fit";
 import type { KernelExecutionAttempt } from "./gateway-attribution";
@@ -452,6 +453,8 @@ export function renderRouteResponse(
 const HOME_DEFERRED_FOLD_TOKEN_BUDGET = 10_000;
 
 export async function runKernel(args: {
+	/** Tools the person's page offers for this turn; Home asks, the page runs. */
+	pageTools?: HomePageTools;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
 	/** The conversation's persisted compaction checkpoint (KernelDO storage). */
 	previousHistoryCheckpoint?: KernelHistoryCheckpoint | null;
@@ -959,6 +962,7 @@ export async function runKernel(args: {
 	// Compaction retry reuses the same immutable judgment, never another paid call.
 	let routeJudgment: ReturnType<typeof decideHomeRoute> | undefined;
 	const planArgs = {
+		...(args.pageTools ? { pageTools: args.pageTools } : {}),
 		...(homeRoutePolicy && homeRoutePolicy.mode !== "off"
 			? {
 					decisionMode: homeRoutePolicy.mode,
