@@ -103,7 +103,9 @@ export function OsSettingsFrame({
 					</div>
 				))}
 			</nav>
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
+			{/* Below md the settings strip is already the one navigation row; a
+			    page's own capability rail would stack a second strip under it. */}
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto max-md:[&_[data-capability-nav]]:hidden">
 				{children}
 			</div>
 		</div>

@@ -319,9 +319,10 @@ export function PersonalProviderAccounts({
 				})}
 				{canAdd && (
 					<li className="px-4 py-2">
+						{/* Pull the ghost padding back so the icon sits on the rows' left edge. */}
 						<Button
 							variant="ghost"
-							className="min-h-11"
+							className="-ms-3 min-h-11"
 							disabled={!canManage || isConnecting}
 							onClick={() => onAdd(provider)}
 						>

@@ -51,7 +51,10 @@ function PageHeader({
 			data-slot="page-header"
 			data-divided={divided || undefined}
 			className={cn(
-				"flex min-w-0 flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between",
+				// Phones keep page actions compact beside the heading; they wrap to
+				// their own right-aligned row only when the heading needs the width.
+				"flex min-w-0 flex-wrap items-start justify-between gap-3 sm:flex-nowrap sm:items-baseline",
+				"[&>:not([data-slot=page-actions])]:min-w-0 [&>:not([data-slot=page-actions])]:flex-[1_1_14rem]",
 				divided && "border-kumo-line border-b pb-4",
 				"[&_.eyebrow]:!hidden",
 				className,
@@ -102,8 +105,7 @@ function PageActions({ className, ...props }: ComponentProps<"div">) {
 		<div
 			data-slot="page-actions"
 			className={cn(
-				"flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end",
-				"[&>[data-slot=button]:not([data-icon-only])]:max-sm:flex-1",
+				"ms-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:shrink-0",
 				className,
 			)}
 			{...props}
