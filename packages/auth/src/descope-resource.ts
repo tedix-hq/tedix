@@ -115,6 +115,7 @@ export async function updateDescopeResource(
 export async function loadDescopeResource(
 	env: DescopeResourceEnv,
 	id: string,
+	options?: { deadline?: number },
 ): Promise<DescopeResource> {
 	const response = await descopeManagementFetch(env, {
 		url: resourceUrl(
@@ -124,6 +125,7 @@ export async function loadDescopeResource(
 		method: "GET",
 		idempotent: true,
 		errorPrefix: "Descope Resource load failed",
+		deadline: options?.deadline,
 	});
 	const data = (await response.json()) as { resource?: DescopeResource };
 	if (!data.resource?.id) {

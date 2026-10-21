@@ -207,6 +207,106 @@ describe("descopeFetch mutations", () => {
 	});
 });
 
+describe("descopeFetch deadline", () => {
+	it("returns a 429 at once when its Retry-After would outlive the deadline", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn(
+			async () =>
+				new Response("{}", { status: 429, headers: { "Retry-After": "5" } }),
+		);
+		const response = await descopeFetch(
+			TEST_URL,
+			{ method: "GET" },
+			{
+				idempotent: true,
+				deadline: Date.now() + 5_500,
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("5");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("still retries a 429 whose wait leaves time before the deadline", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response("{}", { status: 429, headers: { "Retry-After": "1" } }),
+			)
+			.mockResolvedValueOnce(new Response("{}"));
+		const pending = descopeFetch(
+			TEST_URL,
+			{ method: "GET" },
+			{
+				idempotent: true,
+				deadline: Date.now() + 5_000,
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+		await vi.runAllTimersAsync();
+		expect((await pending).status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("returns a 5xx instead of backing off past the deadline", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn(async () => new Response("{}", { status: 503 }));
+		const response = await descopeFetch(
+			TEST_URL,
+			{ method: "GET" },
+			{
+				idempotent: true,
+				deadline: Date.now() + 500,
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+		expect(response.status).toBe(503);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("cuts a stalled attempt at the deadline and does not retry it", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn(
+			(_input: RequestInfo | URL, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) =>
+					init?.signal?.addEventListener("abort", () =>
+						reject(new DOMException("aborted", "AbortError")),
+					),
+				),
+		);
+		const pending = descopeFetch(
+			TEST_URL,
+			{ method: "GET" },
+			{
+				idempotent: true,
+				deadline: Date.now() + 300,
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+		const assertion = expect(pending).rejects.toThrow("aborted");
+		await vi.advanceTimersByTimeAsync(300);
+		await assertion;
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("sends nothing once the deadline has passed", async () => {
+		const fetchMock = vi.fn();
+		await expect(
+			descopeFetch(
+				TEST_URL,
+				{ method: "GET" },
+				{
+					deadline: Date.now() - 1,
+					fetch: fetchMock as unknown as typeof fetch,
+				},
+			),
+		).rejects.toThrow("deadline");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
 describe("descopeFetch timing", () => {
 	it("aborts a stalled attempt after timeoutMs and fires the passed signal", async () => {
 		vi.useFakeTimers();

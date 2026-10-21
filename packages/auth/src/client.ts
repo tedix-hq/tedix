@@ -15,7 +15,11 @@
  * Docs: https://docs.descope.com/
  */
 
-import { type DescopeClient, getDescopeClient } from "@tedix/auth/descope";
+import {
+	createDescopeClient,
+	type DescopeClient,
+	getDescopeClient,
+} from "@tedix/auth/descope";
 import type { DescopeEnv } from "@tedix/auth/types";
 
 // =============================================================================
@@ -29,13 +33,20 @@ export type DescopeManagementClient = DescopeClient;
  * Requires DESCOPE_MANAGEMENT_KEY for management operations.
  *
  * @param env - Environment variables with Descope credentials
+ * @param options.deadline - Epoch ms by which every request must answer; a
+ *   client with a deadline is created for this caller, never shared.
  * @returns Descope management client
  */
-export function getManagementClient(env: DescopeEnv): DescopeManagementClient {
+export function getManagementClient(
+	env: DescopeEnv,
+	options?: { deadline?: number },
+): DescopeManagementClient {
 	if (!env.DESCOPE_MANAGEMENT_KEY) {
 		throw new Error(
 			"Missing DESCOPE_MANAGEMENT_KEY environment variable. Management key is required for management API operations.",
 		);
 	}
-	return getDescopeClient(env);
+	return options?.deadline === undefined
+		? getDescopeClient(env)
+		: createDescopeClient(env, options);
 }

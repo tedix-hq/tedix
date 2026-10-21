@@ -14,6 +14,10 @@ import { createDbClient } from "@tedix/db/client";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import {
+	forgetMcpServerClients,
+	forgetMcpServerRegistrations,
+} from "../../lib/provider-facts-cache";
+import {
 	externalAgentIdentityContractRouter,
 	resolveExternalAgentMcpClientScopes,
 	selectReusableExternalAgentMcpCredential,
@@ -250,6 +254,8 @@ function externalContext(
 
 beforeEach(() => {
 	vi.mocked(loadDescopeMcpServer).mockReset();
+	forgetMcpServerRegistrations();
+	forgetMcpServerClients();
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
 	seedIdentity();

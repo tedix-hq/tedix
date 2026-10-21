@@ -210,7 +210,7 @@ function postDescopeManagementJson(
 	env: AihEnv,
 	path: string,
 	body: unknown,
-	options: { idempotent: boolean; errorPrefix: string },
+	options: { idempotent: boolean; errorPrefix: string; deadline?: number },
 ): Promise<Response> {
 	return descopeManagementFetch(env, {
 		url: descopeAihUrl(env, path),
@@ -218,6 +218,7 @@ function postDescopeManagementJson(
 		body,
 		idempotent: options.idempotent,
 		errorPrefix: options.errorPrefix,
+		deadline: options.deadline,
 	});
 }
 
@@ -409,8 +410,11 @@ export async function registerDescopeMcpResource(
 export async function loadDescopeMcpServer(
 	env: AihEnv,
 	mcpServerId: string,
+	options?: { deadline?: number },
 ): Promise<McpServerRecord> {
-	return resourceToMcpServerRecord(await loadDescopeResource(env, mcpServerId));
+	return resourceToMcpServerRecord(
+		await loadDescopeResource(env, mcpServerId, options),
+	);
 }
 
 /**
@@ -580,6 +584,7 @@ export async function updateDescopeMcpServerClient(
 export async function searchDescopeMcpServerClients(
 	env: AihEnv,
 	params: { mcpServerId: string; name?: string; clientId?: string },
+	options?: { deadline?: number },
 ): Promise<McpServerClientRecord[]> {
 	const response = await postDescopeManagementJson(
 		env,
@@ -588,6 +593,7 @@ export async function searchDescopeMcpServerClients(
 		{
 			idempotent: true,
 			errorPrefix: "AIH MCP server clients search failed",
+			deadline: options?.deadline,
 		},
 	);
 	return normalizeClientList(await response.json());

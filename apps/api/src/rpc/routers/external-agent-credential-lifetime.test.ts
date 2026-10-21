@@ -34,6 +34,10 @@ vi.mock("@tedix/auth/aih-client", async (load) => ({
 	getDescopeMcpServerClientSecret: mocks.secret,
 }));
 import { externalAgentIdentityContractRouter } from "./external-agent-identity";
+import {
+	forgetMcpServerClients,
+	forgetMcpServerRegistrations,
+} from "../../lib/provider-facts-cache";
 const ORG = "00000000-0000-4000-8000-000000000001";
 const PRINCIPAL = "00000000-0000-4000-8000-000000000002";
 const SESSION = "00000000-0000-4000-8000-000000000003";
@@ -57,6 +61,8 @@ beforeEach(async () => {
 	vi.useFakeTimers({ toFake: ["Date"] });
 	vi.setSystemTime(new Date(NOW));
 	vi.clearAllMocks();
+	forgetMcpServerRegistrations();
+	forgetMcpServerClients();
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
@@ -105,6 +111,7 @@ beforeEach(async () => {
 		lastSeenAt: NOW,
 	});
 	mocks.load.mockResolvedValue({
+		id: "fixture-resource",
 		approvedScopes: { connectionsScopes: [{ name: "mcp:work.read" }] },
 	});
 	mocks.create.mockResolvedValue({
@@ -118,6 +125,7 @@ beforeEach(async () => {
 		{
 			id: "fixture-client-record",
 			clientId: "fixture-client",
+			mcpServerId: "fixture-resource",
 			status: "verified",
 			scopes: ["mcp:work.read"],
 			tags: [
@@ -311,5 +319,58 @@ describe("enrollment-bounded MCP credential issuance", () => {
 		});
 		vi.setSystemTime(new Date("2030-01-01T00:01:00.000Z"));
 		expect((await client().issueMcpCredential(INPUT)).expiresIn).toBe(60);
+	});
+});
+
+describe("provider answers kept between renewals", () => {
+	it("asks the provider for the registration and client once per few seconds", async () => {
+		await client().issueMcpCredential(INPUT);
+		await client().issueMcpCredential(INPUT);
+		await client().issueMcpCredential(INPUT);
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(mocks.load).toHaveBeenCalledTimes(1);
+		expect(mocks.search).toHaveBeenCalledTimes(1);
+		// The secret and the token are fetched for every issuance.
+		expect(mocks.secret).toHaveBeenCalledTimes(2);
+		vi.setSystemTime(new Date("2030-01-01T00:00:31.000Z"));
+		await client().issueMcpCredential(INPUT);
+		expect(mocks.load).toHaveBeenCalledTimes(2);
+		expect(mocks.search).toHaveBeenCalledTimes(2);
+	});
+	it("forgets a remembered client when reusing it fails", async () => {
+		await client().issueMcpCredential(INPUT);
+		await client().issueMcpCredential(INPUT);
+		expect(mocks.search).toHaveBeenCalledTimes(1);
+		mocks.secret.mockRejectedValueOnce(new Error("client was removed"));
+		await expect(client().issueMcpCredential(INPUT)).rejects.toMatchObject({
+			code: "INTERNAL_SERVER_ERROR",
+		});
+		expect(mocks.search).toHaveBeenCalledTimes(1);
+		await client().issueMcpCredential(INPUT);
+		expect(mocks.search).toHaveBeenCalledTimes(2);
+	});
+	it("never remembers a client the provider does not report as verified", async () => {
+		mocks.search.mockResolvedValue([
+			{
+				id: "fixture-client-record",
+				clientId: "fixture-client",
+				mcpServerId: "fixture-resource",
+				status: "pending",
+			},
+		]);
+		mocks.create.mockResolvedValueOnce({
+			id: "fixture-client-record",
+			clientId: "fixture-client",
+			clientSecret: "fixture-secret",
+		});
+		await client().issueMcpCredential(INPUT);
+		await client()
+			.issueMcpCredential(INPUT)
+			.catch(() => undefined);
+		await client()
+			.issueMcpCredential(INPUT)
+			.catch(() => undefined);
+		expect(mocks.search).toHaveBeenCalledTimes(2);
+		expect(mocks.secret).not.toHaveBeenCalled();
 	});
 });

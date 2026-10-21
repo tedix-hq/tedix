@@ -366,6 +366,31 @@ function requiredRequestState(result: unknown): string {
 }
 
 describe("destructive tool approval — synchronous MRTR (agent)", () => {
+	it("answers an unreadable autonomy policy with a typed error a client may resend", async () => {
+		const ctx = agentApprovalContext(vi.fn()) as unknown as {
+			apiClient: { mcpGovernance: { resolveAgentTransportPolicy: unknown } };
+		};
+		ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy = vi.fn(
+			async () => {
+				throw new Error("policy backend unavailable");
+			},
+		);
+		const result = await requireDestructiveToolApproval(
+			ctx as unknown as Pick<ServerContext, "server">,
+			tool,
+			{ destructiveHint: true },
+		);
+
+		expect(result?.isError).toBe(true);
+		expect(callToolResultText(result!)).toContain(
+			"no side effect was executed",
+		);
+		expect(result?._meta).toEqual({
+			code: "autonomous_policy_unavailable",
+			details: { executed: false, retryAfterSeconds: 5 },
+		});
+	});
+
 	it("returns input_required (not elicitInput) on first touch for an agent", async () => {
 		const elicitInput = vi.fn();
 

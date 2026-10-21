@@ -1,4 +1,5 @@
 import { fileGatewayCooldown, type GatewayCooldown } from "./gateway-cooldown";
+import { preDispatchRetryAfterMs } from "@tedix/mcp-shared/tool-result";
 type FetchLike = (
 	...args: Parameters<typeof fetch>
 ) => ReturnType<typeof fetch>;
@@ -130,4 +131,37 @@ export function retryRateLimitedPosts(
 		}
 		return response;
 	};
+}
+
+/**
+ * Run one tool call, and resend it at most twice when the gateway refused it
+ * with a typed pre-dispatch "unavailable" tool error. Such an error says no
+ * tool ran, so resending is as safe as after a 429. Each wait honours the
+ * error's Retry-After plus up to as much jitter; a wait that would pass the
+ * caller's deadline, or a cancellation, ends with the original error.
+ */
+export async function resendPreDispatchToolRefusals<T>(
+	call: () => Promise<T>,
+	options: {
+		signal?: AbortSignal | null;
+		deadlineAt?: number;
+	} & Pick<GatewayRetryDeps, "sleep" | "random" | "now"> = {},
+): Promise<T> {
+	const sleep = options.sleep ?? abortableSleep;
+	const random = options.random ?? Math.random;
+	const now = options.now ?? Date.now;
+	for (let retry = 0; ; retry++) {
+		try {
+			return await call();
+		} catch (error) {
+			const retryAfterMs = preDispatchRetryAfterMs(error);
+			if (retryAfterMs === null || retry >= MAX_RETRIES) throw error;
+			const waitMs = Math.round(
+				retryAfterMs + random() * Math.min(retryAfterMs, MAX_JITTER_MS),
+			);
+			if (now() + waitMs >= (options.deadlineAt ?? Infinity)) throw error;
+			await sleep(waitMs, options.signal);
+			options.signal?.throwIfAborted();
+		}
+	}
 }
