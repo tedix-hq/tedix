@@ -26,6 +26,7 @@ import {
 import {
 	cancelRunRoute,
 	readRunEventsRoute,
+	resolvePageToolRoute,
 	respondApprovalRoute,
 	retryDelegationRoute,
 	retryRunRoute,
@@ -71,6 +72,7 @@ export const kernelRuntimeContractRouter = kernelRuntimeOs.router({
 	readRunTrace: readRunTraceRoute,
 	readRunEvents: readRunEventsRoute,
 	cancelRun: cancelRunRoute,
+	resolvePageTool: resolvePageToolRoute,
 	steerRun: steerRunRoute,
 	// THE Home approval surface: the caller supplies a homeRunId (never a raw
 	// approval UUID) and a decision; the pending target is resolved FROM THE

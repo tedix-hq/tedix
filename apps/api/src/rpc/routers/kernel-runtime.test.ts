@@ -7643,6 +7643,74 @@ describe("kernel runtime router", () => {
 		]);
 	});
 
+	it("resolvePageTool hands a page result to the org's KernelDO only for a running run", async () => {
+		const db = createKernelRuntimeDb();
+		for (const [id, status] of [
+			["home-page-tool-1", "running"],
+			["home-page-tool-done", "completed"],
+		] as const)
+			db.runs.push(
+				normalizeKernelRuntimeRunInsert({
+					id,
+					organizationId: ORG_ID,
+					conversationId: `home:${id}`,
+					status,
+					createdAt: "2026-06-06T08:00:00.000Z",
+					updatedAt: "2026-06-06T08:01:00.000Z",
+				}),
+			);
+		const calls: Array<{ doId: string; runId: string; callId: string }> = [];
+		const fakeKernelNamespace = {
+			idFromName: (name: string) => name,
+			get: (doId: string) => ({
+				resolvePageTool: async (runId: string, callId: string) => {
+					calls.push({ doId, runId, callId });
+					// The DO accepts only a call it is waiting on.
+					return callId === "call-00000001";
+				},
+			}),
+		};
+		const client = createKernelRuntimeClient(
+			createContext(db, { env: { KERNEL: fakeKernelNamespace } }),
+		);
+		const result = { ok: true, content: "filled" };
+
+		await expect(
+			client.resolvePageTool({
+				runId: "home-page-tool-1",
+				callId: "call-00000001",
+				result,
+			}),
+		).resolves.toEqual({ accepted: true });
+		// A guessed call id settles nothing.
+		await expect(
+			client.resolvePageTool({
+				runId: "home-page-tool-1",
+				callId: "call-guessed-1",
+				result,
+			}),
+		).resolves.toEqual({ accepted: false });
+		// A finished run never reaches the DO.
+		await expect(
+			client.resolvePageTool({
+				runId: "home-page-tool-done",
+				callId: "call-00000001",
+				result,
+			}),
+		).resolves.toEqual({ accepted: false });
+		await expect(
+			client.resolvePageTool({
+				runId: "home-page-tool-missing",
+				callId: "call-00000001",
+				result,
+			}),
+		).rejects.toThrow();
+		expect(calls).toEqual([
+			{ doId: ORG_ID, runId: "home-page-tool-1", callId: "call-00000001" },
+			{ doId: ORG_ID, runId: "home-page-tool-1", callId: "call-guessed-1" },
+		]);
+	});
+
 	it("cancelRun stamps durable abort intent on the parent AND the delegated child submissions before acting", async () => {
 		const db = createKernelRuntimeDb();
 		db.runs.push(

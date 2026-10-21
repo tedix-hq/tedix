@@ -74,6 +74,7 @@ import {
 } from "./kernel-state";
 import type { TediRequeueDeps } from "./runtime-submission-bridge";
 import { abortKernelTurn } from "./turn-abort";
+import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
 
 /** Delay before a post-turn reconciliation sweep fires. */
 const RECONCILE_SWEEP_DELAY_SECONDS = 5 * 60;
@@ -127,6 +128,8 @@ const KERNEL_CRASH_LEASE_MS = 15 * 60_000;
  * never clipped, and well under the 15-min lease so the operator learns fast.
  */
 const KERNEL_TURN_WATCHDOG_SECONDS = 240;
+/** A person tapping confirm in the chat; well inside the turn watchdog. */
+const HOME_PAGE_TOOL_CONFIRM_TIMEOUT_MS = 120_000;
 const KERNEL_TURN_STUCK_DETAIL =
 	"No response from the language model within the timeout — the model (AI Gateway / Azure) appears to be unavailable. Your message is saved; please try again shortly.";
 /** Matches `KERNEL_RUNTIME_BACKEND` in kernel-runtime.ts. */
@@ -291,6 +294,12 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * cancel").
 	 */
 	private readonly turnAbortControllers = new Map<string, AbortController>();
+	/**
+	 * Open page tool calls of Home turns running on this DO: Home asks the
+	 * person's page, the page answers through `resolvePageTool`. In memory on
+	 * purpose: a call outlives neither its turn nor this isolate.
+	 */
+	private readonly pageToolBroker = new PageToolBroker();
 
 	/**
 	 * Synthetic per-turn context: the DO has no inbound oRPC request — auth
@@ -1009,6 +1018,51 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 					flushStreamedProgress: progress.flush,
 					holdAfterSettle: progress.holdAfterSettle,
 					plannerAbortSignal: abortController.signal,
+					...(input.pageTools?.length
+						? {
+								pageToolRelay: (call, signal) =>
+									this.pageToolBroker.request({
+										runId: input.runId,
+										name: call.name,
+										args: call.args,
+										confirm: call.confirm,
+										// A confirm waits for a person, inside the turn watchdog.
+										...(call.confirm
+											? { timeoutMs: HOME_PAGE_TOOL_CONFIRM_TIMEOUT_MS }
+											: {}),
+										signal: signal ?? abortController.signal,
+										emit: (event) => {
+											void loadHomeLiveEvents()
+												.then((m) =>
+													m.recordHomePageToolRequest(context, {
+														organizationId: input.organizationId,
+														conversationId: input.conversationId,
+														runId: input.runId,
+														callId: String(event.callId),
+														name: call.name,
+														args: call.args,
+														confirm: call.confirm,
+														createdAt: new Date().toISOString(),
+													}),
+												)
+												.catch((error) => {
+													console.warn(
+														"[kernel] page tool request not recorded",
+														kernelErrorMessage(error),
+													);
+													this.pageToolBroker.resolve(
+														input.runId,
+														String(event.callId),
+														{
+															ok: false,
+															content: "The page could not be reached.",
+														},
+													);
+												});
+										},
+									}),
+							}
+						: {}),
 					...(candidatesInFlight
 						? { relevanceCandidates: candidatesInFlight }
 						: {}),
@@ -1095,7 +1149,24 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * for logging/observability only.
 	 */
 	async cancelTurn(runId: string): Promise<boolean> {
+		this.pageToolBroker.cancelRun(runId);
 		return abortKernelTurn(this.turnAbortControllers, runId);
+	}
+
+	/**
+	 * The person's page answers one page tool call of a Home turn running
+	 * here. The router authorized the caller for the run's conversation; this
+	 * accepts only an open call of that run, once.
+	 */
+	async resolvePageTool(
+		runId: string,
+		callId: string,
+		result: { ok: boolean; content: string },
+	): Promise<boolean> {
+		return this.pageToolBroker.resolve(runId, callId, {
+			ok: result.ok === true,
+			content: String(result.content ?? "").slice(0, 16_000),
+		});
 	}
 
 	/**

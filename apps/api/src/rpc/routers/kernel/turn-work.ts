@@ -857,6 +857,18 @@ export async function runKernelTurnWork(
 			// internal timeout/idle signals so a cancel actually stops the
 			// in-flight LLM call.
 			abortSignal: deps.plannerAbortSignal,
+			// The page's own tools, relayed through the KernelDO. Never on an
+			// observe-only turn, and never without a DO holding the wait.
+			...(input.pageTools?.length &&
+			deps.pageToolRelay &&
+			input.executionPolicy !== "observe_only"
+				? {
+						pageTools: {
+							descriptors: input.pageTools,
+							relay: deps.pageToolRelay,
+						},
+					}
+				: {}),
 			// Read side: surface this run's chain depth (stamped on the run
 			// metadata by kernelDelegateRunner as parent+1) so the kernel's own
 			// delegate decision enforces MAX_DELEGATION_DEPTH end-to-end. Read from

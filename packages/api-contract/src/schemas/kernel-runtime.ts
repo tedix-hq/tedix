@@ -690,6 +690,41 @@ export type HomePlanAssignmentApprovalResult = z.infer<
 export const KernelExecutionPolicySchema = z.enum(["normal", "observe_only"]);
 export type KernelExecutionPolicy = z.infer<typeof KernelExecutionPolicySchema>;
 
+/**
+ * A tool the page the person is looking at offers for one Home turn, such as
+ * filling the Decision Deck card on screen. The browser runs it; Home only
+ * asks. Descriptor only: untrusted page data that grants no server access.
+ */
+export const HomePageToolDescriptorSchema = z.object({
+	name: z
+		.string()
+		.regex(/^[a-z][a-z0-9_]{1,63}$/)
+		.describe("Verb-first snake_case page tool name."),
+	description: z.string().min(1).max(1_000),
+	inputSchema: z
+		.record(z.string(), z.unknown())
+		.refine((schema) => JSON.stringify(schema).length <= 4_000, {
+			message: "Page tool input schema is too large",
+		}),
+	annotations: z
+		.object({
+			readOnlyHint: z.boolean().optional(),
+			consequentialHint: z.boolean().optional(),
+			untrustedContentHint: z.boolean().optional(),
+		})
+		.optional()
+		.describe("Omitted when the page gives no hints."),
+	confirm: z
+		.boolean()
+		.optional()
+		.describe(
+			"True when the person taps a confirm in the chat before it runs; omitted otherwise.",
+		),
+});
+export type HomePageToolDescriptor = z.infer<
+	typeof HomePageToolDescriptorSchema
+>;
+
 export const EnqueueHomeMessageInputSchema = z.object({
 	organizationId: z.string().optional(),
 	conversationId: z.string().optional(),
@@ -735,6 +770,13 @@ export const EnqueueHomeMessageInputSchema = z.object({
 		.optional()
 		.describe(
 			"Omitted on organization Home turns; Workspace hosts supply it and the API tenant-validates every id.",
+		),
+	pageTools: z
+		.array(HomePageToolDescriptorSchema)
+		.max(12)
+		.optional()
+		.describe(
+			"Omitted unless the person's page offers tools for this turn. Home may ask the page to run them; results come back through resolvePageTool as untrusted page data.",
 		),
 	metadata: RuntimeMetadataSchema.optional(),
 });
@@ -1079,6 +1121,27 @@ export const ReadHomeRunEventsInputSchema = z.object({
 export type ReadHomeRunEventsInput = z.infer<
 	typeof ReadHomeRunEventsInputSchema
 >;
+
+export const ResolveHomePageToolInputSchema = z.object({
+	organizationId: z.string().optional(),
+	runId: z.string().min(1),
+	callId: z.string().regex(/^[a-zA-Z0-9_-]{8,128}$/),
+	result: z.object({
+		ok: z.boolean(),
+		content: z.string().max(16_000),
+	}),
+});
+export type ResolveHomePageToolInput = z.infer<
+	typeof ResolveHomePageToolInputSchema
+>;
+
+export const ResolveHomePageToolOutputSchema = z.object({
+	accepted: z
+		.boolean()
+		.describe(
+			"False when no open page tool call of this run has this id: unknown, already answered, timed out, or another run's.",
+		),
+});
 
 export const CancelHomeRunInputSchema = z.object({
 	organizationId: z.string().optional(),
