@@ -18,6 +18,7 @@ function Table({
 	return (
 		<div
 			data-slot="table-container"
+			data-focus-ring="inset"
 			className={cn(
 				"relative w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain",
 				scrollLabel &&

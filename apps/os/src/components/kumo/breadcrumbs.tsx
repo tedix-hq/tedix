@@ -49,7 +49,7 @@ export function Breadcrumbs({
 			) : null}
 			<KumoBreadcrumbs
 				size="sm"
-				className="mr-0 h-auto min-w-0 type-tedix-control max-sm:[&>div:first-child>span:first-child]:hidden max-sm:[&>div:first-child>span:first-child+span]:hidden [&_[aria-current=page]]:text-kumo-default [&_[data-kumo-part=link]]:min-w-0 [&_[data-kumo-part=link]]:max-w-[45%] [&_[data-kumo-part=link]>span]:min-w-0 [&_[data-kumo-part=link]>span]:truncate"
+				className="mr-0 h-auto min-w-0 overflow-clip type-tedix-control [overflow-clip-margin:0.25rem] [&_.truncate]:min-w-0 [&_.truncate]:overflow-clip [&_.truncate]:[overflow-clip-margin:0.25rem] max-sm:[&>div:first-child>span:first-child]:hidden max-sm:[&>div:first-child>span:first-child+span]:hidden [&_[aria-current=page]]:text-kumo-default [&_[data-kumo-part=link]]:min-w-0 [&_[data-kumo-part=link]]:max-w-[45%] [&_[data-kumo-part=link]>span]:min-w-0 [&_[data-kumo-part=link]>span]:truncate"
 			>
 				{items.flatMap((item, index) => [
 					...(index

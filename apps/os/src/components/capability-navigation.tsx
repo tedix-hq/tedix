@@ -153,7 +153,11 @@ export function CapabilityNavigation({
 					<CaretLeft aria-hidden size={14} />
 				</Button>
 			) : null}
-			<div ref={viewportRef} className={CAPABILITY_NAV_VIEWPORT_CLASSNAME}>
+			<div
+				ref={viewportRef}
+				data-focus-ring="inset"
+				className={CAPABILITY_NAV_VIEWPORT_CLASSNAME}
+			>
 				<div className={CAPABILITY_NAV_TRACK_CLASSNAME}>
 					{CAPABILITY_NAV_ITEMS.map((item) => {
 						const isActive = active === item.id;

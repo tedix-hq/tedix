@@ -77,6 +77,7 @@ export function CanvasWorkpieceTabs({
 	return (
 		<div
 			ref={stripRef}
+			data-focus-ring="inset"
 			className="canvas-workpiece-tabs"
 			role="tablist"
 			aria-label="Open workpieces"

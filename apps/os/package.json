@@ -37,7 +37,8 @@
 		"test:browser:social-cards": "bun browser-tests/social-cards.spec.ts",
 		"test:browser:deck-speed": "bun browser-tests/deck-speed.spec.ts",
 		"test:browser:members": "bun browser-tests/members.spec.ts",
-		"test:ci": "bun run test:run && bun run test:browser:apps",
+		"test:browser:focus-clip": "bun browser-tests/focus-clip.spec.ts",
+		"test:ci": "bun run test:run && bun run test:browser:apps && bun run test:browser:focus-clip",
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {

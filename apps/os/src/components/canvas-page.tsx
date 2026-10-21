@@ -1314,7 +1314,7 @@ export function CanvasPage({
 					}
 				>
 					{openedDocs.length > 0 ? (
-						<div className="canvas-workpiece-bar">
+						<div className="canvas-workpiece-bar" data-focus-ring="inset">
 							<Button
 								className="canvas-chat-toggle"
 								size="icon"

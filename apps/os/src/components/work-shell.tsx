@@ -83,6 +83,7 @@ export function WorkShell() {
 				<div className="fd-work-bar">
 					<nav
 						data-slot="bottom-nav"
+						data-focus-ring="inset"
 						aria-label={OS_COPY.workHome.views}
 						className="fd-work-navigation sticky bottom-0"
 					>

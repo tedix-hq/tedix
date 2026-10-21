@@ -169,10 +169,69 @@ a {
 	-webkit-tap-highlight-color: transparent;
 }
 
-button:focus-visible,
-a:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 2px;
+/*
+ * Field edges and focus rings must survive an overflow ancestor. Kumo paints
+ * both as box-shadow rings outside the border box, and an
+ * `overflow: hidden | auto` ancestor (cards, rounded lists, tab strips,
+ * scroll areas, truncation wrappers) cuts whatever reaches past its padding
+ * box. Three rules keep controls whole without per-spot padding:
+ *
+ * 1. The fallback focus outline is a base-layer default. Unlayered, it beat
+ *    every component's own `outline-none` + `ring-inset` treatment and added
+ *    a 4px outer outline that tab strips, sidebars and lists then clipped.
+ * 2. Fields draw their 1px border and focus ring inset. They are full-width,
+ *    so they always sit flush with the content edge of whatever clips them.
+ *    Text fields and field groups have no edge-to-edge child backgrounds that
+ *    could cover an inset ring.
+ * 3. A container that clips by design (scroll strip, rounded list, table
+ *    scroller, bottom bar) declares `data-focus-ring="inset"`; controls inside
+ *    it draw their border and focus inside their own box. Kumo's code block
+ *    (`.kumo-shiki`) scrolls its focusable `<pre>` the same way.
+ */
+@layer base {
+	button:focus-visible,
+	a:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+}
+
+:where(
+	.kumo-input-placeholder,
+	[data-slot="input"],
+	[data-kumo-component="Textarea"],
+	[data-kumo-component="Select"][data-kumo-part="trigger"]
+),
+:where([data-focus-ring="inset"], .kumo-shiki)
+	:where(button, a[href], [role="tab"], [role="row"], [tabindex]) {
+	--tw-ring-inset: inset;
+}
+
+:where([data-focus-ring="inset"], .kumo-shiki)
+	:where(
+		button,
+		a[href],
+		[role="tab"],
+		[role="row"],
+		[tabindex]
+	):focus-visible {
+	outline-offset: -2px;
+}
+
+/* A focused field keeps its edge and thickens it to the 2px focus weight Deck uses. */
+:where(
+	input.kumo-input-placeholder,
+	textarea.kumo-input-placeholder,
+	[data-kumo-component="Select"][data-kumo-part="trigger"]
+):focus-visible {
+	--tw-ring-shadow: inset 0 0 0 2px var(--ring);
+}
+
+:where(
+		input.kumo-input-placeholder,
+		textarea.kumo-input-placeholder
+	)[aria-invalid="true"]:focus-visible {
+	--tw-ring-shadow: inset 0 0 0 2px var(--color-kumo-danger);
 }
 
 /* ---------------------------------------------------------------------------
@@ -288,8 +347,14 @@ a:focus-visible {
 	line-height: var(--text-tedix-body--line-height);
 }
 
+/*
+ * Truncate without cutting the focus ring of a focusable title. `clip` is not
+ * a scroll container, so a flex item needs its minimum width set explicitly.
+ */
 .topbar-context span {
-	overflow: hidden;
+	min-width: 0;
+	overflow: clip;
+	overflow-clip-margin: 0.25rem;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }

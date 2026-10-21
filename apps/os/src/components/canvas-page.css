@@ -1025,7 +1025,8 @@
 	}
 
 	.chat-composer-context {
-		overflow: hidden;
+		overflow: clip;
+		overflow-clip-margin: 0.25rem;
 	}
 
 	.chat-composer-hint {
@@ -1106,7 +1107,12 @@
 	flex: 1 1 auto;
 	min-width: 0;
 }
+/* In the document header the switcher shares the row with the title; on a
+   phone it scrolls inside the row instead of running past the clipped edge. */
 .canvas-document-identity .canvas-workpiece-mode-switcher {
+	min-width: 0;
+	max-width: 100%;
+	flex: 0 1 auto;
 	margin: 0;
 }
 

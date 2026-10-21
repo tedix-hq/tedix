@@ -250,7 +250,8 @@ function SidebarResizeHandle() {
 			aria-valuemin={minWidth}
 			aria-valuemax={maxWidth}
 			aria-valuenow={width}
-			className="z-50"
+			// Kumo marks keyboard focus with a hairline; use the focus color.
+			className="z-50 focus-visible:after:bg-kumo-focus"
 			onDoubleClick={() => setWidth(OS_SIDEBAR_DEFAULT_WIDTH)}
 			onKeyDown={(event) => {
 				const grow = side === "left" ? "ArrowRight" : "ArrowLeft";
