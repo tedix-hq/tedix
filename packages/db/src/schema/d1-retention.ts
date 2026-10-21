@@ -43,7 +43,7 @@ export const d1RetentionPolicies = sqliteTable("d1_retention_policies", {
 	/** Physical table name; must be a table the engine supports. */
 	tableName: text("table_name").primaryKey(),
 	mode: text("mode", { enum: D1_RETENTION_MODES }).notNull().default("off"),
-	/** Rows older than this many days are eligible. */
+	/** Rows older than this many days are eligible; raised to the table floor. */
 	keepDays: integer("keep_days").notNull(),
 	/** Upper bound on rows archived or deleted per table per run. */
 	maxRowsPerRun: integer("max_rows_per_run").notNull().default(2000),

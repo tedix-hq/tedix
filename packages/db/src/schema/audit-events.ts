@@ -30,8 +30,8 @@ export const auditEvents = sqliteTable(
 			table.organizationId,
 			table.timestamp,
 		),
-		// deleteOldAuditEvents sweeps `WHERE timestamp < cutoff` with no org filter —
-		// needs timestamp as the leading column.
+		// Retention (queries/d1-retention.ts) walks the rowid b-tree; this index
+		// still serves cross-org time-window reads with timestamp leading.
 		index("idx_audit_events_timestamp").on(table.timestamp),
 		// getAuditEventsByResource pins all three columns. Without this it fell back
 		// to the org/timestamp index and scanned every event in the organization,

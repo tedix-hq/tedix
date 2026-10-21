@@ -9,6 +9,7 @@ import { schemaDdl } from "../test/schema-ddl";
 import {
 	buildD1RetentionDeleteStatements,
 	d1RetentionCutoff,
+	d1RetentionEffectiveKeepDays,
 	d1RetentionPolicyProblem,
 	deleteD1RetentionRows,
 	estimateD1RetentionBacklog,
@@ -67,7 +68,7 @@ const audit = () => {
 };
 
 describe("d1 retention policy validation", () => {
-	it("refuses unknown tables, windows below the floor and unarchived deletes of evidence", () => {
+	it("refuses unknown tables and unarchived deletes of evidence, and raises windows below the floor", () => {
 		expect(
 			d1RetentionPolicyProblem({
 				tableName: "organizations",
@@ -81,7 +82,9 @@ describe("d1 retention policy validation", () => {
 				mode: "archive_then_delete",
 				keepDays: 7,
 			}),
-		).toBe("keep_days_below_floor");
+		).toBeNull();
+		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 7 })).toBe(30);
+		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 90 })).toBe(90);
 		expect(
 			d1RetentionPolicyProblem({
 				tableName: "audit_events",

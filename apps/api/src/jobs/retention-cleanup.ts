@@ -33,9 +33,6 @@ export async function runRetentionCleanupCron(
 		deleteOldHealthHistory,
 		deleteOldCatalogChanges,
 		deleteOldToolTests,
-		deleteOldAuditEvents,
-		deleteOldTediRuntimeEvents,
-		deleteOldKernelRuntimeEvents,
 		deleteOldCronExecutions,
 		deleteOldSkillUsageEvents,
 		deleteOldRuntimeSubmissions,
@@ -116,7 +113,6 @@ export async function runRetentionCleanupCron(
 	// successive nights instead of one oversized D1 transaction.
 	const deletedCatalogChanges = await deleteOldCatalogChanges(db, 90);
 	const deletedTests = await deleteOldToolTests(db, 30);
-	const deletedAudit = await deleteOldAuditEvents(db, 90);
 	const deletedJobs = await cleanupOldJobs(db, 7);
 	const deletedSnapshots = await cleanupOldSnapshots(db, 7);
 	const deletedUsageEvents = await cleanupOldUsageEvents(db, 30);
@@ -126,23 +122,11 @@ export async function runRetentionCleanupCron(
 		await import("@tedix/db/queries/workflow-runs");
 	const deletedWorkflowRuns = await deleteOldWorkflowRunRecords(db, 90);
 
-	// Runtime-event ledgers (tedi_runtime_events / kernel_runtime_events)
-	// had NO retention and are the platform's highest-write tables (the
-	// documented D1-overload hotspot). Prune in bounded batches, 90d window
-	// (matches audit). Isolated in its own try/catch so a D1 hiccup on these
-	// hot tables never aborts the rest of the retention cron or marks the
-	// scheduled event failed (fail-soft).
-	let deletedTediEvents = 0;
-	let deletedKernelEvents = 0;
-	try {
-		deletedTediEvents = await deleteOldTediRuntimeEvents(db, 90);
-		deletedKernelEvents = await deleteOldKernelRuntimeEvents(db, 90);
-	} catch (runtimeRetentionError) {
-		console.warn(
-			`[Scheduled] Runtime-event retention failed (non-fatal):`,
-			safeExceptionTopology(runtimeRetentionError),
-		);
-	}
+	// audit_events, tedi_runtime_events and kernel_runtime_events are NOT
+	// deleted here. "Keep logs": their rows leave the main database only
+	// through the hourly policy-driven engine (jobs/d1-retention.ts), which
+	// copies each row to the logs database and R2 and verifies the copy
+	// before removing it.
 
 	// Non-financial append-only telemetry/evidence ledgers (tedi_call_costs
 	// and mcp_payment_events are deliberately EXCLUDED — financial evidence).
@@ -206,7 +190,7 @@ export async function runRetentionCleanupCron(
 	const deletedDriftReports = await deleteOldDriftReports(db, 30);
 
 	console.log(
-		`[Scheduled] Retention cleanup complete: health=${deletedHealth}, catalogChanges=${deletedCatalogChanges}, tests=${deletedTests}, audit=${deletedAudit}, jobs=${deletedJobs}, snapshots=${deletedSnapshots}, usageEvents=${deletedUsageEvents}, widgetEvents=${deletedWidgetEvents}, driftReports=${deletedDriftReports}, workflowRuns=${deletedWorkflowRuns}, tediEvents=${deletedTediEvents}, kernelEvents=${deletedKernelEvents}, cronExecutions=${deletedCronExecutions}, platformCronExecutions=${deletedPlatformCronExecutions}, skillUsage=${deletedSkillUsage}, runtimeSubmissions=${deletedRuntimeSubmissions}, learningEvents=${deletedLearningEvents}, harnessEvalResults=${deletedHarnessEvalResults}, harnessEvalRuns=${deletedHarnessEvalRuns}, traceBundles=${deletedTraceBundles}, projectionOutbox=${prunedProjectionEvents}`,
+		`[Scheduled] Retention cleanup complete: health=${deletedHealth}, catalogChanges=${deletedCatalogChanges}, tests=${deletedTests}, jobs=${deletedJobs}, snapshots=${deletedSnapshots}, usageEvents=${deletedUsageEvents}, widgetEvents=${deletedWidgetEvents}, driftReports=${deletedDriftReports}, workflowRuns=${deletedWorkflowRuns}, cronExecutions=${deletedCronExecutions}, platformCronExecutions=${deletedPlatformCronExecutions}, skillUsage=${deletedSkillUsage}, runtimeSubmissions=${deletedRuntimeSubmissions}, learningEvents=${deletedLearningEvents}, harnessEvalResults=${deletedHarnessEvalResults}, harnessEvalRuns=${deletedHarnessEvalRuns}, traceBundles=${deletedTraceBundles}, projectionOutbox=${prunedProjectionEvents}`,
 	);
 
 	// Catalog monitoring is diagnostic. It must never suppress the independent
@@ -547,14 +531,11 @@ export async function runRetentionCleanupCron(
 		healthHistoryDeleted: deletedHealth,
 		catalogChangesDeleted: deletedCatalogChanges,
 		toolTestsDeleted: deletedTests,
-		auditEventsDeleted: deletedAudit,
 		jobsDeleted: deletedJobs,
 		snapshotsDeleted: deletedSnapshots,
 		usageEventsDeleted: deletedUsageEvents,
 		widgetEventsDeleted: deletedWidgetEvents,
 		workflowRunsDeleted: deletedWorkflowRuns,
-		tediEventsDeleted: deletedTediEvents,
-		kernelEventsDeleted: deletedKernelEvents,
 		cronExecutionsDeleted: deletedCronExecutions,
 		platformCronExecutionsDeleted: deletedPlatformCronExecutions,
 		skillUsageDeleted: deletedSkillUsage,

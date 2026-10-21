@@ -6,17 +6,12 @@
 import { lt, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
-import { auditEvents } from "../../schema/audit-events";
 import {
 	appCatalogChanges,
 	appCatalogHealthHistory,
 	appCatalogToolTests,
 } from "../../schema/catalog";
 import { skillUsageEvents } from "../../schema/cognitive";
-import {
-	kernelRuntimeEvents,
-	tediRuntimeEvents,
-} from "../../schema/cognitive-runtime";
 import { tediCronExecutions } from "../../schema/cron-executions";
 import {
 	harnessEvalResults,
@@ -59,89 +54,13 @@ export async function deleteOldToolTests(db: DbClient, days = 30) {
 	return getAffectedRows(result);
 }
 
-/**
- * Delete audit event records older than N days.
- * audit_events.timestamp is integer (unix epoch), not text.
- * Returns number of deleted records.
- */
-export async function deleteOldAuditEvents(db: DbClient, days = 90) {
-	const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
-	const result = await db
-		.delete(auditEvents)
-		.where(lt(auditEvents.timestamp, new Date(cutoff * 1000)));
-	return getAffectedRows(result);
-}
+// audit_events, tedi_runtime_events and kernel_runtime_events are no longer
+// deleted here. Their retention is policy-driven (`queries/d1-retention.ts`,
+// `d1_retention_policies`): rows leave the main database only after a
+// verified copy exists in the logs database and in R2.
 
 /**
- * Batched retention delete for `tedi_runtime_events` — the hottest table on the
- * platform (the documented D1-overload hotspot; ~80% of all D1 reads, zero
- * prior retention).
- *
- * Deletes rows older than `days` (default 90, matching `audit_events`). An
- * unbatched `DELETE ... WHERE created_at < cutoff` would open ONE transaction
- * over the whole over-retention set — the exact D1-overload risk we are
- * avoiding. We delete in bounded batches via the portable SQLite idiom
- * `DELETE ... WHERE id IN (SELECT id ... LIMIT n)`; D1 does NOT support
- * `DELETE ... LIMIT`. `created_at` is stored as ISO-8601 (`toISOString()`), so
- * the cutoff is an ISO string (NOT `datetime('now', ...)`, whose space-format
- * mis-sorts against the 'T'/'Z' ISO rows), mirroring `deleteOldWorkflowRunRecords`.
- * `maxBatches` caps work per cron tick so a historical backlog drains over
- * successive nights, never in one giant run. Uses the standalone
- * `idx_tedi_runtime_events_created` index for a cheap range seek + early LIMIT
- * stop. The IN-subquery binds zero per-row params, so it is immune to D1's
- * 100-bound-param limit.
- */
-export async function deleteOldTediRuntimeEvents(
-	db: DbClient,
-	days = 90,
-	batchSize = 5_000,
-	maxBatches = 40,
-): Promise<number> {
-	const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-	let deleted = 0;
-	for (let i = 0; i < maxBatches; i++) {
-		const result = await db
-			.delete(tediRuntimeEvents)
-			.where(
-				sql`${tediRuntimeEvents.id} in (select ${tediRuntimeEvents.id} from ${tediRuntimeEvents} where ${tediRuntimeEvents.createdAt} < ${cutoff} limit ${batchSize})`,
-			);
-		const rows = getAffectedRows(result);
-		deleted += rows;
-		if (rows < batchSize) break;
-	}
-	return deleted;
-}
-
-/**
- * Batched retention delete for `kernel_runtime_events` (Home/kernel event
- * ledger). Same idiom/rationale as `deleteOldTediRuntimeEvents`. Safe against
- * the Home sidebar: `listConversations` reads the durable `kernel_conversations`
- * projection, not these raw events, so pruning old events never drops a
- * conversation. Uses the standalone `idx_kernel_runtime_events_created` index.
- */
-export async function deleteOldKernelRuntimeEvents(
-	db: DbClient,
-	days = 90,
-	batchSize = 5_000,
-	maxBatches = 40,
-): Promise<number> {
-	const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-	let deleted = 0;
-	for (let i = 0; i < maxBatches; i++) {
-		const result = await db
-			.delete(kernelRuntimeEvents)
-			.where(
-				sql`${kernelRuntimeEvents.id} in (select ${kernelRuntimeEvents.id} from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.createdAt} < ${cutoff} limit ${batchSize})`,
-			);
-		const rows = getAffectedRows(result);
-		deleted += rows;
-		if (rows < batchSize) break;
-	}
-	return deleted;
-}
-
-/**
- * Shared batched-retention primitive (the deleteOldTediRuntimeEvents idiom).
+ * Shared batched-retention primitive (the `DELETE ... WHERE id IN (SELECT ... LIMIT n)` idiom).
  * Deletes rows older than `cutoff` in bounded batches via the portable SQLite
  * idiom `DELETE ... WHERE id IN (SELECT id ... LIMIT n)` (D1 has no
  * `DELETE ... LIMIT`); `maxBatches` caps work per cron tick so a historical
@@ -248,7 +167,7 @@ export function deleteOldTraceBundles(db: DbClient, days = 180) {
  * cutoff is an ISO string, NOT `datetime('now', ...)`: `datetime()` returns
  * space-format ("2026-05-06 09:53:31") and because 'T' (0x54) > ' ' (0x20), a
  * space-format cutoff compares WRONG against ISO-Z data on same-day rows. Same
- * reasoning as `deleteOldTediRuntimeEvents`; contrast the datetime() group below.
+ * reasoning as the ISO-cutoff deleters above; contrast the datetime() group below.
  *
  * Batched via the shared `deleteOldRowsBatched` idiom — an unbatched DELETE over
  * the ~100k-row over-retention set would be one oversized D1 transaction on a

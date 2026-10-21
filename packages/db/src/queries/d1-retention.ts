@@ -48,7 +48,7 @@ export interface D1RetentionTableSpec {
 	table: SQLiteTable;
 	timestamp: AnySQLiteColumn;
 	format: D1RetentionTimestampFormat;
-	/** A policy below this window is refused. */
+	/** A policy window below this is raised to it. */
 	minKeepDays: number;
 	/** Financial or legal evidence: may be archived and removed, never dropped. */
 	archiveRequired: boolean;
@@ -156,6 +156,19 @@ export function isD1RetentionExpired(
 	return typeof value === "string" && value < (cutoff as string);
 }
 
+/**
+ * The keep window a run uses: the row's `keep_days`, raised to the table's
+ * floor. A row below the floor (the shipped audit seed says 14 days against
+ * a 30-day floor) runs with the floor and reports both values, instead of
+ * being refused on every tick and never even dry-running.
+ */
+export function d1RetentionEffectiveKeepDays(
+	tableSpec: Pick<D1RetentionTableSpec, "minKeepDays">,
+	policy: Pick<D1RetentionPolicyRow, "keepDays">,
+): number {
+	return Math.max(policy.keepDays, tableSpec.minKeepDays);
+}
+
 /** Why a policy row cannot run; null when it can. */
 export function d1RetentionPolicyProblem(
 	policy: Pick<D1RetentionPolicyRow, "tableName" | "mode" | "keepDays">,
@@ -163,7 +176,6 @@ export function d1RetentionPolicyProblem(
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (!tableSpec) return "unsupported_table";
 	if (!Number.isInteger(policy.keepDays)) return "keep_days_not_integer";
-	if (policy.keepDays < tableSpec.minKeepDays) return "keep_days_below_floor";
 	if (policy.mode === "delete" && tableSpec.archiveRequired) {
 		return "archive_required";
 	}

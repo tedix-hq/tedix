@@ -370,6 +370,29 @@ describe("runD1Retention", () => {
 		});
 	});
 
+	it("runs a window below the table floor at the floor and says so", async () => {
+		const { db, seed, count, policy } = fixture(
+			"('audit_events','dry_run',14,10000,'2026-10-21')",
+		);
+		seed([...Array.from({ length: 30 }, () => 45), 20, 20, 20]);
+		const result = await runD1Retention({
+			db,
+			bucket: new MemoryBucket() as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			problem: null,
+			eligibleRows: 30,
+			stoppedBy: "done",
+		});
+		expect(count()).toBe(33);
+		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
+			keepDays: 30,
+			keepDaysRow: 14,
+			eligibleRows: 30,
+		});
+	});
+
 	it("refuses unsafe policies without touching rows", async () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','delete',90,2000,'2026-10-21'), ('organizations','delete',90,2000,'2026-10-21')",
