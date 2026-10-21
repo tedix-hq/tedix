@@ -104,7 +104,24 @@ export async function getBillingBalanceSnapshot(
 	organizationId: string,
 	now: string,
 ): Promise<BillingBalanceSnapshot | null> {
+	// Writers persist UTC ISO milliseconds. datetime() previously truncated both
+	// sides to seconds; start the text range at the next whole second to retain
+	// that cutoff, including for offset or fractional-second caller timestamps.
 	const rows = (await db.all(sql`
+		WITH reserved AS MATERIALIZED (
+			SELECT
+				SUM(estimated_input_tokens + estimated_output_tokens) AS tokens,
+				SUM(estimated_charge_micros) AS charge_micros
+			FROM billing_usage_reservations
+			INNER JOIN billing_accounts AS reservation_account
+				ON reservation_account.organization_id = billing_usage_reservations.organization_id
+			WHERE billing_usage_reservations.organization_id = ${organizationId}
+				AND billing_usage_reservations.status = 'reserved'
+				AND billing_usage_reservations.expires_at >=
+					strftime('%Y-%m-%dT%H:%M:%fZ', datetime(${now}, '+1 second'))
+				AND billing_usage_reservations.period_start = reservation_account.period_start
+				AND billing_usage_reservations.period_end = reservation_account.period_end
+		)
 		SELECT
 			account.organization_id AS organizationId,
 			account.status AS status,
@@ -122,59 +139,21 @@ export async function getBillingBalanceSnapshot(
     AND plan.overage_unit_price_micros = 0
    )) AS unlimitedTokenUsage,
 			COALESCE(period.used_input_tokens + period.used_output_tokens, 0) AS usedTokens,
-			COALESCE((
-				SELECT SUM(
-					reservation.estimated_input_tokens +
-					reservation.estimated_output_tokens
-				)
-				FROM billing_usage_reservations AS reservation
-				WHERE reservation.organization_id = account.organization_id
-					AND reservation.status = 'reserved'
-					AND datetime(reservation.expires_at) > datetime(${now})
-					AND reservation.period_start = account.period_start
-					AND reservation.period_end = account.period_end
-			), 0) AS reservedTokens,
+			COALESCE(reserved.tokens, 0) AS reservedTokens,
 			CASE
 				WHEN plan.included_monthly_tokens < 0 THEN -1
 				ELSE MAX(
 					plan.included_monthly_tokens -
 					COALESCE(period.used_input_tokens + period.used_output_tokens, 0) -
-					COALESCE((
-						SELECT SUM(
-							reservation.estimated_input_tokens +
-							reservation.estimated_output_tokens
-						)
-						FROM billing_usage_reservations AS reservation
-						WHERE reservation.organization_id = account.organization_id
-							AND reservation.status = 'reserved'
-							AND datetime(reservation.expires_at) > datetime(${now})
-							AND reservation.period_start = account.period_start
-							AND reservation.period_end = account.period_end
-					), 0),
+					COALESCE(reserved.tokens, 0),
 					0
 				)
 			END AS remainingIncludedTokens,
 			account.credit_balance_micros AS creditBalanceMicros,
-			COALESCE((
-				SELECT SUM(reservation.estimated_charge_micros)
-				FROM billing_usage_reservations AS reservation
-				WHERE reservation.organization_id = account.organization_id
-					AND reservation.status = 'reserved'
-					AND datetime(reservation.expires_at) > datetime(${now})
-					AND reservation.period_start = account.period_start
-					AND reservation.period_end = account.period_end
-			), 0) AS reservedChargeMicros,
+			COALESCE(reserved.charge_micros, 0) AS reservedChargeMicros,
 			MAX(
 				account.credit_balance_micros -
-				COALESCE((
-					SELECT SUM(reservation.estimated_charge_micros)
-					FROM billing_usage_reservations AS reservation
-					WHERE reservation.organization_id = account.organization_id
-						AND reservation.status = 'reserved'
-						AND datetime(reservation.expires_at) > datetime(${now})
-						AND reservation.period_start = account.period_start
-						AND reservation.period_end = account.period_end
-				), 0),
+				COALESCE(reserved.charge_micros, 0),
 				0
 			) AS availableCreditMicros,
 			COALESCE(period.customer_charge_micros, 0) AS customerChargeMicros,
@@ -196,6 +175,7 @@ export async function getBillingBalanceSnapshot(
 			ON period.organization_id = account.organization_id
 			AND period.period_start = account.period_start
 			AND period.period_end = account.period_end
+		LEFT JOIN reserved ON 1 = 1
 		WHERE account.organization_id = ${organizationId}
 		LIMIT 1
 	`)) as Array<Record<string, unknown>>;

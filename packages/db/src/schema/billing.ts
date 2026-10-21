@@ -464,6 +464,10 @@ export const billingUsageReservations = sqliteTable(
 			table.status,
 			table.expiresAt,
 		),
+		index("idx_billing_reservation_status_expiry").on(
+			table.status,
+			table.expiresAt,
+		),
 		index("idx_billing_reservation_plan").on(table.planVersionId),
 		index("idx_billing_reservation_tedi_created").on(
 			table.tediId,

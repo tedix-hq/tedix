@@ -12,7 +12,7 @@ import {
 	autoRoutedPricingIdentity,
 	readProviderExecutionIdentity,
 } from "@tedix/api-contract/schemas/provider-execution";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type BillingAccountStatus,
@@ -1044,15 +1044,16 @@ export async function expireBillingReservations(
 	db: DbClient,
 	now: string,
 ): Promise<number> {
-	const rows = await db
-		.update(billingUsageReservations)
-		.set({ status: "expired", updatedAt: now })
-		.where(
-			and(
-				eq(billingUsageReservations.status, "reserved"),
-				lte(billingUsageReservations.expiresAt, now),
-			),
+	const rows = await db.all<{ id: string }>(sql`
+		UPDATE billing_usage_reservations
+		SET status = 'expired', updated_at = ${now}
+		WHERE id IN (
+			SELECT id FROM billing_usage_reservations
+			WHERE status = 'reserved' AND expires_at <= ${now}
+			ORDER BY expires_at
+			LIMIT 500
 		)
-		.returning({ id: billingUsageReservations.id });
+		RETURNING id
+	`);
 	return rows.length;
 }
