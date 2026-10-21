@@ -27,7 +27,16 @@ export type SseFrame = Record<string, unknown> & {
 	// `chunk` carries raw AI SDK parts; `phase` is runtime-owned progress and
 	// `tool_input` a display-only measure of tool arguments still streaming. All
 	// are buffered so reconnects preserve the same visible turn lifecycle.
-	kind: "delta" | "done" | "error" | "chunk" | "phase" | "tool_input";
+	// `page_tool_call` asks the widget's page to run a tool; the widget runs a
+	// call id once, so a replay on resume is harmless.
+	kind:
+		| "delta"
+		| "done"
+		| "error"
+		| "chunk"
+		| "phase"
+		| "tool_input"
+		| "page_tool_call";
 };
 
 /** A buffered frame with its monotonic per-run sequence number. */

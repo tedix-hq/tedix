@@ -210,6 +210,90 @@ describe("embedded capability boundary", () => {
 			expect(f.calls).toEqual([]);
 		},
 	);
+	it("forwards bounded page tool descriptors with the turn, never more", async () => {
+		const f = fixture();
+		let forwarded: unknown;
+		f.adapter.stream = async (_token, input) => {
+			forwarded = input.pageTools;
+			return Response.json({ ok: true });
+		};
+		const session = new EmbeddedSession(f.adapter, "valid", f.authority);
+		const tools = Array.from({ length: 20 }, (_, index) => ({
+			name: `set_card_field_${index}`,
+			description: "Fill a field on the card on screen.",
+			inputSchema: { type: "object", properties: {} },
+			execute: "not a descriptor field",
+		}));
+		await session
+			.stream(
+				{
+					text: "fill it",
+					clientRequestId: "page-tools-1",
+					pageTools: [
+						{
+							name: "Bad Name",
+							description: "x",
+							inputSchema: { type: "object" },
+						},
+						{
+							name: "huge_schema",
+							description: "x",
+							inputSchema: { type: "object", blob: "x".repeat(5_000) },
+						},
+						...tools,
+					] as never,
+				},
+				async () => {},
+			)
+			.catch(() => {});
+		const names = (forwarded as Array<Record<string, unknown>>).map(
+			(tool) => tool.name,
+		);
+		expect(names).toHaveLength(12);
+		expect(names).not.toContain("Bad Name");
+		expect(names).not.toContain("huge_schema");
+		expect(JSON.stringify(forwarded)).not.toContain("execute");
+	});
+
+	it("binds a page tool result to the run this session derives", async () => {
+		const f = fixture();
+		const received: Array<{ runId: string; callId: string }> = [];
+		f.adapter.resolvePageTool = async (_token, input) => {
+			received.push({ runId: input.runId, callId: input.callId });
+			return { accepted: true };
+		};
+		const session = new EmbeddedSession(f.adapter, "valid", f.authority);
+		await session.resolvePageTool({
+			clientRequestId: "turn-request-1",
+			callId: "call-00000001",
+			result: { ok: true, content: "filled" },
+		});
+		const expected =
+			"tedi:chat:" + (await scopedTurnKey(f.authority, "turn-request-1"));
+		expect(received).toEqual([{ runId: expected, callId: "call-00000001" }]);
+		// Another conversation's session derives a different run for the same
+		// request id, so its result can never reach this turn's call.
+		const other = new EmbeddedSession(f.adapter, "valid", {
+			...f.authority,
+			sessionKey: "company-8042-user-6190-conversation-2",
+		});
+		await other
+			.resolvePageTool({
+				clientRequestId: "turn-request-1",
+				callId: "call-00000001",
+				result: { ok: true, content: "spoof" },
+			})
+			.catch(() => {});
+		expect(received[1]?.runId).not.toBe(expected);
+		await expect(
+			session.resolvePageTool({
+				clientRequestId: "turn-request-1",
+				callId: "../../x",
+				result: { ok: true, content: "x" },
+			}),
+		).rejects.toThrow("Invalid page tool result");
+	});
+
 	it("forwards a well-formed model choice and drops a malformed one", async () => {
 		// The browser may ASK for a model and an effort; this boundary only checks
 		// that the values could be a ref and an effort. What the session may

@@ -21,6 +21,7 @@ function stub(stream: EmbeddedSessionStub["stream"]): EmbeddedSessionStub {
 		readCompletedTurn: async () => null,
 		stream,
 		cancel: async () => ({}),
+		resolvePageTool: async () => ({ accepted: true }),
 		listApprovals: async () => ({}),
 		requestApproval: async () => ({}),
 		resolveApproval: async () => ({}),

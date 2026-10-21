@@ -26,6 +26,14 @@ import {
 import { createFrameDeliveryWindow } from "./frame-delivery-window";
 import { consumeRuntimeFrames } from "./runtime-frames";
 import {
+	isPageToolCallId,
+	normalizePageToolDescriptors,
+	normalizePageToolResult,
+	type PageToolDescriptor,
+	type PageToolResult,
+	type ResolvePageToolInput,
+} from "./page-tools";
+import {
 	type ClientTurnMilestoneBatch,
 	validateClientTurnMilestoneBatch,
 } from "./client-turn-milestones";
@@ -61,10 +69,21 @@ export interface EmbeddedCapabilityAdapter {
 			resume: boolean;
 			modelRef?: string;
 			reasoningEffort?: string;
+			pageTools?: PageToolDescriptor[];
 			signal: AbortSignal;
 		},
 	): Promise<Response>;
 	cancel(token: string, turnKey: string, signal: AbortSignal): Promise<unknown>;
+	/**
+	 * Deliver one page tool result to the run this session derived. The run id
+	 * comes from the session's own authority, so a result can only ever reach
+	 * a call this conversation's turn requested.
+	 */
+	resolvePageTool?(
+		token: string,
+		input: { runId: string; callId: string; result: PageToolResult },
+		signal: AbortSignal,
+	): Promise<{ accepted: boolean }>;
 	listApprovals(token: string, signal: AbortSignal): Promise<unknown>;
 	requestApproval(
 		token: string,
@@ -343,6 +362,7 @@ export class EmbeddedSession extends RpcTarget implements EmbeddedSessionApi {
 				/^(none|low|medium|high)$/.test(input.reasoningEffort)
 					? input.reasoningEffort
 					: undefined;
+			const pageTools = normalizePageToolDescriptors(input.pageTools);
 			const response = await this.#adapter.stream(this.#token, {
 				runId,
 				turnKey,
@@ -352,6 +372,7 @@ export class EmbeddedSession extends RpcTarget implements EmbeddedSessionApi {
 				resume: input.resume === true,
 				...(modelRef ? { modelRef } : {}),
 				...(reasoningEffort ? { reasoningEffort } : {}),
+				...(pageTools.length ? { pageTools } : {}),
 				signal: this.#abort.signal,
 			});
 			timing.mark("response");
@@ -402,6 +423,21 @@ export class EmbeddedSession extends RpcTarget implements EmbeddedSessionApi {
 		await this.#check();
 		const turnKey = await scopedTurnKey(this.#authority, clientRequestId);
 		return this.#adapter.cancel(this.#token, turnKey, this.#abort.signal);
+	}
+	async resolvePageTool(
+		input: ResolvePageToolInput,
+	): Promise<{ accepted: boolean }> {
+		if (!input || !isPageToolCallId(input.callId))
+			throw new Error("Invalid page tool result");
+		const result = normalizePageToolResult(input.result);
+		await this.#check();
+		if (!this.#adapter.resolvePageTool) return { accepted: false };
+		const turnKey = await scopedTurnKey(this.#authority, input.clientRequestId);
+		return this.#adapter.resolvePageTool(
+			this.#token,
+			{ runId: this.#adapter.runId(turnKey), callId: input.callId, result },
+			this.#abort.signal,
+		);
 	}
 	async listApprovals(): Promise<unknown> {
 		await this.#check();

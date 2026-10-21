@@ -54,7 +54,14 @@ import { sanitizeChatAttachments } from "./chat-attachments";
 import {
 	type InternalChatStreamPayload,
 	internalChatStreamTrust,
+	isEmbeddedSessionKey,
 } from "./chat-stream-input";
+import {
+	isPageToolCallId,
+	normalizePageToolDescriptors,
+	normalizePageToolResult,
+} from "@tedix/chat-transport/page-tools";
+import type { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
 import type { ChatTurnParams } from "./chat-turn-input";
 import { CmSessionGate } from "./cm-execution-gate";
 import { CmExecutionStore, hashCode } from "./cm-execution-store";
@@ -130,6 +137,7 @@ import { utcDateSlug } from "./workspace";
 import { type WorkstationTurnContext } from "./workstation-turn-context";
 
 export interface RuntimeRequestHost {
+	pageToolBroker: PageToolBroker;
 	hintsFromHeaders: (headers: Headers) => {
 		slug?: string;
 		tediId?: string;
@@ -573,6 +581,10 @@ export async function handleRuntimeRequest(
 			toolAllowedCallables: payload.tool_allowed_callables,
 			embeddedSessionToken: payload.embedded_session_token,
 			embeddedQuota: embeddedTurnQuotaFromPayload(payload.embedded_quota),
+			// Only a widget turn on an embedded session may carry page tools.
+			...(isEmbeddedSessionKey(sessionKey)
+				? { pageTools: normalizePageToolDescriptors(payload.page_tools) }
+				: {}),
 			// `/__internal/*` is reachable only from this Worker's own edge, which
 			// resolves a model choice against the tedi's model-catalog roster
 			// before dispatching. Re-deriving that verdict here would need a
@@ -592,6 +604,27 @@ export async function handleRuntimeRequest(
 					? payload.reasoning_effort
 					: undefined,
 		});
+	}
+	if (url.pathname === "/__internal/page-tool/result") {
+		// The browser's result for one page tool call. The edge derived the run
+		// id from the posting session's own authority, so this can only settle
+		// a call that conversation's turn requested.
+		if (request.method !== "POST")
+			return new Response("Method Not Allowed", { status: 405 });
+		let body: { run_id?: unknown; call_id?: unknown; result?: unknown };
+		try {
+			body = (await request.json()) as typeof body;
+		} catch {
+			return Response.json({ accepted: false }, { status: 400 });
+		}
+		if (typeof body.run_id !== "string" || !isPageToolCallId(body.call_id))
+			return Response.json({ accepted: false }, { status: 400 });
+		const accepted = host.pageToolBroker.resolve(
+			body.run_id,
+			body.call_id,
+			normalizePageToolResult(body.result),
+		);
+		return Response.json({ accepted }, { status: accepted ? 200 : 404 });
 	}
 	if (url.pathname === "/__internal/chat/warm") {
 		// Warm the tool schemas while the panel opens — see the module.
@@ -1132,6 +1165,7 @@ export async function handleRuntimeRequest(
 		host.activeTurnAborts
 			.get(cancelRunId)
 			?.abort(new DOMException("run cancelled", "AbortError"));
+		host.pageToolBroker.cancelRun(cancelRunId);
 		let cascadeTerminated: string[] = [];
 		try {
 			cascadeTerminated = (await host.cascadeCancelFanout(cancelRunId))

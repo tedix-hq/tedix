@@ -2,6 +2,7 @@ import type { AudioAttachment } from "@tedix/voice/stt";
 import type { AdaptiveLearningMode } from "./adaptive-learning";
 import type { InternalEmbeddedQuotaPayload } from "./embedded-turn-quota";
 import type { SurfaceTrust, UntrustedTurnChannel } from "./turn-trust";
+import type { PageToolDescriptor } from "@tedix/chat-transport/page-tools";
 
 export type ChatContextPolicy = "conversation" | "session_only";
 
@@ -37,6 +38,8 @@ export interface InternalChatStreamPayload {
 	context_policy?: ChatContextPolicy;
 	/** Set by the runtime edge for embedded turns; see `embedded-turn-quota.ts`. */
 	embedded_quota?: InternalEmbeddedQuotaPayload;
+	/** Host page tools for this embedded turn only; see `page-tool-broker.ts`. */
+	page_tools?: unknown;
 }
 
 /** Embedded turn-quota scope and signed ceilings, as `streamChatTurn` carries them. */
@@ -80,6 +83,11 @@ export interface StreamChatTurnInput {
 	 * to the surface/profile policy.
 	 */
 	reasoningEffortOverride?: "none" | "low" | "medium" | "high";
+	/**
+	 * Host page tools offered for this embedded widget turn only. The browser
+	 * runs them; the runtime relays (`page-tool-broker.ts`).
+	 */
+	pageTools?: PageToolDescriptor[];
 }
 
 /** Embedded identities are canonical host-scoped `embed:` sessions. */

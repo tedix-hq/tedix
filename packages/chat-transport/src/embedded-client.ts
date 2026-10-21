@@ -79,6 +79,7 @@ export async function authenticateEmbeddedSocket(
 			readCompletedTurn: (id) => session.readCompletedTurn(id),
 			stream: (input, subscriber) => session.stream(input, subscriber),
 			cancel: (id) => session.cancel(id),
+			resolvePageTool: (input) => session.resolvePageTool(input),
 			listApprovals: () => session.listApprovals(),
 			requestApproval: (description) => session.requestApproval(description),
 			resolveApproval: (id, approved) => session.resolveApproval(id, approved),
@@ -424,6 +425,11 @@ export function createEmbeddedClient(
 		},
 		async cancel(id: string) {
 			return operation((root) => root.cancel(id));
+		},
+		async resolvePageTool(
+			input: Parameters<EmbeddedSessionStub["resolvePageTool"]>[0],
+		) {
+			return operation((root) => root.resolvePageTool(input));
 		},
 		async listApprovals() {
 			return operation((root) => root.listApprovals());

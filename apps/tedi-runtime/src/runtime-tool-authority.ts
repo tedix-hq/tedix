@@ -1074,6 +1074,12 @@ export const runtimeToolAuthority = {
 		// The SDK permits client-side tools; without a Tedix-side guard that
 		// timeout-based repair could silently regress here.
 		//
+		// One narrow exception lives outside this set: an embedded widget turn
+		// may offer the host page's own tools for that turn only. They are
+		// server-defined relays, not SDK client tools: `page-tool-broker.ts`
+		// runs them one at a time per turn with per-call ids, bounded waits and
+		// fenced results; `page-tool-broker.test.ts` is the parallel-call canary.
+		//
 		// Generic fetch tools are deliberately not wired.
 		// Public `fetch_url` bypasses the MCP capability gate and egress audit model.
 		// `fetch_api` binding for API_SERVICE is not useful here — oRPC is POST-based
