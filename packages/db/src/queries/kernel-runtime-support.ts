@@ -1,9 +1,30 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import { policyPacks } from "../schema/control-plane";
 import { type Tedi, tedis } from "../schema/tedis";
 import { workItemComments } from "../schema/work-items";
+
+/** Organization authority must never fall back to a platform default. */
+export async function getActiveOrganizationPolicyPack(
+	db: DbQueryClient,
+	organizationId: string,
+) {
+	return (
+		await db
+			.select()
+			.from(policyPacks)
+			.where(
+				and(
+					eq(policyPacks.organizationId, organizationId),
+					eq(policyPacks.status, "active"),
+				),
+			)
+			.orderBy(desc(policyPacks.version))
+			.limit(1)
+	)[0];
+}
 
 export async function getActivePolicyPackDefinition(
 	db: DbClient,

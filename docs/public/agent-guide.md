@@ -354,6 +354,19 @@ a tedi owner or steward on the Work, or a lead tedi on its project. The local
 session reports success; the tedi completes Work after verification. A wake
 grants no approval and does not itself prove verification or delivery.
 
+The request tracker's timer can complete verified dispatcher coding Work only
+when the organization's active policy pack explicitly configures
+`kernelRequestCoordinator.workAttemptDelivery.completion` with `projectIds`
+and a `repositoryTargetId` from its `repositoryTargets`. Omission leaves Work
+open at `ready_to_complete`; platform defaults grant no completion authority.
+This opt-in is an operator approval decision, separate from installing code.
+The timer supports low- and medium-risk coding Work whose latest Attempt
+settled successfully. It rechecks fresh main delivery, the API build, and the
+configured surface's exact SHA receipt from a successful managed Ship before
+completing. Policy revocation, a changed request or a newer Attempt fences the
+write. Missing delivery or Ship proof stays pending until the verification
+window closes, then produces one repair Work. No model or open chat is needed.
+
 To dispatch a Codex or Claude lane, Tedix opens a Work-linked `handoff`
 Interaction for the executing user's canonical id, with
 `metadata.laneRequest.harness` set to `codex` or `claude-code`. Bound

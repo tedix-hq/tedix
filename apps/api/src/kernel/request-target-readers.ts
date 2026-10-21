@@ -159,94 +159,103 @@ export function kernelAcceptanceReader(
 		},
 		async readRepositoryDelivery(check) {
 			await assertSourceAccess();
-			const target = policy.repositoryTargets.find(
-				(t) => t.id === check.targetId && t.surface === check.surface,
-			);
-			if (!target) throw new Error("Repository target is not configured");
-			const headers: Record<string, string> = {
-				Accept: "application/vnd.github+json",
-				"User-Agent": "Tedix-kernel-acceptance",
-			};
-			const token = await githubToken(context, source.organizationId, target);
-			if (token) headers.Authorization = `Bearer ${token}`;
-			const github = async (path: string) => {
-				const response = await guardedFetch(
-					`https://api.github.com/repos/${path}`,
-					{ headers, signal: AbortSignal.timeout(policy.probeTimeoutMs) },
-					{ fetchFn },
-				);
-				if (!response.ok) throw new Error("GitHub target unavailable");
-				return response;
-			};
-			const main = z
-				.object({ sha: shaSchema })
-				.parse(
-					await (await github(`${target.repository}/commits/main`)).json(),
-				);
-			const runs = z
-				.object({ workflow_runs: z.array(runSchema) })
-				.parse(
-					await (
-						await github(
-							`${target.shipRepository}/actions/workflows/${target.workflowId}/runs?status=completed&per_page=3`,
-						)
-					).json(),
-				);
-			const liveResponse = await guardedFetch(
-				target.liveManifestUrl,
-				{ signal: AbortSignal.timeout(policy.probeTimeoutMs) },
-				{ fetchFn, allowTedixHosts: true, maxRedirects: 0 },
-			);
-			if (!liveResponse.ok)
-				throw new Error("Live surface manifest unavailable");
-			const live = manifestSchema.parse(await liveResponse.json());
-			if (
-				live.repository !== target.repository ||
-				live.surface !== target.surface
-			)
-				throw new Error("Live manifest target mismatch");
-			const run = runs.workflow_runs.find(
-				(r) =>
-					r.id === live.deploymentRunId &&
-					r.conclusion === "success" &&
-					Date.now() - Date.parse(r.updated_at) <= target.maxAgeMs &&
-					Date.parse(r.updated_at) <= Date.now(),
-			);
-			if (!run)
-				throw new Error("Live deployment has no fresh successful managed Ship");
-			const jobs = jobsSchema.parse(
-				await (
-					await github(
-						`${target.shipRepository}/actions/runs/${run.id}/jobs?per_page=20`,
-					)
-				).json(),
-			);
-			const receipt = `verified: ${check.surface} is live on ${check.commitSha}`;
-			for (const job of jobs.jobs.slice(0, 20)) {
-				if (job.conclusion !== "success") continue;
-				const logs = await boundedText(
-					await github(`${target.shipRepository}/actions/jobs/${job.id}/logs`),
-				);
-				if (!logs.split("\n").some((line) => line.trimEnd().endsWith(receipt)))
-					continue;
-				return {
-					mainSha: main.sha,
-					shipSha: check.commitSha,
-					shipStatus: "success",
-					liveSha: live.commitSha,
-					surface: live.surface,
-					evidenceRefs: [
-						run.html_url,
-						`${run.html_url}/job/${job.id}`,
-						target.liveManifestUrl,
-					],
-				};
-			}
-			throw new Error(
-				"Managed Ship has no exact product SHA and surface receipt",
+			return readConfiguredRepositoryDelivery(
+				context,
+				source.organizationId,
+				policy,
+				check,
+				fetchFn,
 			);
 		},
 	};
+}
+
+/** Trusted service reader; callers authorize the source or timer policy before using it. */
+export async function readConfiguredRepositoryDelivery(
+	context: BaseContext,
+	organizationId: string,
+	policy: KernelRequestPolicy,
+	check: Parameters<KernelAcceptanceReader["readRepositoryDelivery"]>[0],
+	fetchFn: typeof fetch = fetch,
+) {
+	const target = policy.repositoryTargets.find(
+		(t) => t.id === check.targetId && t.surface === check.surface,
+	);
+	if (!target) throw new Error("Repository target is not configured");
+	const headers: Record<string, string> = {
+		Accept: "application/vnd.github+json",
+		"User-Agent": "Tedix-kernel-acceptance",
+	};
+	const token = await githubToken(context, organizationId, target);
+	if (token) headers.Authorization = `Bearer ${token}`;
+	const github = async (path: string) => {
+		const response = await guardedFetch(
+			`https://api.github.com/repos/${path}`,
+			{ headers, signal: AbortSignal.timeout(policy.probeTimeoutMs) },
+			{ fetchFn },
+		);
+		if (!response.ok) throw new Error("GitHub target unavailable");
+		return response;
+	};
+	const main = z
+		.object({ sha: shaSchema })
+		.parse(await (await github(`${target.repository}/commits/main`)).json());
+	const runs = z
+		.object({ workflow_runs: z.array(runSchema) })
+		.parse(
+			await (
+				await github(
+					`${target.shipRepository}/actions/workflows/${target.workflowId}/runs?status=completed&per_page=3`,
+				)
+			).json(),
+		);
+	const liveResponse = await guardedFetch(
+		target.liveManifestUrl,
+		{ signal: AbortSignal.timeout(policy.probeTimeoutMs) },
+		{ fetchFn, allowTedixHosts: true, maxRedirects: 0 },
+	);
+	if (!liveResponse.ok) throw new Error("Live surface manifest unavailable");
+	const live = manifestSchema.parse(await liveResponse.json());
+	if (live.repository !== target.repository || live.surface !== target.surface)
+		throw new Error("Live manifest target mismatch");
+	const run = runs.workflow_runs.find(
+		(r) =>
+			r.id === live.deploymentRunId &&
+			r.conclusion === "success" &&
+			Date.now() - Date.parse(r.updated_at) <= target.maxAgeMs &&
+			Date.parse(r.updated_at) <= Date.now(),
+	);
+	if (!run)
+		throw new Error("Live deployment has no fresh successful managed Ship");
+	const jobs = jobsSchema.parse(
+		await (
+			await github(
+				`${target.shipRepository}/actions/runs/${run.id}/jobs?per_page=20`,
+			)
+		).json(),
+	);
+	const receipt = `verified: ${check.surface} is live on ${check.commitSha}`;
+	for (const job of jobs.jobs.slice(0, 20)) {
+		if (job.conclusion !== "success") continue;
+		const logs = await boundedText(
+			await github(`${target.shipRepository}/actions/jobs/${job.id}/logs`),
+		);
+		if (!logs.split("\n").some((line) => line.trimEnd().endsWith(receipt)))
+			continue;
+		return {
+			mainSha: main.sha,
+			shipSha: check.commitSha,
+			shipStatus: "success",
+			liveSha: live.commitSha,
+			surface: live.surface,
+			evidenceRefs: [
+				run.html_url,
+				`${run.html_url}/job/${job.id}`,
+				target.liveManifestUrl,
+			],
+		};
+	}
+	throw new Error("Managed Ship has no exact product SHA and surface receipt");
 }
 
 async function githubToken(
