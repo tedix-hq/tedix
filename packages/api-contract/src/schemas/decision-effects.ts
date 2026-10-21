@@ -1,5 +1,17 @@
 import * as z from "zod";
 
+/** Effects that always keep a person in the loop when a decision carries them. */
+export const ProtectedEffectSchema = z.enum([
+	"data",
+	"contract",
+	"production",
+	"money",
+	"consent",
+	"message",
+	"commitment",
+]);
+export type ProtectedEffect = z.infer<typeof ProtectedEffectSchema>;
+
 /** Finite adapters reuse each product's authorization and revision fences. */
 export const DecisionEffectSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
