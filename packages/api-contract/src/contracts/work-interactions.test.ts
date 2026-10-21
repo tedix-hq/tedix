@@ -1,5 +1,7 @@
 import {
 	ListWorkInteractionCliInboxInputSchema,
+	ListWorkInteractionCliInboxResultSchema,
+	WorkInteractionInboxRowSchema,
 	ProposedWorkSchema,
 	WORK_PROPOSAL_SCHEMA,
 	WorkProposalMetadataSchema,
@@ -14,6 +16,40 @@ import {
 import { workInteractionsContract } from "./work-interactions";
 
 describe("Work interactions contract", () => {
+	it("accepts Work disposition in full and CLI inbox summaries without loosening validation", () => {
+		const item = {
+			id: "00000000-0000-4000-8000-000000000001",
+			title: "Check compatibility",
+			projectId: null,
+		};
+		const schemas = [
+			WorkInteractionInboxRowSchema.shape.workItem,
+			ListWorkInteractionCliInboxResultSchema.shape.data.element.shape.workItem,
+		];
+		for (const schema of schemas) {
+			for (const disposition of [
+				"proposed",
+				"accepted",
+				"completed",
+				"cancelled",
+			]) {
+				const value = { ...item, disposition };
+				expect(schema.parse(value)).toEqual(value);
+			}
+			expect(schema.parse(item)).toEqual(item);
+			expect(schema.parse(null)).toBeNull();
+			expect(
+				schema.safeParse({ ...item, disposition: "running" }).success,
+			).toBe(false);
+			expect(schema.safeParse({ ...item, disposition: null }).success).toBe(
+				false,
+			);
+			expect(schema.safeParse({ ...item, unexpected: true }).success).toBe(
+				false,
+			);
+		}
+	});
+
 	it("parses bounded Work proposals while ignoring surrounding evidence", () => {
 		const item = { title: " Task ", sourceIntentId: " intent-1 " };
 		const proposal = { key: "proposal-1", item };
