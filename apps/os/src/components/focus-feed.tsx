@@ -5,7 +5,14 @@ import { Loader } from "./kumo/loader";
 import { Skeleton } from "./kumo/skeleton";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { WorkReadNotice } from "@/components/work-read-region";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type RefObject,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, EyeSlash, PushPin, ThumbsDown } from "@phosphor-icons/react";
 import type {
@@ -70,6 +77,66 @@ import {
 } from "@tedix/api-contract/utils/feed-story";
 import { buildActivityFeedTools } from "./activity-feed-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
+
+export function useFocusFeedShortcuts(root: RefObject<HTMLDivElement | null>) {
+	useEffect(() => {
+		const key = (e: KeyboardEvent) => {
+			const owner = root.current;
+			const target = e.target;
+			if (
+				e.defaultPrevented ||
+				e.isComposing ||
+				e.altKey ||
+				e.ctrlKey ||
+				e.metaKey ||
+				e.shiftKey ||
+				!owner ||
+				!(target instanceof HTMLElement) ||
+				!owner.contains(target) ||
+				target !== document.activeElement ||
+				target.isContentEditable ||
+				target.closest(
+					"[role=dialog],[role=alertdialog],[role=menu],[role=listbox],dialog[open],[contenteditable]:not([contenteditable=false])",
+				) ||
+				(target !== owner && !target.matches("[data-focus-row]"))
+			)
+				return;
+			const rows = [...owner.querySelectorAll<HTMLElement>("[data-focus-row]")];
+			if (!rows.length) return;
+			let index = rows.indexOf(target);
+			if (e.key === "j" || e.key === "k") {
+				e.preventDefault();
+				index = Math.max(
+					0,
+					Math.min(rows.length - 1, index + (e.key === "j" ? 1 : -1)),
+				);
+				rows[index]?.focus();
+				rows[index]?.scrollIntoView?.({
+					block: "nearest",
+					behavior: "instant",
+				});
+				return;
+			}
+			if (index < 0 || e.repeat) return;
+			const row = rows[index];
+			if (e.key === "o") {
+				e.preventDefault();
+				row?.querySelector<HTMLAnchorElement>("a")?.click();
+			}
+			const action = (
+				{ p: "Pin", h: "Hide", n: "Not important" } as Record<string, string>
+			)[e.key];
+			if (action) {
+				e.preventDefault();
+				row
+					?.querySelector<HTMLButtonElement>(`button[aria-label="${action}"]`)
+					?.click();
+			}
+		};
+		document.addEventListener("keydown", key);
+		return () => document.removeEventListener("keydown", key);
+	}, [root]);
+}
 
 export function FocusFeed({
 	config,
@@ -566,57 +633,7 @@ export function FocusFeed({
 		buildActivityFeedTools,
 		[],
 	);
-	useEffect(() => {
-		const key = (e: KeyboardEvent) => {
-			if (
-				e.altKey ||
-				e.ctrlKey ||
-				e.metaKey ||
-				e.shiftKey ||
-				(e.target instanceof HTMLElement &&
-					(e.target.isContentEditable ||
-						e.target.closest(
-							"input,textarea,select,[role=textbox],[role=combobox]",
-						)))
-			)
-				return;
-			const rows = [
-				...(root.current?.querySelectorAll<HTMLElement>("[data-focus-row]") ??
-					[]),
-			];
-			if (!rows.length) return;
-			let index = rows.findIndex((r) => r.contains(document.activeElement));
-			if (e.key === "j" || e.key === "k") {
-				e.preventDefault();
-				index = Math.max(
-					0,
-					Math.min(rows.length - 1, index + (e.key === "j" ? 1 : -1)),
-				);
-				rows[index]?.focus();
-				rows[index]?.scrollIntoView?.({
-					block: "nearest",
-					behavior: "instant",
-				});
-				return;
-			}
-			const row = rows[Math.max(0, index)];
-			if (e.key === "o") {
-				e.preventDefault();
-				row?.querySelector<HTMLAnchorElement>("a")?.click();
-			}
-			const action = (
-				{ p: "Pin", h: "Hide", n: "Not important" } as Record<string, string>
-			)[e.key];
-			if (action) {
-				e.preventDefault();
-				row
-					?.querySelector<HTMLButtonElement>(`button[aria-label="${action}"]`)
-					?.click();
-			}
-		};
-		document.addEventListener("keydown", key);
-		return () => document.removeEventListener("keydown", key);
-	}, []);
+	useFocusFeedShortcuts(root);
 	const render = (item: FocusItem, budgeted = false) => (
 		<FocusRow
 			key={item.id}
@@ -637,6 +654,7 @@ export function FocusFeed({
 	return (
 		<div
 			ref={root}
+			tabIndex={0}
 			className="feed-deck fd-feed focus-feed mx-auto w-full min-w-0 max-w-3xl pb-8"
 			data-workspace-app-entry="activity-feed"
 		>
