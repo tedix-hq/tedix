@@ -169,7 +169,11 @@ function idleHours(path: string, now: number): number {
 			.map((file) => statSync(file).mtimeMs),
 		0,
 	);
-	return newest === 0 ? Number.POSITIVE_INFINITY : (now - newest) / 3_600_000;
+	// File times and Date.now() come from different clocks; a write that lands
+	// "after" now is simply fresh, never negative idle time.
+	return newest === 0
+		? Number.POSITIVE_INFINITY
+		: Math.max(0, now - newest) / 3_600_000;
 }
 
 export function readWorktreeFacts(
