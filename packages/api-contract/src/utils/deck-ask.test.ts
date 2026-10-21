@@ -91,16 +91,25 @@ describe("deckAskKind", () => {
 });
 
 describe("deadlines", () => {
-	it("uses source due dates and approval expiry without inventing a deadline from decision expiry", () => {
+	it("retains explicit source expiries but never uses a default request expiry as a deadline", () => {
 		expect(
 			deckCardDeadline({
 				dueAt: "2026-10-22T09:00:00.000Z",
 				decision: { expiresAt: "2026-10-21T09:00:00.000Z" },
 				runtimeApproval: { expiresAt: "2026-10-23T09:00:00.000Z" },
 			}),
-		).toBe("2026-10-22T09:00:00.000Z");
+		).toBe("2026-10-21T09:00:00.000Z");
 		expect(
 			deckCardDeadline({ decision: { expiresAt: "2026-10-21T09:00:00.000Z" } }),
+		).toBe("2026-10-21T09:00:00.000Z");
+		expect(
+			deckAsk(
+				{
+					kind: "question",
+					request: { expiresAt: "2026-10-27T09:00:00.000Z" },
+				},
+				now,
+			).deadline,
 		).toBeNull();
 		expect(
 			sourceInteractionDeadline("2026-10-20T16:00:00Z", {

@@ -58,13 +58,17 @@ export function sourceInteractionDeadline(
 	return dueAt && Number.isFinite(Date.parse(dueAt)) ? dueAt : null;
 }
 
-/** Source deadlines only: a default decision expiry controls validity, not urgency. */
+/** Source due dates and explicit decision/approval expiries; request lifetime defaults are separate. */
 export function deckCardDeadline(card: {
 	dueAt?: string | null;
 	decision?: { expiresAt?: string } | null;
 	runtimeApproval?: { expiresAt?: string | null } | null;
 }): string | null {
-	const values = [card.dueAt, card.runtimeApproval?.expiresAt].filter(
+	const values = [
+		card.dueAt,
+		card.decision?.expiresAt,
+		card.runtimeApproval?.expiresAt,
+	].filter(
 		(value): value is string =>
 			typeof value === "string" && Number.isFinite(Date.parse(value)),
 	);
