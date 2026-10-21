@@ -421,7 +421,11 @@ export async function listUncapturedDispatcherAttempts(
 		.limit(Math.min(20, Math.max(1, p.limit)));
 }
 
-/** Internal maintenance tick: tenants with dispatcher settlements not yet tracked. */
+/**
+ * Internal maintenance tick: tenants with dispatcher settlements not yet
+ * tracked whose active policy pack opts into delivery verification. Tenants
+ * that never capture must not fill the bounded page and starve those that do.
+ */
 export async function listDispatcherAttemptCaptureOrganizations(
 	db: DbQueryClient,
 	since: string,
@@ -429,7 +433,16 @@ export async function listDispatcherAttemptCaptureOrganizations(
 	return db
 		.select({ organizationId: workAttempts.orgId })
 		.from(workAttempts)
-		.where(uncapturedDispatcherAttempts(since))
+		.where(
+			and(
+				uncapturedDispatcherAttempts(since),
+				sql`(SELECT json_extract(p.definition, '$.kernelRequestCoordinator.enabled') = 1
+					AND json_type(p.definition, '$.kernelRequestCoordinator.workAttemptDelivery') = 'object'
+					FROM policy_packs p
+					WHERE p.organization_id = ${workAttempts.orgId} AND p.status = 'active'
+					ORDER BY p.version DESC LIMIT 1) = 1`,
+			),
+		)
 		.groupBy(workAttempts.orgId)
 		.orderBy(asc(workAttempts.orgId))
 		.limit(5);
