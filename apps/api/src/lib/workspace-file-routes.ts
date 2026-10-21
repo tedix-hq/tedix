@@ -34,7 +34,10 @@ export async function uploadWorkspaceFilePart(
 			new URL(request.url),
 		))
 	)
-		return new Response("Invalid or expired upload URL", { status: 403 });
+		return new Response(
+			"This upload URL is invalid or has expired. Request a new upload URL.",
+			{ status: 403 },
+		);
 	const manifest = await readWorkspaceFileManifest(
 		env,
 		org,
@@ -42,19 +45,33 @@ export async function uploadWorkspaceFilePart(
 		resourceId,
 	);
 	if (!manifest || Date.parse(manifest.expiresAt) <= Date.now())
-		return new Response("Upload expired", { status: 410 });
+		return new Response(
+			"This upload has expired or is no longer available. Request a new upload URL.",
+			{ status: 410 },
+		);
 	const workspace = await getOsWorkspace(createDbQueryClient(env.DB), {
 		organizationId: org,
 		workspaceId,
 	});
 	if (!workspace || workspace.status !== "active")
-		return new Response("Not found", { status: 404 });
+		return new Response(
+			"The workspace for this upload is unavailable. Check workspace access and request a new upload URL.",
+			{ status: 404 },
+		);
 	const size = workspaceFilePartSize(manifest.size, part);
 	if (size === null || !request.body)
-		return new Response("Invalid part", { status: 400 });
+		return new Response(
+			size === null
+				? "This file part is invalid. Retry the correct part from the upload instructions."
+				: `This file part has no data. Retry this part with exactly ${size} bytes.`,
+			{ status: 400 },
+		);
 	const declared = request.headers.get("Content-Length");
 	if (declared !== null && Number(declared) !== size)
-		return new Response("Wrong part size", { status: 400 });
+		return new Response(
+			`This file part must contain exactly ${size} bytes. Retry this part with the correct data.`,
+			{ status: 400 },
+		);
 	const reader = request.body.getReader();
 	const bytes = new Uint8Array(size);
 	let offset = 0;
@@ -63,12 +80,19 @@ export async function uploadWorkspaceFilePart(
 		if (done) break;
 		if (offset + value.length > size) {
 			await reader.cancel();
-			return new Response("Part too large", { status: 413 });
+			return new Response(
+				`This file part exceeds the expected ${size} bytes. Retry this part with the correct data.`,
+				{ status: 413 },
+			);
 		}
 		bytes.set(value, offset);
 		offset += value.length;
 	}
-	if (offset !== size) return new Response("Incomplete part", { status: 400 });
+	if (offset !== size)
+		return new Response(
+			`This file part is incomplete; expected ${size} bytes. Retry this part with all its data.`,
+			{ status: 400 },
+		);
 	const upload = env.SKILL_ARTIFACTS.resumeMultipartUpload(
 		workspaceFileKey(org, workspaceId, resourceId),
 		manifest.uploadId,
