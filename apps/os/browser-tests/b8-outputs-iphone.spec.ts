@@ -363,7 +363,10 @@ try {
 					search,
 					page.getByRole("button", { name: "List view" }),
 					page.getByRole("button", { name: "Grid view" }),
-					page.getByRole("button", { name: "Yours and shared" }),
+					page.getByRole("button", {
+						name: phone ? "All sharing" : "Yours and shared",
+						exact: true,
+					}),
 					...(await tabs.all()),
 					cards().first(),
 					page.getByRole("button", {

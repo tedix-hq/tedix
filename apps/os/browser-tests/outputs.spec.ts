@@ -81,7 +81,7 @@ try {
 			const search = library.getByRole("searchbox", { name: "Search outputs" });
 			assert(await search.isVisible(), "output search is visible");
 			const scope = library.getByRole("button", {
-				name: "Yours and shared",
+				name: width < 640 ? "All sharing" : "Yours and shared",
 				exact: true,
 			});
 			if (width < 640) {

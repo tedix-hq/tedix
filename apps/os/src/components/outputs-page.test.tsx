@@ -168,7 +168,8 @@ describe("OutputsPage", () => {
 		);
 		expect(scopeButton?.className).toContain("shrink-0");
 		expect(scopeButton?.className).toContain("justify-between");
-		expect(scopeButton?.getAttribute("aria-label")).toBe("Yours and shared");
+		// The visible label names the button, so phones hear "All sharing".
+		expect(scopeButton?.hasAttribute("aria-label")).toBe(false);
 		const search = container.querySelector('[aria-label="Search outputs"]');
 		expect(search?.parentElement?.className).toContain("flex-1");
 		expect(search?.parentElement?.className).toContain("sm:w-60");

@@ -4,6 +4,12 @@
 	gap: 2rem;
 	padding: 0;
 }
+/* The Feed takes focus for J/K; its ring sits inside the route's clip edge. */
+.feed-deck.fd-feed.focus-feed:focus-visible {
+	border-radius: var(--radius-lg, 0.5rem);
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
 .focus-feed h2 {
 	font: 600 0.875rem/1.4 var(--font-sans);
 	margin: 0;

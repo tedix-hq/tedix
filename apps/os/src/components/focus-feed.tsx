@@ -655,6 +655,9 @@ export function FocusFeed({
 		<div
 			ref={root}
 			tabIndex={0}
+			role="region"
+			aria-label="Feed"
+			aria-keyshortcuts="J K"
 			className="feed-deck fd-feed focus-feed mx-auto w-full min-w-0 max-w-3xl pb-8"
 			data-workspace-app-entry="activity-feed"
 		>

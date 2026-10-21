@@ -428,17 +428,13 @@ function ScopeSelect(props: {
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				render={
-					<Button
-						variant="secondary"
-						className="shrink-0 justify-between"
-						aria-label={labels[props.value]}
-					/>
+					<Button variant="secondary" className="shrink-0 justify-between" />
 				}
 			>
 				{props.value === "mine" ? (
-					<User size={14} />
+					<User aria-hidden size={14} />
 				) : (
-					<ShareNetwork size={14} />
+					<ShareNetwork aria-hidden size={14} />
 				)}
 				<span className="hidden sm:inline">{labels[props.value]}</span>
 				<span className="sm:hidden">
@@ -448,7 +444,7 @@ function ScopeSelect(props: {
 							? "Yours"
 							: "Team"}
 				</span>
-				<CaretDown size={12} />
+				<CaretDown aria-hidden size={12} />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">
 				{(["all", "mine", "organization"] as const).map((scope) => (
