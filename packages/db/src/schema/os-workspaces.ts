@@ -3,6 +3,7 @@ import {
 	index,
 	foreignKey,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -626,6 +627,71 @@ export const osCollaborationProposals = sqliteTable(
 			table.organizationId,
 			table.sourceKind,
 			table.sourceId,
+		),
+	],
+);
+
+/** One owner-approved member capability: propose drafts of one linked skill. */
+export const osWorkspaceSkillDraftGrants = sqliteTable(
+	"os_workspace_skill_draft_grants",
+	{
+		organizationId: text("organization_id").notNull(),
+		memberId: text("member_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		resourceId: text("resource_id").notNull(),
+		skillId: text("skill_id").notNull(),
+		enabled: integer("enabled", { mode: "boolean" }).notNull(),
+		expiresAt: text("expires_at").notNull(),
+		grantedBy: text("granted_by").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [
+				table.organizationId,
+				table.memberId,
+				table.workspaceId,
+				table.resourceId,
+			],
+		}),
+	],
+);
+
+/** Review material only: deliberately outside the executable skill catalog. */
+export const osWorkspaceSkillDraftProposals = sqliteTable(
+	"os_workspace_skill_draft_proposals",
+	{
+		id: text("id").primaryKey().notNull(),
+		organizationId: text("organization_id").notNull(),
+		memberId: text("member_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		resourceId: text("resource_id").notNull(),
+		skillId: text("skill_id").notNull(),
+		sourceRevision: integer("source_revision").notNull(),
+		baseContent: text("base_content").notNull(),
+		baseFiles: text("base_files", { mode: "json" }).$type<Record<
+			string,
+			string
+		> | null>(),
+		content: text("content").notNull(),
+		files: text("files", { mode: "json" }).$type<Record<
+			string,
+			string
+		> | null>(),
+		reason: text("reason").notNull(),
+		payloadDigest: text("payload_digest").notNull(),
+		status: text("status", { enum: ["pending", "withdrawn"] })
+			.notNull()
+			.default("pending"),
+		withdrawnAt: text("withdrawn_at"),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [
+		index("os_workspace_skill_draft_proposals_target_idx").on(
+			table.organizationId,
+			table.workspaceId,
+			table.resourceId,
+			table.createdAt,
 		),
 	],
 );

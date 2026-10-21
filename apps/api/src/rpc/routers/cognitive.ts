@@ -84,6 +84,14 @@ import {
 } from "./cognitive-skill-runs/run-reads";
 import { skillsRunWorkflow } from "./cognitive-skill-runs/run-start";
 import { knowledgeOs, muscleOs, skillsOs } from "./cognitive-shared";
+import {
+	skillsGetWorkspaceDraftGrant,
+	skillsSetWorkspaceDraftGrant,
+	skillsProposeWorkspaceRevision,
+	skillsGetWorkspaceDraftProposal,
+	skillsListWorkspaceDraftProposals,
+	skillsWithdrawWorkspaceDraftProposal,
+} from "./cognitive-workspace-skill-drafts";
 
 export const knowledgeContractRouter = knowledgeOs.router({
 	synthesize: knowledgeSynthesize,
@@ -93,6 +101,12 @@ export const knowledgeContractRouter = knowledgeOs.router({
 });
 
 export const skillsContractRouter = skillsOs.router({
+	getWorkspaceDraftGrant: skillsGetWorkspaceDraftGrant,
+	setWorkspaceDraftGrant: skillsSetWorkspaceDraftGrant,
+	proposeWorkspaceRevision: skillsProposeWorkspaceRevision,
+	getWorkspaceDraftProposal: skillsGetWorkspaceDraftProposal,
+	listWorkspaceDraftProposals: skillsListWorkspaceDraftProposals,
+	withdrawWorkspaceDraftProposal: skillsWithdrawWorkspaceDraftProposal,
 	record: skillsRecord,
 	improve: skillsImprove,
 	proposeWorkshop: skillsProposeWorkshop,

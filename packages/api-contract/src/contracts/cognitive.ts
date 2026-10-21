@@ -37,6 +37,13 @@ import {
 	SkillWorkflowRevisionSchema,
 	SkillWorkflowStepSchema,
 	SkillWorkflowToolCallSchema,
+	WorkspaceSkillDraftTargetSchema,
+	WorkspaceSkillDraftGrantSchema,
+	WorkspaceSkillDraftGrantInputSchema,
+	WorkspaceSkillDraftInputSchema,
+	WorkspaceSkillDraftResultSchema,
+	WorkspaceSkillDraftProposalRefSchema,
+	WorkspaceSkillDraftListSchema,
 } from "../schemas/cognitive";
 import { JsonValueSchema } from "../schemas/common";
 
@@ -434,6 +441,65 @@ export const knowledgeContract = oc.route({ tags: ["knowledge"] }).router({
 
 // ---- Skill Entries ----
 export const skillsContract = oc.route({ tags: ["skills"] }).router({
+	listWorkspaceDraftProposals: oc
+		.route({
+			method: "POST",
+			path: "/skills/workspace-drafts/list",
+			tags: ["cognitive"],
+			summary:
+				"List your pending workspace skill proposals; administrators see all",
+		})
+		.input(WorkspaceSkillDraftTargetSchema)
+		.output(WorkspaceSkillDraftListSchema),
+	getWorkspaceDraftProposal: oc
+		.route({
+			method: "POST",
+			path: "/skills/workspace-drafts/get",
+			tags: ["cognitive"],
+			summary: "Read a saved workspace skill proposal for review",
+		})
+		.input(WorkspaceSkillDraftProposalRefSchema)
+		.output(WorkspaceSkillDraftResultSchema),
+	withdrawWorkspaceDraftProposal: oc
+		.route({
+			method: "POST",
+			path: "/skills/workspace-drafts/withdraw",
+			tags: ["cognitive"],
+			summary: "Withdraw your own pending draft while retaining its history",
+		})
+		.input(WorkspaceSkillDraftProposalRefSchema)
+		.output(WorkspaceSkillDraftResultSchema),
+	getWorkspaceDraftGrant: oc
+		.route({
+			method: "POST",
+			path: "/skills/workspace-drafts/access",
+			tags: ["cognitive"],
+			summary: "Check your access to propose a linked workspace skill draft",
+		})
+		.input(WorkspaceSkillDraftTargetSchema)
+		.output(z.object({ grant: WorkspaceSkillDraftGrantSchema.nullable() })),
+	setWorkspaceDraftGrant: oc
+		.route({
+			method: "POST",
+			path: "/skills/workspace-drafts/grant",
+			tags: ["cognitive"],
+			summary:
+				"Grant or revoke one member's draft-only access to a linked skill",
+		})
+		.input(WorkspaceSkillDraftGrantInputSchema)
+		.output(z.object({ grant: WorkspaceSkillDraftGrantSchema })),
+	proposeWorkspaceRevision: oc
+		.route({
+			method: "POST",
+			path: "/skills/workspace-drafts/propose",
+			tags: ["cognitive"],
+			summary:
+				"Propose a separate draft revision of one workspace-linked skill",
+			description:
+				"Requires an unexpired administrator grant for this member, workspace and resource. Never edits the live skill, changes its schedule, runs code or activates the proposal.",
+		})
+		.input(WorkspaceSkillDraftInputSchema)
+		.output(WorkspaceSkillDraftResultSchema),
 	record: oc
 		.route({ method: "POST", path: "/skills/record", tags: ["cognitive"] })
 		.input(SkillRecordInputSchema)
