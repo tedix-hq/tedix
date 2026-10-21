@@ -24,6 +24,8 @@ import {
 	updateKernelRuntimeRunForOrg,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { roleImpliesPermission } from "@tedix/auth/rbac";
 import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { canonicalDigest } from "../../../lib/blueprint-digest";
@@ -454,6 +456,30 @@ export function kernelWriteCardContent(input: {
 }
 
 /**
+ * Whether the human who started a parked Home write may still act in the
+ * organization: an active member whose current role or grants include Home
+ * use (`os:run`, the permission that admitted the original turn).
+ */
+async function initiatorMayStillAct(
+	context: BaseContext,
+	organizationId: string,
+	descopeUserId: string,
+): Promise<boolean> {
+	const member = await getMemberByUserId(
+		context.db,
+		organizationId,
+		descopeUserId,
+	);
+	if (member?.status !== "active") return false;
+	if (roleImpliesPermission([member.role], "os:run")) return true;
+	// `os:run` is tenant-grantable, so a member override counts.
+	return (
+		Array.isArray(member.customPermissions) &&
+		member.customPermissions.includes("os:run")
+	);
+}
+
+/**
  * Settle a resolved "home_tool_write" approval: execute the SERVER-STORED
  * call exactly once on approve, or close the Home run without executing on
  * reject/cancel. No-op for any other approval payload kind.
@@ -536,12 +562,16 @@ export async function settleHomeToolWriteApproval(
 			args: payload.args,
 		};
 
-		if (input.status !== "approved") {
-			// Rejection/cancellation: NEVER execute; close the run. Conditional on
-			// requires_approval so terminal runs (canceled mid-flight, already
-			// settled) are untouched.
+		// Close the parked run without executing. Conditional on
+		// requires_approval so terminal runs (canceled mid-flight, already
+		// settled) are untouched.
+		const closeWithoutExecuting = async (close: {
+			preview: string;
+			content: string;
+			approvalStatus: string;
+		}): Promise<"closed" | "unknown"> => {
 			const progress = homeRunProgress({ eventCount: 0, status: "canceled" });
-			const preview = "Kernel write rejected — nothing was executed.";
+			const preview = close.preview;
 			const closed = await transitionKernelRuntimeRunStatus(context.db, {
 				id: payload.homeRunId,
 				organizationId: payload.organizationId,
@@ -558,7 +588,7 @@ export async function settleHomeToolWriteApproval(
 					updatedAt: settledAt,
 					metadata: toJsonRecord({
 						...runMetadata,
-						approvalStatus: input.status,
+						approvalStatus: close.approvalStatus,
 						approvalResolvedAt: settledAt,
 					}),
 				},
@@ -572,7 +602,7 @@ export async function settleHomeToolWriteApproval(
 				messageId: assistantMessageId,
 				payload: {
 					role: "assistant",
-					content: `The proposed write \`${payload.toolName}\` on ${payload.appSlug} was rejected — nothing was executed.`,
+					content: close.content,
 					channel: "home",
 					metadata: {
 						homeSubject: true,
@@ -583,7 +613,7 @@ export async function settleHomeToolWriteApproval(
 				runtimeMetadata: {
 					source: "kernelRuntime.settleHomeToolWriteApproval",
 					approvalRequestId: input.approval.id,
-					approvalStatus: input.status,
+					approvalStatus: close.approvalStatus,
 				},
 				createdAt: settledAt,
 			});
@@ -601,11 +631,45 @@ export async function settleHomeToolWriteApproval(
 				},
 				runtimeMetadata: {
 					source: "kernelRuntime.settleHomeToolWriteApproval",
-					approvalStatus: input.status,
+					approvalStatus: close.approvalStatus,
 				},
 				createdAt: settledAt,
 			});
 			return "closed";
+		};
+
+		if (input.status !== "approved") {
+			return closeWithoutExecuting({
+				preview: "Kernel write rejected — nothing was executed.",
+				content: `The proposed write \`${payload.toolName}\` on ${payload.appSlug} was rejected — nothing was executed.`,
+				approvalStatus: input.status,
+			});
+		}
+
+		// The approval authorizes this one stored call on behalf of the person
+		// who asked for it, never with the approver's authority. A deferred
+		// approval can land after that person left the organization or lost Home
+		// access, so re-check their current membership before acting for them.
+		// The admitted path runs inside the initiator's own authenticated turn.
+		if (
+			!admittedMetadata &&
+			payload.initiatedByUserId &&
+			!(await initiatorMayStillAct(
+				context,
+				payload.organizationId,
+				payload.initiatedByUserId,
+			))
+		) {
+			console.warn("[kernelRuntime] kernel write initiator lost access", {
+				approvalRequestId: input.approval.id,
+				homeRunId: payload.homeRunId,
+			});
+			return closeWithoutExecuting({
+				preview:
+					"Kernel write not executed — the person who asked for it no longer has access.",
+				content: `The approved write \`${payload.toolName}\` on ${payload.appSlug} was not executed: the person who asked for it no longer has access to this organization.`,
+				approvalStatus: "initiator_revoked",
+			});
 		}
 
 		// Approved: claim the run exactly once (requires_approval → running with

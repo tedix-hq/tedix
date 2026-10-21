@@ -8426,6 +8426,20 @@ describe("home approved-write layer (v1)", () => {
 		);
 	}
 
+	// The initiator's membership as the settle path re-reads it.
+	function withInitiatorMember(
+		db: ReturnType<typeof createKernelRuntimeDb>,
+		member?: { role: string; status: string; customPermissions?: string[] },
+	) {
+		const findFirst = vi.fn(async () =>
+			member ? { ...member, organizationId: ORG_ID } : undefined,
+		);
+		(db as unknown as { query: unknown }).query = {
+			organizationMembers: { findFirst },
+		};
+		return findFirst;
+	}
+
 	async function enqueueWriteProposalTurn(
 		db: ReturnType<typeof createKernelRuntimeDb>,
 		runId = "home-write-1",
@@ -8552,6 +8566,7 @@ describe("home approved-write layer (v1)", () => {
 				data: { ok: true },
 			}));
 			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			withInitiatorMember(db, { role: "member", status: "active" });
 			const approval = db.approvals[0];
 			if (!approval) throw new Error("approval row missing");
 			await settleHomeToolWriteApproval(context, {
@@ -8574,6 +8589,126 @@ describe("home approved-write layer (v1)", () => {
 			);
 		},
 	);
+
+	it("executes an admin-approved write as the initiator, not the approver", async () => {
+		const db = createKernelRuntimeDb();
+		const { context } = await enqueueWriteProposalTurn(db, "home-write-as");
+		const executor = vi.fn(async () => ({
+			ok: true as const,
+			data: { ok: true },
+		}));
+		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+		const findMember = withInitiatorMember(db, {
+			role: "member",
+			status: "active",
+		});
+		const approval = db.approvals[0];
+		if (!approval) throw new Error("approval row missing");
+		// The approver is an admin resolving from their own session.
+		await settleHomeToolWriteApproval(
+			{
+				...context,
+				authType: "user",
+				user: { sub: "admin-approver" },
+				userRole: "admin",
+			} as unknown as BaseContext,
+			{
+				approval: {
+					...approval,
+					status: "approved",
+					resolvedBy: "admin-approver",
+					payload: {
+						...(approval.payload as Record<string, unknown>),
+						initiatedByUserId: "initiator-sub",
+					},
+				},
+				status: "approved",
+			},
+		);
+		expect(findMember).toHaveBeenCalledWith({
+			where: { organizationId: ORG_ID, descopeUserId: "initiator-sub" },
+		});
+		expect(executor).toHaveBeenCalledOnce();
+		expect(executor.mock.calls[0]?.[0]).toMatchObject({
+			payload: { initiatedByUserId: "initiator-sub" },
+		});
+		expect(db.runs.find((row) => row.id === "home-write-as")?.status).toBe(
+			"completed",
+		);
+	});
+
+	it.each([
+		["removed from the organization", undefined],
+		["suspended", { role: "member", status: "suspended" }],
+		["downgraded to viewer", { role: "viewer", status: "active" }],
+	])(
+		"never executes an approved write once the initiator was %s",
+		async (_label, member) => {
+			const db = createKernelRuntimeDb();
+			const { context } = await enqueueWriteProposalTurn(
+				db,
+				"home-write-revoked",
+			);
+			const executor = vi.fn(async () => ({
+				ok: true as const,
+				data: { ok: true },
+			}));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			withInitiatorMember(db, member);
+			const approval = db.approvals[0];
+			if (!approval) throw new Error("approval row missing");
+			await expect(
+				settleHomeToolWriteApproval(context, {
+					approval: {
+						...approval,
+						status: "approved",
+						resolvedBy: "admin-approver",
+						payload: {
+							...(approval.payload as Record<string, unknown>),
+							initiatedByUserId: "initiator-sub",
+						},
+					},
+					status: "approved",
+				}),
+			).resolves.toBe("closed");
+			expect(executor).not.toHaveBeenCalled();
+			const run = db.runs.find((row) => row.id === "home-write-revoked");
+			expect(run?.status).toBe("canceled");
+			expect(run?.metadata).toMatchObject({
+				approvalStatus: "initiator_revoked",
+			});
+			expect(run?.metadata).not.toHaveProperty("kernelWriteExecutedAt");
+		},
+	);
+
+	it("executes for an initiator whose Home access comes from a member grant", async () => {
+		const db = createKernelRuntimeDb();
+		const { context } = await enqueueWriteProposalTurn(db, "home-write-grant");
+		const executor = vi.fn(async () => ({
+			ok: true as const,
+			data: { ok: true },
+		}));
+		kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+		withInitiatorMember(db, {
+			role: "viewer",
+			status: "active",
+			customPermissions: ["os:run"],
+		});
+		const approval = db.approvals[0];
+		if (!approval) throw new Error("approval row missing");
+		await settleHomeToolWriteApproval(context, {
+			approval: {
+				...approval,
+				status: "approved",
+				payload: {
+					...(approval.payload as Record<string, unknown>),
+					initiatedByUserId: "initiator-sub",
+				},
+			},
+			status: "approved",
+		});
+		expect(executor).toHaveBeenCalledOnce();
+	});
 
 	it("approve executes the STORED call exactly once and records evidence + transcript", async () => {
 		const db = createKernelRuntimeDb();
