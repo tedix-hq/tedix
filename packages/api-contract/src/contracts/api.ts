@@ -100,6 +100,7 @@ import { userProfileContract } from "./user-profile";
 import { voiceContract } from "./voice";
 import { waitlistContract } from "./waitlist";
 import { workItemsContract } from "./work-items";
+import { webSearchContract } from "./web-search";
 import { workApprovalsContract } from "./work-approvals";
 import { workAgentSessionsContract } from "./work-agent-sessions";
 import { workInteractionsContract } from "./work-interactions";
@@ -307,6 +308,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 	repositoryObserver: repositoryObserverContract,
 	support: supportContract,
 	workApprovals: workApprovalsContract,
+	webSearch: webSearchContract,
 	workAgentSessions: workAgentSessionsContract,
 	attention: attentionContract,
 	workInteractions: workInteractionsContract,

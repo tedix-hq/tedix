@@ -378,3 +378,33 @@ describe("request-derived capability plans", () => {
 		);
 	});
 });
+
+describe("web search delegation", () => {
+	const ask = "What changed in the latest public pricing for example widgets?";
+	it("allows planned web search only on a tedi that offers it", () => {
+		const enabled = buildDelegationWorkOrder({
+			userContent: ask,
+			card: { ...readerCard, webSearch: true },
+			route: { ...route, plannedToolIds: ["web_search"] },
+		});
+		expect(enabled.capabilityPlan?.requiredCapabilities).toContain(
+			"web.search",
+		);
+		expect(enabled.capabilityPlan?.allowedToolIds).toEqual(
+			expect.arrayContaining([
+				"web_search",
+				"browser_markdown",
+				"browser_read_result",
+			]),
+		);
+
+		const disabled = buildDelegationWorkOrder({
+			userContent: ask,
+			card: readerCard,
+			route: { ...route, plannedToolIds: ["web_search"] },
+		});
+		expect(disabled.capabilityPlan?.requiredCapabilities ?? []).not.toContain(
+			"web.search",
+		);
+	});
+});

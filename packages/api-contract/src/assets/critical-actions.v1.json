@@ -7,7 +7,8 @@
 		"grep",
 		"code_search",
 		"browser_markdown",
-		"browser_read_result"
+		"browser_read_result",
+		"web_search"
 	],
 	"nativeMediumRiskTools": [
 		"close_completed_work_item",

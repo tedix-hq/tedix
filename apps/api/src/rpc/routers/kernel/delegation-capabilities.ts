@@ -63,6 +63,13 @@ export function deriveDelegationCapabilityPlan(input: {
 		providerTool("output.read", /\.get_os_output$/);
 		if (outputIds.length === 0) missingCapabilities.push("output.reference");
 	}
+	// Native web search is offered only where the organization enabled it.
+	if (card?.webSearch && route.plannedToolIds.includes("web_search")) {
+		capabilities.push("web.search");
+		tools.add("web_search");
+		tools.add("browser_markdown");
+		tools.add("browser_read_result");
+	}
 	if (urls.some((url) => !outputUrls.includes(url))) {
 		capabilities.push("page.read");
 		tools.add("browser_markdown");

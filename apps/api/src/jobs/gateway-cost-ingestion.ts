@@ -36,7 +36,9 @@ import {
 import {
 	getExistingGatewayLogIds,
 	insertCallCosts,
+	settleGatewayReportedReceiptCosts,
 } from "@tedix/db/queries/tedi-usage";
+import { WEB_SEARCH_COST_SOURCE } from "@tedix/api-contract/schemas/web-search";
 import type { NewTediCallCost } from "@tedix/db/schema/tedis";
 import { getProviderExecutionsByIds } from "@tedix/db/queries/provider-executions";
 import type { ProviderExecutionAttemptRow } from "@tedix/db/schema/provider-executions";
@@ -410,6 +412,52 @@ export function mapRowToCallCost(
 }
 
 /**
+ * Gateway charges whose log id a call-time receipt already holds. Web search
+ * cannot send attribution metadata to the Gateway, so its receipt is written
+ * first under the log id and the insert here conflicts; the reported charge is
+ * the Gateway's own bill for the search, so it is used as-is.
+ */
+export function receiptCostsFromConflicts(
+	rows: AiGatewayLogRow[],
+	insertedLogIds: ReadonlySet<string>,
+): { gatewayLogId: string; costUsd: number; success: boolean }[] {
+	return rows.flatMap((row) =>
+		insertedLogIds.has(row.id) ||
+		typeof row.cost !== "number" ||
+		!Number.isFinite(row.cost) ||
+		row.cost < 0
+			? []
+			: [{ gatewayLogId: row.id, costUsd: row.cost, success: row.success }],
+	);
+}
+
+async function settleReceiptCosts(
+	db: DbClient,
+	gatewayId: GatewayId,
+	rows: AiGatewayLogRow[],
+	inserted: { gatewayLogId: string }[],
+): Promise<void> {
+	const receipts = receiptCostsFromConflicts(
+		rows,
+		new Set(inserted.map((row) => row.gatewayLogId)),
+	);
+	if (receipts.length === 0) return;
+	try {
+		await settleGatewayReportedReceiptCosts(db, {
+			gatewayId,
+			source: WEB_SEARCH_COST_SOURCE,
+			receipts,
+		});
+	} catch (error) {
+		// The receipt keeps its unpriced evidence; a later replay may settle it.
+		console.warn(
+			`[gateway-cost-ingestion] ${gatewayId} receipt cost settlement failed:`,
+			error,
+		);
+	}
+}
+
+/**
  * Demote attribution ids that do not exist to NULL.
  *
  * A gateway log's `cf-aig-metadata` is CALLER-SUPPLIED and is not trustworthy as
@@ -675,6 +723,7 @@ async function ingestGateway(
 
 			ingested += inserted.length;
 			skipped += safeRows.length - inserted.length;
+			await settleReceiptCosts(db, gatewayId, costRows, inserted);
 
 			if (inserted.length === 0) {
 				// ON CONFLICT DO NOTHING returns zero when every page row was
