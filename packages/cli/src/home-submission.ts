@@ -56,15 +56,29 @@ export async function askHomeOnce(
 	} catch (error) {
 		if (isAuthError(error) || !isRecoverableTurnError(error)) throw error;
 		opts.onRecover?.();
-		const recovered = await opts.client
-			.readHomeRunSet({ conversationId: opts.conversationId, limit: 5 })
+		const recovered = await withTimeout(
+			opts.client.readHomeRunSet({
+				conversationId: opts.conversationId,
+				limit: 5,
+			}),
+			opts.timeoutMs ?? 30_000,
+			"READ_HOME_RUN_SET_TIMEOUT",
+		)
 			.then((payload) => latestRunFromSet(payload, clientSubmissionId))
-			.catch(() => null);
+			.catch((readError) => {
+				throw new HomeSubmissionUnresolvedError(clientSubmissionId, readError);
+			});
 		if (!recovered)
 			throw new HomeSubmissionUnresolvedError(clientSubmissionId, error);
+		const readAbort = new AbortController();
 		try {
 			const summary = summarizeHomePayload(
-				await opts.client.readHomeRun(recovered.homeRunId),
+				await withTimeout(
+					opts.client.readHomeRun(recovered.homeRunId, readAbort.signal),
+					opts.timeoutMs ?? 30_000,
+					"READ_HOME_RUN_TIMEOUT",
+					() => readAbort.abort(new Error("READ_HOME_RUN_TIMEOUT")),
+				),
 			);
 			if (!summary || summary.homeRunId !== recovered.homeRunId) {
 				throw new Error("recovered run read returned no matching run");
