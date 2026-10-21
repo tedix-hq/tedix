@@ -340,6 +340,8 @@ export function renderDelegationResponse(
 			return `On it — delegating to ${owner} now. I'll bring ${owner}'s result back here when it's done.`;
 		case "needs_approval":
 			return renderHeldDelegationLine(owner, delegation.approver?.label);
+		case "deferred":
+			return `${owner} is busy with other delegated work right now. This is queued and starts automatically as soon as ${owner} has room; I'll bring the result back here.`;
 		case "blocked":
 		case "boot_unavailable":
 			return `I couldn't start ${owner} on this request. Ask me to try another approach.`;

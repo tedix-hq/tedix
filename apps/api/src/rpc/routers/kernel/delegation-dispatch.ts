@@ -1031,7 +1031,7 @@ export function serializedFanOutChainEdges(input: {
 export interface DispatchDecision {
 	canAutoDispatch: boolean;
 	reason: string;
-	mode: "auto" | "needs_approval" | "blocked" | "boot_unavailable";
+	mode: "auto" | "needs_approval" | "blocked" | "boot_unavailable" | "deferred";
 	/**
 	 * Who may decide a `needs_approval` hold. `agent` holds (earned-delegation
 	 * ceilings, a target that requires approval, a high-risk route) route to the
@@ -1310,7 +1310,9 @@ function routeNeedsEmbodiedSurface(route: KernelRouteDecision): boolean {
  *  | 10 | all of the above satisfied                         | auto            |
  *
  * An `auto` verdict for a target already at its concurrent delegated-run
- * limit (`targetCapacity`) is then held as a `human` capacity hold.
+ * limit (`targetCapacity`) becomes `deferred`: capacity is not an approval
+ * question, so the run waits with no approval card and is dispatched
+ * automatically once the target has a free slot.
  *
  * Every `needs_approval` verdict carries `approvalRoute`. Rules 6 and 9 (and
  * the earned-delegation ceilings applied after this table) are `agent`: the
@@ -1369,8 +1371,8 @@ export function decideDelegationDispatch(input: {
 	delegationDepth?: number;
 	/**
 	 * The target's live delegated load against its configured concurrency
-	 * limit. A target at its limit is held instead of auto-dispatched: stacking
-	 * concurrent delegated turns on one tedi exhausts its isolate memory.
+	 * limit. A target at its limit defers an otherwise automatic dispatch:
+	 * stacking concurrent delegated turns on one tedi exhausts its isolate memory.
 	 */
 	targetCapacity?: { active: number; limit: number };
 }): DispatchDecision {
@@ -1380,9 +1382,8 @@ export function decideDelegationDispatch(input: {
 		return decision;
 	return {
 		canAutoDispatch: false,
-		mode: "needs_approval",
-		approvalRoute: "human",
-		reason: `target is already running ${capacity.active} of its ${capacity.limit} concurrent delegated runs; holding until one finishes`,
+		mode: "deferred",
+		reason: `capacity: target is already running ${capacity.active} of its ${capacity.limit} concurrent delegated runs; starts automatically when one finishes`,
 		...(decision.earnedDelegationShadow
 			? { earnedDelegationShadow: true as const }
 			: {}),

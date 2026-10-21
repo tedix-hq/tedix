@@ -1204,7 +1204,11 @@ async function respondKernelWorkstationAttachApprovalCore(
 	};
 }
 
-export function kernelDelegationRecommendationFromRun(run: KernelRuntimeRun): {
+export function kernelDelegationRecommendationFromRun(
+	run: KernelRuntimeRun,
+	/** `deferred` reads a capacity-deferred delegation instead of an approval hold. */
+	mode: "needs_approval" | "deferred" = "needs_approval",
+): {
 	delegation: Record<string, unknown>;
 	metadata: Record<string, unknown>;
 	targetTediId: string;
@@ -1216,7 +1220,7 @@ export function kernelDelegationRecommendationFromRun(run: KernelRuntimeRun): {
 	const decision = nonNullRecord(delegation?.decision);
 	const workOrder = nonNullRecord(delegation?.workOrder);
 	if (!delegation || !decision || !workOrder) return null;
-	if (stringFromPayload(decision.mode) !== "needs_approval") return null;
+	if (stringFromPayload(decision.mode) !== mode) return null;
 	const targetTediId = stringFromPayload(workOrder.targetTediId);
 	if (!targetTediId) return null;
 	return {
