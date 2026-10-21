@@ -42,7 +42,7 @@ export function parseDelegationAutonomyPolicy(
 
 const builtinToolPolicies: Record<
 	string,
-	{ riskTier: string; blastRadius: string }
+	{ riskTier: string; blastRadius: string; ownSessionRisk?: string }
 > = criticalActions.builtinToolPolicies;
 
 export function builtinToolPolicyMetadata(name: string) {

@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
+	builtinToolPolicyMetadata,
 	decideAutonomousAction,
 	humanReservedActionClasses,
 	isSafeNotionPageUpdateCall,
@@ -667,6 +668,26 @@ export async function requireDestructiveToolApproval(
 		tool,
 	);
 	const policy = resolveToolRiskPolicy({ meta: tool.meta ?? null });
+	// Persisted operator tools can predate policy metadata. Bind this built-in
+	// classification to the RPC route and verified identity, never request metadata.
+	const sessionEnd =
+		tool.toolId.split("__").at(-1) === "end_external_agent_session" &&
+		tool.config?.transport === "rpc" &&
+		tool.config.endpoint === "externalAgentIdentity/endSession";
+	const ownSessionEnd =
+		sessionEnd &&
+		builtinToolPolicyMetadata("end_external_agent_session")?.ownSessionRisk ===
+			"low" &&
+		agent.callerIdentity?.authType === "external_agent" &&
+		!!agent.callerIdentity.externalAgentPrincipalId &&
+		!!agent.callerIdentity.externalAgentSessionId &&
+		!!agent.callerIdentity.externalAgentClientRecordId &&
+		!!agent.app?.organizationId &&
+		agent.callerIdentity.organizationId === agent.app.organizationId &&
+		options?.args?.organizationId === agent.app.organizationId &&
+		options.args.principalId ===
+			agent.callerIdentity.externalAgentPrincipalId &&
+		options.args.sessionId === agent.callerIdentity.externalAgentSessionId;
 	const boundedNotionUpdate =
 		policy?.riskTier === "bounded_write" &&
 		policy.argumentPolicy === "notion_page_update" &&
@@ -674,11 +695,14 @@ export async function requireDestructiveToolApproval(
 		connectedProviderId(tool) === "notion" &&
 		tool.config.mcpToolName === "notion-update-page" &&
 		isSafeNotionPageUpdateCall(options?.args);
-	const risk =
-		policy?.argumentPolicy === "notion_page_update" && !boundedNotionUpdate
+	const risk = ownSessionEnd
+		? "bounded_write"
+		: sessionEnd ||
+			  (policy?.argumentPolicy === "notion_page_update" &&
+					!boundedNotionUpdate)
 			? "high_impact_write"
 			: policy?.riskTier;
-	if (boundedNotionUpdate)
+	if (boundedNotionUpdate || ownSessionEnd)
 		annotations = {
 			...annotations,
 			readOnlyHint: false,
@@ -795,7 +819,7 @@ export async function requireDestructiveToolApproval(
 		policy: autonomy,
 		classId: `tool:${agent.appSlug ?? ""}:${tool.toolId}`,
 		risk:
-			risk === "read"
+			ownSessionEnd || risk === "read"
 				? "low"
 				: risk === "bounded_write"
 					? "medium"

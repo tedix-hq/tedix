@@ -47,6 +47,11 @@
 		"glob"
 	],
 	"builtinToolPolicies": {
+		"end_external_agent_session": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant",
+			"ownSessionRisk": "low"
+		},
 		"cancel_work_item": {
 			"riskTier": "bounded_write",
 			"blastRadius": "single_resource"
