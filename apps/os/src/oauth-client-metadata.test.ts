@@ -64,6 +64,21 @@ describe("Tedix CLI client metadata", () => {
 		}
 	});
 
+	it("serves OpenCode a public client with its default loopback callback", async () => {
+		const id = "https://os.tedix.dev/.well-known/oauth-client/opencode.json";
+		const response = handleOAuthClientMetadata(new Request(id));
+		expect(response?.status).toBe(200);
+		expect(await response?.json()).toEqual({
+			client_id: id,
+			client_name: "OpenCode",
+			client_uri: "https://opencode.ai",
+			redirect_uris: ["http://127.0.0.1:19876/mcp/oauth/callback"],
+			grant_types: ["authorization_code", "refresh_token"],
+			response_types: ["code"],
+			token_endpoint_auth_method: "none",
+		});
+	});
+
 	it("rejects mutation methods and lookalike hosts or paths", () => {
 		expect(
 			handleOAuthClientMetadata(new Request(CLIENT_ID, { method: "POST" }))

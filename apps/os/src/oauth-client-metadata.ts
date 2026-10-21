@@ -2,6 +2,8 @@ import {
 	TEDIX_CLI_OAUTH_CLIENT_ID,
 	TEDIX_CLI_OAUTH_REDIRECT_URI,
 	TEDIX_DEVIN_OAUTH_CLIENT_ID,
+	TEDIX_OPENCODE_OAUTH_CLIENT_ID,
+	TEDIX_OPENCODE_OAUTH_REDIRECT_URI,
 } from "@tedix/auth/oauth-client-registration";
 
 export const TEDIX_CLI_REDIRECT_URI = TEDIX_CLI_OAUTH_REDIRECT_URI;
@@ -39,6 +41,15 @@ const CLIENT_METADATA = [
 		response_types: ["code"],
 		token_endpoint_auth_method: "none",
 		scope: "mcp:apps.read mcp:work.read",
+	},
+	{
+		client_id: TEDIX_OPENCODE_OAUTH_CLIENT_ID,
+		client_name: "OpenCode",
+		client_uri: "https://opencode.ai",
+		redirect_uris: [TEDIX_OPENCODE_OAUTH_REDIRECT_URI],
+		grant_types: ["authorization_code", "refresh_token"],
+		response_types: ["code"],
+		token_endpoint_auth_method: "none",
 	},
 ];
 

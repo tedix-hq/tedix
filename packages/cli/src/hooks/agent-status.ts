@@ -479,6 +479,7 @@ export function transition(
 
 export function harnessOf(event: JsonObject, env: NodeJS.ProcessEnv): string {
 	if (env.TEDIX_HOOK_HOST === "devin" || env.DEVIN_PROJECT_DIR) return "devin";
+	if (env.TEDIX_HOOK_HOST === "opencode") return "opencode";
 	if (
 		(event.turn_id !== undefined && event.turn_id !== null) ||
 		env.CODEX_THREAD_ID ||
