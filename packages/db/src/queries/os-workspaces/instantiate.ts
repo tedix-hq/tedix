@@ -1,3 +1,4 @@
+import { recordWorkRelationEdges } from "../decision-graph-writers";
 import {
 	buildBlueprintProvisioningStatements,
 	type BlueprintProvisioningRows,
@@ -153,5 +154,11 @@ export async function instantiateOsBlueprint(
 		}
 		blueprintCopy = { blueprint: blueprintRow, revision: revisionRow };
 	}
+	if (params.provisioning)
+		await recordWorkRelationEdges(
+			db,
+			workspace.organizationId,
+			params.provisioning.relations,
+		);
 	return { blueprintCopy, workspace, resources, gadgets, revisions };
 }

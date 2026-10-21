@@ -307,7 +307,10 @@ export async function ensurePaymentBudgetOverrideRequest(
 		})
 		.onConflictDoNothing({ target: tediApprovalRequests.id })
 		.returning();
-	if (created) return { request: created, created: true };
+	if (created) {
+		await recordApprovalCardCreation(db, created);
+		return { request: created, created: true };
+	}
 	const existing = await getApprovalRequestById(db, data.id);
 	if (
 		!existing ||
@@ -352,7 +355,10 @@ export async function ensureProvisionalPromotionApprovalRequest(
 		})
 		.onConflictDoNothing({ target: tediApprovalRequests.id })
 		.returning();
-	if (rows[0]) return { request: rows[0], created: true };
+	if (rows[0]) {
+		await recordApprovalCardCreation(db, rows[0]);
+		return { request: rows[0], created: true };
+	}
 
 	const existing = await getApprovalRequestById(db, data.id);
 	if (

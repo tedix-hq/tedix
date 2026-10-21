@@ -1,4 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { recordPersistedCardCreationEdges } from "../decision-graph-writers";
 import {
 	WorkAttemptRepositorySchema,
 	type WorkAttemptRepository,
@@ -1040,12 +1041,19 @@ export async function settleWorkItemAttempt(
 				: []),
 		]);
 		const attempt = settledRows[0];
-		if (attempt)
+		if (attempt) {
+			if (handoff)
+				await recordPersistedCardCreationEdges(
+					db,
+					params.orgId,
+					handoff.interactionId,
+				);
 			return {
 				workItem: await getScopedWorkItem(db, params.orgId, params.workItemId),
 				attempt,
 				...(handoff ? { interactionId: handoff.interactionId } : {}),
 			};
+		}
 		if (tries >= SETTLE_VERSION_RETRIES)
 			throw new WorkFactoryError(
 				"STALE_ATTEMPT",
