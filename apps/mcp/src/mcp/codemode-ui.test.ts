@@ -1,7 +1,18 @@
-import { describe, expect, it } from "vite-plus/test";
-import { resolveProvider } from "@cloudflare/codemode";
+import { afterEach, assert, describe, expect, it, vi } from "vite-plus/test";
+import { DynamicWorkerExecutor, resolveProvider } from "@cloudflare/codemode";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { buildUiProvider } from "./codemode-ui";
 import type { ServerContext } from "./server-context";
+import { buildMcpServer, type CachedAppData } from "./server-factory";
+import { clientSupportsMcpApps } from "./client-apps-capability";
+
+vi.mock("../lib/api-client", () => ({
+	getApiClient: () => ({
+		skills: { listByApp: async () => ({ skills: [] }) },
+	}),
+}));
+
+afterEach(() => vi.restoreAllMocks());
 
 const context = {
 	appId: "app-example",
@@ -10,6 +21,181 @@ const context = {
 } as ServerContext;
 
 const tools = resolveProvider(buildUiProvider(context)).fns;
+
+describe.each([true, false])(
+	"Code Mode UI wire conformance (Apps=%s)",
+	(apps) => {
+		it.each([
+			["create_view", '{ title: "Counts", data: [{ count: 2 }] }', "counts"],
+			[
+				"create_mcp_app",
+				'{ title: "Counts", summary: "Two records", html: "<p>Two records</p>" }',
+				"generated-app",
+			],
+		])(
+			"returns both UI metadata forms for %s and serves HTML",
+			async (method, input, layout) => {
+				// Replace only the WorkerLoader boundary; run the program against real providers.
+				vi.spyOn(DynamicWorkerExecutor.prototype, "execute").mockImplementation(
+					async (code, providers) => {
+						assert(Array.isArray(providers));
+						return {
+							result: await new Function(
+								...providers.map((provider) => provider.name),
+								`return (${code})()`,
+							)(...providers.map((provider) => provider.fns)),
+							logs: [],
+						};
+					},
+				);
+				vi.spyOn(globalThis, "fetch").mockResolvedValue(
+					new Response("<!DOCTYPE html><title>Fixture shell</title>"),
+				);
+				const capabilities = apps
+					? {
+							extensions: {
+								"io.modelcontextprotocol/ui": {
+									mimeTypes: ["text/html;profile=mcp-app"],
+								},
+							},
+						}
+					: {};
+				const initialize = {
+					protocolVersion: "2025-11-25",
+					capabilities,
+					clientInfo: { name: "fixture-client", version: "1.0.0" },
+				};
+				const server = await buildMcpServer(
+					{
+						app: { id: "app-example", slug: "example", name: "Example" },
+						tools: [
+							{
+								id: "fixture-tool",
+								toolId: "show_fixture",
+								title: "Show fixture",
+								toolTypeId: "rpc",
+								enabled: true,
+								inputSchema: { type: "object", properties: {} },
+								widgetKey: "render",
+								config: {
+									transport: "rpc",
+									endpoint: "fixture/show",
+									nativeDirect: true,
+									layoutId: "fixture-view",
+								},
+							},
+						],
+						metadata: {
+							mcpConfig: {
+								codeMode: true,
+								codeModeNativeTools: ["show_fixture"],
+							},
+						},
+						capabilities: {},
+						catalogResources: [],
+						catalogResourceTemplates: [],
+						catalogPrompts: [],
+						expiresAt: Date.now() + 60_000,
+					} as unknown as CachedAppData,
+					undefined,
+					{
+						ENVIRONMENT: "test",
+						LOADER: {},
+						API_URL: "https://api.test",
+						MCP_UI_URL: "https://widget.test",
+					} as unknown as CloudflareEnv,
+					{
+						waitUntil: (promise: Promise<unknown>) => {
+							void promise.catch(() => {});
+						},
+					} as ExecutionContext,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					clientSupportsMcpApps({ method: "initialize", params: initialize }),
+				);
+				const [client, transport] = InMemoryTransport.createLinkedPair();
+				type ResponseMessage = {
+					id?: number;
+					result?: Record<string, unknown>;
+					error?: unknown;
+				};
+				const pending = new Map<number, (message: ResponseMessage) => void>();
+				let nextId = 1;
+				client.onmessage = (message) => {
+					const response = message as ResponseMessage;
+					if (typeof response.id === "number") {
+						pending.get(response.id)?.(response);
+						pending.delete(response.id);
+					}
+				};
+				const request = async (
+					method: string,
+					params?: Record<string, unknown>,
+				) => {
+					const id = nextId++;
+					const response = new Promise<ResponseMessage>((resolve) =>
+						pending.set(id, resolve),
+					);
+					await client.send({
+						jsonrpc: "2.0",
+						id,
+						method,
+						...(params ? { params } : {}),
+					} as never);
+					return response;
+				};
+				try {
+					await server.connect(transport);
+					expect(
+						(await request("initialize", initialize)).error,
+					).toBeUndefined();
+					await client.send({
+						jsonrpc: "2.0",
+						method: "notifications/initialized",
+					} as never);
+					const listed = await request("tools/list");
+					const names = (listed.result!.tools as Array<{ name: string }>).map(
+						(tool) => tool.name,
+					);
+					expect(names).toContain("code");
+					expect(names.includes("show_fixture")).toBe(apps);
+					const called = await request("tools/call", {
+						name: "code",
+						arguments: { code: `async () => await ui.${method}(${input})` },
+					});
+					expect(called.error).toBeUndefined();
+					expect(called.result?.isError).not.toBe(true);
+					const uri = `ui://widgets/mcp-app/example/r/${layout}.html`;
+					expect(called.result?._meta).toMatchObject({
+						ui: { resourceUri: uri },
+						"openai/outputTemplate": uri,
+					});
+					const read = await request("resources/read", { uri });
+					expect(read.error).toBeUndefined();
+					expect(read.result?.contents).toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({
+								uri,
+								mimeType: "text/html;profile=mcp-app",
+								text: expect.stringContaining("Fixture shell"),
+							}),
+						]),
+					);
+				} finally {
+					await server.close();
+					await client.close();
+				}
+			},
+		);
+	},
+);
 
 describe("Code Mode UI provider", () => {
 	it("keeps catalog selection ordered, deduplicated and limited to known components", async () => {
