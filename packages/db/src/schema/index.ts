@@ -212,6 +212,7 @@ export * from "./mcp-tasks";
 // MCP telemetry events (from tedi container MCP plugins)
 // Memory graph (knowledge graph for tedi long-term memory)
 export * from "./memory-graph";
+export * from "./memory-fact-citations";
 // Ops alerting memory — the platform-health digest's NEW/ESCALATED/RESOLVED
 // dedup state (distinct from the cron-darkness work-item dedup).
 export * from "./ops-alert-state";

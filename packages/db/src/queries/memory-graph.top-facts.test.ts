@@ -12,6 +12,10 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { memoryDomains, memoryFacts } from "../schema/memory-graph";
+import {
+	memoryFactCitations,
+	memoryFactCitationBackfills,
+} from "../schema/memory-fact-citations";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import { getTopPlatformFacts } from "./memory-graph/platform-facts";
@@ -31,7 +35,14 @@ function seed(seeds: FactSeed[]) {
 	// drags in a transitive FK closure (workspace_template_sets, runtime
 	// profiles, policy packs) that would add fixture noise without adding signal.
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(memoryDomains, memoryFacts));
+	sqlite.exec(
+		schemaDdl(
+			memoryDomains,
+			memoryFacts,
+			memoryFactCitations,
+			memoryFactCitationBackfills,
+		),
+	);
 	const insert = sqlite.prepare(`
 		INSERT INTO memory_facts
 			(id, organization_id, tedi_id, content, fact_type, confidence,
