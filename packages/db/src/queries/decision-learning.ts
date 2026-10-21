@@ -301,19 +301,17 @@ export async function listUnlabelledDecisionApprovals(
 			decidedAt: tediApprovalRequests.resolvedAt,
 			decision: tediApprovalRequests.status,
 		})
-		.from(decisionExposures)
-		.innerJoin(
-			tediApprovalRequests,
+		// Keep approvals outermost so each receipt probes the exposure's
+		// org/actor/card index instead of rescanning approvals per exposure.
+		.from(tediApprovalRequests)
+		.crossJoin(decisionExposures)
+		.where(
 			and(
 				eq(tediApprovalRequests.orgId, decisionExposures.organizationId),
 				sql`${decisionExposures.cardId} = ('approval:' || ${tediApprovalRequests.id})`,
 				eq(tediApprovalRequests.resolvedBy, decisionExposures.actorId),
 				inArray(tediApprovalRequests.status, ["approved", "rejected"]),
 				sql`${tediApprovalRequests.resolvedAt}>=${decisionExposures.occurredAt}`,
-			),
-		)
-		.where(
-			and(
 				gt(decisionExposures.expiresAt, now),
 				sql`NOT EXISTS (SELECT 1 FROM decision_outcome_labels l WHERE l.organization_id=${decisionExposures.organizationId} AND l.id=(${decisionExposures.organizationId} || ':' || ${tediApprovalRequests.id} || ':immediate'))`,
 			),
