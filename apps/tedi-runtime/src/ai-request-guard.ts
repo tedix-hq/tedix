@@ -13,9 +13,9 @@ export class AiRequestTooLargeError extends Error {
 }
 
 export function resolveMaxAiRequestBytes(configured?: string): number {
-	const parsed = Number(configured);
-	return Number.isFinite(parsed) && parsed > 0
-		? Math.floor(parsed)
+	const normalized = Math.floor(Number(configured));
+	return Number.isSafeInteger(normalized) && normalized > 0
+		? normalized
 		: DEFAULT_MAX_AI_REQUEST_BYTES;
 }
 
