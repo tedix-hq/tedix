@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createServer } from "node:net";
 import {
 	LOCAL_API_URL,
+	LOCAL_LOOPBACK_MESSAGE,
 	LOCAL_OS_URL,
 	defaultLocalRunState,
 	localInferenceEnvironment,
@@ -14,6 +15,12 @@ import {
 } from "./run-local";
 
 describe("run-local options", () => {
+	test("states that every server is loopback-only in the startup copy", () => {
+		expect(LOCAL_LOOPBACK_MESSAGE).toBe(
+			"✓ Every server answers on this machine only (loopback).",
+		);
+	});
+
 	test("routes only explicit Workers AI through the selected gateway", () => {
 		const args = [
 			"--inference",

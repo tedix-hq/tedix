@@ -16,6 +16,8 @@ import { LOCAL_OS_BUILD_SENTINELS } from "../apps/os/dev/build-config";
 
 export const LOCAL_API_URL = `http://localhost:${process.env.TEDIX_LOCAL_API_PORT || "8790"}`;
 export const LOCAL_OS_URL = `http://localhost:${process.env.TEDIX_LOCAL_OS_PORT || "3030"}`;
+export const LOCAL_LOOPBACK_MESSAGE =
+	"✓ Every server answers on this machine only (loopback).";
 const READY_TIMEOUT_MS = 120_000;
 
 export const RUN_LOCAL_HELP = `Usage: bun run-local [options]
@@ -479,6 +481,7 @@ async function main(): Promise<void> {
 		if (!startup.ready) throw new Error(startup.detail);
 		console.log(`\n✓ Tedix OS: ${LOCAL_OS_URL}`);
 		console.log(`✓ API health: ${LOCAL_API_URL}/health`);
+		console.log(LOCAL_LOOPBACK_MESSAGE);
 		console.log(
 			options.inference
 				? `  Data stays in ${statePath}; model turns use opt-in Workers AI inference.\n`
