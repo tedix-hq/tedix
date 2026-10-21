@@ -4,10 +4,11 @@ The Tedix OS web application.
 
 ## Overview
 
-Tedix OS is the main working interface for durable company work. Activity is
-the default view; Canvas, Blueprints, Outputs, Team, Skills, Apps, Brain, and
-Audit are routes in the same authenticated shell. Settings and Admin settings
-complete that shell without splitting authority across a second application:
+Tedix OS is the main working interface for durable company work. The entry
+route opens Work, where Feed and Deck are the primary views; Projects is
+available through More views. Workspaces, Documents, Team, Skills, Apps and
+Memory share the authenticated shell. Templates and Activity log are available
+through Settings, alongside organization and personal settings:
 personal appearance is browser-local, while durable tenant configuration uses
 the canonical control plane. `Cmd/Ctrl+K` searches routes and projected resources.
 This application renders and operates canonical Tedix API and MCP state. It
@@ -118,11 +119,11 @@ project default.
   automatic route splitting, nested auth/session/tenant layouts, typed search,
   loader prefetch, scroll restoration, and global pending/error/not-found
   boundaries.
-- **Server data:** TanStack Query over oRPC. Core Workspace/output/Blueprint/run
-  routes share generated definitions in `src/lib/os-query-options.ts`; legacy
-  component-local API keys remain migration debt. D1/API remains canonical;
-  Query is a browser cache and live projections reconcile by invalidating or
-  replacing exact canonical keys.
+- **Server data:** TanStack Query over oRPC. Contract-backed reads and cache
+  writers share one generated `osQuery` namespace per domain through
+  `src/lib/os-query-options.ts`; `scripts/lint-os.ts` rejects handwritten
+  query-key literals. D1/API remains canonical; Query is a browser cache and
+  live projections reconcile by invalidating or replacing generated keys.
 - **UI:** Cloudflare Kumo behind app-local `src/components/kumo/*` adapters,
   including shared `Page`, `PageHeader`, and `PageActions` composition.
 - **Live editing:** the operational-transformation (OT) `CollabRoom` and browser-only editors are explicitly
