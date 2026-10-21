@@ -71,7 +71,11 @@ import {
 	widgetResourceUri,
 } from "./app-detail";
 import { AppLifecyclePanel, AppOverviewPage } from "./app-detail";
-import { appDetailQueryOptions } from "@/lib/os-query-options";
+import {
+	appDetailQueryOptions,
+	appGatewayMembershipQueryOptions,
+	installedAppEligibilityQueryOptions,
+} from "@/lib/os-query-options";
 
 const detailApp = {
 	id: "installed-initech",
@@ -148,6 +152,140 @@ describe("app overview tool preview", () => {
 });
 
 describe("app lifecycle", () => {
+	function renderLifecycle({
+		gatewayId = "gateway",
+		enabled = false,
+		membershipStatus = "success",
+		badge = "ready",
+		eligibilityStatus = "success",
+	}: {
+		gatewayId?: string;
+		enabled?: boolean;
+		membershipStatus?: "success" | "pending" | "error";
+		badge?: string | null;
+		eligibilityStatus?: "success" | "pending" | "error";
+	} = {}) {
+		const client = new QueryClient({
+			defaultOptions: { queries: { enabled: false, retry: false } },
+		});
+		const membershipKey = appGatewayMembershipQueryOptions(
+			detailApp.id,
+		).queryKey;
+		const eligibilityKey = installedAppEligibilityQueryOptions().queryKey;
+		if (membershipStatus !== "pending") {
+			client.setQueryData(membershipKey, {
+				gateway: { id: gatewayId, name: "Globex", slug: "globex-unified" },
+				enabled,
+				unavailableReason: null,
+			});
+			if (membershipStatus === "error")
+				client
+					.getQueryCache()
+					.find({ queryKey: membershipKey })!
+					.setState({
+						status: "error",
+						error: new Error("Membership unavailable"),
+					});
+		}
+		if (eligibilityStatus !== "pending") {
+			client.setQueryData(
+				eligibilityKey,
+				(badge ? [{ appId: detailApp.id, badge }] : []) as never,
+			);
+			if (eligibilityStatus === "error")
+				client
+					.getQueryCache()
+					.find({ queryKey: eligibilityKey })!
+					.setState({
+						status: "error",
+						error: new Error("Eligibility unavailable"),
+					});
+		}
+		const doc = new DOMParser().parseFromString(
+			renderToStaticMarkup(
+				<QueryClientProvider client={client}>
+					<AppLifecyclePanel app={detailApp as never} />
+				</QueryClientProvider>,
+			),
+			"text/html",
+		);
+		client.clear();
+		return doc.querySelector('[aria-label="App lifecycle states"]')!;
+	}
+
+	it.each([false, true])(
+		"explains gateway self-membership when enabled=%s",
+		(enabled) => {
+			const summary = renderLifecycle({ gatewayId: detailApp.id, enabled });
+			expect(summary.textContent).toContain("This app is the unified gateway");
+			expect(summary.textContent).toContain("Self-membership does not apply");
+			expect(summary.textContent).not.toContain("Not in unified gateway");
+			expect(summary.textContent).not.toContain("Available in unified gateway");
+		},
+	);
+
+	it.each([
+		[true, "Available in unified gateway"],
+		[false, "Not in unified gateway"],
+	] as const)(
+		"preserves ordinary membership when enabled=%s",
+		(enabled, expected) => {
+			const summary = renderLifecycle({ enabled });
+			expect(summary.textContent).toContain(expected);
+			expect(summary.textContent).not.toContain(
+				"Self-membership does not apply",
+			);
+		},
+	);
+
+	it.each([
+		["pending", "Checking membership"],
+		["error", "Gateway state unavailable"],
+	] as const)(
+		"keeps %s membership distinct from exclusion",
+		(membershipStatus, expected) => {
+			const summary = renderLifecycle({
+				gatewayId: detailApp.id,
+				membershipStatus,
+			});
+			expect(summary.textContent).toContain(expected);
+			expect(summary.textContent).not.toContain("Not in unified gateway");
+			expect(summary.textContent).not.toContain(
+				"This app is the unified gateway",
+			);
+		},
+	);
+
+	it.each([
+		["ready", "Requirements met"],
+		["plan_upgrade", "Plan upgrade needed"],
+		["setup_needed", "Setup needed"],
+		[null, "Readiness not checked"],
+	] as const)(
+		"keeps %s eligibility separate from publication and health",
+		(badge, expected) => {
+			const summary = renderLifecycle({ badge });
+			expect(summary.textContent).toContain(expected);
+			expect(summary.textContent).toContain("MCP service not checked");
+			expect(summary.textContent).toContain("Live inventory not checked");
+			expect(summary.textContent).not.toContain("Ready to use");
+			expect(summary.textContent).not.toContain("MCP healthy");
+			expect(summary.textContent).not.toContain("Published");
+		},
+	);
+
+	it.each([
+		["pending", "Checking readiness"],
+		["error", "Readiness unavailable"],
+	] as const)(
+		"preserves %s eligibility instead of stale success",
+		(eligibilityStatus, expected) => {
+			const summary = renderLifecycle({ eligibilityStatus });
+			expect(summary.textContent).toContain(expected);
+			expect(summary.textContent).not.toContain("Requirements met");
+		},
+	);
+
 	it("attributes a catalog source connection to its installed tenant proxy", () => {
 		const rows = [
 			{
