@@ -12,6 +12,7 @@ import {
 	cardsFromSheet,
 	isOpen,
 	routeFactoryCard,
+	scoredCards,
 } from "@tedix/api-contract/utils/card-review";
 import {
 	canvasOutputsQueryOptions,
@@ -46,8 +47,7 @@ export function useFactoryCardCount(
 			...workRefreshOptions,
 		})),
 	});
-	const cards: ReviewCard[] = [];
-	const routes: ReturnType<typeof routeFactoryCard>[] = [];
+	const loaded: ReviewCard[] = [];
 	let invalid = false;
 	for (const [index, { source, sheet }] of sheets.entries()) {
 		const body = details[index]?.data?.currentRevision.content;
@@ -65,16 +65,15 @@ export function useFactoryCardCount(
 			body,
 		});
 		if ("missing" in parsed) invalid = true;
-		else {
-			const candidates = parsed.cards.filter(
-				(card) => isOpen(card) && cardIsDue(card, now, timeZone),
-			);
-			for (const card of candidates) {
-				const route = routeFactoryCard(card, routing, now, model);
-				routes.push(route);
-				if (route.destination === "deck") cards.push(card);
-			}
-		}
+		else loaded.push(...parsed.cards);
+	}
+	const cards: ReviewCard[] = [];
+	const routes: ReturnType<typeof routeFactoryCard>[] = [];
+	for (const card of scoredCards(loaded, sources, now)) {
+		if (!isOpen(card) || !cardIsDue(card, now, timeZone)) continue;
+		const route = routeFactoryCard(card, routing, now, model);
+		routes.push(route);
+		if (route.destination === "deck") cards.push(card);
 	}
 	useDeckRoutingAudit(routes);
 	return {

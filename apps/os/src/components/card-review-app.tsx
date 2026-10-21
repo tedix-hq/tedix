@@ -56,6 +56,8 @@ import {
 	columnIndex,
 	DEFAULT_RESULT_COLUMN,
 	doItLabel,
+	factoryLearningClass,
+	factoryVerdictLearning,
 	formatReason,
 	isActionLabel,
 	type MissingColumns,
@@ -70,11 +72,13 @@ import {
 	rowWrite,
 	ruleTextById,
 	runParams,
+	scoredCards,
 	type SheetBody,
 	snoozeUntil,
 	sourceParts,
 	type Verdict,
 	verdictCells,
+	whyThisCard,
 } from "@tedix/api-contract/utils/card-review";
 import {
 	canvasOutputsQueryOptions,
@@ -227,8 +231,7 @@ export function CardReviewApp({
 					targetType: "output",
 					targetId: card.outputId,
 					metadata: {
-						decisionClass:
-							`factory:${source.label}:${card.type || "card"}`.slice(0, 100),
+						...factoryVerdictLearning(source, card, reason),
 						decisionChoice: choice,
 						rowIndex: card.rowIndex,
 						...(rail
@@ -342,7 +345,7 @@ export function CardReviewApp({
 			if ("missing" in result) gaps.push(result.missing);
 			else all.push(...result.cards);
 		}
-		return { cards: all, missing: gaps };
+		return { cards: scoredCards(all, sources), missing: gaps };
 	}, [sheetRefs, sheets, sources]);
 
 	const rules = useMemo(() => {
@@ -407,11 +410,10 @@ export function CardReviewApp({
 			scoreLearning(
 				{
 					id: card.key,
-					classId:
-						`factory:${sources[card.sourceIndex]?.label}:${card.type || "card"}`.slice(
-							0,
-							100,
-						),
+					classId: factoryLearningClass(
+						sources[card.sourceIndex]?.label ?? "",
+						card.type,
+					),
 					source: "decision_deck",
 					channel: card.channel,
 				},
@@ -933,6 +935,8 @@ export function CardReviewApp({
 						pending={revisionPending || busy}
 						content={
 							<div className="grid min-w-0 gap-3">
+								<FaceChips card={card} />
+								<RankedFor text={whyThisCard(source, card)} />
 								<SourceLine text={card.sourceText} />
 								{card.draft && <Text>{card.draft}</Text>}
 								{inDeck && card.draft && sheets.get(card.outputId) && (
@@ -947,6 +951,9 @@ export function CardReviewApp({
 							</div>
 						}
 						why={<Text>{plainWhy(card.why)}</Text>}
+						rejectReasons={source.scoring?.skipReasonChips.map(
+							(chip) => chip.label,
+						)}
 						actions={[
 							{
 								id: "useful",
@@ -980,7 +987,10 @@ export function CardReviewApp({
 									? snooze()
 									: await decide(
 											feedback.action as Verdict["kind"],
-											feedback.feedback,
+											formatReason(
+												feedback.reason ? [feedback.reason] : [],
+												feedback.feedback ?? "",
+											),
 										);
 							if (!result.ok) throw new Error(result.error);
 						}}
@@ -1106,6 +1116,7 @@ export function CardReviewApp({
 						key={card.key}
 						card={card}
 						ruleText={rules.text.get(card.sourceIndex)}
+						rankedFor={whyThisCard(source, card)}
 						onSwipe={(direction) =>
 							void decide(direction === "right" ? "useful" : "not_useful")
 						}
@@ -1382,11 +1393,14 @@ function UndoButton({
 function SwipeCard({
 	card,
 	ruleText,
+	rankedFor,
 	onSwipe,
 	disabled,
 }: {
 	card: ReviewCard;
 	ruleText: Map<string, string> | undefined;
+	/** The factory's top score inputs, e.g. "fresh thread, buyer intent". */
+	rankedFor: string | null;
 	onSwipe: (direction: "left" | "right") => void;
 	disabled: boolean;
 }) {
@@ -1470,6 +1484,7 @@ function SwipeCard({
 			<div className="flex flex-wrap items-center gap-1.5">
 				<Badge variant="secondary">{card.channel}</Badge>
 				{card.type && <Badge variant="outline">{card.type}</Badge>}
+				<FaceChips card={card} />
 				<Text as="span" role="caption" tone="secondary" className="ml-auto">
 					{card.sheetTitle} · #{card.number}
 				</Text>
@@ -1485,6 +1500,7 @@ function SwipeCard({
 			<Text as="p" role="body" className="m-0 whitespace-pre-wrap">
 				{plainWhy(card.why)}
 			</Text>
+			<RankedFor text={rankedFor} />
 
 			{card.action && !isActionLabel(card.action) && (
 				<section
@@ -1539,6 +1555,33 @@ function SwipeCard({
 				</Details>
 			)}
 		</article>
+	);
+}
+
+/** The factory's effort and timing chips; nothing when the sheet has neither. */
+function FaceChips({ card }: { card: Pick<ReviewCard, "effort" | "timing"> }) {
+	if (!card.effort && !card.timing) return null;
+	return (
+		<span className="flex flex-wrap gap-1.5" data-card-review-chips>
+			{card.effort && <Badge variant="outline">{card.effort}</Badge>}
+			{card.timing && <Badge variant="outline">{card.timing}</Badge>}
+		</span>
+	);
+}
+
+/** One line naming the factory's top score inputs for this card. */
+function RankedFor({ text }: { text: string | null }) {
+	if (!text) return null;
+	return (
+		<Text
+			as="p"
+			role="caption"
+			tone="secondary"
+			className="m-0"
+			data-card-review-ranked-for
+		>
+			{decisionText("Why this card")}: {text}
+		</Text>
 	);
 }
 

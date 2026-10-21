@@ -16,7 +16,10 @@ import {
 import {
 	cardSheetsForSource,
 	cardsFromSheet,
+	factoryLearningClass,
 	isOpen,
+	type ReviewCard,
+	scoredCards,
 } from "@tedix/api-contract/utils/card-review";
 import { sentence } from "@tedix/api-contract/utils/activity-feed";
 
@@ -50,6 +53,7 @@ export function ActivityFeedFactorySource({
 		.join(":");
 	const state = useMemo(() => {
 		const items: ActivityFeedItem[] = [];
+		const loaded: { card: ReviewCard; revision: number }[] = [];
 		let failed = outputs.isError || details.some((d) => d.isError);
 		for (let index = 0; index < sheets.length; index++) {
 			const sheet = sheets[index]!;
@@ -75,33 +79,40 @@ export function ActivityFeedFactorySource({
 			for (const card of result.cards.filter((card) =>
 				cardIsDue(card, now, timeZone),
 			))
-				items.push({
-					id: `factory:${sheet.id}:${card.rowIndex}`,
-					actor: binding.source.label,
-					sentence: sentence(
-						card.result ||
-							`${card.who ? `${card.who}: ` : ""}${card.why || card.sourceText}`,
-					),
-					source: `/workspace/${binding.source.workspaceId}?workpiece=output:${sheet.id}&pane=workpiece`,
-					projectId: binding.projectId,
-					workItemId: null,
-					tediId: null,
-					kind: isOpen(card) ? "decision" : "result",
-					attachment: { title: sheet.title },
-					classId:
-						`factory:${binding.source.label}:${card.type || "card"}`.slice(
-							0,
-							100,
-						),
-					importance: "normal",
-					at: sheet.createdAt,
-					dueAt: null,
-					needsAction: isOpen(card),
-					stalled: /^failed/i.test(card.result),
-					done: !isOpen(card),
-					explanation: `${card.why}\n${card.sourceText}\nOutput ${sheet.id}, revision ${revision.revision}, row ${card.rowIndex + 1}`,
-					reactions: ["more", "why", "mute", "comment", "work"],
-				});
+				loaded.push({ card, revision: revision.revision });
+		}
+		const kept = new Set(
+			scoredCards(
+				loaded.map((entry) => entry.card),
+				[binding.source],
+				now,
+			),
+		);
+		for (const { card, revision } of loaded) {
+			if (!kept.has(card)) continue;
+			items.push({
+				id: `factory:${card.outputId}:${card.rowIndex}`,
+				actor: binding.source.label,
+				sentence: sentence(
+					card.result ||
+						`${card.who ? `${card.who}: ` : ""}${card.why || card.sourceText}`,
+				),
+				source: `/workspace/${binding.source.workspaceId}?workpiece=output:${card.outputId}&pane=workpiece`,
+				projectId: binding.projectId,
+				workItemId: null,
+				tediId: null,
+				kind: isOpen(card) ? "decision" : "result",
+				attachment: { title: card.sheetTitle },
+				classId: factoryLearningClass(binding.source.label, card.type),
+				importance: "normal",
+				at: card.runCreatedAt,
+				dueAt: null,
+				needsAction: isOpen(card),
+				stalled: /^failed/i.test(card.result),
+				done: !isOpen(card),
+				explanation: `${card.why}\n${card.sourceText}\nOutput ${card.outputId}, revision ${revision}, row ${card.rowIndex + 1}`,
+				reactions: ["more", "why", "mute", "comment", "work"],
+			});
 		}
 		return {
 			items,

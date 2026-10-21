@@ -135,6 +135,13 @@ export interface DecisionCardFeedback {
 	feedback?: string;
 }
 
+const OUTBOUND_REJECT_REASONS = [
+	"wrong tone",
+	"wrong facts",
+	"not now",
+	"don't send",
+] as const;
+
 /** The card's keydown handler below owns these keys; the tooltips only show them. */
 const ACTION_SHORTCUTS: Record<string, { key: string; aria: string }> = {
 	approve: { key: "→", aria: "ArrowRight" },
@@ -273,6 +280,7 @@ export function WorkDecisionCard({
 	initialAnswer = "",
 	revisionTarget,
 	connectionSettings = false,
+	rejectReasons,
 	pending = false,
 	disabled = false,
 	onDecision,
@@ -299,6 +307,8 @@ export function WorkDecisionCard({
 	initialAnswer?: string;
 	revisionTarget?: CardRevisionTarget;
 	connectionSettings?: boolean;
+	/** One-tap reasons a reject asks for; outbound cards always ask. */
+	rejectReasons?: readonly string[];
 	pending?: boolean;
 	disabled?: boolean;
 	autoFocus?: boolean;
@@ -630,10 +640,15 @@ export function WorkDecisionCard({
 					(action) => action.intent === "approve" && !action.disabled,
 				);
 	const reject = actions.find((action) => action.intent === "reject");
+	const reasons = rejectReasons?.length
+		? rejectReasons
+		: kind === "outbound"
+			? OUTBOUND_REJECT_REASONS
+			: [];
 	const choose = (action: DecisionCardAction | undefined) => {
 		if (!action || action.disabled || busy) return;
 		if (section.current?.closest(".fd-deck")) motion.pulse();
-		if (kind === "outbound" && action.intent === "reject") setReasonsOpen(true);
+		if (reasons.length > 0 && action.intent === "reject") setReasonsOpen(true);
 		else void submit(action);
 	};
 	const [stagedOptionId, setStagedOptionId] = useState<string | null>(null);
@@ -1121,18 +1136,16 @@ export function WorkDecisionCard({
 										className="flex flex-wrap gap-2"
 										aria-label={decisionText("Why not this?")}
 									>
-										{["wrong tone", "wrong facts", "not now", "don't send"].map(
-											(reason) => (
-												<Button
-													key={reason}
-													variant="outline"
-													disabled={busy}
-													onClick={() => void submit(reject, reason)}
-												>
-													{reason}
-												</Button>
-											),
-										)}
+										{reasons.map((reason) => (
+											<Button
+												key={reason}
+												variant="outline"
+												disabled={busy}
+												onClick={() => void submit(reject, reason)}
+											>
+												{reason}
+											</Button>
+										))}
 									</div>
 								) : null}
 								<ConfirmDialog

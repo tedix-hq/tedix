@@ -9,6 +9,7 @@ import {
 	cardsFromSheet,
 	type ReviewCard,
 	reviewQueue,
+	scoredCards,
 	type SheetBody,
 } from "@tedix/api-contract/utils/card-review";
 
@@ -82,7 +83,7 @@ export function cardReviewSummary(
 			if ("cards" in result) cards.push(...result.cards);
 		}
 	}
-	const queue = reviewQueue(cards, {
+	const queue = reviewQueue(scoredCards(cards, config.sources), {
 		channel: null,
 		snoozes: {},
 		skipped: [],
