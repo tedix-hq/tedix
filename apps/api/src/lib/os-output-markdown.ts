@@ -103,9 +103,15 @@ function markdownNode(node: OsRichTextNode): string {
 		case "taskList":
 			return (
 				(node.content ?? [])
-					.map(
-						(item) =>
-							`- [${item.attrs?.checked === true ? "x" : " "}] ${markdownNode(item).trim()}`,
+					.map((item) =>
+						markdownNode(item)
+							.trimEnd()
+							.split("\n")
+							.map(
+								(line, row) =>
+									`${row === 0 ? `- [${item.attrs?.checked === true ? "x" : " "}] ` : "  "}${line}`,
+							)
+							.join("\n"),
 					)
 					.join("\n") + "\n\n"
 			);
