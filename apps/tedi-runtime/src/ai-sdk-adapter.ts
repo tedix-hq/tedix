@@ -15,7 +15,7 @@ import {
 	resolveEmbeddedToolSchemas,
 	type EmbeddedToolSchemaResolution,
 } from "./embedded-tool-schemas";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { createAzure } from "@ai-sdk/azure";
 import {
 	AGENT_RUNTIME_AVAILABLE_PROVIDERS,

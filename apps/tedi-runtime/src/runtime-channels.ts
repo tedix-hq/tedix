@@ -48,7 +48,7 @@ import {
 	untrustedTurnSystemAddendum,
 	untrustedTurnToolAllowlist,
 } from "./turn-trust";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { createWebSearchAiTools } from "./web-search-tool";
 export interface InboundEmailPayload {
 	tediId: string;

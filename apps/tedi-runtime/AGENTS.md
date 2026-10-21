@@ -54,7 +54,7 @@ None of these announce themselves when broken.
   the parent Worker's network_, which is the most permissive option and the one
   you get by forgetting. `scripts/lint-loader-sandbox.ts` enforces this repo-wide
   and holds the known gaps; `durable-codemode.ts` is this app's call site.
-- **External text goes through `wrapUntrustedInput`** (`src/untrusted-input.ts`).
+- **External text goes through `wrapUntrustedInput`** (`@tedix/chat-transport/untrusted-input`).
   The fence markers are derivable from the source name, so the wrapper
   neutralizes them inside the payload — visibly, so an operator reading the
   ledger sees the attempt. Never hand-roll the fence at a call site. The in-message

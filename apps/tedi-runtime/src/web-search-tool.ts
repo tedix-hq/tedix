@@ -10,7 +10,7 @@ import {
 import { type ToolSet, tool } from "ai";
 import * as z from "zod";
 import type { PlatformClient } from "./brain/platform-client";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 export interface WebSearchToolInput {
 	/** The Worker's `AI` binding; the tool stays hidden without `websearch`. */

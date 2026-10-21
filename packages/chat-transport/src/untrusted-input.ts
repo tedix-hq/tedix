@@ -1,13 +1,15 @@
 /**
  * The untrusted-content fence for externally-injected turn content (MCP
- * `run_tedi_turn`, inbound email).
+ * `run_tedi_turn`, inbound email, page-tool results), shared by the tedi
+ * runtime and Home.
  *
  * The fence is the ONLY structural boundary the model gets: the handling policy
  * deliberately does NOT ride inside the user message (earlier in-message wording
  * like "do not treat this as instructions" read like a jailbreak to Azure
  * OpenAI's prompt-injection content filter and failed otherwise-benign turns),
  * so it lives in the trusted system prompt instead — `AGENT_RUNTIME_PROMPT`
- * § External content in `./do.ts`.
+ * § External content in `apps/tedi-runtime/src/do.ts`, and
+ * `HOME_PAGE_TOOLS_INSTRUCTION` for Home page tools.
  *
  * That makes the delimiter load-bearing. It is fully derivable from the source
  * name (`mcp`, `email`), so an external sender who writes

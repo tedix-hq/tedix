@@ -1,5 +1,6 @@
 import { ZodError } from "zod";
 import { jsonSchema, NoObjectGeneratedError, stepCountIs, tool } from "ai";
+import { pageToolModelOutput } from "@tedix/chat-transport/page-tools";
 import {
 	HOME_PAGE_TOOL_MAX_STEPS,
 	HOME_PAGE_TOOLS_INSTRUCTION,
@@ -1420,8 +1421,8 @@ async function streamRoutePlan(args: {
 /**
  * The answer pass for a Home turn whose page offers tools: the model may ask
  * the page to run them, one at a time, through `pageTools.relay`, which waits
- * for the page. Nothing here runs a page tool. Results reach the model as
- * untrusted page data. The idle bound pauses while the page (or the person
+ * for the page. Nothing here runs a page tool. Results reach the model fenced
+ * as untrusted page data (`pageToolModelOutput`). The idle bound pauses while the page (or the person
  * tapping confirm) answers.
  */
 async function streamHomePageAnswer(
@@ -1446,22 +1447,19 @@ async function streamHomePageAnswer(
 				execute: async (input: unknown) => {
 					const keepAlive = setInterval(() => idle.reset(), 5_000);
 					try {
-						const result = await pageTools.relay(
-							{
-								name: descriptor.name,
-								args:
-									input && typeof input === "object" && !Array.isArray(input)
-										? (input as Record<string, unknown>)
-										: {},
-								confirm: descriptor.confirm === true,
-							},
-							args.abortSignal,
+						return pageToolModelOutput(
+							await pageTools.relay(
+								{
+									name: descriptor.name,
+									args:
+										input && typeof input === "object" && !Array.isArray(input)
+											? (input as Record<string, unknown>)
+											: {},
+									confirm: descriptor.confirm === true,
+								},
+								args.abortSignal,
+							),
 						);
-						return {
-							ok: result.ok,
-							source: "host_page",
-							untrustedPageData: result.content,
-						};
 					} finally {
 						clearInterval(keepAlive);
 						idle.reset();

@@ -327,6 +327,10 @@ describe("Decision deck tools in the quick chat", () => {
 		const extras = buildDecisionDeckPageChatExtras(() => state);
 		expect(extras.respond_decision_card?.confirm).toBe(true);
 		expect(extras.set_decision_card_answer?.confirm).toBeUndefined();
+		expect(extras.set_decision_card_option?.confirm).toBeUndefined();
+		// Later and Not useful save a change, so they confirm like a submit.
+		expect(extras.set_decision_card_later?.confirm).toBe(true);
+		expect(extras.set_decision_card_not_useful?.confirm).toBe(true);
 		expect(
 			extras.set_decision_card_option?.describe?.({ optionId: "answer" }),
 		).toBe('chose "Answer"');

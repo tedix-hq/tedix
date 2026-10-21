@@ -12,7 +12,7 @@ import type {
 } from "./delegated-work-lease";
 import type { FacetTurnUsage } from "./step-telemetry";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 type Storage = Pick<DurableObjectStorage, "get" | "put" | "list" | "delete">;
 export interface ComputerContinuationReadDeps {

@@ -1,11 +1,10 @@
 import { jsonSchema, tool, type ToolSet } from "ai";
 import type { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
-import type {
-	PageToolCallEvent,
-	PageToolDescriptor,
-	PageToolResult,
+import {
+	pageToolModelOutput,
+	type PageToolCallEvent,
+	type PageToolDescriptor,
 } from "@tedix/chat-transport/page-tools";
-import { wrapUntrustedInput } from "./untrusted-input";
 
 /**
  * Page tools for one embedded widget turn: the host page's own actions (fill
@@ -26,15 +25,6 @@ import { wrapUntrustedInput } from "./untrusted-input";
  * - The result is untrusted page data, fenced before the model reads it.
  *   Nothing a page tool returns grants a server privilege.
  */
-
-/** What the model reads back: an outcome plus the fenced page text. */
-export function pageToolModelOutput(result: PageToolResult) {
-	return {
-		ok: result.ok,
-		source: "host_page",
-		result: wrapUntrustedInput(result.content, "page_tool"),
-	};
-}
 
 /**
  * Wrap the turn's page descriptors as relay tools. A name that collides with

@@ -11,7 +11,7 @@ import {
 	type ComputerExecutionWakeRecord,
 } from "./computer-execution-wake";
 import { facetTurnBudgetClass } from "./inference-guardrails";
-import { wrapUntrustedInput } from "./untrusted-input";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 
 const environment: ComputerEnvironment = {
 	cwd: "/home/tedi/workstation",
