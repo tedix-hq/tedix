@@ -63,12 +63,6 @@ export const CONNECTOR_TYPE_LABELS: Record<string, string> = {
 	FIRST_PARTY_ECOSYSTEM: "Built-in",
 };
 
-export const APP_TYPE_LABELS: Record<string, string> = {
-	MCP: "AI App",
-	SERVICE: "Integration",
-	FIRST_PARTY_ECOSYSTEM: "Built-in",
-};
-
 // ============================================================
 // Developer Type
 // ============================================================
@@ -142,13 +136,6 @@ export const HEALTH_STATUS_CONFIG: Record<string, HealthStatusConfig> = {
 		label: "Not Checked",
 		icon: "help-circle",
 	},
-};
-
-export const HEALTH_STATUS_LABELS: Record<string, string> = {
-	healthy: "Connected",
-	degraded: "Intermittent",
-	unhealthy: "Not Responding",
-	requires_auth: "Login Required",
 };
 
 /** Consumer-friendly health status labels for the app overview zone */

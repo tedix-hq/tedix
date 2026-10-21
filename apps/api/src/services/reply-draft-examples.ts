@@ -29,7 +29,6 @@ const AssetSchema = z.object({
 	outcomeLabels: z.record(z.string(), z.string()),
 });
 const ASSET = AssetSchema.parse(asset);
-export const REPLY_DRAFT_EXAMPLES_ASSET_VERSION = ASSET.assetVersion;
 
 /** Upper bound on the whole rendered block. */
 export const REPLY_EXAMPLES_BLOCK_LIMIT = 2_500;

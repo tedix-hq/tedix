@@ -24,7 +24,13 @@
 			"entry": ["scripts/**/*.{ts,mjs}!"],
 			"project": ["scripts/**/*.{ts,mjs}!"],
 			"ignoreUnresolved": ["scripts/run-local.ts"],
-			"ignoreDependencies": ["@cloudflare/kumo", "npm-check-updates"]
+			"ignoreDependencies": [
+				"@cloudflare/kumo",
+				"npm-check-updates",
+				"cf",
+				"jiti",
+				"mdast-util-from-markdown"
+			]
 		},
 		"apps/*": {
 			"entry": [
@@ -68,7 +74,8 @@
 				"src/layouts/**/*.astro!",
 				"scripts/**/*.{ts,mjs,js}!"
 			],
-			"project": ["src/**/*.{ts,tsx,astro}!", "scripts/**/*.{ts,mjs,js}!"]
+			"project": ["src/**/*.{ts,tsx,astro}!", "scripts/**/*.{ts,mjs,js}!"],
+			"ignoreDependencies": ["recharts"]
 		},
 		"apps/os": {
 			"project": ["src/**/*.{ts,tsx}!"],
@@ -76,7 +83,13 @@
 			"entry": ["src/worker.ts!"],
 			"vitest": {
 				"config": ["vitest*.config.ts"]
-			}
+			},
+			"ignoreUnresolved": [
+				"/node_modules/.vite/deps/react.js",
+				"/node_modules/.vite/deps/react-dom_client.js",
+				"/src/components/kumo/dialog.tsx",
+				"/src/components/kumo/toast.tsx"
+			]
 		},
 		"apps/tedi-runtime": {
 			"entry": [
@@ -121,7 +134,8 @@
 				"src/**/*.{ts,tsx}!",
 				"scripts/**/*.{ts,mjs,js}!",
 				"conformance/**/*.{ts,mjs,js}!"
-			]
+			],
+			"ignoreBinaries": ["opencode"]
 		},
 		"apps/landing": {
 			"ignoreDependencies": ["@tedix/design-tokens"],
@@ -157,6 +171,12 @@
 				"src/**/*.{ts,tsx,mjs,astro,mdx}!",
 				"scripts/**/*.{ts,mjs,js}!",
 				"eval/**/*.{ts,js}!"
+			],
+			"ignoreDependencies": [
+				"@orpc/client",
+				"@emdash-cms/plugin-forms",
+				"@emdash-cms/admin",
+				"kysely"
 			]
 		},
 		"apps/tedi": {
@@ -181,6 +201,23 @@
 		"packages/webmcp-core": {
 			"entry": ["src/index.ts!", "src/spec-conformance.ts!"],
 			"project": ["src/**/*.ts!"]
+		},
+		"apps/mcp": {
+			"entry": [
+				"src/{index,worker,main,server}.{ts,tsx}!",
+				"src/env.ts!",
+				"src/**/*.mjs!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!",
+				"src/pages/**/*.{astro,mdx,ts}!",
+				"src/layouts/**/*.astro!",
+				"cloudflare.config.ts!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx,mjs,astro,mdx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"eval/**/*.{ts,js}!"
+			]
 		}
 	},
 	"ignoreExportsUsedInFile": true,

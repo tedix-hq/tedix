@@ -416,6 +416,3 @@ export async function workstationWaitForPort(
 		"port readiness",
 	);
 }
-
-/** DO binding shape; the public client wraps native process descriptors into handles. */
-export type WorkstationRuntimeDO = WorkstationRuntimeBody;

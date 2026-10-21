@@ -3,7 +3,6 @@ import type { CmsDeployWorkflowParams } from "./agent/deploy-admission";
 import type { ImageGenerationWorkflowParams } from "./agent/image-generation-workflow";
 
 // Cloudflare's generated binding types are the provider contract.
-export type ArtifactsRepoHandle = ArtifactsRepo;
 export type ArtifactsBinding = Pick<Artifacts, "get" | "create">;
 
 export interface AppBindings {

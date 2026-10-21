@@ -1,145 +1,5 @@
 [
 	{
-		"path": "apps/api/src/rpc/routers/kernel-runtime/policy-normalization.ts",
-		"symbol": "defaultKernelChildSteerForwarder",
-		"type": "duplicates"
-	},
-	{
-		"path": "apps/api/src/rpc/routers/kernel-runtime/policy-normalization.ts",
-		"symbol": "defaultKernelChildStopper",
-		"type": "duplicates"
-	},
-	{
-		"path": "apps/api/src/rpc/routers/kernel-runtime/policy-normalization.ts",
-		"symbol": "defaultKernelDoTurnCanceler",
-		"type": "duplicates"
-	},
-	{
-		"path": "apps/api/src/rpc/routers/kernel-runtime/policy-normalization.ts",
-		"symbol": "kernelChildSteerForwarder",
-		"type": "duplicates"
-	},
-	{
-		"path": "apps/api/src/rpc/routers/kernel-runtime/policy-normalization.ts",
-		"symbol": "kernelChildStopper",
-		"type": "duplicates"
-	},
-	{
-		"path": "apps/api/src/rpc/routers/kernel-runtime/policy-normalization.ts",
-		"symbol": "kernelDoTurnCanceler",
-		"type": "duplicates"
-	},
-	{
-		"path": "apps/api/src/services/provider-events/mcp-events.ts",
-		"symbol": "MCP_EVENTS_EXTENSION",
-		"type": "exports"
-	},
-	{
-		"path": "apps/api/src/services/reply-draft-examples.ts",
-		"symbol": "REPLY_DRAFT_EXAMPLES_ASSET_VERSION",
-		"type": "exports"
-	},
-	{
-		"path": "apps/api/src/services/work-artifacts-repository.ts",
-		"symbol": "readWorkAttemptRepository",
-		"type": "exports"
-	},
-	{
-		"path": "apps/cms/package.json",
-		"symbol": "@orpc/client",
-		"type": "devDependencies"
-	},
-	{
-		"path": "apps/cms/scripts/emdash-forms-admin.test.ts",
-		"symbol": "happy-dom",
-		"type": "unlisted"
-	},
-	{
-		"path": "apps/cms/src/types.ts",
-		"symbol": "ArtifactsRepoHandle",
-		"type": "types"
-	},
-	{
-		"path": "apps/docs/package.json",
-		"symbol": "@cloudflare/sandbox",
-		"type": "dependencies"
-	},
-	{
-		"path": "apps/landing/src/components/ui/card.tsx",
-		"symbol": "CardFooter",
-		"type": "exports"
-	},
-	{
-		"path": "apps/landing/src/components/ui/checkbox.tsx",
-		"symbol": "CheckboxChangeEventDetails",
-		"type": "types"
-	},
-	{
-		"path": "apps/landing/src/components/ui/checkbox.tsx",
-		"symbol": "CheckboxProps",
-		"type": "types"
-	},
-	{
-		"path": "apps/landing/src/components/ui/progress.tsx",
-		"symbol": "ProgressValue",
-		"type": "exports"
-	},
-	{
-		"path": "apps/landing/src/components/ui/table.tsx",
-		"symbol": "TableCaption",
-		"type": "exports"
-	},
-	{
-		"path": "apps/landing/src/components/ui/table.tsx",
-		"symbol": "TableFooter",
-		"type": "exports"
-	},
-	{
-		"path": "apps/landing/src/lib/catalog-constants.ts",
-		"symbol": "APP_TYPE_LABELS",
-		"type": "exports"
-	},
-	{
-		"path": "apps/landing/src/lib/catalog-constants.ts",
-		"symbol": "HEALTH_STATUS_LABELS",
-		"type": "exports"
-	},
-	{
-		"path": "apps/mcp-ui/package.json",
-		"symbol": "recharts",
-		"type": "dependencies"
-	},
-	{
-		"path": "apps/mcp-ui/src/json-render/TedixRenderer.test.tsx",
-		"symbol": "happy-dom",
-		"type": "unlisted"
-	},
-	{
-		"path": "apps/mcp-ui/src/json-render/attention-views.test.tsx",
-		"symbol": "happy-dom",
-		"type": "unlisted"
-	},
-	{
-		"path": "apps/mcp-ui/src/lib/read-embedded-spec.test.ts",
-		"symbol": "happy-dom",
-		"type": "unlisted"
-	},
-	{
-		"path": "apps/mcp-ui/src/lib/widget-host.test.ts",
-		"symbol": "happy-dom",
-		"type": "unlisted"
-	},
-	{
-		"path": "apps/mcp/src/env.ts",
-		"symbol": "apps/mcp/src/env.ts",
-		"type": "files"
-	},
-	{
-		"path": "apps/os/src/account/cli-login-permissions.tsx",
-		"symbol": "readOnlyCliLoginScopes",
-		"type": "exports"
-	},
-	{
 		"path": "apps/os/src/components/feed-deck-primitives.tsx",
 		"symbol": "FeedMomentHeader",
 		"type": "exports"
@@ -147,11 +7,6 @@
 	{
 		"path": "apps/os/src/components/feed-now-strip.tsx",
 		"symbol": "apps/os/src/components/feed-now-strip.tsx",
-		"type": "files"
-	},
-	{
-		"path": "apps/os/src/components/os-sidebar-billing-status.tsx",
-		"symbol": "apps/os/src/components/os-sidebar-billing-status.tsx",
 		"type": "files"
 	},
 	{
@@ -185,76 +40,6 @@
 		"type": "exports"
 	},
 	{
-		"path": "apps/tedi-runtime/src/email-turn-tools.ts",
-		"symbol": "REPLY_TO_EMAIL_TOOL",
-		"type": "exports"
-	},
-	{
-		"path": "apps/tedi-runtime/src/facet-generation-settings.ts",
-		"symbol": "RUNTIME_MEDIA_EVICTION",
-		"type": "exports"
-	},
-	{
-		"path": "apps/tedi-runtime/src/runtime-latency-markers.ts",
-		"symbol": "markFacetToolWait",
-		"type": "exports"
-	},
-	{
-		"path": "apps/tedi-runtime/src/runtime-latency-markers.ts",
-		"symbol": "markStepFinish",
-		"type": "exports"
-	},
-	{
-		"path": "apps/tedi-runtime/src/runtime-latency-markers.ts",
-		"symbol": "markStepPrepare",
-		"type": "exports"
-	},
-	{
-		"path": "apps/tedi-runtime/src/runtime-latency-markers.ts",
-		"symbol": "markToolCall",
-		"type": "exports"
-	},
-	{
-		"path": "apps/tedi/src/routes/admin/workstation/shared.ts",
-		"symbol": "WORKSTATION_BOOTSTRAP_CACHE_TTL_SECONDS",
-		"type": "exports"
-	},
-	{
-		"path": "apps/tedi/src/workstation/computer-body.ts",
-		"symbol": "WorkstationRuntimeDO",
-		"type": "types"
-	},
-	{
-		"path": "package.json",
-		"symbol": "cf",
-		"type": "devDependencies"
-	},
-	{
-		"path": "package.json",
-		"symbol": "jiti",
-		"type": "devDependencies"
-	},
-	{
-		"path": "package.json",
-		"symbol": "mdast-util-from-markdown",
-		"type": "devDependencies"
-	},
-	{
-		"path": "packages/api-contract/src/schemas/tedi-durable-code.ts",
-		"symbol": "ApproveTediCodeExecutionInputSchema",
-		"type": "duplicates"
-	},
-	{
-		"path": "packages/api-contract/src/schemas/tedi-durable-code.ts",
-		"symbol": "GetTediCodeExecutionInputSchema",
-		"type": "duplicates"
-	},
-	{
-		"path": "packages/api-contract/src/schemas/tedi-durable-code.ts",
-		"symbol": "RollbackTediCodeExecutionInputSchema",
-		"type": "duplicates"
-	},
-	{
 		"path": "packages/cli/src/hooks/agent-status.ts",
 		"symbol": "REPORT_VERB",
 		"type": "exports"
@@ -263,10 +48,5 @@
 		"path": "packages/cli/src/learn-import.ts",
 		"symbol": "SessionDecision",
 		"type": "types"
-	},
-	{
-		"path": "packages/db/src/queries/flywheel/compounding-signals.ts",
-		"symbol": "getBrainCompoundingSignals",
-		"type": "exports"
 	}
 ]

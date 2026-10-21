@@ -101,8 +101,3 @@ export function resolveFacetGeneration(
 		},
 	};
 }
-
-/** Runtime tools use a separate scoped Computer workspace. Keep media
- * in Sessions; local eviction pointers would be inaccessible to the model.
- * The SDK hydration byte ceiling still bounds the recent context window. */
-export const RUNTIME_MEDIA_EVICTION = false;

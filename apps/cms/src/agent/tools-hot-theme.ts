@@ -405,7 +405,7 @@ export function registerHotThemeTools(
 				);
 			}
 			let created = false;
-			let repo: import("../types").ArtifactsRepoHandle;
+			let repo: ArtifactsRepo;
 			try {
 				repo = await ctx.artifacts.get(repoName);
 			} catch (error) {

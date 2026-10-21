@@ -33,7 +33,7 @@ import {
 	type Subscription,
 } from "./types";
 
-export const MCP_EVENTS_EXTENSION = "io.modelcontextprotocol/events";
+const MCP_EVENTS_EXTENSION = "io.modelcontextprotocol/events";
 /** Renew a webhook subscription this long before its upstream refreshBefore. */
 export const MCP_EVENTS_RENEW_BEFORE_MS = 15 * 60_000;
 /** A poll subscription is due again on every maintenance tick. */

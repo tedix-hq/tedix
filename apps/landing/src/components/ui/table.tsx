@@ -41,18 +41,6 @@ function TableBody({
 		<KumoTable.Body data-slot="table-body" className={className} {...props} />
 	);
 }
-function TableFooter({
-	className,
-	...props
-}: React.ComponentProps<typeof KumoTable.Footer>) {
-	return (
-		<KumoTable.Footer
-			data-slot="table-footer"
-			className={cn("bg-kumo-elevated font-medium", className)}
-			{...props}
-		/>
-	);
-}
 function TableRow({
 	className,
 	variant,
@@ -101,25 +89,4 @@ function TableCell({
 		/>
 	);
 }
-function TableCaption({
-	className,
-	...props
-}: React.ComponentProps<"caption">) {
-	return (
-		<caption
-			data-slot="table-caption"
-			className={cn("mt-4 text-kumo-subtle", className)}
-			{...props}
-		/>
-	);
-}
-export {
-	Table,
-	TableBody,
-	TableCaption,
-	TableCell,
-	TableFooter,
-	TableHead,
-	TableHeader,
-	TableRow,
-};
+export { Table, TableBody, TableCell, TableHead, TableHeader, TableRow };

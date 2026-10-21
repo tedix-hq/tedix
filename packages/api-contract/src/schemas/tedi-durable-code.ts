@@ -23,10 +23,6 @@ export const GetTediCodeExecutionInputSchema = z.strictObject({
 	...worker,
 	executionId,
 });
-export const ApproveTediCodeExecutionInputSchema =
-	GetTediCodeExecutionInputSchema;
-export const RollbackTediCodeExecutionInputSchema =
-	GetTediCodeExecutionInputSchema;
 export const RejectTediCodeExecutionInputSchema = z.strictObject({
 	...worker,
 	executionId,
