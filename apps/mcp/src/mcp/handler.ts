@@ -651,6 +651,8 @@ export interface ToolExecutionContext<TConfig = unknown> {
 	 * `Mcp-Param-*` request headers on 2026-07-28-negotiated upstream calls.
 	 */
 	toolInputSchema?: Record<string, unknown>;
+	/** Trusted catalog annotation; caller arguments cannot enable retries. */
+	readOnlyHint?: boolean;
 
 	/** Unique request ID for tracing */
 	requestId: string;
@@ -2890,6 +2892,7 @@ export class ToolHandler {
 				toolName: mcpToolName,
 				args: params,
 				toolInputSchema: ctx.toolInputSchema,
+				readOnly: ctx.readOnlyHint === true,
 				modernMeta: {
 					...(outboundTraceparent ? outboundTrace : {}),
 					...(managedTediHost
@@ -2916,7 +2919,21 @@ export class ToolHandler {
 				timeoutMs: timeout,
 			});
 			if (!upstream.ok) {
-				return { data: { error: upstream.error }, status: upstream.status };
+				return {
+					data: {
+						error: upstream.error,
+						...(upstream.providerStatus !== undefined
+							? { providerStatus: upstream.providerStatus }
+							: {}),
+						...(upstream.providerCode
+							? { providerCode: upstream.providerCode }
+							: {}),
+						...(upstream.retrySafe !== undefined
+							? { retrySafe: upstream.retrySafe }
+							: {}),
+					},
+					status: upstream.status,
+				};
 			}
 			const upstreamProtocol = upstream.era;
 			const rpcResult = { result: upstream.result as UpstreamCallToolResult };

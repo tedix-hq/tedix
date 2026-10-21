@@ -12,10 +12,12 @@
  *
  * `tools/call` is never re-sent by the SDK: input_required auto-fulfilment is
  * off and the explicit tool definition disables its `-32020` list-and-resend.
- * The two retries this proxy owns stay explicit here, because in both the
- * upstream did NOT execute the rejected call: one `HeaderMismatch` retry with
+ * Protocol retries stay explicit here because the upstream did not execute
+ * the rejected call: one `HeaderMismatch` retry with
  * the upstream's current schema, and bounded agent-in-the-loop
  * `input_required` rounds resolved by the deterministic elicitation filler.
+ * Google transient failures additionally get bounded backoff for catalog-declared
+ * read-only tools; write outcomes are never replayed after a provider failure.
  */
 
 import {
@@ -36,6 +38,7 @@ import {
 	MCP_MODERN_PROTOCOL_VERSION,
 	readInputRequiredResult,
 } from "@tedix/mcp-shared/protocol";
+import { googleProviderFailure, isGoogleMcp } from "./google-provider-error";
 import { setBoundedCacheEntry } from "../lib/bounded-cache";
 
 export type UpstreamProtocolEra = "modern_2026" | "legacy_streamable_2025";
@@ -46,6 +49,7 @@ export interface UpstreamToolCall {
 	/** Auth, tracing, attribution, and config-declared headers for every hop. */
 	headers: Record<string, string>;
 	toolName: string;
+	readOnly?: boolean;
 	args: Record<string, unknown>;
 	/** D1 input schema; its `x-mcp-header` bindings drive `Mcp-Param-*`. */
 	toolInputSchema?: Record<string, unknown>;
@@ -66,7 +70,15 @@ export type UpstreamToolOutcome =
 			/** CallToolResult, or an input_required result the edge could not fulfil. */
 			result: Record<string, unknown>;
 	  }
-	| { ok: false; status: number; error: string };
+	| {
+			ok: false;
+			status: number;
+			error: string;
+			providerStatus?: number;
+			providerCode?: string;
+			retrySafe?: boolean;
+			retryAfterMs?: number;
+	  };
 
 const CLIENT_INFO = { name: "tedix-mcp-proxy", version: "1.0.0" };
 const MAX_INPUT_ROUNDS = 8;
@@ -220,6 +232,63 @@ function isProbeOutage(error: unknown): boolean {
 export async function callUpstreamMcpTool(
 	call: UpstreamToolCall,
 ): Promise<UpstreamToolOutcome> {
+	const google = isGoogleMcp(call.url);
+	for (let attempt = 0; ; attempt++) {
+		const outcome = await callUpstreamMcpToolOnce(call);
+		if (
+			outcome.ok ||
+			!google ||
+			!outcome.retrySafe ||
+			attempt >= 2 ||
+			call.signal.aborted ||
+			(outcome.retryAfterMs ?? 0) > call.timeoutMs
+		)
+			return outcome;
+		await new Promise<void>((resolve) => {
+			const done = () => {
+				clearTimeout(timer);
+				call.signal.removeEventListener("abort", done);
+				resolve();
+			};
+			const timer = setTimeout(
+				done,
+				Math.max(250 * 2 ** attempt, outcome.retryAfterMs ?? 0),
+			);
+			call.signal.addEventListener("abort", done, { once: true });
+		});
+		if (call.signal.aborted) return outcome;
+	}
+}
+
+async function callUpstreamMcpToolOnce(
+	call: UpstreamToolCall,
+): Promise<UpstreamToolOutcome> {
+	let httpFailure: { status: number; retryAfterMs?: number } | undefined;
+	if (isGoogleMcp(call.url)) {
+		const { fetcher } = call;
+		call = {
+			...call,
+			fetcher: async (input, init) => {
+				const response = await fetcher(input, init);
+				if (response.status >= 400) {
+					const header = response.headers.get("Retry-After");
+					const delay =
+						header === null
+							? NaN
+							: /^\d+$/.test(header)
+								? Number(header) * 1000
+								: Date.parse(header) - Date.now();
+					httpFailure = {
+						status: response.status,
+						...(Number.isFinite(delay)
+							? { retryAfterMs: Math.max(0, delay) }
+							: {}),
+					};
+				}
+				return response;
+			},
+		};
+	}
 	const key = eraKey(call.url);
 	const requestOptions = { signal: call.signal, timeout: call.timeoutMs };
 	const prior = call.modernOnly ? FIRST_PARTY_MODERN : rememberedEra(key);
@@ -326,11 +395,45 @@ export async function callUpstreamMcpTool(
 			}
 			inputRequired = readInputRequiredResult(result);
 		}
+		if (isGoogleMcp(call.url) && result.isError) {
+			return {
+				ok: false,
+				...googleProviderFailure(
+					result.structuredContent ?? {
+						data: Array.isArray(result.content)
+							? result.content.find(
+									(part: { type?: string; text?: string }) =>
+										part.type === "text",
+								)?.text
+							: undefined,
+					},
+					call.readOnly === true,
+				),
+			};
+		}
 		return { ok: true, era, result };
 	} catch (error) {
 		// A JSON-RPC error answering tools/call says nothing about the era.
 		if (stage === "connect" || !(error instanceof ProtocolError)) {
 			upstreamEras.delete(key);
+		}
+		if (
+			isGoogleMcp(call.url) &&
+			!call.signal.aborted &&
+			!(error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout)
+		) {
+			return {
+				ok: false,
+				...googleProviderFailure(
+					error instanceof SdkHttpError
+						? { status: error.status, data: error.data?.text }
+						: error instanceof ProtocolError
+							? { code: error.code, data: error.data }
+							: httpFailure,
+					call.readOnly === true,
+				),
+				retryAfterMs: httpFailure?.retryAfterMs,
+			};
 		}
 		return upstreamFailure(stage, error, call);
 	} finally {

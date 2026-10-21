@@ -459,6 +459,51 @@ it("routes a selected organization through its own caller context and rejects ot
 	}
 });
 
+it.each([true, false, undefined])(
+	"passes only the catalog read annotation to the provider: %s",
+	async (readOnlyHint) => {
+		const agent = makeAgent({ status: 200, data: { ok: true } });
+		const tool = {
+			...makeTool(),
+			annotations: readOnlyHint === undefined ? null : { readOnlyHint },
+		};
+		await executeTool(
+			agent,
+			tool,
+			{ readOnlyHint: true },
+			{ adapterScope: "primary", resultStrategy: "merge" },
+		);
+		expect(agent.toolHandler.execute).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ readOnlyHint: readOnlyHint === true }),
+		);
+	},
+);
+
+it("lets a write policy veto a provider's read-only hint for retries", async () => {
+	const agent = makeAgent({ status: 200, data: { ok: true } });
+	const tool = {
+		...makeTool(),
+		annotations: { readOnlyHint: true },
+		meta: {
+			"com.tedix/policy": {
+				riskTier: "external_side_effect",
+				blastRadius: "external_system",
+			},
+		},
+	};
+	await executeTool(
+		agent,
+		tool,
+		{},
+		{ adapterScope: "primary", resultStrategy: "merge" },
+	);
+	expect(agent.toolHandler.execute).toHaveBeenCalledWith(
+		expect.anything(),
+		expect.objectContaining({ readOnlyHint: false }),
+	);
+});
+
 describe("executeTool home soft-deadline ack (honest text on queued turns)", () => {
 	it("attests a successful configured collection read outside model data", async () => {
 		const tool = {
