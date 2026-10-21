@@ -1,5 +1,6 @@
 /**
- * Dispatcher health alarm, no AI. Every platform tick, per organization:
+ * Dispatcher health alarm, no AI. Every platform tick, per organization whose
+ * active policy pack enables the request tracker (kernelRequestCoordinator):
  * when dispatchable Work waits and the last Work Attempt admission OR the last
  * request-tracker action is older than the threshold (never seen counts as
  * older), put ONE "For you" item in the org owner's inbox. The item stays open
@@ -41,7 +42,10 @@ export function dispatcherLooksStalled(
 	row: DispatcherHealthOrgRow,
 	nowMs: number,
 ): boolean {
-	if (!row.alarmEnabled || row.dispatchableCount === 0) return false;
+	// Without the request tracker there is no dispatcher to stall, and a
+	// tracker action could never arrive to clear the item.
+	if (!row.trackerEnabled || !row.alarmEnabled || row.dispatchableCount === 0)
+		return false;
 	const limit = row.staleAfterMinutes ?? DEFAULT_DISPATCHER_STALE_AFTER_MINUTES;
 	return (
 		ageMinutes(row.lastAdmissionAt, nowMs) > limit ||

@@ -1,0 +1,2 @@
+CREATE INDEX `kernel_requests_updated_idx` ON `kernel_requests` (`organization_id`,`updated_at`);--> statement-breakpoint
+CREATE INDEX `idx_work_attempt_org_started` ON `work_attempts` (`org_id`,`started_at`);

@@ -423,6 +423,8 @@ report is still not verification; the owning tedi or person completes Work.
 
 If dispatchable Work waits while no dispatcher has admitted an Attempt for a
 while (45 minutes by default), the organization owner gets one attention item.
+Only organizations whose active policy pack enables the request tracker
+(`kernelRequestCoordinator.enabled`) get this item.
 It is not repeated while the condition lasts and is withdrawn once a dispatcher
 picks Work up again. An organization setting changes the wait or turns the
 alarm off.
