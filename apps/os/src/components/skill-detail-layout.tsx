@@ -12,7 +12,6 @@ import { useState } from "react";
 import * as z from "zod";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
-import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -34,8 +33,10 @@ import {
 	PageDescription,
 	PageHeader,
 	PageHeading,
+	PageMeta,
 	PageTitle,
 } from "@/components/kumo/page";
+import { sentenceCase } from "@/lib/format";
 import { SelectItem } from "@/components/kumo/select";
 import { KumoTabs } from "@/components/kumo/tabs";
 import { useSkillsWebMcpTools } from "@/components/skills-webmcp-tools";
@@ -143,12 +144,12 @@ export function SkillDetailLayout() {
 								skill.description ??
 								"Reusable governed procedure"}
 						</PageDescription>
-						<div className="mt-2 flex flex-wrap gap-2">
-							<Badge variant="outline">revision {skill.revision}</Badge>
+						<PageMeta>
+							<li>Revision {skill.revision}</li>
 							{skill.lifecycleState ? (
-								<Badge variant="secondary">{skill.lifecycleState}</Badge>
+								<li>{sentenceCase(skill.lifecycleState)}</li>
 							) : null}
-						</div>
+						</PageMeta>
 					</PageHeading>
 					{executable || canRun ? (
 						<PageActions>

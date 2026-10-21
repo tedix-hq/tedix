@@ -308,11 +308,11 @@ describe("AppRowMain", () => {
 				eligibility={{ badge: "ready", result: readyResult }}
 			/>,
 		);
-		expect(html).toContain("Requirements met");
+		// Met requirements are the normal state; only a gap earns a chip.
+		expect(html).not.toContain("Requirements met");
 		expect(html).not.toContain("Ready to use");
-		expect(html).toContain("3 tools listed");
-		expect(html).toContain("acme · acme.mcp.tedix.dev");
-		expect(html.match(/data-slot="badge"/g)).toHaveLength(2);
+		expect(html).toContain("3 tools listed · acme · acme.mcp.tedix.dev");
+		expect(html.match(/data-slot="badge"/g)).toHaveLength(1);
 		expect(html).not.toContain(">Healthy<");
 	});
 
@@ -559,7 +559,7 @@ describe("Installed Apps layout", () => {
 		).not.toBeNull();
 		expect(
 			page.host.querySelector('[aria-label="3 results"]')?.textContent,
-		).toBe("3");
+		).toBe("3 results");
 		expect(page.host.textContent).toContain(
 			"Search covers the first 3 loaded apps.",
 		);

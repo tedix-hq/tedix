@@ -37,6 +37,13 @@ describe("Kumo Button adapter", () => {
 		expect(link).toContain('data-slot="button"');
 		expect(link).not.toContain("data-icon-only");
 
+		const back = renderToStaticMarkup(
+			<Button render={<a href="/skills" />} icon={<svg data-back-icon="" />}>
+				All skills
+			</Button>,
+		);
+		expect(back).toContain("data-back-icon");
+
 		const loading = renderToStaticMarkup(
 			<Button loading render={<a href="/settings" />}>
 				Settings

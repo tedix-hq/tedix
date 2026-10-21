@@ -37,6 +37,21 @@ describe("Skill overview summary", () => {
 		expect(html).toContain("4 helpful · 1 unhelpful");
 		expect(html).not.toContain('data-slot="card"');
 	});
+
+	it("states unavailable evidence in place instead of a raw error alert", () => {
+		const html = renderToStaticMarkup(
+			<SkillOverviewSummary
+				description={null}
+				tags={[]}
+				reliabilityError={new Error("Not Found")}
+				successCount={0}
+				failureCount={0}
+			/>,
+		);
+		expect(html).toContain("Unavailable");
+		expect(html).not.toContain("Not Found");
+		expect(html).not.toContain("No runs yet");
+	});
 });
 
 describe("Skill overview bundle", () => {

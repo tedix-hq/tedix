@@ -122,7 +122,7 @@ function PageBack({
 			size="sm"
 			variant="ghost"
 			icon={<ArrowLeft size={15} />}
-			className={cn("w-fit text-kumo-subtle", className)}
+			className={cn("-ms-2 w-fit text-kumo-subtle", className)}
 			{...props}
 		>
 			{children}

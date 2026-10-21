@@ -170,7 +170,9 @@ function AppCard({ app }: { app: CatalogApp }) {
 					<div className="min-w-0 flex-1">
 						<div className="flex min-w-0 flex-wrap items-center gap-2">
 							<CardTitle className="min-w-0 truncate">{app.name}</CardTitle>
-							<HealthBadge status={app.healthStatus ?? null} />
+							{app.healthStatus && app.healthStatus !== "unknown" ? (
+								<HealthBadge status={app.healthStatus} />
+							) : null}
 						</div>
 						{app.developer ? (
 							<CardDescription className="truncate">
@@ -348,16 +350,8 @@ function CloudAppStorePage({
 				<CapabilityNavigation active="browse" />
 			</div>
 			<PageSection>
-				<SectionHeader>
-					<SectionHeading>
-						<SectionTitle>Browse apps</SectionTitle>
-						<SectionDescription>
-							Choose an app to see what it does and what access it needs.
-						</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-				<div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto]">
-					<div className="xl:col-span-1">
+				<div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto]">
+					<div className="col-span-2 sm:col-span-1">
 						<SearchInput
 							aria-label="Search the app catalog"
 							value={searchDraft}
@@ -582,7 +576,7 @@ function CloudAppStorePage({
 				) : null}
 			</PageSection>
 			<Collapsible>
-				<CollapsibleTrigger className="text-sm text-kumo-subtle">
+				<CollapsibleTrigger className="-ms-2 w-fit text-kumo-subtle">
 					Catalog diagnostics
 				</CollapsibleTrigger>
 				<CollapsibleContent>

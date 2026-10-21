@@ -283,7 +283,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 				style={tedixEmphasisStyle(variant, style)}
 				title={typeof title === "string" ? title : undefined}
 			>
-				{loading && <Loader aria-label="Loading" size={14} />}
+				{loading ? <Loader aria-label="Loading" size={14} /> : icon}
 				{children ?? render.props.children}
 			</ButtonPrimitive>
 		);

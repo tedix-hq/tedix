@@ -50,7 +50,12 @@ export function SkillOverviewPage() {
 	return (
 		<div className="grid gap-5">
 			<SkillOverviewSummary
-				description={skill.description}
+				// The page header already shows the summary (or the description).
+				description={
+					skill.summary && skill.summary !== skill.description
+						? skill.description
+						: null
+				}
 				tags={skill.tags ?? []}
 				runEvidence={runEvidence}
 				reliabilityError={reliability.isError ? reliability.error : null}
@@ -104,7 +109,7 @@ export function SkillOverviewPage() {
 												tone="secondary"
 												className="ml-auto"
 											>
-												revision {run.skillRevision}
+												Revision {run.skillRevision}
 											</Text>
 										) : null}
 									</Link>
@@ -168,44 +173,42 @@ export function SkillOverviewSummary({
 					</div>
 				</div>
 			) : null}
-			{reliabilityError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Reliability unavailable</AlertTitle>
-					<AlertDescription>
-						{reliabilityError instanceof Error
-							? reliabilityError.message
-							: "The evidence projection could not be loaded."}
-					</AlertDescription>
-				</Alert>
-			) : null}
 			<MetricGrid aria-label="Skill evidence" columns={2}>
 				<MetricItem
 					label="Observed reliability"
 					value={
-						runEvidence && runEvidence.runCount > 0
-							? runEvidence.successRate == null
-								? "—"
-								: `${Math.round(runEvidence.successRate * 100)}%`
-							: "No runs yet"
+						reliabilityError
+							? "Unavailable"
+							: runEvidence && runEvidence.runCount > 0
+								? runEvidence.successRate == null
+									? "—"
+									: `${Math.round(runEvidence.successRate * 100)}%`
+								: "No runs yet"
 					}
 					description={
-						<>
-							{runEvidence && runEvidence.runCount > 0 ? (
-								<>
-									{formatCount(runEvidence.completedCount)} of{" "}
-									{formatCount(runEvidence.runCount)} sampled runs completed
-									{runEvidence.averageDurationMs
-										? ` · typically ${formatDurationMs(runEvidence.averageDurationMs)}`
-										: ""}
-									.
-								</>
-							) : (
-								"Appears after observed execution."
-							)}
-							{runEvidence?.warnings.length ? (
-								<span className="block">{runEvidence.warnings.join(" ")}</span>
-							) : null}
-						</>
+						reliabilityError ? (
+							"Run evidence could not be loaded. Recent runs are listed below."
+						) : (
+							<>
+								{runEvidence && runEvidence.runCount > 0 ? (
+									<>
+										{formatCount(runEvidence.completedCount)} of{" "}
+										{formatCount(runEvidence.runCount)} sampled runs completed
+										{runEvidence.averageDurationMs
+											? ` · typically ${formatDurationMs(runEvidence.averageDurationMs)}`
+											: ""}
+										.
+									</>
+								) : (
+									"Appears after observed execution."
+								)}
+								{runEvidence?.warnings.length ? (
+									<span className="block">
+										{runEvidence.warnings.join(" ")}
+									</span>
+								) : null}
+							</>
+						)
 					}
 				/>
 				<MetricItem
