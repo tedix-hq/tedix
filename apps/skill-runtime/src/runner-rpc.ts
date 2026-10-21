@@ -1,3 +1,5 @@
+import { WORKFLOW_TOOL_REFUSAL_PATTERN } from "./workflow-call-outcome";
+
 export const MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE = `
 function workflowMcpCompletionFailure(result) {
   if (!result || typeof result !== "object") return null;
@@ -369,6 +371,7 @@ function buildMcpProxy(env, runContext) {
                     status: "failed",
                     completedAt: workflowIsoNow(),
                     durationMs: workflowNowMs() - t0,
+                    refused: testWorkflowRegex(new RegExp(${JSON.stringify(WORKFLOW_TOOL_REFUSAL_PATTERN)}, "i"), error && error.message ? workflowString(error.message) : workflowString(error)),
                     error: active.sensitiveEvidence
                       ? redactedErrorSnapshot()
                       : errorSnapshot(error),

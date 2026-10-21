@@ -12,6 +12,8 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
 import {
+	ResolveSkillManifestAuthorizationInputSchema,
+	ResolveSkillManifestAuthorizationResponseSchema,
 	ResolveAgentLifecycleAuthorizationInputSchema,
 	ResolveAgentLifecycleAuthorizationResponseSchema,
 	ResolveAgentTransportPolicyInputSchema,
@@ -26,6 +28,15 @@ export const mcpGovernanceContract = oc
 	.route({ tags: ["mcp-governance"], prefix: "/mcpGovernance" })
 	.errors(baseErrors)
 	.router({
+		resolveSkillManifestAuthorization: oc
+			.route({
+				method: "POST",
+				path: "/resolve-skill-manifest-authorization",
+				summary: "Verify a workflow's pinned skill capability",
+				tags: ["internal"],
+			})
+			.input(ResolveSkillManifestAuthorizationInputSchema)
+			.output(ResolveSkillManifestAuthorizationResponseSchema),
 		resolveAgentLifecycleAuthorization: oc
 			.route({
 				method: "POST",

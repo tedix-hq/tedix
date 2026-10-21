@@ -710,12 +710,96 @@ export async function requireDestructiveToolApproval(
 			destructiveHint: false,
 		};
 	const configuredApproval = readApprovalPolicy(agent, tool);
+	const workflowCaller = agent.callerIdentity;
 	const humanBoundary =
 		annotations?.destructiveHint === true ||
 		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`).length >
 			0 ||
 		risk === "high_impact_write" ||
 		risk === "external_side_effect";
+	// Only a verified run and its pinned, active revision can approve a declared
+	// capability. Service headers alone are correlation, not authorization.
+	const manifestProtectedEffect =
+		humanReservedActionClasses(
+			`${tool.config?.endpoint ?? ""} ${tool.config?.mcpToolName ?? ""}`,
+		).length > 0;
+	if (
+		!humanBoundary &&
+		!manifestProtectedEffect &&
+		!isOwnedChannelBoundary &&
+		!configuredApproval &&
+		workflowCaller?.authType === "service" &&
+		!workflowCaller.kernel &&
+		workflowCaller.skillRunId &&
+		workflowCaller.skillId &&
+		workflowCaller.tediId &&
+		workflowCaller.organizationId === agent.app?.organizationId &&
+		workflowCaller.workflowExecutionEpoch !== undefined &&
+		agent.app?.organizationId &&
+		agent.apiClient?.mcpGovernance?.resolveSkillManifestAuthorization
+	) {
+		try {
+			const transportPolicy =
+				await agent.apiClient.mcpGovernance.resolveAgentTransportPolicy?.({
+					organizationId: agent.app.organizationId,
+					tediId: workflowCaller.tediId,
+				});
+			const askForClasses = transportPolicy?.autonomy?.askForClasses;
+			if (
+				askForClasses?.includes("*") ||
+				askForClasses?.includes(`tool:${agent.appSlug ?? ""}:${tool.toolId}`) ||
+				(transportPolicy?.requireExplicitApprovalPolicy &&
+					thirdPartyTransport(tool))
+			)
+				return approvalFailure(
+					`Action "${tool.toolId}" requires approval under its configured policy. No side effect was executed.`,
+				);
+			const resolution =
+				await agent.apiClient.mcpGovernance.resolveSkillManifestAuthorization({
+					organizationId: agent.app.organizationId,
+					runId: workflowCaller.skillRunId,
+					skillId: workflowCaller.skillId,
+					tediId: workflowCaller.tediId,
+					executionEpoch: workflowCaller.workflowExecutionEpoch,
+					method: tool.toolId.split("__").at(-1)!,
+					namespace:
+						typeof tool.config?._aggregateNamespace === "string"
+							? tool.config._aggregateNamespace
+							: tool.toolId.split("__").slice(0, -1).join("__") ||
+								agent.appSlug,
+					sourceAppSlug:
+						typeof tool.config?._sourceAppSlug === "string"
+							? tool.config._sourceAppSlug
+							: agent.appSlug,
+					targetTediId:
+						typeof tool.config?._aggregateTediId === "string"
+							? tool.config._aggregateTediId
+							: undefined,
+				});
+			if (resolution.approved && resolution.skillId && resolution.revision) {
+				emitGovernanceAuditEvent(
+					agent,
+					tool,
+					"destructive_approved",
+					`approved by manifest of skill ${resolution.skillId} rev ${resolution.revision}`,
+					{
+						resolvedBy: "skill_manifest",
+						skillId: resolution.skillId,
+						skillRevision: resolution.revision,
+						skillRunId: workflowCaller.skillRunId,
+					},
+				);
+				return null;
+			}
+			return approvalFailure(
+				"Skill run identity or declared manifest capability is invalid; no side effect was executed.",
+			);
+		} catch {
+			return approvalFailure(
+				"Skill manifest authorization is unavailable; no side effect was executed.",
+			);
+		}
+	}
 	// This call IS the human's approval. The API still checks the run, tenant,
 	// conversation access and owner/admin authority; asking again creates a loop.
 	if (

@@ -118,7 +118,7 @@ export const DISPATCH_SHIM_VERSION = "v48-terminal-task-failures";
 // are hashed separately; this covers the TypeScript bridge implementations
 // that cannot be introspected from a deployed Worker at runtime.
 export const WORKFLOW_BRIDGE_COMPATIBILITY_VERSION =
-	"v5-canonical-connection-outcomes";
+	"v6-manifest-approval-refusal-outcomes";
 
 function createMcpBridgeProps(
 	input: LoadSkillRuntimeInput,

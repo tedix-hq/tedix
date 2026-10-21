@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import * as analytics from "./utils/analytics";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	callToolResultText,
@@ -1689,3 +1690,278 @@ describe("declared capability reaches the destructive gate", () => {
 		expect(resolveWireAnnotations(undeclared)).toBeUndefined();
 	});
 });
+
+describe("active skill manifest approval", () => {
+	function context(identity: Record<string, unknown> = {}, approved = true) {
+		const resolve = vi.fn(async () =>
+			approved
+				? { approved: true, skillId: "skill-1", revision: 40 }
+				: { approved: false },
+		);
+		const agent = {
+			...approvalContext(vi.fn()),
+			app: { organizationId: "org-example" },
+			appSlug: "example-unified",
+			callerIdentity: {
+				authType: "service",
+				organizationId: "org-example",
+				tediId: "tedi-1",
+				skillRunId: "run-1",
+				skillId: "skill-1",
+				workflowExecutionEpoch: 0,
+				...identity,
+			},
+			apiClient: {
+				mcpGovernance: { resolveSkillManifestAuthorization: resolve },
+			},
+		} as unknown as ServerContext;
+		return { agent, resolve };
+	}
+	it.each([
+		{
+			toolId: "tedi_example__run_tedi_turn",
+			config: {
+				_aggregateTediId: "tedi-1",
+				_aggregateNamespace: "tedi_example",
+			},
+		},
+		{
+			toolId: "firecrawl_agent",
+			config: { transport: "mcp", mcpToolName: "firecrawl_agent" },
+		},
+		{
+			toolId: "create_report",
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+			},
+		},
+		{ toolId: "read_report" },
+	])(
+		"approves and verifies declared workflow call $toolId",
+		async (candidate) => {
+			const { agent, resolve } = context();
+			await expect(
+				requireDestructiveToolApproval(
+					agent,
+					{ title: "Tool", ...candidate } as never,
+					{ readOnlyHint: candidate.toolId === "read_report" },
+				),
+			).resolves.toBeNull();
+			expect(resolve).toHaveBeenCalledWith(
+				expect.objectContaining({
+					runId: "run-1",
+					skillId: "skill-1",
+					executionEpoch: 0,
+					method: candidate.toolId.split("__").at(-1),
+				}),
+			);
+		},
+	);
+	it.each([
+		{ toolId: "delete_record" },
+		{ toolId: "pay_invoice" },
+		{ toolId: "messages_send" },
+		{ toolId: "complete_oauth_consent" },
+		{ toolId: "change_roles" },
+		{ toolId: "publish_content" },
+		{ toolId: "change_production_auth_settings" },
+		{
+			toolId: "generic",
+			config: { transport: "rpc", endpoint: "billing/payInvoice" },
+		},
+		{
+			toolId: "generic",
+			config: { transport: "mcp", mcpToolName: "delete_record" },
+		},
+		{
+			toolId: "generic",
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "high_impact_write",
+					blastRadius: "tenant",
+				},
+			},
+		},
+		{
+			toolId: "generic",
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "external_side_effect",
+					blastRadius: "external_system",
+				},
+			},
+		},
+		{ toolId: "generic", config: { approvalPolicy: "always" } },
+		{ toolId: "generic", config: { approvalPolicy: "once" } },
+		{ toolId: "generic", config: { approvalPolicy: "work_item" } },
+	])("keeps protected/configured calls gated: %j", async (candidate) => {
+		const { agent, resolve } = context();
+		expect(
+			await requireDestructiveToolApproval(
+				agent,
+				{ title: "Tool", ...candidate } as never,
+				{ readOnlyHint: false },
+			),
+		).toMatchObject({ isError: true });
+		expect(resolve).not.toHaveBeenCalled();
+	});
+	it("keeps a destructive hint gated", async () => {
+		const { agent, resolve } = context();
+		expect(
+			await requireDestructiveToolApproval(
+				agent,
+				{ toolId: "generic", title: "Tool" },
+				{ destructiveHint: true },
+			),
+		).toMatchObject({ isError: true });
+		expect(resolve).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ authType: "oauth" },
+		{ kernel: true },
+		{ skillRunId: undefined },
+		{ skillId: undefined },
+		{ organizationId: "other-org" },
+		{ workflowExecutionEpoch: undefined },
+	])("does not trust forged or non-workflow identity: %j", async (identity) => {
+		const { agent, resolve } = context(identity);
+		await requireDestructiveToolApproval(
+			agent,
+			{ toolId: "generic", title: "Tool" },
+			{ readOnlyHint: false },
+		);
+		expect(resolve).not.toHaveBeenCalled();
+	});
+	it("fails closed for an undeclared tool or forged run, even with read annotations", async () => {
+		const { agent } = context({}, false);
+		expect(
+			await requireDestructiveToolApproval(
+				agent,
+				{ toolId: "read_report", title: "Tool" },
+				{ readOnlyHint: true },
+			),
+		).toMatchObject({ isError: true });
+	});
+	it("preserves explicit third-party approval policy", async () => {
+		const { agent, resolve } = context();
+		agent.apiClient.mcpGovernance.resolveAgentTransportPolicy = vi.fn(
+			async () => ({ requireExplicitApprovalPolicy: true }),
+		);
+		expect(
+			await requireDestructiveToolApproval(agent, {
+				toolId: "firecrawl_agent",
+				title: "Read",
+				config: {
+					transport: "mcp",
+					mcpServerUrl: "https://crawler.example/mcp",
+					mcpToolName: "firecrawl_agent",
+				},
+			} as never),
+		).toMatchObject({ isError: true });
+		expect(resolve).not.toHaveBeenCalled();
+	});
+	it("fails closed when verification is unavailable", async () => {
+		const { agent, resolve } = context();
+		resolve.mockRejectedValueOnce(new Error("unavailable"));
+		expect(
+			await requireDestructiveToolApproval(agent, {
+				toolId: "generic",
+				title: "Tool",
+			}),
+		).toMatchObject({ isError: true });
+	});
+});
+
+it("audits the authorizing skill revision for every manifest-approved call", async () => {
+	const audit = vi
+		.spyOn(analytics, "emitMcpAuditEvent")
+		.mockImplementation(() => {});
+	const agent = {
+		...approvalContext(vi.fn()),
+		appId: "app-1",
+		appSlug: "example-unified",
+		app: { organizationId: "org-example" },
+		env: {},
+		ctx: { waitUntil: vi.fn() },
+		callerIdentity: {
+			authType: "service",
+			organizationId: "org-example",
+			tediId: "tedi-1",
+			skillRunId: "run-1",
+			skillId: "skill-1",
+			workflowExecutionEpoch: 0,
+		},
+		apiClient: {
+			mcpGovernance: {
+				resolveSkillManifestAuthorization: vi.fn(async () => ({
+					approved: true,
+					skillId: "skill-1",
+					revision: 40,
+				})),
+			},
+		},
+	} as unknown as ServerContext;
+	try {
+		await requireDestructiveToolApproval(agent, {
+			toolId: "create_report",
+			title: "Report",
+		});
+		expect(audit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				metadata: expect.objectContaining({
+					reason: "approved by manifest of skill skill-1 rev 40",
+					resolvedBy: "skill_manifest",
+					skillRevision: 40,
+					skillRunId: "run-1",
+				}),
+			}),
+			expect.any(Function),
+		);
+	} finally {
+		audit.mockRestore();
+	}
+});
+
+it.each(["*", "tool:example-unified:create_report"])(
+	"preserves configured organization approval correction %s",
+	async (correction) => {
+		const resolve = vi.fn();
+		const agent = {
+			...approvalContext(vi.fn()),
+			app: { organizationId: "org-example" },
+			appSlug: "example-unified",
+			callerIdentity: {
+				authType: "service",
+				organizationId: "org-example",
+				tediId: "tedi-1",
+				skillRunId: "run-1",
+				skillId: "skill-1",
+				workflowExecutionEpoch: 0,
+			},
+			apiClient: {
+				mcpGovernance: {
+					resolveSkillManifestAuthorization: resolve,
+					resolveAgentTransportPolicy: vi.fn(async () => ({
+						requireExplicitApprovalPolicy: false,
+						autonomy: {
+							version: 1,
+							maxRisk: "medium",
+							askForClasses: [correction],
+						},
+					})),
+				},
+			},
+		} as unknown as ServerContext;
+		expect(
+			await requireDestructiveToolApproval(agent, {
+				toolId: "create_report",
+				title: "Report",
+			}),
+		).toMatchObject({ isError: true });
+		expect(resolve).not.toHaveBeenCalled();
+	},
+);
