@@ -17,6 +17,7 @@ import {
 	SheetTitle,
 } from "@/components/kumo/sheet";
 import { Skeleton } from "@/components/kumo/skeleton";
+import { HomeRunIdentity } from "@/components/home-run-identity";
 import {
 	Tooltip,
 	TooltipContent,
@@ -59,11 +60,12 @@ function ChatExecutionSheet({
 				finalFocus={trigger ? () => trigger : undefined}
 			>
 				<SheetHeader className="flex-row items-start justify-between gap-4">
-					<div className="grid gap-2">
+					<div className="grid min-w-0 gap-2">
 						<SheetTitle>Response details</SheetTitle>
 						<SheetDescription>
 							What happened during this response.
 						</SheetDescription>
+						{runId ? <HomeRunIdentity runId={runId} /> : null}
 					</div>
 					<Tooltip>
 						<TooltipTrigger
