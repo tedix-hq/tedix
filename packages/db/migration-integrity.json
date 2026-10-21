@@ -1050,6 +1050,10 @@
 			"sha256": "051c12aea55dca8971a2933f0e62609f418df25bf49536219a4aa5ffa2f7999c"
 		},
 		{
+			"name": "20261021181147_scope_approval_rules_to_tools/migration.sql",
+			"sha256": "e79f16c9f06fc113743e19c5397603b4a1c73641a746e485c67009713f87bd1c"
+		},
+		{
 			"name": "20261021185824_work_events_org_type_index/migration.sql",
 			"sha256": "2862beb22f2ebff8976bd60345fdce34378e9b7fc5ebffd6ead8550e2b166cff"
 		},

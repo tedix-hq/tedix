@@ -7,10 +7,10 @@ import { organizations } from "./organizations";
  *
  * A rule is an explicit, per-organization standing decision: pending tedi
  * approval requests (`tedi_approval_requests`) whose `action_type` matches the
- * rule's `action_kind` are auto-resolved with the rule's decision. Rules never
- * act in the background — an explicit, idempotent apply sweep resolves matching
- * approvals through the SAME canonical resolution path a human resolve uses,
- * and every auto-resolution records the rule id in its resolution note.
+ * rule's `action_kind` and optional tool/verb scope are auto-resolved at
+ * creation or through an explicit, idempotent apply sweep. Both paths use
+ * the canonical approval latch and settlement. Every auto-resolution records
+ * the rule id in its resolution note.
  *
  * v1 supports only the `approve` decision; the enum exists so a future
  * `reject` policy is a value, not a schema migration.
@@ -31,6 +31,8 @@ export const osApprovalRules = sqliteTable(
 			.references(() => organizations.id, { onDelete: "cascade" }),
 		/** Matches `tedi_approval_requests.action_type` exactly. */
 		actionKind: text("action_kind").notNull(),
+		toolSlug: text("tool_slug"),
+		verb: text("verb"),
 		decision: text("decision", { enum: OS_APPROVAL_RULE_DECISION_VALUES })
 			.notNull()
 			.default("approve"),

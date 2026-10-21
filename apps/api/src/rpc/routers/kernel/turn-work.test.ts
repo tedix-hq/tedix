@@ -1441,9 +1441,34 @@ describe("runKernelTurnWork trusted-write tier (auto-resolve wiring)", () => {
 		riskTier: "low" | "high";
 		governancePolicy?: KernelTurnWorkInput["governancePolicy"];
 		sessionWriteAllowlist?: string[];
+		standingTool?: string;
 	}) {
 		const calls: AutoResolveCall[] = [];
 		const deps = stubDeps({
+			...(opts.standingTool
+				? {
+						db: chainDbProxy([
+							{
+								id: "standing-rule",
+								organizationId: "org-1",
+								actionKind: "home.tool_write",
+								toolSlug: opts.standingTool,
+								verb: "create",
+								decision: "approve",
+								enabled: true,
+								orgId: "org-1",
+								actionType: "home.tool_write",
+								payload: {
+									kind: "home_tool_write",
+									appSlug: "globex-tedix",
+									toolName: "create_invoice",
+									args: {},
+									riskTier: opts.riskTier,
+								},
+							},
+						]),
+					}
+				: {}),
 			kernel: async () => ({
 				route: route({
 					routeKind: "propose_tool_write",
@@ -1475,6 +1500,40 @@ describe("runKernelTurnWork trusted-write tier (auto-resolve wiring)", () => {
 		});
 		return { calls, result };
 	}
+
+	it("settles a saved exact tool rule on the next request without another decision card", async () => {
+		const { calls, result } = await driveWrite({
+			riskTier: "low",
+			standingTool: "globex-tedix.create_invoice",
+		});
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.decision.reason).toBe(
+			"auto-approved by rule standing-rule",
+		);
+		expect(result.status).toBe("completed");
+		expect(result.assistantMessage.content).not.toBe("card:approval:run-1");
+	});
+
+	it.each(["other.create_invoice", "globex-tedix.create_note"])(
+		"keeps %s outside the saved rule",
+		async (standingTool) => {
+			const { calls, result } = await driveWrite({
+				riskTier: "low",
+				standingTool,
+			});
+			expect(calls).toHaveLength(0);
+			expect(result.status).toBe("requires_approval");
+		},
+	);
+
+	it("keeps a high risk request gated even with the exact saved rule", async () => {
+		const { calls, result } = await driveWrite({
+			riskTier: "high",
+			standingTool: "globex-tedix.create_invoice",
+		});
+		expect(calls).toHaveLength(0);
+		expect(result.status).toBe("requires_approval");
+	});
 
 	const TRUSTED = {
 		writeTier: { trustedTools: ["globex-tedix:create_invoice"] },

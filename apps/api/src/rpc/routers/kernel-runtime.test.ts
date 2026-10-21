@@ -8501,6 +8501,7 @@ describe("home approved-write layer (v1)", () => {
 			homeRunId: "home-write-1",
 			conversationId: "home:write",
 			initiatedByUserId: null,
+			riskTier: "low",
 		});
 		expect(db.auditRows).toContainEqual(
 			expect.objectContaining({
