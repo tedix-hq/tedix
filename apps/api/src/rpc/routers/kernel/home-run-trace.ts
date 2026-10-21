@@ -9,7 +9,10 @@ import {
 	listHomeRunWorkstationReferences,
 } from "@tedix/db/queries/kernel-home-run-trace";
 import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
-import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import {
+	type KernelRuntimeRun,
+	listKernelRuntimeRuns,
+} from "@tedix/db/queries/kernel-runtime-runs";
 import { listHarnessSubjectTraceBundles } from "../../../services/harness-persistence";
 import type { BaseContext } from "../../orpc";
 import {
@@ -33,6 +36,27 @@ const CHILD_EVENT_LIMIT = 200;
 const CHILD_ARTIFACT_LIMIT = 100;
 const BRANCH_LIMIT = 20;
 const SYNTHESIS_SCAN_LIMIT = 300;
+
+function homeRunAuditTimeBounds(
+	runs: Pick<KernelRuntimeRun, "createdAt" | "completedAt">[],
+	assembledAt: string,
+): { from: Date; to: Date } {
+	const starts = runs.map((run) => Date.parse(run.createdAt));
+	const ends = runs.map((run) => Date.parse(run.completedAt ?? assembledAt));
+	if (
+		runs.length === 0 ||
+		[...starts, ...ends].some((time) => !Number.isFinite(time)) ||
+		starts.some((start, index) => start > ends[index]!)
+	) {
+		throw new Error("Home run references require valid audit time bounds");
+	}
+	// Include writes just before creation or just after completion/clock skew.
+	const marginMs = 60_000;
+	return {
+		from: new Date(Math.min(...starts) - marginMs),
+		to: new Date(Math.max(...ends) + marginMs),
+	};
+}
 
 interface HomeRunTraceBranchRef {
 	childRunId: string;
@@ -278,11 +302,20 @@ export async function assembleHomeRunTrace(
 		),
 	);
 	const childRunIds = branchRefs.map((ref) => ref.childRunId);
-	const auditPromise = listHomeRunAuditReferences(context.db, {
+	const auditPromise = listKernelRuntimeRuns(context.db, {
 		organizationId: row.organizationId,
 		childRunIds,
-		limit: BRANCH_LIMIT * 20,
-	});
+		orderBy: "none",
+		limit: BRANCH_LIMIT,
+	}).then((childRuns) =>
+		listHomeRunAuditReferences(context.db, {
+			organizationId: row.organizationId,
+			childRunIds,
+			// The parent also covers missing child records and earlier delegation writes.
+			...homeRunAuditTimeBounds([row, ...childRuns], assembledAt),
+			limit: BRANCH_LIMIT * 20,
+		}),
+	);
 	const wakePromise = listHomeRunWakeReceipts(context.db, {
 		organizationId: row.organizationId,
 		childRunIds,
