@@ -1736,6 +1736,7 @@ const recordSessionFeedbackProcedure = writeOs.recordSessionFeedback.handler(
 			input.candidates,
 			ledgerLessonNoveltyModel(
 				organizationModelEnv(context.env, context.db, organizationId),
+				{ db: context.db, organizationId, ownerUserId: actor.actorId },
 			),
 		);
 	},
