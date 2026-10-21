@@ -42,7 +42,7 @@ the platform API or CLI); to change _how a kind of tool executes_, change
 A registered tool is guarded by exactly one of two gates, and a tool registered
 after the first gate runs is unguarded unless it gets its own check:
 
-- **Request-level edge gate** — `enforceMcpAccess()` in `src/index.ts`
+- **Request-level edge gate** — `enforceMcpAccess()` in `src/mcp-access.ts`
   evaluates the resolved app's tools before dispatch. Required scopes come from
   the app's policy mode, its explicit `toolScopes` map, or per-tool
   `authRequired`.

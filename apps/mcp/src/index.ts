@@ -1,11 +1,8 @@
 import { createMcpServer } from "@tedix/mcp-shared/server";
-import { ATTENTION_GUIDANCE } from "./mcp/attention-guidance";
 import {
 	clientSupportsMcpApps,
 	LEGACY_APPS_SESSION_PREFIX,
 } from "./mcp/client-apps-capability";
-import { resolveToolWidgetRoute } from "./mcp/utils/render-widget";
-import { isCodeModeNativeOptIn } from "./mcp/code-mode-native-tools";
 import { z } from "zod";
 import {
 	AGGREGATE_SURFACE_CACHE_TTL_MS,
@@ -21,16 +18,8 @@ import {
 	filterAggregateAppsForCodeNamespaces,
 	filterAggregateTedisForCodeNamespaces,
 } from "./codemode-targeting";
-import { extractCodeModeProviderNamespacesFromCode } from "./mcp/code-mode-namespaces";
-import {
-	mcpToolsListResultTransform,
-	parseMcpCallerFromHeaders,
-} from "./mcp-result-transform";
-import { codeModeInputSchema } from "./mcp/connect-payment-policy";
-import {
-	buildBootstrapInfo,
-	isConfiguredCatalogTool,
-} from "./mcp/registration/bootstrap";
+import { mcpToolsListResultTransform } from "./mcp-result-transform";
+import { buildBootstrapInfo } from "./mcp/registration/bootstrap";
 /**
  * Tedix MCP Worker
  * Customer-facing stateless MCP server for Apps SDK integration
@@ -73,18 +62,10 @@ import {
  * rules: `apps/mcp/AGENTS.md`.
  */
 
-import { resolveToolAnnotations } from "@tedix/api-contract/schemas/tools";
-import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
 import { extractTediJwtClaims } from "@tedix/auth/types";
-import { hasScope, toolToScope } from "@tedix/mcp-shared/auth/scopes";
-import { CODE_MODE_TOOL_ANNOTATIONS } from "@tedix/mcp-shared/codemode";
 import {
-	MCP_MODERN_PROTOCOL_VERSION,
 	MCP_OAUTH_CLIENT_CREDENTIALS_EXTENSION,
 	MCP_PROTOCOL_VERSION_HEADER,
-	MCP_PROTOCOL_VERSION_META_KEY,
-	MCP_SERVER_INFO_META_KEY,
-	MCP_TASKS_EXTENSION,
 } from "@tedix/mcp-shared/protocol";
 import {
 	extractMcpTraceMeta,
@@ -92,15 +73,12 @@ import {
 	resolveInboundTracestate,
 } from "@tedix/mcp-shared/trace-context";
 import {
-	DEFAULT_MCP_CACHE_HINT,
 	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 	mountMcp,
-	validateModernProtocolHeaders,
 	type McpCompletionRequest,
 	type McpCompletionResult,
 	type McpDirectoryReadHandler,
 } from "@tedix/mcp-shared/transport";
-import { collectAdvertisedScopes } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
 import {
 	requestTraceId,
@@ -115,8 +93,6 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
-	buildWwwAuthenticate,
-	extractRequiredScopes,
 	humanMcpGrantFailureResponse,
 	invalidateAihM2mClientScopeCache,
 	isTrustedBrowserBridge,
@@ -125,8 +101,6 @@ import {
 	resolveExternalAgentSessionAuth,
 	resolveHumanMcpSelection,
 	resolveMcpExpectedAudience,
-	shouldEnforceMcpToolScopes,
-	shouldEnforceTenantMatchForOAuth,
 	validateAuth,
 	stripRedundantApiKeyHeader,
 	type MultiOrgMcpSelection,
@@ -136,29 +110,12 @@ import {
 	resolveConnectOrganization,
 	shouldBindHumanToTedi,
 } from "./connect-organization";
-import {
-	deliverDueEventWebhooks,
-	subscribeEventWebhook,
-	unsubscribeEventWebhook,
-} from "./event-webhooks";
-import {
-	InteractionEventError,
-	interactionEventShard,
-	interactionEventTarget,
-	interactionReplyEventDefinition,
-} from "./interaction-events";
-import { codeModeSecurityMeta } from "./mcp/codemode-security";
+import { deliverDueEventWebhooks } from "./event-webhooks";
 import { toolResponseTimeoutMs } from "./tool-response-timeout";
-import {
-	isPollableEvent,
-	pollableEventDefinitions,
-	pollEvent,
-} from "./work-events";
 // Import from split modules
 import { extractAppFromHostname, resolveRequestHostname } from "./hostname";
 import { getApiClient } from "./lib/api-client";
 import { withStepBudget } from "./lib/step-budget";
-import { jwtTenantMatchesApp } from "./lib/tenant-match";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 import {
 	buildAggregateTaskHandlers,
@@ -177,12 +134,6 @@ import {
 // budget Cloudflare validates at 1s (error 10021). It is needed only when a
 // request actually aggregates tedi surfaces, so it must not be on the startup
 // path. Same reasoning as the `registerCodeModeTools` dynamic import.
-import { isRecord } from "@tedix/api-contract/utils/is-record";
-import {
-	isMcpToolVisibleToCaller,
-	resolveMcpToolNamespace,
-	resolveMcpToolRequiredScopes,
-} from "@tedix/mcp-shared/auth/tool-scopes";
 import { handleExternalAgentSessionExchange } from "./external-agent-session";
 import {
 	externalAgentValidationFailureResponse,
@@ -197,14 +148,8 @@ import {
 } from "./mcp/home-surface";
 import { ensurePlatformOperatorAggregateApps } from "./mcp/platform-operator-aggregation";
 import {
-	accountProfileEnabled,
-	accountProfileResult,
-	accountProfileTool,
-} from "./mcp/registration/account-profile";
-import {
 	recordMcpAccessDenial,
 	recordProtocolDenialIfPresent,
-	type McpAccessDenialReason,
 } from "./mcp/security-decision";
 import {
 	buildEdgeListCacheHints,
@@ -213,14 +158,11 @@ import {
 	extractCallerIdentity,
 	getAppContext,
 } from "./mcp/server-factory";
-import { sortToolsDeterministically } from "./mcp/tools-list-order";
-import { paginateSortedToolsList } from "./mcp/tools-list-pagination";
 import { getAppsSDKCompatibleHtml } from "./mcp/utils/widget";
 import { checkMcpRequestRateLimit } from "./middleware/rate-limit";
 import { handlePreviewRequest } from "./preview";
 import type { ResolvedApp } from "./resolution";
 import {
-	buildCorsOrigins,
 	getCorsOrigins,
 	purgeAppResolutionCacheKeys,
 	resolveAppFromHostname,
@@ -231,56 +173,41 @@ import {
 	upstreamUnavailableResponse,
 } from "./upstream";
 import { handleFavicon, handleWellKnown } from "./well-known";
+import {
+	decorateModernFastPathResult,
+	jsonRpcEnvelopeResponse,
+	readJsonRpcBody,
+	readJsonRpcEnvelope,
+	requestBodyTooLargeResponse,
+	resolvedMcpServerInfo,
+	unsupportedProtocolVersionResponse,
+	validateModernFastPathRequest,
+} from "./json-rpc-envelope";
+import {
+	handleInternalSubscriptionPublish,
+	maybeHandleInteractionEvents,
+	maybeHandleSubscriptionsListen,
+	MCP_EVENTS_EXTENSION,
+	type McpSubscriptionBindingEnv,
+} from "./mcp-events-routes";
+import {
+	getAllowedMcpOrigins,
+	normalizeOrigin,
+	validateMcpOrigin,
+} from "./mcp-origin";
+import {
+	extractDirectToolCallArguments,
+	extractRequestedCodeModeNamespaces,
+	maybeHandleBootstrapFastMcp,
+	maybeHandleCodeModeCompactMcp,
+	modernDiscoverInstructions,
+} from "./codemode-fast-paths";
+import { enforceMcpAccess, extractMcpToolCallName } from "./mcp-access";
 
 const log = createMcpLogger("mcp.router");
 
 export { McpSubscriptionDurableObject } from "./subscriptions";
 
-// =============================================================================
-// policy-based scope extraction
-// =============================================================================
-
-/**
- * Extract required scopes for a single tools/call request using Descope policy
- * mode. The required scope is derived from the tool name with the mcp:<tool.name>
- * convention; JSON-RPC batches are rejected by the transport before dispatch.
- */
-async function extractPolicyRequiredScopes(
-	request: Request,
-	mcpConfig?: Record<string, unknown>,
-): Promise<string[] | undefined> {
-	const toolName = await extractMcpToolCallName(request);
-	if (toolName) {
-		if (toolName === "code" && mcpConfig?.codeMode === true) {
-			// Code Mode authorizes each inner provider call with concrete
-			// tool scopes. Requiring an outer mcp:code scope would make Descope
-			// policies grant a synthetic scope that has no runtime meaning.
-			return undefined;
-		}
-		return [toolToScope(toolName)];
-	}
-
-	return undefined;
-}
-
-async function extractMcpToolCallName(
-	request: Request,
-): Promise<string | undefined> {
-	const contentType = request.headers.get("Content-Type") ?? "";
-	if (request.method !== "POST" || !contentType.includes("application/json")) {
-		return undefined;
-	}
-
-	try {
-		const body = (await readJsonRpcBody(request)) as {
-			method?: string;
-			params?: { name?: string };
-		} | null;
-		return body?.method === "tools/call" ? body.params?.name : undefined;
-	} catch {
-		return undefined;
-	}
-}
 // A targeted Code Mode request hydrates only the namespace its program names.
 // If that one read hits a fast transient, returning the degraded surface makes
 // the namespace disappear and the sandbox cannot run. Rebuild once before
@@ -312,375 +239,6 @@ async function readInboundMcpTraceMeta(
  * Handle MCP request statelessly — new McpServer per request.
  * Tool data cached in Worker memory (60s TTL).
  */
-function normalizeOrigin(origin: string): string | null {
-	try {
-		return new URL(origin).origin;
-	} catch {
-		return null;
-	}
-}
-
-function getAllowedMcpOrigins(
-	request: Request,
-	env: CloudflareEnv,
-	resolvedApp?: ResolvedApp | null,
-): string[] {
-	const allowed = new Set(buildCorsOrigins(env, resolvedApp?.metadata ?? null));
-	allowed.add(new URL(request.url).origin);
-	return [...allowed]
-		.map((origin) => normalizeOrigin(origin))
-		.filter((origin): origin is string => Boolean(origin));
-}
-
-function validateMcpOrigin(
-	request: Request,
-	env: CloudflareEnv,
-	resolvedApp?: ResolvedApp | null,
-): { response: Response; reason: McpAccessDenialReason } | null {
-	const requestOrigin =
-		request.headers.get("Origin") ?? request.headers.get("origin");
-	if (!requestOrigin) return null;
-
-	const normalizedOrigin = normalizeOrigin(requestOrigin);
-	if (!normalizedOrigin) {
-		return {
-			response: new Response(
-				JSON.stringify({
-					error: "forbidden_origin",
-					message: "Invalid Origin header",
-				}),
-				{ status: 403, headers: { "Content-Type": "application/json" } },
-			),
-			reason: "invalid_origin",
-		};
-	}
-
-	const allowedOrigins = getAllowedMcpOrigins(request, env, resolvedApp);
-	if (allowedOrigins.includes(normalizedOrigin)) return null;
-
-	return {
-		response: new Response(
-			JSON.stringify({
-				error: "forbidden_origin",
-				message: "Origin is not allowed for this MCP endpoint",
-			}),
-			{ status: 403, headers: { "Content-Type": "application/json" } },
-		),
-		reason: "forbidden_origin",
-	};
-}
-
-export async function enforceMcpAccess(params: {
-	request: Request;
-	hostname: string;
-	resolvedApp: ResolvedApp;
-	env: CloudflareEnv;
-	oauthJwtPayload: unknown;
-	/** Only populated by the per-request live multi-org grant verifier. */
-	multiOrgSelection?: MultiOrgMcpSelection | null;
-	isDev: boolean;
-}): Promise<{ response: Response; reason: McpAccessDenialReason } | null> {
-	const {
-		request,
-		hostname,
-		resolvedApp,
-		env,
-		oauthJwtPayload,
-		multiOrgSelection,
-		isDev,
-	} = params;
-	const { app, metadata, tools } = resolvedApp;
-	if (request.headers.get("x-tedix-auth-credential-mode") === "delegated-mcp") {
-		const requested = await extractMcpToolCallName(request);
-		if (requested && requested !== "code") {
-			const tool = tools.find((candidate) => candidate.toolId === requested);
-			const namespace = tool
-				? resolveMcpToolNamespace(
-						tool,
-						metadata?.mcpConfig?.codeModeNamespaces as
-							| Record<string, string>
-							| undefined,
-					)
-				: (requested.split("__")[0] ?? "");
-			if (
-				isDelegatedWorkTool(
-					requested,
-					namespace,
-					tool?.config,
-					tool?.toolTypeId,
-				)
-			) {
-				return {
-					response: new Response(
-						JSON.stringify({ error: "delegated_work_tool_denied" }),
-						{
-							status: 403,
-							headers: { "Content-Type": "application/json" },
-						},
-					),
-					reason: "insufficient_scope",
-				};
-			}
-		}
-	}
-	const mcpAuthMode = metadata?.mcpConfig?.authMode ?? "authenticated";
-
-	if (
-		(mcpAuthMode === "authenticated" || mcpAuthMode === "proxy-target") &&
-		!request.headers.get("x-tedix-auth-type")
-	) {
-		const advertisedScopes = collectAdvertisedScopes({
-			mcpConfig: metadata?.mcpConfig,
-			tools: tools.map((tool) => ({
-				name: tool.toolId,
-				description: tool.description ?? undefined,
-			})),
-		});
-		const hasOAuth = advertisedScopes.length > 0;
-		const wwwAuth = hasOAuth
-			? buildWwwAuthenticate(hostname)
-			: 'Bearer realm="MCP"';
-
-		return {
-			response: new Response(
-				JSON.stringify({
-					error: "Authentication required",
-					message:
-						"This MCP server requires authentication. Provide a Bearer token in the Authorization header.",
-				}),
-				{
-					status: 401,
-					headers: {
-						"Content-Type": "application/json",
-						"WWW-Authenticate": wwwAuth,
-					},
-				},
-			),
-			reason: "authentication_required",
-		};
-	}
-
-	if (
-		request.headers.get("x-tedix-auth-credential-mode") === "direct-tedi-jwt" &&
-		app.organizationId
-	) {
-		return {
-			response: new Response(
-				JSON.stringify({
-					error: "direct_tedi_jwt_not_allowed",
-					message:
-						"Tedi access-key JWTs do not directly authorize app MCP servers. Resolve assigned app credentials through the identity provider.",
-				}),
-				{
-					status: 403,
-					headers: { "Content-Type": "application/json" },
-				},
-			),
-			reason: "direct_tedi_jwt_not_allowed",
-		};
-	}
-
-	if (app.organizationId) {
-		const payload =
-			typeof oauthJwtPayload === "object" && oauthJwtPayload !== null
-				? (oauthJwtPayload as { entityType?: unknown })
-				: null;
-		// Connect authority comes from the verified selected organizations, not
-		// the browser session's active tenant. Ordinary app grants retain dct matching.
-		const verifiedConnectSelection =
-			hostname === "connect.mcp.tedix.dev" &&
-			app.slug === "connect" &&
-			metadata?.mcpConfig?.multiOrgConsent === true &&
-			(multiOrgSelection?.organizations.length ?? 0) > 0;
-		const verifiedConnectTarget =
-			hostname === "connect.mcp.tedix.dev" &&
-			multiOrgSelection?.organizations.some(
-				(organization) =>
-					organization.organizationId === app.organizationId &&
-					organization.gatewaySlug === app.slug,
-			) === true;
-		if (
-			!verifiedConnectSelection &&
-			!verifiedConnectTarget &&
-			shouldEnforceTenantMatchForOAuth(request.headers, payload)
-		) {
-			let match: { ok: true } | { ok: false; reason: string };
-			try {
-				match = await jwtTenantMatchesApp(
-					oauthJwtPayload as Parameters<typeof jwtTenantMatchesApp>[0],
-					app.organizationId,
-					env,
-				);
-			} catch (error) {
-				log.error("Tenant match check failed; denying request", {
-					event: "router.tenant_match_failed",
-					appId: app.id,
-					appSlug: app.slug,
-					organizationId: app.organizationId,
-					outcome: "denied",
-					error: contentFreeMcpException(error),
-				});
-				match = { ok: false, reason: "tenant_match_check_failed" };
-			}
-			if (!match.ok) {
-				console.warn(
-					`[MCP TenantMatch] reject — app=${app.slug} org=${app.organizationId} reason=${match.reason}`,
-				);
-				return {
-					response: new Response(
-						JSON.stringify({
-							error: "tenant_mismatch",
-							message:
-								"Your token was issued for a different tenant. Switch to the correct organization in Tedix OS before connecting this MCP server.",
-							detail: match.reason,
-						}),
-						{
-							status: 403,
-							headers: { "Content-Type": "application/json" },
-						},
-					),
-					reason:
-						match.reason === "tenant_match_check_failed"
-							? "tenant_match_check_failed"
-							: "tenant_mismatch",
-				};
-			}
-		}
-	}
-	const mcpConfig = metadata?.mcpConfig as Record<string, unknown> | undefined;
-	const enforcePolicies = mcpConfig?.enforcePolicies === true;
-	const toolScopes = mcpConfig?.toolScopes as
-		| Record<string, string[]>
-		| undefined;
-	if (
-		toolScopes ||
-		enforcePolicies ||
-		tools.some((tool) => tool.authRequired)
-	) {
-		const requiredScopes = enforcePolicies
-			? await extractPolicyRequiredScopes(request, mcpConfig)
-			: await extractRequiredScopes(request, toolScopes, tools, mcpConfig);
-		if (requiredScopes && requiredScopes.length > 0) {
-			const authType = request.headers.get("x-tedix-auth-type");
-			if (!authType) {
-				if (mcpAuthMode === "hybrid") {
-					// SEP-2350: the RFC 6750 `scope` parameter is what lets a client
-					// compute the union of its existing grant and the newly required
-					// scopes and re-authorize. Carrying the list only in the human
-					// `error_description` leaves the challenge machine-unreadable.
-					const wwwAuthValue = buildWwwAuthenticate(
-						hostname,
-						"insufficient_scope",
-						`Authentication required. Scopes needed: ${requiredScopes.join(" ")}`,
-						requiredScopes,
-					);
-					let rpcId: string | number | null = null;
-					try {
-						const body = (await request.clone().json()) as {
-							id?: string | number;
-						};
-						rpcId = body?.id ?? null;
-					} catch {
-						/* not JSON-RPC */
-					}
-
-					return {
-						response: new Response(
-							JSON.stringify({
-								jsonrpc: "2.0",
-								id: rpcId,
-								result: {
-									content: [
-										{
-											type: "text",
-											text: `Authentication required: you need to log in to use this tool. Required scopes: ${requiredScopes.join(", ")}`,
-										},
-									],
-									_meta: {
-										"mcp/www_authenticate": [wwwAuthValue],
-									},
-									isError: true,
-								},
-							}),
-							{
-								status: 200,
-								headers: {
-									"Content-Type": "application/json",
-									"WWW-Authenticate": wwwAuthValue,
-								},
-							},
-						),
-						reason: "authentication_required",
-					};
-				}
-				return {
-					response: new Response(
-						JSON.stringify({
-							error: "authentication_required",
-							required_scopes: requiredScopes,
-							message: "This tool requires authentication.",
-						}),
-						{
-							status: 401,
-							headers: {
-								"Content-Type": "application/json",
-								// SEP-2350: advertise the scopes this call needs so the
-								// client can request them on first authorization instead of
-								// discovering the gap one denial at a time.
-								"WWW-Authenticate": buildWwwAuthenticate(
-									hostname,
-									undefined,
-									undefined,
-									requiredScopes,
-								),
-							},
-						},
-					),
-					reason: "authentication_required",
-				};
-			}
-			if (shouldEnforceMcpToolScopes(authType)) {
-				const tokenScopes = (request.headers.get("x-tedix-auth-scopes") ?? "")
-					.split(" ")
-					.filter(Boolean);
-				const missingScopes = requiredScopes.filter(
-					(scope) => !hasScope(tokenScopes, scope),
-				);
-				if (missingScopes.length > 0) {
-					return {
-						response: new Response(
-							JSON.stringify({
-								error: "insufficient_scope",
-								required_scopes: requiredScopes,
-								missing_scopes: missingScopes,
-							}),
-							{
-								status: 403,
-								headers: {
-									"Content-Type": "application/json",
-									"WWW-Authenticate": buildWwwAuthenticate(
-										hostname,
-										"insufficient_scope",
-										`Missing scopes: ${missingScopes.join(" ")}`,
-										missingScopes,
-									),
-								},
-							},
-						),
-						reason: "insufficient_scope",
-					};
-				}
-			} else if (authType === "service" && isDev) {
-				console.log(
-					`[MCP Auth] Service binding accessing scope-restricted tool (scopes: ${requiredScopes.join(", ")})`,
-				);
-			}
-		}
-	}
-
-	return null;
-}
-
 export async function handleMcpRequest(
 	request: Request,
 	resolvedApp: ResolvedApp,
@@ -1523,885 +1081,6 @@ export async function hydrateAggregateRuntimeKinds(
 			runtimeKind: "agent" as const,
 		}));
 	}
-}
-
-export interface JsonRpcEnvelope {
-	body: Record<string, unknown>;
-	isSingleItemBatch: boolean;
-}
-
-type JsonRpcEnvelopeRead = JsonRpcEnvelope | { tooLarge: true } | null;
-
-function jsonRpcEnvelopeResponse(
-	envelope: JsonRpcEnvelope,
-	result: Record<string, unknown>,
-	init?: ResponseInit,
-): Response {
-	const payload = {
-		jsonrpc: "2.0",
-		id: envelope.body.id ?? null,
-		result,
-	};
-	const headers = new Headers(init?.headers);
-	headers.set("Content-Type", "application/json");
-	return new Response(
-		JSON.stringify(envelope.isSingleItemBatch ? [payload] : payload),
-		{
-			...init,
-			headers,
-		},
-	);
-}
-
-function resolvedMcpServerInfo(resolvedApp: ResolvedApp) {
-	return {
-		name:
-			(resolvedApp.metadata?.mcpConfig?.serverName as string | undefined) ??
-			`${resolvedApp.app.name} MCP`,
-		version:
-			(resolvedApp.metadata?.mcpConfig?.serverVersion as string | undefined) ??
-			"1.0.0",
-	};
-}
-
-function decorateModernFastPathResult(
-	envelope: JsonRpcEnvelope,
-	resolvedApp: ResolvedApp,
-	result: Record<string, unknown>,
-): Record<string, unknown> {
-	const params = isRecord(envelope.body.params) ? envelope.body.params : {};
-	const meta = isRecord(params._meta) ? params._meta : {};
-	if (meta[MCP_PROTOCOL_VERSION_META_KEY] !== MCP_MODERN_PROTOCOL_VERSION) {
-		return result;
-	}
-	const resultMeta = isRecord(result._meta) ? result._meta : {};
-	return {
-		...result,
-		_meta: {
-			...resultMeta,
-			[MCP_SERVER_INFO_META_KEY]: resolvedMcpServerInfo(resolvedApp),
-		},
-	};
-}
-
-async function readJsonRpcEnvelope(
-	request: Request,
-): Promise<JsonRpcEnvelopeRead> {
-	try {
-		const maxBytes = 4 * 1024 * 1024;
-		const clone = request.clone();
-		if (Number(clone.headers.get("content-length")) > maxBytes) {
-			return { tooLarge: true };
-		}
-		if (!clone.body) return null;
-		const reader = clone.body.getReader();
-		const chunks: Uint8Array[] = [];
-		let received = 0;
-		try {
-			for (;;) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				received += value.byteLength;
-				if (received > maxBytes) {
-					await reader.cancel();
-					return { tooLarge: true };
-				}
-				chunks.push(value);
-			}
-		} finally {
-			reader.releaseLock();
-		}
-		const bytes = new Uint8Array(received);
-		let offset = 0;
-		for (const chunk of chunks) {
-			bytes.set(chunk, offset);
-			offset += chunk.byteLength;
-		}
-		const body = JSON.parse(new TextDecoder().decode(bytes));
-		if (isRecord(body)) {
-			return { body, isSingleItemBatch: false };
-		}
-		if (Array.isArray(body) && body.length === 1 && isRecord(body[0])) {
-			return { body: body[0], isSingleItemBatch: true };
-		}
-		return null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Fast-path JSON-RPC error envelope. Every emission site here runs only for
- * modern (2026-07-28) callers — the ladder codes (`-32600`/`-32020`/`-32021`)
- * and `-32022` answer 400, while method-not-found (`-32601`, e.g.
- * `subscriptions/listen` without the `MCP_SUBSCRIPTIONS` binding) answers 404
- * per the modern spec's method-not-found → HTTP 404 mapping.
- */
-export function jsonRpcEnvelopeErrorResponse(
-	envelope: JsonRpcEnvelope,
-	code: number,
-	message: string,
-	data?: Record<string, unknown>,
-): Response {
-	const payload = {
-		jsonrpc: "2.0",
-		id: envelope.body.id ?? null,
-		error: { code, message, ...(data ? { data } : {}) },
-	};
-	return new Response(
-		JSON.stringify(envelope.isSingleItemBatch ? [payload] : payload),
-		{
-			status: code === -32_601 ? 404 : 400,
-			headers: { "Content-Type": "application/json" },
-		},
-	);
-}
-
-/** Early version gate used before auth/routing; preserve an echoable JSON-RPC id. */
-export async function unsupportedProtocolVersionResponse(
-	request: Request,
-): Promise<Response> {
-	const envelope = await readJsonRpcEnvelope(request);
-	if (envelope && "tooLarge" in envelope) return requestBodyTooLargeResponse();
-	const requestId = envelope?.body.id;
-	return new Response(
-		JSON.stringify({
-			jsonrpc: "2.0",
-			id:
-				typeof requestId === "string" || typeof requestId === "number"
-					? requestId
-					: null,
-			error: {
-				code: -32_022,
-				message: "Unsupported MCP protocol version",
-				data: { supported: MCP_SUPPORTED_PROTOCOL_VERSIONS },
-			},
-		}),
-		{ status: 400, headers: { "Content-Type": "application/json" } },
-	);
-}
-
-async function readJsonRpcBody(
-	request: Request,
-): Promise<Record<string, unknown> | null> {
-	const envelope = await readJsonRpcEnvelope(request);
-	return envelope && "body" in envelope ? envelope.body : null;
-}
-
-function requestBodyTooLargeResponse(): Response {
-	return new Response(
-		JSON.stringify({
-			jsonrpc: "2.0",
-			id: null,
-			error: {
-				code: -32_000,
-				message:
-					"Payload Too Large: Request body must not exceed 4194304 bytes",
-			},
-		}),
-		{ status: 413, headers: { "Content-Type": "application/json" } },
-	);
-}
-
-const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
-const MCP_EVENTS_EXTENSION = "io.modelcontextprotocol/events";
-
-export async function maybeHandleInteractionEvents(
-	request: Request,
-	env: CloudflareEnv,
-	enabled: boolean,
-	webhooksEnabled = false,
-): Promise<Response | null> {
-	if (request.method !== "POST" || !enabled) return null;
-	const envelope = await readJsonRpcEnvelope(request);
-	if (envelope && "tooLarge" in envelope) return requestBodyTooLargeResponse();
-	if (
-		!envelope ||
-		![
-			"events/list",
-			"events/poll",
-			"events/subscribe",
-			"events/unsubscribe",
-		].includes(String(envelope.body.method))
-	)
-		return null;
-	const violation = validateModernFastPathRequest(request, envelope);
-	if (violation) return violation;
-	if (
-		request.headers.get("MCP-Protocol-Version") !== MCP_MODERN_PROTOCOL_VERSION
-	)
-		return jsonRpcEnvelopeErrorResponse(
-			envelope,
-			-32022,
-			"Events require MCP 2026-07-28",
-		);
-	const params = isRecord(envelope.body.params) ? envelope.body.params : {};
-	if (envelope.body.method === "events/list")
-		return jsonRpcEnvelopeResponse(envelope, {
-			resultType: "complete",
-			events: [
-				...pollableEventDefinitions.map((event) =>
-					webhooksEnabled &&
-					event.name !== interactionReplyEventDefinition.name &&
-					event.name !== "lane.requested"
-						? { ...event, delivery: ["poll", "webhook"] }
-						: event,
-				),
-			],
-		});
-	const authorization = request.headers.get("Authorization");
-	const resource = new URL(request.url);
-	resource.pathname = "/mcp";
-	resource.search = "";
-	resource.hash = "";
-	if (envelope.body.method === "events/poll") {
-		try {
-			if (!authorization?.startsWith("Bearer "))
-				throw new InteractionEventError(-32024, "Human OAuth required");
-			return jsonRpcEnvelopeResponse(envelope, {
-				resultType: "complete",
-				...(await pollEvent(
-					env,
-					{ authorization, mcpUrl: resource.toString() },
-					params,
-				)),
-			});
-		} catch (error) {
-			return jsonRpcEnvelopeErrorResponse(
-				envelope,
-				error instanceof InteractionEventError ? error.code : -32603,
-				error instanceof InteractionEventError
-					? error.message
-					: "Event operation unavailable",
-				error instanceof InteractionEventError ? error.data : undefined,
-			);
-		}
-	}
-	const unsubscribing = envelope.body.method === "events/unsubscribe";
-	if (
-		params.name !== interactionReplyEventDefinition.name &&
-		isPollableEvent(params.name) &&
-		(webhooksEnabled || unsubscribing)
-	) {
-		try {
-			if (!authorization?.startsWith("Bearer "))
-				throw new InteractionEventError(-32024, "Human OAuth required");
-			const caller = { authorization, mcpUrl: resource.toString() };
-			return jsonRpcEnvelopeResponse(envelope, {
-				resultType: "complete",
-				...(unsubscribing
-					? await unsubscribeEventWebhook(env, caller, params)
-					: await subscribeEventWebhook(env, caller, params)),
-			});
-		} catch (error) {
-			return jsonRpcEnvelopeErrorResponse(
-				envelope,
-				error instanceof InteractionEventError ? error.code : -32603,
-				error instanceof InteractionEventError
-					? error.message
-					: "Event operation unavailable",
-				error instanceof InteractionEventError ? error.data : undefined,
-			);
-		}
-	}
-	if (
-		params.name !== interactionReplyEventDefinition.name &&
-		isPollableEvent(params.name)
-	)
-		return jsonRpcEnvelopeErrorResponse(
-			envelope,
-			-32026,
-			"This event is delivered by events/poll only",
-			{ feature: "deliveryMode", value: "webhook" },
-		);
-	try {
-		const unsubscribe = envelope.body.method === "events/unsubscribe";
-		const target = interactionEventTarget(params.arguments);
-		if (!authorization?.startsWith("Bearer "))
-			throw new InteractionEventError(-32003, "Human OAuth required");
-		const credential = {
-			authorization,
-			mcpUrl: resource.toString(),
-			...target,
-		};
-		const binding = (env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS!;
-		const response = await binding
-			.get(
-				binding.idFromName(
-					interactionEventShard(target.organizationId, target.requestId),
-				),
-			)
-			.fetch(
-				`https://mcp-subscriptions.internal/events/${unsubscribe ? "unsubscribe" : "subscribe"}`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(
-						unsubscribe ? { credential, params } : { credential, params },
-					),
-				},
-			);
-		const result = (await response.json()) as Record<string, unknown>;
-		if (isRecord(result.error))
-			return jsonRpcEnvelopeErrorResponse(
-				envelope,
-				typeof result.error.code === "number" ? result.error.code : -32603,
-				typeof result.error.message === "string"
-					? result.error.message
-					: "Event operation unavailable",
-				isRecord(result.error.data) ? result.error.data : undefined,
-			);
-		return jsonRpcEnvelopeResponse(envelope, {
-			resultType: "complete",
-			...result,
-		});
-	} catch (error) {
-		return jsonRpcEnvelopeErrorResponse(
-			envelope,
-			error instanceof InteractionEventError ? error.code : -32603,
-			error instanceof InteractionEventError
-				? error.message
-				: "Event operation unavailable",
-		);
-	}
-}
-
-function validateModernFastPathRequest(
-	request: Request,
-	envelope: JsonRpcEnvelope,
-): Response | null {
-	const method =
-		typeof envelope.body.method === "string" ? envelope.body.method : "";
-	const params = isRecord(envelope.body.params) ? envelope.body.params : {};
-	const violation = validateModernProtocolHeaders({
-		headers: request.headers,
-		method,
-		params,
-	});
-	if (!violation) return null;
-	return jsonRpcEnvelopeErrorResponse(
-		envelope,
-		violation.code,
-		violation.message,
-		violation.data,
-	);
-}
-
-const SUBSCRIPTION_FORWARD_HEADER_ALLOWLIST = new Set([
-	"authorization",
-	"x-api-key",
-	"x-service-binding",
-	"x-tedix-acting-user",
-	"x-tedix-kernel",
-	"x-tedix-org-id",
-	"x-tedix-tedi-id",
-	"x-tedix-skill-id",
-	"x-tedix-skill-run-id",
-]);
-
-type McpSubscriptionBindingEnv = CloudflareEnv & {
-	MCP_SUBSCRIPTIONS?: DurableObjectNamespace;
-};
-
-type McpSubscriptionPublishBody = {
-	kind?: "interaction_response";
-	requestId?: string;
-	responseId?: string;
-	respondedAt?: string;
-	appId?: string;
-	appIds?: string[];
-	organizationId?: string | null;
-	method?: string;
-	taskId?: string;
-	state?: Record<string, unknown>;
-	uri?: string;
-	params?: Record<string, unknown>;
-};
-
-function collectSubscriptionForwardHeaders(
-	headers: Headers,
-): Record<string, string> {
-	const forwarded: Record<string, string> = {};
-	for (const [name, value] of headers) {
-		const lower = name.toLowerCase();
-		if (
-			SUBSCRIPTION_FORWARD_HEADER_ALLOWLIST.has(lower) ||
-			lower.startsWith("x-tedix-auth-")
-		) {
-			forwarded[name] = value;
-		}
-	}
-	return forwarded;
-}
-
-async function publishSubscriptionEventToApp(
-	env: CloudflareEnv,
-	appId: string,
-	event: Record<string, unknown>,
-): Promise<number> {
-	const binding = (env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS;
-	if (!binding) return 0;
-	const response = await binding
-		.get(binding.idFromName(appId))
-		.fetch("https://mcp-subscriptions.internal/publish", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(event),
-		});
-	if (!response.ok) return 0;
-	const payload = (await response.json().catch(() => ({}))) as {
-		delivered?: unknown;
-	};
-	return typeof payload.delivered === "number" ? payload.delivered : 0;
-}
-
-async function handleInternalSubscriptionPublish(
-	request: Request,
-	env: CloudflareEnv,
-): Promise<Response> {
-	if (!isServiceBinding(request.headers)) {
-		return new Response(JSON.stringify({ error: "Forbidden" }), {
-			status: 403,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-	let body: McpSubscriptionPublishBody;
-	try {
-		body = (await request.json()) as McpSubscriptionPublishBody;
-	} catch {
-		return new Response(JSON.stringify({ error: "Bad Request" }), {
-			status: 400,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-	if (isRecord(body) && body.kind === "interaction_response") {
-		try {
-			const target = interactionEventTarget({
-				organization_id: body.organizationId,
-				request_id: body.requestId,
-			});
-			const binding = (env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS;
-			if (!binding)
-				return Response.json(
-					{ ok: false, error: "Event delivery unavailable" },
-					{ status: 503 },
-				);
-			const response = await binding
-				.get(
-					binding.idFromName(
-						interactionEventShard(target.organizationId, target.requestId),
-					),
-				)
-				.fetch("https://mcp-subscriptions.internal/events/publish", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						...target,
-						responseId: body.responseId,
-						respondedAt: body.respondedAt,
-					}),
-				});
-			const result = (await response.json()) as {
-				accepted?: number;
-				error?: unknown;
-			};
-			return Response.json(
-				{ ok: response.ok && !result.error, accepted: result.accepted ?? 0 },
-				{ status: response.ok && !result.error ? 200 : 503 },
-			);
-		} catch {
-			return Response.json(
-				{ ok: false, error: "Invalid reply event" },
-				{ status: 400 },
-			);
-		}
-	}
-	const appIds = [
-		...(typeof body.appId === "string" ? [body.appId] : []),
-		...(Array.isArray(body.appIds)
-			? body.appIds.filter((id): id is string => typeof id === "string")
-			: []),
-	].filter((id, index, all) => id && all.indexOf(id) === index);
-	if (appIds.length === 0 || typeof body.method !== "string") {
-		return new Response(
-			JSON.stringify({ error: "appId/appIds and method are required" }),
-			{ status: 400, headers: { "Content-Type": "application/json" } },
-		);
-	}
-
-	let delivered = 0;
-	for (const appId of appIds) {
-		delivered += await publishSubscriptionEventToApp(env, appId, {
-			organizationId: body.organizationId ?? null,
-			method: body.method,
-			...(body.taskId ? { taskId: body.taskId } : {}),
-			...(body.state ? { state: body.state } : {}),
-			...(body.uri ? { uri: body.uri } : {}),
-			...(body.params ? { params: body.params } : {}),
-		});
-	}
-	return new Response(JSON.stringify({ ok: true, appIds, delivered }), {
-		headers: { "Content-Type": "application/json" },
-	});
-}
-
-async function maybeHandleSubscriptionsListen(
-	request: Request,
-	resolvedApp: ResolvedApp,
-	env: CloudflareEnv,
-): Promise<Response | null> {
-	if (request.method !== "POST") return null;
-	const envelope = await readJsonRpcEnvelope(request);
-	if (envelope && "tooLarge" in envelope) return requestBodyTooLargeResponse();
-	if (envelope?.body.method !== SUBSCRIPTIONS_LISTEN_METHOD) return null;
-
-	if (request.headers.get("MCP-Protocol-Version") !== "2026-07-28") {
-		return jsonRpcEnvelopeErrorResponse(
-			envelope,
-			-32022,
-			"Unsupported protocol version: subscriptions/listen requires MCP-Protocol-Version 2026-07-28",
-		);
-	}
-	const validationError = validateModernFastPathRequest(request, envelope);
-	if (validationError) return validationError;
-
-	const binding = (env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS;
-	if (!binding) {
-		return jsonRpcEnvelopeErrorResponse(
-			envelope,
-			-32601,
-			"Method not found: subscriptions/listen is not configured for this MCP Worker",
-		);
-	}
-
-	const allowedOrigins = getAllowedMcpOrigins(request, env, resolvedApp);
-	const corsOrigin =
-		normalizeOrigin(
-			request.headers.get("Origin") ?? request.headers.get("origin") ?? "",
-		) ??
-		allowedOrigins[0] ??
-		new URL(request.url).origin;
-	const stub = binding.get(binding.idFromName(resolvedApp.app.id));
-	return stub.fetch("https://mcp-subscriptions.internal/listen", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			requestId: envelope.body.id ?? null,
-			params: isRecord(envelope.body.params) ? envelope.body.params : {},
-			mcpUrl: request.url,
-			authHeaders: collectSubscriptionForwardHeaders(request.headers),
-			corsOrigin,
-			organizationId:
-				request.headers.get("x-tedix-auth-org-id") ??
-				resolvedApp.app.organizationId ??
-				null,
-		}),
-	});
-}
-
-async function extractRequestedCodeModeNamespaces(
-	request: Request,
-): Promise<Set<string> | null> {
-	const body = await readJsonRpcBody(request);
-	if (body?.method !== "tools/call") return null;
-	const params = isRecord(body.params) ? body.params : {};
-	if (params.name !== "code") return null;
-	const args = isRecord(params.arguments) ? params.arguments : {};
-	const code = typeof args.code === "string" ? args.code : "";
-	if (!code) return new Set();
-	return extractCodeModeProviderNamespacesFromCode(code);
-}
-
-async function extractDirectToolCallArguments(
-	request: Request,
-): Promise<Record<string, unknown>> {
-	const body = await readJsonRpcBody(request);
-	const params = isRecord(body?.params) ? body.params : {};
-	return isRecord(params.arguments) ? params.arguments : {};
-}
-
-async function maybeHandleBootstrapFastMcp(
-	request: Request,
-	resolvedApp: ResolvedApp,
-): Promise<Response | null> {
-	if (request.method !== "POST") return null;
-	const envelope = await readJsonRpcEnvelope(request);
-	if (envelope && "tooLarge" in envelope) return requestBodyTooLargeResponse();
-	if (!envelope) return null;
-	const modernError = validateModernFastPathRequest(request, envelope);
-	if (modernError) return modernError;
-	const body = envelope.body;
-	if (body?.method !== "tools/call") return null;
-	const params = isRecord(body.params) ? body.params : {};
-	if (
-		params.name === "get_profile" &&
-		accountProfileEnabled(resolvedApp.metadata?.mcpConfig)
-	) {
-		return jsonRpcEnvelopeResponse(
-			envelope,
-			decorateModernFastPathResult(envelope, resolvedApp, {
-				resultType: "complete",
-				...accountProfileResult(
-					extractCallerIdentity(request),
-					params.arguments ?? {},
-				),
-			}),
-		);
-	}
-	// get_info needs the same full authenticated registry as session bootstrap.
-	// Its no-loader response is built after selected-org routing and hydration.
-	return null;
-}
-
-function compactCodeModeToolDescription(resolvedApp: ResolvedApp): string {
-	const appSlug = resolvedApp.app.slug;
-	return [
-		`Execute JavaScript against the ${appSlug} Code Mode surface.`,
-		'Find tools and skills with bounded discovery, for example `async () => await discover.search({"query":"list_mcp_authorizations","limit":3})`; this loads the aggregate catalog. Use each returned tool callable exactly, including its namespace prefix; follow the returned load expression for skills. Once the namespace is known, a single JSON-literal search with that exact `namespace` value or an exact `async () => await discover.describe("namespace.tool")` expression loads only that namespace.',
-		"Call `codemode.__runtime()` for execution-surface proof.",
-		ATTENTION_GUIDANCE,
-	].join(" ");
-}
-
-function modernDiscoverInstructions(
-	resolvedApp: ResolvedApp,
-): string | undefined {
-	const mcpConfig = resolvedApp.metadata?.mcpConfig;
-	const configured =
-		typeof mcpConfig?.serverInstructions === "string"
-			? mcpConfig.serverInstructions.trim()
-			: "";
-	const codeMode =
-		mcpConfig?.codeMode === true
-			? [
-					"Use Code Mode for broad Tedix operations.",
-					'Find tools and skills with bounded discovery, for example async () => await discover.search({"query":"list_mcp_authorizations","limit":3}); this loads the aggregate catalog. Use each returned tool callable exactly, including its namespace prefix; follow the returned load expression for skills. Once the namespace is known, a single JSON-literal search with that exact namespace value or an exact async () => await discover.describe("namespace.tool") expression loads only that namespace.',
-					"Long-running work may return task handles; poll tasks/get and provide requested input through tasks/update.",
-					"For operator-to-tedi validation, prefer the governed Home/kernel path or direct tedi namespace run_tedi_turn/messages_read when explicitly requested.",
-				].join(" ")
-			: "";
-	const instructions = [
-		configured,
-		codeMode,
-		...(codeMode ? [ATTENTION_GUIDANCE] : []),
-	]
-		.filter(Boolean)
-		.join("\n\n");
-	return instructions || undefined;
-}
-
-// Exported for the outer-surface lane conformance test: the stateless fast
-// path advertises `code` (plus configured catalog rows and explicit
-// `codeModeNativeTools` opt-ins) and never `ask` — see
-// outer-surface-lanes.test.ts and docs/engineering/mcp/codemode.md.
-export function compactCodeModeTools(
-	resolvedApp: ResolvedApp,
-	requestHeaders: Headers,
-	connectionAppSlug = resolvedApp.app.slug,
-): Array<Record<string, unknown>> {
-	const appName = resolvedApp.app.name ?? "Tedix";
-	const tools: Array<Record<string, unknown>> = [
-		{
-			name: "code",
-			title: "Code Mode",
-			annotations: CODE_MODE_TOOL_ANNOTATIONS,
-			...codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
-			_meta: codeModeSecurityMeta(resolvedApp.metadata?.mcpConfig),
-			description: compactCodeModeToolDescription(resolvedApp),
-			inputSchema: z.toJSONSchema(codeModeInputSchema(connectionAppSlug)),
-		},
-		{
-			name: "get_info",
-			title: `${appName} Info`,
-			description: `Get metadata about the ${appName} MCP server itself.`,
-			inputSchema: { type: "object", properties: {} },
-			annotations: {
-				readOnlyHint: true,
-				openWorldHint: false,
-				destructiveHint: false,
-			},
-		},
-		...(accountProfileEnabled(resolvedApp.metadata?.mcpConfig)
-			? [accountProfileTool]
-			: []),
-	].filter(
-		(tool) =>
-			tool.name === "code" ||
-			isCodeModeNativeOptIn(resolvedApp.metadata?.mcpConfig, tool.name),
-	);
-	const config = resolvedApp.metadata?.mcpConfig;
-	const caller = parseMcpCallerFromHeaders(requestHeaders);
-	const overrides = config?.codeModeNamespaces as
-		| Record<string, string>
-		| undefined;
-	const rows = (resolvedApp.tools ?? []).filter((tool) =>
-		isConfiguredCatalogTool(tool, config),
-	);
-	const names = new Map<string, number>();
-	for (const tool of resolvedApp.tools ?? [])
-		names.set(tool.toolId, (names.get(tool.toolId) ?? 0) + 1);
-	const baseNames = new Set(tools.map((tool) => tool.name));
-	for (const tool of rows) {
-		if (names.get(tool.toolId) !== 1 || baseNames.has(tool.toolId)) continue;
-		if (
-			!isMcpToolVisibleToCaller(
-				tool,
-				resolveMcpToolNamespace(tool, overrides),
-				config,
-				caller,
-			)
-		)
-			continue;
-		if (
-			requestHeaders.get("x-tedix-auth-credential-mode") === "delegated-mcp" &&
-			isDelegatedWorkTool(
-				tool.toolId,
-				resolveMcpToolNamespace(tool, overrides),
-				tool.config,
-				tool.toolTypeId,
-			)
-		)
-			continue;
-		const scopes = resolveMcpToolRequiredScopes(
-			tool,
-			resolveMcpToolNamespace(tool, overrides),
-			config,
-		);
-		const securitySchemes = [{ type: "oauth2", scopes }];
-		tools.push({
-			name: tool.toolId,
-			title: tool.title,
-			description: tool.description ?? "",
-			inputSchema: tool.inputSchema,
-			...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
-			annotations: resolveToolAnnotations({
-				annotations: tool.annotations,
-				writeCapability: tool.writeCapability ?? null,
-				meta: tool.meta,
-			}),
-			securitySchemes,
-			_meta: { ...tool.meta, securitySchemes },
-		});
-	}
-	// Directory listings read the display name from `annotations.title`
-	// (the 2025-03-26 location); newer clients read the top-level `title`.
-	for (const tool of tools) {
-		const annotations = tool.annotations as Record<string, unknown> | undefined;
-		if (typeof tool.title === "string" && annotations?.title === undefined)
-			tool.annotations = { ...annotations, title: tool.title };
-	}
-	return sortToolsDeterministically(tools);
-}
-
-async function maybeHandleCodeModeCompactMcp(
-	request: Request,
-	resolvedApp: ResolvedApp,
-	env: CloudflareEnv,
-	interactionEventsEnabled = false,
-	connectionAppSlug = resolvedApp.app.slug,
-): Promise<Response | null> {
-	if (request.method !== "POST") return null;
-	if (resolvedApp.metadata?.mcpConfig?.codeMode !== true) return null;
-	// Legacy hosts use the SDK's initialization and response codec below.
-	if (
-		request.headers.get(MCP_PROTOCOL_VERSION_HEADER) !==
-		MCP_MODERN_PROTOCOL_VERSION
-	)
-		return null;
-
-	const envelope = await readJsonRpcEnvelope(request);
-	if (envelope && "tooLarge" in envelope) return requestBodyTooLargeResponse();
-	if (!envelope) return null;
-	const body = envelope.body;
-	const method = typeof body.method === "string" ? body.method : "";
-	if (method === "initialize") {
-		return jsonRpcEnvelopeErrorResponse(
-			envelope,
-			-32_601,
-			"Method not found: the initialize handshake is removed in MCP 2026-07-28; use server/discover",
-		);
-	}
-	const modernError = validateModernFastPathRequest(request, envelope);
-	if (modernError) return modernError;
-
-	if (method === "server/discover") {
-		const exposesHomeTasks = shouldExposeHomeSurface({
-			appSlug: resolvedApp.app.slug,
-			metadata: resolvedApp.metadata,
-		});
-		const hasSubscriptionStream = Boolean(
-			(env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS,
-		);
-		return jsonRpcEnvelopeResponse(
-			envelope,
-			decorateModernFastPathResult(envelope, resolvedApp, {
-				resultType: "complete",
-				supportedVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS,
-				capabilities: {
-					...(interactionEventsEnabled ? { events: {} } : {}),
-					tools: hasSubscriptionStream ? { listChanged: true } : {},
-					resources: hasSubscriptionStream
-						? { listChanged: true, subscribe: true }
-						: {},
-					extensions: {
-						"io.modelcontextprotocol/apps": {},
-						"io.modelcontextprotocol/ui": {},
-						"io.modelcontextprotocol/skills": {},
-						...(interactionEventsEnabled ? { [MCP_EVENTS_EXTENSION]: {} } : {}),
-						...(exposesHomeTasks ? { [MCP_TASKS_EXTENSION]: {} } : {}),
-					},
-				},
-				instructions: modernDiscoverInstructions(resolvedApp),
-				...DEFAULT_MCP_CACHE_HINT,
-			}),
-		);
-	}
-
-	if (method === "tools/list") {
-		// Only explicitly configured native widget tools need the hydrated
-		// session surface; by default Code Mode lists `code` alone.
-		const nativeToolNames =
-			resolvedApp.metadata?.mcpConfig?.codeModeNativeTools;
-		if (
-			clientSupportsMcpApps(body) &&
-			Array.isArray(nativeToolNames) &&
-			nativeToolNames.length > 0 &&
-			((resolvedApp.tools ?? []).some(
-				(tool) =>
-					tool.config?.nativeDirect === true &&
-					resolveToolWidgetRoute(tool) &&
-					nativeToolNames.includes(tool.toolId),
-			) ||
-				(Array.isArray(resolvedApp.metadata?.mcpConfig?.aggregateApps) &&
-					resolvedApp.metadata.mcpConfig.aggregateApps.length > 0) ||
-				resolvedApp.metadata?.mcpConfig?.multiOrgConsent === true)
-		)
-			return null;
-		// SEP-2549 CacheableResult on this fast path: the 60s/private default
-		// mirrors the app-resolution cache backing the compact tool list
-		// (APP_RESOLUTION_TTL_MS in resolution.ts).
-		const page = paginateSortedToolsList(
-			compactCodeModeTools(resolvedApp, request.headers, connectionAppSlug),
-			isRecord(body.params) ? body.params.cursor : undefined,
-		);
-		if (!page.ok)
-			return jsonRpcEnvelopeErrorResponse(
-				envelope,
-				-32_602,
-				"Invalid params: unrecognized tools/list cursor",
-			);
-		return jsonRpcEnvelopeResponse(
-			envelope,
-			decorateModernFastPathResult(envelope, resolvedApp, {
-				resultType: "complete",
-				tools: page.tools,
-				...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-				...DEFAULT_MCP_CACHE_HINT,
-			}),
-		);
-	}
-
-	return null;
 }
 
 const DEFAULT_RATE_LIMIT_CONFIG = {

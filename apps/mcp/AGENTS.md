@@ -46,7 +46,7 @@ Scope enforcement lives in **two** gates, and a tool is guarded by exactly one
 of them:
 
 - **Request-level edge gate:** `enforceMcpAccess()`
-  (`src/index.ts`) evaluates `resolvedApp.tools` before dispatch. Required
+  (`src/mcp-access.ts`) evaluates `resolvedApp.tools` before dispatch. Required
   scopes come from three config idioms: `mcpConfig.enforcePolicies` (Descope
   policy mode — `mcp:<tool_name>` via `toolToScope`), the explicit
   `mcpConfig.toolScopes` map, or per-tool `authRequired`
