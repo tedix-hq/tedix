@@ -60,6 +60,7 @@ import {
 } from "./progress-ledger";
 import { createProgressPersistenceTracker } from "./progress-persistence";
 import { createProgressThrottle } from "./progress-throttle";
+import { isCapacityDeferredDelegation } from "./delegation-deferral";
 import {
 	boundKernelActiveTurn,
 	INITIAL_KERNEL_STATE,
@@ -1198,6 +1199,20 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 			// otherwise never be caught.
 			await this.reconcileStaleSubmissions(context, organizationId);
 			if (rows.length === 0) return; // org is quiet — let the alarm lapse
+			// Capacity-deferred delegations start here once their target has a
+			// free slot; they stay non-terminal, so this sweep keeps re-arming.
+			if (rows.some(isCapacityDeferredDelegation)) {
+				try {
+					await (
+						await import("../rpc/routers/kernel-runtime/delegation-capacity-release")
+					).releaseCapacityDeferredDelegations(context, organizationId, rows);
+				} catch (error) {
+					console.warn(
+						"[kernel] capacity-deferred release failed",
+						kernelErrorMessage(error),
+					);
+				}
+			}
 
 			const ledgerRuns: LedgerRunRow[] = rows.map((row) => ({
 				id: row.id,
@@ -1340,6 +1355,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 							organizationId,
 						});
 						if (!runRow) continue; // no run row → orphan; leave for a heartbeat-gated pass
+						// Waiting for a free slot on its target is not a crash; the
+						// reconcileRuns sweep starts it.
+						if (isCapacityDeferredDelegation(runRow)) continue;
 						const crashLeaseMs = submissionBridge.kernelCrashLeaseMs({
 							kernelRoute: (runRow.metadata as Record<string, unknown> | null)
 								?.kernelRoute,

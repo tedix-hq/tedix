@@ -186,7 +186,7 @@ describe("delegation capacity", () => {
 		expect(parseDelegationConcurrency({ workItemConcurrency: 0 })).toBe(2);
 	});
 
-	it("holds an otherwise auto dispatch to a tedi at its limit", () => {
+	it("defers an otherwise auto dispatch to a tedi at its limit, with no approval", () => {
 		const target = card("lead-engineer", "Lead Engineer", {
 			hasWarmWorkstationLease: true,
 			environmentReady: true,
@@ -208,18 +208,19 @@ describe("delegation capacity", () => {
 				),
 			}).mode,
 		).toBe("auto");
-		const held = decideDelegationDispatch({
+		const deferred = decideDelegationDispatch({
 			...base,
 			targetCapacity: delegationCapacity(
 				target,
 				new Map([["lead-engineer", 2]]),
 			),
 		});
-		expect(held).toMatchObject({
+		expect(deferred).toMatchObject({
 			canAutoDispatch: false,
-			mode: "needs_approval",
-			approvalRoute: "human",
+			mode: "deferred",
 		});
-		expect(held.reason).toContain("2 of its 2 concurrent delegated runs");
+		expect(deferred.approvalRoute).toBeUndefined();
+		expect(deferred.reason).toMatch(/^capacity: /);
+		expect(deferred.reason).toContain("2 of its 2 concurrent delegated runs");
 	});
 });

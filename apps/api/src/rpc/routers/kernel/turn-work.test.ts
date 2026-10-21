@@ -643,6 +643,74 @@ describe("runKernelTurnWork progress seam", () => {
 		).toMatchObject({ status: "requires_approval" });
 	});
 
+	it("queues a capacity-deferred delegation with no approval card", async () => {
+		const events: Array<{ kind: string; payload?: Record<string, unknown> }> =
+			[];
+		const recorder = progressRecorder();
+		const deps = stubDeps({
+			kernel: async () =>
+				({
+					route: route({
+						routeKind: "delegate_tedi",
+						targetTediId: "tedi-builder",
+						targetTediLabel: "Builder",
+					}),
+					assistantContent:
+						"Builder is busy with other delegated work right now. This is queued and starts automatically as soon as Builder has room.",
+					delegation: {
+						workOrder: {
+							kind: "tedi.delegate",
+							objective: "Fix the checkout test.",
+							outputContract: "Return the passing test run.",
+							status: "draft",
+							toolGuidance: [],
+							boundaries: [],
+							sourceContent: "Fix the checkout test.",
+							targetTediId: "tedi-builder",
+							targetTediLabel: "Builder",
+						},
+						decision: {
+							mode: "deferred",
+							canAutoDispatch: false,
+							reason:
+								"capacity: target is already running 2 of its 2 concurrent delegated runs; starts automatically when one finishes",
+						},
+					},
+				}) as unknown as Awaited<ReturnType<KernelTurnWorkDeps["kernel"]>>,
+			insertKernelRuntimeEvent: async (input) => {
+				events.push({
+					kind: input.kind,
+					payload: input.payload as Record<string, unknown>,
+				});
+				return {
+					id: `event:${input.kind}`,
+					organizationId: input.organizationId,
+					kind: input.kind,
+					conversationId: input.conversationId,
+					runId: input.runId,
+					messageId: input.messageId,
+					payload: input.payload,
+					runtime: { backend: "custom" },
+					createdAt: input.createdAt ?? "2026-06-11T00:00:01.000Z",
+				} as KernelRuntimeEvent;
+			},
+			onProgress: recorder.onProgress,
+		});
+
+		const result = await runKernelTurnWork(deps, turnInput());
+
+		expect(result.status).toBe("queued");
+		expect(result.run.status).toBe("queued");
+		expect(result.run.completedAt).toBeNull();
+		expect(recorder.stages).not.toContain("Awaiting approval");
+		expect(events.map((event) => event.kind)).not.toContain(
+			"approval.requested",
+		);
+		expect(
+			events.find((event) => event.kind === "run.completed")?.payload,
+		).toMatchObject({ status: "queued" });
+	});
+
 	it("forwards answer token deltas from the kernel through the onProgress seam (streaming-answer variant)", async () => {
 		const deltas: Array<string | undefined> = [];
 		const deps = stubDeps({

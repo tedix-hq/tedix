@@ -104,6 +104,11 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		approvedWorkItemId?: string;
 		/** Who resolved: the operator (default) or the approval tedi. */
 		resolvedBy?: { type: "user" | "tedi" | "policy"; id: string };
+		/**
+		 * Start a capacity-deferred delegation. Its authority was settled when
+		 * the turn decided `auto`; only the target's free slot was pending.
+		 */
+		capacityRelease?: true;
 	},
 ): Promise<{
 	run: HomeRun;
@@ -114,7 +119,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			ErrorCodes.CONFLICT,
 			"Terminal Home run cannot resolve a delegation approval",
 		);
-	if (input.resolvedBy?.type === "policy") {
+	if (input.resolvedBy?.type === "policy" && !input.capacityRelease) {
 		const review = await reviewDelegationAutonomy(context, input.run);
 		if (input.decision !== "approve" || !review.allowed)
 			throw createError(
@@ -122,7 +127,10 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				`Autonomy policy refused release: ${review.reason}`,
 			);
 	}
-	const pending = kernelDelegationRecommendationFromRun(input.run);
+	const pending = kernelDelegationRecommendationFromRun(
+		input.run,
+		input.capacityRelease ? "deferred" : "needs_approval",
+	);
 	if (!pending) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,

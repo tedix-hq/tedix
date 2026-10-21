@@ -976,6 +976,13 @@ export async function runKernelTurnWork(
 		kernelResult?.route?.routeKind === "delegate_tedi" &&
 		kernelResult.delegation?.decision.mode === "needs_approval",
 	);
+	// The target is at its delegated-run limit: the run waits `queued` with no
+	// approval card, and KernelDO reconciliation dispatches it when a slot frees.
+	const delegationDeferred = Boolean(
+		!observeOnly &&
+		kernelResult?.route?.routeKind === "delegate_tedi" &&
+		kernelResult.delegation?.decision.mode === "deferred",
+	);
 	// The same policy decision gates direct execution and the parked approval path.
 	const writeApprovalDecision: KernelWriteApprovalDecision | null =
 		writeProposal && writeApprovalRequestId
@@ -1338,7 +1345,7 @@ export async function runKernelTurnWork(
 		? "failed"
 		: writeProposalActive || delegationApprovalActive
 			? "requires_approval"
-			: autoDispatchSucceeded
+			: autoDispatchSucceeded || delegationDeferred
 				? "queued"
 				: autoDispatchFailed
 					? "failed"
@@ -1369,7 +1376,7 @@ export async function runKernelTurnWork(
 			? "completed"
 			: writeProposalActive || delegationApprovalActive
 				? "requires_approval"
-				: autoDispatchSucceeded
+				: autoDispatchSucceeded || delegationDeferred
 					? "queued"
 					: autoDispatchFailed
 						? "failed"
@@ -2126,7 +2133,7 @@ export async function runKernelTurnWork(
 					? ("failed" as const)
 					: writeProposalActive || delegationApprovalActive
 						? ("requires_approval" as const)
-						: autoDispatchSucceeded
+						: autoDispatchSucceeded || delegationDeferred
 							? ("queued" as const)
 							: autoDispatchFailed
 								? ("failed" as const)

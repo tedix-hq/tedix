@@ -2,6 +2,7 @@ import {
 	parseRuntimeApprovalTimestamp,
 	resolveRuntimeApprovalTimeout,
 } from "@tedix/api-contract/utils/approval-policy";
+import { isCapacityDeferredDelegation } from "./delegation-deferral";
 
 /**
  * Deterministic progress-ledger reconciliation for kernel runs — the
@@ -185,7 +186,10 @@ export function planRunReconciliation(input: {
 
 		if (run.status === "running" || run.status === "queued") {
 			// 2. forward progress? Only when the staleness is provable.
-			if (run.status === "queued" && hasDelegationMetadata(metadata)) {
+			if (
+				run.status === "queued" &&
+				(hasDelegationMetadata(metadata) || isCapacityDeferredDelegation(run))
+			) {
 				continue;
 			}
 			const updatedAt = parseLedgerTimestamp(run.updatedAt);
